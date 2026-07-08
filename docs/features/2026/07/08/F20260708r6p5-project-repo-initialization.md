@@ -304,7 +304,7 @@ otter-buddy/
 - [x] commit-msg hook 拒绝不符合格式的提交消息
 - [x] pre-push hook 阻止直接推送到 main
 - [x] pre-merge-commit hook 运行 npm run check
-- [ ] CI 在 GitHub 上触发并通过
+- [x] CI 在 GitHub 上触发并通过
 
 ### 通用
 
