@@ -10,7 +10,7 @@ Otter Buddy is an Agentic System built with Agent-first design, Chat as Substrat
 - **Chat as Substrate**: Chat interface serves as the foundational interaction paradigm
 - **Memory-driven**: Persistent memory powers long-term agent collaboration
 
-For detailed design philosophy and architecture decisions, see [snail-shell#597](https://github.com/chenlaicai/snail-shell/issues/597).
+For detailed design philosophy and architecture decisions, see [otter-buddy#3](https://github.com/chenlaicai/otter-buddy/issues/3).
 
 ## Tech Stack
 

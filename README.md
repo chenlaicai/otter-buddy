@@ -10,7 +10,7 @@ Otter Buddy（海獭）是一个以 Agent 为本、Chat as Substrate、记忆系
 - **Chat as Substrate**：聊天界面作为系统的底层交互范式
 - **记忆系统为核心**：持久化记忆驱动 Agent 的长期协作能力
 
-详细设计哲学和架构决策参见 [snail-shell#597](https://github.com/chenlaicai/snail-shell/issues/597)。
+详细设计哲学和架构决策参见 [otter-buddy#3](https://github.com/chenlaicai/otter-buddy/issues/3)。
 
 ## 技术栈
 

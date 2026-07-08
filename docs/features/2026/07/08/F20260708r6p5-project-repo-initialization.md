@@ -17,7 +17,7 @@ created_at: 2026-07-08
 
 ## 背景 [required]
 
-otter-buddy（海獭）是一个全新的 Agentic System 项目，以 Agent 为本、Chat as Substrate、记忆系统为核心。项目设计哲学和架构决策详见 [snail-shell#597](https://github.com/chenlaicai/snail-shell/issues/597)。
+otter-buddy（海獭）是一个全新的 Agentic System 项目，以 Agent 为本、Chat as Substrate、记忆系统为核心。项目设计哲学和架构决策详见 [otter-buddy#3](https://github.com/chenlaicai/otter-buddy/issues/3)。
 
 当前项目目录仅有 `.claude/` 和 `.agents/`（Snail Shell 协作配置），尚无代码仓。需要完成代码仓初始化，包括 git 仓库、GitHub 私仓、项目骨架和配置文件，为后续 feature 开发提供基础。
 
@@ -314,7 +314,7 @@ otter-buddy/
 
 ## 关联 [required]
 
-- **相关**: [snail-shell#597](https://github.com/chenlaicai/snail-shell/issues/597)（otter-buddy 项目设计哲学和架构决策）
+- **相关**: [otter-buddy#3](https://github.com/chenlaicai/otter-buddy/issues/3)（otter-buddy 项目设计哲学和架构决策，迁移自 snail-shell#597）
 
 ## 关键决策记录 [required]
 
