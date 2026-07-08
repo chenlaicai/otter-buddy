@@ -1,0 +1,45 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+pids
+*.pid
+*.seed
+
+# IDE
+.vscode/
+.idea/
+
+# Local agent config (managed by user, not tracked)
+CLAUDE.md
+AGENTS.md
+opencode.json
+.claude/
+.agents/
+.codex/
+.gemini/
+.kimi/
+.mcp.json
+
+# Runtime data
+data/*
+!data/file/
+data/file/*
+!data/file/knowledge/
+!data/file/prompts/
+!data/file/skills/
+!data/file/sops/
+!data/file/*.example
