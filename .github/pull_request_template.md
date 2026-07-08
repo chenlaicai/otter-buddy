@@ -14,7 +14,6 @@ Explain the motivation for this change.
 
 - [ ] `src/*`
 - [ ] `tests/*`
-- [ ] `data/file/*`
 - [ ] Configuration or build tooling
 - [ ] Documentation
 

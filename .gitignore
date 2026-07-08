@@ -38,16 +38,6 @@ pids
 *.seed
 *.pid.lock
 
-# Runtime data (keep data/file/ subdirectories and *.example tracked)
-data/*
-!data/file/
-data/file/*
-!data/file/knowledge/
-!data/file/prompts/
-!data/file/skills/
-!data/file/sops/
-!data/file/*.example
-
 # Coverage
 coverage/
 *.lcov

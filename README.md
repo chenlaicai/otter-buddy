@@ -56,10 +56,7 @@ npm run check
 otter-buddy/
 ├── .github/          # GitHub 配置（CI、Issue 模板、PR 模板等）
 ├── .githooks/        # Git hooks（提交规范、分支保护）
-├── config/           # 配置文件（架构设计后补充）
-├── data/file/        # 运行时数据（知识库、提示词、技能、SOP）
 ├── docs/             # 项目文档
-├── scripts/          # 脚本
 ├── src/              # 源码
 ├── tests/            # 测试
 ├── package.json

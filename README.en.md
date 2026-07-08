@@ -56,10 +56,7 @@ npm run check
 otter-buddy/
 ├── .github/          # GitHub config (CI, issue templates, PR template, etc.)
 ├── .githooks/        # Git hooks (commit conventions, branch protection)
-├── config/           # Configuration files (to be added after architecture design)
-├── data/file/        # Runtime data (knowledge, prompts, skills, SOPs)
 ├── docs/             # Project documentation
-├── scripts/          # Scripts
 ├── src/              # Source code
 ├── tests/            # Tests
 ├── package.json
