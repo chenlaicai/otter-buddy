@@ -1,7 +1,3 @@
-# OS
-.DS_Store
-Thumbs.db
-
 # Dependencies
 node_modules/
 
@@ -12,21 +8,16 @@ dist/
 .env
 .env.local
 
-# Logs
-*.log
-logs/
-pids
-*.pid
-*.seed
-
 # IDE
 .vscode/
 .idea/
+.claude/settings.local.json
 
 # Local agent config (managed by user, not tracked)
 CLAUDE.md
 AGENTS.md
 opencode.json
+agents.md
 .claude/
 .agents/
 .codex/
@@ -34,7 +25,20 @@ opencode.json
 .kimi/
 .mcp.json
 
-# Runtime data
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Runtime data (keep data/file/ subdirectories and *.example tracked)
 data/*
 !data/file/
 data/file/*
@@ -43,3 +47,21 @@ data/file/*
 !data/file/skills/
 !data/file/sops/
 !data/file/*.example
+
+# Coverage
+coverage/
+*.lcov
+.nyc_output
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Temporary folders
+tmp/
+temp/

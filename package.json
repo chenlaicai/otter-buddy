@@ -1,0 +1,33 @@
+{
+  "name": "otter-buddy",
+  "version": "0.1.0",
+  "description": "Otter Buddy - An Agentic System with Chat as Substrate",
+  "main": "dist/src/main.js",
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "build": "npm run lint && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npx tsc",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "check": "npm run build",
+    "start": "npm run build && node dist/src/main.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@hono/node-server": "^2.0.6",
+    "better-sqlite3": "^12.9.0",
+    "hono": "^4.12.27"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.9.3",
+    "eslint": "^10.5.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.9"
+  }
+}
