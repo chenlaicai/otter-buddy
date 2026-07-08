@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible problem in Otter Buddy
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the minimal steps needed to reproduce the issue.
+      placeholder: |
+        1. Start the server
+        2. Send a message to...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: affected_area
+    attributes:
+      label: Affected area
+      options:
+        - agent behavior
+        - chat or messaging
+        - memory system
+        - persistence and database
+        - API or WebSocket
+        - configuration or metadata
+        - build or test tooling
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Node version, OS, branch, configuration details, and any relevant logs.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context

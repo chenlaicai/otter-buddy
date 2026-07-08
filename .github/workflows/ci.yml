@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check if PR is up to date with main
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin main:main
+          MERGE_BASE=$(git merge-base HEAD main)
+          MAIN_HEAD=$(git rev-parse main)
+          if [ "$MERGE_BASE" != "$MAIN_HEAD" ]; then
+            echo "❌ PR branch is behind main. Please rebase or merge main into your branch."
+            echo "Merge base: $MERGE_BASE"
+            echo "Main HEAD:  $MAIN_HEAD"
+            exit 1
+          fi
+          echo "✅ PR branch is up to date with main"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full project checks
+        run: npm run check

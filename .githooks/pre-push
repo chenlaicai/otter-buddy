@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -e
+
+# 阻止直接 push 到远端 main/master，强制走 PR 流程。
+while read -r local_ref local_sha remote_ref remote_sha
+do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      echo "错误：禁止直接 push 到 ${remote_ref}。"
+      echo "请先 push 到 feature 分支，再通过 PR 合入。"
+      exit 1
+      ;;
+  esac
+done

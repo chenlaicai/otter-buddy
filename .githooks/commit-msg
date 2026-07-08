@@ -1,0 +1,36 @@
+#!/bin/sh
+
+# commit message 首行必须使用项目提交模板。
+# 模板让 feature、变更类型和不兼容标识在提交历史中可检索。
+
+msg_file="$1"
+first_line=$(head -n 1 "$msg_file" | tr -d '\r')
+
+# 跳过 merge commit 和 fixup commit
+case "$first_line" in
+  Merge\ *|fixup\ !*) exit 0 ;;
+esac
+
+if [ -z "$first_line" ]; then
+  echo "错误：commit message 首行不能为空。"
+  exit 1
+fi
+
+# 检查首行是否包含 CJK 字符（中文）
+has_cjk=$(node -e "process.stdout.write(/[\u4e00-\u9fff]/.test(process.argv[1]) ? 'yes' : 'no')" "$first_line")
+if [ "$has_cjk" != "yes" ]; then
+  echo "错误：commit message 首行必须包含中文字符。"
+  echo "当前首行: $first_line"
+  exit 1
+fi
+
+is_template_valid=$(node -e "const title = process.argv[1]; const pattern = /^\[F(\d{10}|\d{8}[a-kmnp-z][2-9a-kmnp-z]{3})\]\[[a-z][a-z-]*\]\[(Feature Update|BugFix|New Feature)\](\[Incompatible\])?\s+.+[\u4e00-\u9fff].*$/; process.stdout.write(pattern.test(title) ? 'yes' : 'no');" "$first_line")
+if [ "$is_template_valid" != "yes" ]; then
+  echo "错误：commit message 首行必须使用模板："
+  echo "[FYYYYMMDDNN|FYYYYMMDDxNNN][module][Feature Update|BugFix|New Feature][Incompatible] 中文标题"
+  echo "说明：[Incompatible] 仅在存在不兼容更新时出现。"
+  echo "xxxx 首位必须是字母（a-k, m-n, p-z），后 3 位可以是数字或字母，以区分日期部分。"
+  echo "module 为小写中划线格式（如 project-setup、agent、memory 等功能区域标签）"
+  echo "当前首行: $first_line"
+  exit 1
+fi

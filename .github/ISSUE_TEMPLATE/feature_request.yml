@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose an improvement or new capability
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the change you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Likely impact
+      options:
+        - label: Agent behavior or routing
+        - label: Chat or messaging
+        - label: Memory system
+        - label: Persistence or schema
+        - label: API or WebSocket surface
+        - label: Documentation only
+  - type: textarea
+    id: success
+    attributes:
+      label: Success criteria
+      description: How will we know this is complete?

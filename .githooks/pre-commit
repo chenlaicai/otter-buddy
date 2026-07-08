@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -e
+
+# 阻止直接提交到 main/master 分支。
+# 开发者必须先创建隔离分支，再在分支上开发和提交。
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || true)
+if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+  echo "错误：禁止直接提交到 $branch 分支。"
+  echo "请先创建 feature 分支，在分支上完成开发后再提交。"
+  exit 1
+fi
+
+npm run check
