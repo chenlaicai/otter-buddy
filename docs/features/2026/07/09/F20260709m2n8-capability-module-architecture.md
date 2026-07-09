@@ -570,6 +570,7 @@ sequenceDiagram
     participant OT as Otter Service
     participant CAP as Capability Service
     participant SO as 小獭 (Agent Runtime)
+    participant U as 用户
 
     AR->>OT: createSmallOtter(role, context)
     OT->>SO: 初始化 Agent(基础 systemPrompt + context)
@@ -607,6 +608,8 @@ sequenceDiagram
 ```
 
 > **对话树权重影响**：切换对话节点时，记忆检索权重自动调整。同分支路径记忆权重 ×1.5，跨分支 ×0.8。这是 UA-16 的核心要求。
+
+> **UC8 覆盖说明**：UC8（对话外部关联）的自动关联场景已在 UC5 中覆盖。手动关联场景较简单（用户调用 `linkResource`），不单独画序列图。
 
 ## S2-A6: 状态机图 [required]
 
@@ -674,8 +677,11 @@ interface MemoryService {
   /** 查找相似条目 */
   searchSimilar(id: MemoryEntryId, limit: number): Promise<RetrievalResult>;
 
-  /** 更新权重 */
+  /** 更新单个记忆条目权重 */
   updateWeight(id: MemoryEntryId, weight: Partial<MemoryWeightInput>): Promise<void>;
+
+  /** 按对话树路径批量更新记忆权重 */
+  updateWeights(treePath: ConversationId[]): Promise<void>;
 
   /** 添加对话关键信息 */
   addKeyInfo(conversationId: ConversationId, keyInfo: KeyInfoInput): Promise<void>;
@@ -704,6 +710,7 @@ interface ConversationService {
   getMessages(conversationId: ConversationId, limit?: number, before?: MessageId): Promise<Message[]>;
   getTree(rootId: ConversationId): Promise<ConversationTreeNode>;
   createChild(parentId: ConversationId, title: string): Promise<Conversation>;
+  navigateTo(conversationId: ConversationId): Promise<void>;
   completeConversation(id: ConversationId): Promise<void>;
   archiveConversation(id: ConversationId): Promise<void>;
 }
@@ -854,7 +861,7 @@ final_score = base_retrieval_score     // BM25 或 RRF 分数
 - **反方论点**：未来扩展为多进程时需要重构
 - **最终决策**：进程内直接函数调用
 - **决策依据**：S1 NFR 约束（单用户本地），Pi Agent 本身是单进程
-- **参与者**：架构师-1
+- **参与者**：架构师-1（起草），架构师-2（审视，无异议）
 
 ### D18: 消息存储 = SQLite append-only
 
@@ -863,7 +870,7 @@ final_score = base_retrieval_score     // BM25 或 RRF 分数
 - **反方论点**：append-only event log 更符合事件溯源模式，但复杂度高
 - **最终决策**：SQLite 表 + INSERT only 语义（应用层保证不 UPDATE/DELETE）
 - **决策依据**：Chat as Substrate + 简单优先
-- **参与者**：架构师-1
+- **参与者**：架构师-1（起草），架构师-2（审视，无异议）
 
 ### D19: Embedding = 本地 bge-m3（多语言）
 
@@ -973,8 +980,7 @@ final_score = base_retrieval_score     // BM25 或 RRF 分数
 
 | 文件/目录 | 说明 |
 |----------|------|
-| `docs/features/2026/07/09/F20260709m2n8-capability-module-architecture.md` | S2 架构设计特性文档 |
-| `docs/design/` | 设计产出目录（C4 图、序列图等 Mermaid 文件） |
+| `docs/features/2026/07/09/F20260709m2n8-capability-module-architecture.md` | S2 架构设计特性文档（含内嵌 Mermaid 图） |
 
 ## 验证 [required]
 
