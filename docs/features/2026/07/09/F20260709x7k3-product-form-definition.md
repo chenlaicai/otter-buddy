@@ -352,8 +352,79 @@ graph LR
 | D12 | linked_resources 类型 | 开放机制 | S1 确认 | 用户明确"系统只是提供机制" |
 | D13 | Issue #3 是否修改 | 不修改 | S1 确认 | 用户明确"issue#3就不要去动了"，变更记录在本 Feature 文档 |
 
+## 生效路径 [required]
+
+本 Feature 文档是 S1（产品形态确认）的产出物，作为后续步骤的输入：
+- `docs/features/2026/07/09/F20260709x7k3-product-form-definition.md` -- 本文档，S2/S3/S4 的约束输入
+- `GitHub Issue #5` -- 项目实施计划 tracking issue，S1 状态已标记完成
+- `GitHub Issue #3` -- 历史设计哲学记录，不修改，变更记录在本文档中
+
+## 设计约束摘要 [required]
+
+### 硬约束（违反即 bug）
+- 大獭是用户唯一持久 Otter，其他 Otter 只存活于特定会话
+- 记忆系统是系统级模块，所有 Otter 可通过标准化接口主动检索
+- 重启獭生只能由用户表达不满触发，Otter 不能自主触发
+- 对话树支持父子关系，大獭知道当前在树的哪个节点
+
+### 设计取舍（不得自行推翻）
+- 四层记忆模型简化为三层（决策 2 变更），移除个人记录空间和对话备忘录
+- MVP 策略为"完整流程 + 最小实现 + 扩展点"，不做"选 3 个 UC 做完整再迭代"
+- linked_resources 采用开放机制，不预设固定类型枚举
+- Issue #3 保留为历史记录，不修改，变更记录在本 Feature 文档
+
+### 语义不变量（实现中必须保持为真）
+- 除当前 session 外，所有记忆信息对所有 Otter 通用共享
+- 重启獭生是 Otter 个体内部行为，其他 Otter 不感知
+- 子对话继承父对话的链接资源（可追加，不覆盖）
+
+### 非目标（不得扩展）
+- 不设计系统架构（模块接口、数据模型）-- S2
+- 不设计数据模型（schema、DDL）-- S3
+- 不实现任何代码 -- S4
+- 不更新 Issue #3
+
+## 改动范围 [required]
+
+全部为新增文件：
+
+| 文件 | 说明 |
+|------|------|
+| `docs/features/2026/07/09/F20260709x7k3-product-form-definition.md` | S1 产品形态定义特性文档 |
+| `docs/design/` | 设计产出目录（S2 产出物将存放于此） |
+
+## 验证 [required]
+
+### S1 产出物完整性
+
+- [x] S1-A1 产品愿景文档 -- v4 产品愿景段落
+- [x] S1-A2 用例图 -- Mermaid 图，8 个 UC
+- [x] S1-A3 统一语言术语表 -- 8 个核心术语
+- [x] S1-A4 限界上下文列表 -- 5 个上下文
+- [x] S1-A5 上下文映射图 -- Mermaid 图 + 关系表
+- [x] S1-A6 子域分类 -- 双核心域 + 三支撑域
+- [x] S1-A7 MVP 定义 -- 三列表格（完整流程/最小实现/扩展点）
+- [x] S1-A8 风险清单 -- 7 项风险
+- [x] S1-A9 NFR 清单 -- 5 项默认假设
+
+### 两位架构师共识
+
+- [x] 架构师-1 独立分析并产出草稿
+- [x] 架构师-2 对抗审视，无阻塞项
+- [x] 两个非阻塞建议已整合（ACL 标注、R7 风险）
+- [x] 架构师-2 PR 审查通过
+
+### 用户确认
+
+- [x] 术语确认（大獭/小獭/对话/重启獭生）
+- [x] 记忆三层模型确认
+- [x] 对话树确认（创建方式、可视化）
+- [x] MVP 策略确认（完整流程 + 最小实现）
+- [x] 重启獭生确认（用户触发、个体内部行为）
+
 ## 关联 [required]
 
 - **设计哲学和架构决策（历史记录）**：[otter-buddy#3](https://github.com/chenlaicai/otter-buddy/issues/3)
 - **项目实施计划**：[otter-buddy#5](https://github.com/chenlaicai/otter-buddy/issues/5)
+- **S1 产出物 PR**：[otter-buddy#6](https://github.com/chenlaicai/otter-buddy/pull/6)
 - **代码仓初始化**：[F20260708r6p5](../08/F20260708r6p5-project-repo-initialization.md)
