@@ -796,240 +796,300 @@ graph TB
 
 ## S3-A8: 代码目录结构规划 [required]
 
-> **方法论**：DDD 分层架构 + 六边形架构（Ports & Adapters）。每个限界上下文为独立模块，模块内分 domain/application/infrastructure 三层。模块间通过 Port（接口）通信，依赖方向始终指向 domain。禁止 shared/ 目录（避免无限膨胀）。
+> **方法论**：DDD 分层架构 + 六边形架构（Ports & Adapters）。参考 snail shell 已验证的架构实践，采用全局 4 层结构（infra -> domain -> app -> adapter），模块内扁平（model.ts + port.ts + _internal/）。禁止 shared/、kernel/ 目录。
+>
+> **Snail Shell 参考**：snail shell 实践证明全局 4 层 + Provider 拥有 Port + _internal/ 封装的架构在单进程应用中优于模块内三层嵌套。本节基于 snail shell 架构，针对 otter-buddy 的领域特点（对话 + 记忆 + Otter + 能力 + 外部系统）适配。
 
 ### 设计原则
 
-1. **六边形架构 -- 端口与适配器**：domain 层定义 Port（出站接口），infrastructure 层实现 Port，bootstrap 装配。依赖方向：infrastructure -> application -> domain（向内指向）
-2. **DDD 分层**：每个模块内分 domain（零外部依赖）/ application（用例编排）/ infrastructure（技术实现）三层
-3. **禁止 shared/ 目录**：跨模块共享的基础设施（DB 连接、embedding worker、config）放入 bootstrap/，不设 shared/。跨模块共享类型放入 kernel/（严格限制大小）
-4. **模块间通信通过 Port**：消费方模块定义 Port 接口，提供方模块的 Service 实现该接口，bootstrap 负责注入。模块不直接 import 对方的 Service 或 Repository
-5. **逐模块可实现**：模块间依赖最小化，可按依赖顺序逐一实现和测试
+1. **全局 4 层**：infra（技术能力）-> domain（原子业务模块）-> app（跨模块编排）-> adapter（外部接口）。依赖方向：adapter -> app -> domain -> infra
+2. **Provider 拥有 Port**：`domain/memory/port.ts` 定义 MemoryPort，所有需要记忆服务的模块 import `@domain/memory/port`。接口只定义一次，归属清晰
+3. **禁止 shared/、kernel/**：类型由归属最清晰的模块拥有（`MemoryEntryId` 在 `domain/memory/model.ts`，`ConversationId` 在 `domain/conversation/model.ts`）
+4. **模块内扁平**：每个 domain 模块内部为 `model.ts` + `port.ts` + `_internal/`，不嵌套子层
+5. **_internal/ 强制封装**：ESLint 规则禁止跨模块 import `_internal/`，只有 `main.ts`（Composition Root）豁免
+6. **逐模块可实现**：模块间依赖最小化，可按依赖顺序逐一实现和测试
 
 ### 顶层目录结构
 
 ```
 src/
-├── modules/                        # 5 个限界上下文（自包含，逐模块实现）
-│   ├── conversation/               # 对话上下文（核心域）
-│   ├── memory/                     # 记忆上下文（核心域）
-│   ├── otter/                      # Otter 上下文（支撑域）
-│   ├── capability/                 # 能力上下文（支撑域）
-│   └── external/                   # 外部系统上下文（支撑域）
-├── bootstrap/                      # 启动与装配（Composition Root）
-│   ├── composition.ts              # 依赖注入：实例化 adapter -> 注入 service
-│   ├── config.ts                   # 配置常量（半衰期、RRF k、路径等）
-│   ├── db/                         # SQLite 连接 + schema 初始化
-│   ├── embedding/                  # bge-m3 Worker thread
-│   ├── llm/                        # pi-ai LLM 网关
-│   ├── http/                       # Hono HTTP 服务器 + 路由 + SSE
-│   └── agent/                      # pi-agent-core 运行时 + 工具定义
-├── kernel/                         # 共享内核（DDD Shared Kernel，严格限制）
-│   └── types.ts                    # 仅限跨模块基础类型（Id, Timestamp, Result）
-└── frontend/                       # React SPA（独立构建）
+├── main.ts                              # Composition Root：模块初始化 + 依赖注入
+│
+├── infra/                               # 基础设施层（技术能力，被 domain 依赖）
+│   ├── database.ts                      # better-sqlite3 连接
+│   ├── schema.ts                        # S3 DDL 初始化
+│   ├── embedding/                       # bge-m3 Worker thread
+│   ├── llm-gateway.ts                   # pi-ai LLM 网关
+│   ├── config.ts                        # 配置常量
+│   └── logger.ts                        # 日志
+│
+├── domain/                              # 领域层（原子业务模块，模块间不互相依赖）
+│   ├── conversation/                    # 对话上下文（核心域，含 Message/LinkedResource/KeyFact）
+│   ├── memory/                          # 记忆上下文（核心域）
+│   ├── otter/                           # Otter 上下文（支撑域）
+│   ├── capability/                      # 能力上下文（支撑域）
+│   └── external/                        # 外部系统上下文（支撑域）
+│
+├── app/                                 # 应用层（跨模块编排，职责严格限定）
+│   ├── orchestration/                   # 跨模块事务编排（5 个操作）
+│   │   ├── port.ts
+│   │   └── _internal/
+│   │       ├── adapter.ts
+│   │       └── initor.ts
+│   └── agent-runtime/                   # Agent 运行时（pi-agent-core 集成）
+│       ├── port.ts
+│       └── _internal/
+│           ├── adapter.ts
+│           ├── tools.ts
+│           └── initor.ts
+│
+├── adapter/                             # 适配器层（外部接口）
+│   └── http/                            # HTTP 适配器（Hono，含 DTO + 端点定义）
+│       ├── app.ts
+│       ├── routes/
+│       ├── sse.ts
+│       └── dto.ts
+│
+└── web/                                 # 前端 React SPA
     ├── components/
     ├── pages/
-    └── hooks/
+    ├── hooks/
+    └── services/
 ```
 
-### 模块内部结构（DDD 三层 + 六边形 Port）
+### 模块内部结构（Provider 拥有 Port + _internal/ 封装）
 
-每个模块统一采用三层结构：
-
-```
-src/modules/conversation/
-├── domain/                         # 领域层（零外部依赖，纯业务逻辑）
-│   ├── conversation.ts             # 聚合根 + 实体
-│   ├── conversation.test.ts        # 领域单元测试（纯逻辑，无 mock）
-│   ├── message.ts                  # 实体
-│   ├── tree-path.ts                # 值对象
-│   ├── key-info.ts                 # 值对象（LinkedResource + KeyFact）
-│   ├── events.ts                   # 领域事件
-│   └── ports.ts                    # 出站端口（接口定义）
-│       # ConversationRepositoryPort  -- 持久化接口
-│       # MemoryPort                  -- 跨模块：写入记忆索引
-│       # OtterPort                   -- 跨模块：查询 Otter 信息
-├── application/                    # 应用层（用例编排，实现入站端口）
-│   ├── conversation-service.ts     # ConversationService（S2 接口落地）
-│   └── conversation-service.test.ts # 应用层测试（mock ports）
-├── infrastructure/                 # 基础设施层（实现 domain/ports）
-│   └── sqlite/
-│       ├── conversation-repository.ts  # 实现 ConversationRepositoryPort
-│       ├── conversation-repository.test.ts # 集成测试（real SQLite）
-│       └── mapper.ts                   # 领域对象 <-> DB 行映射
-└── index.ts                        # 模块导出（仅导出 Service + domain 类型 + Port 接口）
-```
-
-### 六边形架构 -- 端口与适配器
+每个 domain 模块统一采用扁平结构：
 
 ```
-                    ┌─────────────────────────────────┐
-                    │          bootstrap/              │
-                    │  (Composition Root - 装配)       │
-                    └──┬───────────────────────────┬──┘
-           ┌───────────┘                           └───────────┐
-    ┌──────▼──────┐                           ┌──────────────▼──────────────┐
-    │  Inbound     │                           │      Outbound Adapters      │
-    │  Adapters    │                           │  (被驱动端，实现 Port)       │
-    │  (驱动端)    │                           │                              │
-    │              │                           │  bootstrap/db/               │
-    │  http/routes │──→ Application Service ──→│  → SQLiteRepository          │
-    │  sse/stream  │    (编排 domain 逻辑,      │  bootstrap/embedding/        │
-    │  agent/tools │     调用 domain + ports)   │  → EmbeddingAdapter         │
-    │              │                           │  bootstrap/llm/              │
-    └──────────────┘                           │  → LLMGatewayAdapter         │
-           │                                    │  modules/*/infrastructure/   │
-           │                                    │  → ModuleRepository          │
-           ▼                                    └──────────────────────────────┘
-    ┌──────────────────────────────────────────────────┐
-    │                   Domain Layer                    │
-    │  (零外部依赖，纯业务逻辑)                          │
-    │                                                    │
-    │  Entity + Value Object + Domain Event + Port      │
-    │  Port = 出站接口（Repository、跨模块依赖）          │
-    └──────────────────────────────────────────────────┘
+src/domain/conversation/
+├── model.ts                 # 公开类型（Entity, Value Object, Domain Event）
+├── port.ts                  # 公开接口（ConversationPort，所有消费方 import 此文件）
+└── _internal/               # 私有实现（ESLint 禁止跨模块 import）
+    ├── repository.ts        # SQLite 持久化
+    ├── mapper.ts            # 领域对象 <-> DB 行映射
+    ├── adapter.ts           # 业务逻辑（实现 ConversationPort）
+    └── initor.ts            # 工厂函数（创建 repo + adapter，返回 port）
 ```
 
-**依赖方向**：inbound adapter -> application service -> domain <- infrastructure adapter
+### ConversationPort 方法分组（14 方法）
 
-**关键规则**：
-- domain 层不 import 任何外部包（除 kernel/types）
-- application 层只 import domain 层（不直接 import infrastructure）
-- infrastructure 层 implements domain 的 Port 接口
-- bootstrap 负责实例化 infrastructure adapter 并注入 application service
+```typescript
+interface ConversationPort {
+  // --- Conversation CRUD ---
+  create(params: { title: string; parentId?: string; otterIds: string[] }): Promise<Conversation>;
+  getById(id: string): Promise<Conversation | null>;
+  complete(id: string): Promise<void>;
+  archive(id: string): Promise<void>;
 
-### 跨模块通信 -- Port 模式
+  // --- Tree ---
+  getTree(rootId: string): Promise<ConversationTreeNode>;
+  createChild(parentId: string, title: string): Promise<Conversation>;
+  navigateTo(conversationId: string): Promise<void>;
 
-> 模块间通过 Port 接口通信，消费方定义接口，提供方实现接口，bootstrap 装配。
+  // --- Messages ---
+  sendMessage(conversationId: string, message: MessageInput): Promise<Message>;
+  getMessages(conversationId: string, opts?: { limit?: number; before?: string }): Promise<Message[]>;
+  expandMessage(messageId: string, direction: 'before' | 'after' | 'both', count: number): Promise<Message[]>;
+
+  // --- Key Info ---
+  addKeyFact(conversationId: string, fact: KeyFactInput): Promise<KeyFact>;
+  linkResource(conversationId: string, resource: LinkedResourceInput): Promise<LinkedResource>;
+  getKeyInfo(conversationId: string): Promise<KeyInfo>;
+  getLinkedResources(conversationId: string): Promise<LinkedResource[]>;
+}
+```
+
+### 跨模块通信 -- Provider 拥有 Port
+
+> 模块间通过 Port 接口通信，提供方定义接口，消费方 import，main.ts 装配。
 
 **示例：conversation 需要写 memory 索引**
 
 ```
-1. conversation/domain/ports.ts 定义:
+1. memory 模块在 domain/memory/port.ts 定义:
    interface MemoryPort {
      store(entry: MemoryEntryInput): Promise<string>;
+     search(query: SearchQuery): Promise<RetrievalResult>;
+     ...
    }
 
-2. memory/application/memory-service.ts 实现该接口:
-   class MemoryService implements MemoryPort { ... }
+2. memory 模块在 domain/memory/_internal/adapter.ts 实现:
+   class MemoryAdapter implements MemoryPort { ... }
 
-3. bootstrap/composition.ts 装配:
-   const memoryService = new MemoryService(memoryRepo, embeddingService);
-   const conversationService = new ConversationService(conversationRepo, memoryService);
-                                                                        ↑ 注入 MemoryPort
+3. app/orchestration 模块 import @domain/memory/port:
+   import type { MemoryPort } from '@domain/memory/port';
 
-4. conversation 模块不 import memory 模块的任何文件
-   只依赖自己 domain/ports.ts 中定义的 MemoryPort 接口
+4. main.ts 装配:
+   const memoryPort = initMemory({ db, embedding });
+   const conversationPort = initConversation({ db });
+   const orchestration = initOrchestration({ conversationPort, memoryPort, otterPort, capabilityPort });
 ```
 
-### 跨模块事务编排
+### app/orchestration -- 跨模块事务编排
 
-> "发送消息"事务跨 conversation 和 memory 两个模块。由 ConversationService（application 层）编排：在同一 SQLite 事务内调用 ConversationRepository.sendMessage() 和 MemoryPort.store()。MemoryPort 由 bootstrap 注入 MemoryService 实例。memory 模块不感知 conversation 的存在。
+> app/orchestration 的职责严格限定为跨模块事务编排，不包含单聚合内的业务逻辑。
 
-### bootstrap/ 详细说明
+| 操作 | 涉及模块 | 说明 |
+|------|---------|------|
+| sendMessage | conversation + memory | 发送消息 + 写记忆索引，单事务 |
+| archiveSession | otter + memory | Session 归档 + memory layer 变更，单事务 |
+| dissolveOtter | otter + capability + memory | 解散小獭 + 能力回收 + layer 变更，单事务 |
+| createSmallOtter | otter + capability | 创建小獭 + 分配能力，单事务 |
+| restartOtterLife | otter + memory | 重启獭生（archive + new session + layer 变更），单事务 |
 
-```
-src/bootstrap/
-├── composition.ts              # Composition Root：实例化所有 adapter 和 service，注入依赖
-├── config.ts                   # 配置常量（半衰期 7 天、RRF k=60、模型路径、DB 路径、LLM 配置）
-├── db/
-│   ├── connection.ts           # better-sqlite3 连接（单例，注入到各 module repository）
-│   └── schema.ts               # S3 DDL 初始化（CREATE TABLE IF NOT EXISTS）
-├── embedding/
-│   ├── worker.ts               # Worker thread 入口（bge-m3 ONNX 推理）
-│   └── adapter.ts              # 实现 memory/domain/ports.ts 的 EmbeddingPort
-├── llm/
-│   └── gateway.ts              # pi-ai LLM 网关（实现 agent 相关 Port）
-├── http/
-│   ├── server.ts               # Hono HTTP 服务器启动
-│   ├── routes.ts               # API 路由定义（调用各 module 的 Service）
-│   └── sse.ts                  # SSE 流式推送
-└── agent/
-    ├── runtime.ts              # pi-agent-core 运行时（大獭/小獭实例管理）
-    └── tools.ts                # Agent 工具定义（映射各 module Service 为 AgentTool）
-```
+> 以下操作**不在** app/orchestration，属于 domain 模块内部：
+> - 对话树导航、关键信息管理、消息查询 -> domain/conversation
+> - 记忆检索、权重计算、FTS5/vec0 搜索 -> domain/memory
 
-> bootstrap/ 不是 shared/：它是 Composition Root，职责单一 -- 装配依赖、启动服务。不包含业务逻辑，不包含可复用工具函数。
+### 跨模块事务方案（方案 A）
 
-### kernel/ 详细说明
+> 采用方案 A：app/orchestration 编排事务。不用方案 B（conversation 接收 memoryStore 参数），因为方案 B 会导致 ConversationPort 签名引用 MemoryPort 类型，违反 domain 模块间不互相依赖原则。
 
 ```
-src/kernel/
-└── types.ts                    # 仅限跨模块共享的基础类型
+app/orchestration/_internal/adapter.ts:
+  sendMessage(conversationId, message):
+    1. 开启 SQLite 事务
+    2. conversationPort.sendMessage(conversationId, message)  // 写 messages 表
+    3. memoryPort.store({                                      // 写 memory_entries + fts + weights
+         content: message.content,
+         tree_path: conversation.tree_path, ...
+       })
+    4. 提交事务
 ```
 
-> 严格限制：kernel/ 只放跨模块必须共享的类型定义（如 `type Id = string`、`type Timestamp = string`、`type Result<T> = ...`）。不放工具函数、不放业务逻辑、不放基础设施代码。kernel/ 的大小应始终极小。
+### main.ts -- Composition Root
+
+> main.ts 是唯一的 Composition Root，按依赖顺序调用各模块的 initor.ts 工厂函数，注入依赖。
+
+```typescript
+// main.ts（伪代码）
+const db = initDatabase();                          // infra/database
+const embedding = initEmbedding({ db });            // infra/embedding
+const llm = initLLMGateway();                       // infra/llm-gateway
+
+const otterPort = initOtter({ db });                // domain/otter
+const memoryPort = initMemory({ db, embedding });   // domain/memory
+const conversationPort = initConversation({ db });  // domain/conversation
+const capabilityPort = initCapability({ db });      // domain/capability
+const externalPort = initExternal({ db });          // domain/external
+
+const orchestration = initOrchestration({           // app/orchestration
+  conversationPort, memoryPort, otterPort, capabilityPort
+});
+const agentRuntime = initAgentRuntime({             // app/agent-runtime
+  orchestration, conversationPort, memoryPort, otterPort, capabilityPort, llm
+});
+
+const httpServer = initHTTPServer({ agentRuntime }); // adapter/http
+httpServer.listen(3000);
+```
 
 ### 模块依赖关系与实现顺序
 
 > memory 在 conversation 之前实现，消除循环依赖。memory_entries.tree_path 冗余存储（D29），memory 模块计算 task_relevance 时无需跨模块查询。
 
 ```
-bootstrap/db(0) ──────────────────── 基础设施，最先实现
+infra/db(0) ───────────────────────── 基础设施，最先实现
     │
-    ├── modules/otter(①) ─────────── Otter 生命周期
+    ├── domain/otter(①) ───────────── Otter 生命周期
     │
-    ├── modules/memory(②) ────────── 记忆索引 + 检索（自包含）
+    ├── domain/memory(②) ──────────── 记忆索引 + 检索（自包含）
     │
-    ├── modules/conversation(③) ──── 对话 + 消息（依赖 otter + memory，通过 Port）
+    ├── domain/conversation(③) ────── 对话 + 消息 + 关键信息（依赖 otter + memory，通过 Port）
     │
-    ├── modules/capability(④) ────── 能力管理（依赖 otter，通过 Port）
+    ├── domain/capability(④) ──────── 能力管理（依赖 otter，通过 Port）
     │
-    └── modules/external(⑤) ──────── 外部系统（依赖 conversation，通过 Port）
+    └── domain/external(⑤) ────────── 外部系统（依赖 conversation，通过 Port）
 
-    ── 以上为模块层，以下为应用层 ──
+    ── 以上为 domain 层，以下为 app/adapter 层 ──
 
-    bootstrap/agent(⑥) ──────────── Agent 运行时 + 工具（映射各 Service）
-    bootstrap/http(⑦) ───────────── HTTP API + SSE
-    bootstrap/embedding(⑧) ──────── Embedding Worker
-    frontend/(⑨) ────────────────── React SPA
+    app/orchestration(⑥) ──────────── 跨模块事务编排（5 个操作）
+    app/agent-runtime(⑦) ──────────── Agent 运行时 + 工具
+    adapter/http(⑧) ───────────────── HTTP API + SSE
+    infra/embedding(⑨) ────────────── Embedding Worker
+    web/(⑩) ───────────────────────── React SPA
 ```
 
 | 顺序 | 模块 | 依赖（通过 Port） | 说明 |
 |------|------|-------------------|------|
-| 0 | bootstrap/db | 无 | SQLite 连接 + schema 初始化 |
-| 1 | modules/otter | bootstrap/db | Otter CRUD + Session 生命周期 |
-| 2 | modules/memory | bootstrap/db | 记忆索引 + FTS5 + vec0 + RRF + 权重 |
-| 3 | modules/conversation | memory(MemoryPort), otter(OtterPort) | 对话 + 消息 + 对话树 + 关键信息 |
-| 4 | modules/capability | otter(Port) | Skill 注册 + 分配 + 回收 |
-| 5 | modules/external | conversation(Port) | 外部资源 + 自动关联 |
-| 6 | bootstrap/agent | 全部模块 | pi-agent-core 集成 + Agent 工具 |
-| 7 | bootstrap/http | agent + modules | Hono HTTP + SSE + REST API |
-| 8 | bootstrap/embedding | memory(Port) | bge-m3 Worker thread |
-| 9 | frontend | http | React SPA + 对话树可视化 |
+| 0 | infra/db | 无 | SQLite 连接 + schema 初始化 |
+| 1 | domain/otter | infra/db | Otter CRUD + Session 生命周期 |
+| 2 | domain/memory | infra/db | 记忆索引 + FTS5 + vec0 + RRF + 权重 |
+| 3 | domain/conversation | otterPort, memoryPort | 对话 + 消息 + 对话树 + 关键信息 |
+| 4 | domain/capability | otterPort | Skill 注册 + 分配 + 回收 |
+| 5 | domain/external | conversationPort | 外部资源 + 自动关联 |
+| 6 | app/orchestration | conversationPort + memoryPort + otterPort + capabilityPort | 跨模块事务编排 |
+| 7 | app/agent-runtime | orchestration + 全部 domain ports | pi-agent-core + Agent 工具 |
+| 8 | adapter/http | agentRuntime | Hono HTTP + SSE + REST API |
+| 9 | infra/embedding | memoryPort | bge-m3 Worker thread |
+| 10 | web/ | http | React SPA + 对话树可视化 |
 
-> **增量可用性说明**：memory(②) 的 FTS5 关键词检索立即可用，vec0 语义检索在 embedding(⑧) 实现后可用。中间阶段 memory.search 降级为纯 FTS5（符合 D22 降级策略）。
+> **增量可用性说明**：domain/memory(②) 的 FTS5 关键词检索立即可用，vec0 语义检索在 infra/embedding(⑨) 实现后可用。中间阶段 memory.search 降级为纯 FTS5（符合 D22 降级策略）。
 
 ### 测试目录约定
 
-采用 **co-located** 模式，测试与源码同目录，按层分测：
+采用 **co-located** 模式，测试与源码同目录：
 
 ```
-src/modules/conversation/
-├── domain/
-│   ├── conversation.ts
-│   ├── conversation.test.ts            # 领域单元测试（纯逻辑，零 mock）
-│   └── ...
-├── application/
-│   ├── conversation-service.ts
-│   └── conversation-service.test.ts    # 应用层测试（mock Port 实现）
-└── infrastructure/
-    └── sqlite/
-        ├── conversation-repository.ts
-        └── conversation-repository.test.ts  # 集成测试（real SQLite）
+src/domain/conversation/
+├── model.ts
+├── model.test.ts            # 领域类型测试（纯逻辑）
+├── port.ts
+└── _internal/
+    ├── repository.ts
+    ├── repository.test.ts   # 集成测试（real SQLite）
+    ├── adapter.ts
+    └── adapter.test.ts      # 应用层测试（mock port）
 ```
 
 > 端到端测试放 `tests/e2e/`，通过 HTTP API 测试完整流程。
+
+### 路径别名（tsconfig.json）
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@infra/*": ["src/infra/*"],
+      "@domain/*": ["src/domain/*"],
+      "@app/*": ["src/app/*"],
+      "@adapter/*": ["src/adapter/*"]
+    }
+  }
+}
+```
+
+> 路径别名让 import 就能看出依赖方向：`import { MemoryPort } from '@domain/memory/port'` 一目了然。
+
+### ESLint _internal/ 封装规则
+
+```javascript
+// eslint.config.mjs
+{
+  rules: {
+    'no-restricted-imports': ['error', {
+      patterns: ['*/_internal/*']
+    }]
+  },
+  overrides: [{
+    files: ['src/main.ts'],
+    rules: { 'no-restricted-imports': 'off' }  // Composition Root 豁免
+  }]
+}
+```
+
+> 没有这条规则，AI 会绕过 port 直接 import `_internal/repository.ts`。这是设计从纸面落到代码的执行保障。
 
 ### 与 S2/S3 的映射关系
 
 | S2 限界上下文 | S2 Service 接口 | S3 表 | 代码目录 |
 |-------------|----------------|-------|---------|
-| 对话上下文 | ConversationService | conversations, messages, conversation_otters, linked_resources, key_facts | src/modules/conversation/ |
-| 记忆上下文 | MemoryService | memory_entries, memory_weights, memory_fts, memory_vec | src/modules/memory/ |
-| Otter 上下文 | OtterService | otters, otter_sessions | src/modules/otter/ |
-| 能力上下文 | CapabilityService | skills, skill_assignments | src/modules/capability/ |
-| 外部系统上下文 | ExternalSystemService | external_resources | src/modules/external/ |
+| 对话上下文 | ConversationService | conversations, messages, conversation_otters, linked_resources, key_facts | src/domain/conversation/ |
+| 记忆上下文 | MemoryService | memory_entries, memory_weights, memory_fts, memory_vec | src/domain/memory/ |
+| Otter 上下文 | OtterService | otters, otter_sessions | src/domain/otter/ |
+| 能力上下文 | CapabilityService | skills, skill_assignments | src/domain/capability/ |
+| 外部系统上下文 | ExternalSystemService | external_resources | src/domain/external/ |
 
 
 ## 核心业务行为 [required]
@@ -1117,14 +1177,14 @@ src/modules/conversation/
 - **决策依据**：用户明确指出一次性设计全部数据模型不合理，无法在设计阶段确定所有细节。模块化逐步实现更符合实际开发节奏，允许在实现中发现和修正问题。
 - **参与者**：架构师-2（起草），用户（确认）
 
-### D29: DDD 分层 + 六边形架构（Ports & Adapters）
+### D29: 全局 4 层 + Provider 拥有 Port + _internal/ 封装
 
-- **决策点**：代码目录组织方式 + 模块间通信约束 + 分层策略
-- **正方论点**：DDD 三层（domain/application/infrastructure）隔离业务逻辑与技术实现；六边形 Port 模式使模块间依赖方向清晰（始终指向 domain）；禁止 shared/ 避免无限膨胀（snail shell 实践经验）；bootstrap/ 作为 Composition Root 职责单一；kernel/ 严格限制大小
-- **反方论点**：三层结构增加文件数量；Port 接口增加间接层；bootstrap/ 装配代码量随模块数增长
-- **最终决策**：每个模块采用 DDD 三层（domain 零外部依赖 / application 编排 / infrastructure 实现 Port）；模块间通过 Port 接口通信（消费方定义，提供方实现，bootstrap 装配）；禁止 shared/ 目录，基础设施放 bootstrap/，跨模块类型放 kernel/（严格限制）；memory_entries.tree_path 冗余消除 memory -> conversation 跨模块读依赖
-- **决策依据**：用户基于 snail shell 实践经验明确要求 DDD + 六边形架构，禁止 shared/ 目录。Port 模式直接解决"模块间依赖混杂"问题 -- 消费方定义接口，提供方实现，bootstrap 注入，模块互不感知
-- **参与者**：架构师-2（起草），用户（确认方向），架构师-1（审视通过）
+- **决策点**：代码目录组织方式 + Port 归属 + 模块封装策略
+- **正方论点**：全局 4 层（infra/domain/app/adapter）使依赖方向一目了然；Provider 拥有 Port 避免接口重复定义；无 shared/、kernel/ 堵住类型泄漏漏洞；_internal/ + ESLint 规则强制封装；snail shell 实践验证有效
+- **反方论点**：全局分层不如模块自包含"纯粹"（但单进程应用无实际影响）；需要配套 ESLint 规则阻止 _internal/ 跨模块导入
+- **最终决策**：采用 snail shell 验证的全局 4 层架构（infra -> domain -> app -> adapter）；domain 模块内扁平（model.ts + port.ts + _internal/）；Provider 拥有 Port（`domain/memory/port.ts` 定义 MemoryPort）；禁止 shared/、kernel/（类型由归属最清晰的模块拥有）；ESLint 禁止跨模块 import _internal/（main.ts 豁免）；memory_entries.tree_path 冗余消除跨模块读依赖
+- **决策依据**：用户基于 snail shell 实践经验否决了扁平+shared 结构和消费方定义 Port 的模式。snail shell 的全局 4 层 + Provider Port + _internal/ 封装在生产环境验证有效。两位架构师讨论收敛：按聚合边界划分 domain 模块（conversation 含 Message/LinkedResource/KeyFact）、app/orchestration 严格限定为 5 个跨模块操作、memory 内部保留拆分 + search-engine 协调器
+- **参与者**：架构师-2（起草 + snail shell 分析），架构师-1（审视 + 补充 5 个操作和命名建议），用户（确认方向）
 
 ## 设计约束摘要 [required]
 
@@ -1142,10 +1202,12 @@ src/modules/conversation/
 - 统一索引表 memory_entries + 单 FTS5 表 + 单 vec0 表
 - 权重动态因子查询时计算，不持久化
 - embedding 异步写入，FTS5 同步写入
-- 代码采用 DDD 三层 + 六边形架构（Ports & Adapters），模块间通过 Port 接口通信（D29）
-- 禁止 shared/ 目录，基础设施放 bootstrap/，跨模块类型放 kernel/（严格限制）
+- 代码采用全局 4 层架构（infra/domain/app/adapter），Provider 拥有 Port，模块间通过 Port 接口通信（D29）
+- 禁止 shared/、kernel/ 目录，类型由归属最清晰的模块拥有
+- ESLint 禁止跨模块 import _internal/（main.ts 豁免），强制封装
 - memory_entries.tree_path 冗余存储，消除 memory -> conversation 跨模块读依赖（D29）
-- 测试文件 co-located（按层分测），E2E 测试放 tests/e2e/
+- app/orchestration 严格限定为 5 个跨模块操作，不包含单聚合内业务逻辑
+- 测试文件 co-located，E2E 测试放 tests/e2e/
 
 ### 语义不变量（实现中必须保持为真）
 
@@ -1183,7 +1245,7 @@ src/modules/conversation/
 - [x] S3-A5 检索索引策略 -- FTS5 + vec0 + RRF + 查询示例 + 降级策略
 - [x] S3-A6 权重系统 Schema -- 存储vs计算分离 + 更新时机 + task_relevance 计算
 - [x] S3-A7 部署图 -- Mermaid 部署图 + 物理组件清单 + 资源占用估算
-- [x] S3-A8 代码目录结构规划 -- 顶层目录 + 模块内部结构 + 实现顺序 + S2/S3 映射
+- [x] S3-A8 代码目录结构规划 -- 全局 4 层 + Provider Port + _internal/ 封装 + app/orchestration + 路径别名 + ESLint 规则
 
 ### 数据模型与 S2 领域模型一致性
 
@@ -1208,7 +1270,15 @@ src/modules/conversation/
 - [x] 架构师-1 独立分析并产出草稿
 - [x] 架构师-2 对抗审视（9 项发现：F1-F2 阻断项 + F3-F6 应修复项 + F7-F9 次要项）
 - [x] 架构师-1 全部修复（F1: 新增 conversation_otters 表；F2: 补全事务边界；F3-F5: 补充 S2 接口委托路径；F6: 补充写入侧降级策略；F7: 标题修正；F8: 工作记忆隔离澄清；F9: 字段格式标注）
-- [x] 双方确认设计方案可接受
+- [x] 架构师-2 起草 S3-A8 代码目录结构（全局 4 层 + Provider Port + _internal/ 封装）
+- [x] 架构师-1 审视 S3-A8（5 项发现：F10-F14）
+- [x] 架构师-2 修复 S3-A8（F10: 循环依赖；F11: 测试目录；F12: 配置位置；F13: D29 ADR；F14: 设计约束）
+- [x] 架构师-1 审视六边形重构（3 项发现：F15-F17）
+- [x] 架构师-2 修复（F15: Port 命名；F16: 增量可用性；F17: 示例一致性）
+- [x] 用户否决扁平+shared 结构，要求 DDD + 六边形架构
+- [x] 架构师-2 分析 snail shell 架构，提出全局 4 层方案
+- [x] 两位架构师讨论优化点（5 个问题 + 2 个额外审视），收敛为最终方案
+- [x] 双方确认设计方案可接受（17 项发现全部修复 + 优化讨论收敛）
 
 ## 关联 [required]
 
