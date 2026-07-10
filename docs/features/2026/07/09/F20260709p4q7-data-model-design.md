@@ -906,8 +906,7 @@ graph TB
 
 | 文件/目录 | 说明 |
 |----------|------|
-| `docs/features/2026/07/09/F20260709p4q7-data-model-design.md` | S3 数据模型设计特性文档（本文档） |
-| `docs/design/deployment-diagram.md` | 部署图独立文件（从本文档提取，供独立查阅） |
+| `docs/features/2026/07/09/F20260709p4q7-data-model-design.md` | S3 数据模型设计特性文档（本文档，含部署图） |
 
 ## 验证 [required]
 
