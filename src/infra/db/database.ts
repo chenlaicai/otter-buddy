@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { load as loadSqliteVec } from "sqlite-vec";
 import { logger } from "@infra/logger";
 
 interface DatabaseConfig {
@@ -33,8 +34,7 @@ export function initDatabase(config?: Partial<DatabaseConfig>): Database.Databas
 
   // 尝试加载 sqlite-vec 扩展（D22 降级策略：失败仅 warn）
   try {
-    const sqliteVec = require("sqlite-vec");
-    db.loadExtension(sqliteVec);
+    loadSqliteVec(db);
   } catch {
     logger.warn("sqlite-vec 加载失败，降级为纯 FTS5 检索");
   }
