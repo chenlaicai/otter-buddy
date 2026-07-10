@@ -32,7 +32,7 @@ S1 定义了三层记忆模型（工作记忆/历史对话记忆/对话关键信
 | 项目 | 决策 | 依据 |
 |------|------|------|
 | 记忆数据加密 | 不加密 | S1 NFR 已明确"本地数据，无加密需求" |
-| 权重半衰期 | 30 天 | S2 已定义默认值，与 Issue #5 S3-I2 一致 |
+| 权重半衰期 | 7 天 | 用户确认（S3-I2），短期快速迭代阶段偏好近期记忆 |
 | FTS5 分词器 | trigram | CJK 友好，SQLite 3.34+ 内置，无需额外扩展 |
 | tree_path 存储格式 | 物化路径（`/root_id/parent_id/self_id/`） | 高效前缀匹配，无需 JSON 解析 |
 | memory_entries 设计 | 统一索引表 + 领域表 | CQRS 式分离：领域表为 source of truth，memory_entries 为检索索引 |
@@ -58,7 +58,7 @@ S1 定义了三层记忆模型（工作记忆/历史对话记忆/对话关键信
 | # | 问题 | 架构师默认值 | 依据 | 状态 |
 |---|------|------------|------|------|
 | S3-I1 | 记忆数据是否需要加密？ | 不加密 | S1 NFR："本地数据，无加密需求"，单用户本地运行 | ✅ 已确认 |
-| S3-I2 | 权重系统时间衰减半衰期？ | 30 天 | S2 权重公式已定义，与 Issue #5 S3-I2 一致 | 待确认 |
+| S3-I2 | 权重系统时间衰减半衰期？ | 7 天 | 用户确认：短期快速迭代，偏好近期记忆 | ✅ 已确认 |
 
 ## 目标 [required]
 
@@ -691,7 +691,7 @@ function rrfFusion(ftsHits: Hit[], vecHits: Hit[], k = 60): Map<string, number> 
 
 ```
 final_score = base_retrieval_score              // BM25 或 RRF 分数 (查询时计算)
-  × time_decay_weight                           // 指数衰减，半衰期 30 天 (查询时计算)
+  × time_decay_weight                           // 指数衰减，半衰期 7 天 (查询时计算)
   × frequency_boost                             // log(1 + retrieval_count) × 0.1 + 1 (查询时计算)
   × task_relevance_weight                       // 对话树路径加成 (查询时计算)
   × user_flag_multiplier                        // 用户标记加成 (查询时计算)
@@ -702,7 +702,7 @@ final_score = base_retrieval_score              // BM25 或 RRF 分数 (查询�
 | 权重因子 | 存储方式 | 计算方式 | 说明 |
 |---------|---------|---------|------|
 | base_retrieval_score | 不存储 | 查询时从 FTS5 rank / RRF 获取 | 每次检索不同 |
-| time_decay_weight | 不存储 | `exp(-ln(2) * age_days / 30)` 从 `memory_entries.created_at` 计算 | 半衰期 30 天 (S3-I2 默认值) |
+| time_decay_weight | 不存储 | `exp(-ln(2) * age_days / 7)` 从 `memory_entries.created_at` 计算 | 半衰期 7 天 (S3-I2 用户确认) |
 | frequency_boost | `memory_weights.retrieval_count` | `log(1 + retrieval_count) * 0.1 + 1` | 每次检索后 incrementRetrievalCount |
 | task_relevance_weight | 不存储 | 从 `conversations.tree_path` 计算 | 同路径 ×1.5, 跨路径 ×0.8, 无路径上下文 ×1.0 |
 | user_flag_multiplier | `memory_weights.user_flagged` | `flagged ? 2.0 : 1.0` | 用户可通过 MemoryService.flagMemory 设置 |
