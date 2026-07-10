@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS memory_entries (
   source_id TEXT NOT NULL,                    -- 源对象 ID (message_id, conversation_id, etc.)
   source_table TEXT NOT NULL,                 -- 源表名 ('messages', 'conversations', 'key_facts', 'linked_resources')
   conversation_id TEXT,                       -- 关联对话
+  tree_path TEXT,                             -- 冗余: 关联对话的 tree_path（创建时写入，不可变，消除 memory -> conversation 跨模块读依赖）
   granularity TEXT NOT NULL DEFAULT 'fine',   -- 'coarse' | 'fine' (检索粒度)
   content TEXT NOT NULL,                      -- 可搜索内容
   metadata TEXT,                              -- JSON: 额外元数据
@@ -196,6 +197,7 @@ CREATE INDEX IF NOT EXISTS idx_memory_entries_content_type ON memory_entries(con
 CREATE INDEX IF NOT EXISTS idx_memory_entries_conversation_id ON memory_entries(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_memory_entries_source ON memory_entries(source_table, source_id);
 CREATE INDEX IF NOT EXISTS idx_memory_entries_created_at ON memory_entries(created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_entries_tree_path ON memory_entries(tree_path);
 
 -- memory_weights: 权重存储 (仅存储需持久化的部分，其余查询时计算)
 CREATE TABLE IF NOT EXISTS memory_weights (
@@ -843,14 +845,16 @@ src/modules/conversation/
 
 ### 模块依赖关系与实现顺序
 
+> **关键约束**：memory 在 conversation 之前实现，消除循环依赖。memory_entries.tree_path 冗余存储关联对话的 tree_path（创建时写入，不可变），使 memory 模块计算 task_relevance 时无需跨模块查询 conversation。
+
 ```
 shared/db ────────────────────────── 基础设施，最先实现
     │
     ├── modules/otter ────────────── ① Otter 生命周期（被 conversation 依赖）
     │
-    ├── modules/conversation ─────── ② 对话 + 消息（核心域，被 memory 依赖）
-    │       │
-    │       └── modules/memory ──── ③ 记忆检索（依赖 conversation 的消息写入）
+    ├── modules/memory ───────────── ② 记忆索引 + 检索（自包含，不依赖其他业务模块）
+    │
+    ├── modules/conversation ─────── ③ 对话 + 消息（依赖 otter + memory：sendMessage 事务跨模块写入 memory 索引）
     │
     ├── modules/capability ───────── ④ 能力管理（依赖 otter）
     │
@@ -868,13 +872,34 @@ shared/db ───────────────────────�
 |------|------|------|------|
 | 0 | shared/db | 无 | SQLite 连接 + schema 初始化（S3 DDL） |
 | 1 | modules/otter | shared/db | Otter CRUD + Session 生命周期 |
-| 2 | modules/conversation | shared/db, otter | 对话 + 消息 + 对话树 + 关键信息 |
-| 3 | modules/memory | shared/db, conversation | 记忆索引 + FTS5 + vec0 + RRF + 权重 |
+| 2 | modules/memory | shared/db | 记忆索引 + FTS5 + vec0 + RRF + 权重（自包含，tree_path 从 memory_entries 读取） |
+| 3 | modules/conversation | shared/db, otter, memory | 对话 + 消息 + 对话树 + 关键信息（sendMessage 事务内调用 MemoryRepository.store()） |
 | 4 | modules/capability | shared/db, otter | Skill 注册 + 分配 + 回收 |
 | 5 | modules/external | shared/db, conversation | 外部资源 + 自动关联 |
 | 6 | agent | 全部模块 | pi-agent-core 集成 + Agent 工具定义 |
 | 7 | server | agent | Hono HTTP + SSE + REST API |
 | 8 | frontend | server | React SPA + 对话树可视化 |
+
+### 跨模块事务编排
+
+> "发送消息"事务跨 conversation 和 memory 两个模块（messages + memory_entries + memory_fts + memory_weights）。由 **ConversationService** 编排：在同一 SQLite 事务内依次调用 ConversationRepository.sendMessage() 和 MemoryRepository.store()。memory 模块不感知 conversation 的存在，仅接收 MemoryEntryInput（含 tree_path）并存储。
+
+### 测试目录约定
+
+采用 **co-located** 模式：测试文件与源码同目录，模块自包含。
+
+```
+src/modules/conversation/
+├── types.ts
+├── types.test.ts          # 类型测试
+├── repository.ts
+├── repository.test.ts     # Repository 测试
+├── service.ts
+├── service.test.ts        # Service 测试
+└── index.ts
+```
+
+> 集成测试和端到端测试放在 `tests/` 目录：`tests/integration/`、`tests/e2e/`。
 
 ### shared/ 详细说明
 
@@ -884,11 +909,14 @@ src/shared/
 │   ├── connection.ts      # better-sqlite3 连接单例
 │   ├── schema.ts          # S3 DDL 初始化（CREATE TABLE IF NOT EXISTS）
 │   └── types.ts           # 数据库类型定义
-└── embedding/
-    ├── worker.ts          # Worker thread 入口（bge-m3 ONNX 推理）
-    ├── service.ts         # Embedding 服务（postMessage 通信封装）
-    └── types.ts           # Embedding 请求/响应类型
+├── embedding/
+│   ├── worker.ts          # Worker thread 入口（bge-m3 ONNX 推理）
+│   ├── service.ts         # Embedding 服务（postMessage 通信封装）
+│   └── types.ts           # Embedding 请求/响应类型
+└── config.ts              # 集中管理可配置参数（半衰期、RRF k、模型路径、DB 路径等）
 ```
+
+> `config.ts` 集中管理以下参数：权重半衰期（7 天）、RRF k 参数（60）、embedding 模型路径、SQLite 数据库路径、LLM provider 配置。实现为配置常量，非硬编码。
 
 ### agent/ 详细说明
 
@@ -1001,6 +1029,15 @@ src/agent/
 - **决策依据**：用户明确指出一次性设计全部数据模型不合理，无法在设计阶段确定所有细节。模块化逐步实现更符合实际开发节奏，允许在实现中发现和修正问题。
 - **参与者**：架构师-2（起草），用户（确认）
 
+### D29: 代码按限界上下文组织 + 模块间通过 Service 接口通信
+
+- **决策点**：代码目录组织方式 + 模块间通信约束
+- **正方论点**：按限界上下文组织（非按层）使每个模块高内聚、可独立实现和测试；模块间通过 Service 接口通信（不直接访问对方 Repository）降低耦合；扁平模块内结构适合单用户本地应用，避免过度分层
+- **反方论点**：跨模块事务编排需要 Service 层协调（如 sendMessage 跨 conversation + memory）；部分跨模块查询需要数据冗余（如 memory_entries.tree_path）来避免循环依赖
+- **最终决策**：按限界上下文组织 `src/modules/`；模块间仅通过 Service 接口通信；memory_entries 冗余 tree_path 消除 memory -> conversation 读依赖；ConversationService 编排跨模块事务
+- **决策依据**：S1 DDD 限界上下文划分的自然映射；用户要求逐模块实现；循环依赖通过实现顺序（memory before conversation）+ 数据冗余（tree_path）彻底消除
+- **参与者**：架构师-2（起草），架构师-1（审视通过）
+
 ## 设计约束摘要 [required]
 
 ### 硬约束（违反即 bug）
@@ -1017,6 +1054,9 @@ src/agent/
 - 统一索引表 memory_entries + 单 FTS5 表 + 单 vec0 表
 - 权重动态因子查询时计算，不持久化
 - embedding 异步写入，FTS5 同步写入
+- 代码按限界上下文组织（src/modules/），模块间通过 Service 接口通信（D29）
+- memory_entries.tree_path 冗余存储，消除 memory -> conversation 跨模块读依赖（D29）
+- 测试文件 co-located（与源码同目录），集成/E2E 测试放 tests/
 
 ### 语义不变量（实现中必须保持为真）
 
