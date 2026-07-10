@@ -102,8 +102,6 @@ erDiagram
 
     skills ||--o{ skill_assignments : "assigned to"
 
-    external_resources ||--o{ linked_resources : "referenced by"
-
     memory_entries ||--|| memory_weights : "weighted by"
     memory_entries }o--|| conversations : "references"
 
@@ -111,6 +109,8 @@ erDiagram
     key_facts }o--|| memory_entries : "indexed as"
     linked_resources }o--|| memory_entries : "indexed as"
 ```
+
+> **注**：external_resources 与 linked_resources 通过 resource_type + url 语义关联（非外键），不在此 ER 图中表示。linked_resources 归属 conversation 模块（Q1 决策）。
 
 ### DDL -- 对话上下文（核心域）
 
@@ -406,6 +406,18 @@ interface ConversationRepository {
 // 聚合内: MemoryEntry, MemoryWeight
 // ============================================================
 
+interface MemoryEntryInput {
+  layer: 'working' | 'historical' | 'key_info';
+  content_type: 'message' | 'conversation_summary' | 'key_fact' | 'linked_resource';
+  source_id: string;
+  source_table: string;
+  conversation_id?: string;
+  tree_path?: string;              // 冗余: 关联对话的 tree_path（创建时写入，不可变）
+  granularity: 'coarse' | 'fine';
+  content: string;
+  metadata?: Record<string, unknown>;
+}
+
 interface MemoryRepository {
   // 记忆条目 CRUD
   store(entry: MemoryEntryInput): Promise<string>;
@@ -466,14 +478,12 @@ interface SkillRepository {
 
 // ============================================================
 // ExternalResourceRepository -- ExternalResource 聚合根
-// 聚合内: ExternalResource, LinkedResource
+// 聚合内: ExternalResource（linked_resources 归属 conversation 模块，见 Q1 决策）
 // ============================================================
 
 interface ExternalResourceRepository {
   registerOrCreate(params: { type: string; url: string; metadata?: Record<string, unknown> }): Promise<ExternalResource>;
   getByUrl(url: string): Promise<ExternalResource | null>;
-  linkToConversation(params: { conversationId: string; resourceId: string; linkedBy: string; otterId?: string; autoLinked?: boolean }): Promise<LinkedResource>;
-  getConversationLinks(conversationId: string): Promise<LinkedResource[]>;
 }
 ```
 
@@ -486,6 +496,8 @@ interface ExternalResourceRepository {
 | OtterRepository | 直接 SQL | 简单 CRUD |
 | SkillRepository | 直接 SQL | 简单 CRUD |
 | ExternalResourceRepository | 直接 SQL | registerOrCreate 使用 INSERT OR IGNORE |
+
+> **S3-A2 vs S3-A8 接口对齐说明**：S3-A2 定义的 Repository 接口是底层持久化接口，包含所有 CRUD 方法。S3-A8 定义的 Port 接口是模块的公开 API，只暴露业务需要的方法。S3-A2 中有但 S3-A8 Port 中没有的方法（如 ConversationRepository.update()、getChildren()、getMessageById()）是 _internal/ 实现细节，不暴露为 Port 方法。
 
 ### S2 接口委托路径
 
@@ -500,16 +512,16 @@ interface ExternalResourceRepository {
 
 ### 事务边界
 
-| 操作 | 事务范围 | 说明 |
-|------|---------|------|
-| 发送消息 | messages INSERT + memory_entries INSERT + memory_fts INSERT + memory_weights INSERT | 单事务，保证消息和索引一致 |
-| 创建对话 | conversations INSERT + conversation_otters INSERT | 单事务，持久化 otterIds |
-| 创建子对话 | conversations INSERT (child) + conversations UPDATE (parent updated_at) + conversation_otters INSERT | 单事务 |
-| 添加关键事实 | key_facts INSERT + memory_entries INSERT + memory_fts INSERT + memory_weights INSERT | 单事务，保证关键信息和索引一致 |
-| 链接资源 | external_resources INSERT OR IGNORE + linked_resources INSERT + memory_entries INSERT + memory_fts INSERT + memory_weights INSERT | 单事务，保证资源和索引一致 |
-| 重启獭生 | otter_sessions UPDATE (archive) + otter_sessions INSERT (new) | 单事务 |
-| 解散小獭 | otters UPDATE (dissolved) + skill_assignments UPDATE (revoked) + otter_sessions UPDATE (archived) | 单事务 |
-| Session 归档 | memory_entries UPDATE (layer working->historical) + conversations UPDATE (summary) + memory_entries INSERT (conversation_summary) + memory_fts INSERT + memory_weights INSERT | 单事务，embedding 异步 |
+| 操作 | 事务范围 | 编排层 | 说明 |
+|------|---------|-------|------|
+| 发送消息 | ConversationPort.sendMessage(messages INSERT) + MemoryPort.store(memory_entries + memory_fts + memory_weights INSERT) | app/orchestration | 跨模块事务，由 orchestration 编排 |
+| 创建对话 | conversations INSERT + conversation_otters INSERT | domain/conversation | 单模块事务 |
+| 创建子对话 | conversations INSERT (child) + conversations UPDATE (parent updated_at) + conversation_otters INSERT | domain/conversation | 单模块事务 |
+| 添加关键事实 | key_facts INSERT + memory_entries INSERT + memory_fts INSERT + memory_weights INSERT | domain/conversation + domain/memory | 跨模块，由 orchestration 编排 |
+| 链接资源 | external_resources INSERT OR IGNORE + linked_resources INSERT + memory_entries INSERT + memory_fts INSERT + memory_weights INSERT | domain/external + domain/conversation + domain/memory | 跨模块，由 orchestration 编排 |
+| 重启獭生 | otter_sessions UPDATE (archive) + otter_sessions INSERT (new) | domain/otter | 单模块事务 |
+| 解散小獭 | otters UPDATE (dissolved) + skill_assignments UPDATE (revoked) + otter_sessions UPDATE (archived) | app/orchestration | 跨模块事务 |
+| Session 归档 | memory_entries UPDATE (layer working->historical) + conversations UPDATE (summary) + memory_entries INSERT (conversation_summary) + memory_fts INSERT + memory_weights INSERT | app/orchestration | 跨模块事务，embedding 异步 |
 
 ## S3-A3: 三层记忆存储映射 [required]
 
@@ -935,7 +947,7 @@ interface ConversationPort {
 | sendMessage | conversation + memory | 发送消息 + 写记忆索引，单事务 |
 | archiveSession | otter + memory | Session 归档 + memory layer 变更，单事务 |
 | dissolveOtter | otter + capability + memory | 解散小獭 + 能力回收 + layer 变更，单事务 |
-| createSmallOtter | otter + capability | 创建小獭 + 分配能力，单事务 |
+| createSmallOtter | otter + capability + conversation | 创建小獭 + 分配能力 + 关联对话（conversation_otters INSERT），单事务 |
 | restartOtterLife | otter + memory | 重启獭生（archive + new session + layer 变更），单事务 |
 
 > 以下操作**不在** app/orchestration，属于 domain 模块内部：
@@ -994,9 +1006,9 @@ infra/db(0) ──────────────────────�
     │
     ├── domain/otter(①) ───────────── Otter 生命周期
     │
-    ├── domain/memory(②) ──────────── 记忆索引 + 检索（自包含）
+    ├── domain/memory(②) ──────────── 记忆索引 + 检索（自包含，FTS5 立即可用，vec0 待⑨）
     │
-    ├── domain/conversation(③) ────── 对话 + 消息 + 关键信息（依赖 otter + memory，通过 Port）
+    ├── domain/conversation(③) ────── 对话 + 消息 + 关键信息（自包含，仅依赖 infra/db）
     │
     ├── domain/capability(④) ──────── 能力管理（依赖 otter，通过 Port）
     │
@@ -1016,7 +1028,7 @@ infra/db(0) ──────────────────────�
 | 0 | infra/db | 无 | SQLite 连接 + schema 初始化 |
 | 1 | domain/otter | infra/db | Otter CRUD + Session 生命周期 |
 | 2 | domain/memory | infra/db | 记忆索引 + FTS5 + vec0 + RRF + 权重 |
-| 3 | domain/conversation | otterPort, memoryPort | 对话 + 消息 + 对话树 + 关键信息 |
+| 3 | domain/conversation | infra/db | 对话 + 消息 + 对话树 + 关键信息（自包含，跨模块操作在 app/orchestration） |
 | 4 | domain/capability | otterPort | Skill 注册 + 分配 + 回收 |
 | 5 | domain/external | conversationPort | 外部资源 + 自动关联 |
 | 6 | app/orchestration | conversationPort + memoryPort + otterPort + capabilityPort | 跨模块事务编排 |
@@ -1098,7 +1110,7 @@ src/domain/conversation/
 
 | # | 场景 | 预期行为 | 意图锚 | S3 存储约束 |
 |---|------|---------|--------|------------|
-| B1 | 当用户在活跃对话中发送消息时 | 大獭应基于记忆系统检索的相关上下文回复 | UA-3, UA-5 | 消息写入 messages + memory_entries + memory_fts + memory_weights 单事务 |
+| B1 | 当用户在活跃对话中发送消息时 | 大獭应基于记忆系统检索的相关上下文回复 | UA-3, UA-5 | app/orchestration.sendMessage 编排 ConversationPort.sendMessage(messages INSERT) + MemoryPort.store(memory_entries + memory_fts + memory_weights INSERT) 单事务 |
 | B2 | 当用户询问历史对话内容时 | 大獭应通过多维度检索搜索历史记忆 | UA-7 | FTS5 + vec0 + RRF + 权重重排 |
 | B3a | 当大獭判断当前任务需要多角度协作时 | 大獭应创建临时小獭并注入相关上下文 | UA-4, UA-11 | otters INSERT + otter_sessions INSERT |
 | B3b | 当小獭被创建后 | 小獭应具备通过标准化接口检索共享记忆的能力 | UA-13 | memory_entries 共享查询，无 Otter 隔离 |
@@ -1207,6 +1219,7 @@ src/domain/conversation/
 - ESLint 禁止跨模块 import _internal/（main.ts 豁免），强制封装
 - memory_entries.tree_path 冗余存储，消除 memory -> conversation 跨模块读依赖（D29）
 - app/orchestration 严格限定为 5 个跨模块操作，不包含单聚合内业务逻辑
+- domain 模块间不互相依赖，跨模块操作全部在 app/orchestration 编排（D29）
 - 测试文件 co-located，E2E 测试放 tests/e2e/
 
 ### 语义不变量（实现中必须保持为真）
