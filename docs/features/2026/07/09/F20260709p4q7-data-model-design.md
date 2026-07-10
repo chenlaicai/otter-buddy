@@ -792,6 +792,130 @@ graph TB
 | CPU | 低（空闲时） | 单用户，消息驱动 |
 | 网络 | 仅 LLM API | HTTPS 出站到 LLM Provider |
 
+## S3-A8: 代码目录结构规划 [required]
+
+> **方法论**：DDD 模块化 + 按限界上下文组织。S1 定义了 5 个限界上下文，S2 细化了领域模型和服务接口，本节规划代码目录结构，支撑 S4 逐模块实现。
+
+### 设计原则
+
+1. **按模块组织（非按层组织）**：每个限界上下文对应一个独立目录，高内聚低耦合
+2. **逐模块可实现**：模块间依赖最小化，可按依赖顺序逐一实现和测试
+3. **S3 表结构可调整**：各模块实现时根据实际业务场景调整 S3 表设计（D28 赋予的调整权）
+4. **不过度分层**：单用户本地应用，模块内保持扁平结构，避免过度抽象
+
+### 顶层目录结构
+
+```
+src/
+├── modules/               # 5 个限界上下文（逐模块实现）
+│   ├── conversation/      # 对话上下文（核心域）
+│   ├── memory/            # 记忆上下文（核心域）
+│   ├── otter/             # Otter 上下文（支撑域）
+│   ├── capability/        # 能力上下文（支撑域）
+│   └── external/          # 外部系统上下文（支撑域）
+├── shared/                # 跨模块共享基础设施
+│   ├── db/                # SQLite 连接、schema 初始化
+│   └── embedding/         # Worker thread embedding 服务
+├── agent/                 # Agent 运行时（pi-agent-core 集成）
+│   └── tools/             # Agent 可调用的工具（映射 S2 Service 接口）
+├── server/                # Hono HTTP 服务器
+│   ├── routes/            # API 路由
+│   └── sse/               # SSE 流式推送
+└── frontend/              # React SPA
+    ├── components/        # UI 组件
+    ├── pages/             # 页面
+    └── hooks/             # React hooks
+```
+
+### 模块内部结构（统一约定）
+
+每个模块内部保持扁平，不设子目录：
+
+```
+src/modules/conversation/
+├── types.ts               # 领域类型（Entity, Value Object, Domain Event）
+├── repository.ts          # Repository 实现（S3 接口落地，S3 表结构可在此调整）
+├── service.ts             # Service 实现（S2 接口落地）
+└── index.ts               # 模块导出（只导出 Service 和类型，Repository 为内部实现）
+```
+
+> 模块间通过 Service 接口通信，不直接访问对方的 Repository。这是模块间唯一的耦合方式。
+
+### 模块依赖关系与实现顺序
+
+```
+shared/db ────────────────────────── 基础设施，最先实现
+    │
+    ├── modules/otter ────────────── ① Otter 生命周期（被 conversation 依赖）
+    │
+    ├── modules/conversation ─────── ② 对话 + 消息（核心域，被 memory 依赖）
+    │       │
+    │       └── modules/memory ──── ③ 记忆检索（依赖 conversation 的消息写入）
+    │
+    ├── modules/capability ───────── ④ 能力管理（依赖 otter）
+    │
+    └── modules/external ─────────── ⑤ 外部系统（依赖 conversation 的 key info）
+
+    ── 以上为模块层，以下为应用层 ──
+
+    agent/tools ─────────────────── ⑥ Agent 工具（映射各模块 Service）
+    agent/runtime ───────────────── ⑦ Agent 运行时（pi-agent-core 集成）
+    server/ ─────────────────────── ⑧ HTTP API + SSE
+    frontend/ ───────────────────── ⑨ React SPA
+```
+
+| 顺序 | 模块 | 依赖 | 说明 |
+|------|------|------|------|
+| 0 | shared/db | 无 | SQLite 连接 + schema 初始化（S3 DDL） |
+| 1 | modules/otter | shared/db | Otter CRUD + Session 生命周期 |
+| 2 | modules/conversation | shared/db, otter | 对话 + 消息 + 对话树 + 关键信息 |
+| 3 | modules/memory | shared/db, conversation | 记忆索引 + FTS5 + vec0 + RRF + 权重 |
+| 4 | modules/capability | shared/db, otter | Skill 注册 + 分配 + 回收 |
+| 5 | modules/external | shared/db, conversation | 外部资源 + 自动关联 |
+| 6 | agent | 全部模块 | pi-agent-core 集成 + Agent 工具定义 |
+| 7 | server | agent | Hono HTTP + SSE + REST API |
+| 8 | frontend | server | React SPA + 对话树可视化 |
+
+### shared/ 详细说明
+
+```
+src/shared/
+├── db/
+│   ├── connection.ts      # better-sqlite3 连接单例
+│   ├── schema.ts          # S3 DDL 初始化（CREATE TABLE IF NOT EXISTS）
+│   └── types.ts           # 数据库类型定义
+└── embedding/
+    ├── worker.ts          # Worker thread 入口（bge-m3 ONNX 推理）
+    ├── service.ts         # Embedding 服务（postMessage 通信封装）
+    └── types.ts           # Embedding 请求/响应类型
+```
+
+### agent/ 详细说明
+
+```
+src/agent/
+├── runtime.ts             # Agent 运行时（pi-agent-core 封装，大獭/小獭实例管理）
+├── tools/
+│   ├── memory-tools.ts    # 映射 MemoryService -> AgentTool（search, expand, similar...）
+│   ├── conversation-tools.ts # 映射 ConversationService -> AgentTool
+│   ├── otter-tools.ts     # 映射 OtterService -> AgentTool
+│   └── external-tools.ts  # 映射 ExternalSystemService -> AgentTool
+└── types.ts               # Agent 相关类型
+```
+
+> Agent 工具采用 MCP 风格接口，S2 的 5 个 Service 接口各自映射为一组 AgentTool。
+
+### 与 S2/S3 的映射关系
+
+| S2 限界上下文 | S2 Service 接口 | S3 表 | 代码目录 |
+|-------------|----------------|-------|---------|
+| 对话上下文 | ConversationService | conversations, messages, conversation_otters, linked_resources, key_facts | src/modules/conversation/ |
+| 记忆上下文 | MemoryService | memory_entries, memory_weights, memory_fts, memory_vec | src/modules/memory/ |
+| Otter 上下文 | OtterService | otters, otter_sessions | src/modules/otter/ |
+| 能力上下文 | CapabilityService | skills, skill_assignments | src/modules/capability/ |
+| 外部系统上下文 | ExternalSystemService | external_resources | src/modules/external/ |
+
+
 ## 核心业务行为 [required]
 
 > 从 S2 继承的行为条目，S3 补充存储层面约束。
@@ -930,6 +1054,7 @@ graph TB
 - [x] S3-A5 检索索引策略 -- FTS5 + vec0 + RRF + 查询示例 + 降级策略
 - [x] S3-A6 权重系统 Schema -- 存储vs计算分离 + 更新时机 + task_relevance 计算
 - [x] S3-A7 部署图 -- Mermaid 部署图 + 物理组件清单 + 资源占用估算
+- [x] S3-A8 代码目录结构规划 -- 顶层目录 + 模块内部结构 + 实现顺序 + S2/S3 映射
 
 ### 数据模型与 S2 领域模型一致性
 
