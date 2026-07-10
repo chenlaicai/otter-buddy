@@ -840,6 +840,7 @@ src/
 src/modules/conversation/
 ├── domain/                         # 领域层（零外部依赖，纯业务逻辑）
 │   ├── conversation.ts             # 聚合根 + 实体
+│   ├── conversation.test.ts        # 领域单元测试（纯逻辑，无 mock）
 │   ├── message.ts                  # 实体
 │   ├── tree-path.ts                # 值对象
 │   ├── key-info.ts                 # 值对象（LinkedResource + KeyFact）
@@ -849,14 +850,13 @@ src/modules/conversation/
 │       # MemoryPort                  -- 跨模块：写入记忆索引
 │       # OtterPort                   -- 跨模块：查询 Otter 信息
 ├── application/                    # 应用层（用例编排，实现入站端口）
-│   └── conversation-service.ts     # ConversationService（S2 接口落地）
+│   ├── conversation-service.ts     # ConversationService（S2 接口落地）
+│   └── conversation-service.test.ts # 应用层测试（mock ports）
 ├── infrastructure/                 # 基础设施层（实现 domain/ports）
 │   └── sqlite/
 │       ├── conversation-repository.ts  # 实现 ConversationRepositoryPort
+│       ├── conversation-repository.test.ts # 集成测试（real SQLite）
 │       └── mapper.ts                   # 领域对象 <-> DB 行映射
-├── conversation.test.ts            # 领域单元测试（纯逻辑，无 mock）
-├── application/
-│   └── conversation-service.test.ts # 应用层测试（mock ports）
 └── index.ts                        # 模块导出（仅导出 Service + domain 类型 + Port 接口）
 ```
 
@@ -990,13 +990,15 @@ bootstrap/db(0) ──────────────────── 基
 | 0 | bootstrap/db | 无 | SQLite 连接 + schema 初始化 |
 | 1 | modules/otter | bootstrap/db | Otter CRUD + Session 生命周期 |
 | 2 | modules/memory | bootstrap/db | 记忆索引 + FTS5 + vec0 + RRF + 权重 |
-| 3 | modules/conversation | otter(MemoryPort), memory(OtterPort) | 对话 + 消息 + 对话树 + 关键信息 |
+| 3 | modules/conversation | memory(MemoryPort), otter(OtterPort) | 对话 + 消息 + 对话树 + 关键信息 |
 | 4 | modules/capability | otter(Port) | Skill 注册 + 分配 + 回收 |
 | 5 | modules/external | conversation(Port) | 外部资源 + 自动关联 |
 | 6 | bootstrap/agent | 全部模块 | pi-agent-core 集成 + Agent 工具 |
 | 7 | bootstrap/http | agent + modules | Hono HTTP + SSE + REST API |
 | 8 | bootstrap/embedding | memory(Port) | bge-m3 Worker thread |
 | 9 | frontend | http | React SPA + 对话树可视化 |
+
+> **增量可用性说明**：memory(②) 的 FTS5 关键词检索立即可用，vec0 语义检索在 embedding(⑧) 实现后可用。中间阶段 memory.search 降级为纯 FTS5（符合 D22 降级策略）。
 
 ### 测试目录约定
 
