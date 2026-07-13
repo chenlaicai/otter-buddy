@@ -177,12 +177,19 @@ export class MemoryRepository {
   }
 
   storeEmbedding(memoryEntryId: string, embedding: Float32Array): void {
-    /** vec0 不支持 INSERT OR REPLACE，先删除再插入 */
-    this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(memoryEntryId);
-    this.db.prepare(`
-      INSERT INTO memory_vec (memory_entry_id, embedding)
-      VALUES (?, ?)
-    `).run(memoryEntryId, embedding);
+    /** vec0 不支持 INSERT OR REPLACE，先删除再插入（事务保证原子性） */
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(memoryEntryId);
+      this.db.prepare(`
+        INSERT INTO memory_vec (memory_entry_id, embedding)
+        VALUES (?, ?)
+      `).run(memoryEntryId, embedding);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   getEmbedding(memoryEntryId: string): Float32Array | null {

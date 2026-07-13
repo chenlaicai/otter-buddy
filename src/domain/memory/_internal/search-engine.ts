@@ -164,8 +164,9 @@ export class SearchEngine {
   ): number {
     if (!entryTreePath || !currentTreePath) return 1.0;
     if (
-      entryTreePath.startsWith(currentTreePath) ||
-      currentTreePath.startsWith(entryTreePath)
+      entryTreePath === currentTreePath ||
+      entryTreePath.startsWith(currentTreePath + "/") ||
+      currentTreePath.startsWith(entryTreePath + "/")
     ) {
       return this.config.samePathBoost;
     }

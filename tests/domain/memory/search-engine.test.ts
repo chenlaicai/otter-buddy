@@ -222,6 +222,20 @@ describe("SearchEngine", () => {
       const score2 = engine.computeFinalScore(1.0, weight, now, "/a/b/c", "/a/b");
       expect(score2).toBeCloseTo(1.5, 1);
     });
+
+    it("路径段边界：/conv/1 与 /conv/10 不是同路径", () => {
+      const engine = new SearchEngine(defaultConfig);
+      const weight = makeWeight();
+      const now = new Date().toISOString();
+
+      /** /conv/10 不应匹配 /conv/1 的前缀（路径段边界） */
+      const score = engine.computeFinalScore(1.0, weight, now, "/conv/10", "/conv/1");
+      expect(score).toBeCloseTo(0.8, 1);
+
+      /** 反向也成立 */
+      const score2 = engine.computeFinalScore(1.0, weight, now, "/conv/1", "/conv/10");
+      expect(score2).toBeCloseTo(0.8, 1);
+    });
   });
 
   describe("computeFinalScore - user_flag_multiplier", () => {
