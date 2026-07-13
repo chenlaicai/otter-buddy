@@ -8,6 +8,12 @@
 export type ConversationStatus = "active" | "completed" | "archived";
 export type SenderType = "user" | "otter";
 
+/** 消息生命周期状态 */
+export type MessageStatus = "streaming" | "completed" | "failed";
+
+/** 流式事件类型 */
+export type MessageEventType = "text_delta" | "tool_call" | "tool_result" | "error";
+
 // ===== 实体 =====
 
 export interface Conversation {
@@ -28,8 +34,19 @@ export interface Message {
   conversationId: string;
   senderType: SenderType;
   senderId: string;
-  content: string;
+  status: MessageStatus;
+  body: string | null;
   attachments: Attachment[] | null;
+  sequenceNum: number;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface MessageEvent {
+  id: string;
+  messageId: string;
+  eventType: MessageEventType;
+  payload: Record<string, unknown>;
   sequenceNum: number;
   createdAt: string;
 }
@@ -72,10 +89,30 @@ export interface ConversationTreeNode {
 
 // ===== 输入类型 =====
 
+/** 用户消息输入（立即完成，body 必填） */
 export interface MessageInput {
   senderType: SenderType;
   senderId: string;
-  content: string;
+  body: string;
+  attachments?: Attachment[];
+}
+
+/** Otter 消息启动输入（streaming 阶段，无 body） */
+export interface StartMessageInput {
+  senderId: string;
+  attachments?: Attachment[];
+}
+
+/** 流式事件输入 */
+export interface MessageEventInput {
+  eventType: MessageEventType;
+  payload: Record<string, unknown>;
+}
+
+/** 完成消息输入 */
+export interface CompleteMessageInput {
+  body: string;
+  /** 不提供时保留 startMessage 时的预置 attachments */
   attachments?: Attachment[];
 }
 

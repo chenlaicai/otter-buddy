@@ -7,6 +7,7 @@
 
 import type Database from "better-sqlite3";
 import type {
+  Attachment,
   Conversation,
   ConversationStatus,
   KeyFact,
@@ -14,16 +15,22 @@ import type {
   LinkedResource,
   LinkedResourceInput,
   Message,
+  MessageEvent,
+  MessageEventInput,
   MessageInput,
+  MessageStatus,
+  StartMessageInput,
 } from "../model";
 import {
   rowToConversation,
   rowToKeyFact,
   rowToLinkedResource,
   rowToMessage,
+  rowToMessageEvent,
   type ConversationRow,
   type KeyFactRow,
   type LinkedResourceRow,
+  type MessageEventRow,
   type MessageRow,
 } from "./mapper";
 
@@ -109,10 +116,10 @@ export class ConversationRepository {
     return rows.map(rowToConversation);
   }
 
-  // --- Messages (append-only) ---
+  // --- Messages (two-layer model: body + streaming events) ---
 
-  /** INSERT 消息，从 DB 读取返回值确保 createdAt 一致（架构师-2 F1） */
-  sendMessage(
+  /** 创建已完成消息（用户消息）。从 DB 读取返回值确保 createdAt 一致 */
+  createCompletedMessage(
     id: string,
     conversationId: string,
     message: MessageInput,
@@ -120,15 +127,15 @@ export class ConversationRepository {
   ): Message {
     this.db
       .prepare(
-        `INSERT INTO messages (id, conversation_id, sender_type, sender_id, content, attachments, sequence_num)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body, attachments, sequence_num)
+         VALUES (?, ?, ?, ?, 'completed', ?, ?, ?)`,
       )
       .run(
         id,
         conversationId,
         message.senderType,
         message.senderId,
-        message.content,
+        message.body,
         message.attachments ? JSON.stringify(message.attachments) : null,
         sequenceNum,
       );
@@ -136,33 +143,109 @@ export class ConversationRepository {
     return this.getMessageById(id)!;
   }
 
+  /** 创建 streaming 消息（Otter 消息开始） */
+  createStreamingMessage(
+    id: string,
+    conversationId: string,
+    sender: StartMessageInput,
+    sequenceNum: number,
+  ): Message {
+    this.db
+      .prepare(
+        `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body, attachments, sequence_num)
+         VALUES (?, ?, 'otter', ?, 'streaming', NULL, ?, ?)`,
+      )
+      .run(
+        id,
+        conversationId,
+        sender.senderId,
+        sender.attachments ? JSON.stringify(sender.attachments) : null,
+        sequenceNum,
+      );
+
+    return this.getMessageById(id)!;
+  }
+
+  /** 完成消息：streaming -> completed（设置 body + completed_at） */
+  completeMessage(
+    messageId: string,
+    body: string,
+    attachments: Attachment[] | null,
+  ): Message {
+    const result = this.db
+      .prepare(
+        `UPDATE messages
+         SET status = 'completed', body = ?, attachments = ?, completed_at = datetime('now')
+         WHERE id = ? AND status = 'streaming'`,
+      )
+      .run(
+        body,
+        attachments ? JSON.stringify(attachments) : null,
+        messageId,
+      );
+
+    /** 检查 UPDATE 0 rows（并发保护，与 adapter 校验双重保障，架构师-2 #3） */
+    if (result.changes === 0) {
+      throw new Error(
+        `Message ${messageId} not found or not in streaming status`,
+      );
+    }
+
+    return this.getMessageById(messageId)!;
+  }
+
+  /** 失败消息：streaming -> failed（设置 completed_at，body 保持 NULL） */
+  failMessage(messageId: string): Message {
+    const result = this.db
+      .prepare(
+        `UPDATE messages
+         SET status = 'failed', completed_at = datetime('now')
+         WHERE id = ? AND status = 'streaming'`,
+      )
+      .run(messageId);
+
+    if (result.changes === 0) {
+      throw new Error(
+        `Message ${messageId} not found or not in streaming status`,
+      );
+    }
+
+    return this.getMessageById(messageId)!;
+  }
+
   getMessages(
     conversationId: string,
-    opts?: { limit?: number; before?: string },
+    opts?: { limit?: number; before?: string; status?: MessageStatus },
   ): Message[] {
     const limit = opts?.limit ?? 50;
+    const status = opts?.status;
 
     if (opts?.before) {
-      const rows = this.db
-        .prepare(
-          `SELECT * FROM messages
-           WHERE conversation_id = ?
-             AND sequence_num < (SELECT sequence_num FROM messages WHERE id = ?)
-           ORDER BY sequence_num DESC
-           LIMIT ?`,
-        )
-        .all(conversationId, opts.before, limit) as MessageRow[];
+      let sql = `SELECT * FROM messages
+         WHERE conversation_id = ?
+           AND sequence_num < (SELECT sequence_num FROM messages WHERE id = ?)`;
+      const params: (string | number)[] = [conversationId, opts.before];
+      if (status) {
+        sql += ` AND status = ?`;
+        params.push(status);
+      }
+      sql += ` ORDER BY sequence_num DESC LIMIT ?`;
+      params.push(limit);
+
+      const rows = this.db.prepare(sql).all(...params) as MessageRow[];
       return rows.map(rowToMessage);
     }
 
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM messages
-         WHERE conversation_id = ?
-         ORDER BY sequence_num DESC
-         LIMIT ?`,
-      )
-      .all(conversationId, limit) as MessageRow[];
+    let sql = `SELECT * FROM messages WHERE conversation_id = ?`;
+    const params: (string | number)[] = [conversationId];
+    if (status) {
+      sql += ` AND status = ?`;
+      params.push(status);
+    }
+    sql += ` ORDER BY sequence_num DESC LIMIT ?`;
+    params.push(limit);
+
+    const rows = this.db.prepare(sql).all(...params) as MessageRow[];
     return rows.map(rowToMessage);
   }
 
@@ -179,6 +262,51 @@ export class ConversationRepository {
         "SELECT MAX(sequence_num) as max_seq FROM messages WHERE conversation_id = ?",
       )
       .get(conversationId) as { max_seq: number | null };
+    return result.max_seq ?? 0;
+  }
+
+  // --- Message Events (append-only) ---
+
+  appendEvent(
+    id: string,
+    messageId: string,
+    event: MessageEventInput,
+    sequenceNum: number,
+  ): MessageEvent {
+    this.db
+      .prepare(
+        `INSERT INTO message_events (id, message_id, event_type, payload, sequence_num)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        messageId,
+        event.eventType,
+        JSON.stringify(event.payload),
+        sequenceNum,
+      );
+
+    const row = this.db
+      .prepare("SELECT * FROM message_events WHERE id = ?")
+      .get(id) as MessageEventRow;
+    return rowToMessageEvent(row);
+  }
+
+  getMessageEvents(messageId: string): MessageEvent[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM message_events WHERE message_id = ? ORDER BY sequence_num ASC",
+      )
+      .all(messageId) as MessageEventRow[];
+    return rows.map(rowToMessageEvent);
+  }
+
+  getMaxEventSequenceNum(messageId: string): number {
+    const result = this.db
+      .prepare(
+        "SELECT MAX(sequence_num) as max_seq FROM message_events WHERE message_id = ?",
+      )
+      .get(messageId) as { max_seq: number | null };
     return result.max_seq ?? 0;
   }
 

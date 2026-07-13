@@ -24,7 +24,7 @@ export function initSchema(db: Database.Database): void {
   }
 }
 
-/** 对话上下文：conversations + messages + conversation_otters */
+/** 对话上下文：conversations + messages + message_events + conversation_otters */
 function createConversationTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -46,23 +46,7 @@ function createConversationTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_conversations_tree_path ON conversations(tree_path);
   `);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      sender_type TEXT NOT NULL,
-      sender_id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      attachments TEXT,
-      sequence_num INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(conversation_id, sequence_num);
-    CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
-  `);
+  createMessageTables(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversation_otters (
@@ -75,6 +59,45 @@ function createConversationTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversation_otters_otter_id ON conversation_otters(otter_id);
+  `);
+}
+
+/** 消息表：messages + message_events（两层模型：body + streaming events） */
+function createMessageTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      sender_type TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'completed',
+      body TEXT,
+      attachments TEXT,
+      sequence_num INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(conversation_id, sequence_num);
+    CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
+    CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS message_events (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (message_id) REFERENCES messages(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_message_events_message_seq ON message_events(message_id, sequence_num);
+    CREATE INDEX IF NOT EXISTS idx_message_events_type ON message_events(event_type);
   `);
 }
 

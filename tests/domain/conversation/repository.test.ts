@@ -3,7 +3,13 @@ import type Database from "better-sqlite3";
 import { initDatabase, closeDatabase } from "@infra/db/database";
 import { initSchema } from "@infra/db/schema";
 import { ConversationRepository } from "@domain/conversation/_internal/repository";
-import type { MessageInput, KeyFactInput, LinkedResourceInput } from "@domain/conversation/model";
+import type {
+  KeyFactInput,
+  LinkedResourceInput,
+  MessageEventInput,
+  MessageInput,
+  StartMessageInput,
+} from "@domain/conversation/model";
 
 /** 插入 otter 记录（满足 conversation_otters 外键约束） */
 function insertOtter(db: Database.Database, id: string): void {
@@ -20,7 +26,15 @@ function insertConversation(db: Database.Database, id: string, treePath: string)
 }
 
 function makeMessage(overrides: Partial<MessageInput> = {}): MessageInput {
-  return { senderType: "user", senderId: "user-1", content: "hello", ...overrides };
+  return { senderType: "user", senderId: "user-1", body: "hello", ...overrides };
+}
+
+function makeStartMessage(overrides: Partial<StartMessageInput> = {}): StartMessageInput {
+  return { senderId: "otter-1", ...overrides };
+}
+
+function makeEvent(overrides: Partial<MessageEventInput> = {}): MessageEventInput {
+  return { eventType: "text_delta", payload: { text: "delta" }, ...overrides };
 }
 
 function makeKeyFact(overrides: Partial<KeyFactInput> = {}): KeyFactInput {
@@ -149,30 +163,201 @@ describe("ConversationRepository - tree queries", () => {
   });
 });
 
-describe("ConversationRepository - messages", () => {
-  it("sendMessage + getMessages，sequence_num 自增", () => {
+describe("ConversationRepository - createCompletedMessage (sendMessage)", () => {
+  it("创建 status='completed', body 非空, completed_at=NULL 的消息", () => {
     insertConversation(db, "conv-1", "/conv-1/");
-    const msg1 = repo.sendMessage("msg-1", "conv-1", makeMessage({ content: "first" }), 1);
-    const msg2 = repo.sendMessage("msg-2", "conv-1", makeMessage({ content: "second" }), 2);
-    expect(msg1.sequenceNum).toBe(1);
-    expect(msg2.sequenceNum).toBe(2);
-    const messages = repo.getMessages("conv-1");
-    expect(messages).toHaveLength(2);
-    expect(messages[0].content).toBe("second");
+    const msg = repo.createCompletedMessage("msg-1", "conv-1", makeMessage({ body: "hello" }), 1);
+    expect(msg.status).toBe("completed");
+    expect(msg.body).toBe("hello");
+    expect(msg.completedAt).toBeNull();
+    expect(msg.sequenceNum).toBe(1);
   });
 
-  it("getMessages 默认 limit=50", () => {
+  it("sequence_num 自增", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const msg1 = repo.createCompletedMessage("msg-1", "conv-1", makeMessage({ body: "first" }), 1);
+    const msg2 = repo.createCompletedMessage("msg-2", "conv-1", makeMessage({ body: "second" }), 2);
+    expect(msg1.sequenceNum).toBe(1);
+    expect(msg2.sequenceNum).toBe(2);
+  });
+
+  it("attachments JSON 序列化/反序列化", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const attachments = [{ type: "image", url: "https://img.com/1.png", name: "pic" }];
+    const msg = repo.createCompletedMessage("msg-1", "conv-1", makeMessage({ attachments }), 1);
+    expect(msg.attachments).toEqual(attachments);
+  });
+
+  it("返回值 createdAt 从 DB 读取", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const msg = repo.createCompletedMessage("msg-1", "conv-1", makeMessage(), 1);
+    expect(msg.id).toBe("msg-1");
+    expect(msg.createdAt).toBeTruthy();
+  });
+});
+
+describe("ConversationRepository - createStreamingMessage (startMessage)", () => {
+  it("创建 status='streaming', body=NULL 的消息", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const msg = repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    expect(msg.status).toBe("streaming");
+    expect(msg.body).toBeNull();
+    expect(msg.senderType).toBe("otter");
+    expect(msg.completedAt).toBeNull();
+  });
+
+  it("带 attachments 时正确写入", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const attachments = [{ type: "file", url: "https://file.com/1.pdf" }];
+    const msg = repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage({ attachments }), 1);
+    expect(msg.attachments).toEqual(attachments);
+  });
+});
+
+describe("ConversationRepository - completeMessage", () => {
+  it("streaming -> completed, body 设置, completed_at 非空", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    const msg = repo.completeMessage("msg-1", "final body", null);
+    expect(msg.status).toBe("completed");
+    expect(msg.body).toBe("final body");
+    expect(msg.completedAt).not.toBeNull();
+  });
+
+  it("设置 attachments", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    const attachments = [{ type: "image", url: "https://img.com/1.png" }];
+    const msg = repo.completeMessage("msg-1", "final body", attachments);
+    expect(msg.attachments).toEqual(attachments);
+  });
+
+  it("对非 streaming 消息 throw（UPDATE 0 rows）", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createCompletedMessage("msg-1", "conv-1", makeMessage(), 1);
+    expect(() => repo.completeMessage("msg-1", "body", null)).toThrow(
+      /not found or not in streaming status/,
+    );
+  });
+
+  it("不存在的消息 throw", () => {
+    expect(() => repo.completeMessage("nonexistent", "body", null)).toThrow(
+      /not found or not in streaming status/,
+    );
+  });
+});
+
+describe("ConversationRepository - failMessage", () => {
+  it("streaming -> failed, body=NULL, completed_at 非空", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    const msg = repo.failMessage("msg-1");
+    expect(msg.status).toBe("failed");
+    expect(msg.body).toBeNull();
+    expect(msg.completedAt).not.toBeNull();
+  });
+
+  it("对非 streaming 消息 throw（UPDATE 0 rows）", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createCompletedMessage("msg-1", "conv-1", makeMessage(), 1);
+    expect(() => repo.failMessage("msg-1")).toThrow(
+      /not found or not in streaming status/,
+    );
+  });
+});
+
+describe("ConversationRepository - appendEvent + getMessageEvents", () => {
+  it("事件写入 message_events，sequence_num per-message 自增", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    const e1 = repo.appendEvent("evt-1", "msg-1", makeEvent(), 1);
+    const e2 = repo.appendEvent("evt-2", "msg-1", makeEvent({ payload: { text: "second" } }), 2);
+    expect(e1.sequenceNum).toBe(1);
+    expect(e2.sequenceNum).toBe(2);
+  });
+
+  it("getMessageEvents 按 sequence_num ASC 返回", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    repo.appendEvent("evt-3", "msg-1", makeEvent({ payload: { text: "third" } }), 3);
+    repo.appendEvent("evt-1", "msg-1", makeEvent({ payload: { text: "first" } }), 1);
+    repo.appendEvent("evt-2", "msg-1", makeEvent({ payload: { text: "second" } }), 2);
+    const events = repo.getMessageEvents("msg-1");
+    expect(events.map((e) => e.sequenceNum)).toEqual([1, 2, 3]);
+  });
+
+  it("getMessageEvents 空列表返回空数组", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    expect(repo.getMessageEvents("msg-1")).toEqual([]);
+  });
+
+  it("payload JSON 序列化/反序列化正确", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    const payload = { toolName: "memory_search", args: { query: "test" } };
+    const evt = repo.appendEvent("evt-1", "msg-1", makeEvent({ eventType: "tool_call", payload }), 1);
+    expect(evt.payload).toEqual(payload);
+  });
+
+  it("getMaxEventSequenceNum 返回当前最大值", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    repo.appendEvent("evt-1", "msg-1", makeEvent(), 1);
+    repo.appendEvent("evt-2", "msg-1", makeEvent(), 5);
+    expect(repo.getMaxEventSequenceNum("msg-1")).toBe(5);
+  });
+
+  it("getMaxEventSequenceNum 无事件时返回 0", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    expect(repo.getMaxEventSequenceNum("msg-1")).toBe(0);
+  });
+
+  it("message_events 外键约束：message_id 不存在时 INSERT 抛出异常", () => {
+    expect(() =>
+      repo.appendEvent("evt-1", "nonexistent", makeEvent(), 1),
+    ).toThrow();
+  });
+});
+
+describe("ConversationRepository - getMessages with status filter", () => {
+  it("status 过滤正确", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createCompletedMessage("msg-1", "conv-1", makeMessage(), 1);
+    repo.createStreamingMessage("msg-2", "conv-1", makeStartMessage(), 2);
+    repo.createCompletedMessage("msg-3", "conv-1", makeMessage(), 3);
+
+    const completed = repo.getMessages("conv-1", { status: "completed" });
+    expect(completed).toHaveLength(2);
+    expect(completed.every((m) => m.status === "completed")).toBe(true);
+
+    const streaming = repo.getMessages("conv-1", { status: "streaming" });
+    expect(streaming).toHaveLength(1);
+    expect(streaming[0].id).toBe("msg-2");
+  });
+
+  it("默认返回所有状态", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    repo.createCompletedMessage("msg-1", "conv-1", makeMessage(), 1);
+    repo.createStreamingMessage("msg-2", "conv-1", makeStartMessage(), 2);
+    expect(repo.getMessages("conv-1")).toHaveLength(2);
+  });
+});
+
+describe("ConversationRepository - getMessages pagination", () => {
+  it("默认 limit=50", () => {
     insertConversation(db, "conv-1", "/conv-1/");
     for (let i = 1; i <= 60; i++) {
-      repo.sendMessage(`msg-${i}`, "conv-1", makeMessage(), i);
+      repo.createCompletedMessage(`msg-${i}`, "conv-1", makeMessage(), i);
     }
     expect(repo.getMessages("conv-1")).toHaveLength(50);
   });
 
-  it("getMessages before 分页正确", () => {
+  it("before 分页正确", () => {
     insertConversation(db, "conv-1", "/conv-1/");
     for (let i = 1; i <= 10; i++) {
-      repo.sendMessage(`msg-${i}`, "conv-1", makeMessage(), i);
+      repo.createCompletedMessage(`msg-${i}`, "conv-1", makeMessage(), i);
     }
     const messages = repo.getMessages("conv-1", { before: "msg-7", limit: 3 });
     expect(messages.map((m) => m.sequenceNum)).toEqual([6, 5, 4]);
@@ -180,8 +365,8 @@ describe("ConversationRepository - messages", () => {
 
   it("getMaxSequenceNum 返回当前最大值", () => {
     insertConversation(db, "conv-1", "/conv-1/");
-    repo.sendMessage("msg-1", "conv-1", makeMessage(), 1);
-    repo.sendMessage("msg-2", "conv-1", makeMessage(), 5);
+    repo.createCompletedMessage("msg-1", "conv-1", makeMessage(), 1);
+    repo.createCompletedMessage("msg-2", "conv-1", makeMessage(), 5);
     expect(repo.getMaxSequenceNum("conv-1")).toBe(5);
   });
 
@@ -189,20 +374,13 @@ describe("ConversationRepository - messages", () => {
     insertConversation(db, "conv-1", "/conv-1/");
     expect(repo.getMaxSequenceNum("conv-1")).toBe(0);
   });
-
-  it("sendMessage 返回值 createdAt 从 DB 读取", () => {
-    insertConversation(db, "conv-1", "/conv-1/");
-    const msg = repo.sendMessage("msg-1", "conv-1", makeMessage(), 1);
-    expect(msg.id).toBe("msg-1");
-    expect(msg.createdAt).toBeTruthy();
-  });
 });
 
 describe("ConversationRepository - expandMessage", () => {
   it("before: 返回指定消息之前的 N 条（倒序）", () => {
     insertConversation(db, "conv-1", "/conv-1/");
     for (let i = 1; i <= 10; i++) {
-      repo.sendMessage(`msg-${i}`, "conv-1", makeMessage(), i);
+      repo.createCompletedMessage(`msg-${i}`, "conv-1", makeMessage(), i);
     }
     const before = repo.getMessagesBefore("conv-1", "msg-5", 3);
     expect(before.map((m) => m.sequenceNum)).toEqual([4, 3, 2]);
@@ -211,7 +389,7 @@ describe("ConversationRepository - expandMessage", () => {
   it("after: 返回指定消息之后的 N 条（正序）", () => {
     insertConversation(db, "conv-1", "/conv-1/");
     for (let i = 1; i <= 10; i++) {
-      repo.sendMessage(`msg-${i}`, "conv-1", makeMessage(), i);
+      repo.createCompletedMessage(`msg-${i}`, "conv-1", makeMessage(), i);
     }
     const after = repo.getMessagesAfter("conv-1", "msg-5", 3);
     expect(after.map((m) => m.sequenceNum)).toEqual([6, 7, 8]);
@@ -235,13 +413,6 @@ describe("ConversationRepository - key info + JSON", () => {
     expect(repo.getLinkedResources("conv-1")).toHaveLength(1);
   });
 
-  it("attachments JSON 序列化/反序列化", () => {
-    insertConversation(db, "conv-1", "/conv-1/");
-    const attachments = [{ type: "image", url: "https://img.com/1.png", name: "pic" }];
-    const msg = repo.sendMessage("msg-1", "conv-1", makeMessage({ attachments }), 1);
-    expect(msg.attachments).toEqual(attachments);
-  });
-
   it("metadata JSON 序列化/反序列化", () => {
     insertConversation(db, "conv-1", "/conv-1/");
     const metadata = { key: "value", num: 42 };
@@ -251,13 +422,11 @@ describe("ConversationRepository - key info + JSON", () => {
 
   it("auto_linked INTEGER 0/1 <-> boolean", () => {
     insertConversation(db, "conv-1", "/conv-1/");
-    // linkResource always sets auto_linked = 0 (manual link)
     const res = repo.linkResource("lr-1", "conv-1", makeLinkedResource());
     expect(res.autoLinked).toBe(false);
     const raw = db.prepare("SELECT auto_linked FROM linked_resources WHERE id = ?").get("lr-1") as { auto_linked: number };
     expect(raw.auto_linked).toBe(0);
 
-    // Directly insert a row with auto_linked = 1 to verify mapping
     db.prepare(
       `INSERT INTO linked_resources (id, conversation_id, resource_type, url, linked_by, auto_linked)
        VALUES (?, ?, 'url', 'https://auto.com', 'otter', 1)`,
@@ -277,6 +446,33 @@ describe("ConversationRepository - key info + JSON", () => {
 
 describe("ConversationRepository - 外键约束", () => {
   it("conversation_id 不存在时 INSERT message 抛出异常", () => {
-    expect(() => repo.sendMessage("msg-1", "nonexistent", makeMessage(), 1)).toThrow();
+    expect(() =>
+      repo.createCompletedMessage("msg-1", "nonexistent", makeMessage(), 1),
+    ).toThrow();
+  });
+});
+
+describe("ConversationRepository - body/status/completed_at 映射", () => {
+  it("body NULL 映射正确（DB NULL -> null）", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const msg = repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    expect(msg.body).toBeNull();
+  });
+
+  it("status 映射正确（TEXT -> union type）", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const streaming = repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    expect(streaming.status).toBe("streaming");
+    const completed = repo.completeMessage("msg-1", "body", null);
+    expect(completed.status).toBe("completed");
+  });
+
+  it("completed_at 映射正确（NULL -> null, 非NULL -> string）", () => {
+    insertConversation(db, "conv-1", "/conv-1/");
+    const streaming = repo.createStreamingMessage("msg-1", "conv-1", makeStartMessage(), 1);
+    expect(streaming.completedAt).toBeNull();
+    const completed = repo.completeMessage("msg-1", "body", null);
+    expect(completed.completedAt).not.toBeNull();
+    expect(typeof completed.completedAt).toBe("string");
   });
 });

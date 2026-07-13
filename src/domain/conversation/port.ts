@@ -6,6 +6,7 @@
  */
 
 import type {
+  CompleteMessageInput,
   Conversation,
   ConversationTreeNode,
   KeyFact,
@@ -14,7 +15,11 @@ import type {
   LinkedResource,
   LinkedResourceInput,
   Message,
+  MessageEvent,
+  MessageEventInput,
   MessageInput,
+  MessageStatus,
+  StartMessageInput,
 } from "./model";
 
 export interface ConversationPort {
@@ -44,18 +49,79 @@ export interface ConversationPort {
   /** 创建子对话。继承父对话的 otterIds */
   createChild(parentId: string, title: string): Promise<Conversation>;
 
-  // --- Messages (append-only) ---
+  // --- Messages (two-layer model: body + streaming events) ---
 
-  /** 发送消息（INSERT only）。返回含 ID/sequenceNum/timestamp 的 Message */
+  /**
+   * 发送用户消息（立即完成）。
+   * 创建 status='completed', body=message.body 的消息。
+   * 用于 user 消息--无 streaming 阶段。
+   */
   sendMessage(conversationId: string, message: MessageInput): Promise<Message>;
 
-  /** 获取消息列表（分页，按 sequence_num 倒序，默认 limit=50） */
+  /**
+   * 开始 Otter 消息（进入 streaming 状态）。
+   * 创建 status='streaming', body=NULL 的消息。
+   * 调用方（app/agent-runtime）随后通过 appendEvent 追加流式事件，
+   * 最终通过 completeMessage 设置最终 body。
+   */
+  startMessage(
+    conversationId: string,
+    sender: StartMessageInput,
+  ): Promise<Message>;
+
+  /**
+   * 追加流式事件到 streaming 消息。
+   * 事件 append-only（INSERT only）。
+   * sequence_num per-message 自增。
+   * 仅当 message.status='streaming' 时允许追加。
+   */
+  appendEvent(
+    messageId: string,
+    event: MessageEventInput,
+  ): Promise<MessageEvent>;
+
+  /**
+   * 完成消息--设置最终 body（类似 Snail Shell 的 set_final_body）。
+   * status: streaming -> completed
+   * body 设置为传入文本，completed_at 记录时间。
+   * 不可逆。调用后消息即为最终状态。
+   */
+  completeMessage(
+    messageId: string,
+    completion: CompleteMessageInput,
+  ): Promise<Message>;
+
+  /**
+   * 标记消息失败。
+   * status: streaming -> failed
+   * completed_at 记录时间。body 保持 NULL。
+   * 已有的流式事件保留（用于调试）。
+   */
+  failMessage(messageId: string): Promise<Message>;
+
+  /** 按 ID 获取消息 */
+  getMessageById(id: string): Promise<Message | null>;
+
+  /**
+   * 获取消息列表（分页，按 sequence_num 倒序，默认 limit=50）。
+   * 默认返回所有状态的消息（含 streaming、failed）。
+   * 可通过 status 参数过滤。
+   */
   getMessages(
     conversationId: string,
-    opts?: { limit?: number; before?: string },
+    opts?: { limit?: number; before?: string; status?: MessageStatus },
   ): Promise<Message[]>;
 
-  /** 获取消息上下文（前/后/双向） */
+  /**
+   * 获取消息的流式事件列表（按 sequence_num ASC）。
+   * 对应 Snail Shell 中"折叠的流式内容"--此处为展开查询。
+   */
+  getMessageEvents(messageId: string): Promise<MessageEvent[]>;
+
+  /**
+   * 获取消息上下文（前/后/双向，按 sequence_num）。
+   * 包含所有状态的消息。
+   */
   expandMessage(
     messageId: string,
     direction: "before" | "after" | "both",

@@ -11,6 +11,9 @@ import type {
   KeyFact,
   LinkedResource,
   Message,
+  MessageEvent,
+  MessageEventType,
+  MessageStatus,
   SenderType,
 } from "../model";
 
@@ -34,8 +37,19 @@ export interface MessageRow {
   conversation_id: string;
   sender_type: string;
   sender_id: string;
-  content: string;
+  status: string;
+  body: string | null;
   attachments: string | null;
+  sequence_num: number;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface MessageEventRow {
+  id: string;
+  message_id: string;
+  event_type: string;
+  payload: string;
   sequence_num: number;
   created_at: string;
 }
@@ -87,10 +101,23 @@ export function rowToMessage(row: MessageRow): Message {
     conversationId: row.conversation_id,
     senderType: row.sender_type as SenderType,
     senderId: row.sender_id,
-    content: row.content,
+    status: row.status as MessageStatus,
+    body: row.body,
     attachments: row.attachments
       ? (JSON.parse(row.attachments) as Attachment[])
       : null,
+    sequenceNum: row.sequence_num,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+  };
+}
+
+export function rowToMessageEvent(row: MessageEventRow): MessageEvent {
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    eventType: row.event_type as MessageEventType,
+    payload: JSON.parse(row.payload) as Record<string, unknown>,
     sequenceNum: row.sequence_num,
     createdAt: row.created_at,
   };

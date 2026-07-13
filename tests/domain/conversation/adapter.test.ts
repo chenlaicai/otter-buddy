@@ -6,6 +6,7 @@ import type {
   KeyFact,
   LinkedResource,
   Message,
+  MessageEvent,
 } from "@domain/conversation/model";
 
 // ===== Factory helpers =====
@@ -32,8 +33,33 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     conversationId: "conv-1",
     senderType: "user",
     senderId: "user-1",
-    content: "hello",
+    status: "completed",
+    body: "hello",
     attachments: null,
+    sequenceNum: 1,
+    createdAt: "2026-01-01 00:00:00",
+    completedAt: null,
+    ...overrides,
+  };
+}
+
+function makeStreamingMessage(overrides: Partial<Message> = {}): Message {
+  return makeMessage({
+    senderType: "otter",
+    senderId: "otter-1",
+    status: "streaming",
+    body: null,
+    completedAt: null,
+    ...overrides,
+  });
+}
+
+function makeMessageEvent(overrides: Partial<MessageEvent> = {}): MessageEvent {
+  return {
+    id: "evt-1",
+    messageId: "msg-1",
+    eventType: "text_delta",
+    payload: { text: "delta" },
     sequenceNum: 1,
     createdAt: "2026-01-01 00:00:00",
     ...overrides,
@@ -80,10 +106,16 @@ function createMockRepo(): ConversationRepository {
     updateStatus: vi.fn(),
     getChildren: vi.fn(),
     getByTreePathPrefix: vi.fn(),
-    sendMessage: vi.fn(),
-    getMessages: vi.fn(),
+    createCompletedMessage: vi.fn(),
+    createStreamingMessage: vi.fn(),
+    completeMessage: vi.fn(),
+    failMessage: vi.fn(),
     getMessageById: vi.fn(),
+    getMessages: vi.fn(),
     getMaxSequenceNum: vi.fn(),
+    appendEvent: vi.fn(),
+    getMessageEvents: vi.fn(),
+    getMaxEventSequenceNum: vi.fn(),
     getMessagesBefore: vi.fn(),
     getMessagesAfter: vi.fn(),
     addKeyFact: vi.fn(),
@@ -316,15 +348,181 @@ describe("ConversationAdapter - getTree", () => {
 describe("ConversationAdapter - sendMessage", () => {
   it("sequence_num = getMaxSequenceNum + 1", async () => {
     vi.mocked(repo.getMaxSequenceNum).mockReturnValue(4);
-    vi.mocked(repo.sendMessage).mockReturnValue(makeMessage({ sequenceNum: 5 }));
+    vi.mocked(repo.createCompletedMessage).mockReturnValue(
+      makeMessage({ sequenceNum: 5 }),
+    );
 
     const msg = await port.sendMessage("conv-1", {
       senderType: "user",
       senderId: "user-1",
-      content: "hello",
+      body: "hello",
     });
 
     expect(msg.sequenceNum).toBe(5);
+  });
+});
+
+describe("ConversationAdapter - startMessage", () => {
+  it("sequence_num = getMaxSequenceNum + 1, senderType 固定为 otter", async () => {
+    vi.mocked(repo.getMaxSequenceNum).mockReturnValue(2);
+    vi.mocked(repo.createStreamingMessage).mockReturnValue(
+      makeStreamingMessage({ sequenceNum: 3 }),
+    );
+
+    const msg = await port.startMessage("conv-1", { senderId: "otter-1" });
+
+    expect(msg.sequenceNum).toBe(3);
+    expect(msg.senderType).toBe("otter");
+    expect(msg.status).toBe("streaming");
+  });
+});
+
+describe("ConversationAdapter - appendEvent", () => {
+  it("streaming 消息正常追加事件，sequence_num = getMaxEventSequenceNum + 1", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(
+      makeStreamingMessage({ id: "msg-1" }),
+    );
+    vi.mocked(repo.getMaxEventSequenceNum).mockReturnValue(2);
+    vi.mocked(repo.appendEvent).mockReturnValue(
+      makeMessageEvent({ sequenceNum: 3 }),
+    );
+
+    const evt = await port.appendEvent("msg-1", {
+      eventType: "text_delta",
+      payload: { text: "hello" },
+    });
+
+    expect(evt.sequenceNum).toBe(3);
+  });
+
+  it("对非 streaming 消息 throw", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(
+      makeMessage({ status: "completed" }),
+    );
+
+    await expect(
+      port.appendEvent("msg-1", { eventType: "text_delta", payload: {} }),
+    ).rejects.toThrow(/Cannot append event/);
+  });
+
+  it("消息不存在时 throw", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(null);
+
+    await expect(
+      port.appendEvent("nonexistent", { eventType: "text_delta", payload: {} }),
+    ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("ConversationAdapter - completeMessage", () => {
+  it("streaming -> completed, 正常调用 repository", async () => {
+    const streaming = makeStreamingMessage({ id: "msg-1", attachments: null });
+    vi.mocked(repo.getMessageById).mockReturnValue(streaming);
+    vi.mocked(repo.completeMessage).mockReturnValue(
+      makeMessage({ status: "completed", body: "final", id: "msg-1" }),
+    );
+
+    const msg = await port.completeMessage("msg-1", { body: "final" });
+
+    expect(msg.status).toBe("completed");
+    expect(msg.body).toBe("final");
+  });
+
+  it("不提供 attachments 时保留 startMessage 时的预置（架构师-2 #1）", async () => {
+    const existingAttachments = [{ type: "file", url: "https://file.com/1.pdf" }];
+    const streaming = makeStreamingMessage({
+      id: "msg-1",
+      attachments: existingAttachments,
+    });
+    vi.mocked(repo.getMessageById).mockReturnValue(streaming);
+    /** mock 返回传入的 attachments，验证 adapter 正确传递了 existing attachments */
+    vi.mocked(repo.completeMessage).mockImplementation((_id, _body, attachments) =>
+      makeMessage({ status: "completed", body: "final", attachments }),
+    );
+
+    const msg = await port.completeMessage("msg-1", { body: "final" });
+
+    expect(msg.attachments).toEqual(existingAttachments);
+  });
+
+  it("提供 attachments 时覆盖", async () => {
+    const existingAttachments = [{ type: "file", url: "https://old.com/1.pdf" }];
+    const newAttachments = [{ type: "image", url: "https://new.com/1.png" }];
+    const streaming = makeStreamingMessage({
+      id: "msg-1",
+      attachments: existingAttachments,
+    });
+    vi.mocked(repo.getMessageById).mockReturnValue(streaming);
+    /** mock 返回传入的 attachments，验证 adapter 正确传递了 new attachments */
+    vi.mocked(repo.completeMessage).mockImplementation((_id, _body, attachments) =>
+      makeMessage({ status: "completed", body: "final", attachments }),
+    );
+
+    const msg = await port.completeMessage("msg-1", { body: "final", attachments: newAttachments });
+
+    expect(msg.attachments).toEqual(newAttachments);
+  });
+
+  it("对非 streaming 消息 throw", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(
+      makeMessage({ status: "completed" }),
+    );
+
+    await expect(
+      port.completeMessage("msg-1", { body: "final" }),
+    ).rejects.toThrow(/Cannot complete/);
+  });
+
+  it("消息不存在时 throw", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(null);
+
+    await expect(
+      port.completeMessage("nonexistent", { body: "final" }),
+    ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("ConversationAdapter - failMessage", () => {
+  it("streaming -> failed, 正常调用 repository", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(
+      makeStreamingMessage({ id: "msg-1" }),
+    );
+    vi.mocked(repo.failMessage).mockReturnValue(
+      makeMessage({ status: "failed", body: null, id: "msg-1", completedAt: "2026-01-02" }),
+    );
+
+    const msg = await port.failMessage("msg-1");
+
+    expect(msg.status).toBe("failed");
+    expect(msg.body).toBeNull();
+    expect(msg.completedAt).not.toBeNull();
+  });
+
+  it("对非 streaming 消息 throw", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(
+      makeMessage({ status: "completed" }),
+    );
+
+    await expect(port.failMessage("msg-1")).rejects.toThrow(/Cannot fail/);
+  });
+
+  it("消息不存在时 throw", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(null);
+
+    await expect(port.failMessage("nonexistent")).rejects.toThrow(/not found/);
+  });
+});
+
+describe("ConversationAdapter - getMessageEvents", () => {
+  it("返回 repository.getMessageEvents 结果", async () => {
+    const events = [
+      makeMessageEvent({ sequenceNum: 1 }),
+      makeMessageEvent({ id: "evt-2", sequenceNum: 2 }),
+    ];
+    vi.mocked(repo.getMessageEvents).mockReturnValue(events);
+
+    const result = await port.getMessageEvents("msg-1");
+    expect(result).toBe(events);
   });
 });
 

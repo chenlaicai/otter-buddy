@@ -5,13 +5,15 @@
  * - create: crypto.randomUUID() 生成 ID，计算 treePath，事务写入
  * - createChild: 独立事务（含读 parent + 读 otterIds + INSERT child + INSERT conversation_otters + UPDATE parent.updated_at）
  * - complete/archive: 状态校验 + 更新（含 updated_at）
- * - sendMessage: append-only，sequence_num per-conversation 自增，返回值从 DB 读取
+ * - sendMessage: 用户消息，立即 completed，返回值从 DB 读取
+ * - startMessage/appendEvent/completeMessage/failMessage: Otter 消息流式生命周期
  * - addKeyFact/linkResource: 仅写自身表，memory 索引由 app/orchestration 编排
  * - getTree: LIKE 查询 + 内存递归构建
  */
 
 import type { ConversationPort } from "../port";
 import type {
+  CompleteMessageInput,
   Conversation,
   ConversationTreeNode,
   KeyFact,
@@ -20,7 +22,11 @@ import type {
   LinkedResource,
   LinkedResourceInput,
   Message,
+  MessageEvent,
+  MessageEventInput,
   MessageInput,
+  MessageStatus,
+  StartMessageInput,
 } from "../model";
 import type { ConversationRepository } from "./repository";
 
@@ -124,14 +130,82 @@ export class ConversationAdapter implements ConversationPort {
   ): Promise<Message> {
     const id = crypto.randomUUID();
     const sequenceNum = this.repo.getMaxSequenceNum(conversationId) + 1;
-    return this.repo.sendMessage(id, conversationId, message, sequenceNum);
+    return this.repo.createCompletedMessage(id, conversationId, message, sequenceNum);
+  }
+
+  async startMessage(
+    conversationId: string,
+    sender: StartMessageInput,
+  ): Promise<Message> {
+    const id = crypto.randomUUID();
+    const sequenceNum = this.repo.getMaxSequenceNum(conversationId) + 1;
+    return this.repo.createStreamingMessage(id, conversationId, sender, sequenceNum);
+  }
+
+  async appendEvent(
+    messageId: string,
+    event: MessageEventInput,
+  ): Promise<MessageEvent> {
+    const message = this.repo.getMessageById(messageId);
+    if (!message) {
+      throw new Error(`Message not found: ${messageId}`);
+    }
+    if (message.status !== "streaming") {
+      throw new Error(
+        `Cannot append event to message with status: ${message.status}`,
+      );
+    }
+    const id = crypto.randomUUID();
+    const sequenceNum = this.repo.getMaxEventSequenceNum(messageId) + 1;
+    return this.repo.appendEvent(id, messageId, event, sequenceNum);
+  }
+
+  async completeMessage(
+    messageId: string,
+    completion: CompleteMessageInput,
+  ): Promise<Message> {
+    const message = this.repo.getMessageById(messageId);
+    if (!message) {
+      throw new Error(`Message not found: ${messageId}`);
+    }
+    if (message.status !== "streaming") {
+      throw new Error(
+        `Cannot complete message with status: ${message.status}`,
+      );
+    }
+    /** attachments 缺省时保留 startMessage 时的预置（架构师-2 #1） */
+    const attachments = completion.attachments !== undefined
+      ? completion.attachments
+      : message.attachments;
+    return this.repo.completeMessage(messageId, completion.body, attachments);
+  }
+
+  async failMessage(messageId: string): Promise<Message> {
+    const message = this.repo.getMessageById(messageId);
+    if (!message) {
+      throw new Error(`Message not found: ${messageId}`);
+    }
+    if (message.status !== "streaming") {
+      throw new Error(
+        `Cannot fail message with status: ${message.status}`,
+      );
+    }
+    return this.repo.failMessage(messageId);
+  }
+
+  async getMessageById(id: string): Promise<Message | null> {
+    return this.repo.getMessageById(id);
   }
 
   async getMessages(
     conversationId: string,
-    opts?: { limit?: number; before?: string },
+    opts?: { limit?: number; before?: string; status?: MessageStatus },
   ): Promise<Message[]> {
     return this.repo.getMessages(conversationId, opts);
+  }
+
+  async getMessageEvents(messageId: string): Promise<MessageEvent[]> {
+    return this.repo.getMessageEvents(messageId);
   }
 
   async expandMessage(

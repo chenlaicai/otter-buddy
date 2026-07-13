@@ -145,7 +145,7 @@ describe("schema", () => {
     // 尝试插入违反外键约束的数据
     expect(() => {
       db.exec(`
-        INSERT INTO messages (id, conversation_id, sender_type, sender_id, content, sequence_num)
+        INSERT INTO messages (id, conversation_id, sender_type, sender_id, body, sequence_num)
         VALUES ('msg-1', 'non-existent-conversation', 'user', 'user-1', 'Hello', 1)
       `);
     }).toThrow(/FOREIGN KEY constraint failed/);
