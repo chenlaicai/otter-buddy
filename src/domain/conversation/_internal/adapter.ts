@@ -73,7 +73,7 @@ export class ConversationAdapter implements ConversationPort {
         `Cannot complete conversation with status: ${conv.status}`,
       );
     }
-    this.repo.complete(id);
+    this.repo.updateStatus(id, "completed");
   }
 
   async archive(id: string): Promise<void> {
@@ -86,7 +86,7 @@ export class ConversationAdapter implements ConversationPort {
         `Cannot archive conversation with status: ${conv.status}`,
       );
     }
-    this.repo.archive(id);
+    this.repo.updateStatus(id, "archived");
   }
 
   async getTree(rootId: string): Promise<ConversationTreeNode> {

@@ -74,19 +74,19 @@ describe("ConversationRepository - create + getById", () => {
 });
 
 describe("ConversationRepository - complete + archive", () => {
-  it("complete: status -> completed, completed_at 非空, updated_at 更新", () => {
+  it("updateStatus completed: status -> completed, completed_at 非空, updated_at 更新", () => {
     repo.create("conv-1", { title: "Test", parentId: null, treePath: "/conv-1/", otterIds: [] });
-    repo.complete("conv-1");
+    repo.updateStatus("conv-1", "completed");
     const after = repo.getById("conv-1")!;
     expect(after.status).toBe("completed");
     expect(after.completedAt).not.toBeNull();
     expect(after.updatedAt).toBeTruthy();
   });
 
-  it("archive: status -> archived, archived_at 非空, updated_at 更新", () => {
+  it("updateStatus archived: status -> archived, archived_at 非空, updated_at 更新", () => {
     repo.create("conv-1", { title: "Test", parentId: null, treePath: "/conv-1/", otterIds: [] });
-    repo.complete("conv-1");
-    repo.archive("conv-1");
+    repo.updateStatus("conv-1", "completed");
+    repo.updateStatus("conv-1", "archived");
     const after = repo.getById("conv-1")!;
     expect(after.status).toBe("archived");
     expect(after.archivedAt).not.toBeNull();
@@ -111,6 +111,21 @@ describe("ConversationRepository - createChild", () => {
     expect(() => repo.createChild("nonexistent", "child-1", "Child")).toThrow(
       /Parent conversation .* not found/,
     );
+  });
+
+  it("事务原子性：INSERT child 失败时 parent.updated_at 不更新", () => {
+    repo.create("root", { title: "Root", parentId: null, treePath: "/root/", otterIds: [] });
+    repo.createChild("root", "child-1", "First Child");
+
+    // Set root's updated_at to a known old value
+    db.prepare("UPDATE conversations SET updated_at = '2020-01-01 00:00:00' WHERE id = ?").run("root");
+
+    // Attempt createChild with duplicate childId (PK violation) -- should fail and rollback
+    expect(() => repo.createChild("root", "child-1", "Duplicate")).toThrow();
+
+    // Verify parent.updated_at was NOT updated (transaction rolled back)
+    const after = repo.getById("root")!;
+    expect(after.updatedAt).toBe("2020-01-01 00:00:00");
   });
 });
 
@@ -236,10 +251,19 @@ describe("ConversationRepository - key info + JSON", () => {
 
   it("auto_linked INTEGER 0/1 <-> boolean", () => {
     insertConversation(db, "conv-1", "/conv-1/");
-    const res = repo.linkResource("lr-1", "conv-1", makeLinkedResource({ autoLinked: true }));
-    expect(res.autoLinked).toBe(true);
+    // linkResource always sets auto_linked = 0 (manual link)
+    const res = repo.linkResource("lr-1", "conv-1", makeLinkedResource());
+    expect(res.autoLinked).toBe(false);
     const raw = db.prepare("SELECT auto_linked FROM linked_resources WHERE id = ?").get("lr-1") as { auto_linked: number };
-    expect(raw.auto_linked).toBe(1);
+    expect(raw.auto_linked).toBe(0);
+
+    // Directly insert a row with auto_linked = 1 to verify mapping
+    db.prepare(
+      `INSERT INTO linked_resources (id, conversation_id, resource_type, url, linked_by, auto_linked)
+       VALUES (?, ?, 'url', 'https://auto.com', 'otter', 1)`,
+    ).run("lr-2", "conv-1");
+    const auto = repo.getLinkedResources("conv-1").find((r) => r.id === "lr-2")!;
+    expect(auto.autoLinked).toBe(true);
   });
 
   it("user_flagged INTEGER 0/1 <-> boolean", () => {

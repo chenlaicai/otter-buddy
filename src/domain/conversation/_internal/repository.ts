@@ -8,6 +8,7 @@
 import type Database from "better-sqlite3";
 import type {
   Conversation,
+  ConversationStatus,
   KeyFact,
   KeyFactInput,
   LinkedResource,
@@ -71,26 +72,25 @@ export class ConversationRepository {
     return row ? rowToConversation(row) : null;
   }
 
-  /** 完成对话：status active -> completed */
-  complete(id: string): void {
-    this.db
-      .prepare(
-        `UPDATE conversations
-         SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(id);
-  }
-
-  /** 归档对话：status completed -> archived */
-  archive(id: string): void {
-    this.db
-      .prepare(
-        `UPDATE conversations
-         SET status = 'archived', archived_at = datetime('now'), updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(id);
+  /** 更新对话状态：complete/archive 复用（S3-A2 设计） */
+  updateStatus(id: string, status: ConversationStatus): void {
+    if (status === "completed") {
+      this.db
+        .prepare(
+          `UPDATE conversations
+           SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(id);
+    } else if (status === "archived") {
+      this.db
+        .prepare(
+          `UPDATE conversations
+           SET status = 'archived', archived_at = datetime('now'), updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(id);
+    }
   }
 
   getChildren(parentId: string): Conversation[] {
@@ -250,7 +250,6 @@ export class ConversationRepository {
     conversationId: string,
     resource: LinkedResourceInput,
   ): LinkedResource {
-    const autoLinked = resource.autoLinked ? 1 : 0;
     this.db
       .prepare(
         `INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, metadata, linked_by, otter_id, auto_linked)
@@ -265,7 +264,7 @@ export class ConversationRepository {
         resource.metadata ? JSON.stringify(resource.metadata) : null,
         resource.linkedBy,
         resource.otterId ?? null,
-        autoLinked,
+        0,
       );
 
     const row = this.db

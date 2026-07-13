@@ -93,7 +93,6 @@ export interface LinkedResourceInput {
   metadata?: Record<string, unknown>;
   linkedBy: string;
   otterId?: string;
-  autoLinked?: boolean;
 }
 
 export interface Attachment {

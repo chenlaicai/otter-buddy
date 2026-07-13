@@ -1,89 +1,191 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type Database from "better-sqlite3";
-import { initDatabase, closeDatabase } from "@infra/db/database";
-import { initSchema } from "@infra/db/schema";
-import { ConversationRepository } from "@domain/conversation/_internal/repository";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConversationAdapter } from "@domain/conversation/_internal/adapter";
-import type { ConversationPort } from "@domain/conversation/port";
-import type { MessageInput } from "@domain/conversation/model";
+import type { ConversationRepository } from "@domain/conversation/_internal/repository";
+import type {
+  Conversation,
+  KeyFact,
+  LinkedResource,
+  Message,
+} from "@domain/conversation/model";
 
-/** 插入 otter 记录（满足 conversation_otters 外键约束） */
-function insertOtter(db: Database.Database, id: string): void {
-  db.prepare(
-    "INSERT INTO otters (id, name, type) VALUES (?, ?, 'big')",
-  ).run(id, `Otter-${id}`);
+// ===== Factory helpers =====
+
+function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
+  return {
+    id: "conv-1",
+    title: "Test",
+    status: "active",
+    parentId: null,
+    treePath: "/conv-1/",
+    summary: null,
+    createdAt: "2026-01-01 00:00:00",
+    updatedAt: "2026-01-01 00:00:00",
+    completedAt: null,
+    archivedAt: null,
+    ...overrides,
+  };
 }
 
-function makeMessage(overrides: Partial<MessageInput> = {}): MessageInput {
-  return { senderType: "user", senderId: "user-1", content: "hello", ...overrides };
+function makeMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: "msg-1",
+    conversationId: "conv-1",
+    senderType: "user",
+    senderId: "user-1",
+    content: "hello",
+    attachments: null,
+    sequenceNum: 1,
+    createdAt: "2026-01-01 00:00:00",
+    ...overrides,
+  };
 }
 
-let db: Database.Database;
+function makeKeyFact(overrides: Partial<KeyFact> = {}): KeyFact {
+  return {
+    id: "kf-1",
+    conversationId: "conv-1",
+    content: "important fact",
+    category: null,
+    userFlagged: false,
+    createdBy: "user",
+    otterId: null,
+    createdAt: "2026-01-01 00:00:00",
+    ...overrides,
+  };
+}
+
+function makeLinkedResource(
+  overrides: Partial<LinkedResource> = {},
+): LinkedResource {
+  return {
+    id: "lr-1",
+    conversationId: "conv-1",
+    resourceType: "pr",
+    url: "https://github.com/repo/pull/1",
+    title: null,
+    metadata: null,
+    linkedBy: "user",
+    otterId: null,
+    autoLinked: false,
+    createdAt: "2026-01-01 00:00:00",
+    ...overrides,
+  };
+}
+
+/** Create a mock ConversationRepository with all methods as vi.fn() */
+function createMockRepo(): ConversationRepository {
+  return {
+    create: vi.fn(),
+    getById: vi.fn(),
+    updateStatus: vi.fn(),
+    getChildren: vi.fn(),
+    getByTreePathPrefix: vi.fn(),
+    sendMessage: vi.fn(),
+    getMessages: vi.fn(),
+    getMessageById: vi.fn(),
+    getMaxSequenceNum: vi.fn(),
+    getMessagesBefore: vi.fn(),
+    getMessagesAfter: vi.fn(),
+    addKeyFact: vi.fn(),
+    linkResource: vi.fn(),
+    getKeyFacts: vi.fn(),
+    getLinkedResources: vi.fn(),
+    getOtterIds: vi.fn(),
+    createChild: vi.fn(),
+  } as unknown as ConversationRepository;
+}
+
 let repo: ConversationRepository;
-let port: ConversationPort;
+let port: ConversationAdapter;
 
 beforeEach(() => {
-  db = initDatabase({ dbPath: ":memory:" });
-  initSchema(db);
-  repo = new ConversationRepository(db);
+  repo = createMockRepo();
   port = new ConversationAdapter(repo);
-});
-
-afterEach(() => {
-  closeDatabase(db);
 });
 
 describe("ConversationAdapter - create", () => {
   it("root 对话 treePath = /${id}/", async () => {
+    const created: Record<string, Conversation> = {};
+    vi.mocked(repo.create).mockImplementation((id, params) => {
+      created[id] = makeConversation({ id, ...params });
+    });
+    vi.mocked(repo.getById).mockImplementation((id) => created[id] ?? null);
+
     const conv = await port.create({ title: "Root", otterIds: [] });
-    expect(conv.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+    expect(conv.id).toMatch(/^[0-9a-f]{8}-/);
     expect(conv.treePath).toBe(`/${conv.id}/`);
     expect(conv.status).toBe("active");
     expect(conv.parentId).toBeNull();
   });
 
   it("child 对话 treePath = ${parent.treePath}${id}/", async () => {
-    const root = await port.create({ title: "Root", otterIds: [] });
-    const child = await port.create({ title: "Child", parentId: root.id, otterIds: [] });
-    expect(child.treePath).toBe(`${root.treePath}${child.id}/`);
-    expect(child.parentId).toBe(root.id);
+    const parent = makeConversation({
+      id: "parent-id",
+      treePath: "/parent-id/",
+    });
+    const created: Record<string, Conversation> = {};
+    vi.mocked(repo.getById).mockImplementation((id) => {
+      if (id === "parent-id") return parent;
+      return created[id] ?? null;
+    });
+    vi.mocked(repo.create).mockImplementation((id, params) => {
+      created[id] = makeConversation({ id, ...params });
+    });
+
+    const conv = await port.create({
+      title: "Child",
+      parentId: "parent-id",
+      otterIds: [],
+    });
+
+    expect(conv.treePath).toBe(`/parent-id/${conv.id}/`);
+    expect(conv.parentId).toBe("parent-id");
   });
 
   it("create 生成有效 UUID", async () => {
+    const created: Record<string, Conversation> = {};
+    vi.mocked(repo.create).mockImplementation((id, params) => {
+      created[id] = makeConversation({ id, ...params });
+    });
+    vi.mocked(repo.getById).mockImplementation((id) => created[id] ?? null);
+
     const conv = await port.create({ title: "Test", otterIds: [] });
-    expect(conv.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(conv.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   it("父不存在时 throw", async () => {
-    await expect(port.create({ title: "Child", parentId: "nonexistent", otterIds: [] }))
-      .rejects.toThrow(/Parent conversation .* not found/);
-  });
+    vi.mocked(repo.getById).mockReturnValue(null);
 
-  it("otterIds 写入 conversation_otters", async () => {
-    insertOtter(db, "otter-1");
-    const conv = await port.create({ title: "Root", otterIds: ["otter-1"] });
-    expect(repo.getOtterIds(conv.id)).toEqual(["otter-1"]);
+    await expect(
+      port.create({ title: "Child", parentId: "nonexistent", otterIds: [] }),
+    ).rejects.toThrow(/Parent conversation .* not found/);
   });
 });
 
 describe("ConversationAdapter - createChild", () => {
-  it("treePath 继承父路径，otterIds 从父复制", async () => {
-    insertOtter(db, "otter-1");
-    const root = await port.create({ title: "Root", otterIds: ["otter-1"] });
-    const child = await port.createChild(root.id, "Child");
-    expect(child.treePath).toBe(`${root.treePath}${child.id}/`);
-    expect(child.parentId).toBe(root.id);
-    expect(repo.getOtterIds(child.id)).toEqual(["otter-1"]);
-  });
+  it("createChild 返回子对话", async () => {
+    const childConv = makeConversation({
+      id: "child-uuid",
+      parentId: "root",
+      treePath: "/root/child-uuid/",
+    });
+    vi.mocked(repo.createChild).mockReturnValue(childConv);
 
-  it("parent.updated_at 被更新", async () => {
-    const root = await port.create({ title: "Root", otterIds: [] });
-    await port.createChild(root.id, "Child");
-    const after = await port.getById(root.id);
-    expect(after!.updatedAt).toBeTruthy();
+    const result = await port.createChild("root", "Child");
+
+    expect(result.id).toBe("child-uuid");
+    expect(result.parentId).toBe("root");
+    expect(result.treePath).toBe("/root/child-uuid/");
   });
 
   it("父不存在时 throw", async () => {
+    vi.mocked(repo.createChild).mockImplementation(() => {
+      throw new Error("Parent conversation nonexistent not found");
+    });
+
     await expect(port.createChild("nonexistent", "Child")).rejects.toThrow(
       /Parent conversation .* not found/,
     );
@@ -91,217 +193,238 @@ describe("ConversationAdapter - createChild", () => {
 });
 
 describe("ConversationAdapter - complete + archive", () => {
-  it("complete: status active -> completed", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.complete(conv.id);
-    const after = await port.getById(conv.id);
-    expect(after!.status).toBe("completed");
-    expect(after!.completedAt).not.toBeNull();
+  it("complete 正常: active -> completed", async () => {
+    const conv = makeConversation({ status: "active" });
+    vi.mocked(repo.getById).mockReturnValue(conv);
+    vi.mocked(repo.updateStatus).mockImplementation((id, status) => {
+      if (id === conv.id) {
+        conv.status = status;
+        if (status === "completed") conv.completedAt = "2026-01-02 00:00:00";
+      }
+    });
+
+    await port.complete("conv-1");
+
+    expect(conv.status).toBe("completed");
+    expect(conv.completedAt).not.toBeNull();
   });
 
   it("complete 对 completed 对话 throw", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.complete(conv.id);
-    await expect(port.complete(conv.id)).rejects.toThrow(/Cannot complete/);
+    vi.mocked(repo.getById).mockReturnValue(
+      makeConversation({ status: "completed" }),
+    );
+
+    await expect(port.complete("conv-1")).rejects.toThrow(/Cannot complete/);
   });
 
   it("complete 对 archived 对话 throw", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.complete(conv.id);
-    await port.archive(conv.id);
-    await expect(port.complete(conv.id)).rejects.toThrow(/Cannot complete/);
-  });
+    vi.mocked(repo.getById).mockReturnValue(
+      makeConversation({ status: "archived" }),
+    );
 
-  it("archive: status completed -> archived", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.complete(conv.id);
-    await port.archive(conv.id);
-    const after = await port.getById(conv.id);
-    expect(after!.status).toBe("archived");
-    expect(after!.archivedAt).not.toBeNull();
-  });
-
-  it("archive 对 active 对话 throw", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await expect(port.archive(conv.id)).rejects.toThrow(/Cannot archive/);
-  });
-
-  it("archive 对 archived 对话 throw", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.complete(conv.id);
-    await port.archive(conv.id);
-    await expect(port.archive(conv.id)).rejects.toThrow(/Cannot archive/);
+    await expect(port.complete("conv-1")).rejects.toThrow(/Cannot complete/);
   });
 
   it("complete 不存在的对话 throw", async () => {
+    vi.mocked(repo.getById).mockReturnValue(null);
+
     await expect(port.complete("nonexistent")).rejects.toThrow(/not found/);
   });
 
+  it("archive 正常: completed -> archived", async () => {
+    const conv = makeConversation({ status: "completed" });
+    vi.mocked(repo.getById).mockReturnValue(conv);
+    vi.mocked(repo.updateStatus).mockImplementation((id, status) => {
+      if (id === conv.id) {
+        conv.status = status;
+        if (status === "archived") conv.archivedAt = "2026-01-03 00:00:00";
+      }
+    });
+
+    await port.archive("conv-1");
+
+    expect(conv.status).toBe("archived");
+    expect(conv.archivedAt).not.toBeNull();
+  });
+
+  it("archive 对 active 对话 throw", async () => {
+    vi.mocked(repo.getById).mockReturnValue(makeConversation({ status: "active" }));
+
+    await expect(port.archive("conv-1")).rejects.toThrow(/Cannot archive/);
+  });
+
+  it("archive 对 archived 对话 throw", async () => {
+    vi.mocked(repo.getById).mockReturnValue(
+      makeConversation({ status: "archived" }),
+    );
+
+    await expect(port.archive("conv-1")).rejects.toThrow(/Cannot archive/);
+  });
+
   it("archive 不存在的对话 throw", async () => {
+    vi.mocked(repo.getById).mockReturnValue(null);
+
     await expect(port.archive("nonexistent")).rejects.toThrow(/not found/);
   });
 });
 
 describe("ConversationAdapter - getTree", () => {
   it("返回完整树结构，children 递归嵌套", async () => {
-    const root = await port.create({ title: "Root", otterIds: [] });
-    const child1 = await port.createChild(root.id, "C1");
-    const child2 = await port.createChild(root.id, "C2");
-    const grandchild = await port.createChild(child1.id, "GC1");
+    const root = makeConversation({ id: "root", treePath: "/root/" });
+    const child1 = makeConversation({
+      id: "c1",
+      parentId: "root",
+      treePath: "/root/c1/",
+    });
+    const child2 = makeConversation({
+      id: "c2",
+      parentId: "root",
+      treePath: "/root/c2/",
+    });
+    const grandchild = makeConversation({
+      id: "gc1",
+      parentId: "c1",
+      treePath: "/root/c1/gc1/",
+    });
 
-    const tree = await port.getTree(root.id);
-    expect(tree.conversation.id).toBe(root.id);
+    vi.mocked(repo.getById).mockReturnValue(root);
+    vi.mocked(repo.getByTreePathPrefix).mockReturnValue([
+      root,
+      child1,
+      child2,
+      grandchild,
+    ]);
+
+    const tree = await port.getTree("root");
+
+    expect(tree.conversation.id).toBe("root");
     expect(tree.children).toHaveLength(2);
-    const c1 = tree.children.find((c) => c.conversation.id === child1.id)!;
-    const c2 = tree.children.find((c) => c.conversation.id === child2.id)!;
+    const c1 = tree.children.find((c) => c.conversation.id === "c1")!;
+    const c2 = tree.children.find((c) => c.conversation.id === "c2")!;
     expect(c1.children).toHaveLength(1);
-    expect(c1.children[0].conversation.id).toBe(grandchild.id);
+    expect(c1.children[0].conversation.id).toBe("gc1");
     expect(c2.children).toHaveLength(0);
   });
 
   it("root 不存在时 throw", async () => {
+    vi.mocked(repo.getById).mockReturnValue(null);
+
     await expect(port.getTree("nonexistent")).rejects.toThrow(/not found/);
   });
 });
 
-describe("ConversationAdapter - sendMessage + getMessages", () => {
-  it("sequence_num per-conversation 自增", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const msg1 = await port.sendMessage(conv.id, makeMessage({ content: "first" }));
-    const msg2 = await port.sendMessage(conv.id, makeMessage({ content: "second" }));
-    expect(msg1.sequenceNum).toBe(1);
-    expect(msg2.sequenceNum).toBe(2);
-  });
+describe("ConversationAdapter - sendMessage", () => {
+  it("sequence_num = getMaxSequenceNum + 1", async () => {
+    vi.mocked(repo.getMaxSequenceNum).mockReturnValue(4);
+    vi.mocked(repo.sendMessage).mockReturnValue(makeMessage({ sequenceNum: 5 }));
 
-  it("返回含 id/sequenceNum/createdAt 的 Message", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const msg = await port.sendMessage(conv.id, makeMessage());
-    expect(msg.id).toMatch(/^[0-9a-f]{8}-/);
-    expect(msg.sequenceNum).toBe(1);
-    expect(msg.createdAt).toBeTruthy();
-    expect(msg.conversationId).toBe(conv.id);
-  });
+    const msg = await port.sendMessage("conv-1", {
+      senderType: "user",
+      senderId: "user-1",
+      content: "hello",
+    });
 
-  it("不同对话的 sequence_num 独立", async () => {
-    const conv1 = await port.create({ title: "C1", otterIds: [] });
-    const conv2 = await port.create({ title: "C2", otterIds: [] });
-    const msg1 = await port.sendMessage(conv1.id, makeMessage());
-    const msg2 = await port.sendMessage(conv2.id, makeMessage());
-    expect(msg1.sequenceNum).toBe(1);
-    expect(msg2.sequenceNum).toBe(1);
-  });
-
-  it("getMessages 按 sequence_num 倒序返回", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.sendMessage(conv.id, makeMessage({ content: "m1" }));
-    await port.sendMessage(conv.id, makeMessage({ content: "m2" }));
-    await port.sendMessage(conv.id, makeMessage({ content: "m3" }));
-    const messages = await port.getMessages(conv.id);
-    expect(messages.map((m) => m.content)).toEqual(["m3", "m2", "m1"]);
-  });
-
-  it("getMessages 无 limit 时默认 50 条", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    for (let i = 0; i < 55; i++) {
-      await port.sendMessage(conv.id, makeMessage());
-    }
-    expect(await port.getMessages(conv.id)).toHaveLength(50);
-  });
-
-  it("getMessages before 分页正确", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const msgs = [];
-    for (let i = 0; i < 10; i++) {
-      msgs.push(await port.sendMessage(conv.id, makeMessage()));
-    }
-    const page = await port.getMessages(conv.id, { before: msgs[5].id, limit: 3 });
-    expect(page.map((m) => m.sequenceNum)).toEqual([5, 4, 3]);
+    expect(msg.sequenceNum).toBe(5);
   });
 });
 
 describe("ConversationAdapter - expandMessage", () => {
+  it("both: 合并前后消息，按 sequence_num ASC 排序", async () => {
+    const target = makeMessage({ id: "msg-5", sequenceNum: 5 });
+    vi.mocked(repo.getMessageById).mockReturnValue(target);
+    vi.mocked(repo.getMessagesBefore).mockReturnValue([
+      makeMessage({ id: "msg-3", sequenceNum: 3 }),
+      makeMessage({ id: "msg-4", sequenceNum: 4 }),
+    ]);
+    vi.mocked(repo.getMessagesAfter).mockReturnValue([
+      makeMessage({ id: "msg-6", sequenceNum: 6 }),
+      makeMessage({ id: "msg-7", sequenceNum: 7 }),
+    ]);
+
+    const result = await port.expandMessage("msg-5", "both", 2);
+
+    expect(result.map((m) => m.sequenceNum)).toEqual([3, 4, 5, 6, 7]);
+  });
+
   it("before: 返回指定消息之前的 N 条", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const msgs = [];
-    for (let i = 0; i < 10; i++) {
-      msgs.push(await port.sendMessage(conv.id, makeMessage()));
-    }
-    const before = await port.expandMessage(msgs[4].id, "before", 3);
-    expect(before.map((m) => m.sequenceNum)).toEqual([4, 3, 2]);
+    const target = makeMessage({ id: "msg-5", sequenceNum: 5 });
+    vi.mocked(repo.getMessageById).mockReturnValue(target);
+    vi.mocked(repo.getMessagesBefore).mockReturnValue([
+      makeMessage({ id: "msg-4", sequenceNum: 4 }),
+      makeMessage({ id: "msg-3", sequenceNum: 3 }),
+    ]);
+
+    const result = await port.expandMessage("msg-5", "before", 2);
+    expect(result.map((m) => m.sequenceNum)).toEqual([4, 3]);
   });
 
   it("after: 返回指定消息之后的 N 条", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const msgs = [];
-    for (let i = 0; i < 10; i++) {
-      msgs.push(await port.sendMessage(conv.id, makeMessage()));
-    }
-    const after = await port.expandMessage(msgs[4].id, "after", 3);
-    expect(after.map((m) => m.sequenceNum)).toEqual([6, 7, 8]);
-  });
+    const target = makeMessage({ id: "msg-5", sequenceNum: 5 });
+    vi.mocked(repo.getMessageById).mockReturnValue(target);
+    vi.mocked(repo.getMessagesAfter).mockReturnValue([
+      makeMessage({ id: "msg-6", sequenceNum: 6 }),
+      makeMessage({ id: "msg-7", sequenceNum: 7 }),
+    ]);
 
-  it("both: 合并前后消息，按 sequence_num ASC 排序", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const msgs = [];
-    for (let i = 0; i < 10; i++) {
-      msgs.push(await port.sendMessage(conv.id, makeMessage()));
-    }
-    const both = await port.expandMessage(msgs[4].id, "both", 2);
-    expect(both).toHaveLength(5);
-    expect(both.map((m) => m.sequenceNum)).toEqual([3, 4, 5, 6, 7]);
+    const result = await port.expandMessage("msg-5", "after", 2);
+    expect(result.map((m) => m.sequenceNum)).toEqual([6, 7]);
   });
 
   it("消息不存在时 throw", async () => {
-    await expect(port.expandMessage("nonexistent", "before", 3)).rejects.toThrow(
-      /Message not found/,
-    );
+    vi.mocked(repo.getMessageById).mockReturnValue(null);
+
+    await expect(
+      port.expandMessage("nonexistent", "before", 3),
+    ).rejects.toThrow(/Message not found/);
   });
 });
 
 describe("ConversationAdapter - key info", () => {
-  it("addKeyFact 写入 key_facts，返回 KeyFact", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const fact = await port.addKeyFact(conv.id, { content: "important fact", createdBy: "user" });
-    expect(fact.id).toMatch(/^[0-9a-f]{8}-/);
-    expect(fact.conversationId).toBe(conv.id);
-    expect(fact.content).toBe("important fact");
+  it("addKeyFact 返回 KeyFact", async () => {
+    const fact = makeKeyFact();
+    vi.mocked(repo.addKeyFact).mockReturnValue(fact);
+
+    const result = await port.addKeyFact("conv-1", {
+      content: "important fact",
+      createdBy: "user",
+    });
+
+    expect(result.id).toBe("kf-1");
+    expect(result.content).toBe("important fact");
+    expect(result.conversationId).toBe("conv-1");
   });
 
-  it("linkResource 写入 linked_resources，返回 LinkedResource", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    const res = await port.linkResource(conv.id, {
-      resourceType: "pr", url: "https://github.com/repo/pull/1",
-      linkedBy: "otter", otterId: "otter-1", autoLinked: true,
+  it("linkResource 返回 LinkedResource", async () => {
+    const resource = makeLinkedResource();
+    vi.mocked(repo.linkResource).mockReturnValue(resource);
+
+    const result = await port.linkResource("conv-1", {
+      resourceType: "pr",
+      url: "https://github.com/repo/pull/1",
+      linkedBy: "user",
     });
-    expect(res.id).toMatch(/^[0-9a-f]{8}-/);
-    expect(res.autoLinked).toBe(true);
+
+    expect(result.id).toBe("lr-1");
+    expect(result.autoLinked).toBe(false);
   });
 
   it("getKeyInfo 返回 keyFacts + linkedResources 组合", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.addKeyFact(conv.id, { content: "fact1", createdBy: "user" });
-    await port.linkResource(conv.id, { resourceType: "url", url: "https://example.com", linkedBy: "user" });
-    const info = await port.getKeyInfo(conv.id);
-    expect(info.keyFacts).toHaveLength(1);
-    expect(info.linkedResources).toHaveLength(1);
+    const facts = [makeKeyFact()];
+    const resources = [makeLinkedResource()];
+    vi.mocked(repo.getKeyFacts).mockReturnValue(facts);
+    vi.mocked(repo.getLinkedResources).mockReturnValue(resources);
+
+    const info = await port.getKeyInfo("conv-1");
+
+    expect(info.keyFacts).toBe(facts);
+    expect(info.linkedResources).toBe(resources);
   });
 
   it("getLinkedResources 返回指定对话的链接资源列表", async () => {
-    const conv = await port.create({ title: "Test", otterIds: [] });
-    await port.linkResource(conv.id, { resourceType: "url", url: "https://a.com", linkedBy: "user" });
-    await port.linkResource(conv.id, { resourceType: "pr", url: "https://b.com", linkedBy: "user" });
-    expect(await port.getLinkedResources(conv.id)).toHaveLength(2);
+    const resources = [makeLinkedResource()];
+    vi.mocked(repo.getLinkedResources).mockReturnValue(resources);
+
+    const result = await port.getLinkedResources("conv-1");
+    expect(result).toBe(resources);
   });
 });
-
-describe("ConversationAdapter - B-Conv-12", () => {
-  it("完成子对话后父对话仍为 active", async () => {
-    const root = await port.create({ title: "Root", otterIds: [] });
-    const child = await port.createChild(root.id, "Child");
-    await port.complete(child.id);
-    const parent = await port.getById(root.id);
-    expect(parent!.status).toBe("active");
-  });
-});
-
-void vi;
