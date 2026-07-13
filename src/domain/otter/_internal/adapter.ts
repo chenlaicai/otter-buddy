@@ -60,6 +60,10 @@ export class OtterAdapter implements OtterPort {
   }
 
   async dissolve(otterId: string): Promise<void> {
+    const otter = await this.getById(otterId);
+    if (!otter) {
+      throw new Error(`Otter not found: ${otterId}`);
+    }
     this.repo.dissolve(otterId);
     this.agentLifecycle.destroy(otterId);
   }
@@ -80,6 +84,9 @@ export class OtterAdapter implements OtterPort {
     const session = this.repo.getSessionById(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
+    }
+    if (session.status !== "active") {
+      throw new Error(`Session is not active: ${sessionId} (status=${session.status})`);
     }
 
     this.repo.archiveSession(sessionId, params);

@@ -66,6 +66,7 @@ async function runAgent(agent: AgentInternals, message: string): Promise<string>
 async function*streamAgent(agent: AgentInternals, message: string): AsyncIterable<string> {
   const queue: string[] = [];
   let done = false;
+  let promptError: Error | null = null;
   let resolveWait: (() => void) | null = null;
 
   const unsubscribe = agent.subscribe((event: AgentEvent) => {
@@ -79,8 +80,11 @@ async function*streamAgent(agent: AgentInternals, message: string): AsyncIterabl
   });
 
   try {
-    agent.prompt(message);
-    while (!done || queue.length > 0) {
+    agent.prompt(message).catch((err: unknown) => {
+      promptError = err instanceof Error ? err : new Error(String(err));
+      resolveWait?.();
+    });
+    while (!done && !promptError) {
       if (queue.length === 0) {
         await new Promise<void>((resolve) => { resolveWait = resolve; });
         resolveWait = null;
@@ -89,6 +93,7 @@ async function*streamAgent(agent: AgentInternals, message: string): AsyncIterabl
         yield queue.shift()!;
       }
     }
+    if (promptError) throw promptError;
   } finally {
     unsubscribe();
   }
@@ -115,11 +120,13 @@ export function createAgentHandle(agent: AgentInternals, initialConfig: AgentCon
     },
     reset(context?: string): void {
       agent.reset();
+      const basePrompt = initialConfig.systemPrompt ?? "";
       if (context !== undefined) {
-        agent.setSystemPrompt(
-          initialConfig.systemPrompt ? `${initialConfig.systemPrompt}\n\n${context}` : context,
-        );
+        agent.setSystemPrompt(basePrompt ? `${basePrompt}\n\n${context}` : context);
+      } else {
+        agent.setSystemPrompt(basePrompt);
       }
+      syncTools(agent, tools);
     },
   };
 }

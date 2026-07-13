@@ -33,7 +33,5 @@ export const config = {
     provider: process.env.OTTER_BUDDY_LLM_PROVIDER ?? "openai",
     /** LLM 模型 ID */
     model: process.env.OTTER_BUDDY_LLM_MODEL ?? "gpt-4o",
-    /** API Key（环境变量，S1 NFR：单用户本地） */
-    apiKey: process.env.OPENAI_API_KEY ?? "",
   },
 } as const;

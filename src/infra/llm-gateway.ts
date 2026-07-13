@@ -31,7 +31,6 @@ export interface LLMStreamChunk {
 export interface LLMGatewayConfig {
   provider?: string;
   model?: string;
-  apiKey?: string;
 }
 
 export interface LLMGateway {
@@ -195,9 +194,10 @@ export async function initFauxLLMGateway(
   return {
     faux,
     gateway: {
-      async chat(messages: LLMMessage[]): Promise<LLMResponse> {
+      async chat(messages: LLMMessage[], options?: LLMChatOptions): Promise<LLMResponse> {
         const context = toContext(messages);
-        const response = await models.complete(model, context as never);
+        const streamOpts = buildStreamOpts(options);
+        const response = await models.complete(model, context as never, streamOpts as never);
         return {
           content: extractText(response.content as unknown[]),
           usage: response.usage
@@ -206,9 +206,10 @@ export async function initFauxLLMGateway(
         };
       },
 
-      async *streamChat(messages: LLMMessage[]): AsyncIterable<LLMStreamChunk> {
+      async *streamChat(messages: LLMMessage[], options?: LLMChatOptions): AsyncIterable<LLMStreamChunk> {
         const context = toContext(messages);
-        const stream = models.stream(model, context as never);
+        const streamOpts = buildStreamOpts(options);
+        const stream = models.stream(model, context as never, streamOpts as never);
         for await (const event of stream) {
           if (event.type === "text_delta") {
             yield { delta: event.delta, done: false };

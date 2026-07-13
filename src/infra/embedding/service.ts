@@ -37,16 +37,30 @@ type PendingRequest = {
   reject: (error: Error) => void;
 };
 
+/** Worker 加载状态 */
+interface ReadyState {
+  ready: boolean;
+  loadError: Error | null;
+  waiters: Array<{ resolve: () => void; reject: (err: Error) => void }>;
+}
+
 /** 设置 Worker 消息处理 */
 function setupWorkerHandlers(
   worker: Worker,
   pendingRequests: Map<number, PendingRequest>,
-  readyState: { ready: boolean; waiters: Array<() => void> },
+  readyState: ReadyState,
 ): void {
   worker.on("message", (msg: EmbedResponse) => {
     if (msg.type === "ready") {
       readyState.ready = true;
-      readyState.waiters.forEach((r) => r());
+      readyState.waiters.forEach((w) => w.resolve());
+      readyState.waiters.length = 0;
+      return;
+    }
+    if (msg.type === "error" && msg.id === -1) {
+      /** 模型加载失败：reject 所有等待 ready 的请求 */
+      readyState.loadError = new Error(msg.error);
+      readyState.waiters.forEach((w) => w.reject(readyState.loadError!));
       readyState.waiters.length = 0;
       return;
     }
@@ -78,7 +92,7 @@ export function initEmbedding(_embedConfig?: EmbeddingConfig): EmbeddingService 
   const workerPath = path.join(__dirname, "worker.js");
   const worker = new Worker(workerPath);
   const pendingRequests = new Map<number, PendingRequest>();
-  const readyState = { ready: false, waiters: [] as Array<() => void> };
+  const readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   let requestId = 0;
   let disposed = false;
 
@@ -86,7 +100,10 @@ export function initEmbedding(_embedConfig?: EmbeddingConfig): EmbeddingService 
 
   const waitForReady = (): Promise<void> => {
     if (readyState.ready) return Promise.resolve();
-    return new Promise((resolve) => readyState.waiters.push(resolve));
+    if (readyState.loadError) return Promise.reject(readyState.loadError);
+    return new Promise<void>((resolve, reject) => {
+      readyState.waiters.push({ resolve, reject: (err) => reject(err) });
+    });
   };
 
   return {

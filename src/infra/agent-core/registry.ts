@@ -87,8 +87,7 @@ function buildRegistry(createHandle: (config: AgentConfig) => AgentHandle): Agen
       return handle;
     },
     destroy(otterId) {
-      const handle = registry.get(otterId);
-      if (handle) { handle.reset(); registry.delete(otterId); }
+      registry.delete(otterId);
     },
     reset(otterId, context) {
       registry.get(otterId)?.reset(context);

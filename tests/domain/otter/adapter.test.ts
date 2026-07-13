@@ -108,6 +108,10 @@ describe("OtterAdapter", () => {
       expect(dissolved!.dissolvedAt).not.toBeNull();
       expect(agentLifecycle.destroyedOtters.has(otter.id)).toBe(true);
     });
+
+    it("dissolve 不存在的 otter 抛出异常", async () => {
+      await expect(port.dissolve("nonexistent")).rejects.toThrow(/Otter not found/);
+    });
   });
 
   describe("Session 生命周期", () => {
@@ -155,6 +159,16 @@ describe("OtterAdapter", () => {
       await expect(
         port.archiveSession("nonexistent", { reason: "manual" }),
       ).rejects.toThrow(/Session not found/);
+    });
+
+    it("archiveSession 已归档的 session 抛出异常", async () => {
+      const otter = await port.create({ name: "Test", type: "big" });
+      const session = await port.createSession(otter.id);
+
+      await port.archiveSession(session.id, { reason: "manual" });
+      await expect(
+        port.archiveSession(session.id, { reason: "manual" }),
+      ).rejects.toThrow(/not active/);
     });
 
     it("getSessionHistory 返回全部 session 按倒序", async () => {

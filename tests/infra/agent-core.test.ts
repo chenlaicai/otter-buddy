@@ -126,6 +126,72 @@ describe("agent-core", () => {
       handle.reset("just context");
       expect(internals.systemPrompt).toBe("just context");
     });
+
+    it("reset 恢复 systemPrompt（无 context 时恢复初始值）", () => {
+      const internals = createMockInternals();
+      const handle = createAgentHandle(internals, { systemPrompt: "original prompt" });
+
+      handle.reset();
+      expect(internals.systemPrompt).toBe("original prompt");
+    });
+
+    it("reset 后重新同步 tools", () => {
+      const internals = createMockInternals();
+      const handle = createAgentHandle(internals, { systemPrompt: "test" });
+
+      handle.registerTool({
+        id: "t1",
+        name: "search",
+        description: "Search",
+        schema: {},
+        handler: async () => "ok",
+      });
+      expect(internals.tools.length).toBe(1);
+
+      // reset 后 tools 应该被重新同步
+      internals.tools = [];
+      handle.reset();
+      expect(internals.tools.length).toBe(1);
+    });
+
+    it("stream 返回文本增量", async () => {
+      const internals = createMockInternals();
+      internals.subscribe = (callback) => {
+        // 模拟异步文本增量事件
+        setTimeout(() => {
+          callback({
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: "chunk1" },
+          });
+          callback({
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: "chunk2" },
+          });
+          callback({ type: "agent_end" });
+        }, 0);
+        return () => {};
+      };
+
+      const handle = createAgentHandle(internals, {});
+      const chunks: string[] = [];
+      for await (const chunk of handle.stream("Hi")) {
+        chunks.push(chunk);
+      }
+      expect(chunks).toEqual(["chunk1", "chunk2"]);
+    });
+
+    it("stream prompt() 失败时抛出错误", async () => {
+      const internals = createMockInternals();
+      internals.prompt = () => Promise.reject(new Error("LLM connection failed"));
+      internals.subscribe = () => () => {};
+
+      const handle = createAgentHandle(internals, {});
+      await expect(async () => {
+        for await (const chunk of handle.stream("Hi")) {
+          void chunk;
+        }
+      }).rejects.toThrow(/LLM connection failed/);
+    });
   });
 
   describe("AgentRegistry (via initAgentCore)", () => {
@@ -204,6 +270,39 @@ describe("agent-core", () => {
       const handle = agentRegistry.create("otter-1", { systemPrompt: "test" });
       const result = await handle.run("Hi");
       expect(typeof result).toBe("string");
+    });
+
+    it("reset 后 Agent 实例仍然可用", async () => {
+      const { initFauxLLMGateway } = await import("@infra/llm-gateway");
+      const { initAgentCore } = await import("@infra/agent-core/registry");
+      const { fauxAssistantMessage, fauxText } = await import("@earendil-works/pi-ai");
+
+      const { gateway } = await initFauxLLMGateway([
+        fauxAssistantMessage([fauxText("First response")]),
+        fauxAssistantMessage([fauxText("Second response")]),
+      ]);
+
+      const { agentRegistry } = await initAgentCore({ llmGateway: gateway });
+      const handle = agentRegistry.create("otter-1", { systemPrompt: "test" });
+      await handle.run("First");
+
+      agentRegistry.reset("otter-1", "new context");
+
+      const result = await handle.run("Second");
+      expect(typeof result).toBe("string");
+    });
+
+    it("reset 不存在的 otter 不报错", async () => {
+      const { initFauxLLMGateway } = await import("@infra/llm-gateway");
+      const { initAgentCore } = await import("@infra/agent-core/registry");
+      const { fauxAssistantMessage, fauxText } = await import("@earendil-works/pi-ai");
+
+      const { gateway } = await initFauxLLMGateway([
+        fauxAssistantMessage([fauxText("OK")]),
+      ]);
+
+      const { agentRegistry } = await initAgentCore({ llmGateway: gateway });
+      expect(() => agentRegistry.reset("nonexistent")).not.toThrow();
     });
   });
 });
