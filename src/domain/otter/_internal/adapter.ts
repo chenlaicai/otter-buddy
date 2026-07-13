@@ -39,10 +39,16 @@ export class OtterAdapter implements OtterPort {
     const otter = this.repo.createOtter(id, params);
 
     /** 创建 Agent 实例（不加载 tools，由 app/agent-runtime 编排） */
-    this.agentLifecycle.create(id, {
-      systemPrompt: params.systemPrompt,
-      context: params.context,
-    });
+    try {
+      this.agentLifecycle.create(id, {
+        systemPrompt: params.systemPrompt,
+        context: params.context,
+      });
+    } catch (err) {
+      /** Agent 创建失败：回滚 DB 记录，避免不一致状态 */
+      this.repo.deleteOtter(id);
+      throw err;
+    }
 
     return otter;
   }

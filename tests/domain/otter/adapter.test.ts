@@ -84,6 +84,24 @@ describe("OtterAdapter", () => {
       });
       expect(smallOtter.parentOtterId).toBe(bigOtter.id);
     });
+
+    it("Agent 创建失败时回滚 DB 记录", async () => {
+      const failingLifecycle = createMockAgentLifecycle();
+      let createdId: string | null = null;
+      failingLifecycle.create = function (otterId: string) {
+        createdId = otterId;
+        throw new Error("Agent init failed");
+      };
+      const failingPort = new OtterAdapter(repo, failingLifecycle);
+
+      await expect(
+        failingPort.create({ name: "Fail", type: "small" }),
+      ).rejects.toThrow(/Agent init failed/);
+
+      /** DB 记录应已回滚 */
+      expect(createdId).not.toBeNull();
+      expect(await failingPort.getById(createdId!)).toBeNull();
+    });
   });
 
   describe("getBigOtter", () => {

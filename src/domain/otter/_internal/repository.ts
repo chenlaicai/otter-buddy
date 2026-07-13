@@ -46,6 +46,11 @@ export class OtterRepository {
     `).run(otterId);
   }
 
+  /** 删除 otter 记录（仅用于 create 回滚） */
+  deleteOtter(otterId: string): void {
+    this.db.prepare("DELETE FROM otters WHERE id = ?").run(otterId);
+  }
+
   createSession(otterId: string): OtterSession {
     const id = crypto.randomUUID();
     this.db.prepare(`
