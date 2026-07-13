@@ -173,6 +173,10 @@ export class ConversationAdapter implements ConversationPort {
         `Cannot complete message with status: ${message.status}`,
       );
     }
+    /** body 非空字符串校验（设计硬约束） */
+    if (!completion.body) {
+      throw new Error("body must be non-empty string");
+    }
     /** attachments 缺省时保留 startMessage 时的预置（架构师-2 #1） */
     const attachments = completion.attachments !== undefined
       ? completion.attachments

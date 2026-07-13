@@ -473,6 +473,16 @@ describe("ConversationAdapter - completeMessage", () => {
     ).rejects.toThrow(/Cannot complete/);
   });
 
+  it("body 为空字符串时 throw", async () => {
+    vi.mocked(repo.getMessageById).mockReturnValue(
+      makeStreamingMessage({ id: "msg-1" }),
+    );
+
+    await expect(
+      port.completeMessage("msg-1", { body: "" }),
+    ).rejects.toThrow(/non-empty/);
+  });
+
   it("消息不存在时 throw", async () => {
     vi.mocked(repo.getMessageById).mockReturnValue(null);
 
