@@ -17,7 +17,10 @@
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.80.6",
+    "@earendil-works/pi-ai": "^0.80.6",
     "@hono/node-server": "^2.0.6",
+    "@huggingface/transformers": "^4.2.0",
     "better-sqlite3": "^12.9.0",
     "hono": "^4.12.27",
     "sqlite-vec": "^0.1.6"
