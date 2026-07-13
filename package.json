@@ -19,7 +19,8 @@
   "dependencies": {
     "@hono/node-server": "^2.0.6",
     "better-sqlite3": "^12.9.0",
-    "hono": "^4.12.27"
+    "hono": "^4.12.27",
+    "sqlite-vec": "^0.1.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

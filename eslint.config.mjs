@@ -45,5 +45,19 @@ export default tseslint.config(
         { selector: "CallExpression[callee.property.name='toHaveBeenCalledTimes']", message: "禁止断言调用次数--绑定实现细节。使用返回值/状态/副作用断言替代。" }
       ]
     }
+  },
+  {
+    files: ["src/**/*.ts"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: ["*/_internal/*"]
+      }]
+    }
+  },
+  {
+    files: ["src/main.ts"],
+    rules: {
+      "no-restricted-imports": "off"
+    }
   }
 );
