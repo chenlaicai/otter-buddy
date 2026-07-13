@@ -68,6 +68,17 @@ describe("MemoryRepository", () => {
       expect(weight.userFlagged).toBe(false);
       expect(weight.lastRetrievedAt).toBeNull();
     });
+
+    it("storeEntry 事务原子性: memory_fts 写入失败时 memory_entries 也回滚", () => {
+      // Drop FTS table to force the FTS INSERT to fail
+      db.exec("DROP TABLE memory_fts");
+
+      // storeEntry should throw because memory_fts doesn't exist
+      expect(() => repo.storeEntry("mem-1", makeEntry())).toThrow();
+
+      // memory_entries should NOT have the entry (transaction rolled back)
+      expect(repo.getById("mem-1")).toBeNull();
+    });
   });
 
   describe("storeEntry + getBySource", () => {

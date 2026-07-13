@@ -87,10 +87,12 @@ export class MemoryAdapter implements MemoryPort {
       return { entries: [], scores: [], sources: [] };
     }
 
-    const vecHits = this.repo.searchVec(embedding, { limit });
+    // Request limit+1 to compensate for self-match being filtered out
+    const vecHits = this.repo.searchVec(embedding, { limit: limit + 1 });
+    const filtered = vecHits.filter(h => h.memoryEntryId !== id);
 
     /** searchSimilar 仅有 vec 单源，跳过 RRF 直接做 rerank（S9） */
-    const rrfHits = this.searchEngine.buildSingleSourceRrfHits(vecHits);
+    const rrfHits = this.searchEngine.buildSingleSourceRrfHits(filtered);
     return this.rerankAndReturn(rrfHits, null, limit);
   }
 

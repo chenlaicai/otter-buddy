@@ -144,7 +144,10 @@ export class SearchEngine {
 
   /** time_decay: exp(-ln(2) * age_days / half_life_days) */
   private computeTimeDecay(createdAt: string): number {
-    const ageMs = Date.now() - new Date(createdAt).getTime();
+    // SQLite datetime('now') returns UTC as "YYYY-MM-DD HH:MM:SS" (space-separated).
+    // JS Date parses space-separated dates as local time; normalize to ISO 8601 UTC.
+    const utc = createdAt.includes("T") ? createdAt : createdAt.replace(" ", "T") + "Z";
+    const ageMs = Date.now() - new Date(utc).getTime();
     const ageDays = ageMs / (1000 * 60 * 60 * 24);
     return Math.exp(-Math.LN2 * ageDays / this.config.weightHalfLifeDays);
   }

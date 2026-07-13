@@ -266,11 +266,13 @@ describe("MemoryAdapter", () => {
 
     it.skipIf(!sqliteVecAvailable)("有 embedding 时返回相似条目", async () => {
       const id = await port.store(makeEntry({ content: "similar test" }));
+      await port.store(makeEntry({ content: "similar test two", sourceId: "msg-2" }));
       await flushMicrotasks();
 
       const result = await port.searchSimilar(id, 10);
 
       expect(result.entries.length).toBeGreaterThan(0);
+      expect(result.entries.every(e => e.id !== id)).toBe(true);
     });
   });
 
