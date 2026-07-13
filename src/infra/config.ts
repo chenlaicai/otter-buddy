@@ -25,5 +25,13 @@ export const config = {
   embedding: {
     /** bge-m3 向量维度（S2 D19） */
     dimensions: 1024,
+    /** bge-m3 模型标识（HuggingFace Hub） */
+    modelPath: "Xenova/bge-m3",
+  },
+  llm: {
+    /** LLM 提供商（S2 D20：多提供商 via pi-ai） */
+    provider: process.env.OTTER_BUDDY_LLM_PROVIDER ?? "openai",
+    /** LLM 模型 ID */
+    model: process.env.OTTER_BUDDY_LLM_MODEL ?? "gpt-4o",
   },
 } as const;
