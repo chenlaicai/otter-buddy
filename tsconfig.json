@@ -7,10 +7,10 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@infra/*": ["src/infra/*"],
-      "@domain/*": ["src/domain/*"],
-      "@app/*": ["src/app/*"],
-      "@adapter/*": ["src/adapter/*"]
+      "@entities/*": ["src/entities/*"],
+      "@usecases/*": ["src/usecases/*"],
+      "@interface-adapters/*": ["src/interface-adapters/*"],
+      "@frameworks/*": ["src/frameworks/*"]
     },
     "strict": true,
     "esModuleInterop": true,
@@ -24,5 +24,5 @@
     "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "reference/**"]
 }
