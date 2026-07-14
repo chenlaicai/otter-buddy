@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Otter Buddy</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            otter: { 50:'#FAF6F0',100:'#F0E8DC',200:'#E0D0BC',300:'#C9AC8E',400:'#A88260',500:'#8B6F47',600:'#6B5638',700:'#52402C',800:'#3A2E1F',900:'#2A2014' },
+            teal: { 300:'#7BC5C5',400:'#4A9B9B',500:'#3A8B8B',600:'#2A7B7B' },
+            caramel: { 300:'#E8B98E',400:'#D9A57B',500:'#C9956B' },
+            lavender: { 300:'#B5A8D8',400:'#9B8AC8',500:'#8B7AB8' },
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.006em;
+      overflow: hidden;
+      min-width: 1024px;
+    }
+    /* Colorful gradient background - VISIBLE color blobs for glass to blur */
+    .bg-spring {
+      background-color: #F9F6F2;
+      background-image:
+        radial-gradient(ellipse 60% 50% at 10% 10%, rgba(168,130,96,0.12), transparent 60%),
+        radial-gradient(ellipse 50% 60% at 90% 90%, rgba(74,155,155,0.10), transparent 60%),
+        radial-gradient(ellipse 40% 40% at 70% 20%, rgba(217,165,123,0.08), transparent 60%),
+        radial-gradient(ellipse 50% 50% at 20% 80%, rgba(155,138,200,0.06), transparent 60%);
+    }
+    /* REAL glass - semi-transparent with strong blur */
+    .glass {
+      background: rgba(255,255,255,0.55);
+      backdrop-filter: blur(40px) saturate(180%);
+      -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.65);
+      box-shadow: 0 8px 32px rgba(139,111,71,0.06), inset 0 1px 0 rgba(255,255,255,0.5);
+    }
+    .glass-strong {
+      background: rgba(255,255,255,0.70);
+      backdrop-filter: blur(40px) saturate(180%);
+      -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.75);
+      box-shadow: 0 12px 40px rgba(139,111,71,0.08), inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+    .glass-card {
+      background: rgba(255,255,255,0.50);
+      backdrop-filter: blur(24px) saturate(160%);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      border: 1px solid rgba(255,255,255,0.55);
+      box-shadow: 0 4px 16px rgba(139,111,71,0.05);
+    }
+    .glass-input {
+      background: rgba(255,255,255,0.60);
+      backdrop-filter: blur(30px) saturate(180%);
+      -webkit-backdrop-filter: blur(30px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.70);
+      box-shadow: 0 8px 24px rgba(139,111,71,0.06), inset 0 1px 0 rgba(255,255,255,0.5);
+    }
+    .glass-input:focus-within {
+      border-color: rgba(168,130,96,0.4);
+      box-shadow: 0 8px 24px rgba(139,111,71,0.08), 0 0 0 4px rgba(168,130,96,0.08), inset 0 1px 0 rgba(255,255,255,0.5);
+    }
+    /* Soft colored shadows */
+    .shadow-otter { box-shadow: 0 4px 20px rgba(139,111,71,0.10), 0 1px 4px rgba(139,111,71,0.06); }
+    .shadow-otter-lg { box-shadow: 0 12px 40px rgba(139,111,71,0.10), 0 4px 12px rgba(139,111,71,0.06); }
+    .shadow-bubble { box-shadow: 0 2px 12px rgba(139,111,71,0.06), 0 1px 3px rgba(139,111,71,0.04); }
+    .shadow-glow { box-shadow: 0 2px 8px rgba(168,130,96,0.15), 0 0 20px rgba(168,130,96,0.08); }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(139,111,71,0.12); border-radius: 5px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(139,111,71,0.2); }
+    /* Animations */
+    .animate-dot { animation: dotPulse 1.4s infinite ease-in-out; }
+    @keyframes dotPulse { 0%,80%,100%{transform:scale(0.5);opacity:0.3} 40%{transform:scale(1);opacity:1} }
+    .animate-cursor { animation: blink 1s infinite; }
+    @keyframes blink { 50%{opacity:0} }
+    .animate-slideIn { animation: slideIn 0.3s ease-out; }
+    @keyframes slideIn { from{transform:translateY(8px);opacity:0} to{transform:translateY(0);opacity:1} }
+    .animate-spin-fast { animation: spinFast 0.6s linear infinite; }
+    @keyframes spinFast { to{transform:rotate(360deg)} }
+    /* Markdown */
+    .msg-content pre { background: #2C2520; color: #E8E2DA; padding: 12px 16px; border-radius: 10px; overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 8px 0; font-family: 'SF Mono','JetBrains Mono',monospace; }
+    .msg-content code { background: rgba(139,111,71,0.08); padding: 2px 6px; border-radius: 5px; font-size: 13px; font-family: 'SF Mono','JetBrains Mono',monospace; color: #6B5638; }
+    .msg-content strong { font-weight: 600; }
+    .msg-content ul, .msg-content ol { padding-left: 18px; margin: 6px 0; }
+    .msg-content li { margin: 3px 0; }
+    /* Streaming collapse */
+    .streaming-collapsed .streaming-body { display: none; }
+    .streaming-collapsed .streaming-icon { transform: rotate(-90deg); }
+    /* Bubble corners */
+    .bubble-user { border-bottom-right-radius: 6px; }
+    .bubble-otter { border-bottom-left-radius: 6px; }
+    /* Inputs */
+    .form-input { background: rgba(255,255,255,0.5); backdrop-filter: blur(20px); border: 1px solid rgba(139,111,71,0.12); border-radius: 10px; padding: 9px 12px; font-size: 14px; outline: none; transition: all 0.18s; color: #2C2520; }
+    .form-input:focus { border-color: rgba(168,130,96,0.4); box-shadow: 0 0 0 3px rgba(168,130,96,0.08); background: rgba(255,255,255,0.7); }
+    .form-input::placeholder { color: #A89F94; }
+  </style>
+</head>
+<body class="bg-spring text-stone-800" data-conversation-id="c1">
+
+<div class="flex flex-col h-screen">
+
+  <!-- TopBar -->
+  <header class="flex items-center justify-between px-5 h-12 glass-strong z-20 flex-shrink-0">
+    <div class="flex items-center gap-2">
+      <i data-lucide="paw-print" class="w-5 h-5 text-otter-500"></i>
+      <span class="text-sm font-bold tracking-tight text-otter-600">Otter Buddy</span>
+    </div>
+    <nav class="flex gap-0.5 p-1 rounded-full" style="background:rgba(139,111,71,0.06)">
+      <button class="px-4 py-1 text-xs font-semibold rounded-full bg-white text-otter-600 shadow-sm">对话</button>
+      <button onclick="location.href='memory-search.html'" class="px-4 py-1 text-xs font-medium rounded-full text-stone-500 hover:text-stone-700 transition">记忆搜索</button>
+      <button onclick="location.href='skills.html'" class="px-4 py-1 text-xs font-medium rounded-full text-stone-500 hover:text-stone-700 transition">能力库</button>
+      <button onclick="location.href='settings.html'" class="px-4 py-1 text-xs font-medium rounded-full text-stone-500 hover:text-stone-700 transition">设置</button>
+    </nav>
+    <div class="flex items-center gap-1.5">
+      <div class="w-1.5 h-1.5 rounded-full bg-teal-400"></div>
+      <span class="text-[11px] text-stone-500">大獭在线</span>
+    </div>
+  </header>
+
+  <div id="sse-bar" class="hidden bg-amber-400 text-white text-center text-xs py-1.5 flex items-center justify-center gap-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> 连接已断开，正在重连...</div>
+
+  <div class="flex flex-1 overflow-hidden p-3 gap-3">
+    <!-- Left Panel - REAL GLASS -->
+    <aside class="w-60 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
+      <div class="p-3 flex gap-2 border-b border-white/40">
+        <button onclick="location.href='memory-search.html'" class="w-8 h-8 rounded-xl flex items-center justify-center text-stone-500 hover:bg-white/40 transition"><i data-lucide="search" class="w-4 h-4"></i></button>
+        <button onclick="openModal('modal-new-conv')" class="flex-1 py-1.5 text-xs font-medium text-otter-500 border border-otter-300/30 rounded-xl hover:bg-white/40 transition flex items-center justify-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i> 新建对话</button>
+      </div>
+      <div id="conv-list" class="flex-1 overflow-y-auto p-2"></div>
+      <div id="tree-view" class="flex-1 overflow-y-auto p-2 hidden"></div>
+      <div class="p-2 border-t border-white/40 flex gap-1">
+        <button id="mode-list" onclick="setMode('list')" class="flex-1 py-1 text-[11px] font-medium rounded-lg bg-white/50 text-otter-500 flex items-center justify-center gap-1"><i data-lucide="list" class="w-3 h-3"></i> 列表</button>
+        <button id="mode-tree" onclick="setMode('tree')" class="flex-1 py-1 text-[11px] font-medium rounded-lg text-stone-400 hover:text-stone-600 transition flex items-center justify-center gap-1"><i data-lucide="network" class="w-3 h-3"></i> 树形</button>
+      </div>
+    </aside>
+
+    <!-- Chat View - GLASS -->
+    <main class="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
+      <div class="px-6 py-3 flex items-center justify-between border-b border-white/40 flex-shrink-0">
+        <div class="flex items-center gap-2">
+          <h1 id="chat-title" class="text-sm font-semibold text-stone-700">UI 设计讨论</h1>
+          <span id="chat-status" class="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal-400/15 text-teal-500">活跃</span>
+        </div>
+        <div class="flex gap-1.5">
+          <button onclick="openCreateChild(document.body.dataset.conversationId)" class="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"><i data-lucide="file-plus" class="w-3 h-3"></i> 子对话</button>
+          <button onclick="openComplete(document.body.dataset.conversationId)" class="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"><i data-lucide="check" class="w-3 h-3"></i> 完成</button>
+          <button onclick="openArchive(document.body.dataset.conversationId)" class="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"><i data-lucide="archive" class="w-3 h-3"></i> 归档</button>
+        </div>
+      </div>
+      <div id="msg-list" class="flex-1 overflow-y-auto py-4"></div>
+      <div class="px-6 pb-5 pt-2 flex-shrink-0">
+        <div class="max-w-[780px] mx-auto relative">
+          <div id="mention-list" class="hidden absolute bottom-16 left-1/2 -translate-x-1/2 glass-strong rounded-2xl shadow-otter-lg p-1 z-50 min-w-[180px]"></div>
+          <div class="flex items-end gap-2 glass-input rounded-3xl px-4 py-2.5 transition">
+            <textarea id="msg-input" rows="1" placeholder="输入消息... Enter 发送, @ 提及小獭"
+              class="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[22px] max-h-[140px] leading-relaxed"
+              oninput="handleMention(this)"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+            <button id="send-btn" onclick="sendMessage()" class="w-9 h-9 rounded-2xl text-white flex items-center justify-center shadow-glow transition flex-shrink-0" style="background:linear-gradient(135deg,#A88260,#6B5638)"><i data-lucide="arrow-up" class="w-4 h-4"></i></button>
+          </div>
+          <p class="text-[10px] text-stone-400 text-center mt-1.5">Enter 发送 · Shift+Enter 换行 · @ 提及小獭</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Panel - REAL GLASS -->
+    <aside class="w-72 glass rounded-3xl flex flex-col overflow-y-auto flex-shrink-0">
+      <div class="p-4 border-b border-white/40">
+        <h3 class="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">Otter 参与者</h3>
+        <div id="otter-list"></div>
+      </div>
+      <div class="p-4 border-b border-white/40">
+        <h3 class="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">关键事实<button onclick="toggleKeyFactForm()" class="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"><i data-lucide="plus" class="w-3.5 h-3.5"></i></button></h3>
+        <div id="kf-form" class="hidden glass-card rounded-xl p-2.5 mb-2 flex flex-col gap-1.5">
+          <input id="kf-content" placeholder="关键事实内容" class="form-input text-xs">
+          <input id="kf-category" placeholder="分类 (可选)" class="form-input text-xs">
+          <div class="flex gap-1.5 justify-end">
+            <button onclick="toggleKeyFactForm()" class="px-2.5 py-1 text-xs text-stone-500">取消</button>
+            <button onclick="addKeyFact()" class="px-2.5 py-1 text-xs text-white rounded-lg" style="background:linear-gradient(135deg,#A88260,#6B5638)">添加</button>
+          </div>
+        </div>
+        <div id="kf-list"></div>
+      </div>
+      <div class="p-4 border-b border-white/40">
+        <h3 class="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">链接资源<button onclick="openModal('modal-link-res')" class="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"><i data-lucide="plus" class="w-3.5 h-3.5"></i></button></h3>
+        <div id="lr-list"></div>
+      </div>
+      <div class="p-4 border-t border-white/40">
+        <h3 class="text-[10px] font-semibold uppercase tracking-wider text-amber-500/70 mb-2">仿真: 状态演示</h3>
+        <div class="flex flex-wrap gap-1">
+          <button onclick="toggleState('empty')" class="px-2 py-1 text-[11px] rounded-lg glass-card text-stone-500 hover:text-stone-700 transition">空对话</button>
+          <button onclick="toggleState('loading')" class="px-2 py-1 text-[11px] rounded-lg glass-card text-stone-500 hover:text-stone-700 transition">加载中</button>
+          <button onclick="simulateStream()" class="px-2 py-1 text-[11px] rounded-lg glass-card text-stone-500 hover:text-stone-700 transition">流式响应</button>
+          <button onclick="toggleState('error')" class="px-2 py-1 text-[11px] rounded-lg glass-card text-stone-500 hover:text-stone-700 transition">LLM错误</button>
+          <button onclick="toggleState('sse')" class="px-2 py-1 text-[11px] rounded-lg glass-card text-stone-500 hover:text-stone-700 transition">SSE断开</button>
+          <button onclick="toggleState('no-llm')" class="px-2 py-1 text-[11px] rounded-lg glass-card text-stone-500 hover:text-stone-700 transition">未配置LLM</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div id="ctx-menu" class="hidden fixed glass-strong rounded-2xl shadow-otter-lg p-1 z-50 min-w-[150px]"></div>
+<div id="toast" class="hidden fixed top-14 right-5 px-4 py-2.5 rounded-2xl shadow-otter-lg text-sm font-medium z-50"></div>
+
+<!-- MODALS -->
+<div id="modal-new-conv" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[440px]">
+    <div class="px-5 py-4 border-b border-white/40 flex justify-between items-center"><span class="text-sm font-semibold text-stone-700">新建对话</span><button onclick="closeModal('modal-new-conv')" class="text-stone-400 hover:text-stone-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/40"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+    <div class="p-5"><label class="block text-xs font-medium text-stone-500 mb-1.5">对话标题</label><input id="new-conv-title" class="form-input w-full" placeholder="输入对话标题"><div class="mt-3"><span class="text-xs font-medium text-stone-500">参与 Otter</span><div class="text-sm text-stone-400 mt-1">大獭 (默认)</div></div></div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-new-conv')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="confirmNewConv()" class="px-4 py-2 text-sm text-white rounded-xl shadow-glow transition" style="background:linear-gradient(135deg,#A88260,#6B5638)">创建</button></div>
+  </div>
+</div>
+<div id="modal-child" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[440px]">
+    <div class="px-5 py-4 border-b border-white/40 flex justify-between items-center"><span class="text-sm font-semibold text-stone-700">创建子对话</span><button onclick="closeModal('modal-child')" class="text-stone-400 hover:text-stone-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/40"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+    <div class="p-5"><label class="block text-xs font-medium text-stone-500 mb-1.5">子对话标题</label><input id="child-title" class="form-input w-full" placeholder="输入子对话标题"><p class="text-xs text-stone-400 mt-2">子对话将继承父对话的链接资源</p></div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-child')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="confirmChild()" class="px-4 py-2 text-sm text-white rounded-xl shadow-glow transition" style="background:linear-gradient(135deg,#A88260,#6B5638)">创建</button></div>
+  </div>
+</div>
+<div id="modal-complete" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[400px]">
+    <div class="px-5 py-4 border-b border-white/40"><span class="text-sm font-semibold text-stone-700">完成对话</span></div>
+    <div class="p-5"><p class="text-sm text-stone-500">完成此对话？子对话未完成时父对话也可完成。</p></div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-complete')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="confirmComplete()" class="px-4 py-2 text-sm text-white rounded-xl transition" style="background:linear-gradient(135deg,#A88260,#6B5638)">确认完成</button></div>
+  </div>
+</div>
+<div id="modal-archive" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[400px]">
+    <div class="px-5 py-4 border-b border-white/40"><span class="text-sm font-semibold text-stone-700">归档对话</span></div>
+    <div class="p-5"><p class="text-sm text-stone-500">归档后对话可检索但不活跃。输入框将被禁用。</p></div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-archive')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="confirmArchive()" class="px-4 py-2 text-sm text-white rounded-xl transition" style="background:linear-gradient(135deg,#A88260,#6B5638)">确认归档</button></div>
+  </div>
+</div>
+<div id="modal-create-otter" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[560px] max-h-[80vh] overflow-y-auto">
+    <div class="px-5 py-4 border-b border-white/40 flex justify-between items-center"><span class="text-sm font-semibold text-stone-700">创建小獭</span><button onclick="closeModal('modal-create-otter')" class="text-stone-400 hover:text-stone-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/40"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+    <div class="p-5 space-y-3">
+      <div><label class="block text-xs font-medium text-stone-500 mb-1.5">小獭名称</label><input id="otter-name" class="form-input w-full" placeholder="如：分析獭"></div>
+      <div><label class="block text-xs font-medium text-stone-500 mb-1.5">角色名称</label><input id="otter-role" class="form-input w-full" placeholder="如：方案A视角"></div>
+      <div><label class="block text-xs font-medium text-stone-500 mb-1.5">角色职责（每行一条）</label><textarea id="otter-resp" class="form-input w-full resize-none min-h-[60px]" placeholder="从用户体验角度分析&#10;关注易用性"></textarea></div>
+      <div><label class="block text-xs font-medium text-stone-500 mb-1.5">能力选择</label><div class="glass-card rounded-xl p-2.5 space-y-1.5"><label class="flex items-center gap-2 text-xs cursor-pointer text-stone-600"><input type="checkbox" class="rounded"> code-review (工具)</label><label class="flex items-center gap-2 text-xs cursor-pointer text-stone-600"><input type="checkbox" class="rounded"> deep-research (工作流)</label><label class="flex items-center gap-2 text-xs cursor-pointer text-stone-600"><input type="checkbox" class="rounded"> summary-template (提示模板)</label></div></div>
+      <div><label class="block text-xs font-medium text-stone-500 mb-1.5">上下文注入（大獭自动提取，可编辑）</label><textarea class="form-input w-full resize-none min-h-[60px]" placeholder="大獭将从记忆系统中提取相关上下文注入小獭..."></textarea></div>
+    </div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-create-otter')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="confirmCreateOtter()" class="px-4 py-2 text-sm text-white rounded-xl shadow-glow transition" style="background:linear-gradient(135deg,#A88260,#6B5638)">创建</button></div>
+  </div>
+</div>
+<div id="modal-dissolve" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[420px]">
+    <div class="px-5 py-4 border-b border-white/40"><span class="text-sm font-semibold text-stone-700">解散小獭</span></div>
+    <div class="p-5"><p class="text-sm text-stone-500">解散小獭 <strong id="dissolve-name" class="text-otter-500"></strong>？Session 将归档到大獭历史记忆，已加载能力将回收。</p><div class="mt-3"><label class="block text-xs font-medium text-stone-500 mb-1.5">归档摘要（可编辑）</label><textarea class="form-input w-full resize-none min-h-[60px]">小獭已完成分析任务，关键结论已记录。</textarea></div></div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-dissolve')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="confirmDissolve()" class="px-4 py-2 text-sm text-white rounded-xl bg-red-400 hover:bg-red-500 transition">确认解散</button></div>
+  </div>
+</div>
+<div id="modal-restart" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[420px]">
+    <div class="px-5 py-4 border-b border-white/40"><span class="text-sm font-semibold text-stone-700">重启獭生</span></div>
+    <div class="p-5"><p class="text-sm text-stone-500">重启 <strong id="restart-name" class="text-otter-500"></strong> 的獭生将封存当前 Session 为反面案例，并开新 Session 换角度重来。</p><div class="mt-3"><label class="block text-xs font-medium text-stone-500 mb-1.5">前情摘要（可编辑）</label><textarea class="form-input w-full resize-none min-h-[60px]">之前讨论了 UI 布局方案，但方向有偏差，需要换角度重新分析。</textarea></div></div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-restart')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="confirmRestart()" class="px-4 py-2 text-sm text-white rounded-xl bg-red-400 hover:bg-red-500 transition">确认重启</button></div>
+  </div>
+</div>
+<div id="modal-otter-detail" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[580px] max-h-[80vh] overflow-y-auto">
+    <div class="px-5 py-4 border-b border-white/40 flex justify-between items-center"><span class="text-sm font-semibold text-stone-700">Otter 详情</span><button onclick="closeModal('modal-otter-detail')" class="text-stone-400 hover:text-stone-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/40"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+    <div class="p-5">
+      <div class="flex gap-6 mb-4">
+        <div class="flex-1 space-y-3"><div><div class="text-[10px] font-semibold uppercase tracking-wider text-stone-400">名称</div><div id="od-name" class="text-sm mt-0.5 text-stone-700">-</div></div><div><div class="text-[10px] font-semibold uppercase tracking-wider text-stone-400">类型</div><div id="od-type" class="text-sm mt-0.5 text-stone-700">-</div></div><div><div class="text-[10px] font-semibold uppercase tracking-wider text-stone-400">角色</div><div id="od-role" class="text-sm mt-0.5 text-stone-700">-</div></div></div>
+        <div class="flex-1 space-y-3"><div><div class="text-[10px] font-semibold uppercase tracking-wider text-stone-400">职责列表</div><ul id="od-resp" class="text-sm mt-0.5 list-disc pl-4 text-stone-700">-</ul></div><div><div class="text-[10px] font-semibold uppercase tracking-wider text-stone-400">创建时间</div><div id="od-created" class="text-sm mt-0.5 text-stone-700">-</div></div></div>
+      </div>
+      <div class="mb-3"><div class="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1.5">Session Chain</div><table class="w-full text-sm"><thead><tr class="text-xs text-stone-400 border-b border-white/30"><th class="py-1.5 px-2 text-left">状态</th><th class="py-1.5 px-2 text-left">开始</th><th class="py-1.5 px-2 text-left">归档</th><th class="py-1.5 px-2 text-left">原因</th><th class="py-1.5 px-2 text-left">反面</th><th class="py-1.5 px-2 text-left">摘要</th></tr></thead><tbody id="od-sessions"></tbody></table></div>
+      <div><div class="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1.5">已加载能力</div><div id="od-skills" class="flex gap-1.5 flex-wrap"></div></div>
+    </div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-otter-detail')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">关闭</button><div id="od-actions"></div></div>
+  </div>
+</div>
+<div id="modal-link-res" class="hidden fixed inset-0 bg-black/10 backdrop-blur-sm items-center justify-center z-[100]">
+  <div class="glass-strong rounded-3xl shadow-otter-lg w-[420px]">
+    <div class="px-5 py-4 border-b border-white/40"><span class="text-sm font-semibold text-stone-700">链接资源</span></div>
+    <div class="p-5 space-y-3"><div><label class="block text-xs font-medium text-stone-500 mb-1.5">资源类型（开放机制）</label><input id="lr-type" class="form-input w-full" placeholder="如: pr, file, url, branch..."></div><div><label class="block text-xs font-medium text-stone-500 mb-1.5">URL</label><input id="lr-url" class="form-input w-full" placeholder="https://..."></div><div><label class="block text-xs font-medium text-stone-500 mb-1.5">标题（可选）</label><input id="lr-title" class="form-input w-full" placeholder="资源标题"></div></div>
+    <div class="px-5 py-3 border-t border-white/40 flex justify-end gap-2"><button onclick="closeModal('modal-link-res')" class="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition">取消</button><button onclick="addLinkedRes()" class="px-4 py-2 text-sm text-white rounded-xl shadow-glow transition" style="background:linear-gradient(135deg,#A88260,#6B5638)">链接</button></div>
+  </div>
+</div>
+
+<script>
+const D={bigOtter:{id:'o1',name:'大獭',type:'big',createdAt:'2026-07-01'},smallOtters:[{id:'o2',name:'分析獭',type:'small',role:{name:'方案A视角',resp:['从用户体验角度分析','关注易用性']},parentOtterId:'o1',ci:1},{id:'o3',name:'测试獭',type:'small',role:{name:'方案B视角',resp:['从技术架构角度分析','关注可维护性']},parentOtterId:'o1',ci:2}],otterSessions:{o1:[{id:'s1a',otterId:'o1',status:'active',startedAt:'2026-07-13 08:00',archivedAt:null,archiveReason:null,isNegativeCase:false,summary:null},{id:'s1b',otterId:'o1',status:'archived',startedAt:'2026-07-12 08:00',archivedAt:'2026-07-13 08:00',archiveReason:'restart',isNegativeCase:true,summary:'之前方向偏差较大'}],o2:[{id:'s2a',otterId:'o2',status:'active',startedAt:'2026-07-13 09:30',archivedAt:null,archiveReason:null,isNegativeCase:false,summary:null}],o3:[{id:'s3a',otterId:'o3',status:'active',startedAt:'2026-07-13 10:00',archivedAt:null,archiveReason:null,isNegativeCase:false,summary:null}]},conversations:[{id:'c1',title:'UI 设计讨论',status:'active',parentId:null,otterIds:['o1','o2','o3']},{id:'c2',title:'数据库选型',status:'active',parentId:'c1',otterIds:['o1']},{id:'c3',title:'前端框架对比',status:'completed',parentId:null,otterIds:['o1']},{id:'c4',title:'API 设计规范',status:'archived',parentId:null,otterIds:['o1']},{id:'c5',title:'测试策略',status:'active',parentId:'c1',otterIds:['o1']}],messages:{c1:[{id:'m1',st:'user',si:'user',content:'我们来做 UI 设计吧',ts:'2026-07-13 09:00:12',dur:null,ctx:120,ctxMax:128000},{id:'m2',st:'otter',si:'o1',sp:'> 检索记忆: "UI 设计"\n> 找到 3 条相关记忆\n> 分析 S1-S4 设计文档\n> 生成回复中...',content:'好的！我来分析一下现有的设计文档。\n\n基于 **S1-S4** 的设计，我们需要：\n\n1. 对话视图（三栏布局）\n2. 记忆搜索视图\n3. 能力库视图\n4. 设置视图\n\n```typescript\ninterface ChatView {\n  conversationId: string;\n  messages: Message[];\n}\n```\n\n你觉得这个方向如何？',ts:'2026-07-13 09:00:15',dur:'2.3s',ctx:380,ctxMax:128000},{id:'m3',st:'user',si:'user',content:'方向没问题，先出 UI 清单',ts:'2026-07-13 09:02:30',dur:null,ctx:420,ctxMax:128000},{id:'m4',st:'otter',si:'o1',sp:'> 整理 UI 清单\n> 4 页面 + 10 弹窗 + 15 状态\n> 完成',content:'已经整理好了 UI 清单，包含 **4 个页面**、**10 个弹窗** 和 **15 种状态**。覆盖全部 8 个用例。',ts:'2026-07-13 09:03:08',dur:'1.8s',ctx:520,ctxMax:128000},{id:'m5',st:'otter',si:'o2',sp:'> 从用户体验角度分析\n> 检查信息密度',content:'从用户体验角度，我建议三栏布局要注重信息密度控制，右栏不能太拥挤。',ts:'2026-07-13 09:05:22',dur:'3.1s',ctx:680,ctxMax:128000},{id:'m6',st:'otter',si:'o3',sp:'> 从技术架构角度分析\n> 评估 SSE vs WebSocket',content:'从技术架构角度，建议用 SSE 流式推送，前端用 EventSource 接收。',ts:'2026-07-13 09:06:10',dur:'2.7s',ctx:820,ctxMax:128000}],c2:[{id:'m7',st:'user',si:'user',content:'数据库选型用什么？',ts:'2026-07-13 10:00:00',dur:null,ctx:50,ctxMax:128000},{id:'m8',st:'otter',si:'o1',sp:'> 检索记忆: "数据库"',content:'使用 **SQLite** + FTS5 + sqlite-vec。',ts:'2026-07-13 10:00:03',dur:'1.2s',ctx:120,ctxMax:128000}],c3:[{id:'m9',st:'user',si:'user',content:'前端用什么框架？',ts:'2026-07-13 11:00:00',dur:null,ctx:50,ctxMax:128000},{id:'m10',st:'otter',si:'o1',sp:'> 检索技术栈信息',content:'React 19 + Tailwind 4 + Hono',ts:'2026-07-13 11:00:02',dur:'0.9s',ctx:90,ctxMax:128000}]},olderMessages:{c1:[{id:'m0a',st:'user',si:'user',content:'之前那个项目进展怎么样了？',ts:'2026-07-12 14:00:00',dur:null,ctx:50,ctxMax:128000},{id:'m0b',st:'otter',si:'o1',sp:'> 检索项目进展',content:'项目进展顺利，S1-S3 设计文档已完成。',ts:'2026-07-12 14:00:05',dur:'1.5s',ctx:120,ctxMax:128000}]},keyFacts:{c1:[{id:'kf1',content:'UI 采用三栏布局',category:'决策',flagged:true},{id:'kf2',content:'消息格式为基础 Markdown',category:'决策',flagged:false}],c2:[{id:'kf3',content:'使用 SQLite + FTS5 + sqlite-vec',category:'技术选型',flagged:false}]},linkedRes:{c1:[{id:'lr1',type:'pr',url:'https://github.com/chenlaicai/otter-buddy/pull/6',title:'S1 产品形态定义 PR',auto:false},{id:'lr2',type:'file',url:'docs/features/2026/07/09/F20260709x7k3.md',title:'S1 Feature 文档',auto:true}],c2:[{id:'lr3',type:'url',url:'https://www.sqlite.org/fts5.html',title:'SQLite FTS5 文档',auto:false}]},skills:[{id:'sk1',name:'code-review',desc:'代码审查能力',type:'tool',assignedTo:['o2']},{id:'sk2',name:'deep-research',desc:'深度研究能力',type:'workflow',assignedTo:[]},{id:'sk3',name:'summary-template',desc:'摘要模板',type:'prompt_template',assignedTo:['o3']}]};
+const otterHex={o1:'#8B6F47',o2:'#4A9B9B',o3:'#D9A57B'};
+const otterGrad={o1:'linear-gradient(135deg,#A88260,#6B5638)',o2:'linear-gradient(135deg,#7BC5C5,#3A8B8B)',o3:'linear-gradient(135deg,#E8B98E,#C9956B)'};
+const otterName={o1:'text-otter-500',o2:'text-teal-500',o3:'text-caramel-500'};
+const otterBorder={o1:'#8B6F47',o2:'#4A9B9B',o3:'#D9A57B'};
+function getOtter(id){if(id==='o1')return D.bigOtter;return D.smallOtters.find(o=>o.id===id)}
+function fmtT(t){return t<1000?t+' tokens':(t/1000).toFixed(1)+'k'}
+function ctxP(t,m){return Math.min(100,t/m*100)}
+function renderMd(c){let h=c;h=h.replace(/```(\w+)?\n([\s\S]*?)```/g,(_,l,co)=>`<pre><code>${co.trim()}</code></pre>`);h=h.replace(/`([^`]+)`/g,'<code>$1</code>');h=h.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');const lines=h.split('\n');let inOl=false,r=[];for(let l of lines){if(l.match(/^\d+\.\s+/)){if(!inOl){r.push('<ol>');inOl=true;}r.push(l.replace(/^\d+\.\s+/,'<li>')+'</li>');}else{if(inOl){r.push('</ol>');inOl=false;}r.push(l);}}if(inOl)r.push('</ol>');return r.join('\n').replace(/\n/g,'<br>').replace(/<br>(<pre>|<ol>|<\/ol>)/g,'$1').replace(/(<\/pre>|<\/ol>)<br>/g,'$1')}
+function refreshIcons(){if(window.lucide)lucide.createIcons()}
+function renderMessages(cid){const el=document.getElementById('msg-list');const msgs=D.messages[cid]||[];if(!msgs.length){el.innerHTML='<div class="flex flex-col items-center justify-center h-full text-stone-300 gap-2"><i data-lucide="message-circle" class="w-10 h-10 opacity-40"></i><div class="text-sm font-medium text-stone-400">开始对话</div><div class="text-xs text-stone-400">在下方输入消息开始与大獭对话</div></div>';refreshIcons();return}let html='<div id="scroll-up" class="hidden flex items-center justify-center py-2.5 text-stone-400 text-xs gap-1.5"><div class="w-3 h-3 border-2 border-otter-300/30 border-t-otter-400 rounded-full animate-spin-fast"></div>加载历史消息...</div>';html+=msgs.map(m=>renderMsg(m)).join('');el.innerHTML=html;el.scrollTop=el.scrollHeight;setupScrollUp(el,cid);refreshIcons()}
+function renderMsg(m){const isUser=m.st==='user';const o=isUser?null:getOtter(m.si);const initial=isUser?'我':(o?.name?.charAt(0)||'O');const name=isUser?'我':(o?.name||'Otter');const bgGrad=isUser?'linear-gradient(135deg,#8B7E72,#6B6157)':otterGrad[m.si];const nameColor=isUser?'text-stone-400':otterName[m.si]||'text-otter-500';const bl=!isUser?`border-left:3px solid ${otterBorder[m.si]||'#8B6F47'}`:'';const dur=m.dur?` · ${m.dur}`:'';let spHtml='';if(!isUser&&m.sp){spHtml=`<div class="streaming-section streaming-collapsed mb-2 rounded-xl overflow-hidden" style="background:rgba(139,111,71,0.04);border:1px solid rgba(139,111,71,0.08)"><div class="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/30 transition" onclick="this.parentElement.classList.toggle('streaming-collapsed')"><span class="streaming-icon text-[8px] text-stone-400 transition">▼</span><span class="text-[11px] text-stone-500 font-medium flex-1">流式过程</span><span class="text-[10px] text-stone-400">已完成 · ${m.dur||''}</span></div><div class="streaming-body px-3 py-2 text-[12px] text-stone-500 font-mono whitespace-pre-wrap border-t border-otter-200/20 max-h-[200px] overflow-y-auto">${m.sp}</div></div>`}const ctxBar=`<div class="flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400 ${isUser?'justify-end':''}"><span>${fmtT(m.ctx||0)} / ${fmtT(m.ctxMax||128000)}</span><div class="w-20 h-0.5 rounded-full" style="background:rgba(139,111,71,0.1)"><div class="h-full rounded-full" style="width:${ctxP(m.ctx||0,m.ctxMax||128000)}%;background:#8B6F47"></div></div></div>`;return `<div class="flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 ${isUser?'flex-row-reverse':''} animate-slideIn"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble" style="background:${bgGrad}">${initial}</div><div class="flex flex-col ${isUser?'items-end':''}" style="max-width:72%"><div class="flex items-center gap-1.5 mb-1 px-1"><span class="text-xs font-semibold ${nameColor}">${name}</span><span class="text-[11px] text-stone-300 opacity-0 hover:opacity-100 transition">${m.ts||''}<span class="mx-0.5">·</span>${dur||'即时'}</span></div><div class="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble ${isUser?'bubble-user text-white':'bubble-otter bg-white text-stone-700 border border-stone-100'}" style="${isUser?'background:'+bgGrad:bl}">${spHtml}${renderMd(m.content)}</div>${ctxBar}</div></div>`}
+function setupScrollUp(el,cid){let loading=false;el.onscroll=function(){if(el.scrollTop<50&&!loading){const older=D.olderMessages[cid];if(older&&older.length){loading=true;document.getElementById('scroll-up').style.display='flex';const prevH=el.scrollHeight;setTimeout(()=>{el.innerHTML=older.map(m=>renderMsg(m)).join('')+el.innerHTML;el.scrollTop=el.scrollHeight-prevH;D.olderMessages[cid]=[];const su=document.getElementById('scroll-up');if(su)su.style.display='none';loading=false},800)}}}}
+let isStreaming=false;
+function simulateStream(){if(isStreaming)return;isStreaming=true;const list=document.getElementById('msg-list');const input=document.getElementById('msg-input');const btn=document.getElementById('send-btn');input.disabled=true;btn.disabled=true;const spText='> 检索记忆: "用户需求"\n> 找到 3 条相关记忆\n> 分析上下文\n> 生成回复中...';const final='好的，我来处理这个需求。\n\n**分析要点：**\n\n1. 需要覆盖所有页面\n2. 交互必须可演示\n3. 组件结构需对应 React\n\n```typescript\nconst result = await process(input);\n```\n\n这个方案如何？';const msg=document.createElement('div');msg.className='flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn';msg.id='stream-msg';msg.innerHTML=`<div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble" style="background:${otterGrad.o1}">獭</div><div class="flex flex-col" style="max-width:72%"><div class="flex items-center gap-1.5 mb-1 px-1"><span class="text-xs font-semibold text-otter-500">大獭</span><span class="text-[11px] text-stone-300">正在回复...</span></div><div class="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble bubble-otter bg-white text-stone-700 border border-stone-100" style="border-left:3px solid #8B6F47"><div id="live-sp" class="rounded-xl overflow-hidden mb-2" style="background:rgba(139,111,71,0.04);border:1px solid rgba(139,111,71,0.08)"><div class="flex items-center gap-1.5 px-3 py-1.5"><span class="text-[8px] text-stone-400">▼</span><span class="text-[11px] text-stone-500 font-medium flex-1">流式过程</span><span class="text-[10px] text-stone-400 flex items-center gap-1"><span class="flex gap-0.5"><span class="w-1 h-1 rounded-full bg-teal-400 animate-dot"></span><span class="w-1 h-1 rounded-full bg-teal-400 animate-dot" style="animation-delay:0.15s"></span><span class="w-1 h-1 rounded-full bg-teal-400 animate-dot" style="animation-delay:0.3s"></span></span>生成中</span></div><div id="sp-content" class="px-3 py-2 text-[12px] text-stone-500 font-mono whitespace-pre-wrap border-t border-otter-200/20"></div></div><div id="final-resp" class="hidden"></div></div><div id="stop-btn" class="mt-1.5"><button onclick="stopStream()" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"><i data-lucide="square" class="w-2.5 h-2.5 fill-current text-red-400"></i>停止生成</button></div></div>`;list.appendChild(msg);list.scrollTop=list.scrollHeight;const cEl=document.getElementById('sp-content');let idx=0;const start=Date.now();const iv=setInterval(()=>{if(idx>=spText.length){finishStream(spText,final,start,iv);return}idx+=3;cEl.textContent=spText.substring(0,idx);list.scrollTop=list.scrollHeight},40);window._streamIv=iv}
+function stopStream(){if(window._streamIv)clearInterval(window._streamIv);const c=document.getElementById('sp-content');finishStream(c?c.textContent:'', '', Date.now()-2000, null)}
+function finishStream(spText,final,start,iv){if(iv)clearInterval(iv);const dur=((Date.now()-start)/1000).toFixed(1)+'s';const cEl=document.getElementById('sp-content');const liveSp=document.getElementById('live-sp');const stopBtn=document.getElementById('stop-btn');const finalEl=document.getElementById('final-resp');const list=document.getElementById('msg-list');const input=document.getElementById('msg-input');const btn=document.getElementById('send-btn');if(cEl)cEl.textContent=spText;if(liveSp){const s=liveSp.querySelector('.flex.items-center.gap-1\\.5:last-child > span:last-child');if(s)s.innerHTML=`已完成 · ${dur}`;liveSp.classList.add('cursor-pointer');liveSp.onclick=function(){this.parentElement.classList.toggle('streaming-collapsed')};liveSp.parentElement.classList.add('streaming-collapsed')}if(stopBtn)stopBtn.remove();if(finalEl&&final){finalEl.innerHTML=renderMd(final);finalEl.classList.remove('hidden')}input.disabled=false;btn.disabled=false;isStreaming=false;list.scrollTop=list.scrollHeight;refreshIcons()}
+function sendMessage(){const input=document.getElementById('msg-input');if(!input.value.trim())return;const cid=document.body.dataset.conversationId||'c1';if(!D.messages[cid])D.messages[cid]=[];D.messages[cid].push({id:'m'+Date.now(),st:'user',si:'user',content:input.value,ts:new Date().toLocaleString('zh-CN',{hour12:false}),dur:null,ctx:850,ctxMax:128000});input.value='';renderMessages(cid);setTimeout(simulateStream,400)}
+function selectConv(cid){document.body.dataset.conversationId=cid;const c=D.conversations.find(x=>x.id===cid);if(!c)return;document.getElementById('chat-title').textContent=c.title;const sb=document.getElementById('chat-status');sb.className=`text-[10px] font-medium px-2 py-0.5 rounded-full ${c.status==='active'?'bg-teal-400/15 text-teal-500':c.status==='completed'?'bg-otter-400/15 text-otter-500':'bg-stone-400/15 text-stone-400'}`;sb.textContent=c.status==='active'?'活跃':c.status==='completed'?'已完成':'已归档';renderMessages(cid);renderRight(cid);renderConvList(cid);renderTree(cid);document.getElementById('msg-input').disabled=c.status==='archived';document.getElementById('send-btn').disabled=c.status==='archived';refreshIcons()}
+function renderConvList(activeId){const el=document.getElementById('conv-list');if(!el)return;el.innerHTML=D.conversations.map(c=>{const otters=c.otterIds.map(id=>{const o=getOtter(id);return `<div class="w-4 h-4 rounded-full border-2 border-white flex items-center justify-center text-[7px] font-bold text-white" style="background:${otterHex[id]||'#8B6F47'}">${o?.name?.charAt(0)||'?'}</div>`}).join('');return `<div onclick="selectConv('${c.id}')" oncontextmenu="showCtx(event,'${c.id}')" class="px-2.5 py-2 rounded-xl cursor-pointer transition ${c.id===activeId?'glass-card shadow-bubble':'hover:bg-white/30'}"><div class="text-xs font-medium text-stone-700 truncate">${c.title}</div><div class="flex items-center gap-1 mt-0.5"><div class="w-1 h-1 rounded-full ${c.status==='active'?'bg-teal-400':c.status==='completed'?'bg-otter-400':'bg-stone-400'}"></div><div class="flex ml-auto">${otters}</div></div></div>`}).join('');refreshIcons()}
+function renderTree(activeId){const el=document.getElementById('tree-view');if(!el)return;const roots=D.conversations.filter(c=>!c.parentId);function node(c){const ch=D.conversations.filter(x=>x.parentId===c.id);const color=c.status==='active'?'bg-teal-400':c.status==='completed'?'bg-otter-400':'bg-stone-400';return `<div onclick="selectConv('${c.id}')" class="flex items-center px-2.5 py-1.5 rounded-xl cursor-pointer transition ${c.id===activeId?'glass-card shadow-bubble':'hover:bg-white/30'}"><div class="w-0.5 h-3 rounded mr-2 ${color}"></div><div class="text-xs flex-1 truncate text-stone-700">${c.title}</div><button onclick="event.stopPropagation();openCreateChild('${c.id}')" class="opacity-0 hover:opacity-100 text-stone-400 text-sm px-1">+</button></div>${ch.length?`<div class="ml-3 border-l border-otter-200/20 pl-1.5">${ch.map(node).join('')}</div>`:''}`}el.innerHTML=roots.map(node).join('');refreshIcons()}
+function renderRight(cid){const c=D.conversations.find(x=>x.id===cid);if(!c)return;const ol=document.getElementById('otter-list');if(ol){const otters=c.otterIds.map(id=>getOtter(id)).filter(Boolean);ol.innerHTML=otters.map(o=>{const isBig=o.type==='big';const sessions=D.otterSessions[o.id]||[];const activeS=sessions.find(s=>s.status==='active');const grad=otterGrad[o.id];return `<div onclick="openOtterDetail('${o.id}')" class="flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer glass-card mb-1.5 transition hover:shadow-bubble hover:-translate-y-0.5 group"><div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-bubble" style="background:${grad}">${o.name.charAt(0)}</div><div class="flex-1 min-w-0"><div class="text-xs font-semibold text-stone-700">${o.name}</div><div class="text-[10px] text-stone-400">${isBig?'大獭 · 持久':(o.role?.name||'')}</div>${activeS?`<div class="text-[9px] text-stone-400">Session #${sessions.length} · ${activeS.startedAt.split(' ')[1]||activeS.startedAt}</div>`:''}</div>${isBig?'<span class="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-otter-400/15 text-otter-500">大獭</span>':`<span class="opacity-0 group-hover:opacity-100 text-stone-400 cursor-pointer" onclick="event.stopPropagation();openDissolve('${o.id}')"><i data-lucide="more-horizontal" class="w-3.5 h-3.5"></i></span>`}<button onclick="event.stopPropagation();openRestart('${o.id}')" class="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"><i data-lucide="rotate-ccw" class="w-2.5 h-2.5"></i>重启</button></div>`}).join('')+`<button onclick="openModal('modal-create-otter')" class="w-full mt-1.5 py-1.5 text-xs glass-card text-stone-500 rounded-xl hover:bg-white/40 hover:text-otter-500 transition flex items-center justify-center gap-1"><i data-lucide="plus" class="w-3 h-3"></i> 创建小獭</button>`}const kf=document.getElementById('kf-list');if(kf){const facts=D.keyFacts[cid]||[];kf.innerHTML=facts.map(f=>`<div class="flex items-start gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group"><span onclick="toggleFact('${f.id}')" class="cursor-pointer mt-0.5 ${f.flagged?'text-amber-400':'text-stone-300'}"><i data-lucide="star" class="w-3.5 h-3.5" ${f.flagged?'fill="currentColor"':''}></i></span><span class="text-xs text-stone-600 flex-1">${f.content}<span class="text-[9px] text-stone-400 bg-white/30 px-1.5 py-0.5 rounded-full ml-1">${f.category}</span></span><span onclick="delFact('${f.id}')" class="opacity-0 group-hover:opacity-100 text-red-400 mt-0.5 cursor-pointer"><i data-lucide="x" class="w-3 h-3"></i></span></div>`).join('')}const lr=document.getElementById('lr-list');if(lr){const res=D.linkedRes[cid]||[];const icons={pr:'link',file:'file',url:'globe',branch:'git-branch'};lr.innerHTML=res.map(r=>`<div class="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group"><i data-lucide="${icons[r.type]||'paperclip'}" class="w-3.5 h-3.5 text-stone-400"></i><a href="${r.url}" target="_blank" class="text-xs text-teal-500 truncate flex-1">${r.title||r.url}</a>${r.auto?'<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-500">自动</span>':''}<span onclick="delRes('${r.id}')" class="opacity-0 group-hover:opacity-100 text-red-400 cursor-pointer"><i data-lucide="x" class="w-3 h-3"></i></span></div>`).join('')}refreshIcons()}
+function toggleKeyFactForm(){document.getElementById('kf-form').classList.toggle('hidden')}
+function addKeyFact(){const c=document.getElementById('kf-content'),cat=document.getElementById('kf-category');if(!c.value.trim())return;const cid=document.body.dataset.conversationId||'c1';if(!D.keyFacts[cid])D.keyFacts[cid]=[];D.keyFacts[cid].push({id:'kf'+Date.now(),content:c.value,category:cat.value||'',flagged:false});c.value='';cat.value='';toggleKeyFactForm();renderRight(cid);toast('关键事实已添加','success')}
+function toggleFact(id){for(const cid in D.keyFacts){const f=D.keyFacts[cid].find(x=>x.id===id);if(f){f.flagged=!f.flagged;renderRight(cid);break}}}
+function delFact(id){for(const cid in D.keyFacts){D.keyFacts[cid]=D.keyFacts[cid].filter(x=>x.id!==id);renderRight(cid)}}
+function addLinkedRes(){const t=document.getElementById('lr-type'),u=document.getElementById('lr-url'),ti=document.getElementById('lr-title');if(!u.value.trim())return;const cid=document.body.dataset.conversationId||'c1';if(!D.linkedRes[cid])D.linkedRes[cid]=[];D.linkedRes[cid].push({id:'lr'+Date.now(),type:t.value||'url',url:u.value,title:ti.value||u.value,auto:false});t.value='';u.value='';ti.value='';closeModal('modal-link-res');renderRight(cid);toast('资源已链接','success')}
+function delRes(id){for(const cid in D.linkedRes){D.linkedRes[cid]=D.linkedRes[cid].filter(x=>x.id!==id);renderRight(cid)}}
+function showCtx(e,cid){e.preventDefault();const m=document.getElementById('ctx-menu');const c=D.conversations.find(x=>x.id===cid);if(!c)return;const canC=c.status==='active',canA=c.status!=='archived';m.innerHTML=`<div class="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${canC?'hover:bg-white/40 text-stone-600':'text-stone-300 cursor-not-allowed'}" onclick="closeCtx();${canC?`openComplete('${cid}')`:''}">完成对话</div><div class="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${canA?'hover:bg-white/40 text-stone-600':'text-stone-300 cursor-not-allowed'}" onclick="closeCtx();${canA?`openArchive('${cid}')`:''}">归档对话</div><div class="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600" onclick="closeCtx();openCreateChild('${cid}')">创建子对话</div>`;m.style.left=e.clientX+'px';m.style.top=e.clientY+'px';m.classList.remove('hidden')}
+function closeCtx(){document.getElementById('ctx-menu').classList.add('hidden')}
+function setMode(m){const l=document.getElementById('conv-list'),t=document.getElementById('tree-view'),bl=document.getElementById('mode-list'),bt=document.getElementById('mode-tree');if(m==='list'){l.classList.remove('hidden');t.classList.add('hidden');bl.className='flex-1 py-1 text-[11px] font-medium rounded-lg bg-white/50 text-otter-500';bt.className='flex-1 py-1 text-[11px] font-medium rounded-lg text-stone-400 hover:text-stone-600 transition'}else{l.classList.add('hidden');t.classList.remove('hidden');bl.className='flex-1 py-1 text-[11px] font-medium rounded-lg text-stone-400 hover:text-stone-600 transition';bt.className='flex-1 py-1 text-[11px] font-medium rounded-lg bg-white/50 text-otter-500'}}
+function handleMention(input){const cp=input.selectionStart;const tb=input.value.substring(0,cp);const at=tb.match(/@(\w*)$/);const ml=document.getElementById('mention-list');if(!ml)return;if(at){const q=at[1].toLowerCase();const otters=[D.bigOtter,...D.smallOtters];const matches=otters.filter(o=>o.name.toLowerCase().includes(q));if(matches.length){ml.innerHTML=matches.map(o=>`<div onclick="insertMention('${o.name}')" class="px-2.5 py-1.5 rounded-xl text-xs cursor-pointer hover:bg-white/40 flex items-center gap-2"><div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style="background:${otterGrad[o.id]}">${o.name.charAt(0)}</div><span class="text-stone-600">${o.name}</span></div>`).join('');ml.classList.remove('hidden')}else{ml.classList.add('hidden')}}else{ml.classList.add('hidden')}}
+function insertMention(name){const input=document.getElementById('msg-input');const ml=document.getElementById('mention-list');const cp=input.selectionStart;const tb=input.value.substring(0,cp);const ta=input.value.substring(cp);const at=tb.match(/@(\w*)$/);if(at){input.value=tb.substring(0,at.index)+'@'+name+' '+ta;const np=at.index+name.length+2;input.focus();input.setSelectionRange(np,np)}ml.classList.add('hidden')}
+function openOtterDetail(oid){const o=getOtter(oid);if(!o)return;document.getElementById('od-name').textContent=o.name;document.getElementById('od-type').textContent=o.type==='big'?'大獭':'小獭';document.getElementById('od-role').textContent=o.role?.name||'-';document.getElementById('od-resp').innerHTML=(o.role?.resp||[]).map(r=>`<li>${r}</li>`).join('')||'-';document.getElementById('od-created').textContent=o.createdAt;const sessions=D.otterSessions[oid]||[];document.getElementById('od-sessions').innerHTML=sessions.map(s=>`<tr class="border-b border-white/20"><td class="py-1.5 px-2 text-xs text-stone-600"><span class="inline-flex items-center gap-1">${s.status==='active'?'<span class="w-1.5 h-1.5 rounded-full bg-teal-400"></span>活跃':'<span class="w-1.5 h-1.5 rounded-full bg-stone-400"></span>归档'}</span></td><td class="py-1.5 px-2 text-xs text-stone-600">${s.startedAt}</td><td class="py-1.5 px-2 text-xs text-stone-600">${s.archivedAt||'-'}</td><td class="py-1.5 px-2 text-xs text-stone-600">${s.archiveReason||'-'}</td><td class="py-1.5 px-2 text-xs text-stone-600">${s.isNegativeCase?'<span class="text-amber-500">是</span>':'-'}</td><td class="py-1.5 px-2 text-xs text-stone-600">${s.summary||'-'}</td></tr>`).join('');const skills=D.skills.filter(s=>s.assignedTo.includes(oid));document.getElementById('od-skills').innerHTML=skills.length?skills.map(s=>`<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-white/40 text-stone-600">${s.name}</span>`).join(''):'<span class="text-xs text-stone-400">无已加载能力</span>';const actions=document.getElementById('od-actions');if(o.type==='big'){actions.innerHTML=`<button onclick="closeModal('modal-otter-detail');openRestart('${oid}')" class="px-4 py-2 text-sm text-white rounded-xl bg-red-400 hover:bg-red-500 transition">重启獭生</button>`}else{actions.innerHTML=`<button onclick="closeModal('modal-otter-detail');openDissolve('${oid}')" class="px-4 py-2 text-sm text-white rounded-xl bg-red-400 hover:bg-red-500 transition">解散小獭</button>`}openModal('modal-otter-detail')}
+function openRestart(oid){document.getElementById('restart-name').textContent=getOtter(oid)?.name||'';document.body.dataset.restartId=oid;openModal('modal-restart')}
+function confirmRestart(){const oid=document.body.dataset.restartId;if(oid){if(!D.otterSessions[oid])D.otterSessions[oid]=[];const ss=D.otterSessions[oid];const ai=ss.findIndex(s=>s.status==='active');if(ai>=0){ss[ai].status='archived';ss[ai].archivedAt=new Date().toLocaleString('zh-CN',{hour12:false});ss[ai].archiveReason='restart';ss[ai].isNegativeCase=true}ss.push({id:'s'+Date.now(),otterId:oid,status:'active',startedAt:new Date().toLocaleString('zh-CN',{hour12:false}),archivedAt:null,archiveReason:null,isNegativeCase:false,summary:null});const cid=document.body.dataset.conversationId||'c1';renderRight(cid)}closeModal('modal-restart');toast('Session 已封存，新 Session 已开始','success')}
+function openDissolve(oid){document.getElementById('dissolve-name').textContent=getOtter(oid)?.name||'';document.body.dataset.dissolveId=oid;openModal('modal-dissolve')}
+function confirmDissolve(){const oid=document.body.dataset.dissolveId;if(oid){D.smallOtters=D.smallOtters.filter(o=>o.id!==oid);D.conversations.forEach(c=>{c.otterIds=c.otterIds.filter(id=>id!==oid)});const cid=document.body.dataset.conversationId||'c1';renderRight(cid)}closeModal('modal-dissolve');toast('小獭已解散','success')}
+function confirmCreateOtter(){const n=document.getElementById('otter-name').value;if(!n){toast('请输入名称','error');return}const r=document.getElementById('otter-role').value;const resp=document.getElementById('otter-resp').value;const ci=(D.smallOtters.length%4)+1;const no={id:'o'+Date.now(),name:n,type:'small',role:{name:r||'',resp:resp?resp.split('\n').filter(Boolean):[]},parentOtterId:'o1',ci};D.smallOtters.push(no);D.otterSessions[no.id]=[{id:'s'+Date.now(),otterId:no.id,status:'active',startedAt:new Date().toLocaleString('zh-CN',{hour12:false}),archivedAt:null,archiveReason:null,isNegativeCase:false,summary:null}];const cid=document.body.dataset.conversationId||'c1';const c=D.conversations.find(x=>x.id===cid);if(c)c.otterIds.push(no.id);closeModal('modal-create-otter');renderRight(cid);toast(`小獭 ${n} 已创建`,'success');['otter-name','otter-role','otter-resp'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''})}
+function openCreateChild(pid){document.body.dataset.childParent=pid;openModal('modal-child')}
+function confirmChild(){const t=document.getElementById('child-title').value;if(!t){toast('请输入标题','error');return}const pid=document.body.dataset.childParent;const p=D.conversations.find(c=>c.id===pid);if(p){const nc={id:'c'+Date.now(),title:t,status:'active',parentId:pid,otterIds:['o1']};D.conversations.push(nc);renderConvList(nc.id);renderTree(nc.id);selectConv(nc.id)}closeModal('modal-child');document.getElementById('child-title').value='';toast('子对话已创建','success')}
+function openComplete(cid){document.body.dataset.completeCid=cid;openModal('modal-complete')}
+function confirmComplete(){const cid=document.body.dataset.completeCid;const c=D.conversations.find(x=>x.id===cid);if(c)c.status='completed';closeModal('modal-complete');selectConv(cid);toast('对话已完成','success')}
+function openArchive(cid){document.body.dataset.archiveCid=cid;openModal('modal-archive')}
+function confirmArchive(){const cid=document.body.dataset.archiveCid;const c=D.conversations.find(x=>x.id===cid);if(c)c.status='archived';closeModal('modal-archive');selectConv(cid);toast('对话已归档','success')}
+function confirmNewConv(){const t=document.getElementById('new-conv-title').value;if(!t){toast('请输入标题','error');return}const nc={id:'c'+Date.now(),title:t,status:'active',parentId:null,otterIds:['o1']};D.conversations.unshift(nc);D.messages[nc.id]=[];closeModal('modal-new-conv');document.getElementById('new-conv-title').value='';renderConvList(nc.id);renderTree(nc.id);selectConv(nc.id);toast('对话已创建','success')}
+function toggleState(s){closeAllModals();const ml=document.getElementById('msg-list');const cv=document.querySelector('main');switch(s){case 'empty':ml.innerHTML='<div class="flex flex-col items-center justify-center h-full text-stone-300 gap-2"><i data-lucide="message-circle" class="w-10 h-10 opacity-40"></i><div class="text-sm font-medium text-stone-400">开始对话</div><div class="text-xs text-stone-400">在下方输入消息</div></div>';refreshIcons();break;case 'loading':ml.innerHTML='<div class="max-w-[780px] mx-auto px-6"><div class="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse"></div><div class="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse"></div><div class="h-14 rounded-3xl bg-white/30 animate-pulse"></div></div>';break;case 'error':ml.innerHTML+='<div class="max-w-[780px] mx-auto px-6 my-2"><div class="bg-red-400/10 border border-red-400/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-500"><span class="flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-4 h-4"></i> LLM 调用失败：API Key 无效</span><button onclick="toast(\'正在重试...\')" class="ml-auto px-2.5 py-1 border border-red-400/30 rounded-lg text-xs font-medium hover:bg-red-400 hover:text-white transition">重试</button></div></div>';break;case 'sse':const b=document.getElementById('sse-bar');b.classList.remove('hidden');setTimeout(()=>b.classList.add('hidden'),3000);break;case 'no-llm':if(cv){cv.innerHTML='<div class="flex flex-col items-center justify-center h-full gap-3.5"><i data-lucide="settings" class="w-12 h-12 text-stone-300"></i><div class="text-base font-semibold text-stone-600">请先配置 LLM</div><div class="text-sm text-stone-400 text-center max-w-xs leading-relaxed">系统需要 LLM API Key 才能工作。<br>请前往设置页面配置。</div><button onclick="location.href=\'settings.html\'" class="px-4 py-2 text-sm text-white rounded-2xl shadow-glow transition flex items-center gap-1.5" style="background:linear-gradient(135deg,#A88260,#6B5638)"><i data-lucide="arrow-right" class="w-4 h-4"></i>前往设置</button></div>';refreshIcons()}break}}
+function openModal(id){const m=document.getElementById(id);if(m){m.classList.remove('hidden');m.classList.add('flex')}}
+function closeModal(id){const m=document.getElementById(id);if(m){m.classList.add('hidden');m.classList.remove('flex')}}
+function closeAllModals(){document.querySelectorAll('[id^="modal-"]').forEach(m=>{m.classList.add('hidden');m.classList.remove('flex')})}
+function toast(msg,type='info'){const t=document.getElementById('toast');if(!t)return;t.textContent=msg;t.className=`fixed top-14 right-5 px-4 py-2.5 rounded-2xl shadow-otter-lg text-sm font-medium z-50 ${type==='success'?'bg-teal-400 text-white':type==='error'?'bg-red-400 text-white':'bg-stone-600 text-white'}`;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),2500)}
+document.addEventListener('click',e=>{if(!e.target.closest('#ctx-menu')&&!e.target.closest('[oncontextmenu]'))closeCtx();const ml=document.getElementById('mention-list');if(ml&&!e.target.closest('#mention-list')&&!e.target.closest('#msg-input'))ml.classList.add('hidden')});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAllModals()});
+renderConvList('c1');renderTree('c1');renderMessages('c1');renderRight('c1');refreshIcons();
+</script>
+</body>
+</html>

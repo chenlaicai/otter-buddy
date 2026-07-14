@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Otter Buddy - 记忆搜索</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-layout">
+  <!-- TopBar -->
+  <div class="top-bar">
+    <div class="top-bar__logo"><span>🦦</span> Otter Buddy</div>
+    <div class="top-bar__tabs">
+      <button class="top-bar__tab" onclick="navigateTo('chat')">对话</button>
+      <button class="top-bar__tab top-bar__tab--active">记忆搜索</button>
+      <button class="top-bar__tab" onclick="navigateTo('skills')">能力库</button>
+      <button class="top-bar__tab" onclick="navigateTo('settings')">设置</button>
+    </div>
+    <div class="top-bar__status">
+      <div class="top-bar__status-dot"></div>
+      <span>大獭在线</span>
+    </div>
+  </div>
+
+  <!-- Body: left search panel + center results -->
+  <div class="body-layout body-layout--left-center">
+
+    <!-- Search Panel -->
+    <div class="search-panel">
+      <div style="font-size: 16px; font-weight: 600;">记忆搜索</div>
+
+      <div class="form-group">
+        <label class="form-label">搜索关键词</label>
+        <input class="form-input" id="search-query" placeholder="输入搜索内容..." onkeydown="if(event.key==='Enter')doSearch()">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">记忆层</label>
+        <select class="form-select" id="filter-layer">
+          <option value="">全部</option>
+          <option value="working">工作记忆</option>
+          <option value="historical">历史对话</option>
+          <option value="key_info">关键信息</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">粒度</label>
+        <select class="form-select" id="filter-granularity">
+          <option value="">全部</option>
+          <option value="coarse">粗粒度 (标题/摘要)</option>
+          <option value="fine">细粒度 (完整内容)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">限定对话 (可选)</label>
+        <select class="form-select" id="filter-conversation">
+          <option value="">全部对话</option>
+          <option value="conv-1">UI 设计讨论</option>
+          <option value="conv-2">数据库选型</option>
+          <option value="conv-3">前端框架对比</option>
+        </select>
+      </div>
+
+      <button class="btn btn--primary" style="width: 100%;" onclick="doSearch()">搜索</button>
+
+      <!-- Degrade notice (hidden by default) -->
+      <div class="search-degrade-notice" id="degrade-notice" style="display: none;">
+        ⚠️ 语义检索不可用，仅显示关键词匹配结果
+      </div>
+    </div>
+
+    <!-- Search Results -->
+    <div class="search-results" id="search-results">
+      <!-- Initial state -->
+      <div class="empty-state">
+        <div class="empty-state__icon">🔍</div>
+        <div class="empty-state__text">搜索记忆</div>
+        <div class="empty-state__hint">输入关键词搜索历史对话、关键事实和链接资源</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Modal: Expand Context -->
+<div class="modal-overlay" id="modal-expand-context">
+  <div class="modal modal--wide">
+    <div class="modal__header">
+      <span class="modal__title">消息上下文</span>
+      <button class="modal__close" onclick="closeModal('modal-expand-context')">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="message-item">
+        <div class="message-item__avatar message-item__avatar--user" style="background: var(--color-text-secondary)">我</div>
+        <div class="message-item__body">
+          <div class="message-content">我们来做 UI 设计吧</div>
+        </div>
+      </div>
+      <div class="message-item" style="margin: 8px 0;">
+        <div class="message-item__avatar message-item__avatar--big-otter" style="background: var(--color-big-otter)">獭</div>
+        <div class="message-item__body">
+          <div class="message-item__sender message-item__sender--big-otter">大獭</div>
+          <div class="message-content">好的！我来分析一下现有的设计文档。基于 S1-S4 的设计，我们需要 4 个页面。</div>
+        </div>
+      </div>
+      <div class="message-item">
+        <div class="message-item__avatar message-item__avatar--user" style="background: var(--color-text-secondary)">我</div>
+        <div class="message-item__body">
+          <div class="message-content">方向没问题，先出 UI 清单</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" onclick="closeModal('modal-expand-context')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Refine Search -->
+<div class="modal-overlay" id="modal-refine">
+  <div class="modal">
+    <div class="modal__header">
+      <span class="modal__title">细化搜索</span>
+      <button class="modal__close" onclick="closeModal('modal-refine')">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">调整查询</label>
+        <input class="form-input" id="refine-query" placeholder="输入调整后的查询...">
+        <div class="form-hint">基于上次搜索结果调整查询参数</div>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" onclick="closeModal('modal-refine')">取消</button>
+      <button class="btn btn--primary" onclick="closeModal('modal-refine'); doSearch();">搜索</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+  let hasSearched = false;
+
+  function doSearch() {
+    const query = document.getElementById('search-query')?.value || '';
+    const results = document.getElementById('search-results');
+
+    // Show loading
+    results.innerHTML = `
+      <div class="empty-state">
+        <div class="streaming-indicator__dots">
+          <div class="streaming-indicator__dot"></div>
+          <div class="streaming-indicator__dot"></div>
+          <div class="streaming-indicator__dot"></div>
+        </div>
+        <div class="empty-state__text">搜索中...</div>
+      </div>`;
+
+    setTimeout(() => {
+      const filtered = MOCK_DATA.memoryEntries.filter(e =>
+        !query || e.content.toLowerCase().includes(query.toLowerCase())
+      );
+
+      if (filtered.length === 0) {
+        results.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state__icon">🔍</div>
+            <div class="empty-state__text">未找到相关记忆</div>
+            <div class="empty-state__hint">尝试调整搜索词或过滤器</div>
+          </div>`;
+        return;
+      }
+
+      const typeIcons = {
+        message: '💬',
+        conversation_summary: '📋',
+        key_fact: '💡',
+        linked_resource: '🔗'
+      };
+      const layerLabels = {
+        working: '工作记忆',
+        historical: '历史对话',
+        key_info: '关键信息'
+      };
+
+      results.innerHTML = filtered.map(e => `
+        <div class="search-result-item">
+          <div class="search-result-item__meta">
+            <span>${typeIcons[e.contentType] || '📄'} ${e.contentType}</span>
+            <span>${e.conversationTitle}</span>
+            <span>${e.time}</span>
+            <span class="search-result-item__score">${e.score}</span>
+            <span style="background: var(--color-bg); padding: 1px 6px; border-radius: 8px; font-size: 11px;">${layerLabels[e.layer]}</span>
+          </div>
+          <div class="search-result-item__content">${e.content}</div>
+          <div class="search-result-item__actions">
+            <span class="search-result-item__action" onclick="openModal('modal-expand-context')">展开上下文</span>
+            <span class="search-result-item__action" onclick="openModal('modal-refine')">细化搜索</span>
+            <span class="search-result-item__action" onclick="showToast('查找相似...', 'info')">查找相似</span>
+            <span class="search-result-item__star ${e.userFlagged ? 'search-result-item__star--active' : ''}" onclick="toggleMemoryFlag('${e.id}')">${e.userFlagged ? '★' : '☆'}</span>
+          </div>
+        </div>
+      `).join('');
+      hasSearched = true;
+    }, 800);
+  }
+
+  function toggleMemoryFlag(entryId) {
+    const entry = MOCK_DATA.memoryEntries.find(e => e.id === entryId);
+    if (entry) {
+      entry.userFlagged = !entry.userFlagged;
+      doSearch();
+      showToast(entry.userFlagged ? '已标记' : '已取消标记', 'success');
+    }
+  }
+
+  function toggleDegrade() {
+    const notice = document.getElementById('degrade-notice');
+    if (notice) notice.style.display = notice.style.display === 'none' ? 'block' : 'none';
+  }
+</script>
+</body>
+</html>
