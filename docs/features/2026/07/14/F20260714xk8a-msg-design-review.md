@@ -216,8 +216,8 @@ function isValidCompletedMessageTalkingStone(recipients: string[] | null): boole
 
 | 输入类型 | 字段 | 说明 |
 |---------|------|------|
-| `MessageInput`（用户消息） | senderId, body, talkingStonePassedTo, attachments? | 完整消息，创建即 completed。talkingStonePassedTo 在创建时设置 |
-| `StartMessageInput`（Otter 开始） | senderId, attachments? | 无 body, 无 talkingStonePassedTo, 无 turnId |
+| `MessageInput`（用户消息） | senderType, senderId, body, talkingStonePassedTo, attachments? | 完整消息，创建即 completed。talkingStonePassedTo 在创建时设置 |
+| `StartMessageInput`（Otter 开始） | senderId, attachments? | senderType 固定为 'otter'。无 body, 无 talkingStonePassedTo, 无 turnId |
 | `CompleteMessageInput`（Otter 完成） | body, talkingStonePassedTo, attachments? | 必须提供 talkingStonePassedTo（对齐 Snail 的 to_speakers 模式） |
 | `MessageEventInput` | eventType, payload | 不变 |
 | `CreateTurnInput` | conversationId | 自动计算 turnNumber |
@@ -229,6 +229,10 @@ function isValidCompletedMessageTalkingStone(recipients: string[] | null): boole
 | `MessageInput` | senderType, senderId, body, attachments? | talkingStonePassedTo | - |
 | `StartMessageInput` | senderId, attachments? | - | - |
 | `CompleteMessageInput` | body, attachments? | talkingStonePassedTo（必填） | - |
+
+**发言权强制校验**（use case 层实现指引）：
+
+"只有发言石持有者才能发言"是发言石模型的核心约束。use case 层在 `sendMessage` 和 `startMessage` 时应校验：发送者必须是上一轮 `talkingStonePassedTo` 中指定的参与者。首条消息无此约束（对话发起者自由发言）。此校验属 use case 层关注点，不在 entities 层实现。
 
 ---
 
@@ -404,3 +408,4 @@ Snail 区分了"消息路由"（`to_speakers`：谁应该接收并处理消息�
 | B-Review-7 | Turn 内所有消息到达终态 | 自动关闭 Turn（status='closed', closedAt 记录时间） | ← UA-1, F20260714jaup UA-8 |
 | B-Review-8 | Otter 消息 startMessage 时 | use case 自动查找当前 open Turn 关联，调用方不需要传入 turnId | ← UA-1, F20260714jaup UA-8 |
 | B-Review-9 | 同一 Turn 内多个 Otter 并发发言 | 各自独立 startMessage -> completeMessage，Turn 在所有消息终态后关闭 | ← UA-1, F20260714jaup UA-7 |
+| B-Review-10 | 非首条消息的发送者不在上一轮 talkingStonePassedTo 中 | use case 层拒绝发言（throw），首条消息无此约束 | ← UA-1, F20260714jaup UA-7 |
