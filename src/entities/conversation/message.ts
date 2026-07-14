@@ -81,9 +81,9 @@ export function isValidCompletedMessageBody(body: string): boolean {
 }
 
 /**
- * 发言石传递是否合法。
- * 每条消息必须将发言石传给至少一个参与者，不允许空数组。
- * 对话结束由用户另行决定（complete/archive conversation），与发言石传递无关。
+ * 发言石传递数组是否合法（非空数组校验）。
+ * 仅校验数组本身非空，不处理 null 情况。
+ * completed 状态消息的不变量校验应使用 isValidCompletedMessageTalkingStone（含 null 校验）。
  */
 export function isValidTalkingStonePass(recipients: string[]): boolean {
   return recipients.length > 0;
