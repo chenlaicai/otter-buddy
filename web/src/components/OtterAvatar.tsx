@@ -4,13 +4,15 @@ import { getOtterColor } from '../mock/data'
 export function OtterAvatar({
   otterId,
   name,
+  ci,
   size = 32,
 }: {
   otterId: string
   name: string
+  ci?: number
   size?: number
 }) {
-  const color = getOtterColor(otterId)
+  const color = getOtterColor(otterId, ci)
   const initial = name.charAt(0)
 
   return (
