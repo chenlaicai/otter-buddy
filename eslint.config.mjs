@@ -34,10 +34,17 @@ const restrictedFrameworks = [
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", ".claude/**", ".snail/**", ".git/**", "logs/**", "docs/**", "reference/**"],
+    ignores: ["dist/**", "node_modules/**", ".claude/**", ".snail/**", ".git/**", "logs/**", "docs/**", "reference/**", "web/dist/**", "web/node_modules/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ["web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-console": "off",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+    },
+  },
   {
     files: ["src/**/*.ts"],
     rules: {
