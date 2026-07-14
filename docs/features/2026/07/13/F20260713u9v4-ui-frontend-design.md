@@ -37,11 +37,40 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 项目 | 决策 | 来源 |
 |------|------|------|
 | 前端技术栈 | React 19 + Tailwind 4 | S2 D15 |
-| 对话树可视化 | react-flow | S2 D15 |
+| 对话树可视化 | react-flow（S2 决策保留，UI 当前迭代暂不使用） | S2 D15 |
 | 流式通信 | SSE (EventSource) | S2 D21 |
 | 布局架构 | 三栏布局（左导航 + 中内容 + 右上下文） | 本文档决策 D-UI-1 |
 | 仿真页面形式 | HTML + CSS + JS（可点击交互） | 用户明确要求 |
 | 仿真=实现 | 仿真页面的组件结构、交互逻辑必须与后续 React 实现一一对应 | 用户明确要求 |
+
+### 玻璃质感调研结论（UA-6）
+
+**调研时间**：2026-07-14
+
+**调研范围**：Tailwind CSS v4 生态中的玻璃拟态(Glassmorphism)库及 Apple Liquid Glass 实现方案。
+
+**关键发现**：
+
+| 库/方案 | 版本 | 类型 | TW v4 | 真实折射 | 成熟度 |
+|---------|------|------|-------|---------|--------|
+| 手写 CSS (backdrop-blur) | N/A | 内置 | Yes | No | 生产就绪 |
+| `@casoon/tailwindcss-glass` | 0.9.7 | CSS 插件 | Yes | No | v0.x |
+| `tw-glass` | 0.0.5 | CSS 插件 | Yes | Yes (SVG) | v0.0.x |
+| `simple-liquid-glass` | 4.1.0 | React 组件 | N/A | Yes (SVG) | 稳定 |
+| `shadcn-glass-ui` | 2.11.2 | React 组件库 | Yes (4.1+) | No | 稳定 |
+
+**决策**：手写 CSS 玻璃工具类（当前 index.html 已实现的 `.glass` / `.glass-strong` / `.glass-card` / `.glass-input`）。
+
+**决策理由**：
+1. Tailwind v4 内置 `backdrop-blur-*` / `backdrop-saturate-*` / `bg-*/{opacity}` 已足够实现标准玻璃拟态
+2. Apple Liquid Glass 的核心折射效果需要 SVG displacement maps，仅 Chromium 支持，库均为 v0.x
+3. 当前手写方案已达成 Apple 玻璃视觉效果（blur(30px) + saturate(180%) + 透明度层级）
+4. 零依赖、零维护成本、仿真即实现原则下 CSS 直接翻译为 React + Tailwind
+
+**正反论点记录**：
+- 正方（手写）：零依赖、已验证效果、仿真即实现、标准玻璃拟态足够
+- 反方（用库）：`simple-liquid-glass` 可提供真实折射和色散效果，更接近 Apple 原生
+- 裁决：折射效果仅 Chromium 支持且库版本过低，视觉增益不抵维护成本。手写方案在 blur+saturate 组合下已达成"Apple 玻璃风格"的用户预期
 
 ## 用户意图锚 [required]
 
@@ -52,6 +81,11 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | UA-3 | 当前讨论 msg#1 | 必须是所有的页面、所有的操作、最终真实的页面！ | 程度：必须；范围：所有页面、所有操作；属性：最终真实的 | UI 清单必须覆盖全部页面和操作，不能遗漏 |
 | UA-4 | 当前讨论 msg#1 | 最终的这个仿真页面必须是可完整代码实现的 | 程度：必须可完整代码实现 | 仿真页面的设计必须可直接翻译为 React 代码 |
 | UA-5 | 当前讨论 msg#1 | 不允许 仿真是一套，然后我确认好了之后代码实现又是另外一套 | 否定：仿真与实现不一致 | 仿真即设计蓝图，React 实现严格按仿真页面构建 |
+| UA-6 | ui2 msg#1 | 玻璃质感在tailwind中是否已有成熟的样式库，我觉得用苹果的玻璃风格作为主题是一个不错的idea | 属性：苹果的玻璃风格；条件：tailwind中已有成熟样式库（疑问） | 用户希望采用 Apple 玻璃风格作为主题，需调研 Tailwind 生态中的玻璃质感库可行性 |
+| UA-7 | ui2 msg#1 | 中间区域肯定是核心的对话区域，一定要够大 | 程度：肯定、一定要；属性：核心的对话区域、够大 | 中央对话区是核心，必须最大化占据空间，左右栏不能挤压中央 |
+| UA-8 | ui2 msg#1 | 左侧栏的对话不要搞两套展示模式（列表和树状），先保留列表即可 | 否定：不要搞两套展示模式；时序：先保留列表；程度：即可 | 左栏仅保留列表模式，移除树状视图模式。树状视图不做为当前迭代目标 |
+| UA-9 | ui2 msg#1 | 页面上方目录栏的《大獭状态》有点莫名其妙，这个具体是表示啥 | 程度：有点莫名其妙（困惑信号） | 用户对顶栏"大獭状态"的用途不理解，说明该设计缺乏合理性，应移除或重新定义 |
+| UA-10 | ui2 msg#1 | 目录栏的海獭还是emoji图标，这个目录栏难道不是全局唯一的吗 | 否定：还是emoji（不满信号）；程度：难道不是全局唯一的（反问） | 顶栏必须全局统一，所有页面使用相同的图标系统（Lucide），不得出现 emoji |
 
 ## 目标 [required]
 
@@ -84,13 +118,13 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  顶栏: Logo | 视图切换(对话/搜索/能力/设置) | 大獭状态        │
+│  顶栏: Logo | 视图切换(对话/搜索/能力/设置)                    │
 ├──────────┬──────────────────────────────┬────────────────────┤
 │          │                              │                    │
 │  左栏     │       中央内容区              │    右栏(上下文)     │
 │          │                              │                    │
 │  对话列表  │   根据当前视图切换:            │   根据当前对话切换:  │
-│  /对话树   │   - 对话视图(默认)            │   - Otter 参与者    │
+│          │   - 对话视图(默认)            │   - Otter 参与者    │
 │          │   - 记忆搜索                  │   - 关键信息        │
 │          │   - 能力库                    │   - 链接资源        │
 │          │   - 设置                     │                    │
@@ -105,10 +139,13 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 要点 | 决策 | 理由 |
 |------|------|------|
 | 三栏布局 | 左导航 + 中内容 + 右上下文 | Chat as Substrate，对话为主，上下文辅助 |
-| 左栏切换 | 对话列表 / 对话树可视化（panel 模式切换，非路由跳转） | 两种导航方式覆盖不同场景 |
-| 右栏可折叠 | 默认展开，可收起 | 小屏幕或不需要上下文时释放空间 |
+| 左栏模式 | 仅对话列表（列表模式） | ← UA-8：不搞两套展示模式，先保留列表即可 |
+| 中央区域最大化 | 左栏固定宽度(flex-shrink-0)，中央 flex-1 占据剩余空间 | ← UA-7：中间区域是核心对话区，一定要够大 |
+| 右栏可折叠 | 默认展开，可收起 | 小屏幕或不需要上下文时释放空间给中央 |
 | 视图切换 | 顶栏 Tab 切换 | 对话/搜索/能力/设置四个主视图 |
 | 右栏仅对话视图有 | 其他视图时右栏隐藏 | 搜索/能力/设置不需要对话上下文 |
+| 顶栏内容 | Logo + 视图切换 Tab（无大獭状态） | ← UA-9：大獭是持久 Otter，"在线状态"无意义；实时状态由对话区流式指示器展示 |
+| 顶栏全局统一 | 所有页面使用同一顶栏组件（Lucide 图标 + Tailwind + 玻璃风格） | ← UA-10：顶栏必须全局唯一，不得出现 emoji 图标 |
 
 ### 页面清单
 
@@ -126,7 +163,6 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 对话列表 | 按更新时间倒序 | 点击 -> 切换对话 |
 | 对话项 | 标题 + 状态标记(active/completed/archived) + Otter 参与者头像 | 右键 -> 上下文菜单 |
 | 上下文菜单 | 完成对话 / 归档对话 / 创建子对话 | 菜单项禁用条件：已归档 -> 禁用"归档"和"完成"；已completed -> 禁用"完成" |
-| 对话树切换按钮 | 底部，切换到树视图模式 | 点击 -> 左栏切换为树模式 |
 | 搜索历史对话入口 | 顶部搜索图标 | 点击 -> 跳转记忆搜索视图 |
 
 **中央 - 消息流**：
@@ -173,24 +209,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | SSE 连接断开 | 顶部黄色提示条"连接已断开，正在重连..." |
 | 对话已归档 | 标题栏显示"已归档"标记，输入框禁用 |
 
-#### 2. 对话树视图（Tree View）- P1
-
-**形式**：左栏 panel 模式切换（非独立路由）
-
-> **明确**：对话树不是独立页面/路由，而是左栏导航的两种显示模式之一（列表模式 / 树模式）。用户点击左栏底部的切换按钮在两种模式间切换。中央内容区不受影响，仍显示当前对话。
-
-**布局**：左栏内容切换为树形可视化，中央和右栏不变
-
-| 组件 | 说明 | 操作 |
-|------|------|------|
-| 树形可视化 | react-flow 渲染，节点=对话，边=父子关系 | 拖拽 / 缩放 |
-| 对话节点 | 标题 + 状态色(active=绿/completed=蓝/archived=灰) | 点击 -> 切换到该对话 |
-| 当前位置 | 高亮当前对话节点 | 无操作 |
-| 创建子对话 | 从节点上"+"按钮或右键菜单 | 输入标题 -> 创建子对话 |
-| 树深度限制 | MVP 2-3 层 | 超过限制时提示"建议拆分" |
-| 返回列表 | 切换回对话列表模式 | 点击 -> 切换左栏为列表模式 |
-
-#### 3. Otter 管理面板（Otter Panel）- P0
+#### 2. Otter 管理面板（Otter Panel）- P0
 
 **形式**：右栏面板 + 弹窗
 
@@ -240,7 +259,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 前情摘要 | 可编辑的摘要(默认自动生成) |
 | 确认/取消 | |
 
-#### 4. 记忆搜索视图（Memory Search）- P0
+#### 3. 记忆搜索视图（Memory Search）- P0
 
 **路由**：`/memory`
 
@@ -270,7 +289,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 无结果 | "未找到相关记忆，尝试调整搜索词" |
 | 降级提示 | embedding 不可用时提示"语义检索不可用，仅显示关键词匹配结果" |
 
-#### 5. 能力库视图（Skill Library）- P2
+#### 4. 能力库视图（Skill Library）- P2
 
 **路由**：`/skills`
 
@@ -302,7 +321,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 |------|------|
 | 空列表(无 Skill) | "尚未注册任何 Skill，点击上方按钮注册" |
 
-#### 6. 设置视图（Settings）- P0
+#### 5. 设置视图（Settings）- P0
 
 **路由**：`/settings`
 
@@ -320,7 +339,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 保存按钮 | 保存配置 | 点击 -> 保存中 -> Toast 反馈(成功/失败) |
 | 未保存变更提示 | 有未保存修改时，保存按钮高亮；离开页面前提示"有未保存的变更" | |
 
-#### 7. 对话操作弹窗
+#### 6. 对话操作弹窗
 
 **弹窗 - 创建新对话**：
 
@@ -367,7 +386,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 └──────────────────────────────────────────┘
 
 对话视图 (默认)
-├── 左栏: 对话列表 ←-> 对话树视图 (panel 模式切换)
+├── 左栏: 对话列表
 ├── 中央: 消息流
 │   ├── 创建新对话弹窗
 │   ├── 创建子对话弹窗
@@ -417,7 +436,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | UC4 重启獭生 | 对话视图 + 右栏 | 触发重启、封存确认、新 Session 开始 | P2 |
 | UC5 外部系统操作 | 对话视图 | 在对话中指令大獭操作外部系统（通过 AgentTool） | P2 |
 | UC6 能力加载 | 能力库视图 + 创建小獭弹窗 | 注册 Skill、加载到 Otter、卸载 | P2 |
-| UC7 对话树导航 | 对话树视图 + 对话视图 | 创建子对话、切换节点、查看树形图 | P1 |
+| UC7 对话树导航 | 对话视图 | 创建子对话、通过左栏列表切换对话 | P1 |
 | UC8 对话外部关联 | 对话视图 + 右栏 | 手动添加链接资源、查看自动链接 | P1 |
 
 ### 仿真页面规格
@@ -430,10 +449,10 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 2 | `memory-search.html` | 记忆搜索视图 | - | 初始未搜索、搜索中、无结果、降级提示 |
 | 3 | `skills.html` | 能力库视图 | 注册 Skill、加载到 Otter | 空列表(无 Skill) |
 | 4 | `settings.html` | 设置视图 | - | 保存中、保存成功 Toast、保存失败 Toast、未保存变更警告、测试连接中 |
-| 5 | `styles.css` | 共享样式 | - | - |
-| 6 | `app.js` | 共享交互逻辑 | - | - |
 
-> **注**：对话树视图是对话视图左栏的 panel 模式切换，不是独立 HTML 文件。树形可视化在 `index.html` 中通过 JS 切换左栏内容实现。
+> **注**：对话树视图已移除（← UA-8），左栏仅保留对话列表模式。
+>
+> **废弃文件**（← UA-10）：`styles.css` 和 `app.js` 不再使用。所有页面统一使用 Tailwind CDN + Lucide CDN + 内联 JS。
 
 **仿真原则**：
 
@@ -441,11 +460,13 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 |------|------|
 | 组件一一对应 | HTML 中的每个区块对应一个未来的 React 组件（见下方组件层级映射） |
 | class 语义化 | CSS class 使用 React 组件名风格（如 `.chat-message`, `.otter-card`） |
-| 交互可演示 | 点击按钮 -> 弹窗打开、Tab 切换、左栏模式切换可演示 |
+| 交互可演示 | 点击按钮 -> 弹窗打开、Tab 切换可演示 |
 | 模拟数据 | 使用静态 JSON 模拟数据（用户消息、Otter 列表、搜索结果等） |
 | 流式模拟 | 用 setInterval 模拟 SSE 流式响应效果 |
 | 响应式 | 最小宽度 1024px（桌面应用，单用户本地） |
 | 弹窗内嵌 | 弹窗作为页面内的 overlay 实现，不跳转到独立页面 |
+| 顶栏全局统一 | ← UA-10：所有页面使用同一顶栏（Tailwind CDN + Lucide 图标 + 玻璃风格），严禁 emoji 图标 |
+| 设计系统统一 | ← UA-10：所有页面使用 Tailwind CDN + Lucide + 玻璃风格，废弃 styles.css |
 
 ### React 组件层级映射
 
@@ -454,11 +475,10 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | HTML block (CSS class) | React Component | 关键 Props | 说明 |
 |------------------------|----------------|-----------|------|
 | `.app-layout` | AppLayout | activeView | 顶栏 + 三栏容器 |
-| `.top-bar` | TopBar | activeView, onChangeView, bigOtterStatus | Logo + Tab 切换 + 大獭状态 |
-| `.left-panel` | LeftPanel | mode: 'list' \| 'tree', conversations[] | 左栏容器，支持列表/树模式切换 |
-| `.conversation-list` | ConversationList | conversations[], activeId, onSelect | 对话列表模式 |
+| `.top-bar` | TopBar | activeView, onChangeView | Logo + Tab 切换 |
+| `.left-panel` | LeftPanel | conversations[] | 左栏容器（仅列表模式） |
+| `.conversation-list` | ConversationList | conversations[], activeId, onSelect | 对话列表 |
 | `.conversation-item` | ConversationItem | conversation, isActive, onContextMenu | 单个对话项 |
-| `.conversation-tree` | ConversationTree | treeData, currentId, onNavigate | 树模式 (react-flow) |
 | `.chat-view` | ChatView | conversationId, messages[] | 中央对话区 |
 | `.chat-header` | ChatHeader | conversation, onComplete, onArchive, onCreateChild | 对话标题栏 + 操作按钮 |
 | `.message-list` | MessageList | messages[], streamingMessage, onLoadMore | 消息流 |
@@ -487,13 +507,19 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 - 大獭是唯一持久 Otter，UI 中不提供"创建大獭"功能
 - 消息发送使用 HTTP POST，响应接收使用 SSE（仿真中用 JS 模拟）
 - 每个仿真 HTML 文件包含该页面的全部弹窗和状态，不拆分到独立文件
+- 左栏仅对话列表模式，不提供树状视图（← UA-8）
+- 顶栏全局统一：所有页面使用 Lucide 图标 + Tailwind + 玻璃风格，严禁 emoji（← UA-10）
+- 顶栏不含"大獭状态"指示器（← UA-9）
+- 所有仿真页面统一使用 Tailwind CDN + Lucide CDN，废弃 styles.css（← UA-10）
+- 视觉风格采用 Apple 玻璃风格，使用手写 CSS 玻璃工具类，不引入第三方玻璃质感库（← UA-6）
 
 ## 设计取舍 [required]
 
 | 取舍 | 决策 | 替代方案 | 理由 |
 |------|------|---------|------|
 | 布局架构 | 三栏布局 | 双栏(左导航+中央) | 对话上下文(关键信息/参与者)需要常驻可见 |
-| 对话树位置 | 左栏 panel 模式切换 | 独立页面/路由 | 树和列表是同一导航的两种视图，切换比跳转自然 |
+| 左栏模式 | 仅对话列表 | 列表 + 对话树 panel 切换 | ← UA-8：用户明确不要两套展示模式，先保留列表 |
+| 中央区域最大化 | 左右栏 flex-shrink-0 固定宽度，中央 flex-1 | 固定中央宽度 | ← UA-7：中央对话区是核心，必须够大 |
 | 右栏可折叠 | 默认展开可收起 | 始终展开 | 小屏幕或专注对话时可释放空间 |
 | Otter 管理形式 | 右栏面板 + 弹窗 | 独立页面 | Otter 管理是对话的上下文，不应离开对话 |
 | 记忆搜索独立页面 | 顶栏 Tab 切换 | 对话内嵌搜索 | 搜索是跨对话的全局功能，不限定于当前对话 |
@@ -504,9 +530,11 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 关键事实添加 | 行内表单 | 弹窗 | 操作轻量，行内展开比弹窗更快 |
 | 链接资源添加 | 弹窗 | 行内表单 | 字段较多(type+url+title)，弹窗更合适 |
 | 输入框 | 纯文本多行 + @提及 | 富文本 | MVP 最小实现，@提及支持多 Otter 交互 |
-| 视觉风格 | 浅色玻璃拟态 + otter 暖色系 | 纯白/冷灰 | 海獭相关色(棕褐#8B6F47 + 青绿#4A9B9B + 焦糖#D9A57B) + 暖白背景 + 玻璃面板(backdrop-blur) |
-| 图标系统 | Lucide 线条图标 | Emoji | Lucide 是现代 SaaS 产品标配(shadcn/ui, Vercel)，emoji 显老旧 |
-| 仿真技术 | Tailwind CSS CDN + Lucide CDN | 手写 CSS | Tailwind 工具类可直接翻译为 React + Tailwind 项目，消除仿真与实现差距 |
+| 视觉风格 | Apple 玻璃风格 + otter 暖色系 | 纯白/冷灰 | ← UA-6：用户确认采用苹果玻璃风格。手写 CSS 玻璃工具类(backdrop-blur + saturate + 透明度)，不引入第三方库。调研结论：成熟库均为 v0.x 阶段，手写方案已达成 Apple 玻璃视觉效果且零依赖 |
+| 玻璃质感实现 | 手写 CSS 工具类(.glass/.glass-strong/.glass-card/.glass-input) | @casoon/tailwindcss-glass / tw-glass / simple-liquid-glass | 调研结论：(1)标准玻璃拟态 Tailwind v4 内置 backdrop-blur 即可实现 (2)Apple Liquid Glass 需 SVG displacement maps 仅 Chromium 支持且库均为 v0.x (3)手写方案零依赖、零维护成本、已验证视觉效果 |
+| 图标系统 | Lucide 线条图标 | Emoji | ← UA-10：Lucide 是现代 SaaS 产品标配(shadcn/ui, Vercel)，emoji 显老旧且全局不一致 |
+| 顶栏内容 | Logo + 视图切换 Tab（无大獭状态） | Logo + Tab + 大獭状态 | ← UA-9：大獭是持久 Otter，"在线状态"始终为 true 无意义；实时状态由对话区流式指示器展示 |
+| 仿真技术 | Tailwind CSS CDN + Lucide CDN | 手写 CSS / styles.css | ← UA-10：所有页面统一使用 Tailwind CDN + Lucide，确保顶栏全局一致。styles.css 废弃 |
 | 消息数据结构 | 流式过程 + 最终答复(独立两部分) | 单一流式文本 | 参考 snail shell 模式，流式过程(可折叠 monospace 区块)与最终答复(Markdown 正文)视觉分离 |
 | Session 模型 | 每个 Otter 独立 session chain | 每个对话一个 session | Session 是 Otter 个体属性，对话只是 Otter 交互的载体 |
 
@@ -514,20 +542,20 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `docs/features/2026/07/13/F20260713u9v4-ui-frontend-design.md` | 新增 | 本文档（UI 清单） |
-| `docs/ui-sim/index.html` | 已创建 | 对话视图仿真页面（Tailwind CDN + Lucide + 全部弹窗和状态，自包含） |
-| `docs/ui-sim/memory-search.html` | 已创建 | 记忆搜索仿真页面 |
-| `docs/ui-sim/skills.html` | 已创建 | 能力库仿真页面 |
-| `docs/ui-sim/settings.html` | 已创建 | 设置仿真页面 |
-| `docs/ui-sim/styles.css` | 已创建 | 共享样式（备用，index.html 使用 Tailwind CDN） |
-| `docs/ui-sim/app.js` | 已创建 | 共享交互逻辑（备用，index.html 内联 JS） |
+| `docs/features/2026/07/13/F20260713u9v4-ui-frontend-design.md` | 更新 | 本文档（UI 清单 + 用户反馈迭代） |
+| `docs/ui-sim/index.html` | 已创建 | 对话视图仿真页面（Tailwind CDN + Lucide + 玻璃风格，自包含） |
+| `docs/ui-sim/memory-search.html` | 需更新 | 记忆搜索仿真页面 - 需迁移到 Tailwind CDN + Lucide + 玻璃风格，移除 emoji 图标和"大獭状态" |
+| `docs/ui-sim/skills.html` | 需更新 | 能力库仿真页面 - 同上 |
+| `docs/ui-sim/settings.html` | 需更新 | 设置仿真页面 - 同上 |
+| `docs/ui-sim/styles.css` | 废弃 | ← UA-10：所有页面统一使用 Tailwind CDN，styles.css 不再使用 |
+| `docs/ui-sim/app.js` | 废弃 | 所有页面内联 JS，app.js 不再使用 |
 
 ## 验证 [required]
 
 ### UI 清单完整性
 
 - [x] 覆盖全部 8 个核心用例的 UI 流程
-- [x] 覆盖全部页面/视图（对话、树、搜索、能力、设置）
+- [x] 覆盖全部页面/视图（对话、搜索、能力、设置）
 - [x] 覆盖全部弹窗（创建小獭、解散、重启獭生、Otter 详情、Session 历史、创建对话、创建子对话、链接资源）
 - [x] 覆盖全部状态（空、加载、错误、流式、降级、未配置 LLM）
 - [x] 覆盖全部操作（发送消息、@提及小獭、创建子对话、完成/归档对话、创建/解散小獭、重启獭生、搜索记忆、标记记忆、行内添加关键事实、弹窗添加链接资源、注册/加载/卸载 Skill、配置 LLM）
@@ -538,12 +566,21 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 - [x] 所有按钮可点击，触发对应交互
 - [x] 页面间可跳转（顶栏 Tab）
 - [x] 弹窗可打开/关闭（在页面上下文中触发）
-- [x] 左栏列表/树模式可切换
+- [ ] 顶栏全局统一（所有页面 Lucide 图标 + Tailwind + 玻璃风格，无 emoji）— memory-search/skills/settings 需更新
 - [x] 流式响应效果可演示
 - [x] 多 Otter 消息视觉区分可演示
 - [x] @提及功能可演示
 - [x] 视觉效果与预期 React 实现一致（Tailwind class 可直接翻译）
 - [x] 组件结构与 React 组件一一对应（对照组件层级映射表）
+
+### 用户反馈迭代（ui2）
+
+- [x] UA-6：玻璃质感调研完成，决策手写 CSS 玻璃工具类
+- [x] UA-7：中央对话区最大化确认
+- [x] UA-8：左栏移除树状视图，仅保留列表
+- [x] UA-9：顶栏移除"大獭状态"
+- [x] UA-10：顶栏全局统一要求写入硬约束
+- [ ] memory-search/skills/settings 仿真页面更新（development 阶段执行）
 
 ### 两位架构师共识
 
@@ -557,7 +594,8 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 
 - [x] UI 清单确认（"可以"）
 - [x] 仿真页面确认（"先这样吧"）
-- [x] 布局决策确认（三栏布局、对话树左栏切换、Otter 右栏管理、记忆搜索独立 Tab）
+- [x] 布局决策确认（三栏布局、Otter 右栏管理、记忆搜索独立 Tab）
+- [x] 布局迭代确认（← UA-8：移除对话树左栏切换，仅保留列表；← UA-9：移除顶栏"大獭状态"）
 - [x] 消息数据结构确认（流式过程 + 最终答复分离、上下文窗口、时间戳、耗时）
 - [x] Session 模型确认（每个 Otter 独立 session chain）
 - [x] 视觉风格确认（otter 暖色系 + 浅色玻璃拟态 + Lucide 图标 + Tailwind）
@@ -579,10 +617,10 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | B-UI-2 | 当用户搜索历史记忆时 | 跳转记忆搜索视图，输入查询后显示结果列表，支持展开/细化/查找相似 | ← S2 B2 |
 | B-UI-3 | 当大獭创建小獭时 | 右栏 Otter 参与者列表新增小獭卡片(带颜色标签)，对话中显示"小獭XX已加入"通知 | ← S2 B3a |
 | B-UI-4 | 当用户触发重启獭生时 | 弹出确认弹窗，确认后显示"Session 已封存"，新 Session 开始 | ← S2 B4a, B4b |
-| B-UI-5 | 当用户创建子对话时 | 弹出创建对话框，确认后左栏对话列表新增子对话项，对话树中新增节点 | ← S2 B5a |
+| B-UI-5 | 当用户创建子对话时 | 弹出创建对话框，确认后左栏对话列表新增子对话项 | ← S2 B5a, UA-8 |
 | B-UI-6 | 当 LLM 调用失败时 | 消息流中显示错误卡片，提供重试按钮，已生成部分保留 | ← S2 B14 |
 | B-UI-7 | 当 SSE 连接断开时 | 顶部显示黄色提示条，自动重连，重连后恢复 | ← S2 B14 |
-| B-UI-8 | 当用户查看对话树时 | 左栏切换为树视图，显示节点状态色，当前位置高亮 | ← S2 B12 |
+| B-UI-8 | ~~已移除~~ 当用户查看对话树时 | ~~左栏切换为树视图~~（← UA-8：树状视图已移除，UC7 通过左栏列表切换对话实现） | ~~← S2 B12~~ |
 | B-UI-9 | 当用户添加关键事实时 | 右栏行内表单展开，填写确认后关键事实列表实时新增条目 | ← S2 B8 |
 | B-UI-10 | 当用户解散小獭时 | 弹出确认弹窗(含归档摘要)，确认后右栏小獭卡片移除，对话中显示"小獭XX已解散" | ← S2 B7a |
 | B-UI-11 | 当 embedding 不可用时 | 记忆搜索视图显示降级提示"语义检索不可用" | ← S2 B-S3-2 |
