@@ -16,7 +16,7 @@ export interface Message {
   turnId: string;
   senderType: SenderType;
   senderId: string;
-  talkingStonePassedTo: string[]; // 发言石传递：必填，非空。指定下一轮发言者
+  talkingStonePassedTo: string[] | null; // 发言石传递：streaming 时为 null，completed 时必填非空。对齐 Snail 的 to_speakers 模式
   status: MessageStatus;
   body: string | null;
   attachments: Attachment[] | null;
@@ -81,10 +81,22 @@ export function isValidCompletedMessageBody(body: string): boolean {
 }
 
 /**
- * 发言石传递是否合法。
- * 每条消息必须将发言石传给至少一个参与者，不允许空数组。
- * 对话结束由用户另行决定（complete/archive conversation），与发言石传递无关。
+ * 发言石传递数组是否合法（非空数组校验）。
+ * 仅校验数组本身非空，不处理 null 情况。
+ * completed 状态消息的不变量校验应使用 isValidCompletedMessageTalkingStone（含 null 校验）。
  */
 export function isValidTalkingStonePass(recipients: string[]): boolean {
   return recipients.length > 0;
+}
+
+/**
+ * completed 状态消息的发言石传递是否合法。
+ * completed 消息的 talkingStonePassedTo 必须非 null 且非空数组。
+ * streaming/failed 消息的 talkingStonePassedTo 为 null（与 body 可空性模式一致）。
+ * 对齐 Snail Shell 的 set_final_body(to_speakers) 模式：路由决策在完成时做出。
+ */
+export function isValidCompletedMessageTalkingStone(
+  recipients: string[] | null,
+): boolean {
+  return recipients !== null && recipients.length > 0;
 }
