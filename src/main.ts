@@ -8,8 +8,8 @@
 //
 // const otterPort = initOtter({ db, agentRegistry }); // domain/otter ✅
 // const memoryPort = initMemory({ db, embedding });   // domain/memory ✅
+// const conversationPort = initConversation({ db });   // domain/conversation ✅
 //
 // 待实现
-// const conversationPort = initConversation({ db });
 // const capabilityPort = initCapability({ db });
 // const externalPort = initExternal({ db });
