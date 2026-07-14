@@ -15,9 +15,11 @@ created_at: 2026-07-13
 
 > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。进入实现阶段后不得单方面修改，如需变更须通过问题卡片向用户提出并确认。
 >
-> 本文档设计 Otter Buddy 的前端 UI。基于 S1 产品形态定义（8 个核心用例）、S2 架构设计（React 19 + Tailwind 4 + Hono + SSE）、S3 数据模型设计（对话树、三层记忆、Otter 生命周期），产出完整的 UI 页面清单和仿真页面规格。
+> 本文档设计 Otter Buddy 的前端 UI。基于 S1 产品形态定义（8 个核心用例）、S2 架构设计（React 19 + Tailwind 4 + Hono）、S3 数据模型设计（对话树、三层记忆、Otter 生命周期），产出完整的 UI 页面清单和仿真页面规格。
 >
-> **核心原则**：仿真页面即真实页面。HTML 仿真必须与后续 React 实现一一对应，不允许"仿真一套、实现另一套"。
+> **核心原则**：仿真页面是视觉设计蓝图，定义布局、色彩、组件结构和交互行为。React 实现遵循仿真页面的视觉设计，技术栈使用 React + Tailwind + Hono（← UA-14 修订）。
+>
+> **锁定状态**：本文档 [design-time] 章节已锁定，所有 [required] 章节已填写完成。
 
 ## 背景 [required]
 
@@ -36,12 +38,14 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 
 | 项目 | 决策 | 来源 |
 |------|------|------|
-| 前端技术栈 | React 19 + Tailwind 4 | S2 D15 |
+| 前端技术栈 | React 19 + Tailwind 4 + Hono | S2 D15 + UA-14 |
 | 对话树可视化 | react-flow（S2 决策保留，UI 当前迭代暂不使用） | S2 D15 |
-| 流式通信 | SSE (EventSource) | S2 D21 |
+| 实时通信 | WebSocket（对话界面），覆盖 S2 D21 的 SSE 决策 | UA-14（用户明确指令） |
+| 页面架构 | MPA（多页面应用），对话界面 SPA + WebSocket，其他页面独立 URL 跳转 | UA-14 |
 | 布局架构 | 三栏布局（左导航 + 中内容 + 右上下文） | 本文档决策 D-UI-1 |
-| 仿真页面形式 | HTML + CSS + JS（可点击交互） | 用户明确要求 |
-| 仿真=实现 | 仿真页面的组件结构、交互逻辑必须与后续 React 实现一一对应 | 用户明确要求 |
+| 仿真页面形式 | HTML + CSS + JS（可点击交互）- 作为视觉设计参考 | 用户明确要求（ui1） |
+| 仿真与实现关系 | 仿真页面为视觉设计蓝图，React 实现遵循仿真页面的视觉设计和组件结构，但技术栈使用 React + Tailwind + Hono | UA-14 修订 |
+| 开发范围 | 仅前端实现，API 契约延后，代码中 TODO 标记 | UA-14 |
 
 ### 玻璃质感调研结论（UA-6）
 
@@ -89,6 +93,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | UA-11 | ui2 msg#3 | 看着只有弹出窗口（比如新增小獭窗口）有玻璃效果，主界面没有玻璃效果呀，左侧栏、中间消息、右侧信息 全都无玻璃效果 | 否定：主界面没有玻璃效果；范围：左侧栏、中间消息、右侧信息 全都无 | 玻璃效果必须在主面板（左栏/中央/右栏）上视觉可辨，不能仅弹窗可见。需增强背景色彩对比度并降低面板透明度 |
 | UA-12 | ui2 msg#3 | 顶栏tab咋不在中间了；而且点击其他界面 顶栏又回到中间，并且海獭是🦦，感觉多个页面中 顶栏不是相同的 | 疑问：咋不在中间了；否定：又回到中间、不是相同的；属性：🦦 emoji | 顶栏 tabs 必须居中显示，所有页面顶栏完全一致（同一组件），不得出现 emoji |
 | UA-13 | ui2 msg#5 | 系统图标能换一个吗，不要这种爪子 | 否定：不要这种爪子；属性：系统图标 | 顶栏 Logo 图标替换为自定义 SVG 水獭头部图标，不使用 Lucide paw-print |
+| UA-14 | ui2 msg#7 | 本次你可以将页面低保真图都做了，咱们也讨论了很多轮，不要浪费，你本次聚焦在前端吧，数据和api可以后定（这一点记得写到特性文档中和代码中todo），本次特性范围还是把前端这些能定的都先实现好，特别是样式、显式效果这些。当然，我明确体现你，技术栈要贯彻，不要手搓html+js。react、tailwind、hono，并且有url跳转，只有对话界面要用websocket来对接实时消息加载（spa），而不要把整个系统所有页面都放到一个spa中了 | 范围：聚焦前端、数据和api后定；程度：技术栈要贯彻、不要手搓；否定：不要把整个系统所有页面都放到一个spa中；属性：react、tailwind、hono、url跳转、websocket、对话界面spa | 本次开发范围仅前端，API 延后（代码中 TODO 标记）。技术栈必须使用 React + Tailwind + Hono，不手搓 HTML+JS。MPA 架构：对话界面 SPA + WebSocket，其他页面独立 URL 跳转。覆盖 S2 SSE 决策为 WebSocket |
 
 ## 目标 [required]
 
@@ -110,10 +115,11 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 
 ## 非目标 [required]
 
-- 不实现 React 代码（属于 development 阶段）
-- 不设计 REST API 端点（属于 adapter/http 模块设计）
-- 不修改 S1/S2/S3 已锁定的设计
+- 不设计 REST API 端点 / API 契约（属于 adapter/http 模块设计，← UA-14 延后）
+- 不实现后端 domain 逻辑（属于后端 development）
+- 不修改 S1/S2/S3 已锁定的设计（S2 D21 SSE 被 UA-14 覆盖为 WebSocket，仅此例外）
 - 不做视觉设计稿（Figma 等），仿真 HTML 即视觉设计
+- 不使用手搓 HTML+JS 实现最终产品（← UA-14：必须使用 React + Tailwind + Hono）
 
 ## 设计 [required]
 
@@ -152,6 +158,35 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 顶栏全局统一 | 所有页面使用同一顶栏组件（Lucide 图标 + Tailwind + 玻璃风格） | ← UA-10：顶栏必须全局唯一，不得出现 emoji 图标 |
 | 玻璃效果可见性 | 背景色块透明度 0.22-0.32 + 面板透明度 0.32-0.42 | ← UA-11：玻璃效果必须在主面板视觉可辨，不能仅弹窗可见 |
 
+### 前端架构（D-UI-2: MPA + 对话 SPA）← UA-14
+
+**架构决策**：多页面应用（MPA），非单 SPA。每个视图是 Hono 提供的独立页面，页面间通过 URL 跳转。仅对话界面为 SPA（WebSocket 实时消息）。
+
+```
+Hono Server
+├── GET /                    -> 对话视图 (SPA, WebSocket)
+├── GET /conversation/:id    -> 对话视图 (SPA, WebSocket)
+├── GET /memory              -> 记忆搜索视图 (独立页面)
+├── GET /skills              -> 能力库视图 (独立页面)
+└── GET /settings            -> 设置视图 (独立页面)
+```
+
+**技术栈**：React 19 + Tailwind 4 + Hono
+
+| 要点 | 决策 | 理由 |
+|------|------|------|
+| 页面架构 | MPA，每页独立入口 | ← UA-14：不要把所有页面放到一个 SPA |
+| 对话界面 | SPA + WebSocket | ← UA-14：对话需要实时消息加载 |
+| 其他页面 | 独立页面，URL 跳转 | ← UA-14：页面间通过 URL 跳转 |
+| 实时通信 | WebSocket（覆盖 S2 SSE 决策） | ← UA-14：用户明确指令 |
+| API 对接 | 延后，代码中 TODO 标记 | ← UA-14：数据和 API 后定 |
+| 数据源 | Mock 数据 + TODO 占位 | ← UA-14：聚焦前端样式和显示效果 |
+
+**仿真页面与 React 实现的关系**：
+- 仿真页面（HTML+CSS+JS）是视觉设计蓝图，定义了布局、色彩、组件结构、交互行为
+- React 实现遵循仿真页面的视觉设计和组件映射，但使用 React + Tailwind + Hono 技术栈
+- 仿真页面中验证的玻璃效果 CSS、SVG 图标、色彩方案直接迁移到 React 实现
+
 ### 页面清单
 
 #### 1. 对话视图（Chat View）- P0
@@ -180,7 +215,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | Otter 消息 | 左对齐，Otter 头像 + 名称 | 点击 Otter 名称 -> 查看 Otter 信息 |
 | 多 Otter 消息区分 | 不同 Otter 使用不同颜色标签(头像边框色 + 名称色)，大獭固定为蓝色系，小獭按创建顺序分配颜色(绿/橙/紫等) | 点击 Otter 头像 -> Otter 信息弹窗 |
 | 多 Otter 交互入口 | 输入框支持 @小獭名称 指定回复对象；不 @ 时默认大獭路由 | 输入 @ 触发 Otter 名称自动补全 |
-| 流式响应 | 打字机效果，SSE 实时推送 | 流式中可点击"停止生成" |
+| 流式响应 | 打字机效果，WebSocket 实时推送 | 流式中可点击"停止生成" |
 | Otter 思考状态 | "大獭正在思考..." / "小獭XX正在回复..." | 等待动画 |
 | 消息内容渲染 | 基础 Markdown 渲染(代码块、换行、加粗、列表)，使用 react-markdown | 代码块支持语法高亮(扩展点) |
 | 消息时间戳 | 悬浮显示 | 无操作 |
@@ -211,7 +246,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 加载历史消息 | 骨架屏 / 加载动画 |
 | 大獭正在回复 | 输入框上方显示"大獭正在输入..." + 动画 |
 | LLM 错误 | 消息流中显示错误卡片 + 重试按钮 |
-| SSE 连接断开 | 顶部黄色提示条"连接已断开，正在重连..." |
+| WebSocket 连接断开 | 顶部黄色提示条"连接已断开，正在重连..." |
 | 对话已归档 | 标题栏显示"已归档"标记，输入框禁用 |
 
 #### 2. Otter 管理面板（Otter Panel）- P0
@@ -378,7 +413,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 错误边界 | React Error Boundary，fallback UI 显示"页面出错了" + "重新加载"按钮 | 组件渲染错误 |
 | 加载骨架屏 | 骨架屏动画 | 数据加载中 |
 | 空状态插画 | 友好的空状态提示 | 无对话、无搜索结果等 |
-| SSE 连接状态条 | 顶部连接状态指示 | 连接断开/重连中/已连接 |
+| WebSocket 连接状态条 | 顶部连接状态指示 | 连接断开/重连中/已连接 |
 | Otter 头像组件 | 大獭/小獭统一头像，支持颜色标签 | 各处复用 |
 | 消息渲染器 | 基础 Markdown 渲染(代码块、换行、加粗、列表)，使用 react-markdown | 消息显示 |
 
@@ -450,7 +485,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 
 | # | 文件 | 页面 | 包含的弹窗 | 包含的状态 |
 |---|------|------|-----------|-----------|
-| 1 | `index.html` | 对话视图（主页面） | 创建新对话、创建子对话、完成对话确认、归档对话确认、创建小獭、解散小獭确认、重启獭生确认、Otter 详情、Session 历史、链接资源 | 空对话、加载历史、大獭正在回复、流式响应、LLM 错误、SSE 断开、对话已归档、未配置 LLM 引导 |
+| 1 | `index.html` | 对话视图（主页面） | 创建新对话、创建子对话、完成对话确认、归档对话确认、创建小獭、解散小獭确认、重启獭生确认、Otter 详情、Session 历史、链接资源 | 空对话、加载历史、大獭正在回复、流式响应、LLM 错误、WebSocket 断开、对话已归档、未配置 LLM 引导 |
 | 2 | `memory-search.html` | 记忆搜索视图 | - | 初始未搜索、搜索中、无结果、降级提示 |
 | 3 | `skills.html` | 能力库视图 | 注册 Skill、加载到 Otter | 空列表(无 Skill) |
 | 4 | `settings.html` | 设置视图 | - | 保存中、保存成功 Toast、保存失败 Toast、未保存变更警告、测试连接中 |
@@ -510,7 +545,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 - 对话消息为 append-only，UI 中不提供编辑/删除消息功能
 - 重启獭生按钮仅在用户触发时显示，Otter 不能自主触发
 - 大獭是唯一持久 Otter，UI 中不提供"创建大獭"功能
-- 消息发送使用 HTTP POST，响应接收使用 SSE（仿真中用 JS 模拟）
+- 消息发送使用 HTTP POST，响应接收使用 WebSocket（仿真中用 JS 模拟）
 - 每个仿真 HTML 文件包含该页面的全部弹窗和状态，不拆分到独立文件
 - 左栏仅对话列表模式，不提供树状视图（← UA-8）
 - 顶栏全局统一：所有页面使用 Lucide 图标 + Tailwind + 玻璃风格，严禁 emoji（← UA-10）
@@ -520,6 +555,11 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 - 所有仿真页面统一使用 Tailwind CDN + Lucide CDN，废弃 styles.css（← UA-10）
 - 视觉风格采用 Apple 玻璃风格，使用手写 CSS 玻璃工具类，不引入第三方玻璃质感库（← UA-6）
 - 玻璃效果必须在主面板（左栏/中央/右栏）视觉可辨：背景色块透明度 ≥ 0.22，面板透明度 ≤ 0.42（← UA-11）
+- 不使用手搓 HTML+JS 实现最终产品，必须使用 React + Tailwind + Hono（← UA-14）
+- MPA 架构：对话界面 SPA + WebSocket，其他页面独立 URL 跳转，不做单 SPA（← UA-14）
+- 实时通信使用 WebSocket（覆盖 S2 D21 SSE 决策）（← UA-14）
+- API 契约延后，所有 API 调用位置用 TODO 标记，使用 mock 数据（← UA-14）
+- 开发聚焦前端样式和显示效果，不实现后端逻辑（← UA-14）
 
 ## 设计取舍 [required]
 
@@ -545,18 +585,38 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 仿真技术 | Tailwind CSS CDN + Lucide CDN | 手写 CSS / styles.css | ← UA-10：所有页面统一使用 Tailwind CDN + Lucide，确保顶栏全局一致。styles.css 废弃 |
 | 消息数据结构 | 流式过程 + 最终答复(独立两部分) | 单一流式文本 | 参考 snail shell 模式，流式过程(可折叠 monospace 区块)与最终答复(Markdown 正文)视觉分离 |
 | Session 模型 | 每个 Otter 独立 session chain | 每个对话一个 session | Session 是 Otter 个体属性，对话只是 Otter 交互的载体 |
+| 页面架构 | MPA（多页面，URL 跳转） | 单 SPA（客户端路由） | ← UA-14：用户明确不要单 SPA。MPA 降低复杂度，对话界面单独 SPA + WebSocket，其他页面轻量独立 |
+| 实时通信 | WebSocket | SSE (EventSource) | ← UA-14：用户明确指令覆盖 S2 D21。WebSocket 支持双向通信，适合未来 Otter 主动推送场景。SSE 仅单向 |
+| 开发范围 | 仅前端，API 延后 + TODO | 全栈实现 | ← UA-14：用户明确聚焦前端样式和显示效果。API 契约后续单独设计 |
+| 仿真 vs 实现 | 仿真为视觉蓝图，实现用 React+Tailwind+Hono | 仿真=实现（严格一一对应） | ← UA-14 修订：仿真页面定义视觉设计和组件结构，React 实现遵循但技术栈不同 |
 
 ## 改动范围 [required]
 
+### 仿真页面（视觉设计参考）
+
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `docs/features/2026/07/13/F20260713u9v4-ui-frontend-design.md` | 更新 | 本文档（UI 清单 + 用户反馈迭代） |
 | `docs/ui-sim/index.html` | 已创建 | 对话视图仿真页面（Tailwind CDN + Lucide + 玻璃风格，自包含） |
-| `docs/ui-sim/memory-search.html` | 需更新 | 记忆搜索仿真页面 - 需迁移到 Tailwind CDN + Lucide + 玻璃风格，移除 emoji 图标和"大獭状态" |
+| `docs/ui-sim/memory-search.html` | 需更新 | 记忆搜索仿真页面 - 需迁移到 Tailwind CDN + Lucide + 玻璃风格 |
 | `docs/ui-sim/skills.html` | 需更新 | 能力库仿真页面 - 同上 |
 | `docs/ui-sim/settings.html` | 需更新 | 设置仿真页面 - 同上 |
-| `docs/ui-sim/styles.css` | 废弃 | ← UA-10：所有页面统一使用 Tailwind CDN，styles.css 不再使用 |
-| `docs/ui-sim/app.js` | 废弃 | 所有页面内联 JS，app.js 不再使用 |
+| `docs/ui-sim/styles.css` | 废弃 | ← UA-10：所有页面统一使用 Tailwind CDN |
+| `docs/ui-sim/app.js` | 废弃 | 所有页面内联 JS |
+
+### React 前端实现（← UA-14 开发范围）
+
+| 文件/目录 | 操作 | 说明 |
+|-----------|------|------|
+| `web/` | 新增 | 前端项目根目录（Hono + React + Tailwind） |
+| `web/server.ts` | 新增 | Hono 服务器入口，MPA 路由 |
+| `web/pages/conversation/` | 新增 | 对话视图 SPA（WebSocket 实时消息） |
+| `web/pages/memory/` | 新增 | 记忆搜索视图（独立页面） |
+| `web/pages/skills/` | 新增 | 能力库视图（独立页面） |
+| `web/pages/settings/` | 新增 | 设置视图（独立页面） |
+| `web/components/` | 新增 | 共享 React 组件（TopBar、Modal、Toast 等） |
+| `web/styles/` | 新增 | 共享样式（玻璃工具类、色彩变量） |
+
+> **API TODO 标记**：所有 API 调用位置使用 `// TODO: API contract not yet defined` 标记，使用 mock 数据替代。API 契约后续单独设计。
 
 ## 验证 [required]
 
@@ -591,7 +651,9 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 - [x] UA-11：玻璃效果可见性修复（背景色块 0.22-0.32 + 面板 0.32-0.42）
 - [x] UA-12：顶栏 tabs 居中（flex-1 左右占位）
 - [x] UA-13：Logo 替换为自定义 SVG 水獭头部图标
+- [x] UA-14：开发范围、技术栈、MPA 架构、WebSocket 决策写入 Feature 文档
 - [ ] memory-search/skills/settings 仿真页面更新（development 阶段执行）
+- [ ] React 前端实现（development 阶段执行）
 
 ### 两位架构师共识
 
@@ -630,7 +692,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | B-UI-4 | 当用户触发重启獭生时 | 弹出确认弹窗，确认后显示"Session 已封存"，新 Session 开始 | ← S2 B4a, B4b |
 | B-UI-5 | 当用户创建子对话时 | 弹出创建对话框，确认后左栏对话列表新增子对话项 | ← S2 B5a, UA-8 |
 | B-UI-6 | 当 LLM 调用失败时 | 消息流中显示错误卡片，提供重试按钮，已生成部分保留 | ← S2 B14 |
-| B-UI-7 | 当 SSE 连接断开时 | 顶部显示黄色提示条，自动重连，重连后恢复 | ← S2 B14 |
+| B-UI-7 | 当 WebSocket 连接断开时 | 顶部显示黄色提示条，自动重连，重连后恢复 | ← S2 B14, UA-14 |
 | B-UI-8 | ~~已移除~~ 当用户查看对话树时 | ~~左栏切换为树视图~~（← UA-8：树状视图已移除，UC7 通过左栏列表切换对话实现） | ~~← S2 B12~~ |
 | B-UI-9 | 当用户添加关键事实时 | 右栏行内表单展开，填写确认后关键事实列表实时新增条目 | ← S2 B8 |
 | B-UI-10 | 当用户解散小獭时 | 弹出确认弹窗(含归档摘要)，确认后右栏小獭卡片移除，对话中显示"小獭XX已解散" | ← S2 B7a |
