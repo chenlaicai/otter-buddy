@@ -75,6 +75,7 @@ export function ChatView(props: ChatViewProps) {
         onStopStream={props.onStopStream}
         onRetry={props.onRetry}
         onGoToSettings={props.onGoToSettings}
+        otters={props.otters}
       />
 
       {/* Input */}

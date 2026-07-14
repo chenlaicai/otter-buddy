@@ -170,8 +170,10 @@ export const otterColors: Record<string, { hex: string; gradient: string; nameCl
   o5: { hex: '#C9956B', gradient: 'linear-gradient(135deg,#E8B98E,#C9956B)', nameClass: 'text-caramel-500', border: '#C9956B' },
 }
 
-export function getOtterColor(otterId: string) {
-  return otterColors[otterId] || otterColors.o1
+export function getOtterColor(otterId: string, ci?: number) {
+  if (otterColors[otterId]) return otterColors[otterId]
+  if (ci && ci >= 1 && ci <= 4) return otterColors[`o${ci + 1}`]
+  return otterColors.o1
 }
 
 export function getOtter(id: string): Otter | undefined {

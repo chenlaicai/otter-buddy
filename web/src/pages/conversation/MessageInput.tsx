@@ -81,7 +81,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
         {mentionQuery !== null && filteredOtters.length > 0 && (
           <div className="absolute bottom-16 left-1/2 -translate-x-1/2 glass-strong rounded-2xl shadow-otter-lg p-1 z-50 min-w-[180px]">
             {filteredOtters.map(o => {
-              const color = getOtterColor(o.id)
+              const color = getOtterColor(o.id, o.ci)
               return (
                 <div
                   key={o.id}

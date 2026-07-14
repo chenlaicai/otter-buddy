@@ -1,8 +1,8 @@
 import { useRef, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Square } from 'lucide-react'
-import type { Message } from '../../mock/data'
-import { getOtter, getOtterColor } from '../../mock/data'
+import type { Message, Otter } from '../../mock/data'
+import { getOtterColor } from '../../mock/data'
 import { fmtTokens, ctxPercent } from '../../lib/utils'
 
 interface MessageListProps {
@@ -12,6 +12,7 @@ interface MessageListProps {
   onStopStream: () => void
   onRetry: () => void
   onGoToSettings: () => void
+  otters: Otter[]
 }
 
 export interface StreamingState {
@@ -22,7 +23,7 @@ export interface StreamingState {
   duration: number
 }
 
-export function MessageList({ messages, streamingMessage, state, onStopStream, onRetry, onGoToSettings }: MessageListProps) {
+export function MessageList({ messages, streamingMessage, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -72,10 +73,10 @@ export function MessageList({ messages, streamingMessage, state, onStopStream, o
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
       {messages.map(m => (
-        <MessageItem key={m.id} message={m} />
+        <MessageItem key={m.id} message={m} otters={otters} />
       ))}
       {streamingMessage && (
-        <StreamingMessage state={streamingMessage} onStop={onStopStream} />
+        <StreamingMessage state={streamingMessage} onStop={onStopStream} otters={otters} />
       )}
       {state === 'error' && (
         <div className="max-w-[780px] mx-auto px-6 my-2">
@@ -95,11 +96,11 @@ export function MessageList({ messages, streamingMessage, state, onStopStream, o
   )
 }
 
-function MessageItem({ message: m }: { message: Message }) {
+function MessageItem({ message: m, otters }: { message: Message; otters: Otter[] }) {
   const isUser = m.st === 'user'
-  const otter = isUser ? null : getOtter(m.si)
+  const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (otter?.name || 'Otter')
-  const color = isUser ? null : getOtterColor(m.si)
+  const color = isUser ? null : getOtterColor(m.si, otter?.ci)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-400' : color?.nameClass || 'text-otter-500'
   const borderLeft = !isUser ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}` } : {}
@@ -163,9 +164,9 @@ function StreamingProcess({ text, duration }: { text: string; duration: string }
   )
 }
 
-function StreamingMessage({ state, onStop }: { state: StreamingState; onStop: () => void }) {
-  const otter = getOtter(state.otterId)
-  const color = getOtterColor(state.otterId)
+function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {
+  const otter = otters.find(o => o.id === state.otterId)
+  const color = getOtterColor(state.otterId, otter?.ci)
   const name = otter?.name || 'Otter'
 
   return (
