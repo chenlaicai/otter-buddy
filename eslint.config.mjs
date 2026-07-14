@@ -15,10 +15,14 @@ import tseslint from "typescript-eslint";
  * - main.ts: Composition Root, exempt from all layer restrictions
  *
  * Cross-cutting exemption (D39): @frameworks/logger is allowed in entities/ and usecases/.
- * Config (D40): @frameworks/config is NOT exempt — must be injected via main.ts.
+ * Config: @frameworks/config is NOT exempt — must be injected via main.ts.
  */
 
-/** Frameworks modules restricted from inner layers (everything except logger) */
+/**
+ * Frameworks modules restricted from inner layers (everything except logger).
+ * MAINTENANCE: When adding a new module under frameworks/, add it here too,
+ * otherwise inner layers will be able to import it without ESLint errors.
+ */
 const restrictedFrameworks = [
   // Alias imports
   "@frameworks/db/**", "@frameworks/llm/**", "@frameworks/embedding/**",
