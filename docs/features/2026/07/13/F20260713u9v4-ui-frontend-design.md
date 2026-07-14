@@ -88,6 +88,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | UA-10 | ui2 msg#1 | 目录栏的海獭还是emoji图标，这个目录栏难道不是全局唯一的吗 | 否定：还是emoji（不满信号）；程度：难道不是全局唯一的（反问） | 顶栏必须全局统一，所有页面使用相同的图标系统（Lucide），不得出现 emoji |
 | UA-11 | ui2 msg#3 | 看着只有弹出窗口（比如新增小獭窗口）有玻璃效果，主界面没有玻璃效果呀，左侧栏、中间消息、右侧信息 全都无玻璃效果 | 否定：主界面没有玻璃效果；范围：左侧栏、中间消息、右侧信息 全都无 | 玻璃效果必须在主面板（左栏/中央/右栏）上视觉可辨，不能仅弹窗可见。需增强背景色彩对比度并降低面板透明度 |
 | UA-12 | ui2 msg#3 | 顶栏tab咋不在中间了；而且点击其他界面 顶栏又回到中间，并且海獭是🦦，感觉多个页面中 顶栏不是相同的 | 疑问：咋不在中间了；否定：又回到中间、不是相同的；属性：🦦 emoji | 顶栏 tabs 必须居中显示，所有页面顶栏完全一致（同一组件），不得出现 emoji |
+| UA-13 | ui2 msg#5 | 系统图标能换一个吗，不要这种爪子 | 否定：不要这种爪子；属性：系统图标 | 顶栏 Logo 图标替换为自定义 SVG 水獭头部图标，不使用 Lucide paw-print |
 
 ## 目标 [required]
 
@@ -479,7 +480,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | HTML block (CSS class) | React Component | 关键 Props | 说明 |
 |------------------------|----------------|-----------|------|
 | `.app-layout` | AppLayout | activeView | 顶栏 + 三栏容器 |
-| `.top-bar` | TopBar | activeView, onChangeView | Logo + Tab 切换 |
+| `.top-bar` | TopBar | activeView, onChangeView | Logo（自定义 SVG 水獭）+ Tab 切换 |
 | `.left-panel` | LeftPanel | conversations[] | 左栏容器（仅列表模式） |
 | `.conversation-list` | ConversationList | conversations[], activeId, onSelect | 对话列表 |
 | `.conversation-item` | ConversationItem | conversation, isActive, onContextMenu | 单个对话项 |
@@ -513,6 +514,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 - 每个仿真 HTML 文件包含该页面的全部弹窗和状态，不拆分到独立文件
 - 左栏仅对话列表模式，不提供树状视图（← UA-8）
 - 顶栏全局统一：所有页面使用 Lucide 图标 + Tailwind + 玻璃风格，严禁 emoji（← UA-10）
+- 顶栏 Logo 使用自定义 SVG 水獭头部图标，不使用 Lucide paw-print（← UA-13）
 - 顶栏不含"大獭状态"指示器（← UA-9）
 - 顶栏 tabs 必须居中显示（← UA-12）
 - 所有仿真页面统一使用 Tailwind CDN + Lucide CDN，废弃 styles.css（← UA-10）
@@ -538,7 +540,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 | 输入框 | 纯文本多行 + @提及 | 富文本 | MVP 最小实现，@提及支持多 Otter 交互 |
 | 视觉风格 | Apple 玻璃风格 + otter 暖色系 | 纯白/冷灰 | ← UA-6：用户确认采用苹果玻璃风格。手写 CSS 玻璃工具类(backdrop-blur + saturate + 透明度)，不引入第三方库。调研结论：成熟库均为 v0.x 阶段，手写方案已达成 Apple 玻璃视觉效果且零依赖 |
 | 玻璃质感实现 | 手写 CSS 工具类(.glass/.glass-strong/.glass-card/.glass-input) | @casoon/tailwindcss-glass / tw-glass / simple-liquid-glass | 调研结论：(1)标准玻璃拟态 Tailwind v4 内置 backdrop-blur 即可实现 (2)Apple Liquid Glass 需 SVG displacement maps 仅 Chromium 支持且库均为 v0.x (3)手写方案零依赖、零维护成本、已验证视觉效果 |
-| 图标系统 | Lucide 线条图标 | Emoji | ← UA-10：Lucide 是现代 SaaS 产品标配(shadcn/ui, Vercel)，emoji 显老旧且全局不一致 |
+| 图标系统 | Lucide 线条图标 + 自定义 SVG 水獭 Logo | Emoji / Lucide paw-print | ← UA-10/UA-13：Lucide 用于功能图标，Logo 使用自定义 SVG 水獭头部（两耳+圆脸+眼鼻），不使用 emoji 或 paw-print |
 | 顶栏内容 | Logo + 视图切换 Tab（无大獭状态） | Logo + Tab + 大獭状态 | ← UA-9：大獭是持久 Otter，"在线状态"始终为 true 无意义；实时状态由对话区流式指示器展示 |
 | 仿真技术 | Tailwind CSS CDN + Lucide CDN | 手写 CSS / styles.css | ← UA-10：所有页面统一使用 Tailwind CDN + Lucide，确保顶栏全局一致。styles.css 废弃 |
 | 消息数据结构 | 流式过程 + 最终答复(独立两部分) | 单一流式文本 | 参考 snail shell 模式，流式过程(可折叠 monospace 区块)与最终答复(Markdown 正文)视觉分离 |
@@ -588,6 +590,7 @@ Otter Buddy 后端已完成 infra 层（db, config, logger, llm-gateway, agent-c
 - [x] UA-10：顶栏全局统一要求写入硬约束
 - [x] UA-11：玻璃效果可见性修复（背景色块 0.22-0.32 + 面板 0.32-0.42）
 - [x] UA-12：顶栏 tabs 居中（flex-1 左右占位）
+- [x] UA-13：Logo 替换为自定义 SVG 水獭头部图标
 - [ ] memory-search/skills/settings 仿真页面更新（development 阶段执行）
 
 ### 两位架构师共识
