@@ -1,20 +1,19 @@
 import { useState, useRef } from 'react'
 import { ArrowUp } from 'lucide-react'
 import type { Otter } from '../../mock/data'
-import { getOtterColor, getAllOtters } from '../../mock/data'
+import { getOtterColor } from '../../mock/data'
 
 interface MessageInputProps {
   onSend: (text: string, mentionOtterId?: string) => void
   disabled: boolean
   placeholder?: string
+  otters: Otter[]
 }
 
-export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭' }: MessageInputProps) {
+export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭', otters }: MessageInputProps) {
   const [value, setValue] = useState('')
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  const otters: Otter[] = getAllOtters()
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value

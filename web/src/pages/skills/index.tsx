@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Package } from 'lucide-react'
+import { Package, X } from 'lucide-react'
 import '../../styles/globals.css'
 
 import type { Skill } from '../../mock/data'
@@ -71,9 +71,9 @@ function SkillsPage() {
     showToast('Skill 已加载', 'success')
   }
 
-  function unloadSkill(id: string) {
-    setSkills(prev => prev.map(s => s.id === id ? { ...s, assignedTo: [] } : s))
-    showToast('Skill 已从所有 Otter 卸载', 'success')
+  function unloadSkill(otterId: string) {
+    setSkills(prev => prev.map(s => s.id === selectedId ? { ...s, assignedTo: s.assignedTo.filter(id => id !== otterId) } : s))
+    showToast('Skill 已从 Otter 卸载', 'success')
   }
 
   const assignedOtters = selectedSkill?.assignedTo.map(id => otters.find(o => o.id === id)).filter(Boolean) || []
@@ -150,12 +150,17 @@ function SkillsPage() {
               </div>
 
               <div className="mb-4">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1.5">已分配 Otter</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1.5">已分配 Otter（点击卸载）</div>
                 <div className="flex gap-1.5 flex-wrap">
                   {assignedOtters.length ? assignedOtters.map(o => (
-                    <span key={o!.id} className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/40 text-stone-600">
+                    <button
+                      key={o!.id}
+                      onClick={() => unloadSkill(o!.id)}
+                      className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/40 text-stone-600 hover:bg-red-400/10 hover:text-red-500 transition flex items-center gap-1"
+                    >
                       {o!.name}
-                    </span>
+                      <X className="w-3 h-3" />
+                    </button>
                   )) : <span className="text-xs text-stone-400">未分配</span>}
                 </div>
               </div>
@@ -167,12 +172,6 @@ function SkillsPage() {
                   style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
                 >
                   加载到 Otter
-                </button>
-                <button
-                  onClick={() => unloadSkill(selectedSkill.id)}
-                  className="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition"
-                >
-                  从所有 Otter 卸载
                 </button>
               </div>
             </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Modal, ModalButton } from '../../components/Modal'
 import type { Otter, OtterSession, Skill } from '../../mock/data'
-import { getOtter, getOtterColor, otterSessions as mockSessions, skills as mockSkills } from '../../mock/data'
+import { skills as mockSkills } from '../../mock/data'
 
 export type ModalState =
   | { type: 'none' }
@@ -17,6 +17,8 @@ export type ModalState =
 
 interface ModalsProps {
   modal: ModalState
+  otters: Otter[]
+  sessions: Record<string, OtterSession[]>
   onClose: () => void
   onConfirmNewConv: (title: string) => void
   onConfirmChild: (title: string) => void
@@ -204,7 +206,8 @@ function CreateOtterModal(props: ModalsProps) {
 }
 
 function DissolveModal(props: ModalsProps) {
-  const otter = props.modal.type === 'dissolve' ? getOtter(props.modal.otterId) : null
+  const { modal } = props
+  const otter = modal.type === 'dissolve' ? props.otters.find(o => o.id === modal.otterId) : null
   const [summary, setSummary] = useState('小獭已完成分析任务，关键结论已记录。')
 
   return (
@@ -236,7 +239,8 @@ function DissolveModal(props: ModalsProps) {
 }
 
 function RestartModal(props: ModalsProps) {
-  const otter = props.modal.type === 'restart' ? getOtter(props.modal.otterId) : null
+  const { modal } = props
+  const otter = modal.type === 'restart' ? props.otters.find(o => o.id === modal.otterId) : null
   const [summary, setSummary] = useState('之前讨论了 UI 布局方案，但方向有偏差，需要换角度重新分析。')
 
   return (
@@ -268,10 +272,11 @@ function RestartModal(props: ModalsProps) {
 }
 
 function OtterDetailModal(props: ModalsProps) {
-  const otter = props.modal.type === 'otter-detail' ? getOtter(props.modal.otterId) : null
+  const { modal } = props
+  const otter = modal.type === 'otter-detail' ? props.otters.find(o => o.id === modal.otterId) : null
   if (!otter) return null
 
-  const sessions: OtterSession[] = mockSessions[otter.id] || []
+  const sessions: OtterSession[] = props.sessions[otter.id] || []
   const otterSkills: Skill[] = mockSkills.filter(s => s.assignedTo.includes(otter.id))
 
   return (

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Search, Star } from 'lucide-react'
+import { Search, Star, MessageSquare, ClipboardList, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
 import '../../styles/globals.css'
 
 import type { MemoryEntry } from '../../mock/data'
-import { memoryEntries as mockEntries } from '../../mock/data'
+import { memoryEntries as mockEntries, conversations as mockConversations } from '../../mock/data'
 import { AppLayout } from '../../components/AppLayout'
 import { Modal, ModalButton } from '../../components/Modal'
 import { showToast } from '../../components/Toast'
@@ -18,7 +18,7 @@ function MemorySearchPage() {
   const [conversation, setConversation] = useState('')
   const [results, setResults] = useState<MemoryEntry[] | null>(null)
   const [loading, setLoading] = useState(false)
-  const [showDegrade, setShowDegrade] = useState(false)
+  const [showDegrade] = useState(false)
   const [expandCtx, setExpandCtx] = useState(false)
   const [refineQuery, setRefineQuery] = useState('')
   const [showRefine, setShowRefine] = useState(false)
@@ -31,8 +31,18 @@ function MemorySearchPage() {
 
     setTimeout(() => {
       const filtered = entries.filter(e => {
-        if (q && !e.content.toLowerCase().includes(q.toLowerCase())) return false
         if (layer && e.layer !== layer) return false
+        if (conversation) {
+          const conv = mockConversations.find(c => c.id === conversation)
+          if (conv && e.conversationTitle !== conv.title) return false
+        }
+        if (q) {
+          if (granularity === 'coarse') {
+            if (!e.conversationTitle.toLowerCase().includes(q.toLowerCase())) return false
+          } else {
+            if (!e.content.toLowerCase().includes(q.toLowerCase())) return false
+          }
+        }
         return true
       })
       setResults(filtered)
@@ -46,11 +56,11 @@ function MemorySearchPage() {
     showToast('已标记', 'success')
   }
 
-  const typeIcons: Record<string, string> = {
-    message: '💬',
-    conversation_summary: '📋',
-    key_fact: '💡',
-    linked_resource: '🔗',
+  const typeIconComponents: Record<string, typeof MessageSquare> = {
+    message: MessageSquare,
+    conversation_summary: ClipboardList,
+    key_fact: Lightbulb,
+    linked_resource: LinkIcon,
   }
   const layerLabels: Record<string, string> = {
     working: '工作记忆',
@@ -154,7 +164,10 @@ function MemorySearchPage() {
               {results.map(e => (
                 <div key={e.id} className="glass-card rounded-2xl p-4">
                   <div className="flex items-center gap-2 text-xs text-stone-400 mb-2">
-                    <span>{typeIcons[e.contentType] || '📄'} {e.contentType}</span>
+                    <span className="flex items-center gap-1">
+                      {(() => { const Icon = typeIconComponents[e.contentType] || FileText; return <Icon className="w-3 h-3" /> })()}
+                      {e.contentType}
+                    </span>
                     <span>·</span>
                     <span>{e.conversationTitle}</span>
                     <span>·</span>

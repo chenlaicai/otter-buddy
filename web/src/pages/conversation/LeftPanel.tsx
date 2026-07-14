@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Search, Plus } from 'lucide-react'
 import type { Conversation, Otter } from '../../mock/data'
 import { getOtterColor } from '../../mock/data'
@@ -9,9 +8,10 @@ interface LeftPanelProps {
   onSelect: (id: string) => void
   onNewConversation: () => void
   onContextMenu: (e: React.MouseEvent, cid: string) => void
+  otters: Otter[]
 }
 
-export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu }: LeftPanelProps) {
+export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters }: LeftPanelProps) {
   return (
     <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
       <div className="p-3 flex gap-2 border-b border-white/40">
@@ -36,6 +36,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
             isActive={c.id === activeId}
             onSelect={onSelect}
             onContextMenu={onContextMenu}
+            otters={otters}
           />
         ))}
       </div>
@@ -48,17 +49,17 @@ function ConversationItem({
   isActive,
   onSelect,
   onContextMenu,
+  otters,
 }: {
   conversation: Conversation
   isActive: boolean
   onSelect: (id: string) => void
   onContextMenu: (e: React.MouseEvent, cid: string) => void
+  otters: Otter[]
 }) {
-  // Mock otter data for avatar display
-  const otters: Otter[] = c.otterIds.map(id => {
-    if (id === 'o1') return { id: 'o1', name: '大獭', type: 'big', createdAt: '' }
-    return { id, name: id, type: 'small', createdAt: '' }
-  })
+  const convOtters: Otter[] = c.otterIds
+    .map(id => otters.find(o => o.id === id))
+    .filter((o): o is Otter => o !== undefined)
 
   return (
     <div
@@ -76,7 +77,7 @@ function ConversationItem({
           }`}
         />
         <div className="flex ml-auto">
-          {otters.map(o => {
+          {convOtters.map(o => {
             const color = getOtterColor(o.id)
             return (
               <div

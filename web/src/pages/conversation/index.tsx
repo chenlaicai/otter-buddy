@@ -5,13 +5,13 @@ import '../../styles/globals.css'
 
 import type { Conversation, Message, Otter, KeyFact, LinkedResource, OtterSession } from '../../mock/data'
 import {
+  bigOtter,
   smallOtters as initialSmallOtters,
   otterSessions as initialSessions,
   conversations as initialConversations,
   messages as initialMessages,
   keyFacts as initialKeyFacts,
   linkedResources as initialLinkedResources,
-  getOtter as getOtterData,
 } from '../../mock/data'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
@@ -35,7 +35,7 @@ function ConversationPage() {
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
   const [streaming, setStreaming] = useState<StreamingState | null>(null)
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('normal')
-  const [wsDisconnected, setWsDisconnected] = useState(false)
+  const [wsDisconnected] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
   const streamIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -43,8 +43,9 @@ function ConversationPage() {
   const activeMessages = allMessages[activeId] || []
   const activeKeyFacts = allKeyFacts[activeId] || []
   const activeLinkedRes = allLinkedRes[activeId] || []
+  const allOttersList: Otter[] = [bigOtter, ...smallOtters]
   const activeOtters: Otter[] = (activeConv?.otterIds || [])
-    .map(id => getOtterData(id))
+    .map(id => allOttersList.find(o => o.id === id))
     .filter((o): o is Otter => o !== undefined)
 
   const stopStream = useCallback(() => {
@@ -53,27 +54,25 @@ function ConversationPage() {
       streamIntervalRef.current = null
     }
     // Finalize the streaming message into the messages list
-    setStreaming(prev => {
-      if (prev) {
-        const newMsg: Message = {
-          id: 'm' + Date.now(),
-          st: 'otter',
-          si: prev.otterId,
-          sp: prev.streamingText,
-          content: prev.finalText || prev.streamingText,
-          ts: nowTs(),
-          dur: `${prev.duration.toFixed(1)}s`,
-          ctx: 850,
-          ctxMax: 128000,
-        }
-        setAllMessages(prev2 => ({
-          ...prev2,
-          [activeId]: [...(prev2[activeId] || []), newMsg],
-        }))
+    if (streaming) {
+      const newMsg: Message = {
+        id: 'm' + Date.now(),
+        st: 'otter',
+        si: streaming.otterId,
+        sp: streaming.streamingText,
+        content: streaming.finalText || streaming.streamingText,
+        ts: nowTs(),
+        dur: `${streaming.duration.toFixed(1)}s`,
+        ctx: 850,
+        ctxMax: 128000,
       }
-      return null
-    })
-  }, [activeId])
+      setAllMessages(prev => ({
+        ...prev,
+        [activeId]: [...(prev[activeId] || []), newMsg],
+      }))
+    }
+    setStreaming(null)
+  }, [activeId, streaming])
 
   const simulateStream = useCallback((otterId: string = 'o1') => {
     const spText = '> 检索记忆: "用户需求"\n> 找到 3 条相关记忆\n> 分析上下文\n> 生成回复中...'
@@ -156,7 +155,10 @@ function ConversationPage() {
 
   const handleContextMenu = (e: React.MouseEvent, cid: string) => {
     e.preventDefault()
-    setCtxMenu({ x: e.clientX, y: e.clientY, cid })
+    const menuW = 160, menuH = 130
+    const x = Math.min(e.clientX, window.innerWidth - menuW - 8)
+    const y = Math.min(e.clientY, window.innerHeight - menuH - 8)
+    setCtxMenu({ x, y, cid })
   }
 
   function closeCtxMenu() {
@@ -367,6 +369,7 @@ function ConversationPage() {
           onSelect={handleSelectConv}
           onNewConversation={handleNewConv}
           onContextMenu={handleContextMenu}
+          otters={allOttersList}
         />
 
         <ChatView
@@ -381,11 +384,13 @@ function ConversationPage() {
           onCreateChild={handleCreateChild}
           onComplete={handleComplete}
           onArchive={handleArchive}
+          otters={allOttersList}
         />
 
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
+          sessions={sessions}
           keyFacts={activeKeyFacts}
           linkedResources={activeLinkedRes}
           onCreateSmallOtter={() => setModal({ type: 'create-otter' })}
@@ -441,6 +446,8 @@ function ConversationPage() {
       {/* All Modals */}
       <ConversationModals
         modal={modal}
+        otters={allOttersList}
+        sessions={sessions}
         onClose={() => setModal({ type: 'none' })}
         onConfirmNewConv={confirmNewConv}
         onConfirmChild={confirmChild}

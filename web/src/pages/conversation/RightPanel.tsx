@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Plus, Star, X, MoreHorizontal, RotateCcw } from 'lucide-react'
-import type { Conversation, Otter, KeyFact, LinkedResource } from '../../mock/data'
-import { otterSessions as mockSessions } from '../../mock/data'
+import type { Conversation, Otter, KeyFact, LinkedResource, OtterSession } from '../../mock/data'
 import { OtterAvatar } from '../../components/OtterAvatar'
 
 interface RightPanelProps {
   conversation: Conversation
   otters: Otter[]
+  sessions: Record<string, OtterSession[]>
   keyFacts: KeyFact[]
   linkedResources: LinkedResource[]
   onCreateSmallOtter: () => void
@@ -43,6 +43,7 @@ export function RightPanel(props: RightPanelProps) {
             <OtterParticipantCard
               key={o.id}
               otter={o}
+              sessions={props.sessions[o.id] || []}
               onClick={() => props.onOpenOtterDetail(o.id)}
               onDissolve={props.onDissolveOtter}
               onRestart={props.onRestartOtter}
@@ -145,17 +146,18 @@ export function RightPanel(props: RightPanelProps) {
 
 function OtterParticipantCard({
   otter: o,
+  sessions,
   onClick,
   onDissolve,
   onRestart,
 }: {
   otter: Otter
+  sessions: OtterSession[]
   onClick: () => void
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
 }) {
   const isBig = o.type === 'big'
-  const sessions = mockSessions[o.id] || []
   const activeS = sessions.find(s => s.status === 'active')
 
   return (

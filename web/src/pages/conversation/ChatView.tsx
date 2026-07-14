@@ -1,5 +1,5 @@
 import { FilePlus, Check, Archive } from 'lucide-react'
-import type { Conversation } from '../../mock/data'
+import type { Conversation, Otter } from '../../mock/data'
 import { MessageList, type StreamingState } from './MessageList'
 import { MessageInput } from './MessageInput'
 
@@ -15,6 +15,7 @@ interface ChatViewProps {
   onCreateChild: () => void
   onComplete: () => void
   onArchive: () => void
+  otters: Otter[]
 }
 
 export function ChatView(props: ChatViewProps) {
@@ -80,6 +81,7 @@ export function ChatView(props: ChatViewProps) {
       <MessageInput
         onSend={props.onSend}
         disabled={c?.status === 'archived'}
+        otters={props.otters}
       />
     </main>
   )
