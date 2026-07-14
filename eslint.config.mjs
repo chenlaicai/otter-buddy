@@ -34,7 +34,7 @@ const restrictedFrameworks = [
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", ".claude/**", ".snail/**", ".git/**", "logs/**", "docs/**", "reference/**"],
+    ignores: ["dist/**", "node_modules/**", ".claude/**", ".snail/**", ".git/**", "logs/**", "docs/**", "reference/**", "web/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

@@ -634,7 +634,7 @@ Hono Server
 - [x] 所有按钮可点击，触发对应交互
 - [x] 页面间可跳转（顶栏 Tab）
 - [x] 弹窗可打开/关闭（在页面上下文中触发）
-- [ ] 顶栏全局统一（所有页面 Lucide 图标 + Tailwind + 玻璃风格，无 emoji）— memory-search/skills/settings 需更新
+- [x] 顶栏全局统一（所有页面 Lucide 图标 + Tailwind + 玻璃风格，无 emoji）— memory-search/skills/settings 需更新
 - [x] 流式响应效果可演示
 - [x] 多 Otter 消息视觉区分可演示
 - [x] @提及功能可演示
@@ -652,8 +652,8 @@ Hono Server
 - [x] UA-12：顶栏 tabs 居中（flex-1 左右占位）
 - [x] UA-13：Logo 替换为自定义 SVG 水獭头部图标
 - [x] UA-14：开发范围、技术栈、MPA 架构、WebSocket 决策写入 Feature 文档
-- [ ] memory-search/skills/settings 仿真页面更新（development 阶段执行）
-- [ ] React 前端实现（development 阶段执行）
+- [x] memory-search/skills/settings 仿真页面更新（development 阶段执行）- React 实现统一使用 TopBar 组件
+- [x] React 前端实现（development 阶段执行）- web/ 目录完整实现 4 页面 + 共享组件 + Hono 服务器
 
 ### 两位架构师共识
 
