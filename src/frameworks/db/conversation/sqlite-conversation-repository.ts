@@ -39,8 +39,8 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`
-        INSERT INTO conversations (id, title, status, parent_id, tree_path, summary, created_at, updated_at)
-        VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)
+        INSERT INTO conversations (id, title, status, summary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
       `).run(
         conversation.id,
         conversation.title,

@@ -30,17 +30,13 @@ function createConversationTables(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
-      parent_id TEXT,
-      tree_path TEXT,
       summary TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
-      archived_at TEXT,
-      FOREIGN KEY (parent_id) REFERENCES conversations(id)
+      archived_at TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_conversations_parent_id ON conversations(parent_id);
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
   `);
 
@@ -72,7 +68,7 @@ function createMessageTables(db: Database.Database): void {
       body TEXT,
       attachments TEXT,
       sequence_num INTEGER NOT NULL,
-      turn_id TEXT,
+      turn_id TEXT NOT NULL,
       talking_stone_passed_to TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
@@ -113,7 +109,6 @@ function createMemoryTables(db: Database.Database): void {
       source_id TEXT NOT NULL,
       source_table TEXT NOT NULL,
       conversation_id TEXT,
-      tree_path TEXT,
       granularity TEXT NOT NULL DEFAULT 'fine',
       content TEXT NOT NULL,
       metadata TEXT,
@@ -237,6 +232,7 @@ function createOtterTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_otter_sessions_otter_id ON otter_sessions(otter_id);
     CREATE INDEX IF NOT EXISTS idx_otter_sessions_status ON otter_sessions(status);
     CREATE INDEX IF NOT EXISTS idx_otter_sessions_negative ON otter_sessions(is_negative_case);
+    CREATE INDEX IF NOT EXISTS idx_otter_sessions_previous ON otter_sessions(previous_session_id);
   `);
 }
 
@@ -255,6 +251,7 @@ function createTurnTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_turns_conversation_id ON turns(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_turns_status ON turns(status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_conversation_number ON turns(conversation_id, turn_number);
   `);
 }
 
@@ -275,7 +272,8 @@ function createParticipantTables(db: Database.Database): void {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
       FOREIGN KEY (otter_id) REFERENCES otters(id),
       FOREIGN KEY (joined_at_turn_id) REFERENCES turns(id),
-      FOREIGN KEY (left_at_turn_id) REFERENCES turns(id)
+      FOREIGN KEY (left_at_turn_id) REFERENCES turns(id),
+      UNIQUE(conversation_id, otter_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_participants_conversation_id ON conversation_participants(conversation_id);
@@ -290,6 +288,7 @@ function createAgentSessionsTable(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS agent_sessions (
       otter_id TEXT PRIMARY KEY,
       pi_session_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (otter_id) REFERENCES otters(id)
     );

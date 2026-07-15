@@ -21,8 +21,6 @@ export interface ConversationRow {
   id: string;
   title: string;
   status: string;
-  parent_id: string | null;
-  tree_path: string | null;
   summary: string | null;
   created_at: string;
   updated_at: string;
@@ -39,7 +37,7 @@ export interface MessageRow {
   body: string | null;
   attachments: string | null;
   sequence_num: number;
-  turn_id: string | null;
+  turn_id: string;
   talking_stone_passed_to: string | null;
   created_at: string;
   completed_at: string | null;
