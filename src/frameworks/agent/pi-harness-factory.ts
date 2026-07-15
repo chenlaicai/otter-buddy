@@ -216,7 +216,7 @@ export class PiHarnessFactory implements AgentGateway {
     activeToolNames?: string[];
   } {
     if (!this.toolRegistry || !otterType) {
-      return { tools: this.toolRegistry?.getAllTools() ?? [] };
+      return { tools: [] };
     }
     const activeTools = this.toolRegistry.getActiveTools(otterType);
     return {

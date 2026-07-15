@@ -82,6 +82,8 @@ export class SqliteConversationRepository implements ConversationRepository {
         UPDATE conversations SET status = 'archived', archived_at = ?, updated_at = ?
         WHERE id = ?
       `).run(timestamp, timestamp, id);
+    } else {
+      throw new Error(`Unsupported status transition: ${status}`);
     }
   }
 
