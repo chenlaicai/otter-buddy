@@ -9,8 +9,11 @@ export class AgentSessionStore {
 
   set(otterId: string, piSessionId: string): void {
     this.db.prepare(`
-      INSERT OR REPLACE INTO agent_sessions (otter_id, pi_session_id, updated_at)
+      INSERT INTO agent_sessions (otter_id, pi_session_id, updated_at)
       VALUES (?, ?, datetime('now'))
+      ON CONFLICT(otter_id) DO UPDATE SET
+        pi_session_id = excluded.pi_session_id,
+        updated_at = excluded.updated_at
     `).run(otterId, piSessionId);
   }
 

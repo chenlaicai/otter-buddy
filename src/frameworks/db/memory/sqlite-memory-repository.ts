@@ -52,8 +52,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
     try {
       this.db.prepare(`
         INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
-          conversation_id, tree_path, granularity, content, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+          conversation_id, granularity, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         entry.id,
         entry.layer,

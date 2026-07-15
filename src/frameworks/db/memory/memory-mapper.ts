@@ -13,7 +13,6 @@ export interface MemoryEntryRow {
   source_id: string;
   source_table: string;
   conversation_id: string | null;
-  tree_path: string | null;
   granularity: string;
   content: string;
   metadata: string | null;
