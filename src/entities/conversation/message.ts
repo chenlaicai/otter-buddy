@@ -1,7 +1,7 @@
 import type { Attachment } from "./conversation";
 
-/** 发送者类型 */
-export type SenderType = "user" | "otter";
+/** 发送者类型（system 用于系统消息：Otter 进场/退场等事件通知） */
+export type SenderType = "user" | "otter" | "system";
 
 /** 消息生命周期状态 */
 export type MessageStatus = "streaming" | "completed" | "failed";
@@ -16,7 +16,7 @@ export interface Message {
   turnId: string;
   senderType: SenderType;
   senderId: string;
-  talkingStonePassedTo: string[]; // 发言石传递：必填，非空。指定下一轮发言者
+  talkingStonePassedTo: string[] | null; // 发言石传递：streaming 时为 null，completed 时必填非空。对齐 Snail 的 to_speakers 模式
   status: MessageStatus;
   body: string | null;
   attachments: Attachment[] | null;
@@ -81,10 +81,18 @@ export function isValidCompletedMessageBody(body: string): boolean {
 }
 
 /**
- * 发言石传递是否合法。
- * 每条消息必须将发言石传给至少一个参与者，不允许空数组。
- * 对话结束由用户另行决定（complete/archive conversation），与发言石传递无关。
+ * 发言石传递是否合法（UA-8 规则）。
+ *
+ * - system：始终豁免（系统消息不传递发言石）
+ * - streaming/failed：可为 null 或空数组（body 为 null，发言石无意义）
+ * - completed（user/otter）：必须非 null 且非空数组
  */
-export function isValidTalkingStonePass(recipients: string[]): boolean {
-  return recipients.length > 0;
+export function isValidTalkingStonePass(
+  recipients: string[] | null,
+  status: MessageStatus,
+  senderType: SenderType,
+): boolean {
+  if (senderType === "system") return true;
+  if (status === "streaming" || status === "failed") return true;
+  return recipients !== null && recipients.length > 0;
 }

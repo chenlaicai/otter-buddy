@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Otter Buddy - 设置</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-layout">
+  <!-- TopBar -->
+  <div class="top-bar">
+    <div class="top-bar__logo"><span>🦦</span> Otter Buddy</div>
+    <div class="top-bar__tabs">
+      <button class="top-bar__tab" onclick="navigateTo('chat')">对话</button>
+      <button class="top-bar__tab" onclick="navigateTo('memory')">记忆搜索</button>
+      <button class="top-bar__tab" onclick="navigateTo('skills')">能力库</button>
+      <button class="top-bar__tab top-bar__tab--active">设置</button>
+    </div>
+    <div class="top-bar__status">
+      <div class="top-bar__status-dot"></div>
+      <span>大獭在线</span>
+    </div>
+  </div>
+
+  <!-- Body: center only -->
+  <div class="body-layout body-layout--center-only">
+    <div class="settings-view">
+      <div class="settings-view__title">设置</div>
+
+      <!-- LLM Config -->
+      <div class="settings-view__section">
+        <div class="settings-view__section-title">LLM 配置</div>
+        <div class="form-group">
+          <label class="form-label">Provider</label>
+          <select class="form-select" id="llm-provider" onchange="updateModels()">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="google">Google</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Model</label>
+          <select class="form-select" id="llm-model">
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-4-turbo">gpt-4-turbo</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <input class="form-input" type="password" id="llm-api-key" placeholder="sk-..." oninput="markUnsaved()">
+        </div>
+        <div class="form-group">
+          <button class="btn btn--secondary" id="test-conn-btn" onclick="testConnection()">测试连接</button>
+          <span id="test-conn-result" style="margin-left: 8px; font-size: 13px;"></span>
+        </div>
+      </div>
+
+      <!-- System Params -->
+      <div class="settings-view__section">
+        <div class="settings-view__section-title">系统参数</div>
+        <div class="settings-view__row">
+          <span class="settings-view__row-label">服务端口</span>
+          <span class="settings-view__row-value">3000 (只读)</span>
+        </div>
+        <div class="settings-view__row">
+          <span class="settings-view__row-label">数据库路径</span>
+          <span class="settings-view__row-value">./otter-buddy.db (只读)</span>
+        </div>
+      </div>
+
+      <!-- Memory Params -->
+      <div class="settings-view__section">
+        <div class="settings-view__section-title">记忆参数</div>
+        <div class="form-group">
+          <label class="form-label">时间衰减半衰期 (天)</label>
+          <input class="form-input" type="number" id="memory-halflife" value="7" oninput="markUnsaved()">
+        </div>
+        <div class="settings-view__row">
+          <span class="settings-view__row-label">权重系数</span>
+          <span class="settings-view__row-value" style="font-size: 12px; color: var(--color-text-muted);">time_decay × frequency × task_relevance × user_flag (只读)</span>
+        </div>
+      </div>
+
+      <!-- Embedding Status -->
+      <div class="settings-view__section">
+        <div class="settings-view__section-title">Embedding 状态</div>
+        <div class="settings-view__row">
+          <span class="settings-view__row-label">模型</span>
+          <span class="settings-view__row-value">Xenova/bge-m3</span>
+        </div>
+        <div class="settings-view__row">
+          <span class="settings-view__row-label">维度</span>
+          <span class="settings-view__row-value">1024</span>
+        </div>
+        <div class="settings-view__row">
+          <span class="settings-view__row-label">加载状态</span>
+          <span class="settings-view__row-value" style="color: var(--color-success);">✓ 已加载</span>
+        </div>
+      </div>
+
+      <!-- Save Bar -->
+      <div class="settings-view__save-bar">
+        <span id="unsaved-indicator" style="display: none; font-size: 13px; color: var(--color-warning);">
+          <span class="settings-view__unsaved-dot"></span>有未保存的变更
+        </span>
+        <button class="btn btn--primary" id="save-btn" onclick="saveSettings()">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+<script>
+  let hasUnsavedChanges = false;
+
+  function markUnsaved() {
+    hasUnsavedChanges = true;
+    document.getElementById('unsaved-indicator').style.display = 'inline';
+    const saveBtn = document.getElementById('save-btn');
+    saveBtn.style.boxShadow = '0 0 0 2px var(--color-warning)';
+  }
+
+  function clearUnsaved() {
+    hasUnsavedChanges = false;
+    document.getElementById('unsaved-indicator').style.display = 'none';
+    document.getElementById('save-btn').style.boxShadow = 'none';
+  }
+
+  function updateModels() {
+    const provider = document.getElementById('llm-provider').value;
+    const modelSelect = document.getElementById('llm-model');
+    const models = {
+      openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+      anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5'],
+      google: ['gemini-2.0-flash', 'gemini-2.5-pro'],
+    };
+    modelSelect.innerHTML = (models[provider] || []).map(m => `<option value="${m}">${m}</option>`).join('');
+    markUnsaved();
+  }
+
+  function testConnection() {
+    const btn = document.getElementById('test-conn-btn');
+    const result = document.getElementById('test-conn-result');
+    btn.disabled = true;
+    btn.textContent = '测试中...';
+    result.textContent = '';
+    result.style.color = 'var(--color-text-muted)';
+
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '测试连接';
+      const apiKey = document.getElementById('llm-api-key').value;
+      if (apiKey && apiKey.length > 5) {
+        result.textContent = '✓ 连接成功';
+        result.style.color = 'var(--color-success)';
+      } else {
+        result.textContent = '✗ 连接失败：API Key 无效';
+        result.style.color = 'var(--color-danger)';
+      }
+    }, 1200);
+  }
+
+  function saveSettings() {
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '保存';
+      clearUnsaved();
+      showToast('设置已保存', 'success');
+    }, 800);
+  }
+
+  // Warn on navigation with unsaved changes
+  window.addEventListener('beforeunload', function(e) {
+    if (hasUnsavedChanges) {
+      e.preventDefault();
+      e.returnValue = '有未保存的变更';
+    }
+  });
+</script>
+</body>
+</html>

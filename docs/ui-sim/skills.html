@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Otter Buddy - 能力库</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-layout">
+  <!-- TopBar -->
+  <div class="top-bar">
+    <div class="top-bar__logo"><span>🦦</span> Otter Buddy</div>
+    <div class="top-bar__tabs">
+      <button class="top-bar__tab" onclick="navigateTo('chat')">对话</button>
+      <button class="top-bar__tab" onclick="navigateTo('memory')">记忆搜索</button>
+      <button class="top-bar__tab top-bar__tab--active">能力库</button>
+      <button class="top-bar__tab" onclick="navigateTo('settings')">设置</button>
+    </div>
+    <div class="top-bar__status">
+      <div class="top-bar__status-dot"></div>
+      <span>大獭在线</span>
+    </div>
+  </div>
+
+  <!-- Body: left skill list + center detail -->
+  <div class="body-layout body-layout--left-center">
+
+    <!-- Skill List Panel -->
+    <div class="skill-list-panel">
+      <div class="skill-list-panel__header">
+        <span style="font-size: 14px; font-weight: 600;">能力库</span>
+        <button class="btn btn--primary" style="padding: 4px 10px; font-size: 12px;" onclick="openModal('modal-register-skill')">+ 注册</button>
+      </div>
+
+      <div class="skill-group__title">工具 (tool)</div>
+      <div id="skill-list-tool"></div>
+
+      <div class="skill-group__title">工作流 (workflow)</div>
+      <div id="skill-list-workflow"></div>
+
+      <div class="skill-group__title">提示模板 (prompt_template)</div>
+      <div id="skill-list-prompt"></div>
+    </div>
+
+    <!-- Skill Detail -->
+    <div class="skill-detail" id="skill-detail">
+      <!-- Default: show first skill -->
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Modal: Register Skill -->
+<div class="modal-overlay" id="modal-register-skill">
+  <div class="modal modal--wide">
+    <div class="modal__header">
+      <span class="modal__title">注册 Skill</span>
+      <button class="modal__close" onclick="closeModal('modal-register-skill')">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">名称 (唯一)</label>
+        <input class="form-input" id="skill-name" placeholder="如: code-review">
+      </div>
+      <div class="form-group">
+        <label class="form-label">描述</label>
+        <input class="form-input" id="skill-desc" placeholder="Skill 描述">
+      </div>
+      <div class="form-group">
+        <label class="form-label">类型</label>
+        <select class="form-select" id="skill-type">
+          <option value="tool">工具</option>
+          <option value="prompt_template">提示模板</option>
+          <option value="workflow">工作流</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Schema (JSON)</label>
+        <textarea class="form-textarea" id="skill-schema" placeholder='{"type": "object", "properties": {...}}'>{
+  "type": "object",
+  "properties": {
+    "input": { "type": "string" }
+  }
+}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Handler 引用</label>
+        <input class="form-input" id="skill-handler" placeholder="handlerRef">
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" onclick="closeModal('modal-register-skill')">取消</button>
+      <button class="btn btn--primary" onclick="registerSkill()">注册</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Load Skill to Otter -->
+<div class="modal-overlay" id="modal-load-skill">
+  <div class="modal">
+    <div class="modal__header">
+      <span class="modal__title">加载 Skill 到 Otter</span>
+      <button class="modal__close" onclick="closeModal('modal-load-skill')">×</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">选择 Otter</label>
+        <select class="form-select" id="load-skill-otter">
+          <option value="otter-1">大獭</option>
+          <option value="otter-2">分析獭 (方案A视角)</option>
+          <option value="otter-3">测试獭 (方案B视角)</option>
+        </select>
+      </div>
+      <div class="form-hint">加载后 Otter 将获得此 Skill 的调用权限，解散时自动回收。</div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--secondary" onclick="closeModal('modal-load-skill')">取消</button>
+      <button class="btn btn--primary" onclick="loadSkillToOtter()">加载</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script>
+  let selectedSkillId = MOCK_DATA.skills[0]?.id;
+
+  function renderSkillList() {
+    const groups = { tool: [], workflow: [], prompt_template: [] };
+    MOCK_DATA.skills.forEach(s => { if (groups[s.type]) groups[s.type].push(s); });
+
+    const typeLabels = { tool: 'skill-list-tool', workflow: 'skill-list-workflow', prompt_template: 'skill-list-prompt' };
+    for (const [type, skills] of Object.entries(groups)) {
+      const container = document.getElementById(typeLabels[type]);
+      if (!container) continue;
+      if (skills.length === 0) {
+        container.innerHTML = '<div style="padding: 8px 12px; font-size: 12px; color: var(--color-text-muted);">无</div>';
+      } else {
+        container.innerHTML = skills.map(s => `
+          <div class="skill-item ${s.id === selectedSkillId ? 'skill-item--active' : ''}" onclick="selectSkill('${s.id}')">
+            <div class="skill-item__name">${s.name}</div>
+            <div class="skill-item__desc">${s.description}</div>
+          </div>
+        `).join('');
+      }
+    }
+  }
+
+  function selectSkill(skillId) {
+    selectedSkillId = skillId;
+    renderSkillList();
+    renderSkillDetail();
+  }
+
+  function renderSkillDetail() {
+    const skill = MOCK_DATA.skills.find(s => s.id === selectedSkillId);
+    if (!skill) {
+      document.getElementById('skill-detail').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state__icon">📦</div>
+          <div class="empty-state__text">尚未注册任何 Skill</div>
+          <div class="empty-state__hint">点击上方按钮注册</div>
+        </div>`;
+      return;
+    }
+
+    const assignedOtters = skill.assignedTo.map(id => getOtterById(id)).filter(Boolean);
+    const otterTags = assignedOtters.map(o => `<span class="skill-detail__assignment-tag">${o.name}</span>`).join('') || '<span style="font-size: 13px; color: var(--color-text-muted);">未分配</span>';
+
+    document.getElementById('skill-detail').innerHTML = `
+      <div class="skill-detail__title">${skill.name}</div>
+      <span class="skill-detail__type">${skill.type}</span>
+
+      <div class="skill-detail__section">
+        <div class="skill-detail__label">描述</div>
+        <div class="skill-detail__value">${skill.description}</div>
+      </div>
+
+      <div class="skill-detail__section">
+        <div class="skill-detail__label">定义 (Schema + Handler)</div>
+        <pre><code>{
+  "schema": { "type": "object", "properties": { "input": { "type": "string" } } },
+  "handlerRef": "handlers/${skill.name}"
+}</code></pre>
+      </div>
+
+      <div class="skill-detail__section">
+        <div class="skill-detail__label">已分配 Otter</div>
+        <div class="skill-detail__assignments">${otterTags}</div>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 24px;">
+        <button class="btn btn--primary" onclick="openModal('modal-load-skill')">加载到 Otter</button>
+        <button class="btn btn--secondary" onclick="unloadSkill('${skill.id}')">从所有 Otter 卸载</button>
+      </div>
+    `;
+  }
+
+  function registerSkill() {
+    const name = document.getElementById('skill-name').value;
+    if (!name) { showToast('请输入名称', 'error'); return; }
+    const desc = document.getElementById('skill-desc').value || '';
+    const type = document.getElementById('skill-type').value;
+    MOCK_DATA.skills.push({
+      id: 'skill-' + Date.now(),
+      name: name,
+      description: desc,
+      type: type,
+      assignedTo: [],
+    });
+    closeModal('modal-register-skill');
+    document.getElementById('skill-name').value = '';
+    document.getElementById('skill-desc').value = '';
+    renderSkillList();
+    showToast('Skill 已注册', 'success');
+  }
+
+  function loadSkillToOtter() {
+    const otterId = document.getElementById('load-skill-otter').value;
+    const skill = MOCK_DATA.skills.find(s => s.id === selectedSkillId);
+    if (skill && !skill.assignedTo.includes(otterId)) {
+      skill.assignedTo.push(otterId);
+    }
+    closeModal('modal-load-skill');
+    renderSkillDetail();
+    showToast('Skill 已加载', 'success');
+  }
+
+  function unloadSkill(skillId) {
+    const skill = MOCK_DATA.skills.find(s => s.id === skillId);
+    if (skill) skill.assignedTo = [];
+    renderSkillDetail();
+    showToast('Skill 已从所有 Otter 卸载', 'success');
+  }
+
+  // Init
+  renderSkillList();
+  renderSkillDetail();
+</script>
+</body>
+</html>
