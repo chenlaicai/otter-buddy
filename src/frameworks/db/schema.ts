@@ -1,0 +1,297 @@
+import type Database from "better-sqlite3";
+
+/**
+ * 初始化全部 Schema（幂等，可重复调用）。
+ * 所有 CREATE 使用 IF NOT EXISTS，禁止 ALTER TABLE。单事务内执行。
+ */
+export function initSchema(db: Database.Database): void {
+  db.exec("BEGIN");
+
+  try {
+    createConversationTables(db);
+    createMemoryTables(db);
+    createConversationInfoTables(db);
+    createOtterTables(db);
+    createTurnTables(db);
+    createParticipantTables(db);
+    createAgentSessionsTable(db);
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/** 对话上下文：conversations + messages + message_events + conversation_otters */
+function createConversationTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      parent_id TEXT,
+      tree_path TEXT,
+      summary TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      archived_at TEXT,
+      FOREIGN KEY (parent_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversations_parent_id ON conversations(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
+  `);
+
+  createMessageTables(db);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_otters (
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (conversation_id, otter_id),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+      FOREIGN KEY (otter_id) REFERENCES otters(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversation_otters_otter_id ON conversation_otters(otter_id);
+  `);
+}
+
+/** 消息表：messages + message_events */
+function createMessageTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      sender_type TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'completed',
+      body TEXT,
+      attachments TEXT,
+      sequence_num INTEGER NOT NULL,
+      turn_id TEXT,
+      talking_stone_passed_to TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+      FOREIGN KEY (turn_id) REFERENCES turns(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages(conversation_id, sequence_num);
+    CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
+    CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+    CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(turn_id);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS message_events (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (message_id) REFERENCES messages(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_message_events_message_seq ON message_events(message_id, sequence_num);
+    CREATE INDEX IF NOT EXISTS idx_message_events_type ON message_events(event_type);
+  `);
+}
+
+/** 记忆上下文：memory_entries + memory_weights + FTS5 + vec0 */
+function createMemoryTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_entries (
+      id TEXT PRIMARY KEY,
+      layer TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_table TEXT NOT NULL,
+      conversation_id TEXT,
+      tree_path TEXT,
+      granularity TEXT NOT NULL DEFAULT 'fine',
+      content TEXT NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_layer ON memory_entries(layer);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_content_type ON memory_entries(content_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_conversation_id ON memory_entries(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_source ON memory_entries(source_table, source_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_created_at ON memory_entries(created_at);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_weights (
+      memory_entry_id TEXT PRIMARY KEY,
+      retrieval_count INTEGER NOT NULL DEFAULT 0,
+      last_retrieved_at TEXT,
+      user_flagged INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (memory_entry_id) REFERENCES memory_entries(id)
+    );
+  `);
+
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+      memory_entry_id UNINDEXED,
+      content,
+      tokenize = 'trigram'
+    );
+  `);
+
+  /** vec0 虚拟表：sqlite-vec 不可用时跳过（D22 降级模式） */
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(
+        memory_entry_id TEXT PRIMARY KEY,
+        embedding FLOAT[1024]
+      );
+    `);
+  } catch {
+    // sqlite-vec 不可用时跳过
+  }
+}
+
+/** 对话关键信息：linked_resources + key_facts */
+function createConversationInfoTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS linked_resources (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      resource_type TEXT NOT NULL,
+      url TEXT NOT NULL,
+      title TEXT,
+      metadata TEXT,
+      linked_by TEXT NOT NULL,
+      otter_id TEXT,
+      auto_linked INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_linked_resources_conversation_id ON linked_resources(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_linked_resources_type ON linked_resources(resource_type);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS key_facts (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      category TEXT,
+      user_flagged INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT NOT NULL,
+      otter_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_key_facts_conversation_id ON key_facts(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_key_facts_user_flagged ON key_facts(user_flagged);
+  `);
+}
+
+/** Otter 上下文：otters + otter_sessions */
+function createOtterTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS otters (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      role_name TEXT,
+      role_responsibilities TEXT,
+      parent_otter_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      dissolved_at TEXT,
+      FOREIGN KEY (parent_otter_id) REFERENCES otters(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_otters_type ON otters(type);
+    CREATE INDEX IF NOT EXISTS idx_otters_status ON otters(status);
+    CREATE INDEX IF NOT EXISTS idx_otters_parent_otter_id ON otters(parent_otter_id);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS otter_sessions (
+      id TEXT PRIMARY KEY,
+      otter_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      archived_at TEXT,
+      archive_reason TEXT,
+      is_negative_case INTEGER NOT NULL DEFAULT 0,
+      summary TEXT,
+      previous_session_id TEXT,
+      FOREIGN KEY (otter_id) REFERENCES otters(id),
+      FOREIGN KEY (previous_session_id) REFERENCES otter_sessions(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_otter_sessions_otter_id ON otter_sessions(otter_id);
+    CREATE INDEX IF NOT EXISTS idx_otter_sessions_status ON otter_sessions(status);
+    CREATE INDEX IF NOT EXISTS idx_otter_sessions_negative ON otter_sessions(is_negative_case);
+  `);
+}
+
+/** Turn 表（Turn 实体，F20260715b8c6 新增） */
+function createTurnTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS turns (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      turn_number INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      closed_at TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_turns_conversation_id ON turns(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_turns_status ON turns(status);
+  `);
+}
+
+/** 对话参与者表（ConversationParticipant 实体，E3/E4 新增） */
+function createParticipantTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_participants (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      joined_at_turn_id TEXT,
+      joined_at_turn_number INTEGER NOT NULL DEFAULT 0,
+      left_at_turn_id TEXT,
+      left_at_turn_number INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      left_at TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+      FOREIGN KEY (otter_id) REFERENCES otters(id),
+      FOREIGN KEY (joined_at_turn_id) REFERENCES turns(id),
+      FOREIGN KEY (left_at_turn_id) REFERENCES turns(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_participants_conversation_id ON conversation_participants(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_participants_otter_id ON conversation_participants(otter_id);
+    CREATE INDEX IF NOT EXISTS idx_participants_status ON conversation_participants(status);
+  `);
+}
+
+/** Agent Session 映射表（Otter ↔ Pi Session，R12） */
+function createAgentSessionsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      otter_id TEXT PRIMARY KEY,
+      pi_session_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (otter_id) REFERENCES otters(id)
+    );
+  `);
+}
