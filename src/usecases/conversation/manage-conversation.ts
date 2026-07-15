@@ -33,23 +33,22 @@ export class ManageConversation {
 
     /** A6: 为每个 otterId 创建 ConversationParticipant 记录
      *  joinedAtTurnId=null, joinedAtTurnNumber=0 表示对话开始前已在场
-     *  统一 getActiveParticipants() 查询路径 */
-    if (params.otterIds) {
-      for (const otterId of params.otterIds) {
-        const participant: ConversationParticipant = {
-          id: crypto.randomUUID(),
-          conversationId: id,
-          otterId,
-          joinedAtTurnId: null,
-          joinedAtTurnNumber: 0,
-          leftAtTurnId: null,
-          leftAtTurnNumber: null,
-          status: "active",
-          createdAt: now,
-          leftAt: null,
-        };
-        await this.repo.createParticipant(participant);
-      }
+     *  统一 getActiveParticipants() 查询路径
+     *  批量创建保证原子性（UA-7：避免参与者记录不完整） */
+    if (params.otterIds && params.otterIds.length > 0) {
+      const participants: ConversationParticipant[] = params.otterIds.map((otterId) => ({
+        id: crypto.randomUUID(),
+        conversationId: id,
+        otterId,
+        joinedAtTurnId: null,
+        joinedAtTurnNumber: 0,
+        leftAtTurnId: null,
+        leftAtTurnNumber: null,
+        status: "active",
+        createdAt: now,
+        leftAt: null,
+      }));
+      await this.repo.createParticipants(participants);
     }
 
     return conversation;

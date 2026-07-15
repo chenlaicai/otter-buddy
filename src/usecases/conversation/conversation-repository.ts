@@ -76,6 +76,7 @@ export interface ConversationRepository {
 
   // Participant 管理（UA-4~UA-10）
   createParticipant(participant: ConversationParticipant): Promise<void>;
+  createParticipants(participants: ConversationParticipant[]): Promise<void>;
   getParticipant(
     conversationId: string,
     otterId: string,

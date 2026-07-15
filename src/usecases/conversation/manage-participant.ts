@@ -3,9 +3,10 @@ import {
   canJoinConversation,
   canLeaveConversation,
   canAddMessageToTurn,
+  canCloseTurn,
 } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
-import { isValidTalkingStonePass } from "@entities/conversation/message";
+import { isValidTalkingStonePass, isTerminalMessageStatus } from "@entities/conversation/message";
 import type { ConversationRepository } from "./conversation-repository";
 
 export class ManageParticipant {
@@ -169,8 +170,8 @@ export class ManageParticipant {
     turnId: string,
   ): Promise<void> {
     const messages = await this.repo.getMessagesByTurnId(turnId);
-    const allTerminal = messages.every((m) => m.status === "completed" || m.status === "failed");
-    if (allTerminal) {
+    const allTerminal = messages.every((m) => isTerminalMessageStatus(m.status));
+    if (canCloseTurn(allTerminal)) {
       await this.repo.closeTurn(turnId, new Date().toISOString());
     }
   }
