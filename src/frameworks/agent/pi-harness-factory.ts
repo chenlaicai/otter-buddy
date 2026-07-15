@@ -97,12 +97,6 @@ export class PiHarnessFactory implements AgentGateway {
     return this.piAgentCore;
   }
 
-  /** 获取 agent session 信息（供 interface-adapters 检查 session 是否存在） */
-  getSessionInfo(otterId: string): { piSessionId: string } | null {
-    const piSessionId = this.sessionStore.get(otterId);
-    return piSessionId ? { piSessionId } : null;
-  }
-
   async create(otterId: string, config: AgentConfig): Promise<void> {
     if (this.sessionStore.get(otterId)) {
       throw new Error(`Agent already exists for otter: ${otterId}`);

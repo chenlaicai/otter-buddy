@@ -31,8 +31,4 @@ export const config = {
     /** LLM 模型 ID */
     model: process.env.OTTER_BUDDY_LLM_MODEL ?? "gpt-4o",
   },
-  agent: {
-    /** Pi session JSONL 文件目录 */
-    sessionsRoot: process.env.OTTER_BUDDY_SESSIONS_DIR ?? "./data/sessions",
-  },
 } as const;
