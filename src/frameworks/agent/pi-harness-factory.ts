@@ -19,7 +19,7 @@ import type { TTool, ToolRegistry } from "./tool-registry";
 import { DEFAULT_OTTER_TOOL_CONFIGS } from "./tool-registry";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
-import { buildSystemPrompt, type DynamicContext } from "./system-prompt-builder";
+import { buildSystemPrompt, type DynamicContext, type HarnessContext } from "./system-prompt-builder";
 import { logger } from "@frameworks/logger";
 
 /** Agent 事件（流式推送） */
@@ -107,7 +107,10 @@ export class PiHarnessFactory implements AgentGateway {
     /** 创建 Pi session（JsonlSessionRepo） */
     const sessionRepo = this.createSessionRepo(piAgentCore);
     const session = sessionRepo.create();
-    const piSessionId = session.id ?? crypto.randomUUID();
+    if (!session.id) {
+      throw new Error("Pi session creation failed: no session ID returned");
+    }
+    const piSessionId = session.id;
 
     /** 存储映射 + 静态 prompt */
     this.sessionStore.set(otterId, piSessionId);
@@ -141,7 +144,10 @@ export class PiHarnessFactory implements AgentGateway {
     /** 创建新 Pi session（chain，R9 Otter chain） */
     const sessionRepo = this.createSessionRepo(piAgentCore);
     const session = sessionRepo.create();
-    const newPiSessionId = session.id ?? crypto.randomUUID();
+    if (!session.id) {
+      throw new Error("Pi session creation failed: no session ID returned");
+    }
+    const newPiSessionId = session.id;
 
     /** 更新映射 */
     this.sessionStore.update(otterId, newPiSessionId);
@@ -215,7 +221,9 @@ export class PiHarnessFactory implements AgentGateway {
     const activeTools = this.toolRegistry.getActiveTools(otterType);
     return {
       tools: activeTools,
-      activeToolNames: activeTools.map((t: TTool) => t.name ?? t.id),
+      activeToolNames: activeTools
+        .map((t: TTool) => t.name ?? t.id)
+        .filter((n): n is string => n !== undefined),
     };
   }
 
@@ -256,7 +264,7 @@ export class PiHarnessFactory implements AgentGateway {
     piAgentCore: PiAgentCoreModule,
     opts: {
       session: unknown;
-      systemPrompt: (ctx: unknown) => string;
+      systemPrompt: (ctx: HarnessContext) => string;
       tools: TTool[];
       activeToolNames?: string[];
     },

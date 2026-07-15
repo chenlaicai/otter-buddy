@@ -21,8 +21,8 @@ export interface DynamicContext {
 export function buildSystemPrompt(
   staticPrompt: string,
   dynamicContext?: DynamicContext,
-): (ctx: unknown) => string {
-  return (_ctx: unknown) => {
+): (ctx: HarnessContext) => string {
+  return (_ctx: HarnessContext) => {
     const parts: string[] = [staticPrompt];
 
     if (dynamicContext?.sessionSummary) {

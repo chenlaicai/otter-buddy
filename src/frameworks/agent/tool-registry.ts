@@ -5,7 +5,11 @@ export interface OtterToolConfig {
 }
 
 /** AgentTool 最小类型（pi-agent-core 的 TTool，frameworks 层不重新定义完整类型） */
-export type TTool = any;
+export interface TTool {
+  name?: string;
+  id?: string;
+  [key: string]: unknown;
+}
 
 /**
  * AgentTool 注册表。
@@ -18,13 +22,19 @@ export class ToolRegistry {
 
   /** 注册工具到全局工具池 */
   register(tool: TTool): void {
-    const name = tool.name ?? tool.id;
-    this.tools.set(name, tool);
+    const key = tool.name ?? tool.id;
+    if (key === undefined) {
+      throw new Error("Tool must have a name or id");
+    }
+    this.tools.set(key, tool);
   }
 
-  /** 注销工具 */
-  unregister(toolId: string): void {
-    this.tools.delete(toolId);
+  /** 注销工具（使用与 register 相同的键计算逻辑） */
+  unregister(tool: TTool): void {
+    const key = tool.name ?? tool.id;
+    if (key !== undefined) {
+      this.tools.delete(key);
+    }
   }
 
   /** 配置 Otter 类型的工具可见性 */
@@ -32,11 +42,11 @@ export class ToolRegistry {
     this.otterToolConfigs.set(config.otterType, config);
   }
 
-  /** 获取该 Otter 类型可见的工具列表 */
+  /** 获取该 Otter 类型可见的工具列表（未知类型返回空数组，最小权限） */
   getActiveTools(otterType: string): TTool[] {
     const toolConfig = this.otterToolConfigs.get(otterType);
     if (!toolConfig) {
-      return Array.from(this.tools.values());
+      return [];
     }
 
     return toolConfig.activeToolNames

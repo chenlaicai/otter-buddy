@@ -117,7 +117,7 @@ export function rowToMessage(row: MessageRow): Message {
   return {
     id: row.id,
     conversationId: row.conversation_id,
-    turnId: row.turn_id ?? "",
+    turnId: row.turn_id as string,
     senderType: row.sender_type as SenderType,
     senderId: row.sender_id,
     talkingStonePassedTo: row.talking_stone_passed_to
