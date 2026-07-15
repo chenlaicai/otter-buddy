@@ -1,7 +1,7 @@
 import type { Attachment } from "./conversation";
 
-/** 发送者类型 */
-export type SenderType = "user" | "otter";
+/** 发送者类型（system 用于系统消息：Otter 进场/退场等事件通知） */
+export type SenderType = "user" | "otter" | "system";
 
 /** 消息生命周期状态 */
 export type MessageStatus = "streaming" | "completed" | "failed";
@@ -81,22 +81,18 @@ export function isValidCompletedMessageBody(body: string): boolean {
 }
 
 /**
- * 发言石传递数组是否合法（非空数组校验）。
- * 仅校验数组本身非空，不处理 null 情况。
- * completed 状态消息的不变量校验应使用 isValidCompletedMessageTalkingStone（含 null 校验）。
+ * 发言石传递是否合法（UA-8 规则）。
+ *
+ * - system：始终豁免（系统消息不传递发言石）
+ * - streaming/failed：可为 null 或空数组（body 为 null，发言石无意义）
+ * - completed（user/otter）：必须非 null 且非空数组
  */
-export function isValidTalkingStonePass(recipients: string[]): boolean {
-  return recipients.length > 0;
-}
-
-/**
- * completed 状态消息的发言石传递是否合法。
- * completed 消息的 talkingStonePassedTo 必须非 null 且非空数组。
- * streaming/failed 消息的 talkingStonePassedTo 为 null（与 body 可空性模式一致）。
- * 对齐 Snail Shell 的 set_final_body(to_speakers) 模式：路由决策在完成时做出。
- */
-export function isValidCompletedMessageTalkingStone(
+export function isValidTalkingStonePass(
   recipients: string[] | null,
+  status: MessageStatus,
+  senderType: SenderType,
 ): boolean {
+  if (senderType === "system") return true;
+  if (status === "streaming" || status === "failed") return true;
   return recipients !== null && recipients.length > 0;
 }
