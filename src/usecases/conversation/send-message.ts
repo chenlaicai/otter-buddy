@@ -199,7 +199,8 @@ export class SendMessage {
       throw new Error(`Cannot fail message with status: ${message.status}`);
     }
 
-    await this.repo.failMessage(messageId);
+    const now = new Date().toISOString();
+    await this.repo.failMessage(messageId, now);
 
     /** 尝试关闭 Turn */
     await this.tryCloseTurn(message.conversationId, message.turnId);

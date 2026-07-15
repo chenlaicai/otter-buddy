@@ -51,7 +51,7 @@ export interface ConversationRepository {
     attachments: Attachment[] | null,
     completedAt: string,
   ): Promise<void>;
-  failMessage(messageId: string): Promise<void>;
+  failMessage(messageId: string, failedAt: string): Promise<void>;
   getMaxSequenceNum(conversationId: string): Promise<number>;
 
   // Message 查询

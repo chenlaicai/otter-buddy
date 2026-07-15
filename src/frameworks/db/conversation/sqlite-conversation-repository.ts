@@ -164,15 +164,17 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.prepare(`
       INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
         attachments, sequence_num, turn_id, talking_stone_passed_to, created_at)
-      VALUES (?, ?, ?, ?, 'streaming', NULL, ?, ?, ?, NULL, ?)
+      VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.conversationId,
       message.senderType,
       message.senderId,
+      message.body,
       message.attachments ? JSON.stringify(message.attachments) : null,
       message.sequenceNum,
       message.turnId,
+      message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
       message.createdAt,
     );
   }
@@ -201,11 +203,11 @@ export class SqliteConversationRepository implements ConversationRepository {
     }
   }
 
-  async failMessage(messageId: string): Promise<void> {
+  async failMessage(messageId: string, failedAt: string): Promise<void> {
     const result = this.db.prepare(`
-      UPDATE messages SET status = 'failed', completed_at = datetime('now')
+      UPDATE messages SET status = 'failed', completed_at = ?
       WHERE id = ? AND status = 'streaming'
-    `).run(messageId);
+    `).run(failedAt, messageId);
 
     if (result.changes === 0) {
       throw new Error(`Message ${messageId} not found or not in streaming status`);
