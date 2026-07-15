@@ -1,29 +1,26 @@
 import { describe, it, expect } from "vitest";
 import {
   isValidTalkingStonePass,
-  isValidCompletedMessageTalkingStone,
 } from "../../../src/entities/conversation/message";
 
 describe("isValidTalkingStonePass", () => {
-  it("returns true for non-empty array", () => {
-    expect(isValidTalkingStonePass(["otter-A"])).toBe(true);
+  it("system sender is always exempt", () => {
+    expect(isValidTalkingStonePass([], "completed", "system")).toBe(true);
+    expect(isValidTalkingStonePass(null, "completed", "system")).toBe(true);
+    expect(isValidTalkingStonePass([], "streaming", "system")).toBe(true);
   });
 
-  it("returns false for empty array", () => {
-    expect(isValidTalkingStonePass([])).toBe(false);
-  });
-});
-
-describe("isValidCompletedMessageTalkingStone", () => {
-  it("returns true for non-empty array", () => {
-    expect(isValidCompletedMessageTalkingStone(["otter-A"])).toBe(true);
+  it("streaming/failed allows null or empty", () => {
+    expect(isValidTalkingStonePass(null, "streaming", "otter")).toBe(true);
+    expect(isValidTalkingStonePass([], "streaming", "otter")).toBe(true);
+    expect(isValidTalkingStonePass(null, "failed", "user")).toBe(true);
+    expect(isValidTalkingStonePass([], "failed", "user")).toBe(true);
   });
 
-  it("returns false for null", () => {
-    expect(isValidCompletedMessageTalkingStone(null)).toBe(false);
-  });
-
-  it("returns false for empty array", () => {
-    expect(isValidCompletedMessageTalkingStone([])).toBe(false);
+  it("completed (user/otter) requires non-null non-empty", () => {
+    expect(isValidTalkingStonePass(["otter-A"], "completed", "user")).toBe(true);
+    expect(isValidTalkingStonePass(["otter-A"], "completed", "otter")).toBe(true);
+    expect(isValidTalkingStonePass(null, "completed", "user")).toBe(false);
+    expect(isValidTalkingStonePass([], "completed", "otter")).toBe(false);
   });
 });

@@ -65,6 +65,30 @@ export interface Attachment {
   name?: string;
 }
 
+/** 对话参与者状态（UA-4~UA-10 进场/退场机制） */
+export type ParticipantStatus = "active" | "left";
+
+/**
+ * 对话参与者实体（UA-7 动态在场名单的唯一真相源）。
+ *
+ * - 初始参与者在 create() 时创建（joinedAtTurnId=null, joinedAtTurnNumber=0）
+ * - 后进场者通过 join() 创建（joinedAtTurnId 指向当前 Turn）
+ * - 退场时更新 leftAtTurnId/leftAtTurnNumber/status
+ * - 每个 Otter 实例在一个对话中只进场/退场一次（UA-10）
+ */
+export interface ConversationParticipant {
+  id: string;
+  conversationId: string;
+  otterId: string;
+  joinedAtTurnId: string | null; // null 表示对话开始前已在场
+  joinedAtTurnNumber: number; // 0 表示对话开始前已在场
+  leftAtTurnId: string | null;
+  leftAtTurnNumber: number | null;
+  status: ParticipantStatus;
+  createdAt: string;
+  leftAt: string | null;
+}
+
 /**
  * 对话状态转换：active -> completed
  * 来源：旧 adapter.ts complete() 方法中的状态校验
@@ -104,4 +128,24 @@ export function canAddMessageToTurn(turnStatus: TurnStatus): boolean {
  */
 export function canCloseTurn(allMessagesTerminal: boolean): boolean {
   return allMessagesTerminal;
+}
+
+/**
+ * Otter 是否可以进场（UA-10）。
+ * 无已有参与记录时可以进场（每个 Otter 实例只进场一次）。
+ */
+export function canJoinConversation(
+  existingParticipant: ConversationParticipant | null,
+): boolean {
+  return existingParticipant === null;
+}
+
+/**
+ * Otter 是否可以退场（UA-7）。
+ * 当前状态为 active 时可以退场。
+ */
+export function canLeaveConversation(
+  participant: ConversationParticipant | null,
+): boolean {
+  return participant !== null && participant.status === "active";
 }
