@@ -273,7 +273,7 @@ session.getTools();                    // 获取工具列表
 | Compaction | 自建触发逻辑（~30 行） | 内置自动 compaction |
 | Skills 体系 | 已实现 SkillLoader（72 行），需接线到 Agent | 内置 loadSkills |
 | Extensions | 需要从零设计 | 内置 ExtensionRuntime |
-| 工具系统 | 自建 ToolFactory（~418 行） | customTools 注入 + tools 配置 |
+| 工具系统 | 自建 ToolFactory（487 行） | customTools 注入 + tools 配置 |
 | 事件流 | 自建映射（~50 行） | AgentSessionEvent 直接映射 |
 | **总自建代码量** | **1002 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
 
@@ -458,7 +458,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 1. 集成 `createAgentSession`（薄封装）
 2. 注册 Otter 自定义工具（customTools：send_message、pass_talking_stone 等）
 3. 配置混合工具集（编码工具 + Otter 工具共存）
-4. 迁移现有 863 行代码中的 Otter 逻辑到新集成层
+4. 迁移现有 1002 行代码中的 Otter 逻辑到新集成层
 
 ### 9.2 替代方案：维持路径 A（pi-agent-core）
 
@@ -485,7 +485,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | 决策 | 结论 | 理由 |
 |------|------|------|
 | Agent 框架包 | 转向推荐 pi-coding-agent SDK（待 V8 验证） | 编码工具是必需品（完善自身），开箱即用能力更多，V8 初始化开销 < 50ms 时优势明确 |
-| pi-agent-core | 备选方案 | 已有 863 行代码，但需自建编码工具，长期维护成本更高 |
+| pi-agent-core | 备选方案 | 已有 1002 行代码，但需自建编码工具，长期维护成本更高 |
 | Skills 体系 | 接线已有 SkillLoader 到 Agent | 已有 72 行实现，需接线而非从零自建 |
 | Compaction 策略 | 升级为阈值 + 溢出检测 | 当前仅基于 token 阈值过于粗糙 |
 
@@ -511,6 +511,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | R14 | §6.1 从"不需要编码工具"修正为"需要编码工具（完善自身）"；推荐方案从"有条件推荐路径 A"转向"推荐路径 B" | 用户纠正：Otter 需要完善自身，编码工具是必需品 |
 | R15 | V8 验证通过：createAgentSession 初始化 3.4-6.6ms（远低于 50ms 阈值），路径 B 冷启动完全可行 | 实测验证 |
 | R16 | §9.1 标题更新为"V8 已验证"、正文移除待验证措辞、补充行动替换为路径 B 集成工作项 | 架构师-2 指出 3 处不一致 |
+| R17 | 代码行数修正：总计从 863 更新为 1002，tool-factory.ts 从 287 更新为 487，pi-harness-factory.ts 从 343 更新为 363，删除已移除的 tool-registry.ts（81行），skill-loader.ts 路径修正为 src/interface-adapters/skill-adapter/ | 审查者-1/审查者-2 指出行数与 HEAD 不一致 |
 
 ---
 
