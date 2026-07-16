@@ -34,7 +34,12 @@ export class MessageController {
       const conversationId = param(c, "id");
       const body = await c.req.json<SendMessageRequestDTO>();
 
-      /** 1. 创建用户消息（completed 状态） */
+      /** 1. 校验 talkingStonePassedTo 非空（在写入 DB 之前，避免孤儿消息） */
+      if (!body.talkingStonePassedTo || body.talkingStonePassedTo.length === 0) {
+        return c.json({ error: "talkingStonePassedTo must be non-empty" }, 400);
+      }
+
+      /** 2. 创建用户消息（completed 状态） */
       const _userMessage = await this.sendMessageUseCase.send({
         conversationId,
         senderId: body.senderId,
@@ -43,13 +48,10 @@ export class MessageController {
         attachments: body.attachments,
       });
 
-      /** 2. 确定 Agent Otter（talkingStonePassedTo 的第一个） */
-      if (!body.talkingStonePassedTo || body.talkingStonePassedTo.length === 0) {
-        return c.json({ error: "talkingStonePassedTo must be non-empty" }, 400);
-      }
+      /** 3. 确定 Agent Otter（talkingStonePassedTo 的第一个） */
       const otterId = body.talkingStonePassedTo[0];
 
-      /** 3. 创建 SSE 流并启动 Agent 响应 */
+      /** 4. 创建 SSE 流并启动 Agent 响应 */
       const { response, push } = streamEvents(c, () => {
         this.agentInvoker.abort(otterId, "");
       });
