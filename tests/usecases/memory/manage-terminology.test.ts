@@ -26,9 +26,9 @@ function createTestDb(): Database.Database {
       updated_at TEXT NOT NULL,
       version INTEGER NOT NULL DEFAULT 1
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_terminology_term ON terminology_entries(term);
     CREATE INDEX IF NOT EXISTS idx_terminology_status ON terminology_entries(status);
     CREATE INDEX IF NOT EXISTS idx_terminology_category ON terminology_entries(category);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_terminology_term_active ON terminology_entries(term) WHERE status = 'active';
     CREATE VIRTUAL TABLE IF NOT EXISTS terminology_fts USING fts5(
       terminology_entry_id UNINDEXED,
       term,
@@ -39,7 +39,6 @@ function createTestDb(): Database.Database {
     );
     CREATE TABLE IF NOT EXISTS memory_entries (
       id TEXT PRIMARY KEY,
-      layer TEXT NOT NULL,
       content_type TEXT NOT NULL,
       source_id TEXT NOT NULL,
       source_table TEXT NOT NULL,
