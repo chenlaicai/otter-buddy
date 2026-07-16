@@ -1,6 +1,7 @@
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { StoreMemory } from "@usecases/memory/store-memory";
+import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { CreateOtter } from "@usecases/otter/create-otter";
 import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
@@ -33,6 +34,7 @@ export interface ToolDependencies {
   sendMessage: SendMessage;
   searchMemory: SearchMemory;
   storeMemory: StoreMemory;
+  manageMemory: ManageMemory;
   createOtter: CreateOtter;
   dissolveOtter: DissolveOtter;
   manageKeyInfo: ManageKeyInfo;
@@ -94,26 +96,70 @@ function createPassTalkingStoneTool(deps: ToolDependencies): AgentTool {
   };
 }
 
-/** search_memory: 检索记忆 */
+/** search_memory: 检索记忆（渐进式披露：支持 detail_level） */
 function createSearchMemoryTool(deps: ToolDependencies): AgentTool {
   return {
     name: "search_memory",
-    description: "检索记忆。参数：query（检索关键词），limit（最大结果数，默认10）",
+    description: "检索记忆。支持渐进式披露：detail_level 控制返回详细程度。summary 返回首句，snippet 返回匹配片段（默认），full 返回完整内容",
     parameters: {
       type: "object",
       properties: {
         query: { type: "string", description: "检索关键词" },
         limit: { type: "number", description: "最大结果数" },
+        detail_level: {
+          type: "string",
+          enum: ["summary", "snippet", "full"],
+          description: "返回内容的详细程度：summary（ID+首句+分数）、snippet（ID+匹配片段+分数+元数据，默认）、full（完整内容+元数据）",
+        },
       },
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
+      const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "snippet";
       const result = await deps.searchMemory.search({
         query: params.query as string,
         limit: (params.limit as number) ?? 10,
+        detailLevel,
       });
-      return textResponse(JSON.stringify(result.entries.map((e) => ({
-        id: e.id, content: e.content, score: e.score, layer: e.layer,
+
+      const entries = result.entries.map((e) => {
+        if (detailLevel === "summary") {
+          return { id: e.id, snippet: e.snippet, score: e.score, layer: e.layer };
+        }
+        if (detailLevel === "snippet") {
+          return { id: e.id, snippet: e.snippet, score: e.score, layer: e.layer, contentType: e.contentType };
+        }
+        /* detailLevel === "full" */
+        return { id: e.id, content: e.content, score: e.score, layer: e.layer, contentType: e.contentType, metadata: e.metadata };
+      });
+      return textResponse(JSON.stringify(entries));
+    },
+  };
+}
+
+/** get_memory_detail: 获取指定记忆条目的完整内容（渐进式披露） */
+function createGetMemoryDetailTool(deps: ToolDependencies): AgentTool {
+  return {
+    name: "get_memory_detail",
+    description: "获取指定记忆条目的完整内容。用于在 search_memory 后深入查看特定条目",
+    parameters: {
+      type: "object",
+      properties: {
+        ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "记忆条目 ID 列表（从 search_memory 返回结果中获取）",
+        },
+      },
+      required: ["ids"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const ids = params.ids as string[];
+      const entries = await deps.manageMemory.getDetails(ids);
+      return textResponse(JSON.stringify(entries.map((e) => ({
+        id: e.id, content: e.content, layer: e.layer,
+        contentType: e.contentType, metadata: e.metadata,
+        createdAt: e.createdAt,
       }))));
     },
   };
@@ -232,6 +278,7 @@ export function createTools(deps: ToolDependencies): AgentTool[] {
     createSendMessageTool(deps),
     createPassTalkingStoneTool(deps),
     createSearchMemoryTool(deps),
+    createGetMemoryDetailTool(deps),
     createStoreMemoryTool(deps),
     createCreateOtterTool(deps),
     createDissolveOtterTool(deps),

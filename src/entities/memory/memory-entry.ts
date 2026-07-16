@@ -11,6 +11,9 @@ export type MemoryContentType =
 /** 检索粒度 */
 export type RetrievalGranularity = "coarse" | "fine";
 
+/** 渐进式披露 detail_level */
+export type DetailLevel = "summary" | "snippet" | "full";
+
 /** 记忆条目实体 */
 export interface MemoryEntry {
   id: string;

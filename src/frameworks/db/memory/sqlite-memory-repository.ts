@@ -10,11 +10,14 @@ import {
   bufferToFloat32Array,
   rowToMemoryEntry,
   rowToMemoryWeight,
+  rowToSnippetHit,
   type FtsRow,
+  type FtsHighlightRow,
   type MemoryEntryRow,
   type MemoryWeightRow,
   type VecRow,
 } from "./memory-mapper";
+import type { SnippetHit } from "@usecases/memory/memory-repository";
 
 /** FTS5 查询转义：包装为 phrase query，防止特殊字符被解释为操作符 */
 function escapeFtsQuery(query: string): string {
@@ -106,6 +109,15 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return row ? rowToMemoryEntry(row) : null;
   }
 
+  async getDetails(ids: string[]): Promise<MemoryEntry[]> {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db.prepare(
+      `SELECT * FROM memory_entries WHERE id IN (${placeholders})`,
+    ).all(...ids) as MemoryEntryRow[];
+    return rows.map(rowToMemoryEntry);
+  }
+
   async getBySource(sourceTable: string, sourceId: string): Promise<MemoryEntry | null> {
     const row = this.db.prepare(
       "SELECT * FROM memory_entries WHERE source_table = ? AND source_id = ?",
@@ -155,6 +167,29 @@ export class SqliteMemoryRepository implements MemoryRepository {
       ftsRank: row.bm25_score,
       entry: rowToMemoryEntry(row),
     }));
+  }
+
+  async searchFTSWithHighlight(query: string, filters: SearchFilters): Promise<SnippetHit[]> {
+    const escaped = escapeFtsQuery(query);
+    const rows = this.db.prepare(`
+      SELECT me.*, fts.rank AS bm25_score, highlight(memory_fts, 1, '<b>', '</b>') AS snippet
+      FROM memory_fts fts
+      JOIN memory_entries me ON fts.memory_entry_id = me.id
+      WHERE memory_fts MATCH ?
+        AND (? IS NULL OR me.layer = ?)
+        AND (? IS NULL OR me.granularity = ?)
+        AND (? IS NULL OR me.conversation_id = ?)
+      ORDER BY fts.rank
+      LIMIT ?
+    `).all(
+      escaped,
+      filters.layer ?? null, filters.layer ?? null,
+      filters.granularity ?? null, filters.granularity ?? null,
+      filters.conversationId ?? null, filters.conversationId ?? null,
+      DEFAULT_FTS_LIMIT,
+    ) as FtsHighlightRow[];
+
+    return rows.map(rowToSnippetHit);
   }
 
   async searchVec(

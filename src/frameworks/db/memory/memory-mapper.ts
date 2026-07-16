@@ -5,6 +5,7 @@ import type {
   MemoryWeight,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
+import type { SnippetHit } from "@usecases/memory/memory-repository";
 
 export interface MemoryEntryRow {
   id: string;
@@ -34,6 +35,12 @@ export interface VecRow extends MemoryEntryRow {
   distance: number;
 }
 
+/** FTS5 highlight() 查询返回的行类型 */
+export interface FtsHighlightRow extends MemoryEntryRow {
+  bm25_score: number;
+  snippet: string;
+}
+
 export function rowToMemoryEntry(row: MemoryEntryRow): MemoryEntry {
   return {
     id: row.id,
@@ -55,6 +62,16 @@ export function rowToMemoryWeight(row: MemoryWeightRow): MemoryWeight {
     retrievalCount: row.retrieval_count,
     lastRetrievedAt: row.last_retrieved_at,
     userFlagged: row.user_flagged === 1,
+  };
+}
+
+/** 将 FTS5 highlight() 行映射为 SnippetHit */
+export function rowToSnippetHit(row: FtsHighlightRow): SnippetHit {
+  return {
+    entryId: row.id,
+    ftsRank: row.bm25_score,
+    entry: rowToMemoryEntry(row),
+    snippet: row.snippet,
   };
 }
 

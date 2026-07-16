@@ -179,10 +179,11 @@ export class AgentInvoker {
         query: userMessage,
         limit: 10,
         layer: "working",
+        detailLevel: "snippet",
       });
       if (result.entries.length > 0) {
         ctx.memoryRetrieval = result.entries
-          .map((e) => `${e.content} (score: ${e.score.toFixed(3)})`)
+          .map((e) => `${e.snippet ?? e.content} (score: ${e.score.toFixed(3)})`)
           .join("\n");
       }
     } catch {
