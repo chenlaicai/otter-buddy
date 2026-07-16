@@ -43,7 +43,7 @@ function MemorySearchPage() {
     try {
       const entry = results?.find(e => e.id === id)
       if (!entry) return
-      await api.flagMemory(id, !entry.score)
+      await api.flagMemory(id, !entry.userFlagged)
       setResults(prev => prev?.map(e => e.id === id ? { ...e, userFlagged: !e.userFlagged } : e) || null)
       showToast('已标记', 'success')
     } catch {

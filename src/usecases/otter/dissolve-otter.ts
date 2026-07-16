@@ -14,7 +14,7 @@ export class DissolveOtter {
    * 解散 Otter（完整业务操作）。
    * 含：归档 active session（含记忆转换 + Agent reset）+ 状态更新 + Agent 销毁。
    */
-  async execute(otterId: string): Promise<void> {
+  async execute(otterId: string, summary?: string): Promise<void> {
     /** 1. 查询 Otter */
     const otter = await this.repo.getById(otterId);
     if (!otter) {
@@ -34,6 +34,7 @@ export class DissolveOtter {
       const archiveInput: ArchiveSessionInput = {
         reason: "dissolve",
         isNegativeCase: false,
+        summary,
       };
       await this.manageSession.archiveSession(activeSession.id, archiveInput);
     }

@@ -59,7 +59,8 @@ export class OtterController {
   async dissolve(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      await this.dissolveOtterUseCase.execute(id);
+      const body: { summary?: string } = await c.req.json().catch(() => ({}));
+      await this.dissolveOtterUseCase.execute(id, body.summary);
       return c.json({ status: "dissolved" });
     } catch (err) {
       return handleError(c, err);
@@ -89,11 +90,13 @@ export class OtterController {
   async restart(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
+      const body: { summary?: string } = await c.req.json().catch(() => ({}));
       const active = await this.manageSession.getActiveSession(id);
       if (active) {
         await this.manageSession.archiveSession(active.id, {
           reason: "restart",
           isNegativeCase: false,
+          summary: body.summary,
         });
       }
       const session = await this.manageSession.createSession(id);

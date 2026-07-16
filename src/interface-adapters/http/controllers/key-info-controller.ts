@@ -69,6 +69,17 @@ export class KeyInfoController {
     }
   }
 
+  async flagKeyFact(c: Context): Promise<Response> {
+    try {
+      const factId = param(c, "factId");
+      const body = await c.req.json<{ flagged: boolean }>();
+      await this.manageKeyInfo.flagKeyFact(factId, body.flagged);
+      return c.json({ status: "ok" });
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
   async deleteLinkedResource(c: Context): Promise<Response> {
     try {
       const resourceId = param(c, "resourceId");

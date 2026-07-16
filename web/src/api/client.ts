@@ -84,8 +84,8 @@ export function createOtter(body: CreateOtterRequestDTO): Promise<OtterDTO> {
   return request('/otters', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function dissolveOtter(id: string): Promise<{ status: string }> {
-  return request(`/otters/${id}`, { method: 'DELETE' })
+export function dissolveOtter(id: string, summary?: string): Promise<{ status: string }> {
+  return request(`/otters/${id}`, { method: 'DELETE', body: summary ? JSON.stringify({ summary }) : undefined })
 }
 
 export function getSessionHistory(otterId: string): Promise<OtterSessionDTO[]> {
@@ -96,8 +96,8 @@ export function createSession(otterId: string): Promise<OtterSessionDTO> {
   return request(`/otters/${otterId}/sessions`, { method: 'POST' })
 }
 
-export function restartOtter(otterId: string): Promise<OtterSessionDTO> {
-  return request(`/otters/${otterId}/restart`, { method: 'POST' })
+export function restartOtter(otterId: string, summary?: string): Promise<OtterSessionDTO> {
+  return request(`/otters/${otterId}/restart`, { method: 'POST', body: summary ? JSON.stringify({ summary }) : undefined })
 }
 
 // ── Key Info ──
@@ -116,6 +116,10 @@ export function linkResource(conversationId: string, body: { resourceType: strin
 
 export function deleteKeyFact(conversationId: string, factId: string): Promise<void> {
   return request(`/conversations/${conversationId}/key-facts/${factId}`, { method: 'DELETE' })
+}
+
+export function flagKeyFact(conversationId: string, factId: string, flagged: boolean): Promise<{ status: string }> {
+  return request(`/conversations/${conversationId}/key-facts/${factId}`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
 }
 
 export function deleteLinkedResource(conversationId: string, resourceId: string): Promise<void> {

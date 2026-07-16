@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalKeyFact, LocalLinkedResource, LocalOtterSession } from '../../lib/mappers'
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapKeyFactDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
+import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapKeyFactDTO, mapLinkedResourceDTO, mapSessionDTO as _mapSessionDTO } from '../../lib/mappers'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -31,7 +31,7 @@ function ConversationPage() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
   const [allOtters, setAllOtters] = useState<LocalOtter[]>([])
-  const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
+  const [sessions, _setSessions] = useState<Record<string, LocalOtterSession[]>>({})
   const [allKeyFacts, setAllKeyFacts] = useState<Record<string, LocalKeyFact[]>>({})
   const [allLinkedRes, setAllLinkedRes] = useState<Record<string, LocalLinkedResource[]>>({})
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
@@ -39,6 +39,7 @@ function ConversationPage() {
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
   const sseCtrlRef = useRef<AbortController | null>(null)
+  const otterMsgIdRef = useRef<string>('')
   const ciCounter = useRef(1)
 
   useEffect(() => {
@@ -120,7 +121,7 @@ function ConversationPage() {
       setStreaming({ otterId, streamingText: '', finalText: '', showFinal: false, duration: 0 })
 
       const ctrl = consumeSSE(response, {
-        'message.start': (data) => { otterMessageId = data.messageId },
+        'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
         'message.delta': (data) => {
           streamingText += data.text
           setStreaming(prev => prev ? { ...prev, streamingText, duration: (Date.now() - startTime) / 1000 } : null)
@@ -131,12 +132,13 @@ function ConversationPage() {
             content: streamingText, ts: nowTs(), dur: data.duration, ctx: data.ctx, ctxMax: data.ctxMax,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
+          otterMsgIdRef.current = ''
           setStreaming(null)
         },
-        'error': (data) => { showToast(`Agent 错误: ${data.message}`, 'error'); setStreaming(null) },
-        'message.aborted': () => { showToast('回复已中断', 'info'); setStreaming(null) },
+        'error': (data) => { showToast(`Agent 错误: ${data.message}`, 'error'); otterMsgIdRef.current = ''; setStreaming(null) },
+        'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
         'agent.idle': () => {},
-      }, { onError: () => { showToast('SSE 连接中断', 'error'); setStreaming(null) } })
+      }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
       sseCtrlRef.current = ctrl
     } catch {
       showToast('发送失败', 'error'); setStreaming(null)
@@ -144,6 +146,9 @@ function ConversationPage() {
   }, [activeId, allOtters])
 
   const stopStream = useCallback(() => {
+    if (otterMsgIdRef.current) {
+      api.abortMessage(otterMsgIdRef.current).catch(() => {})
+    }
     sseCtrlRef.current?.abort()
     setStreaming(null)
   }, [])
@@ -226,20 +231,20 @@ function ConversationPage() {
     } catch { showToast('创建小獭失败', 'error') }
   }
 
-  async function confirmDissolve(_summary: string) {
+  async function confirmDissolve(summary: string) {
     if (modal.type !== 'dissolve') return
     try {
-      await api.dissolveOtter(modal.otterId)
+      await api.dissolveOtter(modal.otterId, summary)
       setAllOtters(prev => prev.filter(o => o.id !== modal.otterId))
       setConversations(prev => prev.map(c => ({ ...c, otterIds: c.otterIds.filter(id => id !== modal.otterId) })))
       setModal({ type: 'none' }); showToast('小獭已解散', 'success')
     } catch { showToast('解散失败', 'error') }
   }
 
-  async function confirmRestart(_summary: string) {
+  async function confirmRestart(summary: string) {
     if (modal.type !== 'restart') return
     try {
-      await api.restartOtter(modal.otterId)
+      await api.restartOtter(modal.otterId, summary)
       setModal({ type: 'none' }); showToast('Session 已封存，新 Session 已开始', 'success')
     } catch { showToast('重启失败', 'error') }
   }
@@ -264,12 +269,24 @@ function ConversationPage() {
     } catch { showToast('添加失败', 'error') }
   }
 
-  function toggleKeyFact(id: string) {
+  async function toggleKeyFact(id: string) {
     if (!activeId) return
+    const fact = allKeyFacts[activeId]?.find(f => f.id === id)
+    if (!fact) return
+    const newFlagged = !fact.flagged
     setAllKeyFacts(prev => ({
       ...prev,
-      [activeId]: (prev[activeId] || []).map(f => f.id === id ? { ...f, flagged: !f.flagged } : f),
+      [activeId]: (prev[activeId] || []).map(f => f.id === id ? { ...f, flagged: newFlagged } : f),
     }))
+    try {
+      await api.flagKeyFact(activeId, id, newFlagged)
+    } catch {
+      showToast('标记失败', 'error')
+      setAllKeyFacts(prev => ({
+        ...prev,
+        [activeId]: (prev[activeId] || []).map(f => f.id === id ? { ...f, flagged: !newFlagged } : f),
+      }))
+    }
   }
 
   async function deleteKeyFact(id: string) {
