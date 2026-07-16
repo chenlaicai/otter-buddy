@@ -23,6 +23,9 @@ import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factor
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import { buildSystemPrompt, type DynamicContext, type HarnessContext } from "./system-prompt-builder";
+import { ToolCallCircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
+import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
+import { config as appConfig } from "@frameworks/config";
 import { logger } from "@frameworks/logger";
 
 /** Agent 事件（流式推送） */
@@ -37,6 +40,7 @@ export interface AgentRunResult {
   text: string;
   tokenUsage?: { input: number; output: number };
   ctxMax?: number;
+  circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
 }
 
 /** invoke() 选项 */
@@ -100,6 +104,7 @@ export class PiHarnessFactory implements AgentGateway {
   private readonly staticPrompts = new Map<string, string>();
   private readonly otterTypes = new Map<string, string>();
   private readonly activeHarnesses = new Map<string, { abort: () => void }>();
+  private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private piAgentCore: PiAgentCoreModule | null = null;
 
   constructor(
@@ -110,6 +115,10 @@ export class PiHarnessFactory implements AgentGateway {
     private otterToolClient: OtterToolClient,
   ) {
     this.sessionStore = createAgentSessionStore(db);
+    this.circuitBreakerConfig = {
+      ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
+      ...appConfig.circuitBreaker,
+    };
   }
 
   /** 注入 OtterToolClient（解决 Composition Root 循环依赖） */
@@ -200,6 +209,8 @@ export class PiHarnessFactory implements AgentGateway {
   /**
    * 冷启动调用（R17）：打开 session -> invoke 时创建工具 -> 创建 AgentHarness -> prompt -> 释放。
    * 工具通过闭包捕获 ToolContext { client, otterId, conversationId }。
+   *
+   * F20260716bte2：集成熔断器，防止 agent 无限工具调用循环。
    */
   async invoke(
     otterId: string,
@@ -238,6 +249,7 @@ export class PiHarnessFactory implements AgentGateway {
     /** D59: 注册活跃 harness 引用，支持外部 abort */
     this.activeHarnesses.set(otterId, { abort: () => harness.abort?.() });
 
+    const { circuitBreaker, unregisterToolCall } = this.attachCircuitBreaker(harness, otterId);
     let resultText = "";
     const unsubscribe = harness.subscribe((event: unknown) => {
       const e = event as AgentEvent;
@@ -250,15 +262,11 @@ export class PiHarnessFactory implements AgentGateway {
     try {
       await harness.prompt(message);
       await this.checkAndCompact(harness);
-
-      const tokenUsage = harness.getTokenUsage?.();
-      return {
-        text: resultText,
-        tokenUsage: tokenUsage
-          ? { input: tokenUsage.input, output: tokenUsage.output }
-          : undefined,
-      };
+      this.logTokenWarning(otterId, harness.getTokenUsage?.());
+      return this.buildResult(resultText, harness.getTokenUsage?.(), circuitBreaker);
     } finally {
+      circuitBreaker.clearSteerDeadline();
+      unregisterToolCall?.();
       unsubscribe();
       this.activeHarnesses.delete(otterId);
     }
@@ -270,6 +278,57 @@ export class PiHarnessFactory implements AgentGateway {
     if (entry) {
       entry.abort();
     }
+  }
+
+  /** F20260716bte2: 注册熔断器 tool_call 钩子 */
+  private attachCircuitBreaker(
+    harness: ReturnType<PiHarnessFactory["createHarness"]>,
+    otterId: string,
+  ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined } {
+    const circuitBreaker = new ToolCallCircuitBreaker(this.circuitBreakerConfig, otterId);
+
+    const unregisterToolCall = harness.on?.("tool_call", (event: unknown) => {
+      const e = event as { name?: string };
+      const result = circuitBreaker.check(e.name ?? "unknown");
+      if (result.action === "terminate") return { terminate: true, reason: result.reason };
+      if (result.action === "steer") {
+        harness.steer?.(result.reason ?? "Stop calling tools. Call set_final_body now.");
+        circuitBreaker.setSteerDeadline(() => { harness.abort?.(); });
+        return { block: true, reason: result.reason };
+      }
+      return undefined;
+    });
+
+    return { circuitBreaker, unregisterToolCall };
+  }
+
+  /** B-8: token 消耗超阈值时记录警告 */
+  private logTokenWarning(
+    otterId: string,
+    tokenUsage?: { input: number; output: number },
+  ): void {
+    if (!tokenUsage) return;
+    const total = tokenUsage.input + tokenUsage.output;
+    if (total > this.circuitBreakerConfig.tokenWarningThreshold) {
+      logger.warn(
+        `[circuit-breaker] Token warning: otter=${otterId} total=${total} threshold=${this.circuitBreakerConfig.tokenWarningThreshold}`,
+      );
+    }
+  }
+
+  /** 构建执行结果（含熔断器元数据） */
+  private buildResult(
+    text: string,
+    tokenUsage?: { input: number; output: number },
+    circuitBreaker?: ToolCallCircuitBreaker,
+  ): AgentRunResult {
+    return {
+      text,
+      tokenUsage: tokenUsage
+        ? { input: tokenUsage.input, output: tokenUsage.output }
+        : undefined,
+      circuitBreakerMetadata: circuitBreaker?.getMetadata(),
+    };
   }
 
   /** 检查 token 用量，超阈值则 compact（R1 手动 compaction） */
@@ -319,6 +378,8 @@ export class PiHarnessFactory implements AgentGateway {
     abort?(): void;
     compact?(): Promise<void>;
     getTokenUsage?(): { input: number; output: number } | undefined;
+    on?(eventType: string, handler: (event: unknown) => unknown): (() => void) | undefined;
+    steer?(text: string): void;
   } {
     const HarnessClass = (piAgentCore as unknown as {
       AgentHarness: new (opts: unknown) => unknown;
@@ -344,6 +405,8 @@ export class PiHarnessFactory implements AgentGateway {
       abort?(): void;
       compact?(): Promise<void>;
       getTokenUsage?(): { input: number; output: number } | undefined;
+      on?(eventType: string, handler: (event: unknown) => unknown): (() => void) | undefined;
+      steer?(text: string): void;
     };
   }
 }
