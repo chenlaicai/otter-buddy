@@ -94,12 +94,14 @@ pi-agent-core
 │                                                           │
 │  frameworks/agent/                                        │
 │    pi-harness-factory.ts  ← 自建：冷启动工厂              │
-│    tool-registry.ts       ← 自建：工具注册表              │
 │    system-prompt-builder.ts ← 自建：Prompt 组合           │
 │    agent-session-store.ts   ← 自建：Otter↔Pi session 映射│
 │                                                           │
-│  interface-adapters/agent-runtime/tools/                  │
-│    tool-factory.ts         ← 自建：8 个 Otter 工具        │
+│  interface-adapters/                                      │
+│    agent-runtime/tools/                                   │
+│      tool-factory.ts       ← 自建：8 个 Otter 工具       │
+│    skill-adapter/                                         │
+│      skill-loader.ts       ← 自建：Skills 扫描和过滤     │
 │                                                           │
 │  pi-agent-core (npm)                                      │
 │    AgentHarness            ← Pi 原生                      │
@@ -112,13 +114,12 @@ pi-agent-core
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `pi-harness-factory.ts` | 343 | 冷启动工厂、harness 创建、compaction 触发 |
-| `tool-registry.ts` | 81 | 工具注册、按 Otter 类型筛选 |
+| `pi-harness-factory.ts` | 363 | 冷启动工厂、harness 创建、compaction 触发 |
 | `system-prompt-builder.ts` | 38 | 动态 system prompt 组合 |
 | `agent-session-store.ts` | 42 | Otter ID ↔ Pi Session ID 映射 |
-| `tool-factory.ts` | 287 | 8 个 AgentTool 创建 |
+| `tool-factory.ts` | 418 | 8 个 AgentTool 创建 |
 | `skill-loader.ts` | 72 | Skills 扫描和按 Otter 类型过滤（已实现，未接入） |
-| **总计** | **863** | 全部自建 |
+| **总计** | **933** | 全部自建 |
 
 ### 3.3 自建能力清单
 
@@ -127,7 +128,6 @@ pi-agent-core
 | Session 管理 | Pi 原生 | JsonlSessionRepo，Otter 只存 session ID |
 | Compaction | **自建触发逻辑** | 监听 token 用量，超阈值调用 `compact()` |
 | System Prompt | **自建组合器** | 静态层 + 动态层，函数模式 |
-| 工具注册 | **自建注册表** | ToolRegistry + activeToolNames |
 | 事件流映射 | **自建** | Pi 事件 → SSE 事件 → 前端 |
 | Skills | **已实现（未接入 Agent）** | `skill-loader.ts`（72 行）已实现目录扫描 + otterType 过滤，但未接入 `pi-harness-factory.ts` |
 | Extensions | **不适用** | pi-agent-core 无 Extension 概念 |
@@ -268,14 +268,14 @@ session.getTools();                    // 获取工具列表
 
 | 维度 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |------|------------------------|------------------------------|
-| 初始集成 | 已完成（863 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
+| 初始集成 | 已完成（933 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
 | Session 管理 | Pi 原生 + 自建映射 | 内置 SessionManager |
 | Compaction | 自建触发逻辑（~30 行） | 内置自动 compaction |
 | Skills 体系 | 已实现 SkillLoader（72 行），需接线到 Agent | 内置 loadSkills |
 | Extensions | 需要从零设计 | 内置 ExtensionRuntime |
-| 工具系统 | 自建 ToolRegistry（~80 行） | customTools 注入 + tools 配置 |
+| 工具系统 | 自建 ToolFactory（~418 行） | customTools 注入 + tools 配置 |
 | 事件流 | 自建映射（~50 行） | AgentSessionEvent 直接映射 |
-| **总自建代码量** | **863 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
+| **总自建代码量** | **933 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
 
 ### 5.2 运行时性能
 
@@ -411,7 +411,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 
 | 评估维度 | 权重 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |---------|------|------------------------|------------------------------|
-| 初始开发成本 | 中 | ✅ 已完成（863 行） | ⚠️ 需要重写（~200 行） |
+| 初始开发成本 | 中 | ✅ 已完成（933 行） | ⚠️ 需要重写（~200 行） |
 | 后续开发成本 | 高 | ⚠️ 需接线 Skills + 自建 Extensions | ✅ 内置能力丰富 |
 | 运行时性能 | 中 | ✅ 更轻量 | ⚠️ Extensions 初始化开销 |
 | 架构适配度 | 高 | ✅ 完全可控 | ⚠️ 需要适配层，但无架构不兼容 |
