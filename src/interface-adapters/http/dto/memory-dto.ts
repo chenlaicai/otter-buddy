@@ -16,7 +16,6 @@ export function toMemoryEntryDTO(
 ): MemoryEntryDTO {
   return {
     id: entry.id,
-    layer: entry.layer,
     contentType: entry.contentType,
     sourceId: entry.sourceId,
     sourceTable: entry.sourceTable,

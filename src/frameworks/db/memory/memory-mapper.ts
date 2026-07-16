@@ -1,7 +1,7 @@
 import type {
+  MemoryLayer,
   MemoryContentType,
   MemoryEntry,
-  MemoryLayer,
   MemoryWeight,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";

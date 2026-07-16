@@ -61,9 +61,5 @@ export interface MemoryRepository {
   // 更新
   incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void>;
   flagMemory(memoryEntryId: string, flagged: boolean): Promise<void>;
-  updateLayerByConversation(
-    conversationId: string,
-    from: MemoryLayer,
-    to: MemoryLayer,
-  ): Promise<void>;
+  updateLayerByConversation(conversationId: string, from: MemoryLayer, to: MemoryLayer): Promise<void>;
 }

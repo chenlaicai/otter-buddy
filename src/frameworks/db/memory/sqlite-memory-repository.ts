@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { MemoryEntry, MemoryLayer, MemoryWeight } from "@entities/memory/memory-entry";
+import type { MemoryEntry, MemoryWeight, MemoryLayer } from "@entities/memory/memory-entry";
 import type {
   FTSHit,
   MemoryRepository,

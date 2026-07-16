@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
-import type { MemoryLayer, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
+import type { RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
 import { handleError, param } from "../http-error";
 import { toMemoryEntryDTO } from "../dto/memory-dto";
 import type { SearchSimilarRequestDTO, FlagMemoryRequestDTO } from "../dto/memory-dto";
@@ -19,18 +19,18 @@ export class MemoryController {
         return c.json({ error: "query parameter is required" }, 400);
       }
       const limit = Number(c.req.query("limit") ?? "10");
-      const layer = c.req.query("layer") as MemoryLayer | undefined;
       const granularity = c.req.query("granularity") as RetrievalGranularity | undefined;
       const conversationId = c.req.query("conversationId");
       const detailLevel = c.req.query("detail_level") as DetailLevel | undefined;
+      const library = c.req.query("library");
 
       const result = await this.searchMemory.search({
         query,
         limit,
-        layer,
         granularity,
         conversationId,
         detailLevel,
+        library,
       });
 
       return c.json({
