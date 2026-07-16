@@ -1,5 +1,9 @@
 import type { Otter } from "@entities/otter/otter";
-import type { OtterSession, SessionStatus } from "@entities/otter/otter-session";
+import type {
+  OtterSession,
+  SessionHandoffSummary,
+  SessionStatus,
+} from "@entities/otter/otter-session";
 
 /** archiveSession 的参数类型（Repository 层，不含应用关注点） */
 export interface ArchiveSessionParams {
@@ -24,4 +28,8 @@ export interface OtterRepository {
   ): Promise<void>;
   getSessionHistory(otterId: string): Promise<OtterSession[]>;
   getSessionById(sessionId: string): Promise<OtterSession | null>;
+  setHandoffSummary(
+    sessionId: string,
+    handoffSummary: SessionHandoffSummary,
+  ): Promise<void>;
 }

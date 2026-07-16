@@ -7,6 +7,7 @@ export interface Conversation {
   title: string;
   status: ConversationStatus;
   summary: string | null;
+  activeSessionId: string | null; // 当前活跃的大獭 Session（D-ARCH-1 对话-Session 绑定）
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

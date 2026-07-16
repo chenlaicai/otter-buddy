@@ -1,6 +1,21 @@
 /** Session 状态 */
 export type SessionStatus = "active" | "archived" | "restarted";
 
+/**
+ * Session 交接摘要（B-CS-1 结构化摘要）。
+ *
+ * 在 Session 交接时由 LLM 生成，注入新 Session 上下文。
+ * 双重存储：Session handoffSummary（交接用）+ memory_entries（检索用）。
+ */
+export interface SessionHandoffSummary {
+  conversationId: string;
+  sessionSequence: number; // 第几个 Session
+  keyDecisions: string[]; // 关键决策
+  pendingTasks: string[]; // 待完成任务
+  activeContext: string; // 当前工作上下文
+  participantStatus: Record<string, string>; // 参与者状态
+}
+
 /** Otter Session 实体（链式，记录会话窗口历史） */
 export interface OtterSession {
   id: string;
@@ -12,6 +27,7 @@ export interface OtterSession {
   archiveReason: string | null;
   isNegativeCase: boolean;
   summary: string | null;
+  handoffSummary: SessionHandoffSummary | null; // 从前序 Session 继承的交接摘要（B-CS-3）
 }
 
 /**

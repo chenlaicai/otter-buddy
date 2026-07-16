@@ -1,4 +1,4 @@
-import type { OtterSession } from "@entities/otter/otter-session";
+import type { OtterSession, SessionHandoffSummary } from "@entities/otter/otter-session";
 import {
   canArchiveSession,
   archiveReasonToSessionStatus,
@@ -10,6 +10,14 @@ import type { AgentGateway } from "./agent-gateway";
 /** Gateway: 查询 otter 关联的对话 ID（由 main.ts 装配 ManageConversation 实现） */
 export interface ConversationQueryGateway {
   getIdsByOtterId(otterId: string): Promise<string[]>;
+}
+
+/** Gateway: 更新对话的活跃 Session 绑定（D-ARCH-1，由 main.ts 装配 ManageConversation 实现） */
+export interface ConversationBindingGateway {
+  updateActiveSessionId(
+    conversationId: string,
+    sessionId: string | null,
+  ): Promise<void>;
 }
 
 /** Gateway: 记忆层转换（由 main.ts 装配 ManageMemory 实现） */
@@ -27,12 +35,19 @@ export interface ArchiveSessionInput {
   summary?: string;
 }
 
+/** Session 交接结果 */
+export interface HandoffResult {
+  archivedSession: OtterSession;
+  newSession: OtterSession;
+}
+
 export class ManageSession {
   constructor(
     private readonly repo: OtterRepository,
     private readonly agentGateway: AgentGateway,
     private readonly conversationQuery: ConversationQueryGateway,
     private readonly memoryLayer: MemoryLayerGateway,
+    private readonly conversationBinding: ConversationBindingGateway,
   ) {}
 
   /**
@@ -63,6 +78,7 @@ export class ManageSession {
       archiveReason: null,
       isNegativeCase: false,
       summary: null,
+      handoffSummary: null,
     };
 
     await this.repo.createSession(session);
@@ -129,5 +145,54 @@ export class ManageSession {
 
   async getSessionHistory(otterId: string): Promise<OtterSession[]> {
     return this.repo.getSessionHistory(otterId);
+  }
+
+  /**
+   * Session 交接（B-CS-1, B-CS-2, B-CS-3）。
+   *
+   * 原子操作：归档当前 Session -> 创建新 Session -> 存储交接摘要 -> 更新对话绑定 -> Agent reset。
+   * 交接摘要双重存储：Session handoffSummary（交接用）+ memory_entries（检索用，由调用方负责）。
+   *
+   * @param sessionId - 当前活跃 Session 的 ID
+   * @param handoffSummary - 由 LLM 生成的结构化交接摘要
+   * @param reason - 交接原因（如 "token_threshold", "user指令"）
+   */
+  async handoffSession(
+    sessionId: string,
+    handoffSummary: SessionHandoffSummary,
+    reason: string,
+  ): Promise<HandoffResult> {
+    /** 1. 归档当前 Session（状态更新 + 工作记忆转历史） */
+    const archivedSession = await this.archiveSession(sessionId, {
+      reason,
+      isNegativeCase: false,
+    });
+
+    /** 2. 创建新 Session（链式关系） */
+    const newSession = await this.createSession(archivedSession.otterId);
+
+    /** 3. 存储交接摘要到新 Session */
+    await this.repo.setHandoffSummary(newSession.id, handoffSummary);
+
+    /** 4. 更新对话绑定（activeSessionId -> 新 Session） */
+    const conversationIds = await this.conversationQuery.getIdsByOtterId(
+      archivedSession.otterId,
+    );
+    for (const conversationId of conversationIds) {
+      await this.conversationBinding.updateActiveSessionId(
+        conversationId,
+        newSession.id,
+      );
+    }
+
+    /** 5. Agent reset，注入交接摘要作为上下文（B-CS-3） */
+    await this.agentGateway.reset(archivedSession.otterId, {
+      context: { handoffSummary },
+    });
+
+    return {
+      archivedSession,
+      newSession: { ...newSession, handoffSummary },
+    };
   }
 }

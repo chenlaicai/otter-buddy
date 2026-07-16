@@ -22,6 +22,7 @@ export interface ConversationRow {
   title: string;
   status: string;
   summary: string | null;
+  active_session_id: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -104,6 +105,7 @@ export function rowToConversation(row: ConversationRow): Conversation {
     title: row.title,
     status: row.status as ConversationStatus,
     summary: row.summary,
+    activeSessionId: row.active_session_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,

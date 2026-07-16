@@ -4,7 +4,11 @@ import type {
   OtterStatus,
   OtterType,
 } from "@entities/otter/otter";
-import type { OtterSession, SessionStatus } from "@entities/otter/otter-session";
+import type {
+  OtterSession,
+  SessionHandoffSummary,
+  SessionStatus,
+} from "@entities/otter/otter-session";
 
 export interface OtterRow {
   id: string;
@@ -28,6 +32,7 @@ export interface SessionRow {
   is_negative_case: number;
   summary: string | null;
   previous_session_id: string | null;
+  handoff_summary: string | null;
 }
 
 export function rowToOtter(row: OtterRow): Otter {
@@ -64,5 +69,8 @@ export function rowToSession(row: SessionRow): OtterSession {
     archiveReason: row.archive_reason,
     isNegativeCase: row.is_negative_case === 1,
     summary: row.summary,
+    handoffSummary: row.handoff_summary
+      ? (JSON.parse(row.handoff_summary) as SessionHandoffSummary)
+      : null,
   };
 }

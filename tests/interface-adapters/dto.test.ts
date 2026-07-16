@@ -61,7 +61,7 @@ describe("ConversationDTO", () => {
   it("maps conversation entity to DTO", () => {
     const conv: Conversation = {
       id: "conv-1", title: "Test", status: "active",
-      summary: null, createdAt: "2026-07-16T00:00:00Z",
+      summary: null, activeSessionId: null, createdAt: "2026-07-16T00:00:00Z",
       updatedAt: "2026-07-16T00:00:00Z",
       completedAt: null, archivedAt: null,
     };
@@ -101,7 +101,7 @@ describe("OtterDTO", () => {
     const session: OtterSession = {
       id: "sess-1", otterId: "otter-1", status: "active",
       previousSessionId: null, startedAt: "2026-07-16T00:00:00Z",
-      archivedAt: null, archiveReason: null, isNegativeCase: false, summary: null,
+      archivedAt: null, archiveReason: null, isNegativeCase: false, summary: null, handoffSummary: null,
     };
     const dto = toOtterSessionDTO(session);
     expect(dto.id).toBe("sess-1");
