@@ -47,15 +47,29 @@ function mockRepo(session: OtterSession | null = null): OtterRepository & { _ses
     deleteOtter: vi.fn(),
     createSession: vi.fn(async (s: OtterSession) => { sessions.set(s.id, s); }),
     getActiveSession: vi.fn(async () => session?.status === "active" ? session : null),
-    archiveSession: vi.fn(async (id: string) => {
+    archiveSession: vi.fn(async (id: string, status: string, params: { reason: string; isNegativeCase: boolean; summary?: string }) => {
       const s = sessions.get(id);
-      if (s) { s.status = "archived"; s.archivedAt = new Date().toISOString(); }
+      if (s) {
+        s.status = status as OtterSession["status"];
+        s.archivedAt = new Date().toISOString();
+        s.archiveReason = params.reason;
+        s.isNegativeCase = params.isNegativeCase;
+        s.summary = params.summary ?? null;
+      }
     }),
     getSessionHistory: vi.fn(async () => session ? [session] : []),
     getSessionById: vi.fn(async (id: string) => sessions.get(id) ?? null),
     setHandoffSummary: vi.fn(async (id: string, summary: SessionHandoffSummary) => {
       const s = sessions.get(id);
       if (s) s.handoffSummary = summary;
+    }),
+    restoreSessionStatus: vi.fn(async (id: string, status: string) => {
+      const s = sessions.get(id);
+      if (s) {
+        s.status = status as OtterSession["status"];
+        s.archivedAt = null;
+        s.archiveReason = null;
+      }
     }),
   } as unknown as OtterRepository & { _sessions: Map<string, OtterSession> };
 }
@@ -165,10 +179,10 @@ describe("ManageSession", () => {
       expect(conversationBinding._bindings.get("conv-1")).toBe(result.newSession.id);
       expect(conversationBinding._bindings.get("conv-2")).toBe(result.newSession.id);
 
-      /** Agent reset: 1st from archiveSession, 2nd from handoffSession (B-CS-3) */
-      expect(agentGateway._resetCalls).toHaveLength(2);
+      /** Agent reset: 仅 1 次，注入交接摘要上下文（BUG-1 修复：不再双重 reset） */
+      expect(agentGateway._resetCalls).toHaveLength(1);
       expect(agentGateway._resetCalls[0].otterId).toBe("otter-1");
-      expect(agentGateway._resetCalls[1].otterId).toBe("otter-1");
+      expect(agentGateway._resetCalls[0].context).toEqual({ context: { handoffSummary: summary } });
     });
 
     it("stores handoffSummary on new session via repository", async () => {
@@ -180,7 +194,9 @@ describe("ManageSession", () => {
       const summary = mockHandoffSummary();
       const result = await ms.handoffSession("sess-1", summary, "token_threshold");
 
-      /** 通过 repo 内部状态验证 handoffSummary 已存储 */
+      /** 通过 repo 状态验证 handoffSummary 已持久化（非引用共享副作用） */
+      const storedSession = repo._sessions.get(result.newSession.id);
+      expect(storedSession?.handoffSummary).toEqual(summary);
       expect(result.newSession.handoffSummary).toEqual(summary);
     });
 
@@ -205,6 +221,87 @@ describe("ManageSession", () => {
       await expect(
         ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
       ).rejects.toThrow("Session is not active");
+    });
+
+    it("rolls back archive when createSession fails", async () => {
+      const activeSession = mockSession();
+      const repo = mockRepo(activeSession);
+      const memoryLayer = mockMemoryLayer();
+      const agentGateway = mockAgentGateway();
+
+      // Force createSession to fail: make getActiveSession always return a blocking session
+      const blockingSession = mockSession({ id: "blocking-sess" });
+      repo.getActiveSession = vi.fn(async () => blockingSession);
+
+      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, mockConversationBinding());
+
+      await expect(
+        ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
+      ).rejects.toThrow("already has an active session");
+
+      // Session should be rolled back to "active"
+      const restored = repo._sessions.get("sess-1");
+      expect(restored?.status).toBe("active");
+
+      // Memory layers should be rolled back
+      expect(memoryLayer._transitions).toEqual([
+        { conversationId: "conv-1", from: "working", to: "historical" },
+        { conversationId: "conv-1", from: "historical", to: "working" },
+      ]);
+
+      // No agent reset should have happened
+      expect(agentGateway._resetCalls).toHaveLength(0);
+    });
+
+    it("rolls back archive when setHandoffSummary fails", async () => {
+      const activeSession = mockSession();
+      const repo = mockRepo(activeSession);
+      const memoryLayer = mockMemoryLayer();
+      const agentGateway = mockAgentGateway();
+
+      // Make setHandoffSummary throw
+      repo.setHandoffSummary = vi.fn(async () => { throw new Error("DB write failed"); });
+
+      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, mockConversationBinding());
+
+      await expect(
+        ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
+      ).rejects.toThrow("DB write failed");
+
+      // Session should be rolled back
+      const restored = repo._sessions.get("sess-1");
+      expect(restored?.status).toBe("active");
+
+      // Memory layers should be rolled back
+      expect(memoryLayer._transitions).toEqual([
+        { conversationId: "conv-1", from: "working", to: "historical" },
+        { conversationId: "conv-1", from: "historical", to: "working" },
+      ]);
+
+      // No agent reset
+      expect(agentGateway._resetCalls).toHaveLength(0);
+    });
+
+    it("rolls back archive when conversationBinding fails", async () => {
+      const activeSession = mockSession();
+      const repo = mockRepo(activeSession);
+      const memoryLayer = mockMemoryLayer();
+      const agentGateway = mockAgentGateway();
+      const conversationBinding = mockConversationBinding();
+      conversationBinding.updateActiveSessionId = vi.fn(async () => { throw new Error("Binding failed"); });
+
+      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, conversationBinding);
+
+      await expect(
+        ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
+      ).rejects.toThrow("Binding failed");
+
+      // Session should be rolled back
+      const restored = repo._sessions.get("sess-1");
+      expect(restored?.status).toBe("active");
+
+      // No agent reset
+      expect(agentGateway._resetCalls).toHaveLength(0);
     });
   });
 
