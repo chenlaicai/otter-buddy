@@ -168,9 +168,14 @@ function buildMessageClient(uc: UseCases) {
   };
 }
 
-/** 构建 OtterToolClient 的 memory 部分（渐进式披露：支持 detail_level 和 getDetails） */
+/** 构建 OtterToolClient 的 memory 部分（渐进式披露：支持 detail_level、getById 和 getDetails） */
 function buildMemoryClient(uc: UseCases) {
   return {
+    getById: async (id: string) => {
+      const entry = await uc.manageMemory.getById(id);
+      if (!entry) return null;
+      return { id: entry.id, content: entry.content, score: 1, layer: entry.layer };
+    },
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full") => {
       const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel });
       return result.entries.map(e => ({

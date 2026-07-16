@@ -29,8 +29,7 @@ export interface StoreMemoryInput {
 
 /** 创建 Otter 输入 */
 export interface CreateOtterInput {
-  name: string;
-  type: "big" | "small";
+  name: "big" | "small";
   systemPrompt: string;
   parentOtterId: string;
 }
@@ -68,6 +67,7 @@ export interface OtterToolClient {
     };
   };
   memory: {
+    getById(id: string): Promise<MemorySearchEntry | null>;
     search(query: string, limit?: number, detailLevel?: DetailLevel): Promise<MemorySearchEntry[]>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;

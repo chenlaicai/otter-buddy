@@ -5,7 +5,7 @@ from_ids: [F20260716i5n2, F20260715k4p2, F20260715r3s2]
 tags: [architecture, agent, tools, skills, pi-agent]
 modules: [src/interface-adapters/agent-runtime/, src/frameworks/agent/]
 doc_kind: spec
-status: draft
+status: locked
 created_at: 2026-07-16
 ---
 

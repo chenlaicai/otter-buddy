@@ -18,7 +18,7 @@ import type {
 } from "@usecases/otter/agent-gateway";
 import type { Models } from "@frameworks/llm/models-factory";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
-import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { AgentTool } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
@@ -206,6 +206,10 @@ export class PiHarnessFactory implements AgentGateway {
     message: string,
     options?: InvokeOptions,
   ): Promise<AgentRunResult> {
+    if (!this.otterToolClient) {
+      throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
+    }
+
     const piSessionId = this.sessionStore.get(otterId);
     if (!piSessionId) {
       throw new Error(`No agent session found for otter: ${otterId}`);
@@ -217,14 +221,12 @@ export class PiHarnessFactory implements AgentGateway {
     const systemPromptFn = buildSystemPrompt(staticPrompt, options?.dynamicContext);
 
     /** invoke 时创建 ToolContext，闭包捕获 */
-    const toolContext: ToolContext = {
+    const activeToolNames = getToolNamesForOtterType(otterType);
+    const tools = createTools({
       client: this.otterToolClient,
       otterId,
       conversationId: options?.conversationId ?? "",
-    };
-    const allTools = createTools(toolContext);
-    const activeToolNames = getToolNamesForOtterType(otterType);
-    const tools = allTools.filter(t => activeToolNames.includes(t.name));
+    }).filter(t => activeToolNames.includes(t.name));
 
     const sessionRepo = this.createSessionRepo(piAgentCore);
     const session = sessionRepo.open(piSessionId);

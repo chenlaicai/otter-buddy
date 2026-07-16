@@ -31,6 +31,11 @@ import {
   type TurnRow,
 } from "./conversation-mapper";
 
+/** FTS5 查询转义：包装为 phrase query，防止特殊字符被解释为操作符 */
+function escapeFtsQuery(query: string): string {
+  return `"${query.replace(/"/g, '""')}"`;
+}
+
 export class SqliteConversationRepository implements ConversationRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -435,13 +440,14 @@ export class SqliteConversationRepository implements ConversationRepository {
   // ── Message 全文搜索（FTS5） ──
 
   async searchMessages(conversationId: string, query: string, limit = 10): Promise<Message[]> {
+    const escaped = escapeFtsQuery(query);
     const rows = this.db.prepare(`
       SELECT m.* FROM messages m
       INNER JOIN messages_fts fts ON fts.message_id = m.id
       WHERE m.conversation_id = ? AND messages_fts MATCH ?
       ORDER BY rank
       LIMIT ?
-    `).all(conversationId, query, limit) as MessageRow[];
+    `).all(conversationId, escaped, limit) as MessageRow[];
     return rows.map(rowToMessage);
   }
 
