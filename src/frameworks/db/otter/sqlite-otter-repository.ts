@@ -1,6 +1,10 @@
 import type Database from "better-sqlite3";
 import type { Otter } from "@entities/otter/otter";
-import type { OtterSession, SessionStatus } from "@entities/otter/otter-session";
+import type {
+  OtterSession,
+  SessionHandoffSummary,
+  SessionStatus,
+} from "@entities/otter/otter-session";
 import type {
   ArchiveSessionParams,
   OtterRepository,
@@ -104,5 +108,27 @@ export class SqliteOtterRepository implements OtterRepository {
   async getSessionById(sessionId: string): Promise<OtterSession | null> {
     const row = this.db.prepare("SELECT * FROM otter_sessions WHERE id = ?").get(sessionId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
+  }
+
+  async setHandoffSummary(
+    sessionId: string,
+    handoffSummary: SessionHandoffSummary,
+  ): Promise<void> {
+    this.db.prepare(`
+      UPDATE otter_sessions SET handoff_summary = ? WHERE id = ?
+    `).run(JSON.stringify(handoffSummary), sessionId);
+  }
+
+  async restoreSessionStatus(
+    sessionId: string,
+    status: SessionStatus,
+  ): Promise<void> {
+    this.db.prepare(`
+      UPDATE otter_sessions SET status = ?, archived_at = NULL, archive_reason = NULL WHERE id = ?
+    `).run(status, sessionId);
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    this.db.prepare(`DELETE FROM otter_sessions WHERE id = ?`).run(sessionId);
   }
 }

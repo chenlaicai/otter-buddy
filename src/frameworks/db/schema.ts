@@ -227,6 +227,7 @@ function createOtterTables(db: Database.Database): void {
       archive_reason TEXT,
       is_negative_case INTEGER NOT NULL DEFAULT 0,
       summary TEXT,
+      handoff_summary TEXT,
       previous_session_id TEXT,
       FOREIGN KEY (otter_id) REFERENCES otters(id),
       FOREIGN KEY (previous_session_id) REFERENCES otter_sessions(id)
