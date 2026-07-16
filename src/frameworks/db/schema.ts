@@ -108,7 +108,6 @@ function createMemoryTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory_entries (
       id TEXT PRIMARY KEY,
-      layer TEXT NOT NULL,
       content_type TEXT NOT NULL,
       source_id TEXT NOT NULL,
       source_table TEXT NOT NULL,
@@ -120,7 +119,6 @@ function createMemoryTables(db: Database.Database): void {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_memory_entries_layer ON memory_entries(layer);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_content_type ON memory_entries(content_type);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_conversation_id ON memory_entries(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_source ON memory_entries(source_table, source_id);
@@ -176,9 +174,14 @@ function createTerminologyTables(db: Database.Database): void {
       version INTEGER NOT NULL DEFAULT 1
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_terminology_term ON terminology_entries(term);
     CREATE INDEX IF NOT EXISTS idx_terminology_status ON terminology_entries(status);
     CREATE INDEX IF NOT EXISTS idx_terminology_category ON terminology_entries(category);
+  `);
+
+  /** 唯一索引仅对 active 状态生效，允许同名术语重新添加 */
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_terminology_term_active
+    ON terminology_entries(term) WHERE status = 'active';
   `);
 
   db.exec(`

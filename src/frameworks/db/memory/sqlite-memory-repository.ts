@@ -55,12 +55,11 @@ export class SqliteMemoryRepository implements MemoryRepository {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`
-        INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
+        INSERT INTO memory_entries (id, content_type, source_id, source_table,
           conversation_id, granularity, content, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         entry.id,
-        '',
         entry.contentType,
         entry.sourceId,
         entry.sourceTable,

@@ -74,19 +74,40 @@ export class SearchMemory {
       return { entries: [], total: 0 };
     }
     const results = await this.terminologyRepo.search(query.query, query.limit);
-    const entries: RetrievalResultEntry[] = results.map((entry, rank) => ({
-      id: entry.id,
-      contentType: "key_fact" as const,
-      sourceId: entry.id,
-      sourceTable: "terminology_entries",
-      conversationId: null,
-      granularity: "coarse" as const,
-      content: `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`,
-      metadata: { term: entry.term, aliases: entry.aliases, category: entry.category, examples: entry.examples },
-      createdAt: entry.createdAt,
-      score: 1.0 / (1 + rank),
-      source: "fts" as const,
-    }));
+    const detailLevel = query.detailLevel ?? "snippet";
+    const entries: RetrievalResultEntry[] = results.map((entry, rank) => {
+      const fullContent = `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`;
+      let content: string;
+      let snippet: string | undefined;
+
+      if (detailLevel === "summary") {
+        /** summary：仅返回术语和简短定义 */
+        content = `[${entry.term}] ${entry.definition.slice(0, 100)}${entry.definition.length > 100 ? "..." : ""}`;
+        snippet = content;
+      } else if (detailLevel === "snippet") {
+        /** snippet：返回完整内容但标记为 snippet */
+        content = fullContent;
+        snippet = fullContent;
+      } else {
+        /** full：返回完整内容 */
+        content = fullContent;
+      }
+
+      return {
+        id: entry.id,
+        contentType: "key_fact" as const,
+        sourceId: entry.id,
+        sourceTable: "terminology_entries",
+        conversationId: null,
+        granularity: "coarse" as const,
+        content,
+        metadata: { term: entry.term, aliases: entry.aliases, category: entry.category, examples: entry.examples },
+        createdAt: entry.createdAt,
+        score: 1.0 / (1 + rank),
+        source: "fts" as const,
+        snippet,
+      };
+    });
     return { entries, total: entries.length };
   }
 
@@ -107,25 +128,8 @@ export class SearchMemory {
 
     /** 术语库 */
     if (this.terminologyRepo) {
-      const termResults = await this.terminologyRepo.search(query.query, query.limit);
-      for (const [rank, entry] of termResults.entries()) {
-        allEntries.push({
-          id: entry.id,
-          contentType: "key_fact" as const,
-          sourceId: entry.id,
-          sourceTable: "terminology_entries",
-          conversationId: null,
-          granularity: "coarse" as const,
-          content: `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`,
-          metadata: { term: entry.term, aliases: entry.aliases, category: entry.category, examples: entry.examples },
-          createdAt: entry.createdAt,
-          score: 1.0 / (1 + rank),
-          source: "fts" as const,
-          normalizedScore: 1.0 / (1 + rank),
-          library: "terminology",
-          libraryPriority: 100,
-        } as RetrievalResultEntry & { normalizedScore: number; library: string; libraryPriority: number });
-      }
+      const termEntries = await this.searchTerminologyEntries(query);
+      allEntries.push(...termEntries);
     }
 
     /** 按归一化分数降序混排，同分时按库优先级排列 */
@@ -148,6 +152,46 @@ export class SearchMemory {
     });
 
     return { entries, total: entries.length };
+  }
+
+  /** 术语库搜索辅助方法（用于全库搜索混排） */
+  private async searchTerminologyEntries(query: SearchQuery): Promise<(RetrievalResultEntry & { normalizedScore: number; library: string; libraryPriority: number })[]> {
+    if (!this.terminologyRepo) return [];
+    const results = await this.terminologyRepo.search(query.query, query.limit);
+    const detailLevel = query.detailLevel ?? "snippet";
+    return results.map((entry, rank) => {
+      const fullContent = `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`;
+      let content: string;
+      let snippet: string | undefined;
+
+      if (detailLevel === "summary") {
+        content = `[${entry.term}] ${entry.definition.slice(0, 100)}${entry.definition.length > 100 ? "..." : ""}`;
+        snippet = content;
+      } else if (detailLevel === "snippet") {
+        content = fullContent;
+        snippet = fullContent;
+      } else {
+        content = fullContent;
+      }
+
+      return {
+        id: entry.id,
+        contentType: "key_fact" as const,
+        sourceId: entry.id,
+        sourceTable: "terminology_entries",
+        conversationId: null,
+        granularity: "coarse" as const,
+        content,
+        metadata: { term: entry.term, aliases: entry.aliases, category: entry.category, examples: entry.examples },
+        createdAt: entry.createdAt,
+        score: 1.0 / (1 + rank),
+        source: "fts" as const,
+        snippet,
+        normalizedScore: 1.0 / (1 + rank),
+        library: "terminology",
+        libraryPriority: 100,
+      };
+    });
   }
 
   private async searchConversationInternal(query: SearchQuery): Promise<RetrievalResult> {

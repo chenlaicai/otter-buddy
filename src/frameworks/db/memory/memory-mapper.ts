@@ -8,7 +8,6 @@ import type { SnippetHit } from "@usecases/memory/memory-repository";
 
 export interface MemoryEntryRow {
   id: string;
-  layer: string;
   content_type: string;
   source_id: string;
   source_table: string;
