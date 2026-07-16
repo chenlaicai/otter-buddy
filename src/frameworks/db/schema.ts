@@ -32,16 +32,13 @@ function createConversationTables(db: Database.Database): void {
       title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       summary TEXT,
-      active_session_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
-      archived_at TEXT,
-      FOREIGN KEY (active_session_id) REFERENCES otter_sessions(id)
+      archived_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
-    CREATE INDEX IF NOT EXISTS idx_conversations_active_session_id ON conversations(active_session_id);
   `);
 
   createMessageTables(db);

@@ -128,7 +128,7 @@ function initUseCases(
   const queryOtter = new QueryOtter(repos.otter);
   const createOtter = new CreateOtter(repos.otter, agentGateway);
   const manageSession = new ManageSession(
-    repos.otter, agentGateway, manageConversation, manageMemory, manageConversation,
+    repos.otter, agentGateway, manageConversation, manageMemory,
   );
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
   return {

@@ -23,7 +23,7 @@ import type { MemoryEntry } from "@entities/memory/memory-entry";
 
 function mockConversation(): Conversation {
   return {
-    id: "conv-1", title: "Test", status: "active", summary: null, activeSessionId: null,
+    id: "conv-1", title: "Test", status: "active", summary: null,
     createdAt: "2026-07-16T00:00:00Z", updatedAt: "2026-07-16T00:00:00Z",
     completedAt: null, archivedAt: null,
   };

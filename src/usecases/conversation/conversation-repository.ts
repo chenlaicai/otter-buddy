@@ -29,10 +29,6 @@ export interface ConversationRepository {
     status: ConversationStatus,
     timestamp: string,
   ): Promise<void>;
-  updateActiveSessionId(
-    conversationId: string,
-    sessionId: string | null,
-  ): Promise<void>;
   getIdsByOtterId(otterId: string): Promise<string[]>;
 
   // 对话参与者

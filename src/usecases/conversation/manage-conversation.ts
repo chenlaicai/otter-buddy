@@ -22,7 +22,6 @@ export class ManageConversation {
       title: params.title,
       status: "active",
       summary: null,
-      activeSessionId: null,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -86,11 +85,4 @@ export class ManageConversation {
     return this.repo.getIdsByOtterId(otterId);
   }
 
-  /** 更新对话的活跃 Session 绑定（D-ARCH-1 对话-Session 绑定） */
-  async updateActiveSessionId(
-    conversationId: string,
-    sessionId: string | null,
-  ): Promise<void> {
-    await this.repo.updateActiveSessionId(conversationId, sessionId);
-  }
 }

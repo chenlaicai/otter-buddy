@@ -61,7 +61,7 @@ describe("ConversationDTO", () => {
   it("maps conversation entity to DTO", () => {
     const conv: Conversation = {
       id: "conv-1", title: "Test", status: "active",
-      summary: null, activeSessionId: null, createdAt: "2026-07-16T00:00:00Z",
+      summary: null, createdAt: "2026-07-16T00:00:00Z",
       updatedAt: "2026-07-16T00:00:00Z",
       completedAt: null, archivedAt: null,
     };

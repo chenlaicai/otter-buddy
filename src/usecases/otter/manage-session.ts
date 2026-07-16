@@ -12,14 +12,6 @@ export interface ConversationQueryGateway {
   getIdsByOtterId(otterId: string): Promise<string[]>;
 }
 
-/** Gateway: 更新对话的活跃 Session 绑定（D-ARCH-1，由 main.ts 装配 ManageConversation 实现） */
-export interface ConversationBindingGateway {
-  updateActiveSessionId(
-    conversationId: string,
-    sessionId: string | null,
-  ): Promise<void>;
-}
-
 /** Gateway: 记忆层转换（由 main.ts 装配 ManageMemory 实现） */
 export interface MemoryLayerGateway {
   updateLayer(
@@ -47,7 +39,6 @@ export class ManageSession {
     private readonly agentGateway: AgentGateway,
     private readonly conversationQuery: ConversationQueryGateway,
     private readonly memoryLayer: MemoryLayerGateway,
-    private readonly conversationBinding: ConversationBindingGateway,
   ) {}
 
   /**
@@ -167,10 +158,10 @@ export class ManageSession {
   /**
    * Session 交接（B-CS-1, B-CS-2, B-CS-3）。
    *
-   * 原子操作：归档当前 Session -> 创建新 Session -> 存储交接摘要 -> 更新对话绑定 -> Agent reset。
+   * 原子操作：归档当前 Session -> 创建新 Session -> 存储交接摘要 -> Agent reset。
    * 交接摘要双重存储：Session handoffSummary（交接用）+ memory_entries（检索用，由调用方负责）。
    *
-   * 错误回滚：若 createSession / setHandoffSummary / updateBinding 失败，
+   * 错误回滚：若 createSession / setHandoffSummary 失败，
    * 回滚归档状态和记忆层转换；Agent reset 延到最后一步执行，失败前可安全回滚。
    *
    * @param sessionId - 当前活跃 Session 的 ID
@@ -215,20 +206,7 @@ export class ManageSession {
       throw e;
     }
 
-    /** 4. 更新对话绑定（activeSessionId -> 新 Session） */
-    try {
-      for (const conversationId of conversationIds) {
-        await this.conversationBinding.updateActiveSessionId(
-          conversationId,
-          newSession.id,
-        );
-      }
-    } catch (e) {
-      await this.rollbackArchive(session, originalStatus, conversationIds, newSession.id);
-      throw e;
-    }
-
-    /** 5. Agent reset，注入交接摘要作为上下文（B-CS-3）——最后执行，不可回滚 */
+    /** 4. Agent reset，注入交接摘要作为上下文（B-CS-3）——最后执行，不可回滚 */
     await this.agentGateway.reset(archivedSession.otterId, {
       context: { handoffSummary },
     });

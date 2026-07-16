@@ -87,16 +87,6 @@ export class SqliteConversationRepository implements ConversationRepository {
     }
   }
 
-  async updateActiveSessionId(
-    conversationId: string,
-    sessionId: string | null,
-  ): Promise<void> {
-    this.db.prepare(`
-      UPDATE conversations SET active_session_id = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(sessionId, conversationId);
-  }
-
   async getIdsByOtterId(otterId: string): Promise<string[]> {
     const rows = this.db.prepare(
       "SELECT conversation_id FROM conversation_otters WHERE otter_id = ?",

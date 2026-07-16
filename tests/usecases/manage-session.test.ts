@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ManageSession } from "@usecases/otter/manage-session";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { AgentGateway } from "@usecases/otter/agent-gateway";
-import type { ConversationQueryGateway, ConversationBindingGateway, MemoryLayerGateway } from "@usecases/otter/manage-session";
+import type { ConversationQueryGateway, MemoryLayerGateway } from "@usecases/otter/manage-session";
 import type { OtterSession, SessionHandoffSummary } from "@entities/otter/otter-session";
 
 function mockSession(overrides: Partial<OtterSession> = {}): OtterSession {
@@ -95,17 +95,6 @@ function mockConversationQuery(conversationIds: string[] = ["conv-1"]): Conversa
   };
 }
 
-/** 带状态追踪的 mock binding */
-function mockConversationBinding(): ConversationBindingGateway & { _bindings: Map<string, string | null> } {
-  const bindings = new Map<string, string | null>();
-  return {
-    _bindings: bindings,
-    updateActiveSessionId: vi.fn(async (conversationId: string, sessionId: string | null) => {
-      bindings.set(conversationId, sessionId);
-    }),
-  };
-}
-
 function mockMemoryLayer(): MemoryLayerGateway & { _transitions: Array<{ conversationId: string; from: string; to: string }> } {
   const transitions: Array<{ conversationId: string; from: string; to: string }> = [];
   return {
@@ -121,7 +110,7 @@ describe("ManageSession", () => {
     it("creates a session with handoffSummary: null (B14)", async () => {
       const repo = mockRepo();
       const session = await new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockConversationBinding(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
       ).createSession("otter-1");
 
       expect(session.handoffSummary).toBeNull();
@@ -133,7 +122,7 @@ describe("ManageSession", () => {
       const prevSession = mockSession({ id: "prev-sess", status: "archived" });
       const repo = mockRepo(prevSession);
       const session = await new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockConversationBinding(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
       ).createSession("otter-1");
 
       expect(session.previousSessionId).toBe("prev-sess");
@@ -143,7 +132,7 @@ describe("ManageSession", () => {
       const activeSession = mockSession();
       const repo = mockRepo(activeSession);
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockConversationBinding(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
       );
 
       await expect(ms.createSession("otter-1")).rejects.toThrow("already has an active session");
@@ -156,10 +145,9 @@ describe("ManageSession", () => {
       const repo = mockRepo(activeSession);
       const agentGateway = mockAgentGateway();
       const conversationQuery = mockConversationQuery(["conv-1", "conv-2"]);
-      const conversationBinding = mockConversationBinding();
       const memoryLayer = mockMemoryLayer();
 
-      const ms = new ManageSession(repo, agentGateway, conversationQuery, memoryLayer, conversationBinding);
+      const ms = new ManageSession(repo, agentGateway, conversationQuery, memoryLayer);
       const summary = mockHandoffSummary();
       const result = await ms.handoffSession("sess-1", summary, "token_threshold");
 
@@ -178,10 +166,6 @@ describe("ManageSession", () => {
         { conversationId: "conv-2", from: "working", to: "historical" },
       ]);
 
-      /** 更新对话绑定（通过状态追踪验证） */
-      expect(conversationBinding._bindings.get("conv-1")).toBe(result.newSession.id);
-      expect(conversationBinding._bindings.get("conv-2")).toBe(result.newSession.id);
-
       /** Agent reset: 仅 1 次，注入交接摘要上下文（BUG-1 修复：不再双重 reset） */
       expect(agentGateway._resetCalls).toHaveLength(1);
       expect(agentGateway._resetCalls[0].otterId).toBe("otter-1");
@@ -192,7 +176,7 @@ describe("ManageSession", () => {
       const activeSession = mockSession();
       const repo = mockRepo(activeSession);
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockConversationBinding(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
       );
       const summary = mockHandoffSummary();
       const result = await ms.handoffSession("sess-1", summary, "token_threshold");
@@ -206,7 +190,7 @@ describe("ManageSession", () => {
     it("throws if session not found", async () => {
       const repo = mockRepo(); // no session
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockConversationBinding(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
       );
 
       await expect(
@@ -218,7 +202,7 @@ describe("ManageSession", () => {
       const archivedSession = mockSession({ status: "archived" });
       const repo = mockRepo(archivedSession);
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockConversationBinding(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
       );
 
       await expect(
@@ -236,7 +220,7 @@ describe("ManageSession", () => {
       const blockingSession = mockSession({ id: "blocking-sess" });
       repo.getActiveSession = vi.fn(async () => blockingSession);
 
-      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, mockConversationBinding());
+      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer);
 
       await expect(
         ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
@@ -265,7 +249,7 @@ describe("ManageSession", () => {
       // Make setHandoffSummary throw
       repo.setHandoffSummary = vi.fn(async () => { throw new Error("DB write failed"); });
 
-      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, mockConversationBinding());
+      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer);
 
       await expect(
         ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
@@ -289,46 +273,5 @@ describe("ManageSession", () => {
       expect(agentGateway._resetCalls).toHaveLength(0);
     });
 
-    it("rolls back archive when conversationBinding fails", async () => {
-      const activeSession = mockSession();
-      const repo = mockRepo(activeSession);
-      const memoryLayer = mockMemoryLayer();
-      const agentGateway = mockAgentGateway();
-      const conversationBinding = mockConversationBinding();
-      conversationBinding.updateActiveSessionId = vi.fn(async () => { throw new Error("Binding failed"); });
-
-      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, conversationBinding);
-
-      await expect(
-        ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
-      ).rejects.toThrow("Binding failed");
-
-      // Session should be rolled back
-      const restored = repo._sessions.get("sess-1");
-      expect(restored?.status).toBe("active");
-
-      // Zombie new session should be cleaned up (BUG-3)
-      expect(repo._sessions.size).toBe(1);
-      expect(repo._sessions.has("sess-1")).toBe(true);
-
-      // No agent reset
-      expect(agentGateway._resetCalls).toHaveLength(0);
-    });
-  });
-
-  describe("archiveSession", () => {
-    it("does not update conversation bindings (only handoffSession does)", async () => {
-      const activeSession = mockSession();
-      const repo = mockRepo(activeSession);
-      const binding = mockConversationBinding();
-      const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), binding,
-      );
-
-      await ms.archiveSession("sess-1", { reason: "user", isNegativeCase: false });
-
-      /** archiveSession 不应更新绑定 */
-      expect(binding._bindings.size).toBe(0);
-    });
   });
 });
