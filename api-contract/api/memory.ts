@@ -7,7 +7,6 @@ export type DetailLevel = "summary" | "snippet" | "full";
 /** 记忆条目 DTO */
 export interface MemoryEntryDTO {
   id: string;
-  layer: string;
   contentType: string;
   sourceId: string;
   sourceTable: string;
@@ -32,11 +31,12 @@ export interface SearchResultDTO {
 export interface SearchQueryDTO {
   query: string;
   limit?: number;
-  layer?: string;
   granularity?: string;
   conversationId?: string;
   /** 渐进式披露：控制返回内容的详细程度 */
   detail_level?: DetailLevel;
+  /** 指定库 key，不传则全库搜索 */
+  library?: string;
 }
 
 /** 相似检索请求 DTO */

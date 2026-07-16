@@ -1,6 +1,5 @@
 import type {
   MemoryEntry,
-  MemoryLayer,
   RetrievalGranularity,
   DetailLevel,
 } from "@entities/memory/memory-entry";
@@ -10,6 +9,7 @@ import type {
   RetrievalSource,
   VecHit,
 } from "./memory-repository";
+import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { SearchEngine, RrfHit } from "./search-engine";
 import { logger } from "@frameworks/logger";
@@ -20,11 +20,12 @@ const SNIPPET_FALLBACK_LENGTH = 200;
 export interface SearchQuery {
   query: string;
   limit: number;
-  layer?: MemoryLayer;
   granularity?: RetrievalGranularity;
   conversationId?: string;
   /** 渐进式披露：控制返回内容的详细程度，默认 "snippet" */
   detailLevel?: DetailLevel;
+  /** 指定库 key，不传则全库搜索 */
+  library?: string;
 }
 
 export interface RetrievalResultEntry extends MemoryEntry {
@@ -44,12 +45,114 @@ export class SearchMemory {
     private readonly repo: MemoryRepository,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly searchEngine: SearchEngine,
+    private readonly terminologyRepo?: TerminologyRepository,
   ) {}
 
   async search(query: SearchQuery): Promise<RetrievalResult> {
+    /** 路由层：按 library 分发到各库的检索管道 */
+    if (query.library === "conversation") {
+      return this.searchConversation(query);
+    }
+    if (query.library === "terminology") {
+      return this.searchTerminologyLibrary(query);
+    }
+    if (query.library) {
+      throw new Error(`Unknown library: ${query.library}`);
+    }
+    /** 全库搜索：分别查各库，排名位置归一化混排 */
+    return this.searchAllLibraries(query);
+  }
+
+  /** 对话库检索（原有逻辑） */
+  private async searchConversation(query: SearchQuery): Promise<RetrievalResult> {
+    return this.searchConversationInternal(query);
+  }
+
+  /** 术语库检索 */
+  private async searchTerminologyLibrary(query: SearchQuery): Promise<RetrievalResult> {
+    if (!this.terminologyRepo) {
+      return { entries: [], total: 0 };
+    }
+    const results = await this.terminologyRepo.search(query.query, query.limit);
+    const entries: RetrievalResultEntry[] = results.map((entry, rank) => ({
+      id: entry.id,
+      contentType: "key_fact" as const,
+      sourceId: entry.id,
+      sourceTable: "terminology_entries",
+      conversationId: null,
+      granularity: "coarse" as const,
+      content: `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`,
+      metadata: { term: entry.term, aliases: entry.aliases, category: entry.category, examples: entry.examples },
+      createdAt: entry.createdAt,
+      score: 1.0 / (1 + rank),
+      source: "fts" as const,
+    }));
+    return { entries, total: entries.length };
+  }
+
+  /** 全库搜索：排名位置归一化混排 */
+  private async searchAllLibraries(query: SearchQuery): Promise<RetrievalResult> {
+    const allEntries: RetrievalResultEntry[] = [];
+
+    /** 对话库 */
+    const convResult = await this.searchConversationInternal(query);
+    for (const [rank, entry] of convResult.entries.entries()) {
+      allEntries.push({
+        ...entry,
+        normalizedScore: 1.0 / (1 + rank),
+        library: "conversation",
+        libraryPriority: 50,
+      } as RetrievalResultEntry & { normalizedScore: number; library: string; libraryPriority: number });
+    }
+
+    /** 术语库 */
+    if (this.terminologyRepo) {
+      const termResults = await this.terminologyRepo.search(query.query, query.limit);
+      for (const [rank, entry] of termResults.entries()) {
+        allEntries.push({
+          id: entry.id,
+          contentType: "key_fact" as const,
+          sourceId: entry.id,
+          sourceTable: "terminology_entries",
+          conversationId: null,
+          granularity: "coarse" as const,
+          content: `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`,
+          metadata: { term: entry.term, aliases: entry.aliases, category: entry.category, examples: entry.examples },
+          createdAt: entry.createdAt,
+          score: 1.0 / (1 + rank),
+          source: "fts" as const,
+          normalizedScore: 1.0 / (1 + rank),
+          library: "terminology",
+          libraryPriority: 100,
+        } as RetrievalResultEntry & { normalizedScore: number; library: string; libraryPriority: number });
+      }
+    }
+
+    /** 按归一化分数降序混排，同分时按库优先级排列 */
+    const typed = allEntries as (RetrievalResultEntry & { normalizedScore: number; libraryPriority: number })[];
+    typed.sort((a, b) =>
+      b.normalizedScore !== a.normalizedScore
+        ? b.normalizedScore - a.normalizedScore
+        : b.libraryPriority - a.libraryPriority,
+    );
+
+    const limit = query.limit ?? 10;
+    const top = typed.slice(0, limit);
+    /** 清理临时字段 */
+    const entries: RetrievalResultEntry[] = top.map(({ ...rest }) => {
+      const e = rest as RetrievalResultEntry & { normalizedScore?: number; library?: string; libraryPriority?: number };
+      delete e.normalizedScore;
+      delete e.library;
+      delete e.libraryPriority;
+      return e;
+    });
+
+    return { entries, total: entries.length };
+  }
+
+  private async searchConversationInternal(query: SearchQuery): Promise<RetrievalResult> {
     const detailLevel = query.detailLevel ?? "snippet";
     const filters: SearchFilters = {
-      layer: query.layer,
       granularity: query.granularity,
       conversationId: query.conversationId,
     };

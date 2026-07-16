@@ -10,6 +10,7 @@ export function initSchema(db: Database.Database): void {
   try {
     createConversationTables(db);
     createMemoryTables(db);
+    createTerminologyTables(db);
     createConversationInfoTables(db);
     createOtterTables(db);
     createTurnTables(db);
@@ -155,6 +156,41 @@ function createMemoryTables(db: Database.Database): void {
   } catch {
     // sqlite-vec 不可用时跳过
   }
+}
+
+/** 术语库：terminology_entries + terminology_fts */
+function createTerminologyTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS terminology_entries (
+      id TEXT PRIMARY KEY,
+      term TEXT NOT NULL,
+      aliases TEXT NOT NULL DEFAULT '[]',
+      aliases_flat TEXT NOT NULL DEFAULT '',
+      definition TEXT NOT NULL,
+      context TEXT,
+      examples TEXT,
+      category TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deprecated')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_terminology_term ON terminology_entries(term);
+    CREATE INDEX IF NOT EXISTS idx_terminology_status ON terminology_entries(status);
+    CREATE INDEX IF NOT EXISTS idx_terminology_category ON terminology_entries(category);
+  `);
+
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS terminology_fts USING fts5(
+      terminology_entry_id UNINDEXED,
+      term,
+      aliases_flat,
+      definition,
+      context,
+      tokenize = 'trigram'
+    );
+  `);
 }
 
 /** 对话关键信息：linked_resources + key_facts */

@@ -30,7 +30,10 @@ import { SearchEngine } from "@usecases/memory/search-engine";
 import { SearchMemory } from "@usecases/memory/search-memory";
 import { StoreMemory } from "@usecases/memory/store-memory";
 import { ManageMemory } from "@usecases/memory/manage-memory";
+import { ManageTerminology } from "@usecases/memory/manage-terminology";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-terminology-repository";
+import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
 import { CreateOtter } from "@usecases/otter/create-otter";
 import { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import { ManageSession } from "@usecases/otter/manage-session";
@@ -84,6 +87,7 @@ interface Repositories {
   otter: SqliteOtterRepository;
   otterContext: SqliteOtterContextRepository;
   memory: SqliteMemoryRepository;
+  terminology: SqliteTerminologyRepository;
   conversation: SqliteConversationRepository;
   settings: SqliteSettingsRepository;
 }
@@ -91,6 +95,7 @@ interface Repositories {
 interface UseCases {
   manageConversation: ManageConversation;
   manageMemory: ManageMemory;
+  manageTerminology: ManageTerminology;
   storeMemory: StoreMemory;
   searchMemory: SearchMemory;
   sendMessage: SendMessage;
@@ -109,6 +114,7 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
     otter: new SqliteOtterRepository(db),
     otterContext: new SqliteOtterContextRepository(db),
     memory: new SqliteMemoryRepository(db),
+    terminology: new SqliteTerminologyRepository(db),
     conversation: new SqliteConversationRepository(db),
     settings: new SqliteSettingsRepository(db),
   };
@@ -122,8 +128,9 @@ function initUseCases(
   const searchEngine = new SearchEngine(config.memory);
   const manageConversation = new ManageConversation(repos.conversation);
   const manageMemory = new ManageMemory(repos.memory);
+  const manageTerminology = new ManageTerminology(repos.terminology);
   const storeMemory = new StoreMemory(repos.memory, embeddingService);
-  const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine);
+  const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, repos.terminology);
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
   const sendMessage = new SendMessage(repos.conversation, memoryIndex);
   const queryMessage = new QueryMessage(repos.conversation);
@@ -137,7 +144,7 @@ function initUseCases(
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
   const manageContext = new ManageContext(repos.otterContext);
   return {
-    manageConversation, manageMemory, storeMemory, searchMemory,
+    manageConversation, manageMemory, manageTerminology, storeMemory, searchMemory,
     sendMessage, queryMessage, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
   };
@@ -176,8 +183,8 @@ function buildMemoryClient(uc: UseCases) {
       if (!entry) return null;
       return { id: entry.id, content: entry.content, score: 1, layer: entry.layer };
     },
-    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full") => {
-      const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel });
+    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string) => {
+      const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library });
       return result.entries.map(e => ({
         id: e.id,
         content: e.content,
@@ -228,6 +235,23 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
       },
     },
     memory: buildMemoryClient(uc),
+    terminology: {
+      search: async (query: string, limit?: number) => {
+        const results = await uc.manageTerminology.search(query, limit ?? 10);
+        return results.map(e => ({
+          id: e.id,
+          term: e.term,
+          definition: e.definition,
+          aliases: e.aliases,
+          category: e.category,
+          context: e.context,
+        }));
+      },
+      addTerm: async (params: { term: string; definition: string; aliases?: string[]; category?: string; context?: string }) => {
+        const entry = await uc.manageTerminology.addTerm(params);
+        return { id: entry.id, term: entry.term };
+      },
+    },
     otter: {
       create: (params) => uc.createOtter.execute(params),
       dissolve: (id) => uc.dissolveOtter.execute(id),
@@ -281,6 +305,9 @@ function startServer(
 async function main(): Promise<void> {
   const db = initDatabase(config.db);
   initSchema(db);
+
+  /** 种子数据：术语库首次初始化时导入核心术语 */
+  seedTerminologyData(db);
 
   const { models, model } = await initModels(config.llm);
   const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);

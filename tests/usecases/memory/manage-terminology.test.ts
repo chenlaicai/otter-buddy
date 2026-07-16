@@ -1,0 +1,344 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import Database from "better-sqlite3";
+import { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-terminology-repository";
+import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
+import { ManageTerminology } from "@usecases/memory/manage-terminology";
+import { SearchMemory } from "@usecases/memory/search-memory";
+import { SearchEngine } from "@usecases/memory/search-engine";
+import type { TerminologyEntry } from "@entities/memory/terminology-entry";
+import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+
+/** 创建内存 SQLite 数据库 + 初始化 terminology schema */
+function createTestDb(): Database.Database {
+  const db = new Database(":memory:");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS terminology_entries (
+      id TEXT PRIMARY KEY,
+      term TEXT NOT NULL,
+      aliases TEXT NOT NULL DEFAULT '[]',
+      aliases_flat TEXT NOT NULL DEFAULT '',
+      definition TEXT NOT NULL,
+      context TEXT,
+      examples TEXT,
+      category TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deprecated')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_terminology_term ON terminology_entries(term);
+    CREATE INDEX IF NOT EXISTS idx_terminology_status ON terminology_entries(status);
+    CREATE INDEX IF NOT EXISTS idx_terminology_category ON terminology_entries(category);
+    CREATE VIRTUAL TABLE IF NOT EXISTS terminology_fts USING fts5(
+      terminology_entry_id UNINDEXED,
+      term,
+      aliases_flat,
+      definition,
+      context,
+      tokenize = 'trigram'
+    );
+    CREATE TABLE IF NOT EXISTS memory_entries (
+      id TEXT PRIMARY KEY,
+      layer TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_table TEXT NOT NULL,
+      conversation_id TEXT,
+      granularity TEXT NOT NULL DEFAULT 'fine',
+      content TEXT NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS memory_weights (
+      memory_entry_id TEXT PRIMARY KEY,
+      retrieval_count INTEGER NOT NULL DEFAULT 0,
+      last_retrieved_at TEXT,
+      user_flagged INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+      memory_entry_id UNINDEXED,
+      content,
+      tokenize = 'trigram'
+    );
+  `);
+  return db;
+}
+
+function mockEmbeddingGateway(): EmbeddingGateway {
+  return {
+    embed: async () => {
+      throw new Error("Embedding not available in test");
+    },
+  };
+}
+
+const SAMPLE_ENTRY: TerminologyEntry = {
+  id: "term-1",
+  term: "大獭",
+  aliases: ["Big Otter"],
+  definition: "用户唯一持久 Otter，带有独占能力",
+  context: null,
+  examples: null,
+  category: "实体",
+  status: "active",
+  createdAt: "2026-07-09T00:00:00Z",
+  updatedAt: "2026-07-09T00:00:00Z",
+  version: 1,
+};
+
+describe("ManageTerminology - CRUD", () => {
+  let db: Database.Database;
+  let repo: SqliteTerminologyRepository;
+  let manageTerminology: ManageTerminology;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteTerminologyRepository(db);
+    manageTerminology = new ManageTerminology(repo);
+  });
+
+  it("addTerm 创建新术语，version=1", async () => {
+    const entry = await manageTerminology.addTerm({
+      term: "大獭",
+      definition: "用户唯一持久 Otter，带有独占能力",
+      aliases: ["Big Otter"],
+      category: "实体",
+    });
+
+    expect(entry.id).toBeDefined();
+    expect(entry.term).toBe("大獭");
+    expect(entry.version).toBe(1);
+    expect(entry.status).toBe("active");
+  });
+
+  it("updateTerm 更新术语，version 递增", async () => {
+    const entry = await manageTerminology.addTerm({
+      term: "大獭",
+      definition: "旧定义",
+    });
+
+    const updated = await manageTerminology.updateTerm(entry.id, {
+      definition: "新定义",
+    });
+
+    expect(updated.version).toBe(2);
+    expect(updated.definition).toBe("新定义");
+    expect(updated.term).toBe("大獭");
+  });
+
+  it("updateTerm 不存在的术语抛出错误", async () => {
+    await expect(
+      manageTerminology.updateTerm("nonexistent", { definition: "x" }),
+    ).rejects.toThrow(/not found/);
+  });
+
+  it("updateTerm deprecated 术语抛出错误", async () => {
+    const entry = await manageTerminology.addTerm({
+      term: "旧术语",
+      definition: "旧定义",
+    });
+    await manageTerminology.deprecateTerm(entry.id);
+
+    await expect(
+      manageTerminology.updateTerm(entry.id, { definition: "新定义" }),
+    ).rejects.toThrow(/deprecated/);
+  });
+
+  it("deprecateTerm 标记术语为 deprecated", async () => {
+    const entry = await manageTerminology.addTerm({
+      term: "大獭",
+      definition: "定义",
+    });
+
+    await manageTerminology.deprecateTerm(entry.id);
+
+    const deprecated = await manageTerminology.getById(entry.id);
+    expect(deprecated?.status).toBe("deprecated");
+  });
+
+  it("deprecateTerm 已经 deprecated 的术语不报错", async () => {
+    const entry = await manageTerminology.addTerm({
+      term: "大獭",
+      definition: "定义",
+    });
+    await manageTerminology.deprecateTerm(entry.id);
+    await manageTerminology.deprecateTerm(entry.id);
+
+    const deprecated = await manageTerminology.getById(entry.id);
+    expect(deprecated?.status).toBe("deprecated");
+  });
+
+  it("deprecateTerm 不存在的术语抛出错误", async () => {
+    await expect(
+      manageTerminology.deprecateTerm("nonexistent"),
+    ).rejects.toThrow(/not found/);
+  });
+});
+
+describe("ManageTerminology - 检索策略", () => {
+  let db: Database.Database;
+  let repo: SqliteTerminologyRepository;
+  let manageTerminology: ManageTerminology;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteTerminologyRepository(db);
+    manageTerminology = new ManageTerminology(repo);
+
+    /** 预置测试数据 */
+    await repo.add(SAMPLE_ENTRY);
+    await repo.add({
+      id: "term-2",
+      term: "小獭",
+      aliases: ["Small Otter"],
+      definition: "大獭按需创建的临时 Otter",
+      context: null,
+      examples: null,
+      category: "实体",
+      status: "active",
+      createdAt: "2026-07-09T00:00:00Z",
+      updatedAt: "2026-07-09T00:00:00Z",
+      version: 1,
+    });
+    await repo.add({
+      id: "term-3",
+      term: "重启獭生",
+      aliases: ["Restart Otter Life"],
+      definition: "用户表达不满时触发的 Otter 个体内部机制",
+      context: "封存当前 session 为反面案例",
+      examples: null,
+      category: "机制",
+      status: "active",
+      createdAt: "2026-07-09T00:00:00Z",
+      updatedAt: "2026-07-09T00:00:00Z",
+      version: 1,
+    });
+  });
+
+  it("精确匹配：输入完整术语名直接返回", async () => {
+    const results = await manageTerminology.search("大獭", 10);
+    expect(results.length).toBe(1);
+    expect(results[0].term).toBe("大獭");
+  });
+
+  it("精确匹配：输入别名返回对应术语", async () => {
+    const results = await manageTerminology.search("Big Otter", 10);
+    expect(results.length).toBe(1);
+    expect(results[0].term).toBe("大獭");
+  });
+
+  it("前缀匹配：输入术语名前缀返回匹配条目", async () => {
+    const results = await manageTerminology.search("重启", 10);
+    expect(results.length).toBe(1);
+    expect(results[0].term).toBe("重启獭生");
+  });
+
+  it("全文搜索：输入描述性文本通过 definition 反查术语", async () => {
+    const results = await manageTerminology.search("按需创建", 10);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].term).toBe("小獭");
+  });
+
+  it("deprecated 术语不出现在检索结果中", async () => {
+    await manageTerminology.deprecateTerm("term-1");
+
+    const results = await manageTerminology.search("大獭", 10);
+    expect(results.length).toBe(0);
+  });
+
+  it("三种检索路径按优先级串联：精确 > 前缀 > 全文", async () => {
+    /** 精确匹配优先 */
+    const results = await manageTerminology.search("大獭", 10);
+    expect(results.length).toBe(1);
+    expect(results[0].term).toBe("大獭");
+  });
+});
+
+describe("TerminologyRepository - 种子数据", () => {
+  it("seed 在表为空时导入数据", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    await repo.seed([SAMPLE_ENTRY]);
+
+    const entry = await repo.getByTerm("大獭");
+    expect(entry).not.toBeNull();
+    expect(entry?.term).toBe("大獭");
+  });
+
+  it("seed 在表非空时不重复导入", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    await repo.seed([SAMPLE_ENTRY]);
+    await repo.seed([{
+      ...SAMPLE_ENTRY,
+      id: "term-dup",
+      definition: "重复定义",
+    }]);
+
+    const entry = await repo.getByTerm("大獭");
+    expect(entry?.id).toBe("term-1");
+    expect(entry?.definition).toBe("用户唯一持久 Otter，带有独占能力");
+  });
+});
+
+describe("SearchMemory - library 路由", () => {
+  let db: Database.Database;
+  let termRepo: SqliteTerminologyRepository;
+  let searchMemory: SearchMemory;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    termRepo = new SqliteTerminologyRepository(db);
+    const memoryRepo = new SqliteMemoryRepository(db);
+    const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    searchMemory = new SearchMemory(memoryRepo, mockEmbeddingGateway(), searchEngine, termRepo);
+
+    await termRepo.add(SAMPLE_ENTRY);
+  });
+
+  it("library=terminology 路由到术语库检索", async () => {
+    const result = await searchMemory.search({
+      query: "大獭",
+      limit: 10,
+      library: "terminology",
+    });
+
+    expect(result.entries.length).toBe(1);
+    expect(result.entries[0].content).toContain("大獭");
+    expect(result.entries[0].content).toContain("用户唯一持久 Otter");
+  });
+
+  it("library=conversation 路由到对话库检索", async () => {
+    const result = await searchMemory.search({
+      query: "大獭",
+      limit: 10,
+      library: "conversation",
+    });
+
+    /** 对话库为空，应返回 0 结果 */
+    expect(result.entries.length).toBe(0);
+  });
+
+  it("不传 library 时全库搜索混排", async () => {
+    const result = await searchMemory.search({
+      query: "大獭",
+      limit: 10,
+    });
+
+    /** 术语库有数据，对话库为空 */
+    expect(result.entries.length).toBeGreaterThan(0);
+    expect(result.entries[0].content).toContain("大獭");
+  });
+
+  it("library 传入未知值抛出错误", async () => {
+    await expect(
+      searchMemory.search({
+        query: "大獭",
+        limit: 10,
+        library: "unknown",
+      }),
+    ).rejects.toThrow(/Unknown library/);
+  });
+});

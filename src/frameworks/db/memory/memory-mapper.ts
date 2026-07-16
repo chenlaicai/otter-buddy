@@ -1,7 +1,6 @@
 import type {
   MemoryContentType,
   MemoryEntry,
-  MemoryLayer,
   MemoryWeight,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
@@ -44,7 +43,6 @@ export interface FtsHighlightRow extends MemoryEntryRow {
 export function rowToMemoryEntry(row: MemoryEntryRow): MemoryEntry {
   return {
     id: row.id,
-    layer: row.layer as MemoryLayer,
     contentType: row.content_type as MemoryContentType,
     sourceId: row.source_id,
     sourceTable: row.source_table,

@@ -54,7 +54,7 @@ function storeEntry(db: Database.Database, entry: MemoryEntry): void {
       conversation_id, granularity, content, metadata, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    entry.id, entry.layer, entry.contentType, entry.sourceId, entry.sourceTable,
+    entry.id, '', entry.contentType, entry.sourceId, entry.sourceTable,
     entry.conversationId ?? null, entry.granularity, entry.content,
     entry.metadata ? JSON.stringify(entry.metadata) : null, entry.createdAt,
   );
@@ -65,7 +65,6 @@ function storeEntry(db: Database.Database, entry: MemoryEntry): void {
 }
 
 const BASE_ENTRY: Omit<MemoryEntry, "id" | "content"> = {
-  layer: "working",
   contentType: "message",
   sourceId: "src-1",
   sourceTable: "messages",
@@ -159,7 +158,6 @@ describe("SearchMemory - progressive disclosure", () => {
       storeEmbedding: async () => {},
       incrementRetrievalCounts: async () => {},
       flagMemory: async () => {},
-      updateLayerByConversation: async () => {},
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {

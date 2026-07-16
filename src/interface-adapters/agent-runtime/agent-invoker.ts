@@ -179,7 +179,6 @@ export class AgentInvoker {
       const result = await this.searchMemory.search({
         query: userMessage,
         limit: 10,
-        layer: "working",
         detailLevel: "snippet",
       });
       if (result.entries.length > 0) {

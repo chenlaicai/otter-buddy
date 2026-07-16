@@ -112,7 +112,7 @@ describe("OtterDTO", () => {
 describe("MemoryDTO", () => {
   it("maps memory entry to DTO with score and source", () => {
     const entry: MemoryEntry = {
-      id: "mem-1", layer: "working", contentType: "message",
+      id: "mem-1", contentType: "message",
       sourceId: "msg-1", sourceTable: "messages", conversationId: "conv-1",
       granularity: "fine", content: "Hello", metadata: null,
       createdAt: "2026-07-16T00:00:00Z",

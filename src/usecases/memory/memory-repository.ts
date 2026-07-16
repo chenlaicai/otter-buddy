@@ -1,12 +1,10 @@
 import type {
   MemoryEntry,
   MemoryWeight,
-  MemoryLayer,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
 
 export interface SearchFilters {
-  layer?: MemoryLayer;
   granularity?: RetrievalGranularity;
   conversationId?: string;
 }
@@ -61,9 +59,4 @@ export interface MemoryRepository {
   // 更新
   incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void>;
   flagMemory(memoryEntryId: string, flagged: boolean): Promise<void>;
-  updateLayerByConversation(
-    conversationId: string,
-    from: MemoryLayer,
-    to: MemoryLayer,
-  ): Promise<void>;
 }

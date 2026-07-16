@@ -253,7 +253,7 @@ describe("SettingsController", () => {
 
 describe("MemoryController", () => {
   const mockEntry: MemoryEntry = {
-    id: "e1", layer: "working", contentType: "message",
+    id: "e1", contentType: "message",
     sourceId: "src-1", sourceTable: "messages", conversationId: null,
     granularity: "fine", content: "测试记忆内容", metadata: null,
     createdAt: "2026-07-16T00:00:00Z",
