@@ -17,7 +17,8 @@ export class MessageController {
   async list(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
-      const limit = Number(c.req.query("limit") ?? "50");
+      const rawLimit = Number(c.req.query("limit") ?? "50");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
       const before = c.req.query("before");
       const messages = await this.queryMessage.getMessages(conversationId, {
         limit,
@@ -34,9 +35,15 @@ export class MessageController {
       const conversationId = param(c, "id");
       const body = await c.req.json<SendMessageRequestDTO>();
 
-      /** 1. 校验 talkingStonePassedTo 非空（在写入 DB 之前，避免孤儿消息） */
+      /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息） */
       if (!body.talkingStonePassedTo || body.talkingStonePassedTo.length === 0) {
         return c.json({ error: "talkingStonePassedTo must be non-empty" }, 400);
+      }
+      if (!body.senderId) {
+        return c.json({ error: "senderId is required" }, 400);
+      }
+      if (!body.body) {
+        return c.json({ error: "body is required" }, 400);
       }
 
       /** 2. 创建用户消息（completed 状态） */
@@ -56,7 +63,7 @@ export class MessageController {
         this.agentInvoker.abort(otterId, "");
       });
 
-      /** 4. 异步驱动 Agent 对话（不 await） */
+      /** 5. 异步驱动 Agent 对话（不 await） */
       this.agentInvoker.invokeConversation({
         otterId,
         conversationId,

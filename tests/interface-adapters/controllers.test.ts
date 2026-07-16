@@ -170,6 +170,59 @@ describe("MessageController", () => {
   });
 });
 
+describe("MessageController sendMessage validation", () => {
+  function createApp(controller: MessageController): Hono {
+    const app = new Hono();
+    app.post("/api/conversations/:id/messages", (c) => controller.sendMessage(c));
+    return app;
+  }
+
+  it("returns 400 when talkingStonePassedTo is empty", async () => {
+    const ctrl = new MessageController(
+      {} as SendMessage,
+      {} as QueryMessage,
+      {} as AgentInvoker,
+    );
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/conv-1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderId: "user-1", talkingStonePassedTo: [], body: "Hi" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when senderId is missing", async () => {
+    const ctrl = new MessageController(
+      {} as SendMessage,
+      {} as QueryMessage,
+      {} as AgentInvoker,
+    );
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/conv-1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ talkingStonePassedTo: ["otter-1"], body: "Hi" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when body is missing", async () => {
+    const ctrl = new MessageController(
+      {} as SendMessage,
+      {} as QueryMessage,
+      {} as AgentInvoker,
+    );
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/conv-1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderId: "user-1", talkingStonePassedTo: ["otter-1"] }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("SettingsController", () => {
   it("returns config values", async () => {
     const ctrl = new SettingsController({
