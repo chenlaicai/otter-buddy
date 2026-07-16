@@ -174,7 +174,7 @@ export class ManageSession {
     reason: string,
   ): Promise<HandoffResult> {
     /** 1. 归档当前 Session（不含 Agent reset，由最后一步统一执行） */
-    const { session, archivedAt, conversationIds, originalStatus } =
+    const { session, targetStatus, archivedAt, conversationIds, originalStatus } =
       await this.archiveSessionCore(sessionId, {
         reason,
         isNegativeCase: false,
@@ -182,7 +182,7 @@ export class ManageSession {
 
     const archivedSession: OtterSession = {
       ...session,
-      status: archiveReasonToSessionStatus(reason),
+      status: targetStatus,
       archivedAt,
       archiveReason: reason,
       isNegativeCase: false,

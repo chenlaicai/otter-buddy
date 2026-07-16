@@ -153,6 +153,7 @@ describe("ManageSession", () => {
 
       /** 归档旧 session */
       expect(result.archivedSession.status).toBe("archived");
+      expect(result.archivedSession.archivedAt).toBeTruthy();
       expect(result.archivedSession.archiveReason).toBe("token_threshold");
 
       /** 创建新 session */
