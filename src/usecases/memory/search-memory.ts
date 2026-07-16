@@ -143,7 +143,7 @@ export class SearchMemory {
         ...h.entry,
         score: h.finalScore,
         source: h.source,
-        ...this.buildSnippet(h.entry, h.source, detailLevel, snippetMap),
+        ...this.buildSnippet(h.entry, detailLevel, snippetMap),
       })),
       total: top.length,
     };
@@ -152,7 +152,6 @@ export class SearchMemory {
   /** 根据 detail_level 构建返回内容 */
   private buildSnippet(
     entry: MemoryEntry,
-    source: RetrievalSource,
     detailLevel?: DetailLevel,
     snippetMap?: Map<string, string | undefined>,
   ): { snippet?: string } {

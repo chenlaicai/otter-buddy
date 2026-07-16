@@ -25,6 +25,7 @@ function escapeFtsQuery(query: string): string {
 }
 
 const DEFAULT_FTS_LIMIT = 50;
+const MAX_GET_DETAILS_BATCH = 100;
 
 export class SqliteMemoryRepository implements MemoryRepository {
   private readonly db: Database.Database;
@@ -111,6 +112,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   async getDetails(ids: string[]): Promise<MemoryEntry[]> {
     if (ids.length === 0) return [];
+    if (ids.length > MAX_GET_DETAILS_BATCH) {
+      throw new Error(`getDetails batch size ${ids.length} exceeds limit ${MAX_GET_DETAILS_BATCH}`);
+    }
     const placeholders = ids.map(() => "?").join(",");
     const rows = this.db.prepare(
       `SELECT * FROM memory_entries WHERE id IN (${placeholders})`,
