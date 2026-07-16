@@ -117,9 +117,9 @@ pi-agent-core
 | `pi-harness-factory.ts` | 363 | 冷启动工厂、harness 创建、compaction 触发 |
 | `system-prompt-builder.ts` | 38 | 动态 system prompt 组合 |
 | `agent-session-store.ts` | 42 | Otter ID ↔ Pi Session ID 映射 |
-| `tool-factory.ts` | 418 | 8 个 AgentTool 创建 |
+| `tool-factory.ts` | 487 | 8 个 AgentTool 创建 |
 | `skill-loader.ts` | 72 | Skills 扫描和按 Otter 类型过滤（已实现，未接入） |
-| **总计** | **933** | 全部自建 |
+| **总计** | **1002** | 全部自建 |
 
 ### 3.3 自建能力清单
 
@@ -268,14 +268,14 @@ session.getTools();                    // 获取工具列表
 
 | 维度 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |------|------------------------|------------------------------|
-| 初始集成 | 已完成（933 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
+| 初始集成 | 已完成（1002 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
 | Session 管理 | Pi 原生 + 自建映射 | 内置 SessionManager |
 | Compaction | 自建触发逻辑（~30 行） | 内置自动 compaction |
 | Skills 体系 | 已实现 SkillLoader（72 行），需接线到 Agent | 内置 loadSkills |
 | Extensions | 需要从零设计 | 内置 ExtensionRuntime |
 | 工具系统 | 自建 ToolFactory（~418 行） | customTools 注入 + tools 配置 |
 | 事件流 | 自建映射（~50 行） | AgentSessionEvent 直接映射 |
-| **总自建代码量** | **933 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
+| **总自建代码量** | **1002 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
 
 ### 5.2 运行时性能
 
@@ -411,7 +411,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 
 | 评估维度 | 权重 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |---------|------|------------------------|------------------------------|
-| 初始开发成本 | 中 | ✅ 已完成（933 行） | ⚠️ 需要重写（~200 行） |
+| 初始开发成本 | 中 | ✅ 已完成（1002 行） | ⚠️ 需要重写（~200 行） |
 | 后续开发成本 | 高 | ⚠️ 需接线 Skills + 自建 Extensions | ✅ 内置能力丰富 |
 | 运行时性能 | 中 | ✅ 更轻量 | ⚠️ Extensions 初始化开销 |
 | 架构适配度 | 高 | ✅ 完全可控 | ⚠️ 需要适配层，但无架构不兼容 |
