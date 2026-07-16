@@ -1,6 +1,6 @@
 import { Search, Plus } from 'lucide-react'
-import type { Conversation, Otter } from '../../mock/data'
-import { getOtterColor } from '../../mock/data'
+import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
+import { getOtterColor } from '../../lib/otter-colors'
 
 interface LeftPanelProps {
   conversations: Conversation[]

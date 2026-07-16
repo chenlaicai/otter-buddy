@@ -4,8 +4,7 @@ import '../../styles/globals.css'
 
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
-
-// TODO: API contract not yet defined - all data is mocked
+import * as api from '../../api/client'
 
 const modelsByProvider: Record<string, string[]> = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
@@ -19,13 +18,21 @@ function SettingsPage() {
   const [apiKey, setApiKey] = useState('')
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
-  const [halfLife, setHalfLife] = useState('7')
   const [saving, setSaving] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
+  const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingDim: number } | null>(null)
 
-  function markUnsaved() {
-    setHasUnsaved(true)
-  }
+  useEffect(() => {
+    api.getSettings()
+      .then(s => {
+        setProvider(s.provider)
+        setModel(s.model)
+        setSettingsInfo({ port: s.port, dbPath: s.dbPath, embeddingModelPath: s.embeddingModelPath, embeddingDim: s.embeddingDim })
+      })
+      .catch(() => showToast('加载设置失败', 'error'))
+  }, [])
+
+  function markUnsaved() { setHasUnsaved(true) }
 
   function updateModels(p: string) {
     setProvider(p)
@@ -46,21 +53,22 @@ function SettingsPage() {
     }, 1200)
   }
 
-  function saveSettings() {
+  async function saveSettings() {
     setSaving(true)
-    setTimeout(() => {
-      setSaving(false)
+    try {
+      await api.updateSettings({ provider, model })
       setHasUnsaved(false)
       showToast('设置已保存', 'success')
-    }, 800)
+    } catch {
+      showToast('保存失败', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   useEffect(() => {
     function handleBeforeUnload(e: BeforeUnloadEvent) {
-      if (hasUnsaved) {
-        e.preventDefault()
-        e.returnValue = '有未保存的变更'
-      }
+      if (hasUnsaved) { e.preventDefault(); e.returnValue = '有未保存的变更' }
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
@@ -126,31 +134,11 @@ function SettingsPage() {
               <div className="space-y-2">
                 <div className="flex justify-between items-center py-2 border-b border-white/30">
                   <span className="text-sm text-stone-500">服务端口</span>
-                  <span className="text-sm text-stone-400">3000 (只读)</span>
+                  <span className="text-sm text-stone-400">{settingsInfo?.port ?? '...'} (只读)</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-white/30">
                   <span className="text-sm text-stone-500">数据库路径</span>
-                  <span className="text-sm text-stone-400">./otter-buddy.db (只读)</span>
-                </div>
-              </div>
-            </section>
-
-            {/* Memory Params */}
-            <section className="mb-8">
-              <h2 className="text-sm font-semibold text-stone-600 mb-4">记忆参数</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-stone-500 mb-1.5">时间衰减半衰期 (天)</label>
-                  <input
-                    type="number"
-                    value={halfLife}
-                    onChange={e => { setHalfLife(e.target.value); markUnsaved() }}
-                    className="form-input w-full"
-                  />
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-white/30">
-                  <span className="text-sm text-stone-500">权重系数</span>
-                  <span className="text-xs text-stone-400">time_decay × frequency × task_relevance × user_flag (只读)</span>
+                  <span className="text-sm text-stone-400">{settingsInfo?.dbPath ?? '...'} (只读)</span>
                 </div>
               </div>
             </section>
@@ -161,11 +149,11 @@ function SettingsPage() {
               <div className="space-y-2">
                 <div className="flex justify-between items-center py-2 border-b border-white/30">
                   <span className="text-sm text-stone-500">模型</span>
-                  <span className="text-sm text-stone-400">Xenova/bge-m3</span>
+                  <span className="text-sm text-stone-400">{settingsInfo?.embeddingModelPath ?? '...'}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-white/30">
                   <span className="text-sm text-stone-500">维度</span>
-                  <span className="text-sm text-stone-400">1024</span>
+                  <span className="text-sm text-stone-400">{settingsInfo?.embeddingDim ?? '...'}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-white/30">
                   <span className="text-sm text-stone-500">加载状态</span>

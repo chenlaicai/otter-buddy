@@ -73,6 +73,9 @@ export interface ConversationRepository {
   linkResource(resource: LinkedResource): Promise<void>;
   getKeyFacts(conversationId: string): Promise<KeyFact[]>;
   getLinkedResources(conversationId: string): Promise<LinkedResource[]>;
+  deleteKeyFact(id: string): Promise<void>;
+  flagKeyFact(id: string, flagged: boolean): Promise<void>;
+  deleteLinkedResource(id: string): Promise<void>;
 
   // Participant 管理（UA-4~UA-10）
   createParticipant(participant: ConversationParticipant): Promise<void>;

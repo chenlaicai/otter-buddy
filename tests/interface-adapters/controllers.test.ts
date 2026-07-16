@@ -14,6 +14,7 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Conversation } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import type { SearchMemory } from "@usecases/memory/search-memory";
@@ -228,11 +229,17 @@ describe("MessageController sendMessage validation", () => {
 });
 
 describe("SettingsController", () => {
+  const mockSettingsRepo: SettingsRepository = {
+    get: async () => null,
+    update: async () => {},
+    getAll: async () => ({}),
+  };
+
   it("returns config values", async () => {
     const ctrl = new SettingsController({
       provider: "openai", model: "gpt-4o", port: 3000,
       dbPath: "./otter-buddy.db", embeddingModelPath: "Xenova/bge-m3", embeddingDim: 1024,
-    });
+    }, mockSettingsRepo);
     const app = new Hono();
     app.get("/api/settings", (c) => ctrl.getSettings(c));
     const res = await app.request("/api/settings");

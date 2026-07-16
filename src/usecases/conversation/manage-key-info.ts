@@ -88,4 +88,16 @@ export class ManageKeyInfo {
     ]);
     return { keyFacts, linkedResources };
   }
+
+  async deleteKeyFact(id: string): Promise<void> {
+    await this.repo.deleteKeyFact(id);
+  }
+
+  async flagKeyFact(id: string, flagged: boolean): Promise<void> {
+    await this.repo.flagKeyFact(id, flagged);
+  }
+
+  async deleteLinkedResource(id: string): Promise<void> {
+    await this.repo.deleteLinkedResource(id);
+  }
 }

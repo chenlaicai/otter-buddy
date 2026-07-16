@@ -355,6 +355,18 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(rowToLinkedResource);
   }
 
+  async deleteKeyFact(id: string): Promise<void> {
+    this.db.prepare("DELETE FROM key_facts WHERE id = ?").run(id);
+  }
+
+  async flagKeyFact(id: string, flagged: boolean): Promise<void> {
+    this.db.prepare("UPDATE key_facts SET user_flagged = ? WHERE id = ?").run(flagged ? 1 : 0, id);
+  }
+
+  async deleteLinkedResource(id: string): Promise<void> {
+    this.db.prepare("DELETE FROM linked_resources WHERE id = ?").run(id);
+  }
+
   // ── Participant 管理 ──
 
   async createParticipant(participant: ConversationParticipant): Promise<void> {

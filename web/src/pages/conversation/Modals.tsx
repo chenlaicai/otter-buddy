@@ -1,7 +1,13 @@
 import { useState } from 'react'
 import { Modal, ModalButton } from '../../components/Modal'
-import type { Otter, OtterSession, Skill } from '../../mock/data'
-import { skills as mockSkills } from '../../mock/data'
+import type { LocalOtter as Otter, LocalOtterSession as OtterSession } from '../../lib/mappers'
+
+interface Skill { id: string; name: string; desc: string; type: string; assignedTo: string[] }
+const mockSkills: Skill[] = [
+  { id: 'sk1', name: 'code-review', desc: '代码审查能力', type: 'tool', assignedTo: [] },
+  { id: 'sk2', name: 'deep-research', desc: '深度研究能力', type: 'workflow', assignedTo: [] },
+  { id: 'sk3', name: 'summary-template', desc: '摘要模板', type: 'prompt_template', assignedTo: [] },
+]
 
 export type ModalState =
   | { type: 'none' }

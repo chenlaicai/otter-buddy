@@ -18,6 +18,7 @@ import { ToolRegistry } from "@frameworks/agent/tool-registry";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
+import { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-settings-repository";
 
 import { ManageConversation } from "@usecases/conversation/manage-conversation";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
@@ -82,6 +83,7 @@ interface Repositories {
   otter: SqliteOtterRepository;
   memory: SqliteMemoryRepository;
   conversation: SqliteConversationRepository;
+  settings: SqliteSettingsRepository;
 }
 
 interface UseCases {
@@ -104,6 +106,7 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
     otter: new SqliteOtterRepository(db),
     memory: new SqliteMemoryRepository(db),
     conversation: new SqliteConversationRepository(db),
+    settings: new SqliteSettingsRepository(db),
   };
 }
 
@@ -139,6 +142,7 @@ function initControllers(
   uc: UseCases,
   agentInvoker: AgentInvoker,
   settings: SettingsConfig,
+  settingsRepo: SqliteSettingsRepository,
 ) {
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant),
@@ -146,7 +150,7 @@ function initControllers(
     message: new MessageController(uc.sendMessage, uc.queryMessage, agentInvoker),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory),
     keyInfo: new KeyInfoController(uc.manageKeyInfo),
-    settings: new SettingsController(settings),
+    settings: new SettingsController(settings, settingsRepo),
   };
 }
 
@@ -201,7 +205,7 @@ async function main(): Promise<void> {
     embeddingDim: config.embedding.dimensions,
   };
 
-  const controllers = initControllers(uc, agentInvoker, settings);
+  const controllers = initControllers(uc, agentInvoker, settings, repos.settings);
   startServer(controllers, config.server.port);
 
   process.on("SIGINT", () => {

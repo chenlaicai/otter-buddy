@@ -1,8 +1,8 @@
 import { useRef, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Square } from 'lucide-react'
-import type { Message, Otter } from '../../mock/data'
-import { getOtterColor } from '../../mock/data'
+import type { LocalMessage as Message, LocalOtter as Otter } from '../../lib/mappers'
+import { getOtterColor } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent } from '../../lib/utils'
 
 interface MessageListProps {

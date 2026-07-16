@@ -10,7 +10,8 @@
       "@entities/*": ["src/entities/*"],
       "@usecases/*": ["src/usecases/*"],
       "@interface-adapters/*": ["src/interface-adapters/*"],
-      "@frameworks/*": ["src/frameworks/*"]
+      "@frameworks/*": ["src/frameworks/*"],
+      "@contract/*": ["api-contract/*"]
     },
     "strict": true,
     "esModuleInterop": true,
@@ -23,6 +24,6 @@
     "sourceMap": true,
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/**/*", "tests/**/*"],
+  "include": ["src/**/*", "tests/**/*", "api-contract/**/*"],
   "exclude": ["node_modules", "dist", "reference/**"]
 }
