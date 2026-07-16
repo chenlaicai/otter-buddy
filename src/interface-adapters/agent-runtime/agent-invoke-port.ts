@@ -15,6 +15,7 @@ export interface AgentStreamEvent {
 export interface AgentRunResult {
   text: string;
   tokenUsage?: { input: number; output: number };
+  ctxMax?: number;
 }
 
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */

@@ -98,6 +98,10 @@ export class MessageController {
       if (!msg) {
         return c.json({ error: "Message not found" }, 404);
       }
+      /** 仅 Otter 消息可被中止（用户消息已完成，无 Agent 在运行） */
+      if (msg.senderType !== "otter") {
+        return c.json({ error: "Can only abort otter messages" }, 400);
+      }
       this.agentInvoker.abort(msg.senderId, id);
       return c.json({ status: "aborted" }, 202);
     } catch (err) {

@@ -33,6 +33,7 @@ export interface AgentEvent {
 export interface AgentRunResult {
   text: string;
   tokenUsage?: { input: number; output: number };
+  ctxMax?: number;
 }
 
 /** invoke() 选项 */
@@ -123,6 +124,17 @@ export class PiHarnessFactory implements AgentGateway {
   }
 
   async destroy(otterId: string): Promise<void> {
+    /** 中止正在运行的 harness，防止 Agent 在 Otter 销毁后继续运行 */
+    const activeEntry = this.activeHarnesses.get(otterId);
+    if (activeEntry) {
+      try {
+        activeEntry.abort();
+      } catch {
+        /** abort 失败不阻塞销毁流程 */
+      }
+      this.activeHarnesses.delete(otterId);
+    }
+
     const piSessionId = this.sessionStore.get(otterId);
     if (piSessionId) {
       const piAgentCore = await this.ensurePiAgentCore();

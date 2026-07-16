@@ -122,20 +122,21 @@ function createSearchMemoryTool(deps: ToolDependencies): AgentTool {
 function createStoreMemoryTool(deps: ToolDependencies): AgentTool {
   return {
     name: "store_memory",
-    description: "存储记忆条目。参数：content（内容），conversationId（对话ID，可选）",
+    description: "存储记忆条目。参数：content（内容），otterId（存储记忆的 Otter ID），conversationId（对话ID，可选）",
     parameters: {
       type: "object",
       properties: {
         content: { type: "string", description: "记忆内容" },
+        otterId: { type: "string", description: "存储记忆的 Otter ID（用于溯源）" },
         conversationId: { type: "string", description: "关联对话 ID" },
       },
-      required: ["content"],
+      required: ["content", "otterId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const id = await deps.storeMemory.execute({
         layer: "working",
         contentType: "conversation_summary",
-        sourceId: crypto.randomUUID(),
+        sourceId: params.otterId as string,
         sourceTable: "agent",
         conversationId: params.conversationId as string | undefined,
         granularity: "coarse",

@@ -27,7 +27,9 @@ export class ConversationController {
         ids.map(async (id) => {
           const conv = await this.manageConversation.getById(id);
           if (!conv) return null;
-          return toConversationListItemDTO(conv, []);
+          const participants = await this.manageParticipant.getActiveParticipants(id);
+          const otterIds = participants.map((p) => p.otterId);
+          return toConversationListItemDTO(conv, otterIds);
         }),
       );
       return c.json(items.filter((x): x is NonNullable<typeof x> => x !== null));

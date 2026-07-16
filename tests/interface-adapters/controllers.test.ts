@@ -133,7 +133,7 @@ describe("MessageController", () => {
     expect(json.content).toBe("Hello");
   });
 
-  it("returns 202 on abort", async () => {
+  it("returns 202 on abort for otter message", async () => {
     const queryMessage = {
       getMessageById: async () => ({
         id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
@@ -150,6 +150,23 @@ describe("MessageController", () => {
     expect(res.status).toBe(202);
     const json = await res.json() as Record<string, unknown>;
     expect(json.status).toBe("aborted");
+  });
+
+  it("returns 400 on abort for non-otter message", async () => {
+    const queryMessage = {
+      getMessageById: async () => ({
+        id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
+        senderType: "user", senderId: "user-1",
+        talkingStonePassedTo: ["otter-1"], status: "completed",
+        body: "Hello", attachments: null,
+        sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+      }),
+    } as unknown as QueryMessage;
+    const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
+    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker);
+    const app = createApp(ctrl);
+    const res = await app.request("/api/messages/msg-1/abort", { method: "POST" });
+    expect(res.status).toBe(400);
   });
 });
 

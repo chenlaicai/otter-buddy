@@ -27,7 +27,8 @@ function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
     case "tool_execution_end":
       return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
     case "turn_end":
-      return { event: "turn.complete", data: {} };
+      /** D5-fix: turn.complete 延迟到 message.complete 之后发出，匹配设计文档事件顺序 */
+      return null;
     case "agent_end":
       return { event: "agent.idle", data: {} };
     default:
@@ -108,22 +109,51 @@ export class AgentInvoker {
         talkingStonePassedTo: [senderId],
       });
 
+      /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
+      this.abortedOtters.delete(otterId);
+
       const duration = Date.now() - startTime;
+      const ctx = result.tokenUsage
+        ? result.tokenUsage.input + result.tokenUsage.output
+        : undefined;
       onSSEEvent?.({
         event: "message.complete",
-        data: { messageId: message.id, duration: `${(duration / 1000).toFixed(1)}s` },
+        data: {
+          messageId: message.id,
+          duration: `${(duration / 1000).toFixed(1)}s`,
+          ...(ctx !== undefined && { ctx }),
+          ...(result.ctxMax !== undefined && { ctxMax: result.ctxMax }),
+        },
       });
+
+      /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
+      onSSEEvent?.({ event: "turn.complete", data: {} });
 
       return { messageId: message.id, duration, tokenUsage: result.tokenUsage };
     } catch (err) {
-      await this.sendMessage.fail(message.id);
-      if (this.abortedOtters.delete(otterId)) {
-        onSSEEvent?.({ event: "message.aborted", data: { messageId: message.id } });
-      } else {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        onSSEEvent?.({ event: "error", data: { message: msg } });
-      }
+      await this.handleInvokeError(message.id, otterId, err, onSSEEvent);
       throw err;
+    }
+  }
+
+  /** 处理 invoke 异常：标记消息失败 + 区分 abort/error 发送 SSE 事件 */
+  private async handleInvokeError(
+    messageId: string,
+    otterId: string,
+    err: unknown,
+    onSSEEvent?: (event: AgentSSEEvent) => void,
+  ): Promise<void> {
+    /** D9-fix: fail() 出错时不覆盖原始错误 */
+    try {
+      await this.sendMessage.fail(messageId);
+    } catch {
+      /** 保留原始错误上下文 */
+    }
+    if (this.abortedOtters.delete(otterId)) {
+      onSSEEvent?.({ event: "message.aborted", data: { messageId } });
+    } else {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      onSSEEvent?.({ event: "error", data: { message: msg } });
     }
   }
 

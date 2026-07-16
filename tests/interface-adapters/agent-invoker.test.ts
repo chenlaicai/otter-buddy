@@ -86,6 +86,15 @@ describe("AgentInvoker", () => {
     expect(eventTypes).toContain("message.start");
     expect(eventTypes).toContain("message.delta");
     expect(eventTypes).toContain("message.complete");
+
+    /** D5-fix: turn.complete 在 message.complete 之后发出 */
+    const completeIdx = eventTypes.indexOf("message.complete");
+    const turnIdx = eventTypes.indexOf("turn.complete");
+    expect(turnIdx).toBeGreaterThan(completeIdx);
+
+    /** D4-fix: message.complete 包含 ctx 字段 */
+    const completeEvent = events.find((e) => e.event === "message.complete");
+    expect(completeEvent?.data.ctx).toBe(15);
   });
 
   it("emits message.aborted on abort (B11)", async () => {
@@ -139,6 +148,38 @@ describe("AgentInvoker", () => {
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.start");
     expect(eventTypes).toContain("error");
+    expect(eventTypes).not.toContain("message.aborted");
+  });
+
+  it("clears stale abort flag when invoke succeeds (race condition)", async () => {
+    /** D2-fix: abort 被调用但 invoke 成功完成时，stale abort 标记应被清理 */
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({
+        events: [{ type: "message_update", delta: "Hi" }],
+        result: { text: "Hello" },
+      }),
+      mockSendMessage(),
+      mockSearchMemory(),
+      mockManageSession(),
+      mockQueryOtter(),
+    );
+
+    /** 模拟 abort 被调用（但 invoke 不会抛异常） */
+    invoker.abort("otter-1", "msg-streaming");
+
+    /** invokeConversation 应正常完成，不发出 message.aborted */
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.complete");
     expect(eventTypes).not.toContain("message.aborted");
   });
 
