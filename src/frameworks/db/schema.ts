@@ -108,6 +108,7 @@ function createMemoryTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory_entries (
       id TEXT PRIMARY KEY,
+      layer TEXT NOT NULL,
       content_type TEXT NOT NULL,
       source_id TEXT NOT NULL,
       source_table TEXT NOT NULL,
@@ -119,6 +120,7 @@ function createMemoryTables(db: Database.Database): void {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     );
 
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_layer ON memory_entries(layer);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_content_type ON memory_entries(content_type);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_conversation_id ON memory_entries(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_memory_entries_source ON memory_entries(source_table, source_id);

@@ -1,4 +1,5 @@
 import type {
+  MemoryLayer,
   MemoryContentType,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
@@ -7,6 +8,7 @@ import type { EmbeddingGateway } from "./embedding-gateway";
 import { logger } from "@frameworks/logger";
 
 export interface MemoryEntryInput {
+  layer: MemoryLayer;
   contentType: MemoryContentType;
   sourceId: string;
   sourceTable: string;
@@ -27,6 +29,7 @@ export class StoreMemory {
 
     const entry = {
       id,
+      layer: input.layer,
       contentType: input.contentType,
       sourceId: input.sourceId,
       sourceTable: input.sourceTable,

@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { MemoryEntry, MemoryWeight } from "@entities/memory/memory-entry";
+import type { MemoryEntry, MemoryWeight, MemoryLayer } from "@entities/memory/memory-entry";
 import type {
   FTSHit,
   MemoryRepository,
@@ -55,11 +55,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`
-        INSERT INTO memory_entries (id, content_type, source_id, source_table,
+        INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
           conversation_id, granularity, content, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         entry.id,
+        entry.layer,
         entry.contentType,
         entry.sourceId,
         entry.sourceTable,
@@ -152,12 +153,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
       FROM memory_fts fts
       JOIN memory_entries me ON fts.memory_entry_id = me.id
       WHERE memory_fts MATCH ?
+        AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
       ORDER BY fts.rank
       LIMIT ?
     `).all(
       escaped,
+      filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
       DEFAULT_FTS_LIMIT,
@@ -177,12 +180,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
       FROM memory_fts fts
       JOIN memory_entries me ON fts.memory_entry_id = me.id
       WHERE memory_fts MATCH ?
+        AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
       ORDER BY fts.rank
       LIMIT ?
     `).all(
       escaped,
+      filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
       DEFAULT_FTS_LIMIT,
@@ -204,11 +209,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
       JOIN memory_entries me ON mv.memory_entry_id = me.id
       WHERE mv.embedding MATCH ?
         AND k = ?
+        AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
       ORDER BY mv.distance
     `).all(
       embedding, limit,
+      filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
     ) as VecRow[];
@@ -243,5 +250,16 @@ export class SqliteMemoryRepository implements MemoryRepository {
     this.db.prepare(`
       UPDATE memory_weights SET user_flagged = ? WHERE memory_entry_id = ?
     `).run(flagged ? 1 : 0, memoryEntryId);
+  }
+
+  async updateLayerByConversation(
+    conversationId: string,
+    from: MemoryLayer,
+    to: MemoryLayer,
+  ): Promise<void> {
+    this.db.prepare(`
+      UPDATE memory_entries SET layer = ?
+      WHERE conversation_id = ? AND layer = ?
+    `).run(to, conversationId, from);
   }
 }

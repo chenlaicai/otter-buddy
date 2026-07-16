@@ -39,6 +39,7 @@ function createTestDb(): Database.Database {
     );
     CREATE TABLE IF NOT EXISTS memory_entries (
       id TEXT PRIMARY KEY,
+      layer TEXT NOT NULL,
       content_type TEXT NOT NULL,
       source_id TEXT NOT NULL,
       source_table TEXT NOT NULL,

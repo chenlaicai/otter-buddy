@@ -1,3 +1,18 @@
+/** 记忆层 */
+export type MemoryLayer = "working" | "historical" | "key_info";
+
+/**
+ * 记忆层转换是否有效。
+ * working ↔ historical 双向，key_info 单向到 historical。
+ */
+export function canTransitionMemoryLayer(from: MemoryLayer, to: MemoryLayer): boolean {
+  if (from === to) return false;
+  if (from === "working" && to === "historical") return true;
+  if (from === "historical" && to === "working") return true;
+  if (from === "key_info" && to === "historical") return true;
+  return false;
+}
+
 /** 记忆内容类型 */
 export type MemoryContentType =
   | "message"
@@ -14,6 +29,7 @@ export type DetailLevel = "summary" | "snippet" | "full";
 /** 记忆条目实体 */
 export interface MemoryEntry {
   id: string;
+  layer: MemoryLayer;
   contentType: MemoryContentType;
   sourceId: string;
   sourceTable: string;

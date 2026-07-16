@@ -1,4 +1,5 @@
 import type {
+  MemoryLayer,
   MemoryContentType,
   MemoryEntry,
   MemoryWeight,
@@ -8,6 +9,7 @@ import type { SnippetHit } from "@usecases/memory/memory-repository";
 
 export interface MemoryEntryRow {
   id: string;
+  layer: string;
   content_type: string;
   source_id: string;
   source_table: string;
@@ -42,6 +44,7 @@ export interface FtsHighlightRow extends MemoryEntryRow {
 export function rowToMemoryEntry(row: MemoryEntryRow): MemoryEntry {
   return {
     id: row.id,
+    layer: row.layer as MemoryLayer,
     contentType: row.content_type as MemoryContentType,
     sourceId: row.source_id,
     sourceTable: row.source_table,
