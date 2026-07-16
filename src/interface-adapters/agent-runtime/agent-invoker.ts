@@ -100,7 +100,11 @@ export class AgentInvoker {
           const sse = mapToSSEEvent(e);
           if (sse) onSSEEvent?.(sse);
           const evt = mapToMessageEventInput(e, message.id);
-          if (evt) this.sendMessage.appendEvent(evt).catch(() => {});
+          if (evt) this.sendMessage.appendEvent(evt).catch((e: unknown) => {
+            const msg = e instanceof Error ? e.message : String(e);
+            // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
+            console.warn(`Failed to persist message event for ${message.id}: ${msg}`);
+          });
         },
       });
 

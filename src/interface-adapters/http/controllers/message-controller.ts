@@ -44,6 +44,9 @@ export class MessageController {
       });
 
       /** 2. 确定 Agent Otter（talkingStonePassedTo 的第一个） */
+      if (!body.talkingStonePassedTo || body.talkingStonePassedTo.length === 0) {
+        return c.json({ error: "talkingStonePassedTo must be non-empty" }, 400);
+      }
       const otterId = body.talkingStonePassedTo[0];
 
       /** 3. 创建 SSE 流并启动 Agent 响应 */
@@ -58,8 +61,9 @@ export class MessageController {
         userMessageContent: body.body,
         senderId: body.senderId,
         onSSEEvent: push,
-      }).catch((err) => {
-        push({ event: "error", data: { message: err.message } });
+      }).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        push({ event: "error", data: { message: msg } });
       });
 
       return response;

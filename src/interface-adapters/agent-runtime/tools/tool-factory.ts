@@ -43,15 +43,16 @@ export interface ToolDependencies {
 function createSendMessageTool(deps: ToolDependencies): AgentTool {
   return {
     name: "send_message",
-    description: "发送消息到指定对话。参数：conversationId（对话ID），content（消息内容），senderId（发送者ID）",
+    description: "发送消息到指定对话。参数：conversationId（对话ID），content（消息内容），senderId（发送者Otter ID），recipientId（接收者ID，通常为用户ID）",
     parameters: {
       type: "object",
       properties: {
         conversationId: { type: "string", description: "对话 ID" },
         content: { type: "string", description: "消息内容" },
         senderId: { type: "string", description: "发送者 Otter ID" },
+        recipientId: { type: "string", description: "接收者 ID（传递说话石目标，通常为用户 ID）" },
       },
-      required: ["conversationId", "content", "senderId"],
+      required: ["conversationId", "content", "senderId", "recipientId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const msg = await deps.sendMessage.start({
@@ -61,7 +62,7 @@ function createSendMessageTool(deps: ToolDependencies): AgentTool {
       });
       await deps.sendMessage.complete(msg.id, {
         body: params.content as string,
-        talkingStonePassedTo: ["user"],
+        talkingStonePassedTo: [params.recipientId as string],
       });
       return textResponse(`Message sent: ${msg.id}`);
     },
