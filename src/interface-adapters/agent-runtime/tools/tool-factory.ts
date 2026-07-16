@@ -79,11 +79,11 @@ function createPassTalkingStoneTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** search_memory: 检索记忆（渐进式披露：支持 detail_level） */
+/** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由） */
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: "检索记忆。支持渐进式披露：detail_level 控制返回详细程度。summary 返回首句，snippet 返回匹配片段（默认），full 返回完整内容",
+    description: "检索记忆。支持渐进式披露：detail_level 控制返回详细程度。summary 返回首句，snippet 返回匹配片段（默认），full 返回完整内容。可指定 library 路由到特定库",
     parameters: {
       type: "object",
       properties: {
@@ -94,6 +94,10 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           enum: ["summary", "snippet", "full"],
           description: "返回内容的详细程度：summary（ID+首句+分数）、snippet（ID+匹配片段+分数+元数据，默认）、full（完整内容+元数据）",
         },
+        library: {
+          type: "string",
+          description: "指定库 key（如 conversation、terminology），不传则全库搜索",
+        },
       },
       required: ["query"],
     },
@@ -103,6 +107,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         params.query as string,
         (params.limit as number) ?? 10,
         detailLevel,
+        params.library as string | undefined,
       );
       return textResponse(JSON.stringify(entries));
     },
@@ -390,11 +395,72 @@ function createSetContextTool(ctx: ToolContext): AgentTool {
   };
 }
 
-// ── 工具工厂 ──
+// ── 术语库工具（2 个） ──
+
+/** search_terminology: 在术语库中查找项目域内术语的定义 */
+function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "search_terminology",
+    description: "在术语库中查找项目域内术语的定义。当用户询问某个词的含义时使用。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "要查找的术语名称或相关描述" },
+      },
+      required: ["query"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const results = await ctx.client.terminology.search(
+        params.query as string,
+        10,
+      );
+      if (results.length === 0) {
+        return textResponse("未找到相关术语");
+      }
+      const entries = results.map((e) => ({
+        term: e.term,
+        definition: e.definition,
+        aliases: e.aliases,
+        category: e.category,
+        context: e.context,
+      }));
+      return textResponse(JSON.stringify(entries));
+    },
+  };
+}
+
+/** add_terminology: 在术语库中记录新的项目域术语 */
+function createAddTerminologyTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "add_terminology",
+    description: "在术语库中记录新的项目域术语。仅在用户显式定义术语时使用。",
+    parameters: {
+      type: "object",
+      properties: {
+        term: { type: "string", description: "术语名称" },
+        definition: { type: "string", description: "术语定义" },
+        aliases: { type: "array", items: { type: "string" }, description: "别名列表（可选）" },
+        category: { type: "string", description: "分类（可选）：实体、操作、机制等" },
+        context: { type: "string", description: "上下文说明（可选）" },
+      },
+      required: ["term", "definition"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const entry = await ctx.client.terminology.addTerm({
+        term: params.term as string,
+        definition: params.definition as string,
+        aliases: params.aliases as string[] | undefined,
+        category: params.category as string | undefined,
+        context: params.context as string | undefined,
+      });
+      return textResponse(`术语已记录: ${entry.term} (${entry.id})`);
+    },
+  };
+}
 
 /**
  * 工具工厂：invoke 时调用，闭包捕获 ToolContext。
- * 返回全部 14 个 AgentTool 实例（8 现有 + 6 新增）。
+ * 返回全部 16 个 AgentTool 实例（8 现有 + 6 新增 + 2 术语库）。
  */
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [
@@ -414,5 +480,8 @@ export function createTools(ctx: ToolContext): AgentTool[] {
     createGetTurnHistoryTool(ctx),
     createGetContextTool(ctx),
     createSetContextTool(ctx),
+    // 术语库工具（2 个）
+    createSearchTerminologyTool(ctx),
+    createAddTerminologyTool(ctx),
   ];
 }

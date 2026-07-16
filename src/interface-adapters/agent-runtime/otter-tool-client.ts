@@ -70,10 +70,14 @@ export interface OtterToolClient {
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
-    search(query: string, limit?: number, detailLevel?: DetailLevel): Promise<MemorySearchEntry[]>;
+    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string): Promise<MemorySearchEntry[]>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
     store(entry: StoreMemoryInput): Promise<string>;
+  };
+  terminology: {
+    search(query: string, limit?: number): Promise<Array<{ id: string; term: string; definition: string; aliases: string[]; category: string | null; context: string | null }>>;
+    addTerm(params: { term: string; definition: string; aliases?: string[]; category?: string; context?: string }): Promise<{ id: string; term: string }>;
   };
   otter: {
     create(params: CreateOtterInput): Promise<Otter>;

@@ -43,7 +43,6 @@ export class ManageMemory {
     from: MemoryLayer,
     to: MemoryLayer,
   ): Promise<void> {
-    /** 不变量校验：确保层转换合法 */
     if (!canTransitionMemoryLayer(from, to)) {
       throw new Error(
         `Invalid memory layer transition: ${from} -> ${to}`,
