@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
-import type { MemoryLayer, RetrievalGranularity } from "@entities/memory/memory-entry";
+import type { MemoryLayer, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
 import { handleError, param } from "../http-error";
 import { toMemoryEntryDTO } from "../dto/memory-dto";
 import type { SearchSimilarRequestDTO, FlagMemoryRequestDTO } from "../dto/memory-dto";
@@ -22,6 +22,7 @@ export class MemoryController {
       const layer = c.req.query("layer") as MemoryLayer | undefined;
       const granularity = c.req.query("granularity") as RetrievalGranularity | undefined;
       const conversationId = c.req.query("conversationId");
+      const detailLevel = c.req.query("detail_level") as DetailLevel | undefined;
 
       const result = await this.searchMemory.search({
         query,
@@ -29,10 +30,11 @@ export class MemoryController {
         layer,
         granularity,
         conversationId,
+        detailLevel,
       });
 
       return c.json({
-        entries: result.entries.map((e) => toMemoryEntryDTO(e, e.score, e.source)),
+        entries: result.entries.map((e) => toMemoryEntryDTO(e, e.score, e.source, e.snippet)),
         total: result.total,
       });
     } catch (err) {
@@ -48,6 +50,27 @@ export class MemoryController {
       return c.json({
         entries: result.entries.map((e) => toMemoryEntryDTO(e, e.score, e.source)),
         total: result.total,
+      });
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  /** 渐进式披露：按 ID 批量获取完整记忆条目 */
+  async getDetails(c: Context): Promise<Response> {
+    try {
+      const idsParam = c.req.query("ids");
+      if (!idsParam) {
+        return c.json({ error: "ids parameter is required (comma-separated)" }, 400);
+      }
+      const ids = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
+      if (ids.length === 0) {
+        return c.json({ error: "ids parameter must contain at least one ID" }, 400);
+      }
+      const entries = await this.manageMemory.getDetails(ids);
+      return c.json({
+        entries: entries.map((e) => toMemoryEntryDTO(e)),
+        total: entries.length,
       });
     } catch (err) {
       return handleError(c, err);

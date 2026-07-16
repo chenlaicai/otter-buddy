@@ -1,4 +1,4 @@
-import type { MemoryEntry } from "@entities/memory/memory-entry";
+import type { MemoryEntry, DetailLevel } from "@entities/memory/memory-entry";
 import type { RetrievalSource } from "@usecases/memory/memory-repository";
 
 /** 记忆条目 DTO */
@@ -15,6 +15,8 @@ export interface MemoryEntryDTO {
   createdAt: string;
   score?: number;
   source?: RetrievalSource;
+  /** detail_level=snippet/summary 时的匹配片段 */
+  snippet?: string;
 }
 
 /** 检索结果 DTO */
@@ -30,6 +32,8 @@ export interface SearchQueryDTO {
   layer?: string;
   granularity?: string;
   conversationId?: string;
+  /** 渐进式披露：控制返回内容的详细程度 */
+  detail_level?: DetailLevel;
 }
 
 /** 相似检索请求 DTO */
@@ -47,6 +51,7 @@ export function toMemoryEntryDTO(
   entry: MemoryEntry,
   score?: number,
   source?: RetrievalSource,
+  snippet?: string,
 ): MemoryEntryDTO {
   return {
     id: entry.id,
@@ -61,5 +66,6 @@ export function toMemoryEntryDTO(
     createdAt: entry.createdAt,
     score,
     source,
+    snippet,
   };
 }

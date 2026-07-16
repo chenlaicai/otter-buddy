@@ -9,6 +9,11 @@ export class ManageMemory {
     return this.repo.getById(id);
   }
 
+  /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
+  async getDetails(ids: string[]): Promise<MemoryEntry[]> {
+    return this.repo.getDetails(ids);
+  }
+
   async getBySource(
     sourceTable: string,
     sourceId: string,

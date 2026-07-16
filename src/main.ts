@@ -179,6 +179,7 @@ async function main(): Promise<void> {
     sendMessage: uc.sendMessage,
     searchMemory: uc.searchMemory,
     storeMemory: uc.storeMemory,
+    manageMemory: uc.manageMemory,
     createOtter: uc.createOtter,
     dissolveOtter: uc.dissolveOtter,
     manageKeyInfo: uc.manageKeyInfo,

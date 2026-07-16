@@ -68,6 +68,7 @@ export const DEFAULT_OTTER_TOOL_CONFIGS: OtterToolConfig[] = [
       "send_message",
       "pass_talking_stone",
       "search_memory",
+      "get_memory_detail",
       "store_memory",
       "create_otter",
       "dissolve_otter",
@@ -75,6 +76,6 @@ export const DEFAULT_OTTER_TOOL_CONFIGS: OtterToolConfig[] = [
   },
   {
     otterType: "small",
-    activeToolNames: ["send_message", "search_memory", "create_linked_resource"],
+    activeToolNames: ["send_message", "search_memory", "get_memory_detail", "create_linked_resource"],
   },
 ];
