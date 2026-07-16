@@ -4,6 +4,7 @@ import { ConversationController } from "@interface-adapters/http/controllers/con
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
+import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { CreateOtter } from "@usecases/otter/create-otter";
@@ -15,6 +16,9 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { Conversation } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
+import type { SearchMemory } from "@usecases/memory/search-memory";
+import type { ManageMemory } from "@usecases/memory/manage-memory";
+import type { MemoryEntry } from "@entities/memory/memory-entry";
 
 function mockConversation(): Conversation {
   return {
@@ -237,5 +241,72 @@ describe("SettingsController", () => {
     expect(json.provider).toBe("openai");
     expect(json.model).toBe("gpt-4o");
     expect(json.port).toBe(3000);
+  });
+});
+
+describe("MemoryController", () => {
+  const mockEntry: MemoryEntry = {
+    id: "e1", layer: "working", contentType: "message",
+    sourceId: "src-1", sourceTable: "messages", conversationId: null,
+    granularity: "fine", content: "测试记忆内容", metadata: null,
+    createdAt: "2026-07-16T00:00:00Z",
+  };
+
+  function createApp(searchMemory: SearchMemory, manageMemory: ManageMemory): Hono {
+    const ctrl = new MemoryController(searchMemory, manageMemory);
+    const app = new Hono();
+    app.get("/api/memory/search", (c) => ctrl.search(c));
+    app.get("/api/memory/batch", (c) => ctrl.getDetails(c));
+    return app;
+  }
+
+  it("search 支持 detail_level 参数并返回 snippet", async () => {
+    const searchMemory = {
+      search: async () => ({
+        entries: [{ ...mockEntry, score: 1, source: "fts" as const, snippet: "测试<b>记忆</b>内容" }],
+        total: 1,
+      }),
+    } as unknown as SearchMemory;
+    const app = createApp(searchMemory, {} as ManageMemory);
+    const res = await app.request("/api/memory/search?query=记忆&detail_level=snippet");
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, unknown>;
+    const entries = json.entries as Record<string, unknown>[];
+    expect(entries[0].snippet).toBe("测试<b>记忆</b>内容");
+  });
+
+  it("search detail_level=full 时不返回 snippet", async () => {
+    const searchMemory = {
+      search: async () => ({
+        entries: [{ ...mockEntry, score: 1, source: "fts" as const }],
+        total: 1,
+      }),
+    } as unknown as SearchMemory;
+    const app = createApp(searchMemory, {} as ManageMemory);
+    const res = await app.request("/api/memory/search?query=记忆&detail_level=full");
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, unknown>;
+    const entries = json.entries as Record<string, unknown>[];
+    expect(entries[0].snippet).toBeUndefined();
+  });
+
+  it("batch 返回指定条目的完整内容", async () => {
+    const manageMemory = {
+      getDetails: async () => [mockEntry],
+    } as unknown as ManageMemory;
+    const app = createApp({} as SearchMemory, manageMemory);
+    const res = await app.request("/api/memory/batch?ids=e1");
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.total).toBe(1);
+    const entries = json.entries as Record<string, unknown>[];
+    expect(entries[0].id).toBe("e1");
+    expect(entries[0].content).toBe("测试记忆内容");
+  });
+
+  it("batch 缺少 ids 参数返回 400", async () => {
+    const app = createApp({} as SearchMemory, {} as ManageMemory);
+    const res = await app.request("/api/memory/batch");
+    expect(res.status).toBe(400);
   });
 });
