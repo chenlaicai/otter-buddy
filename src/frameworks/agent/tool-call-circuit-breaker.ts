@@ -72,6 +72,7 @@ export class ToolCallCircuitBreaker {
   private lastCheckResult: CheckResult | null = null;
   private steered = false;
   private steerDeadline: ReturnType<typeof setTimeout> | null = null;
+  private steerDeadlineAt: number | null = null;
 
   constructor(
     private readonly config: CircuitBreakerConfig,
@@ -151,8 +152,8 @@ export class ToolCallCircuitBreaker {
 
   /** B-5b: steer 后 wall-clock 超时安全网 */
   private checkSteerDeadline(): CheckResult | null {
-    if (this.steerDeadline === null) return null;
-    if (Date.now() <= this.config.maxExecutionTimeMs + this.startTime) return null;
+    if (this.steerDeadlineAt === null) return null;
+    if (Date.now() <= this.steerDeadlineAt) return null;
     return { blocked: true, reason: "Steer deadline exceeded", action: "terminate" };
   }
 
@@ -164,6 +165,7 @@ export class ToolCallCircuitBreaker {
     if (this.steerDeadline) {
       clearTimeout(this.steerDeadline);
     }
+    this.steerDeadlineAt = Date.now() + this.config.steerTimeoutMs;
     this.steerDeadline = setTimeout(() => {
       logger.warn(
         `[circuit-breaker] Steer timeout: otter=${this.otterId} — force aborting after ${this.config.steerTimeoutMs}ms`,
@@ -179,6 +181,7 @@ export class ToolCallCircuitBreaker {
       clearTimeout(this.steerDeadline);
       this.steerDeadline = null;
     }
+    this.steerDeadlineAt = null;
   }
 
   /** 获取调用历史（用于 B-6 完整日志） */

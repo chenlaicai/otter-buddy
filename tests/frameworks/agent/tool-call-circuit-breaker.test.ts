@@ -184,6 +184,28 @@ describe("ToolCallCircuitBreaker", () => {
     expect(forceAbort).toHaveBeenCalled();
   });
 
+  it("check() returns terminate after steer deadline passes (B-5b in evaluate path)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ steerTimeoutMs: 30000, maxToolCalls: 100 }),
+      "otter-1",
+    );
+
+    cb.check("tool_1");
+
+    // Set steer deadline (simulating harness calling setSteerDeadline after steer)
+    cb.setSteerDeadline(vi.fn());
+
+    // Before deadline: allow
+    vi.advanceTimersByTime(20000);
+    expect(cb.check("tool_2").action).toBe("allow");
+
+    // After deadline: terminate
+    vi.advanceTimersByTime(15000);
+    const result = cb.check("tool_3");
+    expect(result.action).toBe("terminate");
+    expect(result.reason).toContain("Steer deadline exceeded");
+  });
+
   it("clearSteerDeadline prevents forceAbort", () => {
     const forceAbort = vi.fn();
     const cb = new ToolCallCircuitBreaker(

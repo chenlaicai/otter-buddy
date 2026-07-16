@@ -227,24 +227,7 @@ export class PiHarnessFactory implements AgentGateway {
     }
 
     const piAgentCore = await this.ensurePiAgentCore();
-    const staticPrompt = this.staticPrompts.get(otterId) ?? "";
-    const otterType = this.otterTypes.get(otterId);
-    const systemPromptFn = buildSystemPrompt(staticPrompt, options?.dynamicContext);
-
-    /** invoke 时创建 ToolContext，闭包捕获 */
-    const activeToolNames = getToolNamesForOtterType(otterType);
-    const tools = createTools({
-      client: this.otterToolClient,
-      otterId,
-      conversationId: options?.conversationId ?? "",
-    }).filter(t => activeToolNames.includes(t.name));
-
-    const sessionRepo = this.createSessionRepo(piAgentCore);
-    const session = sessionRepo.open(piSessionId);
-
-    const harness = this.createHarness(piAgentCore, {
-      session, systemPrompt: systemPromptFn, tools, activeToolNames,
-    });
+    const harness = this.createInvokeHarness(piAgentCore, otterId, piSessionId, options);
 
     /** D59: 注册活跃 harness 引用，支持外部 abort */
     this.activeHarnesses.set(otterId, { abort: () => harness.abort?.() });
@@ -270,6 +253,28 @@ export class PiHarnessFactory implements AgentGateway {
       unsubscribe();
       this.activeHarnesses.delete(otterId);
     }
+  }
+
+  /** invoke 专用：创建 harness（含工具注入） */
+  private createInvokeHarness(
+    piAgentCore: PiAgentCoreModule,
+    otterId: string,
+    piSessionId: string,
+    options?: InvokeOptions,
+  ): ReturnType<PiHarnessFactory["createHarness"]> {
+    const staticPrompt = this.staticPrompts.get(otterId) ?? "";
+    const otterType = this.otterTypes.get(otterId);
+    const systemPromptFn = buildSystemPrompt(staticPrompt, options?.dynamicContext);
+    const activeToolNames = getToolNamesForOtterType(otterType);
+    const tools = createTools({
+      client: this.otterToolClient,
+      otterId,
+      conversationId: options?.conversationId ?? "",
+    }).filter(t => activeToolNames.includes(t.name));
+    const session = this.createSessionRepo(piAgentCore).open(piSessionId);
+    return this.createHarness(piAgentCore, {
+      session, systemPrompt: systemPromptFn, tools, activeToolNames,
+    });
   }
 
   /** D59: 中断指定 Otter 的 Agent 生成（UA-2 完整实现） */
