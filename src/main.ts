@@ -185,7 +185,7 @@ function buildMemoryClient(uc: UseCases) {
         layer: e.layer,
         snippet: e.snippet,
         contentType: e.contentType,
-        metadata: e.metadata,
+        metadata: e.metadata ?? undefined,
         createdAt: e.createdAt,
       }));
     },
@@ -197,7 +197,7 @@ function buildMemoryClient(uc: UseCases) {
         content: e.content,
         layer: e.layer,
         contentType: e.contentType,
-        metadata: e.metadata,
+        metadata: e.metadata ?? undefined,
         createdAt: e.createdAt,
       }));
     },

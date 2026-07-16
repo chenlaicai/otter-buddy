@@ -11,7 +11,8 @@ export type DetailLevel = "summary" | "snippet" | "full";
 export interface MemorySearchEntry {
   id: string;
   content: string;
-  score: number;
+  /** 检索分数（getDetails 返回时无此字段） */
+  score?: number;
   layer: string;
   /** detail_level="snippet" 时的匹配片段 */
   snippet?: string;
@@ -29,7 +30,8 @@ export interface StoreMemoryInput {
 
 /** 创建 Otter 输入 */
 export interface CreateOtterInput {
-  name: "big" | "small";
+  name: string;
+  type: "big" | "small";
   systemPrompt: string;
   parentOtterId: string;
 }
