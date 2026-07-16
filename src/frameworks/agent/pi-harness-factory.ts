@@ -70,6 +70,7 @@ export class PiHarnessFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly staticPrompts = new Map<string, string>();
   private readonly otterTypes = new Map<string, string>();
+  private readonly activeHarnesses = new Map<string, { abort: () => void }>();
   private piAgentCore: PiAgentCoreModule | null = null;
 
   constructor(
@@ -185,6 +186,9 @@ export class PiHarnessFactory implements AgentGateway {
       session, systemPrompt: systemPromptFn, tools, activeToolNames,
     });
 
+    /** D59: 注册活跃 harness 引用，支持外部 abort */
+    this.activeHarnesses.set(otterId, { abort: () => harness.abort?.() });
+
     let resultText = "";
     const unsubscribe = harness.subscribe((event: unknown) => {
       const e = event as AgentEvent;
@@ -207,6 +211,15 @@ export class PiHarnessFactory implements AgentGateway {
       };
     } finally {
       unsubscribe();
+      this.activeHarnesses.delete(otterId);
+    }
+  }
+
+  /** D59: 中断指定 Otter 的 Agent 生成（UA-2 完整实现） */
+  abort(otterId: string): void {
+    const entry = this.activeHarnesses.get(otterId);
+    if (entry) {
+      entry.abort();
     }
   }
 
@@ -271,6 +284,7 @@ export class PiHarnessFactory implements AgentGateway {
   ): {
     prompt(message: string): Promise<void>;
     subscribe(callback: (event: unknown) => void): () => void;
+    abort?(): void;
     compact?(): Promise<void>;
     getTokenUsage?(): { input: number; output: number } | undefined;
   } {
@@ -295,6 +309,7 @@ export class PiHarnessFactory implements AgentGateway {
     return harness as {
       prompt(message: string): Promise<void>;
       subscribe(callback: (event: unknown) => void): () => void;
+      abort?(): void;
       compact?(): Promise<void>;
       getTokenUsage?(): { input: number; output: number } | undefined;
     };

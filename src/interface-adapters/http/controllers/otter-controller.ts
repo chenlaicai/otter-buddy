@@ -1,0 +1,105 @@
+import type { Context } from "hono";
+import type { CreateOtter } from "@usecases/otter/create-otter";
+import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
+import type { ManageSession } from "@usecases/otter/manage-session";
+import type { QueryOtter } from "@usecases/otter/query-otter";
+import type { CreateOtterInput } from "@usecases/otter/create-otter";
+import { handleError, param } from "../http-error";
+import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
+import type { CreateOtterRequestDTO } from "../dto/otter-dto";
+
+export class OtterController {
+  constructor(
+    private readonly createOtterUseCase: CreateOtter,
+    private readonly dissolveOtterUseCase: DissolveOtter,
+    private readonly manageSession: ManageSession,
+    private readonly queryOtter: QueryOtter,
+  ) {}
+
+  async getBigOtter(c: Context): Promise<Response> {
+    try {
+      const otter = await this.queryOtter.getBigOtter();
+      return c.json(toOtterDTO(otter));
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  async getById(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const otter = await this.queryOtter.getById(id);
+      if (!otter) {
+        return c.json({ error: "Otter not found" }, 404);
+      }
+      return c.json(toOtterDTO(otter));
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  async create(c: Context): Promise<Response> {
+    try {
+      const body = await c.req.json<CreateOtterRequestDTO>();
+      const input: CreateOtterInput = {
+        name: body.name,
+        type: body.type,
+        role: body.role,
+        parentOtterId: body.parentOtterId,
+        systemPrompt: body.systemPrompt,
+        context: body.context,
+      };
+      const otter = await this.createOtterUseCase.execute(input);
+      return c.json(toOtterDTO(otter), 201);
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  async dissolve(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      await this.dissolveOtterUseCase.execute(id);
+      return c.json({ status: "dissolved" });
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  async getSessionHistory(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const sessions = await this.manageSession.getSessionHistory(id);
+      return c.json(sessions.map(toOtterSessionDTO));
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  async createSession(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const session = await this.manageSession.createSession(id);
+      return c.json(toOtterSessionDTO(session), 201);
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  async restart(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const active = await this.manageSession.getActiveSession(id);
+      if (active) {
+        await this.manageSession.archiveSession(active.id, {
+          reason: "restart",
+          isNegativeCase: false,
+        });
+      }
+      const session = await this.manageSession.createSession(id);
+      return c.json(toOtterSessionDTO(session), 201);
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+}
