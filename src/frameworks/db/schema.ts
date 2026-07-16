@@ -16,6 +16,8 @@ export function initSchema(db: Database.Database): void {
     createParticipantTables(db);
     createAgentSessionsTable(db);
     createSettingsTable(db);
+    createOtterContextTable(db);
+    createMessagesFtsTable(db);
 
     db.exec("COMMIT");
   } catch (error) {
@@ -304,5 +306,43 @@ function createSettingsTable(db: Database.Database): void {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+  `);
+}
+
+/** Otter 上下文存储（get_context / set_context 工具支撑） */
+function createOtterContextTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS otter_context (
+      otter_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (otter_id, key),
+      FOREIGN KEY (otter_id) REFERENCES otters(id)
+    );
+  `);
+}
+
+/** 消息全文搜索（search_messages 工具支撑，trigram 分词） */
+function createMessagesFtsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      message_id UNINDEXED,
+      body,
+      tokenize = 'trigram'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, NEW.body);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, message_id, body) VALUES ('delete', OLD.id, OLD.body);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF body ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, message_id, body) VALUES ('delete', OLD.id, OLD.body);
+      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, NEW.body);
+    END;
   `);
 }

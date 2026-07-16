@@ -1,5 +1,5 @@
 import type { Message, MessageEvent } from "@entities/conversation/message";
-import type { ConversationRepository, GetMessagesOptions } from "./conversation-repository";
+import type { ConversationRepository, GetMessagesOptions, TurnHistoryEntry } from "./conversation-repository";
 
 export class QueryMessage {
   constructor(private readonly repo: ConversationRepository) {}
@@ -17,6 +17,23 @@ export class QueryMessage {
 
   async getMessageEvents(messageId: string): Promise<MessageEvent[]> {
     return this.repo.getMessageEvents(messageId);
+  }
+
+  /** 关键词搜索消息（FTS5 trigram） */
+  async searchMessages(
+    conversationId: string,
+    query: string,
+    limit?: number,
+  ): Promise<Message[]> {
+    return this.repo.searchMessages(conversationId, query, limit);
+  }
+
+  /** 获取 Turn 历史链（含消息） */
+  async getTurnHistory(
+    conversationId: string,
+    opts?: { includeMessages?: boolean },
+  ): Promise<TurnHistoryEntry[]> {
+    return this.repo.getTurnHistory(conversationId, opts?.includeMessages);
   }
 
   async expandMessage(

@@ -1,15 +1,8 @@
-import type { SendMessage } from "@usecases/conversation/send-message";
-import type { SearchMemory } from "@usecases/memory/search-memory";
-import type { StoreMemory } from "@usecases/memory/store-memory";
-import type { ManageMemory } from "@usecases/memory/manage-memory";
-import type { CreateOtter } from "@usecases/otter/create-otter";
-import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
-import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
-import type { ManageParticipant } from "@usecases/conversation/manage-participant";
+import type { OtterToolClient } from "../otter-tool-client";
 
 /**
- * Agent 工具类型（与 frameworks 层 AgentTool 结构兼容）。
- * interface-adapters 层不依赖 frameworks，main.ts 负责注册到 ToolRegistry。
+ * Agent 工具类型（与 Pi AgentTool 接口兼容）。
+ * name + description + parameters + execute(toolCallId, params) => ToolResponse。
  */
 export interface AgentTool {
   name: string;
@@ -29,40 +22,34 @@ function textResponse(text: string): ToolResponse {
   return { content: [{ type: "text", text }], details: {} };
 }
 
-/** 工具依赖注入参数 */
-export interface ToolDependencies {
-  sendMessage: SendMessage;
-  searchMemory: SearchMemory;
-  storeMemory: StoreMemory;
-  manageMemory: ManageMemory;
-  createOtter: CreateOtter;
-  dissolveOtter: DissolveOtter;
-  manageKeyInfo: ManageKeyInfo;
-  manageParticipant: ManageParticipant;
+/**
+ * 工具上下文：invoke 时由系统注入，闭包捕获。
+ * otterId 和 conversationId 由系统注入，LLM 不传。
+ */
+export interface ToolContext {
+  client: OtterToolClient;
+  otterId: string;
+  conversationId: string;
 }
 
-/** send_message: Otter 发送消息到对话 */
-function createSendMessageTool(deps: ToolDependencies): AgentTool {
+// ── 现有工具（8 个，从 ToolDependencies 迁移到 ToolContext） ──
+
+function createSendMessageTool(ctx: ToolContext): AgentTool {
   return {
     name: "send_message",
-    description: "发送消息到指定对话。参数：conversationId（对话ID），content（消息内容），senderId（发送者Otter ID），recipientId（接收者ID，通常为用户ID）",
+    description: "发送消息到当前对话。参数：content（消息内容），recipientId（接收者ID，通常为用户ID）。conversationId 和 senderId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        conversationId: { type: "string", description: "对话 ID" },
         content: { type: "string", description: "消息内容" },
-        senderId: { type: "string", description: "发送者 Otter ID" },
         recipientId: { type: "string", description: "接收者 ID（传递说话石目标，通常为用户 ID）" },
       },
-      required: ["conversationId", "content", "senderId", "recipientId"],
+      required: ["content", "recipientId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const msg = await deps.sendMessage.start({
-        conversationId: params.conversationId as string,
-        senderId: params.senderId as string,
-        talkingStonePassedTo: [],
-      });
-      await deps.sendMessage.complete(msg.id, {
+      const msg = await ctx.client.conversation.message.send({
+        conversationId: ctx.conversationId,
+        senderId: ctx.otterId,
         body: params.content as string,
         talkingStonePassedTo: [params.recipientId as string],
       });
@@ -71,25 +58,21 @@ function createSendMessageTool(deps: ToolDependencies): AgentTool {
   };
 }
 
-/** pass_talking_stone: Big Otter 邀请 Small Otter 加入对话 */
-function createPassTalkingStoneTool(deps: ToolDependencies): AgentTool {
+function createPassTalkingStoneTool(ctx: ToolContext): AgentTool {
   return {
     name: "pass_talking_stone",
-    description: "传递说话石，邀请指定 Otter 加入对话。参数：conversationId，otterId（被邀请的Otter ID），inviterId（邀请者ID）",
+    description: "传递说话石，邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
     parameters: {
       type: "object",
       properties: {
-        conversationId: { type: "string" },
         otterId: { type: "string", description: "被邀请的 Otter ID" },
-        inviterId: { type: "string", description: "邀请者 Otter ID" },
       },
-      required: ["conversationId", "otterId", "inviterId"],
+      required: ["otterId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const { participant } = await deps.manageParticipant.join(
-        params.conversationId as string,
+      const participant = await ctx.client.conversation.participant.join(
+        ctx.conversationId,
         params.otterId as string,
-        `Otter ${params.inviterId} passed the talking stone to ${params.otterId}`,
       );
       return textResponse(`Otter ${params.otterId} joined conversation. Participant ID: ${participant.id}`);
     },
@@ -97,7 +80,7 @@ function createPassTalkingStoneTool(deps: ToolDependencies): AgentTool {
 }
 
 /** search_memory: 检索记忆（渐进式披露：支持 detail_level） */
-function createSearchMemoryTool(deps: ToolDependencies): AgentTool {
+function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
     description: "检索记忆。支持渐进式披露：detail_level 控制返回详细程度。summary 返回首句，snippet 返回匹配片段（默认），full 返回完整内容",
@@ -116,32 +99,110 @@ function createSearchMemoryTool(deps: ToolDependencies): AgentTool {
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "snippet";
-      const result = await deps.searchMemory.search({
-        query: params.query as string,
-        limit: (params.limit as number) ?? 10,
+      const entries = await ctx.client.memory.search(
+        params.query as string,
+        (params.limit as number) ?? 10,
         detailLevel,
-      });
-
-      const entries = result.entries.map((e) => {
-        if (detailLevel === "summary") {
-          return { id: e.id, snippet: e.snippet, score: e.score, layer: e.layer };
-        }
-        if (detailLevel === "snippet") {
-          return { id: e.id, snippet: e.snippet, score: e.score, layer: e.layer, contentType: e.contentType };
-        }
-        /* detailLevel === "full" */
-        return { id: e.id, content: e.content, score: e.score, layer: e.layer, contentType: e.contentType, metadata: e.metadata };
-      });
+      );
       return textResponse(JSON.stringify(entries));
     },
   };
 }
 
-/** get_memory_detail: 获取指定记忆条目的完整内容（渐进式披露） */
-function createGetMemoryDetailTool(deps: ToolDependencies): AgentTool {
+function createStoreMemoryTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "store_memory",
+    description: "存储记忆条目。参数：content（内容）。conversationId 和 otterId 由系统注入。",
+    parameters: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "记忆内容" },
+      },
+      required: ["content"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const id = await ctx.client.memory.store({
+        content: params.content as string,
+        otterId: ctx.otterId,
+        conversationId: ctx.conversationId,
+      });
+      return textResponse(`Memory stored: ${id}`);
+    },
+  };
+}
+
+function createCreateOtterTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "create_otter",
+    description: "创建子 Otter。参数：name，type（big/small），systemPrompt。parentOtterId 由系统注入。",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Otter 名称" },
+        type: { type: "string", enum: ["big", "small"], description: "Otter 类型" },
+        systemPrompt: { type: "string", description: "系统提示词" },
+      },
+      required: ["name", "type", "systemPrompt"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const otter = await ctx.client.otter.create({
+        name: params.name as string,
+        type: params.type as "big" | "small",
+        systemPrompt: params.systemPrompt as string,
+        parentOtterId: ctx.otterId,
+      });
+      return textResponse(`Otter created: ${otter.id} (${otter.name})`);
+    },
+  };
+}
+
+function createDissolveOtterTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "dissolve_otter",
+    description: "解散指定 Otter。参数：otterId",
+    parameters: {
+      type: "object",
+      properties: {
+        otterId: { type: "string", description: "要解散的 Otter ID" },
+      },
+      required: ["otterId"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      await ctx.client.otter.dissolve(params.otterId as string);
+      return textResponse(`Otter ${params.otterId} dissolved`);
+    },
+  };
+}
+
+function createLinkedResourceTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "create_linked_resource",
+    description: "创建链接资源。参数：url，title（可选）。conversationId 和 linkedBy 由系统注入。",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "资源 URL" },
+        title: { type: "string", description: "资源标题" },
+      },
+      required: ["url"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const resource = await ctx.client.resource.link({
+        conversationId: ctx.conversationId,
+        url: params.url as string,
+        title: params.title as string | undefined,
+        linkedBy: ctx.otterId,
+      });
+      return textResponse(`Linked resource created: ${resource.id}`);
+    },
+  };
+}
+
+/** get_memory_detail: 获取指定记忆条目的完整内容（渐进式披露，支持批量） */
+function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_memory_detail",
-    description: "获取指定记忆条目的完整内容。用于在 search_memory 后深入查看特定条目",
+    description: "获取指定记忆条目的完整内容。用于在 search_memory 后深入查看特定条目。支持批量查询。",
     parameters: {
       type: "object",
       properties: {
@@ -155,133 +216,203 @@ function createGetMemoryDetailTool(deps: ToolDependencies): AgentTool {
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const ids = params.ids as string[];
-      const entries = await deps.manageMemory.getDetails(ids);
-      return textResponse(JSON.stringify(entries.map((e) => ({
-        id: e.id, content: e.content, layer: e.layer,
-        contentType: e.contentType, metadata: e.metadata,
-        createdAt: e.createdAt,
+      const entries = await ctx.client.memory.getDetails(ids);
+      return textResponse(JSON.stringify(entries));
+    },
+  };
+}
+
+// ── 新增工具（6 个） ──
+
+function createGetMessageTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "get_message",
+    description: "按 ID 获取消息详情。参数：messageId",
+    parameters: {
+      type: "object",
+      properties: {
+        messageId: { type: "string", description: "消息 ID" },
+      },
+      required: ["messageId"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const msg = await ctx.client.conversation.message.getById(params.messageId as string);
+      if (!msg) return textResponse(`Message ${params.messageId} not found`);
+      return textResponse(JSON.stringify({
+        id: msg.id,
+        senderType: msg.senderType,
+        senderId: msg.senderId,
+        body: msg.body,
+        status: msg.status,
+        turnId: msg.turnId,
+        sequenceNum: msg.sequenceNum,
+        createdAt: msg.createdAt,
+        completedAt: msg.completedAt,
+      }));
+    },
+  };
+}
+
+function createListMessagesTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "list_messages",
+    description: "分页查询当前对话的消息列表。参数：limit（最大条数，默认50），before（消息ID，查询此消息之前的消息）。conversationId 由系统注入。",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "最大结果数" },
+        before: { type: "string", description: "此消息 ID 之前的消息" },
+      },
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const messages = await ctx.client.conversation.message.list(ctx.conversationId, {
+        limit: params.limit as number | undefined,
+        before: params.before as string | undefined,
+      });
+      return textResponse(JSON.stringify(messages.map(m => ({
+        id: m.id,
+        senderType: m.senderType,
+        senderId: m.senderId,
+        body: m.body,
+        status: m.status,
+        sequenceNum: m.sequenceNum,
+        createdAt: m.createdAt,
       }))));
     },
   };
 }
 
-/** store_memory: 存储记忆 */
-function createStoreMemoryTool(deps: ToolDependencies): AgentTool {
+function createSearchMessagesTool(ctx: ToolContext): AgentTool {
   return {
-    name: "store_memory",
-    description: "存储记忆条目。参数：content（内容），otterId（存储记忆的 Otter ID），conversationId（对话ID，可选）",
+    name: "search_messages",
+    description: "在当前对话中关键词搜索消息。参数：query（搜索关键词），limit（最大结果数，默认10）。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        content: { type: "string", description: "记忆内容" },
-        otterId: { type: "string", description: "存储记忆的 Otter ID（用于溯源）" },
-        conversationId: { type: "string", description: "关联对话 ID" },
+        query: { type: "string", description: "搜索关键词" },
+        limit: { type: "number", description: "最大结果数" },
       },
-      required: ["content", "otterId"],
+      required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const id = await deps.storeMemory.execute({
-        layer: "working",
-        contentType: "conversation_summary",
-        sourceId: params.otterId as string,
-        sourceTable: "agent",
-        conversationId: params.conversationId as string | undefined,
-        granularity: "coarse",
-        content: params.content as string,
-      });
-      return textResponse(`Memory stored: ${id}`);
+      const messages = await ctx.client.conversation.message.search(
+        ctx.conversationId,
+        params.query as string,
+        (params.limit as number) ?? 10,
+      );
+      return textResponse(JSON.stringify(messages.map(m => ({
+        id: m.id,
+        senderType: m.senderType,
+        senderId: m.senderId,
+        body: m.body,
+        sequenceNum: m.sequenceNum,
+        createdAt: m.createdAt,
+      }))));
     },
   };
 }
 
-/** create_otter: 创建子 Otter */
-function createCreateOtterTool(deps: ToolDependencies): AgentTool {
+function createGetTurnHistoryTool(ctx: ToolContext): AgentTool {
   return {
-    name: "create_otter",
-    description: "创建子 Otter。参数：name，type（big/small），systemPrompt，parentOtterId",
+    name: "get_turn_history",
+    description: "获取当前对话的 Turn 历史链。参数：includeMessages（是否包含每个 Turn 的消息，默认 false）。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        name: { type: "string", description: "Otter 名称" },
-        type: { type: "string", enum: ["big", "small"], description: "Otter 类型" },
-        systemPrompt: { type: "string", description: "系统提示词" },
-        parentOtterId: { type: "string", description: "父 Otter ID" },
+        includeMessages: { type: "boolean", description: "是否包含每个 Turn 的消息" },
       },
-      required: ["name", "type", "systemPrompt", "parentOtterId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const otter = await deps.createOtter.execute({
-        name: params.name as string,
-        type: params.type as "big" | "small",
-        systemPrompt: params.systemPrompt as string,
-        parentOtterId: params.parentOtterId as string,
-      });
-      return textResponse(`Otter created: ${otter.id} (${otter.name})`);
+      const history = await ctx.client.conversation.message.getTurnHistory(
+        ctx.conversationId,
+        { includeMessages: (params.includeMessages as boolean) ?? false },
+      );
+      return textResponse(JSON.stringify(history.map(entry => ({
+        turn: {
+          id: entry.turn.id,
+          turnNumber: entry.turn.turnNumber,
+          status: entry.turn.status,
+          createdAt: entry.turn.createdAt,
+          closedAt: entry.turn.closedAt,
+        },
+        messages: entry.messages.map(m => ({
+          id: m.id,
+          senderType: m.senderType,
+          senderId: m.senderId,
+          body: m.body,
+          sequenceNum: m.sequenceNum,
+        })),
+      }))));
     },
   };
 }
 
-/** dissolve_otter: 解散 Otter */
-function createDissolveOtterTool(deps: ToolDependencies): AgentTool {
+function createGetContextTool(ctx: ToolContext): AgentTool {
   return {
-    name: "dissolve_otter",
-    description: "解散指定 Otter。参数：otterId",
+    name: "get_context",
+    description: "获取当前 Otter 的上下文。参数：key（可选，不传则返回全部上下文）。otterId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        otterId: { type: "string", description: "要解散的 Otter ID" },
+        key: { type: "string", description: "上下文 key（可选）" },
       },
-      required: ["otterId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      await deps.dissolveOtter.execute(params.otterId as string);
-      return textResponse(`Otter ${params.otterId} dissolved`);
+      const context = await ctx.client.context.get(
+        ctx.otterId,
+        params.key as string | undefined,
+      );
+      return textResponse(JSON.stringify(context));
     },
   };
 }
 
-/** create_linked_resource: 创建链接资源 */
-function createLinkedResourceTool(deps: ToolDependencies): AgentTool {
+function createSetContextTool(ctx: ToolContext): AgentTool {
   return {
-    name: "create_linked_resource",
-    description: "创建链接资源。参数：conversationId，url，title，linkedBy",
+    name: "set_context",
+    description: "设置当前 Otter 的上下文。参数：key, value。otterId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        conversationId: { type: "string" },
-        url: { type: "string", description: "资源 URL" },
-        title: { type: "string", description: "资源标题" },
-        linkedBy: { type: "string", description: "链接者 Otter ID" },
+        key: { type: "string", description: "上下文 key" },
+        value: { type: "string", description: "上下文 value" },
       },
-      required: ["conversationId", "url", "linkedBy"],
+      required: ["key", "value"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const resource = await deps.manageKeyInfo.linkResource({
-        conversationId: params.conversationId as string,
-        resourceType: "url",
-        url: params.url as string,
-        title: params.title as string | undefined,
-        linkedBy: params.linkedBy as string,
-        autoLinked: false,
-      });
-      return textResponse(`Linked resource created: ${resource.id}`);
+      await ctx.client.context.set(
+        ctx.otterId,
+        params.key as string,
+        params.value as string,
+      );
+      return textResponse(`Context set: ${params.key} = ${params.value}`);
     },
   };
 }
+
+// ── 工具工厂 ──
 
 /**
- * 工具工厂：接收 use cases，产出全部 Agent Tool 实例。
- * main.ts 调用此函数并注册到 ToolRegistry。
+ * 工具工厂：invoke 时调用，闭包捕获 ToolContext。
+ * 返回全部 14 个 AgentTool 实例（8 现有 + 6 新增）。
  */
-export function createTools(deps: ToolDependencies): AgentTool[] {
+export function createTools(ctx: ToolContext): AgentTool[] {
   return [
-    createSendMessageTool(deps),
-    createPassTalkingStoneTool(deps),
-    createSearchMemoryTool(deps),
-    createGetMemoryDetailTool(deps),
-    createStoreMemoryTool(deps),
-    createCreateOtterTool(deps),
-    createDissolveOtterTool(deps),
-    createLinkedResourceTool(deps),
+    // 现有工具（8 个）
+    createSendMessageTool(ctx),
+    createPassTalkingStoneTool(ctx),
+    createSearchMemoryTool(ctx),
+    createStoreMemoryTool(ctx),
+    createCreateOtterTool(ctx),
+    createDissolveOtterTool(ctx),
+    createLinkedResourceTool(ctx),
+    createGetMemoryDetailTool(ctx),
+    // 新增工具（6 个）
+    createGetMessageTool(ctx),
+    createListMessagesTool(ctx),
+    createSearchMessagesTool(ctx),
+    createGetTurnHistoryTool(ctx),
+    createGetContextTool(ctx),
+    createSetContextTool(ctx),
   ];
 }

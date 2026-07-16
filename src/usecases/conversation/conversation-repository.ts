@@ -20,6 +20,12 @@ export interface GetMessagesOptions {
   turnId?: string;
 }
 
+/** Turn 历史条目（含该 Turn 下的消息） */
+export interface TurnHistoryEntry {
+  turn: Turn;
+  messages: Message[];
+}
+
 export interface ConversationRepository {
   // Conversation CRUD
   create(conversation: Conversation, otterIds?: string[]): Promise<void>;
@@ -67,6 +73,12 @@ export interface ConversationRepository {
   appendEvent(event: MessageEvent): Promise<void>;
   getMessageEvents(messageId: string): Promise<MessageEvent[]>;
   getMaxEventSequenceNum(messageId: string): Promise<number>;
+
+  // Message 全文搜索（FTS5）
+  searchMessages(conversationId: string, query: string, limit?: number): Promise<Message[]>;
+
+  // Turn 历史（含消息）
+  getTurnHistory(conversationId: string, includeMessages?: boolean): Promise<TurnHistoryEntry[]>;
 
   // Key Info
   addKeyFact(keyFact: KeyFact): Promise<void>;

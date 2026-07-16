@@ -6,6 +6,8 @@
  * - 冷启动模型（R17）：每次发言创建 harness，完成后释放
  * - Pi 自管理 Session（R12）：使用 JsonlSessionRepo，Otter 只存 pi_session_id
  * - Pi 内置 NodeExecutionEnv（R13）：不需要自定义 ExecutionEnv
+ *
+ * 工具创建：invoke 时通过闭包捕获 ToolContext，不在启动时注册。
  */
 
 import type Database from "better-sqlite3";
@@ -15,8 +17,9 @@ import type {
   AgentGateway,
 } from "@usecases/otter/agent-gateway";
 import type { Models } from "@frameworks/llm/models-factory";
-import type { TTool, ToolRegistry } from "./tool-registry";
-import { DEFAULT_OTTER_TOOL_CONFIGS } from "./tool-registry";
+import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import type { AgentTool } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import { buildSystemPrompt, type DynamicContext, type HarnessContext } from "./system-prompt-builder";
@@ -40,6 +43,7 @@ export interface AgentRunResult {
 export interface InvokeOptions {
   dynamicContext?: DynamicContext;
   onEvent?: (event: AgentEvent) => void;
+  conversationId: string;
 }
 
 /** initAgentCore 配置 */
@@ -48,7 +52,7 @@ export interface AgentCoreConfig {
   model: unknown;
   db: Database.Database;
   sessionDir?: string;
-  toolRegistry?: ToolRegistry;
+  otterToolClient: OtterToolClient;
 }
 
 /** pi-agent-core 模块类型（动态加载） */
@@ -67,6 +71,30 @@ async function loadPiAgentCore(): Promise<PiAgentCoreModule> {
 /** Token 阈值（超过则触发 compaction，R1） */
 const COMPACT_TOKEN_THRESHOLD = 100_000;
 
+/**
+ * 按 otterType 获取 activeToolNames。
+ * big otter 拥有全部工具，small otter 只有消息和记忆相关工具。
+ */
+function getToolNamesForOtterType(otterType: string | undefined): string[] {
+  const allToolNames = [
+    "send_message", "pass_talking_stone", "search_memory", "store_memory",
+    "create_otter", "dissolve_otter", "create_linked_resource", "get_memory_detail",
+    "get_message", "list_messages", "search_messages", "get_turn_history",
+    "get_context", "set_context",
+  ];
+
+  if (!otterType || otterType === "big") {
+    return allToolNames;
+  }
+
+  /** small otter：消息检索 + 记忆 + 上下文，不含管理类工具 */
+  return [
+    "send_message", "search_memory", "create_linked_resource", "get_memory_detail",
+    "get_message", "list_messages", "search_messages", "get_turn_history",
+    "get_context", "set_context",
+  ];
+}
+
 export class PiHarnessFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly staticPrompts = new Map<string, string>();
@@ -79,16 +107,14 @@ export class PiHarnessFactory implements AgentGateway {
     private readonly model: unknown,
     private readonly db: Database.Database,
     private readonly sessionDir: string,
-    private readonly toolRegistry?: ToolRegistry,
+    private otterToolClient: OtterToolClient,
   ) {
     this.sessionStore = createAgentSessionStore(db);
+  }
 
-    /** 注册默认 Otter 工具配置 */
-    if (this.toolRegistry) {
-      for (const config of DEFAULT_OTTER_TOOL_CONFIGS) {
-        this.toolRegistry.configureOtterTools(config);
-      }
-    }
+  /** 注入 OtterToolClient（解决 Composition Root 循环依赖） */
+  setOtterToolClient(client: OtterToolClient): void {
+    this.otterToolClient = client;
   }
 
   /** 懒加载 pi-agent-core（ESM-only） */
@@ -172,14 +198,18 @@ export class PiHarnessFactory implements AgentGateway {
   }
 
   /**
-   * 冷启动调用（R17）：打开 session -> 创建 AgentHarness -> prompt -> 释放。
-   * Session 通过 JSONL 持久化，harness 释放后不丢数据。
+   * 冷启动调用（R17）：打开 session -> invoke 时创建工具 -> 创建 AgentHarness -> prompt -> 释放。
+   * 工具通过闭包捕获 ToolContext { client, otterId, conversationId }。
    */
   async invoke(
     otterId: string,
     message: string,
     options?: InvokeOptions,
   ): Promise<AgentRunResult> {
+    if (!this.otterToolClient) {
+      throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
+    }
+
     const piSessionId = this.sessionStore.get(otterId);
     if (!piSessionId) {
       throw new Error(`No agent session found for otter: ${otterId}`);
@@ -190,9 +220,16 @@ export class PiHarnessFactory implements AgentGateway {
     const otterType = this.otterTypes.get(otterId);
     const systemPromptFn = buildSystemPrompt(staticPrompt, options?.dynamicContext);
 
+    /** invoke 时创建 ToolContext，闭包捕获 */
+    const activeToolNames = getToolNamesForOtterType(otterType);
+    const tools = createTools({
+      client: this.otterToolClient,
+      otterId,
+      conversationId: options?.conversationId ?? "",
+    }).filter(t => activeToolNames.includes(t.name));
+
     const sessionRepo = this.createSessionRepo(piAgentCore);
     const session = sessionRepo.open(piSessionId);
-    const { tools, activeToolNames } = this.getToolsForOtter(otterType);
 
     const harness = this.createHarness(piAgentCore, {
       session, systemPrompt: systemPromptFn, tools, activeToolNames,
@@ -235,23 +272,6 @@ export class PiHarnessFactory implements AgentGateway {
     }
   }
 
-  /** 获取 Otter 类型的工具配置 */
-  private getToolsForOtter(otterType: string | undefined): {
-    tools: TTool[];
-    activeToolNames?: string[];
-  } {
-    if (!this.toolRegistry || !otterType) {
-      return { tools: [] };
-    }
-    const activeTools = this.toolRegistry.getActiveTools(otterType);
-    return {
-      tools: activeTools,
-      activeToolNames: activeTools
-        .map((t: TTool) => t.name ?? t.id)
-        .filter((n): n is string => n !== undefined),
-    };
-  }
-
   /** 检查 token 用量，超阈值则 compact（R1 手动 compaction） */
   private async checkAndCompact(harness: {
     compact?(): Promise<void>;
@@ -290,7 +310,7 @@ export class PiHarnessFactory implements AgentGateway {
     opts: {
       session: unknown;
       systemPrompt: (ctx: HarnessContext) => string;
-      tools: TTool[];
+      tools: AgentTool[];
       activeToolNames?: string[];
     },
   ): {
@@ -338,6 +358,6 @@ export async function initAgentCore(config: AgentCoreConfig): Promise<PiHarnessF
     config.model,
     config.db,
     config.sessionDir ?? "./data/sessions",
-    config.toolRegistry,
+    config.otterToolClient,
   );
 }

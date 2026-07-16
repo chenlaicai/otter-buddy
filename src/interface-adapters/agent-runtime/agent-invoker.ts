@@ -96,6 +96,7 @@ export class AgentInvoker {
     try {
       const result = await this.agentInvoke.invoke(otterId, userMessageContent, {
         dynamicContext,
+        conversationId,
         onEvent: (e: AgentStreamEvent) => {
           const sse = mapToSSEEvent(e);
           if (sse) onSSEEvent?.(sse);

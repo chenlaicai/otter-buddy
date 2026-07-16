@@ -14,8 +14,8 @@ import { initModels } from "@frameworks/llm/models-factory";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import { initAgentCore } from "@frameworks/agent/pi-harness-factory";
 import type { PiHarnessFactory } from "@frameworks/agent/pi-harness-factory";
-import { ToolRegistry } from "@frameworks/agent/tool-registry";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-context-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-settings-repository";
@@ -35,6 +35,7 @@ import { CreateOtter } from "@usecases/otter/create-otter";
 import { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import { ManageSession } from "@usecases/otter/manage-session";
 import { QueryOtter } from "@usecases/otter/query-otter";
+import { ManageContext } from "@usecases/otter/manage-context";
 
 import { createRouter } from "@interface-adapters/http/router";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
@@ -45,7 +46,7 @@ import { KeyInfoController } from "@interface-adapters/http/controllers/key-info
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 
 /**
  * MemoryIndexGateway 适配器：将 StoreMemory 适配为 MemoryIndexGateway。
@@ -81,6 +82,7 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
 
 interface Repositories {
   otter: SqliteOtterRepository;
+  otterContext: SqliteOtterContextRepository;
   memory: SqliteMemoryRepository;
   conversation: SqliteConversationRepository;
   settings: SqliteSettingsRepository;
@@ -99,11 +101,13 @@ interface UseCases {
   createOtter: CreateOtter;
   manageSession: ManageSession;
   dissolveOtter: DissolveOtter;
+  manageContext: ManageContext;
 }
 
 function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
   return {
     otter: new SqliteOtterRepository(db),
+    otterContext: new SqliteOtterContextRepository(db),
     memory: new SqliteMemoryRepository(db),
     conversation: new SqliteConversationRepository(db),
     settings: new SqliteSettingsRepository(db),
@@ -131,10 +135,118 @@ function initUseCases(
     repos.otter, agentGateway, manageConversation, manageMemory,
   );
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
+  const manageContext = new ManageContext(repos.otterContext);
   return {
     manageConversation, manageMemory, storeMemory, searchMemory,
     sendMessage, queryMessage, manageParticipant, manageKeyInfo,
-    queryOtter, createOtter, manageSession, dissolveOtter,
+    queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
+  };
+}
+
+/** 构建 OtterToolClient 的 conversation.message 部分 */
+function buildMessageClient(uc: UseCases) {
+  return {
+    send: async (params: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => {
+      const msg = await uc.sendMessage.start({
+        conversationId: params.conversationId,
+        senderId: params.senderId,
+        talkingStonePassedTo: [],
+      });
+      await uc.sendMessage.complete(msg.id, {
+        body: params.body,
+        talkingStonePassedTo: params.talkingStonePassedTo ?? [],
+      });
+      return msg;
+    },
+    getById: (id: string) => uc.queryMessage.getMessageById(id),
+    list: (convId: string, opts?: { limit?: number; before?: string }) =>
+      uc.queryMessage.getMessages(convId, { limit: opts?.limit, before: opts?.before }),
+    search: (convId: string, query: string, limit?: number) =>
+      uc.queryMessage.searchMessages(convId, query, limit),
+    getTurnHistory: (convId: string, opts?: { includeMessages?: boolean }) =>
+      uc.queryMessage.getTurnHistory(convId, opts),
+  };
+}
+
+/** 构建 OtterToolClient 的 memory 部分（渐进式披露：支持 detail_level、getById 和 getDetails） */
+function buildMemoryClient(uc: UseCases) {
+  return {
+    getById: async (id: string) => {
+      const entry = await uc.manageMemory.getById(id);
+      if (!entry) return null;
+      return { id: entry.id, content: entry.content, score: 1, layer: entry.layer };
+    },
+    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full") => {
+      const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel });
+      return result.entries.map(e => ({
+        id: e.id,
+        content: e.content,
+        score: e.score,
+        layer: e.layer,
+        snippet: e.snippet,
+        contentType: e.contentType,
+        metadata: e.metadata ?? undefined,
+        createdAt: e.createdAt,
+      }));
+    },
+    /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
+    getDetails: async (ids: string[]) => {
+      const entries = await uc.manageMemory.getDetails(ids);
+      return entries.map(e => ({
+        id: e.id,
+        content: e.content,
+        layer: e.layer,
+        contentType: e.contentType,
+        metadata: e.metadata ?? undefined,
+        createdAt: e.createdAt,
+      }));
+    },
+    store: async (entry: { content: string; otterId: string; conversationId?: string }) =>
+      uc.storeMemory.execute({
+        layer: "working", contentType: "conversation_summary",
+        sourceId: entry.otterId, sourceTable: "agent",
+        conversationId: entry.conversationId, granularity: "coarse", content: entry.content,
+      }),
+  };
+}
+
+/**
+ * 构建 OtterToolClient：包装所有 use case，作为工具访问 Otter 数据的统一门面。
+ */
+function buildOtterToolClient(uc: UseCases): OtterToolClient {
+  return {
+    conversation: {
+      message: buildMessageClient(uc),
+      participant: {
+        join: async (convId, otterId) => {
+          const { participant } = await uc.manageParticipant.join(
+            convId, otterId, `Otter ${otterId} joined the conversation`,
+          );
+          return participant;
+        },
+        getActive: (convId) => uc.manageParticipant.getActiveParticipants(convId),
+      },
+    },
+    memory: buildMemoryClient(uc),
+    otter: {
+      create: (params) => uc.createOtter.execute(params),
+      dissolve: (id) => uc.dissolveOtter.execute(id),
+      getById: (id) => uc.queryOtter.getById(id),
+    },
+    context: {
+      get: (otterId, key) => uc.manageContext.get(otterId, key),
+      set: (otterId, key, value) => uc.manageContext.set(otterId, key, value),
+    },
+    resource: {
+      link: (params) => uc.manageKeyInfo.linkResource({
+        conversationId: params.conversationId,
+        resourceType: "url",
+        url: params.url,
+        title: params.title,
+        linkedBy: params.linkedBy,
+        autoLinked: false,
+      }),
+    },
   };
 }
 
@@ -173,27 +285,23 @@ async function main(): Promise<void> {
   const { models, model } = await initModels(config.llm);
   const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);
 
-  const toolRegistry = new ToolRegistry();
-  const piHarnessFactory = await initAgentCore({ models, model, db, toolRegistry });
-
   const repos = initRepositories(db);
-  const uc = initUseCases(repos, piHarnessFactory, embeddingService);
 
-  for (const tool of createTools({
-    sendMessage: uc.sendMessage,
-    searchMemory: uc.searchMemory,
-    storeMemory: uc.storeMemory,
-    manageMemory: uc.manageMemory,
-    createOtter: uc.createOtter,
-    dissolveOtter: uc.dissolveOtter,
-    manageKeyInfo: uc.manageKeyInfo,
-    manageParticipant: uc.manageParticipant,
-  })) {
-    toolRegistry.register(tool);
-  }
+  /** 创建 PiHarnessFactory（OtterToolClient 稍后注入） */
+  const agentGateway = await initAgentCore({
+    models, model, db,
+    otterToolClient: {} as OtterToolClient,
+  });
+
+  const uc = initUseCases(repos, agentGateway, embeddingService);
+
+  /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
+  const otterToolClient = buildOtterToolClient(uc);
+  agentGateway.setOtterToolClient(otterToolClient);
 
   const agentInvoker = new AgentInvoker(
-    piHarnessFactory, uc.sendMessage, uc.searchMemory, uc.manageSession, uc.queryOtter,
+    agentGateway, uc.sendMessage, uc.searchMemory,
+    uc.manageSession, uc.queryOtter,
   );
 
   const settings: SettingsConfig = {
