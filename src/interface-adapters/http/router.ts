@@ -51,7 +51,10 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/key-info", (ctx) => c.keyInfo.getKeyInfo(ctx));
   app.post("/api/conversations/:id/key-facts", (ctx) => c.keyInfo.addKeyFact(ctx));
   app.post("/api/conversations/:id/resources", (ctx) => c.keyInfo.linkResource(ctx));
+  app.delete("/api/conversations/:id/key-facts/:factId", (ctx) => c.keyInfo.deleteKeyFact(ctx));
+  app.delete("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.deleteLinkedResource(ctx));
   app.get("/api/settings", (ctx) => c.settings.getSettings(ctx));
+  app.put("/api/settings", (ctx) => c.settings.updateSettings(ctx));
 }
 
 /** 创建 Hono 路由并挂载所有 Controller 端点 */

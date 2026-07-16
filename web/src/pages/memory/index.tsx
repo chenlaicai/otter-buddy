@@ -3,57 +3,52 @@ import { createRoot } from 'react-dom/client'
 import { Search, Star, MessageSquare, ClipboardList, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
 import '../../styles/globals.css'
 
-import type { MemoryEntry } from '../../mock/data'
-import { memoryEntries as mockEntries, conversations as mockConversations } from '../../mock/data'
+import type { MemoryEntryDTO } from '@contract/api'
 import { AppLayout } from '../../components/AppLayout'
 import { Modal, ModalButton } from '../../components/Modal'
 import { showToast } from '../../components/Toast'
-
-// TODO: API contract not yet defined - all data is mocked
+import * as api from '../../api/client'
 
 function MemorySearchPage() {
   const [query, setQuery] = useState('')
   const [layer, setLayer] = useState('')
   const [granularity, setGranularity] = useState('')
-  const [conversation, setConversation] = useState('')
-  const [results, setResults] = useState<MemoryEntry[] | null>(null)
+  const [results, setResults] = useState<MemoryEntryDTO[] | null>(null)
   const [loading, setLoading] = useState(false)
-  const [showDegrade] = useState(false)
   const [expandCtx, setExpandCtx] = useState(false)
   const [refineQuery, setRefineQuery] = useState('')
   const [showRefine, setShowRefine] = useState(false)
-  const [entries, setEntries] = useState(mockEntries)
 
-  function doSearch(searchQuery?: string) {
+  async function doSearch(searchQuery?: string) {
     const q = searchQuery ?? query
+    if (!q.trim()) return
     setLoading(true)
     setResults(null)
-
-    setTimeout(() => {
-      const filtered = entries.filter(e => {
-        if (layer && e.layer !== layer) return false
-        if (conversation) {
-          const conv = mockConversations.find(c => c.id === conversation)
-          if (conv && e.conversationTitle !== conv.title) return false
-        }
-        if (q) {
-          if (granularity === 'coarse') {
-            if (!e.conversationTitle.toLowerCase().includes(q.toLowerCase())) return false
-          } else {
-            if (!e.content.toLowerCase().includes(q.toLowerCase())) return false
-          }
-        }
-        return true
+    try {
+      const result = await api.searchMemory({
+        query: q,
+        limit: 20,
+        layer: layer || undefined,
+        granularity: granularity || undefined,
       })
-      setResults(filtered)
+      setResults(result.entries)
+    } catch {
+      showToast('搜索失败', 'error')
+    } finally {
       setLoading(false)
-    }, 800)
+    }
   }
 
-  function toggleFlag(id: string) {
-    setEntries(prev => prev.map(e => e.id === id ? { ...e, userFlagged: !e.userFlagged } : e))
-    setResults(prev => prev?.map(e => e.id === id ? { ...e, userFlagged: !e.userFlagged } : e) || null)
-    showToast('已标记', 'success')
+  async function toggleFlag(id: string) {
+    try {
+      const entry = results?.find(e => e.id === id)
+      if (!entry) return
+      await api.flagMemory(id, !entry.score)
+      setResults(prev => prev?.map(e => e.id === id ? { ...e, userFlagged: !e.userFlagged } : e) || null)
+      showToast('已标记', 'success')
+    } catch {
+      showToast('标记失败', 'error')
+    }
   }
 
   const typeIconComponents: Record<string, typeof MessageSquare> = {
@@ -105,16 +100,6 @@ function MemorySearchPage() {
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-stone-500 mb-1.5">限定对话 (可选)</label>
-            <select value={conversation} onChange={e => setConversation(e.target.value)} className="form-input w-full">
-              <option value="">全部对话</option>
-              <option value="c1">UI 设计讨论</option>
-              <option value="c2">数据库选型</option>
-              <option value="c3">前端框架对比</option>
-            </select>
-          </div>
-
           <button
             onClick={() => doSearch()}
             className="w-full py-2 text-sm text-white rounded-xl shadow-glow transition"
@@ -122,12 +107,6 @@ function MemorySearchPage() {
           >
             搜索
           </button>
-
-          {showDegrade && (
-            <div className="text-xs text-amber-600 bg-amber-400/10 rounded-lg px-3 py-2">
-              ⚠️ 语义检索不可用，仅显示关键词匹配结果
-            </div>
-          )}
         </aside>
 
         {/* Results */}
@@ -169,11 +148,13 @@ function MemorySearchPage() {
                       {e.contentType}
                     </span>
                     <span>·</span>
-                    <span>{e.conversationTitle}</span>
+                    <span>{e.conversationId || '-'}</span>
                     <span>·</span>
-                    <span>{e.time}</span>
-                    <span className="ml-auto text-otter-500 font-medium">{e.score}</span>
-                    <span className="text-[10px] bg-white/40 px-1.5 py-0.5 rounded-full">{layerLabels[e.layer]}</span>
+                    <span>{e.createdAt}</span>
+                    {e.score !== undefined && (
+                      <span className="ml-auto text-otter-500 font-medium">{e.score.toFixed(2)}</span>
+                    )}
+                    <span className="text-[10px] bg-white/40 px-1.5 py-0.5 rounded-full">{layerLabels[e.layer] || e.layer}</span>
                   </div>
                   <div className="text-sm text-stone-700 mb-2">{e.content}</div>
                   <div className="flex items-center gap-3 text-xs">
@@ -202,23 +183,7 @@ function MemorySearchPage() {
         width="600px"
         footer={<ModalButton onClick={() => setExpandCtx(false)}>关闭</ModalButton>}
       >
-        <div className="space-y-3">
-          <div className="flex gap-2.5">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: 'linear-gradient(135deg,#8B7E72,#6B6157)' }}>我</div>
-            <div className="glass-card rounded-2xl px-4 py-2.5 text-sm text-stone-700">我们来做 UI 设计吧</div>
-          </div>
-          <div className="flex gap-2.5">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}>獭</div>
-            <div>
-              <div className="text-xs font-semibold text-otter-500 mb-1">大獭</div>
-              <div className="glass-card rounded-2xl px-4 py-2.5 text-sm text-stone-700">好的！我来分析一下现有的设计文档。基于 S1-S4 的设计，我们需要 4 个页面。</div>
-            </div>
-          </div>
-          <div className="flex gap-2.5">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ background: 'linear-gradient(135deg,#8B7E72,#6B6157)' }}>我</div>
-            <div className="glass-card rounded-2xl px-4 py-2.5 text-sm text-stone-700">方向没问题，先出 UI 清单</div>
-          </div>
-        </div>
+        <div className="text-sm text-stone-500">上下文详情将在后续版本中展示。</div>
       </Modal>
 
       {/* Refine Search Modal */}

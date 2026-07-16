@@ -1,38 +1,12 @@
 import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
+import type {
+  ConversationDTO,
+  ConversationListItemDTO,
+  ParticipantDTO,
+} from "@contract/api/conversation";
 
-/** 对话响应 DTO */
-export interface ConversationDTO {
-  id: string;
-  title: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-  completedAt: string | null;
-  archivedAt: string | null;
-}
-
-/** 对话列表项 DTO（含 otterIds） */
-export interface ConversationListItemDTO extends ConversationDTO {
-  otterIds: string[];
-}
-
-/** 创建对话请求 DTO */
-export interface CreateConversationRequestDTO {
-  title: string;
-  otterIds?: string[];
-}
-
-/** 参与者 DTO */
-export interface ParticipantDTO {
-  id: string;
-  conversationId: string;
-  otterId: string;
-  joinedAtTurnNumber: number;
-  leftAtTurnNumber: number | null;
-  status: string;
-  createdAt: string;
-  leftAt: string | null;
-}
+export type { ConversationDTO, ConversationListItemDTO, ParticipantDTO };
+export type { CreateConversationRequestDTO } from "@contract/api/conversation";
 
 export function toConversationDTO(conv: Conversation): ConversationDTO {
   return {

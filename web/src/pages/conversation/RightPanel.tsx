@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus, Star, X, MoreHorizontal, RotateCcw } from 'lucide-react'
-import type { Conversation, Otter, KeyFact, LinkedResource, OtterSession } from '../../mock/data'
+import type { LocalConversation as Conversation, LocalOtter as Otter, LocalKeyFact as KeyFact, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession } from '../../lib/mappers'
 import { OtterAvatar } from '../../components/OtterAvatar'
 
 interface RightPanelProps {

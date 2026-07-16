@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { ArrowUp } from 'lucide-react'
-import type { Otter } from '../../mock/data'
-import { getOtterColor } from '../../mock/data'
+import type { LocalOtter as Otter } from '../../lib/mappers'
+import { getOtterColor } from '../../lib/otter-colors'
 
 interface MessageInputProps {
   onSend: (text: string, mentionOtterId?: string) => void

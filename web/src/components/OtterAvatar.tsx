@@ -1,4 +1,4 @@
-import { getOtterColor } from '../mock/data'
+import { getOtterColor } from '../lib/otter-colors'
 
 /** Otter avatar with color tag (← D-UI-1: multi-otter color differentiation) */
 export function OtterAvatar({

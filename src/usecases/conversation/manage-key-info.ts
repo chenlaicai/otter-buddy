@@ -88,4 +88,12 @@ export class ManageKeyInfo {
     ]);
     return { keyFacts, linkedResources };
   }
+
+  async deleteKeyFact(id: string): Promise<void> {
+    await this.repo.deleteKeyFact(id);
+  }
+
+  async deleteLinkedResource(id: string): Promise<void> {
+    await this.repo.deleteLinkedResource(id);
+  }
 }

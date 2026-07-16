@@ -15,6 +15,7 @@ export function initSchema(db: Database.Database): void {
     createTurnTables(db);
     createParticipantTables(db);
     createAgentSessionsTable(db);
+    createSettingsTable(db);
 
     db.exec("COMMIT");
   } catch (error) {
@@ -291,6 +292,17 @@ function createAgentSessionsTable(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (otter_id) REFERENCES otters(id)
+    );
+  `);
+}
+
+/** Settings 键值表 */
+function createSettingsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
 }

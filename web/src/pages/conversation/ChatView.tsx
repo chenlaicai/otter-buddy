@@ -1,11 +1,11 @@
 import { FilePlus, Check, Archive } from 'lucide-react'
-import type { Conversation, Otter } from '../../mock/data'
+import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
 import { MessageList, type StreamingState } from './MessageList'
 import { MessageInput } from './MessageInput'
 
 interface ChatViewProps {
   conversation: Conversation | null
-  messages: import('../../mock/data').Message[]
+  messages: Message[]
   streamingMessage: StreamingState | null
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
   onSend: (text: string, mentionOtterId?: string) => void

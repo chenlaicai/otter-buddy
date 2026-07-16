@@ -8,6 +8,7 @@ export default defineConfig({
       "@usecases": path.resolve(__dirname, "src/usecases"),
       "@interface-adapters": path.resolve(__dirname, "src/interface-adapters"),
       "@frameworks": path.resolve(__dirname, "src/frameworks"),
+      "@contract": path.resolve(__dirname, "api-contract"),
     },
   },
   test: {

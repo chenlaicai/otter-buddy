@@ -58,4 +58,24 @@ export class KeyInfoController {
       return handleError(c, err);
     }
   }
+
+  async deleteKeyFact(c: Context): Promise<Response> {
+    try {
+      const factId = param(c, "factId");
+      await this.manageKeyInfo.deleteKeyFact(factId);
+      return c.body(null, 204);
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
+
+  async deleteLinkedResource(c: Context): Promise<Response> {
+    try {
+      const resourceId = param(c, "resourceId");
+      await this.manageKeyInfo.deleteLinkedResource(resourceId);
+      return c.body(null, 204);
+    } catch (err) {
+      return handleError(c, err);
+    }
+  }
 }

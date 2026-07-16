@@ -18,7 +18,8 @@
       "@pages/*": ["src/pages/*"],
       "@mock/*": ["src/mock/*"],
       "@lib/*": ["src/lib/*"],
-      "@styles/*": ["src/styles/*"]
+      "@styles/*": ["src/styles/*"],
+      "@contract/*": ["../api-contract/*"]
     }
   },
   "include": ["src/**/*", "*.html", "server.ts"],
