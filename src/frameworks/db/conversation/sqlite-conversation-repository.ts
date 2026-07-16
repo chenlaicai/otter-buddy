@@ -12,6 +12,7 @@ import type { Message, MessageEvent } from "@entities/conversation/message";
 import type {
   ConversationRepository,
   GetMessagesOptions,
+  TurnHistoryEntry,
 } from "@usecases/conversation/conversation-repository";
 import {
   rowToConversation,
@@ -429,5 +430,38 @@ export class SqliteConversationRepository implements ConversationRepository {
       SET status = 'left', left_at_turn_id = ?, left_at_turn_number = ?, left_at = ?
       WHERE id = ?
     `).run(leftAtTurnId, leftAtTurnNumber, leftAt, participantId);
+  }
+
+  // ── Message 全文搜索（FTS5） ──
+
+  async searchMessages(conversationId: string, query: string, limit = 10): Promise<Message[]> {
+    const rows = this.db.prepare(`
+      SELECT m.* FROM messages m
+      INNER JOIN messages_fts fts ON fts.message_id = m.id
+      WHERE m.conversation_id = ? AND messages_fts MATCH ?
+      ORDER BY rank
+      LIMIT ?
+    `).all(conversationId, query, limit) as MessageRow[];
+    return rows.map(rowToMessage);
+  }
+
+  // ── Turn 历史 ──
+
+  async getTurnHistory(conversationId: string, includeMessages = false): Promise<TurnHistoryEntry[]> {
+    const turnRows = this.db.prepare(
+      "SELECT * FROM turns WHERE conversation_id = ? ORDER BY turn_number ASC",
+    ).all(conversationId) as TurnRow[];
+
+    return turnRows.map(row => {
+      const turn = rowToTurn(row);
+      return {
+        turn,
+        messages: includeMessages
+          ? (this.db.prepare(
+              "SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC",
+            ).all(turn.id) as MessageRow[]).map(rowToMessage)
+          : [],
+      };
+    });
   }
 }

@@ -27,6 +27,7 @@ export interface DynamicContext {
 /** invoke() 选项 */
 export interface InvokeOptions {
   dynamicContext?: DynamicContext;
+  conversationId: string;
   onEvent?: (event: AgentStreamEvent) => void;
 }
 
