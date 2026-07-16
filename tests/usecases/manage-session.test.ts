@@ -71,6 +71,9 @@ function mockRepo(session: OtterSession | null = null): OtterRepository & { _ses
         s.archiveReason = null;
       }
     }),
+    deleteSession: vi.fn(async (id: string) => {
+      sessions.delete(id);
+    }),
   } as unknown as OtterRepository & { _sessions: Map<string, OtterSession> };
 }
 
@@ -272,6 +275,10 @@ describe("ManageSession", () => {
       const restored = repo._sessions.get("sess-1");
       expect(restored?.status).toBe("active");
 
+      // Zombie new session should be cleaned up (BUG-3)
+      expect(repo._sessions.size).toBe(1);
+      expect(repo._sessions.has("sess-1")).toBe(true);
+
       // Memory layers should be rolled back
       expect(memoryLayer._transitions).toEqual([
         { conversationId: "conv-1", from: "working", to: "historical" },
@@ -299,6 +306,10 @@ describe("ManageSession", () => {
       // Session should be rolled back
       const restored = repo._sessions.get("sess-1");
       expect(restored?.status).toBe("active");
+
+      // Zombie new session should be cleaned up (BUG-3)
+      expect(repo._sessions.size).toBe(1);
+      expect(repo._sessions.has("sess-1")).toBe(true);
 
       // No agent reset
       expect(agentGateway._resetCalls).toHaveLength(0);

@@ -37,4 +37,6 @@ export interface OtterRepository {
     sessionId: string,
     status: SessionStatus,
   ): Promise<void>;
+  /** 删除 session（用于回滚清理僵尸 session） */
+  deleteSession(sessionId: string): Promise<void>;
 }

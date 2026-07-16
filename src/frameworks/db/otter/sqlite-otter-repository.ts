@@ -127,4 +127,8 @@ export class SqliteOtterRepository implements OtterRepository {
       UPDATE otter_sessions SET status = ?, archived_at = NULL, archive_reason = NULL WHERE id = ?
     `).run(status, sessionId);
   }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    this.db.prepare(`DELETE FROM otter_sessions WHERE id = ?`).run(sessionId);
+  }
 }

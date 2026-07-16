@@ -211,7 +211,7 @@ export class ManageSession {
     try {
       await this.repo.setHandoffSummary(newSession.id, handoffSummary);
     } catch (e) {
-      await this.rollbackArchive(session, originalStatus, conversationIds);
+      await this.rollbackArchive(session, originalStatus, conversationIds, newSession.id);
       throw e;
     }
 
@@ -224,7 +224,7 @@ export class ManageSession {
         );
       }
     } catch (e) {
-      await this.rollbackArchive(session, originalStatus, conversationIds);
+      await this.rollbackArchive(session, originalStatus, conversationIds, newSession.id);
       throw e;
     }
 
@@ -239,13 +239,17 @@ export class ManageSession {
     };
   }
 
-  /** 回滚归档：恢复 session 状态 + 记忆层转换 */
+  /** 回滚归档：恢复 session 状态 + 记忆层转换 + 清理僵尸新 Session */
   private async rollbackArchive(
     session: OtterSession,
     originalStatus: OtterSession["status"],
     conversationIds: string[],
+    newSessionId?: string,
   ) {
     await this.repo.restoreSessionStatus(session.id, originalStatus);
+    if (newSessionId) {
+      await this.repo.deleteSession(newSessionId);
+    }
     for (const conversationId of conversationIds) {
       await this.memoryLayer.updateLayer(
         conversationId,
