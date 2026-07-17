@@ -439,10 +439,10 @@ describe("PlatformPromptController", () => {
     expect(res.status).toBe(400);
   });
 
-  it("PUT 返回 400 当 systemPrompt 超过 10KB", async () => {
+  it("PUT 返回 400 当 systemPrompt 超过 100KB", async () => {
     const settingsRepo = { get: async () => null, update: async () => {}, getAll: async () => ({}) } as SettingsRepository;
     const app = createApp(settingsRepo, {} as PlatformPromptGateway);
-    const longPrompt = "a".repeat(10_001);
+    const longPrompt = "a".repeat(100_001);
     const res = await app.request("/api/platform-prompt", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

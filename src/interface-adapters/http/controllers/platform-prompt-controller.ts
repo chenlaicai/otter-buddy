@@ -7,8 +7,8 @@ import type { UpdatePlatformPromptRequestDTO } from "@contract/api/platform-prom
 /** 平台级 system prompt 键名（settings 表） */
 const PLATFORM_PROMPT_KEY = "platform_system_prompt";
 
-/** 平台 prompt 最大长度（10KB） */
-const MAX_PLATFORM_PROMPT_LENGTH = 10_000;
+/** 平台 prompt 最大长度（100KB） */
+const MAX_PLATFORM_PROMPT_LENGTH = 100_000;
 
 export class PlatformPromptController {
   constructor(
