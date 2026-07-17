@@ -26,7 +26,12 @@ export class PlatformPromptController {
     try {
       const body = await c.req.json<UpdatePlatformPromptRequestDTO>();
       if (typeof body.systemPrompt !== "string") {
-        return c.json({ error: "systemPrompt must be a string" }, 400);
+        return c.json({
+          error: "systemPrompt must be a string",
+          detail: typeof body.systemPrompt === "object"
+            ? "Platform prompt only accepts string. OtterPromptConfig objects are for per-Otter config via Otter creation API."
+            : `Expected string, got ${typeof body.systemPrompt}`,
+        }, 400);
       }
       await this.platformPromptGateway.updatePlatformPrompt(body.systemPrompt);
       return c.json({ systemPrompt: body.systemPrompt });

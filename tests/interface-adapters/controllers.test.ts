@@ -89,6 +89,7 @@ describe("OtterController", () => {
     const app = new Hono();
     app.get("/api/otters/big", (c) => controller.getBigOtter(c));
     app.get("/api/otters/:id", (c) => controller.getById(c));
+    app.post("/api/otters", (c) => controller.create(c));
     return app;
   }
 
@@ -109,6 +110,55 @@ describe("OtterController", () => {
     const app = createApp(ctrl);
     const res = await app.request("/api/otters/nonexistent");
     expect(res.status).toBe(404);
+  });
+
+  it("returns 400 when systemPrompt object has invalid reminders", async () => {
+    const createOtter = { execute: async () => mockOtter() } as unknown as CreateOtter;
+    const ctrl = new OtterController(createOtter, {} as DissolveOtter, {} as ManageSession, {} as QueryOtter);
+    const app = createApp(ctrl);
+    const res = await app.request("/api/otters", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Test", type: "big",
+        systemPrompt: { reminders: [{ priority: "high" }] },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.error).toContain("content must be a string");
+  });
+
+  it("returns 201 with valid OtterPromptConfig object", async () => {
+    const createOtter = { execute: async () => mockOtter() } as unknown as CreateOtter;
+    const ctrl = new OtterController(createOtter, {} as DissolveOtter, {} as ManageSession, {} as QueryOtter);
+    const app = createApp(ctrl);
+    const res = await app.request("/api/otters", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Test", type: "big",
+        systemPrompt: { systemPrompt: "custom prompt", reminders: [{ content: "be helpful" }] },
+      }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 400 when systemPrompt.reminders has invalid priority", async () => {
+    const createOtter = { execute: async () => mockOtter() } as unknown as CreateOtter;
+    const ctrl = new OtterController(createOtter, {} as DissolveOtter, {} as ManageSession, {} as QueryOtter);
+    const app = createApp(ctrl);
+    const res = await app.request("/api/otters", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Test", type: "big",
+        systemPrompt: { reminders: [{ content: "ok", priority: "urgent" }] },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.error).toContain("priority must be");
   });
 });
 
@@ -351,7 +401,7 @@ describe("PlatformPromptController", () => {
     expect(json.systemPrompt).toBe("所有AI必须遵守的原则");
   });
 
-  it("PUT 更新平台 prompt", async () => {
+  it("PUT 更新平台 prompt 并通过 gateway 持久化到 settingsRepo", async () => {
     let storedPrompt = "";
     const settingsRepo = {
       get: async () => storedPrompt,
@@ -359,7 +409,9 @@ describe("PlatformPromptController", () => {
       getAll: async () => ({}),
     } as SettingsRepository;
     const agentGateway = {
-      updatePlatformPrompt: async (prompt: string) => { storedPrompt = prompt; },
+      updatePlatformPrompt: async (prompt: string) => {
+        await settingsRepo.update("platform_system_prompt", prompt);
+      },
     } as unknown as PlatformPromptGateway;
     const app = createApp(settingsRepo, agentGateway);
     const res = await app.request("/api/platform-prompt", {
@@ -371,6 +423,9 @@ describe("PlatformPromptController", () => {
     const json = await res.json() as Record<string, unknown>;
     expect(json.systemPrompt).toBe("新的平台 prompt");
     expect(storedPrompt).toBe("新的平台 prompt");
+    // 验证 settingsRepo.update 被实际调用（持久化路径）
+    const readBack = await settingsRepo.get("platform_system_prompt");
+    expect(readBack).toBe("新的平台 prompt");
   });
 
   it("PUT 返回 400 当 systemPrompt 非字符串", async () => {
