@@ -144,15 +144,27 @@ export interface AgentInvokePort {
 
 ### 3.3 事件映射
 
-Pi SDK 事件 → Otter SSE 事件：
+事件分为两类：Pi SDK 事件映射和程序化 SSE 事件（由 `AgentInvoker.invokeConversation()` 编排逻辑直接发射）。
 
-| Pi 事件 | SSE 事件 | DB 持久化 |
-|---------|---------|----------|
-| `message_update` (delta) | `message.delta` | `text_delta` |
-| `tool_execution_start` | `tool.start` | `tool_call` |
-| `tool_execution_end` | `tool.result` | `tool_result` |
-| `turn_end` | 显式跳过（D5-fix：`turn.complete` 在 `message.complete` 之后手动发射） | — |
-| `agent_end` | `agent.idle` | — |
+**Pi SDK 事件 → SSE 事件：**
+
+| Pi 事件 | SSE 事件 | 说明 |
+|---------|---------|------|
+| `message_update` (delta) | `message.delta` | 文本增量 |
+| `tool_execution_start` | `tool.start` | 工具调用开始 |
+| `tool_execution_end` | `tool.result` | 工具调用结束 |
+| `turn_end` | （deferred）→ `turn.complete` | D5-fix：在 `mapToSSEEvent()` 中返回 null 延迟发射，在 `invokeConversation()` 中 `message.complete` 之后手动发射 `turn.complete` |
+| `agent_end` | `agent.idle` | Agent 空闲 |
+
+**程序化 SSE 事件（AgentInvoker 编排逻辑直接发射）：**
+
+| SSE 事件 | 发射时机 | 数据 |
+|---------|---------|------|
+| `message.start` | `invokeConversation()` 开始，创建 Otter 消息之后 | `{ messageId, otterId }` |
+| `message.complete` | `sendMessage.complete()` 之后 | `{ messageId, duration, ctx?, ctxMax? }` |
+| `turn.complete` | `message.complete` 之后（D5-fix 时序保证） | `{}` |
+| `message.aborted` | `handleInvokeError()` 中断路径 | `{ messageId }` |
+| `error` | `handleInvokeError()` 错误路径 | `{ message }` |
 
 ---
 
@@ -189,7 +201,7 @@ HTTP POST /conversations/:id/messages
 
 ### 5.1 系统提示注入
 
-Pi SDK 的 `_systemPromptOverride` 为 private，无公开 setter。系统提示作为**用户消息前缀**注入。
+Pi SDK 的 systemPrompt 由 `ResourceLoader` 内部管理（`_systemPromptOverride` 为 private，无公开 setter），无公开 API 覆盖。系统提示作为**用户消息前缀**注入。
 
 `PiSessionFactory.buildMessageWithContext()` 拼接结构：
 
@@ -312,7 +324,7 @@ ToolCallCircuitBreaker 本身是纯评估引擎（`check(toolName)` 方法）。
 | 冷启动模型（每次 invoke 创建/销毁 session） | 简化并发模型，避免 session 状态泄漏 | 每次创建 session 有开销 | 接受，SessionManager 的 JSONL 持久化保证数据不丢失 |
 | ToolContext 闭包注入而非依赖注入框架 | 简单直接，无额外依赖 | 工具测试需要构造完整 ToolContext | 接受，与项目手动 DI 风格一致 |
 | big/small Otter 工具差异化 | 最小权限原则，small otter 不需要管理工具 | 增加了配置复杂度 | 接受，通过白名单函数实现 |
-| turn_end 事件手动发射（D5-fix） | 保证 `turn.complete` 在 `message.complete` 之后到达前端，避免竞态 | 与 Pi SDK 事件流解耦，需手动维护时序 | 接受，`turn_end` 在 SSE 映射中显式跳过，`turn.complete` 在 `invokeConversation()` 中手动发射 |
+| turn_end 事件延迟发射（D5-fix） | 保证 `turn.complete` 在 `message.complete` 之后到达前端，避免竞态 | 与 Pi SDK 事件流解耦，需手动维护时序 | 接受，`turn_end` 在 `mapToSSEEvent()` 中返回 null（deferred），`turn.complete` 在 `invokeConversation()` 中 `message.complete` 之后手动发射 |
 | SkillLoader 通配符语义 | empty skillNames = 加载全部，简化配置 | 无法按 otterType 差异化加载 | 接受，当前仅 `otter-shared` 一个 skill，差异化无实际收益 |
 
 ---
