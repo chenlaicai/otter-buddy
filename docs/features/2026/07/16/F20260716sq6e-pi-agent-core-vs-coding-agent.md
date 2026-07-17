@@ -512,7 +512,8 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | R15 | V8 验证通过：createAgentSession 初始化 3.4-6.6ms（远低于 50ms 阈值），路径 B 冷启动完全可行 | 实测验证 |
 | R16 | §9.1 标题更新为"V8 已验证"、正文移除待验证措辞、补充行动替换为路径 B 集成工作项 | 架构师-2 指出 3 处不一致 |
 | R17 | 代码行数修正：总计从 863 更新为 1002，tool-factory.ts 从 287 更新为 487，pi-harness-factory.ts 从 343 更新为 363，删除已移除的 tool-registry.ts（81行），skill-loader.ts 路径修正为 src/interface-adapters/skill-adapter/ | 审查者-1/审查者-2 指出行数与 HEAD 不一致 |
-| R18 | 新增 §13 开发任务规划：将推荐方案（路径 B）转化为 8 个可执行开发任务，含验收标准、风险缓解和回退方案；变更类型扩展为 migration | 架构师-1：用户指出分析完成后应推进代码实现 |
+| R18 | 新增 §13 开发任务规划：将推荐方案（路径 B）转化为 8 个可执行开发任务，含验收标准；变更类型扩展为 migration | 架构师-1：用户指出分析完成后应推进代码实现 |
+| R19 | §13.4/13.5 移除兼容性思维：删除回退方案、feature flag、渐进迁移，改为直接替换 | 架构师-1：用户指出不应考虑兼容性 |
 
 ---
 
@@ -565,18 +566,8 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 6. Skills 通过 SkillLoader 正常加载
 7. 现有测试全部通过
 
-### 13.4 风险与缓解
+### 13.4 注意事项
 
-| 风险 | 缓解措施 |
-|------|---------|
-| pi-coding-agent API 与预期不符 | T2 阶段先做 PoC 验证，不通过则回退路径 A |
-| 事件类型不兼容 | T4 阶段建立事件映射适配层，逐个验证 |
-| Session Manager 不支持 Otter session chain | 可自定义 SessionManager 实现（§6.4 已分析） |
-| 编码工具残留干扰 | `noTools: "builtin"` 验证（V2 已列） |
-
-### 13.5 回退方案
-
-如果迁移过程中遇到不可解决的兼容性问题，保留路径 A 代码作为回退：
-- 路径 A 代码不删除（T7 延后执行）
-- 通过 feature flag 切换路径 A/B
-- 验收通过后再清理路径 A 代码
+- **直接替换，不保留路径 A 代码**：T7 清理与 T2-T6 同步进行，不做渐进迁移
+- **不使用 feature flag**：路径 B 是唯一运行路径
+- **不考虑向后兼容**：旧的 AgentHarness API 调用全部替换为 createAgentSession
