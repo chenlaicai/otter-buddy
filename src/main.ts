@@ -280,7 +280,7 @@ function initControllers(
   agentInvoker: AgentInvoker,
   settings: SettingsConfig,
   settingsRepo: SqliteSettingsRepository,
-  agentGateway: PiHarnessFactory,
+  agentGateway: PiSessionFactory,
 ) {
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant),
