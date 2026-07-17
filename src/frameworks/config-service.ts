@@ -152,8 +152,8 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
     llm: {
       provider: raw.llm.provider,
       model: raw.llm.model,
-      apiKey: raw.llm.apiKey,
-      apiBaseUrl: raw.llm.apiBaseUrl,
+      apiKey: raw.llm.apiKey ?? undefined,
+      apiBaseUrl: raw.llm.apiBaseUrl ?? undefined,
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
   };

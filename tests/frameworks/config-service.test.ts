@@ -90,6 +90,18 @@ describe("loadConfig", () => {
     expect(cfg.server.port).toBe(8080);
   });
 
+  it("converts YAML null values for optional llm fields to undefined", () => {
+    mockExistsSync.mockReturnValue(true);
+    // js-yaml parses `apiKey:` (no value) as null
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  provider: openai\n  model: gpt-4o\n  apiKey:\n  apiBaseUrl:\n",
+    );
+
+    const cfg = loadConfig();
+    expect(cfg.llm.apiKey).toBeUndefined();
+    expect(cfg.llm.apiBaseUrl).toBeUndefined();
+  });
+
   it("preserves all config sections", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
