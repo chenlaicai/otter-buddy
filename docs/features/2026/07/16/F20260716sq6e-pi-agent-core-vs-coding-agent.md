@@ -293,7 +293,7 @@ session.getTools();                    // 获取工具列表
 | Otter 工具模型 | 完全自定义 | `tools` 启用编码工具 + `customTools` 注入 Otter 工具 |
 | 多獭差异化 | activeToolNames 精确控制 | tools + excludeTools 组合控制 |
 | 冷启动模型 | 已实现（R17） | 已验证（§6.3 V8：3.4-6.6ms） |
-| Session Chain | 自建 previousSessionId | 需要验证 SessionManager 是否支持 |
+| Session Chain | 自建 previousSessionId | 需自定义 SessionManager（§6.4 V4） |
 
 ### 5.4 维护风险
 
@@ -428,7 +428,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | # | 假设 | 验证方法 | 阻塞决策 |
 |---|------|---------|---------|
 | V1 | createAgentSession 冷启动初始化开销可接受 | PoC：测量 createAgentSession → prompt → 丢弃 循环的耗时 | 是 |
-| V2 | `noTools: "builtin"` 可完全禁用编码工具 | 检查 createAgentSession 返回的 session.getTools() | 是 |
+| V2 | `tools` + `customTools` 可完全控制工具集 | 检查 createAgentSession 返回的 session.getTools() | 是 |
 | V3 | customTools 可注册 Otter 自定义工具 | PoC：注册 send_message 工具并调用 | 是 |
 | V4 | SessionManager 支持 Otter 的 session chain 模型 | 检查 SessionManager API 是否支持 previousSessionId | 否（可自定义 SessionManager） |
 | V5 | 自动 compaction 阈值可配置 | 检查 SettingsManager 的 compaction 配置 | 否（可手动触发） |
@@ -515,6 +515,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | R19 | §13.4/13.5 移除兼容性思维：删除回退方案、feature flag、渐进迁移，改为直接替换 | 架构师-1：用户指出不应考虑兼容性 |
 | R20 | 架构师-2 对抗审视 7 项修正：P1 T2 从 noTools 改为 tools+customTools（§4.3/§4.5/§5.3/§13.3 同步修正）；P2 工具数量 8→16（§3.1/§3.2/§5.1/T3/§9.1）；P3 §5.2 启动延迟改为 V8 实测数据；P4 T1 移除 pi-agent-core 直接依赖；P5 Session Chain 补充到 T8 和验收标准；P6 行数 1002→1007/487→488；P7 验收标准补充框架层集成测试 | 架构师-2 对抗审视 |
 | R21 | 审查者-2 第二轮 review 4 项修正：§4.2 移除 noTools: "builtin"（与 R20 tools+customTools 矛盾）；§9.1 pass_talking_stick→pass_talking_stone；§5.3 冷启动行更新为"已验证（§6.3 V8）"；§3.2 行数回退 R20 引入的错误（488→487/1007→1002），全局同步修正 | 审查者-1 第二轮 review |
+| R22 | 审查者-2 第三轮 review 2 项修正：§5.3 Session Chain 行从"需要验证"更新为"需自定义 SessionManager（§6.4 V4）"（与 §6.4 结论一致）；§8 V2 验证项从 noTools 更新为 tools+customTools（与 R20/R21 方案一致） | 审查者-2 第三轮 review |
 
 ---
 
