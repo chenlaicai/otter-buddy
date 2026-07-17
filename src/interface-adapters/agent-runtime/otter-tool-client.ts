@@ -32,7 +32,7 @@ export interface StoreMemoryInput {
 export interface CreateOtterInput {
   name: string;
   type: "big" | "small";
-  systemPrompt: string;
+  systemPrompt?: string;
   parentOtterId: string;
 }
 

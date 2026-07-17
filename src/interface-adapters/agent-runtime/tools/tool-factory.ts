@@ -139,21 +139,21 @@ function createStoreMemoryTool(ctx: ToolContext): AgentTool {
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
-    description: "创建子 Otter。参数：name，type（big/small），systemPrompt。parentOtterId 由系统注入。",
+    description: "创建子 Otter。参数：name，type（big/small），systemPrompt（可选，与平台 prompt 叠加）。parentOtterId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
         name: { type: "string", description: "Otter 名称" },
         type: { type: "string", enum: ["big", "small"], description: "Otter 类型" },
-        systemPrompt: { type: "string", description: "系统提示词" },
+        systemPrompt: { type: "string", description: "Otter 级系统提示词（可选）" },
       },
-      required: ["name", "type", "systemPrompt"],
+      required: ["name", "type"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const otter = await ctx.client.otter.create({
         name: params.name as string,
         type: params.type as "big" | "small",
-        systemPrompt: params.systemPrompt as string,
+        systemPrompt: params.systemPrompt as string | undefined,
         parentOtterId: ctx.otterId,
       });
       return textResponse(`Otter created: ${otter.id} (${otter.name})`);

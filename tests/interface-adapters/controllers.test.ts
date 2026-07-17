@@ -5,6 +5,7 @@ import { OtterController } from "@interface-adapters/http/controllers/otter-cont
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
+import { PlatformPromptController } from "@interface-adapters/http/controllers/platform-prompt-controller";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { CreateOtter } from "@usecases/otter/create-otter";
@@ -15,6 +16,7 @@ import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import type { PlatformPromptGateway } from "@usecases/otter/platform-prompt-gateway";
 import type { Conversation } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import type { SearchMemory } from "@usecases/memory/search-memory";
@@ -314,6 +316,71 @@ describe("MemoryController", () => {
   it("batch 缺少 ids 参数返回 400", async () => {
     const app = createApp({} as SearchMemory, {} as ManageMemory);
     const res = await app.request("/api/memory/batch");
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("PlatformPromptController", () => {
+  function createApp(settingsRepo: SettingsRepository, agentGateway: PlatformPromptGateway): Hono {
+    const ctrl = new PlatformPromptController(settingsRepo, agentGateway);
+    const app = new Hono();
+    app.get("/api/platform-prompt", (c) => ctrl.get(c));
+    app.put("/api/platform-prompt", (c) => ctrl.update(c));
+    return app;
+  }
+
+  it("GET 返回空字符串当无平台 prompt", async () => {
+    const settingsRepo = { get: async () => null, update: async () => {}, getAll: async () => ({}) } as SettingsRepository;
+    const app = createApp(settingsRepo, {} as PlatformPromptGateway);
+    const res = await app.request("/api/platform-prompt");
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.systemPrompt).toBe("");
+  });
+
+  it("GET 返回已存储的平台 prompt", async () => {
+    const settingsRepo = {
+      get: async (key: string) => key === "platform_system_prompt" ? "所有AI必须遵守的原则" : null,
+      update: async () => {},
+      getAll: async () => ({}),
+    } as SettingsRepository;
+    const app = createApp(settingsRepo, {} as PlatformPromptGateway);
+    const res = await app.request("/api/platform-prompt");
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.systemPrompt).toBe("所有AI必须遵守的原则");
+  });
+
+  it("PUT 更新平台 prompt", async () => {
+    let storedPrompt = "";
+    const settingsRepo = {
+      get: async () => storedPrompt,
+      update: async (_key: string, value: string) => { storedPrompt = value; },
+      getAll: async () => ({}),
+    } as SettingsRepository;
+    const agentGateway = {
+      updatePlatformPrompt: async (prompt: string) => { storedPrompt = prompt; },
+    } as unknown as PlatformPromptGateway;
+    const app = createApp(settingsRepo, agentGateway);
+    const res = await app.request("/api/platform-prompt", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ systemPrompt: "新的平台 prompt" }),
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.systemPrompt).toBe("新的平台 prompt");
+    expect(storedPrompt).toBe("新的平台 prompt");
+  });
+
+  it("PUT 返回 400 当 systemPrompt 非字符串", async () => {
+    const settingsRepo = { get: async () => null, update: async () => {}, getAll: async () => ({}) } as SettingsRepository;
+    const app = createApp(settingsRepo, {} as PlatformPromptGateway);
+    const res = await app.request("/api/platform-prompt", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ systemPrompt: 123 }),
+    });
     expect(res.status).toBe(400);
   });
 });
