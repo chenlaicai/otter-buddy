@@ -31,4 +31,15 @@ export const config = {
     /** LLM 模型 ID */
     model: process.env.OTTER_BUDDY_LLM_MODEL ?? "gpt-4o",
   },
+  /** Agent 工具调用熔断器配置（F20260716bte2） */
+  circuitBreaker: {
+    maxToolCalls: Number(process.env.OTTER_CB_MAX_TOOL_CALLS ?? "40"),
+    maxConsecutiveIdentical: Number(process.env.OTTER_CB_MAX_CONSECUTIVE ?? "5"),
+    maxExecutionTimeMs: Number(process.env.OTTER_CB_MAX_EXEC_MS ?? "300000"),
+    warningThreshold: Number(process.env.OTTER_CB_WARNING_THRESHOLD ?? "20"),
+    slidingWindowSize: Number(process.env.OTTER_CB_SLIDING_WINDOW_SIZE ?? "6"),
+    slidingWindowRepeat: Number(process.env.OTTER_CB_SLIDING_WINDOW_REPEAT ?? "3"),
+    steerTimeoutMs: Number(process.env.OTTER_CB_STEER_TIMEOUT_MS ?? "30000"),
+    tokenWarningThreshold: Number(process.env.OTTER_CB_TOKEN_WARNING ?? "50000"),
+  },
 } as const;

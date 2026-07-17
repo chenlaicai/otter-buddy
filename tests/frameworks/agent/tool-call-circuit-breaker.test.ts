@@ -1,0 +1,294 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  ToolCallCircuitBreaker,
+  DEFAULT_CIRCUIT_BREAKER_CONFIG,
+} from "@frameworks/agent/tool-call-circuit-breaker";
+import type { CircuitBreakerConfig } from "@frameworks/agent/tool-call-circuit-breaker";
+
+function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerConfig {
+  return { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...overrides };
+}
+
+describe("ToolCallCircuitBreaker", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("allows tool calls under threshold (AC-7: normal execution unaffected)", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+    for (let i = 0; i < 19; i++) {
+      const result = cb.check(`tool_${i}`);
+      expect(result.action).toBe("allow");
+      expect(result.blocked).toBe(false);
+    }
+  });
+
+  it("triggers steer when exceeding maxToolCalls (AC-1: B-2)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
+      "otter-1",
+    );
+
+    // Under limit: allow
+    for (let i = 0; i < 5; i++) {
+      expect(cb.check(`tool_${i}`).action).toBe("allow");
+    }
+
+    // Exceed limit: steer
+    const result = cb.check("tool_5");
+    expect(result.action).toBe("steer");
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("6/5");
+  });
+
+  it("force terminates after maxToolCalls + 3 (AC-2: B-5)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
+      "otter-1",
+    );
+
+    // Fill up to maxToolCalls
+    for (let i = 0; i < 5; i++) {
+      cb.check(`tool_${i}`);
+    }
+
+    // 3 more calls after limit: still steer
+    for (let i = 0; i < 3; i++) {
+      expect(cb.check("extra_tool").action).toBe("steer");
+    }
+
+    // maxToolCalls + 4: force terminate
+    const result = cb.check("extra_tool");
+    expect(result.action).toBe("terminate");
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("Force terminated");
+  });
+
+  it("triggers steer on consecutive identical tools (AC-4: B-3)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      "otter-1",
+    );
+
+    // First 3 calls: allow
+    expect(cb.check("search_memory").action).toBe("allow");
+    expect(cb.check("search_memory").action).toBe("allow");
+    expect(cb.check("search_memory").action).toBe("allow");
+
+    // 4th consecutive: steer
+    const result = cb.check("search_memory");
+    expect(result.action).toBe("steer");
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("search_memory");
+    expect(result.reason).toContain("4");
+  });
+
+  it("resets consecutive count when tool changes", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      "otter-1",
+    );
+
+    expect(cb.check("tool_a").action).toBe("allow");
+    expect(cb.check("tool_a").action).toBe("allow");
+    expect(cb.check("tool_a").action).toBe("allow");
+
+    // Different tool resets counter
+    expect(cb.check("tool_b").action).toBe("allow");
+
+    // Can call tool_a again without triggering
+    expect(cb.check("tool_a").action).toBe("allow");
+  });
+
+  it("detects sliding window cross-tool alternating loop (AC-8: B-3b)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({
+        slidingWindowSize: 6,
+        slidingWindowRepeat: 3,
+        maxToolCalls: 100,
+        warningThreshold: 100,
+      }),
+      "otter-1",
+    );
+
+    // Pattern A-B-C repeated 3 times (18 calls, window=6, repeat=3)
+    // Each window of 6 sorted = "A,B,C,A,B,C" → same pattern
+    for (let i = 0; i < 18; i++) {
+      const tools = ["A", "B", "C"];
+      const result = cb.check(tools[i % 3]);
+      if (i < 17) {
+        expect(result.action).toBe("allow");
+      }
+    }
+
+    // 18th call should trigger sliding window detection
+    const result = cb.check("A");
+    // The sliding window should have detected the pattern by now
+    expect(result.action).toBe("steer");
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("Repeating tool call pattern");
+  });
+
+  it("does not trigger sliding window for non-repeating patterns", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({
+        slidingWindowSize: 6,
+        slidingWindowRepeat: 3,
+        maxToolCalls: 100,
+        warningThreshold: 100,
+      }),
+      "otter-1",
+    );
+
+    // Different tools each time: no repeating pattern
+    for (let i = 0; i < 18; i++) {
+      const result = cb.check(`unique_tool_${i}`);
+      expect(result.action).toBe("allow");
+    }
+  });
+
+  it("force terminates on execution timeout (AC-3: B-4)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxExecutionTimeMs: 5000, maxToolCalls: 100 }),
+      "otter-1",
+    );
+
+    expect(cb.check("tool_1").action).toBe("allow");
+
+    // Advance time past limit
+    vi.advanceTimersByTime(6000);
+
+    const result = cb.check("tool_2");
+    expect(result.action).toBe("terminate");
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("timeout");
+  });
+
+  it("steer deadline fires forceAbort callback (AC-9: B-5b)", () => {
+    const forceAbort = vi.fn();
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ steerTimeoutMs: 30000 }),
+      "otter-1",
+    );
+
+    cb.setSteerDeadline(forceAbort);
+    expect(forceAbort).not.toHaveBeenCalled();
+
+    // Advance past steer timeout
+    vi.advanceTimersByTime(31000);
+
+    expect(forceAbort).toHaveBeenCalled();
+  });
+
+  it("check() returns terminate after steer deadline passes (B-5b in evaluate path)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ steerTimeoutMs: 30000, maxToolCalls: 100 }),
+      "otter-1",
+    );
+
+    cb.check("tool_1");
+
+    // Set steer deadline (simulating harness calling setSteerDeadline after steer)
+    cb.setSteerDeadline(vi.fn());
+
+    // Before deadline: allow
+    vi.advanceTimersByTime(20000);
+    expect(cb.check("tool_2").action).toBe("allow");
+
+    // After deadline: terminate
+    vi.advanceTimersByTime(15000);
+    const result = cb.check("tool_3");
+    expect(result.action).toBe("terminate");
+    expect(result.reason).toContain("Steer deadline exceeded");
+  });
+
+  it("clearSteerDeadline prevents forceAbort", () => {
+    const forceAbort = vi.fn();
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ steerTimeoutMs: 30000 }),
+      "otter-1",
+    );
+
+    cb.setSteerDeadline(forceAbort);
+    cb.clearSteerDeadline();
+
+    vi.advanceTimersByTime(60000);
+    expect(forceAbort).not.toHaveBeenCalled();
+  });
+
+  it("resets steer deadline on repeated setSteerDeadline calls", () => {
+    const forceAbort1 = vi.fn();
+    const forceAbort2 = vi.fn();
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ steerTimeoutMs: 30000 }),
+      "otter-1",
+    );
+
+    cb.setSteerDeadline(forceAbort1);
+    vi.advanceTimersByTime(20000);
+
+    // Reset with new callback
+    cb.setSteerDeadline(forceAbort2);
+    vi.advanceTimersByTime(20000);
+
+    // First callback should have been cleared
+    expect(forceAbort1).not.toHaveBeenCalled();
+    // Second not yet (only 20s of 30s elapsed)
+    expect(forceAbort2).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(15000);
+    expect(forceAbort2).toHaveBeenCalled();
+  });
+
+  it("records call history (B-6)", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+
+    cb.check("tool_a");
+    cb.check("tool_b");
+    cb.check("tool_a");
+
+    expect(cb.getCallHistory()).toEqual(["tool_a", "tool_b", "tool_a"]);
+  });
+
+  it("returns metadata with circuit reason (B-7)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxToolCalls: 3, warningThreshold: 2 }),
+      "otter-1",
+    );
+
+    cb.check("tool_1");
+    cb.check("tool_2");
+    cb.check("tool_3");
+
+    // Exceed limit
+    cb.check("tool_4");
+
+    const meta = cb.getMetadata();
+    expect(meta.totalCalls).toBe(4);
+    expect(meta.circuitReason).toContain("4/3");
+  });
+
+  it("metadata has no circuitReason when under limit", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+
+    cb.check("tool_1");
+
+    const meta = cb.getMetadata();
+    expect(meta.totalCalls).toBe(1);
+    expect(meta.circuitReason).toBeUndefined();
+  });
+
+  it("getCallHistory returns a copy, not a reference", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+    cb.check("tool_a");
+
+    const history = cb.getCallHistory();
+    history.push("injected");
+
+    expect(cb.getCallHistory()).toEqual(["tool_a"]);
+  });
+});
