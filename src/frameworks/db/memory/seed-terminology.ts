@@ -1,116 +1,49 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type Database from "better-sqlite3";
 import type { TerminologyEntry } from "@entities/memory/terminology-entry";
 import { SqliteTerminologyRepository } from "./sqlite-terminology-repository";
 
-const SEED_ENTRIES: TerminologyEntry[] = [
-  {
-    id: "seed-001",
-    term: "大獭",
-    aliases: ["Big Otter"],
-    definition: "用户唯一持久 Otter，带有独占能力",
-    context: null,
-    examples: null,
-    category: "实体",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-  {
-    id: "seed-002",
-    term: "小獭",
-    aliases: ["Small Otter"],
-    definition: "大獭按需创建的临时 Otter，任务结束解散",
-    context: null,
-    examples: null,
-    category: "实体",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-  {
-    id: "seed-003",
-    term: "对话",
-    aliases: ["Conversation"],
-    definition: "用户与 Otter 的交互单元。支持树状结构。可以是 1v1 或多 Otter。",
-    context: null,
-    examples: null,
-    category: "概念",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-  {
-    id: "seed-004",
-    term: "重启獭生",
-    aliases: ["Restart Otter Life"],
-    definition: "用户表达不满时触发的 Otter 个体内部机制：封存当前 session 为反面案例，开新 session 换角度重来。",
-    context: null,
-    examples: null,
-    category: "机制",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-  {
-    id: "seed-005",
-    term: "统一能力库",
-    aliases: ["Unified Capability Library"],
-    definition: "系统级 Skill 集合",
-    context: null,
-    examples: null,
-    category: "模块",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-  {
-    id: "seed-006",
-    term: "记忆系统",
-    aliases: ["Memory System"],
-    definition: "系统级模块，标准化接口，多库架构，所有 Otter 主动检索",
-    context: null,
-    examples: null,
-    category: "模块",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-  {
-    id: "seed-007",
-    term: "手脚",
-    aliases: ["Hands & Feet"],
-    definition: "工具/Skill/外部系统",
-    context: null,
-    examples: null,
-    category: "概念",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-  {
-    id: "seed-008",
-    term: "对话关键信息",
-    aliases: ["Conversation Key Info"],
-    definition: "每个对话的关键信息（开放机制，大獭和用户可添加）",
-    context: null,
-    examples: null,
-    category: "概念",
-    status: "active",
-    createdAt: "2026-07-09T00:00:00Z",
-    updatedAt: "2026-07-09T00:00:00Z",
-    version: 1,
-  },
-];
+interface SeedTermData {
+  id: string;
+  term: string;
+  aliases: string[];
+  definition: string;
+  context: string | null;
+  examples: string[] | null;
+  category: string | null;
+}
 
-/** 种子数据导入：仅在 terminology_entries 表为空时执行 */
-export function seedTerminologyData(db: Database.Database): void {
+const SEED_TIMESTAMP = "2026-07-09T00:00:00Z";
+
+/**
+ * 从外部 JSON 文件加载种子数据并转换为 TerminologyEntry 格式。
+ * JSON 文件包含精简字段（无 id 前缀、status、version 等运行时字段），
+ * 此处补全为完整的 TerminologyEntry。
+ */
+function loadSeedEntries(): TerminologyEntry[] {
+  const filePath = resolve(process.cwd(), "data/terminology/seed-terminology.json");
+  const raw = readFileSync(filePath, "utf-8");
+  const terms = JSON.parse(raw) as SeedTermData[];
+
+  return terms.map((t) => ({
+    id: t.id,
+    term: t.term,
+    aliases: t.aliases,
+    definition: t.definition,
+    context: t.context,
+    examples: t.examples,
+    category: t.category,
+    status: "active" as const,
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP,
+    version: 1,
+  }));
+}
+
+/** 种子数据同步：从外部 JSON 文件读取，比对数据库差异，新增/更新术语 */
+export async function seedTerminologyData(db: Database.Database): Promise<void> {
   const repo = new SqliteTerminologyRepository(db);
-  repo.seed(SEED_ENTRIES);
+  const entries = loadSeedEntries();
+  await repo.syncSeed(entries);
 }
