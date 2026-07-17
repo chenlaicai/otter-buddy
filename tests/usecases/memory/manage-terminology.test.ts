@@ -283,6 +283,144 @@ describe("TerminologyRepository - 种子数据", () => {
   });
 });
 
+describe("TerminologyRepository - syncSeed 种子同步", () => {
+  const SEED_ENTRIES: TerminologyEntry[] = [
+    SAMPLE_ENTRY,
+    {
+      id: "seed-002",
+      term: "小獭",
+      aliases: ["Small Otter"],
+      definition: "大獭按需创建的临时 Otter",
+      context: null,
+      examples: null,
+      category: "实体",
+      status: "active",
+      createdAt: "2026-07-09T00:00:00Z",
+      updatedAt: "2026-07-09T00:00:00Z",
+      version: 1,
+    },
+  ];
+
+  it("表为空时导入全部种子数据", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    repo.syncSeed(SEED_ENTRIES);
+
+    const entry = await repo.getByTerm("大獭");
+    expect(entry).not.toBeNull();
+    expect(entry?.term).toBe("大獭");
+    const entry2 = await repo.getByTerm("小獭");
+    expect(entry2).not.toBeNull();
+  });
+
+  it("内容相同时跳过更新", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    repo.syncSeed(SEED_ENTRIES);
+    const before = await repo.getByTerm("大獭");
+
+    repo.syncSeed(SEED_ENTRIES);
+    const after = await repo.getByTerm("大獭");
+
+    expect(after?.version).toBe(before?.version);
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+  });
+
+  it("内容不同时更新术语", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    repo.syncSeed(SEED_ENTRIES);
+
+    /** 修改定义后重新同步 */
+    const updated = SEED_ENTRIES.map(e =>
+      e.term === "大獭" ? { ...e, definition: "新定义" } : e,
+    );
+    repo.syncSeed(updated);
+
+    const entry = await repo.getByTerm("大獭");
+    expect(entry?.definition).toBe("新定义");
+    expect(entry?.version).toBe(2);
+  });
+
+  it("新增种子术语不影响运行时用户添加的术语", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    /** 先同步一次（2个术语） */
+    repo.syncSeed(SEED_ENTRIES);
+
+    /** 用户手动添加一个术语 */
+    await repo.add({
+      id: "user-term-1",
+      term: "自定义术语",
+      aliases: ["Custom Term"],
+      definition: "用户自己添加的术语",
+      context: null,
+      examples: null,
+      category: "概念",
+      status: "active",
+      createdAt: "2026-07-17T00:00:00Z",
+      updatedAt: "2026-07-17T00:00:00Z",
+      version: 1,
+    });
+
+    /** 再次同步，用户术语应保留 */
+    repo.syncSeed(SEED_ENTRIES);
+
+    const userTerm = await repo.getByTerm("自定义术语");
+    expect(userTerm).not.toBeNull();
+    expect(userTerm?.id).toBe("user-term-1");
+  });
+
+  it("新增种子条目只插入新增的，不重复导入已有", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    /** 初始同步 2 个术语 */
+    repo.syncSeed(SEED_ENTRIES);
+
+    /** 扩展种子数据为 3 个 */
+    const extended = [...SEED_ENTRIES, {
+      id: "seed-003",
+      term: "对话",
+      aliases: ["Conversation"],
+      definition: "用户与 Otter 的交互单元",
+      context: null,
+      examples: null,
+      category: "概念",
+      status: "active" as const,
+      createdAt: "2026-07-09T00:00:00Z",
+      updatedAt: "2026-07-09T00:00:00Z",
+      version: 1,
+    }];
+    repo.syncSeed(extended);
+
+    const newEntry = await repo.getByTerm("对话");
+    expect(newEntry).not.toBeNull();
+    expect(newEntry?.id).toBe("seed-003");
+
+    /** 已有的 2 个术语不应被重复插入 */
+    const existing = await repo.getByTerm("大獭");
+    expect(existing?.id).toBe("term-1");
+  });
+
+  it("syncSeed 幂等：多次执行结果相同", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    repo.syncSeed(SEED_ENTRIES);
+    repo.syncSeed(SEED_ENTRIES);
+    repo.syncSeed(SEED_ENTRIES);
+
+    const entry = await repo.getByTerm("大獭");
+    expect(entry).not.toBeNull();
+    expect(entry?.version).toBe(1);
+  });
+});
+
 describe("SearchMemory - library 路由", () => {
   let db: Database.Database;
   let termRepo: SqliteTerminologyRepository;

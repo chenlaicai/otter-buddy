@@ -42,7 +42,7 @@ function createSendMessageTool(ctx: ToolContext): AgentTool {
       type: "object",
       properties: {
         content: { type: "string", description: "消息内容" },
-        recipientId: { type: "string", description: "接收者 ID（传递说话石目标，通常为用户 ID）" },
+        recipientId: { type: "string", description: "接收者 ID（传递发言石目标，通常为用户 ID）" },
       },
       required: ["content", "recipientId"],
     },
@@ -61,7 +61,7 @@ function createSendMessageTool(ctx: ToolContext): AgentTool {
 function createPassTalkingStoneTool(ctx: ToolContext): AgentTool {
   return {
     name: "pass_talking_stone",
-    description: "传递说话石，邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
+    description: "传递发言石，邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
     parameters: {
       type: "object",
       properties: {

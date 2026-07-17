@@ -8,4 +8,6 @@ export interface TerminologyRepository {
   search(query: string, limit: number): Promise<TerminologyEntry[]>;
   /** 种子数据导入（仅在表为空时执行） */
   seed(entries: TerminologyEntry[]): Promise<void>;
+  /** 种子数据同步：比对差异，新增/更新，保留运行时用户添加的术语 */
+  syncSeed(entries: TerminologyEntry[]): void;
 }
