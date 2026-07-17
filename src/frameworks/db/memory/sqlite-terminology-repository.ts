@@ -111,43 +111,11 @@ export class SqliteTerminologyRepository implements TerminologyRepository {
     return ftsRows.map(rowToTerminologyEntry);
   }
 
-  async seed(entries: TerminologyEntry[]): Promise<void> {
-    /** 仅在表为空时执行 */
-    const count = this.db.prepare("SELECT COUNT(*) AS cnt FROM terminology_entries").get() as { cnt: number };
-    if (count.cnt > 0) return;
-
-    this.db.exec("BEGIN");
-    try {
-      const insertEntry = this.db.prepare(`
-        INSERT INTO terminology_entries (id, term, aliases, aliases_flat, definition,
-          context, examples, category, status, created_at, updated_at, version)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const insertFts = this.db.prepare(`
-        INSERT INTO terminology_fts (terminology_entry_id, term, aliases_flat, definition, context)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-      for (const entry of entries) {
-        const row = entryToRow(entry);
-        insertEntry.run(
-          row.id, row.term, row.aliases, row.aliases_flat, row.definition,
-          row.context, row.examples, row.category, row.status,
-          row.created_at, row.updated_at, row.version,
-        );
-        insertFts.run(row.id, row.term, row.aliases_flat, row.definition, row.context ?? "");
-      }
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
   /**
    * 种子数据同步：比对差异，新增/更新，保留运行时用户添加的术语。
    * 幂等：多次执行结果相同。
    */
-  syncSeed(entries: TerminologyEntry[]): void {
+  async syncSeed(entries: TerminologyEntry[]): Promise<void> {
     const now = new Date().toISOString();
 
     const existingStmt = this.db.prepare(

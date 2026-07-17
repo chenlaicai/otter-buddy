@@ -307,7 +307,7 @@ async function main(): Promise<void> {
   initSchema(db);
 
   /** 种子数据：术语库首次初始化时导入核心术语 */
-  seedTerminologyData(db);
+  await seedTerminologyData(db);
 
   const { models, model } = await initModels(config.llm);
   const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);

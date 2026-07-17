@@ -42,8 +42,8 @@ function loadSeedEntries(): TerminologyEntry[] {
 }
 
 /** 种子数据同步：从外部 JSON 文件读取，比对数据库差异，新增/更新术语 */
-export function seedTerminologyData(db: Database.Database): void {
+export async function seedTerminologyData(db: Database.Database): Promise<void> {
   const repo = new SqliteTerminologyRepository(db);
   const entries = loadSeedEntries();
-  repo.syncSeed(entries);
+  await repo.syncSeed(entries);
 }

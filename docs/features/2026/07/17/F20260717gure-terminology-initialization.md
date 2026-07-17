@@ -269,7 +269,9 @@ SQLite 数据库（terminology_entries 表）
 
 ## 不兼容更新
 
-无。本次为纯新增，不修改已有术语。
+- `TerminologyRepository` 接口新增 `syncSeed` 方法
+- 种子同步策略从"表为空时导入"改为"比对差异同步"
+- 工具描述中"说话石"统一为"发言石"
 
 ## 关联 [required]
 

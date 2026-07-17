@@ -254,34 +254,6 @@ describe("ManageTerminology - 检索策略", () => {
   });
 });
 
-describe("TerminologyRepository - 种子数据", () => {
-  it("seed 在表为空时导入数据", async () => {
-    const db = createTestDb();
-    const repo = new SqliteTerminologyRepository(db);
-
-    await repo.seed([SAMPLE_ENTRY]);
-
-    const entry = await repo.getByTerm("大獭");
-    expect(entry).not.toBeNull();
-    expect(entry?.term).toBe("大獭");
-  });
-
-  it("seed 在表非空时不重复导入", async () => {
-    const db = createTestDb();
-    const repo = new SqliteTerminologyRepository(db);
-
-    await repo.seed([SAMPLE_ENTRY]);
-    await repo.seed([{
-      ...SAMPLE_ENTRY,
-      id: "term-dup",
-      definition: "重复定义",
-    }]);
-
-    const entry = await repo.getByTerm("大獭");
-    expect(entry?.id).toBe("term-1");
-    expect(entry?.definition).toBe("用户唯一持久 Otter，带有独占能力");
-  });
-});
 
 describe("TerminologyRepository - syncSeed 种子同步", () => {
   const SEED_ENTRIES: TerminologyEntry[] = [
@@ -305,7 +277,7 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     const db = createTestDb();
     const repo = new SqliteTerminologyRepository(db);
 
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
 
     const entry = await repo.getByTerm("大獭");
     expect(entry).not.toBeNull();
@@ -318,10 +290,10 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     const db = createTestDb();
     const repo = new SqliteTerminologyRepository(db);
 
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
     const before = await repo.getByTerm("大獭");
 
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
     const after = await repo.getByTerm("大獭");
 
     expect(after?.version).toBe(before?.version);
@@ -332,13 +304,13 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     const db = createTestDb();
     const repo = new SqliteTerminologyRepository(db);
 
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
 
     /** 修改定义后重新同步 */
     const updated = SEED_ENTRIES.map(e =>
       e.term === "大獭" ? { ...e, definition: "新定义" } : e,
     );
-    repo.syncSeed(updated);
+    await repo.syncSeed(updated);
 
     const entry = await repo.getByTerm("大獭");
     expect(entry?.definition).toBe("新定义");
@@ -350,7 +322,7 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     const repo = new SqliteTerminologyRepository(db);
 
     /** 先同步一次（2个术语） */
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
 
     /** 用户手动添加一个术语 */
     await repo.add({
@@ -368,7 +340,7 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     });
 
     /** 再次同步，用户术语应保留 */
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
 
     const userTerm = await repo.getByTerm("自定义术语");
     expect(userTerm).not.toBeNull();
@@ -380,7 +352,7 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     const repo = new SqliteTerminologyRepository(db);
 
     /** 初始同步 2 个术语 */
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
 
     /** 扩展种子数据为 3 个 */
     const extended = [...SEED_ENTRIES, {
@@ -396,7 +368,7 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
       updatedAt: "2026-07-09T00:00:00Z",
       version: 1,
     }];
-    repo.syncSeed(extended);
+    await repo.syncSeed(extended);
 
     const newEntry = await repo.getByTerm("对话");
     expect(newEntry).not.toBeNull();
@@ -411,9 +383,9 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     const db = createTestDb();
     const repo = new SqliteTerminologyRepository(db);
 
-    repo.syncSeed(SEED_ENTRIES);
-    repo.syncSeed(SEED_ENTRIES);
-    repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
+    await repo.syncSeed(SEED_ENTRIES);
 
     const entry = await repo.getByTerm("大獭");
     expect(entry).not.toBeNull();
