@@ -1,7 +1,7 @@
 ---
 id: F20260716sq6e
 title: pi-agent-core-vs-coding-agent
-tags: [architecture, agent-framework, pi, design-decision]
+tags: [architecture, agent-framework, pi, design-decision, migration]
 modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]
 doc_kind: spec
 status: locked
@@ -13,7 +13,7 @@ created_at: 2026-07-16
 ## 元信息
 
 - **特性编号**：F20260716sq6e
-- **变更类型**：research / design-decision
+- **变更类型**：research / design-decision / migration
 - **影响模块**：frameworks/agent、系统整体架构
 - **关联 ADR**：D14（S2 Capability Module Architecture Design）
 - **关联研究**：docs/research/pi-capability-analysis.md、docs/research/pi-integration-analysis.md
@@ -512,6 +512,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | R15 | V8 验证通过：createAgentSession 初始化 3.4-6.6ms（远低于 50ms 阈值），路径 B 冷启动完全可行 | 实测验证 |
 | R16 | §9.1 标题更新为"V8 已验证"、正文移除待验证措辞、补充行动替换为路径 B 集成工作项 | 架构师-2 指出 3 处不一致 |
 | R17 | 代码行数修正：总计从 863 更新为 1002，tool-factory.ts 从 287 更新为 487，pi-harness-factory.ts 从 343 更新为 363，删除已移除的 tool-registry.ts（81行），skill-loader.ts 路径修正为 src/interface-adapters/skill-adapter/ | 审查者-1/审查者-2 指出行数与 HEAD 不一致 |
+| R18 | 新增 §13 开发任务规划：将推荐方案（路径 B）转化为 8 个可执行开发任务，含验收标准、风险缓解和回退方案；变更类型扩展为 migration | 架构师-1：用户指出分析完成后应推进代码实现 |
 
 ---
 
@@ -530,3 +531,52 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | C-SQ6E-1 | 不可引入 pi-tui 作为运行时依赖 | Otter 是 Web 应用，不需要终端 UI |
 | C-SQ6E-2 | 工具系统必须支持按獭类型差异化 | 大獭/设计獭/检视獭需要不同工具集 |
 | C-SQ6E-3 | 冷启动模型必须保留 | 用户决策 R17：每次发言创建 harness，完成后释放 |
+
+---
+
+## 13. 开发任务规划（路径 B 迁移实现）
+
+基于 §9.1 推荐方案（转向 pi-coding-agent SDK），以下为具体开发任务：
+
+### 13.1 迁移目标
+
+将 Otter Agent 框架从 pi-agent-core（路径 A）迁移到 pi-coding-agent SDK（路径 B），保留冷启动模型和 Otter 自定义工具体系。
+
+### 13.2 任务分解
+
+| # | 任务 | 涉及文件 | 说明 | 依赖 |
+|---|------|---------|------|------|
+| T1 | 新增 `pi-coding-agent` 依赖 | `package.json` | 添加 `pi-coding-agent` 依赖，保留 `pi-agent-core`（pi-coding-agent 内含） | 无 |
+| T2 | 新建 `pi-session-factory.ts` | `src/frameworks/agent/pi-session-factory.ts` | 薄封装 `createAgentSession()`，替代 `pi-harness-factory.ts`。配置：`noTools: "builtin"` 禁用编码工具，`customTools` 注入 Otter 工具 | T1 |
+| T3 | 迁移工具注册 | `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | 将 8 个 Otter 工具从 AgentTool 格式适配为 pi-coding-agent customTools 格式 | T2 |
+| T4 | 迁移事件流映射 | `src/frameworks/agent/` 相关文件 | AgentSessionEvent → SSE 事件映射，替代现有 Pi 事件 → SSE 映射 | T2 |
+| T5 | 迁移 Session 管理 | `src/frameworks/agent/agent-session-store.ts` | 适配 SessionManager，保留 Otter session ID 映射逻辑 | T2 |
+| T6 | 接线 SkillLoader | `src/interface-adapters/skill-adapter/skill-loader.ts` | 将已有的 SkillLoader（72 行）接入 createAgentSession 的 skills 配置 | T2 |
+| T7 | 清理旧代码 | `src/frameworks/agent/pi-harness-factory.ts` 等 | 移除路径 A 的自建代码（pi-harness-factory、system-prompt-builder 等） | T2-T6 |
+| T8 | 验证测试 | 全量 | 确保冷启动模型、Otter 工具调用、事件流、Session Chain 全部正常 | T1-T7 |
+
+### 13.3 验收标准
+
+1. `createAgentSession()` 替代 `AgentHarness` 作为 Agent 运行时入口
+2. Otter 自定义工具（send_message、pass_talking_stone 等）通过 customTools 正常注册和调用
+3. 编码工具（read/write/edit/bash）通过 `noTools: "builtin"` 或 `tools` 配置正确控制
+4. 冷启动模型保留：每次发言创建 session，完成后释放
+5. 事件流映射正常：AgentSessionEvent → SSE → 前端
+6. Skills 通过 SkillLoader 正常加载
+7. 现有测试全部通过
+
+### 13.4 风险与缓解
+
+| 风险 | 缓解措施 |
+|------|---------|
+| pi-coding-agent API 与预期不符 | T2 阶段先做 PoC 验证，不通过则回退路径 A |
+| 事件类型不兼容 | T4 阶段建立事件映射适配层，逐个验证 |
+| Session Manager 不支持 Otter session chain | 可自定义 SessionManager 实现（§6.4 已分析） |
+| 编码工具残留干扰 | `noTools: "builtin"` 验证（V2 已列） |
+
+### 13.5 回退方案
+
+如果迁移过程中遇到不可解决的兼容性问题，保留路径 A 代码作为回退：
+- 路径 A 代码不删除（T7 延后执行）
+- 通过 feature flag 切换路径 A/B
+- 验收通过后再清理路径 A 代码
