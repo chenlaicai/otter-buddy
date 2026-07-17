@@ -117,9 +117,9 @@ pi-agent-core
 | `pi-harness-factory.ts` | 363 | 冷启动工厂、harness 创建、compaction 触发 |
 | `system-prompt-builder.ts` | 38 | 动态 system prompt 组合 |
 | `agent-session-store.ts` | 42 | Otter ID ↔ Pi Session ID 映射 |
-| `tool-factory.ts` | 488 | 16 个 AgentTool 创建 |
+| `tool-factory.ts` | 487 | 16 个 AgentTool 创建 |
 | `skill-loader.ts` | 72 | Skills 扫描和按 Otter 类型过滤（已实现，未接入） |
-| **总计** | **1007** | 全部自建 |
+| **总计** | **1002** | 全部自建 |
 
 ### 3.3 自建能力清单
 
@@ -189,10 +189,9 @@ const { session, extensionsResult } = await createAgentSession({
   cwd: process.cwd(),
   model: myModel,
   thinkingLevel: "medium",
-  tools: ["read", "bash"],           // 内置工具选择
-  customTools: [myOtterTool],         // 自定义工具注入
-  noTools: "builtin",                 // 禁用内置工具，只用自定义
-  sessionManager: mySessionManager,   // 可覆盖
+  tools: ["read", "write", "edit", "bash"],  // 内置编码工具
+  customTools: [myOtterTool],                // 自定义工具注入
+  sessionManager: mySessionManager,          // 可覆盖
   settingsManager: mySettingsManager, // 可覆盖
   resourceLoader: myResourceLoader,   // 可覆盖
 });
@@ -268,14 +267,14 @@ session.getTools();                    // 获取工具列表
 
 | 维度 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |------|------------------------|------------------------------|
-| 初始集成 | 已完成（1007 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
+| 初始集成 | 已完成（1002 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
 | Session 管理 | Pi 原生 + 自建映射 | 内置 SessionManager |
 | Compaction | 自建触发逻辑（~30 行） | 内置自动 compaction |
 | Skills 体系 | 已实现 SkillLoader（72 行），需接线到 Agent | 内置 loadSkills |
 | Extensions | 需要从零设计 | 内置 ExtensionRuntime |
-| 工具系统 | 自建 ToolFactory（488 行） | customTools 注入 + tools 配置 |
+| 工具系统 | 自建 ToolFactory（487 行） | customTools 注入 + tools 配置 |
 | 事件流 | 自建映射（~50 行） | AgentSessionEvent 直接映射 |
-| **总自建代码量** | **1007 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
+| **总自建代码量** | **1002 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
 
 ### 5.2 运行时性能
 
@@ -293,7 +292,7 @@ session.getTools();                    // 获取工具列表
 | 整洁架构兼容 | 高（Gateway 接口精确适配） | 中（SDK API 需要适配层） |
 | Otter 工具模型 | 完全自定义 | `tools` 启用编码工具 + `customTools` 注入 Otter 工具 |
 | 多獭差异化 | activeToolNames 精确控制 | tools + excludeTools 组合控制 |
-| 冷启动模型 | 已实现（R17） | 需要验证 SDK 是否支持 |
+| 冷启动模型 | 已实现（R17） | 已验证（§6.3 V8：3.4-6.6ms） |
 | Session Chain | 自建 previousSessionId | 需要验证 SessionManager 是否支持 |
 
 ### 5.4 维护风险
@@ -411,7 +410,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 
 | 评估维度 | 权重 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |---------|------|------------------------|------------------------------|
-| 初始开发成本 | 中 | ✅ 已完成（1007 行） | ⚠️ 需要重写（~200 行） |
+| 初始开发成本 | 中 | ✅ 已完成（1002 行） | ⚠️ 需要重写（~200 行） |
 | 后续开发成本 | 高 | ⚠️ 需接线 Skills + 自建 Extensions | ✅ 内置能力丰富 |
 | 运行时性能 | 中 | ✅ 更轻量 | ⚠️ Extensions 初始化开销 |
 | 架构适配度 | 高 | ✅ 完全可控 | ⚠️ 需要适配层，但无架构不兼容 |
@@ -456,9 +455,9 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 **补充行动**：
 
 1. 集成 `createAgentSession`（薄封装）
-2. 注册 16 个 Otter 自定义工具（customTools：send_message、pass_talking_stick、search_memory、store_memory 等）
+2. 注册 16 个 Otter 自定义工具（customTools：send_message、pass_talking_stone、search_memory、store_memory 等）
 3. 配置混合工具集（编码工具 + Otter 工具共存）
-4. 迁移现有 1007 行代码中的 Otter 逻辑到新集成层
+4. 迁移现有 1002 行代码中的 Otter 逻辑到新集成层
 
 ### 9.2 替代方案：维持路径 A（pi-agent-core）
 
@@ -485,7 +484,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | 决策 | 结论 | 理由 |
 |------|------|------|
 | Agent 框架包 | 转向推荐 pi-coding-agent SDK（待 V8 验证） | 编码工具是必需品（完善自身），开箱即用能力更多，V8 初始化开销 < 50ms 时优势明确 |
-| pi-agent-core | 备选方案 | 已有 1007 行代码，但需自建编码工具，长期维护成本更高 |
+| pi-agent-core | 备选方案 | 已有 1002 行代码，但需自建编码工具，长期维护成本更高 |
 | Skills 体系 | 接线已有 SkillLoader 到 Agent | 已有 72 行实现，需接线而非从零自建 |
 | Compaction 策略 | 升级为阈值 + 溢出检测 | 当前仅基于 token 阈值过于粗糙 |
 
@@ -511,10 +510,11 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | R14 | §6.1 从"不需要编码工具"修正为"需要编码工具（完善自身）"；推荐方案从"有条件推荐路径 A"转向"推荐路径 B" | 用户纠正：Otter 需要完善自身，编码工具是必需品 |
 | R15 | V8 验证通过：createAgentSession 初始化 3.4-6.6ms（远低于 50ms 阈值），路径 B 冷启动完全可行 | 实测验证 |
 | R16 | §9.1 标题更新为"V8 已验证"、正文移除待验证措辞、补充行动替换为路径 B 集成工作项 | 架构师-2 指出 3 处不一致 |
-| R17 | 代码行数修正：总计从 863 更新为 1007，tool-factory.ts 从 287 更新为 487，pi-harness-factory.ts 从 343 更新为 363，删除已移除的 tool-registry.ts（81行），skill-loader.ts 路径修正为 src/interface-adapters/skill-adapter/ | 审查者-1/审查者-2 指出行数与 HEAD 不一致 |
+| R17 | 代码行数修正：总计从 863 更新为 1002，tool-factory.ts 从 287 更新为 487，pi-harness-factory.ts 从 343 更新为 363，删除已移除的 tool-registry.ts（81行），skill-loader.ts 路径修正为 src/interface-adapters/skill-adapter/ | 审查者-1/审查者-2 指出行数与 HEAD 不一致 |
 | R18 | 新增 §13 开发任务规划：将推荐方案（路径 B）转化为 8 个可执行开发任务，含验收标准；变更类型扩展为 migration | 架构师-1：用户指出分析完成后应推进代码实现 |
 | R19 | §13.4/13.5 移除兼容性思维：删除回退方案、feature flag、渐进迁移，改为直接替换 | 架构师-1：用户指出不应考虑兼容性 |
 | R20 | 架构师-2 对抗审视 7 项修正：P1 T2 从 noTools 改为 tools+customTools（§4.3/§4.5/§5.3/§13.3 同步修正）；P2 工具数量 8→16（§3.1/§3.2/§5.1/T3/§9.1）；P3 §5.2 启动延迟改为 V8 实测数据；P4 T1 移除 pi-agent-core 直接依赖；P5 Session Chain 补充到 T8 和验收标准；P6 行数 1002→1007/487→488；P7 验收标准补充框架层集成测试 | 架构师-2 对抗审视 |
+| R21 | 审查者-2 第二轮 review 4 项修正：§4.2 移除 noTools: "builtin"（与 R20 tools+customTools 矛盾）；§9.1 pass_talking_stick→pass_talking_stone；§5.3 冷启动行更新为"已验证（§6.3 V8）"；§3.2 行数回退 R20 引入的错误（488→487/1007→1002），全局同步修正 | 审查者-1 第二轮 review |
 
 ---
 
