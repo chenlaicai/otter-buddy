@@ -12,8 +12,8 @@ import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
-import { initAgentCore } from "@frameworks/agent/pi-harness-factory";
-import type { PiHarnessFactory } from "@frameworks/agent/pi-harness-factory";
+import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
+import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-context-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
@@ -122,7 +122,7 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
 
 function initUseCases(
   repos: Repositories,
-  agentGateway: PiHarnessFactory,
+  agentGateway: PiSessionFactory,
   embeddingService: EmbeddingGateway,
 ): UseCases {
   const searchEngine = new SearchEngine(config.memory);
@@ -309,14 +309,14 @@ async function main(): Promise<void> {
   /** 种子数据：术语库首次初始化时导入核心术语 */
   seedTerminologyData(db);
 
-  const { models, model } = await initModels(config.llm);
+  const { model } = await initModels(config.llm);
   const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);
 
   const repos = initRepositories(db);
 
-  /** 创建 PiHarnessFactory（OtterToolClient 稍后注入） */
-  const agentGateway = await initAgentCore({
-    models, model, db,
+  /** 创建 PiSessionFactory（OtterToolClient 稍后注入） */
+  const agentGateway = await initAgentSessionFactory({
+    model, db,
     otterToolClient: {} as OtterToolClient,
   });
 
