@@ -55,17 +55,14 @@ function createMockDb() {
 function createFactory(overrides?: { settingsRepo?: unknown }) {
   const mockClient = {} as never;
   const mockDb = createMockDb() as never;
-  return new PiHarnessFactory(
-    {
-      models: {} as never,
-      model: {} as never,
-      db: mockDb,
-      sessionDir: "/tmp/test-sessions",
-      otterToolClient: mockClient,
-      settingsRepo: overrides?.settingsRepo as never,
-    },
-    mockClient,
-  );
+  return new PiHarnessFactory({
+    models: {} as never,
+    model: {} as never,
+    db: mockDb,
+    sessionDir: "/tmp/test-sessions",
+    otterToolClient: mockClient,
+    settingsRepo: overrides?.settingsRepo as never,
+  });
 }
 
 describe("PiHarnessFactory - reset() B-4 behavior", () => {

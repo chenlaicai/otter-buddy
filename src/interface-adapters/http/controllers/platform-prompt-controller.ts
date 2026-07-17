@@ -7,6 +7,9 @@ import type { UpdatePlatformPromptRequestDTO } from "@contract/api/platform-prom
 /** 平台级 system prompt 键名（settings 表） */
 const PLATFORM_PROMPT_KEY = "platform_system_prompt";
 
+/** 平台 prompt 最大长度（10KB） */
+const MAX_PLATFORM_PROMPT_LENGTH = 10_000;
+
 export class PlatformPromptController {
   constructor(
     private readonly settingsRepo: SettingsRepository,
@@ -31,6 +34,11 @@ export class PlatformPromptController {
           detail: typeof body.systemPrompt === "object"
             ? "Platform prompt only accepts string. OtterPromptConfig objects are for per-Otter config via Otter creation API."
             : `Expected string, got ${typeof body.systemPrompt}`,
+        }, 400);
+      }
+      if (body.systemPrompt.length > MAX_PLATFORM_PROMPT_LENGTH) {
+        return c.json({
+          error: `systemPrompt exceeds maximum length of ${MAX_PLATFORM_PROMPT_LENGTH} characters`,
         }, 400);
       }
       await this.platformPromptGateway.updatePlatformPrompt(body.systemPrompt);
