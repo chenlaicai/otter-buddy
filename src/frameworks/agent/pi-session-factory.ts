@@ -439,10 +439,6 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
       parts.push(`## 会话摘要\n${dynamicContext.sessionSummary}`);
     }
 
-    if (dynamicContext?.memoryRetrieval) {
-      parts.push(`## 记忆检索结果\n${dynamicContext.memoryRetrieval}`);
-    }
-
     parts.push(message);
 
     return parts.join("\n\n");

@@ -342,7 +342,7 @@ async function main(): Promise<void> {
   agentGateway.setOtterToolClient(otterToolClient);
 
   const agentInvoker = new AgentInvoker(
-    agentGateway, uc.sendMessage, uc.searchMemory,
+    agentGateway, uc.sendMessage,
     uc.manageSession, uc.queryOtter,
   );
 
