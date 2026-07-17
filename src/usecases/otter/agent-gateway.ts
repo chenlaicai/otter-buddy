@@ -1,12 +1,15 @@
+import type { OtterPromptConfig } from "@contract/api/otter";
+
 /** Agent 配置（create 时传入） */
 export interface AgentConfig {
-  systemPrompt: string;
+  /** Otter 级系统提示词（可选，与平台 prompt 叠加） */
+  systemPrompt?: string | OtterPromptConfig;
   context?: Record<string, unknown>;
 }
 
 /** Agent 重置上下文 */
 export interface AgentContext {
-  systemPrompt?: string;
+  systemPrompt?: string | OtterPromptConfig;
   context?: Record<string, unknown>;
 }
 
