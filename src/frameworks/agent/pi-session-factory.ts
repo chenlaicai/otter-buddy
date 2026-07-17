@@ -1,15 +1,13 @@
 /**
  * PiSessionFactory：基于 pi-coding-agent SDK（createAgentSession）的 AgentGateway 实现。
  *
- * 替代 PiHarnessFactory（pi-agent-core 路径），保留冷启动模型和 Otter 自定义工具体系。
- *
  * 设计要点：
  * - 冷启动模型（R17）：每次发言创建 session，完成后释放
  * - tools 配置控制编码工具启用，customTools 注入 Otter 工具
  * - 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）
  * - 熔断器通过 session.subscribe 拦截 tool_execution_start 事件
  *
- * F20260716sq6e §13 T2: 薄封装 createAgentSession()，替代 pi-harness-factory.ts
+ * F20260716sq6e §13 T2: 薄封装 createAgentSession()
  */
 
 import type Database from "better-sqlite3";
@@ -23,7 +21,7 @@ import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/t
 import type { SkillLoader } from "@interface-adapters/skill-adapter/skill-loader";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
-import type { DynamicContext } from "./system-prompt-builder";
+import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
 import { ToolCallCircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { config as appConfig } from "@frameworks/config";

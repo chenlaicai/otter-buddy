@@ -1,6 +1,6 @@
 /**
  * pi-ai Models 对象工厂（Provider 路由 + Model 获取）。
- * LLM 交互（chat/streamChat）由 AgentHarness 内部处理，本模块只提供 Models 工厂。
+ * 本模块只提供 Models 工厂，LLM 交互由 pi-coding-agent SDK 内部处理。
  */
 
 import { config } from "@frameworks/config";
