@@ -1,13 +1,15 @@
 import type { Otter, OtterType, OtterRole } from "@entities/otter/otter";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
+import type { OtterPromptConfig } from "@contract/api/otter";
 
 export interface CreateOtterInput {
   name: string;
   type: OtterType;
   role?: OtterRole;
   parentOtterId?: string;
-  systemPrompt: string;
+  /** Otter 级系统提示词（可选，与平台 prompt 叠加） */
+  systemPrompt?: string | OtterPromptConfig;
   context?: Record<string, unknown>;
 }
 
