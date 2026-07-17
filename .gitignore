@@ -8,6 +8,9 @@ dist/
 .env
 .env.local
 
+# Local config (managed by user, not tracked)
+config/config.yaml
+
 # IDE
 .vscode/
 .idea/

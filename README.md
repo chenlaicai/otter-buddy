@@ -42,22 +42,36 @@ npm install
 cd web && npm install && cd ..
 ```
 
-### 配置环境变量
+### 配置
 
-创建 `.env` 文件或在 shell 中设置：
+复制配置模板并填入实际值：
 
 ```bash
-# === 必填 ===
-# LLM API Key（根据 provider 选择其一）
-export OPENAI_API_KEY="sk-..."          # provider=openai 时必填
-export ANTHROPIC_API_KEY="sk-ant-..."   # provider=anthropic 时必填
-
-# === 可选（有默认值） ===
-export OTTER_BUDDY_LLM_PROVIDER="openai"      # LLM 提供商：openai | anthropic（默认 openai）
-export OTTER_BUDDY_LLM_MODEL="gpt-4o"         # 模型 ID（默认 gpt-4o）
-export OTTER_BUDDY_PORT="3000"                 # 后端端口（默认 3000）
-export OTTER_BUDDY_DB_PATH="./otter-buddy.db"  # SQLite 数据库路径
+cp config/config.yaml.example config/config.yaml
 ```
+
+编辑 `config/config.yaml`，至少填写以下必填项：
+
+```yaml
+llm:
+  provider: openai          # openai / anthropic
+  model: gpt-4o
+  apiKey: sk-...            # LLM API Key
+```
+
+> `config/config.yaml` 已加入 `.gitignore`，不会被提交到代码仓库。
+
+#### 从 .env 迁移
+
+如果之前使用 `.env` 配置，将环境变量迁移到 `config/config.yaml`：
+
+| 环境变量 | config.yaml 字段 |
+|----------|------------------|
+| `OTTER_BUDDY_LLM_PROVIDER` | `llm.provider` |
+| `OTTER_BUDDY_LLM_MODEL` | `llm.model` |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | `llm.apiKey` |
+| `OTTER_BUDDY_PORT` | `server.port` |
+| `OTTER_BUDDY_DB_PATH` | `database.path` |
 
 ### 构建前端
 
