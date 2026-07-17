@@ -1,6 +1,5 @@
 import type { AgentInvokePort, AgentStreamEvent, DynamicContext } from "./agent-invoke-port";
 import type { SendMessage, MessageEventInput } from "@usecases/conversation/send-message";
-import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 
@@ -64,7 +63,6 @@ export class AgentInvoker {
   constructor(
     private readonly agentInvoke: AgentInvokePort,
     private readonly sendMessage: SendMessage,
-    private readonly searchMemory: SearchMemory,
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
   ) {}
@@ -83,7 +81,7 @@ export class AgentInvoker {
     const { otterId, conversationId, userMessageContent, senderId, onSSEEvent } = params;
     const startTime = Date.now();
 
-    const dynamicContext = await this.buildDynamicContext(otterId, userMessageContent);
+    const dynamicContext = await this.buildDynamicContext(otterId);
 
     const message = await this.sendMessage.start({
       conversationId,
@@ -172,28 +170,11 @@ export class AgentInvoker {
     this.agentInvoke.abort(otterId);
   }
 
-  /** 构建 DynamicContext：记忆检索 + 会话摘要 + 交接摘要（KDR-9, B-CS-3） */
+  /** 构建 DynamicContext：会话摘要 + 交接摘要（B-CS-3）。记忆召回由 agent 通过 search_memory tool 主动触发 */
   private async buildDynamicContext(
     otterId: string,
-    userMessage: string,
   ): Promise<DynamicContext> {
     const ctx: DynamicContext = {};
-
-    try {
-      const result = await this.searchMemory.search({
-        query: userMessage,
-        limit: 10,
-        detailLevel: "snippet",
-      });
-      if (result.entries.length > 0) {
-        ctx.memoryRetrieval = result.entries
-          .map((e) => `${e.snippet ?? e.content} (score: ${e.score.toFixed(3)})`)
-          .join("\n");
-      }
-    } catch (err) {
-      // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
-      console.warn(`Memory retrieval failed for otter ${otterId}, degrading to no-memory context:`, err);
-    }
 
     try {
       const session = await this.manageSession.getActiveSession(otterId);

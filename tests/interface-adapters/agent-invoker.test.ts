@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { AgentInvokePort, AgentStreamEvent } from "@interface-adapters/agent-runtime/agent-invoke-port";
 import type { SendMessage } from "@usecases/conversation/send-message";
-import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
@@ -23,10 +22,6 @@ function mockSendMessage() {
     fail: async () => {},
     appendEvent: async () => ({}),
   } as unknown as SendMessage;
-}
-
-function mockSearchMemory(): SearchMemory {
-  return { search: async () => ({ entries: [], total: 0 }) } as unknown as SearchMemory;
 }
 
 function mockManageSession(): ManageSession {
@@ -68,7 +63,6 @@ describe("AgentInvoker", () => {
         result: { text: "Hello world", tokenUsage: { input: 10, output: 5 } },
       }),
       mockSendMessage(),
-      mockSearchMemory(),
       mockManageSession(),
       mockQueryOtter(),
     );
@@ -103,7 +97,6 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("Aborted") }),
       mockSendMessage(),
-      mockSearchMemory(),
       mockManageSession(),
       mockQueryOtter(),
     );
@@ -131,7 +124,6 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("LLM connection failed") }),
       mockSendMessage(),
-      mockSearchMemory(),
       mockManageSession(),
       mockQueryOtter(),
     );
@@ -161,7 +153,6 @@ describe("AgentInvoker", () => {
         result: { text: "Hello" },
       }),
       mockSendMessage(),
-      mockSearchMemory(),
       mockManageSession(),
       mockQueryOtter(),
     );
@@ -195,7 +186,6 @@ describe("AgentInvoker", () => {
         result: { text: "Done" },
       }),
       mockSendMessage(),
-      mockSearchMemory(),
       mockManageSession(),
       mockQueryOtter(),
     );

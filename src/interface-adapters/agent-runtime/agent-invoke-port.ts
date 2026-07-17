@@ -20,7 +20,6 @@ export interface AgentRunResult {
 
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */
 export interface DynamicContext {
-  memoryRetrieval?: string;
   sessionSummary?: string;
 }
 
