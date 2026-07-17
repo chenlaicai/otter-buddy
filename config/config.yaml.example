@@ -24,12 +24,13 @@ llm:
   model: gpt-4o
   # API Key（可选）
   # 优先级：此配置值 > 存储的凭据 > 环境变量（OPENAI_API_KEY 或 ANTHROPIC_API_KEY）
-  # 留空则自动从环境变量读取
-  apiKey: "sk-..."
+  # 方式一：直接填入 API Key
+  # apiKey: "sk-your-actual-key"
+  # 方式二：不配置此项，自动从环境变量读取
   # 自定义 API 基础地址（可选）
   # 用于代理或私有部署，例如 https://your-proxy.com/v1
-  # 留空则使用各提供商的默认地址
-  apiBaseUrl: ""
+  # 不配置则使用各提供商的默认地址
+  # apiBaseUrl: "https://your-proxy.com/v1"
 
 # === 记忆系统配置 ===
 memory:
