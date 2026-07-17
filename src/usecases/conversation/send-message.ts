@@ -9,6 +9,7 @@ import {
   canAppendEvent,
   canCompleteMessage,
   canFailMessage,
+  canAbortMessage,
   isValidCompletedMessageBody,
   isValidTalkingStonePass,
 } from "@entities/conversation/message";
@@ -48,6 +49,12 @@ export interface CompleteMessageInput {
   attachments?: Attachment[];
   contextTokens?: number;
   contextTokensMax?: number;
+}
+
+/** 中止消息输入（系统构造的合成中断声明） */
+export interface AbortMessageInput {
+  body: string;
+  talkingStonePassedTo: string[];
 }
 
 export class SendMessage {
@@ -219,6 +226,43 @@ export class SendMessage {
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this.repo, message.turnId);
+  }
+
+  /**
+   * 中止流式消息（用户主动中断）。
+   * 与 complete() 类似：设置 body、传递发言石、索引记忆、关闭 turn，但状态为 aborted。
+   */
+  async abort(messageId: string, input: AbortMessageInput): Promise<Message> {
+    const message = await this.repo.getMessageById(messageId);
+    if (!message) {
+      throw new Error(`Message not found: ${messageId}`);
+    }
+    if (!canAbortMessage(message.status)) {
+      throw new Error(`Cannot abort message with status: ${message.status}`);
+    }
+    if (!isValidCompletedMessageBody(input.body)) {
+      throw new Error("body must be non-empty string");
+    }
+    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "aborted", message.senderType)) {
+      throw new Error("talkingStonePassedTo must be non-empty for aborted messages");
+    }
+
+    const now = new Date().toISOString();
+    await this.repo.abortMessage(messageId, input.body, input.talkingStonePassedTo, now);
+
+    /** B-4: 索引消息 body 到记忆系统（中断标记可识别） */
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
+
+    /** 尝试关闭 Turn */
+    await tryCloseTurn(this.repo, message.turnId);
+
+    return {
+      ...message,
+      status: "aborted",
+      body: input.body,
+      talkingStonePassedTo: input.talkingStonePassedTo,
+      completedAt: now,
+    };
   }
 
   /** 确保活跃 Turn 存在，无则创建新 Turn */

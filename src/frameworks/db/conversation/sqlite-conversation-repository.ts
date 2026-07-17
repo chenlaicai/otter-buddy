@@ -226,6 +226,28 @@ export class SqliteConversationRepository implements ConversationRepository {
     }
   }
 
+  async abortMessage(
+    messageId: string,
+    body: string,
+    talkingStonePassedTo: string[],
+    abortedAt: string,
+  ): Promise<void> {
+    const result = this.db.prepare(`
+      UPDATE messages
+      SET status = 'aborted', body = ?, talking_stone_passed_to = ?, completed_at = ?
+      WHERE id = ? AND status = 'streaming'
+    `).run(
+      body,
+      JSON.stringify(talkingStonePassedTo),
+      abortedAt,
+      messageId,
+    );
+
+    if (result.changes === 0) {
+      throw new Error(`Message ${messageId} not found or not in streaming status`);
+    }
+  }
+
   async getMaxSequenceNum(conversationId: string): Promise<number> {
     const result = this.db.prepare(
       "SELECT MAX(sequence_num) as max_seq FROM messages WHERE conversation_id = ?",

@@ -16,12 +16,15 @@ function mockSendMessage() {
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
+  const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }> } = { fail: [], abort: [] };
   return {
     start: async () => streamingMsg,
     complete: async () => ({ ...streamingMsg, status: "completed", body: "Response" }),
-    fail: async () => {},
+    fail: async (id: string) => { calls.fail!.push(id); },
+    abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
-  } as unknown as SendMessage;
+    _calls: calls,
+  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }> } };
 }
 
 function mockManageSession(): ManageSession {
@@ -37,6 +40,7 @@ function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
   result?: { text: string; tokenUsage?: { input: number; output: number } };
   throwOnInvoke?: Error;
+  toolCallCount?: number;
 }): AgentInvokePort {
   return {
     invoke: async (_otterId: string, _message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => {
@@ -47,6 +51,7 @@ function mockAgentInvoke(options: {
       return options.result ?? { text: "Response text" };
     },
     abort: () => {},
+    getToolCallCount: () => options.toolCallCount ?? 0,
   };
 }
 
@@ -92,11 +97,12 @@ describe("AgentInvoker", () => {
     expect(completeEvent?.data.ctx).toBe(15);
   });
 
-  it("emits message.aborted on abort (B11)", async () => {
+  it("calls sendMessage.abort() with synthetic body on abort (B-Abort-1, B-Abort-2)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
     const invoker = new AgentInvoker(
-      mockAgentInvoke({ throwOnInvoke: new Error("Aborted") }),
-      mockSendMessage(),
+      mockAgentInvoke({ throwOnInvoke: new Error("Aborted"), toolCallCount: 3 }),
+      msg,
       mockManageSession(),
       mockQueryOtter(),
     );
@@ -114,16 +120,58 @@ describe("AgentInvoker", () => {
       }),
     ).rejects.toThrow("Aborted");
 
-    const eventTypes = events.map((e) => e.event);
-    expect(eventTypes).toContain("message.start");
-    expect(eventTypes).toContain("message.aborted");
+    /** B-Abort-1: sendMessage.abort 被调用，body 包含工具调用次数 */
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].id).toBe("msg-streaming");
+    expect(msg._calls.abort[0].body).toContain("3 次工具调用");
+    expect(msg._calls.abort[0].body).toContain("[用户中断]");
+
+    /** B-Abort-1: sendMessage.fail 不应被调用 */
+    expect(msg._calls.fail).toHaveLength(0);
+
+    /** B-Abort-2: SSE 事件为 message.aborted，携带 abortBody */
+    const abortEvent = events.find((e) => e.event === "message.aborted");
+    expect(abortEvent).toBeDefined();
+    expect(abortEvent!.data.abortBody).toContain("[用户中断]");
+    expect(abortEvent!.data.abortBody).toContain("3 次工具调用");
   });
 
-  it("emits error on system failure (B10)", async () => {
+  it("reads toolCallCount from error object when getToolCallCount returns 0 (timing fix)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+
+    /** 模拟真实场景：finally 已清理 activeSessions，getToolCallCount 返回 0，但 error 对象携带 _toolCallCount */
+    const abortError = Object.assign(new Error("Aborted"), { _toolCallCount: 5 });
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ throwOnInvoke: abortError, toolCallCount: 0 }),
+      msg,
+      mockManageSession(),
+      mockQueryOtter(),
+    );
+
+    invoker.abort("otter-1", "msg-streaming");
+
+    await expect(
+      invoker.invokeConversation({
+        otterId: "otter-1",
+        conversationId: "conv-1",
+        userMessageContent: "Hi",
+        senderId: "user-1",
+        onSSEEvent: (e) => events.push(e),
+      }),
+    ).rejects.toThrow("Aborted");
+
+    /** abort body 应使用 error._toolCallCount 而非 getToolCallCount 的返回值 */
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain("5 次工具调用");
+  });
+
+  it("calls sendMessage.fail() and emits error on system failure (B10)", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("LLM connection failed") }),
-      mockSendMessage(),
+      msg,
       mockManageSession(),
       mockQueryOtter(),
     );
@@ -137,6 +185,10 @@ describe("AgentInvoker", () => {
         onSSEEvent: (e) => events.push(e),
       }),
     ).rejects.toThrow("LLM connection failed");
+
+    /** error 路径：sendMessage.fail 被调用，sendMessage.abort 不被调用 */
+    expect(msg._calls.fail).toHaveLength(1);
+    expect(msg._calls.abort).toHaveLength(0);
 
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.start");
