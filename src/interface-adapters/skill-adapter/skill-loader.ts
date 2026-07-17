@@ -30,6 +30,8 @@ export class SkillLoader {
     if (!config) return [];
 
     const allSkills = this.loadAllSkills();
+    /** skillNames 为空时返回全部技能（通配符语义） */
+    if (config.skillNames.length === 0) return allSkills;
     return allSkills.filter((s) => config.skillNames.includes(s.name));
   }
 

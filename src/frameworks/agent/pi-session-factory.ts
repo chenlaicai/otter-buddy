@@ -6,7 +6,7 @@
  * 设计要点：
  * - 冷启动模型（R17）：每次发言创建 session，完成后释放
  * - tools 配置控制编码工具启用，customTools 注入 Otter 工具
- * - 动态上下文（记忆检索 + 会话摘要）作为消息前缀注入
+ * - 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）
  * - 熔断器通过 session.subscribe 拦截 tool_execution_start 事件
  *
  * F20260716sq6e §13 T2: 薄封装 createAgentSession()，替代 pi-harness-factory.ts
@@ -27,6 +27,7 @@ import { ToolCallCircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-c
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { SkillLoader } from "@interface-adapters/skill-adapter/skill-loader";
 import { config as appConfig } from "@frameworks/config";
+import { logger } from "@frameworks/logger";
 
 /** Agent 事件（流式推送，与 AgentStreamEvent 兼容） */
 export interface AgentEvent {
@@ -65,6 +66,9 @@ type PiCodingAgentModule = typeof import("@earendil-works/pi-coding-agent");
 
 /** SessionManager 类型（从 pi-coding-agent 导入） */
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
+
+/** Token 阈值（超过则记录警告，与旧实现一致） */
+const TOKEN_WARNING_THRESHOLD = 100_000;
 
 let piCodingAgentCache: PiCodingAgentModule | null = null;
 
@@ -133,8 +137,15 @@ export class PiSessionFactory implements AgentGateway {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
       ...appConfig.circuitBreaker,
     };
-    /** T6: 接线 SkillLoader，扫描 skills/ 目录 */
-    this.skillLoader = new SkillLoader("./skills", []);
+    /**
+     * T6: 接线 SkillLoader。
+     * 配置为空数组时 loadSkillsForOtterType 返回空，需传入默认配置。
+     * 默认行为：big/small otter 均加载 skills/ 下所有技能。
+     */
+    this.skillLoader = new SkillLoader("./skills", [
+      { otterType: "big", skillNames: [] },
+      { otterType: "small", skillNames: [] },
+    ]);
   }
 
   /** 注入 OtterToolClient（解决 Composition Root 循环依赖） */
@@ -190,6 +201,7 @@ export class PiSessionFactory implements AgentGateway {
       this.activeSessions.delete(otterId);
     }
 
+    /** SessionManager 是 append-only 设计，无 delete API，session 文件保留但不再引用 */
     this.sessionStore.delete(otterId);
     this.staticPrompts.delete(otterId);
     this.otterTypes.delete(otterId);
@@ -197,9 +209,10 @@ export class PiSessionFactory implements AgentGateway {
 
   async reset(otterId: string, context?: AgentContext): Promise<void> {
     const piCodingAgent = await this.ensurePiCodingAgent();
+    const oldSessionId = this.sessionStore.get(otterId);
 
-    /** 创建新 session（chain） */
-    const sessionManager = this.createSessionManager(piCodingAgent);
+    /** 创建新 session（chain，引用旧 session 作为 parent） */
+    const sessionManager = this.createSessionManager(piCodingAgent, oldSessionId ?? undefined);
     const { session } = await piCodingAgent.createAgentSession({
       model: this.model as never,
       sessionManager,
@@ -219,7 +232,7 @@ export class PiSessionFactory implements AgentGateway {
 
   /**
    * 冷启动调用（R17）：创建 AgentSession → prompt → 释放。
-   * 动态上下文作为消息前缀注入，不修改 system prompt。
+   * 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）。
    */
   // eslint-disable-next-line max-statements -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
   async invoke(
@@ -282,7 +295,18 @@ export class PiSessionFactory implements AgentGateway {
 
     try {
       await session.prompt(fullMessage);
-      return this.buildResult(resultText, undefined, circuitBreaker);
+
+      /** 从 session stats 恢复 token usage */
+      const stats = session.getSessionStats();
+      const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
+
+      /** token 超阈值警告 */
+      const total = stats.tokens.input + stats.tokens.output;
+      if (total > TOKEN_WARNING_THRESHOLD) {
+        logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
+      }
+
+      return this.buildResult(resultText, tokenUsage, circuitBreaker);
     } finally {
       circuitBreaker.clearSteerDeadline();
       unregisterToolCall?.();
@@ -337,7 +361,8 @@ export class PiSessionFactory implements AgentGateway {
 
   /**
    * 构建包含系统提示和动态上下文的消息。
-   * 冷启动模型下，系统提示和动态上下文作为消息前缀注入（session 无持久 system prompt）。
+   * 系统提示作为用户消息前缀注入（SDK 的 systemPrompt 由 ResourceLoader 内部管理，
+   * 无公开 API 覆盖；冷启动模型下 session 无持久 system prompt）。
    */
   private buildMessageWithContext(
     staticPrompt: string,
@@ -405,20 +430,25 @@ export class PiSessionFactory implements AgentGateway {
     };
   }
 
-  /** 创建 SessionManager（可指定已有 sessionId 用于 session chain） */
+  /**
+   * 创建 SessionManager。
+   * 当 existingSessionId 存在时，通过 NewSessionOptions.parentSession 建立 session chain。
+   */
   private createSessionManager(
     piCodingAgent: PiCodingAgentModule,
-    _existingSessionId?: string,
+    existingSessionId?: string,
   ): SessionManager {
     const SessionManagerClass = (piCodingAgent as unknown as {
       SessionManager: {
-        create: (cwd: string, sessionDir?: string) => SessionManager;
+        create: (cwd: string, sessionDir?: string, options?: { parentSession?: string }) => SessionManager;
         inMemory: () => SessionManager;
       };
     }).SessionManager;
 
     /** 使用文件系统 SessionManager 以支持 session 持久化 */
-    return SessionManagerClass.create(process.cwd(), this.sessionDir);
+    return SessionManagerClass.create(process.cwd(), this.sessionDir, {
+      ...(existingSessionId && { parentSession: existingSessionId }),
+    });
   }
 }
 
