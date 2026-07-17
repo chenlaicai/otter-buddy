@@ -99,7 +99,7 @@ pi-agent-core
 │                                                           │
 │  interface-adapters/                                      │
 │    agent-runtime/tools/                                   │
-│      tool-factory.ts       ← 自建：8 个 Otter 工具       │
+│      tool-factory.ts       ← 自建：16 个 Otter 工具      │
 │    skill-adapter/                                         │
 │      skill-loader.ts       ← 自建：Skills 扫描和过滤     │
 │                                                           │
@@ -117,9 +117,9 @@ pi-agent-core
 | `pi-harness-factory.ts` | 363 | 冷启动工厂、harness 创建、compaction 触发 |
 | `system-prompt-builder.ts` | 38 | 动态 system prompt 组合 |
 | `agent-session-store.ts` | 42 | Otter ID ↔ Pi Session ID 映射 |
-| `tool-factory.ts` | 487 | 8 个 AgentTool 创建 |
+| `tool-factory.ts` | 488 | 16 个 AgentTool 创建 |
 | `skill-loader.ts` | 72 | Skills 扫描和按 Otter 类型过滤（已实现，未接入） |
-| **总计** | **1002** | 全部自建 |
+| **总计** | **1007** | 全部自建 |
 
 ### 3.3 自建能力清单
 
@@ -221,7 +221,7 @@ session.getTools();                    // 获取工具列表
 | Compaction | 自动 + 手动，含阈值检测 | 直接使用自动 compaction |
 | Skills | loadSkills + formatSkillsForPrompt | 直接使用，从 skills/ 目录加载 |
 | Extensions | 完整扩展系统 | 可选使用，Otter 工具通过 customTools 注入 |
-| 编码工具 | read/bash/edit/write | Otter 不需要，通过 `noTools: "builtin"` 禁用 |
+| 编码工具 | read/bash/edit/write | **Otter 需要**（完善自身），通过 `tools` 配置启用 |
 | 模型管理 | ModelRegistry + 多 Provider | 直接使用 |
 | Prompt Templates | 内置模板系统 | 可选使用 |
 | 事件流 | AgentSessionEvent（扩展了 AgentEvent） | 直接映射到 SSE |
@@ -256,7 +256,7 @@ session.getTools();                    // 获取工具列表
 1. **包体积大**：12.5MB（含 pi-tui、图片处理等 Otter 不需要的依赖）
 2. **抽象层级高**：AgentSession 封装了 Agent + Session + Extensions + Skills，调试链更长
 3. **耦合风险**：pi-coding-agent 的设计目标是编码 Agent，可能引入 Otter 不需要的行为
-4. **内置工具冗余**：read/bash/edit/write 对 Otter 无用，需要显式禁用
+4. **内置工具需按需配置**：read/bash/edit/write 对 Otter 有用（完善自身），但需按獭类型差异化启用
 5. **pi-tui 依赖**：终端 UI 库对 Web 应用完全无用，但作为依赖被引入
 6. **已有实现需重写**：当前 pi-harness-factory.ts 已跑通，切换需要重写
 
@@ -268,20 +268,20 @@ session.getTools();                    // 获取工具列表
 
 | 维度 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |------|------------------------|------------------------------|
-| 初始集成 | 已完成（1002 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
+| 初始集成 | 已完成（1007 行自建代码，含 SkillLoader） | 需要重写（预计 ~200 行薄封装） |
 | Session 管理 | Pi 原生 + 自建映射 | 内置 SessionManager |
 | Compaction | 自建触发逻辑（~30 行） | 内置自动 compaction |
 | Skills 体系 | 已实现 SkillLoader（72 行），需接线到 Agent | 内置 loadSkills |
 | Extensions | 需要从零设计 | 内置 ExtensionRuntime |
-| 工具系统 | 自建 ToolFactory（487 行） | customTools 注入 + tools 配置 |
+| 工具系统 | 自建 ToolFactory（488 行） | customTools 注入 + tools 配置 |
 | 事件流 | 自建映射（~50 行） | AgentSessionEvent 直接映射 |
-| **总自建代码量** | **1002 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
+| **总自建代码量** | **1007 行（含 SkillLoader） + 未来 Extensions** | **~200 行薄封装** |
 
 ### 5.2 运行时性能
 
 | 维度 | 路径 A | 路径 B | 说明 |
 |------|--------|--------|------|
-| 启动延迟 | 低（懒加载 pi-agent-core） | 中（加载 pi-coding-agent 全量） | 差异约 100-200ms |
+| 启动延迟 | 低（懒加载 pi-agent-core） | 低（createAgentSession 3.4-6.6ms，V8 实测） | 模块首次加载 1839ms 为一次性开销，非每次冷启动 |
 | Tool 调用延迟 | 极低（函数调用） | 极低（函数调用） | 两者相同 |
 | 内存占用 | 低（1.2MB 包 + harness 实例） | 中（12.5MB 包 + session 实例） | 差异主要在初始加载 |
 | 包安装大小 | ~2MB（pi-agent-core + pi-ai） | ~15MB（含 pi-tui 等） | 部署镜像影响 |
@@ -291,7 +291,7 @@ session.getTools();                    // 获取工具列表
 | 维度 | 路径 A | 路径 B |
 |------|--------|--------|
 | 整洁架构兼容 | 高（Gateway 接口精确适配） | 中（SDK API 需要适配层） |
-| Otter 工具模型 | 完全自定义 | 需要 `noTools: "builtin"` + customTools |
+| Otter 工具模型 | 完全自定义 | `tools` 启用编码工具 + `customTools` 注入 Otter 工具 |
 | 多獭差异化 | activeToolNames 精确控制 | tools + excludeTools 组合控制 |
 | 冷启动模型 | 已实现（R17） | 需要验证 SDK 是否支持 |
 | Session Chain | 自建 previousSessionId | 需要验证 SessionManager 是否支持 |
@@ -411,7 +411,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 
 | 评估维度 | 权重 | 路径 A（pi-agent-core） | 路径 B（pi-coding-agent SDK） |
 |---------|------|------------------------|------------------------------|
-| 初始开发成本 | 中 | ✅ 已完成（1002 行） | ⚠️ 需要重写（~200 行） |
+| 初始开发成本 | 中 | ✅ 已完成（1007 行） | ⚠️ 需要重写（~200 行） |
 | 后续开发成本 | 高 | ⚠️ 需接线 Skills + 自建 Extensions | ✅ 内置能力丰富 |
 | 运行时性能 | 中 | ✅ 更轻量 | ⚠️ Extensions 初始化开销 |
 | 架构适配度 | 高 | ✅ 完全可控 | ⚠️ 需要适配层，但无架构不兼容 |
@@ -456,9 +456,9 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 **补充行动**：
 
 1. 集成 `createAgentSession`（薄封装）
-2. 注册 Otter 自定义工具（customTools：send_message、pass_talking_stone 等）
+2. 注册 16 个 Otter 自定义工具（customTools：send_message、pass_talking_stick、search_memory、store_memory 等）
 3. 配置混合工具集（编码工具 + Otter 工具共存）
-4. 迁移现有 1002 行代码中的 Otter 逻辑到新集成层
+4. 迁移现有 1007 行代码中的 Otter 逻辑到新集成层
 
 ### 9.2 替代方案：维持路径 A（pi-agent-core）
 
@@ -485,7 +485,7 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | 决策 | 结论 | 理由 |
 |------|------|------|
 | Agent 框架包 | 转向推荐 pi-coding-agent SDK（待 V8 验证） | 编码工具是必需品（完善自身），开箱即用能力更多，V8 初始化开销 < 50ms 时优势明确 |
-| pi-agent-core | 备选方案 | 已有 1002 行代码，但需自建编码工具，长期维护成本更高 |
+| pi-agent-core | 备选方案 | 已有 1007 行代码，但需自建编码工具，长期维护成本更高 |
 | Skills 体系 | 接线已有 SkillLoader 到 Agent | 已有 72 行实现，需接线而非从零自建 |
 | Compaction 策略 | 升级为阈值 + 溢出检测 | 当前仅基于 token 阈值过于粗糙 |
 
@@ -511,9 +511,10 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | R14 | §6.1 从"不需要编码工具"修正为"需要编码工具（完善自身）"；推荐方案从"有条件推荐路径 A"转向"推荐路径 B" | 用户纠正：Otter 需要完善自身，编码工具是必需品 |
 | R15 | V8 验证通过：createAgentSession 初始化 3.4-6.6ms（远低于 50ms 阈值），路径 B 冷启动完全可行 | 实测验证 |
 | R16 | §9.1 标题更新为"V8 已验证"、正文移除待验证措辞、补充行动替换为路径 B 集成工作项 | 架构师-2 指出 3 处不一致 |
-| R17 | 代码行数修正：总计从 863 更新为 1002，tool-factory.ts 从 287 更新为 487，pi-harness-factory.ts 从 343 更新为 363，删除已移除的 tool-registry.ts（81行），skill-loader.ts 路径修正为 src/interface-adapters/skill-adapter/ | 审查者-1/审查者-2 指出行数与 HEAD 不一致 |
+| R17 | 代码行数修正：总计从 863 更新为 1007，tool-factory.ts 从 287 更新为 487，pi-harness-factory.ts 从 343 更新为 363，删除已移除的 tool-registry.ts（81行），skill-loader.ts 路径修正为 src/interface-adapters/skill-adapter/ | 审查者-1/审查者-2 指出行数与 HEAD 不一致 |
 | R18 | 新增 §13 开发任务规划：将推荐方案（路径 B）转化为 8 个可执行开发任务，含验收标准；变更类型扩展为 migration | 架构师-1：用户指出分析完成后应推进代码实现 |
 | R19 | §13.4/13.5 移除兼容性思维：删除回退方案、feature flag、渐进迁移，改为直接替换 | 架构师-1：用户指出不应考虑兼容性 |
+| R20 | 架构师-2 对抗审视 7 项修正：P1 T2 从 noTools 改为 tools+customTools（§4.3/§4.5/§5.3/§13.3 同步修正）；P2 工具数量 8→16（§3.1/§3.2/§5.1/T3/§9.1）；P3 §5.2 启动延迟改为 V8 实测数据；P4 T1 移除 pi-agent-core 直接依赖；P5 Session Chain 补充到 T8 和验收标准；P6 行数 1002→1007/487→488；P7 验收标准补充框架层集成测试 | 架构师-2 对抗审视 |
 
 ---
 
@@ -547,24 +548,25 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 
 | # | 任务 | 涉及文件 | 说明 | 依赖 |
 |---|------|---------|------|------|
-| T1 | 新增 `pi-coding-agent` 依赖 | `package.json` | 添加 `pi-coding-agent` 依赖，保留 `pi-agent-core`（pi-coding-agent 内含） | 无 |
-| T2 | 新建 `pi-session-factory.ts` | `src/frameworks/agent/pi-session-factory.ts` | 薄封装 `createAgentSession()`，替代 `pi-harness-factory.ts`。配置：`noTools: "builtin"` 禁用编码工具，`customTools` 注入 Otter 工具 | T1 |
-| T3 | 迁移工具注册 | `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | 将 8 个 Otter 工具从 AgentTool 格式适配为 pi-coding-agent customTools 格式 | T2 |
+| T1 | 替换依赖 | `package.json` | 移除 `pi-agent-core` 直接依赖，添加 `pi-coding-agent`（内含 pi-agent-core + pi-ai） | 无 |
+| T2 | 新建 `pi-session-factory.ts` | `src/frameworks/agent/pi-session-factory.ts` | 薄封装 `createAgentSession()`，替代 `pi-harness-factory.ts`。配置：`tools: ["read", "write", "edit", "bash"]` 启用编码工具，`customTools` 注入 Otter 工具，按獭类型差异化控制工具集 | T1 |
+| T3 | 迁移工具注册 | `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | 将 16 个 Otter 工具从 AgentTool 格式适配为 pi-coding-agent customTools 格式 | T2 |
 | T4 | 迁移事件流映射 | `src/frameworks/agent/` 相关文件 | AgentSessionEvent → SSE 事件映射，替代现有 Pi 事件 → SSE 映射 | T2 |
 | T5 | 迁移 Session 管理 | `src/frameworks/agent/agent-session-store.ts` | 适配 SessionManager，保留 Otter session ID 映射逻辑 | T2 |
 | T6 | 接线 SkillLoader | `src/interface-adapters/skill-adapter/skill-loader.ts` | 将已有的 SkillLoader（72 行）接入 createAgentSession 的 skills 配置 | T2 |
 | T7 | 清理旧代码 | `src/frameworks/agent/pi-harness-factory.ts` 等 | 移除路径 A 的自建代码（pi-harness-factory、system-prompt-builder 等） | T2-T6 |
-| T8 | 验证测试 | 全量 | 确保冷启动模型、Otter 工具调用、事件流、Session Chain 全部正常 | T1-T7 |
+| T8 | 验证测试 | 全量 | 确保冷启动模型、Otter 工具调用、事件流、Session Chain（previousSessionId）全部正常 | T1-T7 |
 
 ### 13.3 验收标准
 
 1. `createAgentSession()` 替代 `AgentHarness` 作为 Agent 运行时入口
 2. Otter 自定义工具（send_message、pass_talking_stone 等）通过 customTools 正常注册和调用
-3. 编码工具（read/write/edit/bash）通过 `noTools: "builtin"` 或 `tools` 配置正确控制
+3. 编码工具（read/write/edit/bash）通过 `tools` 配置正确启用，按獭类型差异化控制
 4. 冷启动模型保留：每次发言创建 session，完成后释放
 5. 事件流映射正常：AgentSessionEvent → SSE → 前端
 6. Skills 通过 SkillLoader 正常加载
-7. 现有测试全部通过
+7. Session Chain（previousSessionId）机制正常工作
+8. 框架层集成测试覆盖核心路径
 
 ### 13.4 注意事项
 
