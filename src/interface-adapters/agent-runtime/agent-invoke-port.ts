@@ -1,7 +1,6 @@
 /**
  * Agent 调用端口：描述"驱动 Agent 生成"的能力。
- * PiHarnessFactory (frameworks 层) 的 invoke() 方法结构匹配此接口。
- * main.ts 将 PiHarnessFactory 实例作为 AgentInvokePort 注入。
+ * PiSessionFactory (frameworks 层) 的 invoke() 方法结构匹配此接口。
  */
 
 /** Agent 流式事件（与 Pi 的 AgentEvent 结构匹配） */

@@ -166,7 +166,7 @@ export class AgentInvoker {
     }
   }
 
-  /** 中断 Agent 生成（UA-2: 调用 PiHarnessFactory.abort()） */
+  /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()） */
   abort(otterId: string, _messageId: string): void {
     this.abortedOtters.add(otterId);
     this.agentInvoke.abort(otterId);
