@@ -4,40 +4,79 @@
 
 # === 服务配置 ===
 server:
+  # HTTP 服务监听端口（默认 3000）
   port: 3000
 
 # === 数据库配置 ===
 database:
+  # SQLite 数据库文件路径（默认当前目录下 otter-buddy.db）
   path: ./otter-buddy.db
+  # WAL 模式，提升并发读取性能（默认 true）
   walMode: true
+  # 启用外键约束（默认 true）
   foreignKeys: true
 
-# === LLM 配置 ===
+# === LLM 配置（必填）===
 llm:
-  provider: openai          # openai / anthropic
+  # LLM 提供商，可选值：openai / anthropic（必填）
+  provider: openai
+  # 模型标识符，例如 gpt-4o、claude-sonnet-4-20250514（必填）
   model: gpt-4o
-  apiKey: sk-...            # LLM API Key
-  apiBaseUrl:               # 可选，用于代理或私有部署
+  # API Key（可选）
+  # 优先级：此配置值 > 存储的凭据 > 环境变量（OPENAI_API_KEY 或 ANTHROPIC_API_KEY）
+  # 留空则自动从环境变量读取
+  apiKey: "sk-..."
+  # 自定义 API 基础地址（可选）
+  # 用于代理或私有部署，例如 https://your-proxy.com/v1
+  # 留空则使用各提供商的默认地址
+  apiBaseUrl: ""
 
 # === 记忆系统配置 ===
 memory:
+  # RRF（Reciprocal Rank Fusion）的 k 参数（默认 60）
+  # 用于合并不同检索源（FTS5 vs 向量搜索）的排序结果
+  # 值越大，排名分数曲线越平缓
   rrfK: 60
+  # 记忆权重衰减半衰期，单位：天（默认 7）
+  # 记忆每经过这么多天，相关性权重减半
   weightHalfLifeDays: 7
+  # 用户标记记忆的加权倍数（默认 2.0）
+  # 用户主动标记的记忆在检索排名中获得此倍数加成
   userFlagMultiplier: 2.0
+  # 检索频次加成系数（默认 0.1）
+  # 每次记忆被检索，其分数增加此值，实现"越用越强"的效果
   frequencyBoostFactor: 0.1
 
 # === Embedding 配置 ===
 embedding:
+  # 向量维度（默认 1024）
+  # 必须与 Embedding 模型的输出维度一致
   dimensions: 1024
+  # HuggingFace 模型标识符或本地路径（默认 Xenova/bge-m3）
+  # 默认模型为多语言模型，输出 1024 维向量
   modelPath: Xenova/bge-m3
 
 # === 熔断器配置 ===
 circuitBreaker:
+  # 单次 Agent 执行允许的最大工具调用总数（默认 40）
+  # 超出后熔断器触发，终止执行
   maxToolCalls: 40
+  # 允许的最大连续相同工具调用次数（默认 5）
+  # 连续相同调用达到此次数，触发熔断
   maxConsecutiveIdentical: 5
+  # Agent 最大执行时间，单位：毫秒（默认 300000，即 5 分钟）
   maxExecutionTimeMs: 300000
+  # 工具调用数警告阈值（默认 20）
+  # 达到此次数时发出警告，早于熔断触发
   warningThreshold: 20
+  # 滑动窗口大小，用于检测重复模式（默认 6）
   slidingWindowSize: 6
+  # 滑动窗口内重复次数触发阈值（默认 3）
+  # 在 slidingWindowSize 次调用中，相同模式出现此次数则触发熔断
   slidingWindowRepeat: 3
+  # 引导操作超时时间，单位：毫秒（默认 30000，即 30 秒）
+  # 检测到问题模式后，系统尝试重定向 Agent 的超时时间
   steerTimeoutMs: 30000
+  # Token 使用量警告阈值（默认 50000）
+  # 达到此阈值时发出高上下文/Token 使用量警告
   tokenWarningThreshold: 50000
