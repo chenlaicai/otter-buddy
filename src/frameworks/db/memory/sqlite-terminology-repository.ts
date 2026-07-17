@@ -36,37 +36,6 @@ export class SqliteTerminologyRepository implements TerminologyRepository {
     }
   }
 
-  async update(entry: TerminologyEntry): Promise<void> {
-    const row = entryToRow(entry);
-    this.db.exec("BEGIN");
-    try {
-      const result = this.db.prepare(`
-        UPDATE terminology_entries
-        SET term = ?, aliases = ?, aliases_flat = ?, definition = ?,
-            context = ?, examples = ?, category = ?, status = ?,
-            updated_at = ?, version = ?
-        WHERE id = ? AND version = ?
-      `).run(
-        row.term, row.aliases, row.aliases_flat, row.definition,
-        row.context, row.examples, row.category, row.status,
-        row.updated_at, row.version, row.id, row.version - 1,
-      );
-      if (result.changes === 0) {
-        throw new Error(`Optimistic lock conflict for terminology entry: ${entry.id}`);
-      }
-      /** FTS5 同步更新：先删后插 */
-      this.db.prepare("DELETE FROM terminology_fts WHERE terminology_entry_id = ?").run(row.id);
-      this.db.prepare(`
-        INSERT INTO terminology_fts (terminology_entry_id, term, aliases_flat, definition, context)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(row.id, row.term, row.aliases_flat, row.definition, row.context ?? "");
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
   async getByTerm(term: string): Promise<TerminologyEntry | null> {
     const row = this.db.prepare(
       "SELECT * FROM terminology_entries WHERE term = ? AND status = 'active'",
