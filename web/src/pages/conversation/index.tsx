@@ -141,7 +141,8 @@ function ConversationPage() {
         'agent.idle': () => {},
       }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
       sseCtrlRef.current = ctrl
-    } catch {
+    } catch (err) {
+      console.error('Failed to send message:', err)
       showToast('发送失败', 'error'); setStreaming(null)
     }
   }, [activeId, allOtters])
