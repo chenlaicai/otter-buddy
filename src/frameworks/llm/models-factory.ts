@@ -1,9 +1,13 @@
 /**
  * pi-ai Models 对象工厂（Provider 路由 + Model 获取）。
- * 本模块只提供 Models 工厂，LLM 交互由 pi-coding-agent SDK 内部处理。
+ * 本模块只提供 Models 工厂，LLM 交互由 AgentHarness 内部处理。
+ *
+ * 支持自定义 provider：当 config.yaml 中配置了 llm.apiBaseUrl 或 llm.apiKey 时，
+ * 使用 createProvider() 构造自定义 provider，替代默认的 openaiProvider() / anthropicProvider()。
  */
 
 import { config } from "@frameworks/config";
+import type { AppConfig } from "@frameworks/config";
 
 /** pi-ai 动态加载后的模块句柄（单例，避免重复 import） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -18,8 +22,84 @@ async function loadPiAi(): Promise<PiAiModule> {
   return piAiCache;
 }
 
-/** 根据提供商名称动态加载 pi-ai provider 模块 */
+/**
+ * 判断是否需要自定义 provider。
+ * apiBaseUrl 或 apiKey 任一配置即触发自定义 provider 构造。
+ */
+function needsCustomProvider(llmConfig: AppConfig["llm"]): boolean {
+  return !!(llmConfig.apiBaseUrl || llmConfig.apiKey);
+}
+
+/**
+ * 构造自定义 API Key Auth。
+ * 解析优先级：configApiKey → credential.key → 标准环境变量。
+ */
+function createCustomApiKeyAuth(configApiKey?: string, provider?: string) {
+  const envVarName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+  return {
+    name: `${provider} API key`,
+    resolve: async ({ ctx, credential }: { ctx: { env: (name: string) => Promise<string | undefined> }; credential?: { key?: string } }) => {
+      if (configApiKey) {
+        return { auth: { apiKey: configApiKey }, source: "config.yaml" };
+      }
+      if (credential?.key) {
+        return { auth: { apiKey: credential.key }, source: "stored credential" };
+      }
+      const envKey = await ctx.env(envVarName);
+      if (envKey) {
+        return { auth: { apiKey: envKey }, source: envVarName };
+      }
+      return undefined;
+    },
+  };
+}
+
+/**
+ * 构造自定义 provider（使用 createProvider）。
+ * 动态导入 provider 对应的模型列表和 API handler。
+ */
+async function loadCustomProvider(
+  piAi: PiAiModule,
+  provider: string,
+  apiBaseUrl?: string,
+  apiKey?: string,
+): Promise<unknown> {
+  let models: unknown;
+  let api: unknown;
+
+  if (provider === "openai") {
+    const modelsMod = await import("@earendil-works/pi-ai/providers/openai.models");
+    models = modelsMod.OPENAI_MODELS;
+    const apiMod = await import("@earendil-works/pi-ai/api/openai-responses.lazy");
+    api = apiMod.openAIResponsesApi();
+  } else if (provider === "anthropic") {
+    const modelsMod = await import("@earendil-works/pi-ai/providers/anthropic.models");
+    models = modelsMod.ANTHROPIC_MODELS;
+    const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
+    api = apiMod.anthropicMessagesApi();
+  } else {
+    throw new Error(`Unsupported LLM provider: ${provider}`);
+  }
+
+  return piAi.createProvider({
+    id: provider,
+    baseUrl: apiBaseUrl,
+    auth: { apiKey: createCustomApiKeyAuth(apiKey, provider) },
+    models: models as Parameters<typeof piAi.createProvider>[0]["models"],
+    api: api as Parameters<typeof piAi.createProvider>[0]["api"],
+  });
+}
+
+/** 根据提供商名称加载 pi-ai provider（默认或自定义） */
 async function loadProvider(provider: string): Promise<unknown> {
+  const piAi = await loadPiAi();
+  const llmConfig = config.llm;
+
+  if (needsCustomProvider(llmConfig)) {
+    return loadCustomProvider(piAi, provider, llmConfig.apiBaseUrl, llmConfig.apiKey);
+  }
+
+  // 默认 provider 工厂（行为不变）
   switch (provider) {
     case "openai": {
       const mod = await import("@earendil-works/pi-ai/providers/openai");

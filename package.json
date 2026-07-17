@@ -23,11 +23,13 @@
     "@huggingface/transformers": "^4.2.0",
     "better-sqlite3": "^12.9.0",
     "hono": "^4.12.27",
+    "js-yaml": "^5.2.1",
     "sqlite-vec": "^0.1.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.9.3",
     "eslint": "^10.5.0",
     "typescript": "^6.0.2",

@@ -1,0 +1,43 @@
+# Otter Buddy 配置文件
+# 复制本文件为 config.yaml 并填入实际值
+# config.yaml 已加入 .gitignore，不会被提交到代码仓库
+
+# === 服务配置 ===
+server:
+  port: 3000
+
+# === 数据库配置 ===
+database:
+  path: ./otter-buddy.db
+  walMode: true
+  foreignKeys: true
+
+# === LLM 配置 ===
+llm:
+  provider: openai          # openai / anthropic
+  model: gpt-4o
+  apiKey: sk-...            # LLM API Key
+  apiBaseUrl:               # 可选，用于代理或私有部署
+
+# === 记忆系统配置 ===
+memory:
+  rrfK: 60
+  weightHalfLifeDays: 7
+  userFlagMultiplier: 2.0
+  frequencyBoostFactor: 0.1
+
+# === Embedding 配置 ===
+embedding:
+  dimensions: 1024
+  modelPath: Xenova/bge-m3
+
+# === 熔断器配置 ===
+circuitBreaker:
+  maxToolCalls: 40
+  maxConsecutiveIdentical: 5
+  maxExecutionTimeMs: 300000
+  warningThreshold: 20
+  slidingWindowSize: 6
+  slidingWindowRepeat: 3
+  steerTimeoutMs: 30000
+  tokenWarningThreshold: 50000
