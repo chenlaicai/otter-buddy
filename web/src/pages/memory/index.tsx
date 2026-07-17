@@ -33,7 +33,8 @@ function MemorySearchPage() {
         granularity: granularity || undefined,
       })
       setResults(result.entries)
-    } catch {
+    } catch (err) {
+      console.error('Failed to search memory:', err)
       showToast('搜索失败', 'error')
     } finally {
       setLoading(false)
@@ -47,7 +48,8 @@ function MemorySearchPage() {
       await api.flagMemory(id, !entry.userFlagged)
       setResults(prev => prev?.map(e => e.id === id ? { ...e, userFlagged: !e.userFlagged } : e) || null)
       showToast('已标记', 'success')
-    } catch {
+    } catch (err) {
+      console.error('Failed to toggle flag:', err)
       showToast('标记失败', 'error')
     }
   }

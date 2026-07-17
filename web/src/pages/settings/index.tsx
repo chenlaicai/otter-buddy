@@ -60,7 +60,8 @@ function SettingsPage() {
       await api.updateSettings({ provider, model })
       setHasUnsaved(false)
       showToast('设置已保存', 'success')
-    } catch {
+    } catch (err) {
+      console.error('Failed to save settings:', err)
       showToast('保存失败', 'error')
     } finally {
       setSaving(false)

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalKeyFact, LocalLinkedResource, LocalOtterSession } from '../../lib/mappers'
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapKeyFactDTO, mapLinkedResourceDTO, mapSessionDTO as _mapSessionDTO } from '../../lib/mappers'
+import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapKeyFactDTO, mapLinkedResourceDTO } from '../../lib/mappers'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -75,7 +75,8 @@ function ConversationPage() {
         ...prev,
         [convId]: keyInfo.linkedResources.map(mapLinkedResourceDTO),
       }))
-    } catch {
+    } catch (err) {
+      console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
     }
   }, [])
