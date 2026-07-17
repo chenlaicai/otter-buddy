@@ -29,7 +29,7 @@ created_at: 2026-07-17
 **正方论点（迁移已完成）**：
 
 - main 分支 HEAD（`12ca588`）包含完整迁移代码
-- `pi-session-factory.ts`（466行）已就位，实现 `AgentGateway` 接口
+- `pi-session-factory.ts`（531行）已就位，实现 `AgentGateway` 接口
 - `pi-harness-factory.ts` 已删除
 - `package.json` 依赖已切换至 `pi-coding-agent ^0.80.10`
 - `agent-invoker.ts` 事件映射已适配 `AgentSessionEvent`
@@ -77,11 +77,11 @@ F20260716sq6e（2026-07-16）完成了以下工作：
 | # | 任务 | 状态 | 证据 |
 |---|------|------|------|
 | T1 | 替换依赖 | ✅ 完成 | `package.json` 第21行：`"@earendil-works/pi-coding-agent": "^0.80.10"`；`pi-agent-core` 已从 dependencies 移除 |
-| T2 | 新建 `pi-session-factory.ts` | ✅ 完成 | `src/frameworks/agent/pi-session-factory.ts` 存在，466行，实现 `AgentGateway` 接口，使用 `createAgentSession()` |
-| T3 | 迁移工具注册 | ✅ 完成 | `pi-session-factory.ts` 第331-360行：`buildCustomTools()` 方法将 Otter 工具适配为 `ToolDefinition` 格式，16个工具 |
+| T2 | 新建 `pi-session-factory.ts` | ✅ 完成 | `src/frameworks/agent/pi-session-factory.ts` 存在，531行，实现 `AgentGateway` 接口，使用 `createAgentSession()` |
+| T3 | 迁移工具注册 | ✅ 完成 | `pi-session-factory.ts` 第366行起：`buildCustomTools()` 方法将 Otter 工具适配为 `ToolDefinition` 格式，16个工具 |
 | T4 | 迁移事件流映射 | ✅ 完成 | `src/interface-adapters/agent-runtime/agent-invoker.ts` 中 `mapToSSEEvent()` 已适配 `AgentSessionEvent` |
 | T5 | 迁移 Session 管理 | ✅ 完成 | `pi-session-factory.ts` 中 `createSessionManager()` 使用 `SessionManager.create()`，支持 `parentSession` 参数 |
-| T6 | 接线 SkillLoader | ✅ 完成 | `pi-session-factory.ts` 第145-148行：`SkillLoader` 初始化；第257-262行：`invoke()` 中加载 Skills 并追加到系统提示 |
+| T6 | 接线 SkillLoader | ✅ 完成 | `pi-session-factory.ts` 第150-157行：`SkillLoader` 初始化；第286行：`invoke()` 中加载 Skills 并追加到系统提示 |
 | T7 | 清理旧代码 | ✅ 完成 | `src/frameworks/agent/pi-harness-factory.ts` 不存在（已删除）；`system-prompt-builder.ts` 保留62行（含 `buildSystemPrompt()` 函数，F20260717a4dr 已扩展） |
 
 ### 2.2 关键架构变更
@@ -93,14 +93,14 @@ F20260716sq6e（2026-07-16）完成了以下工作：
 | Session 管理 | `JsonlSessionRepo`（Pi 原生） | `SessionManager`（SDK 内置） |
 | 编码工具 | 不支持 | `tools: ["read", "write", "edit", "bash"]`（big otter） |
 | Skills 加载 | 未接入 | 已接入（`loadSkillsForOtterType()`） |
-| 依赖 | `pi-agent-core ^0.80.6` + `pi-ai ^0.80.6` | `pi-coding-agent ^0.80.10`（内含 pi-agent-core + pi-ai） |
+| 依赖 | `pi-agent-core ^0.80.6` + `pi-ai ^0.80.6` | `pi-coding-agent ^0.80.10`（内含 pi-agent-core + pi-ai）；`pi-ai ^0.80.10` 仍为直接依赖（`models-factory.ts` 使用 pi-ai 的 LLM provider 路由功能，与 agent 运行时无关） |
 
 ### 2.3 验收标准达成情况（F20260716sq6e §13.3）
 
 | # | 验收标准 | 状态 | 证据 |
 |---|---------|------|------|
-| 1 | `createAgentSession()` 替代 `AgentHarness` | ✅ | `pi-session-factory.ts` 第271-276行 |
-| 2 | Otter 自定义工具通过 customTools 注册 | ✅ | `buildCustomTools()` 方法，第340-370行 |
+| 1 | `createAgentSession()` 替代 `AgentHarness` | ✅ | `pi-session-factory.ts` 第200行 |
+| 2 | Otter 自定义工具通过 customTools 注册 | ✅ | `buildCustomTools()` 方法，第366行起 |
 | 3 | 编码工具按獭类型差异化控制 | ✅ | `getCodingToolsForOtterType()` 函数，第86-95行 |
 | 4 | 冷启动模型保留 | ✅ | 每次 `invoke()` 创建 session，`finally` 块中 `session.dispose()` |
 | 5 | 事件流映射正常 | ✅ | `agent-invoker.ts` 中 `mapToSSEEvent()` |
@@ -154,7 +154,7 @@ $ npm ls @earendil-works/pi-ai
 |--------|------|------|------|
 | V4 | Session Chain 兼容性 | ✅ 通过 | `pi-session-factory.ts` 第501-516行：`createSessionManager()` 接受 `existingSessionId`，通过 `parentSession` 选项传递给 `SessionManager.create()`。SDK `session-manager.js` 确认支持 `parentSession` 路径解析。 |
 | V5 | 自动 compaction 阈值配置 | ✅ 可接受 | SDK `SessionManager` 内置 compaction 机制（`session-manager.d.ts` 中有 `compaction` 类型定义），但 `CreateAgentSessionOptions` 未暴露 compaction 配置项。compaction 为 SDK 内部行为，用户无需干预。 |
-| V6 | AgentSessionEvent 信息完整性 | ✅ 通过 | `agent-invoker.ts` 第21-37行：`mapToSSEEvent()` 覆盖 `message_update`、`tool_execution_start`、`tool_execution_end`、`turn_end`、`agent_end` 五种事件类型。`mapToMessageEventInput()` 覆盖持久化所需的三种事件类型 + error 处理。 |
+| V6 | AgentSessionEvent 信息完整性 | ✅ 通过 | `agent-invoker.ts` 第21-37行：`mapToSSEEvent()` 覆盖 `message_update`、`tool_execution_start`、`tool_execution_end`、`turn_end`、`agent_end` 五种事件类型。注意：`turn_end` 返回 `null`（D5-fix：`turn.complete` 延迟到 `message.complete` 之后发出，匹配设计文档事件顺序）。`mapToMessageEventInput()` 覆盖持久化所需的三种事件类型 + error 处理。 |
 | V7 | pi-tui tree-shaking | ⚠️ 不适用 | `pi-tui` 是 `pi-coding-agent` 的直接依赖（`bash.js`、`ls.js`、`grep.js`、`edit.js` 均 import），作为 node_modules 依赖无法 tree-shake。当前架构下 pi-coding-agent 作为运行时依赖加载，不涉及打包，tree-shaking 不适用。 |
 
 ### 3.3 T8 集成测试缺失（优先级：中）
@@ -276,8 +276,16 @@ F20260717f772 设计阶段记录该文件"已缩减为11行，仅导出 `Dynamic
 
 | # | 修订内容 | 来源 |
 |---|---------|------|
-| R1 | T3 证据行号修正：第340-370行 → 第331-360行 | 架构师-2 S1 |
+| R1 | T3 证据行号修正：第340-370行 → 第366行起 | 架构师-2 S1 |
 | R2 | 补充 [design-time] 决策过程记录（正反论点） | 架构师-2 S2 |
+| R3 | P1-1: T2 行数修正：466行 → 531行（与 §2.2/§3.4 一致） | 审查者-2 |
+| R4 | P1-2: T3 行号修正：第331-360行 → 第366行起 | 审查者-2 |
+| R5 | P1-3: T6 SkillLoader 行号修正：第145-148行 → 第150-157行 | 审查者-2 |
+| R6 | P1-4: T6 invoke Skills 行号修正：第257-262行 → 第286行 | 审查者-2 |
+| R7 | P1-5: 验收1 行号修正：第271-276行 → 第200行 | 审查者-2 |
+| R8 | P1-6: 验收2 行号修正：第340-370行 → 第366行起 | 审查者-2 |
+| R9 | P2-1: V6 补充 `turn_end` 返回 null 说明（D5-fix 延迟发送） | 审查者-2 |
+| R10 | P2-2: §2.2 依赖表补充 `pi-ai` 仍为直接依赖说明（models-factory.ts LLM 路由） | 审查者-2 |
 
 ---
 
