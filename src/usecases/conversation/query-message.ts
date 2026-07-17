@@ -1,4 +1,5 @@
 import type { Message, MessageEvent } from "@entities/conversation/message";
+import { DomainError } from "@entities/errors";
 import type { ConversationRepository, GetMessagesOptions, TurnHistoryEntry } from "./conversation-repository";
 
 export class QueryMessage {
@@ -43,7 +44,7 @@ export class QueryMessage {
   ): Promise<Message[]> {
     const target = await this.repo.getMessageById(messageId);
     if (!target) {
-      throw new Error(`Message not found: ${messageId}`);
+      throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
 
     if (direction === "before") {

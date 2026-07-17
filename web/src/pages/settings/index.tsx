@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import '../../styles/globals.css'
 
 import { AppLayout } from '../../components/AppLayout'
@@ -177,7 +178,7 @@ function SettingsPage() {
                 disabled={saving}
                 className="px-6 py-2 text-sm text-white rounded-xl shadow-glow transition disabled:opacity-50"
                 style={{
-                  background: 'linear-gradient(135deg,#A88260,#6B5638)',
+                  background: OTTER_GRADIENT,
                   boxShadow: hasUnsaved ? '0 0 0 2px rgba(245,158,11,0.4)' : undefined,
                 }}
               >

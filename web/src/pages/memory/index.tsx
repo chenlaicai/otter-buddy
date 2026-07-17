@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Search, Star, MessageSquare, ClipboardList, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
+import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import '../../styles/globals.css'
 
 import type { MemoryEntryDTO } from '@contract/api'
@@ -103,7 +104,7 @@ function MemorySearchPage() {
           <button
             onClick={() => doSearch()}
             className="w-full py-2 text-sm text-white rounded-xl shadow-glow transition"
-            style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
+            style={{ background: OTTER_GRADIENT }}
           >
             搜索
           </button>

@@ -111,67 +111,11 @@ describe("ManageTerminology - CRUD", () => {
     expect(entry.status).toBe("active");
   });
 
-  it("updateTerm 更新术语，version 递增", async () => {
-    const entry = await manageTerminology.addTerm({
-      term: "大獭",
-      definition: "旧定义",
-    });
-
-    const updated = await manageTerminology.updateTerm(entry.id, {
-      definition: "新定义",
-    });
-
-    expect(updated.version).toBe(2);
-    expect(updated.definition).toBe("新定义");
-    expect(updated.term).toBe("大獭");
-  });
-
-  it("updateTerm 不存在的术语抛出错误", async () => {
+  it("addTerm 重复术语（同名 active）抛出唯一约束错误", async () => {
+    await manageTerminology.addTerm({ term: "大獭", definition: "定义1" });
     await expect(
-      manageTerminology.updateTerm("nonexistent", { definition: "x" }),
-    ).rejects.toThrow(/not found/);
-  });
-
-  it("updateTerm deprecated 术语抛出错误", async () => {
-    const entry = await manageTerminology.addTerm({
-      term: "旧术语",
-      definition: "旧定义",
-    });
-    await manageTerminology.deprecateTerm(entry.id);
-
-    await expect(
-      manageTerminology.updateTerm(entry.id, { definition: "新定义" }),
-    ).rejects.toThrow(/deprecated/);
-  });
-
-  it("deprecateTerm 标记术语为 deprecated", async () => {
-    const entry = await manageTerminology.addTerm({
-      term: "大獭",
-      definition: "定义",
-    });
-
-    await manageTerminology.deprecateTerm(entry.id);
-
-    const deprecated = await manageTerminology.getById(entry.id);
-    expect(deprecated?.status).toBe("deprecated");
-  });
-
-  it("deprecateTerm 已经 deprecated 的术语不报错", async () => {
-    const entry = await manageTerminology.addTerm({
-      term: "大獭",
-      definition: "定义",
-    });
-    await manageTerminology.deprecateTerm(entry.id);
-    await manageTerminology.deprecateTerm(entry.id);
-
-    const deprecated = await manageTerminology.getById(entry.id);
-    expect(deprecated?.status).toBe("deprecated");
-  });
-
-  it("deprecateTerm 不存在的术语抛出错误", async () => {
-    await expect(
-      manageTerminology.deprecateTerm("nonexistent"),
-    ).rejects.toThrow(/not found/);
+      manageTerminology.addTerm({ term: "大獭", definition: "定义2" }),
+    ).rejects.toThrow();
   });
 });
 
@@ -240,7 +184,9 @@ describe("ManageTerminology - 检索策略", () => {
   });
 
   it("deprecated 术语不出现在检索结果中", async () => {
-    await manageTerminology.deprecateTerm("term-1");
+    /** 直接在数据库中标记为 deprecated（deprecateTerm 已移除） */
+    db.prepare("UPDATE terminology_entries SET status = 'deprecated' WHERE id = ?").run("term-1");
+    db.prepare("DELETE FROM terminology_fts WHERE terminology_entry_id = ?").run("term-1");
 
     const results = await manageTerminology.search("大獭", 10);
     expect(results.length).toBe(0);

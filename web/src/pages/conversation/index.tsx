@@ -147,7 +147,7 @@ function ConversationPage() {
 
   const stopStream = useCallback(() => {
     if (otterMsgIdRef.current) {
-      api.abortMessage(otterMsgIdRef.current).catch(() => {})
+      api.abortMessage(otterMsgIdRef.current).catch((err) => console.error('Failed to abort message:', err))
     }
     sseCtrlRef.current?.abort()
     setStreaming(null)

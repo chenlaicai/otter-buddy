@@ -25,5 +25,5 @@
     "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "tests/**/*", "api-contract/**/*"],
-  "exclude": ["node_modules", "dist", "reference/**"]
+  "exclude": ["node_modules", "dist"]
 }

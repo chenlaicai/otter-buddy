@@ -2,5 +2,4 @@
 export interface OtterContextRepository {
   get(otterId: string, key?: string): Promise<Record<string, string>>;
   set(otterId: string, key: string, value: string): Promise<void>;
-  delete(otterId: string, key: string): Promise<void>;
 }

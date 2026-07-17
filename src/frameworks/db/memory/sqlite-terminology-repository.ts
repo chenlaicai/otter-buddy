@@ -7,10 +7,7 @@ import {
   type TerminologyEntryRow,
 } from "./terminology-mapper";
 
-/** FTS5 查询转义：包装为 phrase query，防止特殊字符被解释为操作符 */
-function escapeFtsQuery(query: string): string {
-  return `"${query.replace(/"/g, '""')}"`;
-}
+import { escapeFtsQuery } from "../fts-utils";
 
 export class SqliteTerminologyRepository implements TerminologyRepository {
   constructor(private readonly db: Database.Database) {}
@@ -68,13 +65,6 @@ export class SqliteTerminologyRepository implements TerminologyRepository {
       this.db.exec("ROLLBACK");
       throw error;
     }
-  }
-
-  async getById(id: string): Promise<TerminologyEntry | null> {
-    const row = this.db.prepare(
-      "SELECT * FROM terminology_entries WHERE id = ?",
-    ).get(id) as TerminologyEntryRow | undefined;
-    return row ? rowToTerminologyEntry(row) : null;
   }
 
   async getByTerm(term: string): Promise<TerminologyEntry | null> {

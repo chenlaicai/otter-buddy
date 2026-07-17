@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect } from 'react'
 import { X } from 'lucide-react'
+import { OTTER_GRADIENT } from '../lib/otter-colors'
 
 interface ModalProps {
   isOpen: boolean
@@ -72,7 +73,7 @@ export function ModalButton({
     danger: 'text-white bg-red-400 hover:bg-red-500',
   }
   const style = variant === 'primary'
-    ? { ...{ background: 'linear-gradient(135deg,#A88260,#6B5638)' } }
+    ? { ...{ background: OTTER_GRADIENT } }
     : undefined
 
   return (

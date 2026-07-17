@@ -39,6 +39,8 @@ export interface MessageRow {
   sequence_num: number;
   turn_id: string;
   talking_stone_passed_to: string | null;
+  context_tokens: number | null;
+  context_tokens_max: number | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -127,6 +129,8 @@ export function rowToMessage(row: MessageRow): Message {
       ? (JSON.parse(row.attachments) as Attachment[])
       : null,
     sequenceNum: row.sequence_num,
+    contextTokens: row.context_tokens,
+    contextTokensMax: row.context_tokens_max,
     createdAt: row.created_at,
     completedAt: row.completed_at,
   };

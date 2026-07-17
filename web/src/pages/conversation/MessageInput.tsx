@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { ArrowUp } from 'lucide-react'
 import type { LocalOtter as Otter } from '../../lib/mappers'
-import { getOtterColor } from '../../lib/otter-colors'
+import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 
 interface MessageInputProps {
   onSend: (text: string, mentionOtterId?: string) => void
@@ -116,7 +116,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             onClick={handleSend}
             disabled={disabled || !value.trim()}
             className="w-9 h-9 rounded-2xl text-white flex items-center justify-center shadow-glow transition flex-shrink-0 disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
+            style={{ background: OTTER_GRADIENT }}
           >
             <ArrowUp className="w-4 h-4" />
           </button>

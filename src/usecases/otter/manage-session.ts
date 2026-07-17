@@ -4,6 +4,7 @@ import {
   archiveReasonToSessionStatus,
 } from "@entities/otter/otter-session";
 import type { MemoryLayer } from "@entities/memory/memory-entry";
+import { DomainError } from "@entities/errors";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 
@@ -50,8 +51,9 @@ export class ManageSession {
     /** 前置条件检查：不允许同时存在两个 active session */
     const activeSession = await this.repo.getActiveSession(otterId);
     if (activeSession) {
-      throw new Error(
+      throw new DomainError(
         `Otter ${otterId} already has an active session: ${activeSession.id}`,
+        "conflict",
       );
     }
 
@@ -116,13 +118,14 @@ export class ManageSession {
     /** 1. 查询 session */
     const session = await this.repo.getSessionById(sessionId);
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      throw new DomainError(`Session not found: ${sessionId}`, "not_found");
     }
 
     /** 2. 不变量校验 */
     if (!canArchiveSession(session.status)) {
-      throw new Error(
+      throw new DomainError(
         `Session is not active: ${sessionId} (status=${session.status})`,
+        "validation",
       );
     }
 

@@ -1,19 +1,20 @@
 import type { Attachment } from "@entities/conversation/conversation";
+import { DomainError } from "@entities/errors";
 import type {
   Message,
   MessageEvent,
   MessageEventType,
 } from "@entities/conversation/message";
 import {
-  isTerminalMessageStatus,
   canAppendEvent,
   canCompleteMessage,
   canFailMessage,
   isValidCompletedMessageBody,
   isValidTalkingStonePass,
 } from "@entities/conversation/message";
-import { canAddMessageToTurn, canCloseTurn } from "@entities/conversation/conversation";
+import { canAddMessageToTurn } from "@entities/conversation/conversation";
 import type { ConversationRepository } from "./conversation-repository";
+import { tryCloseTurn } from "./turn-utils";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 
 /** 用户发送消息输入 */
@@ -45,6 +46,8 @@ export interface CompleteMessageInput {
   body: string;
   talkingStonePassedTo: string[];
   attachments?: Attachment[];
+  contextTokens?: number;
+  contextTokensMax?: number;
 }
 
 export class SendMessage {
@@ -57,7 +60,7 @@ export class SendMessage {
   async send(input: SendMessageInput): Promise<Message> {
     /** UA-8: completed 用户消息必须传递发言石 */
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", "user")) {
-      throw new Error("talkingStonePassedTo must be non-empty for completed user messages");
+      throw new DomainError("talkingStonePassedTo must be non-empty for completed user messages", "validation");
     }
 
     /** 确保活跃 Turn 存在 */
@@ -78,6 +81,8 @@ export class SendMessage {
       body: input.body,
       attachments: input.attachments ?? null,
       sequenceNum,
+      contextTokens: null,
+      contextTokensMax: null,
       createdAt: now,
       completedAt: now,
     };
@@ -88,7 +93,7 @@ export class SendMessage {
     await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
 
     /** 尝试关闭 Turn */
-    await this.tryCloseTurn(input.conversationId, turn.id);
+    await tryCloseTurn(this.repo, turn.id);
 
     return message;
   }
@@ -97,7 +102,7 @@ export class SendMessage {
   async start(input: StartMessageInput): Promise<Message> {
     /** UA-8: streaming 期间可为空 */
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "streaming", "otter")) {
-      throw new Error("Invalid talkingStonePassedTo for streaming message");
+      throw new DomainError("Invalid talkingStonePassedTo for streaming message", "validation");
     }
 
     const turn = await this.ensureActiveTurn(input.conversationId);
@@ -117,6 +122,8 @@ export class SendMessage {
       body: null,
       attachments: input.attachments ?? null,
       sequenceNum,
+      contextTokens: null,
+      contextTokensMax: null,
       createdAt: now,
       completedAt: null,
     };
@@ -129,10 +136,10 @@ export class SendMessage {
   async appendEvent(input: MessageEventInput): Promise<MessageEvent> {
     const message = await this.repo.getMessageById(input.messageId);
     if (!message) {
-      throw new Error(`Message not found: ${input.messageId}`);
+      throw new DomainError(`Message not found: ${input.messageId}`, "not_found");
     }
     if (!canAppendEvent(message.status)) {
-      throw new Error(`Cannot append event to message with status: ${message.status}`);
+      throw new DomainError(`Cannot append event to message with status: ${message.status}`, "validation");
     }
 
     const id = crypto.randomUUID();
@@ -154,30 +161,38 @@ export class SendMessage {
   async complete(messageId: string, input: CompleteMessageInput): Promise<Message> {
     const message = await this.repo.getMessageById(messageId);
     if (!message) {
-      throw new Error(`Message not found: ${messageId}`);
+      throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
     if (!canCompleteMessage(message.status)) {
-      throw new Error(`Cannot complete message with status: ${message.status}`);
+      throw new DomainError(`Cannot complete message with status: ${message.status}`, "validation");
     }
     if (!isValidCompletedMessageBody(input.body)) {
-      throw new Error("body must be non-empty string");
+      throw new DomainError("body must be non-empty string", "validation");
     }
     /** UA-8: completed 时必须传递发言石（system 豁免） */
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", message.senderType)) {
-      throw new Error("talkingStonePassedTo must be non-empty for completed messages");
+      throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
     }
 
     /** attachments 缺省时保留 startMessage 时的值 */
     const attachments = input.attachments !== undefined ? input.attachments : message.attachments;
     const now = new Date().toISOString();
 
-    await this.repo.completeMessage(messageId, input.body, input.talkingStonePassedTo, attachments, now);
+    await this.repo.completeMessage({
+      messageId,
+      body: input.body,
+      talkingStonePassedTo: input.talkingStonePassedTo,
+      attachments,
+      completedAt: now,
+      contextTokens: input.contextTokens,
+      contextTokensMax: input.contextTokensMax,
+    });
 
     /** B12: 索引消息 body 到记忆系统 */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
 
     /** 尝试关闭 Turn */
-    await this.tryCloseTurn(message.conversationId, message.turnId);
+    await tryCloseTurn(this.repo, message.turnId);
 
     return {
       ...message,
@@ -193,17 +208,17 @@ export class SendMessage {
   async fail(messageId: string): Promise<void> {
     const message = await this.repo.getMessageById(messageId);
     if (!message) {
-      throw new Error(`Message not found: ${messageId}`);
+      throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
     if (!canFailMessage(message.status)) {
-      throw new Error(`Cannot fail message with status: ${message.status}`);
+      throw new DomainError(`Cannot fail message with status: ${message.status}`, "validation");
     }
 
     const now = new Date().toISOString();
     await this.repo.failMessage(messageId, now);
 
     /** 尝试关闭 Turn */
-    await this.tryCloseTurn(message.conversationId, message.turnId);
+    await tryCloseTurn(this.repo, message.turnId);
   }
 
   /** 确保活跃 Turn 存在，无则创建新 Turn */
@@ -229,15 +244,4 @@ export class SendMessage {
     return turn;
   }
 
-  /** 尝试关闭 Turn（当 Turn 内所有消息到达终态时） */
-  private async tryCloseTurn(
-    conversationId: string,
-    turnId: string,
-  ): Promise<void> {
-    const messages = await this.repo.getMessagesByTurnId(turnId);
-    const allTerminal = messages.every((m) => isTerminalMessageStatus(m.status));
-    if (canCloseTurn(allTerminal)) {
-      await this.repo.closeTurn(turnId, new Date().toISOString());
-    }
-  }
 }

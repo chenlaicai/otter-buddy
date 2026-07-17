@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus, Star, X, MoreHorizontal, RotateCcw } from 'lucide-react'
+import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalKeyFact as KeyFact, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession } from '../../lib/mappers'
 import { OtterAvatar } from '../../components/OtterAvatar'
 
@@ -88,7 +89,7 @@ export function RightPanel(props: RightPanelProps) {
               <button
                 onClick={handleAddKeyFact}
                 className="px-2.5 py-1 text-xs text-white rounded-lg"
-                style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
+                style={{ background: OTTER_GRADIENT }}
               >
                 添加
               </button>

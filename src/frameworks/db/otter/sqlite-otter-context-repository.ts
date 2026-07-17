@@ -26,9 +26,4 @@ export class SqliteOtterContextRepository implements OtterContextRepository {
     `).run(otterId, key, value);
   }
 
-  async delete(otterId: string, key: string): Promise<void> {
-    this.db.prepare(
-      "DELETE FROM otter_context WHERE otter_id = ? AND key = ?",
-    ).run(otterId, key);
-  }
 }

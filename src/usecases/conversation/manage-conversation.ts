@@ -3,6 +3,7 @@ import {
   canCompleteConversation,
   canArchiveConversation,
 } from "@entities/conversation/conversation";
+import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 
 export interface CreateConversationInput {
@@ -61,10 +62,10 @@ export class ManageConversation {
   async complete(id: string): Promise<void> {
     const conv = await this.repo.getById(id);
     if (!conv) {
-      throw new Error(`Conversation not found: ${id}`);
+      throw new DomainError(`Conversation not found: ${id}`, "not_found");
     }
     if (!canCompleteConversation(conv.status)) {
-      throw new Error(`Cannot complete conversation with status: ${conv.status}`);
+      throw new DomainError(`Cannot complete conversation with status: ${conv.status}`, "validation");
     }
     await this.repo.updateStatus(id, "completed", new Date().toISOString());
   }
@@ -72,10 +73,10 @@ export class ManageConversation {
   async archive(id: string): Promise<void> {
     const conv = await this.repo.getById(id);
     if (!conv) {
-      throw new Error(`Conversation not found: ${id}`);
+      throw new DomainError(`Conversation not found: ${id}`, "not_found");
     }
     if (!canArchiveConversation(conv.status)) {
-      throw new Error(`Cannot archive conversation with status: ${conv.status}`);
+      throw new DomainError(`Cannot archive conversation with status: ${conv.status}`, "validation");
     }
     await this.repo.updateStatus(id, "archived", new Date().toISOString());
   }

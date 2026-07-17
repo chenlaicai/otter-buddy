@@ -74,6 +74,8 @@ function createMessageTables(db: Database.Database): void {
       sequence_num INTEGER NOT NULL,
       turn_id TEXT NOT NULL,
       talking_stone_passed_to TEXT,
+      context_tokens INTEGER,
+      context_tokens_max INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
@@ -154,7 +156,8 @@ function createMemoryTables(db: Database.Database): void {
       );
     `);
   } catch {
-    // sqlite-vec 不可用时跳过
+    // eslint-disable-next-line no-console -- schema 初始化不能依赖 frameworks/logger
+    console.warn("sqlite-vec extension not available, falling back to FTS5-only search");
   }
 }
 
@@ -375,7 +378,7 @@ function createMessagesFtsTable(db: Database.Database): void {
     );
 
     CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
-      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, NEW.body);
+      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
     END;
 
     CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
@@ -383,8 +386,8 @@ function createMessagesFtsTable(db: Database.Database): void {
     END;
 
     CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF body ON messages BEGIN
-      INSERT INTO messages_fts(messages_fts, message_id, body) VALUES ('delete', OLD.id, OLD.body);
-      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, NEW.body);
+      INSERT INTO messages_fts(messages_fts, message_id, body) VALUES ('delete', OLD.id, COALESCE(OLD.body, ''));
+      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
     END;
   `);
 }

@@ -152,7 +152,6 @@ describe("SearchMemory - progressive disclosure", () => {
       searchVec: async () => [{ entryId: "e-long", distance: 0.1, entry: longEntry }],
       getWeights: async () => [{ memoryEntryId: "e-long", retrievalCount: 0, lastRetrievedAt: null, userFlagged: false }],
       getById: async () => null,
-      getBySource: async () => null,
       getEmbedding: async () => null,
       getDetails: async () => [],
       storeEntry: async () => {},

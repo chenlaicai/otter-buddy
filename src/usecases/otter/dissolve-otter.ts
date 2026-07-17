@@ -1,4 +1,5 @@
 import { canDissolveOtter } from "@entities/otter/otter";
+import { DomainError } from "@entities/errors";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 import type { ManageSession, ArchiveSessionInput } from "./manage-session";
@@ -18,13 +19,14 @@ export class DissolveOtter {
     /** 1. 查询 Otter */
     const otter = await this.repo.getById(otterId);
     if (!otter) {
-      throw new Error(`Otter not found: ${otterId}`);
+      throw new DomainError(`Otter not found: ${otterId}`, "not_found");
     }
 
     /** 2. 不变量校验 */
     if (!canDissolveOtter(otter.status)) {
-      throw new Error(
+      throw new DomainError(
         `Cannot dissolve otter with status: ${otter.status}`,
+        "validation",
       );
     }
 

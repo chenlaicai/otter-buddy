@@ -17,7 +17,8 @@ describe("MessageDTO", () => {
       senderType: "user", senderId: "user-1",
       talkingStonePassedTo: ["otter-1"], status: "completed",
       body: "Hello", attachments: null,
-      sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:02Z",
+      sequenceNum: 1, contextTokens: null, contextTokensMax: null,
+      createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:02Z",
     };
     const dto = toMessageDTO(msg);
     expect(dto.id).toBe("msg-1");
@@ -37,7 +38,8 @@ describe("MessageDTO", () => {
       senderType: "otter", senderId: "otter-1",
       talkingStonePassedTo: null, status: "streaming",
       body: null, attachments: null,
-      sequenceNum: 2, createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+      sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+      createdAt: "2026-07-16T00:00:00Z", completedAt: null,
     };
     const dto = toMessageDTO(msg);
     expect(dto.dur).toBeNull();

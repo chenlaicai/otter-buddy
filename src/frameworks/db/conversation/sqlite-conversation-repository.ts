@@ -31,10 +31,7 @@ import {
   type TurnRow,
 } from "./conversation-mapper";
 
-/** FTS5 查询转义：包装为 phrase query，防止特殊字符被解释为操作符 */
-function escapeFtsQuery(query: string): string {
-  return `"${query.replace(/"/g, '""')}"`;
-}
+import { escapeFtsQuery } from "../fts-utils";
 
 export class SqliteConversationRepository implements ConversationRepository {
   constructor(private readonly db: Database.Database) {}
@@ -150,8 +147,8 @@ export class SqliteConversationRepository implements ConversationRepository {
   async createCompletedMessage(message: Message): Promise<void> {
     this.db.prepare(`
       INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-        attachments, sequence_num, turn_id, talking_stone_passed_to, created_at)
-      VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)
+        attachments, sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
+      VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.conversationId,
@@ -162,6 +159,8 @@ export class SqliteConversationRepository implements ConversationRepository {
       message.sequenceNum,
       message.turnId,
       message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
+      message.contextTokens,
+      message.contextTokensMax,
       message.createdAt,
     );
   }
@@ -169,8 +168,8 @@ export class SqliteConversationRepository implements ConversationRepository {
   async createStreamingMessage(message: Message): Promise<void> {
     this.db.prepare(`
       INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-        attachments, sequence_num, turn_id, talking_stone_passed_to, created_at)
-      VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?)
+        attachments, sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
+      VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.conversationId,
@@ -181,31 +180,38 @@ export class SqliteConversationRepository implements ConversationRepository {
       message.sequenceNum,
       message.turnId,
       message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
+      message.contextTokens,
+      message.contextTokensMax,
       message.createdAt,
     );
   }
 
-  async completeMessage(
-    messageId: string,
-    body: string,
-    talkingStonePassedTo: string[],
-    attachments: Attachment[] | null,
-    completedAt: string,
-  ): Promise<void> {
+  async completeMessage(input: {
+    messageId: string;
+    body: string;
+    talkingStonePassedTo: string[];
+    attachments: Attachment[] | null;
+    completedAt: string;
+    contextTokens?: number;
+    contextTokensMax?: number;
+  }): Promise<void> {
     const result = this.db.prepare(`
       UPDATE messages
-      SET status = 'completed', body = ?, talking_stone_passed_to = ?, attachments = ?, completed_at = ?
+      SET status = 'completed', body = ?, talking_stone_passed_to = ?, attachments = ?,
+          context_tokens = ?, context_tokens_max = ?, completed_at = ?
       WHERE id = ? AND status = 'streaming'
     `).run(
-      body,
-      JSON.stringify(talkingStonePassedTo),
-      attachments ? JSON.stringify(attachments) : null,
-      completedAt,
-      messageId,
+      input.body,
+      JSON.stringify(input.talkingStonePassedTo),
+      input.attachments ? JSON.stringify(input.attachments) : null,
+      input.contextTokens ?? null,
+      input.contextTokensMax ?? null,
+      input.completedAt,
+      input.messageId,
     );
 
     if (result.changes === 0) {
-      throw new Error(`Message ${messageId} not found or not in streaming status`);
+      throw new Error(`Message ${input.messageId} not found or not in streaming status`);
     }
   }
 

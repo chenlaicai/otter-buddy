@@ -13,6 +13,8 @@ export interface MessageDTO {
   tsp: string[] | null;
   turnId: string;
   attachments: Attachment[] | null;
+  ctx?: number;
+  ctxMax?: number;
 }
 
 /** 消息事件 DTO */
