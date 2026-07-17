@@ -50,13 +50,15 @@ export interface ConversationRepository {
   // Message 生命周期
   createCompletedMessage(message: Message): Promise<void>;
   createStreamingMessage(message: Message): Promise<void>;
-  completeMessage(
-    messageId: string,
-    body: string,
-    talkingStonePassedTo: string[],
-    attachments: Attachment[] | null,
-    completedAt: string,
-  ): Promise<void>;
+  completeMessage(input: {
+    messageId: string;
+    body: string;
+    talkingStonePassedTo: string[];
+    attachments: Attachment[] | null;
+    completedAt: string;
+    contextTokens?: number;
+    contextTokensMax?: number;
+  }): Promise<void>;
   failMessage(messageId: string, failedAt: string): Promise<void>;
   getMaxSequenceNum(conversationId: string): Promise<number>;
 

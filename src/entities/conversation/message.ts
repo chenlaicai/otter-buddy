@@ -21,6 +21,8 @@ export interface Message {
   body: string | null;
   attachments: Attachment[] | null;
   sequenceNum: number;
+  contextTokens: number | null;
+  contextTokensMax: number | null;
   createdAt: string;
   completedAt: string | null;
 }

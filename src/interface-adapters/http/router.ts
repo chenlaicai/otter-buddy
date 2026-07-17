@@ -5,7 +5,6 @@ import type { MessageController } from "./controllers/message-controller";
 import type { MemoryController } from "./controllers/memory-controller";
 import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
-import type { PlatformPromptController } from "./controllers/platform-prompt-controller";
 
 export interface Controllers {
   conversation: ConversationController;
@@ -14,7 +13,6 @@ export interface Controllers {
   memory: MemoryController;
   keyInfo: KeyInfoController;
   settings: SettingsController;
-  platformPrompt: PlatformPromptController;
 }
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
@@ -60,11 +58,6 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.put("/api/settings", (ctx) => c.settings.updateSettings(ctx));
 }
 
-function registerPlatformPromptRoutes(app: Hono, c: Controllers): void {
-  app.get("/api/platform-prompt", (ctx) => c.platformPrompt.get(ctx));
-  app.put("/api/platform-prompt", (ctx) => c.platformPrompt.update(ctx));
-}
-
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
 export function createRouter(ctrl: Controllers): Hono {
   const app = new Hono();
@@ -72,6 +65,5 @@ export function createRouter(ctrl: Controllers): Hono {
   registerMsgRoutes(app, ctrl);
   registerOtterRoutes(app, ctrl);
   registerDataRoutes(app, ctrl);
-  registerPlatformPromptRoutes(app, ctrl);
   return app;
 }

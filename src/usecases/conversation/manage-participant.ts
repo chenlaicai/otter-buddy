@@ -3,11 +3,12 @@ import {
   canJoinConversation,
   canLeaveConversation,
   canAddMessageToTurn,
-  canCloseTurn,
 } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
-import { isValidTalkingStonePass, isTerminalMessageStatus } from "@entities/conversation/message";
+import { isValidTalkingStonePass } from "@entities/conversation/message";
+import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
+import { tryCloseTurn } from "./turn-utils";
 
 export class ManageParticipant {
   constructor(private readonly repo: ConversationRepository) {}
@@ -28,16 +29,16 @@ export class ManageParticipant {
     /** 1. UA-10: 无已有参与记录才可进场 */
     const existing = await this.repo.getParticipant(conversationId, otterId);
     if (!canJoinConversation(existing)) {
-      throw new Error(`Otter ${otterId} already joined conversation ${conversationId}`);
+      throw new DomainError(`Otter ${otterId} already joined conversation ${conversationId}`, "conflict");
     }
 
     /** 2. 进场需要活跃 Turn */
     const turn = await this.repo.getActiveTurn(conversationId);
     if (!turn) {
-      throw new Error(`No active turn in conversation ${conversationId}`);
+      throw new DomainError(`No active turn in conversation ${conversationId}`, "validation");
     }
     if (!canAddMessageToTurn(turn.status)) {
-      throw new Error(`Turn ${turn.id} is not active`);
+      throw new DomainError(`Turn ${turn.id} is not active`, "validation");
     }
 
     const now = new Date().toISOString();
@@ -59,7 +60,7 @@ export class ManageParticipant {
 
     /** 4. 创建系统消息（B18: senderType="system", 豁免发言石校验） */
     if (!isValidTalkingStonePass([], "completed", "system")) {
-      throw new Error("System message talking stone validation failed");
+      throw new DomainError("System message talking stone validation failed", "validation");
     }
 
     const messageId = crypto.randomUUID();
@@ -75,13 +76,15 @@ export class ManageParticipant {
       body: systemMessageBody,
       attachments: null,
       sequenceNum,
+      contextTokens: null,
+      contextTokensMax: null,
       createdAt: now,
       completedAt: now,
     };
     await this.repo.createCompletedMessage(systemMessage);
 
     /** 5. 尝试关闭 Turn */
-    await this.tryCloseTurn(conversationId, turn.id);
+    await tryCloseTurn(this.repo, turn.id);
 
     return { participant, systemMessage };
   }
@@ -101,16 +104,16 @@ export class ManageParticipant {
     /** 1. 当前状态为 active 才可退场 */
     const participant = await this.repo.getParticipant(conversationId, otterId);
     if (!participant || !canLeaveConversation(participant)) {
-      throw new Error(`Otter ${otterId} is not an active participant`);
+      throw new DomainError(`Otter ${otterId} is not an active participant`, "validation");
     }
 
     /** 2. 退场需要活跃 Turn */
     const turn = await this.repo.getActiveTurn(conversationId);
     if (!turn) {
-      throw new Error(`No active turn in conversation ${conversationId}`);
+      throw new DomainError(`No active turn in conversation ${conversationId}`, "validation");
     }
     if (!canAddMessageToTurn(turn.status)) {
-      throw new Error(`Turn ${turn.id} is not active`);
+      throw new DomainError(`Turn ${turn.id} is not active`, "validation");
     }
 
     const now = new Date().toISOString();
@@ -137,13 +140,15 @@ export class ManageParticipant {
       body: systemMessageBody,
       attachments: null,
       sequenceNum,
+      contextTokens: null,
+      contextTokensMax: null,
       createdAt: now,
       completedAt: now,
     };
     await this.repo.createCompletedMessage(systemMessage);
 
     /** 5. 尝试关闭 Turn */
-    await this.tryCloseTurn(conversationId, turn.id);
+    await tryCloseTurn(this.repo, turn.id);
 
     return {
       participant: {
@@ -164,15 +169,4 @@ export class ManageParticipant {
     return this.repo.getActiveParticipants(conversationId);
   }
 
-  /** 尝试关闭 Turn */
-  private async tryCloseTurn(
-    conversationId: string,
-    turnId: string,
-  ): Promise<void> {
-    const messages = await this.repo.getMessagesByTurnId(turnId);
-    const allTerminal = messages.every((m) => isTerminalMessageStatus(m.status));
-    if (canCloseTurn(allTerminal)) {
-      await this.repo.closeTurn(turnId, new Date().toISOString());
-    }
-  }
 }

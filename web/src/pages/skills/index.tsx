@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Package, X } from 'lucide-react'
+import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import '../../styles/globals.css'
 
 import type { Skill } from '../../mock/data'
@@ -88,7 +89,7 @@ function SkillsPage() {
             <button
               onClick={() => setShowRegister(true)}
               className="px-2.5 py-1 text-xs text-white rounded-lg shadow-glow transition"
-              style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
+              style={{ background: OTTER_GRADIENT }}
             >
               + 注册
             </button>
@@ -169,7 +170,7 @@ function SkillsPage() {
                 <button
                   onClick={() => setShowLoad(true)}
                   className="px-4 py-2 text-sm text-white rounded-xl shadow-glow transition"
-                  style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
+                  style={{ background: OTTER_GRADIENT }}
                 >
                   加载到 Otter
                 </button>

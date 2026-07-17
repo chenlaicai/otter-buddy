@@ -109,24 +109,27 @@ export class AgentInvoker {
         },
       });
 
+      const contextTokens = result.tokenUsage
+        ? result.tokenUsage.input + result.tokenUsage.output
+        : undefined;
+
       await this.sendMessage.complete(message.id, {
         body: result.text,
         talkingStonePassedTo: [senderId],
+        contextTokens,
+        contextTokensMax: result.ctxMax,
       });
 
       /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
       this.abortedOtters.delete(otterId);
 
       const duration = Date.now() - startTime;
-      const ctx = result.tokenUsage
-        ? result.tokenUsage.input + result.tokenUsage.output
-        : undefined;
       onSSEEvent?.({
         event: "message.complete",
         data: {
           messageId: message.id,
           duration: `${(duration / 1000).toFixed(1)}s`,
-          ...(ctx !== undefined && { ctx }),
+          ...(contextTokens !== undefined && { ctx: contextTokens }),
           ...(result.ctxMax !== undefined && { ctxMax: result.ctxMax }),
         },
       });
@@ -151,8 +154,9 @@ export class AgentInvoker {
     /** D9-fix: fail() 出错时不覆盖原始错误 */
     try {
       await this.sendMessage.fail(messageId);
-    } catch {
-      /** 保留原始错误上下文 */
+    } catch (failErr) {
+      // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
+      console.warn(`Failed to mark message ${messageId} as failed (original error preserved):`, failErr);
     }
     if (this.abortedOtters.delete(otterId)) {
       onSSEEvent?.({ event: "message.aborted", data: { messageId } });
@@ -186,8 +190,9 @@ export class AgentInvoker {
           .map((e) => `${e.snippet ?? e.content} (score: ${e.score.toFixed(3)})`)
           .join("\n");
       }
-    } catch {
-      /** 检索失败时降级为无记忆上下文 */
+    } catch (err) {
+      // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
+      console.warn(`Memory retrieval failed for otter ${otterId}, degrading to no-memory context:`, err);
     }
 
     try {
@@ -203,8 +208,9 @@ export class AgentInvoker {
       } else if (session?.summary) {
         ctx.sessionSummary = session.summary;
       }
-    } catch {
-      /** session 查询失败时降级 */
+    } catch (err) {
+      // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
+      console.warn(`Session lookup failed for otter ${otterId}, degrading to no-session context:`, err);
     }
 
     return ctx;

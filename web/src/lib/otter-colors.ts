@@ -1,3 +1,6 @@
+/** Otter 默认渐变（大獭主色） */
+export const OTTER_GRADIENT = 'linear-gradient(135deg,#A88260,#6B5638)'
+
 /** Otter 颜色系统 */
 
 export const otterColors: Record<string, { hex: string; gradient: string; nameClass: string; border: string }> = {

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Search, Star, MessageSquare, ClipboardList, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
+import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import '../../styles/globals.css'
 
 import type { MemoryEntryDTO } from '@contract/api'
@@ -32,7 +33,8 @@ function MemorySearchPage() {
         granularity: granularity || undefined,
       })
       setResults(result.entries)
-    } catch {
+    } catch (err) {
+      console.error('Failed to search memory:', err)
       showToast('搜索失败', 'error')
     } finally {
       setLoading(false)
@@ -46,7 +48,8 @@ function MemorySearchPage() {
       await api.flagMemory(id, !entry.userFlagged)
       setResults(prev => prev?.map(e => e.id === id ? { ...e, userFlagged: !e.userFlagged } : e) || null)
       showToast('已标记', 'success')
-    } catch {
+    } catch (err) {
+      console.error('Failed to toggle flag:', err)
       showToast('标记失败', 'error')
     }
   }
@@ -103,7 +106,7 @@ function MemorySearchPage() {
           <button
             onClick={() => doSearch()}
             className="w-full py-2 text-sm text-white rounded-xl shadow-glow transition"
-            style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
+            style={{ background: OTTER_GRADIENT }}
           >
             搜索
           </button>

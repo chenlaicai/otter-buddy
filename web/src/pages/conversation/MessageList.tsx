@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Square } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter } from '../../lib/mappers'
-import { getOtterColor } from '../../lib/otter-colors'
+import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent } from '../../lib/utils'
 
 interface MessageListProps {
@@ -43,7 +43,7 @@ export function MessageList({ messages, streamingMessage, state, onStopStream, o
         <button
           onClick={onGoToSettings}
           className="px-4 py-2 text-sm text-white rounded-2xl shadow-glow transition flex items-center gap-1.5"
-          style={{ background: 'linear-gradient(135deg,#A88260,#6B5638)' }}
+          style={{ background: OTTER_GRADIENT }}
         >
           前往设置
         </button>

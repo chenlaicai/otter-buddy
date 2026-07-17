@@ -90,6 +90,8 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     content: dto.content ?? '',
     ts: dto.ts,
     dur: dto.dur,
+    ctx: dto.ctx,
+    ctxMax: dto.ctxMax,
   }
 }
 

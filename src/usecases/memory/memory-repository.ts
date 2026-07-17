@@ -43,7 +43,6 @@ export interface MemoryRepository {
   storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
-  getBySource(sourceTable: string, sourceId: string): Promise<MemoryEntry | null>;
   getEmbedding(memoryEntryId: string): Promise<Float32Array | null>;
   getWeights(memoryEntryIds: string[]): Promise<MemoryWeight[]>;
   // 检索

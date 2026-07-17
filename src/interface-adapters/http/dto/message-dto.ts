@@ -27,6 +27,8 @@ export function toMessageDTO(msg: Message): MessageDTO {
     tsp: msg.talkingStonePassedTo,
     turnId: msg.turnId,
     attachments: msg.attachments,
+    ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
+    ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),
   };
 }
 

@@ -3,6 +3,7 @@ import type {
   RetrievalGranularity,
   DetailLevel,
 } from "@entities/memory/memory-entry";
+import { DomainError } from "@entities/errors";
 import type {
   MemoryRepository,
   SearchFilters,
@@ -57,7 +58,7 @@ export class SearchMemory {
       return this.searchTerminologyLibrary(query);
     }
     if (query.library) {
-      throw new Error(`Unknown library: ${query.library}`);
+      throw new DomainError(`Unknown library: ${query.library}`, "validation");
     }
     /** 全库搜索：分别查各库，排名位置归一化混排 */
     return this.searchAllLibraries(query);

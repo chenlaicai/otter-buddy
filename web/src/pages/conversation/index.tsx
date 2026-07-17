@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalKeyFact, LocalLinkedResource, LocalOtterSession } from '../../lib/mappers'
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapKeyFactDTO, mapLinkedResourceDTO, mapSessionDTO as _mapSessionDTO } from '../../lib/mappers'
+import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapKeyFactDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -31,7 +31,7 @@ function ConversationPage() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
   const [allOtters, setAllOtters] = useState<LocalOtter[]>([])
-  const [sessions, _setSessions] = useState<Record<string, LocalOtterSession[]>>({})
+  const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
   const [allKeyFacts, setAllKeyFacts] = useState<Record<string, LocalKeyFact[]>>({})
   const [allLinkedRes, setAllLinkedRes] = useState<Record<string, LocalLinkedResource[]>>({})
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
@@ -75,7 +75,8 @@ function ConversationPage() {
         ...prev,
         [convId]: keyInfo.linkedResources.map(mapLinkedResourceDTO),
       }))
-    } catch {
+    } catch (err) {
+      console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
     }
   }, [])
@@ -85,6 +86,16 @@ function ConversationPage() {
       loadConversationDetail(activeId)
     }
   }, [activeId, allMessages, loadConversationDetail])
+
+  useEffect(() => {
+    for (const otter of allOtters) {
+      if (!sessions[otter.id]) {
+        api.getSessionHistory(otter.id)
+          .then(dtos => setSessions(prev => ({ ...prev, [otter.id]: dtos.map(mapSessionDTO) })))
+          .catch(err => console.error(`Failed to load sessions for otter ${otter.id}:`, err))
+      }
+    }
+  }, [allOtters, sessions])
 
   const activeConv = conversations.find(c => c.id === activeId) || null
   const activeMessages = activeId ? (allMessages[activeId] || []) : []
@@ -140,14 +151,15 @@ function ConversationPage() {
         'agent.idle': () => {},
       }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
       sseCtrlRef.current = ctrl
-    } catch {
+    } catch (err) {
+      console.error('Failed to send message:', err)
       showToast('发送失败', 'error'); setStreaming(null)
     }
   }, [activeId, allOtters])
 
   const stopStream = useCallback(() => {
     if (otterMsgIdRef.current) {
-      api.abortMessage(otterMsgIdRef.current).catch(() => {})
+      api.abortMessage(otterMsgIdRef.current).catch((err) => console.error('Failed to abort message:', err))
     }
     sseCtrlRef.current?.abort()
     setStreaming(null)

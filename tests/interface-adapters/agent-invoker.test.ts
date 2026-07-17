@@ -14,7 +14,8 @@ function mockSendMessage() {
     senderType: "otter", senderId: "otter-1",
     talkingStonePassedTo: null, status: "streaming",
     body: null, attachments: null,
-    sequenceNum: 2, createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+    sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+    createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
   return {
     start: async () => streamingMsg,

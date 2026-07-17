@@ -19,10 +19,7 @@ import {
 } from "./memory-mapper";
 import type { SnippetHit } from "@usecases/memory/memory-repository";
 
-/** FTS5 查询转义：包装为 phrase query，防止特殊字符被解释为操作符 */
-function escapeFtsQuery(query: string): string {
-  return `"${query.replace(/"/g, '""')}"`;
-}
+import { escapeFtsQuery } from "../fts-utils";
 
 const DEFAULT_FTS_LIMIT = 50;
 const MAX_GET_DETAILS_BATCH = 100;
@@ -120,13 +117,6 @@ export class SqliteMemoryRepository implements MemoryRepository {
       `SELECT * FROM memory_entries WHERE id IN (${placeholders})`,
     ).all(...ids) as MemoryEntryRow[];
     return rows.map(rowToMemoryEntry);
-  }
-
-  async getBySource(sourceTable: string, sourceId: string): Promise<MemoryEntry | null> {
-    const row = this.db.prepare(
-      "SELECT * FROM memory_entries WHERE source_table = ? AND source_id = ?",
-    ).get(sourceTable, sourceId) as MemoryEntryRow | undefined;
-    return row ? rowToMemoryEntry(row) : null;
   }
 
   async getEmbedding(memoryEntryId: string): Promise<Float32Array | null> {
