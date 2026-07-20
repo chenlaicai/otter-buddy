@@ -6,6 +6,11 @@
  * - fixtures: 常用测试数据工厂
  */
 import { vi } from "vitest";
+
+/** 解析 Response JSON（避免 strict 模式下 unknown 报错） */
+export async function json(res: Response): Promise<any> { // eslint-disable-line @typescript-eslint/no-explicit-any -- test helper needs flexible typing
+  return res.json();
+}
 import { Hono } from "hono";
 import { createRouter, type Controllers } from "../../src/interface-adapters/http/router";
 import { ConversationController } from "../../src/interface-adapters/http/controllers/conversation-controller";

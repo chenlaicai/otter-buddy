@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, createMockDeps, makeOtter, makeSession } from "./helpers";
+import { createTestApp, json, createMockDeps, makeOtter, makeSession } from "./helpers";
 import type { TestDeps } from "./helpers";
 import { DomainError } from "../../src/entities/errors";
 
@@ -21,7 +21,7 @@ describe("Otter API", () => {
 
       const res = await app.request("/api/otters/big");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("big-1");
       expect(body.type).toBe("big");
     });
@@ -44,7 +44,7 @@ describe("Otter API", () => {
 
       const res = await app.request("/api/otters/otter-1");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("otter-1");
     });
 
@@ -70,7 +70,7 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("new-otter");
       expect(body.name).toBe("New Friend");
     });
@@ -107,7 +107,7 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.status).toBe("dissolved");
     });
 
@@ -147,7 +147,7 @@ describe("Otter API", () => {
 
       const res = await app.request("/api/otters/otter-1/sessions");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toHaveLength(2);
       expect(body[0].id).toBe("s1");
       expect(body[1].id).toBe("s2");
@@ -166,7 +166,7 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("new-session");
     });
 
@@ -200,7 +200,7 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("new-session");
     });
 

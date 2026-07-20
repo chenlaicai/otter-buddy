@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, createMockDeps } from "./helpers";
+import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
 
 describe("Settings API", () => {
@@ -22,7 +22,7 @@ describe("Settings API", () => {
 
       const res = await app.request("/api/settings");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.provider).toBe("anthropic");
       expect(body.model).toBe("claude-sonnet-4-20250514");
       expect(body.port).toBe(3000);
@@ -34,7 +34,7 @@ describe("Settings API", () => {
 
       const res = await app.request("/api/settings");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.provider).toBe("openai");
       expect(body.model).toBe("gpt-4o");
     });
@@ -45,7 +45,7 @@ describe("Settings API", () => {
       });
 
       const res = await app.request("/api/settings");
-      const body = await res.json();
+      const body = await json(res);
       expect(body.provider).toBe("anthropic");
       expect(body.model).toBe("gpt-4o"); // fallback
     });
@@ -68,7 +68,7 @@ describe("Settings API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.provider).toBe("anthropic");
     });
 

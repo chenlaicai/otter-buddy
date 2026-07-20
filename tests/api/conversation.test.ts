@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, createMockDeps, makeConversation, makeParticipant } from "./helpers";
+import { createTestApp, json, createMockDeps, makeConversation, makeParticipant } from "./helpers";
 import type { TestDeps } from "./helpers";
 import { DomainError } from "../../src/entities/errors";
 
@@ -18,7 +18,7 @@ describe("Conversation API", () => {
     it("returns 400 when otterId is missing", async () => {
       const res = await app.request("/api/conversations");
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("otterId");
     });
 
@@ -31,7 +31,7 @@ describe("Conversation API", () => {
 
       const res = await app.request("/api/conversations?otterId=otter-1");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toHaveLength(1);
       expect(body[0].id).toBe("conv-1");
       expect(body[0].otterIds).toEqual(["otter-1"]);
@@ -43,7 +43,7 @@ describe("Conversation API", () => {
 
       const res = await app.request("/api/conversations?otterId=otter-1");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toHaveLength(0);
     });
 
@@ -52,7 +52,7 @@ describe("Conversation API", () => {
 
       const res = await app.request("/api/conversations?otterId=otter-1");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toEqual([]);
     });
   });
@@ -71,7 +71,7 @@ describe("Conversation API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("new-conv");
       expect(body.title).toBe("New Chat");
     });
@@ -98,7 +98,7 @@ describe("Conversation API", () => {
 
       const res = await app.request("/api/conversations/conv-1");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("conv-1");
     });
 
@@ -107,7 +107,7 @@ describe("Conversation API", () => {
 
       const res = await app.request("/api/conversations/missing");
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("not found");
     });
   });
@@ -123,7 +123,7 @@ describe("Conversation API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.status).toBe("completed");
     });
 
@@ -163,7 +163,7 @@ describe("Conversation API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.status).toBe("archived");
     });
 
@@ -191,7 +191,7 @@ describe("Conversation API", () => {
 
       const res = await app.request("/api/conversations/conv-1/participants");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toHaveLength(2);
       expect(body[0].otterId).toBe("otter-1");
       expect(body[1].otterId).toBe("otter-2");
@@ -202,7 +202,7 @@ describe("Conversation API", () => {
 
       const res = await app.request("/api/conversations/conv-1/participants");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toEqual([]);
     });
   });

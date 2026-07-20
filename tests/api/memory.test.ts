@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, createMockDeps, makeMemoryEntry } from "./helpers";
+import { createTestApp, json, createMockDeps, makeMemoryEntry } from "./helpers";
 import type { TestDeps } from "./helpers";
 
 describe("Memory API", () => {
@@ -17,7 +17,7 @@ describe("Memory API", () => {
     it("returns 400 when query is missing", async () => {
       const res = await app.request("/api/memory/search");
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("query");
     });
 
@@ -30,7 +30,7 @@ describe("Memory API", () => {
 
       const res = await app.request("/api/memory/search?query=test&limit=5");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.entries).toHaveLength(1);
       expect(body.total).toBe(1);
       expect(body.entries[0].score).toBe(0.95);
@@ -65,7 +65,7 @@ describe("Memory API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.entries).toHaveLength(1);
     });
 
@@ -87,7 +87,7 @@ describe("Memory API", () => {
     it("returns 400 when ids is missing", async () => {
       const res = await app.request("/api/memory/batch");
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("ids");
     });
 
@@ -104,7 +104,7 @@ describe("Memory API", () => {
 
       const res = await app.request("/api/memory/batch?ids=mem-1,mem-2");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.entries).toHaveLength(2);
       expect(body.total).toBe(2);
     });
@@ -124,7 +124,7 @@ describe("Memory API", () => {
 
       const res = await app.request("/api/memory/mem-1");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("mem-1");
       expect(body.contentType).toBe("message");
     });
@@ -150,7 +150,7 @@ describe("Memory API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.status).toBe("flagged");
       expect(body.flagged).toBe(true);
     });
@@ -165,7 +165,7 @@ describe("Memory API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.flagged).toBe(false);
     });
   });

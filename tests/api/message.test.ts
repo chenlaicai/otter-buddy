@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, createMockDeps, makeMessage } from "./helpers";
+import { createTestApp, json, createMockDeps, makeMessage } from "./helpers";
 import type { TestDeps } from "./helpers";
 
 describe("Message API", () => {
@@ -22,7 +22,7 @@ describe("Message API", () => {
 
       const res = await app.request("/api/conversations/conv-1/messages");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toHaveLength(2);
       expect(body[0].id).toBe("msg-1");
       expect(body[0].st).toBe("user");
@@ -68,7 +68,7 @@ describe("Message API", () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("talkingStonePassedTo");
     });
 
@@ -90,7 +90,7 @@ describe("Message API", () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("senderId");
     });
 
@@ -102,7 +102,7 @@ describe("Message API", () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("body");
     });
 
@@ -132,7 +132,7 @@ describe("Message API", () => {
 
       const res = await app.request("/api/messages/msg-1");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("msg-1");
       expect(body.st).toBe("user");
       expect(body.si).toBe("user-1");
@@ -143,7 +143,7 @@ describe("Message API", () => {
 
       const res = await app.request("/api/messages/missing");
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("not found");
     });
 
@@ -162,7 +162,7 @@ describe("Message API", () => {
       deps.queryMessage.getMessageById.mockResolvedValue(msg);
 
       const res = await app.request("/api/messages/msg-42");
-      const body = await res.json();
+      const body = await json(res);
       expect(body.st).toBe("otter");
       expect(body.si).toBe("otter-1");
       expect(body.content).toBe("I am an otter");
@@ -190,7 +190,7 @@ describe("Message API", () => {
 
       const res = await app.request("/api/messages/msg-1/events");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body).toHaveLength(1);
       expect(body[0].eventType).toBe("text_delta");
     });
@@ -219,7 +219,7 @@ describe("Message API", () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.error).toContain("otter");
     });
 
@@ -233,7 +233,7 @@ describe("Message API", () => {
       });
 
       expect(res.status).toBe(202);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.status).toBe("aborted");
     });
   });

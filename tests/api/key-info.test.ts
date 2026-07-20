@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, createMockDeps, makeKeyFact, makeLinkedResource } from "./helpers";
+import { createTestApp, json, createMockDeps, makeKeyFact, makeLinkedResource } from "./helpers";
 import type { TestDeps } from "./helpers";
 import { DomainError } from "../../src/entities/errors";
 
@@ -23,7 +23,7 @@ describe("KeyInfo API", () => {
 
       const res = await app.request("/api/conversations/conv-1/key-info");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.keyFacts).toHaveLength(1);
       expect(body.linkedResources).toHaveLength(1);
       expect(body.keyFacts[0].content).toBe("Important fact");
@@ -38,7 +38,7 @@ describe("KeyInfo API", () => {
 
       const res = await app.request("/api/conversations/conv-1/key-info");
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.keyFacts).toEqual([]);
       expect(body.linkedResources).toEqual([]);
     });
@@ -63,7 +63,7 @@ describe("KeyInfo API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("new-kf");
       expect(body.content).toBe("New fact");
     });
@@ -102,7 +102,7 @@ describe("KeyInfo API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.id).toBe("new-lr");
     });
 
@@ -167,7 +167,7 @@ describe("KeyInfo API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await json(res);
       expect(body.status).toBe("ok");
     });
   });
