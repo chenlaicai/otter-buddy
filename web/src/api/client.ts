@@ -31,8 +31,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 // ── Conversations ──
 
-export function listConversations(otterId: string): Promise<ConversationListItemDTO[]> {
-  return request(`/conversations?otterId=${encodeURIComponent(otterId)}`)
+export function listConversations(): Promise<ConversationListItemDTO[]> {
+  return request('/conversations')
 }
 
 export function createConversation(body: CreateConversationRequestDTO): Promise<ConversationDTO> {
@@ -70,10 +70,6 @@ export function abortMessage(messageId: string): Promise<{ status: string }> {
 }
 
 // ── Otters ──
-
-export function getBigOtter(): Promise<OtterDTO> {
-  return request('/otters/big')
-}
 
 export function getOtter(id: string): Promise<OtterDTO> {
   return request(`/otters/${id}`)

@@ -16,14 +16,11 @@ import * as api from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
-  bigOtter: LocalOtter
   conversations: LocalConversation[]
 }> {
-  const bigOtterDTO = await api.getBigOtter()
-  const bigOtter = mapOtterDTO(bigOtterDTO)
-  const convDTOs = await api.listConversations(bigOtter.id)
+  const convDTOs = await api.listConversations()
   const conversations = convDTOs.map(mapConversationDTO)
-  return { bigOtter, conversations }
+  return { conversations }
 }
 
 function ConversationPage() {
@@ -43,8 +40,7 @@ function ConversationPage() {
 
   useEffect(() => {
     loadInitialData()
-      .then(({ bigOtter, conversations: convs }) => {
-        setAllOtters([bigOtter])
+      .then(({ conversations: convs }) => {
         setConversations(convs)
         if (convs.length > 0) {
           setActiveId(convs[0].id)
@@ -175,9 +171,8 @@ function ConversationPage() {
 
   async function confirmNewConv(title: string) {
     try {
-      const bigOtterId = allOtters[0]?.id
-      const dto = await api.createConversation({ title, otterIds: bigOtterId ? [bigOtterId] : undefined })
-      const conv = mapConversationDTO({ ...dto, otterIds: bigOtterId ? [bigOtterId] : [] })
+      const dto = await api.createConversation({ title })
+      const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
       setAllMessages(prev => ({ ...prev, [conv.id]: [] }))
       setActiveId(conv.id)
@@ -189,9 +184,8 @@ function ConversationPage() {
   async function confirmChild(title: string) {
     if (modal.type !== 'child') return
     try {
-      const bigOtterId = allOtters[0]?.id
-      const dto = await api.createConversation({ title, otterIds: bigOtterId ? [bigOtterId] : undefined })
-      const conv = mapConversationDTO({ ...dto, otterIds: bigOtterId ? [bigOtterId] : [] })
+      const dto = await api.createConversation({ title })
+      const conv = mapConversationDTO(dto)
       setConversations(prev => [...prev, conv])
       setAllMessages(prev => ({ ...prev, [conv.id]: [] }))
       setActiveId(conv.id)

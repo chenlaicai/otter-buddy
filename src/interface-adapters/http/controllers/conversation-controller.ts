@@ -18,11 +18,7 @@ export class ConversationController {
 
   async list(c: Context): Promise<Response> {
     try {
-      const otterId = c.req.query("otterId");
-      if (!otterId) {
-        return c.json({ error: "otterId query parameter is required" }, 400);
-      }
-      const ids = await this.manageConversation.getIdsByOtterId(otterId);
+      const ids = await this.manageConversation.getAllIds();
       const items = await Promise.all(
         ids.map(async (id) => {
           const conv = await this.manageConversation.getById(id);
@@ -43,7 +39,6 @@ export class ConversationController {
       const body = await c.req.json<CreateConversationRequestDTO>();
       const input: CreateConversationInput = {
         title: body.title,
-        otterIds: body.otterIds,
       };
       const conv = await this.manageConversation.create(input);
       return c.json(toConversationDTO(conv), 201);

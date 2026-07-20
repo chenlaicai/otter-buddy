@@ -85,16 +85,15 @@ describe("ConversationController", () => {
 describe("OtterController", () => {
   function createApp(controller: OtterController): Hono {
     const app = new Hono();
-    app.get("/api/otters/big", (c) => controller.getBigOtter(c));
     app.get("/api/otters/:id", (c) => controller.getById(c));
     return app;
   }
 
-  it("returns 200 with DTO for big otter", async () => {
-    const queryOtter = { getBigOtter: async () => mockOtter() } as unknown as QueryOtter;
+  it("returns 200 with DTO for existing otter", async () => {
+    const queryOtter = { getById: async () => mockOtter() } as unknown as QueryOtter;
     const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter);
     const app = createApp(ctrl);
-    const res = await app.request("/api/otters/big");
+    const res = await app.request("/api/otters/otter-1");
     expect(res.status).toBe(200);
     const json = await res.json() as Record<string, unknown>;
     expect(json.name).toBe("Big Otter");

@@ -40,13 +40,6 @@ export class SqliteOtterRepository implements OtterRepository {
     return row ? rowToOtter(row) : null;
   }
 
-  async getBigOtter(): Promise<Otter | null> {
-    const row = this.db.prepare(
-      "SELECT * FROM otters WHERE type = 'big' AND status = 'active' LIMIT 1",
-    ).get() as OtterRow | undefined;
-    return row ? rowToOtter(row) : null;
-  }
-
   async dissolve(otterId: string, dissolvedAt: string): Promise<void> {
     this.db.prepare(`
       UPDATE otters SET status = 'dissolved', dissolved_at = ?

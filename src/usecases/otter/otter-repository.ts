@@ -15,7 +15,6 @@ export interface ArchiveSessionParams {
 export interface OtterRepository {
   createOtter(otter: Otter): Promise<void>;
   getById(id: string): Promise<Otter | null>;
-  getBigOtter(): Promise<Otter | null>;
   dissolve(otterId: string, dissolvedAt: string): Promise<void>;
   deleteOtter(otterId: string): Promise<void>;
   createSession(session: OtterSession): Promise<void>;

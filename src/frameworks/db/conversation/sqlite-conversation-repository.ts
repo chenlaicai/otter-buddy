@@ -84,6 +84,15 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(r => r.conversation_id);
   }
 
+  async getAllIds(): Promise<string[]> {
+    const rows = this.db.prepare(
+      "SELECT id FROM conversations ORDER BY created_at DESC",
+    ).all() as { id: string }[];
+    return rows.map(r => r.id);
+  }
+
+  // ── Participants (static association) ──
+
   async getOtterIds(conversationId: string): Promise<string[]> {
     const rows = this.db.prepare(
       "SELECT otter_id FROM conversation_otters WHERE conversation_id = ?",

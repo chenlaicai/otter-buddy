@@ -120,7 +120,6 @@ function initUseCases(
   embeddingService: EmbeddingGateway,
 ): UseCases {
   const searchEngine = new SearchEngine(config.memory);
-  const manageConversation = new ManageConversation(repos.conversation);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
   const storeMemory = new StoreMemory(repos.memory, embeddingService);
@@ -132,6 +131,8 @@ function initUseCases(
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
   const createOtter = new CreateOtter(repos.otter, agentGateway);
+  /** ManageConversation 依赖 createOtter：创建对话时自动创建独立大獭 */
+  const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory,
   );
