@@ -67,19 +67,12 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
     });
   }
 
-  async indexKeyFact(keyFactId: string, conversationId: string, content: string): Promise<void> {
+  async indexLinkedResource(resourceId: string, conversationId: string, content: string, resourceType?: string): Promise<void> {
     await this.storeMemory.execute({
-      layer: "key_info", contentType: "key_fact",
-      sourceId: keyFactId, sourceTable: "key_facts",
-      conversationId, granularity: "coarse", content,
-    });
-  }
-
-  async indexLinkedResource(resourceId: string, conversationId: string, url: string): Promise<void> {
-    await this.storeMemory.execute({
-      layer: "working", contentType: "linked_resource",
+      layer: "working",
+      contentType: resourceType === "fact" ? "fact" : "linked_resource",
       sourceId: resourceId, sourceTable: "linked_resources",
-      conversationId, granularity: "coarse", content: url,
+      conversationId, granularity: "coarse", content,
     });
   }
 }
@@ -223,12 +216,14 @@ function buildMemoryClient(uc: UseCases) {
  */
 function buildResourceClient(uc: UseCases) {
   return {
-    link: (params: { conversationId: string; url: string; title?: string; linkedBy: string; resourceType?: string; groupId?: string }, turnNum?: number) =>
+    link: (params: { conversationId: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; resourceType?: string; groupId?: string }, turnNum?: number) =>
       uc.manageKeyInfo.linkResource({
         conversationId: params.conversationId,
         resourceType: params.resourceType ?? "url",
         url: params.url,
         title: params.title,
+        content: params.content,
+        category: params.category,
         linkedBy: params.linkedBy,
         autoLinked: false,
         groupId: params.groupId,
@@ -239,12 +234,14 @@ function buildResourceClient(uc: UseCases) {
       uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
     updateStatus: (id: string, status: "active" | "superseded" | "archived", turnNum: number, supersededBy?: string) =>
       uc.manageKeyInfo.updateResourceStatus(id, status, turnNum, supersededBy),
-    supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url: string; title?: string; linkedBy: string; groupId?: string }, turnNum: number) =>
+    supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; groupId?: string }, turnNum: number) =>
       uc.manageKeyInfo.supersedeResource(existingId, {
         conversationId: newInput.conversationId,
         resourceType: newInput.resourceType ?? "url",
         url: newInput.url,
         title: newInput.title,
+        content: newInput.content,
+        category: newInput.category,
         linkedBy: newInput.linkedBy,
         autoLinked: false,
         groupId: newInput.groupId,

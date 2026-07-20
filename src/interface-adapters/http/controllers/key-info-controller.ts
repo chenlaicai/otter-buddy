@@ -1,38 +1,20 @@
 import type { Context } from "hono";
 import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
-import type { KeyFactInput, LinkedResourceInput } from "@usecases/conversation/manage-key-info";
+import type { LinkedResourceInput } from "@usecases/conversation/manage-key-info";
 import { handleError, param } from "../http-error";
-import { toKeyInfoDTO, toKeyFactDTO, toLinkedResourceDTO } from "../dto/key-info-dto";
-import type { AddKeyFactRequestDTO, LinkResourceRequestDTO } from "../dto/key-info-dto";
+import { toKeyInfoDTO, toLinkedResourceDTO } from "../dto/key-info-dto";
+import type { LinkResourceRequestDTO } from "../dto/key-info-dto";
 
 export class KeyInfoController {
   constructor(
     private readonly manageKeyInfo: ManageKeyInfo,
   ) {}
 
-  async getKeyInfo(c: Context): Promise<Response> {
+  async getKeyResources(c: Context): Promise<Response> {
     try {
       const conversationId = param(c, "id");
-      const info = await this.manageKeyInfo.getKeyInfo(conversationId);
-      return c.json(toKeyInfoDTO(info));
-    } catch (err) {
-      return handleError(c, err);
-    }
-  }
-
-  async addKeyFact(c: Context): Promise<Response> {
-    try {
-      const conversationId = param(c, "id");
-      const body = await c.req.json<AddKeyFactRequestDTO>();
-      const input: KeyFactInput = {
-        conversationId,
-        content: body.content,
-        category: body.category,
-        createdBy: body.createdBy,
-        otterId: body.otterId,
-      };
-      const fact = await this.manageKeyInfo.addKeyFact(input);
-      return c.json(toKeyFactDTO(fact), 201);
+      const resources = await this.manageKeyInfo.getLinkedResources(conversationId);
+      return c.json(toKeyInfoDTO(resources));
     } catch (err) {
       return handleError(c, err);
     }
@@ -47,6 +29,8 @@ export class KeyInfoController {
         resourceType: body.resourceType,
         url: body.url,
         title: body.title,
+        content: body.content,
+        category: body.category,
         metadata: body.metadata,
         linkedBy: body.linkedBy,
         otterId: body.otterId,
@@ -60,21 +44,11 @@ export class KeyInfoController {
     }
   }
 
-  async deleteKeyFact(c: Context): Promise<Response> {
+  async flagResource(c: Context): Promise<Response> {
     try {
-      const factId = param(c, "factId");
-      await this.manageKeyInfo.deleteKeyFact(factId);
-      return c.body(null, 204);
-    } catch (err) {
-      return handleError(c, err);
-    }
-  }
-
-  async flagKeyFact(c: Context): Promise<Response> {
-    try {
-      const factId = param(c, "factId");
+      const resourceId = param(c, "resourceId");
       const body = await c.req.json<{ flagged: boolean }>();
-      await this.manageKeyInfo.flagKeyFact(factId, body.flagged);
+      await this.manageKeyInfo.flagResource(resourceId, body.flagged);
       return c.json({ status: "ok" });
     } catch (err) {
       return handleError(c, err);

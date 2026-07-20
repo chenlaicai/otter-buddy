@@ -1,22 +1,13 @@
-/** 关键事实 DTO */
-export interface KeyFactDTO {
-  id: string;
-  conversationId: string;
-  content: string;
-  category: string | null;
-  userFlagged: boolean;
-  createdBy: string;
-  otterId: string | null;
-  createdAt: string;
-}
-
-/** 链接资源 DTO */
+/** 链接资源 DTO（统一产物模型，resourceType="fact" 为文本类事实） */
 export interface LinkedResourceDTO {
   id: string;
   conversationId: string;
   resourceType: string;
-  url: string;
+  url: string | null;
   title: string | null;
+  content: string | null;
+  category: string | null;
+  userFlagged: boolean;
   metadata: Record<string, unknown> | null;
   linkedBy: string;
   otterId: string | null;
@@ -29,25 +20,18 @@ export interface LinkedResourceDTO {
   supersededBy: string | null;
 }
 
-/** 关键信息组合 DTO */
+/** 关键资源组合 DTO */
 export interface KeyInfoDTO {
-  keyFacts: KeyFactDTO[];
-  linkedResources: LinkedResourceDTO[];
-}
-
-/** 添加关键事实请求 DTO */
-export interface AddKeyFactRequestDTO {
-  content: string;
-  category?: string;
-  createdBy: string;
-  otterId?: string;
+  resources: LinkedResourceDTO[];
 }
 
 /** 链接资源请求 DTO */
 export interface LinkResourceRequestDTO {
   resourceType: string;
-  url: string;
+  url?: string;
   title?: string;
+  content?: string;
+  category?: string;
   metadata?: Record<string, unknown>;
   linkedBy: string;
   otterId?: string;

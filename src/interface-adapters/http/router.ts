@@ -48,11 +48,9 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/memory/batch", (ctx) => c.memory.getDetails(ctx));
   app.get("/api/memory/:id", (ctx) => c.memory.getById(ctx));
   app.patch("/api/memory/:id/flag", (ctx) => c.memory.flag(ctx));
-  app.get("/api/conversations/:id/key-info", (ctx) => c.keyInfo.getKeyInfo(ctx));
-  app.post("/api/conversations/:id/key-facts", (ctx) => c.keyInfo.addKeyFact(ctx));
+  app.get("/api/conversations/:id/key-resources", (ctx) => c.keyInfo.getKeyResources(ctx));
   app.post("/api/conversations/:id/resources", (ctx) => c.keyInfo.linkResource(ctx));
-  app.delete("/api/conversations/:id/key-facts/:factId", (ctx) => c.keyInfo.deleteKeyFact(ctx));
-  app.patch("/api/conversations/:id/key-facts/:factId", (ctx) => c.keyInfo.flagKeyFact(ctx));
+  app.patch("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.flagResource(ctx));
   app.delete("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.deleteLinkedResource(ctx));
   app.get("/api/settings", (ctx) => c.settings.getSettings(ctx));
   app.put("/api/settings", (ctx) => c.settings.updateSettings(ctx));

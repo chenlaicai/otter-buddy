@@ -57,13 +57,12 @@ function MemorySearchPage() {
   const typeIconComponents: Record<string, typeof MessageSquare> = {
     message: MessageSquare,
     conversation_summary: ClipboardList,
-    key_fact: Lightbulb,
+    fact: Lightbulb,
     linked_resource: LinkIcon,
   }
   const layerLabels: Record<string, string> = {
     working: '工作记忆',
     historical: '历史对话',
-    key_info: '关键信息',
   }
 
   return (
@@ -90,7 +89,6 @@ function MemorySearchPage() {
               <option value="">全部</option>
               <option value="working">工作记忆</option>
               <option value="historical">历史对话</option>
-              <option value="key_info">关键信息</option>
             </select>
           </div>
 

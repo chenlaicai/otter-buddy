@@ -184,25 +184,29 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源。参数：url，title（可选），resourceType（可选：pr/worktree/branch/file/url），groupId（可选，特性分组ID如 F20260720xxxx）。conversationId 和 linkedBy 由系统注入。",
+    description: "创建链接资源（统一产物模型）。参数：resourceType（可选：fact/pr/worktree/branch/file/url，默认 url），url（非 fact 类型必填），content（fact 类型必填，存储事实文本），title（可选），category（可选，fact 的分类），groupId（可选，特性分组ID如 F20260720xxxx）。conversationId 和 linkedBy 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        url: { type: "string", description: "资源 URL 或路径" },
+        resourceType: { type: "string", description: "资源类型：fact（文本事实）, pr, worktree, branch, file, url" },
+        url: { type: "string", description: "资源 URL 或路径（非 fact 类型必填）" },
+        content: { type: "string", description: "事实文本内容（fact 类型必填）" },
         title: { type: "string", description: "资源标题" },
-        resourceType: { type: "string", description: "资源类型：pr, worktree, branch, file, url" },
+        category: { type: "string", description: "分类标签（fact 类型可选）" },
         groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）" },
       },
-      required: ["url"],
+      required: ["resourceType"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
       const resource = await ctx.client.resource.link({
         conversationId: ctx.conversationId,
-        url: params.url as string,
+        url: params.url as string | undefined,
+        content: params.content as string | undefined,
+        category: params.category as string | undefined,
         title: params.title as string | undefined,
         linkedBy: ctx.otterId,
-        resourceType: params.resourceType as string | undefined,
+        resourceType: (params.resourceType as string | undefined) ?? "url",
         groupId: params.groupId as string | undefined,
       }, turnNumber);
       return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);

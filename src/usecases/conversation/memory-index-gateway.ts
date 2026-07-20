@@ -6,16 +6,11 @@ export interface MemoryIndexGateway {
     conversationId: string,
     content: string,
   ): Promise<void>;
-  /** 索引关键事实到记忆系统 */
-  indexKeyFact(
-    keyFactId: string,
-    conversationId: string,
-    content: string,
-  ): Promise<void>;
-  /** 索引链接资源到记忆系统 */
+  /** 索引链接资源到记忆系统（fact 类型索引 content，其他类型索引 url） */
   indexLinkedResource(
     resourceId: string,
     conversationId: string,
-    url: string,
+    content: string,
+    resourceType?: string,
   ): Promise<void>;
 }

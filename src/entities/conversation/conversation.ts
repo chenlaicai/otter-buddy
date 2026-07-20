@@ -26,28 +26,19 @@ export interface Turn {
   closedAt: string | null;
 }
 
-/** 关键事实实体 */
-export interface KeyFact {
-  id: string;
-  conversationId: string;
-  content: string;
-  category: string | null;
-  userFlagged: boolean;
-  createdBy: string;
-  otterId: string | null;
-  createdAt: string;
-}
-
 /** 产物生命周期状态 */
 export type ArtifactStatus = "active" | "superseded" | "archived";
 
-/** 链接资源实体 */
+/** 链接资源实体（统一产物模型，resourceType="fact" 为文本类事实） */
 export interface LinkedResource {
   id: string;
   conversationId: string;
   resourceType: string;
-  url: string;
+  url: string | null;
   title: string | null;
+  content: string | null;
+  category: string | null;
+  userFlagged: boolean;
   metadata: Record<string, unknown> | null;
   linkedBy: string;
   otterId: string | null;
@@ -58,12 +49,6 @@ export interface LinkedResource {
   statusChangedAtTurnNumber: number;
   groupId: string | null;
   supersededBy: string | null;
-}
-
-/** 关键信息组合值对象 */
-export interface KeyInfo {
-  keyFacts: KeyFact[];
-  linkedResources: LinkedResource[];
 }
 
 /** 附件值对象 */

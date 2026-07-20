@@ -5,7 +5,6 @@ import type {
   Conversation,
   ConversationParticipant,
   ConversationStatus,
-  KeyFact,
   LinkedResource,
   Turn,
 } from "@entities/conversation/conversation";
@@ -250,19 +249,16 @@ export class SqliteConversationRepository implements ConversationRepository {
     return result.max_seq ?? 0;
   }
 
-  // ── Key Info（委托给 mixin） ──
+  // ── Key Resources（委托给 mixin） ──
 
-  async addKeyFact(keyFact: KeyFact): Promise<void> { mixins.addKeyFact(this.db, keyFact); }
   async linkResource(resource: LinkedResource): Promise<void> { mixins.linkResource(this.db, resource); }
-  async getKeyFacts(conversationId: string): Promise<KeyFact[]> { return mixins.getKeyFacts(this.db, conversationId); }
   async getLinkedResources(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]> { return mixins.getLinkedResources(this.db, conversationId, filters); }
   async getLinkedResourceById(id: string): Promise<LinkedResource | null> { return mixins.getLinkedResourceById(this.db, id); }
   async getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]> { return mixins.getLinkedResourcesByGroup(this.db, conversationId, groupId); }
   async updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void> { mixins.updateResourceStatus(this.db, id, status, statusChangedAtTurnNumber, supersededBy); }
   async supersedeLinkedResource(existingId: string, newResource: LinkedResource, statusChangedAtTurnNumber: number): Promise<void> { mixins.supersedeLinkedResource(this.db, existingId, newResource, statusChangedAtTurnNumber); }
-  async deleteKeyFact(id: string): Promise<void> { mixins.deleteKeyFact(this.db, id); }
-  async flagKeyFact(id: string, flagged: boolean): Promise<void> { mixins.flagKeyFact(this.db, id, flagged); }
   async deleteLinkedResource(id: string): Promise<void> { mixins.deleteLinkedResource(this.db, id); }
+  async flagResource(id: string, flagged: boolean): Promise<void> { mixins.flagResource(this.db, id, flagged); }
 
   // ── Participant 管理（委托给 mixin） ──
 

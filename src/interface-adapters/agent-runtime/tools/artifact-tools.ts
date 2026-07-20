@@ -12,7 +12,7 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
       type: "object",
       properties: {
         status: { type: "string", enum: ["active", "superseded", "archived"], description: "按状态过滤（不传则排除 archived）" },
-        resourceType: { type: "string", description: "按资源类型过滤（pr/worktree/branch/file/url）" },
+        resourceType: { type: "string", description: "按资源类型过滤（fact/pr/worktree/branch/file/url）" },
         groupId: { type: "string", description: "按特性分组 ID 过滤" },
       },
     },
@@ -37,6 +37,7 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
 
       return textResponse(JSON.stringify(resources.map(r => ({
         id: r.id, resourceType: r.resourceType, url: r.url, title: r.title,
+        content: r.content, category: r.category, userFlagged: r.userFlagged,
         status: r.status, groupId: r.groupId, linkedAtTurnNumber: r.linkedAtTurnNumber,
         statusChangedAtTurnNumber: r.statusChangedAtTurnNumber, supersededBy: r.supersededBy,
       }))));

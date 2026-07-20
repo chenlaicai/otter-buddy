@@ -2,8 +2,8 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
-import type { LocalOtter, LocalConversation, LocalMessage, LocalKeyFact, LocalLinkedResource, LocalOtterSession } from '../../lib/mappers'
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapKeyFactDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
+import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession } from '../../lib/mappers'
+import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -32,7 +32,6 @@ function ConversationPage() {
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
   const [allOtters, setAllOtters] = useState<LocalOtter[]>([])
   const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
-  const [allKeyFacts, setAllKeyFacts] = useState<Record<string, LocalKeyFact[]>>({})
   const [allLinkedRes, setAllLinkedRes] = useState<Record<string, LocalLinkedResource[]>>({})
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
   const [streaming, setStreaming] = useState<StreamingState | null>(null)
@@ -61,19 +60,15 @@ function ConversationPage() {
     try {
       const [msgs, keyInfo] = await Promise.all([
         api.listMessages(convId, 100),
-        api.getKeyInfo(convId),
+        api.getKeyResources(convId),
       ])
       setAllMessages(prev => ({
         ...prev,
         [convId]: msgs.map(mapMessageDTO).reverse(),
       }))
-      setAllKeyFacts(prev => ({
-        ...prev,
-        [convId]: keyInfo.keyFacts.map(mapKeyFactDTO),
-      }))
       setAllLinkedRes(prev => ({
         ...prev,
-        [convId]: keyInfo.linkedResources.map(mapLinkedResourceDTO),
+        [convId]: keyInfo.resources.map(mapLinkedResourceDTO),
       }))
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
@@ -99,7 +94,6 @@ function ConversationPage() {
 
   const activeConv = conversations.find(c => c.id === activeId) || null
   const activeMessages = activeId ? (allMessages[activeId] || []) : []
-  const activeKeyFacts = activeId ? (allKeyFacts[activeId] || []) : []
   const activeLinkedRes = activeId ? (allLinkedRes[activeId] || []) : []
   const activeOtters: LocalOtter[] = (activeConv?.otterIds || [])
     .map(id => allOtters.find(o => o.id === id))
@@ -272,41 +266,33 @@ function ConversationPage() {
     } catch { showToast('链接失败', 'error') }
   }
 
-  async function addKeyFact(content: string, category: string) {
+  async function addFact(content: string, category: string) {
     if (!activeId) return
     try {
-      const dto = await api.addKeyFact(activeId, { content, category, createdBy: 'user' })
-      setAllKeyFacts(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), mapKeyFactDTO(dto)] }))
+      const dto = await api.linkResource(activeId, { resourceType: 'fact', content, category, linkedBy: 'user', autoLinked: false })
+      setAllLinkedRes(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), mapLinkedResourceDTO(dto)] }))
       showToast('关键事实已添加', 'success')
     } catch { showToast('添加失败', 'error') }
   }
 
-  async function toggleKeyFact(id: string) {
+  async function toggleResourceFlag(id: string) {
     if (!activeId) return
-    const fact = allKeyFacts[activeId]?.find(f => f.id === id)
-    if (!fact) return
-    const newFlagged = !fact.flagged
-    setAllKeyFacts(prev => ({
+    const res = allLinkedRes[activeId]?.find(r => r.id === id)
+    if (!res) return
+    const newFlagged = !res.flagged
+    setAllLinkedRes(prev => ({
       ...prev,
-      [activeId]: (prev[activeId] || []).map(f => f.id === id ? { ...f, flagged: newFlagged } : f),
+      [activeId]: (prev[activeId] || []).map(r => r.id === id ? { ...r, flagged: newFlagged } : r),
     }))
     try {
-      await api.flagKeyFact(activeId, id, newFlagged)
+      await api.flagResource(activeId, id, newFlagged)
     } catch {
       showToast('标记失败', 'error')
-      setAllKeyFacts(prev => ({
+      setAllLinkedRes(prev => ({
         ...prev,
-        [activeId]: (prev[activeId] || []).map(f => f.id === id ? { ...f, flagged: !newFlagged } : f),
+        [activeId]: (prev[activeId] || []).map(r => r.id === id ? { ...r, flagged: !newFlagged } : r),
       }))
     }
-  }
-
-  async function deleteKeyFact(id: string) {
-    if (!activeId) return
-    try {
-      await api.deleteKeyFact(activeId, id)
-      setAllKeyFacts(prev => ({ ...prev, [activeId]: (prev[activeId] || []).filter(f => f.id !== id) }))
-    } catch { showToast('删除失败', 'error') }
   }
 
   async function deleteLinkedResource(id: string) {
@@ -345,7 +331,7 @@ function ConversationPage() {
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={allOtters} />
         <ChatView conversation={activeConv} messages={activeMessages} streamingMessage={streaming} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={allOtters} />
-        <RightPanel conversation={activeConv || conversations[0]} otters={activeOtters} sessions={sessions} keyFacts={activeKeyFacts} linkedResources={activeLinkedRes} onCreateSmallOtter={() => setModal({ type: 'create-otter' })} onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })} onRestartOtter={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenOtterDetail={(oid) => setModal({ type: 'otter-detail', otterId: oid })} onAddKeyFact={addKeyFact} onToggleKeyFact={toggleKeyFact} onDeleteKeyFact={deleteKeyFact} onAddLinkedResource={() => setModal({ type: 'link-resource' })} onDeleteLinkedResource={deleteLinkedResource} />
+        <RightPanel conversation={activeConv || conversations[0]} otters={activeOtters} sessions={sessions} linkedResources={activeLinkedRes} onCreateSmallOtter={() => setModal({ type: 'create-otter' })} onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })} onRestartOtter={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenOtterDetail={(oid) => setModal({ type: 'otter-detail', otterId: oid })} onAddFact={addFact} onToggleResourceFlag={toggleResourceFlag} onAddLinkedResource={() => setModal({ type: 'link-resource' })} onDeleteLinkedResource={deleteLinkedResource} />
       </div>
 
       {ctxMenu && activeConvForMenu && (

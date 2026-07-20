@@ -1,4 +1,4 @@
-import type { OtterDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, KeyFactDTO, LinkedResourceDTO } from '@contract/api'
+import type { OtterDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO } from '@contract/api'
 
 /** 前端本地 Otter 类型（UI 渲染用） */
 export interface LocalOtter {
@@ -32,20 +32,15 @@ export interface LocalMessage {
   ctxMax?: number
 }
 
-/** 前端本地 KeyFact 类型 */
-export interface LocalKeyFact {
-  id: string
-  content: string
-  category: string
-  flagged: boolean
-}
-
-/** 前端本地 LinkedResource 类型 */
+/** 前端本地 LinkedResource 类型（统一产物模型） */
 export interface LocalLinkedResource {
   id: string
   type: string
-  url: string
+  url: string | null
   title: string
+  content: string | null
+  category: string | null
+  flagged: boolean
   auto: boolean
 }
 
@@ -95,21 +90,15 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
   }
 }
 
-export function mapKeyFactDTO(dto: KeyFactDTO): LocalKeyFact {
-  return {
-    id: dto.id,
-    content: dto.content,
-    category: dto.category ?? '',
-    flagged: dto.userFlagged,
-  }
-}
-
 export function mapLinkedResourceDTO(dto: LinkedResourceDTO): LocalLinkedResource {
   return {
     id: dto.id,
     type: dto.resourceType,
     url: dto.url,
-    title: dto.title ?? dto.url,
+    title: dto.title ?? dto.content ?? dto.url ?? '',
+    content: dto.content,
+    category: dto.category,
+    flagged: dto.userFlagged,
     auto: dto.autoLinked,
   }
 }

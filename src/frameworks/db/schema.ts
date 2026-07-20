@@ -201,15 +201,18 @@ function createTerminologyTables(db: Database.Database): void {
   `);
 }
 
-/** 对话关键信息：linked_resources + key_facts */
+/** 对话关键资源：linked_resources（统一产物模型，fact 为文本类事实子类型） */
 function createConversationInfoTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS linked_resources (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
       resource_type TEXT NOT NULL,
-      url TEXT NOT NULL,
+      url TEXT,
       title TEXT,
+      content TEXT,
+      category TEXT,
+      user_flagged INTEGER NOT NULL DEFAULT 0,
       metadata TEXT,
       linked_by TEXT NOT NULL,
       otter_id TEXT,
@@ -227,23 +230,7 @@ function createConversationInfoTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_linked_resources_type ON linked_resources(resource_type);
     CREATE INDEX IF NOT EXISTS idx_linked_resources_conversation_status ON linked_resources(conversation_id, status);
     CREATE INDEX IF NOT EXISTS idx_linked_resources_group_id ON linked_resources(group_id);
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS key_facts (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      content TEXT NOT NULL,
-      category TEXT,
-      user_flagged INTEGER NOT NULL DEFAULT 0,
-      created_by TEXT NOT NULL,
-      otter_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_key_facts_conversation_id ON key_facts(conversation_id);
-    CREATE INDEX IF NOT EXISTS idx_key_facts_user_flagged ON key_facts(user_flagged);
+    CREATE INDEX IF NOT EXISTS idx_linked_resources_user_flagged ON linked_resources(conversation_id, user_flagged);
   `);
 }
 
