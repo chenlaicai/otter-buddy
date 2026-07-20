@@ -27,9 +27,8 @@ import { ToolCallCircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-c
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { config as appConfig } from "@frameworks/config";
 import { logger } from "@frameworks/logger";
-import type { PlatformPromptGateway } from "@usecases/otter/platform-prompt-gateway";
-import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { OtterPromptConfig } from "@contract/api/otter";
+import { loadPlatformPromptFile } from "./platform-prompt-loader";
 
 /** Agent 事件（流式推送，与 AgentStreamEvent 兼容） */
 export interface AgentEvent {
@@ -60,8 +59,8 @@ export interface AgentSessionFactoryConfig {
   otterToolClient: OtterToolClient;
   /** pi-ai Model 对象（由 models-factory 创建） */
   model: unknown;
-  /** SettingsRepository（用于加载/持久化平台 prompt） */
-  settingsRepo?: SettingsRepository;
+  /** 平台级 system prompt 文件路径 */
+  platformPromptFile?: string;
   /** 工具工厂函数（由 Composition Root 注入，解耦 interface-adapters） */
   createTools: (ctx: ToolContext) => AgentTool[];
 }
@@ -123,13 +122,12 @@ function getOtterToolNamesForType(otterType: string | undefined): string[] {
   ];
 }
 
-export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
+export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly staticPrompts = new Map<string, string | OtterPromptConfig>();
   private readonly otterTypes = new Map<string, string>();
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
-  private readonly settingsRepo?: SettingsRepository;
   private platformPrompt = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
@@ -140,13 +138,16 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
     sessionDir: string;
     otterToolClient: OtterToolClient;
     model: unknown;
+    platformPromptFile?: string;
     createTools: (ctx: ToolContext) => AgentTool[];
     resourceLoader?: ResourceLoader;
-    settingsRepo?: SettingsRepository;
   }) {
     this.otterToolClient = cfg.otterToolClient;
-    this.settingsRepo = cfg.settingsRepo;
     this.sessionStore = createAgentSessionStore(cfg.db);
+    if (cfg.platformPromptFile) {
+      const loaded = loadPlatformPromptFile(cfg.platformPromptFile);
+      if (loaded) this.platformPrompt = loaded;
+    }
     this.circuitBreakerConfig = {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
       ...appConfig.circuitBreaker,
@@ -156,24 +157,6 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
   /** 注入 OtterToolClient（解决 Composition Root 循环依赖） */
   setOtterToolClient(client: OtterToolClient): void {
     this.otterToolClient = client;
-  }
-
-  /** 从数据库加载平台 prompt（系统启动时调用） */
-  async loadPlatformPrompt(): Promise<void> {
-    if (!this.settingsRepo) return;
-    const stored = await this.settingsRepo.get("platform_system_prompt");
-    if (stored) {
-      this.platformPrompt = stored;
-    }
-  }
-
-  /** 更新平台 prompt（写入数据库 + 内存缓存） */
-  async updatePlatformPrompt(prompt: string): Promise<void> {
-    if (!this.settingsRepo) {
-      throw new Error("SettingsRepository not injected, cannot persist platform prompt");
-    }
-    await this.settingsRepo.update("platform_system_prompt", prompt);
-    this.platformPrompt = prompt;
   }
 
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现） */
@@ -277,7 +260,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
    * 冷启动调用（R17）：创建 AgentSession → prompt → 释放。
    * 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）。
    */
-  // eslint-disable-next-line max-statements, max-lines-per-function, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
+  // eslint-disable-next-line max-statements, max-lines-per-function -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
   async invoke(
     otterId: string,
     message: string,
@@ -546,7 +529,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig)
     sessionDir: config.sessionDir ?? "./data/sessions",
     otterToolClient: config.otterToolClient,
     model: config.model,
+    platformPromptFile: config.platformPromptFile,
     createTools: config.createTools,
-    settingsRepo: config.settingsRepo,
   });
 }
