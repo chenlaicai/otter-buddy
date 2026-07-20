@@ -5,7 +5,7 @@
   "main": "dist/src/main.js",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
-    "build": "npm run lint && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npx tsc",
+    "build": "npm run lint && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npx tsc && npx tsc-alias",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
@@ -32,6 +32,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.9.3",
     "eslint": "^10.5.0",
+    "tsc-alias": "^1.9.1",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.61.1",
     "vitest": "^4.1.9"
