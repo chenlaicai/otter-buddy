@@ -235,6 +235,7 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
         },
         getActive: (convId) => uc.manageParticipant.getActiveParticipants(convId),
       },
+      getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
     },
     memory: buildMemoryClient(uc),
     terminology: {
@@ -264,7 +265,7 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
       set: (otterId, key, value) => uc.manageContext.set(otterId, key, value),
     },
     resource: {
-      link: (params) => uc.manageKeyInfo.linkResource({
+      link: (params, turnNum) => uc.manageKeyInfo.linkResource({
         conversationId: params.conversationId,
         resourceType: params.resourceType ?? "url",
         url: params.url,
@@ -272,7 +273,7 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
         linkedBy: params.linkedBy,
         autoLinked: false,
         groupId: params.groupId,
-      }),
+      }, turnNum),
       list: (convId, filters) => uc.manageKeyInfo.getLinkedResources(convId, filters),
       listByGroup: (convId, groupId) => uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
       updateStatus: (id, status, turnNum, supersededBy) =>

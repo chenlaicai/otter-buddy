@@ -69,6 +69,7 @@ export interface OtterToolClient {
       join(conversationId: string, otterId: string): Promise<ConversationParticipant>;
       getActive(conversationId: string): Promise<ConversationParticipant[]>;
     };
+    getActiveTurnNumber(conversationId: string): Promise<number>;
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
@@ -91,7 +92,7 @@ export interface OtterToolClient {
     set(otterId: string, key: string, value: string): Promise<void>;
   };
   resource: {
-    link(params: LinkResourceInput): Promise<LinkedResource>;
+    link(params: LinkResourceInput, currentTurnNumber?: number): Promise<LinkedResource>;
     list(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]>;
     listByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
     updateStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void>;

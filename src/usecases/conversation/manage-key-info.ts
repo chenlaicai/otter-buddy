@@ -90,14 +90,13 @@ export class ManageKeyInfo {
     return resource;
   }
 
-  /** 替代旧产物：旧→superseded，创建新→active */
+  /** 替代旧产物：旧→superseded，创建新→active（原子操作） */
   async supersedeResource(
     existingId: string,
     newInput: LinkedResourceInput,
     currentTurnNumber: number,
   ): Promise<LinkedResource> {
-    const existing = await this.repo.getLinkedResources(newInput.conversationId, {})
-      .then(rs => rs.find(r => r.id === existingId));
+    const existing = await this.repo.getLinkedResourceById(existingId);
 
     if (!existing) {
       throw new Error(`LinkedResource ${existingId} not found`);
@@ -107,22 +106,37 @@ export class ManageKeyInfo {
       throw new Error(`Cannot supersede resource in status '${existing.status}'`);
     }
 
-    // 创建新资源（继承 groupId）
-    const newResource = await this.linkResource(
-      { ...newInput, groupId: newInput.groupId ?? existing.groupId ?? undefined },
-      currentTurnNumber,
-    );
+    // 构建新资源（继承 groupId）
+    const newResource: LinkedResource = {
+      id: crypto.randomUUID(),
+      conversationId: newInput.conversationId,
+      resourceType: newInput.resourceType,
+      url: newInput.url,
+      title: newInput.title ?? null,
+      metadata: newInput.metadata ?? null,
+      linkedBy: newInput.linkedBy,
+      otterId: newInput.otterId ?? null,
+      autoLinked: newInput.autoLinked,
+      createdAt: new Date().toISOString(),
+      status: "active",
+      linkedAtTurnNumber: currentTurnNumber,
+      statusChangedAtTurnNumber: currentTurnNumber,
+      groupId: newInput.groupId ?? existing.groupId ?? null,
+      supersededBy: null,
+    };
 
-    // 更新旧资源状态
-    await this.repo.updateResourceStatus(existingId, "superseded", currentTurnNumber, newResource.id);
+    // 原子操作：插入新资源 + 标记旧资源为 superseded
+    await this.repo.supersedeLinkedResource(existingId, newResource, currentTurnNumber);
+
+    // 索引到记忆系统
+    await this.memoryIndex.indexLinkedResource(newResource.id, newResource.conversationId, newResource.url);
 
     return newResource;
   }
 
   /** 归档产物 */
-  async archiveResource(id: string, conversationId: string, currentTurnNumber: number): Promise<void> {
-    const resources = await this.repo.getLinkedResources(conversationId, {});
-    const resource = resources.find(r => r.id === id);
+  async archiveResource(id: string, _conversationId: string, currentTurnNumber: number): Promise<void> {
+    const resource = await this.repo.getLinkedResourceById(id);
 
     if (!resource) {
       throw new Error(`LinkedResource ${id} not found`);
@@ -145,8 +159,22 @@ export class ManageKeyInfo {
     return this.repo.getLinkedResourcesByGroup(conversationId, groupId);
   }
 
-  /** 更新资源状态 */
+  /** 更新资源状态（含领域守卫校验） */
   async updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void> {
+    const resource = await this.repo.getLinkedResourceById(id);
+
+    if (!resource) {
+      throw new Error(`LinkedResource ${id} not found`);
+    }
+
+    if (!canTransitionArtifactStatus(resource.status, status)) {
+      throw new Error(`Cannot transition resource from '${resource.status}' to '${status}'`);
+    }
+
+    if (status === "superseded" && !supersededBy) {
+      throw new Error(`supersededBy is required when transitioning to 'superseded'`);
+    }
+
     await this.repo.updateResourceStatus(id, status, statusChangedAtTurnNumber, supersededBy);
   }
 

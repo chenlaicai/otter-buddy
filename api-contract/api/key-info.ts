@@ -22,7 +22,7 @@ export interface LinkedResourceDTO {
   otterId: string | null;
   autoLinked: boolean;
   createdAt: string;
-  status: string;
+  status: "active" | "superseded" | "archived";
   linkedAtTurnNumber: number;
   statusChangedAtTurnNumber: number;
   groupId: string | null;

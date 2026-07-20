@@ -395,9 +395,8 @@ export class SqliteConversationRepository implements ConversationRepository {
     if (filters?.status) {
       sql += " AND status = ?";
       params.push(filters.status);
-    } else {
-      sql += " AND status IN ('active', 'superseded')";
     }
+    // 不传 status 时返回全部（含 archived），由调用方决定过滤策略
 
     if (filters?.resourceType) {
       sql += " AND resource_type = ?";
@@ -408,6 +407,11 @@ export class SqliteConversationRepository implements ConversationRepository {
 
     const rows = this.db.prepare(sql).all(...params) as LinkedResourceRow[];
     return rows.map(rowToLinkedResource);
+  }
+
+  async getLinkedResourceById(id: string): Promise<LinkedResource | null> {
+    const row = this.db.prepare("SELECT * FROM linked_resources WHERE id = ?").get(id) as LinkedResourceRow | undefined;
+    return row ? rowToLinkedResource(row) : null;
   }
 
   async getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]> {
@@ -426,6 +430,39 @@ export class SqliteConversationRepository implements ConversationRepository {
 
     if (result.changes === 0) {
       throw new Error(`LinkedResource ${id} not found or already archived`);
+    }
+  }
+
+  async supersedeLinkedResource(existingId: string, newResource: LinkedResource, statusChangedAtTurnNumber: number): Promise<void> {
+    this.db.exec("BEGIN");
+    try {
+      // 插入新资源
+      this.db.prepare(`
+        INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, metadata, linked_by, otter_id, auto_linked, created_at, status, linked_at_turn_number, status_changed_at_turn_number, group_id, superseded_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        newResource.id, newResource.conversationId, newResource.resourceType, newResource.url,
+        newResource.title, newResource.metadata ? JSON.stringify(newResource.metadata) : null,
+        newResource.linkedBy, newResource.otterId, newResource.autoLinked ? 1 : 0,
+        newResource.createdAt, newResource.status, newResource.linkedAtTurnNumber,
+        newResource.statusChangedAtTurnNumber, newResource.groupId, newResource.supersededBy,
+      );
+
+      // 标记旧资源为 superseded
+      const result = this.db.prepare(`
+        UPDATE linked_resources
+        SET status = 'superseded', status_changed_at_turn_number = ?, superseded_by = ?
+        WHERE id = ? AND status != 'archived'
+      `).run(statusChangedAtTurnNumber, newResource.id, existingId);
+
+      if (result.changes === 0) {
+        throw new Error(`LinkedResource ${existingId} not found or already archived`);
+      }
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 

@@ -95,8 +95,10 @@ export interface ConversationRepository {
   linkResource(resource: LinkedResource): Promise<void>;
   getKeyFacts(conversationId: string): Promise<KeyFact[]>;
   getLinkedResources(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]>;
+  getLinkedResourceById(id: string): Promise<LinkedResource | null>;
   getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
   updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void>;
+  supersedeLinkedResource(existingId: string, newResource: LinkedResource, statusChangedAtTurnNumber: number): Promise<void>;
   deleteKeyFact(id: string): Promise<void>;
   flagKeyFact(id: string, flagged: boolean): Promise<void>;
   deleteLinkedResource(id: string): Promise<void>;
