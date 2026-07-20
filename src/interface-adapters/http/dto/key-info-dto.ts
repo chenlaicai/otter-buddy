@@ -33,6 +33,11 @@ export function toLinkedResourceDTO(res: LinkedResource): LinkedResourceDTO {
     otterId: res.otterId,
     autoLinked: res.autoLinked,
     createdAt: res.createdAt,
+    status: res.status,
+    linkedAtTurnNumber: res.linkedAtTurnNumber,
+    statusChangedAtTurnNumber: res.statusChangedAtTurnNumber,
+    groupId: res.groupId,
+    supersededBy: res.supersededBy,
   };
 }
 

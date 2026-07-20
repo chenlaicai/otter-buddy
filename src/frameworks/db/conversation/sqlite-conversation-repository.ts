@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type {
+  ArtifactStatus,
   Attachment,
   Conversation,
   ConversationParticipant,
@@ -359,8 +360,8 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   async linkResource(resource: LinkedResource): Promise<void> {
     this.db.prepare(`
-      INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, metadata, linked_by, otter_id, auto_linked, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, metadata, linked_by, otter_id, auto_linked, created_at, status, linked_at_turn_number, status_changed_at_turn_number, group_id, superseded_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       resource.id,
       resource.conversationId,
@@ -372,6 +373,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       resource.otterId,
       resource.autoLinked ? 1 : 0,
       resource.createdAt,
+      resource.status,
+      resource.linkedAtTurnNumber,
+      resource.statusChangedAtTurnNumber,
+      resource.groupId,
+      resource.supersededBy,
     );
   }
 
@@ -382,11 +388,45 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(rowToKeyFact);
   }
 
-  async getLinkedResources(conversationId: string): Promise<LinkedResource[]> {
-    const rows = this.db.prepare(
-      "SELECT * FROM linked_resources WHERE conversation_id = ? ORDER BY created_at ASC",
-    ).all(conversationId) as LinkedResourceRow[];
+  async getLinkedResources(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]> {
+    let sql = "SELECT * FROM linked_resources WHERE conversation_id = ?";
+    const params: (string | number)[] = [conversationId];
+
+    if (filters?.status) {
+      sql += " AND status = ?";
+      params.push(filters.status);
+    } else {
+      sql += " AND status IN ('active', 'superseded')";
+    }
+
+    if (filters?.resourceType) {
+      sql += " AND resource_type = ?";
+      params.push(filters.resourceType);
+    }
+
+    sql += " ORDER BY created_at ASC";
+
+    const rows = this.db.prepare(sql).all(...params) as LinkedResourceRow[];
     return rows.map(rowToLinkedResource);
+  }
+
+  async getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]> {
+    const rows = this.db.prepare(
+      "SELECT * FROM linked_resources WHERE conversation_id = ? AND group_id = ? ORDER BY created_at ASC",
+    ).all(conversationId, groupId) as LinkedResourceRow[];
+    return rows.map(rowToLinkedResource);
+  }
+
+  async updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void> {
+    const result = this.db.prepare(`
+      UPDATE linked_resources
+      SET status = ?, status_changed_at_turn_number = ?, superseded_by = COALESCE(?, superseded_by)
+      WHERE id = ? AND status != 'archived'
+    `).run(status, statusChangedAtTurnNumber, supersededBy ?? null, id);
+
+    if (result.changes === 0) {
+      throw new Error(`LinkedResource ${id} not found or already archived`);
+    }
   }
 
   async deleteKeyFact(id: string): Promise<void> {

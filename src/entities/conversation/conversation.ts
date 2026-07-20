@@ -38,6 +38,9 @@ export interface KeyFact {
   createdAt: string;
 }
 
+/** 产物生命周期状态 */
+export type ArtifactStatus = "active" | "superseded" | "archived";
+
 /** 链接资源实体 */
 export interface LinkedResource {
   id: string;
@@ -50,6 +53,11 @@ export interface LinkedResource {
   otterId: string | null;
   autoLinked: boolean;
   createdAt: string;
+  status: ArtifactStatus;
+  linkedAtTurnNumber: number;
+  statusChangedAtTurnNumber: number;
+  groupId: string | null;
+  supersededBy: string | null;
 }
 
 /** 关键信息组合值对象 */
@@ -148,4 +156,44 @@ export function canLeaveConversation(
   participant: ConversationParticipant | null,
 ): boolean {
   return participant !== null && participant.status === "active";
+}
+
+/**
+ * 产物状态转换校验。
+ * active -> superseded | archived
+ * superseded -> archived
+ * archived 为终态，不可转换。
+ */
+export function canTransitionArtifactStatus(
+  from: ArtifactStatus,
+  to: ArtifactStatus,
+): boolean {
+  if (from === to) return false;
+  if (from === "archived") return false;
+  if (from === "active") return to === "superseded" || to === "archived";
+  if (from === "superseded") return to === "archived";
+  return false;
+}
+
+/** 产物是否处于活跃状态 */
+export function isArtifactActive(status: ArtifactStatus): boolean {
+  return status === "active";
+}
+
+/** 产物是否可见（active + superseded 可见，archived 不可见） */
+export function isArtifactVisible(status: ArtifactStatus): boolean {
+  return status === "active" || status === "superseded";
+}
+
+/** 产物分组值对象 */
+export interface ArtifactGroup {
+  groupId: string;
+  resources: LinkedResource[];
+  latestActive: LinkedResource | null;
+}
+
+/** 产物索引值对象 */
+export interface ArtifactIndex {
+  ungrouped: LinkedResource[];
+  groups: ArtifactGroup[];
 }

@@ -266,12 +266,30 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
     resource: {
       link: (params) => uc.manageKeyInfo.linkResource({
         conversationId: params.conversationId,
-        resourceType: "url",
+        resourceType: params.resourceType ?? "url",
         url: params.url,
         title: params.title,
         linkedBy: params.linkedBy,
         autoLinked: false,
+        groupId: params.groupId,
       }),
+      list: (convId, filters) => uc.manageKeyInfo.getLinkedResources(convId, filters),
+      listByGroup: (convId, groupId) => uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
+      updateStatus: (id, status, turnNum, supersededBy) =>
+        uc.manageKeyInfo.updateResourceStatus(id, status, turnNum, supersededBy),
+      supersede: (existingId, newInput, turnNum) =>
+        uc.manageKeyInfo.supersedeResource(existingId, {
+          conversationId: newInput.conversationId,
+          resourceType: newInput.resourceType ?? "url",
+          url: newInput.url,
+          title: newInput.title,
+          linkedBy: newInput.linkedBy,
+          autoLinked: false,
+          groupId: newInput.groupId,
+        }, turnNum),
+      archive: (id, convId, turnNum) =>
+        uc.manageKeyInfo.archiveResource(id, convId, turnNum),
+      getIndex: (convId) => uc.manageKeyInfo.getArtifactIndex(convId),
     },
   };
 }

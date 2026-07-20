@@ -215,11 +215,18 @@ function createConversationInfoTables(db: Database.Database): void {
       otter_id TEXT,
       auto_linked INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      status TEXT NOT NULL DEFAULT 'active',
+      linked_at_turn_number INTEGER NOT NULL DEFAULT 0,
+      status_changed_at_turn_number INTEGER NOT NULL DEFAULT 0,
+      group_id TEXT,
+      superseded_by TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_linked_resources_conversation_id ON linked_resources(conversation_id);
     CREATE INDEX IF NOT EXISTS idx_linked_resources_type ON linked_resources(resource_type);
+    CREATE INDEX IF NOT EXISTS idx_linked_resources_conversation_status ON linked_resources(conversation_id, status);
+    CREATE INDEX IF NOT EXISTS idx_linked_resources_group_id ON linked_resources(group_id);
   `);
 
   db.exec(`

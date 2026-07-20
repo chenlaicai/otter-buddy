@@ -1,5 +1,5 @@
 import type { Message } from "@entities/conversation/message";
-import type { ConversationParticipant } from "@entities/conversation/conversation";
+import type { ArtifactIndex, ArtifactStatus, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { TurnHistoryEntry } from "@usecases/conversation/conversation-repository";
@@ -42,6 +42,8 @@ export interface LinkResourceInput {
   url: string;
   title?: string;
   linkedBy: string;
+  resourceType?: string;
+  groupId?: string;
 }
 
 /**
@@ -90,5 +92,11 @@ export interface OtterToolClient {
   };
   resource: {
     link(params: LinkResourceInput): Promise<LinkedResource>;
+    list(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]>;
+    listByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
+    updateStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void>;
+    supersede(existingId: string, newInput: LinkResourceInput, currentTurnNumber: number): Promise<LinkedResource>;
+    archive(id: string, conversationId: string, currentTurnNumber: number): Promise<void>;
+    getIndex(conversationId: string): Promise<ArtifactIndex>;
   };
 }

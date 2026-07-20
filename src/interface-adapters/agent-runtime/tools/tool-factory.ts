@@ -182,12 +182,14 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源。参数：url，title（可选）。conversationId 和 linkedBy 由系统注入。",
+    description: "创建链接资源。参数：url，title（可选），resourceType（可选：pr/worktree/branch/file/url），groupId（可选，特性分组ID如 F20260720xxxx）。conversationId 和 linkedBy 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        url: { type: "string", description: "资源 URL" },
+        url: { type: "string", description: "资源 URL 或路径" },
         title: { type: "string", description: "资源标题" },
+        resourceType: { type: "string", description: "资源类型：pr, worktree, branch, file, url" },
+        groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）" },
       },
       required: ["url"],
     },
@@ -197,8 +199,89 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         url: params.url as string,
         title: params.title as string | undefined,
         linkedBy: ctx.otterId,
+        resourceType: params.resourceType as string | undefined,
+        groupId: params.groupId as string | undefined,
       });
-      return textResponse(`Linked resource created: ${resource.id}`);
+      return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);
+    },
+  };
+}
+
+function createListArtifactsTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "list_artifacts",
+    description: "查询当前对话的产物清单。可按 status/resourceType/groupId 过滤。默认返回 active + superseded（排除 archived）。",
+    parameters: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["active", "superseded", "archived"], description: "按状态过滤（不传则返回 active + superseded）" },
+        resourceType: { type: "string", description: "按资源类型过滤（pr/worktree/branch/file/url）" },
+        groupId: { type: "string", description: "按特性分组 ID 过滤" },
+      },
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const status = params.status as string | undefined;
+      const resourceType = params.resourceType as string | undefined;
+      const groupId = params.groupId as string | undefined;
+
+      if (groupId) {
+        const resources = await ctx.client.resource.listByGroup(ctx.conversationId, groupId);
+        return textResponse(JSON.stringify(resources.map(r => ({
+          id: r.id,
+          resourceType: r.resourceType,
+          url: r.url,
+          title: r.title,
+          status: r.status,
+          groupId: r.groupId,
+          linkedAtTurnNumber: r.linkedAtTurnNumber,
+          statusChangedAtTurnNumber: r.statusChangedAtTurnNumber,
+          supersededBy: r.supersededBy,
+        }))));
+      }
+
+      const resources = await ctx.client.resource.list(ctx.conversationId, {
+        status: status as "active" | "superseded" | "archived" | undefined,
+        resourceType,
+      });
+      return textResponse(JSON.stringify(resources.map(r => ({
+        id: r.id,
+        resourceType: r.resourceType,
+        url: r.url,
+        title: r.title,
+        status: r.status,
+        groupId: r.groupId,
+        linkedAtTurnNumber: r.linkedAtTurnNumber,
+        statusChangedAtTurnNumber: r.statusChangedAtTurnNumber,
+        supersededBy: r.supersededBy,
+      }))));
+    },
+  };
+}
+
+function createUpdateArtifactStatusTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "update_artifact_status",
+    description: "更新产物生命周期状态。将产物标记为 superseded（被替代）或 archived（已归档/已合入）。",
+    parameters: {
+      type: "object",
+      properties: {
+        artifactId: { type: "string", description: "产物 ID（linked_resource ID）" },
+        status: { type: "string", enum: ["superseded", "archived"], description: "目标状态" },
+        supersededBy: { type: "string", description: "替代者的产物 ID（仅 superseded 时需要）" },
+      },
+      required: ["artifactId", "status"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const artifactId = params.artifactId as string;
+      const targetStatus = params.status as "superseded" | "archived";
+      const supersededBy = params.supersededBy as string | undefined;
+
+      if (targetStatus === "superseded" && !supersededBy) {
+        return textResponse("Error: supersededBy is required when status is 'superseded'");
+      }
+
+      await ctx.client.resource.updateStatus(artifactId, targetStatus, 0, supersededBy);
+      return textResponse(`Artifact ${artifactId} status updated to ${targetStatus}`);
     },
   };
 }
@@ -460,7 +543,7 @@ function createAddTerminologyTool(ctx: ToolContext): AgentTool {
 
 /**
  * 工具工厂：invoke 时调用，闭包捕获 ToolContext。
- * 返回全部 16 个 AgentTool 实例（8 现有 + 6 新增 + 2 术语库）。
+ * 返回全部 18 个 AgentTool 实例（8 现有 + 6 新增 + 2 术语库 + 2 产物管理）。
  */
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [
@@ -483,5 +566,8 @@ export function createTools(ctx: ToolContext): AgentTool[] {
     // 术语库工具（2 个）
     createSearchTerminologyTool(ctx),
     createAddTerminologyTool(ctx),
+    // 产物管理工具（2 个）
+    createListArtifactsTool(ctx),
+    createUpdateArtifactStatusTool(ctx),
   ];
 }
