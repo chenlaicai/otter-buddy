@@ -113,6 +113,9 @@ npm start
 ./scripts/otter-buddy.sh start -p 3001
 ```
 
+每个 worktree 独立管理自己的服务，`stop`/`restart` 只影响当前 worktree。
+如果端口被其他 worktree 占用，脚本会提示 PID，由用户决定是否终止。
+
 ### 开发模式
 
 前后端分离启动，支持热重载：

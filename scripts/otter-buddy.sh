@@ -18,7 +18,11 @@ is_running() {
   [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
 }
 
-port_in_use() {
+get_pid() {
+  [ -f "$PID_FILE" ] && cat "$PID_FILE" || echo ""
+}
+
+port_owner_pid() {
   lsof -ti:"$1" 2>/dev/null | head -1
 }
 
@@ -30,11 +34,11 @@ cmd_start() {
 
   # 端口冲突检测
   local occupant
-  occupant=$(port_in_use "$PORT")
+  occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
     echo "Error: port $PORT is already in use (PID $occupant)"
-    echo "  Use -p <port> to specify a different port, or stop the existing process first:"
-    echo "  $0 stop -p $PORT"
+    echo "  Stop it first:  kill $occupant"
+    echo "  Or use another: $0 start -p <port>"
     exit 1
   fi
 
@@ -57,25 +61,31 @@ cmd_start() {
 }
 
 cmd_stop() {
-  if is_running; then
-    local pid
-    pid=$(cat "$PID_FILE")
-    kill -9 "$pid" 2>/dev/null || true
+  local my_pid
+  my_pid=$(get_pid)
+
+  # 有 PID 文件且进程存活：只杀自己的
+  if [ -n "$my_pid" ] && kill -0 "$my_pid" 2>/dev/null; then
+    kill -9 "$my_pid" 2>/dev/null || true
     rm -f "$PID_FILE"
-    echo "Stopped Otter Buddy (PID $pid)"
+    echo "Stopped Otter Buddy (PID $my_pid)"
+    return 0
   fi
 
-  # 确保端口释放
-  local pids
-  pids=$(lsof -ti:"$PORT" 2>/dev/null || true)
-  if [ -n "$pids" ]; then
-    echo "$pids" | xargs kill -9 2>/dev/null
-    echo "Freed port $PORT"
+  # 清理过期 PID 文件
+  [ -f "$PID_FILE" ] && rm -f "$PID_FILE"
+
+  # 检查端口是否被其他 worktree 占用
+  local occupant
+  occupant=$(port_owner_pid "$PORT")
+  if [ -n "$occupant" ]; then
+    echo "Port $PORT is in use by another process (PID $occupant)"
+    echo "  This is likely another worktree's Otter Buddy."
+    echo "  Stop it from that worktree, or run:  kill $occupant"
+    return 1
   fi
 
-  if ! is_running && [ -z "$pids" ]; then
-    echo "Otter Buddy is not running"
-  fi
+  echo "Otter Buddy is not running"
 }
 
 cmd_restart() {
@@ -85,15 +95,24 @@ cmd_restart() {
 }
 
 cmd_status() {
-  if is_running; then
-    echo "Otter Buddy is running (PID $(cat "$PID_FILE")) -> http://localhost:$PORT"
-  else
-    echo "Otter Buddy is not running"
-  fi
-}
+  local my_pid
+  my_pid=$(get_pid)
 
-cmd_logs() {
-  echo "Run 'PORT=$PORT npm start' in $PROJECT_DIR to see live logs"
+  if [ -n "$my_pid" ] && kill -0 "$my_pid" 2>/dev/null; then
+    echo "Otter Buddy is running (PID $my_pid) -> http://localhost:$PORT"
+    return 0
+  fi
+
+  # 检查端口是否有其他进程
+  local occupant
+  occupant=$(port_owner_pid "$PORT")
+  if [ -n "$occupant" ]; then
+    echo "Otter Buddy is NOT running in this worktree"
+    echo "  But port $PORT is in use by another process (PID $occupant)"
+    return 0
+  fi
+
+  echo "Otter Buddy is not running"
 }
 
 usage() {
@@ -102,7 +121,7 @@ Usage: $(basename "$0") <command> [-p port]
 
 Commands:
   start     Build and start the server
-  stop      Stop the server
+  stop      Stop the server (this worktree only)
   restart   Restart the server
   status    Check if the server is running
   logs      Show log info
@@ -113,8 +132,17 @@ Options:
 Examples:
   $(basename "$0") start              # start on port 3000
   $(basename "$0") start -p 3001      # start on port 3001
-  $(basename "$0") stop               # stop
+  $(basename "$0") stop               # stop this worktree's server
   $(basename "$0") restart -p 3001    # restart on port 3001
+
+Multi-worktree:
+  # worktree A
+  $(basename "$0") start -p 3000
+  # worktree B
+  $(basename "$0") start -p 3001
+
+  # Each worktree manages its own server independently.
+  # stop/restart only affects the current worktree's server.
 EOF
 }
 
@@ -124,6 +152,6 @@ case "$CMD" in
   stop)    cmd_stop ;;
   restart) cmd_restart ;;
   status)  cmd_status ;;
-  logs)    cmd_logs ;;
+  logs)    echo "Run 'PORT=$PORT npm start' in $PROJECT_DIR to see live logs" ;;
   *)       usage; exit 1 ;;
 esac
