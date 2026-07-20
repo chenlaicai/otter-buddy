@@ -36,7 +36,7 @@ export interface ConversationRepository {
     timestamp: string,
   ): Promise<void>;
   getIdsByOtterId(otterId: string): Promise<string[]>;
-  getAllIds(): Promise<string[]>;
+  getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]>;
 
   // 对话参与者
   getOtterIds(conversationId: string): Promise<string[]>;

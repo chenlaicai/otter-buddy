@@ -130,8 +130,9 @@ function initUseCases(
   const manageParticipant = new ManageParticipant(repos.conversation);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
+  /** createOtter 必须先于 manageConversation 初始化：
+   *  ManageConversation.create() 需要调用 createOtter.execute() 为每个对话创建独立大獭 */
   const createOtter = new CreateOtter(repos.otter, agentGateway);
-  /** ManageConversation 依赖 createOtter：创建对话时自动创建独立大獭 */
   const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory,

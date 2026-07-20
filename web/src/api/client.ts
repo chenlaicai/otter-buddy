@@ -32,8 +32,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 // ── Conversations ──
 
-export function listConversations(): Promise<ConversationListItemDTO[]> {
-  return request('/conversations')
+export function listConversations(options?: { limit?: number; offset?: number }): Promise<ConversationListItemDTO[]> {
+  const qs = new URLSearchParams();
+  if (options?.limit) qs.set('limit', String(options.limit));
+  if (options?.offset) qs.set('offset', String(options.offset));
+  return request(`/conversations?${qs}`)
 }
 
 export function createConversation(body: CreateConversationRequestDTO): Promise<ConversationDTO> {

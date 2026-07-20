@@ -100,9 +100,9 @@ export class ManageConversation {
     return turn?.turnNumber ?? 0;
   }
 
-  /** 获取所有对话 ID */
-  async getAllIds(): Promise<string[]> {
-    return this.repo.getAllIds();
+  /** 获取所有对话 ID（分页） */
+  async getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]> {
+    return this.repo.getAllIds(options);
   }
 
 }

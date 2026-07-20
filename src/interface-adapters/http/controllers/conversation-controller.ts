@@ -18,7 +18,9 @@ export class ConversationController {
 
   async list(c: Context): Promise<Response> {
     try {
-      const ids = await this.manageConversation.getAllIds();
+      const limit = parseInt(c.req.query("limit") ?? "50", 10);
+      const offset = parseInt(c.req.query("offset") ?? "0", 10);
+      const ids = await this.manageConversation.getAllIds({ limit, offset });
       const items = await Promise.all(
         ids.map(async (id) => {
           const conv = await this.manageConversation.getById(id);
