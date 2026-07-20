@@ -49,7 +49,6 @@ import { MemoryController } from "@interface-adapters/http/controllers/memory-co
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
-import { PlatformPromptController } from "@interface-adapters/http/controllers/platform-prompt-controller";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 
@@ -304,7 +303,6 @@ function initControllers(
   agentInvoker: AgentInvoker,
   settings: SettingsConfig,
   settingsRepo: SqliteSettingsRepository,
-  agentGateway: PiSessionFactory,
 ) {
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant),
@@ -313,7 +311,6 @@ function initControllers(
     memory: new MemoryController(uc.searchMemory, uc.manageMemory),
     keyInfo: new KeyInfoController(uc.manageKeyInfo),
     settings: new SettingsController(settings, settingsRepo),
-    platformPrompt: new PlatformPromptController(settingsRepo, agentGateway),
   };
 }
 
@@ -345,12 +342,9 @@ async function main(): Promise<void> {
   const agentGateway = await initAgentSessionFactory({
     model, db,
     otterToolClient: {} as OtterToolClient,
-    settingsRepo: repos.settings,
+    platformPromptFile: "./prompts/platform/SYSTEM_PROMPT.md",
     createTools,
   });
-
-  /** 从数据库加载平台级 system prompt */
-  await agentGateway.loadPlatformPrompt();
 
   const uc = initUseCases(repos, agentGateway, embeddingService);
 
@@ -372,7 +366,7 @@ async function main(): Promise<void> {
     embeddingDim: config.embedding.dimensions,
   };
 
-  const controllers = initControllers(uc, agentInvoker, settings, repos.settings, agentGateway);
+  const controllers = initControllers(uc, agentInvoker, settings, repos.settings);
   startServer(controllers, config.server.port);
 
   process.on("SIGINT", () => {
