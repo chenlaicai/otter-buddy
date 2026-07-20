@@ -12,6 +12,7 @@ import type {
   SettingsDTO,
   UpdateSettingsRequestDTO,
   LinkedResourceDTO,
+  ParticipantDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -49,6 +50,10 @@ export function completeConversation(id: string): Promise<{ status: string }> {
 
 export function archiveConversation(id: string): Promise<{ status: string }> {
   return request(`/conversations/${id}/archive`, { method: 'PATCH' })
+}
+
+export function getParticipants(conversationId: string): Promise<ParticipantDTO[]> {
+  return request(`/conversations/${conversationId}/participants`)
 }
 
 // ── Messages ──

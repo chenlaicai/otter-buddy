@@ -54,9 +54,10 @@ function ConversationPage() {
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
-      const [msgs, keyInfo] = await Promise.all([
+      const [msgs, keyInfo, participants] = await Promise.all([
         api.listMessages(convId, 100),
         api.getKeyResources(convId),
+        api.getParticipants(convId),
       ])
       setAllMessages(prev => ({
         ...prev,
@@ -66,6 +67,15 @@ function ConversationPage() {
         ...prev,
         [convId]: keyInfo.resources.map(mapLinkedResourceDTO),
       }))
+      // 更新 allOtters，添加对话中的 otter
+      const otterIds = participants.map(p => p.otterId)
+      setAllOtters(prev => {
+        const existingIds = new Set(prev.map(o => o.id))
+        const newOtters = otterIds
+          .filter(id => !existingIds.has(id))
+          .map(id => ({ id, name: `Otter ${id.slice(0, 8)}`, ci: 0 }))
+        return [...prev, ...newOtters]
+      })
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
@@ -97,7 +107,8 @@ function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
-    const otterId = mentionOtterId || allOtters[0]?.id
+    // 从当前对话的参与者中获取 otterId
+    const otterId = mentionOtterId || activeOtters[0]?.id
     if (!otterId) { showToast('没有可用的 Otter', 'error'); return }
 
     const userMsg: LocalMessage = {
@@ -145,7 +156,7 @@ function ConversationPage() {
       console.error('Failed to send message:', err)
       showToast('发送失败', 'error'); setStreaming(null)
     }
-  }, [activeId, allOtters])
+  }, [activeId, activeOtters])
 
   const stopStream = useCallback(() => {
     if (otterMsgIdRef.current) {
