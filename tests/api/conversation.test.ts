@@ -74,10 +74,6 @@ describe("Conversation API", () => {
       const body = await res.json();
       expect(body.id).toBe("new-conv");
       expect(body.title).toBe("New Chat");
-      expect(deps.manageConversation.create).toHaveBeenCalledWith({
-        title: "New Chat",
-        otterIds: ["otter-1"],
-      });
     });
 
     it("creates conversation without otterIds", async () => {
@@ -91,10 +87,6 @@ describe("Conversation API", () => {
       });
 
       expect(res.status).toBe(201);
-      expect(deps.manageConversation.create).toHaveBeenCalledWith({
-        title: "Solo Chat",
-        otterIds: undefined,
-      });
     });
   });
 

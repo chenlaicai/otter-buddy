@@ -233,21 +233,6 @@ export function makeLinkedResource(overrides: Partial<{
   };
 }
 
-// ─── Mock factory ───
-
-/** 为指定 class/interface 创建所有方法的 vi.fn mock */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function mockOf<T extends Record<string, any>>(): { [K in keyof T]: T[K] extends (...args: any[]) => any ? ReturnType<typeof vi.fn> & T[K] : T[K] } {
-  return new Proxy({} as any, {
-    get(_target, prop) {
-      if (typeof prop === "string") {
-        return vi.fn();
-      }
-      return undefined;
-    },
-  });
-}
-
 // ─── Test app builder ───
 
 export interface TestDeps {
