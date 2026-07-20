@@ -60,6 +60,13 @@ export interface ConversationRepository {
     contextTokensMax?: number;
   }): Promise<void>;
   failMessage(messageId: string, failedAt: string): Promise<void>;
+  /** 中止消息：streaming -> aborted（body 必须非空，talkingStonePassedTo 必须非空） */
+  abortMessage(
+    messageId: string,
+    body: string,
+    talkingStonePassedTo: string[],
+    abortedAt: string,
+  ): Promise<void>;
   getMaxSequenceNum(conversationId: string): Promise<number>;
 
   // Message 查询

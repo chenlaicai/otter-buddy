@@ -137,28 +137,45 @@ export class AgentInvoker {
 
       return { messageId: message.id, duration, tokenUsage: result.tokenUsage };
     } catch (err) {
-      await this.handleInvokeError(message.id, otterId, err, onSSEEvent);
+      await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
       throw err;
     }
   }
 
-  /** 处理 invoke 异常：标记消息失败 + 区分 abort/error 发送 SSE 事件 */
+  /**
+   * 处理 invoke 异常：区分 abort/error 路径。
+   * abort 路径：构造合成 body → sendMessage.abort() → SSE message.aborted
+   * error 路径：sendMessage.fail() → SSE error
+   */
   private async handleInvokeError(
     messageId: string,
     otterId: string,
     err: unknown,
     onSSEEvent?: (event: AgentSSEEvent) => void,
+    senderId?: string,
   ): Promise<void> {
-    /** D9-fix: fail() 出错时不覆盖原始错误 */
-    try {
-      await this.sendMessage.fail(messageId);
-    } catch (failErr) {
-      // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
-      console.warn(`Failed to mark message ${messageId} as failed (original error preserved):`, failErr);
-    }
     if (this.abortedOtters.delete(otterId)) {
-      onSSEEvent?.({ event: "message.aborted", data: { messageId } });
+      /** abort 路径：构造合成 body，调用 sendMessage.abort() */
+      const toolCallCount =
+        (err as Error & { _toolCallCount?: number })._toolCallCount ??
+        this.agentInvoke.getToolCallCount(otterId);
+      const body = `[用户中断] 经过 ${toolCallCount} 次工具调用后，用户强制中断了当前发言。`;
+      try {
+        await this.sendMessage.abort(messageId, {
+          body,
+          talkingStonePassedTo: senderId ? [senderId] : [],
+        });
+      } catch {
+        /** abort() 出错时不覆盖原始错误 */
+      }
+      onSSEEvent?.({ event: "message.aborted", data: { messageId, abortBody: body } });
     } else {
+      /** error 路径：标记失败 */
+      try {
+        await this.sendMessage.fail(messageId);
+      } catch {
+        /** fail() 出错时不覆盖原始错误 */
+      }
       const msg = err instanceof Error ? err.message : "Unknown error";
       onSSEEvent?.({ event: "error", data: { message: msg } });
     }

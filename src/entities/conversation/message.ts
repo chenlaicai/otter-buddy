@@ -4,7 +4,7 @@ import type { Attachment } from "./conversation";
 export type SenderType = "user" | "otter" | "system";
 
 /** 消息生命周期状态 */
-export type MessageStatus = "streaming" | "completed" | "failed";
+export type MessageStatus = "streaming" | "completed" | "failed" | "aborted";
 
 /** 流式事件类型 */
 export type MessageEventType = "text_delta" | "tool_call" | "tool_result" | "error";
@@ -42,7 +42,7 @@ export interface MessageEvent {
  * completed 和 failed 是终态。
  */
 export function isTerminalMessageStatus(status: MessageStatus): boolean {
-  return status === "completed" || status === "failed";
+  return status === "completed" || status === "failed" || status === "aborted";
 }
 
 /**
@@ -73,6 +73,14 @@ export function canFailMessage(status: MessageStatus): boolean {
 }
 
 /**
+ * 是否可以中止消息。
+ * 仅 streaming 状态的消息可被中止。
+ */
+export function canAbortMessage(status: MessageStatus): boolean {
+  return status === "streaming";
+}
+
+/**
  * 完成消息时 body 是否合法。
  * completed 状态的 Message 必须有非空 body——这是实体状态不变量，
  * 任何 use case 调用 completeMessage 时都必须遵守。
@@ -96,5 +104,6 @@ export function isValidTalkingStonePass(
 ): boolean {
   if (senderType === "system") return true;
   if (status === "streaming" || status === "failed") return true;
+  /** aborted 是终态，与 completed 相同——必须传递发言石 */
   return recipients !== null && recipients.length > 0;
 }

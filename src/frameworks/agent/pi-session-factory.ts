@@ -128,7 +128,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly staticPrompts = new Map<string, string | OtterPromptConfig>();
   private readonly otterTypes = new Map<string, string>();
-  private readonly activeSessions = new Map<string, { abort: () => Promise<void> }>();
+  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly settingsRepo?: SettingsRepository;
   private platformPrompt = "";
@@ -259,7 +259,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
    * 冷启动调用（R17）：创建 AgentSession → prompt → 释放。
    * 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）。
    */
-  // eslint-disable-next-line max-statements -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
+  // eslint-disable-next-line max-statements, max-lines-per-function, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
   async invoke(
     otterId: string,
     message: string,
@@ -306,8 +306,8 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
       customTools: customTools as never,
     });
 
-    /** 注册活跃 session 引用，支持外部 abort */
-    this.activeSessions.set(otterId, { abort: () => session.abort() });
+    /** 注册活跃 session 引用，支持外部 abort + 工具调用计数 */
+    this.activeSessions.set(otterId, { abort: () => session.abort(), toolCallCount: 0 });
 
     /** 熔断器 */
     const { circuitBreaker, unregisterToolCall } = this.attachCircuitBreaker(session, otterId);
@@ -316,10 +316,15 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
     const fullMessage = this.buildMessageWithContext(staticPrompt + skillsPrompt, message, options?.dynamicContext);
 
     let resultText = "";
+    const activeEntry = this.activeSessions.get(otterId);
     const unsubscribe = session.subscribe((event: unknown) => {
       const e = event as AgentEvent;
       if (e.type === "message_update" && e.delta) {
         resultText += e.delta;
+      }
+      /** 跟踪工具调用次数（abort body 需要此信息） */
+      if (e.type === "tool_execution_start" && activeEntry) {
+        activeEntry.toolCallCount++;
       }
       options?.onEvent?.(e);
     });
@@ -338,6 +343,11 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
       }
 
       return this.buildResult(resultText, tokenUsage, circuitBreaker);
+    } catch (err) {
+      /** 将 toolCallCount 附着到异常，供 handleInvokeError 在 finally 清理后仍可读取 */
+      (err as Error & { _toolCallCount?: number })._toolCallCount =
+        this.activeSessions.get(otterId)?.toolCallCount ?? 0;
+      throw err;
     } finally {
       circuitBreaker.clearSteerDeadline();
       unregisterToolCall?.();
@@ -353,6 +363,11 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
     if (entry) {
       entry.abort();
     }
+  }
+
+  /** 获取指定 Otter 当前 session 的工具调用次数（abort body 构造用） */
+  getToolCallCount(otterId: string): number {
+    return this.activeSessions.get(otterId)?.toolCallCount ?? 0;
   }
 
   /**
