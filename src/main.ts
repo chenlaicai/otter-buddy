@@ -222,6 +222,41 @@ function buildMemoryClient(uc: UseCases) {
 /**
  * 构建 OtterToolClient：包装所有 use case，作为工具访问 Otter 数据的统一门面。
  */
+function buildResourceClient(uc: UseCases) {
+  return {
+    link: (params: { conversationId: string; url: string; title?: string; linkedBy: string; resourceType?: string; groupId?: string }, turnNum?: number) =>
+      uc.manageKeyInfo.linkResource({
+        conversationId: params.conversationId,
+        resourceType: params.resourceType ?? "url",
+        url: params.url,
+        title: params.title,
+        linkedBy: params.linkedBy,
+        autoLinked: false,
+        groupId: params.groupId,
+      }, turnNum),
+    list: (convId: string, filters?: { status?: "active" | "superseded" | "archived"; resourceType?: string }) =>
+      uc.manageKeyInfo.getLinkedResources(convId, filters),
+    listByGroup: (convId: string, groupId: string) =>
+      uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
+    updateStatus: (id: string, status: "active" | "superseded" | "archived", turnNum: number, supersededBy?: string) =>
+      uc.manageKeyInfo.updateResourceStatus(id, status, turnNum, supersededBy),
+    supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url: string; title?: string; linkedBy: string; groupId?: string }, turnNum: number) =>
+      uc.manageKeyInfo.supersedeResource(existingId, {
+        conversationId: newInput.conversationId,
+        resourceType: newInput.resourceType ?? "url",
+        url: newInput.url,
+        title: newInput.title,
+        linkedBy: newInput.linkedBy,
+        autoLinked: false,
+        groupId: newInput.groupId,
+      }, turnNum),
+    archive: (id: string, convId: string, turnNum: number) =>
+      uc.manageKeyInfo.archiveResource(id, convId, turnNum),
+    getIndex: (convId: string) =>
+      uc.manageKeyInfo.getArtifactIndex(convId),
+  };
+}
+
 function buildOtterToolClient(uc: UseCases): OtterToolClient {
   return {
     conversation: {
@@ -242,12 +277,8 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
       search: async (query: string, limit?: number) => {
         const results = await uc.manageTerminology.search(query, limit ?? 10);
         return results.map(e => ({
-          id: e.id,
-          term: e.term,
-          definition: e.definition,
-          aliases: e.aliases,
-          category: e.category,
-          context: e.context,
+          id: e.id, term: e.term, definition: e.definition,
+          aliases: e.aliases, category: e.category, context: e.context,
         }));
       },
       addTerm: async (params: { term: string; definition: string; aliases?: string[]; category?: string; context?: string }) => {
@@ -264,34 +295,7 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
       get: (otterId, key) => uc.manageContext.get(otterId, key),
       set: (otterId, key, value) => uc.manageContext.set(otterId, key, value),
     },
-    resource: {
-      link: (params, turnNum) => uc.manageKeyInfo.linkResource({
-        conversationId: params.conversationId,
-        resourceType: params.resourceType ?? "url",
-        url: params.url,
-        title: params.title,
-        linkedBy: params.linkedBy,
-        autoLinked: false,
-        groupId: params.groupId,
-      }, turnNum),
-      list: (convId, filters) => uc.manageKeyInfo.getLinkedResources(convId, filters),
-      listByGroup: (convId, groupId) => uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
-      updateStatus: (id, status, turnNum, supersededBy) =>
-        uc.manageKeyInfo.updateResourceStatus(id, status, turnNum, supersededBy),
-      supersede: (existingId, newInput, turnNum) =>
-        uc.manageKeyInfo.supersedeResource(existingId, {
-          conversationId: newInput.conversationId,
-          resourceType: newInput.resourceType ?? "url",
-          url: newInput.url,
-          title: newInput.title,
-          linkedBy: newInput.linkedBy,
-          autoLinked: false,
-          groupId: newInput.groupId,
-        }, turnNum),
-      archive: (id, convId, turnNum) =>
-        uc.manageKeyInfo.archiveResource(id, convId, turnNum),
-      getIndex: (convId) => uc.manageKeyInfo.getArtifactIndex(convId),
-    },
+    resource: buildResourceClient(uc),
   };
 }
 
