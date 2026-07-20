@@ -82,10 +82,36 @@ cd web && npm run build && cd ..
 ### 启动系统
 
 ```bash
+# 方式一：使用启动脚本（推荐）
+./scripts/otter-buddy.sh start              # 默认端口 3000
+./scripts/otter-buddy.sh start -p 3001      # 指定端口
+
+# 方式二：直接 npm
 npm start
 ```
 
 启动后访问 http://localhost:3000 即可开始对话。
+
+#### 启动脚本
+
+`scripts/otter-buddy.sh` 提供服务管理命令，支持多 worktree 使用不同端口避免冲突：
+
+```bash
+./scripts/otter-buddy.sh start [-p port]   # 构建并启动
+./scripts/otter-buddy.sh stop [-p port]    # 停止
+./scripts/otter-buddy.sh restart [-p port] # 重启
+./scripts/otter-buddy.sh status            # 查看状态
+```
+
+多 worktree 示例：
+
+```bash
+# worktree A
+./scripts/otter-buddy.sh start -p 3000
+
+# worktree B（不同端口）
+./scripts/otter-buddy.sh start -p 3001
+```
 
 ### 开发模式
 
