@@ -131,6 +131,7 @@ export class PiSessionFactory implements AgentGateway {
   private platformPrompt = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
+  private modelRuntime: unknown | null = null;
   private otterToolClient: OtterToolClient;
 
   constructor(private readonly cfg: {
@@ -159,7 +160,7 @@ export class PiSessionFactory implements AgentGateway {
     this.otterToolClient = client;
   }
 
-  /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现） */
+  /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     if (!this.piCodingAgent) {
       this.piCodingAgent = await loadPiCodingAgent();
@@ -178,6 +179,17 @@ export class PiSessionFactory implements AgentGateway {
         await this.resourceLoader.reload();
         const { skills } = this.resourceLoader.getSkills();
         logger.info(`ResourceLoader discovered ${skills.length} skill(s) from ./skills`);
+      }
+
+      /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
+      const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
+      this.modelRuntime = await ModelRuntimeClass.create();
+
+      const llmConfig = appConfig.llm;
+      if (llmConfig.apiKey) {
+        const rt = this.modelRuntime as { setRuntimeApiKey: (provider: string, key: string) => Promise<void> };
+        await rt.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
+        logger.info(`Set runtime API key for ${llmConfig.provider}`);
       }
     }
     return this.piCodingAgent;
@@ -198,6 +210,7 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
+      modelRuntime: this.modelRuntime as never,
     });
 
     const sessionId = session.sessionId;
@@ -244,6 +257,7 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
+      modelRuntime: this.modelRuntime as never,
     });
 
     /** 更新映射 */
@@ -300,6 +314,7 @@ export class PiSessionFactory implements AgentGateway {
       tools: codingTools,
       customTools: customTools as never,
       resourceLoader: this.resourceLoader ?? undefined,
+      modelRuntime: this.modelRuntime as never,
     });
 
     /** 注册活跃 session 引用，支持外部 abort + 工具调用计数 */

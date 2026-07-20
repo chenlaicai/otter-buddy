@@ -61,42 +61,53 @@ function createCustomApiKeyAuth(configApiKey?: string, provider?: string) {
 async function loadCustomProvider(
   piAi: PiAiModule,
   provider: string,
+  modelId: string,
   apiBaseUrl?: string,
   apiKey?: string,
 ): Promise<unknown> {
-  let models: unknown;
+  let modelsDict: Record<string, unknown>;
   let api: unknown;
 
   if (provider === "openai") {
     const modelsMod = await import("@earendil-works/pi-ai/providers/openai.models");
-    models = modelsMod.OPENAI_MODELS;
+    modelsDict = modelsMod.OPENAI_MODELS;
     const apiMod = await import("@earendil-works/pi-ai/api/openai-responses.lazy");
     api = apiMod.openAIResponsesApi();
   } else if (provider === "anthropic") {
     const modelsMod = await import("@earendil-works/pi-ai/providers/anthropic.models");
-    models = modelsMod.ANTHROPIC_MODELS;
+    modelsDict = modelsMod.ANTHROPIC_MODELS;
     const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
     api = apiMod.anthropicMessagesApi();
   } else {
     throw new Error(`Unsupported LLM provider: ${provider}`);
   }
 
+  // 转为数组并注入自定义模型
+  const modelsArray = Object.values(modelsDict) as Record<string, unknown>[];
+  const hasModel = modelsArray.some(m => (m as Record<string, unknown>).id === modelId);
+  if (!hasModel) {
+    const template = modelsArray[0];
+    if (template) {
+      modelsArray.push({ ...template, id: modelId, name: modelId, baseUrl: apiBaseUrl ?? template.baseUrl });
+    }
+  }
+
   return piAi.createProvider({
     id: provider,
     baseUrl: apiBaseUrl,
     auth: { apiKey: createCustomApiKeyAuth(apiKey, provider) },
-    models: models as Parameters<typeof piAi.createProvider>[0]["models"],
+    models: modelsArray as unknown as Parameters<typeof piAi.createProvider>[0]["models"],
     api: api as Parameters<typeof piAi.createProvider>[0]["api"],
   });
 }
 
 /** 根据提供商名称加载 pi-ai provider（默认或自定义） */
-async function loadProvider(provider: string): Promise<unknown> {
+async function loadProvider(provider: string, modelId: string): Promise<unknown> {
   const piAi = await loadPiAi();
   const llmConfig = config.llm;
 
   if (needsCustomProvider(llmConfig)) {
-    return loadCustomProvider(piAi, provider, llmConfig.apiBaseUrl, llmConfig.apiKey);
+    return loadCustomProvider(piAi, provider, modelId, llmConfig.apiBaseUrl, llmConfig.apiKey);
   }
 
   // 默认 provider 工厂（行为不变）
@@ -131,7 +142,7 @@ export async function initModels(modelConfig?: {
   const piAi = await loadPiAi();
   const models = piAi.createModels();
 
-  const providerModule = await loadProvider(provider);
+  const providerModule = await loadProvider(provider, modelId);
   models.setProvider(providerModule as never);
 
   const model = models.getModel(provider, modelId);

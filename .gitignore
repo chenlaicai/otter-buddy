@@ -58,3 +58,11 @@ coverage/
 # Temporary folders
 tmp/
 temp/
+
+# Database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Agent sessions
+data/sessions/

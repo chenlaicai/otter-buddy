@@ -5,6 +5,8 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 import { config } from "@frameworks/config";
 import { logger } from "@frameworks/logger";
@@ -361,7 +363,24 @@ function startServer(
   });
 }
 
+/** 将 config.yaml 的 apiKey 同步到 pi-coding-agent 的 auth.json（SDK 不读 config.yaml） */
+function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string }): void {
+  if (!llmConfig.apiKey) return;
+  const agentDir = path.join(process.env.HOME ?? "~", ".pi", "agent");
+  const authPath = path.join(agentDir, "auth.json");
+  let auth: Record<string, string> = {};
+  try { auth = JSON.parse(fs.readFileSync(authPath, "utf-8")); } catch { /* empty */ }
+  if (auth[llmConfig.provider] !== llmConfig.apiKey) {
+    auth[llmConfig.provider] = llmConfig.apiKey;
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(authPath, JSON.stringify(auth, null, 2));
+    logger.info(`Synced ${llmConfig.provider} API key to ${authPath}`);
+  }
+}
+
 async function main(): Promise<void> {
+  syncApiKeyToAgentAuth(config.llm);
+
   const db = initDatabase(config.db);
   initSchema(db);
 
@@ -400,6 +419,13 @@ async function main(): Promise<void> {
   });
 
   const uc = initUseCases(repos, agentGateway, embeddingService);
+
+  /** 首次启动时自动创建大獭（系统不变量：Big Otter 必须存在） */
+  const existingBigOtter = await repos.otter.getBigOtter();
+  if (!existingBigOtter) {
+    await uc.createOtter.execute({ name: "大獭", type: "big" });
+    logger.info("Big Otter created (first run)");
+  }
 
   /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
   const otterToolClient = buildOtterToolClient(uc);

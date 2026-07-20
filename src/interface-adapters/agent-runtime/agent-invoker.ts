@@ -57,6 +57,18 @@ function mapToMessageEventInput(
   }
 }
 
+/** 从 agent 事件中提取错误信息 */
+function extractAgentError(e: AgentStreamEvent): string | undefined {
+  if (e.type === "error") return String(e.error ?? e.message ?? "Unknown agent error");
+  if (e.type === "turn_end") {
+    const msg = (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+    if (msg?.stopReason === "error" || msg?.errorMessage) {
+      return String(msg.errorMessage ?? "Agent API error");
+    }
+  }
+  return undefined;
+}
+
 export class AgentInvoker {
   private readonly abortedOtters = new Set<string>();
 
@@ -92,6 +104,7 @@ export class AgentInvoker {
     onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId } });
 
     try {
+      let agentError: string | undefined;
       const result = await this.agentInvoke.invoke(otterId, userMessageContent, {
         dynamicContext,
         conversationId,
@@ -104,8 +117,10 @@ export class AgentInvoker {
             // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
             console.warn(`Failed to persist message event for ${message.id}: ${m}`);
           });
+          if (!agentError) agentError = extractAgentError(e);
         },
       });
+      if (!result.text) throw new Error(agentError || "Agent returned empty response");
 
       const contextTokens = result.tokenUsage
         ? result.tokenUsage.input + result.tokenUsage.output
