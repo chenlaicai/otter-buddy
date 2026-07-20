@@ -51,6 +51,7 @@ export class KeyInfoController {
         linkedBy: body.linkedBy,
         otterId: body.otterId,
         autoLinked: body.autoLinked,
+        groupId: body.groupId,
       };
       const resource = await this.manageKeyInfo.linkResource(input);
       return c.json(toLinkedResourceDTO(resource), 201);

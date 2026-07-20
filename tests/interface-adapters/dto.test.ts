@@ -151,6 +151,8 @@ describe("KeyInfoDTO", () => {
       url: "https://example.com", title: "Example",
       metadata: null, linkedBy: "otter-1", otterId: "otter-1",
       autoLinked: false, createdAt: "2026-07-16T00:00:00Z",
+      status: "active" as const, linkedAtTurnNumber: 0, statusChangedAtTurnNumber: 0,
+      groupId: null, supersededBy: null,
     };
     const dto = toLinkedResourceDTO(res);
     expect(dto.url).toBe("https://example.com");

@@ -22,6 +22,11 @@ export interface LinkedResourceDTO {
   otterId: string | null;
   autoLinked: boolean;
   createdAt: string;
+  status: "active" | "superseded" | "archived";
+  linkedAtTurnNumber: number;
+  statusChangedAtTurnNumber: number;
+  groupId: string | null;
+  supersededBy: string | null;
 }
 
 /** 关键信息组合 DTO */
@@ -47,4 +52,5 @@ export interface LinkResourceRequestDTO {
   linkedBy: string;
   otterId?: string;
   autoLinked: boolean;
+  groupId?: string;
 }

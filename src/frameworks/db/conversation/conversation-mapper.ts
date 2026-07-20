@@ -1,4 +1,5 @@
 import type {
+  ArtifactStatus,
   Attachment,
   Conversation,
   ConversationStatus,
@@ -76,6 +77,11 @@ export interface LinkedResourceRow {
   otter_id: string | null;
   auto_linked: number;
   created_at: string;
+  status: string;
+  linked_at_turn_number: number;
+  status_changed_at_turn_number: number;
+  group_id: string | null;
+  superseded_by: string | null;
 }
 
 export interface TurnRow {
@@ -174,6 +180,11 @@ export function rowToLinkedResource(row: LinkedResourceRow): LinkedResource {
     otterId: row.otter_id,
     autoLinked: row.auto_linked === 1,
     createdAt: row.created_at,
+    status: row.status as ArtifactStatus,
+    linkedAtTurnNumber: row.linked_at_turn_number,
+    statusChangedAtTurnNumber: row.status_changed_at_turn_number,
+    groupId: row.group_id,
+    supersededBy: row.superseded_by,
   };
 }
 
