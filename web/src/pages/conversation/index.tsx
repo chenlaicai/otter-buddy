@@ -146,7 +146,16 @@ function ConversationPage() {
           otterMsgIdRef.current = ''
           setStreaming(null)
         },
-        'error': (data) => { showToast(`Agent 错误: ${data.message}`, 'error'); otterMsgIdRef.current = ''; setStreaming(null) },
+        'error': (data) => {
+          const errMsg: LocalMessage = {
+            id: otterMessageId || ('err-' + Date.now()), st: 'otter', si: otterId,
+            content: `[错误] ${data.message}`, ts: nowTs(), dur: null,
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), errMsg] }))
+          showToast(`Agent 错误: ${data.message}`, 'error')
+          otterMsgIdRef.current = ''
+          setStreaming(null)
+        },
         'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
         'agent.idle': () => {},
       }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
