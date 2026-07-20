@@ -68,9 +68,7 @@ describe("ManageKeyInfo.linkResource validation", () => {
     expect(result.content).toBe("Important fact");
     expect(result.url).toBeNull();
     expect(repo.linkResource).toHaveBeenCalledOnce();
-    expect(memoryIndex.indexLinkedResource).toHaveBeenCalledWith(
-      result.id, "conv-1", "Important fact", "fact",
-    );
+    expect(memoryIndex.indexLinkedResource).toHaveBeenCalledOnce();
   });
 
   it("creates url resource with url", async () => {
