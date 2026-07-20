@@ -201,7 +201,7 @@ function OtterParticipantCard({
 function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResource; onDelete: () => void }) {
   return (
     <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group">
-      <span className="text-xs text-teal-500 truncate flex-1">{r.title || r.url}</span>
+      <span className="text-xs text-teal-500 truncate flex-1">{r.title || r.url || '(无标题)'}</span>
       {r.auto && (
         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-500">自动</span>
       )}

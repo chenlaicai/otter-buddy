@@ -50,6 +50,15 @@ export class ManageKeyInfo {
     };
   }
 
+  private validateInput(input: LinkedResourceInput): void {
+    if (input.resourceType === "fact" && !input.content) {
+      throw new Error("fact 类型资源必须提供 content");
+    }
+    if (input.resourceType !== "fact" && !input.url) {
+      throw new Error("非 fact 类型资源必须提供 url");
+    }
+  }
+
   private getIndexContent(input: LinkedResourceInput): string {
     return input.resourceType === "fact"
       ? (input.content ?? "")
@@ -57,12 +66,7 @@ export class ManageKeyInfo {
   }
 
   async linkResource(input: LinkedResourceInput, currentTurnNumber = 0): Promise<LinkedResource> {
-    if (input.resourceType === "fact" && !input.content) {
-      throw new Error("fact 类型资源必须提供 content");
-    }
-    if (input.resourceType !== "fact" && !input.url) {
-      throw new Error("非 fact 类型资源必须提供 url");
-    }
+    this.validateInput(input);
     const resource = this.buildResource(input, currentTurnNumber);
     await this.repo.linkResource(resource);
     await this.memoryIndex.indexLinkedResource(resource.id, resource.conversationId, this.getIndexContent(input), input.resourceType);
@@ -75,6 +79,7 @@ export class ManageKeyInfo {
     newInput: LinkedResourceInput,
     currentTurnNumber: number,
   ): Promise<LinkedResource> {
+    this.validateInput(newInput);
     const existing = await this.repo.getLinkedResourceById(existingId);
     if (!existing) throw new Error(`LinkedResource ${existingId} not found`);
     if (!canTransitionArtifactStatus(existing.status, "superseded")) {
