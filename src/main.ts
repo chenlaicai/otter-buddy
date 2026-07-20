@@ -15,7 +15,6 @@ import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import { SkillLoader } from "@interface-adapters/skill-adapter/skill-loader";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-context-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
@@ -319,17 +318,12 @@ async function main(): Promise<void> {
 
   const repos = initRepositories(db);
 
-  /** 创建 PiSessionFactory（OtterToolClient 稍后注入） */
-  const skillLoader = new SkillLoader("./skills", [
-    { otterType: "big", skillNames: [] },
-    { otterType: "small", skillNames: [] },
-  ]);
+  /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */
   const agentGateway = await initAgentSessionFactory({
     model, db,
     otterToolClient: {} as OtterToolClient,
     settingsRepo: repos.settings,
     createTools,
-    skillLoader,
   });
 
   /** 从数据库加载平台级 system prompt */

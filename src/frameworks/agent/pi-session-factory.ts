@@ -10,6 +10,7 @@
  * F20260716sq6e §13 T2: 薄封装 createAgentSession()
  */
 
+import * as path from "node:path";
 import type Database from "better-sqlite3";
 import type {
   AgentConfig,
@@ -18,7 +19,7 @@ import type {
 } from "@usecases/otter/agent-gateway";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import type { SkillLoader } from "@interface-adapters/skill-adapter/skill-loader";
+import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
@@ -63,8 +64,6 @@ export interface AgentSessionFactoryConfig {
   settingsRepo?: SettingsRepository;
   /** 工具工厂函数（由 Composition Root 注入，解耦 interface-adapters） */
   createTools: (ctx: ToolContext) => AgentTool[];
-  /** 技能加载器（由 Composition Root 注入，解耦 interface-adapters） */
-  skillLoader: SkillLoader;
 }
 
 /** pi-coding-agent 模块类型（动态加载） */
@@ -133,6 +132,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
   private readonly settingsRepo?: SettingsRepository;
   private platformPrompt = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
+  private resourceLoader: ResourceLoader | null = null;
   private otterToolClient: OtterToolClient;
 
   constructor(private readonly cfg: {
@@ -141,7 +141,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
     otterToolClient: OtterToolClient;
     model: unknown;
     createTools: (ctx: ToolContext) => AgentTool[];
-    skillLoader: SkillLoader;
+    resourceLoader?: ResourceLoader;
     settingsRepo?: SettingsRepository;
   }) {
     this.otterToolClient = cfg.otterToolClient;
@@ -176,10 +176,26 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
     this.platformPrompt = prompt;
   }
 
-  /** 懒加载 pi-coding-agent（ESM-only） */
+  /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     if (!this.piCodingAgent) {
       this.piCodingAgent = await loadPiCodingAgent();
+
+      /** 创建 ResourceLoader：通过 SDK 原生协议注入 skills（替代手动拼接） */
+      if (!this.resourceLoader) {
+        const { DefaultResourceLoader, getAgentDir } = this.piCodingAgent as unknown as {
+          DefaultResourceLoader: new (options: unknown) => ResourceLoader;
+          getAgentDir: () => string;
+        };
+        this.resourceLoader = this.cfg.resourceLoader ?? new DefaultResourceLoader({
+          cwd: process.cwd(),
+          agentDir: getAgentDir(),
+          additionalSkillPaths: [path.resolve(process.cwd(), "skills")],
+        });
+        await this.resourceLoader.reload();
+        const { skills } = this.resourceLoader.getSkills();
+        logger.info(`ResourceLoader discovered ${skills.length} skill(s) from ./skills`);
+      }
     }
     return this.piCodingAgent;
   }
@@ -198,6 +214,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
       sessionManager,
       tools: [],
       customTools: [],
+      resourceLoader: this.resourceLoader ?? undefined,
     });
 
     const sessionId = session.sessionId;
@@ -243,6 +260,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
       sessionManager,
       tools: [],
       customTools: [],
+      resourceLoader: this.resourceLoader ?? undefined,
     });
 
     /** 更新映射 */
@@ -278,17 +296,11 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
     const otterType = this.otterTypes.get(otterId);
     const otterPromptConfig = this.staticPrompts.get(otterId);
 
-    /** T6: 加载 Skills 并追加到系统提示 */
-    const skills = otterType ? this.cfg.skillLoader.loadSkillsForOtterType(otterType) : [];
-    const skillsPrompt = skills.length > 0
-      ? "\n\n## Skills\n" + skills.map(s => `### ${s.name}\n${s.content}`).join("\n\n")
-      : "";
-
     /** 构建 Otter 提示（支持字符串或 OtterPromptConfig） */
     const otterPrompt = this.buildOtterPrompt(otterPromptConfig);
 
-    /** 组装完整系统提示：平台 prompt + Otter prompt + Skills */
-    const staticPrompt = [this.platformPrompt, otterPrompt, skillsPrompt].filter(Boolean).join("\n\n");
+    /** 组装消息前缀：平台 prompt + Otter prompt（Skills 由 SDK ResourceLoader 原生注入） */
+    const staticPrompt = [this.platformPrompt, otterPrompt].filter(Boolean).join("\n\n");
 
     /** 构建 customTools（Otter 自定义工具，适配 ToolDefinition 格式） */
     const otterToolNames = getOtterToolNamesForType(otterType);
@@ -304,6 +316,7 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
       sessionManager,
       tools: codingTools,
       customTools: customTools as never,
+      resourceLoader: this.resourceLoader ?? undefined,
     });
 
     /** 注册活跃 session 引用，支持外部 abort + 工具调用计数 */
@@ -312,8 +325,8 @@ export class PiSessionFactory implements AgentGateway, PlatformPromptGateway {
     /** 熔断器 */
     const { circuitBreaker, unregisterToolCall } = this.attachCircuitBreaker(session, otterId);
 
-    /** 构建完整消息：系统提示 + Skills + 动态上下文 + 用户消息 */
-    const fullMessage = this.buildMessageWithContext(staticPrompt + skillsPrompt, message, options?.dynamicContext);
+    /** 构建完整消息：系统提示 + 动态上下文 + 用户消息 */
+    const fullMessage = this.buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
 
     let resultText = "";
     const activeEntry = this.activeSessions.get(otterId);
@@ -534,7 +547,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig)
     otterToolClient: config.otterToolClient,
     model: config.model,
     createTools: config.createTools,
-    skillLoader: config.skillLoader,
     settingsRepo: config.settingsRepo,
   });
 }
