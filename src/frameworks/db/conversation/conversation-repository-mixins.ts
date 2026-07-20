@@ -2,51 +2,32 @@ import type Database from "better-sqlite3";
 import type {
   ArtifactStatus,
   ConversationParticipant,
-  KeyFact,
   LinkedResource,
 } from "@entities/conversation/conversation";
 import {
-  rowToKeyFact,
   rowToLinkedResource,
   rowToParticipant,
-  type KeyFactRow,
   type LinkedResourceRow,
   type ParticipantRow,
 } from "./conversation-mapper";
 
 /**
- * Key Info + Participant 相关的 repository 方法（从 SqliteConversationRepository 提取）。
+ * Key Resources + Participant 相关的 repository 方法（从 SqliteConversationRepository 提取）。
  * 纯函数集合，通过 bind(this) 或直接调用使用。
  */
 
 export function linkResource(db: Database.Database, resource: LinkedResource): void {
   db.prepare(`
-    INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, metadata, linked_by, otter_id, auto_linked, created_at, status, linked_at_turn_number, status_changed_at_turn_number, group_id, superseded_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO linked_resources (id, conversation_id, resource_type, url, title, content, category, user_flagged, metadata, linked_by, otter_id, auto_linked, created_at, status, linked_at_turn_number, status_changed_at_turn_number, group_id, superseded_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     resource.id, resource.conversationId, resource.resourceType, resource.url,
-    resource.title, resource.metadata ? JSON.stringify(resource.metadata) : null,
+    resource.title, resource.content, resource.category, resource.userFlagged ? 1 : 0,
+    resource.metadata ? JSON.stringify(resource.metadata) : null,
     resource.linkedBy, resource.otterId, resource.autoLinked ? 1 : 0,
     resource.createdAt, resource.status, resource.linkedAtTurnNumber,
     resource.statusChangedAtTurnNumber, resource.groupId, resource.supersededBy,
   );
-}
-
-export function addKeyFact(db: Database.Database, keyFact: KeyFact): void {
-  db.prepare(`
-    INSERT INTO key_facts (id, conversation_id, content, category, user_flagged, created_by, otter_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    keyFact.id, keyFact.conversationId, keyFact.content, keyFact.category,
-    keyFact.userFlagged ? 1 : 0, keyFact.createdBy, keyFact.otterId, keyFact.createdAt,
-  );
-}
-
-export function getKeyFacts(db: Database.Database, conversationId: string): KeyFact[] {
-  const rows = db.prepare(
-    "SELECT * FROM key_facts WHERE conversation_id = ? ORDER BY created_at ASC",
-  ).all(conversationId) as KeyFactRow[];
-  return rows.map(rowToKeyFact);
 }
 
 export function getLinkedResources(db: Database.Database, conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): LinkedResource[] {
@@ -115,16 +96,12 @@ export function supersedeLinkedResource(db: Database.Database, existingId: strin
   }
 }
 
-export function deleteKeyFact(db: Database.Database, id: string): void {
-  db.prepare("DELETE FROM key_facts WHERE id = ?").run(id);
-}
-
-export function flagKeyFact(db: Database.Database, id: string, flagged: boolean): void {
-  db.prepare("UPDATE key_facts SET user_flagged = ? WHERE id = ?").run(flagged ? 1 : 0, id);
-}
-
 export function deleteLinkedResource(db: Database.Database, id: string): void {
   db.prepare("DELETE FROM linked_resources WHERE id = ?").run(id);
+}
+
+export function flagResource(db: Database.Database, id: string, flagged: boolean): void {
+  db.prepare("UPDATE linked_resources SET user_flagged = ? WHERE id = ?").run(flagged ? 1 : 0, id);
 }
 
 export function createParticipant(db: Database.Database, participant: ConversationParticipant): void {

@@ -96,8 +96,8 @@ export class SearchMemory {
 
       return {
         id: entry.id,
-        layer: "key_info" as const,
-        contentType: "key_fact" as const,
+        layer: "working" as const,
+        contentType: "fact" as const,
         sourceId: entry.id,
         sourceTable: "terminology_entries",
         conversationId: null,
@@ -178,8 +178,8 @@ export class SearchMemory {
 
       return {
         id: entry.id,
-        layer: "key_info" as const,
-        contentType: "key_fact" as const,
+        layer: "working" as const,
+        contentType: "fact" as const,
         sourceId: entry.id,
         sourceTable: "terminology_entries",
         conversationId: null,

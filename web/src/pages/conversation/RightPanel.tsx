@@ -1,22 +1,20 @@
 import { useState } from 'react'
 import { Plus, Star, X, MoreHorizontal, RotateCcw } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
-import type { LocalConversation as Conversation, LocalOtter as Otter, LocalKeyFact as KeyFact, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession } from '../../lib/mappers'
+import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession } from '../../lib/mappers'
 import { OtterAvatar } from '../../components/OtterAvatar'
 
 interface RightPanelProps {
   conversation: Conversation
   otters: Otter[]
   sessions: Record<string, OtterSession[]>
-  keyFacts: KeyFact[]
   linkedResources: LinkedResource[]
   onCreateSmallOtter: () => void
   onDissolveOtter: (otterId: string) => void
   onRestartOtter: (otterId: string) => void
   onOpenOtterDetail: (otterId: string) => void
   onAddKeyFact: (content: string, category: string) => void
-  onToggleKeyFact: (id: string) => void
-  onDeleteKeyFact: (id: string) => void
+  onToggleResourceFlag: (id: string) => void
   onAddLinkedResource: () => void
   onDeleteLinkedResource: (id: string) => void
 }
@@ -25,6 +23,9 @@ export function RightPanel(props: RightPanelProps) {
   const [showKfForm, setShowKfForm] = useState(false)
   const [kfContent, setKfContent] = useState('')
   const [kfCategory, setKfCategory] = useState('')
+
+  const keyFacts = props.linkedResources.filter(r => r.type === 'fact')
+  const otherResources = props.linkedResources.filter(r => r.type !== 'fact')
 
   function handleAddKeyFact() {
     if (!kfContent.trim()) return
@@ -59,7 +60,7 @@ export function RightPanel(props: RightPanelProps) {
         </div>
       </div>
 
-      {/* Key Facts */}
+      {/* Key Facts (resourceType === "fact") */}
       <div className="p-4 border-b border-white/40">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
           关键事实
@@ -97,10 +98,10 @@ export function RightPanel(props: RightPanelProps) {
           </div>
         )}
         <div>
-          {props.keyFacts.map(f => (
+          {keyFacts.map(f => (
             <div key={f.id} className="flex items-start gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group">
               <span
-                onClick={() => props.onToggleKeyFact(f.id)}
+                onClick={() => props.onToggleResourceFlag(f.id)}
                 className={`cursor-pointer mt-0.5 ${f.flagged ? 'text-amber-400' : 'text-stone-300'}`}
               >
                 <Star className="w-3.5 h-3.5" fill={f.flagged ? 'currentColor' : 'none'} />
@@ -114,7 +115,7 @@ export function RightPanel(props: RightPanelProps) {
                 )}
               </span>
               <span
-                onClick={() => props.onDeleteKeyFact(f.id)}
+                onClick={() => props.onDeleteLinkedResource(f.id)}
                 className="opacity-0 group-hover:opacity-100 text-red-400 mt-0.5 cursor-pointer"
               >
                 <X className="w-3 h-3" />
@@ -124,7 +125,7 @@ export function RightPanel(props: RightPanelProps) {
         </div>
       </div>
 
-      {/* Linked Resources */}
+      {/* Linked Resources (resourceType !== "fact") */}
       <div className="p-4 border-b border-white/40">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
           链接资源
@@ -136,7 +137,7 @@ export function RightPanel(props: RightPanelProps) {
           </button>
         </h3>
         <div>
-          {props.linkedResources.map(r => (
+          {otherResources.map(r => (
             <LinkedResourceItem key={r.id} resource={r} onDelete={() => props.onDeleteLinkedResource(r.id)} />
           ))}
         </div>

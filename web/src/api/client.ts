@@ -11,7 +11,6 @@ import type {
   KeyInfoDTO,
   SettingsDTO,
   UpdateSettingsRequestDTO,
-  KeyFactDTO,
   LinkedResourceDTO,
 } from '@contract/api'
 
@@ -100,26 +99,18 @@ export function restartOtter(otterId: string, summary?: string): Promise<OtterSe
   return request(`/otters/${otterId}/restart`, { method: 'POST', body: summary ? JSON.stringify({ summary }) : undefined })
 }
 
-// ── Key Info ──
+// ── Key Resources ──
 
-export function getKeyInfo(conversationId: string): Promise<KeyInfoDTO> {
-  return request(`/conversations/${conversationId}/key-info`)
+export function getKeyResources(conversationId: string): Promise<KeyInfoDTO> {
+  return request(`/conversations/${conversationId}/key-resources`)
 }
 
-export function addKeyFact(conversationId: string, body: { content: string; category?: string; createdBy: string; otterId?: string }): Promise<KeyFactDTO> {
-  return request(`/conversations/${conversationId}/key-facts`, { method: 'POST', body: JSON.stringify(body) })
-}
-
-export function linkResource(conversationId: string, body: { resourceType: string; url: string; title?: string; linkedBy: string; otterId?: string; autoLinked: boolean }): Promise<LinkedResourceDTO> {
+export function linkResource(conversationId: string, body: { resourceType: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; otterId?: string; autoLinked: boolean }): Promise<LinkedResourceDTO> {
   return request(`/conversations/${conversationId}/resources`, { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function deleteKeyFact(conversationId: string, factId: string): Promise<void> {
-  return request(`/conversations/${conversationId}/key-facts/${factId}`, { method: 'DELETE' })
-}
-
-export function flagKeyFact(conversationId: string, factId: string, flagged: boolean): Promise<{ status: string }> {
-  return request(`/conversations/${conversationId}/key-facts/${factId}`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
+export function flagResource(conversationId: string, resourceId: string, flagged: boolean): Promise<{ status: string }> {
+  return request(`/conversations/${conversationId}/resources/${resourceId}`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
 }
 
 export function deleteLinkedResource(conversationId: string, resourceId: string): Promise<void> {

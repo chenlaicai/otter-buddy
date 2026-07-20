@@ -1,15 +1,14 @@
 /** 记忆层 */
-export type MemoryLayer = "working" | "historical" | "key_info";
+export type MemoryLayer = "working" | "historical";
 
 /**
  * 记忆层转换是否有效。
- * working ↔ historical 双向，key_info 单向到 historical。
+ * working ↔ historical 双向。
  */
 export function canTransitionMemoryLayer(from: MemoryLayer, to: MemoryLayer): boolean {
   if (from === to) return false;
   if (from === "working" && to === "historical") return true;
   if (from === "historical" && to === "working") return true;
-  if (from === "key_info" && to === "historical") return true;
   return false;
 }
 
@@ -17,7 +16,7 @@ export function canTransitionMemoryLayer(from: MemoryLayer, to: MemoryLayer): bo
 export type MemoryContentType =
   | "message"
   | "conversation_summary"
-  | "key_fact"
+  | "fact"
   | "linked_resource";
 
 /** 检索粒度 */

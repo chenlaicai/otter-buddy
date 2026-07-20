@@ -39,8 +39,10 @@ export interface CreateOtterInput {
 /** 链接资源输入 */
 export interface LinkResourceInput {
   conversationId: string;
-  url: string;
+  url?: string;
   title?: string;
+  content?: string;
+  category?: string;
   linkedBy: string;
   resourceType?: string;
   groupId?: string;

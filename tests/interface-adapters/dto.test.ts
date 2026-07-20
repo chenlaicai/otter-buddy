@@ -3,7 +3,7 @@ import { toMessageDTO, toMessageEventDTO } from "@interface-adapters/http/dto/me
 import { toConversationDTO, toParticipantDTO } from "@interface-adapters/http/dto/conversation-dto";
 import { toOtterDTO, toOtterSessionDTO } from "@interface-adapters/http/dto/otter-dto";
 import { toMemoryEntryDTO } from "@interface-adapters/http/dto/memory-dto";
-import { toKeyFactDTO, toLinkedResourceDTO, toKeyInfoDTO } from "@interface-adapters/http/dto/key-info-dto";
+import { toLinkedResourceDTO, toKeyInfoDTO } from "@interface-adapters/http/dto/key-info-dto";
 import type { Message, MessageEvent } from "@entities/conversation/message";
 import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
@@ -127,28 +127,16 @@ describe("MemoryDTO", () => {
 });
 
 describe("KeyInfoDTO", () => {
-  it("maps key fact to DTO", () => {
-    const fact = {
-      id: "kf-1", conversationId: "conv-1", content: "Important fact",
-      category: "info", userFlagged: false, createdBy: "user-1",
-      otterId: null, createdAt: "2026-07-16T00:00:00Z",
-    };
-    const dto = toKeyFactDTO(fact);
-    expect(dto.content).toBe("Important fact");
-    expect(dto.category).toBe("info");
-  });
-
   it("maps key info combo to DTO", () => {
-    const info = { keyFacts: [], linkedResources: [] };
-    const dto = toKeyInfoDTO(info);
-    expect(dto.keyFacts).toEqual([]);
-    expect(dto.linkedResources).toEqual([]);
+    const dto = toKeyInfoDTO([]);
+    expect(dto.resources).toEqual([]);
   });
 
   it("maps linked resource to DTO", () => {
     const res = {
       id: "lr-1", conversationId: "conv-1", resourceType: "url",
       url: "https://example.com", title: "Example",
+      content: null, category: null, userFlagged: false,
       metadata: null, linkedBy: "otter-1", otterId: "otter-1",
       autoLinked: false, createdAt: "2026-07-16T00:00:00Z",
       status: "active" as const, linkedAtTurnNumber: 0, statusChangedAtTurnNumber: 0,
@@ -157,5 +145,23 @@ describe("KeyInfoDTO", () => {
     const dto = toLinkedResourceDTO(res);
     expect(dto.url).toBe("https://example.com");
     expect(dto.title).toBe("Example");
+  });
+
+  it("maps fact resource to DTO", () => {
+    const res = {
+      id: "fact-1", conversationId: "conv-1", resourceType: "fact",
+      url: null, title: null,
+      content: "Important fact", category: "info", userFlagged: true,
+      metadata: null, linkedBy: "user-1", otterId: null,
+      autoLinked: false, createdAt: "2026-07-16T00:00:00Z",
+      status: "active" as const, linkedAtTurnNumber: 0, statusChangedAtTurnNumber: 0,
+      groupId: null, supersededBy: null,
+    };
+    const dto = toLinkedResourceDTO(res);
+    expect(dto.resourceType).toBe("fact");
+    expect(dto.content).toBe("Important fact");
+    expect(dto.category).toBe("info");
+    expect(dto.userFlagged).toBe(true);
+    expect(dto.url).toBeNull();
   });
 });

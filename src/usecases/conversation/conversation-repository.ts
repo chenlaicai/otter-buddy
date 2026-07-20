@@ -3,7 +3,6 @@ import type {
   Conversation,
   ConversationStatus,
   Turn,
-  KeyFact,
   LinkedResource,
   Attachment,
   ConversationParticipant,
@@ -90,18 +89,15 @@ export interface ConversationRepository {
   // Turn 历史（含消息）
   getTurnHistory(conversationId: string, includeMessages?: boolean): Promise<TurnHistoryEntry[]>;
 
-  // Key Info
-  addKeyFact(keyFact: KeyFact): Promise<void>;
+  // Key Resources（统一产物模型）
   linkResource(resource: LinkedResource): Promise<void>;
-  getKeyFacts(conversationId: string): Promise<KeyFact[]>;
   getLinkedResources(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]>;
   getLinkedResourceById(id: string): Promise<LinkedResource | null>;
   getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
   updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void>;
   supersedeLinkedResource(existingId: string, newResource: LinkedResource, statusChangedAtTurnNumber: number): Promise<void>;
-  deleteKeyFact(id: string): Promise<void>;
-  flagKeyFact(id: string, flagged: boolean): Promise<void>;
   deleteLinkedResource(id: string): Promise<void>;
+  flagResource(id: string, flagged: boolean): Promise<void>;
 
   // Participant 管理（UA-4~UA-10）
   createParticipant(participant: ConversationParticipant): Promise<void>;

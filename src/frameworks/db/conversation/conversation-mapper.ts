@@ -4,7 +4,6 @@ import type {
   Conversation,
   ConversationStatus,
   ConversationParticipant,
-  KeyFact,
   LinkedResource,
   ParticipantStatus,
   Turn,
@@ -55,23 +54,15 @@ export interface MessageEventRow {
   created_at: string;
 }
 
-export interface KeyFactRow {
-  id: string;
-  conversation_id: string;
-  content: string;
-  category: string | null;
-  user_flagged: number;
-  created_by: string;
-  otter_id: string | null;
-  created_at: string;
-}
-
 export interface LinkedResourceRow {
   id: string;
   conversation_id: string;
   resource_type: string;
-  url: string;
+  url: string | null;
   title: string | null;
+  content: string | null;
+  category: string | null;
+  user_flagged: number;
   metadata: string | null;
   linked_by: string;
   otter_id: string | null;
@@ -153,19 +144,6 @@ export function rowToMessageEvent(row: MessageEventRow): MessageEvent {
   };
 }
 
-export function rowToKeyFact(row: KeyFactRow): KeyFact {
-  return {
-    id: row.id,
-    conversationId: row.conversation_id,
-    content: row.content,
-    category: row.category,
-    userFlagged: row.user_flagged === 1,
-    createdBy: row.created_by,
-    otterId: row.otter_id,
-    createdAt: row.created_at,
-  };
-}
-
 export function rowToLinkedResource(row: LinkedResourceRow): LinkedResource {
   return {
     id: row.id,
@@ -173,6 +151,9 @@ export function rowToLinkedResource(row: LinkedResourceRow): LinkedResource {
     resourceType: row.resource_type,
     url: row.url,
     title: row.title,
+    content: row.content,
+    category: row.category,
+    userFlagged: row.user_flagged === 1,
     metadata: row.metadata
       ? (JSON.parse(row.metadata) as Record<string, unknown>)
       : null,
