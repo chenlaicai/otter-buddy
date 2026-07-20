@@ -27,6 +27,10 @@ describe("Message API", () => {
       expect(body[0].id).toBe("msg-1");
       expect(body[0].st).toBe("user");
       expect(body[0].content).toBe("Hello world");
+      expect(deps.queryMessage.getMessages).toHaveBeenCalledWith("conv-1", {
+        limit: 50,
+        before: undefined,
+      });
     });
 
     it("respects custom limit and before params", async () => {
@@ -34,6 +38,10 @@ describe("Message API", () => {
 
       const res = await app.request("/api/conversations/conv-1/messages?limit=10&before=msg-5");
       expect(res.status).toBe(200);
+      expect(deps.queryMessage.getMessages).toHaveBeenCalledWith("conv-1", {
+        limit: 10,
+        before: "msg-5",
+      });
     });
 
     it("falls back to 50 for invalid limit", async () => {
@@ -41,6 +49,10 @@ describe("Message API", () => {
 
       const res = await app.request("/api/conversations/conv-1/messages?limit=abc");
       expect(res.status).toBe(200);
+      expect(deps.queryMessage.getMessages).toHaveBeenCalledWith("conv-1", {
+        limit: 50,
+        before: undefined,
+      });
     });
 
     it("falls back to 50 for negative limit", async () => {
@@ -48,6 +60,10 @@ describe("Message API", () => {
 
       const res = await app.request("/api/conversations/conv-1/messages?limit=-5");
       expect(res.status).toBe(200);
+      expect(deps.queryMessage.getMessages).toHaveBeenCalledWith("conv-1", {
+        limit: 50,
+        before: undefined,
+      });
     });
   });
 
@@ -106,10 +122,9 @@ describe("Message API", () => {
       expect(body.error).toContain("body");
     });
 
-    it("creates user message and returns SSE stream", async () => {
+    it("creates user message with correct params and returns SSE stream", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-      // agentInvoker.invokeConversation is fire-and-forget, mock it to return a never-resolving promise
       deps.agentInvoker.invokeConversation.mockReturnValue(new Promise(() => {}));
 
       const res = await app.request("/api/conversations/conv-1/messages", {
@@ -118,9 +133,15 @@ describe("Message API", () => {
         body: JSON.stringify(validBody),
       });
 
-      // SSE response
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/event-stream");
+      expect(deps.sendMessageUseCase.send).toHaveBeenCalledWith({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: ["otter-1"],
+        body: "Hello otter",
+        attachments: undefined,
+      });
     });
   });
 
@@ -223,7 +244,7 @@ describe("Message API", () => {
       expect(body.error).toContain("otter");
     });
 
-    it("aborts otter message successfully", async () => {
+    it("aborts otter message and calls agentInvoker.abort", async () => {
       deps.queryMessage.getMessageById.mockResolvedValue(
         makeMessage({ senderType: "otter", senderId: "otter-1" }),
       );
@@ -235,6 +256,7 @@ describe("Message API", () => {
       expect(res.status).toBe(202);
       const body = await json(res);
       expect(body.status).toBe("aborted");
+      expect(deps.agentInvoker.abort).toHaveBeenCalledWith("otter-1", "msg-1");
     });
   });
 });

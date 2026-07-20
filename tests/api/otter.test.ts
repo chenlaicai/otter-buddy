@@ -73,6 +73,14 @@ describe("Otter API", () => {
       const body = await json(res);
       expect(body.id).toBe("new-otter");
       expect(body.name).toBe("New Friend");
+      expect(deps.createOtterUseCase.execute).toHaveBeenCalledWith({
+        name: "New Friend",
+        type: "small",
+        role: undefined,
+        parentOtterId: undefined,
+        systemPrompt: undefined,
+        context: undefined,
+      });
     });
 
     it("passes all optional fields", async () => {
@@ -93,6 +101,14 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
+      expect(deps.createOtterUseCase.execute).toHaveBeenCalledWith({
+        name: "Child Otter",
+        type: "small",
+        role: { name: "coder", responsibilities: ["write code"] },
+        parentOtterId: "parent-1",
+        systemPrompt: "You are a coder",
+        context: { project: "test" },
+      });
     });
   });
 
@@ -152,6 +168,15 @@ describe("Otter API", () => {
       expect(body[0].id).toBe("s1");
       expect(body[1].id).toBe("s2");
     });
+
+    it("returns empty array when no sessions", async () => {
+      deps.manageSession.getSessionHistory.mockResolvedValue([]);
+
+      const res = await app.request("/api/otters/otter-1/sessions");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body).toEqual([]);
+    });
   });
 
   // ─── POST /api/otters/:id/sessions ───
@@ -202,6 +227,12 @@ describe("Otter API", () => {
       expect(res.status).toBe(201);
       const body = await json(res);
       expect(body.id).toBe("new-session");
+      expect(deps.manageSession.archiveSession).toHaveBeenCalledWith("old-session", {
+        reason: "restart",
+        isNegativeCase: false,
+        summary: "Restarting",
+      });
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
     });
 
     it("creates new session when no active session exists", async () => {
@@ -214,6 +245,8 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
+      expect(deps.manageSession.archiveSession).not.toHaveBeenCalled();
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
     });
   });
 });
