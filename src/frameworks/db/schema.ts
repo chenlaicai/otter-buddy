@@ -377,11 +377,11 @@ function createMessagesFtsTable(db: Database.Database): void {
     END;
 
     CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
-      INSERT INTO messages_fts(messages_fts, message_id, body) VALUES ('delete', OLD.id, OLD.body);
+      DELETE FROM messages_fts WHERE message_id = OLD.id;
     END;
 
     CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF body ON messages BEGIN
-      INSERT INTO messages_fts(messages_fts, message_id, body) VALUES ('delete', OLD.id, COALESCE(OLD.body, ''));
+      DELETE FROM messages_fts WHERE message_id = OLD.id;
       INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
     END;
   `);
