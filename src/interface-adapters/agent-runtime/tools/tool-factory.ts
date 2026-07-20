@@ -195,6 +195,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         category: { type: "string", description: "分类标签（fact 类型可选）" },
         groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）" },
       },
+      required: ["resourceType"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);

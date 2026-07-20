@@ -57,6 +57,12 @@ export class ManageKeyInfo {
   }
 
   async linkResource(input: LinkedResourceInput, currentTurnNumber = 0): Promise<LinkedResource> {
+    if (input.resourceType === "fact" && !input.content) {
+      throw new Error("fact 类型资源必须提供 content");
+    }
+    if (input.resourceType !== "fact" && !input.url) {
+      throw new Error("非 fact 类型资源必须提供 url");
+    }
     const resource = this.buildResource(input, currentTurnNumber);
     await this.repo.linkResource(resource);
     await this.memoryIndex.indexLinkedResource(resource.id, resource.conversationId, this.getIndexContent(input), input.resourceType);

@@ -13,7 +13,7 @@ interface RightPanelProps {
   onDissolveOtter: (otterId: string) => void
   onRestartOtter: (otterId: string) => void
   onOpenOtterDetail: (otterId: string) => void
-  onAddKeyFact: (content: string, category: string) => void
+  onAddFact: (content: string, category: string) => void
   onToggleResourceFlag: (id: string) => void
   onAddLinkedResource: () => void
   onDeleteLinkedResource: (id: string) => void
@@ -27,9 +27,9 @@ export function RightPanel(props: RightPanelProps) {
   const keyFacts = props.linkedResources.filter(r => r.type === 'fact')
   const otherResources = props.linkedResources.filter(r => r.type !== 'fact')
 
-  function handleAddKeyFact() {
+  function handleAddFact() {
     if (!kfContent.trim()) return
-    props.onAddKeyFact(kfContent, kfCategory)
+    props.onAddFact(kfContent, kfCategory)
     setKfContent('')
     setKfCategory('')
     setShowKfForm(false)
@@ -88,7 +88,7 @@ export function RightPanel(props: RightPanelProps) {
             <div className="flex gap-1.5 justify-end">
               <button onClick={() => setShowKfForm(false)} className="px-2.5 py-1 text-xs text-stone-500">取消</button>
               <button
-                onClick={handleAddKeyFact}
+                onClick={handleAddFact}
                 className="px-2.5 py-1 text-xs text-white rounded-lg"
                 style={{ background: OTTER_GRADIENT }}
               >

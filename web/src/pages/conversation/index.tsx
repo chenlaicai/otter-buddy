@@ -266,7 +266,7 @@ function ConversationPage() {
     } catch { showToast('链接失败', 'error') }
   }
 
-  async function addKeyFact(content: string, category: string) {
+  async function addFact(content: string, category: string) {
     if (!activeId) return
     try {
       const dto = await api.linkResource(activeId, { resourceType: 'fact', content, category, linkedBy: 'user', autoLinked: false })
@@ -331,7 +331,7 @@ function ConversationPage() {
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={allOtters} />
         <ChatView conversation={activeConv} messages={activeMessages} streamingMessage={streaming} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={allOtters} />
-        <RightPanel conversation={activeConv || conversations[0]} otters={activeOtters} sessions={sessions} linkedResources={activeLinkedRes} onCreateSmallOtter={() => setModal({ type: 'create-otter' })} onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })} onRestartOtter={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenOtterDetail={(oid) => setModal({ type: 'otter-detail', otterId: oid })} onAddKeyFact={addKeyFact} onToggleResourceFlag={toggleResourceFlag} onAddLinkedResource={() => setModal({ type: 'link-resource' })} onDeleteLinkedResource={deleteLinkedResource} />
+        <RightPanel conversation={activeConv || conversations[0]} otters={activeOtters} sessions={sessions} linkedResources={activeLinkedRes} onCreateSmallOtter={() => setModal({ type: 'create-otter' })} onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })} onRestartOtter={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenOtterDetail={(oid) => setModal({ type: 'otter-detail', otterId: oid })} onAddFact={addFact} onToggleResourceFlag={toggleResourceFlag} onAddLinkedResource={() => setModal({ type: 'link-resource' })} onDeleteLinkedResource={deleteLinkedResource} />
       </div>
 
       {ctxMenu && activeConvForMenu && (
