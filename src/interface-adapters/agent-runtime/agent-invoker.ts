@@ -185,13 +185,13 @@ export class AgentInvoker {
       }
       onSSEEvent?.({ event: "message.aborted", data: { messageId, abortBody: body } });
     } else {
-      /** error 路径：标记失败 */
+      /** error 路径：标记失败，存错误信息到 body */
+      const msg = err instanceof Error ? err.message : "Unknown error";
       try {
-        await this.sendMessage.fail(messageId);
+        await this.sendMessage.fail(messageId, `[错误] ${msg}`);
       } catch {
         /** fail() 出错时不覆盖原始错误 */
       }
-      const msg = err instanceof Error ? err.message : "Unknown error";
       onSSEEvent?.({ event: "error", data: { message: msg } });
     }
   }
