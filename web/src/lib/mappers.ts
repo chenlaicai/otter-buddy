@@ -19,6 +19,12 @@ export interface LocalConversation {
   otterIds: string[]
 }
 
+/** 前端本地消息事件 */
+export interface LocalMessageEvent {
+  eventType: string
+  payload: Record<string, unknown>
+}
+
 /** 前端本地 Message 类型 */
 export interface LocalMessage {
   id: string
@@ -27,7 +33,7 @@ export interface LocalMessage {
   content: string
   ts: string
   dur: string | null
-  sp?: string
+  events?: LocalMessageEvent[]
   ctx?: number
   ctxMax?: number
 }

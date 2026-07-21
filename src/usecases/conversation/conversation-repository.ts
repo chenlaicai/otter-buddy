@@ -60,7 +60,7 @@ export interface ConversationRepository {
     contextTokens?: number;
     contextTokensMax?: number;
   }): Promise<void>;
-  failMessage(messageId: string, failedAt: string): Promise<void>;
+  failMessage(messageId: string, failedAt: string, body?: string): Promise<void>;
   /** 中止消息：streaming -> aborted（body 必须非空，talkingStonePassedTo 必须非空） */
   abortMessage(
     messageId: string,
@@ -82,6 +82,7 @@ export interface ConversationRepository {
   // MessageEvent
   appendEvent(event: MessageEvent): Promise<void>;
   getMessageEvents(messageId: string): Promise<MessageEvent[]>;
+  getMessageEventsByMessageIds(messageIds: string[]): Promise<MessageEvent[]>;
   getMaxEventSequenceNum(messageId: string): Promise<number>;
 
   // Message 全文搜索（FTS5）

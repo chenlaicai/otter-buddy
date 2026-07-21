@@ -20,6 +20,10 @@ export class QueryMessage {
     return this.repo.getMessageEvents(messageId);
   }
 
+  async getMessageEventsByMessageIds(messageIds: string[]): Promise<MessageEvent[]> {
+    return this.repo.getMessageEventsByMessageIds(messageIds);
+  }
+
   /** 关键词搜索消息（FTS5 trigram） */
   async searchMessages(
     conversationId: string,

@@ -211,8 +211,8 @@ export class SendMessage {
     };
   }
 
-  /** 标记消息失败（body 保持 null） */
-  async fail(messageId: string): Promise<void> {
+  /** 标记消息失败（可选 body 存错误信息） */
+  async fail(messageId: string, body?: string): Promise<void> {
     const message = await this.repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
@@ -222,7 +222,7 @@ export class SendMessage {
     }
 
     const now = new Date().toISOString();
-    await this.repo.failMessage(messageId, now);
+    await this.repo.failMessage(messageId, now, body);
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this.repo, message.turnId);

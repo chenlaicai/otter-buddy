@@ -17,16 +17,30 @@ export interface ConversationInvokeResult {
 }
 
 /** Pi 事件 -> SSE 事件映射 */
+/** 从 message_end 事件提取 assistant 内容块（过滤 user/toolResult） */
+function extractAssistantContent(e: AgentStreamEvent): { type: "toolcall" | "text"; blocks: Array<Record<string, unknown>> } | null {
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+  const role = msg?.role as string | undefined;
+  const content = msg?.content as Array<Record<string, unknown>> | undefined;
+  if (!content || role === "user" || role === "toolResult") return null;
+  const toolCalls = content.filter((c) => c.type === "toolCall");
+  if (toolCalls.length > 0) return { type: "toolcall", blocks: toolCalls };
+  const textBlocks = content.filter((c) => c.type === "text");
+  return textBlocks.length > 0 ? { type: "text", blocks: textBlocks } : null;
+}
+
 function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
   switch (e.type) {
-    case "message_update":
-      return e.delta ? { event: "message.delta", data: { text: e.delta } } : null;
-    case "tool_execution_start":
-      return { event: "tool.start", data: { toolName: e.name ?? e.toolName ?? "" } };
     case "tool_execution_end":
       return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
+    case "message_end": {
+      const extracted = extractAssistantContent(e);
+      if (!extracted) return null;
+      const event = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
+      return { event, data: { content: extracted.blocks } };
+    }
     case "turn_end":
-      /** D5-fix: turn.complete 延迟到 message.complete 之后发出，匹配设计文档事件顺序 */
       return null;
     case "agent_end":
       return { event: "agent.idle", data: {} };
@@ -35,26 +49,47 @@ function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
   }
 }
 
+/** 从 message_end 事件提取可存储的 MessageEventInput */
+function mapMessageEndEvent(e: AgentStreamEvent, messageId: string): MessageEventInput | null {
+  const extracted = extractAssistantContent(e);
+  if (!extracted) return null;
+  const eventType = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
+  return { messageId, eventType, payload: { content: extracted.blocks } };
+}
+
 /** Pi 事件 -> MessageEventInput 映射（持久化到 DB） */
 function mapToMessageEventInput(
   e: AgentStreamEvent,
   messageId: string,
 ): MessageEventInput | null {
   switch (e.type) {
-    case "message_update":
-      return e.delta
-        ? { messageId, eventType: "text_delta", payload: { text: e.delta } }
-        : null;
-    case "tool_execution_start":
-      return { messageId, eventType: "tool_call", payload: { name: e.name ?? e.toolName } };
     case "tool_execution_end":
       return { messageId, eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
+    case "message_end":
+      return mapMessageEndEvent(e, messageId);
     default:
       if (String(e.type).includes("error")) {
         return { messageId, eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };
       }
       return null;
   }
+}
+
+/** 从 agent 事件中提取错误信息 */
+function extractAgentError(e: AgentStreamEvent): string | undefined {
+  if (e.type === "error") return String(e.error ?? e.message ?? "Unknown agent error");
+  if (e.type === "tool_execution_end" && e.error) return String(e.error);
+  if (e.type === "turn_end") return extractTurnEndError(e);
+  return undefined;
+}
+
+function extractTurnEndError(e: AgentStreamEvent): string | undefined {
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  const msg = (inner ?? (e as Record<string, unknown>).message) as Record<string, unknown> | undefined;
+  if (msg?.stopReason === "error" || msg?.errorMessage) {
+    return String(msg.errorMessage ?? "Agent API error");
+  }
+  return undefined;
 }
 
 export class AgentInvoker {
@@ -92,6 +127,7 @@ export class AgentInvoker {
     onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId } });
 
     try {
+      let agentError: string | undefined;
       const result = await this.agentInvoke.invoke(otterId, userMessageContent, {
         dynamicContext,
         conversationId,
@@ -104,8 +140,10 @@ export class AgentInvoker {
             // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
             console.warn(`Failed to persist message event for ${message.id}: ${m}`);
           });
+          if (!agentError) agentError = extractAgentError(e);
         },
       });
+      if (!result.text) throw new Error(agentError || "Agent returned empty response");
 
       const contextTokens = result.tokenUsage
         ? result.tokenUsage.input + result.tokenUsage.output
@@ -170,14 +208,13 @@ export class AgentInvoker {
       }
       onSSEEvent?.({ event: "message.aborted", data: { messageId, abortBody: body } });
     } else {
-      /** error 路径：标记失败 */
+      /** error 路径：标记失败，存错误信息到 body。SSE error 由 .catch 统一发送，避免重复 */
+      const msg = err instanceof Error ? err.message : "Unknown error";
       try {
-        await this.sendMessage.fail(messageId);
+        await this.sendMessage.fail(messageId, `[错误] ${msg}`);
       } catch {
         /** fail() 出错时不覆盖原始错误 */
       }
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      onSSEEvent?.({ event: "error", data: { message: msg } });
     }
   }
 

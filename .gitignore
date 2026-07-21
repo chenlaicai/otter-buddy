@@ -58,3 +58,14 @@ coverage/
 # Temporary folders
 tmp/
 temp/
+
+# Runtime files
+.otter-buddy.pid
+
+# Database files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Agent sessions
+data/sessions/

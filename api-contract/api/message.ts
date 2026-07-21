@@ -15,6 +15,7 @@ export interface MessageDTO {
   attachments: Attachment[] | null;
   ctx?: number;
   ctxMax?: number;
+  events?: MessageEventDTO[];
 }
 
 /** 消息事件 DTO */

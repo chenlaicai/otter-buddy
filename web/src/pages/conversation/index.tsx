@@ -59,9 +59,20 @@ function ConversationPage() {
         api.getKeyResources(convId),
         api.getParticipants(convId),
       ])
+      /**   events 已嵌入 messages 响应，无需额外请求 */
+      const mapped = msgs.map((msg) => {
+        const local = mapMessageDTO(msg)
+        if (local.st === 'otter' && msg.events && msg.events.length > 0) {
+          local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown> }) => ({
+            eventType: e.eventType,
+            payload: e.payload,
+          }))
+        }
+        return local
+      })
       setAllMessages(prev => ({
         ...prev,
-        [convId]: msgs.map(mapMessageDTO).reverse(),
+        [convId]: mapped.reverse(),
       }))
       setAllLinkedRes(prev => ({
         ...prev,
@@ -126,29 +137,60 @@ function ConversationPage() {
       if (!response.ok) { showToast('发送失败', 'error'); return }
 
       const startTime = Date.now()
-      let streamingText = ''
       let otterMessageId = ''
+      const liveEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = []
+      let idleTimer: ReturnType<typeof setTimeout> | null = null
 
-      setStreaming({ otterId, streamingText: '', finalText: '', showFinal: false, duration: 0 })
+      setStreaming({ otterId, duration: 0, events: [] })
 
       const ctrl = consumeSSE(response, {
         'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
-        'message.delta': (data) => {
-          streamingText += data.text
-          setStreaming(prev => prev ? { ...prev, streamingText, duration: (Date.now() - startTime) / 1000 } : null)
+        'assistant_toolcall': (data) => {
+          liveEvents.push({ eventType: 'assistant_toolcall', payload: { content: data.content } })
+          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
+        },
+        'tool.result': (data) => {
+          liveEvents.push({ eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
+          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
+        },
+        'assistant_text': (data) => {
+          liveEvents.push({ eventType: 'assistant_text', payload: { content: data.content } })
+          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
         },
         'message.complete': (data) => {
+          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
           const finalMsg: LocalMessage = {
             id: data.messageId || otterMessageId, st: 'otter', si: otterId,
-            content: streamingText, ts: nowTs(), dur: data.duration, ctx: data.ctx, ctxMax: data.ctxMax,
+            content: 'fixme', ts: nowTs(), dur: data.duration, events: liveEvents.length > 0 ? liveEvents : undefined, ctx: data.ctx, ctxMax: data.ctxMax,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
           otterMsgIdRef.current = ''
           setStreaming(null)
         },
-        'error': (data) => { showToast(`Agent 错误: ${data.message}`, 'error'); otterMsgIdRef.current = ''; setStreaming(null) },
-        'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
-        'agent.idle': () => {},
+        'error': (data) => {
+          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+          const errMsg: LocalMessage = {
+            id: otterMessageId || crypto.randomUUID(), st: 'otter', si: otterId,
+            content: `[错误] ${data.message}`, ts: nowTs(), dur: null,
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), errMsg] }))
+          showToast(`Agent 错误: ${data.message}`, 'error')
+          otterMsgIdRef.current = ''
+          setStreaming(null)
+        },
+        'message.aborted': () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }; showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
+        'agent.idle': () => {
+          /** fallback: agent.idle 后 2s 如果 streaming 还在，强制清除 */
+          idleTimer = setTimeout(() => {
+            setStreaming(prev => {
+              if (prev) {
+                showToast('回复已完成', 'info')
+                return null
+              }
+              return prev
+            })
+          }, 2000)
+        },
       }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
       sseCtrlRef.current = ctrl
     } catch (err) {

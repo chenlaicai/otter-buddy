@@ -50,12 +50,11 @@ describe("MessageDTO", () => {
   it("maps MessageEvent entity to DTO", () => {
     const evt: MessageEvent = {
       id: "evt-1", messageId: "msg-1",
-      eventType: "text_delta", payload: { text: "Hello" },
+      eventType: "assistant_text", payload: { role: "assistant", content: [{ type: "text", text: "Hello" }] },
       sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z",
     };
     const dto = toMessageEventDTO(evt);
-    expect(dto.eventType).toBe("text_delta");
-    expect(dto.payload.text).toBe("Hello");
+    expect(dto.eventType).toBe("assistant_text");
   });
 });
 

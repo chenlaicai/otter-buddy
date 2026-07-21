@@ -5,6 +5,9 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 import { config } from "@frameworks/config";
 import { logger } from "@frameworks/logger";
@@ -361,7 +364,29 @@ function startServer(
   });
 }
 
+/** 将 config.yaml 的 apiKey 同步到 pi-coding-agent 的 auth.json（SDK 不读 config.yaml） */
+function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string }): void {
+  if (!llmConfig.apiKey) return;
+  const homeDir = os.homedir();
+  const agentDir = path.join(homeDir, ".pi", "agent");
+  const authPath = path.join(agentDir, "auth.json");
+  let auth: Record<string, string> = {};
+  try {
+    auth = JSON.parse(fs.readFileSync(authPath, "utf-8"));
+  } catch {
+    /* 文件不存在或格式错误，使用空对象 */
+  }
+  if (auth[llmConfig.provider] !== llmConfig.apiKey) {
+    auth[llmConfig.provider] = llmConfig.apiKey;
+    fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(authPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
+    logger.info(`Synced ${llmConfig.provider} API key to ${authPath}`);
+  }
+}
+
 async function main(): Promise<void> {
+  syncApiKeyToAgentAuth(config.llm);
+
   const db = initDatabase(config.db);
   initSchema(db);
 

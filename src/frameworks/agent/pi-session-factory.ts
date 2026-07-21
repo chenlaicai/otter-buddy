@@ -131,6 +131,8 @@ export class PiSessionFactory implements AgentGateway {
   private platformPrompt = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
+  /** pi-coding-agent ModelRuntime 最小接口（SDK ESM-only，无法直接导入类型） */
+  private modelRuntime: { setRuntimeApiKey(provider: string, key: string): Promise<void> } | null = null;
   private otterToolClient: OtterToolClient;
 
   constructor(private readonly cfg: {
@@ -159,7 +161,7 @@ export class PiSessionFactory implements AgentGateway {
     this.otterToolClient = client;
   }
 
-  /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现） */
+  /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     if (!this.piCodingAgent) {
       this.piCodingAgent = await loadPiCodingAgent();
@@ -178,6 +180,16 @@ export class PiSessionFactory implements AgentGateway {
         await this.resourceLoader.reload();
         const { skills } = this.resourceLoader.getSkills();
         logger.info(`ResourceLoader discovered ${skills.length} skill(s) from ./skills`);
+      }
+
+      /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
+      const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
+      this.modelRuntime = await ModelRuntimeClass.create() as { setRuntimeApiKey(provider: string, key: string): Promise<void> };
+
+      const llmConfig = appConfig.llm;
+      if (llmConfig.apiKey && this.modelRuntime) {
+        await this.modelRuntime.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
+        logger.info(`Set runtime API key for ${llmConfig.provider}`);
       }
     }
     return this.piCodingAgent;
@@ -198,6 +210,8 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
+      modelRuntime: this.modelRuntime as any,
     });
 
     const sessionId = session.sessionId;
@@ -244,6 +258,8 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
+      modelRuntime: this.modelRuntime as any,
     });
 
     /** 更新映射 */
@@ -300,6 +316,8 @@ export class PiSessionFactory implements AgentGateway {
       tools: codingTools,
       customTools: customTools as never,
       resourceLoader: this.resourceLoader ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
+      modelRuntime: this.modelRuntime as any,
     });
 
     /** 注册活跃 session 引用，支持外部 abort + 工具调用计数 */
@@ -311,34 +329,43 @@ export class PiSessionFactory implements AgentGateway {
     /** 构建完整消息：系统提示 + 动态上下文 + 用户消息 */
     const fullMessage = this.buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
 
-    let resultText = "";
     const activeEntry = this.activeSessions.get(otterId);
+    let _finalText = "";
     const unsubscribe = session.subscribe((event: unknown) => {
       const e = event as AgentEvent;
-      if (e.type === "message_update" && e.delta) {
-        resultText += e.delta;
-      }
       /** 跟踪工具调用次数（abort body 需要此信息） */
       if (e.type === "tool_execution_start" && activeEntry) {
         activeEntry.toolCallCount++;
       }
-      options?.onEvent?.(e);
+      /** 从 message_end 提取最终 text 内容（忽略 thinking） */
+      if (e.type === "message_end") {
+        const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+        const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+        const content = msg?.content as Array<Record<string, unknown>> | undefined;
+        if (content) {
+          const textBlock = content.find((b) => b.type === "text");
+          if (textBlock?.text) _finalText = String(textBlock.text);
+        }
+      }
+      /** 不转发 message_update（不流式推送前端），只转发工具和生命周期事件 */
+      if (e.type !== "message_update") {
+        options?.onEvent?.(e);
+      }
     });
 
     try {
       await session.prompt(fullMessage);
 
+      /** TODO: set_final_body 工具实现前，body 强制写入 fixme */
+      const resultText = "fixme";
+
       /** 从 session stats 恢复 token usage */
       const stats = session.getSessionStats();
       const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
+      this.checkTokenWarning(otterId, stats.tokens);
 
-      /** token 超阈值警告 */
-      const total = stats.tokens.input + stats.tokens.output;
-      if (total > TOKEN_WARNING_THRESHOLD) {
-        logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
-      }
-
-      return this.buildResult(resultText, tokenUsage, circuitBreaker);
+      const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
+      return this.buildResult(resultText, tokenUsage, circuitBreaker, ctxMax);
     } catch (err) {
       /** 将 toolCallCount 附着到异常，供 handleInvokeError 在 finally 清理后仍可读取 */
       (err as Error & { _toolCallCount?: number })._toolCallCount =
@@ -482,17 +509,27 @@ export class PiSessionFactory implements AgentGateway {
     return { circuitBreaker, unregisterToolCall };
   }
 
+  /** token 超阈值警告 */
+  private checkTokenWarning(otterId: string, tokens: { input: number; output: number }): void {
+    const total = tokens.input + tokens.output;
+    if (total > TOKEN_WARNING_THRESHOLD) {
+      logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
+    }
+  }
+
   /** 构建执行结果（含熔断器元数据） */
   private buildResult(
     text: string,
     tokenUsage?: { input: number; output: number },
     circuitBreaker?: ToolCallCircuitBreaker,
+    ctxMax?: number,
   ): AgentRunResult {
     return {
       text,
       tokenUsage: tokenUsage
         ? { input: tokenUsage.input, output: tokenUsage.output }
         : undefined,
+      ctxMax,
       circuitBreakerMetadata: circuitBreaker?.getMetadata(),
     };
   }

@@ -24,7 +24,26 @@ export class MessageController {
         limit,
         before,
       });
-      return c.json(messages.map(toMessageDTO));
+      /** 批量查询 events（避免前端 N+1 请求） */
+      const messageIds = messages.filter((m) => m.senderType === "otter").map((m) => m.id);
+      const allEvents = messageIds.length > 0
+        ? await this.queryMessage.getMessageEventsByMessageIds(messageIds)
+        : [];
+      const eventsByMsg = new Map<string, typeof allEvents>();
+      for (const evt of allEvents) {
+        const arr = eventsByMsg.get(evt.messageId) ?? [];
+        arr.push(evt);
+        eventsByMsg.set(evt.messageId, arr);
+      }
+      const dtos = messages.map((msg) => {
+        const dto = toMessageDTO(msg);
+        const evts = eventsByMsg.get(msg.id);
+        if (evts && evts.length > 0) {
+          dto.events = evts.map(toMessageEventDTO);
+        }
+        return dto;
+      });
+      return c.json(dtos);
     } catch (err) {
       return handleError(c, err);
     }

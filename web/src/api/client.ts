@@ -65,6 +65,10 @@ export function listMessages(conversationId: string, limit = 50): Promise<Messag
   return request(`/conversations/${conversationId}/messages?limit=${limit}`)
 }
 
+export function getMessageEvents(messageId: string): Promise<MessageEventDTO[]> {
+  return request(`/messages/${messageId}/events`)
+}
+
 export function sendMessage(conversationId: string, body: SendMessageRequestDTO): Promise<Response> {
   return fetch(`${BASE}/conversations/${conversationId}/messages`, {
     method: 'POST',
