@@ -55,6 +55,10 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       required: ["body", "talkingStonePassedTo"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
+      if (!ctx.currentMessageId) {
+        return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法结束发言。");
+      }
+
       const body = params.body as string;
       const recipients = params.talkingStonePassedTo as string[];
 

@@ -312,9 +312,11 @@ export class AgentInvoker {
 
       await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
 
-      return this.invokeConversation({
+      const retryResult = await this.invokeConversation({
         otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount: 1,
       });
+      /** 合并重试的 tokenUsage（重试路径可能已更新） */
+      return { ...retryResult, tokenUsage: retryResult.tokenUsage ?? tokenUsage };
     }
 
     /** 第二次仍失败：fail + 发言石额外包含 user */
