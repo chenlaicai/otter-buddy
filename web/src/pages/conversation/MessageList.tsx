@@ -195,11 +195,11 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
   const { eventType, payload } = event
   const [expanded, setExpanded] = useState(false)
 
-  /** assistant_toolcall：展示工具名 + 参数，折叠 thinking */
+  /** assistant_toolcall：展示 event_type + 工具名 + 参数 */
   if (eventType === 'assistant_toolcall') {
     const content = payload.content as Array<Record<string, unknown>> | undefined
     const toolCall = content?.find(c => c.type === 'toolCall') as Record<string, unknown> | undefined
-    const toolName = (toolCall?.toolName as string) || '工具'
+    const toolName = (toolCall?.toolName as string) || ''
     const params = toolCall?.input || toolCall?.params
     const paramsStr = params ? JSON.stringify(params) : ''
     const paramsPreview = paramsStr.length > 60 ? paramsStr.slice(0, 60) + '...' : paramsStr
@@ -211,7 +211,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           onClick={() => setExpanded(!expanded)}
         >
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-amber-50 text-amber-700">call</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-amber-50 text-amber-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{toolName} {paramsPreview}</span>
         </div>
         {expanded && paramsStr && (
@@ -225,7 +225,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
     )
   }
 
-  /** tool_result：展示工具名 + 结果预览，折叠完整结果 */
+  /** tool_result：展示 event_type + 工具名 + 结果预览 */
   if (eventType === 'tool_result') {
     const name = payload.name as string
     const result = payload.result as Record<string, unknown> | undefined
@@ -240,8 +240,8 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           onClick={() => setExpanded(!expanded)}
         >
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-teal-100 text-teal-700">{name}</span>
-          <span className="text-[11px] text-stone-600 truncate flex-1">{resultPreview}</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-teal-100 text-teal-700">{eventType}</span>
+          <span className="text-[11px] text-stone-600 truncate flex-1">{name} {resultPreview}</span>
         </div>
         {expanded && resultText && (
           <div className="px-3 pb-2 pl-8">
@@ -254,7 +254,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
     )
   }
 
-  /** assistant_text：展示预览，折叠完整文本（Markdown） */
+  /** assistant_text：展示 event_type + 文本预览 */
   if (eventType === 'assistant_text') {
     const content = payload.content as Array<Record<string, unknown>> | undefined
     const text = content?.find(c => c.type === 'text')
@@ -268,7 +268,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           onClick={() => setExpanded(!expanded)}
         >
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-blue-50 text-blue-700">text</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-blue-50 text-blue-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{preview}</span>
         </div>
         {expanded && str && (
@@ -286,7 +286,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
   if (eventType === 'error') {
     return (
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-red-50 text-red-700">error</span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-red-50 text-red-700">{eventType}</span>
         <span className="text-[11px] text-red-600">{payload.message as string}</span>
       </div>
     )
