@@ -68,7 +68,6 @@ function ConversationPage() {
         [convId]: keyInfo.resources.map(mapLinkedResourceDTO),
       }))
       // 更新 allOtters，添加对话中的 otter
-      const otterIds = participants.map(p => p.otterId)
       setAllOtters(prev => {
         const existingIds = new Set(prev.map(o => o.id))
         const newOtters = participants
