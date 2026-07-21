@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square, Copy, Check } from 'lucide-react'
+import { AlertTriangle, Square, Copy, Check, Clock } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent } from '../../lib/utils'
@@ -140,6 +140,19 @@ export function MessageList({ messages, streamingMessage, state, onStopStream, o
 }
 
 function MessageItem({ message: m, otters }: { message: Message; otters: Otter[] }) {
+  // System 消息：居中显示，特殊样式
+  if (m.st === 'system') {
+    return (
+      <div className="flex justify-center my-3 animate-slideIn">
+        <div className="glass-card px-4 py-2 text-xs text-stone-500 flex items-center gap-2 max-w-[500px]">
+          <Clock size={14} className="text-stone-400 flex-shrink-0" />
+          <span className="flex-1">{m.content}</span>
+          <span className="text-stone-300 text-[11px] flex-shrink-0">{m.ts}</span>
+        </div>
+      </div>
+    )
+  }
+
   const isUser = m.st === 'user'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (otter?.name || 'Otter')

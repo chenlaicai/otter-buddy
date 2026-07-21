@@ -150,3 +150,88 @@ export function getSettings(): Promise<SettingsDTO> {
 export function updateSettings(body: UpdateSettingsRequestDTO): Promise<SettingsDTO> {
   return request('/settings', { method: 'PUT', body: JSON.stringify(body) })
 }
+
+// ── Scheduled Tasks ──
+
+export interface CreateScheduledTaskRequestDTO {
+  name: string
+  cron: string
+  timezone?: string
+  body: string
+  talkingStonePassedTo: string[]
+  senderId?: string
+}
+
+export interface UpdateScheduledTaskRequestDTO {
+  name?: string
+  cron?: string
+  timezone?: string
+  body?: string
+  talkingStonePassedTo?: string[]
+  status?: 'active' | 'disabled' | 'error'
+}
+
+export interface ScheduledTaskDTO {
+  id: string
+  conversationId: string
+  name: string
+  cron: string
+  timezone: string
+  body: string
+  talkingStonePassedTo: string[]
+  senderId: string
+  status: string
+  consecutiveFailures: number
+  lastTriggeredAt: string | null
+  nextTriggerAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ScheduledTaskExecutionDTO {
+  id: string
+  taskId: string
+  triggeredAt: string
+  completedAt: string | null
+  status: string
+  errorMessage: string | null
+  messageId: string | null
+  turnId: string | null
+}
+
+export function listScheduledTasks(conversationId: string): Promise<ScheduledTaskDTO[]> {
+  return request(`/conversations/${conversationId}/scheduled-tasks`)
+}
+
+export function createScheduledTask(conversationId: string, body: CreateScheduledTaskRequestDTO): Promise<ScheduledTaskDTO> {
+  return request(`/conversations/${conversationId}/scheduled-tasks`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function getScheduledTask(taskId: string): Promise<ScheduledTaskDTO> {
+  return request(`/scheduled-tasks/${taskId}`)
+}
+
+export function updateScheduledTask(taskId: string, body: UpdateScheduledTaskRequestDTO): Promise<ScheduledTaskDTO> {
+  return request(`/scheduled-tasks/${taskId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteScheduledTask(taskId: string): Promise<void> {
+  return request(`/scheduled-tasks/${taskId}`, { method: 'DELETE' })
+}
+
+export function triggerScheduledTask(taskId: string): Promise<{ executionId: string }> {
+  return request(`/scheduled-tasks/${taskId}/trigger`, { method: 'POST' })
+}
+
+export function listExecutions(taskId: string, options?: { limit?: number; offset?: number }): Promise<{ executions: ScheduledTaskExecutionDTO[]; total: number; limit: number; offset: number }> {
+  const qs = new URLSearchParams()
+  if (options?.limit) qs.set('limit', String(options.limit))
+  if (options?.offset) qs.set('offset', String(options.offset))
+  return request(`/scheduled-tasks/${taskId}/executions?${qs}`)
+}

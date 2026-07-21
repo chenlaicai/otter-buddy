@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Plus, Star, X, MoreHorizontal, RotateCcw } from 'lucide-react'
+import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
-import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession } from '../../lib/mappers'
+import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { OtterAvatar } from '../../components/OtterAvatar'
+import { ScheduledTaskSection } from './ScheduledTaskSection'
 
 interface RightPanelProps {
   conversation: Conversation
@@ -17,6 +18,15 @@ interface RightPanelProps {
   onToggleResourceFlag: (id: string) => void
   onAddLinkedResource: () => void
   onDeleteLinkedResource: (id: string) => void
+  // 定时任务 props
+  scheduledTasks: LocalScheduledTask[]
+  scheduledTasksLoading: boolean
+  onToggleScheduledTask: (taskId: string) => void
+  onCreateScheduledTask: () => void
+  onEditScheduledTask: (task: LocalScheduledTask) => void
+  onDeleteScheduledTask: (taskId: string) => void
+  onTriggerScheduledTask: (taskId: string) => void
+  onViewScheduledTaskHistory: (taskId: string) => void
 }
 
 export function RightPanel(props: RightPanelProps) {
@@ -141,6 +151,37 @@ export function RightPanel(props: RightPanelProps) {
             <LinkedResourceItem key={r.id} resource={r} onDelete={() => props.onDeleteLinkedResource(r.id)} />
           ))}
         </div>
+      </div>
+
+      {/* Scheduled Tasks */}
+      <div className="p-4">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
+          <span className="flex items-center gap-1">
+            <Clock size={12} />
+            定时任务
+          </span>
+          <button
+            onClick={props.onCreateScheduledTask}
+            className="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </h3>
+        {props.scheduledTasksLoading ? (
+          <div className="space-y-2">
+            <div className="h-16 bg-white/20 rounded-xl animate-pulse" />
+            <div className="h-16 bg-white/20 rounded-xl animate-pulse" />
+          </div>
+        ) : (
+          <ScheduledTaskSection
+            tasks={props.scheduledTasks}
+            onToggle={props.onToggleScheduledTask}
+            onEdit={props.onEditScheduledTask}
+            onDelete={props.onDeleteScheduledTask}
+            onTrigger={props.onTriggerScheduledTask}
+            onViewHistory={props.onViewScheduledTaskHistory}
+          />
+        )}
       </div>
     </aside>
   )

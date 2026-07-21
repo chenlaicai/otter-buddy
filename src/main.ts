@@ -23,6 +23,7 @@ import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-settings-repository";
+import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 
 import { ManageConversation } from "@usecases/conversation/manage-conversation";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
@@ -46,6 +47,9 @@ import { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import { ManageSession } from "@usecases/otter/manage-session";
 import { QueryOtter } from "@usecases/otter/query-otter";
 import { ManageContext } from "@usecases/otter/manage-context";
+import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
+import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 
 import { createRouter } from "@interface-adapters/http/router";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
@@ -55,6 +59,7 @@ import { MemoryController } from "@interface-adapters/http/controllers/memory-co
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
+import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 
@@ -118,6 +123,7 @@ interface Repositories {
   settings: SqliteSettingsRepository;
   feature: SqliteFeatureRepository;
   research: SqliteResearchRepository;
+  scheduledTask: SqliteScheduledTaskRepository;
 }
 
 interface UseCases {
@@ -135,6 +141,7 @@ interface UseCases {
   manageSession: ManageSession;
   dissolveOtter: DissolveOtter;
   manageContext: ManageContext;
+  manageScheduledTask: ManageScheduledTask;
 }
 
 function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
@@ -147,6 +154,7 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
     settings: new SqliteSettingsRepository(db),
     feature: new SqliteFeatureRepository(db),
     research: new SqliteResearchRepository(db),
+    scheduledTask: new SqliteScheduledTaskRepository(db),
   };
 }
 
@@ -175,10 +183,12 @@ function initUseCases(
   );
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
   const manageContext = new ManageContext(repos.otterContext);
+  const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   return {
     manageConversation, manageMemory, manageTerminology, storeMemory, searchMemory,
     sendMessage, queryMessage, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
+    manageScheduledTask,
   };
 }
 
@@ -341,6 +351,8 @@ function initControllers(
   agentInvoker: AgentInvoker,
   settings: SettingsConfig,
   settingsRepo: SqliteSettingsRepository,
+  schedulerService: SchedulerService,
+  cronParser: SimpleCronParser,
 ) {
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant),
@@ -349,6 +361,7 @@ function initControllers(
     memory: new MemoryController(uc.searchMemory, uc.manageMemory),
     keyInfo: new KeyInfoController(uc.manageKeyInfo),
     settings: new SettingsController(settings, settingsRepo),
+    scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser),
   };
 }
 
@@ -435,6 +448,16 @@ async function main(): Promise<void> {
     uc.manageSession, uc.queryOtter,
   );
 
+  // 初始化定时任务调度器
+  const cronParser = new SimpleCronParser();
+  const schedulerService = new SchedulerService(
+    repos.scheduledTask,
+    repos.conversation,
+    uc.sendMessage,
+    agentInvoker,
+    cronParser,
+  );
+
   const settings: SettingsConfig = {
     provider: config.llm.provider,
     model: config.llm.model,
@@ -444,10 +467,17 @@ async function main(): Promise<void> {
     embeddingDim: config.embedding.dimensions,
   };
 
-  const controllers = initControllers(uc, agentInvoker, settings, repos.settings);
+  const controllers = initControllers(uc, agentInvoker, settings, repos.settings, schedulerService, cronParser);
   startServer(controllers, config.server.port);
 
+  // 启动定时任务调度器
+  schedulerService.start().catch((err) => {
+    logger.error(`Failed to start scheduler: ${err}`);
+  });
+
   process.on("SIGINT", () => {
+    // 停止定时任务调度器
+    schedulerService.stop();
     dispose();
     closeDatabase(db);
     process.exit(0);

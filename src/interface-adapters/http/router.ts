@@ -5,6 +5,7 @@ import type { MessageController } from "./controllers/message-controller";
 import type { MemoryController } from "./controllers/memory-controller";
 import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
+import type { ScheduledTaskController } from "./controllers/scheduled-task-controller";
 
 export interface Controllers {
   conversation: ConversationController;
@@ -13,6 +14,7 @@ export interface Controllers {
   memory: MemoryController;
   keyInfo: KeyInfoController;
   settings: SettingsController;
+  scheduledTask: ScheduledTaskController;
 }
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
@@ -55,6 +57,16 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.put("/api/settings", (ctx) => c.settings.updateSettings(ctx));
 }
 
+function registerScheduledTaskRoutes(app: Hono, c: Controllers): void {
+  app.post("/api/conversations/:id/scheduled-tasks", (ctx) => c.scheduledTask.create(ctx));
+  app.get("/api/conversations/:id/scheduled-tasks", (ctx) => c.scheduledTask.listByConversation(ctx));
+  app.get("/api/scheduled-tasks/:taskId", (ctx) => c.scheduledTask.getById(ctx));
+  app.patch("/api/scheduled-tasks/:taskId", (ctx) => c.scheduledTask.update(ctx));
+  app.delete("/api/scheduled-tasks/:taskId", (ctx) => c.scheduledTask.delete(ctx));
+  app.post("/api/scheduled-tasks/:taskId/trigger", (ctx) => c.scheduledTask.trigger(ctx));
+  app.get("/api/scheduled-tasks/:taskId/executions", (ctx) => c.scheduledTask.listExecutions(ctx));
+}
+
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
 export function createRouter(ctrl: Controllers): Hono {
   const app = new Hono();
@@ -62,5 +74,6 @@ export function createRouter(ctrl: Controllers): Hono {
   registerMsgRoutes(app, ctrl);
   registerOtterRoutes(app, ctrl);
   registerDataRoutes(app, ctrl);
+  registerScheduledTaskRoutes(app, ctrl);
   return app;
 }

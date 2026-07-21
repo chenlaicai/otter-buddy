@@ -1,0 +1,155 @@
+import { DomainError } from '@entities/errors';
+import type {
+  ScheduledTask,
+  ScheduledTaskExecution,
+  ScheduledTaskStatus,
+} from '@entities/scheduled-task/scheduled-task';
+import {
+  canTransitionTaskStatus,
+  isValidCronExpression,
+  isValidTimezone,
+} from '@entities/scheduled-task/scheduled-task';
+import type {
+  ScheduledTaskRepository,
+  ListExecutionsOptions,
+} from './scheduled-task-repository';
+
+export interface CreateScheduledTaskInput {
+  conversationId: string;
+  name: string;
+  cron: string;
+  timezone?: string;
+  body: string;
+  talkingStonePassedTo: string[];
+  senderId?: string;
+}
+
+export interface UpdateScheduledTaskInput {
+  name?: string;
+  cron?: string;
+  timezone?: string;
+  body?: string;
+  talkingStonePassedTo?: string[];
+  status?: ScheduledTaskStatus;
+}
+
+export class ManageScheduledTask {
+  constructor(private readonly repo: ScheduledTaskRepository) {}
+
+  async create(input: CreateScheduledTaskInput): Promise<ScheduledTask> {
+    // 校验 cron 表达式
+    if (!isValidCronExpression(input.cron)) {
+      throw new DomainError(`Invalid cron expression: ${input.cron}`, 'validation');
+    }
+
+    // 校验时区
+    const timezone = input.timezone ?? 'Asia/Shanghai';
+    if (!isValidTimezone(timezone)) {
+      throw new DomainError(`Invalid timezone: ${timezone}`, 'validation');
+    }
+
+    // 校验 body 长度
+    if (input.body.length > 10000) {
+      throw new DomainError('body must be 10000 characters or less', 'validation');
+    }
+
+    // 校验 talkingStonePassedTo
+    if (!input.talkingStonePassedTo || input.talkingStonePassedTo.length === 0) {
+      throw new DomainError('talkingStonePassedTo must be non-empty', 'validation');
+    }
+
+    const now = new Date().toISOString();
+    const task: ScheduledTask = {
+      id: crypto.randomUUID(),
+      conversationId: input.conversationId,
+      name: input.name,
+      cron: input.cron,
+      timezone,
+      body: input.body,
+      talkingStonePassedTo: input.talkingStonePassedTo,
+      senderId: input.senderId ?? input.talkingStonePassedTo[0],
+      status: 'active',
+      consecutiveFailures: 0,
+      lastTriggeredAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.repo.create(task);
+    return task;
+  }
+
+  async getById(id: string): Promise<ScheduledTask | null> {
+    return this.repo.getById(id);
+  }
+
+  async getByConversationId(conversationId: string): Promise<ScheduledTask[]> {
+    return this.repo.getByConversationId(conversationId);
+  }
+
+  async update(id: string, input: UpdateScheduledTaskInput): Promise<ScheduledTask> {
+    const task = await this.repo.getById(id);
+    if (!task) {
+      throw new DomainError(`ScheduledTask not found: ${id}`, 'not_found');
+    }
+
+    // 校验状态转换
+    if (input.status && input.status !== task.status) {
+      if (!canTransitionTaskStatus(task.status, input.status)) {
+        throw new DomainError(
+          `Invalid status transition: ${task.status} -> ${input.status}`,
+          'validation',
+        );
+      }
+    }
+
+    // 校验 cron 表达式
+    if (input.cron && !isValidCronExpression(input.cron)) {
+      throw new DomainError(`Invalid cron expression: ${input.cron}`, 'validation');
+    }
+
+    // 校验时区
+    if (input.timezone && !isValidTimezone(input.timezone)) {
+      throw new DomainError(`Invalid timezone: ${input.timezone}`, 'validation');
+    }
+
+    // 校验 body 长度
+    if (input.body && input.body.length > 10000) {
+      throw new DomainError('body must be 10000 characters or less', 'validation');
+    }
+
+    const now = new Date().toISOString();
+    const updated: ScheduledTask = {
+      ...task,
+      name: input.name ?? task.name,
+      cron: input.cron ?? task.cron,
+      timezone: input.timezone ?? task.timezone,
+      body: input.body ?? task.body,
+      talkingStonePassedTo: input.talkingStonePassedTo ?? task.talkingStonePassedTo,
+      status: input.status ?? task.status,
+      updatedAt: now,
+    };
+
+    await this.repo.update(updated);
+    return updated;
+  }
+
+  async delete(id: string): Promise<void> {
+    const task = await this.repo.getById(id);
+    if (!task) {
+      throw new DomainError(`ScheduledTask not found: ${id}`, 'not_found');
+    }
+    await this.repo.delete(id);
+  }
+
+  async getExecutions(
+    taskId: string,
+    options?: ListExecutionsOptions,
+  ): Promise<{ executions: ScheduledTaskExecution[]; total: number }> {
+    const [executions, total] = await Promise.all([
+      this.repo.getExecutions(taskId, options),
+      this.repo.getExecutionCount(taskId),
+    ]);
+    return { executions, total };
+  }
+}
