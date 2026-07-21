@@ -361,7 +361,8 @@ export class PiSessionFactory implements AgentGateway {
       const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
       this.checkTokenWarning(otterId, stats.tokens);
 
-      return this.buildResult(resultText, tokenUsage, circuitBreaker);
+      const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
+      return this.buildResult(resultText, tokenUsage, circuitBreaker, ctxMax);
     } catch (err) {
       /** 将 toolCallCount 附着到异常，供 handleInvokeError 在 finally 清理后仍可读取 */
       (err as Error & { _toolCallCount?: number })._toolCallCount =
@@ -518,12 +519,14 @@ export class PiSessionFactory implements AgentGateway {
     text: string,
     tokenUsage?: { input: number; output: number },
     circuitBreaker?: ToolCallCircuitBreaker,
+    ctxMax?: number,
   ): AgentRunResult {
     return {
       text,
       tokenUsage: tokenUsage
         ? { input: tokenUsage.input, output: tokenUsage.output }
         : undefined,
+      ctxMax,
       circuitBreakerMetadata: circuitBreaker?.getMetadata(),
     };
   }

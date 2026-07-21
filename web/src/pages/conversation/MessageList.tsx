@@ -128,15 +128,17 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           {!isUser && m.sp && <StreamingProcess text={m.sp} duration={m.dur || ''} />}
           <ReactMarkdown>{m.content}</ReactMarkdown>
         </div>
-        <div className={`flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400 ${isUser ? 'justify-end' : ''}`}>
-          <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 128000)}</span>
-          <div className="w-20 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
-            <div
-              className="h-full rounded-full"
-              style={{ width: `${ctxPercent(m.ctx || 0, m.ctxMax || 128000)}%`, background: '#8B6F47' }}
-            />
+        {!isUser && (
+          <div className="flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400">
+            <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 200000)}</span>
+            <div className="w-20 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${ctxPercent(m.ctx || 0, m.ctxMax || 200000)}%`, background: '#8B6F47' }}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
