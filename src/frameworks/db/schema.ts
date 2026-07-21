@@ -19,6 +19,7 @@ export function initSchema(db: Database.Database): void {
     createSettingsTable(db);
     createOtterContextTable(db);
     createMessagesFtsTable(db);
+    createDocumentTables(db);
 
     db.exec("COMMIT");
   } catch (error) {
@@ -383,5 +384,49 @@ function createMessagesFtsTable(db: Database.Database): void {
       INSERT INTO messages_fts(messages_fts, message_id, body) VALUES ('delete', OLD.id, COALESCE(OLD.body, ''));
       INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
     END;
+  `);
+}
+
+/** 文档表：features + research（F20260721qh74 文档数据模型） */
+function createDocumentTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS features (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+      change_type TEXT NOT NULL CHECK(change_type IN ('feature', 'refactor', 'fix')),
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'development', 'locked', 'archived')),
+      tags TEXT NOT NULL DEFAULT '[]',
+      modules TEXT NOT NULL DEFAULT '[]',
+      causal_links_from TEXT NOT NULL DEFAULT '[]',
+      supersedes TEXT NOT NULL DEFAULT '[]',
+      file_path TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      CHECK(id LIKE 'F%')
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_features_status ON features(status);
+    CREATE INDEX IF NOT EXISTS idx_features_created_at ON features(created_at);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS research (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+      exploration_type TEXT NOT NULL CHECK(exploration_type IN ('technical', 'market', 'user-research')),
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'development', 'locked', 'archived')),
+      tags TEXT NOT NULL DEFAULT '[]',
+      conclusion TEXT,
+      causal_links_from TEXT NOT NULL DEFAULT '[]',
+      supersedes TEXT NOT NULL DEFAULT '[]',
+      file_path TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      CHECK(id LIKE 'R%')
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_research_status ON research(status);
+    CREATE INDEX IF NOT EXISTS idx_research_created_at ON research(created_at);
+    CREATE INDEX IF NOT EXISTS idx_research_exploration_type ON research(exploration_type);
   `);
 }

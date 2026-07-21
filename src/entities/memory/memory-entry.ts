@@ -1,11 +1,14 @@
 /** 记忆层 */
-export type MemoryLayer = "working" | "historical";
+export type MemoryLayer = "working" | "historical" | "document";
 
 /**
  * 记忆层转换是否有效。
  * working ↔ historical 双向。
+ * document 层不需要状态转换（文档生命周期由 status 字段管理）。
  */
 export function canTransitionMemoryLayer(from: MemoryLayer, to: MemoryLayer): boolean {
+  // document 层不需要状态转换
+  if (from === "document" || to === "document") return false;
   if (from === to) return false;
   if (from === "working" && to === "historical") return true;
   if (from === "historical" && to === "working") return true;
@@ -17,7 +20,29 @@ export type MemoryContentType =
   | "message"
   | "conversation_summary"
   | "fact"
-  | "linked_resource";
+  | "linked_resource"
+  | "feature"
+  | "research";
+
+/** Feature 记忆条目的 metadata */
+export interface FeatureMemoryMetadata {
+  doc_type: "feature";
+  change_type: "feature" | "refactor" | "fix";
+  tags: string[];
+  modules: string[];
+  from: string[];
+  supersedes?: string[];
+}
+
+/** Research 记忆条目的 metadata */
+export interface ResearchMemoryMetadata {
+  doc_type: "research";
+  exploration_type: "technical" | "market" | "user-research";
+  tags: string[];
+  conclusion?: string;
+  from: string[];
+  supersedes?: string[];
+}
 
 /** 检索粒度 */
 export type RetrievalGranularity = "coarse" | "fine";
