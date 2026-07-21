@@ -1,13 +1,31 @@
 ---
 id: F20260716t2ab
 title: tool-skill-mechanism
-from_ids: [F20260716i5n2, F20260715k4p2, F20260715r3s2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > Issue：tool/skill机制查缺补漏。核心认知：**Pi 提供机制，Otter 定义产物**。Pi 的 AgentHarness 已有完整的 Tool 注册/发现/执行机制和 Skill 加载/注入机制。Otter 的职责是：定义本系统所需的工具（遵循 Pi AgentTool 格...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716i5n2
+    - F20260715k4p2
+    - F20260715r3s2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [architecture, agent, tools, skills, pi-agent]
 modules: [src/interface-adapters/agent-runtime/, src/frameworks/agent/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-16
 ---
+
 
 # F20260716xxxx Otter 系统 Tool/Skill 机制搭建
 
@@ -180,10 +198,8 @@ interface ToolContext {
 ```markdown
 # skills/otter-shared/SKILL.md
 
----
 name: otter-shared
 description: 海獭系统共享行为规范
----
 
 ## 消息规范
 

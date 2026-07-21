@@ -1,3 +1,28 @@
+---
+id: R20260717y3k8
+title: pi-integration-comparison
+doc_type: research
+
+# 记忆索引
+summary: |
+  对比 Pi 的两种集成方式：SDK 集成（当前方案）与 CLI 集成。
+  结论：维持当前 SDK 方案，理由是更低延迟、更简单运维、更好的类型安全。
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - R20260716x2k9   # Pi Agent 能力探索
+
+# 元数据
+status: locked
+exploration_type: technical
+tags: [pi-agent, integration, sdk, cli, mcp, comparison]
+conclusion: 维持当前 SDK 方案，Otter 是单机 Node.js 应用，SDK 方式提供更低延迟、更简单运维、更好的类型安全
+
+# 时间
+created_at: 2026-07-17
+---
+
 # Pi 集成方式对比分析
 
 ## 概述

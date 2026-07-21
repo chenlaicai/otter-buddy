@@ -1,13 +1,30 @@
 ---
 id: F20260716hkv3
 title: terminology-library
-from_ids: [F20260713m5q3, F20260709x7k3]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档设计记忆系统的**多库架构**，并将**术语库**作为首个新库实现。 > **架构核心**：每个库是独立的数据源 + 独立的搜索索引 + 独立的检索策略。memory_entries 保持现状，就是对话库的搜索索引。search_memory 是一个路由层，按 library 参数分...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713m5q3
+    - F20260709x7k3
+
+
+# 元数据
+status: draft
+change_type: feature
 tags: [design, memory, terminology, glossary, domain-knowledge, multi-library]
 modules: [domain/memory, frameworks/db, interface-adapters/agent-runtime]
-doc_kind: spec
-status: draft
+
+# 时间
 created_at: 2026-07-16
 ---
+
 
 # F20260716hkv3 [memory] 记忆系统多库架构 + 术语库
 

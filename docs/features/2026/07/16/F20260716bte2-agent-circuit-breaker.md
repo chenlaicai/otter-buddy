@@ -1,55 +1,22 @@
-# F20260716bte2 - Agent 执行熔断机制
+---
+id: F20260716bte2
+title: Agent 执行熔断机制
+doc_type: feature
 
-## 元信息
+# 记忆索引
+summary: |
+  - **特性编号**：F20260716bte2 - **创建日期**：2026-07-16 - **状态**：development
 
-- **特性编号**：F20260716bte2
-- **创建日期**：2026-07-16
-- **状态**：development
-- **变更类型**：feature
-- **模块**：agent-runtime
 
-## 问题背景
+# 元数据
+status: development
+change_type: feature
+tags: []
+modules: []
 
-### 现象
-
-在 Snail Shell 平台的多 Agent 协作场景中，已多次出现 agent 无限循环问题：
-
-1. agent 被激活后开始执行
-2. agent 反复调用 MCP 工具（如 `search_memory`、`get_message`、`list_messages` 等）
-3. agent 从未调用 `set_final_body` 结束发言
-4. 循环持续数小时，浪费大量 token（据用户反馈，单次循环可消耗数万 token，属于"太严重"级别）
-
-**用户原话**（消息 #5418）：
-> 在issue《新建一个system prompt机制》中，agent发疯了一直死循环。
-
-**用户原话**（消息 #5421）：
-> 在issue《新建一个system prompt机制》中又出现了agent无限循环，然后浪费token的行为，我发现这种事情出现过一次，这一次又出现了。还是必须在snail系统这一侧杜绝这种行为（token浪费太严重）。
-
-### 根因分析
-
-当前系统中，agent 的发言轮次**只有在调用 `set_final_body` 后才会结束**。系统没有任何机制检测 agent 是否陷入了无意义的工具调用循环。
-
-**缺失的防护层**：
-
-| 缺失项 | 影响 |
-|--------|------|
-| 单轮最大工具调用次数限制 | agent 可以无限次调用工具 |
-| 单轮执行时间上限 | agent 可以运行数小时 |
-| 重复调用检测 | agent 可以反复调用相同工具 |
-| token 消耗监控 | 无法及时发现异常消耗 |
-
-**代码位置**：
-- agent 执行入口：`src/frameworks/agent/pi-harness-factory.ts:213-216`（`harness.prompt(message)` 调用）
-- harness 创建位置：`src/frameworks/agent/pi-harness-factory.ts`（熔断器钩子注册点）
-- 外部依赖：`@earendil-works/pi-agent-core`（AgentHarness 原生支持 `on('tool_call')` 和 `steer()`）
-
-## 用户意图锚
-
-| ID | 用户原话 | 来源 | 关键修饰语 | 架构师解读 |
-|----|---------|------|-----------|-----------|
-| UA-1 | "还是必须在snail系统这一侧杜绝这种行为" | 消息 #5421 | 空间：snail系统这一侧；行为：杜绝 | 修复必须在平台层实施，不能依赖用户手动 abort |
-| UA-2 | "token浪费太严重" | 消息 #5421 | 程度：太严重 | 核心诉求是控制 token 消耗，不只是"能停止" |
-| UA-3 | "这种事情出现过一次，这一次又出现了" | 消息 #5421 | 时序：重复发生 | 这是系统性问题，不是偶发 bug，需要根本性解决 |
+# 时间
+created_at: 2026-07-16
+---
 
 ## 设计方案
 

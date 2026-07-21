@@ -1,3 +1,24 @@
+---
+id: F20260720h7a4
+title: — 修复 TypeScript 路径别名导致的启动失败
+doc_type: feature
+
+# 记忆索引
+summary: |
+  修复 TypeScript 路径别名导致的启动失败问题，确保模块解析在构建和运行时一致。
+  涉及 tsconfig paths、tsc-alias、vitest 等工具链的配置对齐。
+
+
+# 元数据
+status: ## 状态
+change_type: feature
+tags: []
+modules: []
+
+# 时间
+created_at: 
+---
+
 # F20260720h7a4 — 修复 TypeScript 路径别名导致的启动失败
 
 ## 状态

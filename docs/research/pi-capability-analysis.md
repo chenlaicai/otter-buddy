@@ -1,3 +1,27 @@
+---
+id: R20260716x2k9
+title: pi-agent-capability-analysis
+doc_type: research
+
+# 记忆索引
+summary: |
+  探索 Pi Agent 的完整能力（架构、System Prompt、Tool vs Skill、MCP 替代方案、Session 管理等）。
+  结论：Pi 是嵌入式 Agent 库，通过 AgentHarness 集成，无需 MCP。
+
+# 因果链路（正向依赖）
+causal_links:
+  from: []
+
+# 元数据
+status: locked
+exploration_type: technical
+tags: [pi-agent, architecture, integration, embedded-agent]
+conclusion: Pi 是嵌入式 Agent 库，通过 AgentHarness 集成到 Otter，无需 MCP 协议
+
+# 时间
+created_at: 2026-07-16
+---
+
 # Pi Agent 能力探索与 Otter 集成方案
 
 ## 探索范围

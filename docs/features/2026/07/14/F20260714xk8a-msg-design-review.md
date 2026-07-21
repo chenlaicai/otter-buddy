@@ -1,13 +1,33 @@
 ---
 id: F20260714xk8a
 title: msg-design-review
-from_ids: [F20260714jaup, F20260713e8n4, F20260713c7p2, F20260713o4t8, F20260714zjmk]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档记录对照 Snail Shell 消息/对话/Agent 实例设计，审视 Otter Buddy 当前设计的欠缺与修正方案。 > 审视过程：架构师-1 产出草稿分析 -> 架构师-2 对抗审视 -> 双方达成共识 -> 产出本文档。 用户要求对照 Snail Shell 的对话、消息...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260714jaup
+    - F20260713e8n4
+    - F20260713c7p2
+    - F20260713o4t8
+    - F20260714zjmk
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [architecture, design-review, conversation, message, agent, snail-comparison]
 modules: [src/entities/, src/usecases/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-14
 ---
+
 
 # F20260714xk8a [msg-design-review] 对话/消息/Agent 实例设计对照 Snail Shell 审视
 
@@ -124,7 +144,6 @@ Snail Shell 平台的消息模型采用两层设计：
 
 **Agent 实例结论**：当前设计已对齐 Snail 的核心模式。per-otter model 和上下文压缩是未来迭代事项，不影响当前架构。
 
----
 
 ### 2. entities 层修正：`talkingStonePassedTo` 可空性
 
@@ -179,7 +198,6 @@ function isValidCompletedMessageTalkingStone(recipients: string[] | null): boole
 | Otter 消息完成（completeMessage） | 必须提供 | completed | 完成时决定路由 |
 | 失败消息（failMessage） | 保持 null | failed | 与 body 一致 |
 
----
 
 ### 3. Turn 生命周期行为规格
 
@@ -210,7 +228,6 @@ function isValidCompletedMessageTalkingStone(recipients: string[] | null): boole
 
 **关键设计**：Turn 生命周期由 use case 层自动管理。调用方（interface-adapters/agent-runtime）不需要知道 Turn 的存在，不需要显式创建/关闭 Turn。这与 Snail 的 Stage 自动推进机制类似（系统管理，不由 agent 显式创建）。
 
----
 
 ### 4. 输入类型设计规格（供 usecases 层实现参考）
 
@@ -234,7 +251,6 @@ function isValidCompletedMessageTalkingStone(recipients: string[] | null): boole
 
 "只有发言石持有者才能发言"是发言石模型的核心约束。use case 层在 `sendMessage` 和 `startMessage` 时应校验：发送者必须是上一轮 `talkingStonePassedTo` 中指定的参与者。首条消息无此约束（对话发起者自由发言）。此校验属 use case 层关注点，不在 entities 层实现。
 
----
 
 ### 5. DDL 缺口记录（供 frameworks 层实现参考）
 
@@ -251,7 +267,6 @@ entities 层引入了新字段和新实体，但 DDL（F20260713e8n4）未覆盖
 - `idx_turns_status ON turns(status)`
 - `idx_messages_turn_id ON messages(turn_id)`
 
----
 
 ### 6. "路由" vs "发言顺序" 概念合并确认
 
@@ -259,7 +274,6 @@ Snail 区分了"消息路由"（`to_speakers`：谁应该接收并处理消息�
 
 **结论**：对于 Otter 的使用场景（用户 + 多 Otter 对话），合并是合理的。所有参与者都能看到所有消息，发言石已经表达了"谁应该回应"的语义。当前不需要私有通信场景。如果未来需要，可通过新增 `visibleTo: string[] | null` 字段扩展。
 
----
 
 ### 7. 偏差记录
 

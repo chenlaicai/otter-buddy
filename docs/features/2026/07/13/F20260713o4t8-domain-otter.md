@@ -1,13 +1,31 @@
 ---
 id: F20260713o4t8
 title: domain-otter
-from_ids: [F20260709p4q7, F20260710b3m9, F20260713i5k2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。进入实现阶段后不得单方面修改，如需变更须通过问题卡片向用户提出并确认。 > 本文档设计 domain/otter 模块。经架构调整（D-S3-2），otter 模块不仅管理数据记录，还管理 pi-agent 实例的生命周期。实现顺序为步骤 ...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709p4q7
+    - F20260710b3m9
+    - F20260713i5k2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [implementation, s4, domain, otter, ddd, agent]
 modules: [domain/otter]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-13
 ---
+
 
 # F20260713o4t8 [domain/otter] Otter 领域模块
 

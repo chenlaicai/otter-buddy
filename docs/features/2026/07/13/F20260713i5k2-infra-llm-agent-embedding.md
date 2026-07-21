@@ -1,13 +1,31 @@
 ---
 id: F20260713i5k2
 title: infra-llm-agent-embedding
-from_ids: [F20260709p4q7, F20260709m2n8, F20260710b3m9]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。 > 本文档设计 infra 层剩余三个模块：llm-gateway（pi-ai 封装）、agent-core（pi-agent-core 封装 + AgentRegistry）、embedding（bge-m3 Worker Thread...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709p4q7
+    - F20260709m2n8
+    - F20260710b3m9
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [implementation, s4, infra, llm, agent, embedding]
 modules: [infra/llm-gateway, infra/agent-core, infra/embedding]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-13
 ---
+
 
 # F20260713i5k2 [infra] LLM 网关 + Agent 核心 + Embedding 服务
 
@@ -96,7 +114,6 @@ src/infra/
 └── logger.ts              # 已完成
 ```
 
----
 
 ### 1. infra/llm-gateway -- pi-ai LLM 网关
 
@@ -161,7 +178,6 @@ llm: {
 },
 ```
 
----
 
 ### 2. infra/agent-core -- pi-agent-core 封装 + AgentRegistry
 
@@ -231,7 +247,6 @@ function initAgentCore({ llmGateway }: { llmGateway: LLMGateway }): { agentRegis
 | domain/otter | Agent 生命周期管理 | create, destroy, reset |
 | app/agent-runtime | Agent 执行 + Tool 注册 | get, registerTool, run, stream |
 
----
 
 ### 3. infra/embedding -- bge-m3 Worker Thread
 
@@ -283,7 +298,6 @@ Worker -> 主线程: { type: 'result', embedding: Float32Array, id: number }
 Worker -> 主线程: { type: 'error', error: string, id: number }
 ```
 
----
 
 ### 4. main.ts 装配（修订后）
 

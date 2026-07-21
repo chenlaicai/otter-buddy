@@ -1,13 +1,32 @@
 ---
 id: F20260716ttf7
 title: system-integration-and-startup
-from_ids: [F20260715f4k9, F20260715b8c6, F20260713u9v4, F20260716i5n2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档定义 API 契约层（前后端共享类型），补齐后端缺失端点，并将前端 UI 对接到后端 API + SSE 流式推送，使系统可启动并开始对话。 | 层 | 目录 | 状态 | 关键产物 | |---|------|------|---------|
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260715f4k9
+    - F20260715b8c6
+    - F20260713u9v4
+    - F20260716i5n2
+
+
+# 元数据
+status: draft
+change_type: feature
 tags: [architecture, integration, frontend, api-client, sse, startup, api-contract]
 modules: [api-contract/, web/src/, web/vite.config.ts, src/interface-adapters/, src/usecases/, src/frameworks/]
-doc_kind: spec
-status: draft
+
+# 时间
 created_at: 2026-07-16
 ---
+
 
 # F20260716ttf7 API 契约层 + 前端 API 集成 + 后端补齐 + 系统启动打通
 

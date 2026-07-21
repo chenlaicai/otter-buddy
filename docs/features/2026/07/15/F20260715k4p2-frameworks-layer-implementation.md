@@ -1,13 +1,36 @@
 ---
 id: F20260715k4p2
 title: frameworks-layer-implementation
-from_ids: [F20260714zjmk, F20260714jaup, F20260715b8c6, F20260715r3s2, F20260713e8n4, F20260713o4t8, F20260713m5q3, F20260713i5k2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档定义整洁架构 frameworks 层的完整实现方案：DB Repository + Mapper + LLM Gateway + Embedding Service + Agent Gateway（Pi AgentHarness 集成）+ Config。遵循 F20260714zj...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260714zjmk
+    - F20260714jaup
+    - F20260715b8c6
+    - F20260715r3s2
+    - F20260713e8n4
+    - F20260713o4t8
+    - F20260713m5q3
+    - F20260713i5k2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [architecture, frameworks, clean-architecture, db, llm, embedding, agent, pi-agent-core]
 modules: [src/frameworks/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-15
 ---
+
 
 # F20260715k4p2 整洁架构 Frameworks 层实现
 

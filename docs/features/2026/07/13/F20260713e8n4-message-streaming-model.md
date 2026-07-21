@@ -1,13 +1,33 @@
 ---
 id: F20260713e8n4
 title: message-streaming-model
-from_ids: [F20260709p4q7, F20260709m2n8, F20260713c7p2, F20260713m5q3, F20260713i5k2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。 > 本文档重设计 domain/conversation 的消息数据模型，参考 Snail Shell 的两层消息模型（流式过程 event + 最终答复 body），替代 F20260713c7p2 中的单层 `content` 模型。...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709p4q7
+    - F20260709m2n8
+    - F20260713c7p2
+    - F20260713m5q3
+    - F20260713i5k2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [implementation, s4, domain, conversation, message, streaming, events, redesign]
 modules: [domain/conversation, infra/db]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-13
 ---
+
 
 # F20260713e8n4 [message-streaming-model] 消息流式模型重设计
 
@@ -132,7 +152,6 @@ tests/domain/conversation/
 └── adapter.test.ts          # 更新：新增消息生命周期测试
 ```
 
----
 
 ### 1. DDL 变更
 
@@ -216,7 +235,6 @@ CREATE INDEX IF NOT EXISTS idx_message_events_type ON message_events(event_type)
 
 > payload 结构由 app/agent-runtime 生成，domain 层仅负责存储和检索，不解析 payload 语义。
 
----
 
 ### 2. model.ts -- 领域模型更新
 
@@ -296,7 +314,6 @@ interface CompleteMessageInput {
 | `MessageInput.content` | `string` | `MessageInput.body: string` | 与 Snail Shell 术语对齐 |
 | `MessageEvent` | 无 | 新增 | 流式过程事件持久化 |
 
----
 
 ### 3. port.ts -- ConversationPort 接口更新
 
@@ -434,7 +451,6 @@ interface ConversationPort {
 - `completed` / `failed`：终态，不可转换
 - 对非 `streaming` 状态的消息调用 `completeMessage` 或 `failMessage`：throw
 
----
 
 ### 4. _internal/repository.ts -- 持久化更新
 
@@ -528,7 +544,6 @@ LIMIT ?;
 
 > **注意**：messages 表的 append-only 约束（D18）适用于 **消息内容**——即 `body` 一旦设置不可修改。但 `status` 和 `completed_at` 的 UPDATE 是生命周期管理操作，不违反 append-only 语义。append-only 的核心是"消息内容不可变"，而非"行不可更新"。这与 S2 D18 的设计意图一致：消息是不可变的记录，但消息的生命周期状态是可变的元数据。
 
----
 
 ### 5. _internal/adapter.ts -- 业务逻辑更新
 
@@ -551,7 +566,6 @@ LIMIT ?;
 - `completeMessage` 对非 streaming 消息：throw Error
 - `failMessage` 对非 streaming 消息：throw Error
 
----
 
 ### 6. _internal/mapper.ts -- 映射更新
 
@@ -581,7 +595,6 @@ LIMIT ?;
 | sequence_num | MessageEvent.sequenceNum | snake_case -> camelCase |
 | created_at | MessageEvent.createdAt | snake_case -> camelCase |
 
----
 
 ### 7. Memory 索引集成
 
@@ -595,7 +608,6 @@ LIMIT ?;
 
 > streaming 中的消息不索引到 memory——只有最终 body 才是可检索的内容。流式事件是过程记录，不是记忆内容。
 
----
 
 ### 8. 与 app/agent-runtime 的协作
 
@@ -640,7 +652,6 @@ app/agent-runtime:
 
 > **设计要点**：事件持久化与 SSE 传输是并行的——SSE 负责实时交付，event 持久化负责过程记录。两者独立，互不阻塞。
 
----
 
 ## 偏差记录 [required]
 

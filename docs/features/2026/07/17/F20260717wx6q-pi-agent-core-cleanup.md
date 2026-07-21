@@ -1,49 +1,23 @@
-# F20260717wx6q — pi-agent-core 迁移遗留清理（代码质量优化）
+---
+id: F20260717wx6q
+title: — pi-agent-core 迁移遗留清理（代码质量优化）
+doc_type: feature
 
-## 变更类型
-`refactor`
+# 记忆索引
+summary: |
+  F20260717f4u2 确认 pi-agent-core → pi-coding-agent 迁移已完成，无功能性遗留。但存在代码质量遗留项：死代码、接口重复定义、陈旧注释。 不适用。本变更为内部代码质量优化，无用户表达的需求。 不适用。本变更不涉及行为变更，仅删除死代码和统一接口定义。
 
-## [design-time]
 
-### 背景
+# 元数据
+status: draft
+change_type: ## 变更类型
+tags: []
+modules: []
 
-F20260717f4u2 确认 pi-agent-core → pi-coding-agent 迁移已完成，无功能性遗留。但存在代码质量遗留项：死代码、接口重复定义、陈旧注释。
-
-### 用户意图锚
-
-不适用。本变更为内部代码质量优化，无用户表达的需求。
-
-### 核心业务行为
-
-不适用。本变更不涉及行为变更，仅删除死代码和统一接口定义。
-
-### 非目标
-
-- 不改变任何功能行为
-- 不修改 `system-prompt-config.ts`（虽然 `system-prompt-builder.ts` 是其唯一消费者，但该文件可能被未来功能使用，保留无害）
-
+# 时间
+created_at: 
 ---
 
-## 方案概述
-
-### 变更 1：删除 `system-prompt-builder.ts` 中的死代码
-
-**文件**：`src/frameworks/agent/system-prompt-builder.ts`
-
-**现状分析**（已验证）：
-- `buildSystemPrompt()` 函数：仅在本文件定义，全项目无调用点
-- `HarnessContext` 接口：仅在本文件定义和使用，全项目无外部引用
-- `DynamicContext` 接口：与 `agent-invoke-port.ts` 中的定义重复
-
-**操作**：删除整个文件 `system-prompt-builder.ts`（所有导出均无外部消费者）
-
-**验证命令**：
-```bash
-grep -r "buildSystemPrompt\|HarnessContext" src/ --include="*.ts"
-# 预期：无结果（仅 system-prompt-builder.ts 自身引用）
-```
-
----
 
 ### 变更 2：统一 `DynamicContext` 接口定义
 
@@ -64,7 +38,6 @@ grep -r "DynamicContext" src/ --include="*.ts" | grep "system-prompt-builder"
 # 预期：无结果
 ```
 
----
 
 ### 变更 3：清理陈旧注释
 
@@ -85,7 +58,6 @@ grep -rn "pi-agent-core\|AgentHarness\|PiHarness" src/ --include="*.ts"
 # 预期：无结果
 ```
 
----
 
 ## 变更影响分析
 
@@ -101,7 +73,6 @@ grep -rn "pi-agent-core\|AgentHarness\|PiHarness" src/ --include="*.ts"
 ### 提示词/SOP
 - 无影响
 
----
 
 ## 验收标准
 
@@ -114,7 +85,6 @@ grep -rn "pi-agent-core\|AgentHarness\|PiHarness" src/ --include="*.ts"
 | AC-5 | TypeScript 编译无错误 | `npx tsc --noEmit` 通过 |
 | AC-6 | 所有现有测试通过 | `npm test` 通过 |
 
----
 
 ## 关键决策记录
 
@@ -139,7 +109,6 @@ grep -rn "pi-agent-core\|AgentHarness\|PiHarness" src/ --include="*.ts"
 - **决策**：扩展到 5 个文件。
 - **依据**：同一清理主题，额外 2 个文件的改动量极小（仅注释），拆分 PR 无意义。
 
----
 
 ## 交叉审视记录
 
@@ -150,7 +119,6 @@ grep -rn "pi-agent-core\|AgentHarness\|PiHarness" src/ --include="*.ts"
 
 架构师-2 独立验证了草稿中所有事实性声明（5 项 grep 验证 + 1 项依赖分析），全部与代码事实一致。补充观察：删除 `system-prompt-builder.ts` 后 `system-prompt-config.ts` 成为死文件，但认可保守保留的决策。
 
----
 
 ## 不兼容更新
 

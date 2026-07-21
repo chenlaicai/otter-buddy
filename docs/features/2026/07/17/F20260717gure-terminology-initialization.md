@@ -1,14 +1,30 @@
 ---
 id: F20260717gure
 title: terminology-initialization
-from_ids: [F20260716hkv3, F20260709x7k3]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。 > 本文档设计术语库的系统概念初始化方案。术语库已有 8 个种子术语（来自产品形态定义），需要补充本系统特有的核心概念。 > **设计共识**：术语库收录本系统内部定制的词汇，这些词汇在非本系统中可能有其他语义。不收录通用概念（库、渐进式...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716hkv3
+    - F20260709x7k3
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [design, memory, terminology, initialization, domain-knowledge]
 modules: [domain/memory, frameworks/db]
-doc_kind: spec
-status: locked
-design_locked: true
+
+# 时间
 created_at: 2026-07-16
 ---
+
 
 # F20260717gure [memory] 术语库系统概念初始化
 

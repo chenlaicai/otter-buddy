@@ -1,13 +1,30 @@
 ---
 id: F20260709p4q7
 title: data-model-design
-from_ids: [F20260709x7k3, F20260709m2n8]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档记录 S3（数据模型设计）的全部产出物。基于 S1 产品形态定义（F20260709x7k3）和 S2 能力模块架构设计（F20260709m2n8），设计 SQLite 数据库 Schema、Repository 接口、记忆存储映射、检索索引策略和权重系统 Schema。 > **...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709x7k3
+    - F20260709m2n8
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [data-model, design, sqlite, ddd]
 modules: [data-model]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-09
 ---
+
 
 # F20260709p4q7 [data-model] 数据模型设计（S3）
 

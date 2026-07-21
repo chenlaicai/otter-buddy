@@ -1,12 +1,23 @@
 ---
 id: F20260716sq6e
 title: pi-agent-core-vs-coding-agent
+doc_type: feature
+
+# 记忆索引
+summary: |
+  - **特性编号**：F20260716sq6e - **变更类型**：research / design-decision / migration - **影响模块**：frameworks/agent、系统整体架构
+
+
+# 元数据
+status: locked
+change_type: research / design-decision / migration
 tags: [architecture, agent-framework, pi, design-decision, migration]
 modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-16
 ---
+
 
 # pi-agent-core vs pi-coding-agent 技术选型重新分析
 
@@ -18,7 +29,6 @@ created_at: 2026-07-16
 - **关联 ADR**：D14（S2 Capability Module Architecture Design）
 - **关联研究**：docs/research/pi-capability-analysis.md、docs/research/pi-integration-analysis.md
 
----
 
 ## [design-time]
 
@@ -57,7 +67,6 @@ ADR D14（2026-07-09）记录了 Agent 框架选型决策：
 
 两条路径都是**进程内嵌入**（非 CLI 子进程），区别在于抽象层级和内置能力。
 
----
 
 ## 2. Pi monorepo 分层架构
 
@@ -83,7 +92,6 @@ pi-agent-core
 
 **关键事实**：pi-coding-agent 包含 pi-agent-core，不是替代关系，而是上层封装。
 
----
 
 ## 3. 路径 A 详细分析：pi-agent-core（当前方案）
 
@@ -150,7 +158,6 @@ pi-agent-core
 4. **升级耦合**：pi-agent-core API 变化时，自建适配层需要同步更新
 5. **Compaction 触发粗糙**：当前仅基于 token 阈值，无上下文溢出自动处理
 
----
 
 ## 4. 路径 B 详细分析：pi-coding-agent SDK 嵌入
 
@@ -259,7 +266,6 @@ session.getTools();                    // 获取工具列表
 5. **pi-tui 依赖**：终端 UI 库对 Web 应用完全无用，但作为依赖被引入
 6. **已有实现需重写**：当前 pi-harness-factory.ts 已跑通，切换需要重写
 
----
 
 ## 5. 维度对比
 
@@ -317,7 +323,6 @@ session.getTools();                    // 获取工具列表
 
 **结论**：两条路径在 pre-1.0 阶段都面临升级风险，但风险性质不同——路径 A 是"底层 API 直接暴露"，路径 B 是"中间层 API 可能变化"。路径 B 的中间层理论上提供缓冲，但 pre-1.0 阶段缓冲效果有限。
 
----
 
 ## 6. 关键决策点分析
 
@@ -404,7 +409,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 
 **结论**：包体积在现代部署环境下**不是关键决策因素**，但 pi-tui 的引入仍是技术债。建议通过 tree-shaking 验证实际增量。
 
----
 
 ## 7. 决策矩阵
 
@@ -419,7 +423,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | API 稳定性 | 中 | ⚠️ pre-1.0，API 小而精 | ⚠️ pre-1.0，API 大而广 |
 | 包体积 | 低 | ✅ 2MB | ⚠️ 15MB（tree-shaking 后待验证） |
 
----
 
 ## 8. 待验证项
 
@@ -436,7 +439,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | V7 | pi-tui 可被 tree-shaking 排除 | 实际打包验证 SDK 入口不导入 pi-tui 组件时的产物大小 | 否（影响包体积评估） |
 | V8 | createAgentSession 初始化开销可接受 | **已验证**：3.4-6.6ms（远低于 50ms 阈值） | 已验证，路径 B 冷启动完全可行 |
 
----
 
 ## 9. 方案建议
 
@@ -469,7 +471,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 
 **路径 A 补充工作**：自建 read/write/edit/bash 四个编码工具 + 接线 SkillLoader + 升级 Compaction 策略
 
----
 
 ## 10. 用户意图锚
 
@@ -477,7 +478,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 |---|------|---------------------|-----------|-----------|
 | UA-SQ6E-1 | Issue: 重新对比pi agent core和pi coding agent，重新做一次完整的技术选型分析 | 重新对比pi agent core和pi coding agent，重新做一次完整的技术选型分析 | 动作：重新对比；对象：pi agent core vs pi coding agent；范围：完整 | 对两条路径进行全面重新评估，不局限于前序分析已覆盖的维度 |
 
----
 
 ## 11. 决策记录
 
@@ -488,7 +488,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | Skills 体系 | 接线已有 SkillLoader 到 Agent | 已有 72 行实现，需接线而非从零自建 |
 | Compaction 策略 | 升级为阈值 + 溢出检测 | 当前仅基于 token 阈值过于粗糙 |
 
----
 
 ## 12. 交叉审视修订记录
 
@@ -517,7 +516,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | R21 | 审查者-2 第二轮 review 4 项修正：§4.2 移除 noTools: "builtin"（与 R20 tools+customTools 矛盾）；§9.1 pass_talking_stick→pass_talking_stone；§5.3 冷启动行更新为"已验证（§6.3 V8）"；§3.2 行数回退 R20 引入的错误（488→487/1007→1002），全局同步修正 | 审查者-1 第二轮 review |
 | R22 | 审查者-2 第三轮 review 2 项修正：§5.3 Session Chain 行从"需要验证"更新为"需自定义 SessionManager（§6.4 V4）"（与 §6.4 结论一致）；§8 V2 验证项从 noTools 更新为 tools+customTools（与 R20/R21 方案一致） | 审查者-2 第三轮 review |
 
----
 
 ### 行为条目
 
@@ -535,7 +533,6 @@ pi-coding-agent 12.5MB 包含 pi-tui（终端 UI）和图片处理库（`@silvia
 | C-SQ6E-2 | 工具系统必须支持按獭类型差异化 | 大獭/设计獭/检视獭需要不同工具集 |
 | C-SQ6E-3 | 冷启动模型必须保留 | 用户决策 R17：每次发言创建 harness，完成后释放 |
 
----
 
 ## 13. 开发任务规划（路径 B 迁移实现）
 

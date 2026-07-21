@@ -1,13 +1,33 @@
 ---
 id: F20260714jaup
 title: entities-layer-implementation
-from_ids: [F20260714zjmk, F20260713e8n4, F20260713o4t8, F20260713m5q3, F20260709p4q7]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档定义整洁架构 entities 层的实体类型 + 不变量规则函数，遵循 F20260714zjmk 锁定的目录结构和设计决策。 F20260714zjmk 已完成 Setup（步骤 1-2,6）： - 旧代码归档至 `reference/old-src/`
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260714zjmk
+    - F20260713e8n4
+    - F20260713o4t8
+    - F20260713m5q3
+    - F20260709p4q7
+
+
+# 元数据
+status: implemented
+change_type: feature
 tags: [architecture, entities, clean-architecture, conversation, otter, memory, talking-stone]
 modules: [src/entities/]
-doc_kind: spec
-status: implemented
+
+# 时间
 created_at: 2026-07-14
 ---
+
 
 # F20260714jaup 整洁架构 Entities 层实现
 

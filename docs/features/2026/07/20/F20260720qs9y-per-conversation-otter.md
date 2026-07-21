@@ -1,3 +1,24 @@
+---
+id: F20260720qs9y
+title: — 每个对话创建独立大獭，移除全局单例大獭
+doc_type: feature
+
+# 记忆索引
+summary: |
+  将全局单例大獭改为每个对话独立创建大獭，实现对话级隔离。
+  移除全局 AgentRegistry，改为按需创建 AgentHarness，支持多对话并发。
+
+
+# 元数据
+status: ## 状态
+change_type: feature
+tags: []
+modules: []
+
+# 时间
+created_at: 
+---
+
 # F20260720qs9y — 每个对话创建独立大獭，移除全局单例大獭
 
 ## 状态

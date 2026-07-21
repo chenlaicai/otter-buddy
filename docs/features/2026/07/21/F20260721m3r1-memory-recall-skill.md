@@ -1,13 +1,29 @@
 ---
 id: F20260721m3r1
 title: memory-recall-skill
-from_ids: [F20260716t2ab]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  记忆系统已搭建完成（search_memory / get_memory_detail / store_memory 工具），但 agent 在实际对话中从未主动触发过记忆召回。 根因：**tool 存在但 prompt 缺失。** `otter-shared` SKILL.md 中关于记忆召...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716t2ab
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [agent, skills, memory, recall]
 modules: [skills/, prompts/platform/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-21
 ---
+
 
 # F20260721m3r1 记忆召回 Skill 补全
 
