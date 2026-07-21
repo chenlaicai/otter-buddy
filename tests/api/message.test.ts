@@ -125,7 +125,7 @@ describe("Message API", () => {
     it("streams SSE events with correct content on success", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-      deps.agentInvoker.invokeConversation.mockImplementation(async (params) => {
+      deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
         params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
         params.onSSEEvent?.({ event: "message.delta", data: { text: "Hello" } });
         params.onSSEEvent?.({ event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });

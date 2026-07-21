@@ -15,19 +15,6 @@ import { OtterController } from "../../src/interface-adapters/http/controllers/o
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
-import type { ManageConversation } from "../../src/usecases/conversation/manage-conversation";
-import type { ManageParticipant } from "../../src/usecases/conversation/manage-participant";
-import type { SendMessage } from "../../src/usecases/conversation/send-message";
-import type { QueryMessage } from "../../src/usecases/conversation/query-message";
-import type { AgentInvoker } from "../../src/interface-adapters/agent-runtime/agent-invoker";
-import type { CreateOtter } from "../../src/usecases/otter/create-otter";
-import type { DissolveOtter } from "../../src/usecases/otter/dissolve-otter";
-import type { ManageSession } from "../../src/usecases/otter/manage-session";
-import type { QueryOtter } from "../../src/usecases/otter/query-otter";
-import type { SearchMemory } from "../../src/usecases/memory/search-memory";
-import type { ManageMemory } from "../../src/usecases/memory/manage-memory";
-import type { ManageKeyInfo } from "../../src/usecases/conversation/manage-key-info";
-import type { SettingsRepository } from "../../src/usecases/settings/settings-repository";
 
 /** 解析 Response JSON（避免 strict 模式下 unknown 报错） */
 export async function json(res: Response): Promise<any> {
@@ -74,12 +61,11 @@ export async function readSSEEvents(res: Response): Promise<Array<{ event: strin
   return events;
 }
 
-// ─── Type-safe mock helpers ───
+// ─── Mock helpers ───
 
-type Mocked<T> = { [K in keyof T]: T[K] extends (...args: any[]) => any ? ReturnType<typeof vi.fn> & T[K] : T[K] };
-
-function mockMethods<T>(methods: (keyof T)[]): Mocked<T> {
-  const result = {} as any;
+/** 创建指定方法名的 vi.fn mock 对象 */
+function mockMethods(methods: string[]): Record<string, ReturnType<typeof vi.fn>> {
+  const result: Record<string, ReturnType<typeof vi.fn>> = {};
   for (const m of methods) {
     result[m] = vi.fn();
   }
@@ -313,20 +299,20 @@ export function makeLinkedResource(overrides: Partial<{
 // ─── Test app builder ───
 
 export interface TestDeps {
-  manageConversation: Mocked<ManageConversation>;
-  manageParticipant: Mocked<ManageParticipant>;
-  sendMessageUseCase: Mocked<SendMessage>;
-  queryMessage: Mocked<QueryMessage>;
-  agentInvoker: Mocked<AgentInvoker>;
-  createOtterUseCase: Mocked<CreateOtter>;
-  dissolveOtterUseCase: Mocked<DissolveOtter>;
-  manageSession: Mocked<ManageSession>;
-  queryOtter: Mocked<QueryOtter>;
-  searchMemory: Mocked<SearchMemory>;
-  manageMemory: Mocked<ManageMemory>;
-  manageKeyInfo: Mocked<ManageKeyInfo>;
+  manageConversation: any;
+  manageParticipant: any;
+  sendMessageUseCase: any;
+  queryMessage: any;
+  agentInvoker: any;
+  createOtterUseCase: any;
+  dissolveOtterUseCase: any;
+  manageSession: any;
+  queryOtter: any;
+  searchMemory: any;
+  manageMemory: any;
+  manageKeyInfo: any;
   settingsConfig: SettingsConfig;
-  settingsRepo: Mocked<SettingsRepository>;
+  settingsRepo: any;
 }
 
 export function createTestApp(deps: TestDeps): Hono {
@@ -372,18 +358,18 @@ export function createTestApp(deps: TestDeps): Hono {
 /** 创建类型安全的 mock deps，各测试按需覆盖 */
 export function createMockDeps(): TestDeps {
   return {
-    manageConversation: mockMethods<ManageConversation>(["create", "getById", "complete", "archive", "getIdsByOtterId"]),
-    manageParticipant: mockMethods<ManageParticipant>(["getActiveParticipants", "join", "leave"]),
-    sendMessageUseCase: mockMethods<SendMessage>(["send", "start", "appendEvent", "complete", "fail", "abort"]),
-    queryMessage: mockMethods<QueryMessage>(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
-    agentInvoker: mockMethods<AgentInvoker>(["invokeConversation", "abort", "getToolCallCount"]),
-    createOtterUseCase: mockMethods<CreateOtter>(["execute"]),
-    dissolveOtterUseCase: mockMethods<DissolveOtter>(["execute"]),
-    manageSession: mockMethods<ManageSession>(["createSession", "getActiveSession", "archiveSession", "getSessionHistory"]),
-    queryOtter: mockMethods<QueryOtter>(["getById", "getBigOtter"]),
-    searchMemory: mockMethods<SearchMemory>(["search", "searchSimilar"]),
-    manageMemory: mockMethods<ManageMemory>(["getById", "getDetails", "flagMemory", "updateLayer"]),
-    manageKeyInfo: mockMethods<ManageKeyInfo>(["getLinkedResources", "linkResource", "flagResource", "deleteLinkedResource", "supersedeResource", "archiveResource", "updateResourceStatus", "getArtifactIndex", "getLinkedResourcesByGroup"]),
+    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId"]),
+    manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
+    sendMessageUseCase: mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
+    queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
+    agentInvoker: mockMethods(["invokeConversation", "abort"]),
+    createOtterUseCase: mockMethods(["execute"]),
+    dissolveOtterUseCase: mockMethods(["execute"]),
+    manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory"]),
+    queryOtter: mockMethods(["getById", "getBigOtter"]),
+    searchMemory: mockMethods(["search", "searchSimilar"]),
+    manageMemory: mockMethods(["getById", "getDetails", "flagMemory", "updateLayer"]),
+    manageKeyInfo: mockMethods(["getLinkedResources", "linkResource", "flagResource", "deleteLinkedResource", "supersedeResource", "archiveResource", "updateResourceStatus", "getArtifactIndex", "getLinkedResourcesByGroup"]),
     settingsConfig: {
       provider: "openai",
       model: "gpt-4o",
@@ -392,6 +378,6 @@ export function createMockDeps(): TestDeps {
       embeddingModelPath: "./embedding.bin",
       embeddingDim: 1024,
     },
-    settingsRepo: mockMethods<SettingsRepository>(["get", "update", "getAll"]),
+    settingsRepo: mockMethods(["get", "update", "getAll"]),
   };
 }
