@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, json, createMockDeps, makeMessage } from "./helpers";
+import { createTestApp, json, readSSEEvents, createMockDeps, makeMessage } from "./helpers";
 import type { TestDeps } from "./helpers";
 
 describe("Message API", () => {
@@ -122,10 +122,15 @@ describe("Message API", () => {
       expect(body.error).toContain("body");
     });
 
-    it("creates user message with correct params and returns SSE stream", async () => {
+    it("streams SSE events with correct content on success", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-      deps.agentInvoker.invokeConversation.mockReturnValue(new Promise(() => {}));
+      deps.agentInvoker.invokeConversation.mockImplementation(async (params) => {
+        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
+        params.onSSEEvent?.({ event: "message.delta", data: { text: "Hello" } });
+        params.onSSEEvent?.({ event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });
+        return { messageId: "agent-msg-1", duration: 1200 };
+      });
 
       const res = await app.request("/api/conversations/conv-1/messages", {
         method: "POST",
@@ -135,6 +140,13 @@ describe("Message API", () => {
 
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+      const events = await readSSEEvents(res);
+      expect(events).toHaveLength(3);
+      expect(events[0]).toEqual({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
+      expect(events[1]).toEqual({ event: "message.delta", data: { text: "Hello" } });
+      expect(events[2]).toEqual({ event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });
+
       expect(deps.sendMessageUseCase.send).toHaveBeenCalledWith({
         conversationId: "conv-1",
         senderId: "user-1",
@@ -142,6 +154,25 @@ describe("Message API", () => {
         body: "Hello otter",
         attachments: undefined,
       });
+    });
+
+    it("streams error event when agent invocation fails", async () => {
+      const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
+      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.agentInvoker.invokeConversation.mockRejectedValue(new Error("LLM rate limited"));
+
+      const res = await app.request("/api/conversations/conv-1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validBody),
+      });
+
+      expect(res.status).toBe(200);
+
+      const events = await readSSEEvents(res);
+      expect(events).toHaveLength(1);
+      expect(events[0].event).toBe("error");
+      expect(events[0].data.message).toBe("LLM rate limited");
     });
   });
 

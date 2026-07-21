@@ -146,7 +146,8 @@ export default tseslint.config(
   {
     files: ["tests/api/**/*.ts"],
     rules: {
-      "no-restricted-syntax": "off"
+      "no-restricted-syntax": "off",
+      "max-lines-per-function": ["error", { max: 300, skipBlankLines: true, skipComments: true }],
     }
   }
 );
