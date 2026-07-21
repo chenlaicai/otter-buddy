@@ -225,8 +225,8 @@ export class SendMessage {
     };
   }
 
-  /** 标记消息失败（可选 body 存错误信息） */
-  async fail(messageId: string, body?: string): Promise<void> {
+  /** 标记消息失败（可选 body 存错误信息，可选 talkingStonePassedTo 写入发言石） */
+  async fail(messageId: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
     const message = await this.repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
@@ -236,7 +236,7 @@ export class SendMessage {
     }
 
     const now = new Date().toISOString();
-    await this.repo.failMessage(messageId, now, body);
+    await this.repo.failMessage(messageId, now, body, talkingStonePassedTo);
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this.repo, message.turnId);
@@ -277,6 +277,34 @@ export class SendMessage {
       talkingStonePassedTo: input.talkingStonePassedTo,
       completedAt: now,
     };
+  }
+
+  /** 发送系统消息（senderType = "system"，立即 completed，豁免发言石校验） */
+  async sendSystem(conversationId: string, body: string): Promise<Message> {
+    const turn = await this.ensureActiveTurn(conversationId);
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const sequenceNum = (await this.repo.getMaxSequenceNum(conversationId)) + 1;
+
+    const message: Message = {
+      id,
+      conversationId,
+      turnId: turn.id,
+      senderType: "system",
+      senderId: "system",
+      talkingStonePassedTo: [],
+      status: "completed",
+      body,
+      attachments: null,
+      sequenceNum,
+      contextTokens: null,
+      contextTokensMax: null,
+      createdAt: now,
+      completedAt: now,
+    };
+
+    await this.repo.createCompletedMessage(message);
+    return message;
   }
 
   /** 确保活跃 Turn 存在，无则创建新 Turn */

@@ -179,12 +179,13 @@ export class SqliteConversationRepository implements ConversationRepository {
     if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in streaming status`);
   }
 
-  async failMessage(messageId: string, failedAt: string, body?: string): Promise<void> {
-    const result = body
-      ? this.db.prepare(`UPDATE messages SET status = 'failed', body = ?, completed_at = ? WHERE id = ? AND status = 'streaming'`)
-          .run(body, failedAt, messageId)
-      : this.db.prepare(`UPDATE messages SET status = 'failed', completed_at = ? WHERE id = ? AND status = 'streaming'`)
-          .run(failedAt, messageId);
+  async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
+    const updates: string[] = ["status = 'failed'", "completed_at = ?"];
+    const params: unknown[] = [failedAt];
+    if (body !== undefined) { updates.unshift("body = ?"); params.push(body); }
+    if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
+    params.push(messageId);
+    const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status = 'streaming'`).run(...params);
     if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
   }
 

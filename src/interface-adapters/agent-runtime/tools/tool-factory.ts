@@ -26,36 +26,56 @@ function textResponse(text: string): ToolResponse {
 
 /**
  * 工具上下文：invoke 时由系统注入，闭包捕获。
- * otterId 和 conversationId 由系统注入，LLM 不传。
+ * otterId、conversationId、currentMessageId 由系统注入，LLM 不传。
  */
 export interface ToolContext {
   client: OtterToolClient;
   otterId: string;
   conversationId: string;
+  /** 当前 streaming 消息 ID（speak 工具用） */
+  currentMessageId: string;
 }
 
 // ── 现有工具（8 个，从 ToolDependencies 迁移到 ToolContext） ──
 
-function createSendMessageTool(ctx: ToolContext): AgentTool {
+function createSpeakTool(ctx: ToolContext): AgentTool {
   return {
-    name: "send_message",
-    description: "发送消息到当前对话。参数：content（消息内容），recipientId（接收者ID，通常为用户ID）。conversationId 和 senderId 由系统注入。",
+    name: "speak",
+    description: "结束本次发言。设置最终答复内容和发言石目标。这是你的'闭嘴'动作——调用后本次发言结束。",
     parameters: {
       type: "object",
       properties: {
-        content: { type: "string", description: "消息内容" },
-        recipientId: { type: "string", description: "接收者 ID（传递发言石目标，通常为用户 ID）" },
+        body: { type: "string", description: "最终答复内容（总结/结论，不是中间推理过程）" },
+        talkingStonePassedTo: {
+          type: "array",
+          items: { type: "string" },
+          description: "发言石目标（下一个应该发言的参与者 ID 列表）",
+        },
       },
-      required: ["content", "recipientId"],
+      required: ["body", "talkingStonePassedTo"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const msg = await ctx.client.conversation.message.send({
-        conversationId: ctx.conversationId,
-        senderId: ctx.otterId,
-        body: params.content as string,
-        talkingStonePassedTo: [params.recipientId as string],
-      });
-      return textResponse(`Message sent: ${msg.id}`);
+      if (!ctx.currentMessageId) {
+        return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法结束发言。");
+      }
+
+      const body = params.body as string;
+      const recipients = params.talkingStonePassedTo as string[];
+
+      if (!body || body.trim().length === 0) {
+        return textResponse("[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。");
+      }
+      if (!recipients || recipients.length === 0) {
+        return textResponse("[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者 ID。");
+      }
+
+      try {
+        await ctx.client.conversation.message.complete(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return textResponse(`[错误] 发言结束失败：${msg}。请重试。`);
+      }
+      return textResponse("[ok] 发言已结束。不要再生成任何内容。");
     },
   };
 }
@@ -350,8 +370,8 @@ function createAddTerminologyTool(ctx: ToolContext): AgentTool {
  */
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [
-    // 现有工具（8 个）
-    createSendMessageTool(ctx),
+    // 现有工具（8 个，send_message 替换为 speak）
+    createSpeakTool(ctx),
     createPassTalkingStoneTool(ctx),
     createSearchMemoryTool(ctx),
     createStoreMemoryTool(ctx),
