@@ -1,9 +1,33 @@
 import { useRef, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { AlertTriangle, Square } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent } from '../../lib/utils'
+
+/** Markdown 渲染组件（GFM + 代码高亮） */
+function MarkdownContent({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '')
+          const text = String(children).replace(/\n$/, '')
+          if (match) {
+            return <SyntaxHighlighter style={oneLight} language={match[1]} PreTag="div" customStyle={{ margin: '8px 0', borderRadius: 8, fontSize: 13 }}>{text}</SyntaxHighlighter>
+          }
+          return <code className={className} {...props}>{children}</code>
+        },
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  )
+}
 
 interface MessageListProps {
   messages: Message[]
@@ -126,7 +150,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           style={isUser ? { background: bgGrad } : borderLeft}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} />}
-          <ReactMarkdown>{m.content}</ReactMarkdown>
+          <MarkdownContent>{m.content}</MarkdownContent>
         </div>
         {!isUser && (
           <div className="flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400">
@@ -184,13 +208,15 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
     const resultText = typeof payload.result === 'object' && payload.result !== null
       ? (payload.result as { content?: Array<{ text?: string }> }).content?.[0]?.text || JSON.stringify(payload.result)
       : String(payload.result)
-    const preview = resultText.length > 200 ? resultText.slice(0, 200) + '...' : resultText
+    const preview = resultText.length > 500 ? resultText.slice(0, 500) + '...' : resultText
     return (
       <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
         <span className="text-stone-400 text-[11px] mt-0.5">◀</span>
         <div className="flex-1 min-w-0">
           <span className="text-[11px] text-stone-400">{payload.name}</span>
-          <pre className="text-[10px] text-stone-500 mt-0.5 whitespace-pre-wrap break-all bg-stone-50 rounded px-2 py-1 max-h-[120px] overflow-y-auto">{preview}</pre>
+          <div className="text-[10px] text-stone-500 mt-0.5 bg-stone-50 rounded px-2 py-1 max-h-[200px] overflow-y-auto prose prose-xs max-w-none">
+            <MarkdownContent>{preview}</MarkdownContent>
+          </div>
         </div>
       </div>
     )
@@ -214,15 +240,18 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
   if (eventType === 'assistant_text') {
     const content = payload.content as Array<Record<string, unknown>> | undefined
     const text = content?.find(c => c.type === 'text')
-    const preview = ((text?.text as string) || '').length > 100
-      ? ((text?.text as string) || '').slice(0, 100) + '...'
-      : (text?.text as string) || ''
+    const textStr = (text?.text as string) || ''
+    const preview = textStr.length > 300 ? textStr.slice(0, 300) + '...' : textStr
     return (
       <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
         <span className="text-blue-500 text-[11px] mt-0.5">💬</span>
         <div className="flex-1 min-w-0">
           <span className="text-[11px] font-medium text-stone-600">输出</span>
-          {preview && <div className="text-[10px] text-stone-500 mt-0.5">{preview}</div>}
+          {preview && (
+            <div className="text-[10px] text-stone-500 mt-0.5 prose prose-xs max-w-none">
+              <MarkdownContent>{preview}</MarkdownContent>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -295,7 +324,7 @@ function StreamingMessage({ state, onStop, otters }: { state: StreamingState; on
             </div>
           )}
           {state.showFinal && (
-            <ReactMarkdown>{state.finalText}</ReactMarkdown>
+            <MarkdownContent>{state.finalText}</MarkdownContent>
           )}
         </div>
       </div>
