@@ -16,14 +16,11 @@ import * as api from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
-  bigOtter: LocalOtter
   conversations: LocalConversation[]
 }> {
-  const bigOtterDTO = await api.getBigOtter()
-  const bigOtter = mapOtterDTO(bigOtterDTO)
-  const convDTOs = await api.listConversations(bigOtter.id)
+  const convDTOs = await api.listConversations()
   const conversations = convDTOs.map(mapConversationDTO)
-  return { bigOtter, conversations }
+  return { conversations }
 }
 
 function ConversationPage() {
@@ -43,8 +40,7 @@ function ConversationPage() {
 
   useEffect(() => {
     loadInitialData()
-      .then(({ bigOtter, conversations: convs }) => {
-        setAllOtters([bigOtter])
+      .then(({ conversations: convs }) => {
         setConversations(convs)
         if (convs.length > 0) {
           setActiveId(convs[0].id)
@@ -58,9 +54,10 @@ function ConversationPage() {
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
-      const [msgs, keyInfo] = await Promise.all([
+      const [msgs, keyInfo, participants] = await Promise.all([
         api.listMessages(convId, 100),
         api.getKeyResources(convId),
+        api.getParticipants(convId),
       ])
       setAllMessages(prev => ({
         ...prev,
@@ -70,6 +67,14 @@ function ConversationPage() {
         ...prev,
         [convId]: keyInfo.resources.map(mapLinkedResourceDTO),
       }))
+      // 更新 allOtters，添加对话中的 otter
+      setAllOtters(prev => {
+        const existingIds = new Set(prev.map(o => o.id))
+        const newOtters = participants
+          .filter(p => !existingIds.has(p.otterId))
+          .map(p => ({ id: p.otterId, name: p.otterName, ci: 0 }))
+        return [...prev, ...newOtters]
+      })
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
@@ -101,7 +106,8 @@ function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
-    const otterId = mentionOtterId || allOtters[0]?.id
+    // 从当前对话的参与者中获取 otterId
+    const otterId = mentionOtterId || activeOtters[0]?.id
     if (!otterId) { showToast('没有可用的 Otter', 'error'); return }
 
     const userMsg: LocalMessage = {
@@ -149,7 +155,7 @@ function ConversationPage() {
       console.error('Failed to send message:', err)
       showToast('发送失败', 'error'); setStreaming(null)
     }
-  }, [activeId, allOtters])
+  }, [activeId, activeOtters])
 
   const stopStream = useCallback(() => {
     if (otterMsgIdRef.current) {
@@ -175,9 +181,8 @@ function ConversationPage() {
 
   async function confirmNewConv(title: string) {
     try {
-      const bigOtterId = allOtters[0]?.id
-      const dto = await api.createConversation({ title, otterIds: bigOtterId ? [bigOtterId] : undefined })
-      const conv = mapConversationDTO({ ...dto, otterIds: bigOtterId ? [bigOtterId] : [] })
+      const dto = await api.createConversation({ title })
+      const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
       setAllMessages(prev => ({ ...prev, [conv.id]: [] }))
       setActiveId(conv.id)
@@ -189,9 +194,8 @@ function ConversationPage() {
   async function confirmChild(title: string) {
     if (modal.type !== 'child') return
     try {
-      const bigOtterId = allOtters[0]?.id
-      const dto = await api.createConversation({ title, otterIds: bigOtterId ? [bigOtterId] : undefined })
-      const conv = mapConversationDTO({ ...dto, otterIds: bigOtterId ? [bigOtterId] : [] })
+      const dto = await api.createConversation({ title })
+      const conv = mapConversationDTO(dto)
       setConversations(prev => [...prev, conv])
       setAllMessages(prev => ({ ...prev, [conv.id]: [] }))
       setActiveId(conv.id)

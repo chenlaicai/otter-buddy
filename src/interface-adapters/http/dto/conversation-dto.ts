@@ -27,11 +27,12 @@ export function toConversationListItemDTO(
   return { ...toConversationDTO(conv), otterIds };
 }
 
-export function toParticipantDTO(p: ConversationParticipant): ParticipantDTO {
+export function toParticipantDTO(p: ConversationParticipant, otterName: string): ParticipantDTO {
   return {
     id: p.id,
     conversationId: p.conversationId,
     otterId: p.otterId,
+    otterName,
     joinedAtTurnNumber: p.joinedAtTurnNumber,
     leftAtTurnNumber: p.leftAtTurnNumber,
     status: p.status,

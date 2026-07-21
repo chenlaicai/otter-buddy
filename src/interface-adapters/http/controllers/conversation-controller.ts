@@ -18,17 +18,20 @@ export class ConversationController {
 
   async list(c: Context): Promise<Response> {
     try {
-      const otterId = c.req.query("otterId");
-      if (!otterId) {
-        return c.json({ error: "otterId query parameter is required" }, 400);
+      const limitStr = c.req.query("limit") ?? "50";
+      const offsetStr = c.req.query("offset") ?? "0";
+      const limit = parseInt(limitStr, 10);
+      const offset = parseInt(offsetStr, 10);
+      if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {
+        return c.json({ error: "Invalid pagination parameters" }, 400);
       }
-      const ids = await this.manageConversation.getIdsByOtterId(otterId);
+      const ids = await this.manageConversation.getAllIds({ limit, offset });
       const items = await Promise.all(
         ids.map(async (id) => {
           const conv = await this.manageConversation.getById(id);
           if (!conv) return null;
-          const participants = await this.manageParticipant.getActiveParticipants(id);
-          const otterIds = participants.map((p) => p.otterId);
+          const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
+          const otterIds = participantsWithOtter.map((p) => p.participant.otterId);
           return toConversationListItemDTO(conv, otterIds);
         }),
       );
@@ -43,7 +46,6 @@ export class ConversationController {
       const body = await c.req.json<CreateConversationRequestDTO>();
       const input: CreateConversationInput = {
         title: body.title,
-        otterIds: body.otterIds,
       };
       const conv = await this.manageConversation.create(input);
       return c.json(toConversationDTO(conv), 201);
@@ -88,8 +90,10 @@ export class ConversationController {
   async getParticipants(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      const participants = await this.manageParticipant.getActiveParticipants(id);
-      return c.json(participants.map(toParticipantDTO));
+      const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
+      return c.json(participantsWithOtter.map(({ participant, otterName }) =>
+        toParticipantDTO(participant, otterName)
+      ));
     } catch (err) {
       return handleError(c, err);
     }

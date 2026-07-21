@@ -12,6 +12,7 @@ import type {
   SettingsDTO,
   UpdateSettingsRequestDTO,
   LinkedResourceDTO,
+  ParticipantDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -31,8 +32,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 // ── Conversations ──
 
-export function listConversations(otterId: string): Promise<ConversationListItemDTO[]> {
-  return request(`/conversations?otterId=${encodeURIComponent(otterId)}`)
+export function listConversations(options?: { limit?: number; offset?: number }): Promise<ConversationListItemDTO[]> {
+  const qs = new URLSearchParams();
+  if (options?.limit) qs.set('limit', String(options.limit));
+  if (options?.offset) qs.set('offset', String(options.offset));
+  return request(`/conversations?${qs}`)
 }
 
 export function createConversation(body: CreateConversationRequestDTO): Promise<ConversationDTO> {
@@ -49,6 +53,10 @@ export function completeConversation(id: string): Promise<{ status: string }> {
 
 export function archiveConversation(id: string): Promise<{ status: string }> {
   return request(`/conversations/${id}/archive`, { method: 'PATCH' })
+}
+
+export function getParticipants(conversationId: string): Promise<ParticipantDTO[]> {
+  return request(`/conversations/${conversationId}/participants`)
 }
 
 // ── Messages ──
@@ -70,10 +78,6 @@ export function abortMessage(messageId: string): Promise<{ status: string }> {
 }
 
 // ── Otters ──
-
-export function getBigOtter(): Promise<OtterDTO> {
-  return request('/otters/big')
-}
 
 export function getOtter(id: string): Promise<OtterDTO> {
   return request(`/otters/${id}`)
