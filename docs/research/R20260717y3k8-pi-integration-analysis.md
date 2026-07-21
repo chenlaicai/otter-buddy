@@ -444,7 +444,7 @@ cliProcess.kill();
 
 ## 10. 研究文档对齐
 
-> 本文档基于 `docs/research/pi-capability-analysis.md` 的研究成果。
+> 本文档基于 `docs/research/R20260716x2k9-pi-capability-analysis.md` 的研究成果。
 
 | 研究结论 | 本文档应用 |
 |---------|-----------|
