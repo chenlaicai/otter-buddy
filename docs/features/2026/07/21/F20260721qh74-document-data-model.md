@@ -327,51 +327,7 @@ export interface ResearchDocument {
 
 ---
 
-## 4. 迁移方案
-
-### 4.1 迁移映射表
-
-| 旧字段 | 新字段 | 映射规则 |
-|--------|--------|----------|
-| `from_ids: [F..., R...]` | `causal_links.from` | 按 ID 前缀拆分后合并 |
-| `doc_kind: spec` | `doc_type: feature` | 直接映射 |
-| `status: development` | `status: draft` | development → draft |
-| `status: locked` | `status: locked` | 保持不变 |
-| 缺失的 `summary` | `summary` | 人工补充或从文档第一段提取 |
-| 缺失的 `change_type` | `change_type: feature` | 默认值 |
-| `modules: [domain/memory]` | `modules: [domain/memory]` | 保持逻辑名 |
-
-### 4.2 迁移脚本
-
-```typescript
-// 迁移逻辑伪代码
-function migrateFeatureFrontmatter(oldDoc: OldDoc): FeatureDocument {
-  return {
-    id: oldDoc.id,
-    title: oldDoc.title,
-    summary: extractSummary(oldDoc),  // 从文档内容提取或人工补充
-    change_type: 'feature',           // 默认值
-    status: oldDoc.status === 'development' ? 'draft' : oldDoc.status,
-    tags: oldDoc.tags,
-    modules: oldDoc.modules,
-    from: oldDoc.from_ids,            // 保持原样，不再按类型拆分
-    supersedes: undefined,            // 旧文档无此字段
-    file_path: oldDoc.file_path,
-    created_at: oldDoc.created_at,
-  };
-}
-```
-
-### 4.3 悬空引用处理
-
-迁移时发现 `from_ids` 引用的文档不存在：
-- **保留原样**：不删除，保持历史记录
-- **添加警告**：在文档中添加 `<!-- WARNING: broken link -->` 注释
-- **人工审核**：迁移完成后人工检查并修复
-
----
-
-## 5. 检索场景
+## 4. 检索场景
 
 | 查询意图 | 检索方式 |
 |---------|---------|
@@ -388,7 +344,7 @@ function migrateFeatureFrontmatter(oldDoc: OldDoc): FeatureDocument {
 
 ---
 
-## 6. 文档演进示例
+## 5. 文档演进示例
 
 ```
 R20260715abc1 (探索：三层 vs 两层)
@@ -406,35 +362,29 @@ F20260725xyz1 (Feature：V2 演进)
 
 ---
 
-## 7. 实现计划
+## 6. 实现计划
 
-### 7.1 阶段一：类型定义
+### 6.1 阶段一：类型定义
 
 1. 在 `src/entities/memory/memory-entry.ts` 中新增 `MemoryContentType` 和 `MemoryLayer`
 2. 定义 `FeatureMemoryMetadata` 和 `ResearchMemoryMetadata` 接口
 3. 更新 `MemoryEntry` 接口的 `metadata` 类型
 
-### 7.2 阶段二：数据库设计
+### 6.2 阶段二：数据库设计
 
 1. 创建 `features` 表和 `research` 表的 DDL
 2. 在 `src/frameworks/db/schema.ts` 中添加表定义
 3. 创建对应的 Repository 接口和实现
 
-### 7.3 阶段三：索引集成
+### 6.3 阶段三：索引集成
 
 1. 扩展 `MemoryIndexGateway` 接口，新增 `indexFeature` 和 `indexResearch` 方法
 2. 实现文档索引函数，解析 frontmatter 并创建记忆条目
 3. 更新搜索逻辑，支持 `feature` 和 `research` 内容类型
 
-### 7.4 阶段四：迁移现有文档
-
-1. 编写迁移脚本，将现有 Feature 文档的 frontmatter 迁移到新格式
-2. 将 Research 文档迁移到 `docs/research/YYYY/MM/DD/` 目录结构
-3. 补充缺失的 `summary` 字段（人工或自动提取）
-
 ---
 
-## 8. 关联文档
+## 7. 关联文档
 
 - **数据模型设计**：[F20260709p4q7](../09/F20260709p4q7-data-model-design.md)
 - **domain-memory 实现**：[F20260713m5q3](../13/F20260713m5q3-domain-memory.md)
@@ -442,6 +392,6 @@ F20260725xyz1 (Feature：V2 演进)
 
 ---
 
-## 9. 偏差记录
+## 8. 偏差记录
 
 无偏差。
