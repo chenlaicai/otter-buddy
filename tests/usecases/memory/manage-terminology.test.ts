@@ -7,6 +7,18 @@ import { SearchMemory } from "@usecases/memory/search-memory";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import type { TerminologyEntry } from "@entities/memory/terminology-entry";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { Logger } from "@usecases/ports/logger";
+
+/** 创建 noop Logger mock */
+function mockLogger(): Logger {
+  return {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => mockLogger(),
+  };
+}
 
 /** 创建内存 SQLite 数据库 + 初始化 terminology schema */
 function createTestDb(): Database.Database {
@@ -349,7 +361,7 @@ describe("SearchMemory - library 路由", () => {
     termRepo = new SqliteTerminologyRepository(db);
     const memoryRepo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(memoryRepo, mockEmbeddingGateway(), searchEngine, termRepo);
+    searchMemory = new SearchMemory(memoryRepo, mockEmbeddingGateway(), searchEngine, mockLogger(), termRepo);
 
     await termRepo.add(SAMPLE_ENTRY);
   });

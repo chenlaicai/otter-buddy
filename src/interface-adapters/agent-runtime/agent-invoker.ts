@@ -2,6 +2,7 @@ import type { AgentInvokePort, AgentStreamEvent, DynamicContext } from "./agent-
 import type { SendMessage, MessageEventInput } from "@usecases/conversation/send-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
+import type { Logger } from "@usecases/ports/logger";
 
 /** SSE 事件（与 sse-streamer 的 SSEEvent 结构兼容） */
 export interface AgentSSEEvent {
@@ -100,6 +101,7 @@ export class AgentInvoker {
     private readonly sendMessage: SendMessage,
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
+    private readonly logger: Logger,
   ) {}
 
   /**
@@ -116,6 +118,13 @@ export class AgentInvoker {
     const { otterId, conversationId, userMessageContent, senderId, onSSEEvent } = params;
     const startTime = Date.now();
 
+    // 记录 Agent 调用开始日志
+    this.logger.info('Agent invocation started', {
+      otterId,
+      conversationId,
+      messageLength: userMessageContent.length,
+    });
+
     const dynamicContext = await this.buildDynamicContext(otterId);
 
     const message = await this.sendMessage.start({
@@ -127,57 +136,114 @@ export class AgentInvoker {
     onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId } });
 
     try {
-      let agentError: string | undefined;
-      const result = await this.agentInvoke.invoke(otterId, userMessageContent, {
+      const result = await this.executeAgentInvocation({
+        otterId,
+        userMessageContent,
         dynamicContext,
         conversationId,
-        onEvent: (e: AgentStreamEvent) => {
-          const sse = mapToSSEEvent(e);
-          if (sse) onSSEEvent?.(sse);
-          const evt = mapToMessageEventInput(e, message.id);
-          if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
-            const m = err instanceof Error ? err.message : String(err);
-            // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
-            console.warn(`Failed to persist message event for ${message.id}: ${m}`);
-          });
-          if (!agentError) agentError = extractAgentError(e);
-        },
-      });
-      if (!result.text) throw new Error(agentError || "Agent returned empty response");
-
-      const contextTokens = result.tokenUsage
-        ? result.tokenUsage.input + result.tokenUsage.output
-        : undefined;
-
-      await this.sendMessage.complete(message.id, {
-        body: result.text,
-        talkingStonePassedTo: [senderId],
-        contextTokens,
-        contextTokensMax: result.ctxMax,
+        messageId: message.id,
+        onSSEEvent,
       });
 
-      /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
-      this.abortedOtters.delete(otterId);
-
-      const duration = Date.now() - startTime;
-      onSSEEvent?.({
-        event: "message.complete",
-        data: {
-          messageId: message.id,
-          duration: `${(duration / 1000).toFixed(1)}s`,
-          ...(contextTokens !== undefined && { ctx: contextTokens }),
-          ...(result.ctxMax !== undefined && { ctxMax: result.ctxMax }),
-        },
+      return await this.completeAgentInvocation({
+        otterId,
+        conversationId,
+        messageId: message.id,
+        senderId,
+        result,
+        startTime,
+        onSSEEvent,
       });
-
-      /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
-      onSSEEvent?.({ event: "turn.complete", data: {} });
-
-      return { messageId: message.id, duration, tokenUsage: result.tokenUsage };
     } catch (err) {
       await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
       throw err;
     }
+  }
+
+  /**
+   * 执行 Agent 调用。
+   */
+  private async executeAgentInvocation(params: {
+    otterId: string;
+    userMessageContent: string;
+    dynamicContext: DynamicContext;
+    conversationId: string;
+    messageId: string;
+    onSSEEvent?: (event: AgentSSEEvent) => void;
+  }) {
+    let agentError: string | undefined;
+    const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
+      dynamicContext: params.dynamicContext,
+      conversationId: params.conversationId,
+      onEvent: (e: AgentStreamEvent) => {
+        const sse = mapToSSEEvent(e);
+        if (sse) params.onSSEEvent?.(sse);
+        const evt = mapToMessageEventInput(e, params.messageId);
+        if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
+          const m = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
+        });
+        if (!agentError) agentError = extractAgentError(e);
+      },
+    });
+    if (!result.text) throw new Error(agentError || "Agent returned empty response");
+    return result;
+  }
+
+  /**
+   * 完成 Agent 调用：记录日志、发送 SSE 事件。
+   */
+  private async completeAgentInvocation(params: {
+    otterId: string;
+    conversationId: string;
+    messageId: string;
+    senderId: string;
+    result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
+    startTime: number;
+    onSSEEvent?: (event: AgentSSEEvent) => void;
+  }): Promise<ConversationInvokeResult> {
+    const { otterId, conversationId, messageId, senderId, result, startTime, onSSEEvent } = params;
+
+    const contextTokens = result.tokenUsage
+      ? result.tokenUsage.input + result.tokenUsage.output
+      : undefined;
+
+    await this.sendMessage.complete(messageId, {
+      body: result.text,
+      talkingStonePassedTo: [senderId],
+      contextTokens,
+      contextTokensMax: result.ctxMax,
+    });
+
+    /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
+    this.abortedOtters.delete(otterId);
+
+    const duration = Date.now() - startTime;
+
+    // 记录 Agent 调用完成日志
+    this.logger.info('Agent invocation completed', {
+      otterId,
+      conversationId,
+      messageId,
+      duration,
+      tokenUsage: result.tokenUsage,
+      status: 'success',
+    });
+
+    onSSEEvent?.({
+      event: "message.complete",
+      data: {
+        messageId,
+        duration: `${(duration / 1000).toFixed(1)}s`,
+        ...(contextTokens !== undefined && { ctx: contextTokens }),
+        ...(result.ctxMax !== undefined && { ctxMax: result.ctxMax }),
+      },
+    });
+
+    /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
+    onSSEEvent?.({ event: "turn.complete", data: {} });
+
+    return { messageId, duration, tokenUsage: result.tokenUsage };
   }
 
   /**
@@ -244,8 +310,9 @@ export class AgentInvoker {
         ctx.sessionSummary = session.summary;
       }
     } catch (err) {
-      // eslint-disable-next-line no-console -- interface-adapters 不能依赖 frameworks/logger
-      console.warn(`Session lookup failed for otter ${otterId}, degrading to no-session context:`, err);
+      this.logger.warn(`Session lookup failed for otter ${otterId}, degrading to no-session context:`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     return ctx;

@@ -15,6 +15,18 @@ import { OtterController } from "../../src/interface-adapters/http/controllers/o
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
+import type { Logger } from "../../src/usecases/ports/logger";
+
+/** 创建 noop Logger mock */
+function mockLogger(): Logger {
+  return {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => mockLogger(),
+  };
+}
 
 /** 解析 Response JSON（避免 strict 模式下 unknown 报错） */
 export async function json(res: Response): Promise<any> {
@@ -356,7 +368,7 @@ export function createTestApp(deps: TestDeps): Hono {
     settings: settingsCtrl,
   };
 
-  return createRouter(controllers);
+  return createRouter(controllers, mockLogger());
 }
 
 /** 创建类型安全的 mock deps，各测试按需覆盖 */

@@ -13,7 +13,7 @@ import type {
 import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { SearchEngine, RrfHit } from "./search-engine";
-import { logger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 
 /** snippet 降级截取长度（FTS5 highlight 不可用时） */
 const SNIPPET_FALLBACK_LENGTH = 200;
@@ -46,6 +46,7 @@ export class SearchMemory {
     private readonly repo: MemoryRepository,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly searchEngine: SearchEngine,
+    private readonly logger: Logger,
     private readonly terminologyRepo?: TerminologyRepository,
   ) {}
 
@@ -261,7 +262,7 @@ export class SearchMemory {
       const queryEmbedding = await this.embeddingGateway.embed(query);
       return this.repo.searchVec(queryEmbedding, limit, filters);
     } catch (err) {
-      logger.warn(`Embedding search failed, falling back to FTS5 only: ${err}`);
+      this.logger.warn(`Embedding search failed, falling back to FTS5 only: ${err}`);
       return [];
     }
   }

@@ -6,8 +6,8 @@
  * 使用 createProvider() 构造自定义 provider，替代默认的 openaiProvider() / anthropicProvider()。
  */
 
-import { config } from "@frameworks/config";
 import type { AppConfig } from "@frameworks/config";
+import type { Logger } from "@usecases/ports/logger";
 
 /** pi-ai 动态加载后的模块句柄（单例，避免重复 import） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -113,11 +113,10 @@ async function loadCustomProvider(
 }
 
 /** 根据提供商名称加载 pi-ai provider（默认或自定义） */
-async function loadProvider(provider: string, modelId: string): Promise<unknown> {
+async function loadProvider(provider: string, modelId: string, llmConfig?: AppConfig["llm"]): Promise<unknown> {
   const piAi = await loadPiAi();
-  const llmConfig = config.llm;
 
-  if (needsCustomProvider(llmConfig)) {
+  if (llmConfig && needsCustomProvider(llmConfig)) {
     return loadCustomProvider(piAi, provider, modelId, llmConfig.apiBaseUrl, llmConfig.apiKey);
   }
 
@@ -143,22 +142,54 @@ export type Models = Awaited<ReturnType<PiAiModule["createModels"]>>;
  * 初始化 Models 对象。
  * 异步工厂：pi-ai 是 ESM-only，需通过动态 import() 加载。
  */
-export async function initModels(modelConfig?: {
-  provider?: string;
-  model?: string;
-}): Promise<{ models: Models; model: unknown }> {
-  const provider = modelConfig?.provider ?? config.llm.provider;
-  const modelId = modelConfig?.model ?? config.llm.model;
+export async function initModels(
+  modelConfig: { provider: string; model: string; apiKey?: string; apiBaseUrl?: string },
+  logger?: Logger,
+): Promise<{ models: Models; model: unknown }> {
+  const startTime = Date.now();
+  const { provider, model: modelId } = modelConfig;
+
+  // 记录模型初始化开始日志
+  if (logger) {
+    logger.info('LLM model initialization started', {
+      provider,
+      model: modelId,
+      action: 'model_init_start',
+    });
+  }
 
   const piAi = await loadPiAi();
   const models = piAi.createModels();
 
-  const providerModule = await loadProvider(provider, modelId);
+  const providerModule = await loadProvider(provider, modelId, modelConfig);
   models.setProvider(providerModule as never);
 
   const model = models.getModel(provider, modelId);
   if (!model) {
-    throw new Error(`LLM model not found: provider=${provider}, model=${modelId}`);
+    const error = new Error(`LLM model not found: provider=${provider}, model=${modelId}`);
+
+    // 记录模型初始化失败日志
+    if (logger) {
+      logger.error('LLM model initialization failed', error, {
+        provider,
+        model: modelId,
+        action: 'model_init_failed',
+      });
+    }
+
+    throw error;
+  }
+
+  const duration = Date.now() - startTime;
+
+  // 记录模型初始化完成日志
+  if (logger) {
+    logger.info('LLM model initialized', {
+      provider,
+      model: modelId,
+      duration,
+      action: 'model_init_complete',
+    });
   }
 
   return { models, model };

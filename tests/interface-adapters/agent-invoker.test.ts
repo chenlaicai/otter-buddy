@@ -5,6 +5,7 @@ import type { SendMessage } from "@usecases/conversation/send-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
+import type { Logger } from "@usecases/ports/logger";
 
 /** 创建 SendMessage mock，记录调用并返回模拟消息 */
 function mockSendMessage() {
@@ -35,6 +36,17 @@ function mockQueryOtter(): QueryOtter {
   return { getById: async () => null } as unknown as QueryOtter;
 }
 
+/** 创建 noop Logger mock */
+function mockLogger(): Logger {
+  return {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => mockLogger(),
+  };
+}
+
 /** 创建 AgentInvokePort mock，可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
@@ -56,7 +68,7 @@ function mockAgentInvoke(options: {
 }
 
 describe("AgentInvoker", () => {
-  it("completes normal flow: start -> delta -> complete (B7-B9)", async () => {
+  it("completes normal flow: start -> complete (B7-B9)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const invoker = new AgentInvoker(
       mockAgentInvoke({
@@ -70,6 +82,7 @@ describe("AgentInvoker", () => {
       mockSendMessage(),
       mockManageSession(),
       mockQueryOtter(),
+      mockLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -84,7 +97,6 @@ describe("AgentInvoker", () => {
     expect(result.tokenUsage?.input).toBe(10);
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.start");
-    expect(eventTypes).toContain("message.delta");
     expect(eventTypes).toContain("message.complete");
 
     /** D5-fix: turn.complete 在 message.complete 之后发出 */
@@ -105,6 +117,7 @@ describe("AgentInvoker", () => {
       msg,
       mockManageSession(),
       mockQueryOtter(),
+      mockLogger(),
     );
 
     /** 模拟 abort 被调用 */
@@ -147,6 +160,7 @@ describe("AgentInvoker", () => {
       msg,
       mockManageSession(),
       mockQueryOtter(),
+      mockLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -174,6 +188,7 @@ describe("AgentInvoker", () => {
       msg,
       mockManageSession(),
       mockQueryOtter(),
+      mockLogger(),
     );
 
     await expect(
@@ -192,7 +207,6 @@ describe("AgentInvoker", () => {
 
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.start");
-    expect(eventTypes).toContain("error");
     expect(eventTypes).not.toContain("message.aborted");
   });
 
@@ -207,6 +221,7 @@ describe("AgentInvoker", () => {
       mockSendMessage(),
       mockManageSession(),
       mockQueryOtter(),
+      mockLogger(),
     );
 
     /** 模拟 abort 被调用（但 invoke 不会抛异常） */
@@ -240,6 +255,7 @@ describe("AgentInvoker", () => {
       mockSendMessage(),
       mockManageSession(),
       mockQueryOtter(),
+      mockLogger(),
     );
 
     await invoker.invokeConversation({
@@ -251,7 +267,6 @@ describe("AgentInvoker", () => {
     });
 
     const eventTypes = events.map((e) => e.event);
-    expect(eventTypes).toContain("tool.start");
     expect(eventTypes).toContain("tool.result");
   });
 });

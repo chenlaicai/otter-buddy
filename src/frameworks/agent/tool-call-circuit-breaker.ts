@@ -7,7 +7,7 @@
  * 设计文档：F20260716bte2-agent-circuit-breaker
  */
 
-import { logger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 
 export interface CircuitBreakerConfig {
   maxToolCalls: number;
@@ -77,6 +77,7 @@ export class ToolCallCircuitBreaker {
   constructor(
     private readonly config: CircuitBreakerConfig,
     private readonly otterId: string,
+    private readonly logger: Logger,
     private readonly stageId?: string,
   ) {
     this.startTime = Date.now();
@@ -119,7 +120,7 @@ export class ToolCallCircuitBreaker {
   /** B-1/B-2/B-5: 工具调用次数检查 */
   private checkToolCallLimit(): CheckResult | null {
     if (this.callCount === this.config.warningThreshold) {
-      logger.warn(`[circuit-breaker] Warning: otter=${this.otterId} tool_calls=${this.callCount}`);
+      this.logger.warn(`[circuit-breaker] Warning: otter=${this.otterId} tool_calls=${this.callCount}`);
     }
     if (this.callCount <= this.config.maxToolCalls) return null;
     if (this.callCount > this.config.maxToolCalls + 3) {
@@ -167,7 +168,7 @@ export class ToolCallCircuitBreaker {
     }
     this.steerDeadlineAt = Date.now() + this.config.steerTimeoutMs;
     this.steerDeadline = setTimeout(() => {
-      logger.warn(
+      this.logger.warn(
         `[circuit-breaker] Steer timeout: otter=${this.otterId} — force aborting after ${this.config.steerTimeoutMs}ms`,
       );
       this.logCircuitBreak("steer_timeout");
@@ -201,7 +202,7 @@ export class ToolCallCircuitBreaker {
 
   /** B-6: 记录完整调用历史到日志 */
   private logCircuitBreak(trigger: string): void {
-    logger.warn(
+    this.logger.warn(
       `[circuit-breaker] CIRCUIT_BREAK: otter=${this.otterId} trigger=${trigger} calls=${this.callCount} history=[${this.callHistory.join(",")}]`,
     );
   }

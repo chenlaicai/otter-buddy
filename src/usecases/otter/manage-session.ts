@@ -7,6 +7,7 @@ import type { MemoryLayer } from "@entities/memory/memory-entry";
 import { DomainError } from "@entities/errors";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
+import type { Logger } from "@usecases/ports/logger";
 
 /** Gateway: 查询 otter 关联的对话 ID（由 main.ts 装配 ManageConversation 实现） */
 export interface ConversationQueryGateway {
@@ -40,6 +41,7 @@ export class ManageSession {
     private readonly agentGateway: AgentGateway,
     private readonly conversationQuery: ConversationQueryGateway,
     private readonly memoryLayer: MemoryLayerGateway,
+    private readonly logger: Logger,
   ) {}
 
   /**
@@ -75,6 +77,15 @@ export class ManageSession {
     };
 
     await this.repo.createSession(session);
+
+    // 记录 Session 创建日志
+    this.logger.info('Session created', {
+      otterId,
+      sessionId: session.id,
+      previousSessionId,
+      action: 'create',
+    });
+
     return session;
   }
 
@@ -96,6 +107,15 @@ export class ManageSession {
 
     /** Agent reset（重置上下文） */
     await this.agentGateway.reset(session.otterId);
+
+    // 记录 Session 归档日志
+    this.logger.info('Session archived', {
+      otterId: session.otterId,
+      sessionId,
+      reason: params.reason,
+      isNegativeCase: params.isNegativeCase,
+      action: 'archive',
+    });
 
     return {
       ...session,

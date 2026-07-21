@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as yaml from "js-yaml";
+import type { Logger } from "@usecases/ports/logger";
 
 /** 应用配置结构（与原 config.ts 同构） */
 export interface AppConfig {
@@ -164,17 +165,39 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
  * 启动时调用一次，校验失败直接抛出异常终止进程。
  * 导出供测试使用。
  */
-export function loadConfig(): AppConfig {
+export function loadConfig(logger?: Logger): AppConfig {
   if (!fs.existsSync(CONFIG_PATH)) {
-    throw new Error(
+    const error = new Error(
       `配置文件不存在: ${CONFIG_PATH}\n` +
       "请复制 config/config.yaml.example 为 config/config.yaml 并填入实际配置。",
     );
+
+    // 记录配置加载失败日志
+    if (logger) {
+      logger.error('Configuration loading failed', error, {
+        configPath: CONFIG_PATH,
+        reason: 'file_not_found',
+      });
+    }
+
+    throw error;
   }
 
   const raw = yaml.load(fs.readFileSync(CONFIG_PATH, "utf8")) as RawConfig;
   validate(raw);
-  return applyDefaults(raw);
+  const config = applyDefaults(raw);
+
+  // 记录配置加载成功日志
+  if (logger) {
+    logger.info('Configuration loaded', {
+      configPath: CONFIG_PATH,
+      provider: config.llm.provider,
+      model: config.llm.model,
+      port: config.server.port,
+    });
+  }
+
+  return config;
 }
 
 /** 不可变配置对象。启动时从 config.yaml 加载，运行期间不变。 */
