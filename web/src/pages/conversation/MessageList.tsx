@@ -195,102 +195,104 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
   const { eventType, payload } = event
   const [expanded, setExpanded] = useState(false)
 
-  /** 提取 tool_call 的关键信息 */
-  function getToolCallSummary(p: Record<string, unknown>): string {
-    const params = p.params as Record<string, unknown> | undefined
-    if (params?.path) return String(params.path)
-    if (params?.cmd) return String(params.cmd).slice(0, 60)
-    if (params?.query) return String(params.query).slice(0, 60)
-    return ''
+  /** assistant_toolcall：展示工具名 + 参数，折叠 thinking */
+  if (eventType === 'assistant_toolcall') {
+    const content = payload.content as Array<Record<string, unknown>> | undefined
+    const toolCall = content?.find(c => c.type === 'toolCall') as Record<string, unknown> | undefined
+    const toolName = (toolCall?.toolName as string) || '工具'
+    const params = toolCall?.input || toolCall?.params
+    const paramsStr = params ? JSON.stringify(params) : ''
+    const paramsPreview = paramsStr.length > 60 ? paramsStr.slice(0, 60) + '...' : paramsStr
+
+    return (
+      <div className="border-b border-stone-100 last:border-0">
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-amber-50 text-amber-700">call</span>
+          <span className="text-[11px] text-stone-600 truncate flex-1">{toolName} {paramsPreview}</span>
+        </div>
+        {expanded && paramsStr && (
+          <div className="px-3 pb-2 pl-8">
+            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
+              {paramsStr}
+            </div>
+          </div>
+        )}
+      </div>
+    )
   }
 
-  /** 提取 tool_result 预览 */
-  function getResultPreview(p: Record<string, unknown>): string {
-    const result = p.result as Record<string, unknown> | undefined
-    const content = result?.content as Array<{ text?: string }> | undefined
-    const text = content?.[0]?.text || JSON.stringify(result || p)
-    return text.length > 80 ? text.slice(0, 80) + '...' : text
+  /** tool_result：展示工具名 + 结果预览，折叠完整结果 */
+  if (eventType === 'tool_result') {
+    const name = payload.name as string
+    const result = payload.result as Record<string, unknown> | undefined
+    const resultContent = result?.content as Array<{ text?: string }> | undefined
+    const resultText = resultContent?.[0]?.text || (result ? JSON.stringify(result) : '')
+    const resultPreview = resultText.length > 80 ? resultText.slice(0, 80) + '...' : resultText
+
+    return (
+      <div className="border-b border-stone-100 last:border-0">
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-teal-100 text-teal-700">{name}</span>
+          <span className="text-[11px] text-stone-600 truncate flex-1">{resultPreview}</span>
+        </div>
+        {expanded && resultText && (
+          <div className="px-3 pb-2 pl-8">
+            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
+              {resultText}
+            </div>
+          </div>
+        )}
+      </div>
+    )
   }
 
-  /** 提取 assistant_text 预览 */
-  function getTextPreview(p: Record<string, unknown>): string {
-    const content = p.content as Array<Record<string, unknown>> | undefined
+  /** assistant_text：展示预览，折叠完整文本（Markdown） */
+  if (eventType === 'assistant_text') {
+    const content = payload.content as Array<Record<string, unknown>> | undefined
     const text = content?.find(c => c.type === 'text')
     const str = (text?.text as string) || ''
-    return str.length > 80 ? str.slice(0, 80) + '...' : str
-  }
+    const preview = str.length > 100 ? str.slice(0, 100) + '...' : str
 
-  /** 提取完整内容用于折叠展示 */
-  function getFullContent(p: Record<string, unknown>): string {
-    if (eventType === 'tool_call') return JSON.stringify(p.params || p, null, 2)
-    if (eventType === 'tool_result') {
-      const result = p.result as Record<string, unknown> | undefined
-      const content = result?.content as Array<{ text?: string }> | undefined
-      return content?.[0]?.text || JSON.stringify(result || p, null, 2)
-    }
-    if (eventType === 'assistant_toolcall' || eventType === 'assistant_text') {
-      const content = p.content as Array<Record<string, unknown>> | undefined
-      if (!content) return ''
-      return content.map(c => {
-        if (c.type === 'thinking') return `[thinking]\n${c.thinking}`
-        if (c.type === 'text') return c.text
-        if (c.type === 'toolCall') return `[toolCall] ${c.toolName} ${JSON.stringify(c.input || c.params)}`
-        return JSON.stringify(c)
-      }).join('\n\n')
-    }
-    return JSON.stringify(p, null, 2)
-  }
-
-  /** 标题行颜色 */
-  const tagColor = eventType === 'tool_call' ? 'bg-teal-100 text-teal-700'
-    : eventType === 'tool_result' ? 'bg-stone-100 text-stone-600'
-    : eventType === 'assistant_toolcall' ? 'bg-amber-50 text-amber-700'
-    : eventType === 'assistant_text' ? 'bg-blue-50 text-blue-700'
-    : eventType === 'error' ? 'bg-red-50 text-red-700'
-    : 'bg-stone-100 text-stone-600'
-
-  /** 标题行文本 */
-  let title = ''
-  if (eventType === 'tool_call') {
-    title = `[${payload.name}] ${getToolCallSummary(payload)}`
-  } else if (eventType === 'tool_result') {
-    title = `[${payload.name}] ${getResultPreview(payload)}`
-  } else if (eventType === 'assistant_toolcall') {
-    const content = payload.content as Array<Record<string, unknown>> | undefined
-    const toolCall = content?.find(c => c.type === 'toolCall')
-    title = `[assistant] 调用 ${(toolCall as Record<string, unknown>)?.toolName || '工具'}`
-  } else if (eventType === 'assistant_text') {
-    title = `[assistant] ${getTextPreview(payload)}`
-  } else if (eventType === 'error') {
-    title = `[error] ${payload.message}`
-  }
-
-  const fullContent = getFullContent(payload)
-  const hasDetail = fullContent.length > 0 && eventType !== 'error'
-
-  return (
-    <div className="border-b border-stone-100 last:border-0">
-      <div
-        className={`flex items-center gap-2 px-3 py-1.5 ${hasDetail ? 'cursor-pointer hover:bg-white/40' : ''} transition`}
-        onClick={() => hasDetail && setExpanded(!expanded)}
-      >
-        {hasDetail && (
+    return (
+      <div className="border-b border-stone-100 last:border-0">
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-white/40 transition"
+          onClick={() => setExpanded(!expanded)}
+        >
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-        )}
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-medium ${tagColor}`}>
-          {eventType === 'tool_call' || eventType === 'tool_result' ? payload.name : eventType}
-        </span>
-        <span className="text-[11px] text-stone-600 truncate flex-1">{title}</span>
-      </div>
-      {expanded && fullContent && (
-        <div className="px-3 pb-2 pl-8">
-          <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
-            {fullContent}
-          </div>
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-blue-50 text-blue-700">text</span>
+          <span className="text-[11px] text-stone-600 truncate flex-1">{preview}</span>
         </div>
-      )}
-    </div>
-  )
+        {expanded && str && (
+          <div className="px-3 pb-2 pl-8">
+            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[400px] overflow-y-auto prose prose-xs max-w-none">
+              <MarkdownContent>{str}</MarkdownContent>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  /** error */
+  if (eventType === 'error') {
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
+        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-red-50 text-red-700">error</span>
+        <span className="text-[11px] text-red-600">{payload.message as string}</span>
+      </div>
+    )
+  }
+
+  return null
 }
 
 function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {
