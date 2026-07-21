@@ -282,7 +282,7 @@ export class PiSessionFactory implements AgentGateway {
    * 冷启动调用（R17）：创建 AgentSession → prompt → 释放。
    * 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）。
    */
-  // eslint-disable-next-line max-statements, max-lines-per-function, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖（来自 main 分支）
+  // eslint-disable-next-line max-statements, max-lines-per-function, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
   async invoke(
     otterId: string,
     message: string,
@@ -297,6 +297,10 @@ export class PiSessionFactory implements AgentGateway {
       throw new Error(`No agent session found for otter: ${otterId}`);
     }
 
+    const conversationId = options?.conversationId ?? "";
+    const messageId = options?.messageId;
+    const dynamicContext = options?.dynamicContext;
+
     const piCodingAgent = await this.ensurePiCodingAgent();
     const otterType = this.otterTypes.get(otterId);
     const otterPromptConfig = this.staticPrompts.get(otterId);
@@ -309,7 +313,7 @@ export class PiSessionFactory implements AgentGateway {
 
     /** 构建 customTools（Otter 自定义工具，适配 ToolDefinition 格式） */
     const otterToolNames = getOtterToolNamesForType(otterType);
-    const customTools = this.buildCustomTools(otterId, options?.conversationId ?? "", otterToolNames, options?.messageId);
+    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId);
 
     /** 编码工具列表 */
     const codingTools = getCodingToolsForOtterType(otterType);
@@ -333,20 +337,14 @@ export class PiSessionFactory implements AgentGateway {
     const { circuitBreaker, unregisterToolCall } = this.attachCircuitBreaker(session, otterId);
 
     /** 构建完整消息：系统提示 + 动态上下文 + 用户消息 */
-    const fullMessage = this.buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
+    const fullMessage = this.buildMessageWithContext(staticPrompt, message, dynamicContext);
 
     const activeEntry = this.activeSessions.get(otterId);
-    const unsubscribe = session.subscribe((event: unknown) => {
-      const e = event as AgentEvent;
-      /** 跟踪工具调用次数（abort body 需要此信息） */
-      if (e.type === "tool_execution_start" && activeEntry) {
-        activeEntry.toolCallCount++;
-      }
-      /** 不转发 message_update（不流式推送前端），只转发工具和生命周期事件 */
-      if (e.type !== "message_update") {
-        options?.onEvent?.(e);
-      }
-    });
+    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
+
+
+
+
 
     try {
       await session.prompt(fullMessage);
@@ -391,6 +389,22 @@ export class PiSessionFactory implements AgentGateway {
   /** 获取指定 Otter 当前 session 的工具调用次数（abort body 构造用） */
   getToolCallCount(otterId: string): number {
     return this.activeSessions.get(otterId)?.toolCallCount ?? 0;
+  }
+
+  /** 创建 session 事件处理器：跟踪工具调用 + 转发事件到 onEvent 回调 */
+  private createEventHandler(
+    activeEntry: { abort: () => void; toolCallCount: number } | undefined,
+    onEvent?: (event: AgentEvent) => void,
+  ): (event: unknown) => void {
+    return (event: unknown) => {
+      const e = event as AgentEvent;
+      if (e.type === "tool_execution_start" && activeEntry) {
+        activeEntry.toolCallCount++;
+      }
+      if (e.type !== "message_update") {
+        onEvent?.(e);
+      }
+    };
   }
 
   /**
