@@ -31,11 +31,13 @@ export interface ScheduledTaskRepository {
   createExecution(execution: ScheduledTaskExecution): Promise<void>;
   updateExecutionStatus(
     id: string,
-    status: ExecutionStatus,
-    completedAt?: string,
-    errorMessage?: string,
-    messageId?: string,
-    turnId?: string,
+    updates: {
+      status: ExecutionStatus;
+      completedAt?: string;
+      errorMessage?: string;
+      messageId?: string;
+      turnId?: string;
+    },
   ): Promise<void>;
   getExecutions(
     taskId: string,

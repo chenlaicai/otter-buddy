@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, CheckCircle, XCircle, Loader, MessageSquare, Clock } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, MessageSquare, Clock } from 'lucide-react'
 import { Modal } from '../../components/Modal'
 import type { LocalScheduledTaskExecution } from '../../lib/mappers'
 import { mapExecutionDTO } from '../../lib/mappers'

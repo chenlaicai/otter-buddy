@@ -1,7 +1,3 @@
-/**
- * Composition Root - 依赖注入装配点。
- * main.ts 是唯一允许跨层引用的文件（Composition Root 豁免）。
- */
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -49,6 +45,7 @@ import { QueryOtter } from "@usecases/otter/query-otter";
 import { ManageContext } from "@usecases/otter/manage-context";
 import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 
 import { createRouter } from "@interface-adapters/http/router";
@@ -63,10 +60,6 @@ import { ScheduledTaskController } from "@interface-adapters/http/controllers/sc
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 
-/**
- * MemoryIndexGateway 适配器：将 StoreMemory 适配为 MemoryIndexGateway。
- * StoreMemory.execute() 接受 MemoryEntryInput，此适配器将 index* 方法映射为 execute 调用。
- */
 class MemoryIndexAdapter implements MemoryIndexGateway {
   constructor(private readonly storeMemory: StoreMemory) {}
 
@@ -89,27 +82,19 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
 
   async indexFeature(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
     await this.storeMemory.execute({
-      layer: "document",
-      contentType: "feature",
-      sourceId: id,
-      sourceTable: "features",
-      conversationId: undefined,
-      granularity: "coarse",
-      content: summary,
-      metadata,
+      layer: "document", contentType: "feature",
+      sourceId: id, sourceTable: "features",
+      conversationId: undefined, granularity: "coarse",
+      content: summary, metadata,
     });
   }
 
   async indexResearch(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
     await this.storeMemory.execute({
-      layer: "document",
-      contentType: "research",
-      sourceId: id,
-      sourceTable: "research",
-      conversationId: undefined,
-      granularity: "coarse",
-      content: summary,
-      metadata,
+      layer: "document", contentType: "research",
+      sourceId: id, sourceTable: "research",
+      conversationId: undefined, granularity: "coarse",
+      content: summary, metadata,
     });
   }
 }
@@ -174,8 +159,6 @@ function initUseCases(
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
-  /** createOtter 必须先于 manageConversation 初始化：
-   *  ManageConversation.create() 需要调用 createOtter.execute() 为每个对话创建独立大獭 */
   const createOtter = new CreateOtter(repos.otter, agentGateway);
   const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
@@ -192,7 +175,6 @@ function initUseCases(
   };
 }
 
-/** 构建 OtterToolClient 的 conversation.message 部分 */
 function buildMessageClient(uc: UseCases) {
   return {
     send: async (params: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => {
@@ -217,7 +199,6 @@ function buildMessageClient(uc: UseCases) {
   };
 }
 
-/** 构建 OtterToolClient 的 memory 部分（渐进式披露：支持 detail_level、getById 和 getDetails） */
 function buildMemoryClient(uc: UseCases) {
   return {
     getById: async (id: string) => {
@@ -228,26 +209,15 @@ function buildMemoryClient(uc: UseCases) {
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string) => {
       const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library });
       return result.entries.map(e => ({
-        id: e.id,
-        content: e.content,
-        score: e.score,
-        layer: e.layer,
-        snippet: e.snippet,
-        contentType: e.contentType,
-        metadata: e.metadata ?? undefined,
-        createdAt: e.createdAt,
+        id: e.id, content: e.content, score: e.score, layer: e.layer,
+        snippet: e.snippet, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt,
       }));
     },
-    /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails: async (ids: string[]) => {
       const entries = await uc.manageMemory.getDetails(ids);
       return entries.map(e => ({
-        id: e.id,
-        content: e.content,
-        layer: e.layer,
-        contentType: e.contentType,
-        metadata: e.metadata ?? undefined,
-        createdAt: e.createdAt,
+        id: e.id, content: e.content, layer: e.layer,
+        contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt,
       }));
     },
     store: async (entry: { content: string; otterId: string; conversationId?: string }) =>
@@ -259,41 +229,18 @@ function buildMemoryClient(uc: UseCases) {
   };
 }
 
-/**
- * 构建 OtterToolClient：包装所有 use case，作为工具访问 Otter 数据的统一门面。
- */
 function buildResourceClient(uc: UseCases) {
   return {
-    link: (params: { conversationId: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; resourceType?: string; groupId?: string }, turnNum?: number) =>
-      uc.manageKeyInfo.linkResource({
-        conversationId: params.conversationId,
-        resourceType: params.resourceType ?? "url",
-        url: params.url,
-        title: params.title,
-        content: params.content,
-        category: params.category,
-        linkedBy: params.linkedBy,
-        autoLinked: false,
-        groupId: params.groupId,
-      }, turnNum),
-    list: (convId: string, filters?: { status?: "active" | "superseded" | "archived"; resourceType?: string }) =>
+    link: (params: any, turnNum?: number) =>
+      uc.manageKeyInfo.linkResource(params, turnNum),
+    list: (convId: string, filters?: any) =>
       uc.manageKeyInfo.getLinkedResources(convId, filters),
     listByGroup: (convId: string, groupId: string) =>
       uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
-    updateStatus: (id: string, status: "active" | "superseded" | "archived", turnNum: number, supersededBy?: string) =>
+    updateStatus: (id: string, status: any, turnNum: number, supersededBy?: string) =>
       uc.manageKeyInfo.updateResourceStatus(id, status, turnNum, supersededBy),
-    supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; groupId?: string }, turnNum: number) =>
-      uc.manageKeyInfo.supersedeResource(existingId, {
-        conversationId: newInput.conversationId,
-        resourceType: newInput.resourceType ?? "url",
-        url: newInput.url,
-        title: newInput.title,
-        content: newInput.content,
-        category: newInput.category,
-        linkedBy: newInput.linkedBy,
-        autoLinked: false,
-        groupId: newInput.groupId,
-      }, turnNum),
+    supersede: (existingId: string, newInput: any, turnNum: number) =>
+      uc.manageKeyInfo.supersedeResource(existingId, newInput, turnNum),
     archive: (id: string, convId: string, turnNum: number) =>
       uc.manageKeyInfo.archiveResource(id, convId, turnNum),
     getIndex: (convId: string) =>
@@ -346,22 +293,24 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
   };
 }
 
-function initControllers(
-  uc: UseCases,
-  agentInvoker: AgentInvoker,
-  settings: SettingsConfig,
-  settingsRepo: SqliteSettingsRepository,
-  schedulerService: SchedulerService,
-  cronParser: SimpleCronParser,
-) {
+interface ControllerDeps {
+  uc: UseCases;
+  agentInvoker: AgentInvoker;
+  settings: SettingsConfig;
+  settingsRepo: SqliteSettingsRepository;
+  schedulerService: SchedulerService;
+  cronParser: SimpleCronParser;
+}
+
+function initControllers(deps: ControllerDeps) {
   return {
-    conversation: new ConversationController(uc.manageConversation, uc.manageParticipant),
-    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter),
-    message: new MessageController(uc.sendMessage, uc.queryMessage, agentInvoker),
-    memory: new MemoryController(uc.searchMemory, uc.manageMemory),
-    keyInfo: new KeyInfoController(uc.manageKeyInfo),
-    settings: new SettingsController(settings, settingsRepo),
-    scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser),
+    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
+    otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker),
+    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
+    keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
+    settings: new SettingsController(deps.settings, deps.settingsRepo),
+    scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser),
   };
 }
 
@@ -397,39 +346,22 @@ function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string })
   }
 }
 
-async function main(): Promise<void> {
-  syncApiKeyToAgentAuth(config.llm);
-
-  const db = initDatabase(config.db);
-  initSchema(db);
-
-  /** 种子数据：术语库首次初始化时导入核心术语 */
-  await seedTerminologyData(db);
-
-  const { model } = await initModels(config.llm);
-  const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);
-
-  const repos = initRepositories(db);
-
-  /** 文档同步：扫描 docs/ 目录并同步到数据库和记忆系统 */
+async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGateway): Promise<void> {
   const syncDocs = new SyncDocuments(
     repos.feature,
     repos.research,
     new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService)),
     process.cwd()
   );
-  const syncResult = await syncDocs.execute();
-  if (syncResult.synced > 0) {
-    logger.info(`Document sync: ${syncResult.synced} synced, ${syncResult.skipped} skipped, ${syncResult.archived} archived`);
-  }
-  if (syncResult.errors.length > 0) {
-    logger.warn(`Document sync errors: ${syncResult.errors.length}`);
-    for (const err of syncResult.errors) {
-      logger.warn(`  ${err.file}: ${err.error}`);
-    }
-  }
+  await syncDocs.execute();
+}
 
-  /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */
+async function initAgentAndScheduler(
+  repos: Repositories,
+  uc: UseCases,
+  db: ReturnType<typeof initDatabase>,
+  model: any,
+) {
   const agentGateway = await initAgentSessionFactory({
     model, db,
     otterToolClient: {} as OtterToolClient,
@@ -437,9 +369,6 @@ async function main(): Promise<void> {
     createTools,
   });
 
-  const uc = initUseCases(repos, agentGateway, embeddingService);
-
-  /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
 
@@ -448,16 +377,35 @@ async function main(): Promise<void> {
     uc.manageSession, uc.queryOtter,
   );
 
-  // 初始化定时任务调度器
   const cronParser = new SimpleCronParser();
-  const schedulerService = new SchedulerService(
-    repos.scheduledTask,
-    repos.conversation,
-    uc.sendMessage,
-    agentInvoker,
+  const agentInvokePort = new AgentInvokePortAdapter(agentInvoker);
+  const schedulerService = new SchedulerService({
+    taskRepo: repos.scheduledTask,
+    convRepo: repos.conversation,
+    sendMessage: uc.sendMessage,
+    agentInvokePort,
     cronParser,
-    uc.manageScheduledTask,
-  );
+    manageScheduledTask: uc.manageScheduledTask,
+  });
+
+  return { agentInvoker, cronParser, schedulerService };
+}
+
+async function main(): Promise<void> {
+  syncApiKeyToAgentAuth(config.llm);
+
+  const db = initDatabase(config.db);
+  initSchema(db);
+  await seedTerminologyData(db);
+
+  const { model } = await initModels(config.llm);
+  const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);
+
+  const repos = initRepositories(db);
+  await syncDocuments(repos, embeddingService);
+
+  const uc = initUseCases(repos, {} as PiSessionFactory, embeddingService);
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, db, model);
 
   const settings: SettingsConfig = {
     provider: config.llm.provider,
@@ -468,16 +416,21 @@ async function main(): Promise<void> {
     embeddingDim: config.embedding.dimensions,
   };
 
-  const controllers = initControllers(uc, agentInvoker, settings, repos.settings, schedulerService, cronParser);
+  const controllers = initControllers({
+    uc,
+    agentInvoker,
+    settings,
+    settingsRepo: repos.settings,
+    schedulerService,
+    cronParser,
+  });
   startServer(controllers, config.server.port);
 
-  // 启动定时任务调度器
   schedulerService.start().catch((err) => {
     logger.error(`Failed to start scheduler: ${err}`);
   });
 
   process.on("SIGINT", () => {
-    // 停止定时任务调度器
     schedulerService.stop();
     dispose();
     closeDatabase(db);

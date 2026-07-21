@@ -1,6 +1,6 @@
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
-import type { AgentInvoker } from '@interface-adapters/agent-runtime/agent-invoker';
+import type { AgentInvokePort } from './agent-invoke-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
@@ -11,20 +11,33 @@ export interface CronParser {
   getNextTime(cron: string, timezone: string): Date;
 }
 
+export interface SchedulerServiceOptions {
+  taskRepo: ScheduledTaskRepository;
+  convRepo: ConversationRepository;
+  sendMessage: SendMessage;
+  agentInvokePort: AgentInvokePort;
+  cronParser: CronParser;
+  manageScheduledTask?: ManageScheduledTask;
+}
+
 export class SchedulerService {
   private timers = new Map<string, NodeJS.Timeout>();
+  private readonly taskRepo: ScheduledTaskRepository;
+  private readonly convRepo: ConversationRepository;
+  private readonly sendMessage: SendMessage;
+  private readonly agentInvokePort: AgentInvokePort;
+  private readonly cronParser: CronParser;
 
-  constructor(
-    private readonly taskRepo: ScheduledTaskRepository,
-    private readonly convRepo: ConversationRepository,
-    private readonly sendMessage: SendMessage,
-    private readonly agentInvoker: AgentInvoker,
-    private readonly cronParser: CronParser,
-    manageScheduledTask?: ManageScheduledTask,
-  ) {
+  constructor(options: SchedulerServiceOptions) {
+    this.taskRepo = options.taskRepo;
+    this.convRepo = options.convRepo;
+    this.sendMessage = options.sendMessage;
+    this.agentInvokePort = options.agentInvokePort;
+    this.cronParser = options.cronParser;
+
     // 注册任务变更回调，清理已删除任务的 timer
-    if (manageScheduledTask) {
-      manageScheduledTask.onChange((taskId, action) => {
+    if (options.manageScheduledTask) {
+      options.manageScheduledTask.onChange((taskId, action) => {
         if (action === 'deleted' || action === 'updated') {
           this.clearTaskTimer(taskId);
         }
@@ -104,24 +117,40 @@ export class SchedulerService {
   private async triggerTask(task: ScheduledTask): Promise<{ executionId: string }> {
     const now = new Date().toISOString();
 
-    // 1. 乐观锁抢占
+    await this.claimAndValidateTask(task, now);
+
+    const executionId = crypto.randomUUID();
+    await this.createExecution(executionId, task.id, now);
+
+    try {
+      const message = await this.createSystemMessage(task);
+      await this.invokeAgentWithTimeout(task);
+      await this.completeExecution(executionId, task.conversationId, message.id);
+      await this.taskRepo.resetConsecutiveFailures(task.id, now);
+      return { executionId };
+    } catch (error) {
+      await this.handleExecutionFailure(executionId, task.id, error);
+      throw error;
+    }
+  }
+
+  private async claimAndValidateTask(task: ScheduledTask, now: string): Promise<void> {
     const claimed = await this.taskRepo.claimTask(task.id, now, now);
     if (!claimed) {
-      throw new Error('Task already triggered recently');
+      throw new DomainError('Task already triggered recently', 'validation');
     }
 
-    // 2. 检查对话状态
     const conversation = await this.convRepo.getById(task.conversationId);
     if (!conversation || conversation.status !== 'active') {
       await this.taskRepo.updateStatus(task.id, 'disabled', now);
-      throw new Error('Conversation is not active');
+      throw new DomainError('Conversation is not active', 'validation');
     }
+  }
 
-    // 3. 创建执行记录
-    const executionId = crypto.randomUUID();
+  private async createExecution(executionId: string, taskId: string, now: string): Promise<void> {
     await this.taskRepo.createExecution({
       id: executionId,
-      taskId: task.id,
+      taskId,
       triggeredAt: now,
       completedAt: null,
       status: 'running',
@@ -129,66 +158,56 @@ export class SchedulerService {
       messageId: null,
       turnId: null,
     });
+  }
 
-    try {
-      // 4. 创建 system 消息
-      const message = await this.sendMessage.send({
+  private async createSystemMessage(task: ScheduledTask) {
+    return this.sendMessage.send({
+      conversationId: task.conversationId,
+      senderType: 'system',
+      senderId: task.senderId,
+      body: task.body,
+      talkingStonePassedTo: task.talkingStonePassedTo,
+    });
+  }
+
+  private async invokeAgentWithTimeout(task: ScheduledTask): Promise<void> {
+    const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+    await Promise.race([
+      this.agentInvokePort.invokeConversation({
+        otterId: task.talkingStonePassedTo[0],
         conversationId: task.conversationId,
-        senderType: 'system',
+        userMessageContent: task.body,
         senderId: task.senderId,
-        body: task.body,
-        talkingStonePassedTo: task.talkingStonePassedTo,
-      });
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS)
+      ),
+    ]);
+  }
 
-      // 5. 触发 Agent 响应（复用 invokeConversation，带超时控制）
-      const AGENT_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟超时
-      await Promise.race([
-        this.agentInvoker.invokeConversation({
-          otterId: task.talkingStonePassedTo[0],
-          conversationId: task.conversationId,
-          userMessageContent: task.body,
-          senderId: task.senderId,
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS)
-        ),
-      ]);
+  private async completeExecution(executionId: string, conversationId: string, messageId: string): Promise<void> {
+    const activeTurn = await this.convRepo.getActiveTurn(conversationId);
+    await this.taskRepo.updateExecutionStatus(executionId, {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      messageId,
+      turnId: activeTurn?.id,
+    });
+  }
 
-      // 6. 更新执行记录为成功
-      const activeTurn = await this.convRepo.getActiveTurn(task.conversationId);
-      await this.taskRepo.updateExecutionStatus(
-        executionId,
-        'completed',
-        new Date().toISOString(),
-        undefined,
-        message.id,
-        activeTurn?.id,
-      );
+  private async handleExecutionFailure(executionId: string, taskId: string, error: unknown): Promise<void> {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const now = new Date().toISOString();
 
-      // 7. 重置连续失败计数
-      await this.taskRepo.resetConsecutiveFailures(task.id, new Date().toISOString());
+    await this.taskRepo.updateExecutionStatus(executionId, {
+      status: 'failed',
+      completedAt: now,
+      errorMessage,
+    });
 
-      return { executionId };
-    } catch (error) {
-      // 8. 更新执行记录为失败
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      await this.taskRepo.updateExecutionStatus(
-        executionId,
-        'failed',
-        new Date().toISOString(),
-        errorMessage,
-      );
-
-      // 9. 增加连续失败计数
-      const failures = await this.taskRepo.incrementConsecutiveFailures(
-        task.id,
-        new Date().toISOString(),
-      );
-      if (failures >= 3) {
-        await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
-      }
-
-      throw error;
+    const failures = await this.taskRepo.incrementConsecutiveFailures(taskId, now);
+    if (failures >= 3) {
+      await this.taskRepo.updateStatus(taskId, 'error', now);
     }
   }
 

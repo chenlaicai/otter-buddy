@@ -109,30 +109,7 @@ export class ManageScheduledTask {
       throw new DomainError(`ScheduledTask not found: ${id}`, 'not_found');
     }
 
-    // 校验状态转换
-    if (input.status && input.status !== task.status) {
-      if (!canTransitionTaskStatus(task.status, input.status)) {
-        throw new DomainError(
-          `Invalid status transition: ${task.status} -> ${input.status}`,
-          'validation',
-        );
-      }
-    }
-
-    // 校验 cron 表达式
-    if (input.cron && !isValidCronExpression(input.cron)) {
-      throw new DomainError(`Invalid cron expression: ${input.cron}`, 'validation');
-    }
-
-    // 校验时区
-    if (input.timezone && !isValidTimezone(input.timezone)) {
-      throw new DomainError(`Invalid timezone: ${input.timezone}`, 'validation');
-    }
-
-    // 校验 body 长度
-    if (input.body && input.body.length > 10000) {
-      throw new DomainError('body must be 10000 characters or less', 'validation');
-    }
+    this.validateUpdateInput(task.status, input);
 
     const now = new Date().toISOString();
     const updated: ScheduledTask = {
@@ -149,6 +126,29 @@ export class ManageScheduledTask {
     await this.repo.update(updated);
     this.notifyChange(updated.id, 'updated');
     return updated;
+  }
+
+  private validateUpdateInput(currentStatus: ScheduledTaskStatus, input: UpdateScheduledTaskInput): void {
+    if (input.status && input.status !== currentStatus) {
+      if (!canTransitionTaskStatus(currentStatus, input.status)) {
+        throw new DomainError(
+          `Invalid status transition: ${currentStatus} -> ${input.status}`,
+          'validation',
+        );
+      }
+    }
+
+    if (input.cron && !isValidCronExpression(input.cron)) {
+      throw new DomainError(`Invalid cron expression: ${input.cron}`, 'validation');
+    }
+
+    if (input.timezone && !isValidTimezone(input.timezone)) {
+      throw new DomainError(`Invalid timezone: ${input.timezone}`, 'validation');
+    }
+
+    if (input.body && input.body.length > 10000) {
+      throw new DomainError('body must be 10000 characters or less', 'validation');
+    }
   }
 
   async delete(id: string): Promise<void> {

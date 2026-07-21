@@ -62,7 +62,7 @@ export function isValidCronExpression(cron: string): boolean {
     return job.nextRun() !== null;
   } catch {
     // croner 不可用时，使用基本格式校验
-    const basicPattern = /^[\d\s\*\/\-\,]+$/;
+    const basicPattern = /^[\d\s*/\-,]+$/;
     return parts.every(part => basicPattern.test(part));
   }
 }

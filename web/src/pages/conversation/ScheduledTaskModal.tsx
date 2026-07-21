@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { X, Clock, ChevronDown, Loader } from 'lucide-react'
+import { Clock, Loader } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import type { LocalScheduledTask, LocalOtter } from '../../lib/mappers'
 
@@ -35,7 +35,7 @@ const TIMEZONES = [
   'UTC',
 ]
 
-function getNextCronTimes(cron: string, count: number = 5): Date[] {
+function getNextCronTimes(_cron: string): Date[] {
   // 使用 API 预览下次触发时间
   // 由于前端不能直接使用 croner，这里返回空数组
   // 实际触发时间由后端计算并在任务详情中返回

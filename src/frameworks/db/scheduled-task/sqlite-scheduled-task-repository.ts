@@ -128,18 +128,27 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
 
   async updateExecutionStatus(
     id: string,
-    status: ExecutionStatus,
-    completedAt?: string,
-    errorMessage?: string,
-    messageId?: string,
-    turnId?: string,
+    updates: {
+      status: ExecutionStatus;
+      completedAt?: string;
+      errorMessage?: string;
+      messageId?: string;
+      turnId?: string;
+    },
   ): Promise<void> {
     this.db.prepare(`
       UPDATE scheduled_task_executions SET
         status = ?, completed_at = ?, error_message = ?,
         message_id = ?, turn_id = ?
       WHERE id = ?
-    `).run(status, completedAt ?? null, errorMessage ?? null, messageId ?? null, turnId ?? null, id);
+    `).run(
+      updates.status,
+      updates.completedAt ?? null,
+      updates.errorMessage ?? null,
+      updates.messageId ?? null,
+      updates.turnId ?? null,
+      id,
+    );
   }
 
   async getExecutions(
