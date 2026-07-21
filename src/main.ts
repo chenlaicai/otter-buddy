@@ -420,13 +420,6 @@ async function main(): Promise<void> {
 
   const uc = initUseCases(repos, agentGateway, embeddingService);
 
-  /** 首次启动时自动创建大獭（系统不变量：Big Otter 必须存在） */
-  const existingBigOtter = await repos.otter.getBigOtter();
-  if (!existingBigOtter) {
-    await uc.createOtter.execute({ name: "大獭", type: "big" });
-    logger.info("Big Otter created (first run)");
-  }
-
   /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
