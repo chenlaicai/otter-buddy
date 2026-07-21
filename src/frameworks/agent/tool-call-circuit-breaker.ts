@@ -128,7 +128,7 @@ export class ToolCallCircuitBreaker {
       return { blocked: true, reason: `Force terminated: ${this.callCount} tool calls exceed hard limit`, action: "terminate" };
     }
     this.steered = true;
-    return { blocked: true, reason: `Tool call limit reached (${this.callCount}/${this.config.maxToolCalls}). Call set_final_body immediately.`, action: "steer" };
+    return { blocked: true, reason: `Tool call limit reached (${this.callCount}/${this.config.maxToolCalls}). Call speak immediately.`, action: "steer" };
   }
 
   /** B-3: 连续相同工具检查 */

@@ -207,6 +207,8 @@ function buildMessageClient(uc: UseCases) {
       });
       return msg;
     },
+    complete: (messageId: string, params: { body: string; talkingStonePassedTo: string[] }) =>
+      uc.sendMessage.complete(messageId, params),
     getById: (id: string) => uc.queryMessage.getMessageById(id),
     list: (convId: string, opts?: { limit?: number; before?: string }) =>
       uc.queryMessage.getMessages(convId, { limit: opts?.limit, before: opts?.before }),
@@ -443,7 +445,7 @@ async function main(): Promise<void> {
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
-    uc.manageSession, uc.queryOtter, logger,
+    uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
   );
 
   const settings: SettingsConfig = {
