@@ -2,8 +2,10 @@
 export type SSEEventMap = {
   "message.start": { messageId: string; otterId: string };
   "message.delta": { text: string };
+  "assistant_toolcall": { content: Array<Record<string, unknown>> };
   "tool.start": { toolName: string };
   "tool.result": { toolName: string; result: unknown };
+  "assistant_text": { content: Array<Record<string, unknown>> };
   "message.complete": { messageId: string; duration: string; ctx?: number; ctxMax?: number };
   "turn.complete": Record<string, never>;
   "agent.idle": Record<string, never>;
