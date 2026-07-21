@@ -84,6 +84,17 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(r => r.conversation_id);
   }
 
+  async getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]> {
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+    const rows = this.db.prepare(
+      "SELECT id FROM conversations ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    ).all(limit, offset) as { id: string }[];
+    return rows.map(r => r.id);
+  }
+
+  // ── Participants (static association) ──
+
   async getOtterIds(conversationId: string): Promise<string[]> {
     const rows = this.db.prepare(
       "SELECT otter_id FROM conversation_otters WHERE conversation_id = ?",

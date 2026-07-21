@@ -5,18 +5,28 @@ import {
 } from "@entities/conversation/conversation";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
+import type { CreateOtter } from "@usecases/otter/create-otter";
 
 export interface CreateConversationInput {
   title: string;
-  otterIds?: string[];
 }
 
 export class ManageConversation {
-  constructor(private readonly repo: ConversationRepository) {}
+  constructor(
+    private readonly repo: ConversationRepository,
+    private readonly createOtter: CreateOtter,
+  ) {}
 
   async create(params: CreateConversationInput): Promise<Conversation> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
+
+    /** 为每个对话创建独立的大獭 */
+    const bigOtter = await this.createOtter.execute({
+      name: `大獭-${params.title}`,
+      type: "big",
+    });
+    const otterIds = [bigOtter.id];
 
     const conversation: Conversation = {
       id,
@@ -30,27 +40,25 @@ export class ManageConversation {
     };
 
     /** 单事务：conversations + conversation_otters（C5 修复） */
-    await this.repo.create(conversation, params.otterIds);
+    await this.repo.create(conversation, otterIds);
 
     /** A6: 为每个 otterId 创建 ConversationParticipant 记录
      *  joinedAtTurnId=null, joinedAtTurnNumber=0 表示对话开始前已在场
      *  统一 getActiveParticipants() 查询路径
      *  批量创建保证原子性（UA-7：避免参与者记录不完整） */
-    if (params.otterIds && params.otterIds.length > 0) {
-      const participants: ConversationParticipant[] = params.otterIds.map((otterId) => ({
-        id: crypto.randomUUID(),
-        conversationId: id,
-        otterId,
-        joinedAtTurnId: null,
-        joinedAtTurnNumber: 0,
-        leftAtTurnId: null,
-        leftAtTurnNumber: null,
-        status: "active",
-        createdAt: now,
-        leftAt: null,
-      }));
-      await this.repo.createParticipants(participants);
-    }
+    const participants: ConversationParticipant[] = otterIds.map((otterId) => ({
+      id: crypto.randomUUID(),
+      conversationId: id,
+      otterId,
+      joinedAtTurnId: null,
+      joinedAtTurnNumber: 0,
+      leftAtTurnId: null,
+      leftAtTurnNumber: null,
+      status: "active",
+      createdAt: now,
+      leftAt: null,
+    }));
+    await this.repo.createParticipants(participants);
 
     return conversation;
   }
@@ -90,6 +98,11 @@ export class ManageConversation {
   async getActiveTurnNumber(conversationId: string): Promise<number> {
     const turn = await this.repo.getActiveTurn(conversationId);
     return turn?.turnNumber ?? 0;
+  }
+
+  /** 获取所有对话 ID（分页） */
+  async getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]> {
+    return this.repo.getAllIds(options);
   }
 
 }

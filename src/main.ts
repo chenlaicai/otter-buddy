@@ -120,7 +120,6 @@ function initUseCases(
   embeddingService: EmbeddingGateway,
 ): UseCases {
   const searchEngine = new SearchEngine(config.memory);
-  const manageConversation = new ManageConversation(repos.conversation);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
   const storeMemory = new StoreMemory(repos.memory, embeddingService);
@@ -128,10 +127,13 @@ function initUseCases(
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
   const sendMessage = new SendMessage(repos.conversation, memoryIndex);
   const queryMessage = new QueryMessage(repos.conversation);
-  const manageParticipant = new ManageParticipant(repos.conversation);
+  const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
+  /** createOtter 必须先于 manageConversation 初始化：
+   *  ManageConversation.create() 需要调用 createOtter.execute() 为每个对话创建独立大獭 */
   const createOtter = new CreateOtter(repos.otter, agentGateway);
+  const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory,
   );
@@ -264,7 +266,10 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
           );
           return participant;
         },
-        getActive: (convId) => uc.manageParticipant.getActiveParticipants(convId),
+        getActive: async (convId) => {
+          const participantsWithOtter = await uc.manageParticipant.getActiveParticipants(convId);
+          return participantsWithOtter.map(p => p.participant);
+        },
       },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
     },

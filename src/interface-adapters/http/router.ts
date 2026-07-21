@@ -33,7 +33,6 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
 }
 
 function registerOtterRoutes(app: Hono, c: Controllers): void {
-  app.get("/api/otters/big", (ctx) => c.otter.getBigOtter(ctx));
   app.get("/api/otters/:id", (ctx) => c.otter.getById(ctx));
   app.post("/api/otters", (ctx) => c.otter.create(ctx));
   app.delete("/api/otters/:id", (ctx) => c.otter.dissolve(ctx));

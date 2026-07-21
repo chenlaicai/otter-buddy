@@ -16,15 +16,6 @@ export class OtterController {
     private readonly queryOtter: QueryOtter,
   ) {}
 
-  async getBigOtter(c: Context): Promise<Response> {
-    try {
-      const otter = await this.queryOtter.getBigOtter();
-      return c.json(toOtterDTO(otter));
-    } catch (err) {
-      return handleError(c, err);
-    }
-  }
-
   async getById(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");

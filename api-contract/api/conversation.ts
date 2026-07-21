@@ -32,6 +32,7 @@ export interface ParticipantDTO {
   id: string;
   conversationId: string;
   otterId: string;
+  otterName: string;
   joinedAtTurnNumber: number;
   leftAtTurnNumber: number | null;
   status: string;

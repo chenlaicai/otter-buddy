@@ -12,30 +12,6 @@ describe("Otter API", () => {
     app = createTestApp(deps);
   });
 
-  // ─── GET /api/otters/big ───
-
-  describe("GET /api/otters/big", () => {
-    it("returns the big otter", async () => {
-      const bigOtter = makeOtter({ id: "big-1", type: "big", name: "Big Otter" });
-      deps.queryOtter.getBigOtter.mockResolvedValue(bigOtter);
-
-      const res = await app.request("/api/otters/big");
-      expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body.id).toBe("big-1");
-      expect(body.type).toBe("big");
-    });
-
-    it("returns 404 when big otter not found", async () => {
-      deps.queryOtter.getBigOtter.mockRejectedValue(
-        new DomainError("Big Otter not found", "not_found"),
-      );
-
-      const res = await app.request("/api/otters/big");
-      expect(res.status).toBe(404);
-    });
-  });
-
   // ─── GET /api/otters/:id ───
 
   describe("GET /api/otters/:id", () => {

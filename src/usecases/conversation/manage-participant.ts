@@ -8,10 +8,19 @@ import type { Message } from "@entities/conversation/message";
 import { isValidTalkingStonePass } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
+import type { OtterRepository } from "@usecases/otter/otter-repository";
 import { tryCloseTurn } from "./turn-utils";
 
+export interface ParticipantWithOtter {
+  participant: ConversationParticipant;
+  otterName: string;
+}
+
 export class ManageParticipant {
-  constructor(private readonly repo: ConversationRepository) {}
+  constructor(
+    private readonly repo: ConversationRepository,
+    private readonly otterRepo: OtterRepository,
+  ) {}
 
   /**
    * Otter 进场：创建参与记录 + 系统消息。
@@ -165,8 +174,15 @@ export class ManageParticipant {
   /** 获取当前在场的所有 Otter（UA-7） */
   async getActiveParticipants(
     conversationId: string,
-  ): Promise<ConversationParticipant[]> {
-    return this.repo.getActiveParticipants(conversationId);
+  ): Promise<ParticipantWithOtter[]> {
+    const participants = await this.repo.getActiveParticipants(conversationId);
+    const result: ParticipantWithOtter[] = [];
+    for (const participant of participants) {
+      const otter = await this.otterRepo.getById(participant.otterId);
+      const otterName = otter?.name ?? `Otter ${participant.otterId.slice(0, 8)}`;
+      result.push({ participant, otterName });
+    }
+    return result;
   }
 
 }
