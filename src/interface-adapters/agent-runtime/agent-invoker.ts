@@ -32,6 +32,19 @@ function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
   }
 }
 
+/** 从 message_end 事件提取可存储的 MessageEventInput */
+function mapMessageEndEvent(e: AgentStreamEvent, messageId: string): MessageEventInput | null {
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+  const role = msg?.role as string | undefined;
+  const content = msg?.content as Array<Record<string, unknown>> | undefined;
+  if (!content) return null;
+  if (role === "user" || role === "toolResult") return null;
+  const hasToolCall = content.some((c) => c.type === "toolCall");
+  const eventType = hasToolCall ? "assistant_toolcall" : "assistant_text";
+  return { messageId, eventType, payload: { role, content } };
+}
+
 /** Pi 事件 -> MessageEventInput 映射（持久化到 DB） */
 function mapToMessageEventInput(
   e: AgentStreamEvent,
@@ -42,6 +55,8 @@ function mapToMessageEventInput(
       return { messageId, eventType: "tool_call", payload: { name: e.name ?? e.toolName } };
     case "tool_execution_end":
       return { messageId, eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
+    case "message_end":
+      return mapMessageEndEvent(e, messageId);
     default:
       if (String(e.type).includes("error")) {
         return { messageId, eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };

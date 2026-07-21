@@ -59,23 +59,16 @@ function ConversationPage() {
         api.getKeyResources(convId),
         api.getParticipants(convId),
       ])
-      /**   为 otter 消息加载 events，构建 sp（流式过程） */
+      /**   为 otter 消息加载 events，1:1 展示 */
       const mapped = await Promise.all(msgs.map(async (msg) => {
         const local = mapMessageDTO(msg)
         if (local.st === 'otter') {
           try {
             const events = await api.getMessageEvents(local.id)
-            const toolEvents = events.filter((e: { eventType: string }) =>
-              e.eventType === 'tool_call' || e.eventType === 'tool_result',
-            )
-            if (toolEvents.length > 0) {
-              local.sp = toolEvents.map((e: { eventType: string; payload: Record<string, unknown> }) => {
-                if (e.eventType === 'tool_call') return `> 调用工具: ${e.payload.name}`
-                const preview = typeof e.payload.result === 'string'
-                  ? e.payload.result.slice(0, 200)
-                  : JSON.stringify(e.payload.result).slice(0, 200)
-                return `< ${preview}`
-              }).join('\n')
+            if (events.length > 0) {
+              local.sp = events.map((e: { eventType: string; payload: Record<string, unknown> }) =>
+                `[${e.eventType}] ${JSON.stringify(e.payload)}`,
+              ).join('\n')
             }
           } catch { /* events 加载失败不影响消息显示 */ }
         }

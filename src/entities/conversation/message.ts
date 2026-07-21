@@ -6,8 +6,8 @@ export type SenderType = "user" | "otter" | "system";
 /** 消息生命周期状态 */
 export type MessageStatus = "streaming" | "completed" | "failed" | "aborted";
 
-/** 流式事件类型 */
-export type MessageEventType = "text_delta" | "tool_call" | "tool_result" | "error";
+/** 消息事件类型 */
+export type MessageEventType = "tool_call" | "tool_result" | "assistant_toolcall" | "assistant_text" | "error";
 
 /** 消息实体（含发言石传递） */
 export interface Message {
