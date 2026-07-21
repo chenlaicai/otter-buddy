@@ -82,6 +82,7 @@ export interface ConversationRepository {
   // MessageEvent
   appendEvent(event: MessageEvent): Promise<void>;
   getMessageEvents(messageId: string): Promise<MessageEvent[]>;
+  getMessageEventsByMessageIds(messageIds: string[]): Promise<MessageEvent[]>;
   getMaxEventSequenceNum(messageId: string): Promise<number>;
 
   // Message 全文搜索（FTS5）

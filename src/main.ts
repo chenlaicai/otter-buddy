@@ -371,7 +371,11 @@ function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string })
   const agentDir = path.join(homeDir, ".pi", "agent");
   const authPath = path.join(agentDir, "auth.json");
   let auth: Record<string, string> = {};
-  try { auth = JSON.parse(fs.readFileSync(authPath, "utf-8")); } catch { /* empty */ }
+  try {
+    auth = JSON.parse(fs.readFileSync(authPath, "utf-8"));
+  } catch {
+    /* 文件不存在或格式错误，使用空对象 */
+  }
   if (auth[llmConfig.provider] !== llmConfig.apiKey) {
     auth[llmConfig.provider] = llmConfig.apiKey;
     fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });

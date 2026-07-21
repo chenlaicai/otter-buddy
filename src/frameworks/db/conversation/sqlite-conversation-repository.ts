@@ -257,6 +257,15 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(rowToMessageEvent);
   }
 
+  async getMessageEventsByMessageIds(messageIds: string[]): Promise<MessageEvent[]> {
+    if (messageIds.length === 0) return [];
+    const placeholders = messageIds.map(() => "?").join(",");
+    const rows = this.db.prepare(
+      `SELECT * FROM message_events WHERE message_id IN (${placeholders}) ORDER BY sequence_num ASC`,
+    ).all(...messageIds) as MessageEventRow[];
+    return rows.map(rowToMessageEvent);
+  }
+
   async getMaxEventSequenceNum(messageId: string): Promise<number> {
     const result = this.db.prepare("SELECT MAX(sequence_num) as max_seq FROM message_events WHERE message_id = ?")
       .get(messageId) as { max_seq: number | null };

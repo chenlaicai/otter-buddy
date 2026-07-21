@@ -59,22 +59,17 @@ function ConversationPage() {
         api.getKeyResources(convId),
         api.getParticipants(convId),
       ])
-      /**   为 otter 消息加载 events */
-      const mapped = await Promise.all(msgs.map(async (msg) => {
+      /**   events 已嵌入 messages 响应，无需额外请求 */
+      const mapped = msgs.map((msg) => {
         const local = mapMessageDTO(msg)
-        if (local.st === 'otter') {
-          try {
-            const evts = await api.getMessageEvents(local.id)
-            if (evts.length > 0) {
-              local.events = evts.map((e: { eventType: string; payload: Record<string, unknown> }) => ({
-                eventType: e.eventType,
-                payload: e.payload,
-              }))
-            }
-          } catch { /* events 加载失败不影响消息显示 */ }
+        if (local.st === 'otter' && msg.events && msg.events.length > 0) {
+          local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown> }) => ({
+            eventType: e.eventType,
+            payload: e.payload,
+          }))
         }
         return local
-      }))
+      })
       setAllMessages(prev => ({
         ...prev,
         [convId]: mapped.reverse(),
@@ -174,7 +169,7 @@ function ConversationPage() {
         },
         'error': (data) => {
           const errMsg: LocalMessage = {
-            id: otterMessageId || ('err-' + Date.now()), st: 'otter', si: otterId,
+            id: otterMessageId || crypto.randomUUID(), st: 'otter', si: otterId,
             content: `[错误] ${data.message}`, ts: nowTs(), dur: null,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), errMsg] }))
