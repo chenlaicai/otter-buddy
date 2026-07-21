@@ -98,6 +98,7 @@ async function loadCustomProvider(
         compat: template.compat,
         thinkingLevelMap: template.thinkingLevelMap,
         input: template.input,
+        cost: (template as Record<string, unknown>).cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       });
     }
   }
