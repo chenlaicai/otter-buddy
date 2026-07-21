@@ -82,13 +82,23 @@ async function loadCustomProvider(
     throw new Error(`Unsupported LLM provider: ${provider}`);
   }
 
-  // 转为数组并注入自定义模型
+  // 转为数组并注入自定义模型（只继承连接属性，不继承 contextWindow/maxTokens/cost 等模型属性）
   const modelsArray = Object.values(modelsDict) as Record<string, unknown>[];
   const hasModel = modelsArray.some(m => (m as Record<string, unknown>).id === modelId);
   if (!hasModel) {
-    const template = modelsArray[0];
+    const template = modelsArray[0] as Record<string, unknown> | undefined;
     if (template) {
-      modelsArray.push({ ...template, id: modelId, name: modelId, baseUrl: apiBaseUrl ?? template.baseUrl });
+      modelsArray.push({
+        id: modelId,
+        name: modelId,
+        api: template.api,
+        provider: template.provider,
+        baseUrl: apiBaseUrl ?? template.baseUrl,
+        reasoning: template.reasoning,
+        compat: template.compat,
+        thinkingLevelMap: template.thinkingLevelMap,
+        input: template.input,
+      });
     }
   }
 

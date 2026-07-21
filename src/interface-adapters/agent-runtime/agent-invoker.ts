@@ -73,8 +73,6 @@ function mapToMessageEventInput(
   messageId: string,
 ): MessageEventInput | null {
   switch (e.type) {
-    case "tool_execution_start":
-      return { messageId, eventType: "tool_call", payload: { name: e.name ?? e.toolName } };
     case "tool_execution_end":
       return { messageId, eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
     case "message_end":
@@ -220,14 +218,13 @@ export class AgentInvoker {
       }
       onSSEEvent?.({ event: "message.aborted", data: { messageId, abortBody: body } });
     } else {
-      /** error 路径：标记失败，存错误信息到 body */
+      /** error 路径：标记失败，存错误信息到 body。SSE error 由 .catch 统一发送，避免重复 */
       const msg = err instanceof Error ? err.message : "Unknown error";
       try {
         await this.sendMessage.fail(messageId, `[错误] ${msg}`);
       } catch {
         /** fail() 出错时不覆盖原始错误 */
       }
-      onSSEEvent?.({ event: "error", data: { message: msg } });
     }
   }
 

@@ -168,6 +168,7 @@ function ConversationPage() {
           setStreaming(null)
         },
         'error': (data) => {
+          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
           const errMsg: LocalMessage = {
             id: otterMessageId || crypto.randomUUID(), st: 'otter', si: otterId,
             content: `[错误] ${data.message}`, ts: nowTs(), dur: null,
@@ -177,7 +178,7 @@ function ConversationPage() {
           otterMsgIdRef.current = ''
           setStreaming(null)
         },
-        'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
+        'message.aborted': () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }; showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
         'agent.idle': () => {
           /** fallback: agent.idle 后 2s 如果 streaming 还在，强制清除 */
           idleTimer = setTimeout(() => {

@@ -42,9 +42,12 @@ cmd_start() {
     exit 1
   fi
 
-  echo "Starting Otter Buddy on port $PORT ..."
+  echo "Building Otter Buddy ..."
   cd "$PROJECT_DIR"
-  PORT="$PORT" npm start &
+  npm run build 2>&1 | tail -1
+
+  echo "Starting Otter Buddy on port $PORT ..."
+  PORT="$PORT" node dist/src/main.js &
   local pid=$!
   echo "$pid" > "$PID_FILE"
 
@@ -64,9 +67,16 @@ cmd_stop() {
   local my_pid
   my_pid=$(get_pid)
 
-  # 有 PID 文件且进程存活：只杀自己的
+  # 有 PID 文件且进程存活：只杀自己的（先 SIGTERM 优雅退出，超时再 SIGKILL）
   if [ -n "$my_pid" ] && kill -0 "$my_pid" 2>/dev/null; then
-    kill -9 "$my_pid" 2>/dev/null || true
+    kill -15 "$my_pid" 2>/dev/null || true
+    for _ in $(seq 1 5); do
+      kill -0 "$my_pid" 2>/dev/null || break
+      sleep 1
+    done
+    if kill -0 "$my_pid" 2>/dev/null; then
+      kill -9 "$my_pid" 2>/dev/null || true
+    fi
     rm -f "$PID_FILE"
     echo "Stopped Otter Buddy (PID $my_pid)"
     return 0
