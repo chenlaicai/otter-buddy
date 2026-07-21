@@ -126,6 +126,75 @@
 | AC-5 | `./scripts/otter-buddy.sh start -p 3001` 正常启动 | 执行脚本 |
 | AC-6 | `npm test` 通过 | 执行 `npm test` |
 
+## 消息事件模型
+
+### Pi Agent SDK 事件 → message_events 映射
+
+Pi Agent SDK 的 `session.subscribe` 产生以下关键事件：
+
+| SDK 事件 | 存为 event_type | payload | 说明 |
+|---------|----------------|---------|------|
+| message_end (role=user) | — | — | 已在 messages.body |
+| message_end (role=assistant, 含 toolCall) | `assistant_toolcall` | `{content: [toolCall]}` | agent 决策：调什么工具 |
+| tool_execution_start | — | — | 与 assistant_toolcall 重复 |
+| tool_execution_end | `tool_result` | `{name, result}` | 工具执行结果 |
+| message_end (role=toolResult) | — | — | 与 tool_execution_end 重复 |
+| message_end (role=assistant, 含 text) | `assistant_text` | `{content: [text]}` | agent 最终文本输出 |
+
+**过滤规则**：
+- `assistant_toolcall`：只存 toolCall 块，过滤 thinking/text
+- `assistant_text`：只存 text 块，过滤 thinking
+
+### SSE 事件类型
+
+| SSE event | 后端来源 | 前端用途 |
+|-----------|---------|---------|
+| `message.start` | invoke 开始 | 初始化流式 UI |
+| `assistant_toolcall` | message_end (assistant+toolCall) | 实时展示工具调用决策 |
+| `tool.result` | tool_execution_end | 实时展示工具结果 |
+| `assistant_text` | message_end (assistant+text) | 实时展示最终输出 |
+| `agent.idle` | agent_end | fallback 清除 streaming 状态 |
+| `message.complete` | invoke 完成 | 写入最终消息 |
+
+### body 机制
+
+当前 body 强制写入 `"fixme"`（待 `set_final_body` 工具实现）。设计文档定义 agent 应显式调用 `set_final_body(text)` 设置 body。
+
+### ctx / ctxMax
+
+- `ctx` = `session.getSessionStats().tokens.input + output`
+- `ctxMax` = `model.contextWindow`（从 model 对象读取）
+- 用户消息不显示 token 信息
+
+## 前端 UI
+
+### 流式过程
+
+- SSE 事件实时推送到 `StreamingState.events`
+- `StreamingMessage` 组件用 `EventItem` 逐条渲染
+- 每个 event 独立展示：`[event_type]` 标签 + 关键信息 + 折叠详情
+- `agent.idle` 后 2s fallback 强制清除 streaming 状态
+
+### EventItem 展示规则
+
+| event_type | 标签 | 标题行 | 折叠内容 |
+|-----------|------|--------|---------|
+| `assistant_toolcall` | `assistant_toolcall` | 工具名 + 参数预览 | 完整参数 JSON |
+| `tool_result` | `tool_result` | 工具名 + 结果预览 | 完整结果文本 |
+| `assistant_text` | `assistant_text` | 文本预览 | 完整文本（Markdown） |
+| `error` | `error` | 错误信息 | 无折叠 |
+
+### Markdown 渲染
+
+- `remark-gfm`：表格、删除线、任务列表
+- `react-syntax-highlighter`：代码块高亮
+- body、tool_result、assistant_text 均支持 Markdown
+
+### 复制按钮
+
+- 每个 event 和 body 都有复制按钮（lucide Copy/Check 图标）
+- 点击复制后显示绿色对勾 1.5s
+
 ## 决策记录
 
 | 决策 | 理由 | 替代方案 | 决策模式 |
@@ -134,3 +203,6 @@
 | `moduleResolution: "bundler"` 而非 `NodeNext` | `NodeNext` 不支持 path aliases | `NodeNext` + 重写所有别名（改动量大） | 权衡取舍 |
 | `setRuntimeApiKey` 而非环境变量 | SDK 内置机制，可靠 | 设置 `ANTHROPIC_API_KEY` 环境变量（SDK 可能不检查） | 技术事实 |
 | PID 文件按 worktree 隔离 | 避免 stop 误杀其他 worktree 进程 | 全局 PID 文件 + 端口匹配（复杂） | 简单性原则 |
+| 后端存储 assistant_toolcall + tool_result，不存 tool_execution_start | 前后端 event 1:1 对应，不搞两套 | 前端合并展示（复杂） | 简单性原则 |
+| thinking 不存储 | thinking 是中间过程，不应持久化 | 单独存储 thinking（增加复杂度） | 简单性原则 |
+| body 强制 fixme | 等 set_final_body 工具实现 | 用 getLastAssistantText 作为 body（设计不符） | 设计对齐 |
