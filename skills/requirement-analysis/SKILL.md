@@ -33,8 +33,8 @@ Read the requirement description. Categorize each element:
 
 ### 2. Retrieve Context
 
-- Search memory for prior decisions related to this area
-- Confirm terminology alignment between user language and codebase
+- Use `search_memory` to find prior decisions related to this area
+- Use `search_terminology` to confirm terminology alignment between user language and codebase
 - Identify existing constraints that bound the solution space
 
 ### 3. Analyze Current State

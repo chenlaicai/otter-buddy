@@ -36,5 +36,5 @@ Use this format for adversarial review output.
 - Every issue MUST have a disposition
 - If ANY issue is unresolved, conclusion MUST be "需要修改"
 - Each issue MUST cite `file:line` — no impression-based findings
-- "无发现" is valid for a dimension — skip silently if no issues, but do NOT skip the dimension check
+- "无发现" is valid for a dimension — explicitly note it to confirm the dimension was checked, do NOT skip silently
 - Do NOT reuse previous review comments for re-inspection — publish new ones

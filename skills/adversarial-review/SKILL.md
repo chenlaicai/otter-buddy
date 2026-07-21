@@ -17,7 +17,8 @@ Find real problems in code changes. This is not a rubber stamp.
 - **Reference actual code**: Every judgment must cite a specific file and line number. No impression-based reviews.
 - **Every issue needs a disposition**: "Not blocking" and "optimize later" are not valid dispositions.
 - **No vague conclusions**: "Looks fine" and "can merge" without specifics are forbidden.
-- **Verify independently**: Run tests and builds yourself. Do not just check the developer's results.
+- **Verify independently**: Run tests and builds directly. Do not just check the developer's results.
+- **Do not modify code**: Only report findings. The developer fixes, the reviewer identifies.
 
 ## Workflow
 
@@ -33,7 +34,7 @@ If the PR direction deviates from the design document, flag it — this may need
 
 ### 2. Check Each Dimension
 
-Review changes across all 6 dimensions. Do not skip any. If a dimension has no issues, note "无发现" in the report.
+Review changes across all 6 dimensions. Do not skip any. If a dimension has no issues, explicitly note "无发现" in the report — this confirms the dimension was actually checked.
 
 See `references/review-dimensions.md` for detailed guidance on each dimension.
 
@@ -48,7 +49,7 @@ See `references/review-dimensions.md` for detailed guidance on each dimension.
 
 ### 3. Verify Independently
 
-Execute verification commands yourself:
+Execute verification commands directly:
 
 - Run the test suite
 - Check build passes

@@ -37,7 +37,9 @@ Read the technical plan thoroughly. Verify:
 - What the core logic should do
 - Whether there are breaking changes requiring special handling
 
-Ask first if unclear. Do not guess. Do not implement features not in the plan.
+Use `search_terminology` to confirm terms match the codebase. Use `search_memory` to retrieve related context and prior decisions.
+
+If unclear, ask first. Do not guess. Do not implement features not in the plan.
 
 ### 3. Implement
 
