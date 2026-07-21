@@ -3,10 +3,29 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square } from 'lucide-react'
+import { AlertTriangle, Square, Copy, Check } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent } from '../../lib/utils'
+
+/** 复制按钮 */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 rounded hover:bg-stone-200 transition text-stone-400 hover:text-stone-600"
+      title="复制"
+    >
+      {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+    </button>
+  )
+}
 
 /** Markdown 渲染组件（GFM + 代码高亮） */
 function MarkdownContent({ children }: { children: string }) {
@@ -151,7 +170,12 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           style={isUser ? { background: bgGrad } : borderLeft}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} />}
-          <MarkdownContent>{m.content}</MarkdownContent>
+          <div className="relative group">
+            <MarkdownContent>{m.content}</MarkdownContent>
+            <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
+              <CopyButton text={m.content} />
+            </div>
+          </div>
         </div>
         {!isUser && (
           <div className="flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400">
@@ -213,6 +237,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
           <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-amber-50 text-amber-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{toolName} {paramsPreview}</span>
+          <CopyButton text={paramsStr} />
         </div>
         {expanded && paramsStr && (
           <div className="px-3 pb-2 pl-8">
@@ -242,6 +267,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
           <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-teal-100 text-teal-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{name} {resultPreview}</span>
+          <CopyButton text={resultText} />
         </div>
         {expanded && resultText && (
           <div className="px-3 pb-2 pl-8">
@@ -270,6 +296,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
           <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-blue-50 text-blue-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{preview}</span>
+          <CopyButton text={str} />
         </div>
         {expanded && str && (
           <div className="px-3 pb-2 pl-8">
@@ -288,6 +315,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
         <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-red-50 text-red-700">{eventType}</span>
         <span className="text-[11px] text-red-600">{payload.message as string}</span>
+        <CopyButton text={payload.message as string} />
       </div>
     )
   }
