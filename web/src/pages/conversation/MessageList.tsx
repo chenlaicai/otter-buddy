@@ -199,8 +199,8 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
   if (eventType === 'assistant_toolcall') {
     const content = payload.content as Array<Record<string, unknown>> | undefined
     const toolCall = content?.find(c => c.type === 'toolCall') as Record<string, unknown> | undefined
-    const toolName = (toolCall?.toolName as string) || ''
-    const params = toolCall?.input || toolCall?.params
+    const toolName = (toolCall?.name as string) || ''
+    const params = toolCall?.arguments
     const paramsStr = params ? JSON.stringify(params) : ''
     const paramsPreview = paramsStr.length > 60 ? paramsStr.slice(0, 60) + '...' : paramsStr
 

@@ -41,8 +41,15 @@ function mapMessageEndEvent(e: AgentStreamEvent, messageId: string): MessageEven
   if (!content) return null;
   if (role === "user" || role === "toolResult") return null;
   const hasToolCall = content.some((c) => c.type === "toolCall");
-  const eventType = hasToolCall ? "assistant_toolcall" : "assistant_text";
-  return { messageId, eventType, payload: { role, content } };
+  if (hasToolCall) {
+    /** assistant_toolcall：只存 toolCall，过滤 thinking/text */
+    const toolCalls = content.filter((c) => c.type === "toolCall");
+    return { messageId, eventType: "assistant_toolcall", payload: { content: toolCalls } };
+  }
+  /** assistant_text：只存 text，过滤 thinking */
+  const textBlocks = content.filter((c) => c.type === "text");
+  if (textBlocks.length === 0) return null;
+  return { messageId, eventType: "assistant_text", payload: { content: textBlocks } };
 }
 
 /** Pi 事件 -> MessageEventInput 映射（持久化到 DB） */
