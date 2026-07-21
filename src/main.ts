@@ -9,8 +9,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { config } from "@frameworks/config";
-import { logger } from "@frameworks/logger";
+import { loadConfig, initConfig } from "@frameworks/config";
+import { PinoLogger } from "@frameworks/logger";
 import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
@@ -57,6 +57,16 @@ import { SettingsController } from "@interface-adapters/http/controllers/setting
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+
+/** 创建 PinoLogger 实例 */
+const logger = new PinoLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: process.env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+});
+
+/** 加载配置 */
+const appConfig = loadConfig(logger);
+initConfig(appConfig);
 
 /**
  * MemoryIndexGateway 适配器：将 StoreMemory 适配为 MemoryIndexGateway。
@@ -155,13 +165,13 @@ function initUseCases(
   agentGateway: PiSessionFactory,
   embeddingService: EmbeddingGateway,
 ): UseCases {
-  const searchEngine = new SearchEngine(config.memory);
+  const searchEngine = new SearchEngine(appConfig.memory);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
-  const storeMemory = new StoreMemory(repos.memory, embeddingService);
-  const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, repos.terminology);
+  const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
+  const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
-  const sendMessage = new SendMessage(repos.conversation, memoryIndex);
+  const sendMessage = new SendMessage(repos.conversation, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
@@ -171,7 +181,7 @@ function initUseCases(
   const createOtter = new CreateOtter(repos.otter, agentGateway);
   const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
-    repos.otter, agentGateway, manageConversation, manageMemory,
+    repos.otter, agentGateway, manageConversation, manageMemory, logger,
   );
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
   const manageContext = new ManageContext(repos.otterContext);
@@ -357,7 +367,7 @@ function startServer(
   port: number,
 ): void {
   const app = new Hono();
-  app.route("/", createRouter(controllers));
+  app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
@@ -385,16 +395,16 @@ function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string })
 }
 
 async function main(): Promise<void> {
-  syncApiKeyToAgentAuth(config.llm);
+  syncApiKeyToAgentAuth(appConfig.llm);
 
-  const db = initDatabase(config.db);
-  initSchema(db);
+  const db = initDatabase(appConfig.db, logger);
+  initSchema(db, logger);
 
   /** 种子数据：术语库首次初始化时导入核心术语 */
-  await seedTerminologyData(db);
+  await seedTerminologyData(db, logger);
 
-  const { model } = await initModels(config.llm);
-  const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);
+  const { model } = await initModels(appConfig.llm, logger);
+  const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
 
   const repos = initRepositories(db);
 
@@ -402,8 +412,9 @@ async function main(): Promise<void> {
   const syncDocs = new SyncDocuments(
     repos.feature,
     repos.research,
-    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService)),
-    process.cwd()
+    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger)),
+    process.cwd(),
+    logger
   );
   const syncResult = await syncDocs.execute();
   if (syncResult.synced > 0) {
@@ -422,7 +433,7 @@ async function main(): Promise<void> {
     otterToolClient: {} as OtterToolClient,
     platformPromptFile: "./prompts/platform/SYSTEM_PROMPT.md",
     createTools,
-  });
+  }, logger);
 
   const uc = initUseCases(repos, agentGateway, embeddingService);
 
@@ -432,24 +443,25 @@ async function main(): Promise<void> {
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
-    uc.manageSession, uc.queryOtter,
+    uc.manageSession, uc.queryOtter, logger,
   );
 
   const settings: SettingsConfig = {
-    provider: config.llm.provider,
-    model: config.llm.model,
-    port: config.server.port,
-    dbPath: config.db.path,
-    embeddingModelPath: config.embedding.modelPath,
-    embeddingDim: config.embedding.dimensions,
+    provider: appConfig.llm.provider,
+    model: appConfig.llm.model,
+    port: appConfig.server.port,
+    dbPath: appConfig.db.path,
+    embeddingModelPath: appConfig.embedding.modelPath,
+    embeddingDim: appConfig.embedding.dimensions,
   };
 
   const controllers = initControllers(uc, agentInvoker, settings, repos.settings);
-  startServer(controllers, config.server.port);
+  startServer(controllers, appConfig.server.port);
 
   process.on("SIGINT", () => {
+    logger.flush();
     dispose();
-    closeDatabase(db);
+    closeDatabase(db, logger);
     process.exit(0);
   });
 }

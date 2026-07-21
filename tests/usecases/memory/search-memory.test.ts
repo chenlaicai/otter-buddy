@@ -6,6 +6,18 @@ import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { Logger } from "@usecases/ports/logger";
+
+/** 创建 noop Logger mock */
+function mockLogger(): Logger {
+  return {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => mockLogger(),
+  };
+}
 
 /** 创建内存 SQLite 数据库 + 初始化 schema */
 function createTestDb(): Database.Database {
@@ -85,7 +97,7 @@ describe("SearchMemory - progressive disclosure", () => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine);
+    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
     manageMemory = new ManageMemory(repo);
 
     /** 存入测试数据 */
@@ -166,7 +178,7 @@ describe("SearchMemory - progressive disclosure", () => {
     };
 
     const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine);
+    const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
 
     const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
     expect(result.entries.length).toBe(1);

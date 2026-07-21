@@ -1,5 +1,6 @@
 import { streamSSE } from "hono/streaming";
 import type { Context } from "hono";
+import type { Logger } from "@usecases/ports/logger";
 
 /** SSE 事件 */
 export interface SSEEvent {
@@ -17,10 +18,22 @@ const TERMINAL_EVENTS = new Set(["message.complete", "message.aborted", "error"]
 export function streamEvents(
   c: Context,
   onAbort: () => void,
+  logger?: Logger,
 ): { response: Response; push: (event: SSEEvent) => void } {
+  const requestId = c.get('requestId');
+  const conversationId = c.req.param('id');
+  const startTime = Date.now();
   const queue: SSEEvent[] = [];
   let waiting: (() => void) | null = null;
   let closed = false;
+
+  // 记录 SSE 连接建立日志
+  if (logger) {
+    logger.info('SSE connection established', {
+      requestId,
+      conversationId,
+    });
+  }
 
   const push = (event: SSEEvent): void => {
     if (closed) return;
@@ -31,28 +44,74 @@ export function streamEvents(
   const response = streamSSE(c, async (stream) => {
     stream.onAbort(() => {
       closed = true;
+      logSSEClose(logger, requestId, conversationId, startTime, 'client_abort');
       onAbort();
       waiting?.();
     });
 
-    while (!closed) {
-      if (queue.length === 0) {
-        await new Promise<void>((r) => { waiting = r; });
-        waiting = null;
-        continue;
-      }
-
-      const event = queue.shift()!;
-      await stream.writeSSE({
-        event: event.event,
-        data: JSON.stringify(event.data),
-      });
-
-      if (TERMINAL_EVENTS.has(event.event)) {
-        closed = true;
-      }
-    }
+    await processSSEQueue(stream, queue, () => closed, () => {
+      closed = true;
+      logSSEClose(logger, requestId, conversationId, startTime, 'terminal_event');
+    }, () => {
+      waiting = null;
+    });
   });
 
   return { response, push };
+}
+
+/**
+ * 处理 SSE 事件队列。
+ */
+async function processSSEQueue(
+  stream: { writeSSE: (data: { event: string; data: string }) => Promise<void> },
+  queue: SSEEvent[],
+  isClosed: () => boolean,
+  onTerminalEvent: () => void,
+  onWait: () => void,
+): Promise<void> {
+  while (!isClosed()) {
+    if (queue.length === 0) {
+      await new Promise<void>((resolve) => { setTimeout(resolve, 10) });
+      onWait();
+      continue;
+    }
+
+    const event = queue.shift()!;
+    await stream.writeSSE({
+      event: event.event,
+      data: JSON.stringify(event.data),
+    });
+
+    if (TERMINAL_EVENTS.has(event.event)) {
+      onTerminalEvent();
+    }
+  }
+}
+
+/**
+ * 记录 SSE 连接关闭日志。
+ */
+function logSSEClose(
+  logger: Logger | undefined,
+  requestId: string | undefined,
+  conversationId: string | undefined,
+  startTime: number,
+  reason: string,
+): void {
+  if (!logger) return;
+
+  const duration = Date.now() - startTime;
+  const logData = {
+    requestId,
+    conversationId,
+    duration,
+    reason,
+  };
+
+  if (reason === 'client_abort') {
+    logger.warn('SSE connection aborted', logData);
+  } else {
+    logger.info('SSE connection closed', logData);
+  }
 }

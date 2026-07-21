@@ -4,6 +4,7 @@ import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { AgentGateway } from "@usecases/otter/agent-gateway";
 import type { ConversationQueryGateway, MemoryLayerGateway } from "@usecases/otter/manage-session";
 import type { OtterSession, SessionHandoffSummary } from "@entities/otter/otter-session";
+import type { Logger } from "@usecases/ports/logger";
 
 function mockSession(overrides: Partial<OtterSession> = {}): OtterSession {
   return {
@@ -30,6 +31,17 @@ function mockHandoffSummary(overrides: Partial<SessionHandoffSummary> = {}): Ses
     activeContext: "正在开发对话管理系统",
     participantStatus: { "otter-1": "active" },
     ...overrides,
+  };
+}
+
+/** 创建 noop Logger mock */
+function mockLogger(): Logger {
+  return {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => mockLogger(),
   };
 }
 
@@ -110,7 +122,7 @@ describe("ManageSession", () => {
     it("creates a session with handoffSummary: null (B14)", async () => {
       const repo = mockRepo();
       const session = await new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockLogger(),
       ).createSession("otter-1");
 
       expect(session.handoffSummary).toBeNull();
@@ -122,7 +134,7 @@ describe("ManageSession", () => {
       const prevSession = mockSession({ id: "prev-sess", status: "archived" });
       const repo = mockRepo(prevSession);
       const session = await new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockLogger(),
       ).createSession("otter-1");
 
       expect(session.previousSessionId).toBe("prev-sess");
@@ -132,7 +144,7 @@ describe("ManageSession", () => {
       const activeSession = mockSession();
       const repo = mockRepo(activeSession);
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockLogger(),
       );
 
       await expect(ms.createSession("otter-1")).rejects.toThrow("already has an active session");
@@ -147,7 +159,7 @@ describe("ManageSession", () => {
       const conversationQuery = mockConversationQuery(["conv-1", "conv-2"]);
       const memoryLayer = mockMemoryLayer();
 
-      const ms = new ManageSession(repo, agentGateway, conversationQuery, memoryLayer);
+      const ms = new ManageSession(repo, agentGateway, conversationQuery, memoryLayer, mockLogger());
       const summary = mockHandoffSummary();
       const result = await ms.handoffSession("sess-1", summary, "token_threshold");
 
@@ -177,7 +189,7 @@ describe("ManageSession", () => {
       const activeSession = mockSession();
       const repo = mockRepo(activeSession);
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockLogger(),
       );
       const summary = mockHandoffSummary();
       const result = await ms.handoffSession("sess-1", summary, "token_threshold");
@@ -191,7 +203,7 @@ describe("ManageSession", () => {
     it("throws if session not found", async () => {
       const repo = mockRepo(); // no session
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockLogger(),
       );
 
       await expect(
@@ -203,7 +215,7 @@ describe("ManageSession", () => {
       const archivedSession = mockSession({ status: "archived" });
       const repo = mockRepo(archivedSession);
       const ms = new ManageSession(
-        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(),
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockLogger(),
       );
 
       await expect(
@@ -221,7 +233,7 @@ describe("ManageSession", () => {
       const blockingSession = mockSession({ id: "blocking-sess" });
       repo.getActiveSession = vi.fn(async () => blockingSession);
 
-      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer);
+      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, mockLogger());
 
       await expect(
         ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),
@@ -250,7 +262,7 @@ describe("ManageSession", () => {
       // Make setHandoffSummary throw
       repo.setHandoffSummary = vi.fn(async () => { throw new Error("DB write failed"); });
 
-      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer);
+      const ms = new ManageSession(repo, agentGateway, mockConversationQuery(["conv-1"]), memoryLayer, mockLogger());
 
       await expect(
         ms.handoffSession("sess-1", mockHandoffSummary(), "token_threshold"),

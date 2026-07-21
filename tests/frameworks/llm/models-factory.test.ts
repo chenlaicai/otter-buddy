@@ -65,7 +65,7 @@ beforeEach(async () => {
 
 describe("initModels — custom provider routing", () => {
   it("uses default provider when no apiBaseUrl or apiKey is set", async () => {
-    const result = await initModels();
+    const result = await initModels({ provider: "openai", model: "gpt-4o" });
     // Default provider sentinel is passed to setProvider
     expect(mockSetProvider.mock.calls[0][0]).toBe(DEFAULT_PROVIDER);
     expect(result.model).toEqual({ id: "gpt-4o" });
@@ -74,7 +74,7 @@ describe("initModels — custom provider routing", () => {
   it("uses custom provider when apiKey is set", async () => {
     mockConfig.llm.apiKey = "sk-custom";
 
-    const result = await initModels();
+    const result = await initModels(mockConfig.llm);
 
     // Custom provider sentinel is passed to setProvider (not default)
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_PROVIDER);
@@ -84,7 +84,7 @@ describe("initModels — custom provider routing", () => {
   it("uses custom provider when apiBaseUrl is set", async () => {
     mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
 
-    await initModels();
+    await initModels(mockConfig.llm);
 
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_PROVIDER);
   });
@@ -93,7 +93,7 @@ describe("initModels — custom provider routing", () => {
     mockConfig.llm.apiKey = "sk-test";
     mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
 
-    await initModels();
+    await initModels(mockConfig.llm);
 
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_PROVIDER);
   });
@@ -105,7 +105,7 @@ describe("initModels — custom provider routing", () => {
     mockCreateProvider.mockReturnValue(CUSTOM_ANTHROPIC_PROVIDER);
     mockGetModel.mockReturnValue({ id: "claude-sonnet-4-20250514" });
 
-    await initModels();
+    await initModels(mockConfig.llm);
 
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_ANTHROPIC_PROVIDER);
   });
@@ -114,7 +114,7 @@ describe("initModels — custom provider routing", () => {
     mockConfig.llm.provider = "unknown";
     mockConfig.llm.apiKey = "sk-test";
 
-    await expect(initModels()).rejects.toThrow("Unsupported LLM provider: unknown");
+    await expect(initModels(mockConfig.llm)).rejects.toThrow("Unsupported LLM provider: unknown");
   });
 });
 
@@ -127,7 +127,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   it("resolves apiKey from config when provided", async () => {
     mockConfig.llm.apiKey = "sk-from-config";
 
-    await initModels();
+    await initModels(mockConfig.llm);
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => undefined },
@@ -140,7 +140,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   it("resolves apiKey from env when config key is absent", async () => {
     mockConfig.llm.apiBaseUrl = "https://proxy.example.com"; // trigger custom provider
 
-    await initModels();
+    await initModels(mockConfig.llm);
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async (name: string) => (name === "OPENAI_API_KEY" ? "sk-from-env" : undefined) },
@@ -153,7 +153,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   it("resolves apiKey from credential when config and env are absent", async () => {
     mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
 
-    await initModels();
+    await initModels(mockConfig.llm);
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => undefined },
@@ -166,7 +166,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   it("returns undefined when all sources are missing", async () => {
     mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
 
-    await initModels();
+    await initModels(mockConfig.llm);
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => undefined },
@@ -183,7 +183,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
     mockCreateProvider.mockReturnValue(CUSTOM_ANTHROPIC_PROVIDER);
     mockGetModel.mockReturnValue({ id: "claude-sonnet-4-20250514" });
 
-    await initModels();
+    await initModels(mockConfig.llm);
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async (name: string) => (name === "ANTHROPIC_API_KEY" ? "sk-ant-env" : undefined) },
@@ -196,7 +196,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   it("config apiKey takes priority over env and credential", async () => {
     mockConfig.llm.apiKey = "sk-config-wins";
 
-    await initModels();
+    await initModels(mockConfig.llm);
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => "sk-from-env" },

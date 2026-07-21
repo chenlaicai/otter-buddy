@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { DomainErrorKind } from "@entities/errors";
 import { DomainError } from "@entities/errors";
+import type { Logger } from "@usecases/ports/logger";
 
 /** HTTP 错误类：携带状态码，避免字符串匹配不可靠 */
 export class HttpError extends Error {
@@ -27,7 +28,18 @@ export function param(c: Context, name: string): string {
 }
 
 /** 根据错误类型返回 HTTP 状态码并返回 JSON 响应 */
-export function handleError(c: Context, err: unknown): Response {
+export function handleError(c: Context, err: unknown, logger?: Logger): Response {
+  const requestId = c.get('requestId');
+
+  // 记录错误日志
+  if (logger) {
+    logger.error('Request failed', err instanceof Error ? err : undefined, {
+      requestId,
+      errorCode: err instanceof DomainError ? err.kind : err instanceof HttpError ? 'http_error' : 'unknown',
+      statusCode: err instanceof DomainError ? DOMAIN_ERROR_STATUS[err.kind] : err instanceof HttpError ? err.status : 500,
+    });
+  }
+
   if (err instanceof DomainError) {
     const status = DOMAIN_ERROR_STATUS[err.kind];
     return c.json({ error: err.message }, status as 400 | 404 | 409 | 500);
