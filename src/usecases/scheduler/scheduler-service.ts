@@ -35,12 +35,32 @@ export class SchedulerService {
     this.agentInvokePort = options.agentInvokePort;
     this.cronParser = options.cronParser;
 
-    // 注册任务变更回调，清理已删除任务的 timer
+    // 注册任务变更回调
     if (options.manageScheduledTask) {
       options.manageScheduledTask.onChange((taskId, action) => {
-        if (action === 'deleted' || action === 'updated') {
-          this.clearTaskTimer(taskId);
-        }
+        // 使用 setImmediate 延迟执行异步操作
+        setImmediate(async () => {
+          try {
+            if (action === 'deleted') {
+              this.clearTaskTimer(taskId);
+            } else if (action === 'updated') {
+              this.clearTaskTimer(taskId);
+              // 重新获取任务并调度
+              const task = await this.taskRepo.getById(taskId);
+              if (task?.status === 'active') {
+                this.scheduleNext(task);
+              }
+            } else if (action === 'created') {
+              // 获取新任务并调度
+              const task = await this.taskRepo.getById(taskId);
+              if (task?.status === 'active') {
+                this.scheduleNext(task);
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to handle task change: ${taskId} ${action}`, error);
+          }
+        });
       });
     }
   }
@@ -172,17 +192,25 @@ export class SchedulerService {
 
   private async invokeAgentWithTimeout(task: ScheduledTask): Promise<void> {
     const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
-    await Promise.race([
-      this.agentInvokePort.invokeConversation({
-        otterId: task.talkingStonePassedTo[0],
-        conversationId: task.conversationId,
-        userMessageContent: task.body,
-        senderId: task.senderId,
-      }),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS)
-      ),
-    ]);
+    let timer: NodeJS.Timeout | undefined;
+
+    try {
+      await Promise.race([
+        this.agentInvokePort.invokeConversation({
+          otterId: task.talkingStonePassedTo[0],
+          conversationId: task.conversationId,
+          userMessageContent: task.body,
+          senderId: task.senderId,
+        }),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   private async completeExecution(executionId: string, conversationId: string, messageId: string): Promise<void> {

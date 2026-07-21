@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { Clock, Loader } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import type { LocalScheduledTask, LocalOtter } from '../../lib/mappers'
@@ -35,13 +35,6 @@ const TIMEZONES = [
   'UTC',
 ]
 
-function getNextCronTimes(_cron: string): Date[] {
-  // 使用 API 预览下次触发时间
-  // 由于前端不能直接使用 croner，这里返回空数组
-  // 实际触发时间由后端计算并在任务详情中返回
-  return []
-}
-
 export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Props) {
   const [name, setName] = useState(task?.name ?? '')
   const [cron, setCron] = useState(task?.cron ?? '0 9 * * *')
@@ -51,9 +44,6 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
     task?.talkingStonePassedTo ?? (otters.length === 1 ? [otters[0].id] : [])
   )
   const [saving, setSaving] = useState(false)
-
-  // Cron 预览
-  const nextTriggers = useMemo(() => getNextCronTimes(cron), [cron])
 
   // 表单验证
   const isValid = name.trim() && body.trim() && selectedOtters.length > 0 && cron.split(/\s+/).length === 5
@@ -126,22 +116,6 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
               ))}
             </select>
           </div>
-          {/* 预览 */}
-          {nextTriggers.length > 0 && (
-            <div className="mt-2 text-xs text-stone-500">
-              <div className="flex items-center gap-1 mb-1">
-                <Clock size={10} />
-                <span>未来触发时间：</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {nextTriggers.map((t, i) => (
-                  <span key={i} className="bg-stone-100 px-1.5 py-0.5 rounded">
-                    {t.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* 时区 */}

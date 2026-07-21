@@ -125,7 +125,7 @@ export class ScheduledTaskController {
       const taskId = param(c, 'taskId');
       const limitStr = c.req.query('limit') ?? '20';
       const offsetStr = c.req.query('offset') ?? '0';
-      const limit = parseInt(limitStr, 10);
+      const limit = Math.min(parseInt(limitStr, 10), 100); // 限制最大 100 条
       const offset = parseInt(offsetStr, 10);
 
       if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {

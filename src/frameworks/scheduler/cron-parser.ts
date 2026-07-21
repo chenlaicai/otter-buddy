@@ -22,14 +22,10 @@ export class SimpleCronParser implements CronParser {
   }
 
   /**
-   * 简单的回退实现：假设每分钟触发一次
-   * 仅用于 cron 解析失败时
+   * 回退实现：抛出错误而非静默高频触发
+   * 无效的 cron 表达式不应被静默接受
    */
-  private fallbackGetNextTime(): Date {
-    const now = new Date();
-    now.setSeconds(0);
-    now.setMilliseconds(0);
-    now.setMinutes(now.getMinutes() + 1);
-    return now;
+  private fallbackGetNextTime(): never {
+    throw new Error('Invalid cron expression: unable to parse');
   }
 }

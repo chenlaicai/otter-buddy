@@ -12,10 +12,23 @@ export interface AgentInvokePort {
 }
 
 /**
+ * AgentInvoker 的接口定义（用于类型安全的适配）
+ */
+interface AgentInvokerLike {
+  invokeConversation(params: {
+    otterId: string;
+    conversationId: string;
+    userMessageContent: string;
+    senderId: string;
+    onSSEEvent?: (event: unknown) => void;
+  }): Promise<{ messageId: string }>;
+}
+
+/**
  * 将 AgentInvoker 适配为 AgentInvokePort
  */
 export class AgentInvokePortAdapter implements AgentInvokePort {
-  constructor(private readonly agentInvoker: { invokeConversation: (params: any) => Promise<any> }) {}
+  constructor(private readonly agentInvoker: AgentInvokerLike) {}
 
   async invokeConversation(params: {
     otterId: string;

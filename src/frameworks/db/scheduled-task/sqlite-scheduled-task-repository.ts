@@ -108,7 +108,7 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
       SET last_triggered_at = ?, updated_at = ?
       WHERE id = ?
         AND status = 'active'
-        AND (last_triggered_at IS NULL OR last_triggered_at < datetime(?, '-60 seconds'))
+        AND (last_triggered_at IS NULL OR datetime(last_triggered_at) < datetime(?, '-60 seconds'))
     `).run(lastTriggeredAt, updatedAt, id, lastTriggeredAt);
     return result.changes > 0;
   }
