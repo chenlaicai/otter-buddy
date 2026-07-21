@@ -55,8 +55,14 @@ import { MemoryController } from "@interface-adapters/http/controllers/memory-co
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
+import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
+import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
+import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
+import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 
 /** 创建 PinoLogger 实例 */
 const logger = new PinoLogger({
@@ -128,6 +134,7 @@ interface Repositories {
   settings: SqliteSettingsRepository;
   feature: SqliteFeatureRepository;
   research: SqliteResearchRepository;
+  scheduledTask: SqliteScheduledTaskRepository;
 }
 
 interface UseCases {
@@ -145,6 +152,7 @@ interface UseCases {
   manageSession: ManageSession;
   dissolveOtter: DissolveOtter;
   manageContext: ManageContext;
+  manageScheduledTask: ManageScheduledTask;
 }
 
 function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
@@ -157,6 +165,7 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
     settings: new SqliteSettingsRepository(db),
     feature: new SqliteFeatureRepository(db),
     research: new SqliteResearchRepository(db),
+    scheduledTask: new SqliteScheduledTaskRepository(db),
   };
 }
 
@@ -185,10 +194,12 @@ function initUseCases(
   );
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
   const manageContext = new ManageContext(repos.otterContext);
+  const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   return {
     manageConversation, manageMemory, manageTerminology, storeMemory, searchMemory,
     sendMessage, queryMessage, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
+    manageScheduledTask,
   };
 }
 
@@ -348,19 +359,24 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
   };
 }
 
-function initControllers(
-  uc: UseCases,
-  agentInvoker: AgentInvoker,
-  settings: SettingsConfig,
-  settingsRepo: SqliteSettingsRepository,
-) {
+interface ControllerDeps {
+  uc: UseCases;
+  agentInvoker: AgentInvoker;
+  settings: SettingsConfig;
+  settingsRepo: SqliteSettingsRepository;
+  schedulerService: SchedulerService;
+  cronParser: SimpleCronParser;
+}
+
+function initControllers(deps: ControllerDeps) {
   return {
-    conversation: new ConversationController(uc.manageConversation, uc.manageParticipant),
-    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter),
-    message: new MessageController(uc.sendMessage, uc.queryMessage, agentInvoker),
-    memory: new MemoryController(uc.searchMemory, uc.manageMemory),
-    keyInfo: new KeyInfoController(uc.manageKeyInfo),
-    settings: new SettingsController(settings, settingsRepo),
+    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
+    otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker),
+    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
+    keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
+    settings: new SettingsController(deps.settings, deps.settingsRepo),
+    scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser),
   };
 }
 
@@ -396,21 +412,7 @@ function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string })
   }
 }
 
-async function main(): Promise<void> {
-  syncApiKeyToAgentAuth(appConfig.llm);
-
-  const db = initDatabase(appConfig.db, logger);
-  initSchema(db, logger);
-
-  /** 种子数据：术语库首次初始化时导入核心术语 */
-  await seedTerminologyData(db, logger);
-
-  const { model } = await initModels(appConfig.llm, logger);
-  const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
-
-  const repos = initRepositories(db);
-
-  /** 文档同步：扫描 docs/ 目录并同步到数据库和记忆系统 */
+async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGateway): Promise<void> {
   const syncDocs = new SyncDocuments(
     repos.feature,
     repos.research,
@@ -418,18 +420,10 @@ async function main(): Promise<void> {
     process.cwd(),
     logger
   );
-  const syncResult = await syncDocs.execute();
-  if (syncResult.synced > 0) {
-    logger.info(`Document sync: ${syncResult.synced} synced, ${syncResult.skipped} skipped, ${syncResult.archived} archived`);
-  }
-  if (syncResult.errors.length > 0) {
-    logger.warn(`Document sync errors: ${syncResult.errors.length}`);
-    for (const err of syncResult.errors) {
-      logger.warn(`  ${err.file}: ${err.error}`);
-    }
-  }
+  await syncDocs.execute();
+}
 
-  /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */
+async function initAgentAndScheduler(repos: Repositories, uc: UseCases, db: any, model: any) {
   const agentGateway = await initAgentSessionFactory({
     model, db,
     otterToolClient: {} as OtterToolClient,
@@ -437,9 +431,6 @@ async function main(): Promise<void> {
     createTools,
   }, logger);
 
-  const uc = initUseCases(repos, agentGateway, embeddingService);
-
-  /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
 
@@ -447,6 +438,36 @@ async function main(): Promise<void> {
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
   );
+
+  const cronParser = new SimpleCronParser();
+  const agentInvokePort = new AgentInvokePortAdapter(agentInvoker);
+  const schedulerService = new SchedulerService({
+    taskRepo: repos.scheduledTask,
+    convRepo: repos.conversation,
+    sendMessage: uc.sendMessage,
+    agentInvokePort,
+    cronParser,
+    manageScheduledTask: uc.manageScheduledTask,
+  });
+
+  return { agentInvoker, cronParser, schedulerService };
+}
+
+async function main(): Promise<void> {
+  syncApiKeyToAgentAuth(appConfig.llm);
+
+  const db = initDatabase(appConfig.db, logger);
+  initSchema(db, logger);
+  await seedTerminologyData(db, logger);
+
+  const { model } = await initModels(appConfig.llm, logger);
+  const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
+
+  const repos = initRepositories(db);
+  await syncDocuments(repos, embeddingService);
+
+  const uc = initUseCases(repos, {} as PiSessionFactory, embeddingService);
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, db, model);
 
   const settings: SettingsConfig = {
     provider: appConfig.llm.provider,
@@ -457,10 +478,17 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers(uc, agentInvoker, settings, repos.settings);
+  const controllers = initControllers({
+    uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser,
+  });
   startServer(controllers, appConfig.server.port);
 
+  schedulerService.start().catch((err) => {
+    logger.error(`Failed to start scheduler: ${err}`);
+  });
+
   process.on("SIGINT", () => {
+    schedulerService.stop();
     logger.flush();
     dispose();
     closeDatabase(db, logger);

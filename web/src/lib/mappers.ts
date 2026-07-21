@@ -28,7 +28,7 @@ export interface LocalMessageEvent {
 /** 前端本地 Message 类型 */
 export interface LocalMessage {
   id: string
-  st: 'user' | 'otter'
+  st: 'user' | 'otter' | 'system'
   si: string
   content: string
   ts: string
@@ -86,7 +86,7 @@ export function mapConversationDTO(dto: ConversationListItemDTO): LocalConversat
 export function mapMessageDTO(dto: MessageDTO): LocalMessage {
   return {
     id: dto.id,
-    st: dto.st as 'user' | 'otter',
+    st: dto.st as 'user' | 'otter' | 'system',
     si: dto.si,
     content: dto.content ?? '',
     ts: dto.ts,
@@ -119,5 +119,97 @@ export function mapSessionDTO(dto: OtterSessionDTO): LocalOtterSession {
     archiveReason: dto.archiveReason,
     isNegativeCase: dto.isNegativeCase,
     summary: dto.summary,
+  }
+}
+
+// ── Scheduled Task 类型 ──
+
+/** 前端本地 ScheduledTask 类型 */
+export interface LocalScheduledTask {
+  id: string
+  conversationId: string
+  name: string
+  cron: string
+  timezone: string
+  body: string
+  talkingStonePassedTo: string[]
+  senderId: string
+  status: 'active' | 'disabled' | 'error'
+  consecutiveFailures: number
+  lastTriggeredAt: string | null
+  nextTriggerAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** 前端本地 ScheduledTaskExecution 类型 */
+export interface LocalScheduledTaskExecution {
+  id: string
+  taskId: string
+  triggeredAt: string
+  completedAt: string | null
+  status: 'running' | 'completed' | 'failed'
+  errorMessage: string | null
+  messageId: string | null
+  turnId: string | null
+}
+
+export interface ScheduledTaskDTO {
+  id: string
+  conversationId: string
+  name: string
+  cron: string
+  timezone: string
+  body: string
+  talkingStonePassedTo: string[]
+  senderId: string
+  status: string
+  consecutiveFailures: number
+  lastTriggeredAt: string | null
+  nextTriggerAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ScheduledTaskExecutionDTO {
+  id: string
+  taskId: string
+  triggeredAt: string
+  completedAt: string | null
+  status: string
+  errorMessage: string | null
+  messageId: string | null
+  turnId: string | null
+}
+
+export function mapScheduledTaskDTO(dto: ScheduledTaskDTO): LocalScheduledTask {
+  return {
+    id: dto.id,
+    conversationId: dto.conversationId,
+    name: dto.name,
+    cron: dto.cron,
+    timezone: dto.timezone,
+    body: dto.body,
+    talkingStonePassedTo: dto.talkingStonePassedTo,
+    senderId: dto.senderId,
+    status: dto.status as 'active' | 'disabled' | 'error',
+    consecutiveFailures: dto.consecutiveFailures,
+    lastTriggeredAt: dto.lastTriggeredAt,
+    nextTriggerAt: dto.nextTriggerAt,
+    createdAt: dto.createdAt,
+    updatedAt: dto.updatedAt,
+  }
+}
+
+export function mapExecutionDTO(dto: ScheduledTaskExecutionDTO): LocalScheduledTaskExecution {
+  return {
+    id: dto.id,
+    taskId: dto.taskId,
+    triggeredAt: dto.triggeredAt,
+    completedAt: dto.completedAt,
+    status: dto.status as 'running' | 'completed' | 'failed',
+    errorMessage: dto.errorMessage,
+    messageId: dto.messageId,
+    turnId: dto.turnId,
   }
 }

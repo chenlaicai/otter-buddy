@@ -1,0 +1,95 @@
+import type {
+  ScheduledTask,
+  ScheduledTaskExecution,
+} from '@entities/scheduled-task/scheduled-task';
+
+/** 创建定时任务请求 */
+export interface CreateScheduledTaskRequestDTO {
+  name: string;
+  cron: string;
+  timezone?: string;
+  body: string;
+  talkingStonePassedTo: string[];
+  senderId?: string;
+}
+
+/** 更新定时任务请求 */
+export interface UpdateScheduledTaskRequestDTO {
+  name?: string;
+  cron?: string;
+  timezone?: string;
+  body?: string;
+  talkingStonePassedTo?: string[];
+  status?: 'active' | 'disabled' | 'error';
+}
+
+/** 定时任务响应 */
+export interface ScheduledTaskDTO {
+  id: string;
+  conversationId: string;
+  name: string;
+  cron: string;
+  timezone: string;
+  body: string;
+  talkingStonePassedTo: string[];
+  senderId: string;
+  status: string;
+  consecutiveFailures: number;
+  lastTriggeredAt: string | null;
+  nextTriggerAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 执行记录响应 */
+export interface ScheduledTaskExecutionDTO {
+  id: string;
+  taskId: string;
+  triggeredAt: string;
+  completedAt: string | null;
+  status: string;
+  errorMessage: string | null;
+  messageId: string | null;
+  turnId: string | null;
+}
+
+/** 执行历史列表响应 */
+export interface ListExecutionsResponseDTO {
+  executions: ScheduledTaskExecutionDTO[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Entity -> DTO 转换 */
+export function toScheduledTaskDTO(task: ScheduledTask, nextTriggerAt?: string): ScheduledTaskDTO {
+  return {
+    id: task.id,
+    conversationId: task.conversationId,
+    name: task.name,
+    cron: task.cron,
+    timezone: task.timezone,
+    body: task.body,
+    talkingStonePassedTo: task.talkingStonePassedTo,
+    senderId: task.senderId,
+    status: task.status,
+    consecutiveFailures: task.consecutiveFailures,
+    lastTriggeredAt: task.lastTriggeredAt,
+    nextTriggerAt: nextTriggerAt ?? null,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+  };
+}
+
+export function toExecutionDTO(execution: ScheduledTaskExecution): ScheduledTaskExecutionDTO {
+  return {
+    id: execution.id,
+    taskId: execution.taskId,
+    triggeredAt: execution.triggeredAt,
+    completedAt: execution.completedAt,
+    status: execution.status,
+    errorMessage: execution.errorMessage,
+    messageId: execution.messageId,
+    turnId: execution.turnId,
+  };
+}

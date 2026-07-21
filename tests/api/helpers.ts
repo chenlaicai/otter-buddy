@@ -366,6 +366,7 @@ export function createTestApp(deps: TestDeps): Hono {
     memory: memoryCtrl,
     keyInfo: keyInfoCtrl,
     settings: settingsCtrl,
+    scheduledTask: {} as any, // TODO: 添加 scheduled task controller mock
   };
 
   return createRouter(controllers, mockLogger());

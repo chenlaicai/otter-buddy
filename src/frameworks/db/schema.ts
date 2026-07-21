@@ -22,6 +22,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createOtterContextTable(db);
     createMessagesFtsTable(db);
     createDocumentTables(db);
+    createScheduledTaskTables(db);
 
     db.exec("COMMIT");
 
@@ -448,5 +449,44 @@ function createDocumentTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_research_status ON research(status);
     CREATE INDEX IF NOT EXISTS idx_research_created_at ON research(created_at);
     CREATE INDEX IF NOT EXISTS idx_research_exploration_type ON research(exploration_type);
+  `);
+}
+
+/** 定时任务表：scheduled_tasks + scheduled_task_executions（F20260721x8k9） */
+function createScheduledTaskTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id),
+      name TEXT NOT NULL,
+      cron TEXT NOT NULL,
+      timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+      body TEXT NOT NULL CHECK (length(body) <= 10000),
+      talking_stone_passed_to TEXT NOT NULL DEFAULT '[]',
+      sender_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'error')),
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      last_triggered_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status ON scheduled_tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_conversation ON scheduled_tasks(conversation_id);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_task_executions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+      triggered_at TEXT NOT NULL,
+      completed_at TEXT,
+      status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
+      error_message TEXT,
+      message_id TEXT REFERENCES messages(id),
+      turn_id TEXT REFERENCES turns(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
   `);
 }

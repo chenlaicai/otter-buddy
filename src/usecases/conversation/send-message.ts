@@ -22,6 +22,7 @@ import type { Logger } from "@usecases/ports/logger";
 /** 用户发送消息输入 */
 export interface SendMessageInput {
   conversationId: string;
+  senderType?: "user" | "system";  // 默认 "user"，定时任务场景传 "system"
   senderId: string;
   talkingStonePassedTo: string[];
   body: string;
@@ -67,9 +68,11 @@ export class SendMessage {
 
   /** 用户发送消息（立即 completed） */
   async send(input: SendMessageInput): Promise<Message> {
-    /** UA-8: completed 用户消息必须传递发言石 */
-    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", "user")) {
-      throw new DomainError("talkingStonePassedTo must be non-empty for completed user messages", "validation");
+    const senderType = input.senderType ?? "user";
+
+    /** UA-8: completed 消息必须传递发言石（system 豁免） */
+    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", senderType)) {
+      throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
     }
 
     /** 确保活跃 Turn 存在 */
@@ -83,7 +86,7 @@ export class SendMessage {
       id,
       conversationId: input.conversationId,
       turnId: turn.id,
-      senderType: "user",
+      senderType,
       senderId: input.senderId,
       talkingStonePassedTo: input.talkingStonePassedTo,
       status: "completed",

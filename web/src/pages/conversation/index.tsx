@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
-import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession } from '../../lib/mappers'
+import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
@@ -11,6 +11,9 @@ import { LeftPanel } from './LeftPanel'
 import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { ConversationModals, type ModalState } from './Modals'
+import { ScheduledTaskModal } from './ScheduledTaskModal'
+import { ExecutionHistoryModal } from './ExecutionHistoryModal'
+import { useScheduledTasks } from './hooks/useScheduledTasks'
 import type { StreamingState } from './MessageList'
 import * as api from '../../api/client'
 import { consumeSSE } from '../../api/sse'
@@ -34,9 +37,28 @@ function ConversationPage() {
   const [streaming, setStreaming] = useState<StreamingState | null>(null)
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
+
+  // 定时任务状态
+  const [scheduledTaskModal, setScheduledTaskModal] = useState<{
+    type: 'none' | 'create' | 'edit'
+    task?: LocalScheduledTask
+  }>({ type: 'none' })
+  const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
+
   const sseCtrlRef = useRef<AbortController | null>(null)
   const otterMsgIdRef = useRef<string>('')
   const ciCounter = useRef(1)
+
+  // 定时任务 Hook
+  const {
+    tasks: scheduledTasks,
+    loading: scheduledTasksLoading,
+    toggleStatus: toggleScheduledTaskStatus,
+    create: createScheduledTask,
+    update: updateScheduledTask,
+    remove: deleteScheduledTask,
+    trigger: triggerScheduledTask,
+  } = useScheduledTasks(activeId)
 
   useEffect(() => {
     loadInitialData()
@@ -380,7 +402,33 @@ function ConversationPage() {
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={allOtters} />
         <ChatView conversation={activeConv} messages={activeMessages} streamingMessage={streaming} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={allOtters} />
-        <RightPanel conversation={activeConv || conversations[0]} otters={activeOtters} sessions={sessions} linkedResources={activeLinkedRes} onCreateSmallOtter={() => setModal({ type: 'create-otter' })} onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })} onRestartOtter={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenOtterDetail={(oid) => setModal({ type: 'otter-detail', otterId: oid })} onAddFact={addFact} onToggleResourceFlag={toggleResourceFlag} onAddLinkedResource={() => setModal({ type: 'link-resource' })} onDeleteLinkedResource={deleteLinkedResource} />
+        <RightPanel
+          conversation={activeConv || conversations[0]}
+          otters={activeOtters}
+          sessions={sessions}
+          linkedResources={activeLinkedRes}
+          onCreateSmallOtter={() => setModal({ type: 'create-otter' })}
+          onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })}
+          onRestartOtter={(oid) => setModal({ type: 'restart', otterId: oid })}
+          onOpenOtterDetail={(oid) => setModal({ type: 'otter-detail', otterId: oid })}
+          onAddFact={addFact}
+          onToggleResourceFlag={toggleResourceFlag}
+          onAddLinkedResource={() => setModal({ type: 'link-resource' })}
+          onDeleteLinkedResource={deleteLinkedResource}
+          // 定时任务 props
+          scheduledTasks={scheduledTasks}
+          scheduledTasksLoading={scheduledTasksLoading}
+          onToggleScheduledTask={toggleScheduledTaskStatus}
+          onCreateScheduledTask={() => setScheduledTaskModal({ type: 'create' })}
+          onEditScheduledTask={(task) => setScheduledTaskModal({ type: 'edit', task })}
+          onDeleteScheduledTask={async (taskId) => {
+            if (confirm('确定要删除这个定时任务吗？')) {
+              await deleteScheduledTask(taskId)
+            }
+          }}
+          onTriggerScheduledTask={triggerScheduledTask}
+          onViewScheduledTaskHistory={(taskId) => setExecutionHistoryTaskId(taskId)}
+        />
       </div>
 
       {ctxMenu && activeConvForMenu && (
@@ -395,6 +443,41 @@ function ConversationPage() {
       )}
 
       <ConversationModals modal={modal} otters={allOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmComplete={confirmComplete} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
+
+      {/* 定时任务 Modal */}
+      {scheduledTaskModal.type !== 'none' && (
+        <ScheduledTaskModal
+          mode={scheduledTaskModal.type === 'create' ? 'create' : 'edit'}
+          task={scheduledTaskModal.task}
+          otters={activeOtters}
+          onSave={async (data) => {
+            if (scheduledTaskModal.type === 'create') {
+              await createScheduledTask(data)
+            } else if (scheduledTaskModal.task) {
+              await updateScheduledTask(scheduledTaskModal.task.id, data)
+            }
+            setScheduledTaskModal({ type: 'none' })
+          }}
+          onClose={() => setScheduledTaskModal({ type: 'none' })}
+        />
+      )}
+
+      {/* 执行历史 Modal */}
+      {executionHistoryTaskId && (
+        <ExecutionHistoryModal
+          taskId={executionHistoryTaskId}
+          onClose={() => setExecutionHistoryTaskId(null)}
+          onJumpToMessage={(messageId) => {
+            // 滚动到消息
+            const el = document.getElementById(`msg-${messageId}`)
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              el.classList.add('highlight-message')
+              setTimeout(() => el.classList.remove('highlight-message'), 2000)
+            }
+          }}
+        />
+      )}
     </AppLayout>
   )
 }
