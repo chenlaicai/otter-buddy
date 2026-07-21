@@ -1,21 +1,26 @@
 ---
 id: F20260717wx6q
-title: — pi-agent-core 迁移遗留清理（代码质量优化）
+title: pi-agent-core-cleanup
 doc_type: feature
 
 # 记忆索引
 summary: |
-  F20260717f4u2 确认 pi-agent-core → pi-coding-agent 迁移已完成，无功能性遗留。但存在代码质量遗留项：死代码、接口重复定义、陈旧注释。 不适用。本变更为内部代码质量优化，无用户表达的需求。 不适用。本变更不涉及行为变更，仅删除死代码和统一接口定义。
+  pi-agent-core 迁移遗留清理，删除死代码、统一接口定义、清理陈旧注释。
+  代码质量优化，不涉及功能性变更。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716sq6e   # pi-agent-core vs coding-agent
 
 # 元数据
-status: draft
-change_type: ## 变更类型
-tags: []
-modules: []
+status: locked
+change_type: refactor
+tags: [cleanup, code-quality, refactor, pi-agent-core]
+modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]
 
 # 时间
-created_at: 
+created_at: 2026-07-17
 ---
 
 

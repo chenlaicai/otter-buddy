@@ -165,8 +165,8 @@ bash convert-docs-v2.sh
 **验证命令**：
 ```bash
 # 检查是否还有旧引用
-grep -r "pi-capability-analysis" docs/**/*.md | wc -l  # 应为 0
-grep -r "pi-integration-analysis" docs/**/*.md | wc -l  # 应为 0
+grep -r "pi-capability-analysis" docs/**/*.md | grep -v "R20260716x2k9" | wc -l  # 应为 0
+grep -r "pi-integration-analysis" docs/**/*.md | grep -v "R20260717y3k8" | wc -l  # 应为 0
 ```
 
 ---

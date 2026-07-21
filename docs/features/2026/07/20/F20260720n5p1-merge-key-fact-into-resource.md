@@ -1,6 +1,6 @@
 ---
 id: F20260720n5p1
-title: 合并关键事实到统一产物模型
+title: merge-key-fact-into-resource
 doc_type: feature
 
 # 记忆索引
@@ -8,12 +8,17 @@ summary: |
   将 KeyFact 合并到 LinkedResource，统一制品模型。
   消除三层记忆架构的复杂性，简化为两层，降低 Agent 认知负担。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713m5q3   # domain-memory
+    - F20260709p4q7   # data-model-design
 
 # 元数据
 status: development
 change_type: refactor
-tags: []
-modules: []
+tags: [key-fact, linked-resource, memory, unification]
+modules: [src/entities/conversation/, src/usecases/conversation/, src/frameworks/db/conversation/]
 
 # 时间
 created_at: 2026-07-20

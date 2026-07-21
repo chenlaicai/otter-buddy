@@ -5,17 +5,22 @@ doc_type: feature
 
 # 记忆索引
 summary: |
-  - **特性编号**：F20260717q8kp - **变更类型**：refactor - **影响范围**：全仓库（src/、web/、reference/、tests/）
+  全仓库代码质量检视，覆盖 src/、web/、reference/、tests/ 目录。
+  识别 P0-P8 级别问题，包括静默错误处理、未使用代码、类型安全等。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716ttf7   # system-integration-and-startup
 
 # 元数据
-status: design-time
+status: locked
 change_type: refactor
-tags: []
-modules: []
+tags: [code-quality, refactor, review, error-handling]
+modules: [src/, web/, tests/]
 
 # 时间
-created_at: 
+created_at: 2026-07-17
 ---
 
 

@@ -1,6 +1,6 @@
 ---
 id: F20260720r5kt
-title: API 集成测试套件
+title: api-integration-tests
 doc_type: feature
 
 # 记忆索引
@@ -8,12 +8,17 @@ summary: |
   构建 API 集成测试套件，覆盖 HTTP 端点、Agent 工具调用、SSE 流式推送等场景。
   使用 better-sqlite3 内存模式 + 真实依赖注入，确保测试与生产行为一致。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260714jaup   # entities-layer-implementation
+    - F20260715b8c6   # usecases-layer-implementation
 
 # 元数据
 status: development
 change_type: feature
-tags: []
-modules: []
+tags: [testing, integration-test, api, http]
+modules: [tests/, src/interface-adapters/http/]
 
 # 时间
 created_at: 2026-07-20

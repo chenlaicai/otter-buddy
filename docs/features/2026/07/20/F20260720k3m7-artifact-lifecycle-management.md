@@ -1,6 +1,6 @@
 ---
 id: F20260720k3m7
-title: 外部产物生命周期管理
+title: artifact-lifecycle-management
 doc_type: feature
 
 # 记忆索引
@@ -8,12 +8,16 @@ summary: |
   扩展 LinkedResource 实体支持外部产物生命周期管理（三态状态机、Turn 编号度量、分组、替代链）。
   统一 worktree、branch、PR 等外部产物的绑定与状态追踪。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713c7p2   # domain-conversation
 
 # 元数据
 status: development
 change_type: feature
-tags: []
-modules: []
+tags: [artifact, lifecycle, linked-resource, state-machine]
+modules: [src/entities/conversation/, src/frameworks/db/conversation/]
 
 # 时间
 created_at: 2026-07-20

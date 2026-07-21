@@ -5,12 +5,18 @@ doc_type: feature
 
 # 记忆索引
 summary: |
-  - **特性编号**：F20260716sq6e - **变更类型**：research / design-decision / migration - **影响模块**：frameworks/agent、系统整体架构
+  重新对比 pi-agent-core 与 pi-coding-agent 两条技术路径，覆盖 SDK 嵌入模式、开发成本、架构适配度等维度。
+  结论：维持路径 A（pi-agent-core），接线已有 SkillLoader。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - R20260716x2k9   # Pi Agent 能力探索
+    - R20260717y3k8   # Pi 集成方式对比
 
 # 元数据
 status: locked
-change_type: research / design-decision / migration
+change_type: refactor
 tags: [architecture, agent-framework, pi, design-decision, migration]
 modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]
 

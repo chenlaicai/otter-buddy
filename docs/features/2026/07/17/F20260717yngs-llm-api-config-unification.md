@@ -1,21 +1,26 @@
 ---
-id: | 特性编号 | F20260717yngs |
-title: 
+id: F20260717yngs
+title: llm-api-config-unification
 doc_type: feature
 
 # 记忆索引
 summary: |
-  | 特性编号 | F20260717yngs | | 创建时间 | 2026-07-17 | | 变更类型 | feature + incompatible |
+  统一 LLM API 配置架构，支持自定义 Provider 和多模型切换。
+  通过 config.yaml 集中管理 LLM 配置，替代分散的环境变量。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713i5k2   # infra-llm-agent-embedding
 
 # 元数据
-status: | 状态 | 实现完成 |
-change_type: | 变更类型 | feature + incompatible |
-tags: []
-modules: []
+status: locked
+change_type: feature
+tags: [llm, config, provider, api, architecture]
+modules: [src/frameworks/llm/, config/]
 
 # 时间
-created_at: 
+created_at: 2026-07-17
 ---
 
 ## 设计方案

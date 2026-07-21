@@ -5,14 +5,19 @@ doc_type: feature
 
 # 记忆索引
 summary: |
-  - **特性编号**：F20260716bte2 - **创建日期**：2026-07-16 - **状态**：development
+  在 agent 执行链路中增加熔断器，当工具调用行为超过预设阈值时强制介入终止。
+  利用 AgentHarness 原生钩子实现零修改工具类的集中管理。
 
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716t2ab   # tool-skill-mechanism
 
 # 元数据
 status: development
 change_type: feature
-tags: []
-modules: []
+tags: [agent, circuit-breaker, safety, harness]
+modules: [src/frameworks/agent/]
 
 # 时间
 created_at: 2026-07-16

@@ -5,13 +5,17 @@ doc_type: feature
 
 # 记忆索引
 summary: |
-  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。进入实现阶段后不得单方面修改，如需变更须通过问题卡片向用户提出并确认。 otter-buddy（海獭）是一个全新的 Agentic System 项目，以 Agent 为本、Chat as Substrate、记忆系统为核心。项目设计哲学和...
+  otter-buddy（海獭）项目代码仓初始化，建立项目结构、配置文件、开发环境。
+  以 Agent 为本、Chat as Substrate、记忆系统为核心的设计哲学。
 
+# 因果链路（正向依赖）
+causal_links:
+  from: []
 
 # 元数据
 status: locked
 change_type: feature
-tags: [config, infrastructure]
+tags: [config, infrastructure, project-setup]
 modules: [project-setup]
 
 # 时间
