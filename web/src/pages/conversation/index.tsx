@@ -149,12 +149,20 @@ function ConversationPage() {
 
       const ctrl = consumeSSE(response, {
         'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
+        'assistant_toolcall': (data) => {
+          liveEvents.push({ eventType: 'assistant_toolcall', payload: { content: data.content } })
+          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
+        },
         'tool.start': (data) => {
           liveEvents.push({ eventType: 'tool_call', payload: { name: data.toolName } })
           setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
         },
         'tool.result': (data) => {
           liveEvents.push({ eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
+          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
+        },
+        'assistant_text': (data) => {
+          liveEvents.push({ eventType: 'assistant_text', payload: { content: data.content } })
           setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
         },
         'message.complete': (data) => {
