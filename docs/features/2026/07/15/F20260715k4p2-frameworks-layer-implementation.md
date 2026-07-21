@@ -1169,7 +1169,7 @@ frameworks/
 - **整洁架构 Feature 文档**：[F20260714zjmk](../14/F20260714zjmk-clean-architecture-restructuring.md)（目录结构、依赖规则、D30-D42 决策）
 - **Entities 层实现**：[F20260714jaup](../14/F20260714jaup-entities-layer-implementation.md)（实体类型 + 不变量函数）
 - **Use Cases 层实现**：[F20260715b8c6](./F20260715b8c6-usecases-layer-implementation.md)（Repository/Gateway 接口 + Use Case Class）
-- **Pi Agent 能力探索**：`docs/research/pi-capability-analysis.md`（F20260715r3s2，Pi 嵌入式架构分析）
+- **Pi Agent 能力探索**：`docs/research/R20260716x2k9-pi-capability-analysis.md`（F20260715r3s2，Pi 嵌入式架构分析）
 - **消息流式模型**：[F20260713e8n4](../13/F20260713e8n4-message-streaming-model.md)（Message/MessageEvent 类型定义）
 - **Otter 领域模块**：[F20260713o4t8](../13/F20260713o4t8-domain-otter.md)（Otter/OtterSession 类型定义）
 - **Memory 领域模块**：[F20260713m5q3](../13/F20260713m5q3-domain-memory.md)（MemoryEntry/MemoryWeight 类型定义）
