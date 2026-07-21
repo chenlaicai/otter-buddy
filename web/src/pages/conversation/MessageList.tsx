@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { AlertTriangle, Square } from 'lucide-react'
-import type { LocalMessage as Message, LocalOtter as Otter } from '../../lib/mappers'
+import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent } from '../../lib/utils'
 
@@ -125,7 +125,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           }`}
           style={isUser ? { background: bgGrad } : borderLeft}
         >
-          {!isUser && m.sp && <StreamingProcess text={m.sp} duration={m.dur || ''} />}
+          {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} />}
           <ReactMarkdown>{m.content}</ReactMarkdown>
         </div>
         {!isUser && (
@@ -144,7 +144,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
   )
 }
 
-function StreamingProcess({ text, duration }: { text: string; duration: string }) {
+function StreamingProcess({ events, duration }: { events: LocalMessageEvent[]; duration: string }) {
   const [collapsed, setCollapsed] = useState(true)
 
   return (
@@ -153,17 +153,93 @@ function StreamingProcess({ text, duration }: { text: string; duration: string }
         className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/30 transition"
         onClick={() => setCollapsed(!collapsed)}
       >
-        <span className={`streaming-icon text-[8px] text-stone-400 transition`}>▼</span>
-        <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程</span>
+        <span className={`streaming-icon text-[8px] text-stone-400 transition ${collapsed ? '' : 'rotate-180'}`}>▼</span>
+        <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
         <span className="text-[10px] text-stone-400">已完成 · {duration}</span>
       </div>
       {!collapsed && (
-        <div className="streaming-body px-3 py-2 text-[12px] text-stone-500 font-mono whitespace-pre-wrap border-t border-otter-200/20 max-h-[200px] overflow-y-auto">
-          {text}
+        <div className="streaming-body border-t border-otter-200/20 max-h-[400px] overflow-y-auto">
+          {events.map((evt, i) => <EventItem key={i} event={evt} />)}
         </div>
       )}
     </div>
   )
+}
+
+function EventItem({ event }: { event: LocalMessageEvent }) {
+  const { eventType, payload } = event
+
+  if (eventType === 'tool_call') {
+    return (
+      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
+        <span className="text-teal-500 text-[11px] mt-0.5">▶</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-[11px] font-medium text-stone-600">调用 {payload.name}</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (eventType === 'tool_result') {
+    const resultText = typeof payload.result === 'object' && payload.result !== null
+      ? (payload.result as { content?: Array<{ text?: string }> }).content?.[0]?.text || JSON.stringify(payload.result)
+      : String(payload.result)
+    const preview = resultText.length > 200 ? resultText.slice(0, 200) + '...' : resultText
+    return (
+      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
+        <span className="text-stone-400 text-[11px] mt-0.5">◀</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-[11px] text-stone-400">{payload.name}</span>
+          <pre className="text-[10px] text-stone-500 mt-0.5 whitespace-pre-wrap break-all bg-stone-50 rounded px-2 py-1 max-h-[120px] overflow-y-auto">{preview}</pre>
+        </div>
+      </div>
+    )
+  }
+
+  if (eventType === 'assistant_toolcall') {
+    const content = payload.content as Array<Record<string, unknown>> | undefined
+    const toolCall = content?.find(c => c.type === 'toolCall')
+    const thinking = content?.find(c => c.type === 'thinking')
+    return (
+      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
+        <span className="text-amber-500 text-[11px] mt-0.5">⚡</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-[11px] font-medium text-stone-600">决策：调用 {(toolCall as Record<string, unknown>)?.toolName || '工具'}</span>
+          {thinking && <span className="text-[10px] text-stone-400 ml-2">（含思考）</span>}
+        </div>
+      </div>
+    )
+  }
+
+  if (eventType === 'assistant_text') {
+    const content = payload.content as Array<Record<string, unknown>> | undefined
+    const text = content?.find(c => c.type === 'text')
+    const preview = ((text?.text as string) || '').length > 100
+      ? ((text?.text as string) || '').slice(0, 100) + '...'
+      : (text?.text as string) || ''
+    return (
+      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
+        <span className="text-blue-500 text-[11px] mt-0.5">💬</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-[11px] font-medium text-stone-600">输出</span>
+          {preview && <div className="text-[10px] text-stone-500 mt-0.5">{preview}</div>}
+        </div>
+      </div>
+    )
+  }
+
+  if (eventType === 'error') {
+    return (
+      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
+        <span className="text-red-500 text-[11px] mt-0.5">✗</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-[11px] font-medium text-red-600">{payload.message}</span>
+        </div>
+      </div>
+    )
+  }
+
+  return null
 }
 
 function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {

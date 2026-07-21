@@ -59,16 +59,17 @@ function ConversationPage() {
         api.getKeyResources(convId),
         api.getParticipants(convId),
       ])
-      /**   为 otter 消息加载 events，1:1 展示 */
+      /**   为 otter 消息加载 events */
       const mapped = await Promise.all(msgs.map(async (msg) => {
         const local = mapMessageDTO(msg)
         if (local.st === 'otter') {
           try {
-            const events = await api.getMessageEvents(local.id)
-            if (events.length > 0) {
-              local.sp = events.map((e: { eventType: string; payload: Record<string, unknown> }) =>
-                `[${e.eventType}] ${JSON.stringify(e.payload)}`,
-              ).join('\n')
+            const evts = await api.getMessageEvents(local.id)
+            if (evts.length > 0) {
+              local.events = evts.map((e: { eventType: string; payload: Record<string, unknown> }) => ({
+                eventType: e.eventType,
+                payload: e.payload,
+              }))
             }
           } catch { /* events 加载失败不影响消息显示 */ }
         }
@@ -141,31 +142,25 @@ function ConversationPage() {
       if (!response.ok) { showToast('发送失败', 'error'); return }
 
       const startTime = Date.now()
-      let streamingText = ''
       let otterMessageId = ''
 
       setStreaming({ otterId, streamingText: '', finalText: '', showFinal: false, duration: 0 })
 
-      let toolLog = ''
+      const liveEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = []
       const ctrl = consumeSSE(response, {
         'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
-        'message.delta': (data) => {
-          streamingText += data.text
-          setStreaming(prev => prev ? { ...prev, streamingText, duration: (Date.now() - startTime) / 1000 } : null)
-        },
         'tool.start': (data) => {
-          toolLog += `> 调用工具: ${data.toolName}\n`
-          setStreaming(prev => prev ? { ...prev, streamingText: toolLog, duration: (Date.now() - startTime) / 1000 } : null)
+          liveEvents.push({ eventType: 'tool_call', payload: { name: data.toolName } })
+          setStreaming(prev => prev ? { ...prev, streamingText: liveEvents.length + ' 个事件', duration: (Date.now() - startTime) / 1000 } : null)
         },
         'tool.result': (data) => {
-          const preview = typeof data.result === 'string' ? data.result.slice(0, 200) : JSON.stringify(data.result).slice(0, 200)
-          toolLog += `< ${preview}\n\n`
-          setStreaming(prev => prev ? { ...prev, streamingText: toolLog, duration: (Date.now() - startTime) / 1000 } : null)
+          liveEvents.push({ eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
+          setStreaming(prev => prev ? { ...prev, streamingText: liveEvents.length + ' 个事件', duration: (Date.now() - startTime) / 1000 } : null)
         },
         'message.complete': (data) => {
           const finalMsg: LocalMessage = {
             id: data.messageId || otterMessageId, st: 'otter', si: otterId,
-            content: 'fixme', ts: nowTs(), dur: data.duration, sp: toolLog || undefined, ctx: data.ctx, ctxMax: data.ctxMax,
+            content: 'fixme', ts: nowTs(), dur: data.duration, events: liveEvents.length > 0 ? liveEvents : undefined, ctx: data.ctx, ctxMax: data.ctxMax,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
           otterMsgIdRef.current = ''
