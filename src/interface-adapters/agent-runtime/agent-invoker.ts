@@ -17,27 +17,29 @@ export interface ConversationInvokeResult {
 }
 
 /** Pi 事件 -> SSE 事件映射 */
-/** message_end → SSE 事件（assistant_toolcall 或 assistant_text） */
-function mapMessageEndToSSE(e: AgentStreamEvent): AgentSSEEvent | null {
+/** 从 message_end 事件提取 assistant 内容块（过滤 user/toolResult） */
+function extractAssistantContent(e: AgentStreamEvent): { type: "toolcall" | "text"; blocks: Array<Record<string, unknown>> } | null {
   const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
   const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
   const role = msg?.role as string | undefined;
   const content = msg?.content as Array<Record<string, unknown>> | undefined;
   if (!content || role === "user" || role === "toolResult") return null;
-  const hasToolCall = content.some((c) => c.type === "toolCall");
-  if (hasToolCall) {
-    return { event: "assistant_toolcall", data: { content: content.filter((c) => c.type === "toolCall") } };
-  }
+  const toolCalls = content.filter((c) => c.type === "toolCall");
+  if (toolCalls.length > 0) return { type: "toolcall", blocks: toolCalls };
   const textBlocks = content.filter((c) => c.type === "text");
-  return textBlocks.length > 0 ? { event: "assistant_text", data: { content: textBlocks } } : null;
+  return textBlocks.length > 0 ? { type: "text", blocks: textBlocks } : null;
 }
 
 function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
   switch (e.type) {
     case "tool_execution_end":
       return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
-    case "message_end":
-      return mapMessageEndToSSE(e);
+    case "message_end": {
+      const extracted = extractAssistantContent(e);
+      if (!extracted) return null;
+      const event = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
+      return { event, data: { content: extracted.blocks } };
+    }
     case "turn_end":
       return null;
     case "agent_end":
@@ -49,22 +51,10 @@ function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
 
 /** 从 message_end 事件提取可存储的 MessageEventInput */
 function mapMessageEndEvent(e: AgentStreamEvent, messageId: string): MessageEventInput | null {
-  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-  const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
-  const role = msg?.role as string | undefined;
-  const content = msg?.content as Array<Record<string, unknown>> | undefined;
-  if (!content) return null;
-  if (role === "user" || role === "toolResult") return null;
-  const hasToolCall = content.some((c) => c.type === "toolCall");
-  if (hasToolCall) {
-    /** assistant_toolcall：只存 toolCall，过滤 thinking/text */
-    const toolCalls = content.filter((c) => c.type === "toolCall");
-    return { messageId, eventType: "assistant_toolcall", payload: { content: toolCalls } };
-  }
-  /** assistant_text：只存 text，过滤 thinking */
-  const textBlocks = content.filter((c) => c.type === "text");
-  if (textBlocks.length === 0) return null;
-  return { messageId, eventType: "assistant_text", payload: { content: textBlocks } };
+  const extracted = extractAssistantContent(e);
+  if (!extracted) return null;
+  const eventType = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
+  return { messageId, eventType, payload: { content: extracted.blocks } };
 }
 
 /** Pi 事件 -> MessageEventInput 映射（持久化到 DB） */
