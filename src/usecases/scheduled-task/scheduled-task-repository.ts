@@ -15,6 +15,7 @@ export interface ScheduledTaskRepository {
   create(task: ScheduledTask): Promise<void>;
   getById(id: string): Promise<ScheduledTask | null>;
   getByConversationId(conversationId: string): Promise<ScheduledTask[]>;
+  getAllActive(): Promise<ScheduledTask[]>;
   update(task: ScheduledTask): Promise<void>;
   updateStatus(id: string, status: ScheduledTaskStatus, updatedAt: string): Promise<void>;
   delete(id: string): Promise<void>;

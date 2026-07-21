@@ -456,6 +456,7 @@ async function main(): Promise<void> {
     uc.sendMessage,
     agentInvoker,
     cronParser,
+    uc.manageScheduledTask,
   );
 
   const settings: SettingsConfig = {

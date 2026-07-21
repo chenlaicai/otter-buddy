@@ -50,6 +50,13 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     return rows.map(rowToScheduledTask);
   }
 
+  async getAllActive(): Promise<ScheduledTask[]> {
+    const rows = this.db.prepare(
+      "SELECT * FROM scheduled_tasks WHERE status = 'active' ORDER BY created_at DESC",
+    ).all() as ScheduledTaskRow[];
+    return rows.map(rowToScheduledTask);
+  }
+
   async update(task: ScheduledTask): Promise<void> {
     const row = taskToRow(task);
     this.db.prepare(`

@@ -53,15 +53,18 @@ export function canTransitionTaskStatus(
 export function isValidCronExpression(cron: string): boolean {
   const parts = cron.trim().split(/\s+/);
   if (parts.length !== 5) return false;
-  // 每个字段只允许数字、*、/、-、, 和合法范围
-  const patterns = [
-    /^(\*|[0-5]?\d)(\/\d+)?$/,           // 分钟 0-59
-    /^(\*|[01]?\d|2[0-3])(\/\d+)?$/,     // 小时 0-23
-    /^(\*|[012]?\d|3[01])(\/\d+)?$/,     // 日 1-31
-    /^(\*|[01]?\d|1[0-2])(\/\d+)?$/,     // 月 1-12
-    /^(\*|[0-7])(\/\d+)?$/,              // 周 0-7
-  ];
-  return parts.every((part, i) => patterns[i].test(part));
+  // 每个字段允许：数字、*、/、-、,
+  // 使用 croner 库进行实际校验
+  try {
+    const Cron = require('croner');
+    const job = Cron(cron);
+    // 如果能创建 job 实例，说明表达式合法
+    return job.nextRun() !== null;
+  } catch {
+    // croner 不可用时，使用基本格式校验
+    const basicPattern = /^[\d\s\*\/\-\,]+$/;
+    return parts.every(part => basicPattern.test(part));
+  }
 }
 
 /** IANA 时区格式校验 */

@@ -33,8 +33,23 @@ export interface UpdateScheduledTaskInput {
   status?: ScheduledTaskStatus;
 }
 
+export type TaskChangeCallback = (taskId: string, action: 'created' | 'updated' | 'deleted') => void;
+
 export class ManageScheduledTask {
+  private onChangeCallbacks: TaskChangeCallback[] = [];
+
   constructor(private readonly repo: ScheduledTaskRepository) {}
+
+  /** 注册任务变更回调（用于通知 SchedulerService 清理 timer） */
+  onChange(callback: TaskChangeCallback): void {
+    this.onChangeCallbacks.push(callback);
+  }
+
+  private notifyChange(taskId: string, action: 'created' | 'updated' | 'deleted'): void {
+    for (const cb of this.onChangeCallbacks) {
+      cb(taskId, action);
+    }
+  }
 
   async create(input: CreateScheduledTaskInput): Promise<ScheduledTask> {
     // 校验 cron 表达式
@@ -76,6 +91,7 @@ export class ManageScheduledTask {
     };
 
     await this.repo.create(task);
+    this.notifyChange(task.id, 'created');
     return task;
   }
 
@@ -131,6 +147,7 @@ export class ManageScheduledTask {
     };
 
     await this.repo.update(updated);
+    this.notifyChange(updated.id, 'updated');
     return updated;
   }
 
@@ -140,6 +157,7 @@ export class ManageScheduledTask {
       throw new DomainError(`ScheduledTask not found: ${id}`, 'not_found');
     }
     await this.repo.delete(id);
+    this.notifyChange(id, 'deleted');
   }
 
   async getExecutions(

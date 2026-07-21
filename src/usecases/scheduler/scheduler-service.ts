@@ -2,7 +2,9 @@ import type { ConversationRepository } from '@usecases/conversation/conversation
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentInvoker } from '@interface-adapters/agent-runtime/agent-invoker';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
+import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
+import { DomainError } from '@entities/errors';
 
 /** Cron 解析接口（由 frameworks 层实现） */
 export interface CronParser {
@@ -18,7 +20,26 @@ export class SchedulerService {
     private readonly sendMessage: SendMessage,
     private readonly agentInvoker: AgentInvoker,
     private readonly cronParser: CronParser,
-  ) {}
+    manageScheduledTask?: ManageScheduledTask,
+  ) {
+    // 注册任务变更回调，清理已删除任务的 timer
+    if (manageScheduledTask) {
+      manageScheduledTask.onChange((taskId, action) => {
+        if (action === 'deleted' || action === 'updated') {
+          this.clearTaskTimer(taskId);
+        }
+      });
+    }
+  }
+
+  /** 清理指定任务的 timer */
+  private clearTaskTimer(taskId: string): void {
+    const timer = this.timers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.timers.delete(taskId);
+    }
+  }
 
   /** 启动调度器 */
   async start(): Promise<void> {
@@ -40,10 +61,10 @@ export class SchedulerService {
   async trigger(taskId: string): Promise<{ executionId: string }> {
     const task = await this.taskRepo.getById(taskId);
     if (!task) {
-      throw new Error(`ScheduledTask not found: ${taskId}`);
+      throw new DomainError(`ScheduledTask not found: ${taskId}`, 'not_found');
     }
     if (task.status !== 'active') {
-      throw new Error(`Cannot trigger task with status: ${task.status}`);
+      throw new DomainError(`Cannot trigger task with status: ${task.status}`, 'validation');
     }
     return this.triggerTask(task);
   }
@@ -119,13 +140,19 @@ export class SchedulerService {
         talkingStonePassedTo: task.talkingStonePassedTo,
       });
 
-      // 5. 触发 Agent 响应（复用 invokeConversation）
-      await this.agentInvoker.invokeConversation({
-        otterId: task.talkingStonePassedTo[0],
-        conversationId: task.conversationId,
-        userMessageContent: task.body,
-        senderId: task.senderId,
-      });
+      // 5. 触发 Agent 响应（复用 invokeConversation，带超时控制）
+      const AGENT_TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟超时
+      await Promise.race([
+        this.agentInvoker.invokeConversation({
+          otterId: task.talkingStonePassedTo[0],
+          conversationId: task.conversationId,
+          userMessageContent: task.body,
+          senderId: task.senderId,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS)
+        ),
+      ]);
 
       // 6. 更新执行记录为成功
       const activeTurn = await this.convRepo.getActiveTurn(task.conversationId);
@@ -165,16 +192,8 @@ export class SchedulerService {
     }
   }
 
-  /** 获取所有 active 任务（private helper） */
+  /** 获取所有 active 任务（直接查询，避免 N+1） */
   private async getAllActiveTasks(): Promise<ScheduledTask[]> {
-    // 这里需要一个获取所有 active 任务的方法
-    // 暂时通过遍历所有对话来实现，后续可以优化
-    const allConversationIds = await this.convRepo.getAllIds();
-    const tasks: ScheduledTask[] = [];
-    for (const convId of allConversationIds) {
-      const convTasks = await this.taskRepo.getByConversationId(convId);
-      tasks.push(...convTasks.filter(t => t.status === 'active'));
-    }
-    return tasks;
+    return this.taskRepo.getAllActive();
   }
 }

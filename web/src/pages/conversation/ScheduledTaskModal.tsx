@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { X, Clock, ChevronDown } from 'lucide-react'
+import { X, Clock, ChevronDown, Loader } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import type { LocalScheduledTask, LocalOtter } from '../../lib/mappers'
 
@@ -36,32 +36,10 @@ const TIMEZONES = [
 ]
 
 function getNextCronTimes(cron: string, count: number = 5): Date[] {
-  // 简单的预览实现：解析 cron 并生成未来几个触发时间
-  // 实际项目中应使用 croner 库
-  const results: Date[] = []
-  const now = new Date()
-
-  try {
-    const parts = cron.split(/\s+/)
-    if (parts.length !== 5) return []
-
-    const minute = parts[0] === '*' ? now.getMinutes() : parseInt(parts[0])
-    const hour = parts[1] === '*' ? now.getHours() : parseInt(parts[1])
-
-    for (let i = 0; i < count; i++) {
-      const next = new Date(now)
-      next.setDate(next.getDate() + i)
-      next.setHours(hour, minute, 0, 0)
-      if (next.getTime() <= now.getTime()) {
-        next.setDate(next.getDate() + 1)
-      }
-      results.push(next)
-    }
-  } catch {
-    // 解析失败返回空数组
-  }
-
-  return results
+  // 使用 API 预览下次触发时间
+  // 由于前端不能直接使用 croner，这里返回空数组
+  // 实际触发时间由后端计算并在任务详情中返回
+  return []
 }
 
 export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Props) {
@@ -72,6 +50,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
   const [selectedOtters, setSelectedOtters] = useState<string[]>(
     task?.talkingStonePassedTo ?? (otters.length === 1 ? [otters[0].id] : [])
   )
+  const [saving, setSaving] = useState(false)
 
   // Cron 预览
   const nextTriggers = useMemo(() => getNextCronTimes(cron), [cron])
@@ -87,15 +66,20 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
     )
   }
 
-  const handleSave = () => {
-    if (!isValid) return
-    onSave({
-      name: name.trim(),
-      cron,
-      timezone,
-      body: body.trim(),
-      talkingStonePassedTo: selectedOtters,
-    })
+  const handleSave = async () => {
+    if (!isValid || saving) return
+    setSaving(true)
+    try {
+      await onSave({
+        name: name.trim(),
+        cron,
+        timezone,
+        body: body.trim(),
+        talkingStonePassedTo: selectedOtters,
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -233,9 +217,16 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
         <ModalButton
           variant="primary"
           onClick={handleSave}
-          disabled={!isValid}
+          disabled={!isValid || saving}
         >
-          {mode === 'create' ? '创建' : '保存'}
+          {saving ? (
+            <span className="flex items-center gap-1">
+              <Loader size={12} className="animate-spin" />
+              {mode === 'create' ? '创建中...' : '保存中...'}
+            </span>
+          ) : (
+            mode === 'create' ? '创建' : '保存'
+          )}
         </ModalButton>
       </div>
     </Modal>

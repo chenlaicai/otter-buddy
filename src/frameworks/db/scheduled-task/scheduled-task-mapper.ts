@@ -35,6 +35,16 @@ export interface ScheduledTaskExecutionRow {
 
 /** DB Row -> Entity */
 export function rowToScheduledTask(row: ScheduledTaskRow): ScheduledTask {
+  let talkingStonePassedTo: string[] = [];
+  try {
+    talkingStonePassedTo = JSON.parse(row.talking_stone_passed_to);
+    if (!Array.isArray(talkingStonePassedTo)) {
+      talkingStonePassedTo = [];
+    }
+  } catch {
+    // JSON 解析失败时使用空数组
+  }
+
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -42,7 +52,7 @@ export function rowToScheduledTask(row: ScheduledTaskRow): ScheduledTask {
     cron: row.cron,
     timezone: row.timezone,
     body: row.body,
-    talkingStonePassedTo: JSON.parse(row.talking_stone_passed_to),
+    talkingStonePassedTo,
     senderId: row.sender_id,
     status: row.status as ScheduledTaskStatus,
     consecutiveFailures: row.consecutive_failures,
