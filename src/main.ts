@@ -127,7 +127,7 @@ function initUseCases(
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
   const sendMessage = new SendMessage(repos.conversation, memoryIndex);
   const queryMessage = new QueryMessage(repos.conversation);
-  const manageParticipant = new ManageParticipant(repos.conversation);
+  const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
   /** createOtter 必须先于 manageConversation 初始化：
@@ -266,7 +266,10 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
           );
           return participant;
         },
-        getActive: (convId) => uc.manageParticipant.getActiveParticipants(convId),
+        getActive: async (convId) => {
+          const participantsWithOtter = await uc.manageParticipant.getActiveParticipants(convId);
+          return participantsWithOtter.map(p => p.participant);
+        },
       },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
     },

@@ -80,8 +80,9 @@ describe("ConversationDTO", () => {
       leftAtTurnId: null, leftAtTurnNumber: null,
       status: "active", createdAt: "2026-07-16T00:00:00Z", leftAt: null,
     };
-    const dto = toParticipantDTO(p);
+    const dto = toParticipantDTO(p, "Big Otter");
     expect(dto.otterId).toBe("otter-1");
+    expect(dto.otterName).toBe("Big Otter");
     expect(dto.status).toBe("active");
   });
 });

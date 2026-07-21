@@ -30,8 +30,8 @@ export class ConversationController {
         ids.map(async (id) => {
           const conv = await this.manageConversation.getById(id);
           if (!conv) return null;
-          const participants = await this.manageParticipant.getActiveParticipants(id);
-          const otterIds = participants.map((p) => p.otterId);
+          const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
+          const otterIds = participantsWithOtter.map((p) => p.participant.otterId);
           return toConversationListItemDTO(conv, otterIds);
         }),
       );
@@ -90,8 +90,10 @@ export class ConversationController {
   async getParticipants(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      const participants = await this.manageParticipant.getActiveParticipants(id);
-      return c.json(participants.map(toParticipantDTO));
+      const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
+      return c.json(participantsWithOtter.map(({ participant, otterName }) =>
+        toParticipantDTO(participant, otterName)
+      ));
     } catch (err) {
       return handleError(c, err);
     }

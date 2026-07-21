@@ -71,9 +71,9 @@ function ConversationPage() {
       const otterIds = participants.map(p => p.otterId)
       setAllOtters(prev => {
         const existingIds = new Set(prev.map(o => o.id))
-        const newOtters = otterIds
-          .filter(id => !existingIds.has(id))
-          .map(id => ({ id, name: `Otter ${id.slice(0, 8)}`, ci: 0 }))
+        const newOtters = participants
+          .filter(p => !existingIds.has(p.otterId))
+          .map(p => ({ id: p.otterId, name: p.otterName, ci: 0 }))
         return [...prev, ...newOtters]
       })
     } catch (err) {
