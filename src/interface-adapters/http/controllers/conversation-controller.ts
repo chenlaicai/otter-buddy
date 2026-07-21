@@ -18,8 +18,13 @@ export class ConversationController {
 
   async list(c: Context): Promise<Response> {
     try {
-      const limit = parseInt(c.req.query("limit") ?? "50", 10);
-      const offset = parseInt(c.req.query("offset") ?? "0", 10);
+      const limitStr = c.req.query("limit") ?? "50";
+      const offsetStr = c.req.query("offset") ?? "0";
+      const limit = parseInt(limitStr, 10);
+      const offset = parseInt(offsetStr, 10);
+      if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {
+        return c.json({ error: "Invalid pagination parameters" }, 400);
+      }
       const ids = await this.manageConversation.getAllIds({ limit, offset });
       const items = await Promise.all(
         ids.map(async (id) => {
