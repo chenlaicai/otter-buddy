@@ -17,9 +17,10 @@ export interface ConversationInvokeResult {
 }
 
 /** Pi 事件 -> SSE 事件映射 */
-/** 提取事件中的文本 delta（兼容 SDK 嵌套结构） */
+/** 提取事件中的文本 delta（兼容 SDK 嵌套结构，过滤 thinking） */
 function getDelta(e: AgentStreamEvent): string | undefined {
   const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  if (inner && inner.type !== "text_delta" && inner.type !== "text_start") return undefined;
   return (e.delta ?? inner?.delta) as string | undefined;
 }
 

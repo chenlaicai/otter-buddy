@@ -330,9 +330,10 @@ export class PiSessionFactory implements AgentGateway {
     const activeEntry = this.activeSessions.get(otterId);
     const unsubscribe = session.subscribe((event: unknown) => {
       const e = event as AgentEvent;
-      /** SDK 事件可能嵌套在 assistantMessageEvent 中 */
+      /** SDK 事件可能嵌套在 assistantMessageEvent 中，只取 text_delta */
       const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-      const delta = (e.delta ?? inner?.delta) as string | undefined;
+      const isText = !inner || inner.type === "text_delta" || inner.type === "text_start";
+      const delta = isText ? (e.delta ?? inner?.delta) as string | undefined : undefined;
       if (e.type === "message_update" && delta) {
         resultText += delta;
       }
