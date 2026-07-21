@@ -1,80 +1,69 @@
 ---
 name: requirement-analysis
-description: 需求分析能力。当需要理解需求、分析现状、输出技术方案时加载。关注意图提取、模糊点识别、scope 界定和结构化输出。
+description: >-
+  This skill should be used when the user asks to "分析需求", "设计方案", "做技术方案",
+  "需求分析", "这个需求怎么做", "帮我看看这个需求", "出个方案", "技术设计",
+  or needs to understand requirements, identify ambiguities, define scope,
+  or produce a structured technical design document from a user request.
+  Provides a structured workflow for turning vague user intent into actionable technical plans.
 ---
 
-# 需求分析
+# Requirement Analysis
 
-做需求分析时，目标是把模糊的用户意图变成清晰可执行的技术方案。
+Transform vague user intent into a clear, executable technical plan.
 
-## 关注点
+## Core Principles
 
-- **意图锚**：用户的原始诉求是什么，逐字引用，不要转述丢失信息
-- **明确点 vs 模糊点**：区分哪些可以直接动手、哪些需要追问
-- **历史决策**：之前做过类似的决定吗？有没有约束是已存在的？
-- **术语一致性**：用户说的词和代码里的词对得上吗？
+- **Anchor to user's words**: Quote the user's original request verbatim. Do not paraphrase — modifiers and constraints get lost in translation.
+- **Distinguish known from unknown**: Separate requirements into three buckets — explicit (can execute now), ambiguous (must ask), implicit (may need to surface).
+- **Ground in reality**: Every design decision must trace back to existing code, prior decisions, or explicit user direction. No speculative design.
+- **Stop at implementation**: If the output describes specific code changes, stop — that belongs in the implementation phase.
 
-## 步骤
+## Workflow
 
-### 1. 理解需求
+### 1. Parse the Request
 
-仔细阅读需求描述。识别：
-- 哪些是明确的、可以直接执行的
-- 哪些是模糊的、需要向用户确认的
-- 哪些是隐含的、用户没说但可能需要的
+Read the requirement description. Categorize each element:
 
-**不要自行假设模糊点。** 对不确定的需求点，明确向用户提问。
+| Category | Action |
+|----------|--------|
+| Explicit | Mark as ready to execute |
+| Ambiguous | Flag for user clarification — do NOT assume |
+| Implicit | Surface proactively, ask if needed |
 
-### 2. 检索上下文
+### 2. Retrieve Context
 
-- 查阅相关历史决策和项目上下文
-- 确认术语含义，避免理解偏差
-- 了解当前系统状态，识别约束
+- Search memory for prior decisions related to this area
+- Confirm terminology alignment between user language and codebase
+- Identify existing constraints that bound the solution space
 
-### 3. 分析现状
+### 3. Analyze Current State
 
-阅读相关代码和文档，理解：
-- 当前系统是怎么做的
-- 涉及哪些模块/文件
-- 有哪些已知的限制或约束
+Read relevant code and documentation:
 
-### 4. 识别风险
+- How does the system handle this today?
+- Which modules/files are involved?
+- What known limitations or constraints exist?
 
-- 这个方案会影响哪些已有功能？
-- 有没有破坏性变更？
-- 有没有被忽略的边界场景？
+### 4. Assess Risks
 
-### 5. 输出方案
+- What existing functionality is affected?
+- Are there breaking changes?
+- What edge cases might be overlooked?
 
-用结构化 Markdown 呈现技术方案：
+### 5. Produce the Plan
 
-```
-## 背景
-为什么要做这件事
+Output a structured technical plan using the template in `references/output-template.md`.
 
-## 目标
-要达成什么效果
+## Behavioral Rules
 
-## 方案设计
-具体的技术方案，包括：
-- 涉及哪些模块/文件
-- 核心逻辑设计
-- 数据模型变更（如有）
+- Multiple viable approaches → list tradeoffs for each, recommend one
+- User says "就这样" or "必须" → execute the decision, do not argue
+- Record both supporting and opposing arguments for every design choice, not just conclusions
 
-## 影响范围
-这个方案会影响哪些已有功能
+## Additional Resources
 
-## 风险与约束
-已知风险点和需要注意的约束
+### Reference Files
 
-## 不兼容更新
-如有破坏性变更，在此列出
-```
-
-## 行为规范
-
-- 方案必须有依据：基于代码现状或历史决策，不是凭空设计
-- 遇到多个可行方案时，列出各方案的取舍理由，推荐一个
-- 设计决策的正反论点都要记录，不只记结论
-- 用户明确说"就这样"时，执行用户决策，不提反对意见
-- 如果发现自己在描述具体代码修改，停下来——那是实现阶段的事
+- **`references/output-template.md`** — Structured output template for technical plans
+- **`references/intent-anchor-guide.md`** — How to extract and preserve intent anchors with traceability

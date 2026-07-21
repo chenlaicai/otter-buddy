@@ -1,71 +1,76 @@
 ---
 name: adversarial-review
-description: 对抗性检视能力。当需要对代码变更进行审查时加载。关注多维度挑战、结构化报告和问题处置。
+description: >-
+  This skill should be used when the user asks to "审查代码", "review PR", "代码检视",
+  "帮我看看这个 PR", "做 code review", "审查一下", "检查代码质量",
+  or needs to perform adversarial code review, identify issues in code changes,
+  or produce a structured review report. Covers multi-dimensional checking,
+  independent verification, and structured problem reporting.
 ---
 
-# 对抗性检视
+# Adversarial Review
 
-做代码审查时，目标是找出实际问题，不是走流程。
+Find real problems in code changes. This is not a rubber stamp.
 
-## 关注点
+## Core Principles
 
-- **实际代码，不是印象**：每个判断都要引用具体的文件和行号
-- **必须有处置**：每个发现的问题都要有明确的处置方式
-- **不给模糊结论**：禁止"看起来没问题"、"可以通过"等笼统判断
+- **Reference actual code**: Every judgment must cite a specific file and line number. No impression-based reviews.
+- **Every issue needs a disposition**: "Not blocking" and "optimize later" are not valid dispositions.
+- **No vague conclusions**: "Looks fine" and "can merge" without specifics are forbidden.
+- **Verify independently**: Run tests and builds yourself. Do not just check the developer's results.
 
-## 步骤
+## Workflow
 
-### 1. 了解变更范围
+### 1. Understand the Change Scope
 
-阅读 PR 描述和变更文件列表，理解：
-- 这个 PR 要解决什么问题？
-- 设计方案的核心意图是什么？
-- 改了哪些文件？影响范围有多大？
+Read the PR description and changed file list:
 
-### 2. 逐维度检视
+- What problem does this PR solve?
+- What is the design intent?
+- Which files changed? What is the blast radius?
 
-从以下 6 个维度审查代码变更：
+If the PR direction deviates from the design document, flag it — this may need to go back to design, not just code fixes.
 
-1. **正确性**：实现是否符合设计方案的意图？逻辑是否有漏洞？
-2. **边界条件**：空值、异常、并发、大数据量等边界场景是否处理？
-3. **安全性**：是否有注入、越权、敏感信息泄露等安全风险？
-4. **架构合规**：是否遵守项目的层级约束和代码规范？
-5. **测试覆盖**：核心行为是否有测试？测试是否验证了外部行为而非内部实现？
-6. **可维护性**：命名是否清晰？复杂逻辑是否有注释？是否有不必要的重复？
+### 2. Check Each Dimension
 
-每个维度都要检视，不跳过。如果某个维度没问题，在报告中注明"无发现"。
+Review changes across all 6 dimensions. Do not skip any. If a dimension has no issues, note "无发现" in the report.
 
-### 3. 独立验证
+See `references/review-dimensions.md` for detailed guidance on each dimension.
 
-验证命令必须独立执行，不是只看开发者给出的结果：
-- 运行测试套件
-- 检查构建是否通过
-- 验证关键行为是否符合预期
+| # | Dimension | Question |
+|---|-----------|----------|
+| 1 | Correctness | Does the implementation match the design intent? Any logic gaps? |
+| 2 | Edge Cases | Nulls, exceptions, concurrency, large data — are boundary scenarios handled? |
+| 3 | Security | Injection, privilege escalation, sensitive data exposure? |
+| 4 | Architecture Compliance | Does it follow project layer constraints and conventions? |
+| 5 | Test Coverage | Are core behaviors tested? Do tests verify external behavior? |
+| 6 | Maintainability | Clear naming? Comments on complex logic? Unnecessary duplication? |
 
-### 4. 输出报告
+### 3. Verify Independently
 
-用结构化格式输出审查结论：
+Execute verification commands yourself:
 
-```
-## 审查结论
+- Run the test suite
+- Check build passes
+- Verify key behaviors match expectations
 
-[需要修改 / 可以合入（附条件）]
+Do not rely on the developer's reported results.
 
-## 发现清单
+### 4. Output Report
 
-### 问题 1：[简要描述]
-- **维度**：正确性 / 边界条件 / 安全性 / ...
-- **位置**：文件名:行号
-- **描述**：具体问题说明
-- **处置**：在当前 PR 修复 / 开发者回应（审查者认可）
+Produce a structured review report using the template in `references/report-template.md`.
 
-### 问题 2：...
-```
+## Behavioral Rules
 
-## 行为规范
+- Every issue must have a disposition: "在当前 PR 修复" or "开发者回应（审查者认可）"
+- Any unresolved issue → conclusion MUST be "需要修改"
+- Developer gives a reasonable explanation → can acknowledge, but must record the reasoning
+- Forbidden escape phrases: "低风险", "可忽略", "不重要", "后续优化", "不阻塞"
 
-- 每个问题必须有明确的处置方式，不接受"不阻塞"、"后续优化"
-- 存在任何未处置项时，结论必须是"需要修改"
-- 审查要基于实际代码，不是印象——引用具体的文件和行号
-- 对开发者给出的合理解释可以认可，但需要记录理由
-- 禁止使用"低风险"、"可忽略"、"不重要"等模糊措辞
+## Additional Resources
+
+### Reference Files
+
+- **`references/review-dimensions.md`** — Detailed guidance for each of the 6 review dimensions
+- **`references/report-template.md`** — Structured review report format
+- **`references/anti-patterns.md`** — Common review anti-patterns and how to avoid them

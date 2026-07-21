@@ -1,78 +1,78 @@
 ---
 name: code-implementation
-description: 代码实现能力。当需要基于技术方案进行编码、测试、提交时加载。关注环境准备、编码原则、测试策略和提交规范。
+description: >-
+  This skill should be used when the user asks to "写代码", "实现这个功能", "开始开发",
+  "编码实现", "提交代码", "写测试", "按方案开发", "开干", "开始写",
+  or needs to implement a technical plan, write code, create tests, or submit changes.
+  Covers environment isolation (worktree), coding principles, testing strategy, and commit conventions.
 ---
 
-# 代码实现
+# Code Implementation
 
-写代码时，目标是把技术方案变成可运行、可验证的代码变更。
+Turn a technical plan into runnable, verifiable code changes.
 
-## 关注点
+## Core Principles
 
-- **环境隔离**：不要污染主目录，在 worktree 中工作
-- **方案忠实度**：按方案实现，不自行扩展范围
-- **测试是验证手段**：测试验证外部可观测行为，不是内部实现
-- **代码仓库现状**：遵守项目的架构约束和命名规范
+- **Isolate before editing**: Never modify files in the main directory. Create a worktree first.
+- **Faithful to the plan**: Implement what the plan specifies. Do not expand scope or add unrequested features.
+- **Test behavior, not internals**: Assert observable outputs and side effects. Do not assert how functions call each other.
+- **No compatibility bridges**: The new design IS the current design. Do not preserve old code paths alongside new ones.
 
-## 步骤
+## Workflow
 
-### 1. 环境准备
+### 1. Prepare Environment
 
-开始任何文件修改前：
+Before any file modification:
 
-1. **识别代码仓位置**：确认当前工作目录是否是目标仓库
-2. **创建 worktree**：在 `.claude/worktrees/` 下创建隔离工作目录，基于最新的 `origin/main`
-3. **验证 cwd**：确认后续操作都在 worktree 中进行，主目录零修改
-4. **记录上下文**：记下 worktree 名称、分支名、对应的特性编号
+1. Identify the target repository location
+2. Create a worktree under `.claude/worktrees/` based on latest `origin/main`
+3. Verify all subsequent operations happen inside the worktree — zero modifications to main directory
+4. Record context: worktree name, branch name, feature number
 
-### 2. 理解方案
+### 2. Confirm Understanding
 
-仔细阅读技术方案，确认理解无歧义：
-- 涉及哪些文件和模块？
-- 核心逻辑是什么？
-- 有没有不兼容变更需要特别处理？
+Read the technical plan thoroughly. Verify:
 
-**有疑问先问，不猜测。** 方案中没写的功能不做，超出范围的变更先确认。
+- Which files and modules are involved
+- What the core logic should do
+- Whether there are breaking changes requiring special handling
 
-### 3. 编码实现
+Ask first if unclear. Do not guess. Do not implement features not in the plan.
 
-按方案逐步实现。编码原则：
+### 3. Implement
 
-- 遵守项目的架构层级约束（如 Clean Architecture）
-- 命名与项目术语保持一致
-- 非显而易见的逻辑必须有注释说明设计意图
-- **不写兼容性桥接代码**：新方案就是当前方案，不保留旧路径
+Follow the plan step by step. Observe project architecture constraints (e.g., Clean Architecture layers). Match naming to project terminology. Add comments for non-obvious design intent.
 
-### 4. 编写测试
+### 4. Write Tests
 
-为新增/修改的行为编写测试。测试策略：
+Create tests for new or modified behaviors. See `references/testing-rules.md` for the behavioral contract testing approach.
 
-- **验证外部行为**：测试应该验证"做了什么"，而不是"内部怎么调的"
-- **行为契约测试**：断言可观测的输出/副作用，不断言内部实现细节
-- 测试失败时先分析原因：是测试没适配新设计，还是实现偏离了方案
-- 遇到方案中未覆盖的细节，记录下来并反馈
+When a test fails: diagnose root cause first — is the test wrong, or is the implementation wrong? Do not automatically revert business code.
 
-### 5. 自检
+### 5. Self-Check
 
-提交前确认：
+Before committing:
 
-- [ ] 测试通过
-- [ ] 代码符合项目规范
-- [ ] 没有超出方案范围的变更
-- [ ] 没有引入兼容性桥接代码
-- [ ] 视觉/空间类变更有截图证据
+- [ ] All tests pass
+- [ ] Code conforms to project conventions
+- [ ] No changes beyond plan scope
+- [ ] No compatibility bridge code introduced
+- [ ] Visual/spatial changes have screenshot evidence
 
-### 6. 提交
+### 6. Commit
 
-Commit 规范：
+Follow the commit message convention in `references/commit-convention.md`.
 
-- 格式：`[FYYYYMMDDxxxx][module][type] 描述`
-- 类型标签：feature / bugfix / refactor / config-sync / rename
-- 不兼容变更必须在 commit message 中标注 `[Incompatible]`
+## Behavioral Rules
 
-## 行为规范
+- Features not in the plan are not implemented — confirm with the requester first
+- Discover gaps in the plan → record them and communicate back, do not improvise
+- Finding a flaw in the design → report to the plan author, do not redesign in place
 
-- 方案中没写的功能不做，超出范围的变更先确认
-- 测试失败时先分析原因：是测试没适配新设计，还是实现偏离了方案
-- 遇到方案中未覆盖的细节，记录下来并反馈
-- 不做设计变更——如果发现方案有问题，反馈给需求分析方，不自行修改
+## Additional Resources
+
+### Reference Files
+
+- **`references/testing-rules.md`** — Behavioral contract testing paradigm and anti-patterns
+- **`references/coding-principles.md`** — Architecture constraints, naming, and code quality rules
+- **`references/commit-convention.md`** — Commit message format and PR conventions

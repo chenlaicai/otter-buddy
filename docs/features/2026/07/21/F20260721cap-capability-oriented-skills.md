@@ -98,62 +98,58 @@ skill 中不出现"你是 X 獭"、"你的职责是"等角色定义。触发方�
 | 开发獭 | code-implementation |
 | 审查獭 | adversarial-review |
 
-### requirement-analysis 结构
+### Skill 结构设计
+
+遵循 Anthropic 官方 Skill 规范的渐进式披露原则：
 
 ```
-关注点：意图锚、明确点 vs 模糊点、历史决策、术语一致性
-步骤：
-  1. 理解需求（区分明确/模糊/隐含）
-  2. 检索上下文（历史决策、术语）
-  3. 分析现状（当前系统状态）
-  4. 识别风险（影响范围、破坏性变更）
-  5. 输出方案（结构化 Markdown 模板）
-行为规范：
-  - 方案必须有依据，不凭空设计
-  - 多方案列出取舍理由
-  - 不自行假设模糊点
-  - 不描述具体代码修改（那是实现阶段的事）
+skill-name/
+├── SKILL.md          ← 核心内容（lean, ~1500 words），始终在触发时加载
+└── references/       ← 详细参考，按需加载
+    └── *.md
 ```
 
-### code-implementation 结构
+### requirement-analysis
 
 ```
-关注点：环境隔离、方案忠实度、测试验证外部行为、代码仓库规范
-步骤：
-  1. 环境准备（识别仓库→创建 worktree→验证 cwd）
-  2. 理解方案（确认无歧义，有疑问先问）
-  3. 编码实现（架构约束、命名一致、不写兼容性桥接）
-  4. 编写测试（行为契约测试、断言可观测行为）
-  5. 自检（测试通过、规范符合、无超范围变更）
-  6. 提交（commit 规范）
-行为规范：
-  - 方案中没写的功能不做
-  - 测试失败先分析原因
-  - 不做设计变更，发现方案问题反馈
+requirement-analysis/
+├── SKILL.md                          ← 核心：原则 + 工作流 + 行为规范
+└── references/
+    ├── output-template.md            ← 结构化方案输出模板
+    └── intent-anchor-guide.md        ← 意图锚提取与追溯指南
 ```
 
-### adversarial-review 结构
+### code-implementation
 
 ```
-关注点：实际代码引用、必须有处置、禁止模糊结论
-步骤：
-  1. 了解变更范围（PR 描述、变更文件）
-  2. 逐维度检视（正确性、边界条件、安全性、架构合规、测试覆盖、可维护性）
-  3. 独立验证（独立运行测试和构建）
-  4. 输出报告（结构化格式，每个问题有维度、位置、描述、处置）
-行为规范：
-  - 每个问题必须有处置方式
-  - 未处置项存在时结论必须是"需要修改"
-  - 禁止"低风险"、"可忽略"等模糊措辞
+code-implementation/
+├── SKILL.md                          ← 核心：原则 + 工作流 + 行为规范
+└── references/
+    ├── testing-rules.md              ← 行为契约测试范式
+    ├── coding-principles.md          ← 架构约束、命名、代码质量
+    └── commit-convention.md          ← Commit 消息格式规范
+```
+
+### adversarial-review
+
+```
+adversarial-review/
+├── SKILL.md                          ← 核心：原则 + 工作流 + 行为规范
+└── references/
+    ├── review-dimensions.md          ← 6 维检视详细指南
+    ├── report-template.md            ← 结构化审查报告模板
+    └── anti-patterns.md              ← 审查反模式与规避方法
 ```
 
 ## 硬约束 [required]
 
 1. Skill 的 SKILL.md frontmatter 格式不变（`name`、`description`），保持 skills 目录发现机制兼容
-2. 每个能力 skill 必须包含：关注点、步骤、行为规范三个部分
-3. skill 中不出现角色定义（"你是 X 獭"、"你的职责"等）
-4. 原有有效规则全部保留，不丢失内容
-5. 不修改 cd-* skills
+2. description 使用第三人称，包含具体触发短语（用户会说的话）
+3. SKILL.md body 使用祈使句/不定式，不使用第二人称（"你应该"）
+4. SKILL.md body 保持 lean（~1500 words），详细内容放 references/
+5. skill 中不出现角色定义（"你是 X 獭"、"你的职责"等）
+6. 原有有效规则全部保留，不丢失内容
+7. 不修改 cd-* skills
 
 ## 设计取舍 [required]
 
@@ -187,9 +183,17 @@ skill 中不出现"你是 X 獭"、"你的职责是"等角色定义。触发方�
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `skills/requirement-analysis/SKILL.md` | 新增 | 需求分析能力 skill |
-| `skills/code-implementation/SKILL.md` | 新增 | 代码实现能力 skill |
-| `skills/adversarial-review/SKILL.md` | 新增 | 对抗性检视能力 skill |
+| `skills/requirement-analysis/SKILL.md` | 新增 | 需求分析能力 skill 核心 |
+| `skills/requirement-analysis/references/output-template.md` | 新增 | 结构化方案输出模板 |
+| `skills/requirement-analysis/references/intent-anchor-guide.md` | 新增 | 意图锚提取与追溯指南 |
+| `skills/code-implementation/SKILL.md` | 新增 | 代码实现能力 skill 核心 |
+| `skills/code-implementation/references/testing-rules.md` | 新增 | 行为契约测试范式 |
+| `skills/code-implementation/references/coding-principles.md` | 新增 | 架构约束与代码质量规则 |
+| `skills/code-implementation/references/commit-convention.md` | 新增 | Commit 消息格式规范 |
+| `skills/adversarial-review/SKILL.md` | 新增 | 对抗性检视能力 skill 核心 |
+| `skills/adversarial-review/references/review-dimensions.md` | 新增 | 6 维检视详细指南 |
+| `skills/adversarial-review/references/report-template.md` | 新增 | 结构化审查报告模板 |
+| `skills/adversarial-review/references/anti-patterns.md` | 新增 | 审查反模式与规避方法 |
 | `skills/otter-design/SKILL.md` | 删除 | 旧角色 skill |
 | `skills/otter-develop/SKILL.md` | 删除 | 旧角色 skill |
 | `skills/otter-review/SKILL.md` | 删除 | 旧角色 skill |
