@@ -144,8 +144,9 @@ function ConversationPage() {
       const startTime = Date.now()
       let otterMessageId = ''
       const liveEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = []
+      let idleTimer: ReturnType<typeof setTimeout> | null = null
 
-      setStreaming({ otterId, streamingText: '', finalText: '', showFinal: false, duration: 0, events: [] })
+      setStreaming({ otterId, duration: 0, events: [] })
 
       const ctrl = consumeSSE(response, {
         'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
@@ -162,6 +163,7 @@ function ConversationPage() {
           setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
         },
         'message.complete': (data) => {
+          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
           const finalMsg: LocalMessage = {
             id: data.messageId || otterMessageId, st: 'otter', si: otterId,
             content: 'fixme', ts: nowTs(), dur: data.duration, events: liveEvents.length > 0 ? liveEvents : undefined, ctx: data.ctx, ctxMax: data.ctxMax,
@@ -183,7 +185,7 @@ function ConversationPage() {
         'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
         'agent.idle': () => {
           /** fallback: agent.idle 后 2s 如果 streaming 还在，强制清除 */
-          setTimeout(() => {
+          idleTimer = setTimeout(() => {
             setStreaming(prev => {
               if (prev) {
                 showToast('回复已完成', 'info')

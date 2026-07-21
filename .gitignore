@@ -59,6 +59,9 @@ coverage/
 tmp/
 temp/
 
+# Runtime files
+.otter-buddy.pid
+
 # Database files
 data/*.db
 data/*.db-shm

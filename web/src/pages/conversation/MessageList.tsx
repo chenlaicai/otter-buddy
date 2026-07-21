@@ -60,9 +60,6 @@ interface MessageListProps {
 
 export interface StreamingState {
   otterId: string
-  streamingText: string
-  finalText: string
-  showFinal: boolean
   duration: number
   events: LocalMessageEvent[]
 }

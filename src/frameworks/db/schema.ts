@@ -372,15 +372,18 @@ function createMessagesFtsTable(db: Database.Database): void {
       tokenize = 'trigram'
     );
 
-    CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+    DROP TRIGGER IF EXISTS messages_fts_insert;
+    CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages BEGIN
       INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
     END;
 
-    CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+    DROP TRIGGER IF EXISTS messages_fts_delete;
+    CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
       DELETE FROM messages_fts WHERE message_id = OLD.id;
     END;
 
-    CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF body ON messages BEGIN
+    DROP TRIGGER IF EXISTS messages_fts_update;
+    CREATE TRIGGER messages_fts_update AFTER UPDATE OF body ON messages BEGIN
       DELETE FROM messages_fts WHERE message_id = OLD.id;
       INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
     END;

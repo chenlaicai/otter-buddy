@@ -366,14 +366,16 @@ function startServer(
 /** 将 config.yaml 的 apiKey 同步到 pi-coding-agent 的 auth.json（SDK 不读 config.yaml） */
 function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string }): void {
   if (!llmConfig.apiKey) return;
-  const agentDir = path.join(process.env.HOME ?? "~", ".pi", "agent");
+  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
+  if (!homeDir) { logger.warn("Cannot determine home directory, skipping API key sync"); return; }
+  const agentDir = path.join(homeDir, ".pi", "agent");
   const authPath = path.join(agentDir, "auth.json");
   let auth: Record<string, string> = {};
   try { auth = JSON.parse(fs.readFileSync(authPath, "utf-8")); } catch { /* empty */ }
   if (auth[llmConfig.provider] !== llmConfig.apiKey) {
     auth[llmConfig.provider] = llmConfig.apiKey;
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(authPath, JSON.stringify(auth, null, 2));
+    fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(authPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
     logger.info(`Synced ${llmConfig.provider} API key to ${authPath}`);
   }
 }

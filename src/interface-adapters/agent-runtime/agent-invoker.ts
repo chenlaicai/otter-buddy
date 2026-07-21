@@ -34,8 +34,6 @@ function mapMessageEndToSSE(e: AgentStreamEvent): AgentSSEEvent | null {
 
 function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
   switch (e.type) {
-    case "tool_execution_start":
-      return { event: "tool.start", data: { toolName: e.name ?? e.toolName ?? "" } };
     case "tool_execution_end":
       return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
     case "message_end":
@@ -92,12 +90,16 @@ function mapToMessageEventInput(
 /** 从 agent 事件中提取错误信息 */
 function extractAgentError(e: AgentStreamEvent): string | undefined {
   if (e.type === "error") return String(e.error ?? e.message ?? "Unknown agent error");
-  if (e.type === "turn_end") {
-    const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-    const msg = (inner ?? (e as Record<string, unknown>).message) as Record<string, unknown> | undefined;
-    if (msg?.stopReason === "error" || msg?.errorMessage) {
-      return String(msg.errorMessage ?? "Agent API error");
-    }
+  if (e.type === "tool_execution_end" && e.error) return String(e.error);
+  if (e.type === "turn_end") return extractTurnEndError(e);
+  return undefined;
+}
+
+function extractTurnEndError(e: AgentStreamEvent): string | undefined {
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  const msg = (inner ?? (e as Record<string, unknown>).message) as Record<string, unknown> | undefined;
+  if (msg?.stopReason === "error" || msg?.errorMessage) {
+    return String(msg.errorMessage ?? "Agent API error");
   }
   return undefined;
 }
