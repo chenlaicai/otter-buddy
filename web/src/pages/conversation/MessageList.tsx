@@ -193,83 +193,104 @@ function StreamingProcess({ events, duration }: { events: LocalMessageEvent[]; d
 
 function EventItem({ event }: { event: LocalMessageEvent }) {
   const { eventType, payload } = event
+  const [expanded, setExpanded] = useState(false)
 
+  /** 提取 tool_call 的关键信息 */
+  function getToolCallSummary(p: Record<string, unknown>): string {
+    const params = p.params as Record<string, unknown> | undefined
+    if (params?.path) return String(params.path)
+    if (params?.cmd) return String(params.cmd).slice(0, 60)
+    if (params?.query) return String(params.query).slice(0, 60)
+    return ''
+  }
+
+  /** 提取 tool_result 预览 */
+  function getResultPreview(p: Record<string, unknown>): string {
+    const result = p.result as Record<string, unknown> | undefined
+    const content = result?.content as Array<{ text?: string }> | undefined
+    const text = content?.[0]?.text || JSON.stringify(result || p)
+    return text.length > 80 ? text.slice(0, 80) + '...' : text
+  }
+
+  /** 提取 assistant_text 预览 */
+  function getTextPreview(p: Record<string, unknown>): string {
+    const content = p.content as Array<Record<string, unknown>> | undefined
+    const text = content?.find(c => c.type === 'text')
+    const str = (text?.text as string) || ''
+    return str.length > 80 ? str.slice(0, 80) + '...' : str
+  }
+
+  /** 提取完整内容用于折叠展示 */
+  function getFullContent(p: Record<string, unknown>): string {
+    if (eventType === 'tool_call') return JSON.stringify(p.params || p, null, 2)
+    if (eventType === 'tool_result') {
+      const result = p.result as Record<string, unknown> | undefined
+      const content = result?.content as Array<{ text?: string }> | undefined
+      return content?.[0]?.text || JSON.stringify(result || p, null, 2)
+    }
+    if (eventType === 'assistant_toolcall' || eventType === 'assistant_text') {
+      const content = p.content as Array<Record<string, unknown>> | undefined
+      if (!content) return ''
+      return content.map(c => {
+        if (c.type === 'thinking') return `[thinking]\n${c.thinking}`
+        if (c.type === 'text') return c.text
+        if (c.type === 'toolCall') return `[toolCall] ${c.toolName} ${JSON.stringify(c.input || c.params)}`
+        return JSON.stringify(c)
+      }).join('\n\n')
+    }
+    return JSON.stringify(p, null, 2)
+  }
+
+  /** 标题行颜色 */
+  const tagColor = eventType === 'tool_call' ? 'bg-teal-100 text-teal-700'
+    : eventType === 'tool_result' ? 'bg-stone-100 text-stone-600'
+    : eventType === 'assistant_toolcall' ? 'bg-amber-50 text-amber-700'
+    : eventType === 'assistant_text' ? 'bg-blue-50 text-blue-700'
+    : eventType === 'error' ? 'bg-red-50 text-red-700'
+    : 'bg-stone-100 text-stone-600'
+
+  /** 标题行文本 */
+  let title = ''
   if (eventType === 'tool_call') {
-    return (
-      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-teal-500 text-[11px] mt-0.5">▶</span>
-        <div className="flex-1 min-w-0">
-          <span className="text-[11px] font-medium text-stone-600">调用 {payload.name}</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (eventType === 'tool_result') {
-    const resultText = typeof payload.result === 'object' && payload.result !== null
-      ? (payload.result as { content?: Array<{ text?: string }> }).content?.[0]?.text || JSON.stringify(payload.result)
-      : String(payload.result)
-    const preview = resultText.length > 500 ? resultText.slice(0, 500) + '...' : resultText
-    return (
-      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-stone-400 text-[11px] mt-0.5">◀</span>
-        <div className="flex-1 min-w-0">
-          <span className="text-[11px] text-stone-400">{payload.name}</span>
-          <div className="text-[10px] text-stone-500 mt-0.5 bg-stone-50 rounded px-2 py-1 max-h-[200px] overflow-y-auto prose prose-xs max-w-none">
-            <MarkdownContent>{preview}</MarkdownContent>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (eventType === 'assistant_toolcall') {
+    title = `[${payload.name}] ${getToolCallSummary(payload)}`
+  } else if (eventType === 'tool_result') {
+    title = `[${payload.name}] ${getResultPreview(payload)}`
+  } else if (eventType === 'assistant_toolcall') {
     const content = payload.content as Array<Record<string, unknown>> | undefined
     const toolCall = content?.find(c => c.type === 'toolCall')
-    const thinking = content?.find(c => c.type === 'thinking')
-    return (
-      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-amber-500 text-[11px] mt-0.5">⚡</span>
-        <div className="flex-1 min-w-0">
-          <span className="text-[11px] font-medium text-stone-600">决策：调用 {(toolCall as Record<string, unknown>)?.toolName || '工具'}</span>
-          {thinking && <span className="text-[10px] text-stone-400 ml-2">（含思考）</span>}
-        </div>
-      </div>
-    )
+    title = `[assistant] 调用 ${(toolCall as Record<string, unknown>)?.toolName || '工具'}`
+  } else if (eventType === 'assistant_text') {
+    title = `[assistant] ${getTextPreview(payload)}`
+  } else if (eventType === 'error') {
+    title = `[error] ${payload.message}`
   }
 
-  if (eventType === 'assistant_text') {
-    const content = payload.content as Array<Record<string, unknown>> | undefined
-    const text = content?.find(c => c.type === 'text')
-    const textStr = (text?.text as string) || ''
-    const preview = textStr.length > 300 ? textStr.slice(0, 300) + '...' : textStr
-    return (
-      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-blue-500 text-[11px] mt-0.5">💬</span>
-        <div className="flex-1 min-w-0">
-          <span className="text-[11px] font-medium text-stone-600">输出</span>
-          {preview && (
-            <div className="text-[10px] text-stone-500 mt-0.5 prose prose-xs max-w-none">
-              <MarkdownContent>{preview}</MarkdownContent>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
+  const fullContent = getFullContent(payload)
+  const hasDetail = fullContent.length > 0 && eventType !== 'error'
 
-  if (eventType === 'error') {
-    return (
-      <div className="flex items-start gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
-        <span className="text-red-500 text-[11px] mt-0.5">✗</span>
-        <div className="flex-1 min-w-0">
-          <span className="text-[11px] font-medium text-red-600">{payload.message}</span>
-        </div>
+  return (
+    <div className="border-b border-stone-100 last:border-0">
+      <div
+        className={`flex items-center gap-2 px-3 py-1.5 ${hasDetail ? 'cursor-pointer hover:bg-white/40' : ''} transition`}
+        onClick={() => hasDetail && setExpanded(!expanded)}
+      >
+        {hasDetail && (
+          <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+        )}
+        <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-medium ${tagColor}`}>
+          {eventType === 'tool_call' || eventType === 'tool_result' ? payload.name : eventType}
+        </span>
+        <span className="text-[11px] text-stone-600 truncate flex-1">{title}</span>
       </div>
-    )
-  }
-
-  return null
+      {expanded && fullContent && (
+        <div className="px-3 pb-2 pl-8">
+          <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
+            {fullContent}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {
