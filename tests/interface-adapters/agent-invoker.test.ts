@@ -2,10 +2,20 @@ import { describe, it, expect } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { AgentInvokePort, AgentStreamEvent } from "@interface-adapters/agent-runtime/agent-invoke-port";
 import type { SendMessage } from "@usecases/conversation/send-message";
+import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
 import type { Logger } from "@usecases/ports/logger";
+
+const completedMsg: Message = {
+  id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
+  senderType: "otter", senderId: "otter-1",
+  talkingStonePassedTo: ["user-1"], status: "completed",
+  body: "Response", attachments: null,
+  sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+  createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+};
 
 /** 创建 SendMessage mock，记录调用并返回模拟消息 */
 function mockSendMessage() {
@@ -17,15 +27,20 @@ function mockSendMessage() {
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
-  const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }> } = { fail: [], abort: [] };
+  const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
   return {
     start: async () => streamingMsg,
     complete: async () => ({ ...streamingMsg, status: "completed", body: "Response" }),
     fail: async (id: string) => { calls.fail!.push(id); },
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
+    sendSystem: async () => ({ ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const }),
     _calls: calls,
-  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }> } };
+  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] } };
+}
+
+function mockQueryMessage(): QueryMessage {
+  return { getMessageById: async () => completedMsg } as unknown as QueryMessage;
 }
 
 function mockManageSession(): ManageSession {
@@ -80,6 +95,7 @@ describe("AgentInvoker", () => {
         result: { text: "Hello world", tokenUsage: { input: 10, output: 5 } },
       }),
       mockSendMessage(),
+      mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
       mockLogger(),
@@ -103,10 +119,6 @@ describe("AgentInvoker", () => {
     const completeIdx = eventTypes.indexOf("message.complete");
     const turnIdx = eventTypes.indexOf("turn.complete");
     expect(turnIdx).toBeGreaterThan(completeIdx);
-
-    /** D4-fix: message.complete 包含 ctx 字段 */
-    const completeEvent = events.find((e) => e.event === "message.complete");
-    expect(completeEvent?.data.ctx).toBe(15);
   });
 
   it("calls sendMessage.abort() with synthetic body on abort (B-Abort-1, B-Abort-2)", async () => {
@@ -115,6 +127,7 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("Aborted"), toolCallCount: 3 }),
       msg,
+      mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
       mockLogger(),
@@ -158,6 +171,7 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: abortError, toolCallCount: 0 }),
       msg,
+      mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
       mockLogger(),
@@ -186,6 +200,7 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("LLM connection failed") }),
       msg,
+      mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
       mockLogger(),
@@ -219,6 +234,7 @@ describe("AgentInvoker", () => {
         result: { text: "Hello" },
       }),
       mockSendMessage(),
+      mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
       mockLogger(),
@@ -253,6 +269,7 @@ describe("AgentInvoker", () => {
         result: { text: "Done" },
       }),
       mockSendMessage(),
+      mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
       mockLogger(),
@@ -268,5 +285,92 @@ describe("AgentInvoker", () => {
 
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("tool.result");
+  });
+});
+
+/** 创建可配置的 QueryMessage mock：按调用顺序返回不同消息状态 */
+function mockQueryMessageSequence(statuses: Array<"streaming" | "completed">): QueryMessage & { callCount: number } {
+  const streamingMsg: Message = {
+    id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
+    senderType: "otter", senderId: "otter-1",
+    talkingStonePassedTo: null, status: "streaming",
+    body: null, attachments: null,
+    sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+    createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+  };
+  let callCount = 0;
+  return {
+    callCount,
+    getMessageById: async () => {
+      const status = statuses[callCount] ?? statuses[statuses.length - 1];
+      callCount++;
+      return { ...streamingMsg, status, body: status === "completed" ? "Response" : null, talkingStonePassedTo: status === "completed" ? ["user-1"] : null };
+    },
+  } as unknown as QueryMessage & { callCount: number };
+}
+
+describe("AgentInvoker speak retry", () => {
+  it("retries once when agent does not call speak (first failure → system message → retry)", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    /** 第一次 streaming，第二次 completed（重试成功） */
+    const qm = mockQueryMessageSequence(["streaming", "completed"]);
+
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "Response" } }),
+      msg,
+      qm,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    /** 重试成功后应正常返回 */
+    expect(result.messageId).toBeDefined();
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.start");
+    expect(eventTypes).toContain("message.complete");
+  });
+
+  it("fails with user in talkingStonePassedTo after second retry failure", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    /** 两次都返回 streaming（重试也失败） */
+    const qm = mockQueryMessageSequence(["streaming", "streaming"]);
+
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "Response" } }),
+      msg,
+      qm,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    /** 第二次失败后应返回结果（不抛异常） */
+    expect(result.messageId).toBeDefined();
+
+    /** fail 应被调用两次：第一次无 talkingStonePassedTo，第二次含 senderId */
+    expect(msg._calls.fail).toHaveLength(2);
+
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.complete");
+    expect(eventTypes).toContain("turn.complete");
   });
 });

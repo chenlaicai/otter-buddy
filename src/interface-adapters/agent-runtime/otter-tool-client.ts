@@ -62,6 +62,11 @@ export interface OtterToolClient {
         body: string;
         talkingStonePassedTo?: string[];
       }): Promise<Message>;
+      /** 完成当前 streaming 消息（speak 工具调用） */
+      complete(messageId: string, params: {
+        body: string;
+        talkingStonePassedTo: string[];
+      }): Promise<Message>;
       getById(id: string): Promise<Message | null>;
       list(conversationId: string, opts?: { limit?: number; before?: string }): Promise<Message[]>;
       search(conversationId: string, query: string, limit?: number): Promise<Message[]>;

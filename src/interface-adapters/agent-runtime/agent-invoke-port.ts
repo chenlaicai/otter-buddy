@@ -27,6 +27,8 @@ export interface DynamicContext {
 export interface InvokeOptions {
   dynamicContext?: DynamicContext;
   conversationId: string;
+  /** 当前 streaming 消息 ID（speak 工具需要） */
+  messageId?: string;
   onEvent?: (event: AgentStreamEvent) => void;
 }
 

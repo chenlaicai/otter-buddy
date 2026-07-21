@@ -50,6 +50,8 @@ export interface InvokeOptions {
   dynamicContext?: DynamicContext;
   onEvent?: (event: AgentEvent) => void;
   conversationId: string;
+  /** 当前 streaming 消息 ID（speak 工具需要） */
+  messageId?: string;
 }
 
 /** initAgentSessionFactory 配置 */
@@ -102,11 +104,12 @@ function getCodingToolsForOtterType(otterType: string | undefined): string[] {
  */
 function getOtterToolNamesForType(otterType: string | undefined): string[] {
   const allToolNames = [
-    "send_message", "pass_talking_stone", "search_memory", "store_memory",
+    "speak", "pass_talking_stone", "search_memory", "store_memory",
     "create_otter", "dissolve_otter", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
     "get_context", "set_context",
     "search_terminology", "add_terminology",
+    "list_artifacts", "update_artifact_status",
   ];
 
   if (!otterType || otterType === "big") {
@@ -115,7 +118,7 @@ function getOtterToolNamesForType(otterType: string | undefined): string[] {
 
   /** small otter：消息检索 + 记忆 + 上下文 + 术语库，不含管理类工具 */
   return [
-    "send_message", "search_memory", "create_linked_resource", "get_memory_detail",
+    "speak", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
     "get_context", "set_context",
     "search_terminology", "add_terminology",
@@ -306,7 +309,7 @@ export class PiSessionFactory implements AgentGateway {
 
     /** 构建 customTools（Otter 自定义工具，适配 ToolDefinition 格式） */
     const otterToolNames = getOtterToolNamesForType(otterType);
-    const customTools = this.buildCustomTools(otterId, options?.conversationId ?? "", otterToolNames);
+    const customTools = this.buildCustomTools(otterId, options?.conversationId ?? "", otterToolNames, options?.messageId);
 
     /** 编码工具列表 */
     const codingTools = getCodingToolsForOtterType(otterType);
@@ -333,22 +336,11 @@ export class PiSessionFactory implements AgentGateway {
     const fullMessage = this.buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
 
     const activeEntry = this.activeSessions.get(otterId);
-    let _finalText = "";
     const unsubscribe = session.subscribe((event: unknown) => {
       const e = event as AgentEvent;
       /** 跟踪工具调用次数（abort body 需要此信息） */
       if (e.type === "tool_execution_start" && activeEntry) {
         activeEntry.toolCallCount++;
-      }
-      /** 从 message_end 提取最终 text 内容（忽略 thinking） */
-      if (e.type === "message_end") {
-        const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-        const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
-        const content = msg?.content as Array<Record<string, unknown>> | undefined;
-        if (content) {
-          const textBlock = content.find((b) => b.type === "text");
-          if (textBlock?.text) _finalText = String(textBlock.text);
-        }
       }
       /** 不转发 message_update（不流式推送前端），只转发工具和生命周期事件 */
       if (e.type !== "message_update") {
@@ -359,8 +351,7 @@ export class PiSessionFactory implements AgentGateway {
     try {
       await session.prompt(fullMessage);
 
-      /** TODO: set_final_body 工具实现前，body 强制写入 fixme */
-      const resultText = "fixme";
+      /** speak 工具已直接 complete 消息，invoke() 只返回 tokenUsage 等元数据 */
 
       /** 从 session stats 恢复 token usage */
       const stats = session.getSessionStats();
@@ -374,7 +365,7 @@ export class PiSessionFactory implements AgentGateway {
       }
 
       const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
-      return this.buildResult(resultText, tokenUsage, circuitBreaker, ctxMax);
+      return this.buildResult("", tokenUsage, circuitBreaker, ctxMax);
     } catch (err) {
       /** 将 toolCallCount 附着到异常，供 handleInvokeError 在 finally 清理后仍可读取 */
       (err as Error & { _toolCallCount?: number })._toolCallCount =
@@ -410,6 +401,7 @@ export class PiSessionFactory implements AgentGateway {
     otterId: string,
     conversationId: string,
     allowedNames: string[],
+    messageId?: string,
   ): Array<{
     name: string;
     label: string;
@@ -421,6 +413,7 @@ export class PiSessionFactory implements AgentGateway {
       client: this.otterToolClient,
       otterId,
       conversationId,
+      currentMessageId: messageId ?? "",
     });
 
     return otterTools
@@ -508,7 +501,7 @@ export class PiSessionFactory implements AgentGateway {
           return;
         }
         if (result.action === "steer") {
-          session.steer?.(result.reason ?? "Stop calling tools. Call set_final_body now.");
+          session.steer?.(result.reason ?? "Stop calling tools. Call speak now.");
           circuitBreaker.setSteerDeadline(() => { session.abort(); });
           return;
         }

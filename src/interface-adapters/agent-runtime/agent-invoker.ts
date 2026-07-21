@@ -1,5 +1,6 @@
 import type { AgentInvokePort, AgentStreamEvent, DynamicContext } from "./agent-invoke-port";
 import type { SendMessage, MessageEventInput } from "@usecases/conversation/send-message";
+import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
@@ -96,9 +97,11 @@ function extractTurnEndError(e: AgentStreamEvent): string | undefined {
 export class AgentInvoker {
   private readonly abortedOtters = new Set<string>();
 
+  // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
     private readonly agentInvoke: AgentInvokePort,
     private readonly sendMessage: SendMessage,
+    private readonly queryMessage: QueryMessage,
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
     private readonly logger: Logger,
@@ -114,8 +117,9 @@ export class AgentInvoker {
     userMessageContent: string;
     senderId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
+    retryCount?: number;
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent } = params;
+    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0 } = params;
     const startTime = Date.now();
 
     // 记录 Agent 调用开始日志
@@ -145,14 +149,26 @@ export class AgentInvoker {
         onSSEEvent,
       });
 
-      return await this.completeAgentInvocation({
-        otterId,
-        conversationId,
-        messageId: message.id,
-        senderId,
-        result,
-        startTime,
-        onSSEEvent,
+      /** speak 工具已直接 complete 消息；检查状态处理未调 speak 的场景 */
+      const msg = await this.queryMessage.getMessageById(message.id);
+
+      if (msg?.status === "completed") {
+        /** 正常路径：agent 调用了 speak */
+        return await this.completeAgentInvocation({
+          otterId,
+          conversationId,
+          messageId: message.id,
+          senderId,
+          result,
+          startTime,
+          onSSEEvent,
+        });
+      }
+
+      /** agent 未调 speak → 重试机制 */
+      return await this.handleSpeakRetry({
+        messageId: message.id, otterId, conversationId, userMessageContent,
+        senderId, onSSEEvent, retryCount, startTime, tokenUsage: result.tokenUsage,
       });
     } catch (err) {
       await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
@@ -186,7 +202,6 @@ export class AgentInvoker {
         if (!agentError) agentError = extractAgentError(e);
       },
     });
-    if (!result.text) throw new Error(agentError || "Agent returned empty response");
     return result;
   }
 
@@ -202,18 +217,9 @@ export class AgentInvoker {
     startTime: number;
     onSSEEvent?: (event: AgentSSEEvent) => void;
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, messageId, senderId, result, startTime, onSSEEvent } = params;
+    const { otterId, conversationId, messageId, result, startTime, onSSEEvent } = params;
 
-    const contextTokens = result.tokenUsage
-      ? result.tokenUsage.input + result.tokenUsage.output
-      : undefined;
-
-    await this.sendMessage.complete(messageId, {
-      body: result.text,
-      talkingStonePassedTo: [senderId],
-      contextTokens,
-      contextTokensMax: result.ctxMax,
-    });
+    /** speak 工具已直接 complete 消息，此处仅发 SSE 事件和清理状态 */
 
     /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
     this.abortedOtters.delete(otterId);
@@ -235,8 +241,6 @@ export class AgentInvoker {
       data: {
         messageId,
         duration: `${(duration / 1000).toFixed(1)}s`,
-        ...(contextTokens !== undefined && { ctx: contextTokens }),
-        ...(result.ctxMax !== undefined && { ctxMax: result.ctxMax }),
       },
     });
 
@@ -282,6 +286,47 @@ export class AgentInvoker {
         /** fail() 出错时不覆盖原始错误 */
       }
     }
+  }
+
+  /**
+   * speak 重试：agent 未调 speak 就结束时，注入系统提醒并触发重试。
+   * 最多重试 1 次。第二次失败时发言石额外包含 user。
+   */
+  private async handleSpeakRetry(params: {
+    messageId: string;
+    otterId: string;
+    conversationId: string;
+    userMessageContent: string;
+    senderId: string;
+    onSSEEvent?: (event: AgentSSEEvent) => void;
+    retryCount: number;
+    agentError?: string;
+    startTime: number;
+    tokenUsage?: { input: number; output: number };
+  }): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount, startTime, tokenUsage } = params;
+
+    if (retryCount === 0) {
+      /** 第一次：fail + 系统提醒 + 重试 */
+      try { await this.sendMessage.fail(messageId, "[系统] 未调用 speak 工具结束发言"); } catch { /* ignore */ }
+
+      await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
+
+      return this.invokeConversation({
+        otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount: 1,
+      });
+    }
+
+    /** 第二次仍失败：fail + 发言石额外包含 user */
+    try {
+      await this.sendMessage.fail(messageId, "[系统] 重试后仍未调用 speak 工具", [senderId]);
+    } catch { /* ignore */ }
+
+    const duration = Date.now() - startTime;
+    onSSEEvent?.({ event: "message.complete", data: { messageId, duration: `${(duration / 1000).toFixed(1)}s` } });
+    onSSEEvent?.({ event: "turn.complete", data: {} });
+
+    return { messageId, duration, tokenUsage };
   }
 
   /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()） */
