@@ -17,10 +17,16 @@ export interface ConversationInvokeResult {
 }
 
 /** Pi 事件 -> SSE 事件映射 */
+/** 提取事件中的文本 delta（兼容 SDK 嵌套结构） */
+function getDelta(e: AgentStreamEvent): string | undefined {
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  return (e.delta ?? inner?.delta) as string | undefined;
+}
+
 function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
   switch (e.type) {
     case "message_update":
-      return e.delta ? { event: "message.delta", data: { text: e.delta } } : null;
+      return getDelta(e) ? { event: "message.delta", data: { text: getDelta(e)! } } : null;
     case "tool_execution_start":
       return { event: "tool.start", data: { toolName: e.name ?? e.toolName ?? "" } };
     case "tool_execution_end":
@@ -41,10 +47,10 @@ function mapToMessageEventInput(
   messageId: string,
 ): MessageEventInput | null {
   switch (e.type) {
-    case "message_update":
-      return e.delta
-        ? { messageId, eventType: "text_delta", payload: { text: e.delta } }
-        : null;
+    case "message_update": {
+      const d = getDelta(e);
+      return d ? { messageId, eventType: "text_delta", payload: { text: d } } : null;
+    }
     case "tool_execution_start":
       return { messageId, eventType: "tool_call", payload: { name: e.name ?? e.toolName } };
     case "tool_execution_end":
@@ -61,7 +67,8 @@ function mapToMessageEventInput(
 function extractAgentError(e: AgentStreamEvent): string | undefined {
   if (e.type === "error") return String(e.error ?? e.message ?? "Unknown agent error");
   if (e.type === "turn_end") {
-    const msg = (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+    const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+    const msg = (inner ?? (e as Record<string, unknown>).message) as Record<string, unknown> | undefined;
     if (msg?.stopReason === "error" || msg?.errorMessage) {
       return String(msg.errorMessage ?? "Agent API error");
     }
