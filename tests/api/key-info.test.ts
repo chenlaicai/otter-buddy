@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestApp, json, createMockDeps, makeLinkedResource } from "./helpers";
 import type { TestDeps } from "./helpers";
+import { DomainError } from "../../src/entities/errors";
 
 describe("KeyInfo API", () => {
   let deps: TestDeps;
@@ -135,10 +136,22 @@ describe("KeyInfo API", () => {
 
     it("returns 404 when resource not found", async () => {
       deps.manageKeyInfo.deleteLinkedResource.mockRejectedValue(
-        new Error("LinkedResource missing not found"),
+        new DomainError("LinkedResource missing not found", "not_found"),
       );
 
       const res = await app.request("/api/conversations/conv-1/resources/missing", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 500 for generic errors", async () => {
+      deps.manageKeyInfo.deleteLinkedResource.mockRejectedValue(
+        new Error("Database connection failed"),
+      );
+
+      const res = await app.request("/api/conversations/conv-1/resources/lr-1", {
         method: "DELETE",
       });
 

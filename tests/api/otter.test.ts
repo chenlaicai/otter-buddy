@@ -110,6 +110,28 @@ describe("Otter API", () => {
         context: { project: "test" },
       });
     });
+
+    it("passes undefined fields when body is empty", async () => {
+      const otter = makeOtter();
+      deps.createOtterUseCase.execute.mockResolvedValue(otter);
+
+      const res = await app.request("/api/otters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      // Controller does not validate name/type — passes undefined to use case
+      expect(res.status).toBe(201);
+      expect(deps.createOtterUseCase.execute).toHaveBeenCalledWith({
+        name: undefined,
+        type: undefined,
+        role: undefined,
+        parentOtterId: undefined,
+        systemPrompt: undefined,
+        context: undefined,
+      });
+    });
   });
 
   // ─── DELETE /api/otters/:id ───
@@ -137,6 +159,7 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(200);
+      expect(deps.dissolveOtterUseCase.execute).toHaveBeenCalledWith("otter-1", "Done with work");
     });
 
     it("returns error when dissolve fails", async () => {

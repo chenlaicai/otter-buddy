@@ -50,9 +50,13 @@ export async function readSSEEvents(res: Response): Promise<Array<{ event: strin
       }
     }
   }
-  // Flush remaining buffer
-  if (buffer.startsWith("event: ")) {
-    currentEvent = buffer.slice(7);
+  // Flush remaining buffer (may contain event: and/or data: lines without trailing \n\n)
+  for (const line of buffer.split("\n")) {
+    if (line.startsWith("event: ")) {
+      currentEvent = line.slice(7);
+    } else if (line.startsWith("data: ")) {
+      currentData = line.slice(6);
+    }
   }
   if (currentEvent && currentData) {
     events.push({ event: currentEvent, data: JSON.parse(currentData) });

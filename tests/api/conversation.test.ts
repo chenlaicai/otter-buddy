@@ -96,6 +96,24 @@ describe("Conversation API", () => {
         otterIds: undefined,
       });
     });
+
+    it("passes undefined title when body is empty", async () => {
+      const conv = makeConversation({ id: "new-conv" });
+      deps.manageConversation.create.mockResolvedValue(conv);
+
+      const res = await app.request("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      // Controller does not validate title — passes undefined to use case
+      expect(res.status).toBe(201);
+      expect(deps.manageConversation.create).toHaveBeenCalledWith({
+        title: undefined,
+        otterIds: undefined,
+      });
+    });
   });
 
   // ─── GET /api/conversations/:id ───
