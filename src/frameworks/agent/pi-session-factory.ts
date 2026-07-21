@@ -131,7 +131,8 @@ export class PiSessionFactory implements AgentGateway {
   private platformPrompt = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
-  private modelRuntime: unknown | null = null;
+  /** pi-coding-agent ModelRuntime 最小接口（SDK ESM-only，无法直接导入类型） */
+  private modelRuntime: { setRuntimeApiKey(provider: string, key: string): Promise<void> } | null = null;
   private otterToolClient: OtterToolClient;
 
   constructor(private readonly cfg: {
@@ -183,12 +184,11 @@ export class PiSessionFactory implements AgentGateway {
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
       const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
-      this.modelRuntime = await ModelRuntimeClass.create();
+      this.modelRuntime = await ModelRuntimeClass.create() as { setRuntimeApiKey(provider: string, key: string): Promise<void> };
 
       const llmConfig = appConfig.llm;
-      if (llmConfig.apiKey) {
-        const rt = this.modelRuntime as { setRuntimeApiKey: (provider: string, key: string) => Promise<void> };
-        await rt.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
+      if (llmConfig.apiKey && this.modelRuntime) {
+        await this.modelRuntime.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
         logger.info(`Set runtime API key for ${llmConfig.provider}`);
       }
     }
@@ -210,7 +210,8 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
-      modelRuntime: this.modelRuntime as never,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
+      modelRuntime: this.modelRuntime as any,
     });
 
     const sessionId = session.sessionId;
@@ -257,7 +258,8 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
-      modelRuntime: this.modelRuntime as never,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
+      modelRuntime: this.modelRuntime as any,
     });
 
     /** 更新映射 */
@@ -314,7 +316,8 @@ export class PiSessionFactory implements AgentGateway {
       tools: codingTools,
       customTools: customTools as never,
       resourceLoader: this.resourceLoader ?? undefined,
-      modelRuntime: this.modelRuntime as never,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
+      modelRuntime: this.modelRuntime as any,
     });
 
     /** 注册活跃 session 引用，支持外部 abort + 工具调用计数 */

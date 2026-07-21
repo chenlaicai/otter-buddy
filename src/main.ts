@@ -6,6 +6,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import { config } from "@frameworks/config";
@@ -366,8 +367,7 @@ function startServer(
 /** 将 config.yaml 的 apiKey 同步到 pi-coding-agent 的 auth.json（SDK 不读 config.yaml） */
 function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string }): void {
   if (!llmConfig.apiKey) return;
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
-  if (!homeDir) { logger.warn("Cannot determine home directory, skipping API key sync"); return; }
+  const homeDir = os.homedir();
   const agentDir = path.join(homeDir, ".pi", "agent");
   const authPath = path.join(agentDir, "auth.json");
   let auth: Record<string, string> = {};
