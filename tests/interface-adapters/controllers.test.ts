@@ -69,7 +69,10 @@ describe("ConversationController", () => {
     const manageConv = {
       create: async () => mockConversation(),
     } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant);
+    const managePart = {
+      getActiveParticipants: async () => [{ participant: { otterId: "otter-1" }, otterName: "Big Otter" }],
+    } as unknown as ManageParticipant;
+    const ctrl = new ConversationController(manageConv, managePart);
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations", {
       method: "POST",
@@ -77,8 +80,8 @@ describe("ConversationController", () => {
       body: JSON.stringify({ title: "Test" }),
     });
     expect(res.status).toBe(201);
-    const json = await res.json() as Record<string, unknown>;
-    expect(json.title).toBe("Test");
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.title).toBe("Test");
   });
 });
 

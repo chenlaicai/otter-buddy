@@ -10,6 +10,7 @@ import {
 } from "../../frameworks/document/frontmatter-validator";
 import type { FeatureDocument, ChangeType, FeatureStatus } from "../../entities/document/feature";
 import type { ResearchDocument, ExplorationType, ResearchStatus } from "../../entities/document/research";
+import type { Logger } from "@usecases/ports/logger";
 
 export interface SyncResult {
   synced: number;
@@ -23,11 +24,18 @@ export class SyncDocuments {
     private readonly featureRepo: FeatureRepository,
     private readonly researchRepo: ResearchRepository,
     private readonly memoryIndex: MemoryIndexGateway,
-    private readonly rootDir: string
+    private readonly rootDir: string,
+    private readonly logger: Logger
   ) {}
 
   async execute(): Promise<SyncResult> {
+    const startTime = Date.now();
     const result: SyncResult = { synced: 0, skipped: 0, archived: 0, errors: [] };
+
+    // 记录文档同步开始日志
+    this.logger.info('Document sync started', {
+      action: 'sync_start',
+    });
 
     // 1. 扫描并同步 features
     await this.syncDirectory("docs/features", "feature", result);
@@ -37,6 +45,18 @@ export class SyncDocuments {
 
     // 3. 检测已删除的文档，标记为 archived
     await this.archiveDeletedDocuments(result);
+
+    const duration = Date.now() - startTime;
+
+    // 记录文档同步完成日志
+    this.logger.info('Document sync completed', {
+      synced: result.synced,
+      skipped: result.skipped,
+      archived: result.archived,
+      errors: result.errors.length,
+      duration,
+      action: 'sync_complete',
+    });
 
     return result;
   }

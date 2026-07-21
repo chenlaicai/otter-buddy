@@ -63,6 +63,9 @@ describe("Conversation API", () => {
     it("creates a conversation and returns 201", async () => {
       const conv = makeConversation({ id: "new-conv", title: "New Chat" });
       deps.manageConversation.create.mockResolvedValue(conv);
+      deps.manageParticipant.getActiveParticipants.mockResolvedValue([
+        { participant: makeParticipant({ otterId: "otter-1" }), otterName: "大獭" },
+      ]);
 
       const res = await app.request("/api/conversations", {
         method: "POST",
@@ -82,6 +85,9 @@ describe("Conversation API", () => {
     it("passes undefined title when body is empty", async () => {
       const conv = makeConversation({ id: "new-conv" });
       deps.manageConversation.create.mockResolvedValue(conv);
+      deps.manageParticipant.getActiveParticipants.mockResolvedValue([
+        { participant: makeParticipant({ otterId: "otter-1" }), otterName: "大獭" },
+      ]);
 
       const res = await app.request("/api/conversations", {
         method: "POST",

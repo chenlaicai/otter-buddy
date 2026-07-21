@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type Database from "better-sqlite3";
 import type { TerminologyEntry } from "@entities/memory/terminology-entry";
 import { SqliteTerminologyRepository } from "./sqlite-terminology-repository";
+import type { Logger } from "@usecases/ports/logger";
 
 interface SeedTermData {
   id: string;
@@ -42,8 +43,29 @@ function loadSeedEntries(): TerminologyEntry[] {
 }
 
 /** 种子数据同步：从外部 JSON 文件读取，比对数据库差异，新增/更新术语 */
-export async function seedTerminologyData(db: Database.Database): Promise<void> {
+export async function seedTerminologyData(db: Database.Database, logger?: Logger): Promise<void> {
+  const startTime = Date.now();
   const repo = new SqliteTerminologyRepository(db);
   const entries = loadSeedEntries();
+
+  // 记录种子数据导入开始日志
+  if (logger) {
+    logger.info('Seed terminology data started', {
+      entries: entries.length,
+      action: 'seed_start',
+    });
+  }
+
   await repo.syncSeed(entries);
+
+  const duration = Date.now() - startTime;
+
+  // 记录种子数据导入完成日志
+  if (logger) {
+    logger.info('Seed terminology data completed', {
+      entries: entries.length,
+      duration,
+      action: 'seed_complete',
+    });
+  }
 }

@@ -26,7 +26,7 @@ import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-inv
 import { ToolCallCircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { config as appConfig } from "@frameworks/config";
-import { logger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { loadPlatformPromptFile } from "./platform-prompt-loader";
 
@@ -135,15 +135,18 @@ export class PiSessionFactory implements AgentGateway {
   private modelRuntime: { setRuntimeApiKey(provider: string, key: string): Promise<void> } | null = null;
   private otterToolClient: OtterToolClient;
 
-  constructor(private readonly cfg: {
-    db: Database.Database;
-    sessionDir: string;
-    otterToolClient: OtterToolClient;
-    model: unknown;
-    platformPromptFile?: string;
-    createTools: (ctx: ToolContext) => AgentTool[];
-    resourceLoader?: ResourceLoader;
-  }) {
+  constructor(
+    private readonly cfg: {
+      db: Database.Database;
+      sessionDir: string;
+      otterToolClient: OtterToolClient;
+      model: unknown;
+      platformPromptFile?: string;
+      createTools: (ctx: ToolContext) => AgentTool[];
+      resourceLoader?: ResourceLoader;
+    },
+    private readonly logger: Logger,
+  ) {
     this.otterToolClient = cfg.otterToolClient;
     this.sessionStore = createAgentSessionStore(cfg.db);
     if (cfg.platformPromptFile) {
@@ -179,7 +182,7 @@ export class PiSessionFactory implements AgentGateway {
         });
         await this.resourceLoader.reload();
         const { skills } = this.resourceLoader.getSkills();
-        logger.info(`ResourceLoader discovered ${skills.length} skill(s) from ./skills`);
+        this.logger.info(`ResourceLoader discovered ${skills.length} skill(s) from ./skills`);
       }
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
@@ -189,7 +192,7 @@ export class PiSessionFactory implements AgentGateway {
       const llmConfig = appConfig.llm;
       if (llmConfig.apiKey && this.modelRuntime) {
         await this.modelRuntime.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
-        logger.info(`Set runtime API key for ${llmConfig.provider}`);
+        this.logger.info(`Set runtime API key for ${llmConfig.provider}`);
       }
     }
     return this.piCodingAgent;
@@ -276,7 +279,7 @@ export class PiSessionFactory implements AgentGateway {
    * 冷启动调用（R17）：创建 AgentSession → prompt → 释放。
    * 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）。
    */
-  // eslint-disable-next-line max-statements, max-lines-per-function -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
+  // eslint-disable-next-line max-statements, max-lines-per-function, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖（来自 main 分支）
   async invoke(
     otterId: string,
     message: string,
@@ -363,6 +366,12 @@ export class PiSessionFactory implements AgentGateway {
       const stats = session.getSessionStats();
       const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
       this.checkTokenWarning(otterId, stats.tokens);
+
+      /** token 超阈值警告 */
+      const total = stats.tokens.input + stats.tokens.output;
+      if (total > TOKEN_WARNING_THRESHOLD) {
+        this.logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
+      }
 
       const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
       return this.buildResult(resultText, tokenUsage, circuitBreaker, ctxMax);
@@ -487,7 +496,7 @@ export class PiSessionFactory implements AgentGateway {
     session: { subscribe: (fn: (event: unknown) => void) => () => void; steer?: (text: string) => Promise<void>; abort: () => Promise<void> },
     otterId: string,
   ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined } {
-    const circuitBreaker = new ToolCallCircuitBreaker(this.circuitBreakerConfig, otterId);
+    const circuitBreaker = new ToolCallCircuitBreaker(this.circuitBreakerConfig, otterId, this.logger);
 
     /** 通过 subscribe 拦截 tool_execution_start 事件实现熔断 */
     const unregisterToolCall = session.subscribe((event: unknown) => {
@@ -513,7 +522,7 @@ export class PiSessionFactory implements AgentGateway {
   private checkTokenWarning(otterId: string, tokens: { input: number; output: number }): void {
     const total = tokens.input + tokens.output;
     if (total > TOKEN_WARNING_THRESHOLD) {
-      logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
+      this.logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
     }
   }
 
@@ -560,7 +569,7 @@ export class PiSessionFactory implements AgentGateway {
  * 初始化 Agent Session 工厂。
  * 异步工厂：pi-coding-agent 是 ESM-only，需通过动态 import() 加载。
  */
-export async function initAgentSessionFactory(config: AgentSessionFactoryConfig): Promise<PiSessionFactory> {
+export async function initAgentSessionFactory(config: AgentSessionFactoryConfig, logger: Logger): Promise<PiSessionFactory> {
   return new PiSessionFactory({
     db: config.db,
     sessionDir: config.sessionDir ?? "./data/sessions",
@@ -568,5 +577,5 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig)
     model: config.model,
     platformPromptFile: config.platformPromptFile,
     createTools: config.createTools,
-  });
+  }, logger);
 }

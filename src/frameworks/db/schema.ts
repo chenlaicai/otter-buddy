@@ -1,10 +1,12 @@
 import type Database from "better-sqlite3";
+import type { Logger } from "@usecases/ports/logger";
 
 /**
  * 初始化全部 Schema（幂等，可重复调用）。
  * 所有 CREATE 使用 IF NOT EXISTS，禁止 ALTER TABLE。单事务内执行。
  */
-export function initSchema(db: Database.Database): void {
+export function initSchema(db: Database.Database, logger?: Logger): void {
+  const startTime = Date.now();
   db.exec("BEGIN");
 
   try {
@@ -23,8 +25,23 @@ export function initSchema(db: Database.Database): void {
     createScheduledTaskTables(db);
 
     db.exec("COMMIT");
+
+    // 记录 Schema 初始化完成日志
+    if (logger) {
+      const duration = Date.now() - startTime;
+      logger.info('Schema initialized', {
+        duration,
+        tables: 12,
+      });
+    }
   } catch (error) {
     db.exec("ROLLBACK");
+
+    // 记录 Schema 初始化失败日志
+    if (logger) {
+      logger.error('Schema initialization failed', error instanceof Error ? error : undefined);
+    }
+
     throw error;
   }
 }

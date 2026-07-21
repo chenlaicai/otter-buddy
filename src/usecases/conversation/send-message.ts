@@ -17,6 +17,7 @@ import { canAddMessageToTurn } from "@entities/conversation/conversation";
 import type { ConversationRepository } from "./conversation-repository";
 import { tryCloseTurn } from "./turn-utils";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
+import type { Logger } from "@usecases/ports/logger";
 
 /** 用户发送消息输入 */
 export interface SendMessageInput {
@@ -62,6 +63,7 @@ export class SendMessage {
   constructor(
     private readonly repo: ConversationRepository,
     private readonly memoryIndex: MemoryIndexGateway,
+    private readonly logger: Logger,
   ) {}
 
   /** 用户发送消息（立即 completed） */
@@ -104,6 +106,15 @@ export class SendMessage {
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this.repo, turn.id);
+
+    // 记录消息发送日志
+    this.logger.info('Message sent', {
+      conversationId: input.conversationId,
+      messageId: message.id,
+      senderId: input.senderId,
+      messageLength: input.body.length,
+      action: 'send',
+    });
 
     return message;
   }

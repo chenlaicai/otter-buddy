@@ -181,9 +181,12 @@ function ConversationPage() {
         },
         'message.complete': (data) => {
           if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+          const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
+          const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
+          const content = blocks.map(b => b.text).filter(Boolean).join('')
           const finalMsg: LocalMessage = {
             id: data.messageId || otterMessageId, st: 'otter', si: otterId,
-            content: 'fixme', ts: nowTs(), dur: data.duration, events: liveEvents.length > 0 ? liveEvents : undefined, ctx: data.ctx, ctxMax: data.ctxMax,
+            content, ts: nowTs(), dur: data.duration, events: liveEvents.length > 0 ? liveEvents : undefined, ctx: data.ctx, ctxMax: data.ctxMax,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
           otterMsgIdRef.current = ''
@@ -248,10 +251,10 @@ function ConversationPage() {
       const dto = await api.createConversation({ title })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
-      setAllMessages(prev => ({ ...prev, [conv.id]: [] }))
       setActiveId(conv.id)
       setModal({ type: 'none' })
       showToast('对话已创建', 'success')
+      await loadConversationDetail(conv.id)
     } catch { showToast('创建对话失败', 'error') }
   }
 
@@ -261,10 +264,10 @@ function ConversationPage() {
       const dto = await api.createConversation({ title })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [...prev, conv])
-      setAllMessages(prev => ({ ...prev, [conv.id]: [] }))
       setActiveId(conv.id)
       setModal({ type: 'none' })
       showToast('子对话已创建', 'success')
+      await loadConversationDetail(conv.id)
     } catch { showToast('创建子对话失败', 'error') }
   }
 

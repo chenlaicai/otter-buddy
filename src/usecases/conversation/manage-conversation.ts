@@ -23,7 +23,7 @@ export class ManageConversation {
 
     /** 为每个对话创建独立的大獭 */
     const bigOtter = await this.createOtter.execute({
-      name: `大獭-${params.title}`,
+      name: "大獭",
       type: "big",
     });
     const otterIds = [bigOtter.id];

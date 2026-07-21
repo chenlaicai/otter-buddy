@@ -4,9 +4,21 @@ import {
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
 } from "@frameworks/agent/tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "@frameworks/agent/tool-call-circuit-breaker";
+import type { Logger } from "@usecases/ports/logger";
 
 function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerConfig {
   return { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...overrides };
+}
+
+/** 创建 noop Logger mock */
+function mockLogger(): Logger {
+  return {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => mockLogger(),
+  };
 }
 
 describe("ToolCallCircuitBreaker", () => {
@@ -19,7 +31,7 @@ describe("ToolCallCircuitBreaker", () => {
   });
 
   it("allows tool calls under threshold (AC-7: normal execution unaffected)", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
     for (let i = 0; i < 19; i++) {
       const result = cb.check(`tool_${i}`);
       expect(result.action).toBe("allow");
@@ -31,6 +43,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
       "otter-1",
+      mockLogger(),
     );
 
     // Under limit: allow
@@ -49,6 +62,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
       "otter-1",
+      mockLogger(),
     );
 
     // Fill up to maxToolCalls
@@ -72,6 +86,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
+      mockLogger(),
     );
 
     // First 3 calls: allow
@@ -91,6 +106,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
+      mockLogger(),
     );
 
     expect(cb.check("tool_a").action).toBe("allow");
@@ -113,6 +129,7 @@ describe("ToolCallCircuitBreaker", () => {
         warningThreshold: 100,
       }),
       "otter-1",
+      mockLogger(),
     );
 
     // Pattern A-B-C repeated 3 times (18 calls, window=6, repeat=3)
@@ -142,6 +159,7 @@ describe("ToolCallCircuitBreaker", () => {
         warningThreshold: 100,
       }),
       "otter-1",
+      mockLogger(),
     );
 
     // Different tools each time: no repeating pattern
@@ -155,6 +173,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxExecutionTimeMs: 5000, maxToolCalls: 100 }),
       "otter-1",
+      mockLogger(),
     );
 
     expect(cb.check("tool_1").action).toBe("allow");
@@ -173,6 +192,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ steerTimeoutMs: 30000 }),
       "otter-1",
+      mockLogger(),
     );
 
     cb.setSteerDeadline(forceAbort);
@@ -188,6 +208,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ steerTimeoutMs: 30000, maxToolCalls: 100 }),
       "otter-1",
+      mockLogger(),
     );
 
     cb.check("tool_1");
@@ -211,6 +232,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ steerTimeoutMs: 30000 }),
       "otter-1",
+      mockLogger(),
     );
 
     cb.setSteerDeadline(forceAbort);
@@ -226,6 +248,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ steerTimeoutMs: 30000 }),
       "otter-1",
+      mockLogger(),
     );
 
     cb.setSteerDeadline(forceAbort1);
@@ -245,7 +268,7 @@ describe("ToolCallCircuitBreaker", () => {
   });
 
   it("records call history (B-6)", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
 
     cb.check("tool_a");
     cb.check("tool_b");
@@ -258,6 +281,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxToolCalls: 3, warningThreshold: 2 }),
       "otter-1",
+      mockLogger(),
     );
 
     cb.check("tool_1");
@@ -273,7 +297,7 @@ describe("ToolCallCircuitBreaker", () => {
   });
 
   it("metadata has no circuitReason when under limit", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
 
     cb.check("tool_1");
 
@@ -283,7 +307,7 @@ describe("ToolCallCircuitBreaker", () => {
   });
 
   it("getCallHistory returns a copy, not a reference", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
     cb.check("tool_a");
 
     const history = cb.getCallHistory();

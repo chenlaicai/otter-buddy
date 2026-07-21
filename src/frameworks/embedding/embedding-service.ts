@@ -10,7 +10,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
-import { logger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 
 interface EmbeddingConfig {
   modelPath?: string;
@@ -44,7 +44,10 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   private requestId = 0;
 
-  constructor(private readonly worker: Worker) {
+  constructor(
+    private readonly worker: Worker,
+    private readonly logger: Logger,
+  ) {
     this.setupHandlers();
   }
 
@@ -54,7 +57,7 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
         this.readyState.ready = true;
         this.readyState.waiters.forEach(w => w.resolve());
         this.readyState.waiters.length = 0;
-        logger.info("Embedding model loaded successfully");
+        this.logger.info("Embedding model loaded successfully");
         return;
       }
       if (msg.type === "error" && msg.id === -1) {
@@ -77,6 +80,7 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
     });
 
     this.worker.on("error", (err: Error) => {
+      this.logger.error("Worker Thread error", err);
       this.pendingRequests.forEach(({ reject }) =>
         reject(new Error(`Worker error: ${err.message}`)),
       );
@@ -114,16 +118,26 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 }
 
+/** Noop Logger 实现 */
+const noopLogger: Logger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  child: () => noopLogger,
+};
+
 /**
  * 初始化 Embedding 服务。
  * 创建 Worker Thread 运行 bge-m3 模型，通过 postMessage 通信。
  */
 export async function initEmbeddingService(
   _embedConfig?: EmbeddingConfig,
+  logger?: Logger,
 ): Promise<{ service: EmbeddingGateway; dispose: () => void }> {
   const workerPath = path.join(__dirname, "bge-m3-worker.js");
   const worker = new Worker(workerPath);
-  const service = new EmbeddingServiceImpl(worker);
+  const service = new EmbeddingServiceImpl(worker, logger || noopLogger);
 
   return {
     service,

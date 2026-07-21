@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { randomUUID } from "crypto";
+import type { Logger } from "@usecases/ports/logger";
 import type { ConversationController } from "./controllers/conversation-controller";
 import type { OtterController } from "./controllers/otter-controller";
 import type { MessageController } from "./controllers/message-controller";
@@ -68,8 +70,29 @@ function registerScheduledTaskRoutes(app: Hono, c: Controllers): void {
 }
 
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
-export function createRouter(ctrl: Controllers): Hono {
+export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   const app = new Hono();
+
+  /** HTTP 请求日志中间件 */
+  app.use('*', async (c, next) => {
+    const requestId = randomUUID();
+    const start = Date.now();
+
+    // 注入 requestId 到 context
+    c.header('X-Request-ID', requestId);
+
+    await next();
+
+    const duration = Date.now() - start;
+    logger.info('HTTP request completed', {
+      requestId,
+      method: c.req.method,
+      path: c.req.path,
+      statusCode: c.res.status,
+      duration,
+    });
+  });
+
   registerConvRoutes(app, ctrl);
   registerMsgRoutes(app, ctrl);
   registerOtterRoutes(app, ctrl);

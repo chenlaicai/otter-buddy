@@ -1,3 +1,7 @@
+/**
+ * Composition Root - 依赖注入装配点。
+ * main.ts 是唯一允许跨层引用的文件（Composition Root 豁免）。
+ */
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -5,8 +9,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { config } from "@frameworks/config";
-import { logger } from "@frameworks/logger";
+import { loadConfig, initConfig } from "@frameworks/config";
+import { PinoLogger } from "@frameworks/logger";
 import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
@@ -19,7 +23,6 @@ import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-settings-repository";
-import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 
 import { ManageConversation } from "@usecases/conversation/manage-conversation";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
@@ -43,10 +46,6 @@ import { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import { ManageSession } from "@usecases/otter/manage-session";
 import { QueryOtter } from "@usecases/otter/query-otter";
 import { ManageContext } from "@usecases/otter/manage-context";
-import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-import { SchedulerService } from "@usecases/scheduler/scheduler-service";
-import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
-import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 
 import { createRouter } from "@interface-adapters/http/router";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
@@ -59,7 +58,26 @@ import type { SettingsConfig } from "@interface-adapters/http/controllers/settin
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
+import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
+import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
+import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 
+/** 创建 PinoLogger 实例 */
+const logger = new PinoLogger({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: process.env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+});
+
+/** 加载配置 */
+const appConfig = loadConfig(logger);
+initConfig(appConfig);
+
+/**
+ * MemoryIndexGateway 适配器：将 StoreMemory 适配为 MemoryIndexGateway。
+ * StoreMemory.execute() 接受 MemoryEntryInput，此适配器将 index* 方法映射为 execute 调用。
+ */
 class MemoryIndexAdapter implements MemoryIndexGateway {
   constructor(private readonly storeMemory: StoreMemory) {}
 
@@ -82,19 +100,27 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
 
   async indexFeature(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
     await this.storeMemory.execute({
-      layer: "document", contentType: "feature",
-      sourceId: id, sourceTable: "features",
-      conversationId: undefined, granularity: "coarse",
-      content: summary, metadata,
+      layer: "document",
+      contentType: "feature",
+      sourceId: id,
+      sourceTable: "features",
+      conversationId: undefined,
+      granularity: "coarse",
+      content: summary,
+      metadata,
     });
   }
 
   async indexResearch(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
     await this.storeMemory.execute({
-      layer: "document", contentType: "research",
-      sourceId: id, sourceTable: "research",
-      conversationId: undefined, granularity: "coarse",
-      content: summary, metadata,
+      layer: "document",
+      contentType: "research",
+      sourceId: id,
+      sourceTable: "research",
+      conversationId: undefined,
+      granularity: "coarse",
+      content: summary,
+      metadata,
     });
   }
 }
@@ -148,21 +174,23 @@ function initUseCases(
   agentGateway: PiSessionFactory,
   embeddingService: EmbeddingGateway,
 ): UseCases {
-  const searchEngine = new SearchEngine(config.memory);
+  const searchEngine = new SearchEngine(appConfig.memory);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
-  const storeMemory = new StoreMemory(repos.memory, embeddingService);
-  const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, repos.terminology);
+  const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
+  const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
-  const sendMessage = new SendMessage(repos.conversation, memoryIndex);
+  const sendMessage = new SendMessage(repos.conversation, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
+  /** createOtter 必须先于 manageConversation 初始化：
+   *  ManageConversation.create() 需要调用 createOtter.execute() 为每个对话创建独立大獭 */
   const createOtter = new CreateOtter(repos.otter, agentGateway);
   const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
-    repos.otter, agentGateway, manageConversation, manageMemory,
+    repos.otter, agentGateway, manageConversation, manageMemory, logger,
   );
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
   const manageContext = new ManageContext(repos.otterContext);
@@ -175,6 +203,7 @@ function initUseCases(
   };
 }
 
+/** 构建 OtterToolClient 的 conversation.message 部分 */
 function buildMessageClient(uc: UseCases) {
   return {
     send: async (params: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => {
@@ -199,6 +228,7 @@ function buildMessageClient(uc: UseCases) {
   };
 }
 
+/** 构建 OtterToolClient 的 memory 部分（渐进式披露：支持 detail_level、getById 和 getDetails） */
 function buildMemoryClient(uc: UseCases) {
   return {
     getById: async (id: string) => {
@@ -209,15 +239,26 @@ function buildMemoryClient(uc: UseCases) {
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string) => {
       const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library });
       return result.entries.map(e => ({
-        id: e.id, content: e.content, score: e.score, layer: e.layer,
-        snippet: e.snippet, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt,
+        id: e.id,
+        content: e.content,
+        score: e.score,
+        layer: e.layer,
+        snippet: e.snippet,
+        contentType: e.contentType,
+        metadata: e.metadata ?? undefined,
+        createdAt: e.createdAt,
       }));
     },
+    /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails: async (ids: string[]) => {
       const entries = await uc.manageMemory.getDetails(ids);
       return entries.map(e => ({
-        id: e.id, content: e.content, layer: e.layer,
-        contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt,
+        id: e.id,
+        content: e.content,
+        layer: e.layer,
+        contentType: e.contentType,
+        metadata: e.metadata ?? undefined,
+        createdAt: e.createdAt,
       }));
     },
     store: async (entry: { content: string; otterId: string; conversationId?: string }) =>
@@ -229,18 +270,41 @@ function buildMemoryClient(uc: UseCases) {
   };
 }
 
+/**
+ * 构建 OtterToolClient：包装所有 use case，作为工具访问 Otter 数据的统一门面。
+ */
 function buildResourceClient(uc: UseCases) {
   return {
-    link: (params: any, turnNum?: number) =>
-      uc.manageKeyInfo.linkResource(params, turnNum),
-    list: (convId: string, filters?: any) =>
+    link: (params: { conversationId: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; resourceType?: string; groupId?: string }, turnNum?: number) =>
+      uc.manageKeyInfo.linkResource({
+        conversationId: params.conversationId,
+        resourceType: params.resourceType ?? "url",
+        url: params.url,
+        title: params.title,
+        content: params.content,
+        category: params.category,
+        linkedBy: params.linkedBy,
+        autoLinked: false,
+        groupId: params.groupId,
+      }, turnNum),
+    list: (convId: string, filters?: { status?: "active" | "superseded" | "archived"; resourceType?: string }) =>
       uc.manageKeyInfo.getLinkedResources(convId, filters),
     listByGroup: (convId: string, groupId: string) =>
       uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
-    updateStatus: (id: string, status: any, turnNum: number, supersededBy?: string) =>
+    updateStatus: (id: string, status: "active" | "superseded" | "archived", turnNum: number, supersededBy?: string) =>
       uc.manageKeyInfo.updateResourceStatus(id, status, turnNum, supersededBy),
-    supersede: (existingId: string, newInput: any, turnNum: number) =>
-      uc.manageKeyInfo.supersedeResource(existingId, newInput, turnNum),
+    supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; groupId?: string }, turnNum: number) =>
+      uc.manageKeyInfo.supersedeResource(existingId, {
+        conversationId: newInput.conversationId,
+        resourceType: newInput.resourceType ?? "url",
+        url: newInput.url,
+        title: newInput.title,
+        content: newInput.content,
+        category: newInput.category,
+        linkedBy: newInput.linkedBy,
+        autoLinked: false,
+        groupId: newInput.groupId,
+      }, turnNum),
     archive: (id: string, convId: string, turnNum: number) =>
       uc.manageKeyInfo.archiveResource(id, convId, turnNum),
     getIndex: (convId: string) =>
@@ -319,7 +383,7 @@ function startServer(
   port: number,
 ): void {
   const app = new Hono();
-  app.route("/", createRouter(controllers));
+  app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
@@ -350,31 +414,27 @@ async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGat
   const syncDocs = new SyncDocuments(
     repos.feature,
     repos.research,
-    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService)),
-    process.cwd()
+    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger)),
+    process.cwd(),
+    logger
   );
   await syncDocs.execute();
 }
 
-async function initAgentAndScheduler(
-  repos: Repositories,
-  uc: UseCases,
-  db: ReturnType<typeof initDatabase>,
-  model: any,
-) {
+async function initAgentAndScheduler(repos: Repositories, uc: UseCases, db: any, model: any) {
   const agentGateway = await initAgentSessionFactory({
     model, db,
     otterToolClient: {} as OtterToolClient,
     platformPromptFile: "./prompts/platform/SYSTEM_PROMPT.md",
     createTools,
-  });
+  }, logger);
 
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
-    uc.manageSession, uc.queryOtter,
+    uc.manageSession, uc.queryOtter, logger,
   );
 
   const cronParser = new SimpleCronParser();
@@ -392,14 +452,14 @@ async function initAgentAndScheduler(
 }
 
 async function main(): Promise<void> {
-  syncApiKeyToAgentAuth(config.llm);
+  syncApiKeyToAgentAuth(appConfig.llm);
 
-  const db = initDatabase(config.db);
-  initSchema(db);
-  await seedTerminologyData(db);
+  const db = initDatabase(appConfig.db, logger);
+  initSchema(db, logger);
+  await seedTerminologyData(db, logger);
 
-  const { model } = await initModels(config.llm);
-  const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);
+  const { model } = await initModels(appConfig.llm, logger);
+  const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
 
   const repos = initRepositories(db);
   await syncDocuments(repos, embeddingService);
@@ -408,23 +468,18 @@ async function main(): Promise<void> {
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, db, model);
 
   const settings: SettingsConfig = {
-    provider: config.llm.provider,
-    model: config.llm.model,
-    port: config.server.port,
-    dbPath: config.db.path,
-    embeddingModelPath: config.embedding.modelPath,
-    embeddingDim: config.embedding.dimensions,
+    provider: appConfig.llm.provider,
+    model: appConfig.llm.model,
+    port: appConfig.server.port,
+    dbPath: appConfig.db.path,
+    embeddingModelPath: appConfig.embedding.modelPath,
+    embeddingDim: appConfig.embedding.dimensions,
   };
 
   const controllers = initControllers({
-    uc,
-    agentInvoker,
-    settings,
-    settingsRepo: repos.settings,
-    schedulerService,
-    cronParser,
+    uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser,
   });
-  startServer(controllers, config.server.port);
+  startServer(controllers, appConfig.server.port);
 
   schedulerService.start().catch((err) => {
     logger.error(`Failed to start scheduler: ${err}`);
@@ -432,8 +487,9 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", () => {
     schedulerService.stop();
+    logger.flush();
     dispose();
-    closeDatabase(db);
+    closeDatabase(db, logger);
     process.exit(0);
   });
 }

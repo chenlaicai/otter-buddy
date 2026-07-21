@@ -48,7 +48,9 @@ export class ConversationController {
         title: body.title,
       };
       const conv = await this.manageConversation.create(input);
-      return c.json(toConversationDTO(conv), 201);
+      const participantsWithOtter = await this.manageParticipant.getActiveParticipants(conv.id);
+      const otterIds = participantsWithOtter.map((p) => p.participant.otterId);
+      return c.json(toConversationListItemDTO(conv, otterIds), 201);
     } catch (err) {
       return handleError(c, err);
     }

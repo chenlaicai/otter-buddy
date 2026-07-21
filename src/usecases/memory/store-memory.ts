@@ -5,7 +5,7 @@ import type {
 } from "@entities/memory/memory-entry";
 import type { MemoryRepository } from "./memory-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
-import { logger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 
 export interface MemoryEntryInput {
   layer: MemoryLayer;
@@ -22,6 +22,7 @@ export class StoreMemory {
   constructor(
     private readonly repo: MemoryRepository,
     private readonly embeddingGateway: EmbeddingGateway,
+    private readonly logger: Logger,
   ) {}
 
   async execute(input: MemoryEntryInput): Promise<string> {
@@ -49,11 +50,11 @@ export class StoreMemory {
       .embed(input.content)
       .then((emb) => {
         this.repo.storeEmbedding(id, emb).catch((err) => {
-          logger.warn(`Failed to store embedding for ${id}: ${err}`);
+          this.logger.warn(`Failed to store embedding for ${id}: ${err}`);
         });
       })
       .catch((err) => {
-        logger.warn(`Embedding generation failed for ${id}: ${err}`);
+        this.logger.warn(`Embedding generation failed for ${id}: ${err}`);
       });
 
     return id;
