@@ -27,7 +27,7 @@ created_at: 2026-07-16
 - **变更类型**：research / design-decision / migration
 - **影响模块**：frameworks/agent、系统整体架构
 - **关联 ADR**：D14（S2 Capability Module Architecture Design）
-- **关联研究**：docs/research/pi-capability-analysis.md、docs/research/pi-integration-analysis.md
+- **关联研究**：docs/research/R20260716x2k9-pi-capability-analysis.md、docs/research/R20260717y3k8-pi-integration-analysis.md
 
 
 ## [design-time]

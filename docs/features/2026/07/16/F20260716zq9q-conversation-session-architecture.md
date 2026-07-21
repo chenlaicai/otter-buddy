@@ -272,7 +272,7 @@ Conversation --[conversation_otters]--> Otter --[otter_sessions]--> OtterSession
 - **Otter 领域模块**：[F20260713o4t8](./F20260713o4t8-domain-otter.md)
 - **记忆领域模块**：[F20260713m5q3](./F20260713m5q3-domain-memory.md)
 - **数据模型设计**：[F20260709p4q7](../09/F20260709p4q7-data-model-design.md)
-- **Pi 能力分析**：[pi-capability-analysis](../../research/pi-capability-analysis.md)
+- **Pi 能力分析**：[pi-capability-analysis](../../research/R20260716x2k9-pi-capability-analysis.md)
 
 ## 偏差记录 [required]
 

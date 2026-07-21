@@ -336,6 +336,6 @@ const otterToolClient: OtterToolClient = {
 
 ## 相关链接
 
-- [Pi Agent 能力探索](docs/research/pi-capability-analysis.md) — F20260715r3s2
+- [Pi Agent 能力探索](docs/research/R20260716x2k9-pi-capability-analysis.md) — F20260715r3s2
 - [Interface Adapters 层实现](docs/features/2026/07/16/F20260716i5n2.md) — F20260716i5n2
 - [Frameworks 层实现](docs/features/2026/07/15/F20260715k4p2-frameworks-layer-implementation.md) — F20260715k4p2
