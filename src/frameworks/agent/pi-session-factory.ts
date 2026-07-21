@@ -326,17 +326,9 @@ export class PiSessionFactory implements AgentGateway {
     /** 构建完整消息：系统提示 + 动态上下文 + 用户消息 */
     const fullMessage = this.buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
 
-    let resultText = "";
     const activeEntry = this.activeSessions.get(otterId);
     const unsubscribe = session.subscribe((event: unknown) => {
       const e = event as AgentEvent;
-      /** SDK 事件可能嵌套在 assistantMessageEvent 中，只取 text_delta */
-      const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-      const isText = !inner || inner.type === "text_delta" || inner.type === "text_start";
-      const delta = isText ? (e.delta ?? inner?.delta) as string | undefined : undefined;
-      if (e.type === "message_update" && delta) {
-        resultText += delta;
-      }
       /** 跟踪工具调用次数（abort body 需要此信息） */
       if (e.type === "tool_execution_start" && activeEntry) {
         activeEntry.toolCallCount++;
@@ -347,15 +339,14 @@ export class PiSessionFactory implements AgentGateway {
     try {
       await session.prompt(fullMessage);
 
+      /** 从 session 获取最终文本（SDK 内部组装，不含 thinking） */
+      const getLastText = (session as unknown as { getLastAssistantText: () => string }).getLastAssistantText;
+      const resultText = typeof getLastText === "function" ? getLastText.call(session) : "";
+
       /** 从 session stats 恢复 token usage */
       const stats = session.getSessionStats();
       const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
-
-      /** token 超阈值警告 */
-      const total = stats.tokens.input + stats.tokens.output;
-      if (total > TOKEN_WARNING_THRESHOLD) {
-        logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
-      }
+      this.checkTokenWarning(otterId, stats.tokens);
 
       return this.buildResult(resultText, tokenUsage, circuitBreaker);
     } catch (err) {
@@ -499,6 +490,14 @@ export class PiSessionFactory implements AgentGateway {
     });
 
     return { circuitBreaker, unregisterToolCall };
+  }
+
+  /** token 超阈值警告 */
+  private checkTokenWarning(otterId: string, tokens: { input: number; output: number }): void {
+    const total = tokens.input + tokens.output;
+    if (total > TOKEN_WARNING_THRESHOLD) {
+      logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
+    }
   }
 
   /** 构建执行结果（含熔断器元数据） */
