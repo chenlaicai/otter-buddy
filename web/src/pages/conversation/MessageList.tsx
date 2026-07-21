@@ -45,6 +45,7 @@ export interface StreamingState {
   finalText: string
   showFinal: boolean
   duration: number
+  events: LocalMessageEvent[]
 }
 
 export function MessageList({ messages, streamingMessage, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
@@ -275,6 +276,7 @@ function StreamingMessage({ state, onStop, otters }: { state: StreamingState; on
   const otter = otters.find(o => o.id === state.otterId)
   const color = getOtterColor(state.otterId, otter?.ci)
   const name = otter?.name || 'Otter'
+  const events = state.events || []
 
   return (
     <div className="flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn">
@@ -293,39 +295,36 @@ function StreamingMessage({ state, onStop, otters }: { state: StreamingState; on
           className="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble bubble-otter bg-white text-stone-700 border border-stone-100"
           style={{ borderLeft: `3px solid ${color.border}` }}
         >
-          {/* Live streaming process */}
-          <div className="rounded-xl overflow-hidden mb-2" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
-            <div className="flex items-center gap-1.5 px-3 py-1.5">
-              <span className="text-[8px] text-stone-400">▼</span>
-              <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程</span>
-              <span className="text-[10px] text-stone-400 flex items-center gap-1">
-                <span className="flex gap-0.5">
-                  <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
-                  <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
-                  <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
+          {/* 实时流式过程 */}
+          {events.length > 0 && (
+            <div className="rounded-xl overflow-hidden mb-2" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
+              <div className="flex items-center gap-1.5 px-3 py-1.5">
+                <span className="text-[8px] text-stone-400">▼</span>
+                <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
+                <span className="text-[10px] text-stone-400 flex items-center gap-1">
+                  <span className="flex gap-0.5">
+                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
+                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
+                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
+                  </span>
+                  生成中
                 </span>
-                生成中
-              </span>
+              </div>
+              <div className="border-t border-otter-200/20">
+                {events.map((evt, i) => <EventItem key={i} event={evt} />)}
+              </div>
             </div>
-            <div className="px-3 py-2 text-[12px] text-stone-500 font-mono whitespace-pre-wrap border-t border-otter-200/20">
-              {state.streamingText}
-            </div>
+          )}
+          {/* 停止按钮 */}
+          <div className="mt-1.5">
+            <button
+              onClick={onStop}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"
+            >
+              <Square className="w-2.5 h-2.5 fill-current text-red-400" />
+              停止生成
+            </button>
           </div>
-          {/* Final response (hidden until streaming completes) */}
-          {!state.showFinal && (
-            <div className="mt-1.5">
-              <button
-                onClick={onStop}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"
-              >
-                <Square className="w-2.5 h-2.5 fill-current text-red-400" />
-                停止生成
-              </button>
-            </div>
-          )}
-          {state.showFinal && (
-            <MarkdownContent>{state.finalText}</MarkdownContent>
-          )}
         </div>
       </div>
     </div>

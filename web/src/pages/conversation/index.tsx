@@ -143,19 +143,19 @@ function ConversationPage() {
 
       const startTime = Date.now()
       let otterMessageId = ''
-
-      setStreaming({ otterId, streamingText: '', finalText: '', showFinal: false, duration: 0 })
-
       const liveEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = []
+
+      setStreaming({ otterId, streamingText: '', finalText: '', showFinal: false, duration: 0, events: [] })
+
       const ctrl = consumeSSE(response, {
         'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
         'tool.start': (data) => {
           liveEvents.push({ eventType: 'tool_call', payload: { name: data.toolName } })
-          setStreaming(prev => prev ? { ...prev, streamingText: liveEvents.length + ' 个事件', duration: (Date.now() - startTime) / 1000 } : null)
+          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
         },
         'tool.result': (data) => {
           liveEvents.push({ eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
-          setStreaming(prev => prev ? { ...prev, streamingText: liveEvents.length + ' 个事件', duration: (Date.now() - startTime) / 1000 } : null)
+          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
         },
         'message.complete': (data) => {
           const finalMsg: LocalMessage = {
@@ -177,7 +177,18 @@ function ConversationPage() {
           setStreaming(null)
         },
         'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
-        'agent.idle': () => {},
+        'agent.idle': () => {
+          /** fallback: agent.idle 后 2s 如果 streaming 还在，强制清除 */
+          setTimeout(() => {
+            setStreaming(prev => {
+              if (prev) {
+                showToast('回复已完成', 'info')
+                return null
+              }
+              return prev
+            })
+          }, 2000)
+        },
       }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
       sseCtrlRef.current = ctrl
     } catch (err) {
