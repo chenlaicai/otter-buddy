@@ -327,21 +327,34 @@ export class PiSessionFactory implements AgentGateway {
     const fullMessage = this.buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
 
     const activeEntry = this.activeSessions.get(otterId);
+    let _finalText = "";
     const unsubscribe = session.subscribe((event: unknown) => {
       const e = event as AgentEvent;
       /** 跟踪工具调用次数（abort body 需要此信息） */
       if (e.type === "tool_execution_start" && activeEntry) {
         activeEntry.toolCallCount++;
       }
-      options?.onEvent?.(e);
+      /** 从 message_end 提取最终 text 内容（忽略 thinking） */
+      if (e.type === "message_end") {
+        const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+        const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+        const content = msg?.content as Array<Record<string, unknown>> | undefined;
+        if (content) {
+          const textBlock = content.find((b) => b.type === "text");
+          if (textBlock?.text) _finalText = String(textBlock.text);
+        }
+      }
+      /** 不转发 message_update（不流式推送前端），只转发工具和生命周期事件 */
+      if (e.type !== "message_update") {
+        options?.onEvent?.(e);
+      }
     });
 
     try {
       await session.prompt(fullMessage);
 
-      /** 从 session 获取最终文本（SDK 内部组装，不含 thinking） */
-      const getLastText = (session as unknown as { getLastAssistantText: () => string }).getLastAssistantText;
-      const resultText = typeof getLastText === "function" ? getLastText.call(session) : "";
+      /** TODO: set_final_body 工具实现前，body 强制写入 fixme */
+      const resultText = "fixme";
 
       /** 从 session stats 恢复 token usage */
       const stats = session.getSessionStats();

@@ -17,23 +17,13 @@ export interface ConversationInvokeResult {
 }
 
 /** Pi 事件 -> SSE 事件映射 */
-/** 提取事件中的文本 delta（兼容 SDK 嵌套结构，过滤 thinking） */
-function getDelta(e: AgentStreamEvent): string | undefined {
-  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-  if (inner && inner.type !== "text_delta" && inner.type !== "text_start") return undefined;
-  return (e.delta ?? inner?.delta) as string | undefined;
-}
-
 function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
   switch (e.type) {
-    case "message_update":
-      return getDelta(e) ? { event: "message.delta", data: { text: getDelta(e)! } } : null;
     case "tool_execution_start":
       return { event: "tool.start", data: { toolName: e.name ?? e.toolName ?? "" } };
     case "tool_execution_end":
       return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
     case "turn_end":
-      /** D5-fix: turn.complete 延迟到 message.complete 之后发出，匹配设计文档事件顺序 */
       return null;
     case "agent_end":
       return { event: "agent.idle", data: {} };
@@ -48,10 +38,6 @@ function mapToMessageEventInput(
   messageId: string,
 ): MessageEventInput | null {
   switch (e.type) {
-    case "message_update": {
-      const d = getDelta(e);
-      return d ? { messageId, eventType: "text_delta", payload: { text: d } } : null;
-    }
     case "tool_execution_start":
       return { messageId, eventType: "tool_call", payload: { name: e.name ?? e.toolName } };
     case "tool_execution_end":
