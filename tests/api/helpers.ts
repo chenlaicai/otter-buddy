@@ -362,7 +362,7 @@ export function createTestApp(deps: TestDeps): Hono {
 /** 创建类型安全的 mock deps，各测试按需覆盖 */
 export function createMockDeps(): TestDeps {
   return {
-    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId"]),
+    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds"]),
     manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
     sendMessageUseCase: mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
     queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),

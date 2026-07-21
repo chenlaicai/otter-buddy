@@ -15,21 +15,14 @@ describe("Conversation API", () => {
   // ─── GET /api/conversations ───
 
   describe("GET /api/conversations", () => {
-    it("returns 400 when otterId is missing", async () => {
-      const res = await app.request("/api/conversations");
-      expect(res.status).toBe(400);
-      const body = await json(res);
-      expect(body.error).toContain("otterId");
-    });
-
-    it("returns conversation list with otterIds", async () => {
-      deps.manageConversation.getIdsByOtterId.mockResolvedValue(["conv-1"]);
+    it("returns conversation list", async () => {
+      deps.manageConversation.getAllIds.mockResolvedValue(["conv-1"]);
       deps.manageConversation.getById.mockResolvedValue(makeConversation());
       deps.manageParticipant.getActiveParticipants.mockResolvedValue([
-        makeParticipant({ otterId: "otter-1" }),
+        { participant: makeParticipant({ otterId: "otter-1" }), otterName: "Big Otter" },
       ]);
 
-      const res = await app.request("/api/conversations?otterId=otter-1");
+      const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body).toHaveLength(1);
@@ -38,22 +31,29 @@ describe("Conversation API", () => {
     });
 
     it("filters out null entries when conversation not found", async () => {
-      deps.manageConversation.getIdsByOtterId.mockResolvedValue(["conv-missing"]);
+      deps.manageConversation.getAllIds.mockResolvedValue(["conv-missing"]);
       deps.manageConversation.getById.mockResolvedValue(null);
 
-      const res = await app.request("/api/conversations?otterId=otter-1");
+      const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body).toHaveLength(0);
     });
 
     it("returns empty array when no conversations", async () => {
-      deps.manageConversation.getIdsByOtterId.mockResolvedValue([]);
+      deps.manageConversation.getAllIds.mockResolvedValue([]);
 
-      const res = await app.request("/api/conversations?otterId=otter-1");
+      const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body).toEqual([]);
+    });
+
+    it("returns 400 for invalid pagination parameters", async () => {
+      const res = await app.request("/api/conversations?limit=abc");
+      expect(res.status).toBe(400);
+      const body = await json(res);
+      expect(body.error).toContain("Invalid pagination parameters");
     });
   });
 
@@ -67,7 +67,7 @@ describe("Conversation API", () => {
       const res = await app.request("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New Chat", otterIds: ["otter-1"] }),
+        body: JSON.stringify({ title: "New Chat" }),
       });
 
       expect(res.status).toBe(201);
@@ -76,24 +76,6 @@ describe("Conversation API", () => {
       expect(body.title).toBe("New Chat");
       expect(deps.manageConversation.create).toHaveBeenCalledWith({
         title: "New Chat",
-        otterIds: ["otter-1"],
-      });
-    });
-
-    it("creates conversation without otterIds", async () => {
-      const conv = makeConversation({ id: "new-conv" });
-      deps.manageConversation.create.mockResolvedValue(conv);
-
-      const res = await app.request("/api/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Solo Chat" }),
-      });
-
-      expect(res.status).toBe(201);
-      expect(deps.manageConversation.create).toHaveBeenCalledWith({
-        title: "Solo Chat",
-        otterIds: undefined,
       });
     });
 
@@ -111,7 +93,6 @@ describe("Conversation API", () => {
       expect(res.status).toBe(201);
       expect(deps.manageConversation.create).toHaveBeenCalledWith({
         title: undefined,
-        otterIds: undefined,
       });
     });
   });
@@ -213,8 +194,8 @@ describe("Conversation API", () => {
   describe("GET /api/conversations/:id/participants", () => {
     it("returns participants list", async () => {
       deps.manageParticipant.getActiveParticipants.mockResolvedValue([
-        makeParticipant({ otterId: "otter-1" }),
-        makeParticipant({ id: "part-2", otterId: "otter-2" }),
+        { participant: makeParticipant({ otterId: "otter-1" }), otterName: "Big Otter" },
+        { participant: makeParticipant({ id: "part-2", otterId: "otter-2" }), otterName: "Small Otter" },
       ]);
 
       const res = await app.request("/api/conversations/conv-1/participants");
@@ -222,7 +203,9 @@ describe("Conversation API", () => {
       const body = await json(res);
       expect(body).toHaveLength(2);
       expect(body[0].otterId).toBe("otter-1");
+      expect(body[0].otterName).toBe("Big Otter");
       expect(body[1].otterId).toBe("otter-2");
+      expect(body[1].otterName).toBe("Small Otter");
     });
 
     it("returns empty array when no participants", async () => {
