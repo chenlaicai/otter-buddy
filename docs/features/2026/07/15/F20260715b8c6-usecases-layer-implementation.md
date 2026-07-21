@@ -1,13 +1,33 @@
 ---
 id: F20260715b8c6
 title: usecases-layer-implementation
-from_ids: [F20260714zjmk, F20260714jaup, F20260713e8n4, F20260713o4t8, F20260713m5q3]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档定义整洁架构 usecases 层的 Repository/Gateway 接口 + use case class + search-engine，遵循 F20260714zjmk 锁定的目录结构和设计决策。 - F20260714zjmk Setup 已合入（PR #13）：旧代码...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260714zjmk
+    - F20260714jaup
+    - F20260713e8n4
+    - F20260713o4t8
+    - F20260713m5q3
+
+
+# 元数据
+status: implemented
+change_type: feature
 tags: [architecture, usecases, clean-architecture, conversation, otter, memory, talking-stone]
 modules: [src/usecases/]
-doc_kind: spec
-status: implemented
+
+# 时间
 created_at: 2026-07-15
 ---
+
 
 # F20260715b8c6 整洁架构 Use Cases 层实现
 

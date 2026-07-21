@@ -1,13 +1,35 @@
 ---
 id: F20260714zjmk
 title: clean-architecture-restructuring
-from_ids: [F20260709p4q7, F20260709m2n8, F20260709x7k3, F20260713o4t8, F20260713i5k2, F20260713m5q3, F20260713e8n4]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。进入实现阶段后不得单方面修改，如需变更须通过问题卡片向用户提出并确认。 本文档定义从 DDD 四层架构到整洁架构的 Greenfield 重构方案。经两位架构师交叉审视 + 用户指令，关键决策记录为 D30-D42 + KDR-1 至 KD...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709p4q7
+    - F20260709m2n8
+    - F20260709x7k3
+    - F20260713o4t8
+    - F20260713i5k2
+    - F20260713m5q3
+    - F20260713e8n4
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [architecture, refactor, clean-architecture, incompatible]
 modules: [src/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-14
 ---
+
 
 # F20260714zjmk 架构调整：DDD 四层 → 整洁架构
 

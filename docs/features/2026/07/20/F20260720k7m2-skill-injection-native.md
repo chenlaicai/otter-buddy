@@ -1,13 +1,29 @@
 ---
 id: F20260720k7m2
 title: skill-injection-native
-from_ids: [F20260716t2ab]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  `PiSessionFactory` 中的 Skill 注入存在两个问题： 1. **绕过 SDK 原生协议**：自定义 `SkillLoader` 手动扫描 `./skills/` 目录，读取 SKILL.md 全文，拼接到消息前缀。pi-coding-agent SDK 已提供完整的 Sk...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716t2ab
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [agent, skills, sdk, refactor]
 modules: [src/frameworks/agent/, src/interface-adapters/skill-adapter/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-20
 ---
+
 
 # F20260720k7m2 Skill 注入迁移至 SDK 原生协议
 

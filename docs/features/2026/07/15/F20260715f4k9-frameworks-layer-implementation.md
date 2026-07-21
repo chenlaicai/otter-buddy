@@ -1,13 +1,36 @@
 ---
 id: F20260715f4k9
 title: frameworks-layer-implementation
-from_ids: [F20260714zjmk, F20260714jaup, F20260715b8c6, F20260715r3s2, F20260713e8n4, F20260713o4t8, F20260713m5q3, F20260713i5k2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档定义整洁架构 frameworks 层的完整实现：数据库连接 + Schema + 三个 Repository 实现 + LLM/Embedding/Agent 网关 + Config。遵循 F20260714zjmk 锁定的目录结构和设计决策。 - F20260714zjmk Se...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260714zjmk
+    - F20260714jaup
+    - F20260715b8c6
+    - F20260715r3s2
+    - F20260713e8n4
+    - F20260713o4t8
+    - F20260713m5q3
+    - F20260713i5k2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [architecture, frameworks, clean-architecture, db, llm, embedding, agent, incompatible]
 modules: [src/frameworks/]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-15
 ---
+
 
 # F20260715f4k9 整洁架构 Frameworks 层实现
 
@@ -84,7 +107,7 @@ created_at: 2026-07-15
 
 ### P3 - LLM 网关
 
-创建 `frameworks/llm/models-factory.ts`，提供 pi-ai Models 对象工厂（Provider 路由 + Model 获取），供 AgentHarness 消费。基于 `docs/research/pi-capability-analysis.md` 优化。
+创建 `frameworks/llm/models-factory.ts`，提供 pi-ai Models 对象工厂（Provider 路由 + Model 获取），供 AgentHarness 消费。基于 `docs/research/R20260716x2k9-pi-capability-analysis.md` 优化。
 
 ### P4 - Embedding 网关
 
@@ -92,7 +115,7 @@ created_at: 2026-07-15
 
 ### P5 - Agent 网关
 
-基于 `docs/research/pi-capability-analysis.md` 设计 `frameworks/agent/`：使用 AgentHarness + 冷启动模型 + Pi 内置 Session 管理。实现 `AgentGateway` 接口 + 提供 `invoke()` 方法供 interface-adapters 层使用。
+基于 `docs/research/R20260716x2k9-pi-capability-analysis.md` 设计 `frameworks/agent/`：使用 AgentHarness + 冷启动模型 + Pi 内置 Session 管理。实现 `AgentGateway` 接口 + 提供 `invoke()` 方法供 interface-adapters 层使用。
 
 ### P6 - Config
 
@@ -147,7 +170,7 @@ src/frameworks/
 
 > **总计 15 个新文件** + 1 个已存在（logger.ts）= 16 个文件
 >
-> **与初版设计差异**（基于 `docs/research/pi-capability-analysis.md` 优化）：
+> **与初版设计差异**（基于 `docs/research/R20260716x2k9-pi-capability-analysis.md` 优化）：
 > - `pi-agent-registry.ts` + `agent-handle.ts` -> `pi-harness-factory.ts` + `system-prompt-builder.ts` + `tool-registry.ts` + `agent-session-store.ts`
 > - 使用 Pi 的 **AgentHarness**（非 Agent），支持 Session/Skill/Compaction/动态 Prompt
 > - **冷启动模型**（R17）：每次发言创建 harness，完成后释放，无持久化 AgentHandle
@@ -202,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_participants_otter_id ON conversation_participant
 CREATE INDEX IF NOT EXISTS idx_participants_status ON conversation_participants(status);
 ```
 
-**3. `agent_sessions` 表**（Otter ↔ Pi Session 映射，基于 `docs/research/pi-capability-analysis.md` R12）
+**3. `agent_sessions` 表**（Otter ↔ Pi Session 映射，基于 `docs/research/R20260716x2k9-pi-capability-analysis.md` R12）
 
 ```sql
 CREATE TABLE IF NOT EXISTS agent_sessions (
@@ -497,7 +520,7 @@ CREATE TABLE IF NOT EXISTS otter_sessions (
 
 **旧代码参考**：`reference/old-src/infra/llm-gateway.ts`（提取 Models 创建逻辑，移除 chat/streamChat）
 
-**与旧代码差异**（基于 `docs/research/pi-capability-analysis.md`）：
+**与旧代码差异**（基于 `docs/research/R20260716x2k9-pi-capability-analysis.md`）：
 - 旧代码导出 `LLMGateway` 接口（chat/streamChat/getModel）-> 新代码只导出 `Models` 工厂
 - LLM 交互（chat/streamChat）由 `AgentHarness` 内部处理，不需要独立 LLMGateway
 - `Models` 对象通过构造函数注入到 `PiHarnessFactory`，由 harness 消费
@@ -546,7 +569,7 @@ CREATE TABLE IF NOT EXISTS otter_sessions (
 
 ### frameworks/agent/
 
-> **基于 `docs/research/pi-capability-analysis.md` 重新设计**。使用 Pi 的 **AgentHarness**（非 Agent），采用**冷启动模型**，Session 管理委托给 Pi 内置 `JsonlSessionRepo`。
+> **基于 `docs/research/R20260716x2k9-pi-capability-analysis.md` 重新设计**。使用 Pi 的 **AgentHarness**（非 Agent），采用**冷启动模型**，Session 管理委托给 Pi 内置 `JsonlSessionRepo`。
 
 #### pi-harness-factory.ts
 
@@ -897,7 +920,7 @@ export async function initXxx(config): Promise<Xxx> {
 
 ## 研究文档对齐
 
-> 本文档的 agent/ 和 llm/ 模块设计基于 `docs/research/pi-capability-analysis.md`（F20260715r3s2）的研究成果。
+> 本文档的 agent/ 和 llm/ 模块设计基于 `docs/research/R20260716x2k9-pi-capability-analysis.md`（F20260715r3s2）的研究成果。
 
 | 研究结论 | 本文档应用 |
 |---------|-----------|
@@ -924,4 +947,4 @@ export async function initXxx(config): Promise<Xxx> {
 - **Otter 领域模块**：[F20260713o4t8](../13/F20260713o4t8-domain-otter.md)（Otter/OtterSession 类型定义）
 - **Memory 领域模块**：[F20260713m5q3](../13/F20260713m5q3-domain-memory.md)（MemoryEntry/MemoryWeight 类型定义）
 - **Infra 基础设施**：[F20260713i5k2](../13/F20260713i5k2-infra-base.md)（LLM/Agent/Embedding 原始实现）
-- **Pi Agent 能力探索**：[F20260715r3s2](../../research/pi-capability-analysis.md)（AgentHarness 选型、冷启动模型、Session 管理、Tool/Skill 边界）
+- **Pi Agent 能力探索**：[F20260715r3s2](../../research/R20260716x2k9-pi-capability-analysis.md)（AgentHarness 选型、冷启动模型、Session 管理、Tool/Skill 边界）

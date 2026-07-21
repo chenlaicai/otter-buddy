@@ -1,3 +1,28 @@
+---
+id: F20260720h7a4
+title: fix-startup-alias-resolution
+doc_type: feature
+
+# 记忆索引
+summary: |
+  修复 TypeScript 路径别名导致的启动失败问题，确保模块解析在构建和运行时一致。
+  涉及 tsconfig paths、tsc-alias、vitest 等工具链的配置对齐。
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260708r6p5   # project-repo-initialization
+
+# 元数据
+status: locked
+change_type: fix
+tags: [typescript, path-alias, startup, bugfix]
+modules: [tsconfig, vitest.config]
+
+# 时间
+created_at: 2026-07-20
+---
+
 # F20260720h7a4 — 修复 TypeScript 路径别名导致的启动失败
 
 ## 状态

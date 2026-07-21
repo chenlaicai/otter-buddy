@@ -1,3 +1,29 @@
+---
+id: F20260720qs9y
+title: per-conversation-otter
+doc_type: feature
+
+# 记忆索引
+summary: |
+  将全局单例大獭改为每个对话独立创建大獭，实现对话级隔离。
+  移除全局 AgentRegistry，改为按需创建 AgentHarness，支持多对话并发。
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260716ttf7   # system-integration-and-startup
+    - F20260713o4t8   # domain-otter
+
+# 元数据
+status: locked
+change_type: feature
+tags: [otter, conversation, isolation, concurrency]
+modules: [src/frameworks/agent/, src/interface-adapters/agent-runtime/]
+
+# 时间
+created_at: 2026-07-20
+---
+
 # F20260720qs9y — 每个对话创建独立大獭，移除全局单例大獭
 
 ## 状态

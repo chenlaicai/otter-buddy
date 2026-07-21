@@ -1,13 +1,32 @@
 ---
 id: F20260716zq9q
 title: conversation-session-architecture
-from_ids: [F20260713c7p2, F20260713o4t8, F20260713m5q3, F20260709p4q7]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。 > 本文档分析 otter 系统中"对话"（Conversation）与"Pi Session"之间的架构关系，聚焦于**工作记忆的交接机制**设计。 在 otter 系统中，**对话**是用户交互场景，会长久存在使用。**Pi Sess...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713c7p2
+    - F20260713o4t8
+    - F20260713m5q3
+    - F20260709p4q7
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [architecture, analysis, conversation, session, pi-agent, memory, context-management]
 modules: [architecture]
-doc_kind: analysis
-status: locked
+
+# 时间
 created_at: 2026-07-16
 ---
+
 
 # F20260716zq9q 对话与 Session 架构关系分析
 
@@ -253,7 +272,7 @@ Conversation --[conversation_otters]--> Otter --[otter_sessions]--> OtterSession
 - **Otter 领域模块**：[F20260713o4t8](./F20260713o4t8-domain-otter.md)
 - **记忆领域模块**：[F20260713m5q3](./F20260713m5q3-domain-memory.md)
 - **数据模型设计**：[F20260709p4q7](../09/F20260709p4q7-data-model-design.md)
-- **Pi 能力分析**：[pi-capability-analysis](../../research/pi-capability-analysis.md)
+- **Pi 能力分析**：[pi-capability-analysis](../../research/R20260716x2k9-pi-capability-analysis.md)
 
 ## 偏差记录 [required]
 

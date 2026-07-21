@@ -1,13 +1,32 @@
 ---
 id: F20260713m5q3
 title: domain-memory
-from_ids: [F20260709p4q7, F20260709m2n8, F20260710b3m9, F20260713i5k2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。 > 本文档设计 domain/memory 模块。这是 S3-A8 步骤 ⑤ 的实现，也是系统核心模块 -- 混合检索引擎（FTS5 + vec0 + RRF + 权重重排）。依赖 infra/db + infra/embedding。模...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709p4q7
+    - F20260709m2n8
+    - F20260710b3m9
+    - F20260713i5k2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [implementation, s4, domain, memory, search, fts5, vec0, rrf]
 modules: [domain/memory]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-13
 ---
+
 
 # F20260713m5q3 [domain/memory] 记忆领域模块
 
@@ -129,7 +148,6 @@ tests/domain/memory/
 └── adapter.test.ts          # 单元测试（mock repository + mock EmbeddingService）
 ```
 
----
 
 ### 1. model.ts -- 领域模型
 
@@ -224,7 +242,6 @@ interface ScoredHit {
 }
 ```
 
----
 
 ### 2. port.ts -- MemoryPort 接口
 
@@ -305,7 +322,6 @@ interface MemoryPort {
 | linkResource(conversationId, resource) | 写 linked_resources + external_resources + memory_entries，跨模块 | app/orchestration |
 | updateWeights(treePath) | S3-A6 明确不更新数据库，查询时计算 | SearchQuery.treePath 参数 |
 
----
 
 ### 3. _internal/repository.ts -- SQLite 持久化
 
@@ -448,7 +464,6 @@ getWeights(memoryEntryIds: string[]): Map<string, MemoryWeight> {
 }
 ```
 
----
 
 ### 4. _internal/search-engine.ts -- 混合检索引擎
 
@@ -542,7 +557,6 @@ private computeTaskRelevance(
 }
 ```
 
----
 
 ### 5. _internal/adapter.ts -- 业务逻辑
 
@@ -707,7 +721,6 @@ class MemoryAdapter implements MemoryPort {
 }
 ```
 
----
 
 ### 6. _internal/mapper.ts -- 映射规则
 
@@ -728,7 +741,6 @@ class MemoryAdapter implements MemoryPort {
 | last_retrieved_at | MemoryWeight.lastRetrievedAt | 直接映射（NULL -> null） |
 | user_flagged | MemoryWeight.userFlagged | INTEGER 0/1 <-> boolean |
 
----
 
 ### 7. _internal/initor.ts -- 工厂函数
 
@@ -754,7 +766,6 @@ function initMemory({
 }
 ```
 
----
 
 ### 8. main.ts 装配（更新后）
 

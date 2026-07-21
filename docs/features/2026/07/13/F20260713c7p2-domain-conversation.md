@@ -1,13 +1,33 @@
 ---
 id: F20260713c7p2
 title: domain-conversation
-from_ids: [F20260709p4q7, F20260709m2n8, F20260710b3m9, F20260713i5k2, F20260713m5q3]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。 > 本文档设计 domain/conversation 模块。这是 S3-A8 步骤 ⑥ 的实现，是系统核心域模块 -- 管理对话生命周期、消息 append-only 存储、对话树结构和对话关键信息。依赖仅 infra/db，模块自包含...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709p4q7
+    - F20260709m2n8
+    - F20260710b3m9
+    - F20260713i5k2
+    - F20260713m5q3
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [implementation, s4, domain, conversation, message, tree, key-info]
 modules: [domain/conversation]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-13
 ---
+
 
 # F20260713c7p2 [domain/conversation] 对话领域模块
 
@@ -128,7 +148,6 @@ tests/domain/conversation/
 └── adapter.test.ts          # 单元测试（mock repository）
 ```
 
----
 
 ### 1. model.ts -- 领域模型
 
@@ -232,7 +251,6 @@ interface Attachment {
 }
 ```
 
----
 
 ### 2. port.ts -- ConversationPort 接口
 
@@ -325,7 +343,6 @@ interface ConversationPort {
 | completeConversation(id) | ConversationPort.complete(id) | 直接映射 |
 | archiveConversation(id) | ConversationPort.archive(id) | 直接映射 |
 
----
 
 ### 3. _internal/repository.ts -- SQLite 持久化
 
@@ -504,7 +521,6 @@ WHERE tree_path LIKE ?;  -- 参数: `${root.treePath}%`
 
 > getTree 先 getById(rootId) 获取根节点 treePath，然后 LIKE 查询所有子节点，在内存中递归构建树结构。
 
----
 
 ### 4. _internal/adapter.ts -- 业务逻辑
 
@@ -535,7 +551,6 @@ function initConversation({ db }: { db: Database.Database }): ConversationPort {
 }
 ```
 
----
 
 ### 5. _internal/mapper.ts -- 映射规则
 
@@ -567,7 +582,6 @@ function initConversation({ db }: { db: Database.Database }): ConversationPort {
 | user_flagged | KeyFact.userFlagged | INTEGER 0/1 <-> boolean |
 | created_by | KeyFact.createdBy | snake_case -> camelCase |
 
----
 
 ### 6. main.ts 装配（更新后）
 

@@ -1,13 +1,31 @@
 ---
 id: F20260710b3m9
 title: infra-base-foundation
-from_ids: [F20260709p4q7, F20260709m2n8, F20260710a1b2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。进入实现阶段后不得单方面修改，如需变更须通过问题卡片向用户提出并确认。 > 本文档是 S4 代码实现阶段的第一个模块设计。基于 S3 数据模型设计（F20260709p4q7）的 DDL 和目录结构规划，设计 infra/base 模块的实...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709p4q7
+    - F20260709m2n8
+    - F20260710a1b2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [implementation, s4, infra, database, foundation]
 modules: [infra]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-10
 ---
+
 
 # F20260710b3m9 [infra] 基础设施基础层
 

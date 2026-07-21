@@ -1,47 +1,27 @@
-# F20260720k3m7 - 外部产物生命周期管理
+---
+id: F20260720k3m7
+title: artifact-lifecycle-management
+doc_type: feature
 
-## 元信息
+# 记忆索引
+summary: |
+  扩展 LinkedResource 实体支持外部产物生命周期管理（三态状态机、Turn 编号度量、分组、替代链）。
+  统一 worktree、branch、PR 等外部产物的绑定与状态追踪。
 
-- **特性编号**：F20260720k3m7
-- **创建日期**：2026-07-20
-- **状态**：development
-- **变更类型**：feature
-- **模块**：conversation
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713c7p2   # domain-conversation
 
-## 问题背景
+# 元数据
+status: development
+change_type: feature
+tags: [artifact, lifecycle, linked-resource, state-machine]
+modules: [src/entities/conversation/, src/frameworks/db/conversation/]
 
-### 现象
-
-在一次 conversation 中，用户提出问题 → 与海獭讨论形成报告 → 拆解为多个软件特性 → 串行开发（设计→实现→检视→合入）。过程中多个海獭进进出出，产生大量外部产物（讨论报告、特性文档、PR、worktree、branch）。
-
-当前 `LinkedResource` 仅是 append-only 的链接记录，存在以下问题：
-
-1. **无生命周期状态**：无法区分产物是"当前有效"还是"已被替代"或"已归档"
-2. **无分组机制**：无法将产物关联到特定特性（如哪些 PR/worktree 属于特性 F20260720xxxx）
-3. **无替代链追踪**：worktree 重建后，旧 worktree 记录仍然"活跃"，无从知道被谁替代
-4. **无发现机制**：新进场的海獭无法快速了解当前对话中存在哪些产物及其状态
-5. **无时间维度**：无法感知产物是"最近创建"还是"很久以前创建"的
-
-### 根因分析
-
-`LinkedResource` 实体设计为轻量链接记录，缺少产物管理所需的生命周期维度：
-
-| 缺失项 | 影响 |
-|--------|------|
-| 状态字段 | 所有链接资源一律平等，无法区分活跃/过期/归档 |
-| 分组字段 | 无法按特性聚合产物 |
-| 替代关系 | 无法追踪"旧→新"的替代链 |
-| 时间刻度 | 仅靠 wall-clock 时间，无法与对话内 Turn 进度关联 |
-
-## 用户意图锚
-
-| ID | 用户原话 | 来源 | 关键修饰语 | 架构师解读 |
-|----|---------|------|-----------|-----------|
-| UA-1 | "如何记录、记录在哪、如何更新或移除" | 对话 | 记录/更新/移除 | 产物需要完整的 CRUD + 生命周期管理 |
-| UA-2 | "各个海獭如何感知到" | 对话 | 感知 | 需要发现机制，新进场海獭能快速了解产物全景 |
-| UA-3 | "产物肯定是具备时效的" | 对话 | 时效 | 产物有生命周期，需要状态管理 |
-| UA-4 | "append-only 但有状态管理" | 对话 | append-only + 状态 | 不删除记录，通过状态标记下线 |
-| UA-5 | "用 turn 机制来反映存活周期" | 对话 | turn 机制 | 用 Turn 编号而非时间戳度量产物存活 |
+# 时间
+created_at: 2026-07-20
+---
 
 ## 设计决策
 

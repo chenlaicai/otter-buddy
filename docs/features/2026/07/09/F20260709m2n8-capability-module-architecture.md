@@ -1,13 +1,29 @@
 ---
 id: F20260709m2n8
 title: capability-module-architecture
-from_ids: [F20260709x7k3]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档记录 S2（能力模块架构设计）的全部产出物。基于 S1 产品形态定义（F20260709x7k3）和 Issue #3 设计哲学，设计系统架构。 S1 完成了产品形态定义：大獭+临时小獭模型、三层记忆系统、对话树、重启獭生、统一能力库、8 个核心用例、5 个限界上下文。S2 基于 S...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709x7k3
+
+
+# 元数据
+status: draft
+change_type: feature
 tags: [architecture, design, c4, ddd]
 modules: [architecture]
-doc_kind: spec
-status: draft
+
+# 时间
 created_at: 2026-07-09
 ---
+
 
 # F20260709m2n8 [architecture] 能力模块架构设计（S2）
 

@@ -1,13 +1,33 @@
 ---
 id: F20260713u9v4
 title: ui-frontend-design
-from_ids: [F20260709x7k3, F20260709m2n8, F20260709p4q7, F20260713i5k2, F20260713o4t8]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。进入实现阶段后不得单方面修改，如需变更须通过问题卡片向用户提出并确认。 > 本文档设计 Otter Buddy 的前端 UI。基于 S1 产品形态定义（8 个核心用例）、S2 架构设计（React 19 + Tailwind 4 + Hon...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260709x7k3
+    - F20260709m2n8
+    - F20260709p4q7
+    - F20260713i5k2
+    - F20260713o4t8
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [design, ui, frontend, react]
 modules: [web]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-13
 ---
+
 
 # F20260713u9v4 [web] UI 前端设计
 

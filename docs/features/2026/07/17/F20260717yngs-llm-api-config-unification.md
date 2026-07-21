@@ -1,43 +1,27 @@
-# F20260717yngs - 配置系统迁移至 config.yaml + LLM API 配置统一
+---
+id: F20260717yngs
+title: llm-api-config-unification
+doc_type: feature
 
-## 元信息
+# 记忆索引
+summary: |
+  统一 LLM API 配置架构，支持自定义 Provider 和多模型切换。
+  通过 config.yaml 集中管理 LLM 配置，替代分散的环境变量。
 
-| 字段 | 值 |
-|------|-----|
-| 特性编号 | F20260717yngs |
-| 创建时间 | 2026-07-17 |
-| 状态 | 实现完成 |
-| 变更类型 | feature + incompatible |
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713i5k2   # infra-llm-agent-embedding
 
-## 概述
+# 元数据
+status: locked
+change_type: feature
+tags: [llm, config, provider, api, architecture]
+modules: [src/frameworks/llm/, config/]
 
-将配置系统从 `.env` + `process.env` 迁移到 `config.yaml` + 独立配置读取模块。同时将 LLM API URL 和 API Key 纳入统一配置体系，支持自定义 API 端点（代理、私有部署），API Key 作为配置项统一管理。
-
-## 用户意图锚
-
-| ID | 用户原话 | 来源 | 关键修饰语 | 架构师解读 |
-|----|----------|------|------------|------------|
-| UA-1 | "为什么我看.env.example中没有api url？" | 消息 #1 | .env.example、没有、api url | 用户期望在配置中看到 API URL 配置项 |
-| UA-2 | "那不行，我不一定是用这两个api url" | 消息 #2 | 不一定、两个 | 用户使用非标准 API 端点（代理或私有部署），不局限于 OpenAI/Anthropic 官方 URL |
-| UA-3 | "必须把这个配置也作为配置" | 消息 #2 | 必须、作为配置 | API URL 必须成为可配置项，不是硬编码 |
-| UA-4 | "api key也作为配置项，不要让我又去填环境变量" | 消息 #2 | 也、作为配置项、不要、又去填环境变量 | API Key 必须作为配置项统一管理，不要求用户额外设置环境变量 |
-| UA-5 | "为什么不能用经典代码仓的config.yaml这种" | 消息 #5 | 经典、config.yaml | 用户期望使用结构化配置文件，而非扁平的环境变量 |
-| UA-6 | "我更倾向于有一个独立的配置项读取模块，然后供所有的业务模块使用" | 消息 #5 | 独立的、配置项读取模块、供所有业务模块使用 | 用户期望统一的配置读取入口，所有模块通过同一接口获取配置 |
-| UA-7 | "代码仓只保留一份example，然后本地自行看护一份真正的配置文件不就行了" | 消息 #7 | example、本地、真正的配置文件 | 用户确认 example + 本地配置文件的模式，与 .env.example 同理 |
-
-## 行为条目
-
-| ID | 行为 | 预期 | 来源 |
-|----|------|------|------|
-| B-1 | 配置文件迁移 | 所有配置从 `.env` + `process.env` 迁移到 `config/config.yaml` | ← UA-5, UA-6 |
-| B-2 | 配置模板 | 代码仓库保留 `config/config.yaml.example` 作为配置模板，`config.yaml` 加入 `.gitignore` | ← UA-7 |
-| B-3 | 独立配置读取模块 | 新增 `config-service.ts`，导出与现有 `config` 同构的不可变对象，消费者代码不变 | ← UA-6 |
-| B-4 | API Base URL 可配置 | `config.yaml` 的 `llm.apiBaseUrl` 字段可覆盖默认 API 端点 | ← UA-1, UA-2, UA-3 |
-| B-5 | API Key 统一配置 | `config.yaml` 的 `llm.apiKey` 字段作为 API Key 来源 | ← UA-4 |
-| B-6 | 自定义 Provider 构造 | 当配置了 `apiBaseUrl` 或 `apiKey` 时，使用 `createProvider()` 构造自定义 provider，复用 pi-ai 内置模型列表和 API handler | ← UA-2, UA-3 |
-| B-7 | 默认行为不变 | 未配置 `apiBaseUrl` 和 `apiKey` 时，使用 pi-ai 默认的 provider 工厂 | ← UA-4 |
-| B-8 | 启动校验 | 配置文件缺失或必填字段未配置时，启动阶段给出明确错误提示 | ← UA-6 |
-| B-9 | 配置校验 | 解析 YAML 后进行必填字段、类型、枚举值校验，校验失败启动报错 | ← UA-6 |
+# 时间
+created_at: 2026-07-17
+---
 
 ## 设计方案
 

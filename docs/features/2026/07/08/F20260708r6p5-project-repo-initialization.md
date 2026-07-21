@@ -1,13 +1,27 @@
 ---
 id: F20260708r6p5
 title: project-repo-initialization
-from_ids: []
-tags: [config, infrastructure]
-modules: [project-setup]
-doc_kind: spec
+doc_type: feature
+
+# 记忆索引
+summary: |
+  otter-buddy（海獭）项目代码仓初始化，建立项目结构、配置文件、开发环境。
+  以 Agent 为本、Chat as Substrate、记忆系统为核心的设计哲学。
+
+# 因果链路（正向依赖）
+causal_links:
+  from: []
+
+# 元数据
 status: locked
+change_type: feature
+tags: [config, infrastructure, project-setup]
+modules: [project-setup]
+
+# 时间
 created_at: 2026-07-08
 ---
+
 
 # F20260708r6p5 [project-setup] 项目代码仓初始化
 

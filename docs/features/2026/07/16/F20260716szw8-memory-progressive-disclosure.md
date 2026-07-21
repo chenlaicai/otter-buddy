@@ -1,13 +1,30 @@
 ---
 id: F20260716szw8
 title: memory-progressive-disclosure
-from_ids: [F20260713m5q3, F20260709m2n8]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档设计记忆系统的渐进式披露召回机制。基于用户提出的"渐进式披露"原则，改进当前记忆系统的召回阶段，避免上下文爆炸，提升检索效率和用户体验。 > **设计共识**：渐进式披露是检索行为的交互模式，不是数据存储的粒度。通过 detail_level 参数控制返回内容的详细程度，让 AI 能...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713m5q3
+    - F20260709m2n8
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [design, memory, progressive-disclosure, retrieval, granularity]
 modules: [domain/memory, interface-adapters/agent-runtime]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-16
 ---
+
 
 # F20260716szw8 [memory] 记忆系统渐进式披露召回机制
 

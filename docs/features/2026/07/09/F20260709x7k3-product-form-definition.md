@@ -1,13 +1,29 @@
 ---
 id: F20260709x7k3
 title: product-form-definition
-from_ids: [F20260708r6p5]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 本文档记录 S1（产品形态确认）的全部产出物。重点记录"为什么这样设计"而非仅仅是"设计了什么"。 otter-buddy 项目在完成代码仓初始化（F20260708r6p5）后，需要确定产品形态。Issue #3 记录了初始的设计哲学和架构决策（8 项已锁定决策 + 8 个关键洞察），但...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260708r6p5
+
+
+# 元数据
+status: draft
+change_type: feature
 tags: [product, design, architecture]
 modules: [product-setup]
-doc_kind: spec
-status: draft
+
+# 时间
 created_at: 2026-07-09
 ---
+
 
 # F20260709x7k3 [product-setup] 产品形态定义（S1）
 

@@ -1,13 +1,30 @@
 ---
 id: F20260717d4ab
 title: invocation-abort-mechanism
-from_ids: [F20260713e8n4, F20260716bte2]
+doc_type: feature
+
+# 记忆索引
+summary: |
+  > 以下章节在需求收敛与设计阶段（代码前）完成并锁定。 当前系统在 agent 流式响应过程中，用户可通过 `POST /api/messages/:id/abort` 或客户端断连触发中断。**中断链路本身已能工作**（abort → session.abort() → LLM 停止生成），...
+
+
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713e8n4
+    - F20260716bte2
+
+
+# 元数据
+status: locked
+change_type: feature
 tags: [feature, agent-runtime, abort, graceful-shutdown]
 modules: [agent-runtime, conversation]
-doc_kind: spec
-status: locked
+
+# 时间
 created_at: 2026-07-17
 ---
+
 
 # F20260717d4ab [invocation-abort-mechanism] Agent 流式中断优雅收尾
 

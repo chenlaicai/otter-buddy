@@ -1,47 +1,28 @@
-# F20260720n5p1 - 合并关键事实到统一产物模型
+---
+id: F20260720n5p1
+title: merge-key-fact-into-resource
+doc_type: feature
 
-## 元信息
+# 记忆索引
+summary: |
+  将 KeyFact 合并到 LinkedResource，统一制品模型。
+  消除三层记忆架构的复杂性，简化为两层，降低 Agent 认知负担。
 
-- **特性编号**：F20260720n5p1
-- **创建日期**：2026-07-20
-- **状态**：development
-- **变更类型**：refactor
-- **模块**：conversation
+# 因果链路（正向依赖）
+causal_links:
+  from:
+    - F20260713m5q3   # domain-memory
+    - F20260709p4q7   # data-model-design
 
-## 问题背景
+# 元数据
+status: development
+change_type: refactor
+tags: [key-fact, linked-resource, memory, unification]
+modules: [src/entities/conversation/, src/usecases/conversation/, src/frameworks/db/conversation/]
 
-### 现象
-
-对话子系统有两套平行的"关键信息"机制：`KeyFact`（关键事实）和 `LinkedResource`（链接资源/外部产物）。两者定位雷同——都是绑定到对话的重要信息，都有记忆索引，但数据模型、存储表、API 路由、前端状态完全独立。
-
-#49 已将 `LinkedResource` 升级为完整的产物生命周期系统（三态状态机、分组、替代链、轮次感知），使其具备承载所有类型"关键资源"的能力。此时 `KeyFact` 作为独立概念的存在意义已弱化。
-
-1. **AI 认知负担**：Agent 需要理解两套模型（`key_facts` 表 + `linked_resources` 表），增加工具选择和上下文构建的复杂度
-2. **代码冗余**：Repository、Use Case、Controller、前端各层都有平行的 KeyFact / LinkedResource 两套方法
-3. **记忆层碎片化**：KeyFact 用 `key_info` 层 / `key_fact` 内容类型，LinkedResource 用 `working` 层 / `linked_resource` 内容类型，搜索结果需要跨层聚合
-4. **扩展受限**：KeyFact 无生命周期管理（不能 supersede/archive），无法与产物系统共享能力
-
-### 根因分析
-
-`KeyFact` 和 `LinkedResource` 在领域模型层面都是"对话关联的关键信息"，但实现层被当作两个独立实体，导致：
-
-| 重复点 | KeyFact | LinkedResource |
-|--------|---------|----------------|
-| DB 表 | `key_facts` | `linked_resources` |
-| Entity | `KeyFact` 接口 | `LinkedResource` 接口 |
-| Repository | `addKeyFact/getKeyFacts/deleteKeyFact/flagKeyFact` | `linkResource/getLinkedResources/deleteLinkedResource` |
-| Use Case | `ManageKeyInfo.addKeyFact/getKeyInfo` | `ManageKeyInfo.linkResource/getLinkedResources` |
-| API | `POST/DELETE/PATCH /key-facts` | `POST/DELETE /resources` |
-| 前端 state | `allKeyFacts` | `allLinkedRes` |
-| 记忆索引 | `key_info` 层 / `key_fact` 类型 | `working` 层 / `linked_resource` 类型 |
-
-## 用户意图锚
-
-| ID | 用户原话 | 来源 | 关键修饰语 | 架构师解读 |
-|----|---------|------|-----------|-----------|
-| UA-1 | "keyfact 完全可以放入到产物机制中" | 对话 | 放入 | KeyFact 变为 resourceType="fact" 的 LinkedResource |
-| UA-2 | "产物机制是一种灵活的机制，也是支持文本内容的" | 对话 | 灵活/文本 | 产物模型的 resourceType + content 字段足以承载文本事实 |
-| UA-3 | "统一一套比两套，让 AI 更好理解" | 对话 | 统一/AI 理解 | 合并的核心收益是降低 Agent 认知负担 |
+# 时间
+created_at: 2026-07-20
+---
 
 ## 设计决策
 
