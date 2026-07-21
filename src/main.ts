@@ -35,6 +35,9 @@ import { ManageTerminology } from "@usecases/memory/manage-terminology";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-terminology-repository";
 import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
+import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
+import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
+import { SyncDocuments } from "@usecases/document/sync-documents";
 import { CreateOtter } from "@usecases/otter/create-otter";
 import { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import { ManageSession } from "@usecases/otter/manage-session";
@@ -75,6 +78,32 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
       conversationId, granularity: "coarse", content,
     });
   }
+
+  async indexFeature(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
+    await this.storeMemory.execute({
+      layer: "document",
+      contentType: "feature",
+      sourceId: id,
+      sourceTable: "features",
+      conversationId: undefined,
+      granularity: "coarse",
+      content: summary,
+      metadata,
+    });
+  }
+
+  async indexResearch(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
+    await this.storeMemory.execute({
+      layer: "document",
+      contentType: "research",
+      sourceId: id,
+      sourceTable: "research",
+      conversationId: undefined,
+      granularity: "coarse",
+      content: summary,
+      metadata,
+    });
+  }
 }
 
 interface Repositories {
@@ -84,6 +113,8 @@ interface Repositories {
   terminology: SqliteTerminologyRepository;
   conversation: SqliteConversationRepository;
   settings: SqliteSettingsRepository;
+  feature: SqliteFeatureRepository;
+  research: SqliteResearchRepository;
 }
 
 interface UseCases {
@@ -111,6 +142,8 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
     terminology: new SqliteTerminologyRepository(db),
     conversation: new SqliteConversationRepository(db),
     settings: new SqliteSettingsRepository(db),
+    feature: new SqliteFeatureRepository(db),
+    research: new SqliteResearchRepository(db),
   };
 }
 
@@ -339,6 +372,24 @@ async function main(): Promise<void> {
   const { service: embeddingService, dispose } = await initEmbeddingService(config.embedding);
 
   const repos = initRepositories(db);
+
+  /** 文档同步：扫描 docs/ 目录并同步到数据库和记忆系统 */
+  const syncDocs = new SyncDocuments(
+    repos.feature,
+    repos.research,
+    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService)),
+    process.cwd()
+  );
+  const syncResult = await syncDocs.execute();
+  if (syncResult.synced > 0) {
+    logger.info(`Document sync: ${syncResult.synced} synced, ${syncResult.skipped} skipped, ${syncResult.archived} archived`);
+  }
+  if (syncResult.errors.length > 0) {
+    logger.warn(`Document sync errors: ${syncResult.errors.length}`);
+    for (const err of syncResult.errors) {
+      logger.warn(`  ${err.file}: ${err.error}`);
+    }
+  }
 
   /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */
   const agentGateway = await initAgentSessionFactory({

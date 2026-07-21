@@ -1,0 +1,43 @@
+import type Database from "better-sqlite3";
+import type { ResearchRepository } from "../../../usecases/document/research-repository";
+import type { ResearchDocument, ResearchStatus } from "../../../entities/document/research";
+import { rowToEntity, entityToRow } from "./research-mapper";
+import type { ResearchRow } from "./research-mapper";
+
+export class SqliteResearchRepository implements ResearchRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  async findById(id: string): Promise<ResearchDocument | null> {
+    const row = this.db.prepare("SELECT * FROM research WHERE id = ?").get(id) as ResearchRow | undefined;
+    return row ? rowToEntity(row) : null;
+  }
+
+  async findAll(): Promise<ResearchDocument[]> {
+    const rows = this.db.prepare("SELECT * FROM research ORDER BY created_at DESC").all() as ResearchRow[];
+    return rows.map(rowToEntity);
+  }
+
+  async insert(doc: ResearchDocument): Promise<void> {
+    const row = entityToRow(doc);
+    this.db.prepare(`
+      INSERT INTO research (id, title, summary, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      row.id,
+      row.title,
+      row.summary,
+      row.exploration_type,
+      row.status,
+      row.tags,
+      row.conclusion,
+      row.causal_links_from,
+      row.supersedes,
+      row.file_path,
+      row.created_at
+    );
+  }
+
+  async updateStatus(id: string, status: ResearchStatus): Promise<void> {
+    this.db.prepare("UPDATE research SET status = ? WHERE id = ?").run(status, id);
+  }
+}
