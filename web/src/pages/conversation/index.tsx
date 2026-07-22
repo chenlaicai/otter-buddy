@@ -201,6 +201,18 @@ function ConversationPage() {
           setStreaming(null)
         },
         'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
+        'message.failed': () => {
+          /** speak 重试：当前消息失败，清除 streaming，等待重试的 message.start */
+          setStreaming(null)
+        },
+        'system.message': (data) => {
+          /** speak 重试：系统提醒消息 */
+          const sysMsg: LocalMessage = {
+            id: data.messageId, st: 'system', si: 'system',
+            content: data.content, ts: nowTs(), dur: null,
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), sysMsg] }))
+        },
         'agent.idle': () => {
           /** agent.idle 仅表示 agent 结束，message.complete 才是消息完成信号。
            *  无需 fallback 定时器：所有路径（正常完成、speak 重试、异常）最终都会

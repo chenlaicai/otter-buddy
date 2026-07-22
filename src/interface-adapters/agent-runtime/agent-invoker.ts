@@ -330,8 +330,15 @@ export class AgentInvoker {
       /** 第一次：fail + 系统提醒 + 重试 */
       try { await this.sendMessage.fail(messageId, "[系统] 未调用 speak 工具结束发言"); } catch { /* ignore */ }
 
-      await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
+      /** 通知前端当前消息失败，清除 streaming 状态 */
+      onSSEEvent?.({ event: "message.failed", data: { messageId } });
 
+      const sysMsg = await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
+
+      /** 通知前端系统消息已创建 */
+      onSSEEvent?.({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+
+      /** 重试：递归调用 invokeConversation，会发送新的 message.start 等事件 */
       const retryResult = await this.invokeConversation({
         otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount: 1,
       });
