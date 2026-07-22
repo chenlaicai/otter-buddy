@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { OtterConfig, OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
+import type { OtterPromptConfig } from "@contract/api/otter";
 
 export class SqliteOtterConfigProvider implements OtterConfigProvider {
   constructor(private readonly db: Database.Database) {}
@@ -11,8 +12,18 @@ export class SqliteOtterConfigProvider implements OtterConfigProvider {
 
     if (!row) return null;
 
+    let systemPrompt: string | OtterPromptConfig | undefined;
+    if (row.system_prompt) {
+      try {
+        systemPrompt = JSON.parse(row.system_prompt);
+      } catch {
+        // JSON 解析失败，返回 undefined
+        systemPrompt = undefined;
+      }
+    }
+
     return {
-      systemPrompt: row.system_prompt ? JSON.parse(row.system_prompt) : undefined,
+      systemPrompt,
       otterType: row.otter_type as OtterType,
     };
   }

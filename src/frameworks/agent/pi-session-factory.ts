@@ -119,7 +119,7 @@ export class PiSessionFactory implements AgentGateway {
   ) {
     this.otterToolClient = cfg.otterToolClient;
     this.sessionStore = createAgentSessionStore(cfg.db);
-    this.sessionRestore = new SessionRestore(this.sessionStore, cfg.otterConfigProvider, logger);
+    this.sessionRestore = new SessionRestore(this.sessionStore, cfg.otterConfigProvider, logger, cfg.db);
     if (cfg.platformPromptFile) {
       const loaded = loadPlatformPromptFile(cfg.platformPromptFile);
       if (loaded) this.platformPrompt = loaded;
@@ -183,7 +183,7 @@ export class PiSessionFactory implements AgentGateway {
   async create(otterId: string, config: AgentConfig): Promise<void> {
     const release = await this.lockManager.acquire(`session:${otterId}`);
     try {
-      this._createSessionAndPersist(otterId, config, false);
+      await this._createSessionAndPersist(otterId, config, false);
     } finally {
       release();
     }
@@ -321,7 +321,7 @@ export class PiSessionFactory implements AgentGateway {
   ): Promise<AgentRunResult> {
     const release = await this.lockManager.acquire(`session:${otterId}`);
     try {
-      return await this._invokeInternal(otterId, message, options, 0);
+      return await this._invokeInternal(otterId, message, options);
     } finally {
       release();
     }
@@ -332,28 +332,14 @@ export class PiSessionFactory implements AgentGateway {
     otterId: string,
     message: string,
     options: InvokeOptions | undefined,
-    recursionDepth: number,
   ): Promise<AgentRunResult> {
-    // 递归深度保护
-    const MAX_RECURSION_DEPTH = 1;
-    if (recursionDepth > MAX_RECURSION_DEPTH) {
-      throw new Error(`Failed to invoke after ${MAX_RECURSION_DEPTH} retries for otter: ${otterId}`);
-    }
-
     // 前置校验
     if (!this.otterToolClient) {
       throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
     }
 
     // 1. 恢复或创建 session
-    const { sessionManager, needsRetry } = await this._restoreOrCreateSession(otterId, recursionDepth);
-    if (needsRetry) {
-      return this._invokeInternal(otterId, message, options, recursionDepth + 1);
-    }
-
-    if (!sessionManager) {
-      throw new Error(`Failed to restore or create session for otter: ${otterId}`);
-    }
+    const sessionManager = await this._restoreOrCreateSession(otterId);
 
     // 2. 从数据库加载配置
     const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
@@ -368,10 +354,13 @@ export class PiSessionFactory implements AgentGateway {
   /** 恢复或创建 session */
   private async _restoreOrCreateSession(
     otterId: string,
-    _recursionDepth: number,
-  ): Promise<{ sessionManager: SessionManager | null; needsRetry: boolean }> {
+  ): Promise<SessionManager> {
     await this.ensurePiCodingAgent();
-    return this.sessionRestore.restoreOrCreate(otterId, this.piCodingAgent!, this.cfg.sessionDir);
+    const result = await this.sessionRestore.restoreOrCreate(otterId, this.piCodingAgent!, this.cfg.sessionDir);
+    if (!result.sessionManager) {
+      throw new Error(`Failed to restore or create session for otter: ${otterId}`);
+    }
+    return result.sessionManager;
   }
 
   /** 使用 session 执行 invoke */

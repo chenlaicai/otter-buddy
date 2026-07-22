@@ -51,14 +51,25 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
 /** 简单的锁管理器，使用队列实现，避免竞态条件 */
 export class SimpleLockManager {
   private queues = new Map<string, Array<() => void>>();
+  private readonly defaultTimeout: number;
 
-  async acquire(key: string): Promise<() => void> {
+  constructor(timeoutMs: number = 30000) {
+    this.defaultTimeout = timeoutMs;
+  }
+
+  async acquire(key: string, timeoutMs?: number): Promise<() => void> {
+    const timeout = timeoutMs ?? this.defaultTimeout;
     const queue = this.queues.get(key) ?? [];
     this.queues.set(key, queue);
 
     // 如果队列不为空，等待前一个锁释放
     if (queue.length > 0) {
-      await new Promise<void>(resolve => queue.push(resolve));
+      await Promise.race([
+        new Promise<void>(resolve => queue.push(resolve)),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error(`Lock acquire timeout for key: ${key}`)), timeout)
+        ),
+      ]);
     }
 
     // 返回释放函数

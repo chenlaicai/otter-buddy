@@ -3,6 +3,7 @@
  */
 
 import fs from 'fs';
+import type Database from "better-sqlite3";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
@@ -22,6 +23,7 @@ export class SessionRestore {
     private readonly sessionStore: AgentSessionStore,
     private readonly otterConfigProvider: OtterConfigProvider,
     private readonly logger: Logger,
+    private readonly db: Database.Database,
   ) {}
 
   /** 恢复或创建 session */
@@ -37,11 +39,10 @@ export class SessionRestore {
       const existingConfig = this.otterConfigProvider.getConfig(otterId);
       if (existingConfig) {
         this.logger.info(`Session file missing for otter: ${otterId}, creating new session`);
-        this.createSessionAndPersist(otterId, {
+        return this.createAndReturnSession(otterId, {
           systemPrompt: existingConfig.systemPrompt,
           otterType: existingConfig.otterType,
-        }, piCodingAgent, sessionDir, true);
-        return { sessionManager: null, needsRetry: true };
+        }, piCodingAgent, sessionDir);
       }
       throw new Error(`No session or config found for otter: ${otterId}. Call create() first.`);
     }
@@ -55,8 +56,10 @@ export class SessionRestore {
       const restoredSessionId = sessionManager.getSessionId();
       if (!restoredSessionId) {
         this.logger.warn(`SessionManager.open() returned invalid state for: ${stored.sessionFile}, creating new session`);
-        this.recreateSession(otterId, piCodingAgent, sessionDir);
-        return { sessionManager: null, needsRetry: true };
+        return this.createAndReturnSession(otterId, {
+          systemPrompt: this.otterConfigProvider.getConfig(otterId)?.systemPrompt,
+          otterType: this.otterConfigProvider.getConfig(otterId)?.otterType ?? 'big',
+        }, piCodingAgent, sessionDir);
       }
 
       return { sessionManager, needsRetry: false };
@@ -68,9 +71,40 @@ export class SessionRestore {
         this.logger.warn(`Failed to open session file: ${stored.sessionFile}`, { error: err });
       }
       // 降级到 create()
-      this.recreateSession(otterId, piCodingAgent, sessionDir, err);
-      return { sessionManager: null, needsRetry: true };
+      return this.createAndReturnSession(otterId, {
+        systemPrompt: this.otterConfigProvider.getConfig(otterId)?.systemPrompt,
+        otterType: this.otterConfigProvider.getConfig(otterId)?.otterType ?? 'big',
+      }, piCodingAgent, sessionDir, err);
     }
+  }
+
+  /** 创建 session 并返回 sessionManager */
+  private createAndReturnSession(
+    otterId: string,
+    config: { systemPrompt?: string | OtterPromptConfig; otterType: string },
+    piCodingAgent: unknown,
+    sessionDir: string,
+    cause?: unknown,
+  ): SessionRestoreResult {
+    // 删除旧记录（如果存在）
+    this.sessionStore.delete(otterId);
+
+    // 创建 session
+    this.createSessionAndPersist(otterId, config, piCodingAgent, sessionDir, true);
+
+    // 获取新创建的 sessionFile
+    const stored = this.sessionStore.getWithFile(otterId);
+    if (!stored?.sessionFile) {
+      if (cause) {
+        throw new Error(`Failed to create session for otter: ${otterId}`, { cause });
+      }
+      throw new Error(`Failed to create session for otter: ${otterId}`);
+    }
+
+    // 打开新创建的 session
+    const SessionManagerClass = getSessionManagerClass(piCodingAgent);
+    const sessionManager = SessionManagerClass.open(stored.sessionFile);
+    return { sessionManager, needsRetry: false };
   }
 
   /** 创建 session 并持久化 */
@@ -109,11 +143,13 @@ export class SessionRestore {
 
     // 6. 使用事务保存配置和 session 映射
     try {
-      this.otterConfigProvider.setConfig(otterId, {
-        systemPrompt: config.systemPrompt,
-        otterType: config.otterType as OtterType,
-      });
-      this.sessionStore.setWithFile(otterId, sessionId, sessionFile);
+      this.db.transaction(() => {
+        this.otterConfigProvider.setConfig(otterId, {
+          systemPrompt: config.systemPrompt,
+          otterType: config.otterType as OtterType,
+        });
+        this.sessionStore.setWithFile(otterId, sessionId, sessionFile);
+      })();
     } catch (err) {
       // 事务失败时清理已创建的 session 文件
       try {
@@ -122,27 +158,6 @@ export class SessionRestore {
         // 清理失败不阻塞错误抛出
       }
       throw err;
-    }
-  }
-
-  /** 重新创建 session（降级策略） */
-  private recreateSession(
-    otterId: string,
-    piCodingAgent: unknown,
-    sessionDir: string,
-    cause?: unknown,
-  ): void {
-    this.sessionStore.delete(otterId);
-    const existingConfig = this.otterConfigProvider.getConfig(otterId);
-    if (existingConfig) {
-      this.createSessionAndPersist(otterId, {
-        systemPrompt: existingConfig.systemPrompt,
-        otterType: existingConfig.otterType,
-      }, piCodingAgent, sessionDir, true);
-    } else if (cause) {
-      throw new Error(`Session file corrupted and no config found for otter: ${otterId}`, { cause });
-    } else {
-      throw new Error(`Session file invalid and no config found for otter: ${otterId}`);
     }
   }
 }
