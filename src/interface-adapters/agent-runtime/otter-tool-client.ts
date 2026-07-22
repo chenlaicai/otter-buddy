@@ -68,7 +68,7 @@ export interface OtterToolClient {
     };
     participant: {
       join(conversationId: string, otterId: string): Promise<ConversationParticipant>;
-      getActive(conversationId: string): Promise<ConversationParticipant[]>;
+      getActive(conversationId: string): Promise<Array<ConversationParticipant & { otterName: string }>>;
     };
     getActiveTurnNumber(conversationId: string): Promise<number>;
   };

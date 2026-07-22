@@ -28,7 +28,9 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
         });
       }
 
-      if (!status) {
+      if (status) {
+        resources = resources.filter(r => r.status === status);
+      } else {
         resources = resources.filter(r => r.status !== "archived");
       }
 

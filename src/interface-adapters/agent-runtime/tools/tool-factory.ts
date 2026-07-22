@@ -393,7 +393,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话中所有活跃参与者。返回参与者列表（含 Otter ID、状态、加入时间）。conversationId 由系统注入。",
+    description: "获取当前对话中所有活跃参与者。返回参与者列表（含 otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {},
@@ -402,6 +402,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
       const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       return textResponse(JSON.stringify(participants.map(p => ({
         otterId: p.otterId,
+        otterName: p.otterName,
         status: p.status,
         joinedAtTurnNumber: p.joinedAtTurnNumber,
       }))));

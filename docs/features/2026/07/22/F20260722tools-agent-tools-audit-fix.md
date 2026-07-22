@@ -148,8 +148,9 @@ execute body 开头增加 `if (targetOtterId === ctx.otterId)` 检查。
 1. `textResponse` 从 `tool-helpers.ts` 导出，`tool-factory.ts` 通过 re-export 保持 `ToolResponse` 的对外接口
 2. `create_linked_resource` 校验在 tool execute 层，不依赖 JSON Schema 条件表达式
 3. `delete_context` 全链路必须经过 use case 层，不绕过直接操作 repository
-4. `get_active_participants` 返回简化投影（不含 otterName），与 HTTP API 的 ParticipantDTO 不同
-5. 小獭不能获得 `pass_talking_stone`、`store_memory`、`create_otter`、`dissolve_otter`
+4. `get_active_participants` 返回含 otterName 的投影，便于 LLM 做路由决策
+5. 小獭不能获得 `pass_talking_stone`、`store_memory`、`create_otter`、`dissolve_otter`——这些是管理级操作
+6. 小獭**可以**获得 `list_artifacts` 和 `update_artifact_status`——小獭执行 code-implementation 和 adversarial-review 等实质性工作，需要管理自己产出的产物状态
 
 ## 改动范围
 
