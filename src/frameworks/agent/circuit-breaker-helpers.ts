@@ -2,7 +2,7 @@
  * 熔断器相关的辅助函数
  */
 
-import { ToolCallCircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
+import { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import type { Logger } from "@usecases/ports/logger";
 

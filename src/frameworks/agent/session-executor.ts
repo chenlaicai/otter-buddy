@@ -4,11 +4,10 @@
 
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { OtterPromptConfig } from "@contract/api/otter";
-import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { AgentEvent, AgentRunResult, InvokeOptions } from "./pi-session-factory";
-import { getCodingToolsForOtterType, getOtterToolNamesForType, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
+import { getCodingToolsForOtterType, getOtterToolNamesForType, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 
@@ -28,6 +27,16 @@ export interface SessionExecutorConfig {
   }>;
 }
 
+/** Session 执行参数 */
+export interface SessionExecuteParams {
+  otterId: string;
+  message: string;
+  options: InvokeOptions | undefined;
+  sessionManager: SessionManager;
+  otterConfig: { systemPrompt?: string | OtterPromptConfig; otterType: string };
+  piCodingAgent: unknown;
+}
+
 /** Session 执行器 */
 export class SessionExecutor {
   constructor(
@@ -39,21 +48,15 @@ export class SessionExecutor {
   ) {}
 
   /** 使用 session 执行 invoke */
-  async executeWithSession(
-    otterId: string,
-    message: string,
-    options: InvokeOptions | undefined,
-    sessionManager: SessionManager,
-    otterConfig: { systemPrompt?: string | OtterPromptConfig; otterType: string },
-    piCodingAgent: unknown,
-  ): Promise<AgentRunResult> {
+  async executeWithSession(params: SessionExecuteParams): Promise<AgentRunResult> {
+    const { otterId, message, options, sessionManager, otterConfig, piCodingAgent } = params;
     const otterType = otterConfig.otterType;
     const otterPromptConfig = otterConfig.systemPrompt;
 
     // 1. 构建工具配置并创建 AgentSession
-    const { session, sessionKey } = await this.createSessionWithTools(
+    const { session, sessionKey } = await this.createSessionWithTools({
       otterId, otterType, options, sessionManager, piCodingAgent,
-    );
+    });
 
     // 2. 熔断器
     const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(
@@ -86,13 +89,14 @@ export class SessionExecutor {
   }
 
   /** 创建带工具配置的 AgentSession */
-  private async createSessionWithTools(
-    otterId: string,
-    otterType: string,
-    options: InvokeOptions | undefined,
-    sessionManager: SessionManager,
-    piCodingAgent: unknown,
-  ) {
+  private async createSessionWithTools(params: {
+    otterId: string;
+    otterType: string;
+    options: InvokeOptions | undefined;
+    sessionManager: SessionManager;
+    piCodingAgent: unknown;
+  }) {
+    const { otterId, otterType, options, sessionManager, piCodingAgent } = params;
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType);
