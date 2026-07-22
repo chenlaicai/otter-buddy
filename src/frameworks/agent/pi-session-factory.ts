@@ -34,6 +34,7 @@ import { loadPlatformPromptFile } from "./platform-prompt-loader";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
+import { SessionRestore } from "./session-restore";
 
 /** Agent 事件（流式推送，与 AgentStreamEvent 兼容） */
 export interface AgentEvent {
@@ -95,6 +96,7 @@ export class PiSessionFactory implements AgentGateway {
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
+  private readonly sessionRestore: SessionRestore;
   private platformPrompt = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
@@ -117,6 +119,7 @@ export class PiSessionFactory implements AgentGateway {
   ) {
     this.otterToolClient = cfg.otterToolClient;
     this.sessionStore = createAgentSessionStore(cfg.db);
+    this.sessionRestore = new SessionRestore(this.sessionStore, cfg.otterConfigProvider, logger);
     if (cfg.platformPromptFile) {
       const loaded = loadPlatformPromptFile(cfg.platformPromptFile);
       if (loaded) this.platformPrompt = loaded;
@@ -191,57 +194,13 @@ export class PiSessionFactory implements AgentGateway {
    * @param allowOverwrite 是否允许覆盖已有记录（用于迁移场景）
    */
   private _createSessionAndPersist(otterId: string, config: AgentConfig, allowOverwrite: boolean): void {
-    // 1. 检查是否已存在
-    if (!allowOverwrite) {
-      const existing = this.sessionStore.get(otterId);
-      if (existing) {
-        throw new Error(`Agent already exists for otter: ${otterId}`);
-      }
-    }
-
-    // 2. 确保 piCodingAgent 已加载（获取 SessionManager）
-    const piCodingAgent = this.piCodingAgent;
-    if (!piCodingAgent) {
+    if (!this.piCodingAgent) {
       throw new Error("piCodingAgent not loaded. Call ensurePiCodingAgent() first.");
     }
-
-    // 3. 创建 SessionManager（新 session）
-    const SessionManagerClass = getSessionManagerClass(piCodingAgent);
-    const sessionManager = SessionManagerClass.create(process.cwd(), this.cfg.sessionDir);
-
-    // 4. 获取 sessionId 和 sessionFile
-    const sessionId = sessionManager.getSessionId();
-    const sessionFile = sessionManager.getSessionFile();
-
-    // 5. 验证
-    if (!sessionId || !sessionFile) {
-      throw new Error('Failed to create session: missing sessionId or sessionFile');
-    }
-
-    // 6. 验证文件存在
-    if (!fs.existsSync(sessionFile)) {
-      throw new Error(`Session file does not exist: ${sessionFile}`);
-    }
-
-    // 7. 使用事务保存配置和 session 映射
-    try {
-      this.cfg.db.transaction(() => {
-        this.cfg.otterConfigProvider.setConfig(otterId, {
-          systemPrompt: config.systemPrompt,
-          otterType: (config.context?.otterType as OtterType) ?? 'big',
-        });
-        // 使用 setWithFile，SQLite 的 ON CONFLICT 会自动处理 upsert
-        this.sessionStore.setWithFile(otterId, sessionId, sessionFile);
-      })();
-    } catch (err) {
-      // 事务失败时清理已创建的 session 文件
-      try {
-        fs.unlinkSync(sessionFile);
-      } catch {
-        // 清理失败不阻塞错误抛出
-      }
-      throw err;
-    }
+    this.sessionRestore.createSessionAndPersist(otterId, {
+      systemPrompt: config.systemPrompt,
+      otterType: (config.context?.otterType as OtterType) ?? 'big',
+    }, this.piCodingAgent, this.cfg.sessionDir, allowOverwrite);
   }
 
   async destroy(otterId: string): Promise<void> {
@@ -408,64 +367,7 @@ export class PiSessionFactory implements AgentGateway {
     _recursionDepth: number,
   ): Promise<{ sessionManager: SessionManager; needsRetry: boolean }> {
     await this.ensurePiCodingAgent();
-
-    // 从持久化存储读取 sessionFile
-    const stored = this.sessionStore.getWithFile(otterId);
-    if (!stored || !stored.sessionFile) {
-      // 降级策略：检查 OtterConfig 是否存在
-      const existingConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-      if (existingConfig) {
-        this.logger.info(`Session file missing for otter: ${otterId}, creating new session`);
-        this._createSessionAndPersist(otterId, {
-          systemPrompt: existingConfig.systemPrompt,
-          context: { otterType: existingConfig.otterType },
-        }, true);
-        return { sessionManager: null as unknown as SessionManager, needsRetry: true };
-      }
-      throw new Error(`No session or config found for otter: ${otterId}. Call create() first.`);
-    }
-
-    // 创建 SessionManager（恢复已有 session）
-    try {
-      const SessionManagerClass = getSessionManagerClass(this.piCodingAgent!);
-      const sessionManager = SessionManagerClass.open(stored.sessionFile);
-
-      // 验证 SessionManager 有效性
-      const restoredSessionId = sessionManager.getSessionId();
-      if (!restoredSessionId) {
-        this.logger.warn(`SessionManager.open() returned invalid state for: ${stored.sessionFile}, creating new session`);
-        this._recreateSession(otterId);
-        return { sessionManager: null as unknown as SessionManager, needsRetry: true };
-      }
-
-      return { sessionManager, needsRetry: false };
-    } catch (err) {
-      // 区分错误类型
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.logger.warn(`Session file not found: ${stored.sessionFile}, creating new session`);
-      } else {
-        this.logger.warn(`Failed to open session file: ${stored.sessionFile}`, { error: err });
-      }
-      // 降级到 create()
-      this._recreateSession(otterId, err);
-      return { sessionManager: null as unknown as SessionManager, needsRetry: true };
-    }
-  }
-
-  /** 重新创建 session（降级策略） */
-  private _recreateSession(otterId: string, cause?: unknown): void {
-    this.sessionStore.delete(otterId);
-    const existingConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-    if (existingConfig) {
-      this._createSessionAndPersist(otterId, {
-        systemPrompt: existingConfig.systemPrompt,
-        context: { otterType: existingConfig.otterType },
-      }, true);
-    } else if (cause) {
-      throw new Error(`Session file corrupted and no config found for otter: ${otterId}`, { cause });
-    } else {
-      throw new Error(`Session file invalid and no config found for otter: ${otterId}`);
-    }
+    return this.sessionRestore.restoreOrCreate(otterId, this.piCodingAgent!, this.cfg.sessionDir);
   }
 
   /** 使用 session 执行 invoke */
