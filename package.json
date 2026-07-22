@@ -30,6 +30,11 @@
     "sqlite-vec": "^0.1.6",
     "yaml": "^2.9.0"
   },
+  "overrides": {
+    "@huggingface/transformers": {
+      "onnxruntime-node": "1.23.2"
+    }
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.13",
@@ -43,7 +48,7 @@
   },
   "allowScripts": {
     "better-sqlite3@12.11.1": true,
-    "onnxruntime-node@1.24.3": true,
+    "onnxruntime-node@1.23.2": true,
     "sharp@0.34.5": true
   }
 }

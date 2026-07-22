@@ -44,6 +44,10 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   private requestId = 0;
 
+  get available(): boolean {
+    return this.readyState.ready;
+  }
+
   constructor(
     private readonly worker: Worker,
     private readonly logger: Logger,
@@ -64,6 +68,7 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
         this.readyState.loadError = new Error(msg.error);
         this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
         this.readyState.waiters.length = 0;
+        this.logger.warn(`Embedding model unavailable, falling back to FTS5-only: ${msg.error}`);
         return;
       }
       if (msg.type === "result" || msg.type === "error") {

@@ -434,6 +434,9 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, db: any,
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
 
+  /** 预加载 pi-coding-agent SDK，避免首次创建对话时冷启动阻塞 HTTP 响应 */
+  await agentGateway.warmup();
+
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,

@@ -53,6 +53,7 @@ function createTestDb(): Database.Database {
 /** 测试用 EmbeddingGateway mock（vec0 不可用时降级） */
 function mockEmbeddingGateway(): EmbeddingGateway {
   return {
+    available: false,
     embed: async () => {
       throw new Error("Embedding not available in test");
     },
@@ -174,6 +175,7 @@ describe("SearchMemory - progressive disclosure", () => {
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {
+      available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
 

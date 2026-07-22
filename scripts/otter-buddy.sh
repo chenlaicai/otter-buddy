@@ -47,20 +47,16 @@ cmd_start() {
   echo "[1/4] Building backend ..."
   cd "$PROJECT_DIR"
   local build_output
-  build_output=$(npm run build 2>&1)
-  local build_exit=$?
-  if [ $build_exit -ne 0 ]; then
-    echo "[error] Backend build failed (exit $build_exit):"
+  if ! build_output=$(npm run build 2>&1); then
+    echo "[error] Backend build failed:"
     echo "$build_output"
     exit 1
   fi
   echo "[1/4] Backend OK"
 
   echo "[2/4] Building frontend ..."
-  build_output=$(cd web && npm run build 2>&1)
-  build_exit=$?
-  if [ $build_exit -ne 0 ]; then
-    echo "[error] Frontend build failed (exit $build_exit):"
+  if ! build_output=$(cd web && npm run build 2>&1); then
+    echo "[error] Frontend build failed:"
     echo "$build_output"
     exit 1
   fi
