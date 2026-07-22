@@ -69,6 +69,14 @@ Same format as commit message. PR number is appended by GitHub automatically.
 ## Changes
 - File-by-file description
 
+## Opportunistic Fixes
+- List any issues found and fixed outside plan scope (same module/file/function)
+- If none, write "无"
+
+## Discovered Issues
+- List any issues found but not fixed in this PR, with issue numbers
+- If none, write "无"
+
 ## Test plan
 - [ ] Verification steps
 
