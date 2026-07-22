@@ -205,16 +205,12 @@ function ConversationPage() {
         },
         'message.aborted': () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }; showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
         'agent.idle': () => {
-          /** fallback: agent.idle 后 2s 如果 streaming 还在，强制清除 */
+          /** fallback: agent.idle 后如果 message.complete 未到达，兜底清除 streaming。
+           *  agent.idle 在 invoke() 内部触发，message.complete 在 invoke() 返回后才发送，
+           *  两者之间有 DB 查询延迟，2s 太短会误触发。10s 足够兜底又不影响正常流程。 */
           idleTimer = setTimeout(() => {
-            setStreaming(prev => {
-              if (prev) {
-                showToast('回复已完成', 'info')
-                return null
-              }
-              return prev
-            })
-          }, 2000)
+            setStreaming(prev => prev ? null : prev)
+          }, 10000)
         },
       }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
       sseCtrlRef.current = ctrl
