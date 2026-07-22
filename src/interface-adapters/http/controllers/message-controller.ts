@@ -74,29 +74,51 @@ export class MessageController {
         attachments: body.attachments,
       });
 
-      /** 3. 确定目标 Otter 列表 */
-      const otterIds = body.talkingStonePassedTo;
+      /** 3. 首轮立即派发（用户消息的 talkingStonePassedTo） */
+      const firstTurnTargets = body.talkingStonePassedTo;
 
-      /** 4. 创建 SSE 流（多 otter 共享同一个流，用 messageId 区分事件） */
+      /** 4. 创建 SSE 流（长连接贯穿多轮） */
+      const allTargets = new Set(firstTurnTargets);
       const { response, push, close } = streamEvents(c, () => {
-        for (const oid of otterIds) {
+        for (const oid of allTargets) {
           this.agentInvoker.abort(oid, "");
         }
       });
 
-      /** 5. 并发驱动所有 Otter 的 Agent 对话（不 await） */
-      const promises = otterIds.map(otterId =>
-        this.agentInvoker.invokeConversation({
-          otterId,
-          conversationId,
-          userMessageContent: body.body,
-          senderId: body.senderId,
-          onSSEEvent: push,
-        })
-      );
+      /** 5. Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
+      const dispatchLoop = async (otterIds: string[]) => {
+        while (otterIds.length > 0) {
+          /** 追踪所有目标（用于 abort） */
+          for (const id of otterIds) allTargets.add(id);
 
-      /** 6. 所有 otter 完成后关闭 SSE 流 */
-      Promise.allSettled(promises).then(() => {
+          const promises = otterIds.map(otterId =>
+            this.agentInvoker.invokeConversation({
+              otterId,
+              conversationId,
+              userMessageContent: body.body,
+              senderId: body.senderId,
+              onSSEEvent: push,
+            })
+          );
+          const results = await Promise.allSettled(promises);
+
+          /** 聚合本轮所有 otter 的 talkingStonePassedTo（从 turn 关闭结果） */
+          const nextTargets = new Set<string>();
+          for (const r of results) {
+            if (r.status === "fulfilled" && r.value.aggregatedTargets) {
+              for (const id of r.value.aggregatedTargets) {
+                nextTargets.add(id);
+              }
+            }
+          }
+
+          /** 过滤：排除用户 ID（用户不是 agent，不能被 invoke） */
+          otterIds = [...nextTargets].filter(id => id !== body.senderId);
+        }
+      };
+
+      /** 6. 启动调度循环（不 await，SSE 流在 dispatchLoop 结束后关闭） */
+      dispatchLoop(firstTurnTargets).then(() => {
         push({ event: "stream.end", data: {} });
         close();
       });

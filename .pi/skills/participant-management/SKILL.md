@@ -23,7 +23,7 @@ description: 参与者管理策略。定义何时以及如何查询、邀请和�
 
 ## 邀请新成员
 
-使用 `pass_talking_stone` 邀请指定 Otter 加入对话。
+使用 `invite_participant` 邀请指定 Otter 加入对话。
 
 ### 邀请规则
 

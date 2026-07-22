@@ -161,6 +161,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     );
   }
 
+  async startSpeaking(messageId: string, body: string, talkingStonePassedTo: string[]): Promise<void> {
+    const result = this.db.prepare(`
+      UPDATE messages SET status = 'speaking', body = ?, talking_stone_passed_to = ?
+      WHERE id = ? AND status = 'streaming'
+    `).run(body, JSON.stringify(talkingStonePassedTo), messageId);
+    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
+  }
+
   async completeMessage(input: {
     messageId: string; body: string; talkingStonePassedTo: string[];
     attachments: Attachment[] | null; completedAt: string;
@@ -169,14 +177,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     const result = this.db.prepare(`
       UPDATE messages SET status = 'completed', body = ?, talking_stone_passed_to = ?, attachments = ?,
         context_tokens = ?, context_tokens_max = ?, completed_at = ?
-      WHERE id = ? AND status = 'streaming'
+      WHERE id = ? AND status = 'speaking'
     `).run(
       input.body, JSON.stringify(input.talkingStonePassedTo),
       input.attachments ? JSON.stringify(input.attachments) : null,
       input.contextTokens ?? null, input.contextTokensMax ?? null,
       input.completedAt, input.messageId,
     );
-    if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in streaming status`);
+    if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in speaking status`);
   }
 
   async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
@@ -185,8 +193,8 @@ export class SqliteConversationRepository implements ConversationRepository {
     if (body !== undefined) { updates.unshift("body = ?"); params.unshift(body); }
     if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
     params.push(messageId);
-    const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status = 'streaming'`).run(...params);
-    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
+    const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status IN ('streaming', 'speaking')`).run(...params);
+    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
   }
 
   async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
@@ -198,9 +206,9 @@ export class SqliteConversationRepository implements ConversationRepository {
   async abortMessage(messageId: string, body: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
     const result = this.db.prepare(`
       UPDATE messages SET status = 'aborted', body = ?, talking_stone_passed_to = ?, completed_at = ?
-      WHERE id = ? AND status = 'streaming'
+      WHERE id = ? AND status IN ('streaming', 'speaking')
     `).run(body, JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
-    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
+    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
   }
 
   async getMaxSequenceNum(conversationId: string): Promise<number> {

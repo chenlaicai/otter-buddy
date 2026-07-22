@@ -209,7 +209,9 @@ function initUseCases(
 /** 构建 OtterToolClient 的 conversation.message 部分 */
 function buildMessageClient(uc: UseCases) {
   return {
-    complete: (messageId: string, params: { body: string; talkingStonePassedTo: string[] }) =>
+    startSpeaking: (messageId: string, params: { body: string; talkingStonePassedTo: string[] }) =>
+      uc.sendMessage.startSpeaking(messageId, params),
+    complete: (messageId: string, params?: { body?: string; talkingStonePassedTo?: string[] }) =>
       uc.sendMessage.complete(messageId, params),
     getById: (id: string) => uc.queryMessage.getMessageById(id),
     list: (convId: string, opts?: { limit?: number; before?: string }) =>

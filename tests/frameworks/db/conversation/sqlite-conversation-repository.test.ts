@@ -276,7 +276,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
   });
 
   describe("completeMessage", () => {
-    it("将 streaming 状态的消息转为 completed", async () => {
+    it("将 speaking 状态的消息转为 completed", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture());
 
@@ -287,6 +287,9 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
         completedAt: null,
         status: "streaming",
       }));
+
+      // 先调用 startSpeaking 将消息转为 speaking 状态
+      await repo.startSpeaking("msg-streaming", "助手的完整回复内容", ["otter-1"]);
 
       await repo.completeMessage({
         messageId: "msg-streaming",
@@ -306,7 +309,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
       expect(result!.contextTokensMax).toBe(4096);
     });
 
-    it("对非 streaming 状态的消息调用 completeMessage 抛出异常", async () => {
+    it("对非 speaking 状态的消息调用 completeMessage 抛出异常", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture());
       await repo.createCompletedMessage(messageFixture());
@@ -317,7 +320,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
         talkingStonePassedTo: ["otter-1"],
         attachments: null,
         completedAt: "2026-07-22T00:02:00Z",
-      })).rejects.toThrow(/not found or not in streaming status/);
+      })).rejects.toThrow(/not found or not in speaking status/);
     });
   });
 });
@@ -354,13 +357,13 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
       expect(result!.completedAt).toBe("2026-07-22T00:02:00Z");
     });
 
-    it("对非 streaming 状态的消息调用 failMessage 抛出异常", async () => {
+    it("对非 streaming/speaking 状态的消息调用 failMessage 抛出异常", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture());
       await repo.createCompletedMessage(messageFixture());
 
       await expect(repo.failMessage("msg-1", "2026-07-22T00:02:00Z")).rejects.toThrow(
-        /not found or not in streaming status/,
+        /not found or not in streaming\/speaking status/,
       );
     });
   });
@@ -386,13 +389,13 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
       expect(result!.completedAt).toBe("2026-07-22T00:02:00Z");
     });
 
-    it("对非 streaming 状态的消息调用 abortMessage 抛出异常", async () => {
+    it("对非 streaming/speaking 状态的消息调用 abortMessage 抛出异常", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture());
       await repo.createCompletedMessage(messageFixture());
 
       await expect(repo.abortMessage("msg-1", "中止", [], "2026-07-22T00:02:00Z")).rejects.toThrow(
-        /not found or not in streaming status/,
+        /not found or not in streaming\/speaking status/,
       );
     });
   });

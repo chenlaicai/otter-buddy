@@ -58,6 +58,7 @@ function mockRepo(initialConversations: Map<string, Conversation> = new Map()): 
     getMessagesByTurnId: vi.fn(async () => []),
     createCompletedMessage: vi.fn(),
     createStreamingMessage: vi.fn(),
+    startSpeaking: vi.fn(async () => {}),
     completeMessage: vi.fn(),
     failMessage: vi.fn(),
     abortMessage: vi.fn(),
