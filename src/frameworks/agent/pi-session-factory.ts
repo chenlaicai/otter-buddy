@@ -192,7 +192,11 @@ export class PiSessionFactory implements AgentGateway {
         });
         await this.resourceLoader.reload();
         const { skills } = this.resourceLoader.getSkills();
-        this.logger.info(`ResourceLoader discovered ${skills.length} skill(s) from .pi/skills`);
+        if (skills.length === 0) {
+          this.logger.warn(`ResourceLoader discovered 0 skills from .pi/skills — check if directory exists and contains SKILL.md files`);
+        } else {
+          this.logger.info(`ResourceLoader discovered ${skills.length} skill(s) from .pi/skills`);
+        }
       }
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
@@ -223,7 +227,6 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
       modelRuntime: this.modelRuntime as any,
     });
 
@@ -271,7 +274,6 @@ export class PiSessionFactory implements AgentGateway {
       tools: [],
       customTools: [],
       resourceLoader: this.resourceLoader ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
       modelRuntime: this.modelRuntime as any,
     });
 
@@ -289,7 +291,7 @@ export class PiSessionFactory implements AgentGateway {
    * 冷启动调用（R17）：创建 AgentSession → prompt → 释放。
    * 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）。
    */
-  // eslint-disable-next-line max-statements, max-lines-per-function, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
+  // eslint-disable-next-line max-statements, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
   async invoke(
     otterId: string,
     message: string,
@@ -333,7 +335,6 @@ export class PiSessionFactory implements AgentGateway {
       tools: codingTools,
       customTools: customTools as never,
       resourceLoader: this.resourceLoader ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- SDK 类型未声明 modelRuntime，但运行时支持
       modelRuntime: this.modelRuntime as any,
     });
 

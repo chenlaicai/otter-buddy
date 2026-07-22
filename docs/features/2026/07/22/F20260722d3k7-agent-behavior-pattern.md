@@ -326,14 +326,14 @@ After committing:
 
 ### 验收标准
 
-- [ ] `skills/code-implementation/SKILL.md` Core Principles 包含 worktree 隔离、PR-only、职责分离三条原则
-- [ ] `skills/code-implementation/SKILL.md` Workflow Step 1 明确"所有文件修改"必须在 worktree 中
-- [ ] `skills/code-implementation/SKILL.md` Self-Check 包含"所有发现的问题已修复"检查项
-- [ ] `skills/code-implementation/SKILL.md` Workflow Step 7 包含完整的 PR 提交流程
-- [ ] `skills/code-implementation/SKILL.md` Behavioral Rules 包含禁止"询问是否修复"规则和禁止逃避措辞列表
-- [ ] `skills/code-implementation/SKILL.md` Behavioral Rules 包含三条合规禁止规则
-- [ ] `skills/code-implementation/references/commit-convention.md` 包含 PR Flow 部分
-- [ ] `skills/adversarial-review/references/anti-patterns.md` 包含"Ask Whether to Fix"反模式
+- [ ] `.pi/skills/code-implementation/SKILL.md` Core Principles 包含 worktree 隔离、PR-only、职责分离三条原则
+- [ ] `.pi/skills/code-implementation/SKILL.md` Workflow Step 1 明确"所有文件修改"必须在 worktree 中
+- [ ] `.pi/skills/code-implementation/SKILL.md` Self-Check 包含"所有发现的问题已修复"检查项
+- [ ] `.pi/skills/code-implementation/SKILL.md` Workflow Step 7 包含完整的 PR 提交流程
+- [ ] `.pi/skills/code-implementation/SKILL.md` Behavioral Rules 包含禁止"询问是否修复"规则和禁止逃避措辞列表
+- [ ] `.pi/skills/code-implementation/SKILL.md` Behavioral Rules 包含三条合规禁止规则
+- [ ] `.pi/skills/code-implementation/references/commit-convention.md` 包含 PR Flow 部分
+- [ ] `.pi/skills/adversarial-review/references/anti-patterns.md` 包含"Ask Whether to Fix"反模式
 
 ### 测试设计
 
@@ -353,9 +353,9 @@ After committing:
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `skills/code-implementation/SKILL.md` | 修改 | Core Principles 新增 3 条原则；Workflow Step 1 强化；Self-Check 新增检查项；新增 Step 7；Behavioral Rules 新增 6 条规则 |
-| `skills/code-implementation/references/commit-convention.md` | 修改 | 新增 PR Flow 部分 |
-| `skills/adversarial-review/references/anti-patterns.md` | 修改 | 新增"Ask Whether to Fix"反模式 |
+| `.pi/skills/code-implementation/SKILL.md` | 修改 | Core Principles 新增 3 条原则；Workflow Step 1 强化；Self-Check 新增检查项；新增 Step 7；Behavioral Rules 新增 6 条规则 |
+| `.pi/skills/code-implementation/references/commit-convention.md` | 修改 | 新增 PR Flow 部分 |
+| `.pi/skills/adversarial-review/references/anti-patterns.md` | 修改 | 新增"Ask Whether to Fix"反模式 |
 
 ## 关联 [required]
 
