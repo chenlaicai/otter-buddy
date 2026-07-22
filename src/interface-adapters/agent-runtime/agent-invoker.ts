@@ -194,6 +194,7 @@ export class AgentInvoker {
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
       conversationId: params.conversationId,
+      messageId: params.messageId,
       onEvent: (e: AgentStreamEvent) => {
         this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
         /** speak 工具执行完毕后，抑制 SDK agent loop 继续产生的 assistant_text 事件 */
