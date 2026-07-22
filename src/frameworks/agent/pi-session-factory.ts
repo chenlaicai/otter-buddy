@@ -167,6 +167,12 @@ export class PiSessionFactory implements AgentGateway {
     this.otterToolClient = client;
   }
 
+  /** 预加载 pi-coding-agent SDK + ResourceLoader + ModelRuntime，避免首次对话冷启动阻塞 */
+  async warmup(): Promise<void> {
+    await this.ensurePiCodingAgent();
+    this.logger.info("PiSessionFactory warmup completed");
+  }
+
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     if (!this.piCodingAgent) {

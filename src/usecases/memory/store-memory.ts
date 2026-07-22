@@ -54,7 +54,7 @@ export class StoreMemory {
         });
       })
       .catch((err) => {
-        this.logger.warn(`Embedding generation failed for ${id}: ${err}`);
+        this.logger.debug(`Embedding generation failed for ${id}: ${err}`);
       });
 
     return id;

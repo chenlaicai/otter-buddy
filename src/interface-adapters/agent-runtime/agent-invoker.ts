@@ -188,12 +188,19 @@ export class AgentInvoker {
     onSSEEvent?: (event: AgentSSEEvent) => void;
   }) {
     let agentError: string | undefined;
+    let speakCompleted = false;
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
       conversationId: params.conversationId,
       onEvent: (e: AgentStreamEvent) => {
+        /** speak 工具执行完毕后，抑制 SDK agent loop 继续产生的 assistant_text 事件 */
+        if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
+          speakCompleted = true;
+        }
         const sse = mapToSSEEvent(e);
-        if (sse) params.onSSEEvent?.(sse);
+        if (sse && !(speakCompleted && sse.event === "assistant_text")) {
+          params.onSSEEvent?.(sse);
+        }
         const evt = mapToMessageEventInput(e, params.messageId);
         if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
           const m = err instanceof Error ? err.message : String(err);

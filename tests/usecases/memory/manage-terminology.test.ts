@@ -78,6 +78,7 @@ function createTestDb(): Database.Database {
 
 function mockEmbeddingGateway(): EmbeddingGateway {
   return {
+    available: false,
     embed: async () => {
       throw new Error("Embedding not available in test");
     },
