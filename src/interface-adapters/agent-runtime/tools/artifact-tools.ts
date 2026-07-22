@@ -1,8 +1,5 @@
-import type { AgentTool, ToolContext, ToolResponse } from "./tool-factory";
-
-function textResponse(text: string): ToolResponse {
-  return { content: [{ type: "text", text }], details: {} };
-}
+import type { AgentTool, ToolContext } from "./tool-factory";
+import { textResponse } from "./tool-helpers";
 
 export function createListArtifactsTool(ctx: ToolContext): AgentTool {
   return {
@@ -31,8 +28,14 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
         });
       }
 
-      if (!status) {
+      if (status) {
+        resources = resources.filter(r => r.status === status);
+      } else {
         resources = resources.filter(r => r.status !== "archived");
+      }
+
+      if (resourceType) {
+        resources = resources.filter(r => r.resourceType === resourceType);
       }
 
       return textResponse(JSON.stringify(resources.map(r => ({

@@ -18,7 +18,6 @@ export function canTransitionMemoryLayer(from: MemoryLayer, to: MemoryLayer): bo
 /** 记忆内容类型 */
 export type MemoryContentType =
   | "message"
-  | "conversation_summary"
   | "fact"
   | "linked_resource"
   | "feature"

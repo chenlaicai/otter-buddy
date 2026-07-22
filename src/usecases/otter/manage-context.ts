@@ -11,4 +11,8 @@ export class ManageContext {
   async set(otterId: string, key: string, value: string): Promise<void> {
     await this.repo.set(otterId, key, value);
   }
+
+  async delete(otterId: string, key: string): Promise<void> {
+    await this.repo.delete(otterId, key);
+  }
 }
