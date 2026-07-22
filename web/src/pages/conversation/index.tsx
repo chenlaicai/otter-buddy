@@ -250,8 +250,24 @@ function ConversationPage() {
           setStreamingMap(prev => { const next = new Map(prev); next.delete(data.messageId); return next })
         },
         'message.failed': (data) => {
-          liveEventsMap.delete(data.messageId)
-          setStreamingMap(prev => { const next = new Map(prev); next.delete(data.messageId); return next })
+          /** 保存失败消息的内容到 allMessages（否则 msg1 在重试时消失） */
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId) || []
+          const streamingEntry = streamingMapRef.current.get(messageId)
+          const otterId = streamingEntry?.otterId || ''
+          if (liveEvents.length > 0) {
+            const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
+            const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
+            const content = blocks.map(b => b.text).filter(Boolean).join('')
+            const failedMsg: LocalMessage = {
+              id: messageId, st: 'otter', si: otterId,
+              content: content || '[未完成]', ts: nowTs(), dur: null,
+              events: liveEvents,
+            }
+            setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), failedMsg] }))
+          }
+          liveEventsMap.delete(messageId)
+          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
         },
         'system.message': (data) => {
           const sysMsg: LocalMessage = {
