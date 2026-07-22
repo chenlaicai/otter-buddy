@@ -25,13 +25,15 @@ import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
-import { ToolCallCircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
-import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
+import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
+import type { CircuitBreakerConfig, ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import { config as appConfig } from "@frameworks/config";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { loadPlatformPromptFile } from "./platform-prompt-loader";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
+import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
+import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 
 /** Agent 事件（流式推送，与 AgentStreamEvent 兼容） */
 export interface AgentEvent {
@@ -79,9 +81,6 @@ type PiCodingAgentModule = typeof import("@earendil-works/pi-coding-agent");
 /** SessionManager 类型（从 pi-coding-agent 导入） */
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
-/** Token 阈值（超过则记录警告，与旧实现一致） */
-const TOKEN_WARNING_THRESHOLD = 100_000;
-
 let piCodingAgentCache: PiCodingAgentModule | null = null;
 
 async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
@@ -89,83 +88,6 @@ async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
     piCodingAgentCache = await import("@earendil-works/pi-coding-agent");
   }
   return piCodingAgentCache;
-}
-
-/**
- * 按 otterType 获取编码工具列表。
- * big otter 启用全部编码工具，small otter 不启用编码工具。
- */
-function getCodingToolsForOtterType(otterType: string | undefined): string[] {
-  if (!otterType || otterType === "big") {
-    return ["read", "write", "edit", "bash"];
-  }
-  /** small otter 不需要编码工具 */
-  return [];
-}
-
-/**
- * 按 otterType 获取 Otter 自定义工具名称白名单。
- * big otter 拥有全部工具，small otter 只有消息和记忆相关工具。
- */
-function getOtterToolNamesForType(otterType: string | undefined): string[] {
-  const allToolNames = [
-    "speak", "pass_talking_stone", "search_memory",
-    "create_otter", "dissolve_otter", "create_linked_resource", "get_memory_detail",
-    "get_message", "list_messages", "search_messages", "get_turn_history",
-    "get_context", "set_context", "delete_context",
-    "search_terminology", "add_terminology",
-    "list_artifacts", "update_artifact_status",
-    "get_active_participants",
-  ];
-
-  if (!otterType || otterType === "big") {
-    return allToolNames;
-  }
-
-  /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询，不含管理类工具 */
-  return [
-    "speak", "search_memory", "create_linked_resource", "get_memory_detail",
-    "get_message", "list_messages", "search_messages", "get_turn_history",
-    "get_context", "set_context", "delete_context",
-    "search_terminology", "add_terminology",
-    "list_artifacts", "update_artifact_status",
-    "get_active_participants",
-  ];
-}
-
-/** 简单的锁管理器，使用队列实现，避免竞态条件 */
-class SimpleLockManager {
-  private queues = new Map<string, Array<() => void>>();
-
-  async acquire(key: string): Promise<() => void> {
-    const queue = this.queues.get(key) ?? [];
-    this.queues.set(key, queue);
-
-    // 如果队列不为空，等待前一个锁释放
-    if (queue.length > 0) {
-      await new Promise<void>(resolve => queue.push(resolve));
-    }
-
-    // 返回释放函数
-    return () => {
-      const next = queue.shift();
-      if (next) {
-        next(); // 唤醒下一个等待者
-      } else {
-        this.queues.delete(key);
-      }
-    };
-  }
-
-  destroy(): void {
-    // 唤醒所有等待者，避免程序挂起
-    for (const queue of this.queues.values()) {
-      for (const resolve of queue) {
-        resolve();
-      }
-    }
-    this.queues.clear();
-  }
 }
 
 export class PiSessionFactory implements AgentGateway {
@@ -284,9 +206,7 @@ export class PiSessionFactory implements AgentGateway {
     }
 
     // 3. 创建 SessionManager（新 session）
-    const SessionManagerClass = (piCodingAgent as unknown as {
-      SessionManager: { create: (cwd: string, sessionDir?: string, options?: { parentSession?: string }) => SessionManager };
-    }).SessionManager;
+    const SessionManagerClass = getSessionManagerClass(piCodingAgent);
     const sessionManager = SessionManagerClass.create(process.cwd(), this.cfg.sessionDir);
 
     // 4. 获取 sessionId 和 sessionFile
@@ -336,7 +256,7 @@ export class PiSessionFactory implements AgentGateway {
   private async _destroyInternal(otterId: string): Promise<void> {
     // 1. 中止所有相关的活跃 session（先复制 key 列表，避免迭代时修改 Map）
     const keysToDelete: string[] = [];
-    for (const [key, entry] of this.activeSessions.entries()) {
+    for (const [key] of this.activeSessions.entries()) {
       if (key === otterId || key.startsWith(`${otterId}:`)) {
         keysToDelete.push(key);
       }
@@ -379,9 +299,7 @@ export class PiSessionFactory implements AgentGateway {
     await this.ensurePiCodingAgent();
 
     // 2. 创建新 SessionManager（chain，引用旧 session 作为 parent）
-    const SessionManagerClass = (this.piCodingAgent as unknown as {
-      SessionManager: { create: (cwd: string, sessionDir?: string, options?: { parentSession?: string }) => SessionManager };
-    }).SessionManager;
+    const SessionManagerClass = getSessionManagerClass(this.piCodingAgent!);
     const sessionManager = SessionManagerClass.create(process.cwd(), this.cfg.sessionDir, {
       ...(stored?.piSessionId && { parentSession: stored.piSessionId }),
     });
@@ -468,32 +386,59 @@ export class PiSessionFactory implements AgentGateway {
       throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
     }
 
-    // 1. 从持久化存储读取 sessionFile
+    // 1. 恢复或创建 session
+    const { sessionManager, needsRetry } = await this._restoreOrCreateSession(otterId, recursionDepth);
+    if (needsRetry) {
+      return this._invokeInternal(otterId, message, options, recursionDepth + 1);
+    }
+
+    // 2. 从数据库加载配置
+    const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+    if (!otterConfig) {
+      throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
+    }
+
+    // 3. 创建 AgentSession 并执行
+    return this._executeWithSession(otterId, message, options, sessionManager, otterConfig);
+  }
+
+  /** 恢复或创建 session */
+  private async _restoreOrCreateSession(
+    otterId: string,
+    _recursionDepth: number,
+  ): Promise<{ sessionManager: SessionManager; needsRetry: boolean }> {
+    await this.ensurePiCodingAgent();
+
+    // 从持久化存储读取 sessionFile
     const stored = this.sessionStore.getWithFile(otterId);
     if (!stored || !stored.sessionFile) {
       // 降级策略：检查 OtterConfig 是否存在
       const existingConfig = this.cfg.otterConfigProvider.getConfig(otterId);
       if (existingConfig) {
         this.logger.info(`Session file missing for otter: ${otterId}, creating new session`);
-        await this.ensurePiCodingAgent();
         this._createSessionAndPersist(otterId, {
           systemPrompt: existingConfig.systemPrompt,
           context: { otterType: existingConfig.otterType },
         }, true);
-      } else {
-        throw new Error(`No session or config found for otter: ${otterId}. Call create() first.`);
+        return { sessionManager: null as unknown as SessionManager, needsRetry: true };
       }
-      return this._invokeInternal(otterId, message, options, recursionDepth + 1);
+      throw new Error(`No session or config found for otter: ${otterId}. Call create() first.`);
     }
 
-    // 2. 创建 SessionManager（恢复已有 session）
-    let sessionManager: SessionManager;
+    // 创建 SessionManager（恢复已有 session）
     try {
-      await this.ensurePiCodingAgent();
-      const SessionManagerClass = (this.piCodingAgent as unknown as {
-        SessionManager: { open: (path: string, sessionDir?: string, cwdOverride?: string) => SessionManager };
-      }).SessionManager;
-      sessionManager = SessionManagerClass.open(stored.sessionFile);
+      const SessionManagerClass = getSessionManagerClass(this.piCodingAgent!);
+      const sessionManager = SessionManagerClass.open(stored.sessionFile);
+
+      // 验证 SessionManager 有效性
+      const restoredSessionId = sessionManager.getSessionId();
+      if (!restoredSessionId) {
+        this.logger.warn(`SessionManager.open() returned invalid state for: ${stored.sessionFile}, creating new session`);
+        this._recreateSession(otterId);
+        return { sessionManager: null as unknown as SessionManager, needsRetry: true };
+      }
+
+      return { sessionManager, needsRetry: false };
     } catch (err) {
       // 区分错误类型
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -502,107 +447,57 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.warn(`Failed to open session file: ${stored.sessionFile}`, { error: err });
       }
       // 降级到 create()
-      this.sessionStore.delete(otterId);
-      const existingConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-      if (existingConfig) {
-        this._createSessionAndPersist(otterId, {
-          systemPrompt: existingConfig.systemPrompt,
-          context: { otterType: existingConfig.otterType },
-        }, true);
-      } else {
-        throw new Error(`Session file corrupted and no config found for otter: ${otterId}`);
-      }
-      return this._invokeInternal(otterId, message, options, recursionDepth + 1);
+      this._recreateSession(otterId, err);
+      return { sessionManager: null as unknown as SessionManager, needsRetry: true };
     }
+  }
 
-    // 3. 验证 SessionManager 有效性
-    const restoredSessionId = sessionManager.getSessionId();
-    if (!restoredSessionId) {
-      this.logger.warn(`SessionManager.open() returned invalid state for: ${stored.sessionFile}, creating new session`);
-      this.sessionStore.delete(otterId);
-      const existingConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-      if (existingConfig) {
-        this._createSessionAndPersist(otterId, {
-          systemPrompt: existingConfig.systemPrompt,
-          context: { otterType: existingConfig.otterType },
-        }, true);
-      }
-      return this._invokeInternal(otterId, message, options, recursionDepth + 1);
+  /** 重新创建 session（降级策略） */
+  private _recreateSession(otterId: string, cause?: unknown): void {
+    this.sessionStore.delete(otterId);
+    const existingConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+    if (existingConfig) {
+      this._createSessionAndPersist(otterId, {
+        systemPrompt: existingConfig.systemPrompt,
+        context: { otterType: existingConfig.otterType },
+      }, true);
+    } else if (cause) {
+      throw new Error(`Session file corrupted and no config found for otter: ${otterId}`, { cause });
+    } else {
+      throw new Error(`Session file invalid and no config found for otter: ${otterId}`);
     }
+  }
 
-    // 4. 从数据库加载配置
-    const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-    if (!otterConfig) {
-      throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
-    }
+  /** 使用 session 执行 invoke */
+  private async _executeWithSession(
+    otterId: string,
+    message: string,
+    options: InvokeOptions | undefined,
+    sessionManager: SessionManager,
+    otterConfig: { systemPrompt?: string | OtterPromptConfig; otterType: string },
+  ): Promise<AgentRunResult> {
     const otterType = otterConfig.otterType;
     const otterPromptConfig = otterConfig.systemPrompt;
 
-    // 5. 构建工具配置（每次都传入）
-    const conversationId = options?.conversationId ?? "";
-    const messageId = options?.messageId;
-    const dynamicContext = options?.dynamicContext;
-    const otterToolNames = getOtterToolNamesForType(otterType);
-    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId);
-    const codingTools = getCodingToolsForOtterType(otterType);
+    // 1. 构建工具配置并创建 AgentSession
+    const { session, sessionKey } = await this._createSessionWithTools(
+      otterId, otterType, options, sessionManager,
+    );
 
-    this.logger.info('Tools registered for agent session', {
-      otterId, otterType,
-      codingTools,
-      customToolNames: customTools.map(t => t.name),
-      whitelist: [...codingTools, ...customTools.map(t => t.name)],
-    });
+    // 2. 熔断器
+    const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
 
-    // 6. 创建 AgentSession（恢复，传入 tools 和 customTools）
-    const piCodingAgent = this.piCodingAgent!;
-    const { session } = await piCodingAgent.createAgentSession({
-      model: this.cfg.model as never,
-      sessionManager,
-      /** tools 是 SDK 的工具白名单，必须包含 codingTools + 所有 customTools 名称，
-       *  否则 SDK 的 allowedToolNames 过滤器会把 customTools 全部排除。 */
-      tools: [...codingTools, ...customTools.map(t => t.name)],
-      customTools: customTools as never,
-      resourceLoader: this.resourceLoader ?? undefined,
-      modelRuntime: this.modelRuntime as any,
-    });
-
-    // 7. 注册活跃 session 引用，支持外部 abort + 工具调用计数（复合 key 避免并发覆盖）
-    const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
-    this.activeSessions.set(sessionKey, { abort: () => session.abort(), toolCallCount: 0 });
-
-    // 8. 熔断器
-    const { circuitBreaker, unregisterToolCall } = this.attachCircuitBreaker(session, otterId);
-
-    // 9. 构建 Otter 提示（支持字符串或 OtterPromptConfig）
-    const otterPrompt = this.buildOtterPrompt(otterPromptConfig);
-
-    // 10. 组装消息前缀：平台 prompt + Otter prompt（Skills 由 SDK ResourceLoader 原生注入）
+    // 3. 构建完整消息
+    const otterPrompt = buildOtterPrompt(otterPromptConfig);
     const staticPrompt = [this.platformPrompt, otterPrompt].filter(Boolean).join("\n\n");
-
-    // 11. 构建完整消息：系统提示 + 动态上下文 + 用户消息
-    const fullMessage = this.buildMessageWithContext(staticPrompt, message, dynamicContext);
+    const fullMessage = buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
 
     const activeEntry = this.activeSessions.get(sessionKey);
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
 
     try {
       await session.prompt(fullMessage);
-
-      /** speak 工具已直接 complete 消息，invoke() 只返回 tokenUsage 等元数据 */
-
-      /** 从 session stats 恢复 token usage */
-      const stats = session.getSessionStats();
-      const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
-      this.checkTokenWarning(otterId, stats.tokens);
-
-      /** token 超阈值警告 */
-      const total = stats.tokens.input + stats.tokens.output;
-      if (total > TOKEN_WARNING_THRESHOLD) {
-        this.logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
-      }
-
-      const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
-      return this.buildResult("", tokenUsage, circuitBreaker, ctxMax);
+      return this._buildInvokeResult(otterId, session, circuitBreaker);
     } catch (err) {
       /** 将 toolCallCount 附着到异常，供 handleInvokeError 在 finally 清理后仍可读取 */
       (err as Error & { _toolCallCount?: number })._toolCallCount =
@@ -615,6 +510,56 @@ export class PiSessionFactory implements AgentGateway {
       this.activeSessions.delete(sessionKey);
       session.dispose();
     }
+  }
+
+  /** 创建带工具配置的 AgentSession */
+  private async _createSessionWithTools(
+    otterId: string,
+    otterType: string,
+    options: InvokeOptions | undefined,
+    sessionManager: SessionManager,
+  ) {
+    const conversationId = options?.conversationId ?? "";
+    const messageId = options?.messageId;
+    const otterToolNames = getOtterToolNamesForType(otterType);
+    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId);
+    const codingTools = getCodingToolsForOtterType(otterType);
+
+    this.logger.info('Tools registered for agent session', {
+      otterId, otterType,
+      codingTools,
+      customToolNames: customTools.map(t => t.name),
+      whitelist: [...codingTools, ...customTools.map(t => t.name)],
+    });
+
+    const piCodingAgent = this.piCodingAgent!;
+    const { session } = await piCodingAgent.createAgentSession({
+      model: this.cfg.model as never,
+      sessionManager,
+      tools: [...codingTools, ...customTools.map(t => t.name)],
+      customTools: customTools as never,
+      resourceLoader: this.resourceLoader ?? undefined,
+      modelRuntime: this.modelRuntime as any,
+    });
+
+    const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
+    this.activeSessions.set(sessionKey, { abort: () => session.abort(), toolCallCount: 0 });
+
+    return { session, sessionKey };
+  }
+
+  /** 构建 invoke 结果 */
+  private _buildInvokeResult(
+    otterId: string,
+    session: { getSessionStats: () => { tokens: { input: number; output: number } } },
+    circuitBreaker: ToolCallCircuitBreaker,
+  ): AgentRunResult {
+    const stats = session.getSessionStats();
+    const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
+    checkTokenWarning(otterId, stats.tokens, this.logger);
+
+    const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
+    return buildResult("", tokenUsage, circuitBreaker, ctxMax);
   }
 
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
@@ -685,111 +630,7 @@ export class PiSessionFactory implements AgentGateway {
       }));
   }
 
-  /**
-   * 构建 Otter 提示（支持字符串或 OtterPromptConfig）。
-   * OtterPromptConfig 包含 systemPrompt 和 reminders，需按优先级排序后拼接。
-   */
-  private buildOtterPrompt(config: string | OtterPromptConfig | undefined): string {
-    if (!config) return "";
-    if (typeof config === "string") return config;
 
-    const parts: string[] = [];
-    if (config.systemPrompt) {
-      parts.push(config.systemPrompt);
-    }
-
-    /** System reminders（按优先级排序） */
-    if (config.reminders && config.reminders.length > 0) {
-      const sorted = [...config.reminders]
-        .sort((a, b) => {
-          const weightA = a.priority === "high" ? 0 : a.priority === "medium" ? 1 : 2;
-          const weightB = b.priority === "high" ? 0 : b.priority === "medium" ? 1 : 2;
-          return weightA - weightB;
-        });
-      for (const reminder of sorted) {
-        parts.push(`<system-reminder>\n${reminder.content}\n</system-reminder>`);
-      }
-    }
-
-    return parts.join("\n\n");
-  }
-
-  /**
-   * 构建包含系统提示和动态上下文的消息。
-   * 系统提示作为用户消息前缀注入（SDK 的 systemPrompt 由 ResourceLoader 内部管理，
-   * 无公开 API 覆盖；冷启动模型下 session 无持久 system prompt）。
-   */
-  private buildMessageWithContext(
-    staticPrompt: string,
-    message: string,
-    dynamicContext?: DynamicContext,
-  ): string {
-    const parts: string[] = [];
-
-    if (staticPrompt) {
-      parts.push(staticPrompt);
-    }
-
-    if (dynamicContext?.sessionSummary) {
-      parts.push(`## 会话摘要\n${dynamicContext.sessionSummary}`);
-    }
-
-    parts.push(message);
-
-    return parts.join("\n\n");
-  }
-
-  /** 熔断器 tool_execution_start 钩子 */
-  private attachCircuitBreaker(
-    session: { subscribe: (fn: (event: unknown) => void) => () => void; steer?: (text: string) => Promise<void>; abort: () => Promise<void> },
-    otterId: string,
-  ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined } {
-    const circuitBreaker = new ToolCallCircuitBreaker(this.circuitBreakerConfig, otterId, this.logger);
-
-    /** 通过 subscribe 拦截 tool_execution_start 事件实现熔断 */
-    const unregisterToolCall = session.subscribe((event: unknown) => {
-      const e = event as { type?: string; name?: string };
-      if (e.type === "tool_execution_start") {
-        const result = circuitBreaker.check(e.name ?? "unknown");
-        if (result.action === "terminate") {
-          session.abort();
-          return;
-        }
-        if (result.action === "steer") {
-          session.steer?.(result.reason ?? "Stop calling tools. Call speak now.");
-          circuitBreaker.setSteerDeadline(() => { session.abort(); });
-          return;
-        }
-      }
-    });
-
-    return { circuitBreaker, unregisterToolCall };
-  }
-
-  /** token 超阈值警告 */
-  private checkTokenWarning(otterId: string, tokens: { input: number; output: number }): void {
-    const total = tokens.input + tokens.output;
-    if (total > TOKEN_WARNING_THRESHOLD) {
-      this.logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
-    }
-  }
-
-  /** 构建执行结果（含熔断器元数据） */
-  private buildResult(
-    text: string,
-    tokenUsage?: { input: number; output: number },
-    circuitBreaker?: ToolCallCircuitBreaker,
-    ctxMax?: number,
-  ): AgentRunResult {
-    return {
-      text,
-      tokenUsage: tokenUsage
-        ? { input: tokenUsage.input, output: tokenUsage.output }
-        : undefined,
-      ctxMax,
-      circuitBreakerMetadata: circuitBreaker?.getMetadata(),
-    };
-  }
 }
 
 /**
