@@ -51,6 +51,8 @@ export interface ConversationRepository {
   // Message 生命周期
   createCompletedMessage(message: Message): Promise<void>;
   createStreamingMessage(message: Message): Promise<void>;
+  /** 开始发言：streaming → speaking，暂存 body + 发言石目标 */
+  startSpeaking(messageId: string, body: string, talkingStonePassedTo: string[]): Promise<void>;
   completeMessage(input: {
     messageId: string;
     body: string;

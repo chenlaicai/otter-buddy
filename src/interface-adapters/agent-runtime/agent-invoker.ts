@@ -16,6 +16,8 @@ export interface ConversationInvokeResult {
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number };
+  /** Turn 关闭后的聚合发言石目标 */
+  aggregatedTargets?: string[];
 }
 
 /** Pi 事件 -> SSE 事件映射 */
@@ -149,12 +151,13 @@ export class AgentInvoker {
         onSSEEvent,
       });
 
-      /** speak 工具已直接 complete 消息；检查状态处理未调 speak 的场景 */
+      /** agent loop 已结束，检查消息状态 */
       const msg = await this.queryMessage.getMessageById(message.id);
       this.logger.info('Agent invocation finished', { messageId: message.id, otterId, messageStatus: msg?.status, tokenUsage: result.tokenUsage });
 
-      if (msg?.status === "completed") {
-        /** 正常路径：agent 调用了 speak */
+      if (msg?.status === "speaking") {
+        /** 正常路径：agent 调用了 speak（状态为 speaking），现在真正完成消息 */
+        const completeResult = await this.sendMessage.complete(message.id);
         return await this.completeAgentInvocation({
           otterId,
           conversationId,
@@ -163,6 +166,7 @@ export class AgentInvoker {
           result,
           startTime,
           onSSEEvent,
+          aggregatedTargets: completeResult.turnClose.aggregatedTargets,
         });
       }
 
@@ -228,10 +232,11 @@ export class AgentInvoker {
     result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
     startTime: number;
     onSSEEvent?: (event: AgentSSEEvent) => void;
+    aggregatedTargets?: string[];
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, messageId, result, startTime, onSSEEvent } = params;
+    const { otterId, conversationId, messageId, result, startTime, onSSEEvent, aggregatedTargets } = params;
 
-    /** speak 工具已直接 complete 消息，此处仅发 SSE 事件和清理状态 */
+    /** 消息已在 invokeConversation 中通过 sendMessage.complete() 完成，此处发 SSE 事件和清理状态 */
 
     /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
     this.abortedOtters.delete(otterId);
@@ -272,7 +277,7 @@ export class AgentInvoker {
     /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
     onSSEEvent?.({ event: "turn.complete", data: {} });
 
-    return { messageId, duration, tokenUsage: result.tokenUsage };
+    return { messageId, duration, tokenUsage: result.tokenUsage, aggregatedTargets };
   }
 
   /**

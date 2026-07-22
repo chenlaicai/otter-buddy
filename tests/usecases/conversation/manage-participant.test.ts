@@ -91,6 +91,7 @@ function mockRepo(opts: {
       messages.push(msg);
     }),
     createStreamingMessage: vi.fn(),
+    startSpeaking: vi.fn(async () => {}),
     completeMessage: vi.fn(),
     failMessage: vi.fn(),
     abortMessage: vi.fn(),

@@ -34,7 +34,7 @@ export interface ToolContext {
 function createSpeakTool(ctx: ToolContext): AgentTool {
   return {
     name: "speak",
-    description: "结束本次发言。设置最终答复内容和发言石目标。这是你的'闭嘴'动作——调用后本次发言结束。",
+    description: "声明本次发言内容和发言石目标。调用后 agent loop 继续运行直到结束，消息才真正完成。",
     parameters: {
       type: "object",
       properties: {
@@ -49,7 +49,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       if (!ctx.currentMessageId) {
-        return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法结束发言。");
+        return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法声明发言。");
       }
 
       const body = params.body as string;
@@ -63,20 +63,20 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       }
 
       try {
-        await ctx.client.conversation.message.complete(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return textResponse(`[错误] 发言结束失败：${msg}。请重试。`);
+        return textResponse(`[错误] 发言声明失败：${msg}。请重试。`);
       }
-      return textResponse("[ok] 发言已结束。不要再生成任何内容。");
+      return textResponse("[ok] 发言已声明。不要再生成任何内容。");
     },
   };
 }
 
-function createPassTalkingStoneTool(ctx: ToolContext): AgentTool {
+function createInviteParticipantTool(ctx: ToolContext): AgentTool {
   return {
-    name: "pass_talking_stone",
-    description: "传递发言石，邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
+    name: "invite_participant",
+    description: "邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
     parameters: {
       type: "object",
       properties: {
@@ -395,7 +395,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [
     createSpeakTool(ctx),
-    createPassTalkingStoneTool(ctx),
+    createInviteParticipantTool(ctx),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
