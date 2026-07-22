@@ -38,10 +38,11 @@ describe('feature name', () => {
 
 ## When Tests Fail
 
-A test failure means one of two things:
+A test failure means one of three things:
 
 1. **The test is wrong** — it doesn't match the new design. Fix the test.
 2. **The implementation is wrong** — it deviates from the plan. Fix the code.
+3. **The plan is wrong** — the design itself produces incorrect behavior. Stop implementation, report to the plan author.
 
 Diagnose which before acting. Do not automatically revert business code to make tests pass.
 
