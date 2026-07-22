@@ -151,6 +151,7 @@ export class AgentInvoker {
 
       /** speak 工具已直接 complete 消息；检查状态处理未调 speak 的场景 */
       const msg = await this.queryMessage.getMessageById(message.id);
+      this.logger.info('Agent invocation finished', { messageId: message.id, otterId, messageStatus: msg?.status, tokenUsage: result.tokenUsage });
 
       if (msg?.status === "completed") {
         /** 正常路径：agent 调用了 speak */
@@ -172,7 +173,8 @@ export class AgentInvoker {
       });
     } catch (err) {
       await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
-      throw err;
+      /** 不 re-throw：错误已通过 SSE 通知前端，controller 用 Promise.allSettled 跟踪完成 */
+      return { messageId: message.id, duration: Date.now() - startTime };
     }
   }
 
@@ -192,14 +194,17 @@ export class AgentInvoker {
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
       conversationId: params.conversationId,
+      messageId: params.messageId,
       onEvent: (e: AgentStreamEvent) => {
+        this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
         /** speak 工具执行完毕后，抑制 SDK agent loop 继续产生的 assistant_text 事件 */
         if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
           speakCompleted = true;
         }
         const sse = mapToSSEEvent(e);
         if (sse && !(speakCompleted && sse.event === "assistant_text")) {
-          params.onSSEEvent?.(sse);
+          /** 注入 messageId，支持前端多 otter 并发时按消息分发事件 */
+          params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
         }
         const evt = mapToMessageEventInput(e, params.messageId);
         if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
@@ -243,13 +248,26 @@ export class AgentInvoker {
       status: 'success',
     });
 
+    const totalTokens = result.tokenUsage ? result.tokenUsage.input + result.tokenUsage.output : undefined;
     onSSEEvent?.({
       event: "message.complete",
       data: {
         messageId,
         duration: `${(duration / 1000).toFixed(1)}s`,
+        ctx: totalTokens,
+        ctxMax: result.ctxMax,
       },
     });
+
+    /** 补充写入 token 使用量（speak 工具 complete 时不携带 token 数据） */
+    if (result.tokenUsage) {
+      const totalTokens = result.tokenUsage.input + result.tokenUsage.output;
+      const ctxMax = result.ctxMax ?? 0;
+      this.sendMessage.updateTokenUsage(messageId, totalTokens, ctxMax).catch((err: unknown) => {
+        const m = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Failed to update token usage for ${messageId}: ${m}`);
+      });
+    }
 
     /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
     onSSEEvent?.({ event: "turn.complete", data: {} });
@@ -269,11 +287,13 @@ export class AgentInvoker {
     onSSEEvent?: (event: AgentSSEEvent) => void,
     senderId?: string,
   ): Promise<void> {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedOtters.has(otterId) });
     if (this.abortedOtters.delete(otterId)) {
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
       const toolCallCount =
         (err as Error & { _toolCallCount?: number })._toolCallCount ??
-        this.agentInvoke.getToolCallCount(otterId);
+        this.agentInvoke.getToolCallCount(otterId, messageId);
       const body = `[用户中断] 经过 ${toolCallCount} 次工具调用后，用户强制中断了当前发言。`;
       try {
         await this.sendMessage.abort(messageId, {
@@ -283,15 +303,16 @@ export class AgentInvoker {
       } catch {
         /** abort() 出错时不覆盖原始错误 */
       }
-      onSSEEvent?.({ event: "message.aborted", data: { messageId, abortBody: body } });
+      onSSEEvent?.({ event: "message.aborted", data: { messageId } });
     } else {
-      /** error 路径：标记失败，存错误信息到 body。SSE error 由 .catch 统一发送，避免重复 */
+      /** error 路径：标记失败，发送 error SSE 事件 */
       const msg = err instanceof Error ? err.message : "Unknown error";
       try {
         await this.sendMessage.fail(messageId, `[错误] ${msg}`);
       } catch {
         /** fail() 出错时不覆盖原始错误 */
       }
+      onSSEEvent?.({ event: "error", data: { message: msg, messageId, otterId } });
     }
   }
 
@@ -312,13 +333,21 @@ export class AgentInvoker {
     tokenUsage?: { input: number; output: number };
   }): Promise<ConversationInvokeResult> {
     const { messageId, otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount, startTime, tokenUsage } = params;
+    this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
       /** 第一次：fail + 系统提醒 + 重试 */
       try { await this.sendMessage.fail(messageId, "[系统] 未调用 speak 工具结束发言"); } catch { /* ignore */ }
 
-      await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
+      /** 通知前端当前消息失败，清除 streaming 状态 */
+      onSSEEvent?.({ event: "message.failed", data: { messageId } });
 
+      const sysMsg = await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
+
+      /** 通知前端系统消息已创建 */
+      onSSEEvent?.({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+
+      /** 重试：递归调用 invokeConversation，会发送新的 message.start 等事件 */
       const retryResult = await this.invokeConversation({
         otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount: 1,
       });
@@ -332,16 +361,16 @@ export class AgentInvoker {
     } catch { /* ignore */ }
 
     const duration = Date.now() - startTime;
-    onSSEEvent?.({ event: "message.complete", data: { messageId, duration: `${(duration / 1000).toFixed(1)}s` } });
-    onSSEEvent?.({ event: "turn.complete", data: {} });
+    /** msg2 终结：发送 message.failed（不是 complete），关闭消息生命周期 */
+    onSSEEvent?.({ event: "message.failed", data: { messageId } });
 
     return { messageId, duration, tokenUsage };
   }
 
   /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()） */
-  abort(otterId: string, _messageId: string): void {
+  abort(otterId: string, messageId: string): void {
     this.abortedOtters.add(otterId);
-    this.agentInvoke.abort(otterId);
+    this.agentInvoke.abort(otterId, messageId);
   }
 
   /** 构建 DynamicContext：会话摘要 + 交接摘要（B-CS-3）。记忆召回由 agent 通过 search_memory tool 主动触发 */

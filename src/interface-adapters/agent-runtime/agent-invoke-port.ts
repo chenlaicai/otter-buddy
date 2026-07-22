@@ -34,8 +34,8 @@ export interface InvokeOptions {
 
 export interface AgentInvokePort {
   invoke(otterId: string, message: string, options?: InvokeOptions): Promise<AgentRunResult>;
-  /** 中断指定 Otter 的 Agent 生成 */
-  abort(otterId: string): void;
+  /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
+  abort(otterId: string, messageId?: string): void;
   /** 获取指定 Otter 当前 session 的工具调用次数 */
-  getToolCallCount(otterId: string): number;
+  getToolCallCount(otterId: string, messageId?: string): number;
 }

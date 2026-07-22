@@ -44,32 +44,41 @@ cmd_start() {
     exit 1
   fi
 
-  echo "[1/4] Building backend ..."
+  echo "[1/5] Installing dependencies ..."
   cd "$PROJECT_DIR"
+  local install_output
+  if ! install_output=$(npm install 2>&1); then
+    echo "[error] npm install failed:"
+    echo "$install_output"
+    exit 1
+  fi
+  echo "[1/5] Dependencies OK"
+
+  echo "[2/5] Building backend ..."
   local build_output
   if ! build_output=$(npm run build 2>&1); then
     echo "[error] Backend build failed:"
     echo "$build_output"
     exit 1
   fi
-  echo "[1/4] Backend OK"
+  echo "[2/5] Backend OK"
 
-  echo "[2/4] Building frontend ..."
-  if ! build_output=$(cd web && npm run build 2>&1); then
+  echo "[3/5] Building frontend ..."
+  if ! build_output=$(cd web && npm install && npm run build 2>&1); then
     echo "[error] Frontend build failed:"
     echo "$build_output"
     exit 1
   fi
-  echo "[2/4] Frontend OK"
+  echo "[3/5] Frontend OK"
 
-  echo "[3/4] Starting on port $PORT ..."
+  echo "[4/5] Starting on port $PORT ..."
   : > "$LOG_FILE"
   PORT="$PORT" node dist/src/main.js >> "$LOG_FILE" 2>&1 &
   local pid=$!
   echo "$pid" > "$PID_FILE"
 
   # 等待服务就绪
-  echo -n "[4/4] Waiting for server"
+  echo -n "[5/5] Waiting for server"
   local i
   for i in $(seq 1 30); do
     if ! kill -0 "$pid" 2>/dev/null; then

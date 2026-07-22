@@ -404,17 +404,7 @@ async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGat
   await syncDocs.execute();
 }
 
-async function initAgentAndScheduler(repos: Repositories, uc: UseCases, db: any, model: any) {
-  const agentGateway = await initAgentSessionFactory({
-    model, db,
-    otterToolClient: {} as OtterToolClient,
-    platformPromptFile: "./prompts/platform/SYSTEM_PROMPT.md",
-    createTools,
-  }, logger);
-
-  const otterToolClient = buildOtterToolClient(uc);
-  agentGateway.setOtterToolClient(otterToolClient);
-
+async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory) {
   /** 预加载 pi-coding-agent SDK，避免首次创建对话时冷启动阻塞 HTTP 响应 */
   await agentGateway.warmup();
 
@@ -450,8 +440,21 @@ async function main(): Promise<void> {
   const repos = initRepositories(db);
   await syncDocuments(repos, embeddingService);
 
-  const uc = initUseCases(repos, {} as PiSessionFactory, embeddingService);
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, db, model);
+  /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */
+  const agentGateway = await initAgentSessionFactory({
+    model, db,
+    otterToolClient: {} as OtterToolClient,
+    platformPromptFile: "./prompts/platform/SYSTEM_PROMPT.md",
+    createTools,
+  }, logger);
+
+  const uc = initUseCases(repos, agentGateway, embeddingService);
+
+  /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
+  const otterToolClient = buildOtterToolClient(uc);
+  agentGateway.setOtterToolClient(otterToolClient);
+
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway);
 
   const settings: SettingsConfig = {
     provider: appConfig.llm.provider,

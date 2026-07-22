@@ -6,10 +6,10 @@ import { MessageInput } from './MessageInput'
 interface ChatViewProps {
   conversation: Conversation | null
   messages: Message[]
-  streamingMessage: StreamingState | null
+  streamingMessages: Map<string, StreamingState>
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
   onSend: (text: string, mentionOtterId?: string) => void
-  onStopStream: () => void
+  onStopStream: (messageId: string) => void
   onRetry: () => void
   onGoToSettings: () => void
   onCreateChild: () => void
@@ -70,7 +70,7 @@ export function ChatView(props: ChatViewProps) {
       {/* Message List */}
       <MessageList
         messages={props.messages}
-        streamingMessage={props.streamingMessage}
+        streamingMessages={props.streamingMessages}
         state={props.state}
         onStopStream={props.onStopStream}
         onRetry={props.onRetry}

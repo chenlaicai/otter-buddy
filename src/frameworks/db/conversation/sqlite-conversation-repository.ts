@@ -182,11 +182,17 @@ export class SqliteConversationRepository implements ConversationRepository {
   async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
     const updates: string[] = ["status = 'failed'", "completed_at = ?"];
     const params: unknown[] = [failedAt];
-    if (body !== undefined) { updates.unshift("body = ?"); params.push(body); }
+    if (body !== undefined) { updates.unshift("body = ?"); params.unshift(body); }
     if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
     params.push(messageId);
     const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status = 'streaming'`).run(...params);
     if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
+  }
+
+  async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
+    this.db.prepare(`UPDATE messages SET context_tokens = ?, context_tokens_max = ? WHERE id = ?`).run(
+      contextTokens, contextTokensMax, messageId,
+    );
   }
 
   async abortMessage(messageId: string, body: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {

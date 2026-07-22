@@ -307,6 +307,11 @@ export class SendMessage {
     return message;
   }
 
+  /** 更新消息的 token 使用量（agent invoke 完成后补充写入） */
+  async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
+    await this.repo.updateTokenUsage(messageId, contextTokens, contextTokensMax);
+  }
+
   /** 确保活跃 Turn 存在，无则创建新 Turn */
   private async ensureActiveTurn(conversationId: string) {
     const existing = await this.repo.getActiveTurn(conversationId);

@@ -34,7 +34,7 @@ function ConversationPage() {
   const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
   const [allLinkedRes, setAllLinkedRes] = useState<Record<string, LocalLinkedResource[]>>({})
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
-  const [streaming, setStreaming] = useState<StreamingState | null>(null)
+  const [streamingMap, setStreamingMap] = useState<Map<string, StreamingState>>(new Map())
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
@@ -46,8 +46,11 @@ function ConversationPage() {
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
 
   const sseCtrlRef = useRef<AbortController | null>(null)
-  const otterMsgIdRef = useRef<string>('')
+  const streamingMapRef = useRef<Map<string, StreamingState>>(new Map())
   const ciCounter = useRef(1)
+
+  /** 同步 streamingMap 到 ref（SSE 闭包内需要读取最新状态） */
+  useEffect(() => { streamingMapRef.current = streamingMap }, [streamingMap])
 
   // 定时任务 Hook
   const {
@@ -139,9 +142,10 @@ function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
-    // 从当前对话的参与者中获取 otterId
-    const otterId = mentionOtterId || activeOtters[0]?.id
-    if (!otterId) { showToast('没有可用的 Otter', 'error'); return }
+    const targetOtterIds = mentionOtterId
+      ? [mentionOtterId]
+      : activeOtters.map(o => o.id)
+    if (targetOtterIds.length === 0) { showToast('没有可用的 Otter', 'error'); return }
 
     const userMsg: LocalMessage = {
       id: 'tmp-' + Date.now(), st: 'user', si: 'user',
@@ -154,82 +158,139 @@ function ConversationPage() {
 
     try {
       const response = await api.sendMessage(activeId, {
-        senderId: 'user', talkingStonePassedTo: [otterId], body: text,
+        senderId: 'user', talkingStonePassedTo: targetOtterIds, body: text,
       })
       if (!response.ok) { showToast('发送失败', 'error'); return }
 
       const startTime = Date.now()
-      let otterMessageId = ''
-      const liveEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = []
-      let idleTimer: ReturnType<typeof setTimeout> | null = null
-
-      setStreaming({ otterId, duration: 0, events: [] })
+      /** 按 messageId 隔离的 liveEvents（每个 otter 独立） */
+      const liveEventsMap = new Map<string, Array<{ eventType: string; payload: Record<string, unknown> }>>()
 
       const ctrl = consumeSSE(response, {
-        'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
+        'message.start': (data) => {
+          const { messageId, otterId } = data
+          liveEventsMap.set(messageId, [])
+          setStreamingMap(prev => new Map(prev).set(messageId, {
+            messageId, otterId, duration: 0, events: [],
+          }))
+        },
         'assistant_toolcall': (data) => {
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId)
+          if (!liveEvents) return
           liveEvents.push({ eventType: 'assistant_toolcall', payload: { content: data.content } })
-          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
+          setStreamingMap(prev => {
+            const entry = prev.get(messageId)
+            if (!entry) return prev
+            const next = new Map(prev)
+            next.set(messageId, { ...entry, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 })
+            return next
+          })
         },
         'tool.result': (data) => {
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId)
+          if (!liveEvents) return
           liveEvents.push({ eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
-          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
+          setStreamingMap(prev => {
+            const entry = prev.get(messageId)
+            if (!entry) return prev
+            const next = new Map(prev)
+            next.set(messageId, { ...entry, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 })
+            return next
+          })
         },
         'assistant_text': (data) => {
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId)
+          if (!liveEvents) return
           liveEvents.push({ eventType: 'assistant_text', payload: { content: data.content } })
-          setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
+          setStreamingMap(prev => {
+            const entry = prev.get(messageId)
+            if (!entry) return prev
+            const next = new Map(prev)
+            next.set(messageId, { ...entry, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 })
+            return next
+          })
         },
         'message.complete': (data) => {
-          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId) || []
           const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
           const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
           const content = blocks.map(b => b.text).filter(Boolean).join('')
+          const streamingEntry = streamingMapRef.current.get(messageId)
+          const otterId = streamingEntry?.otterId || ''
           const finalMsg: LocalMessage = {
-            id: data.messageId || otterMessageId, st: 'otter', si: otterId,
-            content, ts: nowTs(), dur: data.duration, events: liveEvents.length > 0 ? liveEvents : undefined, ctx: data.ctx, ctxMax: data.ctxMax,
+            id: messageId, st: 'otter', si: otterId,
+            content, ts: nowTs(), dur: data.duration,
+            events: liveEvents.length > 0 ? liveEvents : undefined,
+            ctx: data.ctx, ctxMax: data.ctxMax,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
-          otterMsgIdRef.current = ''
-          setStreaming(null)
+          liveEventsMap.delete(messageId)
+          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
         },
         'error': (data) => {
-          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+          const { messageId, otterId } = data
           const errMsg: LocalMessage = {
-            id: otterMessageId || crypto.randomUUID(), st: 'otter', si: otterId,
+            id: messageId || crypto.randomUUID(), st: 'otter', si: otterId || 'unknown',
             content: `[错误] ${data.message}`, ts: nowTs(), dur: null,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), errMsg] }))
           showToast(`Agent 错误: ${data.message}`, 'error')
-          otterMsgIdRef.current = ''
-          setStreaming(null)
+          if (messageId) {
+            liveEventsMap.delete(messageId)
+            setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
+          }
         },
-        'message.aborted': () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }; showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
-        'agent.idle': () => {
-          /** fallback: agent.idle 后 2s 如果 streaming 还在，强制清除 */
-          idleTimer = setTimeout(() => {
-            setStreaming(prev => {
-              if (prev) {
-                showToast('回复已完成', 'info')
-                return null
-              }
-              return prev
-            })
-          }, 2000)
+        'message.aborted': (data) => {
+          showToast('回复已中断', 'info')
+          liveEventsMap.delete(data.messageId)
+          setStreamingMap(prev => { const next = new Map(prev); next.delete(data.messageId); return next })
         },
-      }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
+        'message.failed': (data) => {
+          /** 保存失败消息的内容到 allMessages（否则 msg1 在重试时消失） */
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId) || []
+          const streamingEntry = streamingMapRef.current.get(messageId)
+          const otterId = streamingEntry?.otterId || ''
+          if (liveEvents.length > 0) {
+            const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
+            const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
+            const content = blocks.map(b => b.text).filter(Boolean).join('')
+            const failedMsg: LocalMessage = {
+              id: messageId, st: 'otter', si: otterId,
+              content: content || '[未完成]', ts: nowTs(), dur: null,
+              events: liveEvents,
+            }
+            setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), failedMsg] }))
+          }
+          liveEventsMap.delete(messageId)
+          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
+        },
+        'system.message': (data) => {
+          const sysMsg: LocalMessage = {
+            id: data.messageId, st: 'system', si: 'system',
+            content: data.content, ts: nowTs(), dur: null,
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), sysMsg] }))
+        },
+        'agent.idle': () => { /* 信息性事件，不做处理 */ },
+      }, { onError: () => {
+        showToast('SSE 连接中断', 'error')
+        setStreamingMap(new Map())
+      } })
       sseCtrlRef.current = ctrl
     } catch (err) {
       console.error('Failed to send message:', err)
-      showToast('发送失败', 'error'); setStreaming(null)
+      showToast('发送失败', 'error'); setStreamingMap(new Map())
     }
   }, [activeId, activeOtters])
 
-  const stopStream = useCallback(() => {
-    if (otterMsgIdRef.current) {
-      api.abortMessage(otterMsgIdRef.current).catch((err) => console.error('Failed to abort message:', err))
-    }
-    sseCtrlRef.current?.abort()
-    setStreaming(null)
+  const stopStream = useCallback((messageId: string) => {
+    api.abortMessage(messageId).catch((err) => console.error('Failed to abort message:', err))
+    setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
   }, [])
 
   const handleSelectConv = useCallback((id: string) => { setActiveId(id); setPageState('normal') }, [])
@@ -401,7 +462,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={allOtters} />
-        <ChatView conversation={activeConv} messages={activeMessages} streamingMessage={streaming} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={allOtters} />
+        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={streamingMap} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={allOtters} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
