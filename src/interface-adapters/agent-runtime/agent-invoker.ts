@@ -352,8 +352,8 @@ export class AgentInvoker {
     } catch { /* ignore */ }
 
     const duration = Date.now() - startTime;
-    onSSEEvent?.({ event: "message.complete", data: { messageId, duration: `${(duration / 1000).toFixed(1)}s` } });
-    onSSEEvent?.({ event: "turn.complete", data: {} });
+    /** msg2 终结：发送 message.failed（不是 complete），关闭消息生命周期 */
+    onSSEEvent?.({ event: "message.failed", data: { messageId } });
 
     return { messageId, duration, tokenUsage };
   }
