@@ -34,6 +34,10 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
         resources = resources.filter(r => r.status !== "archived");
       }
 
+      if (resourceType) {
+        resources = resources.filter(r => r.resourceType === resourceType);
+      }
+
       return textResponse(JSON.stringify(resources.map(r => ({
         id: r.id, resourceType: r.resourceType, url: r.url, title: r.title,
         content: r.content, category: r.category, userFlagged: r.userFlagged,

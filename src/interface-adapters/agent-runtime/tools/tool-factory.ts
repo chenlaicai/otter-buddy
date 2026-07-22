@@ -390,7 +390,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
 
 /**
  * 工具工厂：invoke 时调用，闭包捕获 ToolContext。
- * 返回全部 20 个 AgentTool 实例。
+ * 返回全部 19 个 AgentTool 实例。
  */
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [

@@ -130,7 +130,7 @@ execute body 开头增加 `if (targetOtterId === ctx.otterId)` 检查。
 
 ### 6. get_active_participants
 
-调用已有的 `ctx.client.conversation.participant.getActive(ctx.conversationId)`，返回 `{ otterId, status, joinedAtTurnNumber }` 投影。
+调用已有的 `ctx.client.conversation.participant.getActive(ctx.conversationId)`，返回 `{ otterId, otterName, status, joinedAtTurnNumber }` 投影。
 
 ### 7. 小獭权限调整
 
@@ -150,7 +150,7 @@ execute body 开头增加 `if (targetOtterId === ctx.otterId)` 检查。
 2. `create_linked_resource` 校验在 tool execute 层，不依赖 JSON Schema 条件表达式
 3. `delete_context` 全链路必须经过 use case 层，不绕过直接操作 repository
 4. `get_active_participants` 返回含 otterName 的投影，便于 LLM 做路由决策
-5. 小獭不能获得 `pass_talking_stone`、`store_memory`、`create_otter`、`dissolve_otter`——这些是管理级操作
+5. 小獭不能获得 `pass_talking_stone`、`create_otter`、`dissolve_otter`——这些是管理级操作
 6. 小獭**可以**获得 `list_artifacts` 和 `update_artifact_status`——小獭执行 code-implementation 和 adversarial-review 等实质性工作，需要管理自己产出的产物状态
 
 ## 改动范围
@@ -173,7 +173,7 @@ execute body 开头增加 `if (targetOtterId === ctx.otterId)` 检查。
 ## 验证清单
 
 - [x] `tsc --noEmit` 编译通过
-- [x] 工具总数 18→19（大獭 19，小獭 15）
+- [x] 工具总数 18→19（大獭 19，小獭 16）
 - [x] Skill 总数 5→7
 - [ ] `npm test` 现有测试不回归
 - [ ] 集成验证：`get_active_participants` 返回正确参与者列表

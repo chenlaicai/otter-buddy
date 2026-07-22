@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Search, Star, MessageSquare, ClipboardList, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
+import { Search, Star, MessageSquare, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import '../../styles/globals.css'
 
@@ -56,7 +56,6 @@ function MemorySearchPage() {
 
   const typeIconComponents: Record<string, typeof MessageSquare> = {
     message: MessageSquare,
-    conversation_summary: ClipboardList,
     fact: Lightbulb,
     linked_resource: LinkIcon,
   }
