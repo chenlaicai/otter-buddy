@@ -95,7 +95,7 @@ describe("ManageScheduledTask", () => {
       expect(task.consecutiveFailures).toBe(0);
       expect(task.name).toBe("每日问候");
       expect(task.cron).toBe("0 9 * * *");
-      expect(task.id).toBeTruthy();
+      expect(task.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(task.createdAt).toBeTruthy();
       expect(task.updatedAt).toBeTruthy();
     });

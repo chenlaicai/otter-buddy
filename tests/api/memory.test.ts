@@ -45,9 +45,14 @@ describe("Memory API", () => {
         "/api/memory/search?query=hello&limit=3&granularity=fine&conversationId=conv-1&detail_level=summary&library=conversation",
       );
       expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body.entries).toEqual([]);
-      expect(body.total).toBe(0);
+      expect(deps.searchMemory.search).toHaveBeenCalledWith({
+        query: "hello",
+        limit: 3,
+        granularity: "fine",
+        conversationId: "conv-1",
+        detailLevel: "summary",
+        library: "conversation",
+      });
     });
   });
 
@@ -75,15 +80,13 @@ describe("Memory API", () => {
     it("uses default limit of 10", async () => {
       deps.searchMemory.searchSimilar.mockResolvedValue({ entries: [], total: 0 });
 
-      const res = await app.request("/api/memory/search/similar", {
+      await app.request("/api/memory/search/similar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ memoryEntryId: "mem-1" }),
       });
 
-      expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body.entries).toEqual([]);
+      expect(deps.searchMemory.searchSimilar).toHaveBeenCalledWith("mem-1", 10);
     });
   });
 
@@ -118,11 +121,9 @@ describe("Memory API", () => {
     it("trims whitespace in ids", async () => {
       deps.manageMemory.getDetails.mockResolvedValue([makeMemoryEntry()]);
 
-      const res = await app.request("/api/memory/batch?ids= mem-1 , mem-2 ");
+      await app.request("/api/memory/batch?ids= mem-1 , mem-2 ");
 
-      expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body.entries).toHaveLength(1);
+      expect(deps.manageMemory.getDetails).toHaveBeenCalledWith(["mem-1", "mem-2"]);
     });
   });
 

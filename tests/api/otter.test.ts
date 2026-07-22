@@ -49,6 +49,14 @@ describe("Otter API", () => {
       const body = await json(res);
       expect(body.id).toBe("new-otter");
       expect(body.name).toBe("New Friend");
+      expect(deps.createOtterUseCase.execute).toHaveBeenCalledWith({
+        name: "New Friend",
+        type: "small",
+        role: undefined,
+        parentOtterId: undefined,
+        systemPrompt: undefined,
+        context: undefined,
+      });
     });
 
     it("passes all optional fields", async () => {
@@ -69,8 +77,14 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await json(res);
-      expect(body.id).toBe("otter-1");
+      expect(deps.createOtterUseCase.execute).toHaveBeenCalledWith({
+        name: "Child Otter",
+        type: "small",
+        role: { name: "coder", responsibilities: ["write code"] },
+        parentOtterId: "parent-1",
+        systemPrompt: "You are a coder",
+        context: { project: "test" },
+      });
     });
 
     it("passes undefined fields when body is empty", async () => {
@@ -85,8 +99,14 @@ describe("Otter API", () => {
 
       // Controller does not validate name/type — passes undefined to use case
       expect(res.status).toBe(201);
-      const body = await json(res);
-      expect(body.id).toBe("otter-1");
+      expect(deps.createOtterUseCase.execute).toHaveBeenCalledWith({
+        name: undefined,
+        type: undefined,
+        role: undefined,
+        parentOtterId: undefined,
+        systemPrompt: undefined,
+        context: undefined,
+      });
     });
   });
 
@@ -115,8 +135,7 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body.status).toBe("dissolved");
+      expect(deps.dissolveOtterUseCase.execute).toHaveBeenCalledWith("otter-1", "Done with work");
     });
 
     it("returns error when dissolve fails", async () => {
@@ -207,6 +226,12 @@ describe("Otter API", () => {
       expect(res.status).toBe(201);
       const body = await json(res);
       expect(body.id).toBe("new-session");
+      expect(deps.manageSession.archiveSession).toHaveBeenCalledWith("old-session", {
+        reason: "restart",
+        isNegativeCase: false,
+        summary: "Restarting",
+      });
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
     });
 
     it("creates new session when no active session exists", async () => {
@@ -219,8 +244,8 @@ describe("Otter API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await json(res);
-      expect(body.id).toBe("fresh-session");
+      expect(deps.manageSession.archiveSession).not.toHaveBeenCalled();
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
     });
   });
 });

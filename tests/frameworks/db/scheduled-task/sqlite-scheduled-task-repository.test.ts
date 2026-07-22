@@ -262,6 +262,17 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
       expect(second).toBe(false);
     });
 
+    it("恰好 60 秒时返回 false（边界：条件为严格小于，等于不算超过）", async () => {
+      await repo.create(createTaskFixture({ lastTriggeredAt: null }));
+
+      // 第一次获取成功
+      await repo.claimTask("task-1", "2026-07-22T09:00:00Z", "2026-07-22T09:00:00Z");
+
+      // 恰好 60 秒后再次获取，应失败（SQL 条件为 < 不是 <=）
+      const result = await repo.claimTask("task-1", "2026-07-22T09:01:00Z", "2026-07-22T09:01:00Z");
+      expect(result).toBe(false);
+    });
+
     it("超过 60 秒后可以再次获取", async () => {
       await repo.create(createTaskFixture({ lastTriggeredAt: null }));
 

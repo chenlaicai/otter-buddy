@@ -129,7 +129,7 @@ describe("ManageConversation", () => {
       expect(conv.summary).toBeNull();
       expect(conv.completedAt).toBeNull();
       expect(conv.archivedAt).toBeNull();
-      expect(conv.id).toBeTruthy();
+      expect(conv.id).toMatch(/^[0-9a-f-]{36}$/);
 
       /** 验证 repo 中已存储该对话 */
       const stored = repo._conversations.get(conv.id);

@@ -60,7 +60,7 @@ describe("CreateOtter", () => {
       expect(result.name).toBe("测试水獭");
       expect(result.type).toBe("big");
       expect(result.status).toBe("active");
-      expect(result.id).toBeTruthy();
+      expect(result.id).toMatch(/^[0-9a-f-]{36}$/);
 
       /** 验证 repo 中确实创建了 otter */
       expect(repo._createdOtters).toHaveLength(1);
