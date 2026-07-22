@@ -42,3 +42,6 @@ jobs:
 
       - name: Run full project checks
         run: npm run check
+
+      - name: Run tests
+        run: npm test
