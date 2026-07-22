@@ -332,7 +332,9 @@ export class PiSessionFactory implements AgentGateway {
     const { session } = await piCodingAgent.createAgentSession({
       model: this.cfg.model as never,
       sessionManager,
-      tools: codingTools,
+      /** tools 是 SDK 的工具白名单，必须包含 codingTools + 所有 customTools 名称，
+       *  否则 SDK 的 allowedToolNames 过滤器会把 customTools 全部排除。 */
+      tools: [...codingTools, ...customTools.map(t => t.name)],
       customTools: customTools as never,
       resourceLoader: this.resourceLoader ?? undefined,
       modelRuntime: this.modelRuntime as any,
