@@ -1,16 +1,13 @@
 import * as path from "path";
-import * as fs from "fs/promises";
+import type { FileSystemGateway } from "@usecases/ports/file-system-gateway";
 import type { FeatureRepository } from "./feature-repository";
 import type { ResearchRepository } from "./research-repository";
 import type { MemoryIndexGateway } from "../conversation/memory-index-gateway";
-import { parseFrontmatter } from "../../frameworks/document/frontmatter-parser";
-import {
-  validateFeatureFrontmatter,
-  validateResearchFrontmatter,
-} from "../../frameworks/document/frontmatter-validator";
-import type { FeatureDocument, ChangeType, FeatureStatus } from "../../entities/document/feature";
-import type { ResearchDocument, ExplorationType, ResearchStatus } from "../../entities/document/research";
 import type { Logger } from "@usecases/ports/logger";
+import { parseFrontmatterFromContent } from "./frontmatter-parse";
+import { validateFeatureFrontmatter, validateResearchFrontmatter } from "@entities/document/frontmatter-validator";
+import type { FeatureDocument, ChangeType, FeatureStatus } from "@entities/document/feature";
+import type { ResearchDocument, ExplorationType, ResearchStatus } from "@entities/document/research";
 
 export interface SyncResult {
   synced: number;
@@ -21,14 +18,14 @@ export interface SyncResult {
 
 export class SyncDocuments {
   constructor(
+    private readonly fs: FileSystemGateway,
     private readonly featureRepo: FeatureRepository,
     private readonly researchRepo: ResearchRepository,
     private readonly memoryIndex: MemoryIndexGateway,
-    private readonly rootDir: string,
     private readonly logger: Logger
   ) {}
 
-  async execute(): Promise<SyncResult> {
+  async execute(rootDir: string): Promise<SyncResult> {
     const startTime = Date.now();
     const result: SyncResult = { synced: 0, skipped: 0, archived: 0, errors: [] };
 
@@ -38,13 +35,13 @@ export class SyncDocuments {
     });
 
     // 1. 扫描并同步 features
-    await this.syncDirectory("docs/features", "feature", result);
+    await this.syncDirectory(rootDir, "docs/features", "feature", result);
 
     // 2. 扫描并同步 research
-    await this.syncDirectory("docs/research", "research", result);
+    await this.syncDirectory(rootDir, "docs/research", "research", result);
 
     // 3. 检测已删除的文档，标记为 archived
-    await this.archiveDeletedDocuments(result);
+    await this.archiveDeletedDocuments(rootDir, result);
 
     const duration = Date.now() - startTime;
 
@@ -62,69 +59,17 @@ export class SyncDocuments {
   }
 
   private async syncDirectory(
+    rootDir: string,
     dir: string,
     type: "feature" | "research",
     result: SyncResult
   ): Promise<void> {
-    const fullPath = path.join(this.rootDir, dir);
+    const fullPath = path.join(rootDir, dir);
     const files = await this.scanMarkdownFiles(fullPath);
 
     for (const file of files) {
       try {
-        const relativePath = path.relative(this.rootDir, file);
-        const { frontmatter } = await parseFrontmatter(file);
-
-        // 验证
-        const validation =
-          type === "feature"
-            ? validateFeatureFrontmatter(frontmatter, relativePath)
-            : validateResearchFrontmatter(frontmatter, relativePath);
-
-        if (!validation.valid) {
-          result.errors.push({ file, error: validation.errors.join("; ") });
-          continue;
-        }
-
-        const id = frontmatter.id as string;
-
-        // 检查是否已存在
-        const existing =
-          type === "feature"
-            ? await this.featureRepo.findById(id)
-            : await this.researchRepo.findById(id);
-
-        if (existing) {
-          // 幂等性：已存在则跳过
-          result.skipped++;
-          continue;
-        }
-
-        // 构造文档对象
-        if (type === "feature") {
-          const doc = this.buildFeatureDocument(frontmatter, relativePath);
-          await this.featureRepo.insert(doc);
-          await this.memoryIndex.indexFeature(doc.id, doc.summary, {
-            doc_type: "feature",
-            change_type: doc.changeType,
-            tags: doc.tags,
-            modules: doc.modules,
-            from: doc.causalLinksFrom,
-            supersedes: doc.supersedes,
-          });
-        } else {
-          const doc = this.buildResearchDocument(frontmatter, relativePath);
-          await this.researchRepo.insert(doc);
-          await this.memoryIndex.indexResearch(doc.id, doc.summary, {
-            doc_type: "research",
-            exploration_type: doc.explorationType,
-            tags: doc.tags,
-            conclusion: doc.conclusion,
-            from: doc.causalLinksFrom,
-            supersedes: doc.supersedes,
-          });
-        }
-
-        result.synced++;
+        await this.syncFile(rootDir, file, type, result);
       } catch (error) {
         result.errors.push({
           file,
@@ -134,14 +79,75 @@ export class SyncDocuments {
     }
   }
 
-  private async archiveDeletedDocuments(result: SyncResult): Promise<void> {
+  private async syncFile(
+    rootDir: string,
+    file: string,
+    type: "feature" | "research",
+    result: SyncResult
+  ): Promise<void> {
+    const relativePath = path.relative(rootDir, file);
+    const content = await this.fs.readFile(file);
+    const { frontmatter } = parseFrontmatterFromContent(content);
+
+    // 领域验证（entities 层）
+    const validation =
+      type === "feature"
+        ? validateFeatureFrontmatter(frontmatter, relativePath)
+        : validateResearchFrontmatter(frontmatter, relativePath);
+
+    if (!validation.valid) {
+      result.errors.push({ file, error: validation.errors.join("; ") });
+      return;
+    }
+
+    const id = frontmatter.id as string;
+
+    // 检查是否已存在
+    const existing =
+      type === "feature"
+        ? await this.featureRepo.findById(id)
+        : await this.researchRepo.findById(id);
+
+    if (existing) {
+      // 幂等性：已存在则跳过
+      result.skipped++;
+      return;
+    }
+
+    // 构造文档对象
+    if (type === "feature") {
+      const doc = this.buildFeatureDocument(frontmatter, relativePath);
+      await this.featureRepo.insert(doc);
+      await this.memoryIndex.indexFeature(doc.id, doc.summary, {
+        doc_type: "feature",
+        change_type: doc.changeType,
+        tags: doc.tags,
+        modules: doc.modules,
+        from: doc.causalLinksFrom,
+        supersedes: doc.supersedes,
+      });
+    } else {
+      const doc = this.buildResearchDocument(frontmatter, relativePath);
+      await this.researchRepo.insert(doc);
+      await this.memoryIndex.indexResearch(doc.id, doc.summary, {
+        doc_type: "research",
+        exploration_type: doc.explorationType,
+        tags: doc.tags,
+        conclusion: doc.conclusion,
+        from: doc.causalLinksFrom,
+        supersedes: doc.supersedes,
+      });
+    }
+
+    result.synced++;
+  }
+
+  private async archiveDeletedDocuments(rootDir: string, result: SyncResult): Promise<void> {
     // 扫描数据库中存在但文件系统中不存在的 Feature
     const dbFeatures = await this.featureRepo.findAll();
     for (const doc of dbFeatures) {
       if (doc.status === "archived") continue;
-      try {
-        await fs.access(path.join(this.rootDir, doc.filePath));
-      } catch {
+      if (!(await this.fs.exists(path.join(rootDir, doc.filePath)))) {
         // 文件不存在，标记为 archived
         await this.featureRepo.updateStatus(doc.id, "archived");
         result.archived++;
@@ -152,9 +158,7 @@ export class SyncDocuments {
     const dbResearch = await this.researchRepo.findAll();
     for (const doc of dbResearch) {
       if (doc.status === "archived") continue;
-      try {
-        await fs.access(path.join(this.rootDir, doc.filePath));
-      } catch {
+      if (!(await this.fs.exists(path.join(rootDir, doc.filePath)))) {
         await this.researchRepo.updateStatus(doc.id, "archived");
         result.archived++;
       }
@@ -164,7 +168,7 @@ export class SyncDocuments {
   private async scanMarkdownFiles(dir: string): Promise<string[]> {
     const results: string[] = [];
     try {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
+      const entries = await this.fs.readDir(dir);
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {

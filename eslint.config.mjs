@@ -27,9 +27,11 @@ const restrictedFrameworks = [
   // Alias imports
   "@frameworks/db/**", "@frameworks/llm/**", "@frameworks/embedding/**",
   "@frameworks/agent/**", "@frameworks/web/**", "@frameworks/config",
+  "@frameworks/document/**", "@frameworks/file-system/**",
   // Relative imports (any depth)
   "**/frameworks/db/**", "**/frameworks/llm/**", "**/frameworks/embedding/**",
   "**/frameworks/agent/**", "**/frameworks/web/**", "**/frameworks/config",
+  "**/frameworks/document/**", "**/frameworks/file-system/**",
 ];
 
 export default tseslint.config(
