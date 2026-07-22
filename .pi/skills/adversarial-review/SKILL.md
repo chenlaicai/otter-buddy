@@ -68,6 +68,16 @@ Produce a structured review report using the template in `references/report-temp
 - Developer gives a reasonable explanation → can acknowledge, but must record the reasoning
 - Forbidden escape phrases: "低风险", "可忽略", "不重要", "后续优化", "不阻塞"
 
+### 审查者 vs 决策者
+
+审查者和决策者是不同角色。当两者冲突时：
+
+- **审查者的责任**：诚实报告问题，结论保持"需要修改"
+- **决策者的权力**：可以决定合入未修复的问题
+- **处理方式**：当决策者要求合入未修复的问题时，记录"决策者选择合入"作为处置，审查者不改为"可以合入"
+
+审查者的结论反映问题的存在，不反映决策者的选择。
+
 ## Additional Resources
 
 ### Reference Files

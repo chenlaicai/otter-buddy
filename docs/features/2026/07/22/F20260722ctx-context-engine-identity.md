@@ -15,7 +15,7 @@ causal_links:
 status: proposed
 change_type: feature-update
 tags: [context-engine, identity, values, coding-style, comments]
-modules: [prompts/platform, skills/code-implementation]
+modules: [prompts/platform, skills/code-implementation, skills/adversarial-review]
 
 created_at: 2026-07-22
 ---
@@ -74,7 +74,6 @@ created_at: 2026-07-22
 
 ## 非目标
 
-- 不修改其他 skills 的行为规则
 - 不改变 skill 的能力导向设计（不引入 persona/role）
 - 不修改 Otter 的 per-otter prompt 机制
 
@@ -117,6 +116,9 @@ created_at: 2026-07-22
 - 不引入 persona/role，保持能力导向设计
 - 增加边界判定规则，解决决策/判断重叠场景
 - 增加优先级和例外规则，处理错误判断和安全风险
+- 增加验证来源层级，定义"可验证的错误事实"
+- 增加安全风险处理规则，包括用户坚持时的升级机制
+- 增加不确定性处理规则，避免 AI 假装知道
 
 ### 2. Why 注释规范
 
@@ -186,6 +188,8 @@ for (const item of items) {
 - 区分冗余 What 和必要 What，不绝对禁止 What 注释
 - 增加多行格式模板
 - 模板格式 `// Why: [原因] —— [背景/约束]` 简洁且信息完整
+- 增加"显而易见"判定标准，减少执行不一致
+- 增加注释规则优先级，解决与"不修改未变更代码"的冲突
 
 ## 硬约束
 
@@ -230,6 +234,7 @@ for (const item of items) {
 |------|------|------|
 | `prompts/platform/SYSTEM_PROMPT.md` | 修改 | 新增"身份认知"章节 |
 | `.pi/skills/code-implementation/references/coding-principles.md` | 修改 | 新增"Why 注释规范"章节 |
+| `.pi/skills/adversarial-review/SKILL.md` | 修改 | 新增"审查者 vs 决策者"边界规则 |
 
 ## 关联
 
