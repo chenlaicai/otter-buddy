@@ -15,6 +15,7 @@ import { OtterController } from "../../src/interface-adapters/http/controllers/o
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
+import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
 import type { Logger } from "../../src/usecases/ports/logger";
 
 /** 创建 noop Logger mock */
@@ -312,6 +313,61 @@ export function makeLinkedResource(overrides: Partial<{
   };
 }
 
+export function makeScheduledTask(overrides: Partial<{
+  id: string;
+  conversationId: string;
+  name: string;
+  cron: string;
+  timezone: string;
+  body: string;
+  talkingStonePassedTo: string[];
+  senderId: string;
+  status: 'active' | 'disabled' | 'error';
+  consecutiveFailures: number;
+  lastTriggeredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}> = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: overrides.id ?? "task-1",
+    conversationId: overrides.conversationId ?? "conv-1",
+    name: overrides.name ?? "Daily Reminder",
+    cron: overrides.cron ?? "0 9 * * *",
+    timezone: overrides.timezone ?? "Asia/Shanghai",
+    body: overrides.body ?? "Remember to check in",
+    talkingStonePassedTo: overrides.talkingStonePassedTo ?? ["otter-1"],
+    senderId: overrides.senderId ?? "otter-1",
+    status: overrides.status ?? ("active" as const),
+    consecutiveFailures: overrides.consecutiveFailures ?? 0,
+    lastTriggeredAt: overrides.lastTriggeredAt ?? null,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+  };
+}
+
+export function makeScheduledTaskExecution(overrides: Partial<{
+  id: string;
+  taskId: string;
+  triggeredAt: string;
+  completedAt: string | null;
+  status: 'running' | 'completed' | 'failed';
+  errorMessage: string | null;
+  messageId: string | null;
+  turnId: string | null;
+}> = {}) {
+  return {
+    id: overrides.id ?? "exec-1",
+    taskId: overrides.taskId ?? "task-1",
+    triggeredAt: overrides.triggeredAt ?? new Date().toISOString(),
+    completedAt: overrides.completedAt ?? null,
+    status: overrides.status ?? ("running" as const),
+    errorMessage: overrides.errorMessage ?? null,
+    messageId: overrides.messageId ?? null,
+    turnId: overrides.turnId ?? null,
+  };
+}
+
 // ─── Test app builder ───
 
 export interface TestDeps {
@@ -329,6 +385,9 @@ export interface TestDeps {
   manageKeyInfo: any;
   settingsConfig: SettingsConfig;
   settingsRepo: any;
+  manageScheduledTask: any;
+  schedulerService: any;
+  cronParser: any;
 }
 
 export function createTestApp(deps: TestDeps): Hono {
@@ -366,7 +425,11 @@ export function createTestApp(deps: TestDeps): Hono {
     memory: memoryCtrl,
     keyInfo: keyInfoCtrl,
     settings: settingsCtrl,
-    scheduledTask: {} as any, // TODO: 添加 scheduled task controller mock
+    scheduledTask: new ScheduledTaskController(
+      deps.manageScheduledTask,
+      deps.schedulerService,
+      deps.cronParser,
+    ),
   };
 
   return createRouter(controllers, mockLogger());
@@ -396,5 +459,8 @@ export function createMockDeps(): TestDeps {
       embeddingDim: 1024,
     },
     settingsRepo: mockMethods(["get", "update", "getAll"]),
+    manageScheduledTask: mockMethods(["create", "getById", "getByConversationId", "update", "delete", "getExecutions"]),
+    schedulerService: mockMethods(["trigger", "start", "stop"]),
+    cronParser: { getNextTime: vi.fn() },
   };
 }

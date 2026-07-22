@@ -15,17 +15,7 @@ export class SimpleCronParser implements CronParser {
       }
       return next;
     } catch (error) {
-      // 如果 croner 解析失败，使用简单的回退逻辑
-      console.warn('Cron parsing failed, using fallback:', error);
-      return this.fallbackGetNextTime();
+      throw new Error('Invalid cron expression: unable to parse', { cause: error });
     }
-  }
-
-  /**
-   * 回退实现：抛出错误而非静默高频触发
-   * 无效的 cron 表达式不应被静默接受
-   */
-  private fallbackGetNextTime(): never {
-    throw new Error('Invalid cron expression: unable to parse');
   }
 }

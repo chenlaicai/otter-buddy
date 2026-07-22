@@ -58,6 +58,7 @@ export class SchedulerService {
               }
             }
           } catch (error) {
+            // eslint-disable-next-line no-console
             console.error(`Failed to handle task change: ${taskId} ${action}`, error);
           }
         });
@@ -121,6 +122,7 @@ export class SchedulerService {
       try {
         await this.triggerTask(task);
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.error(`Failed to trigger task ${task.id}:`, error);
       }
       // 触发后重新调度下一次

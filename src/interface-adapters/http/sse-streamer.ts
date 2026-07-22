@@ -92,6 +92,20 @@ async function processSSEQueue(
       onTerminalEvent();
     }
   }
+
+  // Drain remaining events that were queued before close signal
+  while (queue.length > 0) {
+    try {
+      const event = queue.shift()!;
+      await stream.writeSSE({
+        event: event.event,
+        data: JSON.stringify(event.data),
+      });
+    } catch {
+      // Client disconnected or stream write failed — exit drain loop gracefully
+      break;
+    }
+  }
 }
 
 /**

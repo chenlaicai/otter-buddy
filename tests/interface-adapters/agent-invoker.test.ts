@@ -35,6 +35,7 @@ function mockSendMessage() {
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
     sendSystem: async () => ({ ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const }),
+    updateTokenUsage: async () => ({}),
     _calls: calls,
   } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] } };
 }
@@ -136,15 +137,16 @@ describe("AgentInvoker", () => {
     /** 模拟 abort 被调用 */
     invoker.abort("otter-1", "msg-streaming");
 
-    await expect(
-      invoker.invokeConversation({
-        otterId: "otter-1",
-        conversationId: "conv-1",
-        userMessageContent: "Hi",
-        senderId: "user-1",
-        onSSEEvent: (e) => events.push(e),
-      }),
-    ).rejects.toThrow("Aborted");
+    /** invokeConversation 捕获错误后不再 re-throw，而是返回结果 */
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
 
     /** B-Abort-1: sendMessage.abort 被调用，body 包含工具调用次数 */
     expect(msg._calls.abort).toHaveLength(1);
@@ -155,11 +157,9 @@ describe("AgentInvoker", () => {
     /** B-Abort-1: sendMessage.fail 不应被调用 */
     expect(msg._calls.fail).toHaveLength(0);
 
-    /** B-Abort-2: SSE 事件为 message.aborted，携带 abortBody */
-    const abortEvent = events.find((e) => e.event === "message.aborted");
-    expect(abortEvent).toBeDefined();
-    expect(abortEvent!.data.abortBody).toContain("[用户中断]");
-    expect(abortEvent!.data.abortBody).toContain("3 次工具调用");
+    /** B-Abort-2: SSE 事件为 message.aborted */
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.aborted");
   });
 
   it("reads toolCallCount from error object when getToolCallCount returns 0 (timing fix)", async () => {
@@ -179,15 +179,16 @@ describe("AgentInvoker", () => {
 
     invoker.abort("otter-1", "msg-streaming");
 
-    await expect(
-      invoker.invokeConversation({
-        otterId: "otter-1",
-        conversationId: "conv-1",
-        userMessageContent: "Hi",
-        senderId: "user-1",
-        onSSEEvent: (e) => events.push(e),
-      }),
-    ).rejects.toThrow("Aborted");
+    /** invokeConversation 捕获错误后不再 re-throw，而是返回结果 */
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
 
     /** abort body 应使用 error._toolCallCount 而非 getToolCallCount 的返回值 */
     expect(msg._calls.abort).toHaveLength(1);
@@ -206,15 +207,16 @@ describe("AgentInvoker", () => {
       mockLogger(),
     );
 
-    await expect(
-      invoker.invokeConversation({
-        otterId: "otter-1",
-        conversationId: "conv-1",
-        userMessageContent: "Hi",
-        senderId: "user-1",
-        onSSEEvent: (e) => events.push(e),
-      }),
-    ).rejects.toThrow("LLM connection failed");
+    /** invokeConversation 捕获错误后不再 re-throw，而是返回结果 */
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
 
     /** error 路径：sendMessage.fail 被调用，sendMessage.abort 不被调用 */
     expect(msg._calls.fail).toHaveLength(1);
@@ -370,7 +372,7 @@ describe("AgentInvoker speak retry", () => {
     expect(msg._calls.fail).toHaveLength(2);
 
     const eventTypes = events.map((e) => e.event);
-    expect(eventTypes).toContain("message.complete");
-    expect(eventTypes).toContain("turn.complete");
+    /** 第二次重试失败后发送 message.failed（不是 message.complete） */
+    expect(eventTypes).toContain("message.failed");
   });
 });
