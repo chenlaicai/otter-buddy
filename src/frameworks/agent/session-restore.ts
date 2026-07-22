@@ -32,50 +32,68 @@ export class SessionRestore {
     piCodingAgent: unknown,
     sessionDir: string,
   ): Promise<SessionRestoreResult> {
-    // 从持久化存储读取 sessionFile
     const stored = this.sessionStore.getWithFile(otterId);
-    if (!stored || !stored.sessionFile) {
-      // 降级策略：检查 OtterConfig 是否存在
-      const existingConfig = this.otterConfigProvider.getConfig(otterId);
-      if (existingConfig) {
-        this.logger.info(`Session file missing for otter: ${otterId}, creating new session`);
-        return this.createAndReturnSession(otterId, {
-          systemPrompt: existingConfig.systemPrompt,
-          otterType: existingConfig.otterType,
-        }, piCodingAgent, sessionDir);
-      }
+    if (!stored?.sessionFile) {
+      return this.handleMissingSession(otterId, piCodingAgent, sessionDir);
+    }
+    return this.restoreExistingSession(otterId, stored.sessionFile, piCodingAgent, sessionDir);
+  }
+
+  /** 处理 session 缺失的情况 */
+  private handleMissingSession(
+    otterId: string,
+    piCodingAgent: unknown,
+    sessionDir: string,
+  ): SessionRestoreResult {
+    const existingConfig = this.otterConfigProvider.getConfig(otterId);
+    if (!existingConfig) {
       throw new Error(`No session or config found for otter: ${otterId}. Call create() first.`);
     }
+    this.logger.info(`Session file missing for otter: ${otterId}, creating new session`);
+    return this.createAndReturnSession(otterId, {
+      systemPrompt: existingConfig.systemPrompt,
+      otterType: existingConfig.otterType,
+    }, piCodingAgent, sessionDir);
+  }
 
-    // 创建 SessionManager（恢复已有 session）
+  /** 恢复已有的 session */
+  private restoreExistingSession(
+    otterId: string,
+    sessionFile: string,
+    piCodingAgent: unknown,
+    sessionDir: string,
+  ): SessionRestoreResult {
     try {
       const SessionManagerClass = getSessionManagerClass(piCodingAgent);
-      const sessionManager = SessionManagerClass.open(stored.sessionFile);
-
-      // 验证 SessionManager 有效性
+      const sessionManager = SessionManagerClass.open(sessionFile);
       const restoredSessionId = sessionManager.getSessionId();
       if (!restoredSessionId) {
-        this.logger.warn(`SessionManager.open() returned invalid state for: ${stored.sessionFile}, creating new session`);
-        return this.createAndReturnSession(otterId, {
-          systemPrompt: this.otterConfigProvider.getConfig(otterId)?.systemPrompt,
-          otterType: this.otterConfigProvider.getConfig(otterId)?.otterType ?? 'big',
-        }, piCodingAgent, sessionDir);
+        this.logger.warn(`SessionManager.open() returned invalid state for: ${sessionFile}, creating new session`);
+        return this.recreateFromConfig(otterId, piCodingAgent, sessionDir);
       }
-
       return { sessionManager, needsRetry: false };
     } catch (err) {
-      // 区分错误类型
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.logger.warn(`Session file not found: ${stored.sessionFile}, creating new session`);
+        this.logger.warn(`Session file not found: ${sessionFile}, creating new session`);
       } else {
-        this.logger.warn(`Failed to open session file: ${stored.sessionFile}`, { error: err });
+        this.logger.warn(`Failed to open session file: ${sessionFile}`, { error: err });
       }
-      // 降级到 create()
-      return this.createAndReturnSession(otterId, {
-        systemPrompt: this.otterConfigProvider.getConfig(otterId)?.systemPrompt,
-        otterType: this.otterConfigProvider.getConfig(otterId)?.otterType ?? 'big',
-      }, piCodingAgent, sessionDir, err);
+      return this.recreateFromConfig(otterId, piCodingAgent, sessionDir, err);
     }
+  }
+
+  /** 从配置重新创建 session */
+  private recreateFromConfig(
+    otterId: string,
+    piCodingAgent: unknown,
+    sessionDir: string,
+    cause?: unknown,
+  ): SessionRestoreResult {
+    const config = this.otterConfigProvider.getConfig(otterId);
+    return this.createAndReturnSession(otterId, {
+      systemPrompt: config?.systemPrompt,
+      otterType: config?.otterType ?? 'big',
+    }, piCodingAgent, sessionDir, cause);
   }
 
   /** 创建 session 并返回 sessionManager */
