@@ -327,6 +327,13 @@ export class PiSessionFactory implements AgentGateway {
     /** 编码工具列表 */
     const codingTools = getCodingToolsForOtterType(otterType);
 
+    this.logger.info('Tools registered for agent session', {
+      otterId, otterType,
+      codingTools,
+      customToolNames: customTools.map(t => t.name),
+      whitelist: [...codingTools, ...customTools.map(t => t.name)],
+    });
+
     /** 创建 session（冷启动，恢复已有 session 数据） */
     const sessionManager = this.createSessionManager(piCodingAgent, piSessionId);
     const { session } = await piCodingAgent.createAgentSession({
