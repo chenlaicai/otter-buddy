@@ -5,33 +5,46 @@ export interface ValidationResult {
 
 export function validateFeatureFrontmatter(
   fm: Record<string, unknown>,
-  filePath: string
+  filePath?: string
 ): ValidationResult {
   const errors: string[] = [];
-
   validateCommonFields(fm, errors);
+
+  // 如果基础字段缺失，短路返回，避免级联错误
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
   validateFeatureId(fm.id, errors);
   validateSummary(fm.summary, errors);
   validateFeatureStatus(fm.status, errors);
   validateChangeType(fm.change_type, errors);
   validateSupersedesPrefix(fm.supersedes, "F", errors);
-  validateFilePath(fm.id as string, filePath, errors);
+  if (filePath) {
+    validateFilePath(fm.id as string, filePath, errors);
+  }
 
   return { valid: errors.length === 0, errors };
 }
 
 export function validateResearchFrontmatter(
   fm: Record<string, unknown>,
-  filePath: string
+  filePath?: string
 ): ValidationResult {
   const errors: string[] = [];
-
   validateCommonFields(fm, errors);
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
   validateResearchId(fm.id, errors);
   validateSummary(fm.summary, errors);
   validateExplorationType(fm.exploration_type, errors);
   validateSupersedesPrefix(fm.supersedes, "R", errors);
-  validateFilePath(fm.id as string, filePath, errors);
+  if (filePath) {
+    validateFilePath(fm.id as string, filePath, errors);
+  }
 
   return { valid: errors.length === 0, errors };
 }
@@ -98,6 +111,11 @@ function validateSupersedesPrefix(
   }
 }
 
+/**
+ * 验证文件路径是否匹配 ID 中的日期（领域规则）
+ * ID 格式：F20260722mk74，其中 20260722 是日期
+ * 路径格式：docs/features/2026/07/22/...
+ */
 function validateFilePath(id: string, filePath: string, errors: string[]): void {
   if (!id || !filePath) return;
 

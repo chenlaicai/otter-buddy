@@ -41,6 +41,7 @@ import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
 import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
 import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
 import { SyncDocuments } from "@usecases/document/sync-documents";
+import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { CreateOtter } from "@usecases/otter/create-otter";
 import { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import { ManageSession } from "@usecases/otter/manage-session";
@@ -394,14 +395,15 @@ function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string })
 }
 
 async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGateway): Promise<void> {
+  const fileSystem = new NodeFileSystem();
   const syncDocs = new SyncDocuments(
+    fileSystem,
     repos.feature,
     repos.research,
     new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger)),
-    process.cwd(),
     logger
   );
-  await syncDocs.execute();
+  await syncDocs.execute(process.cwd());
 }
 
 async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory) {
