@@ -84,7 +84,7 @@ After committing:
 - Features not in the plan are not implemented — confirm with the requester first
 - Discover gaps in the plan → record them and communicate back, do not improvise
 - Finding a flaw in the design → report to the plan author, do not redesign in place
-- **Fix all discovered issues immediately** — do not ask "should I fix this?" or leave issues with "can optimize later"
+- **Fix all discovered issues within plan scope immediately** — do not ask "should I fix this?" or leave issues with "can optimize later". Issues outside plan scope → record and communicate back (see "Discover gaps" rule above)
 - Forbidden escape phrases: "低风险", "可忽略", "不重要", "后续优化", "不阻塞", "Minor 问题", "不影响功能正确性"
 - **NEVER push directly to main/develop/production** — always create a PR
 - **NEVER merge your own PR** — a different person must review and merge
