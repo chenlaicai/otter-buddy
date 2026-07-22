@@ -291,6 +291,42 @@ describe('SchedulerService - start/stop', () => {
       // 执行记录的 key 是 executionId（UUID），不是 taskId，验证数量即可
     });
 
+    it('延迟超过 24 小时时，定时器在 24 小时后触发（cap 到 24h）', async () => {
+      // 准备：当前时间 8:00，任务的下次触发时间为 72 小时后
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+
+      // 下次触发时间设为 72 小时后（远超 24h 限制）
+      const nextTime = new Date('2025-06-18T08:00:00.000Z');
+      const cronParser = createMockCronParser(nextTime);
+
+      taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        cronParser: cronParser as unknown as CronParser,
+      });
+
+      await service.start();
+
+      // 推进 23 小时：不应触发（delay 被 cap 到 24h）
+      await vi.advanceTimersByTimeAsync(23 * 60 * 60 * 1000);
+      expect(taskRepo._executions.size).toBe(0);
+
+      // 再推进 1 小时（总计 24h）：应触发任务
+      await vi.advanceTimersByTimeAsync(1 * 60 * 60 * 1000);
+      expect(taskRepo._executions.size).toBe(1);
+    });
+
     it('没有 active 任务时，不调度任何定时器', async () => {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();

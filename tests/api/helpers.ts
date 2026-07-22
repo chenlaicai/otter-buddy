@@ -322,7 +322,7 @@ export function makeScheduledTask(overrides: Partial<{
   body: string;
   talkingStonePassedTo: string[];
   senderId: string;
-  status: string;
+  status: 'active' | 'disabled' | 'error';
   consecutiveFailures: number;
   lastTriggeredAt: string | null;
   createdAt: string;
@@ -338,7 +338,7 @@ export function makeScheduledTask(overrides: Partial<{
     body: overrides.body ?? "Remember to check in",
     talkingStonePassedTo: overrides.talkingStonePassedTo ?? ["otter-1"],
     senderId: overrides.senderId ?? "otter-1",
-    status: overrides.status ?? "active",
+    status: overrides.status ?? ("active" as const),
     consecutiveFailures: overrides.consecutiveFailures ?? 0,
     lastTriggeredAt: overrides.lastTriggeredAt ?? null,
     createdAt: overrides.createdAt ?? now,
@@ -351,7 +351,7 @@ export function makeScheduledTaskExecution(overrides: Partial<{
   taskId: string;
   triggeredAt: string;
   completedAt: string | null;
-  status: string;
+  status: 'running' | 'completed' | 'failed';
   errorMessage: string | null;
   messageId: string | null;
   turnId: string | null;
@@ -361,7 +361,7 @@ export function makeScheduledTaskExecution(overrides: Partial<{
     taskId: overrides.taskId ?? "task-1",
     triggeredAt: overrides.triggeredAt ?? new Date().toISOString(),
     completedAt: overrides.completedAt ?? null,
-    status: overrides.status ?? "running",
+    status: overrides.status ?? ("running" as const),
     errorMessage: overrides.errorMessage ?? null,
     messageId: overrides.messageId ?? null,
     turnId: overrides.turnId ?? null,
