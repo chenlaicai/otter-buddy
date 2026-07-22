@@ -115,7 +115,7 @@ export class SessionExecutor {
       whitelist: [...codingTools, ...customTools.map(t => t.name)],
     });
 
-    const { createAgentSession } = piCodingAgent as { createAgentSession: (options: unknown) => Promise<{ session: unknown }> };
+    const { createAgentSession } = piCodingAgent as { createAgentSession: (options: unknown) => Promise<{ session: { prompt: (text: string) => Promise<void>; abort: () => Promise<void>; subscribe: (fn: (event: unknown) => void) => () => void; getSessionStats: () => { tokens: { input: number; output: number } }; dispose: () => void } }> };
     const { session } = await createAgentSession({
       model: this.config.model,
       sessionManager,
@@ -126,7 +126,7 @@ export class SessionExecutor {
     });
 
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
-    this.activeSessions.set(sessionKey, { abort: () => (session as { abort: () => Promise<void> }).abort(), toolCallCount: 0 });
+    this.activeSessions.set(sessionKey, { abort: () => session.abort(), toolCallCount: 0 });
 
     return { session, sessionKey };
   }

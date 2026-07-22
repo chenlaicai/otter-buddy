@@ -6,6 +6,7 @@ import fs from 'fs';
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
+import type { OtterPromptConfig } from "@contract/api/otter";
 import type { AgentSessionStore } from "./agent-session-store";
 import { getSessionManagerClass } from "./session-helpers";
 
@@ -75,7 +76,7 @@ export class SessionRestore {
   /** 创建 session 并持久化 */
   createSessionAndPersist(
     otterId: string,
-    config: { systemPrompt?: unknown; otterType: string },
+    config: { systemPrompt?: string | OtterPromptConfig; otterType: string },
     piCodingAgent: unknown,
     sessionDir: string,
     allowOverwrite: boolean,
