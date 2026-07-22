@@ -60,6 +60,7 @@ Before committing:
 - [ ] No changes beyond plan scope
 - [ ] No compatibility bridge code introduced
 - [ ] Visual/spatial changes have screenshot evidence
+- [ ] All discovered issues are fixed — no "minor issues" left unfixed
 
 ### 6. Commit
 
@@ -70,6 +71,8 @@ Follow the commit message convention in `references/commit-convention.md`.
 - Features not in the plan are not implemented — confirm with the requester first
 - Discover gaps in the plan → record them and communicate back, do not improvise
 - Finding a flaw in the design → report to the plan author, do not redesign in place
+- **Fix all discovered issues immediately** — do not ask "should I fix this?" or leave issues with "can optimize later"
+- Forbidden escape phrases: "低风险", "可忽略", "不重要", "后续优化", "不阻塞", "Minor 问题", "不影响功能正确性"
 
 ## Additional Resources
 
