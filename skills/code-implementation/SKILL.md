@@ -13,7 +13,9 @@ Turn a technical plan into runnable, verifiable code changes.
 
 ## Core Principles
 
-- **Isolate before editing**: Never modify files in the main directory. Create a worktree first.
+- **Isolate before editing**: Never modify any files in the main directory. ALL file changes (code, docs, config) must happen in a worktree.
+- **PR-only delivery**: Never push directly to main/develop/production branches. Always create a PR for review.
+- **Separation of duties**: The developer who writes code cannot merge their own PR. A different person must review and merge.
 - **Faithful to the plan**: Implement what the plan specifies. Do not expand scope or add unrequested features.
 - **Test behavior, not internals**: Assert observable outputs and side effects. Do not assert how functions call each other.
 - **No compatibility bridges**: The new design IS the current design. Do not preserve old code paths alongside new ones.
@@ -28,6 +30,7 @@ Before any file modification:
 2. Create a worktree under `.claude/worktrees/` based on latest `origin/main`
 3. Verify all subsequent operations happen inside the worktree — zero modifications to main directory
 4. Record context: worktree name, branch name, feature number
+5. **NEVER skip worktree** — even for "small" changes, docs-only changes, or "quick fixes"
 
 ### 2. Confirm Understanding
 
@@ -65,11 +68,24 @@ Before committing:
 
 Follow the commit message convention in `references/commit-convention.md`.
 
+### 7. Submit via PR
+
+After committing:
+
+1. Push the worktree branch to remote: `git push -u origin <branch-name>`
+2. Create a PR using `gh pr create`
+3. Wait for review and approval from another person
+4. **NEVER merge your own PR** — this is a hard rule
+5. **NEVER push directly to main/develop** — always use PR flow
+
 ## Behavioral Rules
 
 - Features not in the plan are not implemented — confirm with the requester first
 - Discover gaps in the plan → record them and communicate back, do not improvise
 - Finding a flaw in the design → report to the plan author, do not redesign in place
+- **NEVER push directly to main/develop/production** — always create a PR
+- **NEVER merge your own PR** — a different person must review and merge
+- **NEVER skip worktree** — all file changes must happen in isolated worktree
 
 ## Additional Resources
 

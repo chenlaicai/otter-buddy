@@ -32,3 +32,45 @@ If the change breaks existing behavior, add `[Incompatible]` before the descript
 ## PR Title
 
 Same format as commit message. PR number is appended by GitHub automatically.
+
+## PR Flow
+
+### Mandatory Rules
+
+1. **PR-only delivery**: All code changes must be delivered via PR, never direct push
+2. **No direct push to protected branches**: `main`, `develop`, `production` are protected
+3. **Separation of duties**: Developer cannot merge their own PR
+
+### PR Workflow
+
+```
+1. Create worktree branch
+2. Make changes and commit
+3. Push branch: git push -u origin <branch>
+4. Create PR: gh pr create
+5. Wait for review
+6. Another person reviews and merges
+7. Clean up worktree
+```
+
+### Forbidden Actions
+
+- `git push origin main` — direct push to main
+- `git push origin develop` — direct push to develop
+- Merge your own PR — violates separation of duties
+- Skip worktree for "small" changes — all changes need isolation
+
+### PR Description Template
+
+```markdown
+## Summary
+- What changed and why
+
+## Changes
+- File-by-file description
+
+## Test plan
+- [ ] Verification steps
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
