@@ -161,7 +161,6 @@ function ConversationPage() {
       const startTime = Date.now()
       let otterMessageId = ''
       const liveEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = []
-      let idleTimer: ReturnType<typeof setTimeout> | null = null
 
       setStreaming({ otterId, duration: 0, events: [] })
 
@@ -180,7 +179,6 @@ function ConversationPage() {
           setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
         },
         'message.complete': (data) => {
-          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
           const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
           const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
           const content = blocks.map(b => b.text).filter(Boolean).join('')
@@ -193,7 +191,6 @@ function ConversationPage() {
           setStreaming(null)
         },
         'error': (data) => {
-          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
           const errMsg: LocalMessage = {
             id: otterMessageId || crypto.randomUUID(), st: 'otter', si: otterId,
             content: `[错误] ${data.message}`, ts: nowTs(), dur: null,
@@ -203,14 +200,11 @@ function ConversationPage() {
           otterMsgIdRef.current = ''
           setStreaming(null)
         },
-        'message.aborted': () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }; showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
+        'message.aborted': () => { showToast('回复已中断', 'info'); otterMsgIdRef.current = ''; setStreaming(null) },
         'agent.idle': () => {
-          /** fallback: agent.idle 后如果 message.complete 未到达，兜底清除 streaming。
-           *  agent.idle 在 invoke() 内部触发，message.complete 在 invoke() 返回后才发送，
-           *  两者之间有 DB 查询延迟，2s 太短会误触发。10s 足够兜底又不影响正常流程。 */
-          idleTimer = setTimeout(() => {
-            setStreaming(prev => prev ? null : prev)
-          }, 10000)
+          /** agent.idle 仅表示 agent 结束，message.complete 才是消息完成信号。
+           *  无需 fallback 定时器：所有路径（正常完成、speak 重试、异常）最终都会
+           *  发送 message.complete 或触发 SSE onError。 */
         },
       }, { onError: () => { showToast('SSE 连接中断', 'error'); otterMsgIdRef.current = ''; setStreaming(null) } })
       sseCtrlRef.current = ctrl
