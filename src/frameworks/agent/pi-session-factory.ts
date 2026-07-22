@@ -10,7 +10,6 @@
  * F20260716sq6e §13 T2: 薄封装 createAgentSession()
  */
 
-import * as path from "node:path";
 import type Database from "better-sqlite3";
 import type {
   AgentConfig,
@@ -190,11 +189,10 @@ export class PiSessionFactory implements AgentGateway {
         this.resourceLoader = this.cfg.resourceLoader ?? new DefaultResourceLoader({
           cwd: process.cwd(),
           agentDir: getAgentDir(),
-          additionalSkillPaths: [path.resolve(process.cwd(), "skills")],
         });
         await this.resourceLoader.reload();
         const { skills } = this.resourceLoader.getSkills();
-        this.logger.info(`ResourceLoader discovered ${skills.length} skill(s) from ./skills`);
+        this.logger.info(`ResourceLoader discovered ${skills.length} skill(s) from .pi/skills`);
       }
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
