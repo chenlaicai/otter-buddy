@@ -14,9 +14,8 @@ export class SimpleCronParser implements CronParser {
         throw new Error('No next run time found');
       }
       return next;
-    } catch (error) {
-      // 如果 croner 解析失败，使用简单的回退逻辑
-      console.warn('Cron parsing failed, using fallback:', error);
+    } catch {
+      // 如果 croner 解析失败，使用简单的回退逻辑（直接抛出）
       return this.fallbackGetNextTime();
     }
   }

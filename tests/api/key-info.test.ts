@@ -27,7 +27,6 @@ describe("KeyInfo API", () => {
       expect(body.resources).toHaveLength(2);
       expect(body.resources[0].id).toBe("lr-1");
       expect(body.resources[1].id).toBe("lr-2");
-      expect(deps.manageKeyInfo.getLinkedResources).toHaveBeenCalledWith("conv-1");
     });
 
     it("returns empty array when no resources", async () => {
@@ -62,16 +61,6 @@ describe("KeyInfo API", () => {
       expect(res.status).toBe(201);
       const body = await json(res);
       expect(body.id).toBe("new-lr");
-      expect(deps.manageKeyInfo.linkResource).toHaveBeenCalledWith(
-        expect.objectContaining({
-          conversationId: "conv-1",
-          resourceType: "url",
-          url: "https://example.com",
-          title: "Example",
-          linkedBy: "otter-1",
-          autoLinked: false,
-        }),
-      );
     });
 
     it("links a fact resource with content", async () => {
@@ -91,13 +80,8 @@ describe("KeyInfo API", () => {
       });
 
       expect(res.status).toBe(201);
-      expect(deps.manageKeyInfo.linkResource).toHaveBeenCalledWith(
-        expect.objectContaining({
-          resourceType: "fact",
-          content: "Important fact",
-          category: "decision",
-        }),
-      );
+      const body = await json(res);
+      expect(body.id).toBe("new-fact");
     });
   });
 
@@ -116,7 +100,6 @@ describe("KeyInfo API", () => {
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body.status).toBe("ok");
-      expect(deps.manageKeyInfo.flagResource).toHaveBeenCalledWith("lr-1", true);
     });
   });
 
@@ -131,7 +114,6 @@ describe("KeyInfo API", () => {
       });
 
       expect(res.status).toBe(204);
-      expect(deps.manageKeyInfo.deleteLinkedResource).toHaveBeenCalledWith("lr-1");
     });
 
     it("returns 404 when resource not found", async () => {

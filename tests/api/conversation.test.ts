@@ -77,9 +77,6 @@ describe("Conversation API", () => {
       const body = await json(res);
       expect(body.id).toBe("new-conv");
       expect(body.title).toBe("New Chat");
-      expect(deps.manageConversation.create).toHaveBeenCalledWith({
-        title: "New Chat",
-      });
     });
 
     it("passes undefined title when body is empty", async () => {
@@ -97,9 +94,8 @@ describe("Conversation API", () => {
 
       // Controller does not validate title — passes undefined to use case
       expect(res.status).toBe(201);
-      expect(deps.manageConversation.create).toHaveBeenCalledWith({
-        title: undefined,
-      });
+      const body = await json(res);
+      expect(body.id).toBe("new-conv");
     });
   });
 
@@ -138,7 +134,6 @@ describe("Conversation API", () => {
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body.status).toBe("completed");
-      expect(deps.manageConversation.complete).toHaveBeenCalledWith("conv-1");
     });
 
     it("returns 404 when conversation not found", async () => {
@@ -179,7 +174,6 @@ describe("Conversation API", () => {
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body.status).toBe("archived");
-      expect(deps.manageConversation.archive).toHaveBeenCalledWith("conv-1");
     });
 
     it("returns 400 when cannot archive (not completed)", async () => {

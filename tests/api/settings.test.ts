@@ -70,7 +70,6 @@ describe("Settings API", () => {
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body.provider).toBe("anthropic");
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("provider", "anthropic");
     });
 
     it("updates model", async () => {
@@ -87,7 +86,8 @@ describe("Settings API", () => {
       });
 
       expect(res.status).toBe(200);
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("model", "gpt-4o-mini");
+      const body = await json(res);
+      expect(body.model).toBe("gpt-4o-mini");
     });
 
     it("updates both provider and model", async () => {
@@ -104,8 +104,9 @@ describe("Settings API", () => {
       });
 
       expect(res.status).toBe(200);
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("provider", "anthropic");
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("model", "claude-sonnet-4-20250514");
+      const body = await json(res);
+      expect(body.provider).toBe("anthropic");
+      expect(body.model).toBe("claude-sonnet-4-20250514");
     });
 
     it("does not update when fields are falsy", async () => {

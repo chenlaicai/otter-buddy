@@ -291,7 +291,7 @@ export class PiSessionFactory implements AgentGateway {
    * 冷启动调用（R17）：创建 AgentSession → prompt → 释放。
    * 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）。
    */
-  // eslint-disable-next-line max-statements, max-lines-per-function, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
+  // eslint-disable-next-line max-statements, complexity -- invoke 是冷启动调用的核心方法，步骤间有顺序依赖
   async invoke(
     otterId: string,
     message: string,
