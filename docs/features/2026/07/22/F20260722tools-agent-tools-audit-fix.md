@@ -6,8 +6,9 @@ doc_type: feature
 # 记忆索引
 summary: |
   对 18 个 agent 工具进行对抗审计，修复 6 项缺陷（DRY 违反、死代码、schema 校验缺失、
-  hardcoded 参数、安全漏洞、小獭权限不一致），新增 2 个工具（get_active_participants、
-  delete_context），新增 2 个 Skill（participant-management、key-resources）。工具总数 18→20。
+  hardcoded 参数、安全漏洞、小獭权限不一致），移除 1 个孤儿工具（store_memory，
+  游离于 MemoryIndexGateway 管道之外），新增 2 个工具（get_active_participants、
+  delete_context），新增 2 个 Skill（participant-management、key-resources）。工具总数 18→19。
 
 # 因果链路（正向依赖）
 causal_links:
@@ -172,7 +173,7 @@ execute body 开头增加 `if (targetOtterId === ctx.otterId)` 检查。
 ## 验证清单
 
 - [x] `tsc --noEmit` 编译通过
-- [x] 工具总数 18→20（大獭 20，小獭 16）
+- [x] 工具总数 18→19（大獭 19，小獭 15）
 - [x] Skill 总数 5→7
 - [ ] `npm test` 现有测试不回归
 - [ ] 集成验证：`get_active_participants` 返回正确参与者列表

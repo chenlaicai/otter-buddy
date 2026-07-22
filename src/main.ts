@@ -251,12 +251,6 @@ function buildMemoryClient(uc: UseCases) {
         createdAt: e.createdAt,
       }));
     },
-    store: async (entry: { content: string; otterId: string; conversationId?: string }) =>
-      uc.storeMemory.execute({
-        layer: "working", contentType: "conversation_summary",
-        sourceId: entry.otterId, sourceTable: "agent",
-        conversationId: entry.conversationId, granularity: "coarse", content: entry.content,
-      }),
   };
 }
 

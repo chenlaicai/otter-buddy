@@ -129,28 +129,6 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   };
 }
 
-function createStoreMemoryTool(ctx: ToolContext): AgentTool {
-  return {
-    name: "store_memory",
-    description: "存储记忆条目。参数：content（内容）。conversationId 和 otterId 由系统注入。",
-    parameters: {
-      type: "object",
-      properties: {
-        content: { type: "string", description: "记忆内容" },
-      },
-      required: ["content"],
-    },
-    execute: async (_id: string, params: Record<string, unknown>) => {
-      const id = await ctx.client.memory.store({
-        content: params.content as string,
-        otterId: ctx.otterId,
-        conversationId: ctx.conversationId,
-      });
-      return textResponse(`Memory stored: ${id}`);
-    },
-  };
-}
-
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
@@ -419,7 +397,6 @@ export function createTools(ctx: ToolContext): AgentTool[] {
     createSpeakTool(ctx),
     createPassTalkingStoneTool(ctx),
     createSearchMemoryTool(ctx),
-    createStoreMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
     createLinkedResourceTool(ctx),

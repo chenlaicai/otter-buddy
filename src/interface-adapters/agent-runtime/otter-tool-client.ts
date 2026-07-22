@@ -21,13 +21,6 @@ export interface MemorySearchEntry {
   createdAt?: string;
 }
 
-/** 记忆存储输入 */
-export interface StoreMemoryInput {
-  content: string;
-  otterId: string;
-  conversationId?: string;
-}
-
 /** 创建 Otter 输入 */
 export interface CreateOtterInput {
   name: string;
@@ -77,7 +70,6 @@ export interface OtterToolClient {
     search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string): Promise<MemorySearchEntry[]>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
-    store(entry: StoreMemoryInput): Promise<string>;
   };
   terminology: {
     search(query: string, limit?: number): Promise<Array<{ id: string; term: string; definition: string; aliases: string[]; category: string | null; context: string | null }>>;
