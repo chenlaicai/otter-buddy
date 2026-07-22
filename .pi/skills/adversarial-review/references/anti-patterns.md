@@ -47,3 +47,11 @@
 **Problem**: Developer may have missed something. Self-review is not independent review.
 
 **Fix**: Run verification commands independently. Check build, run tests, verify behavior — do not just read the developer's report.
+
+## Ask Whether to Fix
+
+**Symptom**: "发现了一个 Minor 问题，需要我修复吗？" or "剩余的小问题不影响功能，可以后续优化"
+
+**Problem**: Shifts responsibility to the user. Creates decision fatigue. Issues accumulate because "later" never comes.
+
+**Fix**: If you found an issue, fix it. Do not ask permission. Do not categorize severity to justify deferral. The only valid reason to not fix is if the issue is outside the plan scope — in which case, record it and communicate back, not ask whether to fix.
