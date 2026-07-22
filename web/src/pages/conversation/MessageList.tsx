@@ -52,28 +52,29 @@ function MarkdownContent({ children }: { children: string }) {
 
 interface MessageListProps {
   messages: Message[]
-  streamingMessage: StreamingState | null
+  streamingMessages: Map<string, StreamingState>
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
-  onStopStream: () => void
+  onStopStream: (messageId: string) => void
   onRetry: () => void
   onGoToSettings: () => void
   otters: Otter[]
 }
 
 export interface StreamingState {
+  messageId: string
   otterId: string
   duration: number
   events: LocalMessageEvent[]
 }
 
-export function MessageList({ messages, streamingMessage, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
+export function MessageList({ messages, streamingMessages, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, streamingMessage])
+  }, [messages, streamingMessages])
 
   if (state === 'no-llm') {
     return (
@@ -104,7 +105,7 @@ export function MessageList({ messages, streamingMessage, state, onStopStream, o
     )
   }
 
-  if (messages.length === 0 && !streamingMessage) {
+  if (messages.length === 0 && streamingMessages.size === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-2">
         <div className="text-sm font-medium text-stone-400">开始对话</div>
@@ -118,9 +119,9 @@ export function MessageList({ messages, streamingMessage, state, onStopStream, o
       {messages.map(m => (
         <MessageItem key={m.id} message={m} otters={otters} />
       ))}
-      {streamingMessage && (
-        <StreamingMessage state={streamingMessage} onStop={onStopStream} otters={otters} />
-      )}
+      {Array.from(streamingMessages.entries()).map(([messageId, state]) => (
+        <StreamingMessage key={messageId} state={state} onStop={() => onStopStream(messageId)} otters={otters} />
+      ))}
       {state === 'error' && (
         <div className="max-w-[780px] mx-auto px-6 my-2">
           <div className="bg-red-400/10 border border-red-400/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-500">

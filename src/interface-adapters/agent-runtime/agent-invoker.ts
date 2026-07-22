@@ -172,7 +172,8 @@ export class AgentInvoker {
       });
     } catch (err) {
       await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
-      throw err;
+      /** 不 re-throw：错误已通过 SSE 通知前端，controller 用 Promise.allSettled 跟踪完成 */
+      return { messageId: message.id, duration: Date.now() - startTime };
     }
   }
 
@@ -199,7 +200,8 @@ export class AgentInvoker {
         }
         const sse = mapToSSEEvent(e);
         if (sse && !(speakCompleted && sse.event === "assistant_text")) {
-          params.onSSEEvent?.(sse);
+          /** 注入 messageId，支持前端多 otter 并发时按消息分发事件 */
+          params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
         }
         const evt = mapToMessageEventInput(e, params.messageId);
         if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
@@ -286,7 +288,7 @@ export class AgentInvoker {
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
       const toolCallCount =
         (err as Error & { _toolCallCount?: number })._toolCallCount ??
-        this.agentInvoke.getToolCallCount(otterId);
+        this.agentInvoke.getToolCallCount(otterId, messageId);
       const body = `[用户中断] 经过 ${toolCallCount} 次工具调用后，用户强制中断了当前发言。`;
       try {
         await this.sendMessage.abort(messageId, {
@@ -296,15 +298,16 @@ export class AgentInvoker {
       } catch {
         /** abort() 出错时不覆盖原始错误 */
       }
-      onSSEEvent?.({ event: "message.aborted", data: { messageId, abortBody: body } });
+      onSSEEvent?.({ event: "message.aborted", data: { messageId } });
     } else {
-      /** error 路径：标记失败，存错误信息到 body。SSE error 由 .catch 统一发送，避免重复 */
+      /** error 路径：标记失败，发送 error SSE 事件 */
       const msg = err instanceof Error ? err.message : "Unknown error";
       try {
         await this.sendMessage.fail(messageId, `[错误] ${msg}`);
       } catch {
         /** fail() 出错时不覆盖原始错误 */
       }
+      onSSEEvent?.({ event: "error", data: { message: msg, messageId, otterId } });
     }
   }
 
@@ -359,9 +362,9 @@ export class AgentInvoker {
   }
 
   /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()） */
-  abort(otterId: string, _messageId: string): void {
+  abort(otterId: string, messageId: string): void {
     this.abortedOtters.add(otterId);
-    this.agentInvoke.abort(otterId);
+    this.agentInvoke.abort(otterId, messageId);
   }
 
   /** 构建 DynamicContext：会话摘要 + 交接摘要（B-CS-3）。记忆召回由 agent 通过 search_memory tool 主动触发 */

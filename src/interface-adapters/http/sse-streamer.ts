@@ -8,8 +8,8 @@ export interface SSEEvent {
   data: Record<string, unknown>;
 }
 
-/** 终端事件：发出后关闭 SSE 流 */
-const TERMINAL_EVENTS = new Set(["message.complete", "message.aborted", "error"]);
+/** 终端事件：发出后关闭 SSE 流（仅 stream.end，per-message 事件不再关闭流） */
+const TERMINAL_EVENTS = new Set(["stream.end"]);
 
 /**
  * 创建 SSE 流，返回响应和事件推送函数。
@@ -19,7 +19,7 @@ export function streamEvents(
   c: Context,
   onAbort: () => void,
   logger?: Logger,
-): { response: Response; push: (event: SSEEvent) => void } {
+): { response: Response; push: (event: SSEEvent) => void; close: () => void } {
   const requestId = c.get('requestId');
   const conversationId = c.req.param('id');
   const startTime = Date.now();
@@ -41,6 +41,11 @@ export function streamEvents(
     waiting?.();
   };
 
+  const close = (): void => {
+    closed = true;
+    waiting?.();
+  };
+
   const response = streamSSE(c, async (stream) => {
     stream.onAbort(() => {
       closed = true;
@@ -57,7 +62,7 @@ export function streamEvents(
     });
   });
 
-  return { response, push };
+  return { response, push, close };
 }
 
 /**

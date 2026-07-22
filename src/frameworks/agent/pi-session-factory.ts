@@ -340,8 +340,9 @@ export class PiSessionFactory implements AgentGateway {
       modelRuntime: this.modelRuntime as any,
     });
 
-    /** 注册活跃 session 引用，支持外部 abort + 工具调用计数 */
-    this.activeSessions.set(otterId, { abort: () => session.abort(), toolCallCount: 0 });
+    /** 注册活跃 session 引用，支持外部 abort + 工具调用计数（复合 key 避免并发覆盖） */
+    const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
+    this.activeSessions.set(sessionKey, { abort: () => session.abort(), toolCallCount: 0 });
 
     /** 熔断器 */
     const { circuitBreaker, unregisterToolCall } = this.attachCircuitBreaker(session, otterId);
@@ -349,7 +350,7 @@ export class PiSessionFactory implements AgentGateway {
     /** 构建完整消息：系统提示 + 动态上下文 + 用户消息 */
     const fullMessage = this.buildMessageWithContext(staticPrompt, message, dynamicContext);
 
-    const activeEntry = this.activeSessions.get(otterId);
+    const activeEntry = this.activeSessions.get(sessionKey);
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
 
 
@@ -377,28 +378,30 @@ export class PiSessionFactory implements AgentGateway {
     } catch (err) {
       /** 将 toolCallCount 附着到异常，供 handleInvokeError 在 finally 清理后仍可读取 */
       (err as Error & { _toolCallCount?: number })._toolCallCount =
-        this.activeSessions.get(otterId)?.toolCallCount ?? 0;
+        this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
       throw err;
     } finally {
       circuitBreaker.clearSteerDeadline();
       unregisterToolCall?.();
       unsubscribe();
-      this.activeSessions.delete(otterId);
+      this.activeSessions.delete(sessionKey);
       session.dispose();
     }
   }
 
-  /** 中断指定 Otter 的 Agent 生成 */
-  abort(otterId: string): void {
-    const entry = this.activeSessions.get(otterId);
+  /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
+  abort(otterId: string, messageId?: string): void {
+    const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
+    const entry = this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId);
     if (entry) {
       entry.abort();
     }
   }
 
   /** 获取指定 Otter 当前 session 的工具调用次数（abort body 构造用） */
-  getToolCallCount(otterId: string): number {
-    return this.activeSessions.get(otterId)?.toolCallCount ?? 0;
+  getToolCallCount(otterId: string, messageId?: string): number {
+    const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
+    return (this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId))?.toolCallCount ?? 0;
   }
 
   /** 创建 session 事件处理器：跟踪工具调用 + 转发事件到 onEvent 回调 */

@@ -74,24 +74,31 @@ export class MessageController {
         attachments: body.attachments,
       });
 
-      /** 3. 确定 Agent Otter（talkingStonePassedTo 的第一个） */
-      const otterId = body.talkingStonePassedTo[0];
+      /** 3. 确定目标 Otter 列表 */
+      const otterIds = body.talkingStonePassedTo;
 
-      /** 4. 创建 SSE 流并启动 Agent 响应 */
-      const { response, push } = streamEvents(c, () => {
-        this.agentInvoker.abort(otterId, "");
+      /** 4. 创建 SSE 流（多 otter 共享同一个流，用 messageId 区分事件） */
+      const { response, push, close } = streamEvents(c, () => {
+        for (const oid of otterIds) {
+          this.agentInvoker.abort(oid, "");
+        }
       });
 
-      /** 5. 异步驱动 Agent 对话（不 await） */
-      this.agentInvoker.invokeConversation({
-        otterId,
-        conversationId,
-        userMessageContent: body.body,
-        senderId: body.senderId,
-        onSSEEvent: push,
-      }).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        push({ event: "error", data: { message: msg } });
+      /** 5. 并发驱动所有 Otter 的 Agent 对话（不 await） */
+      const promises = otterIds.map(otterId =>
+        this.agentInvoker.invokeConversation({
+          otterId,
+          conversationId,
+          userMessageContent: body.body,
+          senderId: body.senderId,
+          onSSEEvent: push,
+        })
+      );
+
+      /** 6. 所有 otter 完成后关闭 SSE 流 */
+      Promise.allSettled(promises).then(() => {
+        push({ event: "stream.end", data: {} });
+        close();
       });
 
       return response;
