@@ -165,7 +165,13 @@ function ConversationPage() {
       setStreaming({ otterId, duration: 0, events: [] })
 
       const ctrl = consumeSSE(response, {
-        'message.start': (data) => { otterMessageId = data.messageId; otterMsgIdRef.current = data.messageId },
+        'message.start': (data) => {
+          otterMessageId = data.messageId
+          otterMsgIdRef.current = data.messageId
+          /** 清空上一轮事件（speak 重试时新 message.start 到达，避免 msg1+msg2 事件混合） */
+          liveEvents.length = 0
+          setStreaming({ otterId, duration: 0, events: [] })
+        },
         'assistant_toolcall': (data) => {
           liveEvents.push({ eventType: 'assistant_toolcall', payload: { content: data.content } })
           setStreaming(prev => prev ? { ...prev, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 } : null)
