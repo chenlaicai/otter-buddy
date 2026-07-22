@@ -163,6 +163,7 @@ function createMockConvRepo() {
     getParticipant: vi.fn(),
     getActiveParticipants: vi.fn(),
     updateParticipantLeave: vi.fn(),
+    updateTokenUsage: vi.fn(async () => {}),
   };
 }
 

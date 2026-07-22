@@ -122,6 +122,7 @@ function mockRepo(opts: {
     updateParticipantLeave: vi.fn(async (participantId: string, leftAtTurnId: string, leftAtTurnNumber: number, leftAt: string) => {
       leftParticipants.push({ participantId, leftAtTurnId, leftAtTurnNumber, leftAt });
     }),
+    updateTokenUsage: vi.fn(async () => {}),
   };
 }
 

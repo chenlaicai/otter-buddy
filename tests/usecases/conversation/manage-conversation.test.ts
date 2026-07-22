@@ -89,6 +89,7 @@ function mockRepo(initialConversations: Map<string, Conversation> = new Map()): 
     getParticipant: vi.fn(async () => null),
     getActiveParticipants: vi.fn(async () => []),
     updateParticipantLeave: vi.fn(),
+    updateTokenUsage: vi.fn(async () => {}),
   };
 }
 

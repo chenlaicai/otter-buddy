@@ -142,10 +142,11 @@ describe("Message API", () => {
       expect(res.headers.get("content-type")).toContain("text/event-stream");
 
       const events = await readSSEEvents(res);
-      expect(events).toHaveLength(3);
+      expect(events).toHaveLength(4);
       expect(events[0]).toEqual({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
       expect(events[1]).toEqual({ event: "message.delta", data: { text: "Hello" } });
       expect(events[2]).toEqual({ event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });
+      expect(events[3]).toEqual({ event: "stream.end", data: {} });
 
       expect(deps.sendMessageUseCase.send).toHaveBeenCalledWith({
         conversationId: "conv-1",
@@ -159,7 +160,11 @@ describe("Message API", () => {
     it("streams error event when agent invocation fails", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-      deps.agentInvoker.invokeConversation.mockRejectedValue(new Error("LLM rate limited"));
+      /** 模拟真实行为：invokeConversation 捕获错误后通过 onSSEEvent 发送 error 事件并正常返回 */
+      deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
+        params.onSSEEvent?.({ event: "error", data: { message: "LLM rate limited" } });
+        return { messageId: "agent-msg-1", duration: 100 };
+      });
 
       const res = await app.request("/api/conversations/conv-1/messages", {
         method: "POST",
@@ -170,9 +175,10 @@ describe("Message API", () => {
       expect(res.status).toBe(200);
 
       const events = await readSSEEvents(res);
-      expect(events).toHaveLength(1);
+      expect(events).toHaveLength(2);
       expect(events[0].event).toBe("error");
       expect(events[0].data.message).toBe("LLM rate limited");
+      expect(events[1]).toEqual({ event: "stream.end", data: {} });
     });
   });
 

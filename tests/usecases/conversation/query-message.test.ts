@@ -75,6 +75,7 @@ function mockRepo(opts: {
     getParticipant: vi.fn(async () => null),
     getActiveParticipants: vi.fn(async () => []),
     updateParticipantLeave: vi.fn(),
+    updateTokenUsage: vi.fn(async () => {}),
   };
 }
 
