@@ -61,6 +61,8 @@ export interface ConversationRepository {
     contextTokensMax?: number;
   }): Promise<void>;
   failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
+  /** 更新消息的 token 使用量（speak complete 后补充写入） */
+  updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
   /** 中止消息：streaming -> aborted（body 必须非空，talkingStonePassedTo 必须非空） */
   abortMessage(
     messageId: string,

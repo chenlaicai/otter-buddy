@@ -189,6 +189,12 @@ export class SqliteConversationRepository implements ConversationRepository {
     if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
   }
 
+  async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
+    this.db.prepare(`UPDATE messages SET context_tokens = ?, context_tokens_max = ? WHERE id = ?`).run(
+      contextTokens, contextTokensMax, messageId,
+    );
+  }
+
   async abortMessage(messageId: string, body: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
     const result = this.db.prepare(`
       UPDATE messages SET status = 'aborted', body = ?, talking_stone_passed_to = ?, completed_at = ?

@@ -243,13 +243,26 @@ export class AgentInvoker {
       status: 'success',
     });
 
+    const totalTokens = result.tokenUsage ? result.tokenUsage.input + result.tokenUsage.output : undefined;
     onSSEEvent?.({
       event: "message.complete",
       data: {
         messageId,
         duration: `${(duration / 1000).toFixed(1)}s`,
+        ctx: totalTokens,
+        ctxMax: result.ctxMax,
       },
     });
+
+    /** 补充写入 token 使用量（speak 工具 complete 时不携带 token 数据） */
+    if (result.tokenUsage) {
+      const totalTokens = result.tokenUsage.input + result.tokenUsage.output;
+      const ctxMax = result.ctxMax ?? 0;
+      this.sendMessage.updateTokenUsage(messageId, totalTokens, ctxMax).catch((err: unknown) => {
+        const m = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Failed to update token usage for ${messageId}: ${m}`);
+      });
+    }
 
     /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
     onSSEEvent?.({ event: "turn.complete", data: {} });
