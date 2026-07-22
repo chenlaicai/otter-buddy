@@ -182,7 +182,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
     const updates: string[] = ["status = 'failed'", "completed_at = ?"];
     const params: unknown[] = [failedAt];
-    if (body !== undefined) { updates.unshift("body = ?"); params.push(body); }
+    if (body !== undefined) { updates.unshift("body = ?"); params.unshift(body); }
     if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
     params.push(messageId);
     const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status = 'streaming'`).run(...params);

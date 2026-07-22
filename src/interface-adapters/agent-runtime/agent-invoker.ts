@@ -151,6 +151,7 @@ export class AgentInvoker {
 
       /** speak 工具已直接 complete 消息；检查状态处理未调 speak 的场景 */
       const msg = await this.queryMessage.getMessageById(message.id);
+      this.logger.info('Agent invocation finished', { messageId: message.id, otterId, messageStatus: msg?.status, tokenUsage: result.tokenUsage });
 
       if (msg?.status === "completed") {
         /** 正常路径：agent 调用了 speak */
@@ -194,6 +195,7 @@ export class AgentInvoker {
       dynamicContext: params.dynamicContext,
       conversationId: params.conversationId,
       onEvent: (e: AgentStreamEvent) => {
+        this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
         /** speak 工具执行完毕后，抑制 SDK agent loop 继续产生的 assistant_text 事件 */
         if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
           speakCompleted = true;
@@ -284,6 +286,8 @@ export class AgentInvoker {
     onSSEEvent?: (event: AgentSSEEvent) => void,
     senderId?: string,
   ): Promise<void> {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedOtters.has(otterId) });
     if (this.abortedOtters.delete(otterId)) {
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
       const toolCallCount =
@@ -328,6 +332,7 @@ export class AgentInvoker {
     tokenUsage?: { input: number; output: number };
   }): Promise<ConversationInvokeResult> {
     const { messageId, otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount, startTime, tokenUsage } = params;
+    this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
       /** 第一次：fail + 系统提醒 + 重试 */
