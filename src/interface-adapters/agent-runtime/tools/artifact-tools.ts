@@ -1,8 +1,5 @@
-import type { AgentTool, ToolContext, ToolResponse } from "./tool-factory";
-
-function textResponse(text: string): ToolResponse {
-  return { content: [{ type: "text", text }], details: {} };
-}
+import type { AgentTool, ToolContext } from "./tool-factory";
+import { textResponse } from "./tool-helpers";
 
 export function createListArtifactsTool(ctx: ToolContext): AgentTool {
   return {

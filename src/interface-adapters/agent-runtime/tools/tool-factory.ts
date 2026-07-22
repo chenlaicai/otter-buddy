@@ -1,6 +1,7 @@
 import type { OtterToolClient } from "../otter-tool-client";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
+import { type ToolResponse, textResponse } from "./tool-helpers";
 
 /**
  * Agent 工具类型（与 Pi AgentTool 接口兼容）。
@@ -14,15 +15,7 @@ export interface AgentTool {
   [key: string]: unknown;
 }
 
-/** Tool 执行结果（Pi AgentTool 格式） */
-export interface ToolResponse {
-  content: Array<{ type: "text"; text: string }>;
-  details: Record<string, unknown>;
-}
-
-function textResponse(text: string): ToolResponse {
-  return { content: [{ type: "text", text }], details: {} };
-}
+export type { ToolResponse } from "./tool-helpers";
 
 /**
  * 工具上下文：invoke 时由系统注入，闭包捕获。
@@ -195,8 +188,12 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
       required: ["otterId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      await ctx.client.otter.dissolve(params.otterId as string);
-      return textResponse(`Otter ${params.otterId} dissolved`);
+      const targetOtterId = params.otterId as string;
+      if (targetOtterId === ctx.otterId) {
+        return textResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
+      }
+      await ctx.client.otter.dissolve(targetOtterId);
+      return textResponse(`Otter ${targetOtterId} dissolved`);
     },
   };
 }
@@ -218,6 +215,16 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       required: ["resourceType"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
+      const resourceType = (params.resourceType as string | undefined) ?? "url";
+      if (resourceType === "fact") {
+        if (!params.content || (params.content as string).trim().length === 0) {
+          return textResponse("[错误] resourceType 为 'fact' 时，content 不能为空。请提供事实文本内容。");
+        }
+      } else {
+        if (!params.url || (params.url as string).trim().length === 0) {
+          return textResponse(`[错误] resourceType 为 '${resourceType}' 时，url 不能为空。请提供资源 URL 或路径。`);
+        }
+      }
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
       const resource = await ctx.client.resource.link({
         conversationId: ctx.conversationId,
@@ -226,7 +233,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         category: params.category as string | undefined,
         title: params.title as string | undefined,
         linkedBy: ctx.otterId,
-        resourceType: (params.resourceType as string | undefined) ?? "url",
+        resourceType,
         groupId: params.groupId as string | undefined,
       }, turnNumber);
       return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);
@@ -312,13 +319,14 @@ function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
       type: "object",
       properties: {
         query: { type: "string", description: "要查找的术语名称或相关描述" },
+        limit: { type: "number", description: "最大结果数（默认 10）" },
       },
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const results = await ctx.client.terminology.search(
         params.query as string,
-        10,
+        (params.limit as number) ?? 10,
       );
       if (results.length === 0) {
         return textResponse("未找到相关术语");
@@ -364,13 +372,49 @@ function createAddTerminologyTool(ctx: ToolContext): AgentTool {
   };
 }
 
+function createDeleteContextTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "delete_context",
+    description: "删除当前 Otter 的上下文条目。参数：key（必填）。otterId 由系统注入。",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "要删除的上下文 key" },
+      },
+      required: ["key"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      await ctx.client.context.delete(ctx.otterId, params.key as string);
+      return textResponse(`Context deleted: ${params.key}`);
+    },
+  };
+}
+
+function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "get_active_participants",
+    description: "获取当前对话中所有活跃参与者。返回参与者列表（含 Otter ID、状态、加入时间）。conversationId 由系统注入。",
+    parameters: {
+      type: "object",
+      properties: {},
+    },
+    execute: async (_id: string, _params: Record<string, unknown>) => {
+      const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
+      return textResponse(JSON.stringify(participants.map(p => ({
+        otterId: p.otterId,
+        status: p.status,
+        joinedAtTurnNumber: p.joinedAtTurnNumber,
+      }))));
+    },
+  };
+}
+
 /**
  * 工具工厂：invoke 时调用，闭包捕获 ToolContext。
- * 返回全部 18 个 AgentTool 实例（8 现有 + 6 新增 + 2 术语库 + 2 产物管理）。
+ * 返回全部 20 个 AgentTool 实例。
  */
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [
-    // 现有工具（8 个，send_message 替换为 speak）
     createSpeakTool(ctx),
     createPassTalkingStoneTool(ctx),
     createSearchMemoryTool(ctx),
@@ -379,18 +423,17 @@ export function createTools(ctx: ToolContext): AgentTool[] {
     createDissolveOtterTool(ctx),
     createLinkedResourceTool(ctx),
     createGetMemoryDetailTool(ctx),
-    // 新增工具（6 个）
     createGetMessageTool(ctx),
     createListMessagesTool(ctx),
     createSearchMessagesTool(ctx),
     createGetTurnHistoryTool(ctx),
     createGetContextTool(ctx),
     createSetContextTool(ctx),
-    // 术语库工具（2 个）
+    createDeleteContextTool(ctx),
     createSearchTerminologyTool(ctx),
     createAddTerminologyTool(ctx),
-    // 产物管理工具（2 个）
     createListArtifactsTool(ctx),
     createUpdateArtifactStatusTool(ctx),
+    createGetActiveParticipantsTool(ctx),
   ];
 }

@@ -1,5 +1,5 @@
 import type { Message } from "@entities/conversation/message";
-import type { ArtifactIndex, ArtifactStatus, ConversationParticipant } from "@entities/conversation/conversation";
+import type { ArtifactStatus, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { TurnHistoryEntry } from "@usecases/conversation/conversation-repository";
@@ -56,12 +56,6 @@ export interface LinkResourceInput {
 export interface OtterToolClient {
   conversation: {
     message: {
-      send(params: {
-        conversationId: string;
-        senderId: string;
-        body: string;
-        talkingStonePassedTo?: string[];
-      }): Promise<Message>;
       /** 完成当前 streaming 消息（speak 工具调用） */
       complete(messageId: string, params: {
         body: string;
@@ -97,6 +91,7 @@ export interface OtterToolClient {
   context: {
     get(otterId: string, key?: string): Promise<Record<string, string>>;
     set(otterId: string, key: string, value: string): Promise<void>;
+    delete(otterId: string, key: string): Promise<void>;
   };
   resource: {
     link(params: LinkResourceInput, currentTurnNumber?: number): Promise<LinkedResource>;
@@ -105,6 +100,5 @@ export interface OtterToolClient {
     updateStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void>;
     supersede(existingId: string, newInput: LinkResourceInput, currentTurnNumber: number): Promise<LinkedResource>;
     archive(id: string, conversationId: string, currentTurnNumber: number): Promise<void>;
-    getIndex(conversationId: string): Promise<ArtifactIndex>;
   };
 }

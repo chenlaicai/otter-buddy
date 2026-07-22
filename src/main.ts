@@ -206,18 +206,6 @@ function initUseCases(
 /** 构建 OtterToolClient 的 conversation.message 部分 */
 function buildMessageClient(uc: UseCases) {
   return {
-    send: async (params: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[] }) => {
-      const msg = await uc.sendMessage.start({
-        conversationId: params.conversationId,
-        senderId: params.senderId,
-        talkingStonePassedTo: [],
-      });
-      await uc.sendMessage.complete(msg.id, {
-        body: params.body,
-        talkingStonePassedTo: params.talkingStonePassedTo ?? [],
-      });
-      return msg;
-    },
     complete: (messageId: string, params: { body: string; talkingStonePassedTo: string[] }) =>
       uc.sendMessage.complete(messageId, params),
     getById: (id: string) => uc.queryMessage.getMessageById(id),
@@ -309,8 +297,6 @@ function buildResourceClient(uc: UseCases) {
       }, turnNum),
     archive: (id: string, convId: string, turnNum: number) =>
       uc.manageKeyInfo.archiveResource(id, convId, turnNum),
-    getIndex: (convId: string) =>
-      uc.manageKeyInfo.getArtifactIndex(convId),
   };
 }
 
@@ -354,6 +340,7 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
     context: {
       get: (otterId, key) => uc.manageContext.get(otterId, key),
       set: (otterId, key, value) => uc.manageContext.set(otterId, key, value),
+      delete: (otterId, key) => uc.manageContext.delete(otterId, key),
     },
     resource: buildResourceClient(uc),
   };
