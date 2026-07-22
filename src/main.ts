@@ -40,6 +40,8 @@ import { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-termin
 import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
 import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
 import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
+import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
+import { migrateDatabase, migrateExistingData } from "@frameworks/db/migration";
 import { SyncDocuments } from "@usecases/document/sync-documents";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { CreateOtter } from "@usecases/otter/create-otter";
@@ -436,6 +438,13 @@ async function main(): Promise<void> {
   initSchema(db, logger);
   await seedTerminologyData(db, logger);
 
+  // 执行数据库迁移
+  migrateDatabase(db, logger);
+
+  // 创建 OtterConfigProvider 并迁移现有数据
+  const otterConfigProvider = new SqliteOtterConfigProvider(db);
+  migrateExistingData(db, otterConfigProvider, logger);
+
   const { model } = await initModels(appConfig.llm, logger);
   const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
 
@@ -448,6 +457,7 @@ async function main(): Promise<void> {
     otterToolClient: {} as OtterToolClient,
     platformPromptFile: "./prompts/platform/SYSTEM_PROMPT.md",
     createTools,
+    otterConfigProvider,
   }, logger);
 
   const uc = initUseCases(repos, agentGateway, embeddingService);
