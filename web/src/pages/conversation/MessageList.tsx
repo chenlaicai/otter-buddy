@@ -63,6 +63,7 @@ interface MessageListProps {
 export interface StreamingState {
   messageId: string
   otterId: string
+  otterName?: string
   duration: number
   events: LocalMessageEvent[]
 }
@@ -345,7 +346,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
 function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {
   const otter = otters.find(o => o.id === state.otterId)
   const color = getOtterColor(state.otterId, otter?.ci)
-  const name = otter?.name || 'Otter'
+  const name = otter?.name || state.otterName || 'Otter'
   const events = state.events || []
 
   return (

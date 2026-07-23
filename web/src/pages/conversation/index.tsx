@@ -168,10 +168,10 @@ function ConversationPage() {
 
       const ctrl = consumeSSE(response, {
         'message.start': (data) => {
-          const { messageId, otterId } = data
+          const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
           setStreamingMap(prev => new Map(prev).set(messageId, {
-            messageId, otterId, duration: 0, events: [],
+            messageId, otterId, otterName, duration: 0, events: [],
           }))
         },
         'assistant_toolcall': (data) => {

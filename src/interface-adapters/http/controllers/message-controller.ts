@@ -140,7 +140,6 @@ export class MessageController {
   /** 从 invokeConversation 结果中提取下一轮 talkingStonePassedTo 目标 */
   private async collectChainTargets(
     results: PromiseSettledResult<{ messageId: string }>[],
-    invoked: Set<string>,
   ): Promise<string[]> {
     const targets: string[] = [];
     for (const r of results) {
@@ -148,8 +147,7 @@ export class MessageController {
       const msg = await this.queryMessage.getMessageById(r.value.messageId);
       if (!msg?.talkingStonePassedTo) continue;
       for (const id of msg.talkingStonePassedTo) {
-        /** 只接力给实际 otter（UUID 格式），跳过 "user" 等非 otter 标识 */
-        if (!invoked.has(id) && id !== 'user') targets.push(id);
+        if (id !== 'user') targets.push(id);
       }
     }
     return targets;
@@ -163,14 +161,11 @@ export class MessageController {
     senderId: string,
     push: (event: { event: string; data: Record<string, unknown> }) => void,
   ): Promise<void> {
-    const invoked = new Set<string>();
     const invokeChain = async (targets: string[], depth: number): Promise<void> => {
       if (depth > 5 || targets.length === 0) return;
-      const newTargets = targets.filter(id => !invoked.has(id));
-      for (const id of newTargets) invoked.add(id);
 
       const results = await Promise.allSettled(
-        newTargets.map(otterId =>
+        targets.map(otterId =>
           this.agentInvoker.invokeConversation({
             otterId, conversationId, userMessageContent,
             senderId, onSSEEvent: push,
@@ -178,7 +173,7 @@ export class MessageController {
         ),
       );
 
-      const nextTargets = await this.collectChainTargets(results, invoked);
+      const nextTargets = await this.collectChainTargets(results);
       await invokeChain(nextTargets, depth + 1);
     };
     await invokeChain(initialTargets, 0);

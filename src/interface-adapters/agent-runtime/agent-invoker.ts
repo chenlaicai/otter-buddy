@@ -137,7 +137,8 @@ export class AgentInvoker {
       talkingStonePassedTo: [senderId],
     });
 
-    onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId } });
+    const otter = await this.queryOtter.getById(otterId);
+    onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId } });
 
     try {
       const { result, speakBodyReceived, aborted } = await this.executeAgentInvocation({
