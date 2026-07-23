@@ -72,7 +72,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         const msg = err instanceof Error ? err.message : String(err);
         return textResponse(`[错误] 发言结束失败：${msg}。请重试。`);
       }
-      return textResponse("[系统] 发言已提交成功。你的回合正式结束，不要生成任何后续内容。系统将自动调度下一位发言者。");
+      return textResponse("[系统] 发言已提交成功。你的回合正式结束，直接结束本 loop，不要做任何回应。系统将自动调度下一位发言者。");
     },
   };
 }
