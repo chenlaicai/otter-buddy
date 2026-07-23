@@ -152,8 +152,8 @@ export class AgentInvoker {
       /** streamingDone = true（executeAgentInvocation 已返回） */
       this.logger.info('Agent invocation finished', { messageId: message.id, otterId, speakBodyReceived, tokenUsage: result.tokenUsage });
 
-      if (speakBodyReceived) {
-        /** 两阶段提交：body 已存 + streaming 已结束 → 完成 message */
+      /** streaming 结束即尝试 complete（body 为空时 completeMessageFinalize 会抛错 → retry） */
+      try {
         return await this.completeAgentInvocation({
           otterId,
           conversationId,
@@ -163,13 +163,13 @@ export class AgentInvoker {
           startTime,
           onSSEEvent,
         });
+      } catch {
+        /** body 未设置（agent 未调 speak）→ 重试机制 */
+        return await this.handleSpeakRetry({
+          messageId: message.id, otterId, conversationId, userMessageContent,
+          senderId, onSSEEvent, retryCount, startTime, tokenUsage: result.tokenUsage,
+        });
       }
-
-      /** agent 未调 speak → 重试机制 */
-      return await this.handleSpeakRetry({
-        messageId: message.id, otterId, conversationId, userMessageContent,
-        senderId, onSSEEvent, retryCount, startTime, tokenUsage: result.tokenUsage,
-      });
     } catch (err) {
       await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
       /** 不 re-throw：错误已通过 SSE 通知前端，controller 用 Promise.allSettled 跟踪完成 */
@@ -190,7 +190,6 @@ export class AgentInvoker {
     onSSEEvent?: (event: AgentSSEEvent) => void;
   }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; speakBodyReceived: boolean }> {
     let agentError: string | undefined;
-    let speakSSESuppressed = false;
     let speakBodyReceived = false;
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
@@ -198,18 +197,15 @@ export class AgentInvoker {
       messageId: params.messageId,
       onEvent: (e: AgentStreamEvent) => {
         this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
+        /** 所有事件如实推送到 SSE（event 就是 event，不抑制） */
         const sse = mapToSSEEvent(e);
-        if (sse && !(speakSSESuppressed && sse.event === "assistant_text")) {
-          /** 注入 messageId，支持前端多 otter 并发时按消息分发事件 */
+        if (sse) {
           params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
         }
-        /** speak 的 tool_execution_end 到达时，body 已通过 setMessageBody 存储（status 仍是 streaming），
-         *  所有事件（包括 speak 自身的 tool_result）都能正常持久化 */
         if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
-          speakSSESuppressed = true;
           speakBodyReceived = true;
         }
-        /** message 始终为 streaming 状态（speak 只存 body 不改 status），所有事件都能持久化 */
+        /** 所有事件如实持久化（event 就是 event，不抑制） */
         const evt = mapToMessageEventInput(e, params.messageId);
         if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
           const m = err instanceof Error ? err.message : String(err);
