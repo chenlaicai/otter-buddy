@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
+import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO } from "../dto/message-dto";
@@ -12,6 +13,7 @@ export class MessageController {
     private readonly sendMessageUseCase: SendMessage,
     private readonly queryMessage: QueryMessage,
     private readonly agentInvoker: AgentInvoker,
+    private readonly logger: Logger,
   ) {}
 
   async list(c: Context): Promise<Response> {
@@ -175,6 +177,14 @@ export class MessageController {
               .join('\n');
             messageWithContext = `## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
           }
+          this.logger.info('发言链调用', {
+            otterId,
+            depth,
+            unreadCount: unreadMessages.length,
+            unreadIds: unreadMessages.map(m => m.id),
+            messageLength: messageWithContext.length,
+            messagePreview: messageWithContext.substring(0, 200),
+          });
           return this.agentInvoker.invokeConversation({
             otterId, conversationId, userMessageContent: messageWithContext,
             senderId, onSSEEvent: push,

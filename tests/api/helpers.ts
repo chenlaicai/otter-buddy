@@ -399,6 +399,7 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.sendMessageUseCase,
     deps.queryMessage,
     deps.agentInvoker,
+    { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,

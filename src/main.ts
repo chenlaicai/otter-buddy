@@ -369,7 +369,7 @@ function initControllers(deps: ControllerDeps) {
   return {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
-    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger),
     memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
     settings: new SettingsController(deps.settings, deps.settingsRepo),

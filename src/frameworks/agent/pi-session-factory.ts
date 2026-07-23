@@ -399,6 +399,8 @@ export class PiSessionFactory implements AgentGateway {
     }
     const fullMessage = buildMessageWithContext(userMessagePrefix, message, options?.dynamicContext);
 
+    this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
+
     const activeEntry = this.activeSessions.get(sessionKey);
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
 
