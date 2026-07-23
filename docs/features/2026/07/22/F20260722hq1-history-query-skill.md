@@ -40,14 +40,7 @@ created_at: 2026-07-22
 
 ### 与 memory-recall 的关系
 
-| 维度 | history-query（本特性） | memory-recall（F20260721m3r1） |
-|------|------------------------|-------------------------------|
-| 范围 | 当前对话的消息 | 跨会话的持久化记忆 |
-| 数据源 | messages 表（原始消息） | memory_entries 表（索引/摘要） |
-| 时效 | 实时，包含本轮对话 | 延迟，依赖索引周期 |
-| 粒度 | 完整原文 | 渐进式披露（summary → full） |
-
-两者互补，不冲突。选择依据：信息在当前对话中 → history-query；信息来自更早会话 → memory-recall。
+详见 `.pi/skills/history-query/SKILL.md` 中的对比表格。核心区别：history-query 查询当前对话的原始消息，memory-recall 查询跨会话的持久化记忆。两者串联使用，先 history-query 再 memory-recall 兜底。
 
 ## 用户意图锚
 
@@ -67,42 +60,65 @@ created_at: 2026-07-22
 
 ### D1 — history-query SKILL.md
 
+**核心原则**：需要引用或核实时精确回溯，不凭记忆猜测。上下文窗口中已有且不需要精确引用的信息，直接回答。
+
 **触发规则（硬规则，必须查询）：**
 
 1. 引用回溯：用户指向当前对话中特定发言
 2. 决策核实：确认当前对话中某个决定的具体措辞
 3. 列表/步骤回溯：用户要求重发之前的内容
-4. 上下文断裂：长对话中 agent 不记得具体细节
+4. 上下文断裂：上下文窗口搜索后仍找不到相关信息
 5. 分歧裁决：对"之前说过什么"有争议
+6. 工具调用回溯：用户问工具调用历史或失败原因
+7. 元信息查询：用户问对话时长、消息数量等
 
 **触发规则（软规则，建议查询）：**
 
 1. 连续讨论收尾时核实关键节点
 2. 多轮修改追踪原始版本
-3. 跨 Turn 续接时补充上下文
+3. Turn 切换续接时补充上下文
 
-**工具选择协议：**
+**与 memory-recall 的边界判断**（关键词→查询路径映射）：
 
-| 场景 | 工具 |
-|------|------|
-| 关键词搜索 | `search_messages` |
-| 浏览最近消息 | `list_messages` |
-| 获取特定消息 | `get_message` |
-| 了解对话结构 | `get_turn_history` |
+- "刚才"、"这轮"、"你刚才说的" → history-query
+- "上次"、"记得当时" → memory-recall
+- "之前"、"之前说的"（有歧义） → 先 history-query，0 结果再 memory-recall
 
-**渐进式查询：**
+**工具选择决策流程**：
 
-1. `search_messages` 或 `list_messages(limit: 10)` → 快速定位
-2. `get_message` → 仅在需要详情时
-3. `get_turn_history` → 仅在需要理解对话流程时
+```
+有明确关键词？ → search_messages
+需要浏览最近？ → list_messages
+知道消息 ID？ → get_message
+需要对话结构？ → get_turn_history
+```
 
-**禁止行为：**
+**参数指南**：
 
-- 不对非历史问题调用查询
-- 不每次回复前查询
-- 不展示原始 JSON
-- 不用消息查询替代记忆召回
-- 不查询超过需要的消息数量
+- `list_messages(limit, before)`：`before` 是游标分页参数
+- `get_turn_history(includeMessages)`：`true` 包含 Turn 内消息
+- `search_messages(query, limit)`：FTS5 trigram，搜索无结果可拆分关键词重试
+- `get_message(messageId)`：按 ID 精确获取
+
+**结果处理**：
+
+- 无结果：正常回答，仅在明显指向更早会话时建议查记忆
+- 有结果：引用原文关键句（引号标注）+ 简要解读，不罗列 JSON
+- 长消息：截取相关段落，省略号标注
+
+**错误处理**：
+
+- `search_messages` 0 结果但用户确信 → 建议换关键词
+- `get_message` not found → 告知可能已删除
+- 工具超时 → 告知失败，建议重试
+
+**禁止行为**（含正面替代）：
+
+- 不每次都查询 → 只在明确信号出现时查询
+- 不展示原始数据 → 提炼为自然语言
+- 不越界 → 跨会话用 `search_memory`
+- 不过度拉取 → 默认 `limit: 10`，需要时再分页
+- 不忽略结果 → 查询后要基于结果回答
 
 ### D2 — 无代码变更
 
@@ -117,7 +133,14 @@ created_at: 2026-07-22
 
 ## 验证
 
-- [ ] `.pi/skills/history-query/SKILL.md` 存在且格式正确
-- [ ] SKILL.md 使用 YAML frontmatter 声明 name 和 description
-- [ ] 与 memory-recall 的边界在文档中有明确说明
-- [ ] 代码无变更（仅新增文件）
+- [x] `.pi/skills/history-query/SKILL.md` 存在且格式正确
+- [x] SKILL.md 使用 YAML frontmatter 声明 name 和 description
+- [x] 与 memory-recall 的边界在文档中有明确说明（关键词→查询路径映射）
+- [x] 代码无变更（仅新增文件）
+- [x] 核心原则收紧为"需要引用或核实时"（对抗检视修复）
+- [x] "上下文断裂"定义为可判断标准（对抗检视修复）
+- [x] 补充遗漏场景：工具调用回溯、元信息查询（对抗检视修复）
+- [x] 工具参数指南覆盖所有 4 个工具（对抗检视修复）
+- [x] 结果处理具体化：引用格式、长消息截取（对抗检视修复）
+- [x] 错误处理指导覆盖常见失败场景（对抗检视修复）
+- [x] 禁止行为含正面替代（对抗检视修复）
