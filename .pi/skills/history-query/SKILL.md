@@ -75,7 +75,7 @@ description: 对话历史查询策略。定义何时以及如何查询当前对�
 
 ### 参数指南
 
-- `list_messages(limit, before)`：`before` 是游标分页参数，传入上一页最后一条消息的 ID 获取更早的消息。典型用法：先 `list_messages(limit: 10)` 获取第一页，再 `list_messages(limit: 10, before: <最后一条ID>)` 获取第二页
+- `list_messages(limit, before)`：`before` 是游标分页参数，传入上一页最后一条消息的 ID 获取更早的消息。工具默认 limit 为 50，但本规范建议使用 10 以避免过度拉取。典型用法：先 `list_messages(limit: 10)` 获取第一页，再 `list_messages(limit: 10, before: <最后一条ID>)` 获取第二页
 - `get_turn_history(includeMessages)`：默认 `false` 仅返回 Turn 元信息；传 `true` 会包含每个 Turn 下的消息列表，适用于需要理解 Turn 内部对话流时
 - `search_messages(query, limit)`：`query` 支持中文关键词，底层使用 FTS5 trigram 分词。搜索无结果时可尝试拆分关键词重试
 - `get_message(messageId)`：按 ID 精确获取单条消息的完整内容
@@ -86,7 +86,7 @@ description: 对话历史查询策略。定义何时以及如何查询当前对�
 
 1. **第一步**：`search_messages` 或 `list_messages(limit: 10)` — 快速定位
 2. **第二步**：对目标消息调用 `get_message` 获取完整内容 — 仅在需要详情时
-3. **结构查询**：`get_turn_history` — 仅在需要理解对话流程时
+3. **结构查询**：`get_turn_history` — 用户问"刚才讨论了几个话题"、"对话流程是什么"、"参与者变化"，或需要定位 Turn 边界再用 `list_messages(before: ...)` 获取目标 Turn 消息时
 
 ### 结果处理
 
@@ -103,8 +103,7 @@ description: 对话历史查询策略。定义何时以及如何查询当前对�
 
 ## 禁止行为
 
-- **不要每次都查询**：只在硬规则/软规则的明确信号出现时查询。上下文窗口中已有答案的问题，直接回答
-- **不要展示原始数据**：不要把 `list_messages` 或 `search_messages` 的 JSON 结果直接展示给用户。提炼为自然语言
-- **不要越界**：跨会话信息请用 `search_memory`，不要用消息查询工具去查历史会话
-- **不要过度拉取**：默认 `limit: 10` 足够定位。需要更多时再分页获取，不要一次拉 100 条
-- **不要忽略结果**：查询到结果后要基于结果回答，不要查了但不用
+- **不要对已有答案的问题查询**：上下文窗口中已有相关信息且不需要精确引用时，直接回答。只有硬规则/软规则的明确信号出现时才查询
+- **不要展示原始 JSON**：将查询结果转为自然语言引用（如"> 用户原话" + 1-2 句解读），不要把 `list_messages` 或 `search_messages` 的 JSON 原样输出
+- **不要跨会话查询**：跨会话信息用 `search_memory`，消息查询工具只管当前对话
+- **不要一次拉 100 条**：先 `limit: 10` 定位，需要更多时用 `before` 参数分页获取
