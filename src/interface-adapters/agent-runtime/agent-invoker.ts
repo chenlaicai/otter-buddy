@@ -191,30 +191,39 @@ export class AgentInvoker {
   }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; speakBodyReceived: boolean }> {
     let agentError: string | undefined;
     let speakBodyReceived = false;
-    const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
-      dynamicContext: params.dynamicContext,
-      conversationId: params.conversationId,
-      messageId: params.messageId,
-      onEvent: (e: AgentStreamEvent) => {
-        this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
-        /** 所有事件如实推送到 SSE（event 就是 event，不抑制） */
-        const sse = mapToSSEEvent(e);
-        if (sse) {
-          params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
-        }
-        if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
-          speakBodyReceived = true;
-        }
-        /** 所有事件如实持久化（event 就是 event，不抑制） */
-        const evt = mapToMessageEventInput(e, params.messageId);
-        if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
-          const m = err instanceof Error ? err.message : String(err);
-          this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
-        });
-        if (!agentError) agentError = extractAgentError(e);
-      },
-    });
-    return { result, speakBodyReceived };
+    try {
+      const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
+        dynamicContext: params.dynamicContext,
+        conversationId: params.conversationId,
+        messageId: params.messageId,
+        onEvent: (e: AgentStreamEvent) => {
+          this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
+          /** 所有事件如实推送到 SSE（event 就是 event，不抑制） */
+          const sse = mapToSSEEvent(e);
+          if (sse) {
+            params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
+          }
+          if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
+            speakBodyReceived = true;
+          }
+          /** 所有事件如实持久化（event 就是 event，不抑制） */
+          const evt = mapToMessageEventInput(e, params.messageId);
+          if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
+            const m = err instanceof Error ? err.message : String(err);
+            this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
+          });
+          if (!agentError) agentError = extractAgentError(e);
+        },
+      });
+      return { result, speakBodyReceived };
+    } catch (err) {
+      /** abort 时向外抛出，让 invokeConversation 的外层 catch 处理（不走 retry） */
+      if (this.abortedOtters.has(params.otterId)) {
+        throw err;
+      }
+      /** 非 abort 错误：返回结果让外层判断是否 retry */
+      return { result: { text: '' }, speakBodyReceived };
+    }
   }
 
   /**
