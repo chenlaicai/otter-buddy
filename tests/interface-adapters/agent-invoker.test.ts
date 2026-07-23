@@ -233,14 +233,13 @@ describe("AgentInvoker", () => {
 
     expect(result.messageId).toBe("msg-streaming");
 
-    /** speak 重试机制：fail 被调用两次（初始 + 重试），abort 不被调用 */
-    expect(msg._calls.fail).toHaveLength(2);
+    /** 非 abort 错误直接抛出，handleInvokeError 调用 fail 一次 */
+    expect(msg._calls.fail).toHaveLength(1);
     expect(msg._calls.abort).toHaveLength(0);
 
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.start");
-    expect(eventTypes).toContain("message.failed");
-    expect(eventTypes).toContain("system.message");
+    expect(eventTypes).toContain("error");
     expect(eventTypes).not.toContain("message.aborted");
   });
 
