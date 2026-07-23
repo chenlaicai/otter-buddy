@@ -69,6 +69,10 @@ export function getMessageEvents(messageId: string): Promise<MessageEventDTO[]> 
   return request(`/messages/${messageId}/events`)
 }
 
+export function getMessage(messageId: string): Promise<MessageDTO> {
+  return request(`/messages/${messageId}`)
+}
+
 export function sendMessage(conversationId: string, body: SendMessageRequestDTO): Promise<Response> {
   return fetch(`${BASE}/conversations/${conversationId}/messages`, {
     method: 'POST',

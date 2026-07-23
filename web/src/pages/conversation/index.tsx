@@ -216,14 +216,12 @@ function ConversationPage() {
         'message.complete': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
-          const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
-          const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
-          const content = blocks.map(b => b.text).filter(Boolean).join('')
           const streamingEntry = streamingMapRef.current.get(messageId)
           const otterId = streamingEntry?.otterId || ''
+          /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
-            content, ts: nowTs(), dur: data.duration,
+            content: data.body ?? '', ts: nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
           }
@@ -250,22 +248,17 @@ function ConversationPage() {
           setStreamingMap(prev => { const next = new Map(prev); next.delete(data.messageId); return next })
         },
         'message.failed': (data) => {
-          /** 保存失败消息的内容到 allMessages（否则 msg1 在重试时消失） */
+          /** 失败消息：body 来自 SSE 事件（服务端 sendMessage.fail 存储的失败原因） */
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
           const streamingEntry = streamingMapRef.current.get(messageId)
           const otterId = streamingEntry?.otterId || ''
-          if (liveEvents.length > 0) {
-            const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
-            const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
-            const content = blocks.map(b => b.text).filter(Boolean).join('')
-            const failedMsg: LocalMessage = {
-              id: messageId, st: 'otter', si: otterId,
-              content: content || '[未完成]', ts: nowTs(), dur: null,
-              events: liveEvents,
-            }
-            setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), failedMsg] }))
+          const failedMsg: LocalMessage = {
+            id: messageId, st: 'otter', si: otterId,
+            content: data.body ?? '[未完成]', ts: nowTs(), dur: null,
+            events: liveEvents.length > 0 ? liveEvents : undefined,
           }
+          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), failedMsg] }))
           liveEventsMap.delete(messageId)
           setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
         },
@@ -280,6 +273,19 @@ function ConversationPage() {
       }, { onError: () => {
         showToast('SSE 连接中断', 'error')
         setStreamingMap(new Map())
+      }, onDone: () => {
+        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭） */
+        if (activeId) {
+          api.getParticipants(activeId).then(participants => {
+            setAllOtters(prev => {
+              const existingIds = new Set(prev.map(o => o.id))
+              const newOtters = participants
+                .filter(p => !existingIds.has(p.otterId))
+                .map(p => ({ id: p.otterId, name: p.otterName, ci: 0 }))
+              return newOtters.length > 0 ? [...prev, ...newOtters] : prev
+            })
+          }).catch(() => {})
+        }
       } })
       sseCtrlRef.current = ctrl
     } catch (err) {

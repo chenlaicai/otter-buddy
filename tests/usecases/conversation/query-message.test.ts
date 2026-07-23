@@ -51,6 +51,8 @@ function mockRepo(opts: {
     completeMessage: vi.fn(),
     failMessage: vi.fn(),
     abortMessage: vi.fn(),
+    setMessageBody: vi.fn().mockResolvedValue(undefined),
+    completeMessageStatus: vi.fn().mockResolvedValue(undefined),
     getMaxSequenceNum: vi.fn(async () => 0),
     getMessageById: vi.fn(async (id: string) => messages.get(id) ?? null),
     getMessages: vi.fn(async () => opts.getMessagesResult ?? []),

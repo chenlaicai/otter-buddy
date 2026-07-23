@@ -272,12 +272,8 @@ export class PiSessionFactory implements AgentGateway {
       throw new Error('Failed to create session: missing sessionId or sessionFile');
     }
 
-    // 5. 验证文件存在
-    if (!fs.existsSync(sessionFile)) {
-      throw new Error(`Session file does not exist: ${sessionFile}`);
-    }
-
-    // 6. 使用事务更新持久化数据
+    // 5. 使用事务更新持久化数据
+    // 注意：SessionManager.create() 使用延迟写入，文件在第一条 assistant 消息后才落盘
     try {
       this.cfg.db.transaction(() => {
         // 使用 setWithFile，SQLite 的 ON CONFLICT 会自动处理 upsert

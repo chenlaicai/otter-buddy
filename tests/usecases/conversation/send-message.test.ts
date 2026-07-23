@@ -109,6 +109,8 @@ function mockRepo(opts: {
       }
       abortedMessages.push({ id, body, talkingStonePassedTo, abortedAt });
     }),
+    setMessageBody: vi.fn().mockResolvedValue(undefined),
+    completeMessageStatus: vi.fn().mockResolvedValue(undefined),
     getMaxSequenceNum: vi.fn(async () => maxSequenceNum),
     getMessageById: vi.fn(async (id: string) => messages.get(id) ?? null),
     getMessages: vi.fn(async () => []),

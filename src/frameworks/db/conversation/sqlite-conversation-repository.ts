@@ -161,6 +161,35 @@ export class SqliteConversationRepository implements ConversationRepository {
     );
   }
 
+  async setMessageBody(input: {
+    messageId: string; body: string; talkingStonePassedTo: string[];
+    attachments?: Attachment[] | null;
+  }): Promise<void> {
+    const result = this.db.prepare(`
+      UPDATE messages SET body = ?, talking_stone_passed_to = ?, attachments = ?
+      WHERE id = ? AND status = 'streaming'
+    `).run(
+      input.body, JSON.stringify(input.talkingStonePassedTo),
+      input.attachments ? JSON.stringify(input.attachments) : null,
+      input.messageId,
+    );
+    if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in streaming status`);
+  }
+
+  async completeMessageStatus(input: {
+    messageId: string; completedAt: string;
+    contextTokens?: number; contextTokensMax?: number;
+  }): Promise<void> {
+    const result = this.db.prepare(`
+      UPDATE messages SET status = 'completed', completed_at = ?, context_tokens = ?, context_tokens_max = ?
+      WHERE id = ? AND status = 'streaming' AND body IS NOT NULL
+    `).run(
+      input.completedAt, input.contextTokens ?? null, input.contextTokensMax ?? null,
+      input.messageId,
+    );
+    if (result.changes === 0) throw new Error(`Message ${input.messageId} not found, not in streaming status, or body not set`);
+  }
+
   async completeMessage(input: {
     messageId: string; body: string; talkingStonePassedTo: string[];
     attachments: Attachment[] | null; completedAt: string;

@@ -178,6 +178,52 @@ export class SendMessage {
     return event;
   }
 
+  /** 两阶段提交 Phase 1：存储 body + talkingStonePassedTo，不改 status */
+  async setMessageBody(messageId: string, input: CompleteMessageInput): Promise<void> {
+    const message = await this.repo.getMessageById(messageId);
+    if (!message) {
+      throw new DomainError(`Message not found: ${messageId}`, "not_found");
+    }
+    if (message.status !== "streaming") {
+      throw new DomainError(`Cannot set body on message with status: ${message.status}`, "validation");
+    }
+    if (!isValidCompletedMessageBody(input.body)) {
+      throw new DomainError("body must be non-empty string", "validation");
+    }
+    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", message.senderType)) {
+      throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
+    }
+    await this.repo.setMessageBody({
+      messageId,
+      body: input.body,
+      talkingStonePassedTo: input.talkingStonePassedTo,
+      attachments: input.attachments,
+    });
+  }
+
+  /** 两阶段提交 Phase 2：将 status 从 streaming 改为 completed（body 必须已设置） */
+  async completeMessageFinalize(messageId: string, contextTokens?: number, contextTokensMax?: number): Promise<void> {
+    const message = await this.repo.getMessageById(messageId);
+    if (!message) {
+      throw new DomainError(`Message not found: ${messageId}`, "not_found");
+    }
+    if (message.status !== "streaming") {
+      throw new DomainError(`Cannot complete message with status: ${message.status}`, "validation");
+    }
+    if (!message.body) {
+      throw new DomainError("Cannot complete message without body. Call setMessageBody first.", "validation");
+    }
+    const now = new Date().toISOString();
+    await this.repo.completeMessageStatus({
+      messageId,
+      completedAt: now,
+      contextTokens,
+      contextTokensMax,
+    });
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, message.body);
+    await tryCloseTurn(this.repo, message.turnId);
+  }
+
   /** 完成流式消息（body 必须非空，talkingStonePassedTo 必须非空 UA-8） */
   async complete(messageId: string, input: CompleteMessageInput): Promise<Message> {
     const message = await this.repo.getMessageById(messageId);

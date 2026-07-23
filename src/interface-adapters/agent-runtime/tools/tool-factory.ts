@@ -42,7 +42,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言石目标（下一个应该发言的参与者 ID 列表）",
+          description: "发言权交给谁。规则：(1) 如果你的答复是回应用户的，传用户 ID 'user'；(2) 如果你需要指定某个 Otter 接手，传该 Otter 的 ID；(3) 不能传自己的 otterId。用 get_active_participants 查询在场成员。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -61,9 +61,13 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       if (!recipients || recipients.length === 0) {
         return textResponse("[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者 ID。");
       }
+      if (recipients.includes(ctx.otterId)) {
+        return textResponse(`[错误] 不能把发言石传给自己（${ctx.otterId}）。请先调用 get_active_participants 获取在场成员，然后选择其他参与者。`);
+      }
 
       try {
-        await ctx.client.conversation.message.complete(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
+        /** 两阶段提交 Phase 1：只存 body，不改 status（等 agent loop 结束后再 complete） */
+        await ctx.client.conversation.message.setMessageBody(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return textResponse(`[错误] 发言结束失败：${msg}。请重试。`);
@@ -149,6 +153,8 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
       });
+      /** 创建后自动加入当前对话参与者 */
+      await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
       return textResponse(`Otter created: ${otter.id} (${otter.name})`);
     },
   };

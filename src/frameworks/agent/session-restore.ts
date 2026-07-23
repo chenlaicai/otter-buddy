@@ -107,10 +107,10 @@ export class SessionRestore {
     // 删除旧记录（如果存在）
     this.sessionStore.delete(otterId);
 
-    // 创建 session
-    this.createSessionAndPersist(otterId, config, piCodingAgent, sessionDir, true);
+    // 创建 session 并获取 sessionManager（延迟写入，文件可能尚未落盘）
+    const sessionManager = this.createSessionAndPersist(otterId, config, piCodingAgent, sessionDir, true);
 
-    // 获取新创建的 sessionFile
+    // 验证持久化成功
     const stored = this.sessionStore.getWithFile(otterId);
     if (!stored?.sessionFile) {
       if (cause) {
@@ -119,20 +119,17 @@ export class SessionRestore {
       throw new Error(`Failed to create session for otter: ${otterId}`);
     }
 
-    // 打开新创建的 session
-    const SessionManagerClass = getSessionManagerClass(piCodingAgent);
-    const sessionManager = SessionManagerClass.open(stored.sessionFile);
     return { sessionManager, needsRetry: false };
   }
 
-  /** 创建 session 并持久化 */
+  /** 创建 session 并持久化，返回 sessionManager（延迟写入，文件可能尚未落盘） */
   createSessionAndPersist(
     otterId: string,
     config: { systemPrompt?: string | OtterPromptConfig; otterType: string },
     piCodingAgent: unknown,
     sessionDir: string,
     allowOverwrite: boolean,
-  ): void {
+  ): SessionManager {
     // 1. 检查是否已存在
     if (!allowOverwrite) {
       const existing = this.sessionStore.get(otterId);
@@ -154,12 +151,8 @@ export class SessionRestore {
       throw new Error('Failed to create session: missing sessionId or sessionFile');
     }
 
-    // 5. 验证文件存在
-    if (!fs.existsSync(sessionFile)) {
-      throw new Error(`Session file does not exist: ${sessionFile}`);
-    }
-
-    // 6. 使用事务保存配置和 session 映射
+    // 5. 使用事务保存配置和 session 映射
+    // 注意：SessionManager.create() 使用延迟写入，文件在第一条 assistant 消息后才落盘
     try {
       this.db.transaction(() => {
         this.otterConfigProvider.setConfig(otterId, {
@@ -177,5 +170,7 @@ export class SessionRestore {
       }
       throw err;
     }
+
+    return sessionManager;
   }
 }

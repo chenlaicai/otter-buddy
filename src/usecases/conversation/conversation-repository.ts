@@ -51,6 +51,20 @@ export interface ConversationRepository {
   // Message 生命周期
   createCompletedMessage(message: Message): Promise<void>;
   createStreamingMessage(message: Message): Promise<void>;
+  /** 两阶段提交 Phase 1：只存 body + talkingStonePassedTo，不改 status */
+  setMessageBody(input: {
+    messageId: string;
+    body: string;
+    talkingStonePassedTo: string[];
+    attachments?: Attachment[] | null;
+  }): Promise<void>;
+  /** 两阶段提交 Phase 2：只改 status 为 completed，不碰 body */
+  completeMessageStatus(input: {
+    messageId: string;
+    completedAt: string;
+    contextTokens?: number;
+    contextTokensMax?: number;
+  }): Promise<void>;
   completeMessage(input: {
     messageId: string;
     body: string;

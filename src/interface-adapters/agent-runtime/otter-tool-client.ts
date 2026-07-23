@@ -54,6 +54,11 @@ export interface OtterToolClient {
         body: string;
         talkingStonePassedTo: string[];
       }): Promise<Message>;
+      /** 两阶段提交 Phase 1：只存 body，不改 status */
+      setMessageBody(messageId: string, params: {
+        body: string;
+        talkingStonePassedTo: string[];
+      }): Promise<void>;
       getById(id: string): Promise<Message | null>;
       list(conversationId: string, opts?: { limit?: number; before?: string }): Promise<Message[]>;
       search(conversationId: string, query: string, limit?: number): Promise<Message[]>;
