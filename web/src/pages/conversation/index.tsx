@@ -277,6 +277,7 @@ function ConversationPage() {
         /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭） */
         if (activeId) {
           api.getParticipants(activeId).then(participants => {
+            const otterIds = participants.map(p => p.otterId)
             setAllOtters(prev => {
               const existingIds = new Set(prev.map(o => o.id))
               const newOtters = participants
@@ -284,6 +285,10 @@ function ConversationPage() {
                 .map(p => ({ id: p.otterId, name: p.otterName, ci: 0 }))
               return newOtters.length > 0 ? [...prev, ...newOtters] : prev
             })
+            /** 同步更新 conversation.otterIds，让 activeOtters 派生正确 */
+            setConversations(prev => prev.map(c =>
+              c.id === activeId ? { ...c, otterIds } : c,
+            ))
           }).catch(() => {})
         }
       } })

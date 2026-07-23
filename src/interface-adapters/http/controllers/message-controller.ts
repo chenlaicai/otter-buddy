@@ -84,19 +84,8 @@ export class MessageController {
         }
       });
 
-      /** 5. 并发驱动所有 Otter 的 Agent 对话（不 await） */
-      const promises = otterIds.map(otterId =>
-        this.agentInvoker.invokeConversation({
-          otterId,
-          conversationId,
-          userMessageContent: body.body,
-          senderId: body.senderId,
-          onSSEEvent: push,
-        })
-      );
-
-      /** 6. 所有 otter 完成后关闭 SSE 流 */
-      Promise.allSettled(promises).then(() => {
+      /** 5. 启动发言链，完成后关闭 SSE 流 */
+      this.invokeTalkingStoneChain(otterIds, conversationId, body.body, body.senderId, push).then(() => {
         push({ event: "stream.end", data: {} });
         close();
       });
@@ -146,5 +135,51 @@ export class MessageController {
     } catch (err) {
       return handleError(c, err);
     }
+  }
+
+  /** 从 invokeConversation 结果中提取下一轮 talkingStonePassedTo 目标 */
+  private async collectChainTargets(
+    results: PromiseSettledResult<{ messageId: string }>[],
+    invoked: Set<string>,
+  ): Promise<string[]> {
+    const targets: string[] = [];
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      const msg = await this.queryMessage.getMessageById(r.value.messageId);
+      if (!msg?.talkingStonePassedTo) continue;
+      for (const id of msg.talkingStonePassedTo) {
+        if (!invoked.has(id)) targets.push(id);
+      }
+    }
+    return targets;
+  }
+
+  /** 发言链递归接力：初始 otter → talkingStonePassedTo → 下一轮 */
+  private async invokeTalkingStoneChain(
+    initialTargets: string[],
+    conversationId: string,
+    userMessageContent: string,
+    senderId: string,
+    push: (event: { event: string; data: Record<string, unknown> }) => void,
+  ): Promise<void> {
+    const invoked = new Set<string>();
+    const invokeChain = async (targets: string[], depth: number): Promise<void> => {
+      if (depth > 5 || targets.length === 0) return;
+      const newTargets = targets.filter(id => !invoked.has(id));
+      for (const id of newTargets) invoked.add(id);
+
+      const results = await Promise.allSettled(
+        newTargets.map(otterId =>
+          this.agentInvoker.invokeConversation({
+            otterId, conversationId, userMessageContent,
+            senderId, onSSEEvent: push,
+          })
+        ),
+      );
+
+      const nextTargets = await this.collectChainTargets(results, invoked);
+      await invokeChain(nextTargets, depth + 1);
+    };
+    await invokeChain(initialTargets, 0);
   }
 }
