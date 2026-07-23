@@ -244,9 +244,22 @@ function ConversationPage() {
           }
         },
         'message.aborted': (data) => {
+          /** abort 后保留已有事件到 allMessages（与 message.failed 一致） */
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId) || []
+          const streamingEntry = streamingMapRef.current.get(messageId)
+          const otterId = streamingEntry?.otterId || ''
+          if (liveEvents.length > 0) {
+            const abortedMsg: LocalMessage = {
+              id: messageId, st: 'otter', si: otterId,
+              content: data.body ?? '[用户中断]', ts: nowTs(), dur: null,
+              events: liveEvents,
+            }
+            setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), abortedMsg] }))
+          }
           showToast('回复已中断', 'info')
-          liveEventsMap.delete(data.messageId)
-          setStreamingMap(prev => { const next = new Map(prev); next.delete(data.messageId); return next })
+          liveEventsMap.delete(messageId)
+          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
         },
         'message.failed': (data) => {
           /** 失败消息：body 来自 SSE 事件（服务端 sendMessage.fail 存储的失败原因） */

@@ -126,6 +126,12 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       required: ["name", "type", "systemPrompt"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
+      /** 检查是否已有同名参与者 */
+      const existing = await ctx.client.conversation.participant.getActive(ctx.conversationId);
+      const duplicate = existing.find(p => p.otterName === params.name);
+      if (duplicate) {
+        return textResponse(`[错误] 在场已有同名参与者「${params.name}」（ID: ${duplicate.otterId}）。请直接使用已有的参与者，不要重复创建。`);
+      }
       const otter = await ctx.client.otter.create({
         name: params.name as string,
         type: params.type as "big" | "small",
