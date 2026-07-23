@@ -37,11 +37,11 @@ export class CreateOtter {
     /** 1. 写入 DB */
     await this.repo.createOtter(otter);
 
-    /** 2. 创建 Agent 实例 */
+    /** 2. 创建 Agent 实例（传递 otterType 到 context，确保工具过滤正确） */
     try {
       await this.agentGateway.create(id, {
         systemPrompt: params.systemPrompt,
-        context: params.context,
+        context: { ...params.context, otterType: params.type },
       });
     } catch (err) {
       /** B1 回归守护：Agent 创建失败时回滚 DB 记录，避免孤立 Otter */

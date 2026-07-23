@@ -249,6 +249,13 @@ function ConversationPage() {
           const liveEvents = liveEventsMap.get(messageId) || []
           const streamingEntry = streamingMapRef.current.get(messageId)
           const otterId = streamingEntry?.otterId || ''
+          /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
+          if (otterId && streamingEntry?.otterName) {
+            setAllOtters(prev => {
+              if (prev.some(o => o.id === otterId)) return prev
+              return [...prev, { id: otterId, name: streamingEntry.otterName!, ci: 0 }]
+            })
+          }
           if (liveEvents.length > 0) {
             const abortedMsg: LocalMessage = {
               id: messageId, st: 'otter', si: otterId,
