@@ -185,7 +185,7 @@ export class AgentInvoker {
 
   /**
    * 执行 Agent 调用。
-   * 返回 result 和 speakBodyReceived 标志（两阶段提交 Phase 1 是否完成）。
+   * 返回 result。
    */
   private async executeAgentInvocation(params: {
     otterId: string;
@@ -194,9 +194,8 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
-  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; speakBodyReceived: boolean; aborted: boolean }> {
+  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number } }> {
     let agentError: string | undefined;
-    let speakBodyReceived = false;
     try {
       const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
         dynamicContext: params.dynamicContext,
@@ -210,7 +209,8 @@ export class AgentInvoker {
             params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
           }
           if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
-            speakBodyReceived = true;
+            /** speak 工具执行完毕，记录日志 */
+            this.logger.debug('speak tool executed', { messageId: params.messageId });
           }
           /** 所有事件如实持久化（event 就是 event，不抑制） */
           const evt = mapToMessageEventInput(e, params.messageId);
@@ -222,14 +222,14 @@ export class AgentInvoker {
         },
       });
       /** invoke 正常返回后检查 abort（SDK 可能不抛错） */
-      return { result, speakBodyReceived, aborted: this.abortedOtters.has(params.otterId) };
+      return { result };
     } catch (err) {
       /** abort 时向外抛出，让 invokeConversation 的外层 catch 处理（不走 retry） */
       if (this.abortedOtters.has(params.otterId)) {
         throw err;
       }
-      /** 非 abort 错误：返回结果让外层判断是否 retry */
-      return { result: { text: '' }, speakBodyReceived, aborted: false };
+      /** 非 abort 错误：向外抛出，让外层 handleInvokeError 处理 */
+      throw err;
     }
   }
 
@@ -314,7 +314,7 @@ export class AgentInvoker {
       } catch {
         /** abort() 出错时不覆盖原始错误 */
       }
-      onSSEEvent?.({ event: "message.aborted", data: { messageId } });
+      onSSEEvent?.({ event: "message.aborted", data: { messageId, body } });
     } else {
       /** error 路径：标记失败，发送 error SSE 事件 */
       const msg = err instanceof Error ? err.message : "Unknown error";

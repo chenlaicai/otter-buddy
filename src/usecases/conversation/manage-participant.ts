@@ -64,7 +64,7 @@ export class ManageParticipant {
       status: "active",
       createdAt: now,
       leftAt: null,
-      lastReadTurnNumber: 0,
+      lastReadTurnNumber: turn.turnNumber,
     };
     await this.repo.createParticipant(participant);
 

@@ -193,7 +193,7 @@ export function getUnreadMessages(
     SELECT m.id, m.sender_id, m.sender_type, m.body, m.sequence_num
     FROM messages m
     JOIN turns t ON m.turn_id = t.id
-    WHERE m.conversation_id = ? AND t.turn_number >= ?
+    WHERE m.conversation_id = ? AND t.turn_number >= ? AND m.sender_id != ?
     ORDER BY m.sequence_num ASC
-  `).all(conversationId, participant.last_read_turn_number) as Array<{ id: string; sender_id: string; sender_type: string; body: string | null; sequence_num: number }>;
+  `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; body: string | null; sequence_num: number }>;
 }

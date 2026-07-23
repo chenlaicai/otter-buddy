@@ -99,6 +99,7 @@ export class PiSessionFactory implements AgentGateway {
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
   private readonly sessionRestore: SessionRestore;
+  /** @deprecated platform prompt 已移至 .pi/SYSTEM.md，由 SDK 自动注入 */
   private platformPrompt = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
@@ -350,9 +351,9 @@ export class PiSessionFactory implements AgentGateway {
       throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
     }
 
-    // 4. 创建 AgentSession 并执行
-    if (options) options.isFirstInvoke = isFirstInvoke;
-    return this._executeWithSession(otterId, message, options, sessionManager, otterConfig);
+    // 4. 创建 AgentSession 并执行（不修改原始 options 对象）
+    const invokeOptions = options ? { ...options, isFirstInvoke } : undefined;
+    return this._executeWithSession(otterId, message, invokeOptions, sessionManager, otterConfig);
   }
 
   /** 恢复或创建 session */
