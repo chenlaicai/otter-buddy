@@ -192,12 +192,15 @@ export class MessageController {
         }),
       );
 
-      /** 更新已读位置：每个成功发言的 otter 更新到最新 sequence_num */
-      for (const r of results) {
-        if (r.status !== 'fulfilled') continue;
-        const msg = await this.queryMessage.getMessageById(r.value.messageId);
-        if (msg) {
-          await this.sendMessageUseCase.repo.updateLastReadSequenceNum(conversationId, msg.senderId, msg.sequenceNum);
+      /** 更新已读位置：每个成功发言的 otter 更新到当前 turn */
+      const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
+      if (currentTurn) {
+        for (const r of results) {
+          if (r.status !== 'fulfilled') continue;
+          const msg = await this.queryMessage.getMessageById(r.value.messageId);
+          if (msg) {
+            await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
+          }
         }
       }
 

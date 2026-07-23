@@ -80,8 +80,8 @@ export interface ConversationParticipant {
   status: ParticipantStatus;
   createdAt: string;
   leftAt: string | null;
-  /** 已读位置：该 otter 在此对话中已读到的最大 sequence_num（0 表示未读） */
-  lastReadSequenceNum: number;
+  /** 已读位置：该 otter 在此对话中已读到的 turn_number（0 表示未读） */
+  lastReadTurnNumber: number;
 }
 
 /**

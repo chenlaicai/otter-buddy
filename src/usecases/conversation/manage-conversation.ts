@@ -57,7 +57,7 @@ export class ManageConversation {
       status: "active",
       createdAt: now,
       leftAt: null,
-      lastReadSequenceNum: 0,
+      lastReadTurnNumber: 0,
     }));
     await this.repo.createParticipants(participants);
 

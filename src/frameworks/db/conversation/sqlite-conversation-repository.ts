@@ -326,7 +326,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getParticipant(conversationId: string, otterId: string): Promise<ConversationParticipant | null> { return mixins.getParticipant(this.db, conversationId, otterId); }
   async getActiveParticipants(conversationId: string): Promise<ConversationParticipant[]> { return mixins.getActiveParticipants(this.db, conversationId); }
   async updateParticipantLeave(participantId: string, leftAtTurnId: string, leftAtTurnNumber: number, leftAt: string): Promise<void> { mixins.updateParticipantLeave(this.db, participantId, leftAtTurnId, leftAtTurnNumber, leftAt); }
-  async updateLastReadSequenceNum(conversationId: string, otterId: string, sequenceNum: number): Promise<void> { mixins.updateLastReadSequenceNum(this.db, conversationId, otterId, sequenceNum); }
+  async updateLastReadTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastReadTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async getUnreadMessages(conversationId: string, otterId: string): Promise<Message[]> {
     const rows = mixins.getUnreadMessages(this.db, conversationId, otterId);
     return rows.map(row => ({
