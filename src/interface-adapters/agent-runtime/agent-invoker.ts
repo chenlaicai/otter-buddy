@@ -143,7 +143,7 @@ export class AgentInvoker {
     onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId } });
 
     try {
-      const { result, speakBodyReceived, aborted } = await this.executeAgentInvocation({
+      const { result } = await this.executeAgentInvocation({
         otterId,
         userMessageContent,
         dynamicContext,

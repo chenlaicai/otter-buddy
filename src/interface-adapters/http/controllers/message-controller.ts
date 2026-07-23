@@ -87,53 +87,9 @@ export class MessageController {
         }
       });
 
-      /** 5. Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
-      const dispatchLoop = async (targets: string[]) => {
-        while (targets.length > 0) {
-          for (const id of targets) allTargets.add(id);
-
-          const promises = targets.map(async otterId => {
-            /** 获取该 otter 的未读消息，作为上下文传递 */
-            const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
-            let messageWithContext = body.body;
-            if (unreadMessages.length > 0) {
-              const formatted = unreadMessages
-                .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === body.senderId ? '用户' : m.senderId}] ${m.body ?? ''}`)
-                .join('\n');
-              messageWithContext = `## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${body.body}`;
-            }
-            this.logger.info('发言链调用', { otterId, unreadCount: unreadMessages.length, messageLength: messageWithContext.length, messagePreview: messageWithContext.substring(0, 200) });
-            return this.agentInvoker.invokeConversation({
-              otterId, conversationId, userMessageContent: messageWithContext,
-              senderId: body.senderId, onSSEEvent: push,
-            });
-          });
-          const results = await Promise.allSettled(promises);
-
-          /** 更新已读位置 */
-          const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
-          if (currentTurn) {
-            for (const r of results) {
-              if (r.status !== 'fulfilled') continue;
-              const msg = await this.queryMessage.getMessageById(r.value.messageId);
-              if (msg) {
-                await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
-              }
-            }
-          }
-
-          /** 聚合本轮所有 otter 的 talkingStonePassedTo */
-          const nextTargets = new Set<string>();
-          for (const r of results) {
-            if (r.status === "fulfilled" && r.value.aggregatedTargets) {
-              for (const id of r.value.aggregatedTargets) {
-                nextTargets.add(id);
-              }
-            }
-          }
-          targets = [...nextTargets].filter(id => id !== body.senderId);
-        }
-      };
+      /** 5. 启动调度循环 */
+      const dispatchLoop = (targets: string[]) =>
+        this.dispatchTurnLoop(targets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets }, push);
 
       /** 6. 启动调度循环 */
       dispatchLoop(firstTurnTargets).then(() => {
@@ -144,6 +100,56 @@ export class MessageController {
       return response;
     } catch (err) {
       return handleError(c, err);
+    }
+  }
+
+  /** Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
+  private async dispatchTurnLoop(
+    targets: string[],
+    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string> },
+    push: (event: { event: string; data: Record<string, unknown> }) => void,
+  ): Promise<void> {
+    const { conversationId, userMessageContent, senderId, allTargets } = ctx;
+    while (targets.length > 0) {
+      for (const id of targets) allTargets.add(id);
+
+      const promises = targets.map(async otterId => {
+        const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
+        let messageWithContext = userMessageContent;
+        if (unreadMessages.length > 0) {
+          const formatted = unreadMessages
+            .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '用户' : m.senderId}] ${m.body ?? ''}`)
+            .join('\n');
+          messageWithContext = `## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+        }
+        this.logger.info('发言链调用', { otterId, unreadCount: unreadMessages.length, messageLength: messageWithContext.length, messagePreview: messageWithContext.substring(0, 200) });
+        return this.agentInvoker.invokeConversation({
+          otterId, conversationId, userMessageContent: messageWithContext,
+          senderId, onSSEEvent: push,
+        });
+      });
+      const results = await Promise.allSettled(promises);
+
+      const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
+      if (currentTurn) {
+        for (const r of results) {
+          if (r.status !== 'fulfilled') continue;
+          const msg = await this.queryMessage.getMessageById(r.value.messageId);
+          if (msg) {
+            await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
+          }
+        }
+      }
+
+      const nextTargets = new Set<string>();
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value.aggregatedTargets) {
+          for (const id of r.value.aggregatedTargets) {
+            nextTargets.add(id);
+          }
+        }
+      }
+      targets = [...nextTargets].filter(id => id !== senderId);
     }
   }
 
