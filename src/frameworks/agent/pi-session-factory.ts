@@ -378,9 +378,15 @@ export class PiSessionFactory implements AgentGateway {
     // 2. 熔断器
     const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
 
-    // 3. 构建完整消息
+    // 3. 注入 otter 身份信息（让 agent 知道自己是谁）
+    const otterRow = this.cfg.db.prepare("SELECT name, type FROM otters WHERE id = ?").get(otterId) as { name: string; type: string } | undefined;
+    const identityPrompt = otterRow
+      ? `## 你的身份\n- 名称：${otterRow.name}\n- ID：${otterId}\n- 类型：${otterRow.type === 'big' ? '大獭（主控）' : '小獭（子任务）'}\n\n你是 ${otterRow.name}。在对话中使用这个身份。`
+      : '';
+
+    // 4. 构建完整消息
     const otterPrompt = buildOtterPrompt(otterPromptConfig);
-    const staticPrompt = [this.platformPrompt, otterPrompt].filter(Boolean).join("\n\n");
+    const staticPrompt = [identityPrompt, this.platformPrompt, otterPrompt].filter(Boolean).join("\n\n");
     const fullMessage = buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
 
     const activeEntry = this.activeSessions.get(sessionKey);

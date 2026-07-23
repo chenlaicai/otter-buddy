@@ -77,27 +77,6 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
   };
 }
 
-function createPassTalkingStoneTool(ctx: ToolContext): AgentTool {
-  return {
-    name: "pass_talking_stone",
-    description: "传递发言石，邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
-    parameters: {
-      type: "object",
-      properties: {
-        otterId: { type: "string", description: "被邀请的 Otter ID" },
-      },
-      required: ["otterId"],
-    },
-    execute: async (_id: string, params: Record<string, unknown>) => {
-      const participant = await ctx.client.conversation.participant.join(
-        ctx.conversationId,
-        params.otterId as string,
-      );
-      return textResponse(`Otter ${params.otterId} joined conversation. Participant ID: ${participant.id}`);
-    },
-  };
-}
-
 /** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由） */
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
@@ -401,7 +380,6 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [
     createSpeakTool(ctx),
-    createPassTalkingStoneTool(ctx),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
