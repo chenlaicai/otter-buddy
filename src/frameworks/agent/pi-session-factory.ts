@@ -386,10 +386,9 @@ export class PiSessionFactory implements AgentGateway {
     // 2. 熔断器
     const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
 
-    // 3. 构建完整消息
+    // 3. 构建完整消息（platform prompt 已在 .pi/SYSTEM.md 中，不再重复注入）
     const otterPrompt = buildOtterPrompt(otterPromptConfig);
-    const staticPrompt = [this.platformPrompt, otterPrompt].filter(Boolean).join("\n\n");
-    const fullMessage = buildMessageWithContext(staticPrompt, message, options?.dynamicContext);
+    const fullMessage = buildMessageWithContext(otterPrompt, message, options?.dynamicContext);
 
     const activeEntry = this.activeSessions.get(sessionKey);
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
