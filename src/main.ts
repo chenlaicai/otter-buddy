@@ -67,10 +67,19 @@ import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 
-/** 创建 PinoLogger 实例 */
+/** 创建 PinoLogger 实例（stdout + 文件持久化） */
+import { mkdirSync } from 'fs';
+const logDir = './data/logs';
+mkdirSync(logDir, { recursive: true });
+const logFile = `${logDir}/otter-buddy.log`;
 const logger = new PinoLogger({
   level: process.env.LOG_LEVEL || 'info',
-  transport: process.env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+  transport: {
+    targets: [
+      { target: 'pino/file', level: process.env.LOG_LEVEL || 'info', options: { destination: 1 } },
+      { target: 'pino/file', level: process.env.LOG_LEVEL || 'info', options: { destination: logFile, mkdir: true } },
+    ],
+  },
 });
 
 /** 加载配置 */
@@ -305,8 +314,10 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
       message: buildMessageClient(uc),
       participant: {
         join: async (convId, otterId) => {
+          const otter = await uc.queryOtter.getById(otterId);
+          const name = otter?.name ?? otterId;
           const { participant } = await uc.manageParticipant.join(
-            convId, otterId, `Otter ${otterId} joined the conversation`,
+            convId, otterId, `${name} 加入了对话`,
           );
           return participant;
         },
@@ -358,7 +369,7 @@ function initControllers(deps: ControllerDeps) {
   return {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
-    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger),
     memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
     settings: new SettingsController(deps.settings, deps.settingsRepo),

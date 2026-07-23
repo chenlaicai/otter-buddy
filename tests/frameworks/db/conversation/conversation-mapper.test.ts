@@ -327,6 +327,7 @@ describe("rowToParticipant", () => {
     status: "active",
     created_at: "2026-01-01T00:00:00Z",
     left_at: null,
+    last_read_turn_number: 0,
   };
 
   it("将 snake_case 行映射为 camelCase 参与者实体", () => {

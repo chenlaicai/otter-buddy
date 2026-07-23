@@ -139,10 +139,11 @@ export class AgentInvoker {
       talkingStonePassedTo: [senderId],
     });
 
-    onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId } });
+    const otter = await this.queryOtter.getById(otterId);
+    onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId } });
 
     try {
-      const result = await this.executeAgentInvocation({
+      const { result } = await this.executeAgentInvocation({
         otterId,
         userMessageContent,
         dynamicContext,
@@ -184,6 +185,7 @@ export class AgentInvoker {
 
   /**
    * 执行 Agent 调用。
+   * 返回 result。
    */
   private async executeAgentInvocation(params: {
     otterId: string;
@@ -192,33 +194,43 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
-  }) {
+  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number } }> {
     let agentError: string | undefined;
-    let speakCompleted = false;
-    const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
-      dynamicContext: params.dynamicContext,
-      conversationId: params.conversationId,
-      messageId: params.messageId,
-      onEvent: (e: AgentStreamEvent) => {
-        this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
-        /** speak 工具执行完毕后，抑制 SDK agent loop 继续产生的 assistant_text 事件 */
-        if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
-          speakCompleted = true;
-        }
-        const sse = mapToSSEEvent(e);
-        if (sse && !(speakCompleted && sse.event === "assistant_text")) {
-          /** 注入 messageId，支持前端多 otter 并发时按消息分发事件 */
-          params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
-        }
-        const evt = mapToMessageEventInput(e, params.messageId);
-        if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
-          const m = err instanceof Error ? err.message : String(err);
-          this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
-        });
-        if (!agentError) agentError = extractAgentError(e);
-      },
-    });
-    return result;
+    try {
+      const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
+        dynamicContext: params.dynamicContext,
+        conversationId: params.conversationId,
+        messageId: params.messageId,
+        onEvent: (e: AgentStreamEvent) => {
+          this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
+          /** 所有事件如实推送到 SSE（event 就是 event，不抑制） */
+          const sse = mapToSSEEvent(e);
+          if (sse) {
+            params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
+          }
+          if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
+            /** speak 工具执行完毕，记录日志 */
+            this.logger.debug('speak tool executed', { messageId: params.messageId });
+          }
+          /** 所有事件如实持久化（event 就是 event，不抑制） */
+          const evt = mapToMessageEventInput(e, params.messageId);
+          if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
+            const m = err instanceof Error ? err.message : String(err);
+            this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
+          });
+          if (!agentError) agentError = extractAgentError(e);
+        },
+      });
+      /** invoke 正常返回后检查 abort（SDK 可能不抛错） */
+      return { result };
+    } catch (err) {
+      /** abort 时向外抛出，让 invokeConversation 的外层 catch 处理（不走 retry） */
+      if (this.abortedOtters.has(params.otterId)) {
+        throw err;
+      }
+      /** 非 abort 错误：向外抛出，让外层 handleInvokeError 处理 */
+      throw err;
+    }
   }
 
   /**
@@ -254,25 +266,19 @@ export class AgentInvoker {
     });
 
     const totalTokens = result.tokenUsage ? result.tokenUsage.input + result.tokenUsage.output : undefined;
+    /** 从 DB 获取 speak 存储的 body，通过 SSE 直接带给前端（避免前端额外 API 调用） */
+    const msg = await this.queryMessage.getMessageById(messageId);
     onSSEEvent?.({
       event: "message.complete",
       data: {
         messageId,
+        body: msg?.body ?? '',
+        turnId: msg?.turnId ?? '',
         duration: `${(duration / 1000).toFixed(1)}s`,
         ctx: totalTokens,
         ctxMax: result.ctxMax,
       },
     });
-
-    /** 补充写入 token 使用量（speak 工具 complete 时不携带 token 数据） */
-    if (result.tokenUsage) {
-      const totalTokens = result.tokenUsage.input + result.tokenUsage.output;
-      const ctxMax = result.ctxMax ?? 0;
-      this.sendMessage.updateTokenUsage(messageId, totalTokens, ctxMax).catch((err: unknown) => {
-        const m = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`Failed to update token usage for ${messageId}: ${m}`);
-      });
-    }
 
     /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
     onSSEEvent?.({ event: "turn.complete", data: {} });
@@ -308,7 +314,7 @@ export class AgentInvoker {
       } catch {
         /** abort() 出错时不覆盖原始错误 */
       }
-      onSSEEvent?.({ event: "message.aborted", data: { messageId } });
+      onSSEEvent?.({ event: "message.aborted", data: { messageId, body } });
     } else {
       /** error 路径：标记失败，发送 error SSE 事件 */
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -337,37 +343,41 @@ export class AgentInvoker {
     startTime: number;
     tokenUsage?: { input: number; output: number };
   }): Promise<ConversationInvokeResult> {
-    const { messageId, otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount, startTime, tokenUsage } = params;
+    const { messageId, otterId, conversationId, senderId, onSSEEvent, retryCount, startTime, tokenUsage } = params;
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
       /** 第一次：fail + 系统提醒 + 重试 */
-      try { await this.sendMessage.fail(messageId, "[系统] 未调用 speak 工具结束发言"); } catch { /* ignore */ }
+      const failBody = "[系统] 未调用 speak 工具结束发言";
+      try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
 
       /** 通知前端当前消息失败，清除 streaming 状态 */
-      onSSEEvent?.({ event: "message.failed", data: { messageId } });
+      onSSEEvent?.({ event: "message.failed", data: { messageId, body: failBody } });
 
       const sysMsg = await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
 
       /** 通知前端系统消息已创建 */
       onSSEEvent?.({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
 
-      /** 重试：递归调用 invokeConversation，会发送新的 message.start 等事件 */
+      /** 重试：将系统提醒作为 userMessageContent，session 已有历史上下文 */
       const retryResult = await this.invokeConversation({
-        otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount: 1,
+        otterId, conversationId,
+        userMessageContent: "[系统提醒] 你上一次发言没有调用 speak 工具就结束了，这是错误的。你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。",
+        senderId, onSSEEvent, retryCount: 1,
       });
       /** 合并重试的 tokenUsage（重试路径可能已更新） */
       return { ...retryResult, tokenUsage: retryResult.tokenUsage ?? tokenUsage };
     }
 
     /** 第二次仍失败：fail + 发言石额外包含 user */
+    const failBody = "[系统] 重试后仍未调用 speak 工具";
     try {
-      await this.sendMessage.fail(messageId, "[系统] 重试后仍未调用 speak 工具", [senderId]);
+      await this.sendMessage.fail(messageId, failBody, [senderId]);
     } catch { /* ignore */ }
 
     const duration = Date.now() - startTime;
     /** msg2 终结：发送 message.failed（不是 complete），关闭消息生命周期 */
-    onSSEEvent?.({ event: "message.failed", data: { messageId } });
+    onSSEEvent?.({ event: "message.failed", data: { messageId, body: failBody } });
 
     return { messageId, duration, tokenUsage };
   }

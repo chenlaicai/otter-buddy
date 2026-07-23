@@ -76,6 +76,7 @@ function NewConvModal(props: ModalsProps) {
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && title.trim()) { props.onConfirmNewConv(title); setTitle('') } }}
         className="form-input w-full"
         placeholder="输入对话标题"
         autoFocus
@@ -108,6 +109,7 @@ function ChildModal(props: ModalsProps) {
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && title.trim()) { props.onConfirmChild(title); setTitle('') } }}
         className="form-input w-full"
         placeholder="输入子对话标题"
         autoFocus

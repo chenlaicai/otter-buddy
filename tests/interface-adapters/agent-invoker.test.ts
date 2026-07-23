@@ -204,19 +204,25 @@ describe("AgentInvoker", () => {
     expect(msg._calls.abort[0].body).toContain("5 次工具调用");
   });
 
-  it("calls sendMessage.fail() and emits error on system failure (B10)", async () => {
+  it("calls sendMessage.fail() through speak retry on system failure (B10)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
+    /** 系统故障场景：agent 抛出异常，消息停留在 streaming 状态（agent 未调 speak） */
+    const streamingQm: QueryMessage = {
+      getMessageById: async () => ({
+        ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
+      }),
+    } as unknown as QueryMessage;
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("LLM connection failed") }),
       msg,
-      mockQueryMessage(),
+      streamingQm,
       mockManageSession(),
       mockQueryOtter(),
       mockLogger(),
     );
 
-    /** invokeConversation 捕获错误后不再 re-throw，而是返回结果 */
+    /** invokeConversation 通过 speak 重试机制处理系统故障 */
     const result = await invoker.invokeConversation({
       otterId: "otter-1",
       conversationId: "conv-1",
@@ -227,12 +233,13 @@ describe("AgentInvoker", () => {
 
     expect(result.messageId).toBe("msg-streaming");
 
-    /** error 路径：sendMessage.fail 被调用，sendMessage.abort 不被调用 */
+    /** 非 abort 错误直接抛出，handleInvokeError 调用 fail 一次 */
     expect(msg._calls.fail).toHaveLength(1);
     expect(msg._calls.abort).toHaveLength(0);
 
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.start");
+    expect(eventTypes).toContain("error");
     expect(eventTypes).not.toContain("message.aborted");
   });
 

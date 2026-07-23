@@ -42,7 +42,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言石目标（下一个应该发言的参与者 ID 列表）",
+          description: "发言权交给谁。规则：(1) 如果你的答复是回应用户的，传用户 ID 'user'；(2) 如果你需要指定某个 Otter 接手，传该 Otter 的 ID；(3) 不能传自己的 otterId。用 get_active_participants 查询在场成员。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -61,6 +61,9 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       if (!recipients || recipients.length === 0) {
         return textResponse("[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者 ID。");
       }
+      if (recipients.includes(ctx.otterId)) {
+        return textResponse(`[错误] 不能把发言石传给自己（${ctx.otterId}）。请先调用 get_active_participants 获取在场成员，然后选择其他参与者。`);
+      }
 
       try {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
@@ -68,7 +71,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         const msg = err instanceof Error ? err.message : String(err);
         return textResponse(`[错误] 发言声明失败：${msg}。请重试。`);
       }
-      return textResponse("[ok] 发言已声明。不要再生成任何内容。");
+      return textResponse("[系统] 发言已提交成功。你的回合正式结束，直接结束本 loop，不要做任何回应。系统将自动调度下一位发言者。");
     },
   };
 }
@@ -143,12 +146,20 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       required: ["name", "type", "systemPrompt"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
+      /** 检查是否已有同名参与者 */
+      const existing = await ctx.client.conversation.participant.getActive(ctx.conversationId);
+      const duplicate = existing.find(p => p.otterName === params.name);
+      if (duplicate) {
+        return textResponse(`[错误] 在场已有同名参与者「${params.name}」（ID: ${duplicate.otterId}）。请直接使用已有的参与者，不要重复创建。`);
+      }
       const otter = await ctx.client.otter.create({
         name: params.name as string,
         type: params.type as "big" | "small",
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
       });
+      /** 创建后自动加入当前对话参与者 */
+      await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
       return textResponse(`Otter created: ${otter.id} (${otter.name})`);
     },
   };

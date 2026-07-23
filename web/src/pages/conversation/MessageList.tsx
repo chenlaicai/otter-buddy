@@ -6,7 +6,7 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { AlertTriangle, Square, Copy, Check, Clock } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
-import { fmtTokens, ctxPercent } from '../../lib/utils'
+import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 
 /** 复制按钮 */
 function CopyButton({ text }: { text: string }) {
@@ -63,6 +63,7 @@ interface MessageListProps {
 export interface StreamingState {
   messageId: string
   otterId: string
+  otterName?: string
   duration: number
   events: LocalMessageEvent[]
 }
@@ -116,9 +117,15 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
-      {messages.map(m => (
-        <MessageItem key={m.id} message={m} otters={otters} />
-      ))}
+      {messages.map((m, i) => {
+        const prevTurnId = i > 0 ? messages[i - 1].turnId : undefined
+        const isNewTurn = m.turnId && m.turnId !== prevTurnId
+        return (
+          <div key={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
+            <MessageItem message={m} otters={otters} />
+          </div>
+        )
+      })}
       {Array.from(streamingMessages.entries()).map(([messageId, state]) => (
         <StreamingMessage key={messageId} state={state} onStop={() => onStopStream(messageId)} otters={otters} />
       ))}
@@ -148,7 +155,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
         <div className="glass-card px-4 py-2 text-xs text-stone-500 flex items-center gap-2 max-w-[500px]">
           <Clock size={14} className="text-stone-400 flex-shrink-0" />
           <span className="flex-1">{m.content}</span>
-          <span className="text-stone-300 text-[11px] flex-shrink-0">{m.ts}</span>
+          <span className="text-stone-300 text-[11px] flex-shrink-0">{fmtTime(m.ts)}</span>
         </div>
       </div>
     )
@@ -174,7 +181,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">{m.ts}{dur}</span>
+          <span className="text-[11px] text-stone-300">{fmtTime(m.ts)}{dur}</span>
         </div>
         <div
           className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble ${
@@ -339,7 +346,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
 function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {
   const otter = otters.find(o => o.id === state.otterId)
   const color = getOtterColor(state.otterId, otter?.ci)
-  const name = otter?.name || 'Otter'
+  const name = otter?.name || state.otterName || 'Otter'
   const events = state.events || []
 
   return (

@@ -33,6 +33,7 @@ function mockParticipant(overrides: Partial<ConversationParticipant> = {}): Conv
     status: "active",
     createdAt: "2026-01-01T00:00:00Z",
     leftAt: null,
+    lastReadTurnNumber: 0,
     ...overrides,
   };
 }
@@ -124,6 +125,8 @@ function mockRepo(opts: {
       leftParticipants.push({ participantId, leftAtTurnId, leftAtTurnNumber, leftAt });
     }),
     updateTokenUsage: vi.fn(async () => {}),
+    updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
+    getUnreadMessages: vi.fn().mockResolvedValue([]),
   };
 }
 

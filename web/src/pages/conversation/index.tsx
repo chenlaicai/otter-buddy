@@ -30,7 +30,7 @@ function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
-  const [allOtters, setAllOtters] = useState<LocalOtter[]>([])
+  const [allOtters, setAllOtters] = useState<Record<string, LocalOtter[]>>({})
   const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
   const [allLinkedRes, setAllLinkedRes] = useState<Record<string, LocalLinkedResource[]>>({})
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
@@ -103,14 +103,11 @@ function ConversationPage() {
         ...prev,
         [convId]: keyInfo.resources.map(mapLinkedResourceDTO),
       }))
-      // 更新 allOtters，添加对话中的 otter
-      setAllOtters(prev => {
-        const existingIds = new Set(prev.map(o => o.id))
-        const newOtters = participants
-          .filter(p => !existingIds.has(p.otterId))
-          .map(p => ({ id: p.otterId, name: p.otterName, ci: 0 }))
-        return [...prev, ...newOtters]
-      })
+      // 更新 allOtters，按对话存储
+      setAllOtters(prev => ({
+        ...prev,
+        [convId]: participants.map(p => ({ id: p.otterId, name: p.otterName, ci: 0 })),
+      }))
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
@@ -124,7 +121,7 @@ function ConversationPage() {
   }, [activeId, allMessages, loadConversationDetail])
 
   useEffect(() => {
-    for (const otter of allOtters) {
+    for (const otter of Object.values(allOtters).flat()) {
       if (!sessions[otter.id]) {
         api.getSessionHistory(otter.id)
           .then(dtos => setSessions(prev => ({ ...prev, [otter.id]: dtos.map(mapSessionDTO) })))
@@ -136,9 +133,7 @@ function ConversationPage() {
   const activeConv = conversations.find(c => c.id === activeId) || null
   const activeMessages = activeId ? (allMessages[activeId] || []) : []
   const activeLinkedRes = activeId ? (allLinkedRes[activeId] || []) : []
-  const activeOtters: LocalOtter[] = (activeConv?.otterIds || [])
-    .map(id => allOtters.find(o => o.id === id))
-    .filter((o): o is LocalOtter => o !== undefined)
+  const activeOtters: LocalOtter[] = activeId ? (allOtters[activeId] || []) : []
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
@@ -168,10 +163,10 @@ function ConversationPage() {
 
       const ctrl = consumeSSE(response, {
         'message.start': (data) => {
-          const { messageId, otterId } = data
+          const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
           setStreamingMap(prev => new Map(prev).set(messageId, {
-            messageId, otterId, duration: 0, events: [],
+            messageId, otterId, otterName, duration: 0, events: [],
           }))
         },
         'assistant_toolcall': (data) => {
@@ -216,16 +211,15 @@ function ConversationPage() {
         'message.complete': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
-          const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
-          const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
-          const content = blocks.map(b => b.text).filter(Boolean).join('')
           const streamingEntry = streamingMapRef.current.get(messageId)
           const otterId = streamingEntry?.otterId || ''
+          /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
-            content, ts: nowTs(), dur: data.duration,
+            content: data.body ?? '', ts: nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
+            turnId: data.turnId || undefined,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
           liveEventsMap.delete(messageId)
@@ -245,27 +239,43 @@ function ConversationPage() {
           }
         },
         'message.aborted': (data) => {
-          showToast('回复已中断', 'info')
-          liveEventsMap.delete(data.messageId)
-          setStreamingMap(prev => { const next = new Map(prev); next.delete(data.messageId); return next })
-        },
-        'message.failed': (data) => {
-          /** 保存失败消息的内容到 allMessages（否则 msg1 在重试时消失） */
+          /** abort 后保留已有事件到 allMessages（与 message.failed 一致） */
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
           const streamingEntry = streamingMapRef.current.get(messageId)
           const otterId = streamingEntry?.otterId || ''
+          /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
+          if (otterId && streamingEntry?.otterName && activeId) {
+            setAllOtters(prev => {
+              const convOtters = prev[activeId] || []
+              if (convOtters.some(o => o.id === otterId)) return prev
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: streamingEntry.otterName!, ci: 0 }] }
+            })
+          }
           if (liveEvents.length > 0) {
-            const lastText = [...liveEvents].reverse().find(e => e.eventType === 'assistant_text')
-            const blocks = lastText ? (lastText.payload as Record<string, unknown>).content as Array<Record<string, unknown>> : []
-            const content = blocks.map(b => b.text).filter(Boolean).join('')
-            const failedMsg: LocalMessage = {
+            const abortedMsg: LocalMessage = {
               id: messageId, st: 'otter', si: otterId,
-              content: content || '[未完成]', ts: nowTs(), dur: null,
+              content: data.body ?? '[用户中断]', ts: nowTs(), dur: null,
               events: liveEvents,
             }
-            setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), failedMsg] }))
+            setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), abortedMsg] }))
           }
+          showToast('回复已中断', 'info')
+          liveEventsMap.delete(messageId)
+          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
+        },
+        'message.failed': (data) => {
+          /** 失败消息：body 来自 SSE 事件（服务端 sendMessage.fail 存储的失败原因） */
+          const { messageId } = data
+          const liveEvents = liveEventsMap.get(messageId) || []
+          const streamingEntry = streamingMapRef.current.get(messageId)
+          const otterId = streamingEntry?.otterId || ''
+          const failedMsg: LocalMessage = {
+            id: messageId, st: 'otter', si: otterId,
+            content: data.body ?? '[未完成]', ts: nowTs(), dur: null,
+            events: liveEvents.length > 0 ? liveEvents : undefined,
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), failedMsg] }))
           liveEventsMap.delete(messageId)
           setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
         },
@@ -280,6 +290,16 @@ function ConversationPage() {
       }, { onError: () => {
         showToast('SSE 连接中断', 'error')
         setStreamingMap(new Map())
+      }, onDone: () => {
+        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭） */
+        if (activeId) {
+          api.getParticipants(activeId).then(participants => {
+            setAllOtters(prev => ({
+              ...prev,
+              [activeId]: participants.map(p => ({ id: p.otterId, name: p.otterName, ci: 0 })),
+            }))
+          }).catch(() => {})
+        }
       } })
       sseCtrlRef.current = ctrl
     } catch (err) {
@@ -354,17 +374,15 @@ function ConversationPage() {
     if (!activeId) return
     try {
       const ci = (ciCounter.current % 4) + 1; ciCounter.current++
+      const convOtters = allOtters[activeId] || []
       const dto = await api.createOtter({
         name, type: 'small',
         role: { name: role, responsibilities: resp },
-        parentOtterId: allOtters[0]?.id,
+        parentOtterId: convOtters[0]?.id,
         systemPrompt: `你是${name}，角色：${role}。职责：${resp.join('、')}`,
       })
       const otter = mapOtterDTO(dto, ci)
-      setAllOtters(prev => [...prev, otter])
-      setConversations(prev => prev.map(c =>
-        c.id === activeId ? { ...c, otterIds: [...c.otterIds, otter.id] } : c
-      ))
+      setAllOtters(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), otter] }))
       setModal({ type: 'none' }); showToast(`小獭 ${name} 已创建`, 'success')
     } catch { showToast('创建小獭失败', 'error') }
   }
@@ -373,7 +391,13 @@ function ConversationPage() {
     if (modal.type !== 'dissolve') return
     try {
       await api.dissolveOtter(modal.otterId, summary)
-      setAllOtters(prev => prev.filter(o => o.id !== modal.otterId))
+      setAllOtters(prev => {
+        const updated: Record<string, LocalOtter[]> = {}
+        for (const [cid, otters] of Object.entries(prev)) {
+          updated[cid] = otters.filter(o => o.id !== modal.otterId)
+        }
+        return updated
+      })
       setConversations(prev => prev.map(c => ({ ...c, otterIds: c.otterIds.filter(id => id !== modal.otterId) })))
       setModal({ type: 'none' }); showToast('小獭已解散', 'success')
     } catch { showToast('解散失败', 'error') }
@@ -461,8 +485,8 @@ function ConversationPage() {
   return (
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
-        <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={allOtters} />
-        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={streamingMap} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={allOtters} />
+        <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
+        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={streamingMap} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
@@ -503,7 +527,7 @@ function ConversationPage() {
         </>
       )}
 
-      <ConversationModals modal={modal} otters={allOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmComplete={confirmComplete} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmComplete={confirmComplete} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (

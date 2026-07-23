@@ -107,12 +107,13 @@ export function flagResource(db: Database.Database, id: string, flagged: boolean
 export function createParticipant(db: Database.Database, participant: ConversationParticipant): void {
   db.prepare(`
     INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-      joined_at_turn_number, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+      joined_at_turn_number, status, created_at, last_read_turn_number)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     participant.id, participant.conversationId, participant.otterId,
     participant.joinedAtTurnId, participant.joinedAtTurnNumber,
     participant.status, participant.createdAt,
+    participant.lastReadTurnNumber ?? 0,
   );
 }
 
@@ -122,11 +123,11 @@ export function createParticipants(db: Database.Database, participants: Conversa
   try {
     const stmt = db.prepare(`
       INSERT INTO conversation_participants (id, conversation_id, otter_id, joined_at_turn_id,
-        joined_at_turn_number, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        joined_at_turn_number, status, created_at, last_read_turn_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const p of participants) {
-      stmt.run(p.id, p.conversationId, p.otterId, p.joinedAtTurnId, p.joinedAtTurnNumber, p.status, p.createdAt);
+      stmt.run(p.id, p.conversationId, p.otterId, p.joinedAtTurnId, p.joinedAtTurnNumber, p.status, p.createdAt, p.lastReadTurnNumber ?? 0);
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -161,4 +162,38 @@ export function updateParticipantLeave(
     SET status = 'left', left_at_turn_id = ?, left_at_turn_number = ?, left_at = ?
     WHERE id = ?
   `).run(leftAtTurnId, leftAtTurnNumber, leftAt, participantId);
+}
+
+export function updateLastReadTurnNumber(
+  db: Database.Database,
+  conversationId: string,
+  otterId: string,
+  turnNumber: number,
+): void {
+  db.prepare(`
+    UPDATE conversation_participants
+    SET last_read_turn_number = ?
+    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
+  `).run(turnNumber, conversationId, otterId);
+}
+
+export function getUnreadMessages(
+  db: Database.Database,
+  conversationId: string,
+  otterId: string,
+): Array<{ id: string; sender_id: string; sender_type: string; body: string | null; sequence_num: number }> {
+  const participant = db.prepare(`
+    SELECT last_read_turn_number FROM conversation_participants
+    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
+  `).get(conversationId, otterId) as { last_read_turn_number: number } | undefined;
+
+  if (!participant) return [];
+
+  return db.prepare(`
+    SELECT m.id, m.sender_id, m.sender_type, m.body, m.sequence_num
+    FROM messages m
+    JOIN turns t ON m.turn_id = t.id
+    WHERE m.conversation_id = ? AND t.turn_number >= ? AND m.sender_id != ?
+    ORDER BY m.sequence_num ASC
+  `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; body: string | null; sequence_num: number }>;
 }

@@ -64,6 +64,7 @@ export class ManageParticipant {
       status: "active",
       createdAt: now,
       leftAt: null,
+      lastReadTurnNumber: turn.turnNumber,
     };
     await this.repo.createParticipant(participant);
 
@@ -92,7 +93,10 @@ export class ManageParticipant {
     };
     await this.repo.createCompletedMessage(systemMessage);
 
-    /** 5. 尝试关闭 Turn */
+    /** 5. 更新已读位置到当前 turn（小獭能看到整个 turn 的所有消息） */
+    await this.repo.updateLastReadTurnNumber(conversationId, otterId, turn.turnNumber);
+
+    /** 6. 尝试关闭 Turn */
     await tryCloseTurn(this.repo, turn.id);
 
     return { participant, systemMessage };

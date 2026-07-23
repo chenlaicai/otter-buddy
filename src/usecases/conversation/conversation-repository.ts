@@ -121,4 +121,15 @@ export interface ConversationRepository {
     leftAtTurnNumber: number,
     leftAt: string,
   ): Promise<void>;
+  /** 更新已读位置 */
+  updateLastReadTurnNumber(
+    conversationId: string,
+    otterId: string,
+    turnNumber: number,
+  ): Promise<void>;
+  /** 获取未读消息（从 lastReadTurnNumber 之后的消息） */
+  getUnreadMessages(
+    conversationId: string,
+    otterId: string,
+  ): Promise<Message[]>;
 }

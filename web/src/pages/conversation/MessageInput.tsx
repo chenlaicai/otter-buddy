@@ -70,8 +70,11 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     setMentionQuery(null)
   }
 
+  /** 按 ID 去重，避免同名 otter 重复显示 */
+  const seen = new Set<string>()
+  const uniqueOtters = otters.filter(o => { if (seen.has(o.id)) return false; seen.add(o.id); return true })
   const filteredOtters = mentionQuery !== null
-    ? otters.filter(o => o.name.toLowerCase().includes(mentionQuery))
+    ? uniqueOtters.filter(o => o.name.toLowerCase().includes(mentionQuery))
     : []
 
   return (
