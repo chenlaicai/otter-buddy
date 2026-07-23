@@ -58,6 +58,8 @@ export interface InvokeOptions {
   conversationId: string;
   /** 当前 streaming 消息 ID（speak 工具需要） */
   messageId?: string;
+  /** 首次 invoke 标志（内部使用，注入身份信息） */
+  isFirstInvoke?: boolean;
 }
 
 /** initAgentSessionFactory 配置 */
@@ -197,16 +199,9 @@ export class PiSessionFactory implements AgentGateway {
     if (!this.piCodingAgent) {
       throw new Error("piCodingAgent not loaded. Call ensurePiCodingAgent() first.");
     }
-    /** 注入 otter 身份信息到 system prompt（只在创建时注入一次） */
-    const otterRow = this.cfg.db.prepare("SELECT name, type FROM otters WHERE id = ?").get(otterId) as { name: string; type: string } | undefined;
-    const identityPrefix = otterRow
-      ? `## 你的身份\n- 名称：${otterRow.name}\n- ID：${otterId}\n- 类型：${otterRow.type === 'big' ? '大獭（主控）' : '小獭（子任务）'}\n\n你是 ${otterRow.name}。在对话中使用这个身份。\n\n`
-      : '';
-    const systemPrompt = config.systemPrompt
-      ? (typeof config.systemPrompt === 'string' ? identityPrefix + config.systemPrompt : { ...config.systemPrompt, systemPrompt: identityPrefix + (config.systemPrompt.systemPrompt ?? '') })
-      : identityPrefix || undefined;
+    /** 首次 invoke 时注入身份到 user message，后续 invoke 从 session 历史恢复 */
     this.sessionRestore.createSessionAndPersist(otterId, {
-      systemPrompt,
+      systemPrompt: config.systemPrompt,
       otterType: (config.context?.otterType as OtterType) ?? 'big',
     }, this.piCodingAgent, this.cfg.sessionDir, allowOverwrite);
   }
@@ -342,16 +337,21 @@ export class PiSessionFactory implements AgentGateway {
       throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
     }
 
-    // 1. 恢复或创建 session
+    // 1. 检测是否首次 invoke（session 不存在 → 首次）
+    const existingSession = this.sessionStore.getWithFile(otterId);
+    const isFirstInvoke = !existingSession;
+
+    // 2. 恢复或创建 session
     const sessionManager = await this._restoreOrCreateSession(otterId);
 
-    // 2. 从数据库加载配置
+    // 3. 从数据库加载配置
     const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
     if (!otterConfig) {
       throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
     }
 
-    // 3. 创建 AgentSession 并执行
+    // 4. 创建 AgentSession 并执行
+    if (options) options.isFirstInvoke = isFirstInvoke;
     return this._executeWithSession(otterId, message, options, sessionManager, otterConfig);
   }
 
@@ -386,9 +386,18 @@ export class PiSessionFactory implements AgentGateway {
     // 2. 熔断器
     const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
 
-    // 3. 构建完整消息（platform prompt 已在 .pi/SYSTEM.md 中，不再重复注入）
+    // 3. 构建完整消息
     const otterPrompt = buildOtterPrompt(otterPromptConfig);
-    const fullMessage = buildMessageWithContext(otterPrompt, message, options?.dynamicContext);
+    let userMessagePrefix = otterPrompt;
+    /** 首次 invoke 时注入身份（后续从 session 历史恢复，不重复） */
+    if (options?.isFirstInvoke) {
+      const otterRow = this.cfg.db.prepare("SELECT name, type FROM otters WHERE id = ?").get(otterId) as { name: string; type: string } | undefined;
+      if (otterRow) {
+        const identityPrefix = `## 你的身份\n- 名称：${otterRow.name}\n- ID：${otterId}\n- 类型：${otterRow.type === 'big' ? '大獭（主控）' : '小獭（子任务）'}\n\n你是 ${otterRow.name}。在对话中使用这个身份。`;
+        userMessagePrefix = [identityPrefix, otterPrompt].filter(Boolean).join("\n\n");
+      }
+    }
+    const fullMessage = buildMessageWithContext(userMessagePrefix, message, options?.dynamicContext);
 
     const activeEntry = this.activeSessions.get(sessionKey);
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
