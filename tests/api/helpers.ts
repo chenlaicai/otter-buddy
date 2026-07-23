@@ -441,7 +441,14 @@ export function createMockDeps(): TestDeps {
   return {
     manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds"]),
     manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
-    sendMessageUseCase: mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
+    sendMessageUseCase: {
+      ...mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
+      repo: {
+        getUnreadMessages: vi.fn().mockResolvedValue([]),
+        getActiveTurn: vi.fn().mockResolvedValue(null),
+        updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
+      },
+    },
     queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
     agentInvoker: mockMethods(["invokeConversation", "abort"]),
     createOtterUseCase: mockMethods(["execute"]),
