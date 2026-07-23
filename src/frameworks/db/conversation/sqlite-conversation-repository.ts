@@ -326,6 +326,26 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getParticipant(conversationId: string, otterId: string): Promise<ConversationParticipant | null> { return mixins.getParticipant(this.db, conversationId, otterId); }
   async getActiveParticipants(conversationId: string): Promise<ConversationParticipant[]> { return mixins.getActiveParticipants(this.db, conversationId); }
   async updateParticipantLeave(participantId: string, leftAtTurnId: string, leftAtTurnNumber: number, leftAt: string): Promise<void> { mixins.updateParticipantLeave(this.db, participantId, leftAtTurnId, leftAtTurnNumber, leftAt); }
+  async updateLastReadSequenceNum(conversationId: string, otterId: string, sequenceNum: number): Promise<void> { mixins.updateLastReadSequenceNum(this.db, conversationId, otterId, sequenceNum); }
+  async getUnreadMessages(conversationId: string, otterId: string): Promise<Message[]> {
+    const rows = mixins.getUnreadMessages(this.db, conversationId, otterId);
+    return rows.map(row => ({
+      id: row.id,
+      conversationId,
+      senderType: row.sender_type as 'user' | 'otter' | 'system',
+      senderId: row.sender_id,
+      status: 'completed' as const,
+      body: row.body,
+      attachments: null,
+      sequenceNum: row.sequence_num,
+      turnId: '',
+      talkingStonePassedTo: null,
+      contextTokens: null,
+      contextTokensMax: null,
+      createdAt: '',
+      completedAt: null,
+    }));
+  }
 
   // ── Message 全文搜索（FTS5） ──
 

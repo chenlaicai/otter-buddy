@@ -165,13 +165,31 @@ export class MessageController {
       if (depth > 5 || targets.length === 0) return;
 
       const results = await Promise.allSettled(
-        targets.map(otterId =>
-          this.agentInvoker.invokeConversation({
-            otterId, conversationId, userMessageContent,
+        targets.map(async otterId => {
+          /** 获取该 otter 的未读消息，作为上下文传递 */
+          const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
+          let messageWithContext = userMessageContent;
+          if (unreadMessages.length > 0) {
+            const formatted = unreadMessages
+              .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '用户' : m.senderId}] ${m.body ?? ''}`)
+              .join('\n');
+            messageWithContext = `## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+          }
+          return this.agentInvoker.invokeConversation({
+            otterId, conversationId, userMessageContent: messageWithContext,
             senderId, onSSEEvent: push,
-          })
-        ),
+          });
+        }),
       );
+
+      /** 更新已读位置：每个成功发言的 otter 更新到最新 sequence_num */
+      for (const r of results) {
+        if (r.status !== 'fulfilled') continue;
+        const msg = await this.queryMessage.getMessageById(r.value.messageId);
+        if (msg) {
+          await this.sendMessageUseCase.repo.updateLastReadSequenceNum(conversationId, msg.senderId, msg.sequenceNum);
+        }
+      }
 
       const nextTargets = await this.collectChainTargets(results);
       await invokeChain(nextTargets, depth + 1);

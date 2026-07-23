@@ -61,10 +61,13 @@ export interface AbortMessageInput {
 
 export class SendMessage {
   constructor(
-    private readonly repo: ConversationRepository,
+    private readonly _repo: ConversationRepository,
     private readonly memoryIndex: MemoryIndexGateway,
     private readonly logger: Logger,
   ) {}
+
+  /** 暴露 repo 给需要读取消息的场景（如发言链的未读消息查询） */
+  get repo(): ConversationRepository { return this._repo; }
 
   /** 用户发送消息（立即 completed） */
   async send(input: SendMessageInput): Promise<Message> {
@@ -80,7 +83,7 @@ export class SendMessage {
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const sequenceNum = (await this.repo.getMaxSequenceNum(input.conversationId)) + 1;
+    const sequenceNum = (await this._repo.getMaxSequenceNum(input.conversationId)) + 1;
 
     const message: Message = {
       id,
@@ -99,7 +102,7 @@ export class SendMessage {
       completedAt: now,
     };
 
-    await this.repo.createCompletedMessage(message);
+    await this._repo.createCompletedMessage(message);
 
     /** B11: 索引消息内容到记忆系统 */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
@@ -130,7 +133,7 @@ export class SendMessage {
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const sequenceNum = (await this.repo.getMaxSequenceNum(input.conversationId)) + 1;
+    const sequenceNum = (await this._repo.getMaxSequenceNum(input.conversationId)) + 1;
 
     const message: Message = {
       id,
@@ -149,13 +152,13 @@ export class SendMessage {
       completedAt: null,
     };
 
-    await this.repo.createStreamingMessage(message);
+    await this._repo.createStreamingMessage(message);
     return message;
   }
 
   /** 追加流式事件（仅 streaming 状态可追加） */
   async appendEvent(input: MessageEventInput): Promise<MessageEvent> {
-    const message = await this.repo.getMessageById(input.messageId);
+    const message = await this._repo.getMessageById(input.messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${input.messageId}`, "not_found");
     }
@@ -164,7 +167,7 @@ export class SendMessage {
     }
 
     const id = crypto.randomUUID();
-    const sequenceNum = (await this.repo.getMaxEventSequenceNum(input.messageId)) + 1;
+    const sequenceNum = (await this._repo.getMaxEventSequenceNum(input.messageId)) + 1;
     const event: MessageEvent = {
       id,
       messageId: input.messageId,
@@ -174,13 +177,13 @@ export class SendMessage {
       createdAt: new Date().toISOString(),
     };
 
-    await this.repo.appendEvent(event);
+    await this._repo.appendEvent(event);
     return event;
   }
 
   /** 两阶段提交 Phase 1：存储 body + talkingStonePassedTo，不改 status */
   async setMessageBody(messageId: string, input: CompleteMessageInput): Promise<void> {
-    const message = await this.repo.getMessageById(messageId);
+    const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
@@ -193,7 +196,7 @@ export class SendMessage {
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", message.senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
     }
-    await this.repo.setMessageBody({
+    await this._repo.setMessageBody({
       messageId,
       body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
@@ -203,7 +206,7 @@ export class SendMessage {
 
   /** 两阶段提交 Phase 2：将 status 从 streaming 改为 completed（body 必须已设置） */
   async completeMessageFinalize(messageId: string, contextTokens?: number, contextTokensMax?: number): Promise<void> {
-    const message = await this.repo.getMessageById(messageId);
+    const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
@@ -214,7 +217,7 @@ export class SendMessage {
       throw new DomainError("Cannot complete message without body. Call setMessageBody first.", "validation");
     }
     const now = new Date().toISOString();
-    await this.repo.completeMessageStatus({
+    await this._repo.completeMessageStatus({
       messageId,
       completedAt: now,
       contextTokens,
@@ -226,7 +229,7 @@ export class SendMessage {
 
   /** 完成流式消息（body 必须非空，talkingStonePassedTo 必须非空 UA-8） */
   async complete(messageId: string, input: CompleteMessageInput): Promise<Message> {
-    const message = await this.repo.getMessageById(messageId);
+    const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
@@ -245,7 +248,7 @@ export class SendMessage {
     const attachments = input.attachments !== undefined ? input.attachments : message.attachments;
     const now = new Date().toISOString();
 
-    await this.repo.completeMessage({
+    await this._repo.completeMessage({
       messageId,
       body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
@@ -273,7 +276,7 @@ export class SendMessage {
 
   /** 标记消息失败（可选 body 存错误信息，可选 talkingStonePassedTo 写入发言石） */
   async fail(messageId: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
-    const message = await this.repo.getMessageById(messageId);
+    const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
@@ -282,7 +285,7 @@ export class SendMessage {
     }
 
     const now = new Date().toISOString();
-    await this.repo.failMessage(messageId, now, body, talkingStonePassedTo);
+    await this._repo.failMessage(messageId, now, body, talkingStonePassedTo);
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this.repo, message.turnId);
@@ -293,7 +296,7 @@ export class SendMessage {
    * 与 complete() 类似：设置 body、传递发言石、索引记忆、关闭 turn，但状态为 aborted。
    */
   async abort(messageId: string, input: AbortMessageInput): Promise<Message> {
-    const message = await this.repo.getMessageById(messageId);
+    const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new Error(`Message not found: ${messageId}`);
     }
@@ -308,7 +311,7 @@ export class SendMessage {
     }
 
     const now = new Date().toISOString();
-    await this.repo.abortMessage(messageId, input.body, input.talkingStonePassedTo, now);
+    await this._repo.abortMessage(messageId, input.body, input.talkingStonePassedTo, now);
 
     /** B-4: 索引消息 body 到记忆系统（中断标记可识别） */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
@@ -330,7 +333,7 @@ export class SendMessage {
     const turn = await this.ensureActiveTurn(conversationId);
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const sequenceNum = (await this.repo.getMaxSequenceNum(conversationId)) + 1;
+    const sequenceNum = (await this._repo.getMaxSequenceNum(conversationId)) + 1;
 
     const message: Message = {
       id,
@@ -349,18 +352,18 @@ export class SendMessage {
       completedAt: now,
     };
 
-    await this.repo.createCompletedMessage(message);
+    await this._repo.createCompletedMessage(message);
     return message;
   }
 
   /** 更新消息的 token 使用量（agent invoke 完成后补充写入） */
   async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
-    await this.repo.updateTokenUsage(messageId, contextTokens, contextTokensMax);
+    await this._repo.updateTokenUsage(messageId, contextTokens, contextTokensMax);
   }
 
   /** 确保活跃 Turn 存在，无则创建新 Turn */
   private async ensureActiveTurn(conversationId: string) {
-    const existing = await this.repo.getActiveTurn(conversationId);
+    const existing = await this._repo.getActiveTurn(conversationId);
     if (existing) {
       if (canAddMessageToTurn(existing.status)) {
         return existing;
@@ -368,7 +371,7 @@ export class SendMessage {
       /** Turn 已关闭，创建新 Turn */
     }
 
-    const turnNumber = (await this.repo.getMaxTurnNumber(conversationId)) + 1;
+    const turnNumber = (await this._repo.getMaxTurnNumber(conversationId)) + 1;
     const turn = {
       id: crypto.randomUUID(),
       conversationId,
@@ -377,7 +380,7 @@ export class SendMessage {
       createdAt: new Date().toISOString(),
       closedAt: null,
     };
-    await this.repo.createTurn(turn);
+    await this._repo.createTurn(turn);
     return turn;
   }
 

@@ -92,6 +92,8 @@ function mockRepo(initialConversations: Map<string, Conversation> = new Map()): 
     getActiveParticipants: vi.fn(async () => []),
     updateParticipantLeave: vi.fn(),
     updateTokenUsage: vi.fn(async () => {}),
+    updateLastReadSequenceNum: vi.fn().mockResolvedValue(undefined),
+    getUnreadMessages: vi.fn().mockResolvedValue([]),
   };
 }
 

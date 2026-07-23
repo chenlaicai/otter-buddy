@@ -78,6 +78,7 @@ describe("ConversationDTO", () => {
       joinedAtTurnId: null, joinedAtTurnNumber: 0,
       leftAtTurnId: null, leftAtTurnNumber: null,
       status: "active", createdAt: "2026-07-16T00:00:00Z", leftAt: null,
+      lastReadSequenceNum: 0,
     };
     const dto = toParticipantDTO(p, "Big Otter");
     expect(dto.otterId).toBe("otter-1");

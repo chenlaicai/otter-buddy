@@ -28,6 +28,15 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     )
   `).run();
   logger.info('Ensured otter_configs table exists');
+
+  // 检查 last_read_sequence_num 字段是否存在
+  const participantColumns = db.prepare("PRAGMA table_info(conversation_participants)").all() as Array<{ name: string }>;
+  const hasLastRead = participantColumns.some(col => col.name === 'last_read_sequence_num');
+
+  if (!hasLastRead) {
+    db.prepare("ALTER TABLE conversation_participants ADD COLUMN last_read_sequence_num INTEGER NOT NULL DEFAULT 0").run();
+    logger.info('Added last_read_sequence_num column to conversation_participants table');
+  }
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

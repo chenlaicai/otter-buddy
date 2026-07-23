@@ -95,6 +95,7 @@ export interface ParticipantRow {
   status: string;
   created_at: string;
   left_at: string | null;
+  last_read_sequence_num: number;
 }
 
 export function rowToConversation(row: ConversationRow): Conversation {
@@ -192,5 +193,6 @@ export function rowToParticipant(row: ParticipantRow): ConversationParticipant {
     status: row.status as ParticipantStatus,
     createdAt: row.created_at,
     leftAt: row.left_at,
+    lastReadSequenceNum: row.last_read_sequence_num ?? 0,
   };
 }

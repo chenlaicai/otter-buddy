@@ -87,6 +87,7 @@ describe("canJoinConversation", () => {
       status: "active" as const,
       createdAt: new Date().toISOString(),
       leftAt: null,
+      lastReadSequenceNum: 0,
     };
     expect(canJoinConversation(existing)).toBe(false);
   });
@@ -109,6 +110,7 @@ describe("canLeaveConversation", () => {
       status: "active" as const,
       createdAt: new Date().toISOString(),
       leftAt: null,
+      lastReadSequenceNum: 0,
     };
     expect(canLeaveConversation(participant)).toBe(true);
   });
@@ -125,6 +127,7 @@ describe("canLeaveConversation", () => {
       status: "left" as const,
       createdAt: new Date().toISOString(),
       leftAt: new Date().toISOString(),
+      lastReadSequenceNum: 0,
     };
     expect(canLeaveConversation(participant)).toBe(false);
   });

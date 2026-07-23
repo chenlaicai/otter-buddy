@@ -80,6 +80,8 @@ function mockRepo(opts: {
     getActiveParticipants: vi.fn(async () => []),
     updateParticipantLeave: vi.fn(),
     updateTokenUsage: vi.fn(async () => {}),
+    updateLastReadSequenceNum: vi.fn().mockResolvedValue(undefined),
+    getUnreadMessages: vi.fn().mockResolvedValue([]),
   };
 }
 
