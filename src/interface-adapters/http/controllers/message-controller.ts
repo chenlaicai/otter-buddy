@@ -148,7 +148,8 @@ export class MessageController {
       const msg = await this.queryMessage.getMessageById(r.value.messageId);
       if (!msg?.talkingStonePassedTo) continue;
       for (const id of msg.talkingStonePassedTo) {
-        if (!invoked.has(id)) targets.push(id);
+        /** 只接力给实际 otter（UUID 格式），跳过 "user" 等非 otter 标识 */
+        if (!invoked.has(id) && id !== 'user') targets.push(id);
       }
     }
     return targets;
