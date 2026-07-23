@@ -4,9 +4,9 @@ title: speak-two-phase-commit
 doc_type: feature
 
 summary: |
-  Speak 两阶段提交重构：body 存储与 message 状态变更分离，
-  解决 speak 后事件丢失和实时/历史渲染不一致问题。
-  新增发言链自动接力机制和参与者 UI 刷新。
+  Speak 机制全面修复：两阶段提交、发言链消息已读、prompt 架构重构、
+  otter 身份注入、UI 一致性修复。解决了 speak 后事件丢失、实时/历史渲染不一致、
+  小獭看不到大獭发言、abort 后消息消失等核心问题。
 
 causal_links:
   from:
@@ -14,184 +14,204 @@ causal_links:
 
 status: draft
 change_type: bugfix
-tags: [speak, two-phase-commit, streaming, sse, agent, talking-stone]
+tags: [speak, streaming, sse, agent, talking-stone, prompt, chain, identity]
 modules:
   - src/usecases/conversation/
   - src/interface-adapters/agent-runtime/
   - src/interface-adapters/http/
   - src/frameworks/db/conversation/
   - src/frameworks/agent/
+  - src/frameworks/db/
   - web/src/pages/conversation/
+  - .pi/
 
 created_at: 2026-07-23
 ---
 
-# F20260723mk75 Speak 两阶段提交与发言链
+# F20260723mk75 Speak 机制全面修复
 
 ## 术语定义
 
 | 术语 | 定义 |
 |------|------|
-| **speak** | Agent 的"总结发言"工具，调用后本次回复结束 |
-| **setMessageBody** | 两阶段提交 Phase 1：存储 body + talkingStonePassedTo，不改 status |
-| **completeMessageFinalize** | 两阶段提交 Phase 2：将 status 从 streaming 改为 completed |
+| **speak** | Agent 的"总结发言"工具，调用后声明发言内容和发言石目标 |
+| **startSpeaking** | streaming → speaking 状态转换，暂存 body + talkingStonePassedTo |
+| **complete** | speaking → completed 状态转换，触发 turn 关闭 |
 | **发言链** | 大獭 speak 后 talkingStonePassedTo 指向小獭时，系统自动调用小獭 |
-| **streamingDone** | Agent loop 结束标志（executeAgentInvocation 返回） |
-| **speakBodyReceived** | Speak 工具被调用标志（tool_execution_end 事件到达） |
+| **已读位置** | `last_read_turn_number`，记录 otter 在对话中已读到的 turn 编号 |
+| **dispatchLoop** | Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 |
 
 ## 背景
 
 ### 问题 1：speak 后事件丢失
 
-之前 `speak` 调用 `SendMessage.complete()` 会原子性地写入 body + 将 status 改为 `completed`。
-但 speak 执行后 SDK 的 agent loop 还会产生事件（tool_result、assistant_text 等），
-这些事件到达时 message 已是 completed 状态，`appendEvent` 拒绝写入。
+之前 speak 调用 `complete()` 原子写入 body + status=completed，后续流式事件被拒绝。
 
 ### 问题 2：实时/历史渲染不一致
 
-前端 `message.complete` 从最后一个 `assistant_text` 事件提取内容作为 body，
-而不是使用 speak 存储的权威 body。导致实时渲染和历史渲染内容不同。
+前端从 `assistant_text` 事件提取内容作为 body，而非使用 speak 存储的权威数据。
 
-### 问题 3：发言链缺失
+### 问题 3：发言链断裂
 
-大獭 speak 后 `talkingStonePassedTo` 指向小獭，但系统不会自动调用小獭。
-小獭需要用户手动发消息才能发言。
+小獭进场后看不到大獭的发言，因为每个 otter 有独立的 Pi SDK session。
 
-### 问题 4：参与者 UI 不刷新
+### 问题 4：abort 后消息消失
 
-Agent 创建小獭后，前端右侧栏不更新。
+前端 `message.aborted` 处理器直接删除 streaming entry，不保留已有事件。
+
+### 问题 5：agent 不停止
+
+speak 返回后 SDK agent loop 继续运行，agent 看到 `[ok]` 后继续生成。
+
+### 问题 6：小獭有 create_otter 工具
+
+`CreateOtter.execute()` 没有传递 `otterType` 到 `context`，导致小獭被识别为 big。
+
+### 问题 7：全局 allOtters 破坏对话隔离
+
+`allOtters` 是全局数组，跨对话共享，导致同名 otter 重复。
 
 ## 决策过程
 
-### 决策 1：两阶段提交 vs 原子提交
+### 决策 1：两阶段提交 vs speaking 中间状态
 
-**方案 A（原方案）**：speak 调 `complete()` 原子写入 body + status=completed
-- 优点：简单
-- 缺点：后续事件全部丢失
+**main 分支方案**：引入 `speaking` 中间状态（streaming → speaking → completed）
+- speak 调用 `startSpeaking()` 进入 speaking 状态
+- agent loop 结束后调 `complete()` 进入 completed 状态
 
-**方案 B（选定）**：拆分为 setMessageBody + completeMessageFinalize
-- Phase 1：speak 调 setMessageBody() 只存 body，status 保持 streaming
-- Phase 2：agent loop 结束后调 completeMessageFinalize() 完成状态转换
-- 优点：所有事件都能正常持久化
-- 缺点：需要新增两个 repository 方法
+**本分支方案**：两阶段提交（setMessageBody + completeMessageFinalize）
 
-**决策理由**：事件是 agent 行为的真实记录，不应丢失。
+**最终决策**：采用 main 的 `speaking` 状态方案，因为它与现有的 `streaming`/`completed`/`failed`/`aborted` 状态机一致。
 
-### 决策 2：Message complete 的判定条件
+### 决策 2：已读位置维度
 
-**原方案**：speakBodyReceived AND streamingDone 两者都满足才 complete
+**方案 A**：`last_read_sequence_num`（消息序列号）
+- 问题：join 消息的 sequence_num 可能比 turn 内其他消息大
 
-**最终方案**：只看 streamingDone（agent loop 结束即 complete）
-- 如果 body 已设 → completeMessageFinalize 成功
-- 如果 body 未设 → completeMessageFinalize 抛错 → handleSpeakRetry
+**方案 B（选定）**：`last_read_turn_number`（turn 编号）
+- 小獭进场时已读位置设为当前 turn
+- `getUnreadMessages` 用 `turn_number >= lastReadTurnNumber` 查询
+- 能看到整个 turn 的所有消息
 
-**决策理由**：
-- speak 是流式过程中的一个 tool 调用，不是 message 结束的判定条件
-- Message 的结束只有一个条件：agent loop 结束（streamingDone）
-- Body 是否设置只影响 complete 后的处理路径（成功 vs 重试）
+**决策理由**：turn 是对话的自然分界，用 turn 维度更语义化。
 
-### 决策 3：Event 处理策略
+### 决策 3：Prompt 架构
 
-**曾考虑**：speak 后抑制 assistant_text 的持久化（认为是"噪音"）
+| 层 | 位置 | 内容 |
+|---|------|------|
+| System Prompt | `.pi/SYSTEM.md`（SDK 注入） | 对话环境 + 原则 + 身份认知 |
+| User Message 前缀 | `_executeWithSession`（首次 invoke） | per-otter 身份（name/ID/type） |
+| Skills | SDK system prompt 末尾 | speak、participant-management 等目录 |
+| Tool descriptions | 工具定义 | 简短描述 |
 
-**最终方案**：所有事件如实持久化，不做任何抑制
+**关键决策**：platform prompt 移入 `.pi/SYSTEM.md`，不再作为 user message 前缀重复注入。
+
+### 决策 4：speak 返回值
+
+从 `[ok] 发言已结束` 改为 `[系统] 发言已提交成功。你的回合正式结束，直接结束本 loop，不要做任何回应。系统将自动调度下一位发言者。`
+
+用"系统"前缀让 agent 认为这是系统指令而非对话响应。用"结束本 loop"比"停止生成"更明确。
+
+### 决策 5：Event 处理策略
+
+**最终方案**：所有事件如实持久化，不做任何抑制。
 - Event 就是 event，反映 agent 实际行为
 - Body 就是 body，由 speak 存储
 - 两者独立，不互相干扰
 
-**决策理由**：
-- 抑制事件是在"篡改历史"，不符合数据完整性原则
-- 事件是调试和审计的重要依据
-- 实时渲染的 SSE 也不应抑制（如实反映 agent 行为）
+### 决策 6：allOtters 重构
 
-### 决策 4：speak 重复调用防御
-
-**曾考虑**：setMessageBody 检查 body 已设则拒绝（硬编码防御）
-
-**最终方案**：移除硬编码防御，交给 SKILL.md 行为指导
-- SKILL.md 明确 speak 是"总结发言"，一次调用，调完就停
-- 如果 agent 多次调用 speak，最后一次的 body 生效
-
-**决策理由**：行为约束应由 prompt 指导，不应由代码硬编码限制。
-
-### 决策 5：Session create 路径的 fs.existsSync 检查
-
-**问题**：`SessionManager.create()` 使用延迟写入，文件路径已计算但文件不立即落盘。
-`fs.existsSync(sessionFile)` 检查在 create 路径上必然失败。
-
-**方案**：移除 create 路径的 fs.existsSync 检查，只在 restore 路径检查。
-
-**决策理由**：SDK 的延迟写入是设计行为，不是 bug。
+从全局 `LocalOtter[]` 改为 per-conversation 的 `Record<string, LocalOtter[]>`。
+每个对话独立维护参与者列表，不再跨对话共享。
 
 ## 设计方案
 
-### 核心架构
-
-```
-speak 工具调用 setMessageBody() → body 存入 DB，status 仍为 streaming
-    ↓
-Agent loop 继续运行（可能产生更多事件）
-    ↓
-Agent loop 结束（executeAgentInvocation 返回）
-    ↓
-try completeAgentInvocation → completeMessageFinalize
-    ↓ body 已设 → 成功（status=completed + memoryIndex + tryCloseTurn）
-    ↓ body 未设 → 抛错 → handleSpeakRetry
-```
-
-### 发言链
+### 发言链调度循环
 
 ```
 controller.sendMessage()
     ↓
-invokeChain(otterIds, depth=0)
+dispatchLoop(firstTurnTargets)
+    ↓ 循环
+invokeConversation(otter) + 未读消息注入
     ↓
-invokeConversation(otter) → 返回 messageId
-    ↓
-queryMessage.getMessageById → talkingStonePassedTo
-    ↓ 过滤掉 "user" 和已调用的 otter
-    ↓ 有新目标 → invokeChain(newTargets, depth+1)
-    ↓ 无新目标 → 结束
-    ↓
+Promise.allSettled → 聚合 aggregatedTargets
+    ↓ 过滤 user
+dispatchLoop(nextTargets)
+    ↓ 无目标 → 结束
 stream.end → close SSE
 ```
 
-### Repository 新增方法
+### 已读位置机制
 
-```sql
--- Phase 1：只存 body，不改 status
-UPDATE messages SET body=?, talking_stone_passed_to=?, attachments=?
-WHERE id=? AND status='streaming'
-
--- Phase 2：只改 status，不碰 body
-UPDATE messages SET status='completed', completed_at=?, context_tokens=?, context_tokens_max=?
-WHERE id=? AND status='streaming' AND body IS NOT NULL
+```
+participant.join() → lastReadTurnNumber = turn.turnNumber
+    ↓
+invokeChain → getUnreadMessages(otterId)
+    ↓ JOIN turns WHERE turn_number >= lastReadTurnNumber
+格式化为上下文注入 userMessageContent
+    ↓
+发言后 → updateLastReadTurnNumber(currentTurn)
 ```
 
-### 关键文件
+### 身份注入
+
+```
+首次 invoke → _executeWithSession 检测 isFirstInvoke
+    ↓ 查询 otters 表获取 name/type
+注入身份前缀到 user message
+    ↓ SDK session 持久化
+后续 invoke → 从 session 历史恢复，不重复注入
+```
+
+### Prompt 层次
+
+```
+SDK System Prompt:
+  .pi/SYSTEM.md（对话环境 + 原则 + 身份认知）
+  + Skills catalog（7 个 skill 目录）
+  + CWD
+
+User Message:
+  [首次] 身份前缀 + otter prompt + session summary + 用户消息
+  [后续] otter prompt + session summary + 用户消息
+```
+
+## 关键文件
 
 | 文件 | 改动 |
 |------|------|
-| `conversation-repository.ts` | 接口新增 setMessageBody、completeMessageStatus |
-| `sqlite-conversation-repository.ts` | SQL 实现 |
-| `send-message.ts` | setMessageBody + completeMessageFinalize |
-| `otter-tool-client.ts` | 接口新增 setMessageBody |
-| `main.ts` | DI wiring |
-| `tool-factory.ts` | speak 改用 setMessageBody |
-| `agent-invoker.ts` | 两阶段提交逻辑、事件不抑制 |
-| `message-controller.ts` | 发言链 invokeTalkingStoneChain |
-| `index.tsx` (前端) | onDone 刷新参与者 + conversation.otterIds |
-| `Modals.tsx` | Enter 提交 |
-| `SKILL.md` (speak) | 总结发言行为指导 |
+| `.pi/SYSTEM.md` | 新增：对话环境 + 原则 + 身份认知 |
+| `.pi/skills/speak/SKILL.md` | 重写：回合交接、系统信号风格 |
+| `.pi/skills/participant-management/SKILL.md` | 精简：移除 pass_talking_stone 引用 |
+| `src/frameworks/db/migration.ts` | 新增 `last_read_turn_number` 列 |
+| `src/frameworks/db/conversation/conversation-mapper.ts` | 新增 `last_read_turn_number` 映射 |
+| `src/frameworks/db/conversation/conversation-repository-mixins.ts` | 新增 `updateLastReadTurnNumber`、`getUnreadMessages` |
+| `src/usecases/conversation/conversation-repository.ts` | 接口新增已读位置方法 |
+| `src/usecases/conversation/manage-participant.ts` | join 时设置 `lastReadTurnNumber` |
+| `src/usecases/otter/create-otter.ts` | 传递 `otterType` 到 context |
+| `src/frameworks/agent/pi-session-factory.ts` | 身份注入（首次 invoke）+ LLM request 日志 |
+| `src/interface-adapters/http/controllers/message-controller.ts` | dispatchLoop + 未读消息注入 + Logger |
+| `src/interface-adapters/agent-runtime/agent-invoker.ts` | speaking 状态检查 + SSE body 传递 |
+| `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | speak 返回值 + create_otter 同名去重 |
+| `src/main.ts` | Logger 注入 + wiring |
+| `web/src/pages/conversation/index.tsx` | per-conversation otters + abort 事件保留 + turn 分割线 |
+| `web/src/pages/conversation/MessageList.tsx` | 时间格式 fmtTime + StreamingState.otterName |
+| `web/src/pages/conversation/MessageInput.tsx` | @ 提及按 ID 去重 |
+| `web/src/lib/utils.ts` | fmtTime 工具函数 |
+| `web/src/lib/mappers.ts` | LocalMessage 新增 turnId |
+| `web/src/api/client.ts` | 新增 getMessage 方法 |
 
 ## 验收标准
 
-1. speak 后不再有 "Cannot append event to message with status: completed" 错误
-2. 所有事件如实持久化到 DB（包括 speak 的 tool_result 和后续 assistant_text）
-3. 前端 message.complete 从 SSE 事件的 body 字段获取内容（后端从 DB 取）
-4. 历史渲染的事件列表 = 实时渲染的事件列表
-5. 发言链：大獭 speak 传给小獭时，小獭自动被调用
-6. 发言链跳过 "user" 目标
-7. 参与者 UI 在 SSE 流结束后自动刷新
+1. speak 后事件正常持久化，无 "Cannot append event" 错误
+2. 实时渲染和历史渲染一致（body 来自 SSE 事件的 body 字段）
+3. 小獭进场后能看到大獭的发言（turn 维度已读位置）
+4. 发言链自动接力：大獭 → 小獭 → 大獭（depth 限制 5 层）
+5. abort 后消息不消失（事件保留到 allMessages）
+6. 小獭没有 create_otter 工具（otterType 正确传递）
+7. @ 提及列表无重复（per-conversation otters + ID 去重）
 8. 新建/子对话 modal 支持 Enter 提交
-9. Agent 创建小獭后自动注册为对话参与者
+9. 消息时间格式统一为 yyyy-MM-dd HH:mm:ss（本地时区）
+10. turn 之间有视觉分割线
+11. 身份注入只在首次 invoke 时执行
