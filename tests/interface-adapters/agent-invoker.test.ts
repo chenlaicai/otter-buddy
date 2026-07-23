@@ -8,6 +8,15 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
 import type { Logger } from "@usecases/ports/logger";
 
+const speakingMsg: Message = {
+  id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
+  senderType: "otter", senderId: "otter-1",
+  talkingStonePassedTo: ["user-1"], status: "speaking",
+  body: "Response", attachments: null,
+  sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+  createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+};
+
 const completedMsg: Message = {
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
   senderType: "otter", senderId: "otter-1",
@@ -30,7 +39,7 @@ function mockSendMessage() {
   const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
   return {
     start: async () => streamingMsg,
-    complete: async () => ({ ...streamingMsg, status: "completed", body: "Response" }),
+    complete: async () => ({ message: completedMsg, turnClose: { closed: true, aggregatedTargets: ["user-1"] } }),
     fail: async (id: string) => { calls.fail!.push(id); },
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
@@ -41,7 +50,7 @@ function mockSendMessage() {
 }
 
 function mockQueryMessage(): QueryMessage {
-  return { getMessageById: async () => completedMsg } as unknown as QueryMessage;
+  return { getMessageById: async () => speakingMsg } as unknown as QueryMessage;
 }
 
 function mockManageSession(): ManageSession {
@@ -291,7 +300,7 @@ describe("AgentInvoker", () => {
 });
 
 /** 创建可配置的 QueryMessage mock：按调用顺序返回不同消息状态 */
-function mockQueryMessageSequence(statuses: Array<"streaming" | "completed">): QueryMessage & { callCount: number } {
+function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): QueryMessage & { callCount: number } {
   const streamingMsg: Message = {
     id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-1",
@@ -306,7 +315,7 @@ function mockQueryMessageSequence(statuses: Array<"streaming" | "completed">): Q
     getMessageById: async () => {
       const status = statuses[callCount] ?? statuses[statuses.length - 1];
       callCount++;
-      return { ...streamingMsg, status, body: status === "completed" ? "Response" : null, talkingStonePassedTo: status === "completed" ? ["user-1"] : null };
+      return { ...streamingMsg, status, body: status === "speaking" ? "Response" : null, talkingStonePassedTo: status === "speaking" ? ["user-1"] : null };
     },
   } as unknown as QueryMessage & { callCount: number };
 }
@@ -315,8 +324,8 @@ describe("AgentInvoker speak retry", () => {
   it("retries once when agent does not call speak (first failure → system message → retry)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
-    /** 第一次 streaming，第二次 completed（重试成功） */
-    const qm = mockQueryMessageSequence(["streaming", "completed"]);
+    /** 第一次 streaming，第二次 speaking（重试成功） */
+    const qm = mockQueryMessageSequence(["streaming", "speaking"]);
 
     const invoker = new AgentInvoker(
       mockAgentInvoke({ result: { text: "Response" } }),

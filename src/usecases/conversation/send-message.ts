@@ -10,12 +10,14 @@ import {
   canCompleteMessage,
   canFailMessage,
   canAbortMessage,
+  canStartSpeaking,
   isValidCompletedMessageBody,
   isValidTalkingStonePass,
 } from "@entities/conversation/message";
 import { canAddMessageToTurn } from "@entities/conversation/conversation";
 import type { ConversationRepository } from "./conversation-repository";
 import { tryCloseTurn } from "./turn-utils";
+import type { TurnCloseResult } from "./turn-utils";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -53,10 +55,22 @@ export interface CompleteMessageInput {
   contextTokensMax?: number;
 }
 
+/** 开始发言输入 */
+export interface StartSpeakingInput {
+  body: string;
+  talkingStonePassedTo: string[];
+}
+
 /** 中止消息输入（系统构造的合成中断声明） */
 export interface AbortMessageInput {
   body: string;
   talkingStonePassedTo: string[];
+}
+
+/** 完成消息结果 */
+export interface CompleteResult {
+  message: Message;
+  turnClose: TurnCloseResult;
 }
 
 export class SendMessage {
@@ -156,7 +170,7 @@ export class SendMessage {
     return message;
   }
 
-  /** 追加流式事件（仅 streaming 状态可追加） */
+  /** 追加流式事件（streaming/speaking 状态可追加） */
   async appendEvent(input: MessageEventInput): Promise<MessageEvent> {
     const message = await this._repo.getMessageById(input.messageId);
     if (!message) {
@@ -181,97 +195,71 @@ export class SendMessage {
     return event;
   }
 
-  /** 两阶段提交 Phase 1：存储 body + talkingStonePassedTo，不改 status */
-  async setMessageBody(messageId: string, input: CompleteMessageInput): Promise<void> {
+  /** 开始发言（speak 工具调用）：streaming → speaking，暂存 body + 发言石目标 */
+  async startSpeaking(messageId: string, input: StartSpeakingInput): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
-    if (message.status !== "streaming") {
-      throw new DomainError(`Cannot set body on message with status: ${message.status}`, "validation");
+    if (!canStartSpeaking(message.status)) {
+      throw new DomainError(`Cannot start speaking for message with status: ${message.status}`, "validation");
     }
     if (!isValidCompletedMessageBody(input.body)) {
       throw new DomainError("body must be non-empty string", "validation");
     }
-    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", message.senderType)) {
-      throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
-    }
-    await this._repo.setMessageBody({
-      messageId,
-      body: input.body,
-      talkingStonePassedTo: input.talkingStonePassedTo,
-      attachments: input.attachments,
-    });
-  }
-
-  /** 两阶段提交 Phase 2：将 status 从 streaming 改为 completed（body 必须已设置） */
-  async completeMessageFinalize(messageId: string, contextTokens?: number, contextTokensMax?: number): Promise<void> {
-    const message = await this._repo.getMessageById(messageId);
-    if (!message) {
-      throw new DomainError(`Message not found: ${messageId}`, "not_found");
-    }
-    if (message.status !== "streaming") {
-      throw new DomainError(`Cannot complete message with status: ${message.status}`, "validation");
-    }
-    if (!message.body) {
-      throw new DomainError("Cannot complete message without body. Call setMessageBody first.", "validation");
-    }
-    const now = new Date().toISOString();
-    await this._repo.completeMessageStatus({
-      messageId,
-      completedAt: now,
-      contextTokens,
-      contextTokensMax,
-    });
-    await this.memoryIndex.indexMessage(message.id, message.conversationId, message.body);
-    await tryCloseTurn(this.repo, message.turnId);
-  }
-
-  /** 完成流式消息（body 必须非空，talkingStonePassedTo 必须非空 UA-8） */
-  async complete(messageId: string, input: CompleteMessageInput): Promise<Message> {
-    const message = await this._repo.getMessageById(messageId);
-    if (!message) {
-      throw new DomainError(`Message not found: ${messageId}`, "not_found");
-    }
-    if (!canCompleteMessage(message.status)) {
-      throw new DomainError(`Cannot complete message with status: ${message.status}`, "validation");
-    }
-    if (!isValidCompletedMessageBody(input.body)) {
-      throw new DomainError("body must be non-empty string", "validation");
-    }
-    /** UA-8: completed 时必须传递发言石（system 豁免） */
-    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", message.senderType)) {
-      throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
+    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "speaking", message.senderType)) {
+      throw new DomainError("talkingStonePassedTo must be non-empty for speaking messages", "validation");
     }
 
-    /** attachments 缺省时保留 startMessage 时的值 */
-    const attachments = input.attachments !== undefined ? input.attachments : message.attachments;
-    const now = new Date().toISOString();
-
-    await this._repo.completeMessage({
-      messageId,
-      body: input.body,
-      talkingStonePassedTo: input.talkingStonePassedTo,
-      attachments,
-      completedAt: now,
-      contextTokens: input.contextTokens,
-      contextTokensMax: input.contextTokensMax,
-    });
-
-    /** B12: 索引消息 body 到记忆系统 */
-    await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
-
-    /** 尝试关闭 Turn */
-    await tryCloseTurn(this.repo, message.turnId);
+    await this._repo.startSpeaking(messageId, input.body, input.talkingStonePassedTo);
 
     return {
       ...message,
-      status: "completed",
+      status: "speaking",
       body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
-      attachments,
-      completedAt: now,
     };
+  }
+
+  /** 完成消息：speaking → completed。body/targets 从 DB 读取（由 startSpeaking 暂存）。 */
+  async complete(messageId: string, input?: Partial<CompleteMessageInput>): Promise<CompleteResult> {
+    const message = await this._repo.getMessageById(messageId);
+    if (!message) throw new DomainError(`Message not found: ${messageId}`, "not_found");
+    if (!canCompleteMessage(message.status)) {
+      throw new DomainError(`Cannot complete message with status: ${message.status}`, "validation");
+    }
+
+    const { body, talkingStonePassedTo } = this.resolveCompleteParams(message, input);
+    const attachments = input?.attachments !== undefined ? input.attachments : message.attachments;
+    const now = new Date().toISOString();
+
+    await this._repo.completeMessage({
+      messageId, body, talkingStonePassedTo, attachments, completedAt: now,
+      contextTokens: input?.contextTokens, contextTokensMax: input?.contextTokensMax,
+    });
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, body);
+    const turnClose = await tryCloseTurn(this.repo, message.turnId);
+
+    return {
+      message: { ...message, status: "completed", body, talkingStonePassedTo, attachments, completedAt: now },
+      turnClose,
+    };
+  }
+
+  /** 解析 complete 参数：从 input 或 DB 中读取 body/targets 并校验 */
+  private resolveCompleteParams(
+    message: Message,
+    input?: Partial<CompleteMessageInput>,
+  ): { body: string; talkingStonePassedTo: string[] } {
+    const body = input?.body ?? message.body;
+    const talkingStonePassedTo = input?.talkingStonePassedTo ?? message.talkingStonePassedTo;
+    if (!body || !isValidCompletedMessageBody(body)) {
+      throw new DomainError("body must be non-empty string", "validation");
+    }
+    if (!talkingStonePassedTo || !isValidTalkingStonePass(talkingStonePassedTo, "completed", message.senderType)) {
+      throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
+    }
+    return { body, talkingStonePassedTo };
   }
 
   /** 标记消息失败（可选 body 存错误信息，可选 talkingStonePassedTo 写入发言石） */

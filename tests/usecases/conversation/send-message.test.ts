@@ -86,6 +86,14 @@ function mockRepo(opts: {
     createStreamingMessage: vi.fn(async (msg: Message) => {
       messages.set(msg.id, msg);
     }),
+    startSpeaking: vi.fn(async (messageId: string, body: string, talkingStonePassedTo: string[]) => {
+      const msg = messages.get(messageId);
+      if (msg) {
+        msg.status = "speaking";
+        msg.body = body;
+        msg.talkingStonePassedTo = talkingStonePassedTo;
+      }
+    }),
     completeMessage: vi.fn(async (input: { messageId: string; body: string; talkingStonePassedTo: string[] }) => {
       const msg = messages.get(input.messageId);
       if (msg) {
@@ -109,8 +117,6 @@ function mockRepo(opts: {
       }
       abortedMessages.push({ id, body, talkingStonePassedTo, abortedAt });
     }),
-    setMessageBody: vi.fn().mockResolvedValue(undefined),
-    completeMessageStatus: vi.fn().mockResolvedValue(undefined),
     getMaxSequenceNum: vi.fn(async () => maxSequenceNum),
     getMessageById: vi.fn(async (id: string) => messages.get(id) ?? null),
     getMessages: vi.fn(async () => []),
@@ -353,19 +359,19 @@ describe("SendMessage", () => {
   });
 
   describe("complete", () => {
-    it("streaming -> completed 并设置 body", async () => {
+    it("speaking -> completed 并设置 body", async () => {
       const msg = streamingMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
       const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
 
-      const result = await sm.complete(msg.id, {
-        body: "完整回复",
-        talkingStonePassedTo: ["user-1"],
-      });
+      // 先调用 startSpeaking 将消息转为 speaking 状态
+      await sm.startSpeaking(msg.id, { body: "完整回复", talkingStonePassedTo: ["user-1"] });
 
-      expect(result.status).toBe("completed");
-      expect(result.body).toBe("完整回复");
-      expect(result.talkingStonePassedTo).toEqual(["user-1"]);
+      const result = await sm.complete(msg.id);
+
+      expect(result.message.status).toBe("completed");
+      expect(result.message.body).toBe("完整回复");
+      expect(result.message.talkingStonePassedTo).toEqual(["user-1"]);
       expect(repo._completedMessages).toHaveLength(1);
     });
 
@@ -374,18 +380,13 @@ describe("SendMessage", () => {
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
       const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
 
+      // startSpeaking 时就会校验 body 非空
       await expect(
-        sm.complete(msg.id, {
-          body: "",
-          talkingStonePassedTo: ["user-1"],
-        }),
+        sm.startSpeaking(msg.id, { body: "", talkingStonePassedTo: ["user-1"] }),
       ).rejects.toThrow(DomainError);
 
       await expect(
-        sm.complete(msg.id, {
-          body: "",
-          talkingStonePassedTo: ["user-1"],
-        }),
+        sm.startSpeaking(msg.id, { body: "", talkingStonePassedTo: ["user-1"] }),
       ).rejects.toSatisfy((err: DomainError) => err.kind === "validation");
     });
   });

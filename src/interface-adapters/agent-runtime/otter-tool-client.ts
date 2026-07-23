@@ -49,16 +49,16 @@ export interface LinkResourceInput {
 export interface OtterToolClient {
   conversation: {
     message: {
-      /** 完成当前 streaming 消息（speak 工具调用） */
-      complete(messageId: string, params: {
+      /** 开始发言：streaming → speaking，暂存 body + 发言石目标（speak 工具调用） */
+      startSpeaking(messageId: string, params: {
         body: string;
         talkingStonePassedTo: string[];
       }): Promise<Message>;
-      /** 两阶段提交 Phase 1：只存 body，不改 status */
-      setMessageBody(messageId: string, params: {
-        body: string;
-        talkingStonePassedTo: string[];
-      }): Promise<void>;
+      /** 完成消息：speaking → completed */
+      complete(messageId: string, params?: {
+        body?: string;
+        talkingStonePassedTo?: string[];
+      }): Promise<{ message: Message; turnClose: { closed: boolean; aggregatedTargets: string[] } }>;
       getById(id: string): Promise<Message | null>;
       list(conversationId: string, opts?: { limit?: number; before?: string }): Promise<Message[]>;
       search(conversationId: string, query: string, limit?: number): Promise<Message[]>;

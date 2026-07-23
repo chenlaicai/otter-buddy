@@ -16,6 +16,8 @@ export interface ConversationInvokeResult {
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number };
+  /** Turn 关闭后的聚合发言石目标 */
+  aggregatedTargets?: string[];
 }
 
 /** Pi 事件 -> SSE 事件映射 */
@@ -150,17 +152,13 @@ export class AgentInvoker {
         onSSEEvent,
       });
 
-      /** streamingDone = true（executeAgentInvocation 已返回） */
-      this.logger.info('Agent invocation finished', { messageId: message.id, otterId, speakBodyReceived, aborted, tokenUsage: result.tokenUsage });
+      /** agent loop 已结束，检查消息状态 */
+      const msg = await this.queryMessage.getMessageById(message.id);
+      this.logger.info('Agent invocation finished', { messageId: message.id, otterId, messageStatus: msg?.status, tokenUsage: result.tokenUsage });
 
-      /** abort 时直接走 handleInvokeError，不走 retry */
-      if (aborted) {
-        await this.handleInvokeError(message.id, otterId, new Error('aborted'), onSSEEvent, senderId);
-        return { messageId: message.id, duration: Date.now() - startTime };
-      }
-
-      /** streaming 结束即尝试 complete（body 为空时 completeMessageFinalize 会抛错 → retry） */
-      try {
+      if (msg?.status === "speaking") {
+        /** 正常路径：agent 调用了 speak（状态为 speaking），现在真正完成消息 */
+        const completeResult = await this.sendMessage.complete(message.id);
         return await this.completeAgentInvocation({
           otterId,
           conversationId,
@@ -169,14 +167,15 @@ export class AgentInvoker {
           result,
           startTime,
           onSSEEvent,
-        });
-      } catch {
-        /** body 未设置（agent 未调 speak）→ 重试机制 */
-        return await this.handleSpeakRetry({
-          messageId: message.id, otterId, conversationId, userMessageContent,
-          senderId, onSSEEvent, retryCount, startTime, tokenUsage: result.tokenUsage,
+          aggregatedTargets: completeResult.turnClose.aggregatedTargets,
         });
       }
+
+      /** agent 未调 speak → 重试机制 */
+      return await this.handleSpeakRetry({
+        messageId: message.id, otterId, conversationId, userMessageContent,
+        senderId, onSSEEvent, retryCount, startTime, tokenUsage: result.tokenUsage,
+      });
     } catch (err) {
       await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
       /** 不 re-throw：错误已通过 SSE 通知前端，controller 用 Promise.allSettled 跟踪完成 */
@@ -245,12 +244,11 @@ export class AgentInvoker {
     result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
     startTime: number;
     onSSEEvent?: (event: AgentSSEEvent) => void;
+    aggregatedTargets?: string[];
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, messageId, result, startTime, onSSEEvent } = params;
+    const { otterId, conversationId, messageId, result, startTime, onSSEEvent, aggregatedTargets } = params;
 
-    /** 两阶段提交 Phase 2：body 已存 + streaming 已结束 → 完成 message 状态转换 */
-    const totalTokensForResult = result.tokenUsage ? result.tokenUsage.input + result.tokenUsage.output : undefined;
-    await this.sendMessage.completeMessageFinalize(messageId, totalTokensForResult, result.ctxMax);
+    /** 消息已在 invokeConversation 中通过 sendMessage.complete() 完成，此处发 SSE 事件和清理状态 */
 
     /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
     this.abortedOtters.delete(otterId);
@@ -285,7 +283,7 @@ export class AgentInvoker {
     /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
     onSSEEvent?.({ event: "turn.complete", data: {} });
 
-    return { messageId, duration, tokenUsage: result.tokenUsage };
+    return { messageId, duration, tokenUsage: result.tokenUsage, aggregatedTargets };
   }
 
   /**

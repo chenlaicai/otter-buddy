@@ -34,7 +34,7 @@ export interface ToolContext {
 function createSpeakTool(ctx: ToolContext): AgentTool {
   return {
     name: "speak",
-    description: "结束本次发言。设置最终答复内容和发言石目标。这是你的'闭嘴'动作——调用后本次发言结束。",
+    description: "声明本次发言内容和发言石目标。调用后 agent loop 继续运行直到结束，消息才真正完成。",
     parameters: {
       type: "object",
       properties: {
@@ -49,7 +49,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       if (!ctx.currentMessageId) {
-        return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法结束发言。");
+        return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法声明发言。");
       }
 
       const body = params.body as string;
@@ -66,13 +66,33 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       }
 
       try {
-        /** 两阶段提交 Phase 1：只存 body，不改 status（等 agent loop 结束后再 complete） */
-        await ctx.client.conversation.message.setMessageBody(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return textResponse(`[错误] 发言结束失败：${msg}。请重试。`);
+        return textResponse(`[错误] 发言声明失败：${msg}。请重试。`);
       }
       return textResponse("[系统] 发言已提交成功。你的回合正式结束，直接结束本 loop，不要做任何回应。系统将自动调度下一位发言者。");
+    },
+  };
+}
+
+function createInviteParticipantTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "invite_participant",
+    description: "邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
+    parameters: {
+      type: "object",
+      properties: {
+        otterId: { type: "string", description: "被邀请的 Otter ID" },
+      },
+      required: ["otterId"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const participant = await ctx.client.conversation.participant.join(
+        ctx.conversationId,
+        params.otterId as string,
+      );
+      return textResponse(`Otter ${params.otterId} joined conversation. Participant ID: ${participant.id}`);
     },
   };
 }
@@ -386,6 +406,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
 export function createTools(ctx: ToolContext): AgentTool[] {
   return [
     createSpeakTool(ctx),
+    createInviteParticipantTool(ctx),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
