@@ -314,8 +314,10 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
       message: buildMessageClient(uc),
       participant: {
         join: async (convId, otterId) => {
+          const otter = await uc.queryOtter.getById(otterId);
+          const name = otter?.name ?? otterId;
           const { participant } = await uc.manageParticipant.join(
-            convId, otterId, `Otter ${otterId} joined the conversation`,
+            convId, otterId, `${name} 加入了对话`,
           );
           return participant;
         },

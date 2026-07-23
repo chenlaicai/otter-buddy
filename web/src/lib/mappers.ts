@@ -36,6 +36,7 @@ export interface LocalMessage {
   events?: LocalMessageEvent[]
   ctx?: number
   ctxMax?: number
+  turnId?: string
 }
 
 /** 前端本地 LinkedResource 类型（统一产物模型） */
@@ -93,6 +94,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     dur: dto.dur,
     ctx: dto.ctx,
     ctxMax: dto.ctxMax,
+    turnId: dto.turnId,
   }
 }
 

@@ -274,6 +274,7 @@ export class AgentInvoker {
       data: {
         messageId,
         body: msg?.body ?? '',
+        turnId: msg?.turnId ?? '',
         duration: `${(duration / 1000).toFixed(1)}s`,
         ctx: totalTokens,
         ctxMax: result.ctxMax,

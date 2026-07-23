@@ -224,6 +224,7 @@ function ConversationPage() {
             content: data.body ?? '', ts: nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
+            turnId: data.turnId || undefined,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
           liveEventsMap.delete(messageId)

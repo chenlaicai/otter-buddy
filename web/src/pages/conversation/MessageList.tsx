@@ -116,9 +116,15 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
-      {messages.map(m => (
-        <MessageItem key={m.id} message={m} otters={otters} />
-      ))}
+      {messages.map((m, i) => {
+        const prevTurnId = i > 0 ? messages[i - 1].turnId : undefined
+        const isNewTurn = m.turnId && m.turnId !== prevTurnId
+        return (
+          <div key={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
+            <MessageItem message={m} otters={otters} />
+          </div>
+        )
+      })}
       {Array.from(streamingMessages.entries()).map(([messageId, state]) => (
         <StreamingMessage key={messageId} state={state} onStop={() => onStopStream(messageId)} otters={otters} />
       ))}
