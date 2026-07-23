@@ -140,7 +140,7 @@ export class AgentInvoker {
     onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId } });
 
     try {
-      const { result, speakBodyReceived } = await this.executeAgentInvocation({
+      const { result, speakBodyReceived, aborted } = await this.executeAgentInvocation({
         otterId,
         userMessageContent,
         dynamicContext,
@@ -150,7 +150,13 @@ export class AgentInvoker {
       });
 
       /** streamingDone = true（executeAgentInvocation 已返回） */
-      this.logger.info('Agent invocation finished', { messageId: message.id, otterId, speakBodyReceived, tokenUsage: result.tokenUsage });
+      this.logger.info('Agent invocation finished', { messageId: message.id, otterId, speakBodyReceived, aborted, tokenUsage: result.tokenUsage });
+
+      /** abort 时直接走 handleInvokeError，不走 retry */
+      if (aborted) {
+        await this.handleInvokeError(message.id, otterId, new Error('aborted'), onSSEEvent, senderId);
+        return { messageId: message.id, duration: Date.now() - startTime };
+      }
 
       /** streaming 结束即尝试 complete（body 为空时 completeMessageFinalize 会抛错 → retry） */
       try {
@@ -188,7 +194,7 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
-  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; speakBodyReceived: boolean }> {
+  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; speakBodyReceived: boolean; aborted: boolean }> {
     let agentError: string | undefined;
     let speakBodyReceived = false;
     try {
@@ -215,14 +221,15 @@ export class AgentInvoker {
           if (!agentError) agentError = extractAgentError(e);
         },
       });
-      return { result, speakBodyReceived };
+      /** invoke 正常返回后检查 abort（SDK 可能不抛错） */
+      return { result, speakBodyReceived, aborted: this.abortedOtters.has(params.otterId) };
     } catch (err) {
       /** abort 时向外抛出，让 invokeConversation 的外层 catch 处理（不走 retry） */
       if (this.abortedOtters.has(params.otterId)) {
         throw err;
       }
       /** 非 abort 错误：返回结果让外层判断是否 retry */
-      return { result: { text: '' }, speakBodyReceived };
+      return { result: { text: '' }, speakBodyReceived, aborted: false };
     }
   }
 
