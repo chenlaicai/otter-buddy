@@ -107,11 +107,37 @@ body {
 @keyframes spinFast { to{transform:rotate(360deg)} }
 
 /* Markdown */
+.msg-content p { margin: 6px 0; }
+.msg-content p:first-child { margin-top: 0; }
+.msg-content p:last-child { margin-bottom: 0; }
 .msg-content pre { background: #2C2520; color: #E8E2DA; padding: 12px 16px; border-radius: 10px; overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 8px 0; font-family: 'SF Mono','JetBrains Mono',monospace; }
+.msg-content pre code { background: transparent; padding: 0; color: inherit; }
 .msg-content code { background: rgba(139,111,71,0.08); padding: 2px 6px; border-radius: 5px; font-size: 13px; font-family: 'SF Mono','JetBrains Mono',monospace; color: #6B5638; }
 .msg-content strong { font-weight: 600; }
 .msg-content ul, .msg-content ol { padding-left: 18px; margin: 6px 0; }
 .msg-content li { margin: 3px 0; }
+.msg-content h1, .msg-content h2, .msg-content h3, .msg-content h4 { font-weight: 600; color: #44403C; margin: 12px 0 6px; line-height: 1.4; }
+.msg-content h1 { font-size: 17px; }
+.msg-content h2 { font-size: 16px; }
+.msg-content h3 { font-size: 15px; }
+.msg-content h4 { font-size: 14px; }
+.msg-content h1:first-child, .msg-content h2:first-child, .msg-content h3:first-child, .msg-content h4:first-child { margin-top: 0; }
+.msg-content table { border-collapse: collapse; margin: 8px 0; font-size: 13px; max-width: 100%; }
+.msg-content th, .msg-content td { border: 1px solid rgba(139,111,71,0.18); padding: 5px 10px; text-align: left; }
+.msg-content th { background: rgba(139,111,71,0.07); font-weight: 600; color: #57534E; }
+.msg-content tr:nth-child(even) td { background: rgba(139,111,71,0.03); }
+.msg-content blockquote { border-left: 3px solid rgba(139,111,71,0.25); padding-left: 12px; margin: 8px 0; color: #78716C; }
+.msg-content a { color: #A88260; text-decoration: underline; text-underline-offset: 2px; }
+.msg-content hr { border: none; border-top: 1px solid rgba(139,111,71,0.15); margin: 12px 0; }
+.msg-content del { color: #A8A29E; }
+/* 用户气泡内的 markdown 反色 */
+.bubble-user.msg-content code { background: rgba(255,255,255,0.15); color: #F5F0EA; }
+.bubble-user.msg-content th, .bubble-user.msg-content td { border-color: rgba(255,255,255,0.25); }
+.bubble-user.msg-content th { background: rgba(255,255,255,0.12); color: #F5F0EA; }
+.bubble-user.msg-content tr:nth-child(even) td { background: rgba(255,255,255,0.05); }
+.bubble-user.msg-content h1, .bubble-user.msg-content h2, .bubble-user.msg-content h3, .bubble-user.msg-content h4 { color: #F5F0EA; }
+.bubble-user.msg-content a { color: #FFE8D1; }
+.bubble-user.msg-content blockquote { border-left-color: rgba(255,255,255,0.35); color: rgba(245,240,234,0.85); }
 
 /* Streaming collapse */
 .streaming-collapsed .streaming-body { display: none; }

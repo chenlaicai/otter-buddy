@@ -64,6 +64,8 @@ export interface StreamingState {
   messageId: string
   otterId: string
   otterName?: string
+  /** 所属对话（streamingMap 全局共享，渲染时按对话过滤） */
+  conversationId: string
   duration: number
   events: LocalMessageEvent[]
 }
@@ -182,6 +184,17 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
           <span className="text-[11px] text-stone-300">{fmtTime(m.ts)}{dur}</span>
+          {!isUser && (
+            <span className="flex items-center gap-1.5 text-[10px] text-stone-400 ml-1">
+              <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 200000)}</span>
+              <span className="w-16 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
+                <span
+                  className="block h-full rounded-full"
+                  style={{ width: `${ctxPercent(m.ctx || 0, m.ctxMax || 200000)}%`, background: '#8B6F47' }}
+                />
+              </span>
+            </span>
+          )}
         </div>
         <div
           className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble ${
@@ -197,17 +210,6 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
             </div>
           </div>
         </div>
-        {!isUser && (
-          <div className="flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400">
-            <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 200000)}</span>
-            <div className="w-20 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${ctxPercent(m.ctx || 0, m.ctxMax || 200000)}%`, background: '#8B6F47' }}
-              />
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

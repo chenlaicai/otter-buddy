@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
@@ -134,6 +134,11 @@ function ConversationPage() {
   const activeMessages = activeId ? (allMessages[activeId] || []) : []
   const activeLinkedRes = activeId ? (allLinkedRes[activeId] || []) : []
   const activeOtters: LocalOtter[] = activeId ? (allOtters[activeId] || []) : []
+  /** streamingMap 全局共享（多对话可并行流式），渲染时按当前对话过滤 */
+  const activeStreamingMessages = useMemo(
+    () => new Map([...streamingMap].filter(([, s]) => s.conversationId === activeId)),
+    [streamingMap, activeId],
+  )
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
@@ -164,7 +169,7 @@ function ConversationPage() {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
           setStreamingMap(prev => new Map(prev).set(messageId, {
-            messageId, otterId, otterName, duration: 0, events: [],
+            messageId, otterId, otterName, conversationId: activeId, duration: 0, events: [],
           }))
           /** 确保发言者在参与者列表中（流中途 create_otter 的新獭）；fill-only，不覆盖已有条目 */
           if (otterId && activeId) {
@@ -489,7 +494,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={streamingMap} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
+        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={activeStreamingMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
