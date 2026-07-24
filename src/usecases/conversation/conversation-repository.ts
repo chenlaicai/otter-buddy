@@ -63,6 +63,8 @@ export interface ConversationRepository {
     contextTokensMax?: number;
   }): Promise<void>;
   failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
+  /** 服务重启兜底：将所有遗留 streaming/speaking 消息标记为 failed（重启后不存在活跃 agent），返回处理条数 */
+  failInFlightMessages(failedAt: string, body: string): Promise<number>;
   /** 更新消息的 token 使用量（speak complete 后补充写入） */
   updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
   /** 中止消息：streaming -> aborted（body 必须非空，talkingStonePassedTo 必须非空） */

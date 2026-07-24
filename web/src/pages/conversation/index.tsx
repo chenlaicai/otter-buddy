@@ -54,6 +54,26 @@ function upsertMessage(list: LocalMessage[], msg: LocalMessage): LocalMessage[] 
   return next
 }
 
+/** 消息是否处于终态（completed/failed/aborted 或 SSE 构造的终态消息） */
+function isTerminal(m: LocalMessage): boolean {
+  return !isInFlight(m)
+}
+
+/**
+ * 轮询快照与本地列表合并：
+ * - 过期快照不回退本地已终态的消息（响应在 message.complete 之前发出、之后到达）
+ * - 保留尚未上服务器的本地乐观消息（tmp- 前缀）
+ */
+function mergeMessages(current: LocalMessage[], snapshot: LocalMessage[]): LocalMessage[] {
+  const currentById = new Map(current.map(m => [m.id, m]))
+  const snapshotIds = new Set(snapshot.map(m => m.id))
+  const merged = snapshot.map(sm => {
+    const local = currentById.get(sm.id)
+    return local && isTerminal(local) && isInFlight(sm) ? local : sm
+  })
+  return [...merged, ...current.filter(m => m.id.startsWith('tmp-') && !snapshotIds.has(m.id))]
+}
+
 function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -135,7 +155,8 @@ function ConversationPage() {
   const refreshMessages = useCallback(async (convId: string) => {
     try {
       const msgs = await api.listMessages(convId, 100)
-      setAllMessages(prev => ({ ...prev, [convId]: mapMessageDTOs(msgs) }))
+      const snapshot = mapMessageDTOs(msgs)
+      setAllMessages(prev => ({ ...prev, [convId]: mergeMessages(prev[convId] || [], snapshot) }))
     } catch (err) {
       console.error('Failed to refresh messages:', err)
     }
@@ -201,12 +222,7 @@ function ConversationPage() {
         'message.start': (data) => {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
-          /** 该消息可能已被轮询快照加入历史列表，移出避免与实时流式视图重复渲染 */
-          setAllMessages(prev => {
-            const list = prev[activeId]
-            if (!list?.some(m => m.id === messageId)) return prev
-            return { ...prev, [activeId]: list.filter(m => m.id !== messageId) }
-          })
+          /** 历史列表中的同 id 消息由 MessageList 渲染期去重（streamingMap 优先），无需在此移除 */
           setStreamingMap(prev => new Map(prev).set(messageId, {
             messageId, otterId, otterName, duration: 0, events: [],
           }))

@@ -368,6 +368,51 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
     });
   });
 
+  describe("failInFlightMessages（服务重启兜底）", () => {
+    it("将所有 streaming/speaking 消息标记为 failed，streaming 写入失败说明、speaking 保留已有 body", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      await repo.createStreamingMessage(messageFixture({
+        id: "msg-streaming",
+        body: null,
+        talkingStonePassedTo: null,
+        completedAt: null,
+        status: "streaming",
+      }));
+      await repo.createStreamingMessage(messageFixture({
+        id: "msg-speaking",
+        body: null,
+        talkingStonePassedTo: null,
+        completedAt: null,
+        status: "streaming",
+        sequenceNum: 2,
+      }));
+      await repo.startSpeaking("msg-speaking", "发言到一半的正文", ["user-1"]);
+      await repo.createCompletedMessage(messageFixture({ id: "msg-done", sequenceNum: 3 }));
+
+      const count = await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]");
+
+      expect(count).toBe(2);
+      const streaming = await repo.getMessageById("msg-streaming");
+      expect(streaming!.status).toBe("failed");
+      expect(streaming!.body).toBe("[服务重启，发言中断]");
+      expect(streaming!.completedAt).toBe("2026-07-24T00:02:00Z");
+      const speaking = await repo.getMessageById("msg-speaking");
+      expect(speaking!.status).toBe("failed");
+      expect(speaking!.body).toBe("发言到一半的正文");
+      const done = await repo.getMessageById("msg-done");
+      expect(done!.status).toBe("completed");
+    });
+
+    it("无进行中消息时返回 0", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      await repo.createCompletedMessage(messageFixture());
+
+      expect(await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]")).toBe(0);
+    });
+  });
+
   describe("abortMessage", () => {
     it("将 streaming 状态的消息标记为 aborted", async () => {
       await repo.create(conversationFixture());

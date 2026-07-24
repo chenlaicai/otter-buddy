@@ -115,14 +115,17 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
     )
   }
 
+  /** 渲染期去重：实时流式视图（streamingMessages）优先，历史列表排除同 id 消息（轮询快照可能带回） */
+  const historyMessages = messages.filter(m => !streamingMessages.has(m.id))
+
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
-      {messages.map((m, i) => {
-        const prevTurnId = i > 0 ? messages[i - 1].turnId : undefined
+      {historyMessages.map((m, i) => {
+        const prevTurnId = i > 0 ? historyMessages[i - 1].turnId : undefined
         const isNewTurn = m.turnId && m.turnId !== prevTurnId
         return (
           <div key={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
-            <MessageItem message={m} otters={otters} />
+            <MessageItem message={m} otters={otters} onStopStream={onStopStream} />
           </div>
         )
       })}
@@ -147,7 +150,7 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
   )
 }
 
-function MessageItem({ message: m, otters }: { message: Message; otters: Otter[] }) {
+function MessageItem({ message: m, otters, onStopStream }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void }) {
   // System 消息：居中显示，特殊样式
   if (m.st === 'system') {
     return (
@@ -199,8 +202,20 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
               <CopyButton text={m.content} />
             </div>
           </div>
+          {/* 进行中的历史消息（如刷新后重新进入）保留停止能力 */}
+          {(m.status === 'streaming' || m.status === 'speaking') && (
+            <div className="mt-1.5">
+              <button
+                onClick={() => onStopStream(m.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"
+              >
+                <Square className="w-2.5 h-2.5 fill-current text-red-400" />
+                停止生成
+              </button>
+            </div>
+          )}
         </div>
-        {!isUser && (
+        {!isUser && m.ctx != null && (
           <div className="flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400">
             <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 200000)}</span>
             <div className="w-20 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>

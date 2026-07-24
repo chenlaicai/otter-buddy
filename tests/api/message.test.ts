@@ -181,20 +181,33 @@ describe("Message API", () => {
       expect(events[1]).toEqual({ event: "stream.end", data: {} });
     });
 
-    it("does not abort agent invocation（SSE 断开/结束不驱动发言中止，发言生命周期由后端状态机管理）", async () => {
+    it("客户端断开 SSE 不中止 agent：agent 继续跑完且 abort 不被调用（刷新≠停止）", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-      deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: "agent-msg-1", duration: 100 });
+      let invocationCompleted = false;
+      deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
+        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
+        await new Promise((r) => setTimeout(r, 50));
+        invocationCompleted = true;
+        return { messageId: "agent-msg-1", duration: 50 };
+      });
 
       const res = await app.request("/api/conversations/conv-1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(validBody),
       });
-
       expect(res.status).toBe(200);
-      await readSSEEvents(res);
+
+      const reader = res.body!.getReader();
+      /** 读到首个事件后模拟刷新页面导致的客户端断开（hono responseReadable.cancel 会触发 stream.onAbort） */
+      await reader.read();
+      await reader.cancel();
+
+      /** 等待 agent loop 跑完——断开不应中断发言 */
+      await new Promise((r) => setTimeout(r, 150));
       expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
+      expect(invocationCompleted).toBe(true);
     });
   });
 

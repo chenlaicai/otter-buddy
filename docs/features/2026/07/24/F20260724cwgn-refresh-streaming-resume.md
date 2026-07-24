@@ -60,19 +60,38 @@ created_at: 2026-07-24
    `onAbort` 改为可选参数。显式 abort 端点（`POST /messages/:id/abort`）保留。
 2. **前端 status 透传**：`LocalMessage` 新增 `status` 字段，`mapMessageDTO` 映射 DTO status。
 3. **按真实状态渲染**：流式过程标题按 status 显示 进行中（呼吸点动画）/ 失败 / 已中断 / 已完成·耗时；
-   streaming 中正文为空时显示"正在回复..."占位。
+   streaming 中正文为空时显示"正在回复..."占位；ctx 缺失时不渲染 token 条。
 4. **轮询续看**：`allMessages` 中存在 streaming/speaking 的 otter 消息时，每 2s 静默刷新
    listMessages（失败不 toast，下轮重试），全部终态后自动停止。
-5. **双写去重**：`message.complete/failed/aborted/error` 落列表改为 upsert；
-   `message.start` 将同 id 消息从历史列表移入实时流式视图，避免轮询快照与 SSE 重复渲染。
+5. **轮询快照合并（mergeMessages）**：不用快照整体替换本地列表——过期快照不回退本地已终态的
+   消息（响应发出于 complete 之前、到达于之后）；保留未上服务器的 tmp 乐观消息。
+6. **渲染期去重**：MessageList 渲染历史列表时过滤 streamingMap 中存在的 id（实时视图优先），
+   对"轮询带回 streaming 消息 + 同 id message.start"的所有竞态交错稳健；
+   SSE 落列表（complete/failed/aborted/error）按 id upsert。
+7. **进行中消息保留停止能力**：历史列表中的 streaming/speaking 消息渲染停止按钮
+   （复用 `api.abortMessage`），刷新后用户仍可中止发言。
+8. **孤儿消息 reconcile**：服务启动时将遗留 streaming/speaking 消息标记为 failed
+   （`failInFlightMessages`，重启后不存在活跃 agent，消息不可能再到达终态）——
+   这是轮询"全部终态后停止"前提的熔断保障；speaking 消息保留已有 speak body。
+
+## 对抗检视记录（PR #87）
+
+首轮实现经对抗性评审发现三个严重问题并全部修复：
+- S1：轮询将 message.start 移走的消息重新加回历史 → 双重渲染（改为渲染期去重，变更 6）
+- S2：孤儿 streaming 消息使轮询永不停止且无法进入终态（启动 reconcile，变更 8）
+- S3：刷新后用户失去停止能力（历史消息停止按钮，变更 7）
+另有 M1（过期快照回退闪烁）、M2（tmp 消息被擦除）由合并式更新（变更 5）解决；
+A1（断开测试空转）改写为真实 cancel response body 的回归测试（对旧代码验证失败）。
 
 ## 兼容性
 
 - API：无变更（DTO 本已携带 status，前端此前未消费）。
 - 行为变更：刷新/断开 SSE 不再（尝试）中止 agent 发言——此前该 abort 从未生效，故无实际行为回退风险。
-- 持久化：无 schema 变更。
+- 持久化：无 schema 变更；启动 reconcile 一次性将历史孤儿消息置为 failed（可视为数据修复）。
+- 重启语义：启动即 reconcile 意味着"重启 = 所有进行中发言中断"（进程消失必然如此，只是显式化）。
 
 ## 后续可选
 
 - SSE 断流恢复（resume endpoint）替代轮询。
-- 服务端启动时对孤儿 streaming/speaking 消息做 reconcile（如标记 failed）。
+- streamingMap 按对话隔离（当前为全局 Map，跨对话可能串台，pre-existing）。
+- speak complete 时持久化 token 用量（updateTokenUsage 当前无调用方，pre-existing）。

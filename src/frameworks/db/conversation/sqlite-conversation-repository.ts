@@ -197,6 +197,15 @@ export class SqliteConversationRepository implements ConversationRepository {
     if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
   }
 
+  async failInFlightMessages(failedAt: string, body: string): Promise<number> {
+    /** speaking 消息保留已有 speak body（COALESCE），streaming 消息（body 为 null）写入失败说明 */
+    const result = this.db.prepare(`
+      UPDATE messages SET status = 'failed', body = COALESCE(body, ?), completed_at = ?
+      WHERE status IN ('streaming', 'speaking')
+    `).run(body, failedAt);
+    return result.changes;
+  }
+
   async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
     this.db.prepare(`UPDATE messages SET context_tokens = ?, context_tokens_max = ? WHERE id = ?`).run(
       contextTokens, contextTokensMax, messageId,
