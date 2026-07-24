@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
+import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
@@ -9,12 +10,26 @@ import type { SendMessageRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 
 export class MessageController {
+  // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定
   constructor(
     private readonly sendMessageUseCase: SendMessage,
     private readonly queryMessage: QueryMessage,
     private readonly agentInvoker: AgentInvoker,
     private readonly logger: Logger,
+    private readonly queryOtter: QueryOtter,
+    private readonly maxChainDepth: number = 20,
   ) {}
+
+  /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
+  private async resolveSenderNames(messages: Array<{ senderType: string; senderId: string }>): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    const otterSenderIds = [...new Set(messages.filter(m => m.senderType === "otter").map(m => m.senderId))];
+    await Promise.all(otterSenderIds.map(async id => {
+      const otter = await this.queryOtter.getById(id);
+      if (otter) names.set(id, otter.name);
+    }));
+    return names;
+  }
 
   async list(c: Context): Promise<Response> {
     try {
@@ -37,8 +52,9 @@ export class MessageController {
         arr.push(evt);
         eventsByMsg.set(evt.messageId, arr);
       }
+      const senderNames = await this.resolveSenderNames(messages);
       const dtos = messages.map((msg) => {
-        const dto = toMessageDTO(msg);
+        const dto = toMessageDTO(msg, senderNames.get(msg.senderId));
         const evts = eventsByMsg.get(msg.id);
         if (evts && evts.length > 0) {
           dto.events = evts.map(toMessageEventDTO);
@@ -109,7 +125,7 @@ export class MessageController {
   ): Promise<void> {
     const { conversationId, userMessageContent, senderId, allTargets } = ctx;
     let depth = 0;
-    while (targets.length > 0 && depth < 5) {
+    while (targets.length > 0 && depth < this.maxChainDepth) {
       depth++;
       for (const id of targets) allTargets.add(id);
 
@@ -130,16 +146,7 @@ export class MessageController {
       });
       const results = await Promise.allSettled(promises);
 
-      const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
-      if (currentTurn) {
-        for (const r of results) {
-          if (r.status !== 'fulfilled') continue;
-          const msg = await this.queryMessage.getMessageById(r.value.messageId);
-          if (msg) {
-            await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
-          }
-        }
-      }
+      await this.markBatchRead(conversationId, results);
 
       const nextTargets = new Set<string>();
       for (const r of results) {
@@ -151,6 +158,42 @@ export class MessageController {
       }
       targets = [...nextTargets].filter(id => id !== senderId);
     }
+
+    /** 深度耗尽且仍有待派发目标：显式落地，发言石交还用户（不静默截断） */
+    if (targets.length > 0) {
+      await this.handleChainDepthExceeded(conversationId, targets, depth, push);
+    }
+  }
+
+  /** 本批派发完成后，将各 otter 的已读位置推进到当前 turn */
+  private async markBatchRead(
+    conversationId: string,
+    results: PromiseSettledResult<{ messageId: string }>[],
+  ): Promise<void> {
+    const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
+    if (!currentTurn) return;
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      const msg = await this.queryMessage.getMessageById(r.value.messageId);
+      if (msg) {
+        await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
+      }
+    }
+  }
+
+  /** 发言链触顶：warn 日志 + 系统消息提示用户接管 */
+  private async handleChainDepthExceeded(
+    conversationId: string,
+    pendingTargets: string[],
+    depth: number,
+    push: (event: { event: string; data: Record<string, unknown> }) => void,
+  ): Promise<void> {
+    this.logger.warn('发言链达到深度上限，交还用户', { depth, pendingTargets, conversationId });
+    const sysMsg = await this.sendMessageUseCase.sendSystem(
+      conversationId,
+      `发言接力已达系统安全上限（${this.maxChainDepth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
+    );
+    push({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
   }
 
   async getById(c: Context): Promise<Response> {
@@ -160,7 +203,8 @@ export class MessageController {
       if (!msg) {
         return c.json({ error: "Message not found" }, 404);
       }
-      return c.json(toMessageDTO(msg));
+      const senderNames = await this.resolveSenderNames([msg]);
+      return c.json(toMessageDTO(msg, senderNames.get(msg.senderId)));
     } catch (err) {
       return handleError(c, err);
     }

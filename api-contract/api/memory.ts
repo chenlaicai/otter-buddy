@@ -7,6 +7,8 @@ export type DetailLevel = "summary" | "snippet" | "full";
 /** 记忆条目 DTO */
 export interface MemoryEntryDTO {
   id: string;
+  /** 记忆层（working/historical） */
+  layer: string;
   contentType: string;
   sourceId: string;
   sourceTable: string;
@@ -19,6 +21,8 @@ export interface MemoryEntryDTO {
   source?: RetrievalSource;
   /** detail_level=snippet/summary 时的匹配片段 */
   snippet?: string;
+  /** 用户标记（检索路径返回；详情接口可能缺省） */
+  userFlagged?: boolean;
 }
 
 /** 检索结果 DTO */

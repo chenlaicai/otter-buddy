@@ -130,7 +130,7 @@ describe("MessageController", () => {
         sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
       }),
     } as unknown as QueryMessage;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, {} as AgentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() });
+    const ctrl = new MessageController({} as SendMessage, queryMessage, {} as AgentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1");
     expect(res.status).toBe(200);
@@ -151,7 +151,7 @@ describe("MessageController", () => {
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() });
+    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1/abort", { method: "POST" });
     expect(res.status).toBe(202);
@@ -170,7 +170,7 @@ describe("MessageController", () => {
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() });
+    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1/abort", { method: "POST" });
     expect(res.status).toBe(400);
@@ -190,6 +190,7 @@ describe("MessageController sendMessage validation", () => {
       {} as QueryMessage,
       {} as AgentInvoker,
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
+      { getById: async () => null } as unknown as QueryOtter,
     );
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1/messages", {
@@ -206,6 +207,7 @@ describe("MessageController sendMessage validation", () => {
       {} as QueryMessage,
       {} as AgentInvoker,
       { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
+      { getById: async () => null } as unknown as QueryOtter,
     );
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1/messages", {

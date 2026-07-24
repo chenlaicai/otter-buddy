@@ -14,6 +14,8 @@ import { tryCloseTurn } from "./turn-utils";
 export interface ParticipantWithOtter {
   participant: ConversationParticipant;
   otterName: string;
+  otterType?: string;
+  roleName?: string;
 }
 
 export class ManageParticipant {
@@ -184,7 +186,7 @@ export class ManageParticipant {
     for (const participant of participants) {
       const otter = await this.otterRepo.getById(participant.otterId);
       const otterName = otter?.name ?? `Otter ${participant.otterId.slice(0, 8)}`;
-      result.push({ participant, otterName });
+      result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name });
     }
     return result;
   }

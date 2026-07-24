@@ -163,7 +163,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
 
   const isUser = m.st === 'user'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
-  const name = isUser ? '我' : (otter?.name || 'Otter')
+  const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-400' : color?.nameClass || 'text-otter-500'
@@ -176,7 +176,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble"
         style={{ background: bgGrad }}
       >
-        {isUser ? '我' : (otter?.name?.charAt(0) || 'O')}
+        {isUser ? '我' : name.charAt(0)}
       </div>
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
