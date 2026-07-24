@@ -66,7 +66,7 @@ function ConversationItem({
       onClick={() => onSelect(c.id)}
       onContextMenu={e => onContextMenu(e, c.id)}
       className={`px-2.5 py-2 rounded-xl cursor-pointer transition ${
-        isActive ? 'glass-card shadow-bubble' : 'hover:bg-white/30'
+        isActive ? 'conv-active' : 'hover:bg-white/30'
       }`}
     >
       <div className="text-xs font-medium text-stone-700 truncate">{c.title}</div>

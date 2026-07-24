@@ -31,7 +31,7 @@ export function TopBar({ activeView }: { activeView: ViewKey }) {
               href={tab.href}
               className={`px-4 py-1 text-xs font-medium rounded-full transition flex items-center gap-1.5 ${
                 isActive
-                  ? 'bg-white text-otter-600 shadow-sm font-semibold'
+                  ? 'nav-pill-active text-otter-600 font-semibold'
                   : 'text-stone-500 hover:text-stone-700'
               }`}
             >

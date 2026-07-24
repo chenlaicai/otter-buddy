@@ -165,7 +165,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
-  const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
+  const bgGrad = isUser ? 'linear-gradient(150deg,rgba(107,86,56,0.88),rgba(82,64,44,0.86))' : color?.gradient
   const nameColor = isUser ? 'text-stone-400' : color?.nameClass || 'text-otter-500'
   const borderLeft = !isUser ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}` } : {}
   const dur = m.dur ? ` · ${m.dur}` : ''
@@ -217,7 +217,7 @@ function StreamingProcess({ events, duration }: { events: LocalMessageEvent[]; d
   const [collapsed, setCollapsed] = useState(true)
 
   return (
-    <div className="streaming-section mb-2 rounded-xl overflow-hidden" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
+    <div className="streaming-section mb-2 rounded-xl overflow-hidden" style={{ background: 'var(--surface-inset)', border: '1px solid var(--inset-border)' }}>
       <div
         className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/30 transition"
         onClick={() => setCollapsed(!collapsed)}
@@ -368,7 +368,7 @@ function StreamingMessage({ state, onStop, otters }: { state: StreamingState; on
         >
           {/* 实时流式过程 */}
           {events.length > 0 && (
-            <div className="rounded-xl overflow-hidden mb-2" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
+            <div className="rounded-xl overflow-hidden mb-2" style={{ background: 'var(--surface-inset)', border: '1px solid var(--inset-border)' }}>
               <div className="flex items-center gap-1.5 px-3 py-1.5">
                 <span className="text-[8px] text-stone-400">▼</span>
                 <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>

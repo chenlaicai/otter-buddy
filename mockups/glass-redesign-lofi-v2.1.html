@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Otter Buddy — 玻璃重设计 v2.1 · 低保真原型</title>
+<style>
+  /* ============================================================
+     v2.1 —— 按第二轮对抗评审修订（改动集中在 token 表）：
+     S1 水獭身份色改双色组 token（--o*-bar / --o*-ink），
+        深色下 ink 切 300 级，名字对比度全部 ≥4.5:1
+     S2 focus 主环改实色 2px（对卡片 ~3.5:1），光晕只做外层增强
+     S3 reduced-transparency 全覆盖：导航药丸/按钮/头像边/focus 环
+        全部 token 化并纳入兜底
+     M1 修深色+reduced 明度阶梯反转（chrome < card < panel）
+     M2 补 L3 弹层层（scrim + overlay）、--surface-inset、
+        语义状态色、代码块表面
+     M4 深色色团 alpha 砍半（0.42~0.55 → 0.22~0.28）
+     M5 投影是第一层级线索（reduced 模式投影保留，明度阶只是辅助）
+     N 系：交互色语言（accent/link/hover/pressed）、滚动条 token、
+        用户气泡 hairline、L2 卡片补顶部高光
+     ============================================================ */
+
+  /* ---------- 浅色 tokens ---------- */
+  :root {
+    --bg-base: #F3EDE4;
+
+    /* L0 chrome（顶栏）—— 最薄；投影是第一层级线索，明度阶为辅 */
+    --chrome-bg: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.38));
+    --chrome-blur: blur(32px) saturate(180%);
+
+    /* L1 浮起面板（侧栏、输入框） */
+    --panel-bg: linear-gradient(165deg, rgba(255,255,255,0.62), rgba(255,255,255,0.42));
+    --panel-blur: blur(32px) saturate(180%);
+    --panel-shadow: 0 16px 48px rgba(42,32,20,0.12), 0 2px 8px rgba(42,32,20,0.05);
+
+    /* L2 内容卡片（气泡、任务卡）—— 不透明，无 blur */
+    --card-bg: rgba(255,253,249,0.96);
+    --card-shadow: 0 1px 3px rgba(42,32,20,0.07), 0 4px 14px rgba(42,32,20,0.05);
+
+    /* L3 弹层（modal / 右键菜单 / toast）—— 悬浮于一切之上的 chrome，
+       玻璃感应该最强：透 + 重 blur，让下层内容透上来 */
+    --scrim: rgba(28,22,16,0.30);
+    --overlay-bg: linear-gradient(165deg, rgba(255,253,249,0.78), rgba(255,251,244,0.62));
+    --overlay-blur: blur(40px) saturate(180%);
+    --overlay-shadow: 0 24px 64px rgba(42,32,20,0.22), 0 4px 16px rgba(42,32,20,0.10);
+
+    /* 卡片内嵌表面（流式子面板、引用块） */
+    --surface-inset: rgba(139,111,71,0.06);
+    /* 代码块（深浅色都是深底，深色下更暗一档） */
+    --code-bg: #2C2520;
+    --code-ink: #E8E2DA;
+
+    /* 边缘：高光 + 接触线成对 */
+    --hairline: rgba(255,255,255,0.55);
+    --contact-line: rgba(42,32,20,0.09);
+    --edge-hi: inset 0 1px 0 rgba(255,255,255,0.6);
+
+    /* 文字 */
+    --ink: #2C2520;
+    --ink-2: #4A4239;
+    --ink-3: #6E655B;
+
+    /* 交互色语言：accent（主操作/发送键/用户气泡锚点）、link、hover/pressed */
+    --accent: #6B5638;
+    --accent-ink: #FFF9F0;
+    --accent-hover: #7A6240;
+    --accent-pressed: #52402C;
+    --link: #2A7B7B;
+    --hover-wash: rgba(107,86,56,0.07);   /* 列表项 hover 罩层，不破坏材质 */
+    --pressed-wash: rgba(107,86,56,0.12);
+
+    /* 用户气泡 */
+    --user-bubble: #6B5638;
+    --user-bubble-ink: #FFF9F0;
+    --user-bubble-border: rgba(255,255,255,0.16);
+    --user-bubble-shadow: 0 3px 12px rgba(42,32,20,0.18);
+
+    /* focus：实色主环 + 外层光晕 */
+    --focus-ring: #A88260;
+    --focus-glow: rgba(168,130,96,0.25);
+
+    /* 语义状态色 */
+    --ok: #3A8B5A;
+    --warn: #B0722B;
+    --err: #B5482F;
+
+    /* 滚动条 */
+    --scrollbar: rgba(107,86,56,0.28);
+
+    /* 水獭身份双色组：bar=色条/头像基调，ink=名字文字（≥4.5:1） */
+    --o-shi-bar: #8B6F47;  --o-shi-ink: #6B5638;
+    --o-bei-bar: #3A8B8B;  --o-bei-ink: #2A7B7B;
+    --o-luo-bar: #C9956B;  --o-luo-ink: #8F6234;
+    --o-zhen-bar: #8B7AB8; --o-zhen-ink: #6B5A98;
+
+    /* 导航选中（reduced 下会被覆盖为实色） */
+    --nav-active-bg: rgba(255,255,255,0.5);
+    --nav-active-blur: blur(12px);
+    --btn-subtle-bg: rgba(255,255,255,0.3);
+
+    /* 背景色团（四缘，chrome 之下） */
+    --blob-1: radial-gradient(ellipse 45% 42% at 4% 6%,   rgba(168,130,96,0.46), transparent 62%);
+    --blob-2: radial-gradient(ellipse 42% 46% at 97% 92%, rgba(58,139,139,0.42), transparent 62%);
+    --blob-3: radial-gradient(ellipse 38% 36% at 84% 4%,  rgba(217,165,123,0.44), transparent 62%);
+    --blob-4: radial-gradient(ellipse 42% 42% at 8% 88%,  rgba(139,122,184,0.40), transparent 62%);
+  }
+
+  /* ---------- 深色 tokens ---------- */
+  [data-theme="dark"] {
+    --bg-base: #1A1510;
+    --chrome-bg: linear-gradient(180deg, rgba(46,38,30,0.72), rgba(38,31,25,0.55));
+    --panel-bg: linear-gradient(165deg, rgba(52,43,34,0.78), rgba(42,35,28,0.62));
+    --panel-shadow: 0 16px 48px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+    --card-bg: rgba(43,36,29,0.97);
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 4px 14px rgba(0,0,0,0.3);
+    --scrim: rgba(0,0,0,0.55);
+    --overlay-bg: linear-gradient(165deg, rgba(56,47,38,0.80), rgba(46,39,32,0.66));
+    --overlay-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 4px 16px rgba(0,0,0,0.4);
+    --surface-inset: rgba(255,255,255,0.05);
+    --code-bg: #14100C;
+    --hairline: rgba(255,255,255,0.14);
+    --contact-line: rgba(0,0,0,0.5);
+    --edge-hi: inset 0 1px 0 rgba(255,255,255,0.10);
+    --ink: #EDE6DC;
+    --ink-2: #D6CCC0;
+    --ink-3: #A89B8D;
+    /* 深色下 accent 与用户气泡统一翻转：浅焦糖底 + 深字（品牌锚点不裂） */
+    --accent: #C9AC8E;
+    --accent-ink: #2A2014;
+    --accent-hover: #D6BB9F;
+    --accent-pressed: #B59B7E;
+    --link: #7BC5C5;
+    --hover-wash: rgba(255,255,255,0.06);
+    --pressed-wash: rgba(255,255,255,0.10);
+    --user-bubble: #C9AC8E;
+    --user-bubble-ink: #2A2014;
+    --user-bubble-border: rgba(255,255,255,0.30);
+    --user-bubble-shadow: 0 3px 12px rgba(0,0,0,0.4);
+    --focus-ring: #C9AC8E;
+    --focus-glow: rgba(201,172,142,0.30);
+    --ok: #6FBF8A;
+    --warn: #E0A45C;
+    --err: #E07B62;
+    --scrollbar: rgba(255,255,255,0.20);
+    /* 水獭双色组：深色 ink 切 300 级（≥4.5:1），bar 同步提亮 */
+    --o-shi-bar: #A88260;  --o-shi-ink: #C9AC8E;
+    --o-bei-bar: #4A9B9B;  --o-bei-ink: #7BC5C5;
+    --o-luo-bar: #D9A57B;  --o-luo-ink: #E8B98E;
+    --o-zhen-bar: #9B8AC8; --o-zhen-ink: #B5A8D8;
+    --nav-active-bg: rgba(255,255,255,0.12);
+    --btn-subtle-bg: rgba(255,255,255,0.08);
+    /* M4: 色团浓度砍半 */
+    --blob-1: radial-gradient(ellipse 45% 42% at 4% 6%,   rgba(107,86,56,0.28), transparent 62%);
+    --blob-2: radial-gradient(ellipse 42% 46% at 97% 92%, rgba(42,123,123,0.24), transparent 62%);
+    --blob-3: radial-gradient(ellipse 38% 36% at 84% 4%,  rgba(140,95,60,0.24), transparent 62%);
+    --blob-4: radial-gradient(ellipse 42% 42% at 8% 88%,  rgba(90,75,130,0.24), transparent 62%);
+  }
+
+  /* ---------- reduced-transparency 兜底（S3: 全覆盖） ---------- */
+  [data-transparency="reduced"] {
+    --chrome-bg: #F7F2EA;  --chrome-blur: none;
+    --panel-bg: #FAF6EF;   --panel-blur: none;
+    --card-bg: #FFFDF9;
+    --overlay-bg: #FFFDF9; --overlay-blur: none;
+    --nav-active-bg: #FFFDF9; --nav-active-blur: none;
+    --btn-subtle-bg: #F0EAE0;
+    --blob-1: none; --blob-2: none; --blob-3: none; --blob-4: none;
+    /* 投影保留：层级第一线索不可削弱 */
+  }
+  /* M1: 修阶梯反转，保持 chrome < card < panel */
+  [data-theme="dark"][data-transparency="reduced"] {
+    --chrome-bg: #211B14;
+    --card-bg: #252019;
+    --panel-bg: #2C251C;
+    --overlay-bg: #2C251C;
+    --nav-active-bg: #2C251C;
+    --btn-subtle-bg: #332B21;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.006em;
+    overflow: hidden;
+    height: 100vh;
+    color: var(--ink);
+  }
+
+  .bg-aurora {
+    position: fixed; inset: 0; z-index: 0;
+    background-color: var(--bg-base);
+    background-image: var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4);
+  }
+  .bg-noise {
+    position: fixed; inset: 0; z-index: 0; opacity: 0.025; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ---------- 层级类 ---------- */
+  .L0-chrome {
+    background: var(--chrome-bg);
+    backdrop-filter: var(--chrome-blur);
+    -webkit-backdrop-filter: var(--chrome-blur);
+    border-bottom: 1px solid var(--hairline);
+    box-shadow: inset 0 -1px 0 var(--contact-line);
+  }
+  .L1-panel {
+    background: var(--panel-bg);
+    backdrop-filter: var(--panel-blur);
+    -webkit-backdrop-filter: var(--panel-blur);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--panel-shadow), var(--edge-hi);
+  }
+  .L2-card {
+    background: var(--card-bg);
+    border: 1px solid var(--contact-line);
+    box-shadow: var(--card-shadow), var(--edge-hi);  /* N3: L2 也补顶部高光 */
+  }
+  .L3-overlay {
+    background: var(--overlay-bg);
+    backdrop-filter: var(--overlay-blur);
+    -webkit-backdrop-filter: var(--overlay-blur);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--overlay-shadow), var(--edge-hi);
+  }
+
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; }
+
+  /* ---------- 布局 ---------- */
+  .app { position: relative; z-index: 1; display: flex; flex-direction: column; height: 100vh; }
+
+  .topbar { height: 52px; display: flex; align-items: center; padding: 0 20px; flex-shrink: 0; }
+  .logo { display: flex; align-items: center; gap: 8px; flex: 1; font-weight: 700; font-size: 14px; color: var(--ink-2); }
+  .logo-mark {
+    width: 24px; height: 24px; border-radius: 8px;
+    background: linear-gradient(135deg, #A88260, #6B5638);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12px; font-weight: 800;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+
+  .nav {
+    display: flex; gap: 2px; padding: 3px; border-radius: 999px;
+    background: var(--hover-wash);
+    border: 1px solid var(--contact-line);
+  }
+  .nav a {
+    padding: 5px 16px; font-size: 12px; font-weight: 500; color: var(--ink-3);
+    border-radius: 999px; text-decoration: none; display: flex; align-items: center; gap: 5px;
+  }
+  .nav a.active {
+    color: var(--ink); font-weight: 600;
+    background: var(--nav-active-bg);
+    backdrop-filter: var(--nav-active-blur);
+    -webkit-backdrop-filter: var(--nav-active-blur);
+    border: 1px solid var(--hairline);
+    box-shadow: 0 1px 3px rgba(42,32,20,0.10);
+  }
+
+  .main { flex: 1; display: flex; gap: 14px; padding: 14px 18px 18px; min-height: 0; }
+
+  .left { width: 224px; border-radius: 22px; display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
+  .left-head { padding: 12px; display: flex; gap: 8px; border-bottom: 1px solid var(--contact-line); }
+  .btn-new {
+    flex: 1; padding: 7px; font-size: 12px; font-weight: 600; color: var(--ink-2);
+    border-radius: 12px; border: 1px solid var(--contact-line);
+    background: var(--btn-subtle-bg); cursor: pointer;
+  }
+  .icon-btn {
+    width: 32px; border-radius: 12px; border: 1px solid var(--contact-line);
+    background: var(--btn-subtle-bg); color: var(--ink-3); cursor: pointer; font-size: 14px;
+  }
+  .conv-list { flex: 1; padding: 8px; overflow: hidden; }
+  .conv-item { padding: 9px 10px; border-radius: 14px; margin-bottom: 2px; }
+  .conv-item .t { font-size: 12.5px; font-weight: 500; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-item .meta { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; }
+  /* hover 用罩层 token，不再 hover:bg-white/xx 破坏材质 */
+  .conv-item.hovered { background: var(--hover-wash); }
+  .conv-item.active {
+    background: var(--card-bg);
+    border: 1px solid var(--contact-line);
+    box-shadow: var(--card-shadow), var(--edge-hi);
+  }
+  .avatar-stack { margin-left: auto; display: flex; }
+  .mini-av {
+    width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--card-bg);
+    font-size: 8px; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center;
+    margin-left: -4px;
+  }
+
+  .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .chat-col { width: 100%; max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .chat-head { padding: 4px 8px 12px; }
+  .chat-head .title { font-size: 16px; font-weight: 700; color: var(--ink); }
+  .chat-head .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+  .msgs { flex: 1; overflow: hidden; padding: 4px 8px; display: flex; flex-direction: column; gap: 14px; }
+
+  .msg { display: flex; gap: 10px; max-width: 82%; }
+  .msg.otter { align-self: flex-start; }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12px; font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.3);
+  }
+  .bubble { padding: 10px 14px 10px 15px; font-size: 13.5px; line-height: 1.6; color: var(--ink); }
+  .msg.otter .bubble { border-radius: 4px 16px 16px 16px; border-left: 3px solid var(--otter-bar); }
+  .sender { font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 4px; }
+  .sender .who { color: var(--otter-ink); }
+  .msg.user .sender { text-align: right; }
+  .msg.user .bubble {
+    border-radius: 16px 4px 16px 16px;
+    background: var(--user-bubble);
+    color: var(--user-bubble-ink);
+    border: 1px solid var(--user-bubble-border);
+    box-shadow: var(--user-bubble-shadow), inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+  .bubble a { color: var(--link); }
+  /* 代码块：内嵌深底表面 */
+  .codeblock {
+    margin-top: 8px; background: var(--code-bg); color: var(--code-ink);
+    border-radius: 10px; padding: 10px 12px;
+    font-family: 'SF Mono','JetBrains Mono',monospace; font-size: 12px; line-height: 1.5;
+  }
+  .codeblock .cm { opacity: 0.5; }
+  /* 流式子面板：卡片内嵌 tint 表面 */
+  .inset-panel {
+    margin-top: 8px; background: var(--surface-inset); border-radius: 10px;
+    padding: 8px 10px; font-size: 12px; color: var(--ink-3);
+    border: 1px solid var(--contact-line);
+  }
+
+  .input-wrap { padding: 12px 8px 0; }
+  .input-box {
+    border-radius: 20px; padding: 12px 14px; display: flex; align-items: flex-end; gap: 10px;
+    /* S2: 实色主环 + 光晕 */
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+    box-shadow: var(--panel-shadow), var(--edge-hi), 0 0 0 6px var(--focus-glow);
+  }
+  .input-box .ph { flex: 1; font-size: 13.5px; color: var(--ink-3); padding-bottom: 2px; }
+  .send-btn {
+    width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink); font-size: 15px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+
+  .right { width: 232px; border-radius: 22px; padding: 14px; flex-shrink: 0; overflow: hidden; }
+  .sec-title { font-size: 11px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .otter-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 14px; margin-bottom: 4px; }
+  .otter-row .name { font-size: 12.5px; font-weight: 600; }
+  .otter-row .role { font-size: 11px; color: var(--ink-3); }
+  .task-card { border-radius: 14px; padding: 10px 12px; margin-top: 12px; }
+  .task-card .tt { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+  .task-card .ts { font-size: 11px; color: var(--ink-3); margin-top: 3px; }
+
+  /* L3 弹层演示：scrim + modal */
+  .scrim {
+    position: fixed; inset: 0; z-index: 30; background: var(--scrim);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center;
+  }
+  [data-transparency="reduced"] .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .scrim.open { display: flex; }
+  .modal { width: 360px; border-radius: 20px; padding: 18px; }
+  .modal h4 { font-size: 14px; color: var(--ink); margin-bottom: 8px; }
+  .modal p { font-size: 12.5px; color: var(--ink-2); line-height: 1.6; margin-bottom: 14px; }
+  .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .btn-ghost {
+    padding: 7px 14px; border-radius: 10px; border: 1px solid var(--contact-line);
+    background: var(--btn-subtle-bg); color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .btn-accent {
+    padding: 7px 14px; border-radius: 10px; border: none;
+    background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .btn-danger { background: var(--err); color: #fff; }
+
+  /* 语义色 toast 演示 */
+  .toast {
+    position: fixed; top: 64px; right: 20px; z-index: 25;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; border-radius: 14px; font-size: 12.5px; font-weight: 500; color: var(--ink);
+  }
+  .toast .bar { width: 3px; align-self: stretch; border-radius: 2px; background: var(--err); }
+
+  .tag {
+    position: absolute; z-index: 10; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--ink); color: var(--bg-base); font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; cursor: default;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+
+  .controls { position: fixed; left: 18px; bottom: 18px; z-index: 20; display: flex; gap: 6px; }
+  .controls button {
+    padding: 7px 12px; border-radius: 999px; border: 1px solid var(--contact-line);
+    background: var(--card-bg); color: var(--ink-2); font-size: 12px; font-weight: 600;
+    cursor: pointer; box-shadow: var(--card-shadow);
+  }
+  .controls button.on { background: var(--accent); color: var(--accent-ink); }
+  .legend {
+    position: fixed; left: 18px; bottom: 62px; z-index: 20; width: 400px; max-height: 62vh; overflow: auto;
+    border-radius: 18px; padding: 16px 18px; display: none;
+    background: var(--overlay-bg); border: 1px solid var(--contact-line); box-shadow: var(--overlay-shadow);
+    color: var(--ink-2); font-size: 12px; line-height: 1.7;
+  }
+  .legend.open { display: block; }
+  .legend h3 { font-size: 13px; margin-bottom: 8px; color: var(--ink); }
+  .legend b { color: var(--accent); }
+  .legend code { font-family: 'SF Mono',monospace; font-size: 11px; background: var(--surface-inset); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="bg-aurora"></div>
+<div class="bg-noise"></div>
+
+<div class="app">
+  <header class="topbar L0-chrome">
+    <div class="logo"><div class="logo-mark">獭</div>Otter Buddy</div>
+    <nav class="nav">
+      <a href="#" class="active">💬 对话</a>
+      <a href="#">🔍 记忆搜索</a>
+      <a href="#">📦 能力库</a>
+      <a href="#">⚙️ 设置</a>
+    </nav>
+    <div style="flex:1"></div>
+  </header>
+
+  <div class="main">
+    <aside class="left L1-panel" style="position:relative">
+      <div class="tag" style="top:-8px; left:-8px">①</div>
+      <div class="left-head">
+        <button class="icon-btn">🔍</button>
+        <button class="btn-new">＋ 新建对话</button>
+      </div>
+      <div class="conv-list">
+        <div class="conv-item active">
+          <div class="t">水獭 buddy 语音交互方案</div>
+          <div class="meta">
+            <div class="dot" style="background:var(--ok)"></div>
+            <div class="avatar-stack">
+              <div class="mini-av" style="background:var(--o-shi-bar)">石</div>
+              <div class="mini-av" style="background:var(--o-bei-bar)">贝</div>
+            </div>
+          </div>
+        </div>
+        <div class="conv-item hovered" style="position:relative">
+          <div class="tag" style="top:-8px; right:-4px">⑥</div>
+          <div class="t">周报自动生成流程（hover 态）</div>
+          <div class="meta"><div class="dot" style="background:var(--warn)"></div>
+            <div class="avatar-stack"><div class="mini-av" style="background:var(--o-luo-bar)">螺</div></div></div>
+        </div>
+        <div class="conv-item">
+          <div class="t">记忆库语义检索验证</div>
+          <div class="meta"><div class="dot" style="background:var(--ink-3)"></div>
+            <div class="avatar-stack"><div class="mini-av" style="background:var(--o-zhen-bar)">珍</div></div></div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="chat">
+      <div class="chat-col">
+        <div class="chat-head" style="position:relative">
+          <div class="tag" style="top:0; right:0">②</div>
+          <div class="title">水獭 buddy 语音交互方案</div>
+          <div class="sub">2 位水獭协作中 · 发言石机制 · 进行中</div>
+        </div>
+        <div class="msgs">
+          <div class="msg otter" style="--otter-bar:var(--o-shi-bar); --otter-ink:var(--o-shi-ink); position:relative">
+            <div class="tag" style="top:-10px; left:36px">④</div>
+            <div class="avatar" style="background:linear-gradient(135deg,var(--o-shi-bar),#6B5638)">石</div>
+            <div>
+              <div class="sender"><span class="who">石石</span> · 协调者</div>
+              <div class="bubble L2-card">语音交互这块我先理了下现状：唤醒链路是 唤醒词 → ASR → 意图分发。瓶颈在 ASR 延迟，平均 800ms。详细数据见<a href="#">这份记录</a>。</div>
+            </div>
+          </div>
+          <div class="msg otter" style="--otter-bar:var(--o-bei-bar); --otter-ink:var(--o-bei-ink)">
+            <div class="avatar" style="background:linear-gradient(135deg,#4A9B9B,#2A7B7B)">贝</div>
+            <div>
+              <div class="sender"><span class="who">贝贝</span> · 工程师</div>
+              <div class="bubble L2-card">
+                可以用流式 ASR 把首字延迟压到 300ms 内：
+                <div class="codeblock"><span class="cm">// 流式改造示意</span><br>const stream = asr.stream({ interim: true })<br>stream.on('partial', emit)</div>
+                <div class="inset-panel">⚙️ 思考过程（3 步）· 点击展开 —— 流式子面板用 --surface-inset</div>
+              </div>
+            </div>
+          </div>
+          <div class="msg user" style="position:relative">
+            <div class="tag" style="top:-10px; right:-6px">⑤</div>
+            <div>
+              <div class="sender">我</div>
+              <div class="bubble">好，优先级排最高，本周内出方案。</div>
+            </div>
+          </div>
+          <div class="msg otter" style="--otter-bar:var(--o-bei-bar); --otter-ink:var(--o-bei-ink)">
+            <div class="avatar" style="background:linear-gradient(135deg,#4A9B9B,#2A7B7B)">贝</div>
+            <div>
+              <div class="sender"><span class="who">贝贝</span> · 工程师</div>
+              <div class="bubble L2-card">收到 🦦 我先把流式改造拆成三个子任务……</div>
+            </div>
+          </div>
+        </div>
+        <div class="input-wrap" style="position:relative">
+          <div class="tag" style="top:2px; right:14px">③</div>
+          <div class="input-box L1-panel">
+            <div class="ph">发消息，@ 可以指名水獭…（演示 focus：实色主环+光晕）</div>
+            <button class="send-btn">↑</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="right L1-panel">
+      <div class="sec-title">在线水獭</div>
+      <div class="otter-row" style="--otter-ink:var(--o-shi-ink)">
+        <div class="avatar" style="background:linear-gradient(135deg,var(--o-shi-bar),#6B5638); width:28px; height:28px; font-size:11px">石</div>
+        <div><div class="name" style="color:var(--o-shi-ink)">石石</div><div class="role">协调者 · 发言石持有者</div></div>
+      </div>
+      <div class="otter-row">
+        <div class="avatar" style="background:linear-gradient(135deg,#4A9B9B,#2A7B7B); width:28px; height:28px; font-size:11px">贝</div>
+        <div><div class="name" style="color:var(--o-bei-ink)">贝贝</div><div class="role">工程师 · 输入中…</div></div>
+      </div>
+      <div class="otter-row">
+        <div class="avatar" style="background:linear-gradient(135deg,var(--o-zhen-bar),#6B5A98); width:28px; height:28px; font-size:11px">珍</div>
+        <div><div class="name" style="color:var(--o-zhen-ink)">珍珍</div><div class="role">检索员 · 空闲</div></div>
+      </div>
+      <div class="sec-title" style="margin-top:16px">定时任务</div>
+      <div class="task-card L2-card">
+        <div class="tt">每日站会纪要</div>
+        <div class="ts">每天 09:30 · 下次 18 小时后</div>
+      </div>
+      <div class="task-card L2-card">
+        <div class="tt">周报汇总 <span style="color:var(--err); font-weight:600">· 上次失败</span></div>
+        <div class="ts">每周五 17:00</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- L3 演示：错误 toast -->
+<div class="toast L3-overlay"><div class="bar"></div>定时任务「周报汇总」执行失败 · 点击查看</div>
+
+<!-- L3 演示：scrim + modal -->
+<div class="scrim" id="scrim" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal L3-overlay">
+    <h4>删除对话？</h4>
+    <p>「水獭 buddy 语音交互方案」将被永久删除，此操作不可撤销。演示 L3 弹层：scrim + overlay 材质 + 语义色危险按钮。</p>
+    <div class="row">
+      <button class="btn-ghost" onclick="document.getElementById('scrim').classList.remove('open')">取消</button>
+      <button class="btn-accent btn-danger">删除</button>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button id="b-light" class="on" onclick="setTheme('light')">浅色</button>
+  <button id="b-dark" onclick="setTheme('dark')">深色</button>
+  <button id="b-reduced" onclick="toggleReduced()">降低透明度</button>
+  <button onclick="document.getElementById('scrim').classList.add('open')">弹层演示</button>
+  <button onclick="document.querySelector('.legend').classList.toggle('open')">说明 ①~⑥</button>
+</div>
+
+<div class="legend">
+  <h3>v2.1 修订点（按第二轮评审）</h3>
+  <b>① 玻璃仍只给 chrome</b>：布局不变，色团在四缘。<br>
+  <b>② 层级=L0/L1/L2/L3</b>：新增 L3 弹层（scrim + overlay + 语义色按钮），toast/modal/右键菜单有归属。投影是第一层级线索，reduced 模式不削弱。<br>
+  <b>③ focus 实色主环</b>：2px <code>--focus-ring</code>（对卡片 ~3.5:1）+ 光晕只做增强。<br>
+  <b>④ 水獭双色组</b>：<code>--o*-bar/--o*-ink</code>，深色 ink 切 300 级，名字全部 ≥4.5:1。<br>
+  <b>⑤ 交互色语言</b>：<code>--accent/link/hover-wash/pressed-wash</code>；深色下 accent 与用户气泡统一翻转，发送键不再品牌断裂；链接色演示见石石气泡。<br>
+  <b>⑥ reduced 全覆盖</b>：导航药丸/按钮/头像边/scrollbar 全部 token 化进兜底；深色+reduced 阶梯修正为 chrome&lt;card&lt;panel；深色色团 alpha 砍半。<br><br>
+  <b>新增 token</b>：<code>--scrim/--overlay-*</code>、<code>--surface-inset</code>（流式子面板）、<code>--code-bg</code>、<code>--ok/--warn/--err</code>、<code>--scrollbar</code>。<br><br>
+  <span style="opacity:.6">落地注意：gradient 类 token 在 Tailwind v4 走组件类而非 --color-*；data-theme 需 @custom-variant；prefers-reduced-transparency 无内置 variant 需自定义。</span>
+</div>
+
+<script>
+  function setTheme(t) {
+    document.documentElement.dataset.theme = t;
+    document.getElementById('b-light').classList.toggle('on', t === 'light');
+    document.getElementById('b-dark').classList.toggle('on', t === 'dark');
+  }
+  let reduced = false;
+  function toggleReduced() {
+    reduced = !reduced;
+    document.documentElement.dataset.transparency = reduced ? 'reduced' : '';
+    document.getElementById('b-reduced').classList.toggle('on', reduced);
+  }
+</script>
+</body>
+</html>

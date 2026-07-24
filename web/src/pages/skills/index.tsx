@@ -108,7 +108,7 @@ function SkillsPage() {
                     key={s.id}
                     onClick={() => setSelectedId(s.id)}
                     className={`px-3 py-2 mx-2 rounded-xl cursor-pointer transition ${
-                      s.id === selectedId ? 'glass-card shadow-bubble' : 'hover:bg-white/30'
+                      s.id === selectedId ? 'conv-active' : 'hover:bg-white/30'
                     }`}
                   >
                     <div className="text-xs font-medium text-stone-700">{s.name}</div>
