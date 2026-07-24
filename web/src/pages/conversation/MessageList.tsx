@@ -116,7 +116,7 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
+    <div ref={scrollRef} className="msg-scroll flex-1 overflow-y-auto py-4">
       {messages.map((m, i) => {
         const prevTurnId = i > 0 ? messages[i - 1].turnId : undefined
         const isNewTurn = m.turnId && m.turnId !== prevTurnId
@@ -184,8 +184,8 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           <span className="text-[11px] text-stone-300">{fmtTime(m.ts)}{dur}</span>
         </div>
         <div
-          className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble ${
-            isUser ? 'bubble-user text-white' : 'bubble-otter bg-white text-stone-700 border border-stone-100'
+          className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed ${
+            isUser ? 'bubble-user text-white' : 'bubble-otter text-stone-700'
           }`}
           style={isUser ? { background: bgGrad } : borderLeft}
         >
@@ -363,7 +363,7 @@ function StreamingMessage({ state, onStop, otters }: { state: StreamingState; on
           <span className="text-[11px] text-stone-300">正在回复...</span>
         </div>
         <div
-          className="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble bubble-otter bg-white text-stone-700 border border-stone-100"
+          className="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed bubble-otter text-stone-700"
           style={{ borderLeft: `3px solid ${color.border}` }}
         >
           {/* 实时流式过程 */}

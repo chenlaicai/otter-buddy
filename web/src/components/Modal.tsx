@@ -30,7 +30,7 @@ export function Modal({ isOpen, onClose, title, children, footer, width = '440px
       onClick={onClose}
     >
       <div
-        className="glass-overlay rounded-3xl shadow-otter-lg overflow-hidden"
+        className="glass-overlay rounded-3xl overflow-hidden"
         style={{ width, maxHeight: '80vh' }}
         onClick={e => e.stopPropagation()}
       >
