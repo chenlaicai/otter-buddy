@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { SendMessage } from "@usecases/conversation/send-message";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
-import type { Turn } from "@entities/conversation/conversation";
+import type { ConversationParticipant, Turn } from "@entities/conversation/conversation";
+import type { Otter } from "@entities/otter/otter";
 import type { Message, MessageEvent } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 
@@ -22,6 +24,8 @@ function mockLogger(): Logger {
 function mockRepo(opts: {
   activeTurn?: Turn | null;
   messages?: Map<string, Message>;
+  messageList?: Message[];
+  participants?: ConversationParticipant[];
   maxSequenceNum?: number;
   maxTurnNumber?: number;
   maxEventSequenceNum?: number;
@@ -119,7 +123,14 @@ function mockRepo(opts: {
     }),
     getMaxSequenceNum: vi.fn(async () => maxSequenceNum),
     getMessageById: vi.fn(async (id: string) => messages.get(id) ?? null),
-    getMessages: vi.fn(async () => []),
+    getMessages: vi.fn(async (_conversationId: string, options?: { limit?: number; senderType?: string }) => {
+      let list = opts.messageList ?? [...messages.values()];
+      if (options?.senderType) {
+        list = list.filter((m) => m.senderType === options.senderType);
+      }
+      list = [...list].sort((a, b) => b.sequenceNum - a.sequenceNum);
+      return list.slice(0, options?.limit ?? 50);
+    }),
     getMessagesBefore: vi.fn(async () => []),
     getMessagesAfter: vi.fn(async () => []),
     appendEvent: vi.fn(async (event: MessageEvent) => {
@@ -141,7 +152,7 @@ function mockRepo(opts: {
     createParticipant: vi.fn(),
     createParticipants: vi.fn(),
     getParticipant: vi.fn(),
-    getActiveParticipants: vi.fn(async () => []),
+    getActiveParticipants: vi.fn(async () => opts.participants ?? []),
     updateParticipantLeave: vi.fn(),
     updateTokenUsage: vi.fn(async () => {}),
     updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
@@ -156,6 +167,58 @@ function mockMemoryIndex(): MemoryIndexGateway {
     indexLinkedResource: vi.fn(),
     indexFeature: vi.fn(),
     indexResearch: vi.fn(),
+  };
+}
+
+/** 创建 OtterRepository mock（getById 可配置） */
+function mockOtterRepo(otters: Otter[] = []): OtterRepository {
+  const byId = new Map(otters.map((o) => [o.id, o]));
+  return {
+    createOtter: vi.fn(),
+    getById: vi.fn(async (id: string) => byId.get(id) ?? null),
+    dissolve: vi.fn(),
+    deleteOtter: vi.fn(),
+    createSession: vi.fn(),
+    getActiveSession: vi.fn(async () => null),
+    archiveSession: vi.fn(),
+    getSessionHistory: vi.fn(async () => []),
+    getSessionById: vi.fn(async () => null),
+    setHandoffSummary: vi.fn(),
+    restoreSessionStatus: vi.fn(),
+    deleteSession: vi.fn(),
+  };
+}
+
+/** 构造一个 otter 实体 */
+function makeOtter(overrides: Partial<Otter> = {}): Otter {
+  return {
+    id: "otter-big",
+    name: "大獭",
+    type: "big",
+    status: "active",
+    role: null,
+    parentOtterId: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    dissolvedAt: null,
+    ...overrides,
+  };
+}
+
+/** 构造一个对话参与者实体 */
+function makeParticipant(overrides: Partial<ConversationParticipant> = {}): ConversationParticipant {
+  return {
+    id: "p-1",
+    conversationId: "conv-1",
+    otterId: "otter-big",
+    joinedAtTurnId: null,
+    joinedAtTurnNumber: 0,
+    leftAtTurnId: null,
+    leftAtTurnNumber: null,
+    status: "active",
+    createdAt: "2026-01-01T00:00:00Z",
+    leftAt: null,
+    lastReadTurnNumber: 0,
+    ...overrides,
   };
 }
 
@@ -205,7 +268,7 @@ describe("SendMessage", () => {
   describe("send", () => {
     it("创建已完成消息，返回 status=completed", async () => {
       const repo = mockRepo();
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       const msg = await sm.send({
         conversationId: "conv-1",
@@ -219,19 +282,160 @@ describe("SendMessage", () => {
       expect(msg.senderType).toBe("user");
       expect(msg.conversationId).toBe("conv-1");
     });
+  });
+});
 
-    it("user 消息 talkingStonePassedTo 为空时抛出 validation 错误", async () => {
+describe("SendMessage 默认目标解析（无 @）", () => {
+  describe("send", () => {
+    it("user 消息空目标时解析默认派发：优先最后发言的在场 otter", async () => {
+      const lastMsg = completedMessage({
+        id: "msg-otter-last",
+        senderType: "otter",
+        senderId: "otter-small",
+        sequenceNum: 5,
+      });
+      const repo = mockRepo({
+        messageList: [lastMsg],
+        participants: [
+          makeParticipant({ otterId: "otter-big" }),
+          makeParticipant({ id: "p-2", otterId: "otter-small" }),
+        ],
+      });
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([makeOtter({ id: "otter-small", name: "小獭", type: "small" })]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
+
+      const msg = await sm.send({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "继续",
+      });
+
+      expect(msg.talkingStonePassedTo).toEqual(["otter-small"]);
+    });
+
+    it("user 消息空目标时：最后发言的 otter 消息为 failed 也算发言", async () => {
+      const failedMsg = completedMessage({
+        id: "msg-otter-failed",
+        senderType: "otter",
+        senderId: "otter-small",
+        status: "failed",
+        sequenceNum: 5,
+      });
+      const repo = mockRepo({
+        messageList: [failedMsg],
+        participants: [
+          makeParticipant({ otterId: "otter-big" }),
+          makeParticipant({ id: "p-2", otterId: "otter-small" }),
+        ],
+      });
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([makeOtter({ id: "otter-small", name: "小獭", type: "small" })]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
+
+      const msg = await sm.send({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "继续",
+      });
+
+      expect(msg.talkingStonePassedTo).toEqual(["otter-small"]);
+    });
+
+    it("user 消息空目标时：最后发言者在场但已解散则兜底大獭", async () => {
+      const lastMsg = completedMessage({
+        id: "msg-otter-dissolved",
+        senderType: "otter",
+        senderId: "otter-dissolved",
+        sequenceNum: 5,
+      });
+      const repo = mockRepo({
+        messageList: [lastMsg],
+        participants: [
+          makeParticipant({ otterId: "otter-big" }),
+          makeParticipant({ id: "p-2", otterId: "otter-dissolved" }),
+        ],
+      });
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([
+          makeOtter({ id: "otter-big", type: "big" }),
+          makeOtter({ id: "otter-dissolved", name: "小獭", type: "small", status: "dissolved", dissolvedAt: "2026-01-02T00:00:00Z" }),
+        ]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
+
+      const msg = await sm.send({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "继续",
+      });
+
+      expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
+    });
+
+    it("user 消息空目标时：最后发言者已退场则兜底大獭", async () => {
+      const lastMsg = completedMessage({
+        id: "msg-otter-left",
+        senderType: "otter",
+        senderId: "otter-left",
+        sequenceNum: 5,
+      });
+      const repo = mockRepo({
+        messageList: [lastMsg],
+        participants: [makeParticipant({ otterId: "otter-big" })],
+      });
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([makeOtter({ id: "otter-big", type: "big" })]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
+
+      const msg = await sm.send({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "你好",
+      });
+
+      expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
+    });
+
+    it("user 消息空目标且无 otter 发言过时兜底大獭", async () => {
+      const repo = mockRepo({
+        participants: [makeParticipant({ otterId: "otter-big" })],
+      });
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([makeOtter({ id: "otter-big", type: "big" })]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
+
+      const msg = await sm.send({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "你好",
+      });
+
+      expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
+    });
+
+    it("user 消息空目标时无法解析（无最后发言者、无大獭）抛出 validation 错误", async () => {
       const repo = mockRepo();
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
-
-      await expect(
-        sm.send({
-          conversationId: "conv-1",
-          senderId: "user-1",
-          talkingStonePassedTo: [],
-          body: "你好",
-        }),
-      ).rejects.toThrow(DomainError);
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       await expect(
         sm.send({
@@ -242,10 +446,14 @@ describe("SendMessage", () => {
         }),
       ).rejects.toSatisfy((err: DomainError) => err.kind === "validation");
     });
+  });
+});
 
+describe("SendMessage", () => {
+  describe("send（system 与 Turn）", () => {
     it("system 消息空 talkingStonePassedTo 可成功", async () => {
       const repo = mockRepo();
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       const msg = await sm.send({
         conversationId: "conv-1",
@@ -261,7 +469,7 @@ describe("SendMessage", () => {
 
     it("无活跃 Turn 时自动创建新 Turn", async () => {
       const repo = mockRepo({ activeTurn: null, maxTurnNumber: 2 });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       const msg = await sm.send({
         conversationId: "conv-1",
@@ -282,7 +490,7 @@ describe("SendMessage", () => {
   describe("start", () => {
     it("创建流式消息，status=streaming，body=null", async () => {
       const repo = mockRepo();
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       const msg = await sm.start({
         conversationId: "conv-1",
@@ -301,7 +509,7 @@ describe("SendMessage", () => {
     it("streaming 消息可追加事件", async () => {
       const msg = streamingMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       const event = await sm.appendEvent({
         messageId: msg.id,
@@ -317,7 +525,7 @@ describe("SendMessage", () => {
     it("completed 消息追加事件抛出 validation 错误", async () => {
       const msg = completedMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       await expect(
         sm.appendEvent({
@@ -338,7 +546,7 @@ describe("SendMessage", () => {
 
     it("消息不存在时抛出 not_found 错误", async () => {
       const repo = mockRepo();
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       await expect(
         sm.appendEvent({
@@ -362,7 +570,7 @@ describe("SendMessage", () => {
     it("speaking -> completed 并设置 body", async () => {
       const msg = streamingMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       // 先调用 startSpeaking 将消息转为 speaking 状态
       await sm.startSpeaking(msg.id, { body: "完整回复", talkingStonePassedTo: ["user-1"] });
@@ -378,7 +586,7 @@ describe("SendMessage", () => {
     it("空 body 抛出 validation 错误", async () => {
       const msg = streamingMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       // startSpeaking 时就会校验 body 非空
       await expect(
@@ -395,7 +603,7 @@ describe("SendMessage", () => {
     it("streaming 消息可标记失败", async () => {
       const msg = streamingMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       await sm.fail(msg.id, "出错了");
 
@@ -407,7 +615,7 @@ describe("SendMessage", () => {
     it("completed 消息标记失败抛出 validation 错误", async () => {
       const msg = completedMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       await expect(sm.fail(msg.id)).rejects.toThrow(DomainError);
       await expect(sm.fail(msg.id)).rejects.toSatisfy(
@@ -420,7 +628,7 @@ describe("SendMessage", () => {
     it("streaming -> aborted 并设置 body", async () => {
       const msg = streamingMessage();
       const repo = mockRepo({ messages: new Map([[msg.id, msg]]) });
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       const result = await sm.abort(msg.id, {
         body: "中断内容",
@@ -436,7 +644,7 @@ describe("SendMessage", () => {
   describe("sendSystem", () => {
     it("创建已完成的系统消息，talkingStonePassedTo 为空数组", async () => {
       const repo = mockRepo();
-      const sm = new SendMessage(repo, mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
 
       const msg = await sm.sendSystem("conv-1", "系统通知");
 

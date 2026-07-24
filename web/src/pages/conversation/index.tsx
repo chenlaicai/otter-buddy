@@ -137,10 +137,8 @@ function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
-    const targetOtterIds = mentionOtterId
-      ? [mentionOtterId]
-      : activeOtters.map(o => o.id)
-    if (targetOtterIds.length === 0) { showToast('没有可用的 Otter', 'error'); return }
+    /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
+    const targetOtterIds = mentionOtterId ? [mentionOtterId] : []
 
     const userMsg: LocalMessage = {
       id: 'tmp-' + Date.now(), st: 'user', si: 'user',

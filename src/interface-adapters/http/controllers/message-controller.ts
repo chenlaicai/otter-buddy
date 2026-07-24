@@ -56,10 +56,8 @@ export class MessageController {
       const conversationId = param(c, "id");
       const body = await c.req.json<SendMessageRequestDTO>();
 
-      /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息） */
-      if (!body.talkingStonePassedTo || body.talkingStonePassedTo.length === 0) {
-        return c.json({ error: "talkingStonePassedTo must be non-empty" }, 400);
-      }
+      /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息）。
+       *  talkingStonePassedTo 允许为空：无 @ 时由 usecase 层按领域规则解析默认目标 */
       if (!body.senderId) {
         return c.json({ error: "senderId is required" }, 400);
       }
@@ -67,17 +65,17 @@ export class MessageController {
         return c.json({ error: "body is required" }, 400);
       }
 
-      /** 2. 创建用户消息（completed 状态） */
-      const _userMessage = await this.sendMessageUseCase.send({
+      /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
+      const userMessage = await this.sendMessageUseCase.send({
         conversationId,
         senderId: body.senderId,
-        talkingStonePassedTo: body.talkingStonePassedTo,
+        talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         body: body.body,
         attachments: body.attachments,
       });
 
-      /** 3. 首轮立即派发（用户消息的 talkingStonePassedTo） */
-      const firstTurnTargets = body.talkingStonePassedTo;
+      /** 3. 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
+      const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
       /** 4. 创建 SSE 流（长连接贯穿多轮） */
       const allTargets = new Set(firstTurnTargets);

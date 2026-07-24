@@ -31,7 +31,8 @@ export interface MessageEventDTO {
 /** 发送消息请求 DTO */
 export interface SendMessageRequestDTO {
   senderId: string;
-  talkingStonePassedTo: string[];
+  /** 发言石目标（@ 指定的 otter）。缺省或空数组表示未指定，由后端按默认规则解析（回复最后发言者，兜底大獭） */
+  talkingStonePassedTo?: string[];
   body: string;
   attachments?: Attachment[];
 }

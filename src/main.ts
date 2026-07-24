@@ -192,7 +192,7 @@ function initUseCases(
   const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
-  const sendMessage = new SendMessage(repos.conversation, memoryIndex, logger);
+  const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);

@@ -184,22 +184,6 @@ describe("MessageController sendMessage validation", () => {
     return app;
   }
 
-  it("returns 400 when talkingStonePassedTo is empty", async () => {
-    const ctrl = new MessageController(
-      {} as SendMessage,
-      {} as QueryMessage,
-      {} as AgentInvoker,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
-    );
-    const app = createApp(ctrl);
-    const res = await app.request("/api/conversations/conv-1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ senderId: "user-1", talkingStonePassedTo: [], body: "Hi" }),
-    });
-    expect(res.status).toBe(400);
-  });
-
   it("returns 400 when senderId is missing", async () => {
     const ctrl = new MessageController(
       {} as SendMessage,
