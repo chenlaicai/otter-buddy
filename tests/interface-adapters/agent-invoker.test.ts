@@ -391,4 +391,38 @@ describe("AgentInvoker speak retry", () => {
     /** 第二次重试失败后发送 message.failed（不是 message.complete） */
     expect(eventTypes).toContain("message.failed");
   });
+
+  it("abort 后 SDK 正常返回（未调 speak）：走 abort 路径，不触发 speak 重试", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    /** 消息停在 streaming（speak 未调用），且 SDK 不抛错（吞掉 abort） */
+    const qm = mockQueryMessageSequence(["streaming"]);
+
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "Response" } }),
+      msg,
+      qm,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    invoker.abort("otter-1", "msg-streaming");
+
+    await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    const eventTypes = events.map((e) => e.event);
+    /** 中断应走 abort 路径 */
+    expect(eventTypes).toContain("message.aborted");
+    expect(msg._calls.abort).toHaveLength(1);
+    /** 不得触发 speak 重试（无系统提醒消息、无第二次 invoke） */
+    expect(msg._calls.sendSystem).toHaveLength(0);
+    expect(eventTypes).not.toContain("message.failed");
+  });
 });

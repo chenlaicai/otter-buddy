@@ -34,7 +34,7 @@ export interface ToolContext {
 function createSpeakTool(ctx: ToolContext): AgentTool {
   return {
     name: "speak",
-    description: "声明本次发言内容和发言石目标。调用后 agent loop 继续运行直到结束，消息才真正完成。",
+    description: "结束你的发言并指定下一位发言者。这是你回合的最后一个动作：调用成功后不要生成任何内容、不要再调用任何工具，让回合直接结束。系统会自动完成消息并调度下一位发言者。每次回复只调用一次。",
     parameters: {
       type: "object",
       properties: {
@@ -101,7 +101,7 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: "检索记忆。支持渐进式披露：detail_level 控制返回详细程度。summary 返回首句，snippet 返回匹配片段（默认），full 返回完整内容。可指定 library 路由到特定库",
+    description: "检索记忆。有明确历史信号时才检索（用户提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。渐进式披露：先 summary/snippet 定位相关条目，再用 get_memory_detail 深入。可指定 library 路由到特定库。记忆与当前上下文冲突时以当前上下文为准。",
     parameters: {
       type: "object",
       properties: {
@@ -382,7 +382,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话中所有活跃参与者。返回参与者列表（含 otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。",
+    description: "获取当前对话中所有活跃参与者（含 otterId、otterName、status、joinedAtTurnNumber）。必须使用本工具确认在场的场景：(1) 决定 speak 的 talkingStonePassedTo 之前；(2) 创建新 Otter 之前（避免重复创建）；(3) 任何需要确认谁在场时。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {},
