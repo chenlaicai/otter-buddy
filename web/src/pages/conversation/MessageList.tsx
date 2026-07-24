@@ -189,9 +189,12 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           }`}
           style={isUser ? { background: bgGrad } : borderLeft}
         >
-          {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} />}
+          {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
           <div className="relative group">
-            <MarkdownContent>{m.content}</MarkdownContent>
+            {m.content
+              ? <MarkdownContent>{m.content}</MarkdownContent>
+              : <span className="text-stone-400">{m.status === 'streaming' || m.status === 'speaking' ? '正在回复...' : ''}</span>
+            }
             <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
               <CopyButton text={m.content} />
             </div>
@@ -213,8 +216,16 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
   )
 }
 
-function StreamingProcess({ events, duration }: { events: LocalMessageEvent[]; duration: string }) {
+function StreamingProcess({ events, duration, status }: { events: LocalMessageEvent[]; duration: string; status?: Message['status'] }) {
   const [collapsed, setCollapsed] = useState(true)
+  const inFlight = status === 'streaming' || status === 'speaking'
+  const statusLabel = inFlight
+    ? '进行中'
+    : status === 'failed'
+      ? '失败'
+      : status === 'aborted'
+        ? '已中断'
+        : `已完成${duration ? ` · ${duration}` : ''}`
 
   return (
     <div className="streaming-section mb-2 rounded-xl overflow-hidden" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
@@ -224,7 +235,16 @@ function StreamingProcess({ events, duration }: { events: LocalMessageEvent[]; d
       >
         <span className={`streaming-icon text-[8px] text-stone-400 transition ${collapsed ? '' : 'rotate-180'}`}>▼</span>
         <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
-        <span className="text-[10px] text-stone-400">已完成 · {duration}</span>
+        <span className="text-[10px] text-stone-400 flex items-center gap-1">
+          {inFlight && (
+            <span className="flex gap-0.5">
+              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
+              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
+              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
+            </span>
+          )}
+          {statusLabel}
+        </span>
       </div>
       {!collapsed && (
         <div className="streaming-body border-t border-otter-200/20 max-h-[400px] overflow-y-auto">

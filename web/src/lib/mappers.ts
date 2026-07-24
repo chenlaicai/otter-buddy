@@ -25,12 +25,17 @@ export interface LocalMessageEvent {
   payload: Record<string, unknown>
 }
 
+/** 前端本地消息状态（对齐后端 MessageStatus） */
+export type LocalMessageStatus = 'streaming' | 'speaking' | 'completed' | 'failed' | 'aborted'
+
 /** 前端本地 Message 类型 */
 export interface LocalMessage {
   id: string
   st: 'user' | 'otter' | 'system'
   si: string
   content: string
+  /** 消息生命周期状态；仅历史查询（DTO）路径携带，SSE 实时构造的消息为 undefined（视同 completed/对应事件态） */
+  status?: LocalMessageStatus
   ts: string
   dur: string | null
   events?: LocalMessageEvent[]
@@ -90,6 +95,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     st: dto.st as 'user' | 'otter' | 'system',
     si: dto.si,
     content: dto.content ?? '',
+    status: dto.status as LocalMessageStatus,
     ts: dto.ts,
     dur: dto.dur,
     ctx: dto.ctx,

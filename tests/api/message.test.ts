@@ -180,6 +180,22 @@ describe("Message API", () => {
       expect(events[0].data.message).toBe("LLM rate limited");
       expect(events[1]).toEqual({ event: "stream.end", data: {} });
     });
+
+    it("does not abort agent invocation（SSE 断开/结束不驱动发言中止，发言生命周期由后端状态机管理）", async () => {
+      const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
+      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: "agent-msg-1", duration: 100 });
+
+      const res = await app.request("/api/conversations/conv-1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validBody),
+      });
+
+      expect(res.status).toBe(200);
+      await readSSEEvents(res);
+      expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
+    });
   });
 
   // ─── GET /api/messages/:id ───
@@ -224,6 +240,7 @@ describe("Message API", () => {
       expect(body.st).toBe("otter");
       expect(body.si).toBe("otter-1");
       expect(body.content).toBe("I am an otter");
+      expect(body.status).toBe("completed");
       expect(body.seq).toBe(5);
       expect(body.tsp).toEqual(["user-1"]);
       expect(body.ctx).toBe(1500);

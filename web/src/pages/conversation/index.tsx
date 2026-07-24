@@ -26,6 +26,34 @@ async function loadInitialData(): Promise<{
   return { conversations }
 }
 
+/** listMessages DTO → LocalMessage（events 已嵌入响应，无需额外请求） */
+function mapMessageDTOs(msgs: Awaited<ReturnType<typeof api.listMessages>>): LocalMessage[] {
+  return msgs.map((msg) => {
+    const local = mapMessageDTO(msg)
+    if (local.st === 'otter' && msg.events && msg.events.length > 0) {
+      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown> }) => ({
+        eventType: e.eventType,
+        payload: e.payload,
+      }))
+    }
+    return local
+  }).reverse()
+}
+
+/** 消息是否仍在生成中（刷新后用于轮询续看） */
+function isInFlight(m: LocalMessage): boolean {
+  return m.st === 'otter' && (m.status === 'streaming' || m.status === 'speaking')
+}
+
+/** 按 id 更新或追加（轮询快照与 SSE 事件可能携带同一条消息，避免重复） */
+function upsertMessage(list: LocalMessage[], msg: LocalMessage): LocalMessage[] {
+  const idx = list.findIndex(m => m.id === msg.id)
+  if (idx === -1) return [...list, msg]
+  const next = [...list]
+  next[idx] = msg
+  return next
+}
+
 function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -84,20 +112,9 @@ function ConversationPage() {
         api.getKeyResources(convId),
         api.getParticipants(convId),
       ])
-      /**   events 已嵌入 messages 响应，无需额外请求 */
-      const mapped = msgs.map((msg) => {
-        const local = mapMessageDTO(msg)
-        if (local.st === 'otter' && msg.events && msg.events.length > 0) {
-          local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown> }) => ({
-            eventType: e.eventType,
-            payload: e.payload,
-          }))
-        }
-        return local
-      })
       setAllMessages(prev => ({
         ...prev,
-        [convId]: mapped.reverse(),
+        [convId]: mapMessageDTOs(msgs),
       }))
       setAllLinkedRes(prev => ({
         ...prev,
@@ -114,11 +131,30 @@ function ConversationPage() {
     }
   }, [])
 
+  /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
+  const refreshMessages = useCallback(async (convId: string) => {
+    try {
+      const msgs = await api.listMessages(convId, 100)
+      setAllMessages(prev => ({ ...prev, [convId]: mapMessageDTOs(msgs) }))
+    } catch (err) {
+      console.error('Failed to refresh messages:', err)
+    }
+  }, [])
+
   useEffect(() => {
     if (activeId && !allMessages[activeId]) {
       loadConversationDetail(activeId)
     }
   }, [activeId, allMessages, loadConversationDetail])
+
+  /** 刷新页面后若有仍在生成的消息（SSE 已断），轮询续看直到全部进入终态 */
+  useEffect(() => {
+    if (!activeId) return
+    const msgs = allMessages[activeId]
+    if (!msgs || !msgs.some(isInFlight)) return
+    const timer = setTimeout(() => refreshMessages(activeId), 2000)
+    return () => clearTimeout(timer)
+  }, [activeId, allMessages, refreshMessages])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -165,6 +201,12 @@ function ConversationPage() {
         'message.start': (data) => {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
+          /** 该消息可能已被轮询快照加入历史列表，移出避免与实时流式视图重复渲染 */
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list?.some(m => m.id === messageId)) return prev
+            return { ...prev, [activeId]: list.filter(m => m.id !== messageId) }
+          })
           setStreamingMap(prev => new Map(prev).set(messageId, {
             messageId, otterId, otterName, duration: 0, events: [],
           }))
@@ -216,12 +258,12 @@ function ConversationPage() {
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
-            content: data.body ?? '', ts: nowTs(), dur: data.duration,
+            content: data.body ?? '', status: 'completed', ts: nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), finalMsg] }))
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
           liveEventsMap.delete(messageId)
           setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
         },
@@ -229,9 +271,9 @@ function ConversationPage() {
           const { messageId, otterId } = data
           const errMsg: LocalMessage = {
             id: messageId || crypto.randomUUID(), st: 'otter', si: otterId || 'unknown',
-            content: `[错误] ${data.message}`, ts: nowTs(), dur: null,
+            content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), errMsg] }))
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
           showToast(`Agent 错误: ${data.message}`, 'error')
           if (messageId) {
             liveEventsMap.delete(messageId)
@@ -255,10 +297,10 @@ function ConversationPage() {
           if (liveEvents.length > 0) {
             const abortedMsg: LocalMessage = {
               id: messageId, st: 'otter', si: otterId,
-              content: data.body ?? '[用户中断]', ts: nowTs(), dur: null,
+              content: data.body ?? '[用户中断]', status: 'aborted', ts: nowTs(), dur: null,
               events: liveEvents,
             }
-            setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), abortedMsg] }))
+            setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], abortedMsg) }))
           }
           showToast('回复已中断', 'info')
           liveEventsMap.delete(messageId)
@@ -272,10 +314,10 @@ function ConversationPage() {
           const otterId = streamingEntry?.otterId || ''
           const failedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
-            content: data.body ?? '[未完成]', ts: nowTs(), dur: null,
+            content: data.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), failedMsg] }))
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
           liveEventsMap.delete(messageId)
           setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
         },

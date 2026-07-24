@@ -79,13 +79,9 @@ export class MessageController {
       /** 3. 首轮立即派发（用户消息的 talkingStonePassedTo） */
       const firstTurnTargets = body.talkingStonePassedTo;
 
-      /** 4. 创建 SSE 流（长连接贯穿多轮） */
+      /** 4. 创建 SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
       const allTargets = new Set(firstTurnTargets);
-      const { response, push, close } = streamEvents(c, () => {
-        for (const oid of allTargets) {
-          this.agentInvoker.abort(oid, "");
-        }
-      });
+      const { response, push, close } = streamEvents(c);
 
       /** 5. 启动调度循环 */
       const dispatchLoop = (targets: string[]) =>
