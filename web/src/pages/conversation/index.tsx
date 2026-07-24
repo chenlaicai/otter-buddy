@@ -62,7 +62,9 @@ function isTerminal(m: LocalMessage): boolean {
  * 轮询快照与本地列表合并：
  * - 过期快照不回退本地已终态的消息（响应在 message.complete 之前发出、之后到达）
  * - 双方均进行中时，保留 events 更长的一方（appendEvent 持久化滞后于 SSE，快照 events 可能瞬态更少）
- * - 保留尚未上服务器的本地乐观消息（tmp-/err- 前缀）；快照中已存在等价消息（同发送者同内容）时丢弃 tmp 副本
+ * - 保留未上服务器或不在快照窗口内的本地消息：tmp-/err- 前缀消息、进行中消息
+ *   （limit=100 窗口外的进行中消息若被丢弃会导致轮询停止、状态永不更新）；tmp 按内容等价去重
+ * - 窗口外的终态消息允许被丢弃（与整页重载的窗口语义一致）
  */
 function mergeMessages(current: LocalMessage[], snapshot: LocalMessage[]): LocalMessage[] {
   const currentById = new Map(current.map(m => [m.id, m]))
@@ -78,7 +80,7 @@ function mergeMessages(current: LocalMessage[], snapshot: LocalMessage[]): Local
   const persisted = (tmp: LocalMessage) =>
     snapshot.some(sm => sm.st === tmp.st && sm.si === tmp.si && sm.content === tmp.content)
   const isLocalOnly = (m: LocalMessage) =>
-    (m.id.startsWith('tmp-') && !persisted(m)) || m.id.startsWith('err-')
+    (m.id.startsWith('tmp-') && !persisted(m)) || m.id.startsWith('err-') || isInFlight(m)
   return [...merged, ...current.filter(m => !snapshotIds.has(m.id) && isLocalOnly(m))]
 }
 
@@ -156,9 +158,27 @@ function ConversationPage() {
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
-      const msgs = await api.listMessages(convId, 100)
-      const snapshot = mapMessageDTOs(msgs)
-      setAllMessages(prev => ({ ...prev, [convId]: mergeMessages(prev[convId] || [], snapshot) }))
+      const snapshot = mapMessageDTOs(await api.listMessages(convId, 100))
+      const snapshotIds = new Set(snapshot.map(m => m.id))
+      let outOfWindow: string[] = []
+      setAllMessages(prev => {
+        const current = prev[convId] || []
+        outOfWindow = current
+          .filter(m => isInFlight(m) && !snapshotIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
+          .map(m => m.id)
+        return { ...prev, [convId]: mergeMessages(current, snapshot) }
+      })
+      /** limit=100 窗口外的进行中消息：定点拉取收敛（否则其终态永远不会出现在快照里） */
+      for (const id of outOfWindow) {
+        try {
+          const serverMsg = mapMessageDTO(await api.getMessage(id))
+          setAllMessages(prev => {
+            const list = prev[convId]
+            if (!list?.some(m => m.id === id)) return prev
+            return { ...prev, [convId]: list.map(m => m.id === id ? { ...serverMsg, events: m.events } : m) }
+          })
+        } catch { /* 下轮轮询重试 */ }
+      }
     } catch (err) {
       console.error('Failed to refresh messages:', err)
     }
@@ -209,12 +229,17 @@ function ConversationPage() {
       ...prev,
       [activeId]: [...(prev[activeId] || []), userMsg],
     }))
+    /** 发送失败时移除乐观 tmp 消息（避免幻影消息被轮询 merge 永久保留） */
+    const removeTmpMsg = () => setAllMessages(prev => ({
+      ...prev,
+      [activeId]: (prev[activeId] || []).filter(m => m.id !== userMsg.id),
+    }))
 
     try {
       const response = await api.sendMessage(activeId, {
         senderId: 'user', talkingStonePassedTo: targetOtterIds, body: text,
       })
-      if (!response.ok) { showToast('发送失败', 'error'); return }
+      if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); return }
 
       /** 按 messageId 隔离的 liveEvents 与 otter 元信息（每个 otter 独立，仅本次发送流程内使用） */
       const liveEventsMap = new Map<string, Array<{ eventType: string; payload: Record<string, unknown> }>>()
@@ -356,14 +381,14 @@ function ConversationPage() {
       } })
     } catch (err) {
       console.error('Failed to send message:', err)
+      removeTmpMsg()
       showToast('发送失败', 'error')
     }
   }, [activeId, activeOtters, refreshMessages])
 
   const stopStream = useCallback((messageId: string) => {
     if (!activeId) return
-    /** 乐观更新为已中断（即时反馈）；随后以服务端为该消息的权威状态收敛——
-     *  abort 失败/409（已终态）时本地乐观值可能被纠正回 streaming/completed */
+    /** 乐观更新为已中断（即时反馈）；随后以服务端为该消息的权威状态收敛 */
     setAllMessages(prev => {
       const list = prev[activeId]
       if (!list?.some(m => m.id === messageId)) return prev
@@ -374,20 +399,25 @@ function ConversationPage() {
           : m),
       }
     })
+    /** 收敛失败时回退为进行中，让轮询接管（abort 生效/丢失/已终态/拉取失败四条路径均可收敛） */
+    const revertToInFlight = () => setAllMessages(prev => {
+      const list = prev[activeId]
+      if (!list?.some(m => m.id === messageId)) return prev
+      return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, status: 'streaming' as const } : m) }
+    })
     api.abortMessage(messageId)
       .catch((err) => console.error('Failed to abort message:', err))
       .finally(async () => {
         try {
-          const snapshot = mapMessageDTOs(await api.listMessages(activeId, 100))
-          const serverMsg = snapshot.find(m => m.id === messageId)
+          const serverMsg = mapMessageDTO(await api.getMessage(messageId))
           setAllMessages(prev => {
-            const merged = mergeMessages(prev[activeId] || [], snapshot)
-            /** 该消息以服务端为准（abort 是否生效只有服务端知道），其余消息走常规合并 */
-            const next = serverMsg ? merged.map(m => m.id === messageId ? serverMsg : m) : merged
-            return { ...prev, [activeId]: next }
+            const list = prev[activeId]
+            if (!list?.some(m => m.id === messageId)) return prev
+            /** getMessage 不含 events，保留本地已有事件 */
+            return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...serverMsg, events: m.events } : m) }
           })
-        } catch (err) {
-          console.error('Failed to resync after abort:', err)
+        } catch {
+          revertToInFlight()
         }
       })
   }, [activeId])

@@ -97,7 +97,8 @@ function extractTurnEndError(e: AgentStreamEvent): string | undefined {
 }
 
 export class AgentInvoker {
-  private readonly abortedOtters = new Set<string>();
+  /** abort 标记按 messageId 键控（同一 otter 可并发多个 invoke，按 otterId 键控会跨消息串扰） */
+  private readonly abortedMessages = new Set<string>();
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -225,7 +226,7 @@ export class AgentInvoker {
       return { result };
     } catch (err) {
       /** abort 时向外抛出，让 invokeConversation 的外层 catch 处理（不走 retry） */
-      if (this.abortedOtters.has(params.otterId)) {
+      if (this.abortedMessages.has(params.messageId)) {
         throw err;
       }
       /** 非 abort 错误：向外抛出，让外层 handleInvokeError 处理 */
@@ -251,7 +252,7 @@ export class AgentInvoker {
     /** 消息已在 invokeConversation 中通过 sendMessage.complete() 完成，此处发 SSE 事件和清理状态 */
 
     /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
-    this.abortedOtters.delete(otterId);
+    this.abortedMessages.delete(messageId);
 
     const duration = Date.now() - startTime;
 
@@ -299,8 +300,8 @@ export class AgentInvoker {
     senderId?: string,
   ): Promise<void> {
     const errMsg = err instanceof Error ? err.message : String(err);
-    this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedOtters.has(otterId) });
-    if (this.abortedOtters.delete(otterId)) {
+    this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedMessages.has(messageId) });
+    if (this.abortedMessages.delete(messageId)) {
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
       const toolCallCount =
         (err as Error & { _toolCallCount?: number })._toolCallCount ??
@@ -382,9 +383,9 @@ export class AgentInvoker {
     return { messageId, duration, tokenUsage };
   }
 
-  /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()） */
+  /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()）；标记按 messageId 键控 */
   abort(otterId: string, messageId: string): void {
-    this.abortedOtters.add(otterId);
+    this.abortedMessages.add(messageId);
     this.agentInvoke.abort(otterId, messageId);
   }
 

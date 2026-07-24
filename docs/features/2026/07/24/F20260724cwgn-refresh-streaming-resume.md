@@ -109,6 +109,22 @@ A1（断开测试空转）改写为真实 cancel response body 的回归测试�
   瞬态偏离 DB sequence；M6 tmp 用户消息无 turnId 导致分隔线瞬态错位；
   N5 StreamingProcess 完成后保持展开（可视为有意）
 
+第四轮检视修复：
+- F1：M4 收敛仍依赖 resync 那一次 listMessages 成功，失败即永久卡死——stopStream 改用
+  GET /messages/:id 单点拉取，失败时把乐观 aborted 回退为进行中让轮询接管
+  （生效/丢失/已终态/拉取失败四路径均收敛）
+- F2a：limit=100 窗口外的进行中消息被 merge 丢弃 → 轮询停止、状态永不更新——
+  mergeMessages 保留窗口外的进行中消息，轮询时对其按 id 定点拉取收敛；
+  窗口外终态消息允许丢弃（与整页重载的窗口语义一致）
+- F3：abortedOtters 按 otterId 键控，同一 otter 并发 invoke 时 abort 标记跨消息串扰
+  （该 aborted 的变 failed、该 failed 的变 aborted）——改为按 messageId 键控
+  （abortedMessages），四个使用点均有 messageId 可用
+- F7：发送失败的 tmp 幻影消息被 merge 永久保留——发送失败时移除 tmp 消息
+- 记录在案（后续项）：F4 孤儿 turn 不关闭（下条消息自愈，无消费者出错）；F5 reconcile
+  产物进入其它 otter 上下文（getUnreadMessages 无 status 过滤，pre-existing，涉产品决策）；
+  F6 tmp 内容等价误判（连发两条相同内容，低概率瞬态）；F8 前端零测试基建（需独立引入）；
+  F9 启动 reconcile 无 try/catch（fail-fast 可辩护）
+
 ## 兼容性
 
 - API：`POST /messages/:id/abort` 对终态消息从 202 改为 409（此前调用无实际效果，属错误用法显式化）；其余无变更（DTO 本已携带 status，前端此前未消费）。

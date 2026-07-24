@@ -186,7 +186,7 @@ export class MessageController {
       if (msg.senderType !== "otter") {
         return c.json({ error: "Can only abort otter messages" }, 400);
       }
-      /** 仅进行中的消息可被中止——终态消息 abort 会留下 stale abortedOtters 标记，污染该 otter 下次 invoke 的错误分类 */
+      /** 仅进行中的消息可被中止——终态消息 abort 会留下 stale abort 标记，污染该消息后续的错误分类 */
       if (!canAbortMessage(msg.status)) {
         return c.json({ error: `Message is already in terminal status: ${msg.status}` }, 409);
       }
