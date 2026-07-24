@@ -257,20 +257,17 @@ function ConversationPage() {
             turnId: data.turnId || undefined,
           }
           /** upsert 原地替换 message.start 插入的占位消息，保持时序位置；
-           *  M6：同 turn 的 tmp 用户消息补戳 turnId（分隔线立即出现在正确位置，不等下轮快照） */
+           *  M6：恰好一条未戳 tmp 时补戳 turnId（分隔线立即正确）；
+           *  多条并发 tmp 时不戳（到达顺序未必等于发送顺序），留给轮询快照纠正 */
           setAllMessages(prev => {
             const list = upsertMessage(prev[activeId] || [], finalMsg)
             if (!data.turnId) return { ...prev, [activeId]: list }
-            let stamped = false
+            const unstamped = list.filter(m => m.id.startsWith('tmp-') && !m.turnId)
+            if (unstamped.length !== 1) return { ...prev, [activeId]: list }
+            const tmpId = unstamped[0].id
             return {
               ...prev,
-              [activeId]: list.map(m => {
-                if (!stamped && m.id.startsWith('tmp-') && !m.turnId) {
-                  stamped = true
-                  return { ...m, turnId: data.turnId }
-                }
-                return m
-              }),
+              [activeId]: list.map(m => m.id === tmpId ? { ...m, turnId: data.turnId } : m),
             }
           })
           liveEventsMap.delete(messageId)

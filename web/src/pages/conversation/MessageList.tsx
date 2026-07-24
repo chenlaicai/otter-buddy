@@ -178,7 +178,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
           }`}
           style={isUser ? { background: bgGrad } : borderLeft}
         >
-          {!isUser && m.events && m.events.length > 0 && <StreamingProcess key={m.status} events={m.events} duration={m.dur || ''} status={m.status} />}
+          {!isUser && m.events && m.events.length > 0 && <StreamingProcess key={inFlight ? 'live' : 'done'} events={m.events} duration={m.dur || ''} status={m.status} />}
           <div className="relative group">
             {m.content
               ? <MarkdownContent>{m.content}</MarkdownContent>

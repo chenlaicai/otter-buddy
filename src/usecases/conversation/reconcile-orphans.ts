@@ -16,6 +16,6 @@ export async function reconcileOrphans(repo: ConversationRepository, logger: Log
       logger.warn(`Reconciled orphans: ${failed} in-flight message(s) failed, ${closedTurns} orphaned turn(s) closed`);
     }
   } catch (err) {
-    logger.error(`Failed to reconcile orphans: ${err}`);
+    logger.error("Failed to reconcile orphans", err instanceof Error ? err : new Error(String(err)));
   }
 }
