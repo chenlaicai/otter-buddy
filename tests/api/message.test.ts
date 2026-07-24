@@ -76,7 +76,7 @@ describe("Message API", () => {
       body: "Hello otter",
     };
 
-    it("accepts empty talkingStonePassedTo and forwards to usecase for default resolution", async () => {
+    it("accepts empty talkingStonePassedTo and dispatches to resolved target", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
       deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: "agent-msg-1", duration: 100 });
@@ -95,6 +95,11 @@ describe("Message API", () => {
         body: "Hello otter",
         attachments: undefined,
       });
+      /** 钉住关键行为：首轮派发以持久化消息的解析结果为准，而不是请求体的空数组 */
+      await readSSEEvents(res);
+      expect(deps.agentInvoker.invokeConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ otterId: "otter-1" }),
+      );
     });
 
     it("treats missing talkingStonePassedTo as empty and forwards to usecase", async () => {

@@ -429,6 +429,20 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
       expect(results[0].id).toBe("msg-completed");
     });
 
+    it("按 senderType 过滤消息（取最后一条 otter 消息）", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+
+      await repo.createCompletedMessage(messageFixture({ id: "msg-otter-old", senderType: "otter", senderId: "otter-1", sequenceNum: 1 }));
+      await repo.createCompletedMessage(messageFixture({ id: "msg-user", senderType: "user", senderId: "user-1", sequenceNum: 2 }));
+      await repo.createCompletedMessage(messageFixture({ id: "msg-otter-last", senderType: "otter", senderId: "otter-2", sequenceNum: 3 }));
+      await repo.createCompletedMessage(messageFixture({ id: "msg-system", senderType: "system", senderId: "system", sequenceNum: 4 }));
+
+      const results = await repo.getMessages("conv-1", { limit: 1, senderType: "otter" });
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe("msg-otter-last");
+    });
+
     it("按 turnId 过滤消息", async () => {
       await repo.create(conversationFixture());
       await repo.createTurn(turnFixture({ id: "turn-1" }));

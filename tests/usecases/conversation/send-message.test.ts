@@ -301,7 +301,12 @@ describe("SendMessage 默认目标解析（无 @）", () => {
           makeParticipant({ id: "p-2", otterId: "otter-small" }),
         ],
       });
-      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([makeOtter({ id: "otter-small", name: "小獭", type: "small" })]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
 
       const msg = await sm.send({
         conversationId: "conv-1",
@@ -328,7 +333,12 @@ describe("SendMessage 默认目标解析（无 @）", () => {
           makeParticipant({ id: "p-2", otterId: "otter-small" }),
         ],
       });
-      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([makeOtter({ id: "otter-small", name: "小獭", type: "small" })]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
 
       const msg = await sm.send({
         conversationId: "conv-1",
@@ -338,6 +348,40 @@ describe("SendMessage 默认目标解析（无 @）", () => {
       });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-small"]);
+    });
+
+    it("user 消息空目标时：最后发言者在场但已解散则兜底大獭", async () => {
+      const lastMsg = completedMessage({
+        id: "msg-otter-dissolved",
+        senderType: "otter",
+        senderId: "otter-dissolved",
+        sequenceNum: 5,
+      });
+      const repo = mockRepo({
+        messageList: [lastMsg],
+        participants: [
+          makeParticipant({ otterId: "otter-big" }),
+          makeParticipant({ id: "p-2", otterId: "otter-dissolved" }),
+        ],
+      });
+      const sm = new SendMessage(
+        repo,
+        mockOtterRepo([
+          makeOtter({ id: "otter-big", type: "big" }),
+          makeOtter({ id: "otter-dissolved", name: "小獭", type: "small", status: "dissolved", dissolvedAt: "2026-01-02T00:00:00Z" }),
+        ]),
+        mockMemoryIndex(),
+        mockLogger(),
+      );
+
+      const msg = await sm.send({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "继续",
+      });
+
+      expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
     });
 
     it("user 消息空目标时：最后发言者已退场则兜底大獭", async () => {

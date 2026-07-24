@@ -359,9 +359,14 @@ export class SendMessage {
 
   /**
    * 解析用户未指定目标时的默认派发对象：
-   * 1. 最后发言的 otter（任何状态的消息都算发言，含 failed/aborted），且仍在场
-   * 2. 兜底：在场的大獭（type=big）
+   * 1. 最后发言的 otter（任何状态的消息都算发言，含 failed/aborted），且仍在场、未解散
+   * 2. 兜底：在场且未解散的大獭（type=big）
    * 两者都找不到说明对话参与者构成异常，抛出错误而不是退化为全员广播
+   *
+   * 注意：
+   * - 不回溯：最后发言者不可用时直接兜底大獭，不往前找倒数第二位发言者（按需求定义的两级优先级）
+   * - participant 的 active 不代表 otter 可派发（DissolveOtter 不会级联标记 participant 退场），
+   *   因此两个分支都必须校验 otter 实体状态
    */
   private async resolveDefaultTargets(conversationId: string): Promise<string[]> {
     const participants = await this._repo.getActiveParticipants(conversationId);
@@ -372,12 +377,15 @@ export class SendMessage {
       limit: 1,
     });
     if (lastOtterMsg && activeOtterIds.has(lastOtterMsg.senderId)) {
-      return [lastOtterMsg.senderId];
+      const lastSpeaker = await this.otterRepo.getById(lastOtterMsg.senderId);
+      if (lastSpeaker?.status === "active") {
+        return [lastSpeaker.id];
+      }
     }
 
     for (const p of participants) {
       const otter = await this.otterRepo.getById(p.otterId);
-      if (otter?.type === "big") {
+      if (otter?.type === "big" && otter.status === "active") {
         return [otter.id];
       }
     }
