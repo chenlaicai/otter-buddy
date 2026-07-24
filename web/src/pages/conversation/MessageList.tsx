@@ -52,7 +52,6 @@ function MarkdownContent({ children }: { children: string }) {
 
 interface MessageListProps {
   messages: Message[]
-  streamingMessages: Map<string, StreamingState>
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
   onStopStream: (messageId: string) => void
   onRetry: () => void
@@ -60,22 +59,14 @@ interface MessageListProps {
   otters: Otter[]
 }
 
-export interface StreamingState {
-  messageId: string
-  otterId: string
-  otterName?: string
-  duration: number
-  events: LocalMessageEvent[]
-}
-
-export function MessageList({ messages, streamingMessages, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
+export function MessageList({ messages, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, streamingMessages])
+  }, [messages])
 
   if (state === 'no-llm') {
     return (
@@ -106,7 +97,7 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
     )
   }
 
-  if (messages.length === 0 && streamingMessages.size === 0) {
+  if (messages.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-2">
         <div className="text-sm font-medium text-stone-400">开始对话</div>
@@ -115,13 +106,10 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
     )
   }
 
-  /** 渲染期去重：实时流式视图（streamingMessages）优先，历史列表排除同 id 消息（轮询快照可能带回） */
-  const historyMessages = messages.filter(m => !streamingMessages.has(m.id))
-
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
-      {historyMessages.map((m, i) => {
-        const prevTurnId = i > 0 ? historyMessages[i - 1].turnId : undefined
+      {messages.map((m, i) => {
+        const prevTurnId = i > 0 ? messages[i - 1].turnId : undefined
         const isNewTurn = m.turnId && m.turnId !== prevTurnId
         return (
           <div key={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
@@ -129,9 +117,6 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
           </div>
         )
       })}
-      {Array.from(streamingMessages.entries()).map(([messageId, state]) => (
-        <StreamingMessage key={messageId} state={state} onStop={() => onStopStream(messageId)} otters={otters} />
-      ))}
       {state === 'error' && (
         <div className="max-w-[780px] mx-auto px-6 my-2">
           <div className="bg-red-400/10 border border-red-400/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-500">
@@ -165,6 +150,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   }
 
   const isUser = m.st === 'user'
+  const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
@@ -184,7 +170,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">{fmtTime(m.ts)}{dur}</span>
+          <span className="text-[11px] text-stone-300">{inFlight ? '正在回复...' : `${fmtTime(m.ts)}${dur}`}</span>
         </div>
         <div
           className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble ${
@@ -196,14 +182,14 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
           <div className="relative group">
             {m.content
               ? <MarkdownContent>{m.content}</MarkdownContent>
-              : <span className="text-stone-400">{m.status === 'streaming' || m.status === 'speaking' ? '正在回复...' : ''}</span>
+              : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
             }
             <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
               <CopyButton text={m.content} />
             </div>
           </div>
-          {/* 进行中的历史消息（如刷新后重新进入）保留停止能力 */}
-          {(m.status === 'streaming' || m.status === 'speaking') && (
+          {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
+          {inFlight && (
             <div className="mt-1.5">
               <button
                 onClick={() => onStopStream(m.id)}
@@ -232,8 +218,9 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
 }
 
 function StreamingProcess({ events, duration, status }: { events: LocalMessageEvent[]; duration: string; status?: Message['status'] }) {
-  const [collapsed, setCollapsed] = useState(true)
   const inFlight = status === 'streaming' || status === 'speaking'
+  /** 进行中的流式过程默认展开（实时可见），终态默认折叠 */
+  const [collapsed, setCollapsed] = useState(!inFlight)
   const statusLabel = inFlight
     ? '进行中'
     : status === 'failed'
@@ -376,63 +363,4 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
   }
 
   return null
-}
-
-function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {
-  const otter = otters.find(o => o.id === state.otterId)
-  const color = getOtterColor(state.otterId, otter?.ci)
-  const name = otter?.name || state.otterName || 'Otter'
-  const events = state.events || []
-
-  return (
-    <div className="flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn">
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble"
-        style={{ background: color.gradient }}
-      >
-        {name.charAt(0)}
-      </div>
-      <div className="flex flex-col" style={{ maxWidth: '72%' }}>
-        <div className="flex items-center gap-1.5 mb-1 px-1">
-          <span className={`text-xs font-semibold ${color.nameClass}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">正在回复...</span>
-        </div>
-        <div
-          className="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble bubble-otter bg-white text-stone-700 border border-stone-100"
-          style={{ borderLeft: `3px solid ${color.border}` }}
-        >
-          {/* 实时流式过程 */}
-          {events.length > 0 && (
-            <div className="rounded-xl overflow-hidden mb-2" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
-              <div className="flex items-center gap-1.5 px-3 py-1.5">
-                <span className="text-[8px] text-stone-400">▼</span>
-                <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
-                <span className="text-[10px] text-stone-400 flex items-center gap-1">
-                  <span className="flex gap-0.5">
-                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
-                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
-                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
-                  </span>
-                  生成中
-                </span>
-              </div>
-              <div className="border-t border-otter-200/20">
-                {events.map((evt, i) => <EventItem key={i} event={evt} />)}
-              </div>
-            </div>
-          )}
-          {/* 停止按钮 */}
-          <div className="mt-1.5">
-            <button
-              onClick={onStop}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"
-            >
-              <Square className="w-2.5 h-2.5 fill-current text-red-400" />
-              停止生成
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
 }

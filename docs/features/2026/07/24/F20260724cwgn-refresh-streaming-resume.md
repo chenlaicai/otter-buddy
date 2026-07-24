@@ -90,8 +90,12 @@ A1（断开测试空转）改写为真实 cancel response body 的回归测试�
   invoke 错误分类——端点增加 canAbortMessage 校验，终态返回 409
 - N3：live 会话 SSE 中途断开轮询永不启动（S2 的对偶）——onError 时 refreshMessages
   播种进行中消息，轮询 effect 自动接管
-- N4（遗留后续）：同 turn 多消息时流式气泡固定沉底，视觉时序可能倒置——
-  需要 streaming 状态携带序号信息才能交错渲染，属独立改动
+- N4：流式气泡固定沉底导致视觉时序倒置——**统一渲染通道**：message.start 即将进行中
+  消息按创建顺序插入 allMessages（append 位置即正确时序，upsert 兼容轮询快照），SSE 事件
+  就地更新，complete/failed/aborted upsert 原位替换；删除 streamingMap 渲染通道与
+  StreamingMessage 组件，实时与轮询共用同一渲染路径（进行中头部"正在回复..."、
+  流式过程默认展开、停止按钮）；streamingMap 状态随之移除，SSE 闭包内改用
+  liveMeta/liveEventsMap 两个局部 Map
 
 ## 兼容性
 
@@ -103,5 +107,4 @@ A1（断开测试空转）改写为真实 cancel response body 的回归测试�
 ## 后续可选
 
 - SSE 断流恢复（resume endpoint）替代轮询。
-- streamingMap 按对话隔离（当前为全局 Map，跨对话可能串台，pre-existing）。
 - speak complete 时持久化 token 用量（updateTokenUsage 当前无调用方，pre-existing）。

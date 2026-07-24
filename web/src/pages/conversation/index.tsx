@@ -14,7 +14,6 @@ import { ConversationModals, type ModalState } from './Modals'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
-import type { StreamingState } from './MessageList'
 import * as api from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 
@@ -84,7 +83,6 @@ function ConversationPage() {
   const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
   const [allLinkedRes, setAllLinkedRes] = useState<Record<string, LocalLinkedResource[]>>({})
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
-  const [streamingMap, setStreamingMap] = useState<Map<string, StreamingState>>(new Map())
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
@@ -96,11 +94,7 @@ function ConversationPage() {
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
 
   const sseCtrlRef = useRef<AbortController | null>(null)
-  const streamingMapRef = useRef<Map<string, StreamingState>>(new Map())
   const ciCounter = useRef(1)
-
-  /** 同步 streamingMap 到 ref（SSE 闭包内需要读取最新状态） */
-  useEffect(() => { streamingMapRef.current = streamingMap }, [streamingMap])
 
   // 定时任务 Hook
   const {
@@ -216,63 +210,58 @@ function ConversationPage() {
       })
       if (!response.ok) { showToast('发送失败', 'error'); return }
 
-      const startTime = Date.now()
-      /** 按 messageId 隔离的 liveEvents（每个 otter 独立） */
+      /** 按 messageId 隔离的 liveEvents 与 otter 元信息（每个 otter 独立，仅本次发送流程内使用） */
       const liveEventsMap = new Map<string, Array<{ eventType: string; payload: Record<string, unknown> }>>()
+      const liveMeta = new Map<string, { otterId: string; otterName?: string }>()
+
+      /** SSE 事件就地更新 allMessages 中的进行中消息（统一渲染通道：消息流只有 allMessages 一条） */
+      const syncLiveEvents = (messageId: string) => {
+        const liveEvents = liveEventsMap.get(messageId)
+        if (!liveEvents) return
+        setAllMessages(prev => {
+          const list = prev[activeId]
+          if (!list?.some(m => m.id === messageId)) return prev
+          return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
+        })
+      }
 
       const ctrl = consumeSSE(response, {
         'message.start': (data) => {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
-          /** 历史列表中的同 id 消息由 MessageList 渲染期去重（streamingMap 优先），无需在此移除 */
-          setStreamingMap(prev => new Map(prev).set(messageId, {
-            messageId, otterId, otterName, duration: 0, events: [],
-          }))
+          liveMeta.set(messageId, { otterId, otterName })
+          /** 进行中消息就地插入消息流——append 位置即创建时序（upsert 兼容轮询快照已带入的同 id 消息） */
+          const placeholder: LocalMessage = {
+            id: messageId, st: 'otter', si: otterId,
+            content: '', status: 'streaming', ts: nowTs(), dur: null, events: [],
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], placeholder) }))
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId)
           if (!liveEvents) return
           liveEvents.push({ eventType: 'assistant_toolcall', payload: { content: data.content } })
-          setStreamingMap(prev => {
-            const entry = prev.get(messageId)
-            if (!entry) return prev
-            const next = new Map(prev)
-            next.set(messageId, { ...entry, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 })
-            return next
-          })
+          syncLiveEvents(messageId)
         },
         'tool.result': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId)
           if (!liveEvents) return
           liveEvents.push({ eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
-          setStreamingMap(prev => {
-            const entry = prev.get(messageId)
-            if (!entry) return prev
-            const next = new Map(prev)
-            next.set(messageId, { ...entry, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 })
-            return next
-          })
+          syncLiveEvents(messageId)
         },
         'assistant_text': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId)
           if (!liveEvents) return
           liveEvents.push({ eventType: 'assistant_text', payload: { content: data.content } })
-          setStreamingMap(prev => {
-            const entry = prev.get(messageId)
-            if (!entry) return prev
-            const next = new Map(prev)
-            next.set(messageId, { ...entry, events: [...liveEvents], duration: (Date.now() - startTime) / 1000 })
-            return next
-          })
+          syncLiveEvents(messageId)
         },
         'message.complete': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
-          const streamingEntry = streamingMapRef.current.get(messageId)
-          const otterId = streamingEntry?.otterId || ''
+          const otterId = liveMeta.get(messageId)?.otterId || ''
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
@@ -281,9 +270,10 @@ function ConversationPage() {
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
           }
+          /** upsert 原地替换 message.start 插入的占位消息，保持时序位置 */
           setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
           liveEventsMap.delete(messageId)
-          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
+          liveMeta.delete(messageId)
         },
         'error': (data) => {
           const { messageId, otterId } = data
@@ -295,41 +285,38 @@ function ConversationPage() {
           showToast(`Agent 错误: ${data.message}`, 'error')
           if (messageId) {
             liveEventsMap.delete(messageId)
-            setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
+            liveMeta.delete(messageId)
           }
         },
         'message.aborted': (data) => {
           /** abort 后保留已有事件到 allMessages（与 message.failed 一致） */
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
-          const streamingEntry = streamingMapRef.current.get(messageId)
-          const otterId = streamingEntry?.otterId || ''
+          const meta = liveMeta.get(messageId)
+          const otterId = meta?.otterId || ''
           /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
-          if (otterId && streamingEntry?.otterName && activeId) {
+          if (otterId && meta?.otterName && activeId) {
             setAllOtters(prev => {
               const convOtters = prev[activeId] || []
               if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: streamingEntry.otterName!, ci: 0 }] }
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: meta.otterName!, ci: 0 }] }
             })
           }
-          if (liveEvents.length > 0) {
-            const abortedMsg: LocalMessage = {
-              id: messageId, st: 'otter', si: otterId,
-              content: data.body ?? '[用户中断]', status: 'aborted', ts: nowTs(), dur: null,
-              events: liveEvents,
-            }
-            setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], abortedMsg) }))
+          const abortedMsg: LocalMessage = {
+            id: messageId, st: 'otter', si: otterId,
+            content: data.body ?? '[用户中断]', status: 'aborted', ts: nowTs(), dur: null,
+            events: liveEvents.length > 0 ? liveEvents : undefined,
           }
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], abortedMsg) }))
           showToast('回复已中断', 'info')
           liveEventsMap.delete(messageId)
-          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
+          liveMeta.delete(messageId)
         },
         'message.failed': (data) => {
           /** 失败消息：body 来自 SSE 事件（服务端 sendMessage.fail 存储的失败原因） */
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
-          const streamingEntry = streamingMapRef.current.get(messageId)
-          const otterId = streamingEntry?.otterId || ''
+          const otterId = liveMeta.get(messageId)?.otterId || ''
           const failedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
             content: data.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
@@ -337,7 +324,7 @@ function ConversationPage() {
           }
           setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
           liveEventsMap.delete(messageId)
-          setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
+          liveMeta.delete(messageId)
         },
         'system.message': (data) => {
           const sysMsg: LocalMessage = {
@@ -349,7 +336,6 @@ function ConversationPage() {
         'agent.idle': () => { /* 信息性事件，不做处理 */ },
       }, { onError: () => {
         showToast('SSE 连接中断', 'error')
-        setStreamingMap(new Map())
         /** SSE 中断不代表发言停止（刷新≠停止）：拉取快照播种进行中消息，让轮询续看接管 */
         if (activeId) refreshMessages(activeId)
       }, onDone: () => {
@@ -366,14 +352,25 @@ function ConversationPage() {
       sseCtrlRef.current = ctrl
     } catch (err) {
       console.error('Failed to send message:', err)
-      showToast('发送失败', 'error'); setStreamingMap(new Map())
+      showToast('发送失败', 'error')
     }
   }, [activeId, activeOtters, refreshMessages])
 
   const stopStream = useCallback((messageId: string) => {
     api.abortMessage(messageId).catch((err) => console.error('Failed to abort message:', err))
-    setStreamingMap(prev => { const next = new Map(prev); next.delete(messageId); return next })
-  }, [])
+    /** 乐观更新为已中断（终态）；若 abort 失败或服务端另有状态，下一轮轮询快照会纠正 */
+    if (!activeId) return
+    setAllMessages(prev => {
+      const list = prev[activeId]
+      if (!list?.some(m => m.id === messageId)) return prev
+      return {
+        ...prev,
+        [activeId]: list.map(m => m.id === messageId && isInFlight(m)
+          ? { ...m, status: 'aborted' as const, content: m.content || '[用户中断]' }
+          : m),
+      }
+    })
+  }, [activeId])
 
   const handleSelectConv = useCallback((id: string) => { setActiveId(id); setPageState('normal') }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
@@ -548,7 +545,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={streamingMap} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
