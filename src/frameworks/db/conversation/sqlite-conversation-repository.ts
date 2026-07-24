@@ -230,6 +230,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     let sql = "SELECT * FROM messages WHERE conversation_id = ?";
     if (options.before) { sql += " AND sequence_num < (SELECT sequence_num FROM messages WHERE id = ?)"; params.push(options.before); }
     if (options.status) { sql += " AND status = ?"; params.push(options.status); }
+    if (options.senderType) { sql += " AND sender_type = ?"; params.push(options.senderType); }
     if (options.turnId) { sql += " AND turn_id = ?"; params.push(options.turnId); }
     sql += " ORDER BY sequence_num DESC LIMIT ?";
     params.push(limit);

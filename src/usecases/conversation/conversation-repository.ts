@@ -11,12 +11,14 @@ import type {
   Message,
   MessageEvent,
   MessageStatus,
+  SenderType,
 } from "@entities/conversation/message";
 
 export interface GetMessagesOptions {
   limit?: number;
   before?: string;
   status?: MessageStatus;
+  senderType?: SenderType;
   turnId?: string;
 }
 
