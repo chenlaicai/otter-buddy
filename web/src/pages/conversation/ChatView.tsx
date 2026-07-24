@@ -1,12 +1,11 @@
 import { FilePlus, Check, Archive } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
-import { MessageList, type StreamingState } from './MessageList'
+import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
 
 interface ChatViewProps {
   conversation: Conversation | null
   messages: Message[]
-  streamingMessages: Map<string, StreamingState>
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
   onSend: (text: string, mentionOtterId?: string) => void
   onStopStream: (messageId: string) => void
@@ -70,7 +69,6 @@ export function ChatView(props: ChatViewProps) {
       {/* Message List */}
       <MessageList
         messages={props.messages}
-        streamingMessages={props.streamingMessages}
         state={props.state}
         onStopStream={props.onStopStream}
         onRetry={props.onRetry}
