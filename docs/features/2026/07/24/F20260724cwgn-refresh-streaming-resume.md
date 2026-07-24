@@ -97,6 +97,18 @@ A1（断开测试空转）改写为真实 cancel response body 的回归测试�
   流式过程默认展开、停止按钮）；streamingMap 状态随之移除，SSE 闭包内改用
   liveMeta/liveEventsMap 两个局部 Map
 
+第三轮终审遗留修复：
+- M4：stopStream 乐观置 aborted 后轮询停止，abort 失败/409 时消息永久卡在"已中断"——
+  abort 请求 settle 后拉取快照，该消息以服务端为权威收敛（其余消息走常规合并），
+  所有路径（abort 生效/丢失/已终态）均可收敛
+- M7：统一通道后实时流式期间轮询常开，快照 events 因持久化滞后瞬态更少——
+  mergeMessages 双方进行中时保留 events 更长的一方
+- N6：删除只写不读的 sseCtrlRef（dead code）
+- N7：无 messageId 的 error 消息会被 merge 丢弃——改 err- 前缀并在 merge 中保留本地孤儿消息
+- 记录在案的瞬态（≤2s 自收敛，不处理）：M5 message.start append 顺序因 getById 竞态
+  瞬态偏离 DB sequence；M6 tmp 用户消息无 turnId 导致分隔线瞬态错位；
+  N5 StreamingProcess 完成后保持展开（可视为有意）
+
 ## 兼容性
 
 - API：`POST /messages/:id/abort` 对终态消息从 202 改为 409（此前调用无实际效果，属错误用法显式化）；其余无变更（DTO 本已携带 status，前端此前未消费）。

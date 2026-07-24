@@ -61,18 +61,25 @@ function isTerminal(m: LocalMessage): boolean {
 /**
  * 轮询快照与本地列表合并：
  * - 过期快照不回退本地已终态的消息（响应在 message.complete 之前发出、之后到达）
- * - 保留尚未上服务器的本地乐观消息（tmp- 前缀）；快照中已存在等价消息（同发送者同内容）时丢弃 tmp 副本
+ * - 双方均进行中时，保留 events 更长的一方（appendEvent 持久化滞后于 SSE，快照 events 可能瞬态更少）
+ * - 保留尚未上服务器的本地乐观消息（tmp-/err- 前缀）；快照中已存在等价消息（同发送者同内容）时丢弃 tmp 副本
  */
 function mergeMessages(current: LocalMessage[], snapshot: LocalMessage[]): LocalMessage[] {
   const currentById = new Map(current.map(m => [m.id, m]))
   const snapshotIds = new Set(snapshot.map(m => m.id))
   const merged = snapshot.map(sm => {
     const local = currentById.get(sm.id)
-    return local && isTerminal(local) && isInFlight(sm) ? local : sm
+    if (local && isTerminal(local) && isInFlight(sm)) return local
+    if (local && isInFlight(local) && isInFlight(sm) && (local.events?.length ?? 0) > (sm.events?.length ?? 0)) {
+      return { ...sm, events: local.events }
+    }
+    return sm
   })
   const persisted = (tmp: LocalMessage) =>
     snapshot.some(sm => sm.st === tmp.st && sm.si === tmp.si && sm.content === tmp.content)
-  return [...merged, ...current.filter(m => m.id.startsWith('tmp-') && !snapshotIds.has(m.id) && !persisted(m))]
+  const isLocalOnly = (m: LocalMessage) =>
+    (m.id.startsWith('tmp-') && !persisted(m)) || m.id.startsWith('err-')
+  return [...merged, ...current.filter(m => !snapshotIds.has(m.id) && isLocalOnly(m))]
 }
 
 function ConversationPage() {
@@ -93,7 +100,6 @@ function ConversationPage() {
   }>({ type: 'none' })
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
 
-  const sseCtrlRef = useRef<AbortController | null>(null)
   const ciCounter = useRef(1)
 
   // 定时任务 Hook
@@ -225,8 +231,7 @@ function ConversationPage() {
         })
       }
 
-      const ctrl = consumeSSE(response, {
-        'message.start': (data) => {
+      consumeSSE(response, {        'message.start': (data) => {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
           liveMeta.set(messageId, { otterId, otterName })
@@ -278,7 +283,7 @@ function ConversationPage() {
         'error': (data) => {
           const { messageId, otterId } = data
           const errMsg: LocalMessage = {
-            id: messageId || crypto.randomUUID(), st: 'otter', si: otterId || 'unknown',
+            id: messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: otterId || 'unknown',
             content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
@@ -349,7 +354,6 @@ function ConversationPage() {
           }).catch(() => {})
         }
       } })
-      sseCtrlRef.current = ctrl
     } catch (err) {
       console.error('Failed to send message:', err)
       showToast('发送失败', 'error')
@@ -357,9 +361,9 @@ function ConversationPage() {
   }, [activeId, activeOtters, refreshMessages])
 
   const stopStream = useCallback((messageId: string) => {
-    api.abortMessage(messageId).catch((err) => console.error('Failed to abort message:', err))
-    /** 乐观更新为已中断（终态）；若 abort 失败或服务端另有状态，下一轮轮询快照会纠正 */
     if (!activeId) return
+    /** 乐观更新为已中断（即时反馈）；随后以服务端为该消息的权威状态收敛——
+     *  abort 失败/409（已终态）时本地乐观值可能被纠正回 streaming/completed */
     setAllMessages(prev => {
       const list = prev[activeId]
       if (!list?.some(m => m.id === messageId)) return prev
@@ -370,6 +374,22 @@ function ConversationPage() {
           : m),
       }
     })
+    api.abortMessage(messageId)
+      .catch((err) => console.error('Failed to abort message:', err))
+      .finally(async () => {
+        try {
+          const snapshot = mapMessageDTOs(await api.listMessages(activeId, 100))
+          const serverMsg = snapshot.find(m => m.id === messageId)
+          setAllMessages(prev => {
+            const merged = mergeMessages(prev[activeId] || [], snapshot)
+            /** 该消息以服务端为准（abort 是否生效只有服务端知道），其余消息走常规合并 */
+            const next = serverMsg ? merged.map(m => m.id === messageId ? serverMsg : m) : merged
+            return { ...prev, [activeId]: next }
+          })
+        } catch (err) {
+          console.error('Failed to resync after abort:', err)
+        }
+      })
   }, [activeId])
 
   const handleSelectConv = useCallback((id: string) => { setActiveId(id); setPageState('normal') }, [])
