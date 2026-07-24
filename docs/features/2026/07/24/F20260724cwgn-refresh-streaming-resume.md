@@ -135,8 +135,49 @@ A1（断开测试空转）改写为真实 cancel response body 的回归测试�
   插入，并发 otter start 乱序到达立即归位（不再依赖轮询收敛）；
   顺带对齐 SSE 契约（otterName/body/turnId 补入 SSEEventMap，消除 5 个存量 tsc 错误）
 - M6（瞬态根治）：message.complete 时为同 turn 的 tmp 用户消息补戳 turnId，
-  分隔线立即出现在正确位置
+  分隔线立即出现在正确位置（第五轮收尾：仅在恰好一条未戳 tmp 时补戳，
+  多条并发 tmp 到达顺序未必等于发送顺序，留给轮询快照纠正，消除跨连接错戳）
 - N5：StreamingProcess 按 status remount，完成后自动折叠，行为统一
+  （第五轮收尾：remount key 改为 inFlight 布尔，streaming→speaking 不再 remount，
+  进行中的手动折叠状态不受轮询打扰）
+
+## 边界分析与处理决策
+
+### closeOrphanedTurns 的 NOT IN NULL 理论边界（第五轮发现，决策：不加防御代码）
+
+`closeOrphanedTurns` 使用 `id NOT IN (SELECT DISTINCT turn_id ...)`。SQL 三值逻辑下，
+子查询结果若含 NULL，`NOT IN` 对任何行都不为 TRUE → 一个 turn 都关不掉（保守失败方向）。
+
+**触发条件**：`messages.turn_id` 为 NULL 的进行中消息。当前 schema `turn_id NOT NULL`，
+仅远古手工 `ALTER TABLE` 迁移的老库可能有 NULL 历史行——故称"理论边界"。
+
+**决策依据（不加防御）**：
+1. 调用顺序保证子查询恒为空：`reconcileOrphans` 先执行 `failInFlightMessages` 将所有
+   streaming/speaking 置 failed，`closeOrphanedTurns` 执行时子查询不可能有结果，
+   `NOT IN (空集)` 恒 TRUE，行为完全确定。
+2. 失败方向无害：即使触发，后果仅是某些 open turn 未关闭——正是 F4 修复前的现状，
+   且已验证孤儿 open turn 会被下一条消息自愈（ensureActiveTurn 复用 + tryCloseTurn），
+   无消费者出错。
+3. 失败是"少做"而非"做错"，不产生错误数据。
+
+如需彻底堵死，可在子查询加 `AND turn_id IS NOT NULL`（一行），但按上述分析无实际收益。
+
+### M6 多条并发 tmp 不补戳（决策：正确性让位于自愈）
+
+快速连发两条消息时存在两个独立 SSE 连接，complete 到达顺序未必等于 tmp 发送顺序，
+盲戳可能把 tmp1 错戳 turn2 的 turnId。决策：仅恰好一条未戳 tmp 时补戳；
+多条时不戳（分隔线瞬态缺失），≤2s 轮询快照用真实 DTO 替换 tmp 后自然正确。
+
+### 窗口外终态消息允许被 merge 丢弃（决策：与窗口语义一致）
+
+listMessages 只拉最近 100 条。终态消息掉出窗口后被 merge 丢弃、从 UI 消失——
+与整页重载的行为一致（重载也看不到第 101 条之外的），不算数据丢失。
+进行中消息不在此列（保留 + 定点拉取收敛，F2a），因为其状态必须跟踪到终态。
+
+### reconcile 失败不阻断启动（决策：可用性优先）
+
+reconcileOrphans try/catch 吞错（error 日志带堆栈）。理由：reconcile 是兜底修复，
+其失败不应让服务起不来；孤儿残留等同于本功能引入前的行为，不引入新风险。
 
 ## 兼容性
 
