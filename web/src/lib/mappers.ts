@@ -1,4 +1,4 @@
-import type { OtterDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO } from '@contract/api'
+import type { OtterDTO, ConversationDTO, ConversationListItemDTO, MessageDTO, OtterSessionDTO, LinkedResourceDTO, ParticipantDTO } from '@contract/api'
 
 /** 前端本地 Otter 类型（UI 渲染用） */
 export interface LocalOtter {
@@ -33,6 +33,8 @@ export interface LocalMessage {
   id: string
   st: 'user' | 'otter' | 'system'
   si: string
+  /** 发送者显示名（otter 消息来自后端投影，实时消息来自 message.start） */
+  sn?: string
   content: string
   /** 消息生命周期状态；仅历史查询（DTO）路径携带，SSE 实时构造的消息为 undefined（视同 completed/对应事件态） */
   status?: LocalMessageStatus
@@ -82,12 +84,12 @@ export function mapOtterDTO(dto: OtterDTO, ci?: number): LocalOtter {
   }
 }
 
-export function mapConversationDTO(dto: ConversationListItemDTO): LocalConversation {
+export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDTO): LocalConversation {
   return {
     id: dto.id,
     title: dto.title,
     status: dto.status as 'active' | 'completed' | 'archived',
-    otterIds: dto.otterIds,
+    otterIds: 'otterIds' in dto ? dto.otterIds : [],
   }
 }
 
@@ -96,6 +98,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     id: dto.id,
     st: dto.st as 'user' | 'otter' | 'system',
     si: dto.si,
+    sn: dto.sn,
     content: dto.content ?? '',
     status: dto.status as LocalMessageStatus,
     seq: dto.seq,
@@ -104,6 +107,18 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     ctx: dto.ctx,
     ctxMax: dto.ctxMax,
     turnId: dto.turnId,
+  }
+}
+
+/** 参与者 DTO → LocalOtter（ParticipantDTO 投影已含 type/roleName） */
+export function mapParticipantDTO(p: ParticipantDTO, ci = 0): LocalOtter {
+  return {
+    id: p.otterId,
+    name: p.otterName,
+    type: (p.otterType as 'big' | 'small') ?? 'small',
+    createdAt: '',
+    role: p.roleName ? { name: p.roleName, resp: [] } : undefined,
+    ci,
   }
 }
 

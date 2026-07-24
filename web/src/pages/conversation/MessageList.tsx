@@ -152,7 +152,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const isUser = m.st === 'user'
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
-  const name = isUser ? '我' : (otter?.name || 'Otter')
+  const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-400' : color?.nameClass || 'text-otter-500'
@@ -165,12 +165,24 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble"
         style={{ background: bgGrad }}
       >
-        {isUser ? '我' : (otter?.name?.charAt(0) || 'O')}
+        {isUser ? '我' : name.charAt(0)}
       </div>
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
           <span className="text-[11px] text-stone-300">{inFlight ? '正在回复...' : `${fmtTime(m.ts)}${dur}`}</span>
+          {/* token 条在主流程位置（#88），但 ctx 缺失（进行中/历史未持久化）时不渲染（M3） */}
+          {!isUser && m.ctx != null && (
+            <span className="flex items-center gap-1.5 text-[10px] text-stone-400 ml-1">
+              <span>{fmtTokens(m.ctx)} / {fmtTokens(m.ctxMax || 200000)}</span>
+              <span className="w-16 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
+                <span
+                  className="block h-full rounded-full"
+                  style={{ width: `${ctxPercent(m.ctx, m.ctxMax || 200000)}%`, background: '#8B6F47' }}
+                />
+              </span>
+            </span>
+          )}
         </div>
         <div
           className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble ${
@@ -201,17 +213,6 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
             </div>
           )}
         </div>
-        {!isUser && m.ctx != null && (
-          <div className="flex items-center gap-1.5 mt-1.5 px-1 text-[10px] text-stone-400">
-            <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 200000)}</span>
-            <div className="w-20 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${ctxPercent(m.ctx || 0, m.ctxMax || 200000)}%`, background: '#8B6F47' }}
-              />
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

@@ -76,26 +76,51 @@ describe("Message API", () => {
       body: "Hello otter",
     };
 
-    it("returns 400 when talkingStonePassedTo is empty", async () => {
+    it("accepts empty talkingStonePassedTo and dispatches to resolved target", async () => {
+      const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
+      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: "agent-msg-1", duration: 100 });
+
       const res = await app.request("/api/conversations/conv-1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...validBody, talkingStonePassedTo: [] }),
       });
 
-      expect(res.status).toBe(400);
-      const body = await json(res);
-      expect(body.error).toContain("talkingStonePassedTo");
+      expect(res.status).toBe(200);
+      expect(deps.sendMessageUseCase.send).toHaveBeenCalledWith({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "Hello otter",
+        attachments: undefined,
+      });
+      /** 钉住关键行为：首轮派发以持久化消息的解析结果为准，而不是请求体的空数组 */
+      await readSSEEvents(res);
+      expect(deps.agentInvoker.invokeConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ otterId: "otter-1" }),
+      );
     });
 
-    it("returns 400 when talkingStonePassedTo is missing", async () => {
+    it("treats missing talkingStonePassedTo as empty and forwards to usecase", async () => {
+      const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
+      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: "agent-msg-1", duration: 100 });
+
       const res = await app.request("/api/conversations/conv-1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senderId: "user-1", body: "Hello" }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      expect(deps.sendMessageUseCase.send).toHaveBeenCalledWith({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: [],
+        body: "Hello",
+        attachments: undefined,
+      });
     });
 
     it("returns 400 when senderId is missing", async () => {

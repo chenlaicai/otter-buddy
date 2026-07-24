@@ -16,6 +16,7 @@ import {
 } from "@entities/conversation/message";
 import { canAddMessageToTurn } from "@entities/conversation/conversation";
 import type { ConversationRepository } from "./conversation-repository";
+import type { OtterRepository } from "@usecases/otter/otter-repository";
 import { tryCloseTurn } from "./turn-utils";
 import type { TurnCloseResult } from "./turn-utils";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
@@ -76,6 +77,7 @@ export interface CompleteResult {
 export class SendMessage {
   constructor(
     private readonly _repo: ConversationRepository,
+    private readonly otterRepo: OtterRepository,
     private readonly memoryIndex: MemoryIndexGateway,
     private readonly logger: Logger,
   ) {}
@@ -87,8 +89,14 @@ export class SendMessage {
   async send(input: SendMessageInput): Promise<Message> {
     const senderType = input.senderType ?? "user";
 
+    /** 用户未指定目标（无 @）时，由领域规则解析默认派发目标 */
+    const talkingStonePassedTo =
+      senderType === "user" && input.talkingStonePassedTo.length === 0
+        ? await this.resolveDefaultTargets(input.conversationId)
+        : input.talkingStonePassedTo;
+
     /** UA-8: completed 消息必须传递发言石（system 豁免） */
-    if (!isValidTalkingStonePass(input.talkingStonePassedTo, "completed", senderType)) {
+    if (!isValidTalkingStonePass(talkingStonePassedTo, "completed", senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
     }
 
@@ -105,7 +113,7 @@ export class SendMessage {
       turnId: turn.id,
       senderType,
       senderId: input.senderId,
-      talkingStonePassedTo: input.talkingStonePassedTo,
+      talkingStonePassedTo,
       status: "completed",
       body: input.body,
       attachments: input.attachments ?? null,
@@ -347,6 +355,45 @@ export class SendMessage {
   /** 更新消息的 token 使用量（agent invoke 完成后补充写入） */
   async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
     await this._repo.updateTokenUsage(messageId, contextTokens, contextTokensMax);
+  }
+
+  /**
+   * 解析用户未指定目标时的默认派发对象：
+   * 1. 最后发言的 otter（任何状态的消息都算发言，含 failed/aborted），且仍在场、未解散
+   * 2. 兜底：在场且未解散的大獭（type=big）
+   * 两者都找不到说明对话参与者构成异常，抛出错误而不是退化为全员广播
+   *
+   * 注意：
+   * - 不回溯：最后发言者不可用时直接兜底大獭，不往前找倒数第二位发言者（按需求定义的两级优先级）
+   * - participant 的 active 不代表 otter 可派发（DissolveOtter 不会级联标记 participant 退场），
+   *   因此两个分支都必须校验 otter 实体状态
+   */
+  private async resolveDefaultTargets(conversationId: string): Promise<string[]> {
+    const participants = await this._repo.getActiveParticipants(conversationId);
+    const activeOtterIds = new Set(participants.map((p) => p.otterId));
+
+    const [lastOtterMsg] = await this._repo.getMessages(conversationId, {
+      senderType: "otter",
+      limit: 1,
+    });
+    if (lastOtterMsg && activeOtterIds.has(lastOtterMsg.senderId)) {
+      const lastSpeaker = await this.otterRepo.getById(lastOtterMsg.senderId);
+      if (lastSpeaker?.status === "active") {
+        return [lastSpeaker.id];
+      }
+    }
+
+    for (const p of participants) {
+      const otter = await this.otterRepo.getById(p.otterId);
+      if (otter?.type === "big" && otter.status === "active") {
+        return [otter.id];
+      }
+    }
+
+    throw new DomainError(
+      "Cannot resolve default dispatch target: no last speaker and no big otter among participants",
+      "validation",
+    );
   }
 
   /** 确保活跃 Turn 存在，无则创建新 Turn */

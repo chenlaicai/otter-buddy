@@ -173,6 +173,12 @@ export class AgentInvoker {
         });
       }
 
+      /** SDK 可能吞掉 abort 正常返回：未达 speaking 且有中断标记时，走 abort 路径而非 speak 重试 */
+      if (this.abortedMessages.has(message.id)) {
+        await this.handleInvokeError(message.id, otterId, new Error("Invocation aborted by user"), onSSEEvent, senderId);
+        return { messageId: message.id, duration: Date.now() - startTime };
+      }
+
       /** agent 未调 speak → 重试机制 */
       return await this.handleSpeakRetry({
         messageId: message.id, otterId, conversationId, userMessageContent,
@@ -316,7 +322,9 @@ export class AgentInvoker {
       } catch {
         /** abort() 出错时不覆盖原始错误 */
       }
-      onSSEEvent?.({ event: "message.aborted", data: { messageId, body } });
+      /** 携带 otter 身份：前端可能在 abort 前已乐观清除 streaming entry，无法本地解析名称 */
+      const otter = await this.queryOtter.getById(otterId);
+      onSSEEvent?.({ event: "message.aborted", data: { messageId, body, otterId, otterName: otter?.name } });
     } else {
       /** error 路径：标记失败，发送 error SSE 事件 */
       const msg = err instanceof Error ? err.message : "Unknown error";

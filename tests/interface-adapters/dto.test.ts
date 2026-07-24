@@ -47,6 +47,19 @@ describe("MessageDTO", () => {
     expect(dto.st).toBe("otter");
   });
 
+  it("includes sn when senderName provided, omits otherwise", () => {
+    const msg: Message = {
+      id: "msg-3", conversationId: "conv-1", turnId: "turn-1",
+      senderType: "otter", senderId: "otter-1",
+      talkingStonePassedTo: ["user-1"], status: "completed",
+      body: "你好", attachments: null,
+      sequenceNum: 3, contextTokens: null, contextTokensMax: null,
+      createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+    };
+    expect(toMessageDTO(msg, "小獭").sn).toBe("小獭");
+    expect(toMessageDTO(msg).sn).toBeUndefined();
+  });
+
   it("maps MessageEvent entity to DTO", () => {
     const evt: MessageEvent = {
       id: "evt-1", messageId: "msg-1",
@@ -84,6 +97,20 @@ describe("ConversationDTO", () => {
     expect(dto.otterId).toBe("otter-1");
     expect(dto.otterName).toBe("Big Otter");
     expect(dto.status).toBe("active");
+    expect(dto.otterType).toBeUndefined();
+  });
+
+  it("passes through otterType and roleName", () => {
+    const p: ConversationParticipant = {
+      id: "p-2", conversationId: "conv-1", otterId: "otter-2",
+      joinedAtTurnId: null, joinedAtTurnNumber: 0,
+      leftAtTurnId: null, leftAtTurnNumber: null,
+      status: "active", createdAt: "2026-07-16T00:00:00Z", leftAt: null,
+      lastReadTurnNumber: 0,
+    };
+    const dto = toParticipantDTO(p, "小獭", { otterType: "small", roleName: "审查獭" });
+    expect(dto.otterType).toBe("small");
+    expect(dto.roleName).toBe("审查獭");
   });
 });
 
@@ -122,8 +149,23 @@ describe("MemoryDTO", () => {
     };
     const dto = toMemoryEntryDTO(entry, 0.95, "both");
     expect(dto.id).toBe("mem-1");
+    expect(dto.layer).toBe("working");
     expect(dto.score).toBe(0.95);
     expect(dto.source).toBe("both");
+    expect(dto.userFlagged).toBeUndefined();
+  });
+
+  it("passes through userFlagged when present", () => {
+    const entry: MemoryEntry & { userFlagged?: boolean } = {
+      id: "mem-2", layer: "historical", contentType: "message",
+      sourceId: "msg-2", sourceTable: "messages", conversationId: "conv-1",
+      granularity: "fine", content: "Hello", metadata: null,
+      createdAt: "2026-07-16T00:00:00Z",
+      userFlagged: true,
+    };
+    const dto = toMemoryEntryDTO(entry);
+    expect(dto.layer).toBe("historical");
+    expect(dto.userFlagged).toBe(true);
   });
 });
 

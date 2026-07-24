@@ -34,7 +34,7 @@ export interface ToolContext {
 function createSpeakTool(ctx: ToolContext): AgentTool {
   return {
     name: "speak",
-    description: "声明本次发言内容和发言石目标。调用后 agent loop 继续运行直到结束，消息才真正完成。",
+    description: "结束你的发言并指定下一位发言者，这是你回合的最后一个动作。你的发言内容全部放在 body 里；speak 之后的任何输出都不会被展示，纯属浪费 token。调用成功后：不再调用任何工具，也不输出任何文字（确认语、总结、解释全部禁止），直接结束回合。每次回复只调用一次。",
     parameters: {
       type: "object",
       properties: {
@@ -42,7 +42,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言权交给谁。规则：(1) 如果你的答复是回应用户的，传用户 ID 'user'；(2) 如果你需要指定某个 Otter 接手，传该 Otter 的 ID；(3) 不能传自己的 otterId。用 get_active_participants 查询在场成员。",
+          description: "发言权交给谁（必须用 otterId 或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要人类接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的 otterId（不是名字）；(3) 不能传自己的 otterId。不确定在场成员时先调 get_active_participants。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -65,13 +65,22 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         return textResponse(`[错误] 不能把发言石传给自己（${ctx.otterId}）。请先调用 get_active_participants 获取在场成员，然后选择其他参与者。`);
       }
 
+      /** 目标必须是在场参与者或 'user'：非法目标会被 dispatcher 静默丢弃（链条无声终止） */
+      const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
+      const validIds = new Set([...active.map(p => p.otterId), "user"]);
+      const invalid = recipients.filter(id => !validIds.has(id));
+      if (invalid.length > 0) {
+        const options = [...active.map(p => `${p.otterName}(${p.otterId})`), "人类操作者('user')"].join("、");
+        return textResponse(`[错误] 发言石目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的 otterId 重新调用 speak。`);
+      }
+
       try {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return textResponse(`[错误] 发言声明失败：${msg}。请重试。`);
       }
-      return textResponse("[系统] 发言已提交成功。你的回合正式结束，直接结束本 loop，不要做任何回应。系统将自动调度下一位发言者。");
+      return textResponse("[系统控制信号] 发言已提交成功，回合结束。本条不是对话内容，无需也不应回应：不要输出任何文字（确认语、总结、解释均禁止），不要再调用任何工具。你的发言已全部包含在 body 中，之后的输出没有观众。系统将自动调度下一位发言者。");
     },
   };
 }
@@ -101,7 +110,7 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: "检索记忆。支持渐进式披露：detail_level 控制返回详细程度。summary 返回首句，snippet 返回匹配片段（默认），full 返回完整内容。可指定 library 路由到特定库",
+    description: "检索记忆。有明确历史信号时才检索（用户提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。渐进式披露：先 summary/snippet 定位相关条目，再用 get_memory_detail 深入。可指定 library 路由到特定库。记忆与当前上下文冲突时以当前上下文为准。",
     parameters: {
       type: "object",
       properties: {
@@ -382,7 +391,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话中所有活跃参与者。返回参与者列表（含 otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。",
+    description: "获取当前对话中所有活跃参与者（含 otterId、otterName、status、joinedAtTurnNumber）。必须使用本工具确认在场的场景：(1) 决定 speak 的 talkingStonePassedTo 之前；(2) 创建新 Otter 之前（避免重复创建）；(3) 任何需要确认谁在场时。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {},

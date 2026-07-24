@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
+import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { isInFlight, upsertMessage, insertBySeq, mergeMessages } from '../../lib/message-stream'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
@@ -103,7 +103,7 @@ function ConversationPage() {
       // 更新 allOtters，按对话存储
       setAllOtters(prev => ({
         ...prev,
-        [convId]: participants.map(p => ({ id: p.otterId, name: p.otterName, ci: 0 })),
+        [convId]: participants.map(p => mapParticipantDTO(p)),
       }))
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
@@ -172,10 +172,8 @@ function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
-    const targetOtterIds = mentionOtterId
-      ? [mentionOtterId]
-      : activeOtters.map(o => o.id)
-    if (targetOtterIds.length === 0) { showToast('没有可用的 Otter', 'error'); return }
+    /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
+    const targetOtterIds = mentionOtterId ? [mentionOtterId] : []
 
     const userMsg: LocalMessage = {
       id: 'tmp-' + Date.now(), st: 'user', si: 'user',
@@ -218,10 +216,18 @@ function ConversationPage() {
           liveMeta.set(messageId, { otterId, otterName })
           /** 进行中消息按服务端 sequence 插入消息流（M5：跨 otter 并发时序正确；同 id 原位替换兼容轮询快照） */
           const placeholder: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId,
+            id: messageId, st: 'otter', si: otterId, sn: otterName,
             content: '', status: 'streaming', seq: data.seq, ts: nowTs(), dur: null, events: [],
           }
           setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
+          /** 确保发言者在参与者列表中（流中途 create_otter 的新獭）；fill-only，不覆盖已有条目 */
+          if (otterId && activeId) {
+            setAllOtters(prev => {
+              const convOtters = prev[activeId] || []
+              if (convOtters.some(o => o.id === otterId)) return prev
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '', ci: 0 }] }
+            })
+          }
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data
@@ -247,10 +253,11 @@ function ConversationPage() {
         'message.complete': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
-          const otterId = liveMeta.get(messageId)?.otterId || ''
+          const meta = liveMeta.get(messageId)
+          const otterId = meta?.otterId || ''
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId,
+            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
             content: data.body ?? '', status: 'completed', ts: nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
@@ -291,17 +298,19 @@ function ConversationPage() {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
           const meta = liveMeta.get(messageId)
-          const otterId = meta?.otterId || ''
+          /** 身份以 SSE 事件为准（服务端已携带），liveMeta 作回退 */
+          const otterId = data.otterId || meta?.otterId || ''
+          const otterName = data.otterName ?? meta?.otterName
           /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
-          if (otterId && meta?.otterName && activeId) {
+          if (otterId && otterName && activeId) {
             setAllOtters(prev => {
               const convOtters = prev[activeId] || []
               if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: meta.otterName!, ci: 0 }] }
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '', ci: 0 }] }
             })
           }
           const abortedMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId,
+            id: messageId, st: 'otter', si: otterId, sn: otterName,
             content: data.body ?? '[用户中断]', status: 'aborted', ts: nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
@@ -314,9 +323,10 @@ function ConversationPage() {
           /** 失败消息：body 来自 SSE 事件（服务端 sendMessage.fail 存储的失败原因） */
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
-          const otterId = liveMeta.get(messageId)?.otterId || ''
+          const meta = liveMeta.get(messageId)
+          const otterId = meta?.otterId || ''
           const failedMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId,
+            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
             content: data.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
@@ -342,7 +352,7 @@ function ConversationPage() {
           api.getParticipants(activeId).then(participants => {
             setAllOtters(prev => ({
               ...prev,
-              [activeId]: participants.map(p => ({ id: p.otterId, name: p.otterName, ci: 0 })),
+              [activeId]: participants.map(p => mapParticipantDTO(p)),
             }))
           }).catch(() => {})
         }

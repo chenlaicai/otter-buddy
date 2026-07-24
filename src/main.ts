@@ -193,7 +193,7 @@ function initUseCases(
   const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
-  const sendMessage = new SendMessage(repos.conversation, memoryIndex, logger);
+  const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
@@ -370,7 +370,7 @@ function initControllers(deps: ControllerDeps) {
   return {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
-    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, appConfig.circuitBreaker.maxChainDepth),
     memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
     settings: new SettingsController(deps.settings, deps.settingsRepo),

@@ -179,6 +179,19 @@ listMessages 只拉最近 100 条。终态消息掉出窗口后被 merge 丢弃�
 reconcileOrphans try/catch 吞错（error 日志带堆栈）。理由：reconcile 是兜底修复，
 其失败不应让服务起不来；孤儿残留等同于本功能引入前的行为，不引入新风险。
 
+## 与 #86/#88 的集成（merge main 2026-07-24）
+
+main 的 #86（无 @ 默认派发）与 #88（名称投影 sn、发言链深度、Skill 信道、发言石路由、
+对话 UX）与本 PR 大面积交织，合并时按以下原则整合：
+- 统一渲染通道保持不变：#88 的 streamingMap + 按对话过滤方案被本 PR 的 allMessages
+  单通道取代（A5 串台问题的两种解法中取更彻底的一种）
+- #88 的名称投影融入单通道：placeholder/finalMsg/failedMsg/abortedMsg 均携带 sn；
+  message.aborted 身份以 SSE 事件为准（服务端已携带 otterId/otterName），liveMeta 作回退
+- #88 的 token 条头部位置保留，叠加本 PR 的 ctx 缺失不渲染守卫（M3）
+- #88 的 fill-only 参与者补充（流中途新獭进名册）在 message.start 中保留
+- agent-invoker 新增的"SDK 吞 abort"检查适配 abortedMessages 键控（F3）
+- #88 修复了 web 存量 tsc 错误并将 `tsc --noEmit` 纳入 build，本 PR 合并后 web tsc 零错误
+
 ## 兼容性
 
 - API：`POST /messages/:id/abort` 对终态消息从 202 改为 409（此前调用无实际效果，属错误用法显式化）；

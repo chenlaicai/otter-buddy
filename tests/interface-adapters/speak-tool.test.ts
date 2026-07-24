@@ -1,0 +1,61 @@
+import { describe, it, expect } from "vitest";
+import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+
+function makeSpeakTool(participants: Array<{ otterId: string; otterName: string }>) {
+  const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
+  const client = {
+    conversation: {
+      participant: {
+        getActive: async () => participants.map(p => ({ otterId: p.otterId, otterName: p.otterName })),
+      },
+      message: {
+        startSpeaking: async (_id: string, input: { body: string; talkingStonePassedTo: string[] }) => {
+          speakingCalls.push(input);
+        },
+      },
+    },
+  } as unknown as OtterToolClient;
+
+  const ctx: ToolContext = { client, otterId: "otter-self", conversationId: "conv-1", currentMessageId: "msg-1" };
+  const speak = createTools(ctx).find(t => t.name === "speak")!;
+  return { speak, speakingCalls };
+}
+
+const PARTICIPANTS = [
+  { otterId: "otter-self", otterName: "小獭" },
+  { otterId: "otter-big", otterName: "大獭" },
+];
+
+describe("speak 工具发言石目标校验", () => {
+  it("合法目标（在场 otterId 与 'user'）正常提交", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS);
+
+    const r1 = await speak.execute("c1", { body: "给大獭", talkingStonePassedTo: ["otter-big"] });
+    expect(r1.content[0].text).toContain("发言已提交成功");
+    expect(speakingCalls[0].talkingStonePassedTo).toEqual(["otter-big"]);
+
+    const r2 = await speak.execute("c2", { body: "交还人类", talkingStonePassedTo: ["user"] });
+    expect(r2.content[0].text).toContain("发言已提交成功");
+    expect(speakingCalls[1].talkingStonePassedTo).toEqual(["user"]);
+  });
+
+  it("非法目标返回错误并附可用名单，不提交发言", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS);
+
+    const res = await speak.execute("c1", { body: "给不存在的人", talkingStonePassedTo: ["otter-ghost"] });
+    const text = res.content[0].text;
+    expect(text).toContain("[错误]");
+    expect(text).toContain("otter-ghost");
+    expect(text).toContain("大獭(otter-big)");
+    expect(text).toContain("'user'");
+    expect(speakingCalls).toHaveLength(0);
+  });
+
+  it("传给自己仍然被拒绝", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS);
+    const res = await speak.execute("c1", { body: "自言自语", talkingStonePassedTo: ["otter-self"] });
+    expect(res.content[0].text).toContain("[错误]");
+    expect(speakingCalls).toHaveLength(0);
+  });
+});

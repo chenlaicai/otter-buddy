@@ -14,7 +14,7 @@ function duration(createdAt: string, completedAt: string | null): string | null 
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-export function toMessageDTO(msg: Message): MessageDTO {
+export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
   return {
     id: msg.id,
     st: msg.senderType,
@@ -27,6 +27,7 @@ export function toMessageDTO(msg: Message): MessageDTO {
     tsp: msg.talkingStonePassedTo,
     turnId: msg.turnId,
     attachments: msg.attachments,
+    ...(senderName !== undefined && { sn: senderName }),
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),
   };

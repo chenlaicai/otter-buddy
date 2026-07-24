@@ -93,8 +93,8 @@ export class ConversationController {
     try {
       const id = param(c, "id");
       const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
-      return c.json(participantsWithOtter.map(({ participant, otterName }) =>
-        toParticipantDTO(participant, otterName)
+      return c.json(participantsWithOtter.map(({ participant, otterName, otterType, roleName }) =>
+        toParticipantDTO(participant, otterName, { otterType, roleName })
       ));
     } catch (err) {
       return handleError(c, err);
