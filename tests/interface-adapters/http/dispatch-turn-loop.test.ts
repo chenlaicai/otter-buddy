@@ -27,7 +27,7 @@ function makeLogger() {
 function makeSendMessageUseCase() {
   const systemBodies: string[] = [];
   const useCase = {
-    send: async () => ({ id: "user-msg-1" }),
+    send: async () => ({ id: "user-msg-1", talkingStonePassedTo: ["otter-x"] }),
     sendSystem: async (_convId: string, body: string) => {
       systemBodies.push(body);
       return { id: "sys-msg-1", body };
