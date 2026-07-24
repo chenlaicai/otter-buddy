@@ -198,11 +198,24 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async failInFlightMessages(failedAt: string, body: string): Promise<number> {
-    /** speaking 消息保留已有 speak body（COALESCE），streaming 消息（body 为 null）写入失败说明 */
+    /** streaming（body 为 null）写入中断说明；speaking 保留已有 speak body 但加中断标记前缀，
+     *  避免半截 body 被其它 otter 当作完整发言读入上下文（F5） */
     const result = this.db.prepare(`
-      UPDATE messages SET status = 'failed', body = COALESCE(body, ?), completed_at = ?
+      UPDATE messages SET status = 'failed',
+        body = CASE WHEN body IS NULL THEN ? ELSE ? || char(10) || char(10) || body END,
+        completed_at = ?
       WHERE status IN ('streaming', 'speaking')
-    `).run(body, failedAt);
+    `).run(body, body, failedAt);
+    return result.changes;
+  }
+
+  async closeOrphanedTurns(closedAt: string): Promise<number> {
+    const result = this.db.prepare(`
+      UPDATE turns SET status = 'closed', closed_at = ?
+      WHERE status = 'open' AND id NOT IN (
+        SELECT DISTINCT turn_id FROM messages WHERE status IN ('streaming', 'speaking')
+      )
+    `).run(closedAt);
     return result.changes;
   }
 

@@ -141,7 +141,8 @@ export class AgentInvoker {
     });
 
     const otter = await this.queryOtter.getById(otterId);
-    onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId } });
+    /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确） */
+    onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId, seq: message.sequenceNum } });
 
     try {
       const { result } = await this.executeAgentInvocation({

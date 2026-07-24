@@ -120,16 +120,30 @@ A1（断开测试空转）改写为真实 cancel response body 的回归测试�
   （该 aborted 的变 failed、该 failed 的变 aborted）——改为按 messageId 键控
   （abortedMessages），四个使用点均有 messageId 可用
 - F7：发送失败的 tmp 幻影消息被 merge 永久保留——发送失败时移除 tmp 消息
-- 记录在案（后续项）：F4 孤儿 turn 不关闭（下条消息自愈，无消费者出错）；F5 reconcile
-  产物进入其它 otter 上下文（getUnreadMessages 无 status 过滤，pre-existing，涉产品决策）；
-  F6 tmp 内容等价误判（连发两条相同内容，低概率瞬态）；F8 前端零测试基建（需独立引入）；
-  F9 启动 reconcile 无 try/catch（fail-fast 可辩护）
+
+第四轮遗留项全部清零（"遗留=不做"）：
+- F4：启动 reconcile 新增 closeOrphanedTurns——无进行中消息的 open turn 一律关闭，
+  恢复"open = 有进行中发言"不变量
+- F5：reconcile 对 speaking 半截 body 加中断标记前缀（不再被当作完整发言）；
+  getUnreadMessages 排除 streaming/speaking 半成品（真实 SQL 测试锁定）
+- F6：tmp 去重改多重集匹配（连发相同内容各抵一条，不误判）
+- F8：web 引入 vitest；消息流纯函数提取至 web/src/lib/message-stream.ts
+  （isInFlight/isTerminal/upsertMessage/insertBySeq/mergeMessages），16 个单测覆盖
+  M1/M2/M5/M7/N1/N7/F2a/F6 全部合并规则
+- F9：reconcile 抽为 usecases 层 reconcileOrphans()，try/catch 失败不阻断启动
+- M5（瞬态根治）：message.start SSE 携带 seq，占位消息 insertBySeq 按服务端 sequence
+  插入，并发 otter start 乱序到达立即归位（不再依赖轮询收敛）；
+  顺带对齐 SSE 契约（otterName/body/turnId 补入 SSEEventMap，消除 5 个存量 tsc 错误）
+- M6（瞬态根治）：message.complete 时为同 turn 的 tmp 用户消息补戳 turnId，
+  分隔线立即出现在正确位置
+- N5：StreamingProcess 按 status remount，完成后自动折叠，行为统一
 
 ## 兼容性
 
-- API：`POST /messages/:id/abort` 对终态消息从 202 改为 409（此前调用无实际效果，属错误用法显式化）；其余无变更（DTO 本已携带 status，前端此前未消费）。
-- 行为变更：刷新/断开 SSE 不再（尝试）中止 agent 发言——此前该 abort 从未生效，故无实际行为回退风险。
-- 持久化：无 schema 变更；启动 reconcile 一次性将历史孤儿消息置为 failed（可视为数据修复）。
+- API：`POST /messages/:id/abort` 对终态消息从 202 改为 409（此前调用无实际效果，属错误用法显式化）；
+  `message.start` SSE 事件新增 `seq` 字段（可选，向后兼容）；DTO 本已携带 status（前端此前未消费）。
+- Agent 上下文：getUnreadMessages 不再包含 streaming/speaking 半成品消息（半成品本不该被读到）。
+- 持久化：无 schema 变更；启动 reconcile 一次性将历史孤儿消息置为 failed、孤儿 turn 关闭（数据修复）。
 - 重启语义：启动即 reconcile 意味着"重启 = 所有进行中发言中断"（进程消失必然如此，只是显式化）。
 
 ## 后续可选

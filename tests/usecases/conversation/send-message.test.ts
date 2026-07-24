@@ -109,6 +109,7 @@ function mockRepo(opts: {
       failedMessages.push({ id, failedAt, body });
     }),
     failInFlightMessages: vi.fn(async () => 0),
+    closeOrphanedTurns: vi.fn(async () => 0),
     abortMessage: vi.fn(async (id: string, body: string, talkingStonePassedTo: string[], abortedAt: string) => {
       const msg = messages.get(id);
       if (msg) {

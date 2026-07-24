@@ -42,6 +42,7 @@ import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-
 import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import { migrateDatabase, migrateExistingData } from "@frameworks/db/migration";
+import { reconcileOrphans } from "@usecases/conversation/reconcile-orphans";
 import { SyncDocuments } from "@usecases/document/sync-documents";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { CreateOtter } from "@usecases/otter/create-otter";
@@ -462,9 +463,8 @@ async function main(): Promise<void> {
   const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
 
   const repos = initRepositories(db);
-  /** 服务重启兜底：遗留 streaming/speaking 消息置为 failed（重启后不存在活跃 agent，消息不可能再到达终态） */
-  const orphaned = await repos.conversation.failInFlightMessages(new Date().toISOString(), "[服务重启，发言中断]");
-  if (orphaned > 0) logger.warn(`Reconciled ${orphaned} orphaned in-flight message(s) to failed`);
+  /** 服务重启兜底：遗留进行中消息置 failed、孤儿 turn 关闭（重启后不存在活跃 agent） */
+  await reconcileOrphans(repos.conversation, logger);
   await syncDocuments(repos, embeddingService);
 
   /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */

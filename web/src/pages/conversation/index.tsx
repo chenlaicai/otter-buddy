@@ -4,6 +4,7 @@ import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
+import { isInFlight, upsertMessage, insertBySeq, mergeMessages } from '../../lib/message-stream'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -37,51 +38,6 @@ function mapMessageDTOs(msgs: Awaited<ReturnType<typeof api.listMessages>>): Loc
     }
     return local
   }).reverse()
-}
-
-/** 消息是否仍在生成中（刷新后用于轮询续看） */
-function isInFlight(m: LocalMessage): boolean {
-  return m.st === 'otter' && (m.status === 'streaming' || m.status === 'speaking')
-}
-
-/** 按 id 更新或追加（轮询快照与 SSE 事件可能携带同一条消息，避免重复） */
-function upsertMessage(list: LocalMessage[], msg: LocalMessage): LocalMessage[] {
-  const idx = list.findIndex(m => m.id === msg.id)
-  if (idx === -1) return [...list, msg]
-  const next = [...list]
-  next[idx] = msg
-  return next
-}
-
-/** 消息是否处于终态（completed/failed/aborted 或 SSE 构造的终态消息） */
-function isTerminal(m: LocalMessage): boolean {
-  return !isInFlight(m)
-}
-
-/**
- * 轮询快照与本地列表合并：
- * - 过期快照不回退本地已终态的消息（响应在 message.complete 之前发出、之后到达）
- * - 双方均进行中时，保留 events 更长的一方（appendEvent 持久化滞后于 SSE，快照 events 可能瞬态更少）
- * - 保留未上服务器或不在快照窗口内的本地消息：tmp-/err- 前缀消息、进行中消息
- *   （limit=100 窗口外的进行中消息若被丢弃会导致轮询停止、状态永不更新）；tmp 按内容等价去重
- * - 窗口外的终态消息允许被丢弃（与整页重载的窗口语义一致）
- */
-function mergeMessages(current: LocalMessage[], snapshot: LocalMessage[]): LocalMessage[] {
-  const currentById = new Map(current.map(m => [m.id, m]))
-  const snapshotIds = new Set(snapshot.map(m => m.id))
-  const merged = snapshot.map(sm => {
-    const local = currentById.get(sm.id)
-    if (local && isTerminal(local) && isInFlight(sm)) return local
-    if (local && isInFlight(local) && isInFlight(sm) && (local.events?.length ?? 0) > (sm.events?.length ?? 0)) {
-      return { ...sm, events: local.events }
-    }
-    return sm
-  })
-  const persisted = (tmp: LocalMessage) =>
-    snapshot.some(sm => sm.st === tmp.st && sm.si === tmp.si && sm.content === tmp.content)
-  const isLocalOnly = (m: LocalMessage) =>
-    (m.id.startsWith('tmp-') && !persisted(m)) || m.id.startsWith('err-') || isInFlight(m)
-  return [...merged, ...current.filter(m => !snapshotIds.has(m.id) && isLocalOnly(m))]
 }
 
 function ConversationPage() {
@@ -260,12 +216,12 @@ function ConversationPage() {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
           liveMeta.set(messageId, { otterId, otterName })
-          /** 进行中消息就地插入消息流——append 位置即创建时序（upsert 兼容轮询快照已带入的同 id 消息） */
+          /** 进行中消息按服务端 sequence 插入消息流（M5：跨 otter 并发时序正确；同 id 原位替换兼容轮询快照） */
           const placeholder: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
-            content: '', status: 'streaming', ts: nowTs(), dur: null, events: [],
+            content: '', status: 'streaming', seq: data.seq, ts: nowTs(), dur: null, events: [],
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], placeholder) }))
+          setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data
@@ -300,8 +256,23 @@ function ConversationPage() {
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
           }
-          /** upsert 原地替换 message.start 插入的占位消息，保持时序位置 */
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
+          /** upsert 原地替换 message.start 插入的占位消息，保持时序位置；
+           *  M6：同 turn 的 tmp 用户消息补戳 turnId（分隔线立即出现在正确位置，不等下轮快照） */
+          setAllMessages(prev => {
+            const list = upsertMessage(prev[activeId] || [], finalMsg)
+            if (!data.turnId) return { ...prev, [activeId]: list }
+            let stamped = false
+            return {
+              ...prev,
+              [activeId]: list.map(m => {
+                if (!stamped && m.id.startsWith('tmp-') && !m.turnId) {
+                  stamped = true
+                  return { ...m, turnId: data.turnId }
+                }
+                return m
+              }),
+            }
+          })
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
         },

@@ -62,6 +62,7 @@ function mockRepo(initialConversations: Map<string, Conversation> = new Map()): 
     completeMessage: vi.fn(),
     failMessage: vi.fn(),
     failInFlightMessages: vi.fn(async () => 0),
+    closeOrphanedTurns: vi.fn(async () => 0),
     abortMessage: vi.fn(),
     getMaxSequenceNum: vi.fn(async () => 0),
     getMessageById: vi.fn(async () => null),

@@ -189,11 +189,13 @@ export function getUnreadMessages(
 
   if (!participant) return [];
 
+  /** 排除 streaming/speaking 半成品（body 为 null 或半截 speak 内容，不应注入其它 otter 上下文，F5） */
   return db.prepare(`
     SELECT m.id, m.sender_id, m.sender_type, m.body, m.sequence_num
     FROM messages m
     JOIN turns t ON m.turn_id = t.id
     WHERE m.conversation_id = ? AND t.turn_number >= ? AND m.sender_id != ?
+      AND m.status NOT IN ('streaming', 'speaking')
     ORDER BY m.sequence_num ASC
   `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; body: string | null; sequence_num: number }>;
 }

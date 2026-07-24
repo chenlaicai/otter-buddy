@@ -36,6 +36,8 @@ export interface LocalMessage {
   content: string
   /** 消息生命周期状态；仅历史查询（DTO）路径携带，SSE 实时构造的消息为 undefined（视同 completed/对应事件态） */
   status?: LocalMessageStatus
+  /** 服务端序列号（时序依据）；tmp 乐观消息无 seq */
+  seq?: number
   ts: string
   dur: string | null
   events?: LocalMessageEvent[]
@@ -96,6 +98,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     si: dto.si,
     content: dto.content ?? '',
     status: dto.status as LocalMessageStatus,
+    seq: dto.seq,
     ts: dto.ts,
     dur: dto.dur,
     ctx: dto.ctx,
