@@ -9,13 +9,14 @@ export type { MemoryEntryDTO, SearchResultDTO, RetrievalSource };
 export type { SearchQueryDTO, SearchSimilarRequestDTO, FlagMemoryRequestDTO, DetailLevel } from "@contract/api/memory";
 
 export function toMemoryEntryDTO(
-  entry: MemoryEntry,
+  entry: MemoryEntry & { userFlagged?: boolean },
   score?: number,
   source?: RetrievalSource,
   snippet?: string,
 ): MemoryEntryDTO {
   return {
     id: entry.id,
+    layer: entry.layer,
     contentType: entry.contentType,
     sourceId: entry.sourceId,
     sourceTable: entry.sourceTable,
@@ -27,5 +28,6 @@ export function toMemoryEntryDTO(
     score,
     source,
     snippet,
+    ...(entry.userFlagged !== undefined && { userFlagged: entry.userFlagged }),
   };
 }

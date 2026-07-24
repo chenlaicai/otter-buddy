@@ -33,6 +33,10 @@ export interface ParticipantDTO {
   conversationId: string;
   otterId: string;
   otterName: string;
+  /** otter 类型（big/small），查询时从 otters 表解析 */
+  otterType?: string;
+  /** otter 角色名（小獭的角色，如"审查獭"） */
+  roleName?: string;
   joinedAtTurnNumber: number;
   leftAtTurnNumber: number | null;
   status: string;

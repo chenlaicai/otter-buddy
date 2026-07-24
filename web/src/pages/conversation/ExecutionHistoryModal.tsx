@@ -69,7 +69,7 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
   const hasMore = offset + limit < total
 
   return (
-    <Modal title="执行历史" onClose={onClose} size="lg">
+    <Modal title="执行历史" onClose={onClose} width="640px">
       <div className="max-h-[60vh] overflow-y-auto">
         {loading && executions.length === 0 ? (
           <div className="space-y-3">

@@ -1,9 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
-import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO } from '../../lib/mappers'
+import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -106,7 +106,7 @@ function ConversationPage() {
       // 更新 allOtters，按对话存储
       setAllOtters(prev => ({
         ...prev,
-        [convId]: participants.map(p => ({ id: p.otterId, name: p.otterName, ci: 0 })),
+        [convId]: participants.map(p => mapParticipantDTO(p)),
       }))
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
@@ -134,6 +134,11 @@ function ConversationPage() {
   const activeMessages = activeId ? (allMessages[activeId] || []) : []
   const activeLinkedRes = activeId ? (allLinkedRes[activeId] || []) : []
   const activeOtters: LocalOtter[] = activeId ? (allOtters[activeId] || []) : []
+  /** streamingMap 全局共享（多对话可并行流式），渲染时按当前对话过滤 */
+  const activeStreamingMessages = useMemo(
+    () => new Map([...streamingMap].filter(([, s]) => s.conversationId === activeId)),
+    [streamingMap, activeId],
+  )
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
@@ -164,8 +169,16 @@ function ConversationPage() {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
           setStreamingMap(prev => new Map(prev).set(messageId, {
-            messageId, otterId, otterName, duration: 0, events: [],
+            messageId, otterId, otterName, conversationId: activeId, duration: 0, events: [],
           }))
+          /** 确保发言者在参与者列表中（流中途 create_otter 的新獭）；fill-only，不覆盖已有条目 */
+          if (otterId && activeId) {
+            setAllOtters(prev => {
+              const convOtters = prev[activeId] || []
+              if (convOtters.some(o => o.id === otterId)) return prev
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '', ci: 0 }] }
+            })
+          }
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data
@@ -214,6 +227,7 @@ function ConversationPage() {
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
+            sn: streamingEntry?.otterName,
             content: data.body ?? '', ts: nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
@@ -241,18 +255,13 @@ function ConversationPage() {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
           const streamingEntry = streamingMapRef.current.get(messageId)
-          const otterId = streamingEntry?.otterId || ''
-          /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
-          if (otterId && streamingEntry?.otterName && activeId) {
-            setAllOtters(prev => {
-              const convOtters = prev[activeId] || []
-              if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: streamingEntry.otterName!, ci: 0 }] }
-            })
-          }
+          /** 身份以 SSE 事件为准（stopStream 可能已乐观删除 streaming entry） */
+          const otterId = data.otterId || streamingEntry?.otterId || ''
+          const otterName = data.otterName ?? streamingEntry?.otterName
           if (liveEvents.length > 0) {
             const abortedMsg: LocalMessage = {
               id: messageId, st: 'otter', si: otterId,
+              sn: otterName,
               content: data.body ?? '[用户中断]', ts: nowTs(), dur: null,
               events: liveEvents,
             }
@@ -270,6 +279,7 @@ function ConversationPage() {
           const otterId = streamingEntry?.otterId || ''
           const failedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId,
+            sn: streamingEntry?.otterName,
             content: data.body ?? '[未完成]', ts: nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
@@ -294,7 +304,7 @@ function ConversationPage() {
           api.getParticipants(activeId).then(participants => {
             setAllOtters(prev => ({
               ...prev,
-              [activeId]: participants.map(p => ({ id: p.otterId, name: p.otterName, ci: 0 })),
+              [activeId]: participants.map(p => mapParticipantDTO(p)),
             }))
           }).catch(() => {})
         }
@@ -484,7 +494,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={streamingMap} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
+        <ChatView conversation={activeConv} messages={activeMessages} streamingMessages={activeStreamingMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}

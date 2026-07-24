@@ -27,12 +27,18 @@ export function toConversationListItemDTO(
   return { ...toConversationDTO(conv), otterIds };
 }
 
-export function toParticipantDTO(p: ConversationParticipant, otterName: string): ParticipantDTO {
+export function toParticipantDTO(
+  p: ConversationParticipant,
+  otterName: string,
+  extra?: { otterType?: string; roleName?: string },
+): ParticipantDTO {
   return {
     id: p.id,
     conversationId: p.conversationId,
     otterId: p.otterId,
     otterName,
+    ...(extra?.otterType !== undefined && { otterType: extra.otterType }),
+    ...(extra?.roleName !== undefined && { roleName: extra.roleName }),
     joinedAtTurnNumber: p.joinedAtTurnNumber,
     leftAtTurnNumber: p.leftAtTurnNumber,
     status: p.status,

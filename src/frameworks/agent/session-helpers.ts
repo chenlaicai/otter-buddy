@@ -8,14 +8,14 @@ import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-inv
 
 /**
  * 按 otterType 获取编码工具列表。
- * big otter 启用全部编码工具，small otter 不启用编码工具。
+ * big otter 启用全部编码工具；small otter 只读（可加载 skill 全文、读代码执行实质性工作），无写权限。
  */
 export function getCodingToolsForOtterType(otterType: string | undefined): string[] {
   if (!otterType || otterType === "big") {
     return ["read", "write", "edit", "bash"];
   }
-  /** small otter 不需要编码工具 */
-  return [];
+  /** small otter：只读。write/edit/bash 不开放（权限最小化） */
+  return ["read"];
 }
 
 /**

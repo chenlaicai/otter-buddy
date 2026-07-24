@@ -3,7 +3,8 @@ import { X } from 'lucide-react'
 import { OTTER_GRADIENT } from '../lib/otter-colors'
 
 interface ModalProps {
-  isOpen: boolean
+  /** 不传则视为常开（调用方按需挂载组件的场景） */
+  isOpen?: boolean
   onClose: () => void
   title: string
   children: ReactNode
@@ -11,7 +12,7 @@ interface ModalProps {
   width?: string
 }
 
-export function Modal({ isOpen, onClose, title, children, footer, width = '440px' }: ModalProps) {
+export function Modal({ isOpen = true, onClose, title, children, footer, width = '440px' }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       const handler = (e: KeyboardEvent) => {
@@ -61,10 +62,12 @@ export function ModalButton({
   children,
   onClick,
   variant = 'secondary',
+  disabled,
 }: {
   children: ReactNode
   onClick?: () => void
   variant?: 'primary' | 'secondary' | 'danger'
+  disabled?: boolean
 }) {
   const base = 'px-4 py-2 text-sm rounded-xl transition'
   const styles = {
@@ -77,7 +80,7 @@ export function ModalButton({
     : undefined
 
   return (
-    <button className={`${base} ${styles[variant]}`} onClick={onClick} style={style}>
+    <button className={`${base} ${styles[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`} onClick={onClick} style={style} disabled={disabled}>
       {children}
     </button>
   )

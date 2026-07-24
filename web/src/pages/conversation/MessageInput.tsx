@@ -15,9 +15,18 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  /** 自动高度：随内容增长，封顶 140px，超出后内部滚动 */
+  function autoResize() {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`
+  }
+
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
     setValue(val)
+    autoResize()
 
     // Detect @mention
     const cp = e.target.selectionStart
@@ -51,6 +60,9 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     onSend(value, mentionId)
     setValue('')
     setMentionQuery(null)
+    requestAnimationFrame(() => {
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    })
   }
 
   function insertMention(name: string) {
@@ -113,7 +125,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder={placeholder}
-            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[22px] max-h-[140px] leading-relaxed disabled:opacity-50"
+            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[140px] leading-relaxed disabled:opacity-50 overflow-y-auto"
           />
           <button
             onClick={handleSend}

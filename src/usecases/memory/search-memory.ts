@@ -34,6 +34,8 @@ export interface RetrievalResultEntry extends MemoryEntry {
   source: RetrievalSource;
   /** detail_level="snippet" 时的匹配片段 */
   snippet?: string;
+  /** 用户标记（检索路径从 MemoryWeight 带出） */
+  userFlagged?: boolean;
 }
 
 export interface RetrievalResult {
@@ -294,6 +296,7 @@ export class SearchMemory {
         ...h.entry,
         score: h.finalScore,
         source: h.source,
+        userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
         ...this.buildSnippet(h.entry, detailLevel, snippetMap),
       })),
       total: top.length,
