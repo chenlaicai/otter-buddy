@@ -36,6 +36,7 @@ function makeSendMessageUseCase() {
       getUnreadMessages: async () => [],
       getActiveTurn: async () => null,
       updateLastReadTurnNumber: async () => {},
+      getActiveParticipants: async () => [],
     },
   };
   return { useCase, systemBodies };
@@ -87,8 +88,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(sseText).toContain("stream.end");
   });
 
-  it("发言石无目标时正常结束，不发系统消息", async () => {
-    const { useCase, systemBodies } = makeSendMessageUseCase();
+  it("发言石无目标时正常结束，不发系统消息", async () => {    const { useCase, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     let dispatchCount = 0;
     const agentInvoker = {
@@ -112,5 +112,45 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(dispatchCount).toBe(1);
     expect(systemBodies).toHaveLength(0);
     expect(warns).toHaveLength(0);
+  });
+
+  it("派发上下文包含在场成员名册与具名历史", async () => {
+    const { useCase } = makeSendMessageUseCase();
+    useCase.repo.getActiveParticipants = async () => [
+      { otterId: "otter-x" },
+    ] as never;
+    useCase.repo.getUnreadMessages = async () => [
+      { senderType: "otter", senderId: "otter-x", body: "万象更新" },
+    ] as never;
+    const { logger } = makeLogger();
+    const queryOtter = { getById: async () => ({ name: "小獭" }) } as unknown as QueryOtter;
+
+    const contexts: string[] = [];
+    const agentInvoker = {
+      invokeConversation: async ({ userMessageContent }: { userMessageContent: string }) => {
+        contexts.push(userMessageContent);
+        return { messageId: "m-1", aggregatedTargets: [] };
+      },
+    } as unknown as AgentInvoker;
+
+    const ctrl = new MessageController(
+      useCase as unknown as SendMessage,
+      queryMessageStub,
+      agentInvoker,
+      logger as never,
+      queryOtter,
+      2,
+    );
+    const res = await postMessage(createApp(ctrl));
+    await res.text();
+
+    expect(contexts).toHaveLength(1);
+    /** 名册：name ↔ otterId 映射在场 */
+    expect(contexts[0]).toContain("## 在场成员");
+    expect(contexts[0]).toContain("小獭 (otterId: otter-x)");
+    expect(contexts[0]).toContain("'user'");
+    /** 历史消息用名字标注，不用 UUID */
+    expect(contexts[0]).toContain("[小獭] 万象更新");
+    expect(contexts[0]).not.toContain("[otter-x]");
   });
 });

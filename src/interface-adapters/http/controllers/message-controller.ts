@@ -105,11 +105,17 @@ export class MessageController {
       const dispatchLoop = (targets: string[]) =>
         this.dispatchTurnLoop(targets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets }, push);
 
-      /** 6. 启动调度循环 */
-      dispatchLoop(firstTurnTargets).then(() => {
-        push({ event: "stream.end", data: {} });
-        close();
-      });
+      /** 6. 启动调度循环（异常时通知前端并收尾，不静默悬挂 SSE） */
+      dispatchLoop(firstTurnTargets)
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
+          push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
+        })
+        .finally(() => {
+          push({ event: "stream.end", data: {} });
+          close();
+        });
 
       return response;
     } catch (err) {
@@ -129,16 +135,12 @@ export class MessageController {
       depth++;
       for (const id of targets) allTargets.add(id);
 
+      /** 每跳重建名册：链中可能有 otter 被创建/解散 */
+      const roster = await this.buildRoster(conversationId);
+
       const promises = targets.map(async otterId => {
-        const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
-        let messageWithContext = userMessageContent;
-        if (unreadMessages.length > 0) {
-          const formatted = unreadMessages
-            .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '用户' : m.senderId}] ${m.body ?? ''}`)
-            .join('\n');
-          messageWithContext = `## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
-        }
-        this.logger.info('发言链调用', { otterId, unreadCount: unreadMessages.length, messageLength: messageWithContext.length, messagePreview: messageWithContext.substring(0, 200) });
+        const messageWithContext = await this.buildMessageWithContext(conversationId, otterId, userMessageContent, senderId, roster);
+        this.logger.info('发言链调用', { otterId, messageLength: messageWithContext.length, messagePreview: messageWithContext.substring(0, 200) });
         return this.agentInvoker.invokeConversation({
           otterId, conversationId, userMessageContent: messageWithContext,
           senderId, onSSEEvent: push,
@@ -163,6 +165,36 @@ export class MessageController {
     if (targets.length > 0) {
       await this.handleChainDepthExceeded(conversationId, targets, depth, push);
     }
+  }
+
+  /** 在场成员名册：name ↔ otterId 映射确定性注入，speak 决策时免费在场 */
+  private async buildRoster(conversationId: string): Promise<string> {
+    const participants = await this.sendMessageUseCase.repo.getActiveParticipants(conversationId);
+    const lines = await Promise.all(participants.map(async p => {
+      const otter = await this.queryOtter.getById(p.otterId);
+      return `- ${otter?.name ?? p.otterId} (otterId: ${p.otterId})`;
+    }));
+    lines.push(`- 人类操作者（传 'user' 即交还发言权）`);
+    return `## 在场成员\n${lines.join('\n')}`;
+  }
+
+  /** 组装派发上下文：名册 + 具名对话历史 + 当前任务 */
+  private async buildMessageWithContext(
+    conversationId: string,
+    otterId: string,
+    userMessageContent: string,
+    senderId: string,
+    roster: string,
+  ): Promise<string> {
+    const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
+    if (unreadMessages.length === 0) {
+      return `${roster}\n\n## 当前任务\n${userMessageContent}`;
+    }
+    const names = await this.resolveSenderNames(unreadMessages);
+    const formatted = unreadMessages
+      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '用户' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ?? ''}`)
+      .join('\n');
+    return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
   }
 
   /** 本批派发完成后，将各 otter 的已读位置推进到当前 turn */

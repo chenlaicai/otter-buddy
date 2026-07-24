@@ -448,6 +448,7 @@ export function createMockDeps(): TestDeps {
         getUnreadMessages: vi.fn().mockResolvedValue([]),
         getActiveTurn: vi.fn().mockResolvedValue(null),
         updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
+        getActiveParticipants: vi.fn().mockResolvedValue([]),
       },
     },
     queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
