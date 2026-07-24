@@ -44,6 +44,7 @@ export interface AppConfig {
     slidingWindowRepeat: number;
     steerTimeoutMs: number;
     tokenWarningThreshold: number;
+    maxChainDepth: number;
   };
 }
 
@@ -80,6 +81,7 @@ interface RawConfig {
     slidingWindowRepeat?: number;
     steerTimeoutMs?: number;
     tokenWarningThreshold?: number;
+    maxChainDepth?: number;
   };
 }
 
@@ -137,6 +139,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     slidingWindowRepeat: d(raw.circuitBreaker?.slidingWindowRepeat, 3),
     steerTimeoutMs: d(raw.circuitBreaker?.steerTimeoutMs, 30000),
     tokenWarningThreshold: d(raw.circuitBreaker?.tokenWarningThreshold, 50000),
+    maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 20),
   };
 }
 

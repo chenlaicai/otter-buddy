@@ -3,6 +3,7 @@ import type {
   ConversationListItemDTO,
   CreateConversationRequestDTO,
   MessageDTO,
+  MessageEventDTO,
   SendMessageRequestDTO,
   OtterDTO,
   CreateOtterRequestDTO,

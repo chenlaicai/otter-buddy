@@ -74,6 +74,17 @@ describe("loadConfig", () => {
     expect(cfg.memory.rrfK).toBe(60);
     expect(cfg.embedding.dimensions).toBe(1024);
     expect(cfg.circuitBreaker.maxToolCalls).toBe(40);
+    expect(cfg.circuitBreaker.maxChainDepth).toBe(20);
+  });
+
+  it("overrides maxChainDepth from yaml", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  provider: openai\n  model: gpt-4o\ncircuitBreaker:\n  maxChainDepth: 3\n",
+    );
+
+    const cfg = loadConfig();
+    expect(cfg.circuitBreaker.maxChainDepth).toBe(3);
   });
 
   it("loads config with custom values", () => {

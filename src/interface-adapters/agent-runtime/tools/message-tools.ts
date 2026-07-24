@@ -27,7 +27,7 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
 export function createListMessagesTool(ctx: ToolContext): AgentTool {
   return {
     name: "list_messages",
-    description: "分页查询当前对话的消息列表。参数：limit（最大条数，默认50），before（消息ID，查询此消息之前的消息）。conversationId 由系统注入。",
+    description: "分页查询当前对话的消息列表。建议先用小 limit（如 10）快速定位，需要更多时用 before 分页，不要一次拉取大量消息。参数：limit（最大条数，默认50），before（消息ID，查询此消息之前的消息）。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
@@ -51,7 +51,7 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
 export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_messages",
-    description: "在当前对话中关键词搜索消息。参数：query（搜索关键词），limit（最大结果数，默认10）。conversationId 由系统注入。",
+    description: "在当前对话中关键词搜索消息（FTS5 全文检索，支持中文）。需要引用或核实当前对话中的具体发言时优先用本工具定位。搜索无结果时可拆分关键词重试。参数：query（搜索关键词），limit（最大结果数，默认10）。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {

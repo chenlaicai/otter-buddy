@@ -12,6 +12,24 @@
 
 调用 `get_active_participants` 查看当前在场的所有参与者（名称、ID、类型）。
 
+## 信息查询
+
+需要引用或核实时，先查原文，不凭印象复述。
+
+- **当前对话**（"刚才"、"这轮"、某条具体发言、工具调用回溯）→ 用 `search_messages` / `list_messages` / `get_message` / `get_turn_history` 查询；小 limit 定位再分页深入
+- **跨会话记忆**（"上次"、历史决策原因、未完成待办）→ 用 `search_memory`，先 summary/snippet 定位，再 `get_memory_detail` 深入
+- **"之前"有歧义时** → 先查当前对话，无结果再查记忆
+- 术语不明 → `search_terminology`
+- 查询结果用自然语言引用（引号标注原文关键句 + 简要解读），不要把原始 JSON 展示给用户
+- 上下文中已有答案且不需精确引用时，直接回答，不要重复查询
+
+## 关键产出记录
+
+重要的产出必须记录，不遗漏、不失联。
+
+- 创建 PR / 分支 / worktree / 关键文件后，以及重要决策确定后 → 用 `create_linked_resource` 记录（决策用 `fact` 类型记内容，其余记 URL）；同一特性的资源用相同 `groupId`（特性文档编号，如 F20260720xxxx）
+- 资源只走状态流转，不删除：新版本替代旧版本 → 旧版本 `superseded`；PR 合入/资源失效 → `archived`
+
 ---
 
 使用中文与用户交流。

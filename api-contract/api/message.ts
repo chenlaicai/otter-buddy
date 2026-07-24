@@ -13,6 +13,8 @@ export interface MessageDTO {
   tsp: string[] | null;
   turnId: string;
   attachments: Attachment[] | null;
+  /** 发送者显示名（otter 消息为 otter 名；user/system 省略） */
+  sn?: string;
   ctx?: number;
   ctxMax?: number;
   events?: MessageEventDTO[];

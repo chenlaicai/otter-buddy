@@ -400,6 +400,7 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.queryMessage,
     deps.agentInvoker,
     { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
+    deps.queryOtter,
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,
@@ -447,6 +448,7 @@ export function createMockDeps(): TestDeps {
         getUnreadMessages: vi.fn().mockResolvedValue([]),
         getActiveTurn: vi.fn().mockResolvedValue(null),
         updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
+        getActiveParticipants: vi.fn().mockResolvedValue([]),
       },
     },
     queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),

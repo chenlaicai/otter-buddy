@@ -51,7 +51,7 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
 export function createUpdateArtifactStatusTool(ctx: ToolContext): AgentTool {
   return {
     name: "update_artifact_status",
-    description: "更新产物生命周期状态。将产物标记为 superseded（被替代）或 archived（已归档/已合入）。",
+    description: "更新产物生命周期状态。生命周期规则：(1) 创建新版本资源后，将旧版本标记为 superseded 并提供 supersededBy；(2) PR 合入/资源失效后标记为 archived；(3) 不要删除资源，只用状态管理。",
     parameters: {
       type: "object",
       properties: {
