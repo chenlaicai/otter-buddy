@@ -62,7 +62,7 @@ function isTerminal(m: LocalMessage): boolean {
 /**
  * 轮询快照与本地列表合并：
  * - 过期快照不回退本地已终态的消息（响应在 message.complete 之前发出、之后到达）
- * - 保留尚未上服务器的本地乐观消息（tmp- 前缀）
+ * - 保留尚未上服务器的本地乐观消息（tmp- 前缀）；快照中已存在等价消息（同发送者同内容）时丢弃 tmp 副本
  */
 function mergeMessages(current: LocalMessage[], snapshot: LocalMessage[]): LocalMessage[] {
   const currentById = new Map(current.map(m => [m.id, m]))
@@ -71,7 +71,9 @@ function mergeMessages(current: LocalMessage[], snapshot: LocalMessage[]): Local
     const local = currentById.get(sm.id)
     return local && isTerminal(local) && isInFlight(sm) ? local : sm
   })
-  return [...merged, ...current.filter(m => m.id.startsWith('tmp-') && !snapshotIds.has(m.id))]
+  const persisted = (tmp: LocalMessage) =>
+    snapshot.some(sm => sm.st === tmp.st && sm.si === tmp.si && sm.content === tmp.content)
+  return [...merged, ...current.filter(m => m.id.startsWith('tmp-') && !snapshotIds.has(m.id) && !persisted(m))]
 }
 
 function ConversationPage() {
@@ -348,6 +350,8 @@ function ConversationPage() {
       }, { onError: () => {
         showToast('SSE 连接中断', 'error')
         setStreamingMap(new Map())
+        /** SSE 中断不代表发言停止（刷新≠停止）：拉取快照播种进行中消息，让轮询续看接管 */
+        if (activeId) refreshMessages(activeId)
       }, onDone: () => {
         /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭） */
         if (activeId) {
@@ -364,7 +368,7 @@ function ConversationPage() {
       console.error('Failed to send message:', err)
       showToast('发送失败', 'error'); setStreamingMap(new Map())
     }
-  }, [activeId, activeOtters])
+  }, [activeId, activeOtters, refreshMessages])
 
   const stopStream = useCallback((messageId: string) => {
     api.abortMessage(messageId).catch((err) => console.error('Failed to abort message:', err))

@@ -83,9 +83,19 @@ created_at: 2026-07-24
 另有 M1（过期快照回退闪烁）、M2（tmp 消息被擦除）由合并式更新（变更 5）解决；
 A1（断开测试空转）改写为真实 cancel response body 的回归测试（对旧代码验证失败）。
 
+第二轮复检新发现的轻微问题中，三个随本 PR 修复：
+- N1：轮询活跃期间发新消息，tmp 乐观消息与服务端真实消息双重渲染——
+  mergeMessages 丢弃快照中已存在等价内容（同 st/si/content）的 tmp 副本
+- N2：abort 端点不校验消息状态，终态消息 abort 会留 stale abortedOtters 标记污染下次
+  invoke 错误分类——端点增加 canAbortMessage 校验，终态返回 409
+- N3：live 会话 SSE 中途断开轮询永不启动（S2 的对偶）——onError 时 refreshMessages
+  播种进行中消息，轮询 effect 自动接管
+- N4（遗留后续）：同 turn 多消息时流式气泡固定沉底，视觉时序可能倒置——
+  需要 streaming 状态携带序号信息才能交错渲染，属独立改动
+
 ## 兼容性
 
-- API：无变更（DTO 本已携带 status，前端此前未消费）。
+- API：`POST /messages/:id/abort` 对终态消息从 202 改为 409（此前调用无实际效果，属错误用法显式化）；其余无变更（DTO 本已携带 status，前端此前未消费）。
 - 行为变更：刷新/断开 SSE 不再（尝试）中止 agent 发言——此前该 abort 从未生效，故无实际行为回退风险。
 - 持久化：无 schema 变更；启动 reconcile 一次性将历史孤儿消息置为 failed（可视为数据修复）。
 - 重启语义：启动即 reconcile 意味着"重启 = 所有进行中发言中断"（进程消失必然如此，只是显式化）。

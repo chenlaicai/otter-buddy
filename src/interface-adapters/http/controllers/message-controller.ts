@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { canAbortMessage } from "@entities/conversation/message";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
@@ -184,6 +185,10 @@ export class MessageController {
       /** 仅 Otter 消息可被中止（用户消息已完成，无 Agent 在运行） */
       if (msg.senderType !== "otter") {
         return c.json({ error: "Can only abort otter messages" }, 400);
+      }
+      /** 仅进行中的消息可被中止——终态消息 abort 会留下 stale abortedOtters 标记，污染该 otter 下次 invoke 的错误分类 */
+      if (!canAbortMessage(msg.status)) {
+        return c.json({ error: `Message is already in terminal status: ${msg.status}` }, 409);
       }
       this.agentInvoker.abort(msg.senderId, id);
       return c.json({ status: "aborted" }, 202);

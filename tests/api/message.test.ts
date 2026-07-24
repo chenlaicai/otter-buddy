@@ -313,7 +313,7 @@ describe("Message API", () => {
 
     it("aborts otter message and calls agentInvoker.abort", async () => {
       deps.queryMessage.getMessageById.mockResolvedValue(
-        makeMessage({ senderType: "otter", senderId: "otter-1" }),
+        makeMessage({ senderType: "otter", senderId: "otter-1", status: "streaming" }),
       );
 
       const res = await app.request("/api/messages/msg-1/abort", {
@@ -324,6 +324,21 @@ describe("Message API", () => {
       const body = await json(res);
       expect(body.status).toBe("aborted");
       expect(deps.agentInvoker.abort).toHaveBeenCalledWith("otter-1", "msg-1");
+    });
+
+    it("returns 409 when message is already in terminal status（防止 stale abortedOtters 标记）", async () => {
+      deps.queryMessage.getMessageById.mockResolvedValue(
+        makeMessage({ senderType: "otter", senderId: "otter-1", status: "completed" }),
+      );
+
+      const res = await app.request("/api/messages/msg-1/abort", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(409);
+      const body = await json(res);
+      expect(body.error).toContain("terminal");
+      expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
     });
   });
 });
