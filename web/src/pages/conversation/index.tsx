@@ -373,7 +373,7 @@ function ConversationPage() {
       return {
         ...prev,
         [activeId]: list.map(m => m.id === messageId && isInFlight(m)
-          ? { ...m, status: 'aborted' as const, content: m.content || '[用户中断]' }
+          ? { ...m, status: 'aborted' as const, content: m.content || '[搭档中断]' }
           : m),
       }
     })

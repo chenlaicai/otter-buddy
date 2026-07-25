@@ -104,8 +104,7 @@ export class PiSessionFactory implements AgentGateway {
   private smallOtterIdentity = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
-  /** 待注入身份的 otter（create/reset 后的新 session 上下文中没有身份内容；注入成功才消费，进程重启后此集合丢失，由 SessionRestore 的 createdNew 信号兜底）。
-   * 已知边界：首次注入的 invoke 被 abort 时，session 文件可能已含身份消息而 flag 保留，重试会在同 session 再注入一次——罕见且无害（身份文本稳定），有意不处理。 */
+  /** 待注入身份的 otter（create/reset 后标记，注入成功才消费；进程重启丢失由 createdNew 兜底。已知边界：首次注入被 abort 时重试会重复注入一次，罕见无害，有意不处理） */
   private readonly pendingIdentity = new Set<string>();
   /** pi-coding-agent ModelRuntime 最小接口（SDK ESM-only，无法直接导入类型） */
   private modelRuntime: { setRuntimeApiKey(provider: string, key: string): Promise<void> } | null = null;
@@ -128,15 +127,13 @@ export class PiSessionFactory implements AgentGateway {
     this.sessionStore = createAgentSessionStore(cfg.db);
     this.sessionRestore = new SessionRestore(this.sessionStore, cfg.otterConfigProvider, logger, cfg.db);
     if (cfg.identityPromptDir) {
-      const big = loadPromptFile(`${cfg.identityPromptDir}/BIG_OTTER.md`);
-      const small = loadPromptFile(`${cfg.identityPromptDir}/SMALL_OTTER.md`);
-      if (big) this.bigOtterIdentity = big;
-      if (small) this.smallOtterIdentity = small;
-      if (!big || !small) {
+      this.bigOtterIdentity = loadPromptFile(`${cfg.identityPromptDir}/BIG_OTTER.md`) ?? "";
+      this.smallOtterIdentity = loadPromptFile(`${cfg.identityPromptDir}/SMALL_OTTER.md`) ?? "";
+      if (!this.bigOtterIdentity || !this.smallOtterIdentity) {
         this.logger.warn('Otter 身份文案缺失，身份注入降级为仅名称/类型', {
           dir: cfg.identityPromptDir,
-          bigOtterLoaded: Boolean(big),
-          smallOtterLoaded: Boolean(small),
+          bigOtterLoaded: Boolean(this.bigOtterIdentity),
+          smallOtterLoaded: Boolean(this.smallOtterIdentity),
         });
       }
     } else {
@@ -280,8 +277,7 @@ export class PiSessionFactory implements AgentGateway {
     await this.ensurePiCodingAgent();
 
     // 2. 创建新 SessionManager（chain，引用旧 session 作为 parent）
-    // 注意：parentSession 仅是血缘元数据（SDK 只写入 session 文件头部，不拷贝父 session 消息进上下文），
-    // 因此新 session 上下文为空，需要步骤 7 标记身份重新注入；不存在"链带回旧身份导致重复注入"的问题
+    // parentSession 仅是血缘元数据（SDK 只写 header，不拷贝父消息进上下文），故新 session 上下文为空，需步骤 7 标记重注入
     const SessionManagerClass = getSessionManagerClass(this.piCodingAgent!);
     const sessionManager = SessionManagerClass.create(process.cwd(), this.cfg.sessionDir, {
       ...(stored?.piSessionId && { parentSession: stored.piSessionId }),
@@ -394,6 +390,20 @@ export class PiSessionFactory implements AgentGateway {
     return { sessionManager: result.sessionManager, createdNew: result.createdNew };
   }
 
+  /** 组装用户消息前缀：首次 invoke 时身份叠加在 otter 专属 prompt 之前（后续 invoke 从 session 历史恢复，不重复注入） */
+  private buildUserMessagePrefix(
+    otterId: string,
+    otterType: string,
+    otterPromptConfig: string | OtterPromptConfig | undefined,
+    isFirstInvoke: boolean | undefined,
+  ): string {
+    const otterPrompt = buildOtterPrompt(otterPromptConfig);
+    if (!isFirstInvoke) return otterPrompt;
+    const identityPrefix = this.buildIdentityPrefix(otterId, otterType);
+    if (!identityPrefix) return otterPrompt;
+    return [identityPrefix, otterPrompt].filter(Boolean).join("\n\n");
+  }
+
   /** 构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源） */
   private buildIdentityPrefix(otterId: string, otterType: string): string {
     const otterRow = this.cfg.db.prepare("SELECT name FROM otters WHERE id = ?").get(otterId) as { name: string } | undefined;
@@ -429,16 +439,8 @@ export class PiSessionFactory implements AgentGateway {
     // 2. 熔断器
     const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
 
-    // 3. 构建完整消息
-    const otterPrompt = buildOtterPrompt(otterPromptConfig);
-    let userMessagePrefix = otterPrompt;
-    /** 首次 invoke 时注入身份（后续从 session 历史恢复，不重复） */
-    if (options?.isFirstInvoke) {
-      const identityPrefix = this.buildIdentityPrefix(otterId, otterType);
-      if (identityPrefix) {
-        userMessagePrefix = [identityPrefix, otterPrompt].filter(Boolean).join("\n\n");
-      }
-    }
+    // 3. 构建完整消息（首次 invoke 时身份叠加在 otter 专属 prompt 之前）
+    const userMessagePrefix = this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke);
     const fullMessage = buildMessageWithContext(userMessagePrefix, message, options?.dynamicContext);
 
     this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });

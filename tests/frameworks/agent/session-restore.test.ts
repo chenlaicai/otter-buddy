@@ -104,4 +104,14 @@ describe("SessionRestore.createdNew 信号", () => {
 
     expect(result.createdNew).toBe(true);
   });
+
+  it("open 抛非 ENOENT 错误（权限/解析失败）→ 重建新 session，createdNew=true", async () => {
+    provider.setConfig("o1", { otterType: "big" } as never);
+    store.setWithFile("o1", "sid-old", "/tmp/unreadable.jsonl");
+    const openImpl = () => { throw new Error("EACCES: permission denied"); };
+
+    const result = await restore.restoreOrCreate("o1", makePiCodingAgent(openImpl), "/tmp/sessions");
+
+    expect(result.createdNew).toBe(true);
+  });
 });

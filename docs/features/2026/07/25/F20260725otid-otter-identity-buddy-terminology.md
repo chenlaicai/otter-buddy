@@ -109,6 +109,8 @@ create() / reset()          SessionRestore.restoreOrCreate()
 
 **推论**：reset/重启獭生后的新 session 上下文为空，身份必须显式重新注入（本 feature 的 pendingIdentity/createdNew 机制），且不存在"链带回旧身份导致重复注入"的问题。已知残余边界：首次注入的 invoke 被 abort 时 session 文件可能已含身份消息而标记保留，重试会在同 session 再注入一次——罕见且无害（身份文本稳定），有意不处理（代码注释已记录）。
 
+**版本依赖**：createdNew 对"进程重启"的兜底成立的前提是 SDK 延迟写入（首条 assistant 消息前 session 文件不落盘，已在 0.80.10 源码验证 `_persist` 的 `hasAssistant` 检查）。package.json 为 `^0.80.10`，若 SDK 升级后改为提前写 header，open 将成功、createdNew=false、内存标记已丢 → 身份静默不再注入。SDK 升级后需重新验证此行为。
+
 ### 4. 搭档术语统一
 
 - **獭可见文本全部改"搭档"**：发言石名册、对话历史标签 `[搭档]`、speak 参数说明与错误提示、abort 中断消息 `[搭档中断]`（含前端兜底）、3 处工具描述、2 处 skill references、平台 prompt
@@ -140,6 +142,8 @@ create() / reset()          SessionRestore.restoreOrCreate()
 
 **第二轮**：B1 **create 路径不标记导致整个 feature 是死代码**（阻塞，根本修复）；B2 标记提前消费；S1 restore 重建路径；S2 destroy 不清理集合；S3 测试绕过 isFirstInvoke 接线；S4 frontmatter 引用已删概念；S5 平台 prompt 冗余稀释；S6 注释误导；O1-O5 均已处理或记录。
 
+**第三轮**（合并 main #87 后）：无阻塞。S1 合并引入的前端 `[用户中断]` 残留（stopStream 乐观兜底，已改）；S2 B1 无回归锁（补真实 create/reset/destroy 路径测试）；S3 isFirstInvoke→消息前缀接线未覆盖（提取 buildUserMessagePrefix 并补测试）；O 级：小獭权限描述精确化（无 invite/dissolve）、skill 文件英文 user 残留、session-restore 非 ENOENT 路径测试、createdNew 兜底的 SDK 版本依赖（见上文"版本依赖"）。
+
 ## 改动清单
 
 | 文件 | 改动 |
@@ -165,11 +169,13 @@ create() / reset()          SessionRestore.restoreOrCreate()
 
 ## 测试计划
 
-**单元测试**（已实施，560 全绿）：
+**单元测试**（已实施，合并 main 后 567+ 全绿）：
 
 - buildIdentityPrefix：大獭/小獭正文注入、frontmatter 剥离、otterConfig 优先于 DB type、未知类型按小獭、ghost 返回空+warn、目录缺失降级+warn
 - 触发链路：pendingIdentity 标记→注入→成功消费；失败保留；createdNew 无标记也注入；旧 session 不注入；options 缺省标志仍传递
-- SessionRestore：无记录+有配置 → createdNew；无记录无配置 → 抛错；open 成功 → 非 createdNew；ENOENT → 重建 createdNew；open 无效状态 → 重建 createdNew
+- 消息前缀拼接（buildUserMessagePrefix）：首次身份叠加在专属 prompt 之前、非首次仅 prompt、ghost 降级
+- pendingIdentity 回归锁（真实路径）：create()/reset() 标记、destroy() 清理
+- SessionRestore：无记录+有配置 → createdNew；无记录无配置 → 抛错；open 成功 → 非 createdNew；ENOENT → 重建 createdNew；open 无效状态 → 重建 createdNew；open 非 ENOENT 错误 → 重建 createdNew
 
 **手工验收**：
 

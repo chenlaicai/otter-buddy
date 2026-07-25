@@ -30,5 +30,5 @@ Every design decision in the output plan should be traceable to one or more inte
 
 - **Paraphrasing**: "搭档想要一个新功能" ← lost all specifics
 - **Dropping modifiers**: "需要支持多语言" ← original said "必须支持中英日三种语言"
-- **Interpreting as anchor**: "搭档需要性能优化" ← user actually said "页面加载太慢了"
-- **Missing implicit anchors**: User says "和之前一样" → need to find what "之前" refers to
+- **Interpreting as anchor**: "搭档需要性能优化" ← 搭档原话是 "页面加载太慢了"
+- **Missing implicit anchors**: 搭档说 "和之前一样" → need to find what "之前" refers to

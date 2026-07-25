@@ -29,6 +29,7 @@ function makeDb(): Database.Database {
   return db;
 }
 
+/** 直接读真实 prompts/identity/ 目录：内容断言（如"海獭团队的头儿"）是有意的文案存在性守护，改文案需同步本测试 */
 const REAL_IDENTITY_DIR = path.resolve(__dirname, "../../../prompts/identity");
 
 function makeFactory(db: Database.Database, logger: Logger, identityPromptDir?: string): PiSessionFactory {
@@ -201,5 +202,104 @@ describe("PiSessionFactory 身份注入触发链路（pendingIdentity / createdN
     await internals._invokeInternal("o1", "hi", undefined);
 
     expect(captured.invokeOptions).not.toBeUndefined();
+  });
+});
+
+describe("PiSessionFactory 消息前缀拼接（buildUserMessagePrefix）", () => {
+  function buildPrefix(factory: PiSessionFactory, otterId: string, otterType: string, prompt: string | undefined, isFirst: boolean | undefined): string {
+    return (factory as unknown as { buildUserMessagePrefix(id: string, type: string, p: string | undefined, first: boolean | undefined): string })
+      .buildUserMessagePrefix(otterId, otterType, prompt, isFirst);
+  }
+
+  it("首次 invoke：身份叠加在专属 systemPrompt 之前", () => {
+    const db = makeDb();
+    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-small", "开发者", "small");
+    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
+
+    const prefix = buildPrefix(factory, "o-small", "small", "你是代码开发者，负责实现功能。", true);
+
+    const identityIdx = prefix.indexOf("## 你的身份");
+    const promptIdx = prefix.indexOf("你是代码开发者");
+    expect(identityIdx).toBeGreaterThanOrEqual(0);
+    expect(promptIdx).toBeGreaterThan(identityIdx);
+  });
+
+  it("非首次 invoke：仅专属 prompt，不重复注入身份", () => {
+    const db = makeDb();
+    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-big", "大獭", "big");
+    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
+
+    expect(buildPrefix(factory, "o-big", "big", "专属 prompt", false)).toBe("专属 prompt");
+  });
+
+  it("首次但 otter 不存在：降级为仅专属 prompt", () => {
+    const db = makeDb();
+    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
+
+    expect(buildPrefix(factory, "ghost", "big", "专属 prompt", true)).toBe("专属 prompt");
+  });
+});
+
+describe("PiSessionFactory pendingIdentity 回归锁（真实 create/reset/destroy 路径）", () => {
+  function makeSdkMock() {
+    let n = 0;
+    return {
+      SessionManager: {
+        create: () => ({
+          getSessionId: () => `sid-${++n}`,
+          getSessionFile: () => `/tmp/fake-${n}.jsonl`,
+        }),
+        open: () => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); },
+      },
+    };
+  }
+
+  function makeRealFactory(db: Database.Database): { factory: PiSessionFactory; pending: Set<string> } {
+    const otterConfigProvider = {
+      getConfig: () => null,
+      setConfig: () => {},
+      deleteConfig: () => {},
+    } as unknown as OtterConfigProvider;
+    const factory = new PiSessionFactory({
+      db,
+      sessionDir: ":memory:",
+      otterToolClient: {} as never,
+      model: null,
+      identityPromptDir: REAL_IDENTITY_DIR,
+      createTools: () => [],
+      otterConfigProvider,
+    }, mockLogger());
+    /** 预注入 SDK mock，跳过动态 import（ensurePiCodingAgent 检测已加载则跳过） */
+    (factory as unknown as { piCodingAgent: unknown }).piCodingAgent = makeSdkMock();
+    const pending = (factory as unknown as { pendingIdentity: Set<string> }).pendingIdentity;
+    return { factory, pending };
+  }
+
+  it("create() 标记 pendingIdentity（B1 回归锁：删掉这行标记整个 feature 失效）", async () => {
+    const db = makeDb();
+    const { factory, pending } = makeRealFactory(db);
+
+    await factory.create("o1", { systemPrompt: undefined, context: { otterType: "big" } } as never);
+
+    expect(pending.has("o1")).toBe(true);
+  });
+
+  it("reset() 标记 pendingIdentity", async () => {
+    const db = makeDb();
+    const { factory, pending } = makeRealFactory(db);
+
+    await factory.reset("o1");
+
+    expect(pending.has("o1")).toBe(true);
+  });
+
+  it("destroy() 清理 pendingIdentity", async () => {
+    const db = makeDb();
+    const { factory, pending } = makeRealFactory(db);
+    pending.add("o1");
+
+    await factory.destroy("o1");
+
+    expect(pending.has("o1")).toBe(false);
   });
 });
