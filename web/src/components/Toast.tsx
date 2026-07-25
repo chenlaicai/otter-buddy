@@ -35,7 +35,7 @@ export function ToastContainer() {
     : 'bg-stone-600 text-white'
 
   return (
-    <div className={`fixed top-14 right-5 px-4 py-2.5 rounded-2xl shadow-otter-lg text-sm font-medium z-50 ${bgClass}`}>
+    <div className={`fixed top-14 right-5 px-4 py-2.5 rounded-2xl shadow-otter-lg text-sm font-medium z-[110] ${bgClass}`}>
       {toast.message}
     </div>
   )

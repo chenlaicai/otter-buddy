@@ -22,6 +22,6 @@
       "@contract/*": ["../api-contract/*"]
     }
   },
-  "include": ["src/**/*", "*.html", "server.ts"],
+  "include": ["src/**/*", "*.html"],
   "exclude": ["node_modules", "dist"]
 }

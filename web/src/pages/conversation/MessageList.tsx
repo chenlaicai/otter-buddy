@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, type CSSProperties } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -107,7 +107,7 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
+    <div ref={scrollRef} className="msg-scroll flex-1 overflow-y-auto py-4">
       {messages.map((m, i) => {
         const prevTurnId = i > 0 ? messages[i - 1].turnId : undefined
         const isNewTurn = m.turnId && m.turnId !== prevTurnId
@@ -143,7 +143,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
         <div className="glass-card px-4 py-2 text-xs text-stone-500 flex items-center gap-2 max-w-[500px]">
           <Clock size={14} className="text-stone-400 flex-shrink-0" />
           <span className="flex-1">{m.content}</span>
-          <span className="text-stone-300 text-[11px] flex-shrink-0">{fmtTime(m.ts)}</span>
+          <span className="msg-meta text-[11px] flex-shrink-0">{fmtTime(m.ts)}</span>
         </div>
       </div>
     )
@@ -155,14 +155,17 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
-  const nameColor = isUser ? 'text-stone-400' : color?.nameClass || 'text-otter-500'
-  const borderLeft = !isUser ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}` } : {}
+  const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
+  const sideBar: CSSProperties = !isUser
+    ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}`, '--otter-tint': color?.border || '#8B6F47' } as CSSProperties
+    /* 用户身份色用中性石灰系，避免与 o1 品牌棕撞色 */
+    : { borderRight: '3px solid #6B6157', '--otter-tint': '#8B7E72' } as CSSProperties
   const dur = m.dur ? ` · ${m.dur}` : ''
 
   return (
     <div className={`flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble"
+        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: bgGrad }}
       >
         {isUser ? '我' : name.charAt(0)}
@@ -170,10 +173,10 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">{inFlight ? '正在回复...' : `${fmtTime(m.ts)}${dur}`}</span>
+          <span className="text-[11px] msg-meta">{inFlight ? '正在回复...' : `${fmtTime(m.ts)}${dur}`}</span>
           {/* token 条在主流程位置（#88），但 ctx 缺失（进行中/历史未持久化）时不渲染（M3） */}
           {!isUser && m.ctx != null && (
-            <span className="flex items-center gap-1.5 text-[10px] text-stone-400 ml-1">
+            <span className="flex items-center gap-1.5 text-[10px] msg-meta ml-1">
               <span>{fmtTokens(m.ctx)} / {fmtTokens(m.ctxMax || 200000)}</span>
               <span className="w-16 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
                 <span
@@ -185,10 +188,10 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
           )}
         </div>
         <div
-          className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble ${
-            isUser ? 'bubble-user text-white' : 'bubble-otter bg-white text-stone-700 border border-stone-100'
-          }`}
-          style={isUser ? { background: bgGrad } : borderLeft}
+          className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed text-stone-700 ${
+            isUser ? 'bubble-user' : 'bubble-otter'
+          } ${!isUser && inFlight ? 'bubble-live' : ''}`}
+          style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess key={inFlight ? 'live' : 'done'} events={m.events} duration={m.dur || ''} status={m.status} />}
           <div className="relative group">
@@ -231,7 +234,7 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
         : `已完成${duration ? ` · ${duration}` : ''}`
 
   return (
-    <div className="streaming-section mb-2 rounded-xl overflow-hidden" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
+    <div className={`streaming-section mb-2 rounded-xl overflow-hidden ${inFlight ? 'stream-shimmer' : ''}`} style={{ background: 'var(--surface-inset)', border: '1px solid var(--inset-border)' }}>
       <div
         className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer hover:bg-white/30 transition"
         onClick={() => setCollapsed(!collapsed)}

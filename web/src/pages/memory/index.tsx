@@ -126,7 +126,7 @@ function MemorySearchPage() {
             <div className="flex flex-col items-center justify-center h-full gap-2">
               <Search className="w-10 h-10 text-stone-300" />
               <div className="text-sm font-medium text-stone-400">搜索记忆</div>
-              <div className="text-xs text-stone-400">输入关键词搜索历史对话、关键事实和链接资源</div>
+              <div className="text-xs text-stone-400">输入关键词搜索历史对话和关键资源</div>
             </div>
           )}
 

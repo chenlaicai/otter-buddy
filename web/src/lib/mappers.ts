@@ -48,7 +48,8 @@ export interface LocalMessage {
   turnId?: string
 }
 
-/** 前端本地 LinkedResource 类型（统一产物模型） */
+/** 前端本地 LinkedResource 类型（统一产物模型）
+ *  新旧词映射：关键资源（现名）= 链接资源/关键事实（旧称）；machine name 保留 linked_resource */
 export interface LocalLinkedResource {
   id: string
   type: string

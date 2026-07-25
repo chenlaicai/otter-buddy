@@ -43,5 +43,10 @@ jobs:
       - name: Run full project checks
         run: npm run check
 
+      - name: Build web frontend (tsc + vite)
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+
       - name: Run tests
         run: npm test

@@ -27,11 +27,11 @@ export function Modal({ isOpen = true, onClose, title, children, footer, width =
 
   return (
     <div
-      className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-[100]"
+      className="fixed inset-0 scrim flex items-center justify-center z-[100]"
       onClick={onClose}
     >
       <div
-        className="glass-strong rounded-3xl shadow-otter-lg overflow-hidden"
+        className="glass-overlay rounded-3xl overflow-hidden"
         style={{ width, maxHeight: '80vh' }}
         onClick={e => e.stopPropagation()}
       >
