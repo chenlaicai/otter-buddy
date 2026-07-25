@@ -52,7 +52,6 @@ function MarkdownContent({ children }: { children: string }) {
 
 interface MessageListProps {
   messages: Message[]
-  streamingMessages: Map<string, StreamingState>
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
   onStopStream: (messageId: string) => void
   onRetry: () => void
@@ -60,24 +59,14 @@ interface MessageListProps {
   otters: Otter[]
 }
 
-export interface StreamingState {
-  messageId: string
-  otterId: string
-  otterName?: string
-  /** 所属对话（streamingMap 全局共享，渲染时按对话过滤） */
-  conversationId: string
-  duration: number
-  events: LocalMessageEvent[]
-}
-
-export function MessageList({ messages, streamingMessages, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
+export function MessageList({ messages, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, streamingMessages])
+  }, [messages])
 
   if (state === 'no-llm') {
     return (
@@ -108,7 +97,7 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
     )
   }
 
-  if (messages.length === 0 && streamingMessages.size === 0) {
+  if (messages.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-2">
         <div className="text-sm font-medium text-stone-400">开始对话</div>
@@ -124,13 +113,10 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
         const isNewTurn = m.turnId && m.turnId !== prevTurnId
         return (
           <div key={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
-            <MessageItem message={m} otters={otters} />
+            <MessageItem message={m} otters={otters} onStopStream={onStopStream} />
           </div>
         )
       })}
-      {Array.from(streamingMessages.entries()).map(([messageId, state]) => (
-        <StreamingMessage key={messageId} state={state} onStop={() => onStopStream(messageId)} otters={otters} />
-      ))}
       {state === 'error' && (
         <div className="max-w-[780px] mx-auto px-6 my-2">
           <div className="bg-red-400/10 border border-red-400/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-500">
@@ -149,7 +135,7 @@ export function MessageList({ messages, streamingMessages, state, onStopStream, 
   )
 }
 
-function MessageItem({ message: m, otters }: { message: Message; otters: Otter[] }) {
+function MessageItem({ message: m, otters, onStopStream }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void }) {
   // System 消息：居中显示，特殊样式
   if (m.st === 'system') {
     return (
@@ -164,6 +150,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
   }
 
   const isUser = m.st === 'user'
+  const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
@@ -183,14 +170,15 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">{fmtTime(m.ts)}{dur}</span>
-          {!isUser && (
+          <span className="text-[11px] text-stone-300">{inFlight ? '正在回复...' : `${fmtTime(m.ts)}${dur}`}</span>
+          {/* token 条在主流程位置（#88），但 ctx 缺失（进行中/历史未持久化）时不渲染（M3） */}
+          {!isUser && m.ctx != null && (
             <span className="flex items-center gap-1.5 text-[10px] text-stone-400 ml-1">
-              <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 200000)}</span>
+              <span>{fmtTokens(m.ctx)} / {fmtTokens(m.ctxMax || 200000)}</span>
               <span className="w-16 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
                 <span
                   className="block h-full rounded-full"
-                  style={{ width: `${ctxPercent(m.ctx || 0, m.ctxMax || 200000)}%`, background: '#8B6F47' }}
+                  style={{ width: `${ctxPercent(m.ctx, m.ctxMax || 200000)}%`, background: '#8B6F47' }}
                 />
               </span>
             </span>
@@ -202,21 +190,45 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           }`}
           style={isUser ? { background: bgGrad } : borderLeft}
         >
-          {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} />}
+          {!isUser && m.events && m.events.length > 0 && <StreamingProcess key={inFlight ? 'live' : 'done'} events={m.events} duration={m.dur || ''} status={m.status} />}
           <div className="relative group">
-            <MarkdownContent>{m.content}</MarkdownContent>
+            {m.content
+              ? <MarkdownContent>{m.content}</MarkdownContent>
+              : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
+            }
             <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
               <CopyButton text={m.content} />
             </div>
           </div>
+          {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
+          {inFlight && (
+            <div className="mt-1.5">
+              <button
+                onClick={() => onStopStream(m.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"
+              >
+                <Square className="w-2.5 h-2.5 fill-current text-red-400" />
+                停止生成
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function StreamingProcess({ events, duration }: { events: LocalMessageEvent[]; duration: string }) {
-  const [collapsed, setCollapsed] = useState(true)
+function StreamingProcess({ events, duration, status }: { events: LocalMessageEvent[]; duration: string; status?: Message['status'] }) {
+  const inFlight = status === 'streaming' || status === 'speaking'
+  /** 进行中的流式过程默认展开（实时可见），终态默认折叠 */
+  const [collapsed, setCollapsed] = useState(!inFlight)
+  const statusLabel = inFlight
+    ? '进行中'
+    : status === 'failed'
+      ? '失败'
+      : status === 'aborted'
+        ? '已中断'
+        : `已完成${duration ? ` · ${duration}` : ''}`
 
   return (
     <div className="streaming-section mb-2 rounded-xl overflow-hidden" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
@@ -226,7 +238,16 @@ function StreamingProcess({ events, duration }: { events: LocalMessageEvent[]; d
       >
         <span className={`streaming-icon text-[8px] text-stone-400 transition ${collapsed ? '' : 'rotate-180'}`}>▼</span>
         <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
-        <span className="text-[10px] text-stone-400">已完成 · {duration}</span>
+        <span className="text-[10px] text-stone-400 flex items-center gap-1">
+          {inFlight && (
+            <span className="flex gap-0.5">
+              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
+              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
+              <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
+            </span>
+          )}
+          {statusLabel}
+        </span>
       </div>
       {!collapsed && (
         <div className="streaming-body border-t border-otter-200/20 max-h-[400px] overflow-y-auto">
@@ -343,63 +364,4 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
   }
 
   return null
-}
-
-function StreamingMessage({ state, onStop, otters }: { state: StreamingState; onStop: () => void; otters: Otter[] }) {
-  const otter = otters.find(o => o.id === state.otterId)
-  const color = getOtterColor(state.otterId, otter?.ci)
-  const name = otter?.name || state.otterName || 'Otter'
-  const events = state.events || []
-
-  return (
-    <div className="flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn">
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble"
-        style={{ background: color.gradient }}
-      >
-        {name.charAt(0)}
-      </div>
-      <div className="flex flex-col" style={{ maxWidth: '72%' }}>
-        <div className="flex items-center gap-1.5 mb-1 px-1">
-          <span className={`text-xs font-semibold ${color.nameClass}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">正在回复...</span>
-        </div>
-        <div
-          className="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed shadow-bubble bubble-otter bg-white text-stone-700 border border-stone-100"
-          style={{ borderLeft: `3px solid ${color.border}` }}
-        >
-          {/* 实时流式过程 */}
-          {events.length > 0 && (
-            <div className="rounded-xl overflow-hidden mb-2" style={{ background: 'rgba(139,111,71,0.04)', border: '1px solid rgba(139,111,71,0.08)' }}>
-              <div className="flex items-center gap-1.5 px-3 py-1.5">
-                <span className="text-[8px] text-stone-400">▼</span>
-                <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>
-                <span className="text-[10px] text-stone-400 flex items-center gap-1">
-                  <span className="flex gap-0.5">
-                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" />
-                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.15s' }} />
-                    <span className="w-1 h-1 rounded-full bg-teal-400 animate-dot" style={{ animationDelay: '0.3s' }} />
-                  </span>
-                  生成中
-                </span>
-              </div>
-              <div className="border-t border-otter-200/20">
-                {events.map((evt, i) => <EventItem key={i} event={evt} />)}
-              </div>
-            </div>
-          )}
-          {/* 停止按钮 */}
-          <div className="mt-1.5">
-            <button
-              onClick={onStop}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"
-            >
-              <Square className="w-2.5 h-2.5 fill-current text-red-400" />
-              停止生成
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
 }

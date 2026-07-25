@@ -13,11 +13,11 @@ const TERMINAL_EVENTS = new Set(["stream.end"]);
 
 /**
  * 创建 SSE 流，返回响应和事件推送函数。
- * onAbort 在客户端断连时调用（用于中止 Agent 生成）。
+ * onAbort 在客户端断连时调用（可选；注意断连不等于要中止 Agent 生成）。
  */
 export function streamEvents(
   c: Context,
-  onAbort: () => void,
+  onAbort?: () => void,
   logger?: Logger,
 ): { response: Response; push: (event: SSEEvent) => void; close: () => void } {
   const requestId = c.get('requestId');
@@ -50,7 +50,7 @@ export function streamEvents(
     stream.onAbort(() => {
       closed = true;
       logSSEClose(logger, requestId, conversationId, startTime, 'client_abort');
-      onAbort();
+      onAbort?.();
       waiting?.();
     });
 

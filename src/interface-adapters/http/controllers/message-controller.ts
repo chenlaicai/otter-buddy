@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { canAbortMessage } from "@entities/conversation/message";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -93,13 +94,9 @@ export class MessageController {
       /** 3. 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
       const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
-      /** 4. 创建 SSE 流（长连接贯穿多轮） */
+      /** 4. 创建 SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
       const allTargets = new Set(firstTurnTargets);
-      const { response, push, close } = streamEvents(c, () => {
-        for (const oid of allTargets) {
-          this.agentInvoker.abort(oid, "");
-        }
-      });
+      const { response, push, close } = streamEvents(c);
 
       /** 5. 启动调度循环 */
       const dispatchLoop = (targets: string[]) =>
@@ -262,6 +259,10 @@ export class MessageController {
       /** 仅 Otter 消息可被中止（用户消息已完成，无 Agent 在运行） */
       if (msg.senderType !== "otter") {
         return c.json({ error: "Can only abort otter messages" }, 400);
+      }
+      /** 仅进行中的消息可被中止——终态消息 abort 会留下 stale abort 标记，污染该消息后续的错误分类 */
+      if (!canAbortMessage(msg.status)) {
+        return c.json({ error: `Message is already in terminal status: ${msg.status}` }, 409);
       }
       this.agentInvoker.abort(msg.senderId, id);
       return c.json({ status: "aborted" }, 202);

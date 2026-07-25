@@ -205,6 +205,35 @@ describe("Message API", () => {
       expect(events[0].data.message).toBe("LLM rate limited");
       expect(events[1]).toEqual({ event: "stream.end", data: {} });
     });
+
+    it("客户端断开 SSE 不中止 agent：agent 继续跑完且 abort 不被调用（刷新≠停止）", async () => {
+      const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
+      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      let invocationCompleted = false;
+      deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
+        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
+        await new Promise((r) => setTimeout(r, 50));
+        invocationCompleted = true;
+        return { messageId: "agent-msg-1", duration: 50 };
+      });
+
+      const res = await app.request("/api/conversations/conv-1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validBody),
+      });
+      expect(res.status).toBe(200);
+
+      const reader = res.body!.getReader();
+      /** 读到首个事件后模拟刷新页面导致的客户端断开（hono responseReadable.cancel 会触发 stream.onAbort） */
+      await reader.read();
+      await reader.cancel();
+
+      /** 等待 agent loop 跑完——断开不应中断发言 */
+      await new Promise((r) => setTimeout(r, 150));
+      expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
+      expect(invocationCompleted).toBe(true);
+    });
   });
 
   // ─── GET /api/messages/:id ───
@@ -249,6 +278,7 @@ describe("Message API", () => {
       expect(body.st).toBe("otter");
       expect(body.si).toBe("otter-1");
       expect(body.content).toBe("I am an otter");
+      expect(body.status).toBe("completed");
       expect(body.seq).toBe(5);
       expect(body.tsp).toEqual(["user-1"]);
       expect(body.ctx).toBe(1500);
@@ -308,7 +338,7 @@ describe("Message API", () => {
 
     it("aborts otter message and calls agentInvoker.abort", async () => {
       deps.queryMessage.getMessageById.mockResolvedValue(
-        makeMessage({ senderType: "otter", senderId: "otter-1" }),
+        makeMessage({ senderType: "otter", senderId: "otter-1", status: "streaming" }),
       );
 
       const res = await app.request("/api/messages/msg-1/abort", {
@@ -319,6 +349,21 @@ describe("Message API", () => {
       const body = await json(res);
       expect(body.status).toBe("aborted");
       expect(deps.agentInvoker.abort).toHaveBeenCalledWith("otter-1", "msg-1");
+    });
+
+    it("returns 409 when message is already in terminal status（防止 stale abortedOtters 标记）", async () => {
+      deps.queryMessage.getMessageById.mockResolvedValue(
+        makeMessage({ senderType: "otter", senderId: "otter-1", status: "completed" }),
+      );
+
+      const res = await app.request("/api/messages/msg-1/abort", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(409);
+      const body = await json(res);
+      expect(body.error).toContain("terminal");
+      expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
     });
   });
 });
