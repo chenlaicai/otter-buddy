@@ -367,6 +367,20 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
       );
     });
   });
+});
+
+describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724cwgn）", () => {
+  let db: ReturnType<typeof createTestDb>;
+  let repo: SqliteConversationRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
 
   describe("abortMessage", () => {
     it("将 streaming 状态的消息标记为 aborted", async () => {
@@ -522,6 +536,123 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
 
       const results = await repo.getMessageEvents("msg-1");
       expect(results).toEqual([]);
+    });
+  });
+});
+
+describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724cwgn）", () => {
+  let db: ReturnType<typeof createTestDb>;
+  let repo: SqliteConversationRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  describe("failInFlightMessages（服务重启兜底）", () => {
+    it("将所有 streaming/speaking 消息标记为 failed，streaming 写入失败说明、speaking 保留已有 body", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      await repo.createStreamingMessage(messageFixture({
+        id: "msg-streaming",
+        body: null,
+        talkingStonePassedTo: null,
+        completedAt: null,
+        status: "streaming",
+      }));
+      await repo.createStreamingMessage(messageFixture({
+        id: "msg-speaking",
+        body: null,
+        talkingStonePassedTo: null,
+        completedAt: null,
+        status: "streaming",
+        sequenceNum: 2,
+      }));
+      await repo.startSpeaking("msg-speaking", "发言到一半的正文", ["user-1"]);
+      await repo.createCompletedMessage(messageFixture({ id: "msg-done", sequenceNum: 3 }));
+
+      const count = await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]");
+
+      expect(count).toBe(2);
+      const streaming = await repo.getMessageById("msg-streaming");
+      expect(streaming!.status).toBe("failed");
+      expect(streaming!.body).toBe("[服务重启，发言中断]");
+      expect(streaming!.completedAt).toBe("2026-07-24T00:02:00Z");
+      const speaking = await repo.getMessageById("msg-speaking");
+      expect(speaking!.status).toBe("failed");
+      /** speaking 保留已有 body 但加中断标记前缀（F5：避免半截 body 被当作完整发言） */
+      expect(speaking!.body).toBe("[服务重启，发言中断]\n\n发言到一半的正文");
+      const done = await repo.getMessageById("msg-done");
+      expect(done!.status).toBe("completed");
+    });
+
+    it("无进行中消息时返回 0", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      await repo.createCompletedMessage(messageFixture());
+
+      expect(await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]")).toBe(0);
+    });
+  });
+
+  describe("closeOrphanedTurns（服务重启兜底，F4）", () => {
+    it("关闭不再有进行中消息的 open turn，保留含进行中消息的 turn", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture({ id: "turn-orphan" }));
+      await repo.createCompletedMessage(messageFixture({ turnId: "turn-orphan" }));
+      await repo.createTurn(turnFixture({ id: "turn-active", turnNumber: 2 }));
+      await repo.createStreamingMessage(messageFixture({
+        id: "msg-inflight",
+        turnId: "turn-active",
+        sequenceNum: 2,
+        body: null,
+        talkingStonePassedTo: null,
+        completedAt: null,
+        status: "streaming",
+      }));
+
+      const count = await repo.closeOrphanedTurns("2026-07-24T00:03:00Z");
+
+      expect(count).toBe(1);
+      expect(await repo.getActiveTurn("conv-1")).not.toBeNull();
+      expect((await repo.getActiveTurn("conv-1"))!.id).toBe("turn-active");
+    });
+
+    it("全部 turn 无进行中消息时全部关闭", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      await repo.createCompletedMessage(messageFixture());
+
+      expect(await repo.closeOrphanedTurns("2026-07-24T00:03:00Z")).toBe(1);
+      expect(await repo.getActiveTurn("conv-1")).toBeNull();
+    });
+  });
+
+  describe("getUnreadMessages（F5：排除进行中半成品）", () => {
+    it("不返回 streaming/speaking 消息（半成品不应注入其它 otter 上下文）", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      /** conversation_participants 有 otter_id 外键，需先插入 otter */
+      db.prepare(`INSERT INTO otters (id, name, type) VALUES (?, ?, ?)`).run("otter-reader", "Reader", "small");
+      await repo.createParticipant({
+        id: "part-1", conversationId: "conv-1", otterId: "otter-reader",
+        joinedAtTurnId: null, joinedAtTurnNumber: 0,
+        leftAtTurnId: null, leftAtTurnNumber: null,
+        status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
+        lastReadTurnNumber: 0,
+      });
+      await repo.createCompletedMessage(messageFixture({ senderId: "otter-1" }));
+      await repo.createStreamingMessage(messageFixture({
+        id: "msg-inflight", senderId: "otter-1", sequenceNum: 2,
+        body: null, talkingStonePassedTo: null, completedAt: null, status: "streaming",
+      }));
+
+      const unread = await repo.getUnreadMessages("conv-1", "otter-reader");
+      expect(unread.map(m => m.id)).toEqual(["msg-1"]);
     });
   });
 });
