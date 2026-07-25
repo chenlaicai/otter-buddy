@@ -99,7 +99,7 @@ export function RightPanel(props: RightPanelProps) {
               className="form-input text-xs"
             />
             <div className="flex gap-1.5 justify-end">
-              <button onClick={handlePickLink} className="px-2.5 py-1 text-xs text-teal-500">添加链接…</button>
+              <button onClick={handlePickLink} className="px-2.5 py-1 text-xs text-teal-500">改为添加链接…</button>
               <button onClick={() => setShowKfForm(false)} className="px-2.5 py-1 text-xs text-stone-500">取消</button>
               <button
                 onClick={handleAddFact}

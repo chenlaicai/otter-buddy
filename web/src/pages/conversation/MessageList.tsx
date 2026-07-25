@@ -154,11 +154,12 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
-  const bgGrad = isUser ? 'linear-gradient(135deg,#A88260,#6B5638)' : color?.gradient
-  const nameColor = isUser ? 'text-otter-600' : color?.nameClass || 'text-otter-500'
+  const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
+  const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
   const sideBar: CSSProperties = !isUser
     ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}`, '--otter-tint': color?.border || '#8B6F47' } as CSSProperties
-    : { borderRight: '3px solid #6B5638', '--otter-tint': '#8B6F47' } as CSSProperties
+    /* 用户身份色用中性石灰系，避免与 o1 品牌棕撞色 */
+    : { borderRight: '3px solid #6B6157', '--otter-tint': '#8B7E72' } as CSSProperties
   const dur = m.dur ? ` · ${m.dur}` : ''
 
   return (

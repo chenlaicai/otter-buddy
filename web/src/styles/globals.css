@@ -61,9 +61,10 @@
   --panel-blur: blur(24px) saturate(200%);
   --panel-shadow: 0 16px 48px rgba(42,32,20,0.12), 0 2px 8px rgba(42,32,20,0.05);
 
-  /* L2 气泡/卡片：blur 16px 无 saturate */
+  /* L2 气泡/卡片：blur 16px 无 saturate（气泡自己的 --bubble-blur 才带 saturate） */
   --card-bg: linear-gradient(165deg, rgb(255 253 249 / calc(74% * var(--glass-t))), rgb(255 250 242 / calc(58% * var(--glass-t))));
   --card-blur: blur(16px);
+  --bubble-blur: blur(16px) saturate(140%);
   --card-shadow: 0 1px 3px rgba(42,32,20,0.07), 0 4px 14px rgba(42,32,20,0.05);
 
   /* L3 弹层：最透 + 最强 blur */
@@ -90,8 +91,8 @@
   --focus-ring: #97734C;
   --focus-glow: rgba(168,130,96,0.25);
 
-  /* 辅助文字（时间戳/元信息，直接坐在画布上，需 ≥4.5:1） */
-  --ink-3: #655A4E;
+  /* 辅助文字（时间戳/元信息，直接坐在画布上，平静区 ≥4.5:1） */
+  --ink-3: #5F5447;
 
   /* 嵌套激活态（玻璃里的选中项）：半透纯色，无 blur */
   --active-bg: rgb(255 253 249 / calc(62% * var(--glass-t)));
@@ -115,12 +116,16 @@
     --chrome-bg: #F7F2EA;  --chrome-blur: none;
     --panel-bg: #FAF6EF;   --panel-blur: none;
     --card-bg: #FFFDF9;    --card-blur: none;
+    --bubble-blur: none;
     --overlay-bg: #FFFDF9; --overlay-blur: none;
+    --scrim: rgba(28,22,16,0.45);
     --scrim-blur: none;
     --form-input-bg: #FFFDF9; --form-input-blur: none;
     --surface-inset: #F1EBE2;
     --hairline: rgba(42,32,20,0.14);
-    --edge-hi: none;
+    /* 注意：edge-hi 是 box-shadow 列表片段，置 none 会使整条声明非法。
+       用全透明阴影占位，保持列表合法 */
+    --edge-hi: inset 0 1px 0 rgba(0,0,0,0);
     --card-shadow: 0 1px 3px rgba(42,32,20,0.12), 0 4px 14px rgba(42,32,20,0.10);
     --panel-shadow: 0 16px 48px rgba(42,32,20,0.16), 0 2px 8px rgba(42,32,20,0.08);
     --active-bg: #FFFDF9;
@@ -130,8 +135,8 @@
   }
   /* 内联样式漏网：噪点层 */
   .bg-spring { background-image: none; }
-  /* reduced 下用户气泡与水獭气泡同为实色卡片 */
-  .bubble-user { background: #FFFDF9 !important; }
+  /* reduced 下用户/水獭气泡同为实色卡片（色染层一并去掉） */
+  .bubble-otter, .bubble-user { background: #FFFDF9 !important; }
 }
 
 body {
@@ -285,13 +290,14 @@ body {
    身份色染：每只水獭的气泡玻璃叠 14~18% 身份色（--otter-tint 由组件
    内联注入），一眼区分是谁在说；深字在浅染玻璃上 ~10:1 */
 .bubble-otter {
+  background-color: #FFFDF9;  /* color-mix 不支持时的兜底 */
   background:
     linear-gradient(165deg,
       color-mix(in srgb, var(--otter-tint, #8B6F47) 14%, transparent),
       color-mix(in srgb, var(--otter-tint, #8B6F47) 18%, transparent)),
     var(--card-bg);
-  backdrop-filter: var(--card-blur) saturate(140%);
-  -webkit-backdrop-filter: var(--card-blur) saturate(140%);
+  backdrop-filter: var(--bubble-blur);
+  -webkit-backdrop-filter: var(--bubble-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
@@ -301,7 +307,8 @@ body {
     0 0 0 1px color-mix(in srgb, var(--otter-tint, #8B6F47) 35%, transparent),
     0 4px 20px color-mix(in srgb, var(--otter-tint, #8B6F47) 22%, transparent),
     var(--card-shadow),
-    inset 0 1px 0 rgba(255,255,255,0.6);
+    var(--edge-hi),
+    inset 0 -1px 0 var(--contact-line);
 }
 /* 流式过程条：流光扫过（仅在生成中的面板使用） */
 .stream-shimmer { position: relative; overflow: hidden; }
@@ -320,19 +327,21 @@ body {
 /* 用户气泡：与水獭气泡同一材质语言（侧边色条 + 玻璃 + 身份色染），
    色条在右，身份色 = 品牌棕 */
 .bubble-user {
+  background-color: #FFFDF9;  /* color-mix 不支持时的兜底 */
   background:
     linear-gradient(165deg,
       color-mix(in srgb, var(--otter-tint, #8B6F47) 14%, transparent),
       color-mix(in srgb, var(--otter-tint, #8B6F47) 18%, transparent)),
     var(--card-bg);
-  backdrop-filter: var(--card-blur) saturate(140%);
-  -webkit-backdrop-filter: var(--card-blur) saturate(140%);
+  backdrop-filter: var(--bubble-blur);
+  -webkit-backdrop-filter: var(--bubble-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
 
-/* 消息元信息（时间戳、token 数）：直接坐在画布上 */
-.msg-meta { color: var(--ink-3); }
+/* 消息元信息（时间戳、token 数）：直接坐在画布上，
+   画布色光晕保证骑在饱和色团上仍可读 */
+.msg-meta { color: var(--ink-3); text-shadow: 0 0 4px rgba(231,221,207,0.9), 0 1px 2px rgba(231,221,207,0.7); }
 
 /* Form inputs */
 .form-input { background: var(--form-input-bg); backdrop-filter: var(--form-input-blur); -webkit-backdrop-filter: var(--form-input-blur); border: 1px solid var(--contact-line); border-radius: 10px; padding: 9px 12px; font-size: 14px; outline: none; transition: all 0.18s; color: #2C2520; }

@@ -24,7 +24,7 @@ function SettingsPage() {
   const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingDim: number } | null>(null)
   const [glassT, setGlassT] = useState(() => {
     const v = parseFloat(localStorage.getItem('otter-glass-t') || '0.85')
-    return isNaN(v) ? 0.85 : v
+    return isNaN(v) ? 0.85 : Math.min(1, Math.max(0.6, v))
   })
 
   function updateGlassT(v: number) {
@@ -103,7 +103,7 @@ function SettingsPage() {
                 </label>
                 <input
                   type="range"
-                  min={45}
+                  min={60}
                   max={100}
                   step={5}
                   value={Math.round(glassT * 100)}
