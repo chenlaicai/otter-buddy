@@ -161,7 +161,7 @@ describe("AgentInvoker", () => {
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].id).toBe("msg-streaming");
     expect(msg._calls.abort[0].body).toContain("3 次工具调用");
-    expect(msg._calls.abort[0].body).toContain("[用户中断]");
+    expect(msg._calls.abort[0].body).toContain("[搭档中断]");
 
     /** B-Abort-1: sendMessage.fail 不应被调用 */
     expect(msg._calls.fail).toHaveLength(0);

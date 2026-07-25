@@ -311,7 +311,7 @@ export class AgentInvoker {
       const toolCallCount =
         (err as Error & { _toolCallCount?: number })._toolCallCount ??
         this.agentInvoke.getToolCallCount(otterId, messageId);
-      const body = `[用户中断] 经过 ${toolCallCount} 次工具调用后，用户强制中断了当前发言。`;
+      const body = `[搭档中断] 经过 ${toolCallCount} 次工具调用后，搭档强制中断了当前发言。`;
       try {
         await this.sendMessage.abort(messageId, {
           body,

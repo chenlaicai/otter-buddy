@@ -174,7 +174,7 @@ export class MessageController {
       const otter = await this.queryOtter.getById(p.otterId);
       return `- ${otter?.name ?? p.otterId} (otterId: ${p.otterId})`;
     }));
-    lines.push(`- 人类操作者（传 'user' 即交还发言权）`);
+    lines.push(`- 搭档（传 'user' 即交还发言权）`);
     return `## 在场成员\n${lines.join('\n')}`;
   }
 
@@ -192,7 +192,7 @@ export class MessageController {
     }
     const names = await this.resolveSenderNames(unreadMessages);
     const formatted = unreadMessages
-      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '用户' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ?? ''}`)
+      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '搭档' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ?? ''}`)
       .join('\n');
     return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
   }

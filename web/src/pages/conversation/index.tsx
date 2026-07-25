@@ -262,7 +262,7 @@ function ConversationPage() {
             const abortedMsg: LocalMessage = {
               id: messageId, st: 'otter', si: otterId,
               sn: otterName,
-              content: data.body ?? '[用户中断]', ts: nowTs(), dur: null,
+              content: data.body ?? '[搭档中断]', ts: nowTs(), dur: null,
               events: liveEvents,
             }
             setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), abortedMsg] }))
