@@ -435,7 +435,7 @@ function ConversationPage() {
     try {
       const dto = await api.linkResource(activeId, { resourceType: 'fact', content, category, linkedBy: 'user', autoLinked: false })
       setAllLinkedRes(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), mapLinkedResourceDTO(dto)] }))
-      showToast('关键事实已添加', 'success')
+      showToast('关键资源已添加', 'success')
     } catch { showToast('添加失败', 'error') }
   }
 

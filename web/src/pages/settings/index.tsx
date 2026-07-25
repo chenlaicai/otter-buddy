@@ -22,6 +22,16 @@ function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
   const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingDim: number } | null>(null)
+  const [glassT, setGlassT] = useState(() => {
+    const v = parseFloat(localStorage.getItem('otter-glass-t') || '0.85')
+    return isNaN(v) ? 0.85 : v
+  })
+
+  function updateGlassT(v: number) {
+    setGlassT(v)
+    document.documentElement.style.setProperty('--glass-t', String(v))
+    localStorage.setItem('otter-glass-t', String(v))
+  }
 
   useEffect(() => {
     api.getSettings()
@@ -82,6 +92,27 @@ function SettingsPage() {
         <main className="flex-1 glass rounded-3xl overflow-y-auto p-8">
           <div className="max-w-[600px] mx-auto">
             <h1 className="text-lg font-semibold text-stone-700 mb-6">设置</h1>
+
+            {/* Appearance */}
+            <section className="mb-8">
+              <h2 className="text-sm font-semibold text-stone-600 mb-4">外观</h2>
+              <div>
+                <label className="flex justify-between text-xs font-medium text-stone-500 mb-1.5">
+                  <span>玻璃不透明度</span>
+                  <span className="text-stone-400">{Math.round(glassT * 100)}%</span>
+                </label>
+                <input
+                  type="range"
+                  min={45}
+                  max={100}
+                  step={5}
+                  value={Math.round(glassT * 100)}
+                  onChange={e => updateGlassT(Number(e.target.value) / 100)}
+                  className="glass-range w-full"
+                />
+                <p className="text-[11px] text-stone-400 mt-1">越低越透 · 即时生效 · 仅保存在本机浏览器</p>
+              </div>
+            </section>
 
             {/* LLM Config */}
             <section className="mb-8">

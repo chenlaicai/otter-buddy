@@ -16,7 +16,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
     <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
       <div className="p-3 flex gap-2 border-b border-white/40">
         <a
-          href="/memory"
+          href="/memory.html"
           className="w-8 h-8 rounded-xl flex items-center justify-center text-stone-500 hover:bg-white/40 transition"
         >
           <Search className="w-4 h-4" />

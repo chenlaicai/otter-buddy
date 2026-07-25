@@ -44,31 +44,37 @@
    需组件级改造才能启用，本轮不加 prefers-color-scheme 块，避免半成品。
    ============================================================ */
 :root {
-  --bg-base: #F3EDE4;
+  --bg-base: #E7DDCF;
+
+  /* 玻璃不透明度全局系数（设置页滑杆可调 0.45~1.0，越低越透；
+     各层 token 用 calc 按系数缩放，reduced-transparency 兜底直接
+     覆盖为实色、不受系数影响） */
+  --glass-t: 0.85;
 
   /* L0 chrome（顶栏）：最透 */
-  --chrome-bg: linear-gradient(180deg, rgba(255,255,255,0.50), rgba(255,255,255,0.32));
-  --chrome-blur: blur(32px) saturate(180%);
+  --chrome-bg: linear-gradient(180deg, rgb(255 255 255 / calc(50% * var(--glass-t))), rgb(255 255 255 / calc(32% * var(--glass-t))));
+  --chrome-blur: blur(28px) saturate(200%);
 
-  /* L1 浮起面板（侧栏、输入框）：稍实 + 高投影 */
-  --panel-bg: linear-gradient(165deg, rgba(255,255,255,0.58), rgba(255,255,255,0.38));
-  --panel-blur: blur(32px) saturate(180%);
+  /* L1 浮起面板（侧栏、输入框）：稍实 + 高投影
+     blur 24px + saturate 200%：让更多底色结构透过玻璃 */
+  --panel-bg: linear-gradient(165deg, rgb(255 255 255 / calc(58% * var(--glass-t))), rgb(255 255 255 / calc(38% * var(--glass-t))));
+  --panel-blur: blur(24px) saturate(200%);
   --panel-shadow: 0 16px 48px rgba(42,32,20,0.12), 0 2px 8px rgba(42,32,20,0.05);
 
   /* L2 气泡/卡片：blur 16px 无 saturate */
-  --card-bg: linear-gradient(165deg, rgba(255,253,249,0.74), rgba(255,250,242,0.58));
+  --card-bg: linear-gradient(165deg, rgb(255 253 249 / calc(74% * var(--glass-t))), rgb(255 250 242 / calc(58% * var(--glass-t))));
   --card-blur: blur(16px);
   --card-shadow: 0 1px 3px rgba(42,32,20,0.07), 0 4px 14px rgba(42,32,20,0.05);
 
   /* L3 弹层：最透 + 最强 blur */
   --scrim: rgba(28,22,16,0.30);
   --scrim-blur: blur(6px);
-  --overlay-bg: linear-gradient(165deg, rgba(255,253,249,0.78), rgba(255,251,244,0.62));
+  --overlay-bg: linear-gradient(165deg, rgb(255 253 249 / calc(78% * var(--glass-t))), rgb(255 251 244 / calc(62% * var(--glass-t))));
   --overlay-blur: blur(40px) saturate(180%);
   --overlay-shadow: 0 24px 64px rgba(42,32,20,0.22), 0 4px 16px rgba(42,32,20,0.10);
 
   /* 表单输入 */
-  --form-input-bg: rgba(255,255,255,0.5);
+  --form-input-bg: rgb(255 255 255 / calc(50% * var(--glass-t)));
   --form-input-blur: blur(20px);
 
   /* 边缘：顶部高光 + 底部接触线成对，任何背景上边缘读感一致 */
@@ -84,18 +90,22 @@
   --focus-ring: #97734C;
   --focus-glow: rgba(168,130,96,0.25);
 
+  /* 辅助文字（时间戳/元信息，直接坐在画布上，需 ≥4.5:1） */
+  --ink-3: #655A4E;
+
   /* 嵌套激活态（玻璃里的选中项）：半透纯色，无 blur */
-  --active-bg: rgba(255,253,249,0.62);
-  --nav-active-bg: rgba(255,255,255,0.55);
+  --active-bg: rgb(255 253 249 / calc(62% * var(--glass-t)));
+  --nav-active-bg: rgb(255 255 255 / calc(55% * var(--glass-t)));
 
   --scrollbar: rgba(107,86,56,0.28);
 
-  /* 极光画布：四缘色团 + 中央 115° 对角渐带（给气泡玻璃颜色折射） */
-  --blob-1: radial-gradient(ellipse 45% 42% at 4% 6%,   rgba(168,130,96,0.46), transparent 62%);
-  --blob-2: radial-gradient(ellipse 42% 46% at 97% 92%, rgba(58,139,139,0.42), transparent 62%);
-  --blob-3: radial-gradient(ellipse 38% 36% at 84% 4%,  rgba(217,165,123,0.44), transparent 62%);
-  --blob-4: radial-gradient(ellipse 42% 42% at 8% 88%,  rgba(139,122,184,0.40), transparent 62%);
-  --band: linear-gradient(115deg, transparent 25%, rgba(217,165,123,0.24) 42%, rgba(123,150,160,0.16) 58%, rgba(58,139,139,0.20) 68%, transparent 82%);
+  /* 极光画布：深底 + 高饱和色团。画布深下去，白玻璃才"亮"出来——
+     玻璃的边界、高光、折射都靠底色反差托出 */
+  --blob-1: radial-gradient(ellipse 42% 40% at 8% 10%,  rgba(190,130,80,0.65), transparent 60%);
+  --blob-2: radial-gradient(ellipse 40% 44% at 94% 90%, rgba(50,135,135,0.60), transparent 60%);
+  --blob-3: radial-gradient(ellipse 36% 36% at 88% 8%,  rgba(220,165,115,0.62), transparent 60%);
+  --blob-4: radial-gradient(ellipse 40% 42% at 6% 85%,  rgba(135,115,190,0.58), transparent 60%);
+  --band: linear-gradient(115deg, transparent 20%, rgba(205,150,105,0.34) 38%, rgba(185,125,150,0.26) 52%, rgba(105,135,150,0.28) 62%, rgba(48,125,125,0.30) 72%, transparent 86%);
 }
 
 /* reduced-transparency 兜底：全实色，白边换深色接触线，投影加强
@@ -118,9 +128,10 @@
     --blob-1: none; --blob-2: none; --blob-3: none; --blob-4: none;
     --band: none;
   }
-  /* 内联样式漏网：噪点层、用户气泡内联渐变 */
+  /* 内联样式漏网：噪点层 */
   .bg-spring { background-image: none; }
-  .bubble-user { background: #6B5638 !important; }
+  /* reduced 下用户气泡与水獭气泡同为实色卡片 */
+  .bubble-user { background: #FFFDF9 !important; }
 }
 
 body {
@@ -140,13 +151,13 @@ body {
     var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4), var(--band);
 }
 
-/* L0 chrome：顶栏 */
+/* L0 chrome：顶栏（浮起圆角玻璃条，与全局面板统一） */
 .glass-strong {
   background: var(--chrome-bg);
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
-  border-bottom: 1px solid var(--hairline);
-  box-shadow: inset 0 -1px 0 var(--contact-line);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
 
 /* L1 浮起面板：侧栏 */
@@ -258,14 +269,6 @@ body {
 .msg-content a { color: #A88260; text-decoration: underline; text-underline-offset: 2px; }
 .msg-content hr { border: none; border-top: 1px solid rgba(139,111,71,0.15); margin: 12px 0; }
 .msg-content del { color: #A8A29E; }
-/* 用户气泡内的 markdown 反色 */
-.bubble-user.msg-content code { background: rgba(255,255,255,0.15); color: #F5F0EA; }
-.bubble-user.msg-content th, .bubble-user.msg-content td { border-color: rgba(255,255,255,0.25); }
-.bubble-user.msg-content th { background: rgba(255,255,255,0.12); color: #F5F0EA; }
-.bubble-user.msg-content tr:nth-child(even) td { background: rgba(255,255,255,0.05); }
-.bubble-user.msg-content h1, .bubble-user.msg-content h2, .bubble-user.msg-content h3, .bubble-user.msg-content h4 { color: #F5F0EA; }
-.bubble-user.msg-content a { color: #FFE8D1; }
-.bubble-user.msg-content blockquote { border-left-color: rgba(255,255,255,0.35); color: rgba(245,240,234,0.85); }
 
 /* 气泡性能预算：视口外气泡跳过渲染（backdrop-filter 重采样的主要成本）。
    底部 3 行豁免：滚动锚定 scrollTop=scrollHeight 依赖底部真实高度，
@@ -277,27 +280,64 @@ body {
 .streaming-collapsed .streaming-body { display: none; }
 .streaming-collapsed .streaming-icon { transform: rotate(-90deg); }
 
-/* 气泡：L2 玻璃材质 + 不对称圆角（background 覆盖组件里的 bg-white，
-   未分层 CSS 优先级高于 Tailwind utilities 层） */
+/* 气泡：L2 玻璃材质（background 覆盖组件里的 bg-white，
+   未分层 CSS 优先级高于 Tailwind utilities 层）。
+   身份色染：每只水獭的气泡玻璃叠 14~18% 身份色（--otter-tint 由组件
+   内联注入），一眼区分是谁在说；深字在浅染玻璃上 ~10:1 */
 .bubble-otter {
-  border-bottom-left-radius: 6px;
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
+  background:
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--otter-tint, #8B6F47) 14%, transparent),
+      color-mix(in srgb, var(--otter-tint, #8B6F47) 18%, transparent)),
+    var(--card-bg);
+  backdrop-filter: var(--card-blur) saturate(140%);
+  -webkit-backdrop-filter: var(--card-blur) saturate(140%);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
-/* 用户气泡：棕色玻璃，background 由组件内联渐变提供（150deg 棕），
-   这里补 blur / 高光边 / 投影 */
-.bubble-user {
-  border-bottom-right-radius: 6px;
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  border: 1px solid rgba(255,255,255,0.22);
-  box-shadow: 0 4px 16px rgba(42,32,20,0.20), inset 0 1px 0 rgba(255,255,255,0.18);
+/* 流式进行中的气泡："活"的光晕——身份色外发光，与已完成气泡拉开状态差 */
+.bubble-live {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--otter-tint, #8B6F47) 35%, transparent),
+    0 4px 20px color-mix(in srgb, var(--otter-tint, #8B6F47) 22%, transparent),
+    var(--card-shadow),
+    inset 0 1px 0 rgba(255,255,255,0.6);
 }
+/* 流式过程条：流光扫过（仅在生成中的面板使用） */
+.stream-shimmer { position: relative; overflow: hidden; }
+.stream-shimmer::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 35%, rgba(255,255,255,0.4) 50%, transparent 65%);
+  animation: streamShimmer 1.6s ease-in-out infinite;
+}
+@keyframes streamShimmer { from { transform: translateX(-100%) } to { transform: translateX(100%) } }
+@media (prefers-reduced-motion: reduce) { .stream-shimmer::after { display: none; } }
+/* 头像：玻璃环 + 高光，进入材质体系 */
+.msg-avatar {
+  border: 2px solid rgba(255,255,255,0.65);
+  box-shadow: 0 2px 8px rgba(42,32,20,0.18), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+/* 用户气泡：与水獭气泡同一材质语言（侧边色条 + 玻璃 + 身份色染），
+   色条在右，身份色 = 品牌棕 */
+.bubble-user {
+  background:
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--otter-tint, #8B6F47) 14%, transparent),
+      color-mix(in srgb, var(--otter-tint, #8B6F47) 18%, transparent)),
+    var(--card-bg);
+  backdrop-filter: var(--card-blur) saturate(140%);
+  -webkit-backdrop-filter: var(--card-blur) saturate(140%);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
+}
+
+/* 消息元信息（时间戳、token 数）：直接坐在画布上 */
+.msg-meta { color: var(--ink-3); }
 
 /* Form inputs */
 .form-input { background: var(--form-input-bg); backdrop-filter: var(--form-input-blur); -webkit-backdrop-filter: var(--form-input-blur); border: 1px solid var(--contact-line); border-radius: 10px; padding: 9px 12px; font-size: 14px; outline: none; transition: all 0.18s; color: #2C2520; }
-.form-input:focus { outline: 2px solid var(--focus-ring); outline-offset: 1px; background: rgba(255,255,255,0.7); }
+.form-input:focus { outline: 2px solid var(--focus-ring); outline-offset: 1px; background: rgb(255 255 255 / calc(70% * var(--glass-t))); }
 .form-input::placeholder { color: #A89F94; }
+
+/* 透明度滑杆 */
+.glass-range { accent-color: #97734C; }

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, type CSSProperties } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -157,7 +157,7 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
         <div className="glass-card px-4 py-2 text-xs text-stone-500 flex items-center gap-2 max-w-[500px]">
           <Clock size={14} className="text-stone-400 flex-shrink-0" />
           <span className="flex-1">{m.content}</span>
-          <span className="text-stone-300 text-[11px] flex-shrink-0">{fmtTime(m.ts)}</span>
+          <span className="msg-meta text-[11px] flex-shrink-0">{fmtTime(m.ts)}</span>
         </div>
       </div>
     )
@@ -167,15 +167,17 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si, otter?.ci)
-  const bgGrad = isUser ? 'linear-gradient(150deg,rgba(107,86,56,0.88),rgba(82,64,44,0.86))' : color?.gradient
-  const nameColor = isUser ? 'text-stone-400' : color?.nameClass || 'text-otter-500'
-  const borderLeft = !isUser ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}` } : {}
+  const bgGrad = isUser ? 'linear-gradient(135deg,#A88260,#6B5638)' : color?.gradient
+  const nameColor = isUser ? 'text-otter-600' : color?.nameClass || 'text-otter-500'
+  const sideBar: CSSProperties = !isUser
+    ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}`, '--otter-tint': color?.border || '#8B6F47' } as CSSProperties
+    : { borderRight: '3px solid #6B5638', '--otter-tint': '#8B6F47' } as CSSProperties
   const dur = m.dur ? ` · ${m.dur}` : ''
 
   return (
     <div className={`flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble"
+        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: bgGrad }}
       >
         {isUser ? '我' : name.charAt(0)}
@@ -183,9 +185,9 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">{fmtTime(m.ts)}{dur}</span>
+          <span className="text-[11px] msg-meta">{fmtTime(m.ts)}{dur}</span>
           {!isUser && (
-            <span className="flex items-center gap-1.5 text-[10px] text-stone-400 ml-1">
+            <span className="flex items-center gap-1.5 text-[10px] msg-meta ml-1">
               <span>{fmtTokens(m.ctx || 0)} / {fmtTokens(m.ctxMax || 200000)}</span>
               <span className="w-16 h-0.5 rounded-full" style={{ background: 'rgba(139,111,71,0.1)' }}>
                 <span
@@ -197,10 +199,10 @@ function MessageItem({ message: m, otters }: { message: Message; otters: Otter[]
           )}
         </div>
         <div
-          className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed ${
-            isUser ? 'bubble-user text-white' : 'bubble-otter text-stone-700'
+          className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed text-stone-700 ${
+            isUser ? 'bubble-user' : 'bubble-otter'
           }`}
-          style={isUser ? { background: bgGrad } : borderLeft}
+          style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} />}
           <div className="relative group">
@@ -354,7 +356,7 @@ function StreamingMessage({ state, onStop, otters }: { state: StreamingState; on
   return (
     <div className="flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn">
       <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 shadow-bubble"
+        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: color.gradient }}
       >
         {name.charAt(0)}
@@ -362,15 +364,15 @@ function StreamingMessage({ state, onStop, otters }: { state: StreamingState; on
       <div className="flex flex-col" style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${color.nameClass}`}>{name}</span>
-          <span className="text-[11px] text-stone-300">正在回复...</span>
+          <span className="text-[11px] msg-meta">正在回复...</span>
         </div>
         <div
-          className="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed bubble-otter text-stone-700"
-          style={{ borderLeft: `3px solid ${color.border}` }}
+          className="msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed bubble-otter bubble-live text-stone-700"
+          style={{ borderLeft: `3px solid ${color.border}`, '--otter-tint': color.border } as CSSProperties}
         >
           {/* 实时流式过程 */}
           {events.length > 0 && (
-            <div className="rounded-xl overflow-hidden mb-2" style={{ background: 'var(--surface-inset)', border: '1px solid var(--inset-border)' }}>
+            <div className="rounded-xl overflow-hidden mb-2 stream-shimmer" style={{ background: 'var(--surface-inset)', border: '1px solid var(--inset-border)' }}>
               <div className="flex items-center gap-1.5 px-3 py-1.5">
                 <span className="text-[8px] text-stone-400">▼</span>
                 <span className="text-[11px] text-stone-500 font-medium flex-1">流式过程 · {events.length} 个事件</span>

@@ -114,7 +114,7 @@ function ChildModal(props: ModalsProps) {
         placeholder="输入子对话标题"
         autoFocus
       />
-      <p className="text-xs text-stone-400 mt-2">子对话将继承父对话的链接资源</p>
+      <p className="text-xs text-stone-400 mt-2">子对话将继承父对话的关键资源</p>
     </Modal>
   )
 }
@@ -388,7 +388,7 @@ function LinkResourceModal(props: ModalsProps) {
     <Modal
       isOpen
       onClose={props.onClose}
-      title="链接资源"
+      title="添加关键资源"
       width="420px"
       footer={
         <>

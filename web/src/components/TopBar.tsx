@@ -5,15 +5,15 @@ type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings'
 
 const tabs: { key: ViewKey; label: string; href: string; icon: typeof MessageCircle }[] = [
   { key: 'conversation', label: '对话', href: '/', icon: MessageCircle },
-  { key: 'memory', label: '记忆搜索', href: '/memory', icon: Search },
-  { key: 'skills', label: '能力库', href: '/skills', icon: Package },
-  { key: 'settings', label: '设置', href: '/settings', icon: Settings },
+  { key: 'memory', label: '记忆搜索', href: '/memory.html', icon: Search },
+  { key: 'skills', label: '能力库', href: '/skills.html', icon: Package },
+  { key: 'settings', label: '设置', href: '/settings.html', icon: Settings },
 ]
 
 /** Global unified TopBar - same component on all pages (← UA-10, UA-12) */
 export function TopBar({ activeView }: { activeView: ViewKey }) {
   return (
-    <header className="flex items-center px-5 h-12 glass-strong z-20 flex-shrink-0">
+    <header className="flex items-center px-5 h-12 glass-strong z-20 flex-shrink-0 mx-3 mt-3 rounded-2xl">
       {/* Logo left-aligned */}
       <div className="flex items-center gap-2 flex-1">
         <OtterIcon className="w-5 h-5 text-otter-500" />
