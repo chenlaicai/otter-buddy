@@ -42,7 +42,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言权交给谁（必须用 otterId 或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要人类接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的 otterId（不是名字）；(3) 不能传自己的 otterId。不确定在场成员时先调 get_active_participants。",
+          description: "发言权交给谁（必须用 otterId 或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要搭档接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的 otterId（不是名字）；(3) 不能传自己的 otterId。不确定在场成员时先调 get_active_participants。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -70,7 +70,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       const validIds = new Set([...active.map(p => p.otterId), "user"]);
       const invalid = recipients.filter(id => !validIds.has(id));
       if (invalid.length > 0) {
-        const options = [...active.map(p => `${p.otterName}(${p.otterId})`), "人类操作者('user')"].join("、");
+        const options = [...active.map(p => `${p.otterName}(${p.otterId})`), "搭档('user')"].join("、");
         return textResponse(`[错误] 发言石目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的 otterId 重新调用 speak。`);
       }
 
@@ -110,7 +110,7 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: "检索记忆。有明确历史信号时才检索（用户提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。渐进式披露：先 summary/snippet 定位相关条目，再用 get_memory_detail 深入。可指定 library 路由到特定库。记忆与当前上下文冲突时以当前上下文为准。",
+    description: "检索记忆。有明确历史信号时才检索（搭档提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。渐进式披露：先 summary/snippet 定位相关条目，再用 get_memory_detail 深入。可指定 library 路由到特定库。记忆与当前上下文冲突时以当前上下文为准。",
     parameters: {
       type: "object",
       properties: {
@@ -312,7 +312,7 @@ function createSetContextTool(ctx: ToolContext): AgentTool {
 function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_terminology",
-    description: "在术语库中查找项目域内术语的定义。当用户询问某个词的含义时使用。",
+    description: "在术语库中查找项目域内术语的定义。当搭档询问某个词的含义时使用。",
     parameters: {
       type: "object",
       properties: {
@@ -345,7 +345,7 @@ function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
 function createAddTerminologyTool(ctx: ToolContext): AgentTool {
   return {
     name: "add_terminology",
-    description: "在术语库中记录新的项目域术语。仅在用户显式定义术语时使用。",
+    description: "在术语库中记录新的项目域术语。仅在搭档显式定义术语时使用。",
     parameters: {
       type: "object",
       properties: {

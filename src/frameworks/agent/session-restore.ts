@@ -15,6 +15,8 @@ import { getSessionManagerClass } from "./session-helpers";
 export interface SessionRestoreResult {
   sessionManager: SessionManager | null;
   needsRetry: boolean;
+  /** 本次是否创建了全新 session（新上下文中没有身份内容，调用方应触发身份注入） */
+  createdNew: boolean;
 }
 
 /** Session 恢复器 */
@@ -71,7 +73,7 @@ export class SessionRestore {
         this.logger.warn(`SessionManager.open() returned invalid state for: ${sessionFile}, creating new session`);
         return this.recreateFromConfig(otterId, piCodingAgent, sessionDir);
       }
-      return { sessionManager, needsRetry: false };
+      return { sessionManager, needsRetry: false, createdNew: false };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         this.logger.warn(`Session file not found: ${sessionFile}, creating new session`);
@@ -119,7 +121,7 @@ export class SessionRestore {
       throw new Error(`Failed to create session for otter: ${otterId}`);
     }
 
-    return { sessionManager, needsRetry: false };
+    return { sessionManager, needsRetry: false, createdNew: true };
   }
 
   /** 创建 session 并持久化，返回 sessionManager（延迟写入，文件可能尚未落盘） */

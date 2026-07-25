@@ -5,7 +5,7 @@ Use this structure when producing a technical plan from requirement analysis.
 ```markdown
 ## 背景
 
-为什么要做这件事。引用用户的原始需求（意图锚）。
+为什么要做这件事。引用搭档的原始需求（意图锚）。
 
 ## 目标
 

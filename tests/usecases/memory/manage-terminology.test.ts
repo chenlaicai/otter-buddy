@@ -89,7 +89,7 @@ const SAMPLE_ENTRY: TerminologyEntry = {
   id: "term-1",
   term: "大獭",
   aliases: ["Big Otter"],
-  definition: "用户唯一持久 Otter，带有独占能力",
+  definition: "搭档的唯一持久 Otter，海獭团队的首领，带有独占能力",
   context: null,
   examples: null,
   category: "实体",
@@ -113,7 +113,7 @@ describe("ManageTerminology - CRUD", () => {
   it("addTerm 创建新术语，version=1", async () => {
     const entry = await manageTerminology.addTerm({
       term: "大獭",
-      definition: "用户唯一持久 Otter，带有独占能力",
+      definition: "搭档的唯一持久 Otter，海獭团队的首领，带有独占能力",
       aliases: ["Big Otter"],
       category: "实体",
     });
@@ -161,7 +161,7 @@ describe("ManageTerminology - 检索策略", () => {
       id: "term-3",
       term: "重启獭生",
       aliases: ["Restart Otter Life"],
-      definition: "用户表达不满时触发的 Otter 个体内部机制",
+      definition: "搭档表达不满时触发的 Otter 个体内部机制",
       context: "封存当前 session 为反面案例",
       examples: null,
       category: "机制",
@@ -318,7 +318,7 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
       id: "seed-003",
       term: "对话",
       aliases: ["Conversation"],
-      definition: "用户与 Otter 的交互单元",
+      definition: "搭档与 Otter 的交互单元",
       context: null,
       examples: null,
       category: "概念",
@@ -376,7 +376,7 @@ describe("SearchMemory - library 路由", () => {
 
     expect(result.entries.length).toBe(1);
     expect(result.entries[0].content).toContain("大獭");
-    expect(result.entries[0].content).toContain("用户唯一持久 Otter");
+    expect(result.entries[0].content).toContain("搭档的唯一持久 Otter");
   });
 
   it("library=conversation 路由到对话库检索", async () => {

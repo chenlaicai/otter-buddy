@@ -17,7 +17,7 @@ Intent anchors are the user's original words, quoted verbatim. They serve as the
 
 ## Intent Anchor Table Format
 
-| ID | 用户原话 | 关键修饰语 | 解读 | 来源 |
+| ID | 搭档原话 | 关键修饰语 | 解读 | 来源 |
 |----|---------|-----------|------|------|
 | UA-1 | "..." | ... | ... | 对话 |
 | UA-2 | "..." | ... | ... | 文档 |
@@ -28,7 +28,7 @@ Every design decision in the output plan should be traceable to one or more inte
 
 ## Common Mistakes
 
-- **Paraphrasing**: "用户想要一个新功能" ← lost all specifics
+- **Paraphrasing**: "搭档想要一个新功能" ← lost all specifics
 - **Dropping modifiers**: "需要支持多语言" ← original said "必须支持中英日三种语言"
-- **Interpreting as anchor**: "用户需要性能优化" ← user actually said "页面加载太慢了"
-- **Missing implicit anchors**: User says "和之前一样" → need to find what "之前" refers to
+- **Interpreting as anchor**: "搭档需要性能优化" ← 搭档原话是 "页面加载太慢了"
+- **Missing implicit anchors**: 搭档说 "和之前一样" → need to find what "之前" refers to

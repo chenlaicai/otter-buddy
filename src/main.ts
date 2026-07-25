@@ -471,7 +471,7 @@ async function main(): Promise<void> {
   const agentGateway = await initAgentSessionFactory({
     model, db,
     otterToolClient: {} as OtterToolClient,
-    platformPromptFile: "./prompts/platform/SYSTEM_PROMPT.md",
+    identityPromptDir: "./prompts/identity",
     createTools,
     otterConfigProvider,
   }, logger);

@@ -3,7 +3,7 @@
     "id": "seed-001",
     "term": "大獭",
     "aliases": ["Big Otter"],
-    "definition": "用户唯一持久 Otter，带有独占能力",
+    "definition": "搭档的唯一持久 Otter，海獭团队的首领，带有独占能力",
     "context": null,
     "examples": null,
     "category": "实体"
@@ -21,7 +21,7 @@
     "id": "seed-003",
     "term": "对话",
     "aliases": ["Conversation"],
-    "definition": "用户与 Otter 的交互单元。支持树状结构。可以是 1v1 或多 Otter。",
+    "definition": "搭档与 Otter 的交互单元。支持树状结构。可以是 1v1 或多 Otter。",
     "context": null,
     "examples": null,
     "category": "概念"
@@ -30,7 +30,7 @@
     "id": "seed-004",
     "term": "重启獭生",
     "aliases": ["Restart Otter Life"],
-    "definition": "用户表达不满时触发的 Otter 个体内部机制：封存当前 session 为反面案例，开新 session 换角度重来。",
+    "definition": "搭档表达不满时触发的 Otter 个体内部机制：封存当前 session 为反面案例，开新 session 换角度重来。",
     "context": null,
     "examples": null,
     "category": "机制"
@@ -66,7 +66,7 @@
     "id": "seed-008",
     "term": "对话关键信息",
     "aliases": ["Conversation Key Info"],
-    "definition": "每个对话的关键信息（开放机制，大獭和用户可添加）",
+    "definition": "每个对话的关键信息（开放机制，大獭和搭档可添加）",
     "context": null,
     "examples": null,
     "category": "概念"
@@ -79,5 +79,14 @@
     "context": null,
     "examples": null,
     "category": "机制"
+  },
+  {
+    "id": "seed-010",
+    "term": "搭档",
+    "aliases": ["Buddy", "用户"],
+    "definition": "对话中的人类参与者（protocol 中的 user）。与 Otter 是一起干活的伙伴关系：拥有最终决策权，Otter 保持独立判断、诚实直言。不是主仆，也不是客服与客户。",
+    "context": null,
+    "examples": null,
+    "category": "实体"
   }
 ]
