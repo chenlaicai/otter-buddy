@@ -34,6 +34,7 @@ import { loadPromptFile } from "./prompt-loader";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
+import { attachOutputGuard } from "./output-guard";
 import { SessionRestore } from "./session-restore";
 
 /** Agent 事件（流式推送，与 AgentStreamEvent 兼容） */
@@ -49,6 +50,7 @@ export interface AgentRunResult {
   tokenUsage?: { input: number; output: number };
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string };
 }
 
 /** invoke() 选项 */
@@ -436,12 +438,12 @@ export class PiSessionFactory implements AgentGateway {
       otterId, otterType, options, sessionManager,
     );
 
-    // 2. 熔断器
+    // 2. 熔断器 + 输出退化检测
     const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
+    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }, this.logger);
 
     // 3. 构建完整消息（首次 invoke 时身份叠加在 otter 专属 prompt 之前）
-    const userMessagePrefix = this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke);
-    const fullMessage = buildMessageWithContext(userMessagePrefix, message, options?.dynamicContext);
+    const fullMessage = buildMessageWithContext(this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
 
     this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
@@ -450,7 +452,9 @@ export class PiSessionFactory implements AgentGateway {
 
     try {
       await session.prompt(fullMessage);
-      return this._buildInvokeResult(otterId, session, circuitBreaker);
+      const result = this._buildInvokeResult(otterId, session, circuitBreaker);
+      result.outputGuardMetadata = outputGuard.getMetadata();
+      return result;
     } catch (err) {
       /** 将 toolCallCount 附着到异常，供 handleInvokeError 在 finally 清理后仍可读取 */
       (err as Error & { _toolCallCount?: number })._toolCallCount =
@@ -459,6 +463,7 @@ export class PiSessionFactory implements AgentGateway {
     } finally {
       circuitBreaker.clearSteerDeadline();
       unregisterToolCall?.();
+      cleanupOutputGuard();
       unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
@@ -466,12 +471,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession */
-  private async _createSessionWithTools(
-    otterId: string,
-    otterType: string,
-    options: InvokeOptions | undefined,
-    sessionManager: SessionManager,
-  ) {
+  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager) {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType);
