@@ -21,7 +21,7 @@ export function ChatView(props: ChatViewProps) {
   return (
     <main className="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
       {/* Chat Header */}
-      <div className="px-6 py-3 flex items-center justify-between border-b border-white/40 flex-shrink-0">
+      <div className="px-1 py-3 flex items-center justify-between border-b border-white/40 flex-shrink-0">
         <div className="flex items-center gap-2">
           <h1 className="text-sm font-semibold text-stone-700">{c?.title || '对话'}</h1>
           {c && (

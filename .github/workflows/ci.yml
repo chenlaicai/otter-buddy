@@ -24,7 +24,7 @@ jobs:
         run: |
           # 检查 PR 标题是否包含特性编号格式：[F{日期}{随机字符}]
           # 例如：[F20260727ui6x]、[F20260724glas]、[F20260725otid]
-          if ! echo "$PR_TITLE" | grep -qE '^\[F[0-9]{8}[a-zA-Z0-9]+\]'; then
+          if ! echo "$PR_TITLE" | grep -qE '^\[F[0-9]{8}[a-zA-Z0-9]{4,}\]'; then
             echo "❌ PR 标题格式错误"
             echo "当前标题: $PR_TITLE"
             echo ""
