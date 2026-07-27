@@ -402,8 +402,6 @@ function ConversationPage() {
 
   const handleSelectConv = useCallback((id: string) => { setActiveId(id); setPageState('normal') }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
-  const handleCreateChild = () => activeId && setModal({ type: 'child', parentId: activeId })
-  const handleComplete = () => activeId && setModal({ type: 'complete', cid: activeId })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
 
   const handleContextMenu = (e: React.MouseEvent, cid: string) => {
@@ -437,15 +435,6 @@ function ConversationPage() {
       showToast('子对话已创建', 'success')
       await loadConversationDetail(conv.id)
     } catch { showToast('创建子对话失败', 'error') }
-  }
-
-  async function confirmComplete() {
-    if (!activeId) return
-    try {
-      await api.completeConversation(activeId)
-      setConversations(prev => prev.map(c => c.id === activeId ? { ...c, status: 'completed' as const } : c))
-      setModal({ type: 'none' }); showToast('对话已完成', 'success')
-    } catch { showToast('操作失败', 'error') }
   }
 
   async function confirmArchive() {
@@ -548,7 +537,6 @@ function ConversationPage() {
 
   function ctxAction(action: string, cid: string) {
     closeCtxMenu(); setActiveId(cid)
-    if (action === 'complete') setModal({ type: 'complete', cid })
     if (action === 'archive') setModal({ type: 'archive', cid })
     if (action === 'child') setModal({ type: 'child', parentId: cid })
   }
@@ -607,14 +595,13 @@ function ConversationPage() {
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
-            <div onClick={() => ctxAction('complete', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status === 'active' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>完成对话</div>
             <div onClick={() => ctxAction('archive', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status !== 'archived' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
             <div onClick={() => ctxAction('child', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">创建子对话</div>
           </div>
         </>
       )}
 
-      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmComplete={confirmComplete} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (

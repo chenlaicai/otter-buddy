@@ -13,7 +13,6 @@ export type ModalState =
   | { type: 'none' }
   | { type: 'new-conv' }
   | { type: 'child'; parentId: string }
-  | { type: 'complete'; cid: string }
   | { type: 'archive'; cid: string }
   | { type: 'create-otter' }
   | { type: 'dissolve'; otterId: string }
@@ -28,7 +27,6 @@ interface ModalsProps {
   onClose: () => void
   onConfirmNewConv: (title: string) => void
   onConfirmChild: (title: string) => void
-  onConfirmComplete: () => void
   onConfirmArchive: () => void
   onConfirmCreateOtter: (name: string, role: string, resp: string[]) => void
   onConfirmDissolve: (summary: string) => void
@@ -45,7 +43,6 @@ export function ConversationModals(props: ModalsProps) {
     <>
       {modal.type === 'new-conv' && <NewConvModal {...props} />}
       {modal.type === 'child' && <ChildModal {...props} />}
-      {modal.type === 'complete' && <CompleteModal {...props} />}
       {modal.type === 'archive' && <ArchiveModal {...props} />}
       {modal.type === 'create-otter' && <CreateOtterModal {...props} />}
       {modal.type === 'dissolve' && <DissolveModal {...props} />}
@@ -115,25 +112,6 @@ function ChildModal(props: ModalsProps) {
         autoFocus
       />
       <p className="text-xs text-stone-500 mt-2">子对话将继承父对话的关键资源</p>
-    </Modal>
-  )
-}
-
-function CompleteModal(props: ModalsProps) {
-  return (
-    <Modal
-      isOpen
-      onClose={props.onClose}
-      title="完成对话"
-      width="400px"
-      footer={
-        <>
-          <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="primary" onClick={props.onConfirmComplete}>确认完成</ModalButton>
-        </>
-      }
-    >
-      <p className="text-sm text-stone-600">完成此对话？子对话未完成时父对话也可完成。</p>
     </Modal>
   )
 }
