@@ -401,12 +401,42 @@ describe("attachOutputGuard", () => {
     // Tool starts — should pause timer
     handler({ type: "tool_execution_start", name: "bash" });
 
-    // Advance past timeout
+    // Advance past timeout — timer is paused, no abort
     vi.advanceTimersByTime(5000);
     expect(onAbort).not.toHaveBeenCalled();
 
-    // New message_update after tool — resumes timer
-    handler({ type: "message_update", delta: "world" });
+    // tool_execution_end resumes the timer
+    handler({ type: "tool_execution_end", name: "bash" });
+
+    // Remaining time fires abort
+    vi.advanceTimersByTime(3001);
+    expect(onAbort).toHaveBeenCalled();
+  });
+
+  it("resumes timer on message_update if no tool_execution_end", () => {
+    let handler: (event: unknown) => void = () => {};
+    const session = {
+      subscribe: vi.fn((fn: (event: unknown) => void) => { handler = fn; return () => {}; }),
+    };
+    const onAbort = vi.fn();
+
+    attachOutputGuard(
+      session,
+      "otter-1",
+      makeConfig({ streamingTimeoutMs: 3000 }),
+      mockLogger(),
+      onAbort,
+    );
+
+    handler({ type: "message_update", delta: "start" });
+    handler({ type: "tool_execution_start", name: "bash" });
+
+    // Timer paused — no abort even after timeout
+    vi.advanceTimersByTime(5000);
+    expect(onAbort).not.toHaveBeenCalled();
+
+    // message_update resets the timer entirely
+    handler({ type: "message_update", delta: "end" });
     vi.advanceTimersByTime(3001);
     expect(onAbort).toHaveBeenCalled();
   });

@@ -4,7 +4,6 @@
 
 import { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
-import type { OutputGuardMetadata } from "./output-guard";
 import type { Logger } from "@usecases/ports/logger";
 
 /** Token 阈值（超过则记录警告，与旧实现一致） */
@@ -53,7 +52,6 @@ export function buildResult(
   tokenUsage?: { input: number; output: number },
   circuitBreaker?: ToolCallCircuitBreaker,
   ctxMax?: number,
-  outputGuardMetadata?: OutputGuardMetadata,
 ) {
   return {
     text,
@@ -62,6 +60,5 @@ export function buildResult(
       : undefined,
     ctxMax,
     circuitBreakerMetadata: circuitBreaker?.getMetadata(),
-    outputGuardMetadata,
   };
 }

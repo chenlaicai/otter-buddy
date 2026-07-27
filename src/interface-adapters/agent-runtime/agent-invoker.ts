@@ -285,8 +285,10 @@ export class AgentInvoker {
   /**
    * 内部 abort 包装：检查是否有 OutputGuard 等内部机制触发的 abort。
    * 如果是，标记 abortedMessages 并替换错误消息；否则原样返回。
+   * 竞态防护：用户已 abort 时不覆盖（High-1）。
    */
   private wrapInternalAbort(messageId: string, err: unknown): unknown {
+    if (this.abortedMessages.has(messageId)) return err;
     const reason = this.agentInvoke.getInternalAbortReason(messageId);
     if (!reason) return err;
     this.abortedMessages.add(messageId);
@@ -295,10 +297,14 @@ export class AgentInvoker {
     });
   }
 
-  /** 构造 abort body：区分用户手动中断、内部机制中断 */
+  /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
   private buildAbortBody(err: unknown, otterId: string, messageId: string): string {
     const errMsg = err instanceof Error ? err.message : String(err);
-    if (errMsg.startsWith("[output-guard]")) return `[系统保护] ${errMsg}`;
+    if (errMsg.startsWith("[output-guard]")) {
+      if (errMsg.includes("degenerate_output")) return "[系统保护] 检测到输出内容异常重复，已自动中断。";
+      if (errMsg.includes("streaming_timeout")) return "[系统保护] 生成过程超时，已自动中断。";
+      return "[系统保护] 输出异常，已自动中断。";
+    }
     const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? this.agentInvoke.getToolCallCount(otterId, messageId);
     return `[搭档中断] 经过 ${toolCallCount} 次工具调用后，搭档强制中断了当前发言。`;
   }

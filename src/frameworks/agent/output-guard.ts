@@ -46,6 +46,7 @@ export class OutputGuard {
   private tripReason: "degenerate_output" | "streaming_timeout" | undefined;
   private streamingTimer: ReturnType<typeof setTimeout> | null = null;
   private timerPaused = false;
+  private timerStartedAt = 0;
 
   constructor(
     private readonly config: OutputGuardConfig,
@@ -108,6 +109,22 @@ export class OutputGuard {
     }
   }
 
+  /** 工具执行结束后恢复超时计时器（用剩余时间重建） */
+  resumeTimer(abort: () => void): void {
+    if (!this.timerPaused) return;
+    this.timerPaused = false;
+    const elapsed = Date.now() - this.timerStartedAt;
+    const remaining = Math.max(this.config.streamingTimeoutMs - elapsed, 1000);
+    this.streamingTimer = setTimeout(() => {
+      this.tripped = true;
+      this.tripReason = "streaming_timeout";
+      this.logger.warn(`[output-guard] Streaming timeout after tool: otter=${this.otterId} timeoutMs=${this.config.streamingTimeoutMs} totalLength=${this.accumulated.length}`);
+      abort();
+    }, remaining);
+  }
+
+  get isTimerPaused(): boolean { return this.timerPaused; }
+
   /** 清理资源，必须在 invoke 生命周期的 finally 块中调用 */
   destroy(): void {
     if (this.streamingTimer !== null) {
@@ -129,6 +146,7 @@ export class OutputGuard {
       clearTimeout(this.streamingTimer);
     }
     this.timerPaused = false;
+    this.timerStartedAt = Date.now();
     this.streamingTimer = setTimeout(() => {
       this.tripped = true;
       this.tripReason = "streaming_timeout";
@@ -187,7 +205,9 @@ export function attachOutputGuard(
       case "tool_execution_start":
         guard.pauseTimer();
         break;
-      // tool_execution_end 不处理 — 等下一个 message_update 自然恢复计时器
+      case "tool_execution_end":
+        if (guard.isTimerPaused) guard.resumeTimer(onAbort);
+        break;
     }
   });
 
