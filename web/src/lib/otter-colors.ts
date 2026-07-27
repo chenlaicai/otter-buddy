@@ -25,7 +25,7 @@ export const otterColors: Record<string, { hex: string; gradient: string; nameCl
   o1: BIG_OTTER_COLOR,
 }
 
-export function getOtterColor(otterId: string, ci?: number) {
+export function getOtterColor(otterId: string) {
   // 大獭固定颜色
   if (otterId === 'o1' || otterId === 'big-otter') return BIG_OTTER_COLOR
 

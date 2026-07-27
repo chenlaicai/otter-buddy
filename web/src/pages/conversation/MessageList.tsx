@@ -33,8 +33,7 @@ function CopyButton({ text }: { text: string }) {
 function MarkdownContent({ children }: { children: string }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      remarkRehypeOptions={{ singleTilde: false }}
+      remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
       components={{
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '')
@@ -157,7 +156,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
-  const color = isUser ? null : getOtterColor(m.si, otter?.ci)
+  const color = isUser ? null : getOtterColor(m.si)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
   const sideBar: CSSProperties = !isUser

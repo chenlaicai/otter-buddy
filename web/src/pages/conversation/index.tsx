@@ -58,8 +58,6 @@ function ConversationPage() {
   }>({ type: 'none' })
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
 
-  const ciCounter = useRef(1)
-
   // 定时任务 Hook
   const {
     tasks: scheduledTasks,
@@ -449,7 +447,6 @@ function ConversationPage() {
   async function confirmCreateOtter(name: string, role: string, resp: string[]) {
     if (!activeId) return
     try {
-      const ci = (ciCounter.current % 4) + 1; ciCounter.current++
       const convOtters = allOtters[activeId] || []
       const dto = await api.createOtter({
         name, type: 'small',

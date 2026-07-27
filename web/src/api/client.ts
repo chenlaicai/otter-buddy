@@ -48,10 +48,6 @@ export function getConversation(id: string): Promise<ConversationDTO> {
   return request(`/conversations/${id}`)
 }
 
-export function completeConversation(id: string): Promise<{ status: string }> {
-  return request(`/conversations/${id}/complete`, { method: 'PATCH' })
-}
-
 export function archiveConversation(id: string): Promise<{ status: string }> {
   return request(`/conversations/${id}/archive`, { method: 'PATCH' })
 }
