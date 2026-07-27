@@ -97,7 +97,7 @@ async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
 
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
-  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number }>();
+  private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
   private readonly sessionRestore: SessionRestore;
@@ -440,7 +440,7 @@ export class PiSessionFactory implements AgentGateway {
 
     // 2. 熔断器 + 输出退化检测
     const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
-    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }, this.logger);
+    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }, this.logger, this._makeGuardAbort(sessionKey, session));
 
     // 3. 构建完整消息（首次 invoke 时身份叠加在 otter 专属 prompt 之前）
     const fullMessage = buildMessageWithContext(this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
@@ -461,10 +461,7 @@ export class PiSessionFactory implements AgentGateway {
         this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
       throw err;
     } finally {
-      circuitBreaker.clearSteerDeadline();
-      unregisterToolCall?.();
-      cleanupOutputGuard();
-      unsubscribe();
+      circuitBreaker.clearSteerDeadline(); unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
     }
@@ -515,6 +512,7 @@ export class PiSessionFactory implements AgentGateway {
     return buildResult("", tokenUsage, circuitBreaker, ctxMax);
   }
 
+  private _makeGuardAbort(sessionKey: string, session: { abort: () => Promise<void> }): () => void { return () => { const e = this.activeSessions.get(sessionKey); if (e) e.guardAbortReason = "output_guard_trip"; session.abort(); }; }
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
   abort(otterId: string, messageId?: string): void {
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
@@ -529,6 +527,9 @@ export class PiSessionFactory implements AgentGateway {
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     return (this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId))?.toolCallCount ?? 0;
   }
+
+  /** 查询内部 abort 原因（OutputGuard 等触发），消费后清除 */
+  getInternalAbortReason(_messageId: string): string | undefined { for (const [, entry] of this.activeSessions) { if (entry.guardAbortReason) { const r = entry.guardAbortReason; entry.guardAbortReason = undefined; return r; } } return undefined; }
 
   /** 创建 session 事件处理器：跟踪工具调用 + 转发事件到 onEvent 回调 */
   private createEventHandler(

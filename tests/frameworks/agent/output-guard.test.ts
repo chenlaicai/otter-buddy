@@ -300,14 +300,15 @@ describe("attachOutputGuard", () => {
   it("returns noop when disabled (T-12)", () => {
     const session = {
       subscribe: vi.fn(),
-      abort: vi.fn().mockResolvedValue(undefined),
     };
+    const onAbort = vi.fn();
 
     const { guard, cleanup } = attachOutputGuard(
       session,
       "otter-1",
       makeConfig({ enabled: false }),
       mockLogger(),
+      onAbort,
     );
 
     expect(guard).toBeInstanceOf(OutputGuard);
@@ -319,53 +320,56 @@ describe("attachOutputGuard", () => {
   it("subscribes to session events when enabled (T-13)", () => {
     const session = {
       subscribe: vi.fn().mockReturnValue(() => {}),
-      abort: vi.fn().mockResolvedValue(undefined),
     };
+    const onAbort = vi.fn();
 
     const { guard, cleanup } = attachOutputGuard(
       session,
       "otter-1",
       makeConfig(),
       mockLogger(),
+      onAbort,
     );
 
     expect(guard).toBeInstanceOf(OutputGuard);
     expect(typeof cleanup).toBe("function");
   });
 
-  it("calls abort on degenerate output via message_update (T-14)", () => {
+  it("calls onAbort on degenerate output via message_update (T-14)", () => {
     let handler: (event: unknown) => void = () => {};
     const session = {
       subscribe: vi.fn((fn: (event: unknown) => void) => { handler = fn; return () => {}; }),
-      abort: vi.fn().mockResolvedValue(undefined),
     };
+    const onAbort = vi.fn();
 
     attachOutputGuard(
       session,
       "otter-1",
       makeConfig({ segmentLength: 50, maxRepeatedSegments: 2, checkInterval: 2 }),
       mockLogger(),
+      onAbort,
     );
 
     const seg = "I".repeat(50);
     handler({ type: "message_update", delta: seg });
     handler({ type: "message_update", delta: seg });
 
-    expect(session.abort).toHaveBeenCalled();
+    expect(onAbort).toHaveBeenCalled();
   });
 
   it("ignores non-message_update events (T-15)", () => {
     let handler: (event: unknown) => void = () => {};
     const session = {
       subscribe: vi.fn((fn: (event: unknown) => void) => { handler = fn; return () => {}; }),
-      abort: vi.fn().mockResolvedValue(undefined),
     };
+    const onAbort = vi.fn();
 
     attachOutputGuard(
       session,
       "otter-1",
       makeConfig({ streamingTimeoutMs: 1000 }),
       mockLogger(),
+      onAbort,
     );
 
     // Non-message_update events should not start timer or trigger checks
@@ -373,21 +377,22 @@ describe("attachOutputGuard", () => {
     handler({ type: "tool_execution_end", name: "bash" });
     handler({ type: "message_end" });
 
-    expect(session.abort).not.toHaveBeenCalled();
+    expect(onAbort).not.toHaveBeenCalled();
   });
 
   it("pauses timer on tool_execution_start", () => {
     let handler: (event: unknown) => void = () => {};
     const session = {
       subscribe: vi.fn((fn: (event: unknown) => void) => { handler = fn; return () => {}; }),
-      abort: vi.fn().mockResolvedValue(undefined),
     };
+    const onAbort = vi.fn();
 
     attachOutputGuard(
       session,
       "otter-1",
       makeConfig({ streamingTimeoutMs: 3000 }),
       mockLogger(),
+      onAbort,
     );
 
     // Start streaming
@@ -398,11 +403,11 @@ describe("attachOutputGuard", () => {
 
     // Advance past timeout
     vi.advanceTimersByTime(5000);
-    expect(session.abort).not.toHaveBeenCalled();
+    expect(onAbort).not.toHaveBeenCalled();
 
     // New message_update after tool — resumes timer
     handler({ type: "message_update", delta: "world" });
     vi.advanceTimersByTime(3001);
-    expect(session.abort).toHaveBeenCalled();
+    expect(onAbort).toHaveBeenCalled();
   });
 });

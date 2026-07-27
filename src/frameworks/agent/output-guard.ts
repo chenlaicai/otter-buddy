@@ -157,15 +157,18 @@ export class OutputGuard {
  * 将 OutputGuard 挂载到 session 的事件订阅上。
  * 返回 guard 实例（用于 getMetadata）和 cleanup 函数（用于 finally 块）。
  * config 缺省字段自动以 DEFAULT_OUTPUT_GUARD_CONFIG 补全。
+ *
+ * @param onAbort - 触发 abort 时的回调。由工厂注入，确保走正确的 abort 流程
+ *                  （而非直接调用 session.abort() 绕过 AgentInvoker 的 abortedMessages 标记）。
  */
 export function attachOutputGuard(
   session: {
     subscribe: (fn: (event: unknown) => void) => () => void;
-    abort: () => Promise<void>;
   },
   otterId: string,
   config: Partial<OutputGuardConfig>,
   logger: Logger,
+  onAbort: () => void,
 ): { guard: OutputGuard; cleanup: () => void } {
   const fullConfig = { ...DEFAULT_OUTPUT_GUARD_CONFIG, ...config };
   const guard = new OutputGuard(fullConfig, otterId, logger);
@@ -178,7 +181,7 @@ export function attachOutputGuard(
     switch (e.type) {
       case "message_update":
         if (e.delta) {
-          guard.check(e.delta, () => { session.abort(); });
+          guard.check(e.delta, onAbort);
         }
         break;
       case "tool_execution_start":

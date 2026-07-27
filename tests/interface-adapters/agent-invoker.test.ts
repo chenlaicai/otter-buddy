@@ -89,6 +89,7 @@ function mockAgentInvoke(options: {
     },
     abort: () => {},
     getToolCallCount: () => options.toolCallCount ?? 0,
+    getInternalAbortReason: () => undefined,
   };
 }
 
