@@ -426,3 +426,82 @@ describe("AgentInvoker speak retry", () => {
     expect(eventTypes).not.toContain("message.failed");
   });
 });
+
+describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => {
+  it("uses event-tracked toolCallCount when SDK swallows abort", async () => {
+    /** Path B: SDK 吞掉 abort，session.prompt() 正常返回，finally 清理 activeSessions，
+     *  getToolCallCount 返回 0，但 onEvent 已收到 tool_execution_start 事件 */
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({
+        events: [
+          { type: "tool_execution_start", name: "search_memory" },
+          { type: "tool_execution_end", name: "search_memory", result: "[]" },
+          { type: "tool_execution_start", name: "get_message" },
+          { type: "tool_execution_end", name: "get_message", result: "{}" },
+          { type: "tool_execution_start", name: "speak" },
+          { type: "tool_execution_end", name: "speak", result: "ok" },
+        ],
+        result: { text: "Response" },
+        toolCallCount: 0,
+      }),
+      msg,
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    invoker.abort("otter-1", "msg-streaming");
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain("3 次工具调用");
+    expect(msg._calls.abort[0].body).toContain("[搭档中断]");
+
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.aborted");
+  });
+
+  it("Path B with 0 tool calls: abort before any tools execute", async () => {
+    /** 边界场景：用户在 agent 执行任何工具之前就 abort，SDK 吞掉 abort 正常返回 */
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({
+        events: [{ type: "message_update", delta: "thinking..." }],
+        result: { text: "..." },
+        toolCallCount: 0,
+      }),
+      msg,
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    invoker.abort("otter-1", "msg-streaming");
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain("0 次工具调用");
+    expect(msg._calls.abort[0].body).toContain("[搭档中断]");
+  });
+});
