@@ -181,6 +181,7 @@ export class AgentInvoker {
     }
     const ir = this.agentInvoke.getInternalAbortReason(p.messageId);
     if (ir) {
+      this.abortedMessages.add(p.messageId);
       await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`[output-guard] ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
