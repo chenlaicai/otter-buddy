@@ -1,9 +1,11 @@
 ---
 name: core-workflow
 description: >-
-  Otter 的核心工作流程。涵盖信息查询（如何查对话、查记忆、查术语）、
-  排查问题时的工具使用、以及产出记录规范。
-  所有 Otter 共同遵守。
+  This skill should be used when the user asks to "查一下", "帮我查", "看看之前的",
+  "搜索", "排查", "分析问题", "记录一下", "看看日志", "查数据库",
+  or any task that requires querying conversation history, searching memory,
+  troubleshooting issues, or recording outputs and decisions.
+  Covers information retrieval, troubleshooting workflow, and artifact recording.
 ---
 
 # Core Workflow
@@ -16,6 +18,7 @@ description: >-
 - **跨会话记忆**（"上次"、历史决策原因、未完成待办）→ 用 `search_memory`
 - **"之前"有歧义时** → 先查当前对话，无结果再查记忆
 - 术语不明 → `search_terminology`
+- 查询结果用自然语言呈现给搭档（引号标注原文关键句 + 简要解读），不要把原始 JSON 直接展示
 
 ## 排查问题
 
