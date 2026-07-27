@@ -72,7 +72,7 @@ function NewConvModal(props: ModalsProps) {
         </>
       }
     >
-      <label className="block text-xs font-medium text-stone-500 mb-1.5">对话标题</label>
+      <label className="block text-xs font-medium text-stone-600 mb-1.5">对话标题</label>
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
@@ -82,8 +82,8 @@ function NewConvModal(props: ModalsProps) {
         autoFocus
       />
       <div className="mt-3">
-        <span className="text-xs font-medium text-stone-500">参与 Otter</span>
-        <div className="text-sm text-stone-400 mt-1">大獭 (默认)</div>
+        <span className="text-xs font-medium text-stone-600">参与 Otter</span>
+        <div className="text-sm text-stone-500 mt-1">大獭 (默认)</div>
       </div>
     </Modal>
   )
@@ -105,7 +105,7 @@ function ChildModal(props: ModalsProps) {
         </>
       }
     >
-      <label className="block text-xs font-medium text-stone-500 mb-1.5">子对话标题</label>
+      <label className="block text-xs font-medium text-stone-600 mb-1.5">子对话标题</label>
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
@@ -114,7 +114,7 @@ function ChildModal(props: ModalsProps) {
         placeholder="输入子对话标题"
         autoFocus
       />
-      <p className="text-xs text-stone-400 mt-2">子对话将继承父对话的关键资源</p>
+      <p className="text-xs text-stone-500 mt-2">子对话将继承父对话的关键资源</p>
     </Modal>
   )
 }
@@ -133,7 +133,7 @@ function CompleteModal(props: ModalsProps) {
         </>
       }
     >
-      <p className="text-sm text-stone-500">完成此对话？子对话未完成时父对话也可完成。</p>
+      <p className="text-sm text-stone-600">完成此对话？子对话未完成时父对话也可完成。</p>
     </Modal>
   )
 }
@@ -152,7 +152,7 @@ function ArchiveModal(props: ModalsProps) {
         </>
       }
     >
-      <p className="text-sm text-stone-500">归档后对话可检索但不活跃。输入框将被禁用。</p>
+      <p className="text-sm text-stone-600">归档后对话可检索但不活跃。输入框将被禁用。</p>
     </Modal>
   )
 }
@@ -183,19 +183,19 @@ function CreateOtterModal(props: ModalsProps) {
     >
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">小獭名称</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">小獭名称</label>
           <input value={name} onChange={e => setName(e.target.value)} className="form-input w-full" placeholder="如：分析獭" autoFocus />
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">角色名称</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">角色名称</label>
           <input value={role} onChange={e => setRole(e.target.value)} className="form-input w-full" placeholder="如：方案A视角" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">角色职责（每行一条）</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">角色职责（每行一条）</label>
           <textarea value={resp} onChange={e => setResp(e.target.value)} className="form-input w-full resize-none min-h-[60px]" placeholder="从用户体验角度分析&#10;关注易用性" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">能力选择</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">能力选择</label>
           <div className="glass-card rounded-xl p-2.5 space-y-1.5">
             {mockSkills.map(s => (
               <label key={s.id} className="flex items-center gap-2 text-xs cursor-pointer text-stone-600">
@@ -205,7 +205,7 @@ function CreateOtterModal(props: ModalsProps) {
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">上下文注入（大獭自动提取，可编辑）</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">上下文注入（大獭自动提取，可编辑）</label>
           <textarea className="form-input w-full resize-none min-h-[60px]" placeholder="大獭将从记忆系统中提取相关上下文注入小獭..." />
         </div>
       </div>
@@ -231,11 +231,11 @@ function DissolveModal(props: ModalsProps) {
         </>
       }
     >
-      <p className="text-sm text-stone-500">
+      <p className="text-sm text-stone-600">
         解散小獭 <strong className="text-otter-500">{otter?.name}</strong>？Session 将归档到大獭历史记忆，已加载能力将回收。
       </p>
       <div className="mt-3">
-        <label className="block text-xs font-medium text-stone-500 mb-1.5">归档摘要（可编辑）</label>
+        <label className="block text-xs font-medium text-stone-600 mb-1.5">归档摘要（可编辑）</label>
         <textarea
           value={summary}
           onChange={e => setSummary(e.target.value)}
@@ -264,11 +264,11 @@ function RestartModal(props: ModalsProps) {
         </>
       }
     >
-      <p className="text-sm text-stone-500">
+      <p className="text-sm text-stone-600">
         重启 <strong className="text-otter-500">{otter?.name}</strong> 的獭生将封存当前 Session 为反面案例，并开新 Session 换角度重来。
       </p>
       <div className="mt-3">
-        <label className="block text-xs font-medium text-stone-500 mb-1.5">前情摘要（可编辑）</label>
+        <label className="block text-xs font-medium text-stone-600 mb-1.5">前情摘要（可编辑）</label>
         <textarea
           value={summary}
           onChange={e => setSummary(e.target.value)}
@@ -311,37 +311,37 @@ function OtterDetailModal(props: ModalsProps) {
       <div className="flex gap-6 mb-4">
         <div className="flex-1 space-y-3">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">名称</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">名称</div>
             <div className="text-sm mt-0.5 text-stone-700">{otter.name}</div>
           </div>
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">类型</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">类型</div>
             <div className="text-sm mt-0.5 text-stone-700">{otter.type === 'big' ? '大獭' : '小獭'}</div>
           </div>
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">角色</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">角色</div>
             <div className="text-sm mt-0.5 text-stone-700">{otter.role?.name || '-'}</div>
           </div>
         </div>
         <div className="flex-1 space-y-3">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">职责列表</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">职责列表</div>
             <ul className="text-sm mt-0.5 list-disc pl-4 text-stone-700">
               {otter.role?.resp?.length ? otter.role.resp.map((r, i) => <li key={i}>{r}</li>) : <li>-</li>}
             </ul>
           </div>
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">创建时间</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">创建时间</div>
             <div className="text-sm mt-0.5 text-stone-700">{otter.createdAt}</div>
           </div>
         </div>
       </div>
 
       <div className="mb-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1.5">Session Chain</div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5">Session Chain</div>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-xs text-stone-400 border-b border-white/30">
+            <tr className="text-xs text-stone-500 border-b border-white/30">
               <th className="py-1.5 px-2 text-left">状态</th>
               <th className="py-1.5 px-2 text-left">开始</th>
               <th className="py-1.5 px-2 text-left">归档</th>
@@ -368,11 +368,11 @@ function OtterDetailModal(props: ModalsProps) {
       </div>
 
       <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1.5">已加载能力</div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5">已加载能力</div>
         <div className="flex gap-1.5 flex-wrap">
           {otterSkills.length ? otterSkills.map(s => (
             <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-white/40 text-stone-600">{s.name}</span>
-          )) : <span className="text-xs text-stone-400">无已加载能力</span>}
+          )) : <span className="text-xs text-stone-500">无已加载能力</span>}
         </div>
       </div>
     </Modal>
@@ -405,15 +405,15 @@ function LinkResourceModal(props: ModalsProps) {
     >
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">资源类型（开放机制）</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">资源类型（开放机制）</label>
           <input value={type} onChange={e => setType(e.target.value)} className="form-input w-full" placeholder="如: pr, file, url, branch..." />
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">URL</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">URL</label>
           <input value={url} onChange={e => setUrl(e.target.value)} className="form-input w-full" placeholder="https://..." />
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-500 mb-1.5">标题（可选）</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">标题（可选）</label>
           <input value={title} onChange={e => setTitle(e.target.value)} className="form-input w-full" placeholder="资源标题" />
         </div>
       </div>

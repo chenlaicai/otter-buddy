@@ -1,4 +1,4 @@
-import { FilePlus, Check, Archive } from 'lucide-react'
+import { Check, Archive } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
@@ -42,12 +42,6 @@ export function ChatView(props: ChatViewProps) {
         </div>
         {c && (
           <div className="flex gap-1.5">
-            <button
-              onClick={props.onCreateChild}
-              className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"
-            >
-              <FilePlus className="w-3 h-3" /> 子对话
-            </button>
             <button
               onClick={props.onComplete}
               disabled={c.status !== 'active'}

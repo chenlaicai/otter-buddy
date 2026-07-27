@@ -34,6 +34,7 @@ function MarkdownContent({ children }: { children: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      remarkRehypeOptions={{ singleTilde: false }}
       components={{
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '')
@@ -42,6 +43,9 @@ function MarkdownContent({ children }: { children: string }) {
             return <SyntaxHighlighter style={oneLight} language={match[1]} PreTag="div" customStyle={{ margin: '8px 0', borderRadius: 8, fontSize: 13 }}>{text}</SyntaxHighlighter>
           }
           return <code className={className} {...props}>{children}</code>
+        },
+        p({ children, ...props }) {
+          return <p style={{ whiteSpace: 'pre-wrap' }} {...props}>{children}</p>
         },
       }}
     >
@@ -163,7 +167,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const dur = m.dur ? ` · ${m.dur}` : ''
 
   return (
-    <div className={`flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`flex gap-2.5 max-w-[780px] mx-auto mb-4 px-3 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
       <div
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: bgGrad }}
