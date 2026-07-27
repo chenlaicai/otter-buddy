@@ -223,7 +223,7 @@ function ConversationPage() {
             setAllOtters(prev => {
               const convOtters = prev[activeId] || []
               if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '', ci: 0 }] }
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
             })
           }
         },
@@ -304,7 +304,7 @@ function ConversationPage() {
             setAllOtters(prev => {
               const convOtters = prev[activeId] || []
               if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '', ci: 0 }] }
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
             })
           }
           const abortedMsg: LocalMessage = {

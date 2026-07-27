@@ -92,7 +92,7 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
 
   if (state === 'loading') {
     return (
-      <div className="mx-auto px-2">
+      <div className="mx-auto px-1">
         <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
         <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
         <div className="h-14 rounded-3xl bg-white/30 animate-pulse" />
@@ -121,7 +121,7 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
         )
       })}
       {state === 'error' && (
-        <div className="mx-auto px-2 my-2">
+        <div className="mx-auto px-1 my-2">
           <div className="bg-red-400/10 border border-red-400/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-500">
             <AlertTriangle className="w-4 h-4" />
             <span>LLM 调用失败：API Key 无效</span>
