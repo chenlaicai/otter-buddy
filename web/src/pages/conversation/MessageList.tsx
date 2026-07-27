@@ -167,7 +167,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const dur = m.dur ? ` · ${m.dur}` : ''
 
   return (
-    <div className={`flex gap-2.5 mx-auto mb-4 px-0 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`flex gap-2.5 mx-auto mb-4 px-2 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
       <div
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: bgGrad }}
