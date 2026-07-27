@@ -438,16 +438,15 @@ export class PiSessionFactory implements AgentGateway {
       otterId, otterType, options, sessionManager,
     );
 
-    // 2. 熔断器 + 输出退化检测
-    const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger);
-    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }, this.logger, this._makeGuardAbort(sessionKey, session));
-
-    // 3. 构建完整消息（首次 invoke 时身份叠加在 otter 专属 prompt 之前）
-    const fullMessage = buildMessageWithContext(this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
-
-    this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
-
+    // 2. 熔断器 + 输出退化检测（wrappedAbort 统一 guardAbortReason 设置）
     const activeEntry = this.activeSessions.get(sessionKey);
+    const wrappedAbort = (reason?: string) => { if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
+    const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
+    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }, this.logger, () => wrappedAbort(outputGuard.getMetadata().reason));
+
+    // 3. 构建完整消息
+    const fullMessage = buildMessageWithContext(this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
+    this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
 
     try {
@@ -456,8 +455,7 @@ export class PiSessionFactory implements AgentGateway {
       result.outputGuardMetadata = outputGuard.getMetadata();
       return result;
     } catch (err) {
-      const e = err as Error & { _toolCallCount?: number; _outputGuardMetadata?: unknown };
-      e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0; e._outputGuardMetadata = outputGuard.getMetadata();
+      (err as Error & { _toolCallCount?: number })._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
       throw err;
     } finally {
       circuitBreaker.clearSteerDeadline(); unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
@@ -510,10 +508,7 @@ export class PiSessionFactory implements AgentGateway {
     const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
     return buildResult("", tokenUsage, circuitBreaker, ctxMax);
   }
-  private _makeGuardAbort(sessionKey: string, session: { abort: () => Promise<void> }): () => void {
-    return () => { const e = this.activeSessions.get(sessionKey); if (e) e.guardAbortReason = "output_guard_trip"; session.abort(); };
-  }
-  /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
+  /** 中断指定 Otter 的 Agent 生成 */
   abort(otterId: string, messageId?: string): void {
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     const entry = this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId);
@@ -528,7 +523,10 @@ export class PiSessionFactory implements AgentGateway {
     return (this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId))?.toolCallCount ?? 0;
   }
 
-  getInternalAbortReason(messageId: string): string | undefined { for (const [key, entry] of this.activeSessions) { if (entry.guardAbortReason && key.endsWith(`:${messageId}`)) { const r = entry.guardAbortReason; entry.guardAbortReason = undefined; return r; } } return undefined; }
+  getInternalAbortReason(messageId: string): string | undefined {
+    const s = `:${messageId}`;
+    for (const [k, e] of this.activeSessions) { if (e.guardAbortReason && k.endsWith(s) && k.length > s.length) { const r = e.guardAbortReason; e.guardAbortReason = undefined; return r; } } return undefined;
+  }
 
   /** 创建 session 事件处理器：跟踪工具调用 + 转发事件到 onEvent 回调 */
   private createEventHandler(

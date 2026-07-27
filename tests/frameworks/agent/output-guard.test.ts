@@ -408,9 +408,52 @@ describe("attachOutputGuard", () => {
     // tool_execution_end resumes the timer
     handler({ type: "tool_execution_end", name: "bash" });
 
-    // Remaining time fires abort
+    // Remaining time fires abort (full 3s since tool ended immediately)
     vi.advanceTimersByTime(3001);
     expect(onAbort).toHaveBeenCalled();
+  });
+
+  it("resumeTimer uses remaining time, not full timeout", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 5000 }),
+      "otter-1",
+      mockLogger(),
+    );
+    const abort = vi.fn();
+
+    guard.check("start", abort);
+    // 2 seconds pass, then tool starts
+    vi.advanceTimersByTime(2000);
+    guard.pauseTimer();
+
+    // Tool ends — remaining time should be ~3s, not 5s
+    guard.resumeTimer(abort);
+
+    // 3 seconds — should fire (remaining time exhausted)
+    vi.advanceTimersByTime(3001);
+    expect(abort).toHaveBeenCalled();
+  });
+
+  it("resumeTimer enforces minimum 1s remaining", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 2000 }),
+      "otter-1",
+      mockLogger(),
+    );
+    const abort = vi.fn();
+
+    guard.check("start", abort);
+    // Pause before timer fires (1.5s < 2s timeout)
+    vi.advanceTimersByTime(1500);
+    guard.pauseTimer();
+
+    // elapsed=1500ms, remaining=max(2000-1500,1000)=1000ms (minimum enforced)
+    guard.resumeTimer(abort);
+    vi.advanceTimersByTime(500);
+    expect(abort).not.toHaveBeenCalled(); // 500ms < 1000ms minimum
+
+    vi.advanceTimersByTime(501);
+    expect(abort).toHaveBeenCalled();
   });
 
   it("resumes timer on message_update if no tool_execution_end", () => {

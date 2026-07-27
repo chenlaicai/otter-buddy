@@ -88,7 +88,14 @@ created_at: 2026-07-27
 
 问题：工具执行期间 `message_update` 事件停止，流式超时会误触发。
 
-解决：OutputGuard 同时订阅 `tool_execution_start` 事件，在工具执行期间暂停超时计时器。工具执行结束后，下一个 `message_update` 自然恢复计时器。
+解决：OutputGuard 同时订阅 `tool_execution_start` 和 `tool_execution_end` 事件。
+- `tool_execution_start`：暂停计时器，记录已用时间
+- `tool_execution_end`：用剩余时间恢复计时器（`remaining = max(timeout - elapsed, 1000)`）
+- `message_update`：全量重启计时器（重置 elapsed）
+
+**取舍**：`message_update` 恢复时使用全量超时而非剩余时间。这意味着工具执行前后各有一个完整的超时窗口（默认 2 分钟 + 2 分钟 = 最多 4 分钟）。这是有意设计——退化输出不可能恰好利用这个窗口，且全量重启语义更简单。
+
+**abort 路径统一**：`wrappedAbort` 包装 `session.abort()`，自动设置 `guardAbortReason`。OutputGuard 和 CircuitBreaker 都通过此包装调用 abort，确保 `AgentInvoker` 能区分内部 abort 和用户手动中断。
 
 **决策 3：检测算法**
 
