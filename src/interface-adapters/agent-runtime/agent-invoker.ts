@@ -179,7 +179,7 @@ export class AgentInvoker {
       await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
-    const ir = this.agentInvoke.getInternalAbortReason(p.messageId);
+    const ir = (p.result as Record<string, unknown>)._guardAbortReason as string | undefined ?? this.agentInvoke.getInternalAbortReason(p.messageId);
     if (ir) {
       this.abortedMessages.add(p.messageId);
       await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`[output-guard] ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
@@ -285,12 +285,13 @@ export class AgentInvoker {
 
   /**
    * 内部 abort 包装：检查是否有 OutputGuard 等内部机制触发的 abort。
-   * 如果是，标记 abortedMessages 并替换错误消息；否则原样返回。
+   * 优先从 error 对象读取 _guardAbortReason（finally 前预捕获），
+   * 回退到 getInternalAbortReason（activeSessions 查找）。
    * 竞态防护：用户已 abort 时不覆盖（High-1）。
    */
   private wrapInternalAbort(messageId: string, err: unknown): unknown {
     if (this.abortedMessages.has(messageId)) return err;
-    const reason = this.agentInvoke.getInternalAbortReason(messageId);
+    const reason = (err as { _guardAbortReason?: string })._guardAbortReason ?? this.agentInvoke.getInternalAbortReason(messageId);
     if (!reason) return err;
     this.abortedMessages.add(messageId);
     return Object.assign(new Error(`[output-guard] ${reason}`), {
