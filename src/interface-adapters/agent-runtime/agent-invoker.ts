@@ -5,6 +5,9 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 
+/** 携带工具调用计数的 Error（abort 路径跨层传递用） */
+type ErrorWithToolCallCount = Error & { _toolCallCount?: number };
+
 /** SSE 事件（与 sse-streamer 的 SSEEvent 结构兼容） */
 export interface AgentSSEEvent {
   event: string;
@@ -145,7 +148,7 @@ export class AgentInvoker {
     onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId, seq: message.sequenceNum } });
 
     try {
-      const { result } = await this.executeAgentInvocation({
+      const { result, toolCallCount } = await this.executeAgentInvocation({
         otterId,
         userMessageContent,
         dynamicContext,
@@ -175,7 +178,7 @@ export class AgentInvoker {
 
       /** SDK 可能吞掉 abort 正常返回：未达 speaking 且有中断标记时，走 abort 路径而非 speak 重试 */
       if (this.abortedMessages.has(message.id)) {
-        await this.handleInvokeError(message.id, otterId, new Error("Invocation aborted by user"), onSSEEvent, senderId);
+        await this.handleInvokeError(message.id, otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: toolCallCount }), onSSEEvent, senderId);
         return { messageId: message.id, duration: Date.now() - startTime };
       }
 
@@ -193,7 +196,7 @@ export class AgentInvoker {
 
   /**
    * 执行 Agent 调用。
-   * 返回 result。
+   * 返回 result + 事件流中跟踪的 toolCallCount（供 abort body 使用）。
    */
   private async executeAgentInvocation(params: {
     otterId: string;
@@ -202,43 +205,35 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
-  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number } }> {
+  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; toolCallCount: number }> {
     let agentError: string | undefined;
-    try {
-      const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
-        dynamicContext: params.dynamicContext,
-        conversationId: params.conversationId,
-        messageId: params.messageId,
-        onEvent: (e: AgentStreamEvent) => {
-          this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
-          /** 所有事件如实推送到 SSE（event 就是 event，不抑制） */
-          const sse = mapToSSEEvent(e);
-          if (sse) {
-            params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
-          }
-          if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
-            /** speak 工具执行完毕，记录日志 */
-            this.logger.debug('speak tool executed', { messageId: params.messageId });
-          }
-          /** 所有事件如实持久化（event 就是 event，不抑制） */
-          const evt = mapToMessageEventInput(e, params.messageId);
-          if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
-            const m = err instanceof Error ? err.message : String(err);
-            this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
-          });
-          if (!agentError) agentError = extractAgentError(e);
-        },
-      });
-      /** invoke 正常返回后检查 abort（SDK 可能不抛错） */
-      return { result };
-    } catch (err) {
-      /** abort 时向外抛出，让 invokeConversation 的外层 catch 处理（不走 retry） */
-      if (this.abortedMessages.has(params.messageId)) {
-        throw err;
-      }
-      /** 非 abort 错误：向外抛出，让外层 handleInvokeError 处理 */
-      throw err;
-    }
+    let toolCallCount = 0;
+    const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
+      dynamicContext: params.dynamicContext,
+      conversationId: params.conversationId,
+      messageId: params.messageId,
+      onEvent: (e: AgentStreamEvent) => {
+        this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
+        if (e.type === "tool_execution_start") toolCallCount++;
+        /** 所有事件如实推送到 SSE（event 就是 event，不抑制） */
+        const sse = mapToSSEEvent(e);
+        if (sse) {
+          params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
+        }
+        if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
+          /** speak 工具执行完毕，记录日志 */
+          this.logger.debug('speak tool executed', { messageId: params.messageId });
+        }
+        /** 所有事件如实持久化（event 就是 event，不抑制） */
+        const evt = mapToMessageEventInput(e, params.messageId);
+        if (evt) this.sendMessage.appendEvent(evt).catch((err: unknown) => {
+          const m = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
+        });
+        if (!agentError) agentError = extractAgentError(e);
+      },
+    });
+    return { result, toolCallCount };
   }
 
   /**
@@ -311,7 +306,7 @@ export class AgentInvoker {
     if (this.abortedMessages.delete(messageId)) {
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
       const toolCallCount =
-        (err as Error & { _toolCallCount?: number })._toolCallCount ??
+        (err as ErrorWithToolCallCount)._toolCallCount ??
         this.agentInvoke.getToolCallCount(otterId, messageId);
       const body = `[搭档中断] 经过 ${toolCallCount} 次工具调用后，搭档强制中断了当前发言。`;
       try {
