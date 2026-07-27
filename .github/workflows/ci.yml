@@ -19,8 +19,9 @@ jobs:
 
       - name: Check PR title format
         if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
           # 检查 PR 标题是否包含特性编号格式：[F{日期}{随机字符}]
           # 例如：[F20260727ui6x]、[F20260724glas]、[F20260725otid]
           if ! echo "$PR_TITLE" | grep -qE '^\[F[0-9]{8}[a-zA-Z0-9]+\]'; then

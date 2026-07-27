@@ -405,7 +405,7 @@ function ConversationPage() {
   const handleContextMenu = (e: React.MouseEvent, cid: string) => {
     e.preventDefault()
     const x = Math.min(e.clientX, window.innerWidth - 168)
-    const y = Math.min(e.clientY, window.innerHeight - 138)
+    const y = Math.min(e.clientY, window.innerHeight - 90)
     setCtxMenu({ x, y, cid })
   }
   function closeCtxMenu() { setCtxMenu(null) }
@@ -454,7 +454,7 @@ function ConversationPage() {
         parentOtterId: convOtters[0]?.id,
         systemPrompt: `你是${name}，角色：${role}。职责：${resp.join('、')}`,
       })
-      const otter = mapOtterDTO(dto, ci)
+      const otter = mapOtterDTO(dto)
       setAllOtters(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), otter] }))
       setModal({ type: 'none' }); showToast(`小獭 ${name} 已创建`, 'success')
     } catch { showToast('创建小獭失败', 'error') }
