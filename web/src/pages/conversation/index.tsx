@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
@@ -57,8 +57,6 @@ function ConversationPage() {
     task?: LocalScheduledTask
   }>({ type: 'none' })
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
-
-  const ciCounter = useRef(1)
 
   // 定时任务 Hook
   const {
@@ -225,7 +223,7 @@ function ConversationPage() {
             setAllOtters(prev => {
               const convOtters = prev[activeId] || []
               if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '', ci: 0 }] }
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
             })
           }
         },
@@ -306,7 +304,7 @@ function ConversationPage() {
             setAllOtters(prev => {
               const convOtters = prev[activeId] || []
               if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '', ci: 0 }] }
+              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
             })
           }
           const abortedMsg: LocalMessage = {
@@ -402,14 +400,12 @@ function ConversationPage() {
 
   const handleSelectConv = useCallback((id: string) => { setActiveId(id); setPageState('normal') }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
-  const handleCreateChild = () => activeId && setModal({ type: 'child', parentId: activeId })
-  const handleComplete = () => activeId && setModal({ type: 'complete', cid: activeId })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
 
   const handleContextMenu = (e: React.MouseEvent, cid: string) => {
     e.preventDefault()
     const x = Math.min(e.clientX, window.innerWidth - 168)
-    const y = Math.min(e.clientY, window.innerHeight - 138)
+    const y = Math.min(e.clientY, window.innerHeight - 90)
     setCtxMenu({ x, y, cid })
   }
   function closeCtxMenu() { setCtxMenu(null) }
@@ -439,15 +435,6 @@ function ConversationPage() {
     } catch { showToast('创建子对话失败', 'error') }
   }
 
-  async function confirmComplete() {
-    if (!activeId) return
-    try {
-      await api.completeConversation(activeId)
-      setConversations(prev => prev.map(c => c.id === activeId ? { ...c, status: 'completed' as const } : c))
-      setModal({ type: 'none' }); showToast('对话已完成', 'success')
-    } catch { showToast('操作失败', 'error') }
-  }
-
   async function confirmArchive() {
     if (!activeId) return
     try {
@@ -460,7 +447,6 @@ function ConversationPage() {
   async function confirmCreateOtter(name: string, role: string, resp: string[]) {
     if (!activeId) return
     try {
-      const ci = (ciCounter.current % 4) + 1; ciCounter.current++
       const convOtters = allOtters[activeId] || []
       const dto = await api.createOtter({
         name, type: 'small',
@@ -468,7 +454,7 @@ function ConversationPage() {
         parentOtterId: convOtters[0]?.id,
         systemPrompt: `你是${name}，角色：${role}。职责：${resp.join('、')}`,
       })
-      const otter = mapOtterDTO(dto, ci)
+      const otter = mapOtterDTO(dto)
       setAllOtters(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), otter] }))
       setModal({ type: 'none' }); showToast(`小獭 ${name} 已创建`, 'success')
     } catch { showToast('创建小獭失败', 'error') }
@@ -548,7 +534,6 @@ function ConversationPage() {
 
   function ctxAction(action: string, cid: string) {
     closeCtxMenu(); setActiveId(cid)
-    if (action === 'complete') setModal({ type: 'complete', cid })
     if (action === 'archive') setModal({ type: 'archive', cid })
     if (action === 'child') setModal({ type: 'child', parentId: cid })
   }
@@ -573,7 +558,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings.html' }} onCreateChild={handleCreateChild} onComplete={handleComplete} onArchive={handleArchive} otters={activeOtters} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings.html' }} onArchive={handleArchive} otters={activeOtters} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
@@ -607,14 +592,13 @@ function ConversationPage() {
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
-            <div onClick={() => ctxAction('complete', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status === 'active' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>完成对话</div>
             <div onClick={() => ctxAction('archive', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status !== 'archived' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
             <div onClick={() => ctxAction('child', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">创建子对话</div>
           </div>
         </>
       )}
 
-      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmComplete={confirmComplete} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (

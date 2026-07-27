@@ -33,7 +33,7 @@ function CopyButton({ text }: { text: string }) {
 function MarkdownContent({ children }: { children: string }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
       components={{
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '')
@@ -42,6 +42,9 @@ function MarkdownContent({ children }: { children: string }) {
             return <SyntaxHighlighter style={oneLight} language={match[1]} PreTag="div" customStyle={{ margin: '8px 0', borderRadius: 8, fontSize: 13 }}>{text}</SyntaxHighlighter>
           }
           return <code className={className} {...props}>{children}</code>
+        },
+        p({ children, ...props }) {
+          return <p style={{ whiteSpace: 'pre-wrap' }} {...props}>{children}</p>
         },
       }}
     >
@@ -89,7 +92,7 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
 
   if (state === 'loading') {
     return (
-      <div className="max-w-[780px] mx-auto px-6">
+      <div className="mx-auto px-1">
         <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
         <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
         <div className="h-14 rounded-3xl bg-white/30 animate-pulse" />
@@ -118,7 +121,7 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
         )
       })}
       {state === 'error' && (
-        <div className="max-w-[780px] mx-auto px-6 my-2">
+        <div className="mx-auto px-1 my-2">
           <div className="bg-red-400/10 border border-red-400/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-500">
             <AlertTriangle className="w-4 h-4" />
             <span>LLM 调用失败：API Key 无效</span>
@@ -153,7 +156,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
   const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
-  const color = isUser ? null : getOtterColor(m.si, otter?.ci)
+  const color = isUser ? null : getOtterColor(m.si)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
   const sideBar: CSSProperties = !isUser
@@ -163,7 +166,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
   const dur = m.dur ? ` · ${m.dur}` : ''
 
   return (
-    <div className={`flex gap-2.5 max-w-[780px] mx-auto mb-4 px-6 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`flex gap-2.5 mx-auto mb-4 px-1 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
       <div
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: bgGrad }}

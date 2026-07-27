@@ -1,4 +1,4 @@
-import { FilePlus, Check, Archive } from 'lucide-react'
+import { Archive } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
@@ -11,8 +11,6 @@ interface ChatViewProps {
   onStopStream: (messageId: string) => void
   onRetry: () => void
   onGoToSettings: () => void
-  onCreateChild: () => void
-  onComplete: () => void
   onArchive: () => void
   otters: Otter[]
 }
@@ -23,7 +21,7 @@ export function ChatView(props: ChatViewProps) {
   return (
     <main className="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
       {/* Chat Header */}
-      <div className="px-6 py-3 flex items-center justify-between border-b border-white/40 flex-shrink-0">
+      <div className="px-1 py-3 flex items-center justify-between border-b border-white/40 flex-shrink-0">
         <div className="flex items-center gap-2">
           <h1 className="text-sm font-semibold text-stone-700">{c?.title || '对话'}</h1>
           {c && (
@@ -42,19 +40,6 @@ export function ChatView(props: ChatViewProps) {
         </div>
         {c && (
           <div className="flex gap-1.5">
-            <button
-              onClick={props.onCreateChild}
-              className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"
-            >
-              <FilePlus className="w-3 h-3" /> 子对话
-            </button>
-            <button
-              onClick={props.onComplete}
-              disabled={c.status !== 'active'}
-              className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Check className="w-3 h-3" /> 完成
-            </button>
             <button
               onClick={props.onArchive}
               disabled={c.status === 'archived'}

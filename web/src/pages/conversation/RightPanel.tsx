@@ -178,7 +178,7 @@ function OtterParticipantCard({
       onClick={onClick}
       className="flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer glass-card mb-1.5 transition hover:shadow-bubble hover:-translate-y-0.5 group"
     >
-      <OtterAvatar otterId={o.id} name={o.name} ci={o.ci} size={28} />
+      <OtterAvatar otterId={o.id} name={o.name} size={28} />
       <div className="flex-1 min-w-0">
         <div className="text-xs font-semibold text-stone-700">{o.name}</div>
         <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
