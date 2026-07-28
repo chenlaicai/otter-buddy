@@ -86,3 +86,15 @@ circuitBreaker:
   # 注意：按"每条用户消息"计数，用户发新消息后重置；并行扇出不额外计跳
   # 触顶时系统向对话注入提示消息，发言石交还用户
   maxChainDepth: 20
+  # === 文本生成退化检测（OutputGuard）===
+  outputGuard:
+    # 是否启用退化检测（默认 true）
+    enabled: true
+    # 片段长度（字符），用于检测重复模式（默认 100）
+    segmentLength: 100
+    # 相同片段重复多少次触发 abort（默认 50）
+    maxRepeatedSegments: 50
+    # 每累积多少个片段检查一次重复（默认 20）
+    checkInterval: 20
+  # 流式超时（毫秒），连续无新内容则 abort（默认 120000，即 2 分钟）
+  streamingTimeoutMs: 120000

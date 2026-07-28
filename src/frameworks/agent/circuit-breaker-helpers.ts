@@ -15,8 +15,10 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
+  abortOverride?: () => void,
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined } {
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
+  const doAbort = abortOverride ?? (() => { session.abort(); });
 
   /** 通过 subscribe 拦截 tool_execution_start 事件实现熔断 */
   const unregisterToolCall = session.subscribe((event: unknown) => {
@@ -24,12 +26,12 @@ export function attachCircuitBreaker(
     if (e.type === "tool_execution_start") {
       const result = circuitBreaker.check(e.name ?? "unknown");
       if (result.action === "terminate") {
-        session.abort();
+        doAbort();
         return;
       }
       if (result.action === "steer") {
         session.steer?.(result.reason ?? "Stop calling tools. Call speak now.");
-        circuitBreaker.setSteerDeadline(() => { session.abort(); });
+        circuitBreaker.setSteerDeadline(() => { doAbort(); });
         return;
       }
     }
