@@ -22,7 +22,7 @@ causal_links:
 status: draft
 exploration_type: technical
 tags: [context-engineering, prompt, skills, tools, claude-5, anthropic-blog, insight]
-conclusion: Otter 系统层上下文已符合 Claude 5 新范式；应将规则式防御从 skill/工具描述中逐步清理，但对协议关键行为（speak 回合控制）保留显式约束
+conclusion: Otter 系统层上下文已符合 Claude 5 新范式；应将规则式防御从 skill/工具描述中清理；speak 回合控制经 transcript 实证与 SDK 源码验证，应从文案禁令改为 loop terminate 机制（属协议修正而非行为拦截）
 
 # 时间
 created_at: 2026-07-28
@@ -117,6 +117,21 @@ Anthropic 发布 `claude doctor`（Claude Code 内 `/doctor`），自动审计 s
 
 博客的建议建立在 Anthropic 自家评测上，且 Claude Code 的失误成本由用户当场承担；Otter 是多 Agent 接力发言系统，`speak` 是回合协议的唯一收口，属于「highly important areas」——博客自己也允许这类例外（"Avoid making them overconstrained, **except in highly important areas**"）。
 
+### 2.4 speak 尾随消息实证分析（2026-07-28 补充）
+
+对 3 个 session transcript（`data/sessions/*.jsonl`）中全部 15 次 speak 调用逐一分析：
+
+| 发现 | 证据 | 推论 |
+|------|------|------|
+| **100% 出现尾随 assistant 消息** | 15/15 次 speak 成功后均有后续文本（15-700 字符） | 现行文案禁令完全未生效 |
+| **模型理解规则但无法遵守** | thinking 原文：「The speak call was successful. My turn is complete. I should not output any additional text.」——随后仍输出文本 | 不是教育问题：agent loop 在 tool_result 后强制模型再生成一条消息，「沉默」在结构上不可能 |
+| **双通道不信任** | 实质分析内容在 speak body 和尾随消息中重复出现（400-700 字符级） | 模型的天然发言通道是 assistant message 而非 tool 参数；尾随内容不进 DB body（agent-invoker.ts L272-279），增量信息有丢失风险 |
+| **双 speak 案例** | 一次 speak 成功后模型再次调用 speak（报错）并输出自我批评 | 成功后立即终止 loop 可一并消除此类浪费 |
+
+**SDK 能力验证（pi-agent-core 0.80.10 源码确认）**：`AgentToolResult.terminate` 为 loop 一等公民能力——工具结果置 `terminate: true` 后 loop 不再发起下一轮 LLM 调用（agent-loop.js L124 `hasMoreToolCalls = !executedToolBatch.terminate`）。全链路（Otter 工具 → pi-session-factory 适配 → ToolDefinition wrapper → loop）逐层确认透传不丢失。边界：仅当同批次所有工具结果均为 terminate 时生效（agent-loop.js L378 `every()`），speak 与其他工具同批调用的边缘场景不覆盖，但 transcript 显示 speak 几乎均单独调用。
+
+**定性修正**：speak 后终止 loop 不是「事后拦截模型行为」，而是 loop 协议的修正——回合在 speak 成功时已事实结束，不应再向模型索要一条它无法留空的消息。这与「让 LLM 理解优先于工程拦截」的原则不冲突：模型已理解（thinking 可证），是 loop 结构使其无法执行。
+
 ---
 
 ## 3. 洞察与建议
@@ -137,7 +152,7 @@ Anthropic 发布 `claude doctor`（Claude Code 内 `/doctor`），自动审计 s
 |--------|------|------|
 | P1 | **去重**：code-implementation SKILL.md 中重复的 NEVER 条款合并为一处；speak 工具描述与返回文案的重复禁令合并 | 规则 4，零风险纯收益 |
 | P2 | **规则改写**：把 skill 中的 NEVER 条款从「禁令 + 借口黑名单」改写为「原则 + 失败后果」（如 worktree 条款改为说明隔离的目的，让模型能外推到未枚举的场景） | 规则 1；借口黑名单永远枚举不完 |
-| P2 | **speak 约束机制化**：评估能否把「speak 后不再输出」从文案约束改为运行时约束（如 harness 层丢弃 speak 后的输出），文案只留一句协议说明 | 规则 2；机制比描述可靠 |
+| P2 | **speak 约束机制化**：speak 成功路径返回 `terminate: true`（SDK 原生能力，已验证，见 2.4），loop 不再发起尾随生成；文案同步去禁止化 | 规则 2 + 2.4 实证；这是 loop 协议修正而非行为拦截 |
 | P3 | **禁用语黑名单重审**：L88 的 forbidden phrases 是事故补丁，评估能否改写为正向表述（「给出结论时必须附失败成本评估」） | 规则 1；黑名单防字面不防意图 |
 | P3 | **rubric 机制关注**：检视獭（adversarial-review）的审查标准当前是文字规则，博客的 rubric + verifier agent 模式是潜在演进方向 | 规则 6 |
 | —    | **明确保留**：speak 回合收口、PR-only、worktree 隔离三条协议级约束保留显式写法，但精简到各一句 | 失败成本不对称，属博客允许的例外 |
