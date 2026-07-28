@@ -30,7 +30,6 @@ Before any file modification:
 2. Create a worktree under `.claude/worktrees/` based on latest `origin/main`
 3. Verify all subsequent operations happen inside the worktree — zero modifications to main directory
 4. Record context: worktree name, branch name, feature number
-5. **NEVER skip worktree** — even for "small" changes, docs-only changes, or "quick fixes"
 
 ### 2. Confirm Understanding
 
@@ -76,8 +75,6 @@ After committing:
 1. Push the worktree branch to remote: `git push -u origin <branch-name>`
 2. Create a PR using `gh pr create`
 3. Wait for review and approval from another person
-4. **NEVER merge your own PR** — this is a hard rule
-5. **NEVER push directly to main/develop** — always use PR flow
 
 ## Behavioral Rules
 
@@ -85,10 +82,7 @@ After committing:
 - Discover gaps in the plan → record them and communicate back, do not improvise
 - Finding a flaw in the design → report to the plan author, do not redesign in place
 - **Fix all discovered issues within plan scope immediately** — do not ask "should I fix this?" or leave issues with "can optimize later"
-- Forbidden escape phrases: "低风险", "可忽略", "不重要", "后续优化", "不阻塞", "Minor 问题", "不影响功能正确性"
-- **NEVER push directly to main/develop/production** — always create a PR
-- **NEVER merge your own PR** — a different person must review and merge
-- **NEVER skip worktree** — all file changes must happen in isolated worktree
+- Every discovered issue needs a disposition: fixed immediately, or recorded (PR description + linked issue). Labeling an issue as minor or low-risk is not a disposition
 
 ### 问题处理决策树
 
