@@ -24,7 +24,7 @@ jobs:
         run: |
           # 检查 PR 标题是否包含编号格式：[F{日期}{随机字符}] 或 [R{日期}{随机字符}]
           # F = feature/bugfix，R = research
-          # 例如：[F20260727ui6x]、[F20260724glas]、[R20260728cbfx]
+          # 例如：[F20260727ui6x]、[F20260724glas]、[R20260728c5xt]
           if ! echo "$PR_TITLE" | grep -qE '^\[[FR][0-9]{8}[a-zA-Z0-9]{4,}\]'; then
             echo "❌ PR 标题格式错误"
             echo "当前标题: $PR_TITLE"
@@ -34,7 +34,7 @@ jobs:
             echo "  [F20260727ui6x][web][BugFix] 对话界面多项 UI 修复"
             echo "  [F20260724glas][web][Feature Update] UI 玻璃材质体系重设计 v2.3"
             echo "  [F20260725otid] Otter 身份认知体系 + 搭档术语统一"
-            echo "  [R20260728cbfx][research] 熔断器误杀健康调用排查报告"
+            echo "  [R20260728c5xt][research] claude5-context-engineering 洞察报告"
             echo ""
             echo "编号规则："
             echo "  - 前缀: F（feature/bugfix）或 R（research）"
