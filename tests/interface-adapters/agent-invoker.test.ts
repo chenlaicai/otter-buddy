@@ -78,6 +78,7 @@ function mockAgentInvoke(options: {
   result?: { text: string; tokenUsage?: { input: number; output: number } };
   throwOnInvoke?: Error;
   toolCallCount?: number;
+  internalAbortReason?: string;
 }): AgentInvokePort {
   return {
     invoke: async (_otterId: string, _message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => {
@@ -89,6 +90,7 @@ function mockAgentInvoke(options: {
     },
     abort: () => {},
     getToolCallCount: () => options.toolCallCount ?? 0,
+    getInternalAbortReason: () => options.internalAbortReason,
   };
 }
 
@@ -202,6 +204,58 @@ describe("AgentInvoker", () => {
     /** abort body 应使用 error._toolCallCount 而非 getToolCallCount 的返回值 */
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain("5 次工具调用");
+  });
+
+  it("handles _guardAbortReason pre-captured on result (primary path)", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const streamingQm: QueryMessage = { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: Object.assign({ text: "" }, { _guardAbortReason: "streaming_timeout" }) }),
+      msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger(),
+    );
+    const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
+    expect(result.messageId).toBe("msg-streaming");
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain("[系统保护]");
+    expect(msg._calls.abort[0].body).toContain("超时");
+    expect(msg._calls.fail).toHaveLength(0);
+  });
+
+  it("handles OutputGuard internal abort via getInternalAbortReason (SDK swallows abort)", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    /** 模拟：SDK 吞掉 abort 正常返回，消息非 speaking 状态，getInternalAbortReason 返回原因 */
+    const streamingQm: QueryMessage = {
+      getMessageById: async () => ({
+        ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
+      }),
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "" }, internalAbortReason: "degenerate_output" }),
+      msg,
+      streamingQm,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
+    /** abort 路径应被触发，body 包含友好中文消息 */
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain("[系统保护]");
+    expect(msg._calls.abort[0].body).toContain("异常重复");
+    /** SSE 事件为 message.aborted */
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.aborted");
   });
 
   it("calls sendMessage.fail() through speak retry on system failure (B10)", async () => {

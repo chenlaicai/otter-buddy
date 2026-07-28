@@ -149,49 +149,43 @@ export class AgentInvoker {
 
     try {
       const { result, toolCallCount } = await this.executeAgentInvocation({
-        otterId,
-        userMessageContent,
-        dynamicContext,
-        conversationId,
-        messageId: message.id,
-        onSSEEvent,
+        otterId, userMessageContent, dynamicContext, conversationId, messageId: message.id, onSSEEvent,
       });
-
-      /** agent loop 已结束，检查消息状态 */
-      const msg = await this.queryMessage.getMessageById(message.id);
-      this.logger.info('Agent invocation finished', { messageId: message.id, otterId, messageStatus: msg?.status, tokenUsage: result.tokenUsage });
-
-      if (msg?.status === "speaking") {
-        /** 正常路径：agent 调用了 speak（状态为 speaking），现在真正完成消息 */
-        const completeResult = await this.sendMessage.complete(message.id);
-        return await this.completeAgentInvocation({
-          otterId,
-          conversationId,
-          messageId: message.id,
-          senderId,
-          result,
-          startTime,
-          onSSEEvent,
-          aggregatedTargets: completeResult.turnClose.aggregatedTargets,
-        });
-      }
-
-      /** SDK 可能吞掉 abort 正常返回：未达 speaking 且有中断标记时，走 abort 路径而非 speak 重试 */
-      if (this.abortedMessages.has(message.id)) {
-        await this.handleInvokeError(message.id, otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: toolCallCount }), onSSEEvent, senderId);
-        return { messageId: message.id, duration: Date.now() - startTime };
-      }
-
-      /** agent 未调 speak → 重试机制 */
-      return await this.handleSpeakRetry({
-        messageId: message.id, otterId, conversationId, userMessageContent,
-        senderId, onSSEEvent, retryCount, startTime, tokenUsage: result.tokenUsage,
+      return await this._handlePostInvocation({
+        messageId: message.id, otterId, senderId, result, toolCallCount, startTime, onSSEEvent, retryCount, userMessageContent, conversationId,
       });
     } catch (err) {
-      await this.handleInvokeError(message.id, otterId, err, onSSEEvent, senderId);
-      /** 不 re-throw：错误已通过 SSE 通知前端，controller 用 Promise.allSettled 跟踪完成 */
+      const finalErr = this.wrapInternalAbort(message.id, err);
+      await this.handleInvokeError(message.id, otterId, finalErr, onSSEEvent, senderId);
       return { messageId: message.id, duration: Date.now() - startTime };
     }
+  }
+
+  /** invoke 后处理：检查 speaking/abort/retry 状态 */
+  private async _handlePostInvocation(p: {
+    messageId: string; otterId: string; senderId: string;
+    result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
+    toolCallCount: number; startTime: number;
+    onSSEEvent?: (event: AgentSSEEvent) => void; retryCount?: number;
+    userMessageContent?: string; conversationId?: string;
+  }): Promise<ConversationInvokeResult> {
+    const msg = await this.queryMessage.getMessageById(p.messageId);
+    this.logger.info('Agent invocation finished', { messageId: p.messageId, otterId: p.otterId, messageStatus: msg?.status, tokenUsage: p.result.tokenUsage });
+    if (msg?.status === "speaking") {
+      const cr = await this.sendMessage.complete(p.messageId);
+      return this.completeAgentInvocation({ otterId: p.otterId, conversationId: p.conversationId ?? "", messageId: p.messageId, senderId: p.senderId, result: p.result, startTime: p.startTime, onSSEEvent: p.onSSEEvent, aggregatedTargets: cr.turnClose.aggregatedTargets });
+    }
+    if (this.abortedMessages.has(p.messageId)) {
+      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
+      return { messageId: p.messageId, duration: Date.now() - p.startTime };
+    }
+    const ir = (p.result as Record<string, unknown>)._guardAbortReason as string | undefined ?? this.agentInvoke.getInternalAbortReason(p.messageId);
+    if (ir) {
+      this.abortedMessages.add(p.messageId);
+      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`[output-guard] ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
+      return { messageId: p.messageId, duration: Date.now() - p.startTime };
+    }
+    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage });
   }
 
   /**
@@ -290,6 +284,34 @@ export class AgentInvoker {
   }
 
   /**
+   * 内部 abort 包装：检查是否有 OutputGuard 等内部机制触发的 abort。
+   * 优先从 error 对象读取 _guardAbortReason（finally 前预捕获），
+   * 回退到 getInternalAbortReason（activeSessions 查找）。
+   * 竞态防护：用户已 abort 时不覆盖（High-1）。
+   */
+  private wrapInternalAbort(messageId: string, err: unknown): unknown {
+    if (this.abortedMessages.has(messageId)) return err;
+    const reason = (err as { _guardAbortReason?: string })._guardAbortReason ?? this.agentInvoke.getInternalAbortReason(messageId);
+    if (!reason) return err;
+    this.abortedMessages.add(messageId);
+    return Object.assign(new Error(`[output-guard] ${reason}`), {
+      _toolCallCount: (err as ErrorWithToolCallCount)._toolCallCount ?? 0,
+    });
+  }
+
+  /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
+  private buildAbortBody(err: unknown, otterId: string, messageId: string): string {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.startsWith("[output-guard]")) {
+      if (errMsg.includes("degenerate_output")) return "[系统保护] 检测到输出内容异常重复，已自动中断。";
+      if (errMsg.includes("streaming_timeout")) return "[系统保护] 生成过程超时，已自动中断。";
+      return "[系统保护] 输出异常，已自动中断。";
+    }
+    const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? this.agentInvoke.getToolCallCount(otterId, messageId);
+    return `[搭档中断] 经过 ${toolCallCount} 次工具调用后，搭档强制中断了当前发言。`;
+  }
+
+  /**
    * 处理 invoke 异常：区分 abort/error 路径。
    * abort 路径：构造合成 body → sendMessage.abort() → SSE message.aborted
    * error 路径：sendMessage.fail() → SSE error
@@ -305,10 +327,7 @@ export class AgentInvoker {
     this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedMessages.has(messageId) });
     if (this.abortedMessages.delete(messageId)) {
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
-      const toolCallCount =
-        (err as ErrorWithToolCallCount)._toolCallCount ??
-        this.agentInvoke.getToolCallCount(otterId, messageId);
-      const body = `[搭档中断] 经过 ${toolCallCount} 次工具调用后，搭档强制中断了当前发言。`;
+      const body = this.buildAbortBody(err, otterId, messageId);
       try {
         await this.sendMessage.abort(messageId, {
           body,

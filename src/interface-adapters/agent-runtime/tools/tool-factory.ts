@@ -35,7 +35,7 @@ export interface ToolContext {
 function createSpeakTool(ctx: ToolContext): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者，这是你回合的最后一个动作。你的发言内容全部放在 body 里；speak 之后的任何输出都不会被展示，纯属浪费 token。调用成功后：不再调用任何工具，也不输出任何文字（确认语、总结、解释全部禁止），直接结束回合。每次回复只调用一次。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。",
+    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。",
     parameters: {
       type: "object",
       properties: {
@@ -81,7 +81,8 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
         const msg = err instanceof Error ? err.message : String(err);
         return textResponse(`[错误] 发言声明失败：${msg}。请重试。`);
       }
-      return textResponse("[系统控制信号] 发言已提交成功，回合结束。本条不是对话内容，无需也不应回应：不要输出任何文字（确认语、总结、解释均禁止），不要再调用任何工具。你的发言已全部包含在 body 中，之后的输出没有观众。系统将自动调度下一位发言者。");
+      /** terminate: speak 成功即回合终点，loop 不再发起下一轮生成（结构性终止，不依赖模型自觉） */
+      return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。系统将自动调度下一位发言者。"), terminate: true };
     },
   };
 }
@@ -89,7 +90,7 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
 function createInviteParticipantTool(ctx: ToolContext): AgentTool {
   return {
     name: "invite_participant",
-    description: "邀请指定 Otter 加入当前对话。参数：otterId（被邀请的Otter ID）。",
+    description: "邀请指定 Otter 加入当前对话。",
     parameters: {
       type: "object",
       properties: {
@@ -145,7 +146,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
-    description: "创建子 Otter。参数：name，type（big/small），systemPrompt。parentOtterId 由系统注入。",
+    description: "创建子 Otter。parentOtterId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
@@ -178,7 +179,7 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
 function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "dissolve_otter",
-    description: "解散指定 Otter。参数：otterId",
+    description: "解散指定 Otter。",
     parameters: {
       type: "object",
       properties: {
@@ -200,7 +201,7 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源（统一产物模型）。参数：resourceType（可选：fact/pr/worktree/branch/file/url，默认 url），url（非 fact 类型必填），content（fact 类型必填，存储事实文本），title（可选），category（可选，fact 的分类），groupId（可选，特性分组ID如 F20260720xxxx）。conversationId 和 linkedBy 由系统注入。",
+    description: "创建链接资源（统一产物模型）。conversationId 和 linkedBy 由系统注入。",
     parameters: {
       type: "object",
       properties: {
@@ -267,11 +268,11 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
 function createGetContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_context",
-    description: "获取当前 Otter 的上下文。参数：key（可选，不传则返回全部上下文）。otterId 由系统注入。",
+    description: "获取当前 Otter 的上下文。otterId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
-        key: { type: "string", description: "上下文 key（可选）" },
+        key: { type: "string", description: "上下文 key（可选，不传返回全部）" },
       },
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
@@ -287,7 +288,7 @@ function createGetContextTool(ctx: ToolContext): AgentTool {
 function createSetContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "set_context",
-    description: "设置当前 Otter 的上下文。参数：key, value。otterId 由系统注入。",
+    description: "设置当前 Otter 的上下文。otterId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
@@ -374,7 +375,7 @@ function createAddTerminologyTool(ctx: ToolContext): AgentTool {
 function createDeleteContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "delete_context",
-    description: "删除当前 Otter 的上下文条目。参数：key（必填）。otterId 由系统注入。",
+    description: "删除当前 Otter 的上下文条目。otterId 由系统注入。",
     parameters: {
       type: "object",
       properties: {
@@ -392,7 +393,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话中所有活跃参与者（含 otterId、otterName、status、joinedAtTurnNumber）。必须使用本工具确认在场的场景：(1) 决定 speak 的 talkingStonePassedTo 之前；(2) 创建新 Otter 之前（避免重复创建）；(3) 任何需要确认谁在场时。conversationId 由系统注入。",
+    description: "获取当前对话中所有活跃参与者（otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。",
     parameters: {
       type: "object",
       properties: {},
