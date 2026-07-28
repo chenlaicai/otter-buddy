@@ -53,10 +53,13 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
     [view, code, cardId, interactive],
   )
 
-  /** 展开时向 registry 登记 contentWindow ↔ cardId（source 白名单 + 高度回写 + 作者路由） */
+  /** 展开时向 registry 登记 contentWindow ↔ cardId（source 白名单 + 高度回写 + 作者路由）。
+   *  进入 expanded 即重置 loadCount（user 卡片无桥也要重置：collapse→re-expand 会重挂载 iframe，
+   *  不重置则二次 load 计数沿用旧值，被误判为导航逃逸而降级 invalid） */
   useEffect(() => {
-    if (view !== 'expanded' || !interactive) return
+    if (view !== 'expanded') return
     loadCountRef.current = 0
+    if (!interactive) return
     const win = iframeRef.current?.contentWindow
     if (!win) return
     registerCard({ cardId, authorId, contentWindow: win, setHeight })

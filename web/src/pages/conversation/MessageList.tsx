@@ -77,8 +77,11 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
   if (className === 'language-html-card') {
     // 事件流文本的 fenceIndex 与 message.body 不对应，一律源码块（不进 registry）
     if (ctx.variant === 'event-log') return highlightSource('html', text)
-    // fenceIndex 经 remark 插件 hProperties 通道写入（mdast→hast 不透传任意 data key）
-    const fenceIndex = Number(node?.properties?.dataFenceIndex ?? 0)
+    // fenceIndex 经 remark 插件 hProperties 通道写入（mdast→hast 不透传任意 data key）。
+    // fail-closed：注解缺失时不能猜 0（会张冠李戴到首张卡），降级为源码块
+    const rawFenceIndex = node?.properties?.dataFenceIndex
+    if (rawFenceIndex == null) return highlightSource('html', text)
+    const fenceIndex = Number(rawFenceIndex)
     // react-markdown 9.1：meta 在 hast data 上，不在 node.meta
     const meta = (node?.data as { meta?: string } | undefined)?.meta
     const cardId = `${ctx.messageId}:${fenceIndex}`

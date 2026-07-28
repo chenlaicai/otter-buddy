@@ -6,7 +6,10 @@
  * - list_messages / get_turn_history 注入出口剥离投影（只剥卡片，回执保留）
  */
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { HTML_CARD_CONTRACT } from "@interface-adapters/agent-runtime/tools/html-card-contract-tool";
 import { getOtterToolNamesForType } from "@frameworks/agent/session-helpers";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import type { Message } from "@entities/conversation/message";
@@ -69,6 +72,29 @@ describe("get_html_card_contract 工具", () => {
     expect(speak.description).toContain("最多 2 张");
     expect(speak.description).toContain("get_html_card_contract");
     expect(speak.description).toContain("html-card-reply");
+  });
+});
+
+describe("契约样式变量与前端注入 token 交叉断言", () => {
+  /** 前端实际注入的 token 定义（srcdoc 内 CARD_TOKEN_CSS） */
+  const htmlCardSrc = readFileSync(
+    fileURLToPath(new URL("../../web/src/pages/conversation/HtmlCard.tsx", import.meta.url)),
+    "utf8",
+  );
+  const tokenCss = /CARD_TOKEN_CSS = `([\s\S]*?)`/.exec(htmlCardSrc)?.[1];
+  const definedTokens = new Set([...(tokenCss?.matchAll(/(--[\w-]+)\s*:/g) ?? [])].map(m => m[1]));
+
+  it("HtmlCard.tsx 的 CARD_TOKEN_CSS 可定位且定义了 token", () => {
+    expect(tokenCss).toBeTruthy();
+    expect(definedTokens.size).toBeGreaterThan(0);
+  });
+
+  it("契约文案中每个 var(--x) 都在 CARD_TOKEN_CSS 中实际定义", () => {
+    const referenced = [...HTML_CARD_CONTRACT.matchAll(/var\((--[\w-]+)\)/g)].map(m => m[1]);
+    expect(referenced.length).toBeGreaterThan(0);
+    for (const token of referenced) {
+      expect(definedTokens.has(token), `契约引用了未注入的 token ${token}`).toBe(true);
+    }
   });
 });
 

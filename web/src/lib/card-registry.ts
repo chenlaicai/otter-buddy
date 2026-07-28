@@ -34,8 +34,3 @@ export function getCardIdByWindow(win: Window): string | undefined {
 export function getCardEntry(cardId: string): CardEntry | undefined {
   return byId.get(cardId)
 }
-
-/** 卡片是否仍在 DOM 中（挂起预览的自动丢弃判据） */
-export function hasCard(cardId: string): boolean {
-  return byId.has(cardId)
-}

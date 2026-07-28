@@ -23,8 +23,11 @@ export const HTML_CARD_CONTRACT = `# HTML 卡片写作契约
 ## 样式变量
 
 卡片渲染时已注入设计 token，直接用 var() 引用，不要自造色值：
-- 颜色：var(--otter-bg)、var(--otter-surface)、var(--otter-text)、var(--otter-text-secondary)、var(--otter-accent)、var(--otter-border)
-- 尺寸：var(--otter-radius)、var(--otter-gap)、var(--otter-font-size)
+- 主色阶（水獭棕，50 最浅 → 900 最深）：var(--otter-50) … var(--otter-900)——浅档做底色/ Hover，中深档做文字与边框
+- 强调色（青，300 浅 → 600 深）：var(--teal-300)、var(--teal-400)、var(--teal-500)、var(--teal-600)——主操作、选中态、关键数据
+- 暖色点缀（焦糖）：var(--caramel-400)、var(--caramel-500)——警示、次强调
+- 冷色点缀（薰衣草）：var(--lavender-400)、var(--lavender-500)——标签、辅助分类
+- 语义色：var(--paper) 卡片底色、var(--ink) 主文字、var(--ink-3) 次要文字、var(--line) 分隔线/描边
 
 ## 交互 API（收集用户输入）
 

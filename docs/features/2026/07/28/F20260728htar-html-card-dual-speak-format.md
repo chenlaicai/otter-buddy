@@ -25,11 +25,12 @@ created_at: 2026-07-28
 
 # HTML 卡片：水獭的第二种发言格式
 
-> 本文档经七轮架构师对抗审视修订（2026-07-28），决策史见文末「对抗审视决策史」。
+> 本文档经七轮架构师对抗审视 + 一轮 PR 实现审查修订（2026-07-28），决策史见文末「对抗审视决策史」。
 > 概要：R1 安全模型与解析方案重写；R2 FTS 应用层写入（用户决策）与组件稳定性；
 > R3 FTS 事实勘正（7 写入路径/触发器卸载）与回执显式路由；R4 路由校验移后端、variant 机制；
 > R5 全局完整性（查询出口投影、状态矩阵、attachments 清除）；R6 封版终审（剥离按围栏分叉、落点纪律、fenceIndex 定义）；
-> R7 机制核验（fenceIndex 改 hProperties 通道、契约 id 发现规则、已提交封死语义）。
+> R7 机制核验（fenceIndex 改 hProperties 通道、契约 id 发现规则、已提交封死语义）；
+> R8 PR 实现审查（契约 token 对齐、解析器改 mdast、user 卡锁死、闸门测试补齐）。
 
 ## 术语定义
 
@@ -226,6 +227,7 @@ otterCard.submit({
 | 卡片×状态矩阵 | speaking/failInFlight 可交互；failMessage/aborted 卡片消失、挂起预览丢弃；system 纯文本 | 轮询使 speaking 态卡片提前可见是既成事实，必须声明 |
 | rebuild 幂等 | settings 表 `messages_fts_stripped_rebuild=done` 标记 | initSchema 的 DROP 先于 migrateDatabase，"触发器存在"不能作判据 |
 | fenceIndex 机制 | remark 插件写 hProperties，组件读 node.properties | mdast→hast 不透传任意 data key（第七轮核验源码纠正） |
+| 围栏解析实现 | **前后端统一 remark/mdast**（position 切片替换），共享测试向量 | 手写 CommonMark 子集在容器边界三类分叉；裸正则双向分叉（第八轮实证） |
 | attachments 字段 | **顺手删除**（schema/实体/DTO/mapper/写方法/测试） | web 零引用、后端读了但无人消费的死字段；html-card 后存在理由塌缩；不留兼容包袱 |
 | prompt 分层 | description 骨架 + contract 工具按需 | 必达信道 token 成本 |
 | 预算执行 | AI 自重 + 前端兜底（第3张降级/超4KB提示） | 纯契约无强制力 |
@@ -277,6 +279,14 @@ otterCard.submit({
 - **已提交卡片语义拍板（用户）**：成功即封死，改答案让水獭基于回执重发新卡
 - 决策记录表与改动清单自洽性修补（旧表述分叉、useCardBridge 残留"在场校验"、测试改造漏项）
 - 三场景推演验证通过：speaking 中交互→SSE complete（key 稳定不丢预览）、v1/v2 同名卡共存、定时任务链豁免路径
+
+**第八轮（PR 实现审查——设计文档管不到的实现层）**
+- **契约样式变量与注入 token 零交集**（契约教 `--otter-bg/--otter-accent`，srcdoc 注入 `--otter-50..900/--paper/--ink`）——守规矩的卡片必然破相。契约对齐注入值 + 交叉断言测试
+- **手写 CommonMark 子集解析器废弃，改 remark/mdast + position 切片替换**：实证三类容器边界分叉（list 同级新项、blockquote 裸 `>`、≥4 空格嵌套），且前端 derive 裸正则双向分叉（假阳性砖卡/假阴性绕过"仅一次回执"）。前后端统一 mdast 解析，共享向量补充分叉用例两侧跑
+- **user 静态卡片一次性锁死**：loadCount 重置在 interactive 分支内，静态卡再展开必误报逃逸——重置移出分支 + 回归测试
+- **安全闸门测试真空**：useCardBridge 校验链与逃逸检测零测试（P1-2 正是这样漏网的）——jsdom 行为测试补齐
+- submit 节流补齐（设计明文但实现遗漏）；fenceIndex 缺失 fail-closed；预览丢弃判据改"消息不再含该卡围栏"（收起卡片不丢预览）；cardId 格式断言钉住
+- 教训：**文档审查与代码审查是两种不同的审视**——设计文档七轮全绿不代表实现忠实，"照契约使用即出错"的缺陷只有对着代码跑契约才能发现
 
 ## 改动清单
 

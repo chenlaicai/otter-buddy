@@ -8,8 +8,10 @@ import {
   parseCardTitle,
   validateCardSubmitPayload,
   deriveRepliedCardIds,
+  countCardFences,
   buildCardReplyBody,
 } from './html-card'
+import { HTML_CARD_REPLY_DERIVE_VECTORS } from '../../../src/entities/conversation/html-card-test-vectors'
 
 describe('parseCardTitle（围栏 meta 解析）', () => {
   it('提取 title="..."', () => {
@@ -74,35 +76,37 @@ describe('validateCardSubmitPayload（提交 payload 校验）', () => {
   })
 })
 
-describe('deriveRepliedCardIds（已回复集合派生）', () => {
-  it('从 html-card-reply 围栏提取 cardId', () => {
-    const messages = [
-      { content: '前言\n\n```html-card-reply card="msg-1:0"\n{"choice":"B"}\n```\n' },
-      { content: '无围栏消息' },
-      { content: '```html-card-reply card="msg-2:1"\n{}\n```' },
-    ]
-    expect([...deriveRepliedCardIds(messages)].sort()).toEqual(['msg-1:0', 'msg-2:1'])
-  })
-
-  it('无 card 属性 / 普通围栏不产生 cardId', () => {
-    const messages = [
-      { content: '```html-card-reply\n{}\n```' },
-      { content: '```html-card title="x"\n<div/>\n```' },
-    ]
-    expect(deriveRepliedCardIds(messages).size).toBe(0)
-  })
+describe('deriveRepliedCardIds（已回复集合派生，共享测试向量）', () => {
+  for (const vector of HTML_CARD_REPLY_DERIVE_VECTORS) {
+    it(vector.name, () => {
+      expect([...deriveRepliedCardIds(vector.messages)].sort()).toEqual([...vector.expected].sort())
+    })
+  }
 
   it('buildCardReplyBody 构造的回执可被 derive 回读（往返一致）', () => {
     const body = buildCardReplyBody('选择了方案 B（沙箱 iframe），预算上限 3 天', 'uuid-1:0', { choice: 'B', budget_days: 3 })
     expect(body).toContain('选择了方案 B')
     expect(body).toContain('```html-card-reply card="uuid-1:0"')
     expect(body).toContain('{"choice":"B","budget_days":3}')
-    expect(deriveRepliedCardIds([{ content: body }]).has('uuid-1:0')).toBe(true)
+    expect(deriveRepliedCardIds([{ st: 'user', content: body }]).has('uuid-1:0')).toBe(true)
   })
 
   it('data 缺省时回执 JSON 为 {}', () => {
     const body = buildCardReplyBody('确认', 'm:0', undefined)
     expect(body).toContain('\n{}\n')
+  })
+})
+
+describe('countCardFences（围栏存在性判据）', () => {
+  it('按文档序计数 html-card 围栏（fenceIndex < 数量即存在）', () => {
+    expect(countCardFences('无卡片')).toBe(0)
+    expect(countCardFences('```html-card title="a"\n<x/>\n```\n间隔\n```html-card\n<y/>\n```')).toBe(2)
+  })
+
+  it('普通围栏内 / reply 围栏不计数；容器内围栏计数', () => {
+    expect(countCardFences('````markdown\n```html-card\n<x/>\n```\n````')).toBe(0)
+    expect(countCardFences('```html-card-reply card="m:0"\n{}\n```')).toBe(0)
+    expect(countCardFences('> ```html-card title="引用"\n> <x/>\n> ```')).toBe(1)
   })
 })
 

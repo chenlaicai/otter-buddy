@@ -4,10 +4,11 @@ import {
   CARD_MAX_HEIGHT,
   CARD_MIN_HEIGHT,
   buildCardReplyBody,
+  countCardFences,
   deriveRepliedCardIds,
   validateCardSubmitPayload,
 } from '../../../lib/html-card'
-import { getCardEntry, getCardIdByWindow, hasCard } from '../../../lib/card-registry'
+import { getCardEntry, getCardIdByWindow } from '../../../lib/card-registry'
 import { showToast } from '../../../components/Toast'
 
 /** 待确认的卡片提交（输入框上方单槽位预览） */
@@ -31,8 +32,22 @@ interface UseCardBridgeOptions {
 
 /** resize 节流间隔（布局 DoS 防线之一，另一道是 clamp） */
 const RESIZE_THROTTLE_MS = 60
+/** submit 节流间隔（per-card，防脚本高频轰炸预览闸门） */
+const SUBMIT_THROTTLE_MS = 200
 /** 连续拒绝次数上限：达到后该卡 submit 会话内关闭（防脚本打地鼠；刷新后重置，预览闸门仍在） */
 const MAX_REJECTS = 3
+
+/** 挂起预览存活判据：cardId 对应消息的 body 仍含该围栏。
+ *  用户收起卡片（iframe unmount）不丢预览；failMessage/aborted 整体替换 body 才丢弃 */
+function cardFencePresent(messages: LocalMessage[], cardId: string): boolean {
+  const sep = cardId.lastIndexOf(':')
+  if (sep <= 0) return false
+  const fenceIndex = Number(cardId.slice(sep + 1))
+  if (!Number.isInteger(fenceIndex) || fenceIndex < 0) return false
+  const msg = messages.find(m => m.id === cardId.slice(0, sep))
+  if (!msg) return false
+  return fenceIndex < countCardFences(msg.content)
+}
 
 /** 卡片桥消息监听 + 父页校验链 + 强制预览。
  *  威胁前提：桥无法区分真人点击与 AI 脚本自动调用，summary 由 AI 措辞——预览是唯一闸门，强制且永久 */
@@ -45,21 +60,30 @@ export function useCardBridge({ activeId, messages, onSendReply }: UseCardBridge
   messagesRef.current = messages
   const onSendReplyRef = useRef(onSendReply)
   onSendReplyRef.current = onSendReply
-  /** 会话内状态（刷新重置）：各卡拒绝计数 / 已关闭的卡 / resize 节流时间戳 */
+  /** 会话内状态（刷新重置）：各卡拒绝计数 / 已关闭的卡 / resize、submit 节流时间戳 */
   const rejectCountsRef = useRef(new Map<string, number>())
   const closedCardsRef = useRef(new Set<string>())
   const lastResizeRef = useRef(new Map<string, number>())
+  const lastSubmitRef = useRef(new Map<string, number>())
+  /** derive 缓存：按 messages 引用记忆化（message 事件里不重扫） */
+  const repliedCacheRef = useRef<{ messages: LocalMessage[]; ids: Set<string> } | null>(null)
+  const getRepliedIds = () => {
+    if (repliedCacheRef.current?.messages !== messagesRef.current) {
+      repliedCacheRef.current = { messages: messagesRef.current, ids: deriveRepliedCardIds(messagesRef.current) }
+    }
+    return repliedCacheRef.current.ids
+  }
 
   /** 切会话即丢弃待确认预览（预览为输入框上方单槽位，跨会话不存在并发） */
   useEffect(() => {
     setPreview(null)
   }, [activeId])
 
-  /** 挂起预览的自动丢弃：发送成功（已回复集合历史派生覆盖）或卡片从 DOM 消失
-   *  （failMessage/aborted 整体替换 body，registry 中 cardId 随之注销） */
+  /** 挂起预览的自动丢弃：发送成功（已回复集合历史派生覆盖）或卡片围栏从消息体消失
+   *  （failMessage/aborted 整体替换 body）。用户收起卡片（iframe unmount、registry 注销）不丢弃 */
   useEffect(() => {
     if (!preview) return
-    if (deriveRepliedCardIds(messages).has(preview.cardId) || !hasCard(preview.cardId)) {
+    if (getRepliedIds().has(preview.cardId) || !cardFencePresent(messages, preview.cardId)) {
       setPreview(null)
     }
   }, [messages, preview])
@@ -86,10 +110,13 @@ export function useCardBridge({ activeId, messages, onSendReply }: UseCardBridge
         return
       }
 
-      // card:submit
+      // card:submit：per-card 节流（防脚本高频轰炸预览闸门）
+      const now = Date.now()
+      if (now - (lastSubmitRef.current.get(cardId) || 0) < SUBMIT_THROTTLE_MS) return
+      lastSubmitRef.current.set(cardId, now)
       if (closedCardsRef.current.has(cardId)) return
-      // 已回复集合（历史派生）：发送成功过的 cardId 永久关闭，改答案请让水獭重发新卡
-      if (deriveRepliedCardIds(messagesRef.current).has(cardId)) return
+      // 已回复集合（历史派生，按 messages 引用缓存）：发送成功过的 cardId 永久关闭，改答案请让水獭重发新卡
+      if (getRepliedIds().has(cardId)) return
       // payload 形状校验（500 字符 / 2KB / 禁循环引用与函数）
       if (!validateCardSubmitPayload(data.payload).ok) return
       const current = previewRef.current

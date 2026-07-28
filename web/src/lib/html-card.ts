@@ -1,5 +1,11 @@
 /** HTML 卡片（html-card）纯函数库：meta 解析 / payload 校验 / 已回复集合派生 / 回执构造
- *  设计文档 F20260728htar §2/§3；与后端剥离函数、useCardBridge 共享同一套规则与测试向量 */
+ *  设计文档 F20260728htar §2/§3；与后端剥离函数、useCardBridge 共享同一套规则与测试向量。
+ *  围栏扫描用 remark（mdast）解析：普通代码围栏是不透明块（内部的 reply 字样只是代码示例），
+ *  支持 ~~~ 围栏与 blockquote/list 容器嵌套，与后端剥离函数同一解析语义 */
+
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
+import type { Code, Nodes } from 'mdast'
 
 /** 单消息卡片预算：第 3 张起前端降级为源码块 */
 export const CARD_MAX_PER_MESSAGE = 2
@@ -17,13 +23,27 @@ export function byteLength(s: string): number {
   return new TextEncoder().encode(s).length
 }
 
-/** 解析围栏 meta（info string 原样透传）：提取 title="..."；
- *  title 含引号时截断到首个引号（正则 [^"]* 的自然行为） */
-export function parseCardTitle(meta: string | null | undefined): string | null {
+/** walk mdast 收集指定条件的 code 节点（容器内围栏同样覆盖；不透明块内部不会成为节点） */
+function collectCodeNodes(body: string): Code[] {
+  const codes: Code[] = []
+  const visit = (node: Nodes) => {
+    if (node.type === 'code') codes.push(node as Code)
+    if ('children' in node) for (const child of node.children) visit(child)
+  }
+  visit(unified().use(remarkParse).parse(body))
+  return codes
+}
+
+/** 从围栏 meta 提取属性值（title="..." / card="..."；遇到首个引号截断） */
+function parseMetaAttr(meta: string | null | undefined, attr: string): string | null {
   if (!meta) return null
-  const m = /(?:^|\s)title="([^"]*)"/.exec(meta)
-  if (!m || !m[1]) return null
-  return m[1]
+  const m = new RegExp(`(?:^|\\s)${attr}="([^"]*)"`).exec(meta)
+  return m && m[1] ? m[1] : null
+}
+
+/** 解析围栏 meta（info string 原样透传）：提取 title="..." */
+export function parseCardTitle(meta: string | null | undefined): string | null {
+  return parseMetaAttr(meta, 'title')
 }
 
 export interface CardPayloadValidation {
@@ -78,20 +98,27 @@ function isJsonSafe(value: unknown, seen = new Set<unknown>()): boolean {
   return safe
 }
 
-/** 扫描消息列表，从 html-card-reply 围栏的 card="..." 提取已回复 cardId 集合。
- *  回执自带 cardId，零额外存储，跨刷新有效（前提：回执恒新于卡片，同在消息窗口内） */
-export function deriveRepliedCardIds(messages: Array<{ content: string }>): Set<string> {
+/** 扫描 user 消息列表，从 html-card-reply 围栏的 card="..." 提取已回复 cardId 集合。
+ *  回执自带 cardId，零额外存储，跨刷新有效（前提：回执恒新于卡片，同在消息窗口内）。
+ *  只扫 user 消息（回执只认搭档发的）；remark 解析保证普通围栏内的 reply 字样不算数 */
+export function deriveRepliedCardIds(messages: Array<{ content: string; st: string }>): Set<string> {
   const ids = new Set<string>()
-  const fenceLine = /```+html-card-reply[^\n]*/g
-  const cardAttr = /\bcard="([^"\n]*)"/
   for (const m of messages) {
-    if (!m.content || !m.content.includes('html-card-reply')) continue
-    for (const line of m.content.match(fenceLine) || []) {
-      const c = cardAttr.exec(line)
-      if (c && c[1]) ids.add(c[1])
+    if (m.st !== 'user' || !m.content.includes('html-card-reply')) continue
+    for (const code of collectCodeNodes(m.content)) {
+      if (code.lang !== 'html-card-reply') continue
+      const cardId = parseMetaAttr(code.meta, 'card')
+      if (cardId) ids.add(cardId)
     }
   }
   return ids
+}
+
+/** body 中 html-card 围栏数量（fenceIndex 存在性判据：fenceIndex < 数量即围栏仍在）。
+ *  挂起预览的自动丢弃用：用户收起卡片（iframe unmount）时围栏仍在，不丢预览 */
+export function countCardFences(body: string): number {
+  if (!body.includes('html-card')) return 0
+  return collectCodeNodes(body).filter(c => c.lang === 'html-card').length
 }
 
 /** 构造卡片回执 body：人类可读摘要 + html-card-reply JSON 围栏（cardId 关联，非 title） */
