@@ -1,4 +1,3 @@
-import { OtterIcon } from './OtterIcon'
 import { MessageCircle, Search, Package, Settings } from 'lucide-react'
 
 type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings'
@@ -16,7 +15,7 @@ export function TopBar({ activeView }: { activeView: ViewKey }) {
     <header className="flex items-center px-5 h-12 glass-strong z-20 flex-shrink-0 mx-3 mt-3 rounded-2xl">
       {/* Logo left-aligned */}
       <div className="flex items-center gap-2 flex-1">
-        <OtterIcon className="w-5 h-5 text-otter-500" />
+        <img src="/otter-icon.png" alt="Otter Buddy" className="w-6 h-6 rounded-full" />
         <span className="text-sm font-bold tracking-tight text-otter-600">Otter Buddy</span>
       </div>
 
