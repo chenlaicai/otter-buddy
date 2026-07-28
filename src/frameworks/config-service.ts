@@ -45,6 +45,13 @@ export interface AppConfig {
     steerTimeoutMs: number;
     tokenWarningThreshold: number;
     maxChainDepth: number;
+    outputGuard: {
+      enabled: boolean;
+      segmentLength: number;
+      maxRepeatedSegments: number;
+      checkInterval: number;
+    };
+    streamingTimeoutMs: number;
   };
 }
 
@@ -82,6 +89,13 @@ interface RawConfig {
     steerTimeoutMs?: number;
     tokenWarningThreshold?: number;
     maxChainDepth?: number;
+    outputGuard?: {
+      enabled?: boolean;
+      segmentLength?: number;
+      maxRepeatedSegments?: number;
+      checkInterval?: number;
+    };
+    streamingTimeoutMs?: number;
   };
 }
 
@@ -129,6 +143,15 @@ function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
   };
 }
 
+function buildOutputGuardConfig(raw: RawConfig): AppConfig["circuitBreaker"]["outputGuard"] {
+  return {
+    enabled: d(raw.circuitBreaker?.outputGuard?.enabled, true),
+    segmentLength: d(raw.circuitBreaker?.outputGuard?.segmentLength, 100),
+    maxRepeatedSegments: d(raw.circuitBreaker?.outputGuard?.maxRepeatedSegments, 50),
+    checkInterval: d(raw.circuitBreaker?.outputGuard?.checkInterval, 20),
+  };
+}
+
 function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] {
   return {
     maxToolCalls: d(raw.circuitBreaker?.maxToolCalls, 40),
@@ -140,6 +163,8 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     steerTimeoutMs: d(raw.circuitBreaker?.steerTimeoutMs, 30000),
     tokenWarningThreshold: d(raw.circuitBreaker?.tokenWarningThreshold, 50000),
     maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 20),
+    outputGuard: buildOutputGuardConfig(raw),
+    streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
   };
 }
 

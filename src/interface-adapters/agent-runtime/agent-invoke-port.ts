@@ -16,6 +16,7 @@ export interface AgentRunResult {
   tokenUsage?: { input: number; output: number };
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string };
 }
 
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */
@@ -38,4 +39,6 @@ export interface AgentInvokePort {
   abort(otterId: string, messageId?: string): void;
   /** 获取指定 Otter 当前 session 的工具调用次数 */
   getToolCallCount(otterId: string, messageId?: string): number;
+  /** 查询内部 abort 原因（OutputGuard 触发等），返回 undefined 表示非内部 abort */
+  getInternalAbortReason(messageId: string): string | undefined;
 }
