@@ -22,9 +22,11 @@ export function attachCircuitBreaker(
 
   /** 通过 subscribe 拦截 tool_execution_start 事件实现熔断 */
   const unregisterToolCall = session.subscribe((event: unknown) => {
-    const e = event as { type?: string; name?: string };
+    // pi-coding-agent SDK 的 tool_execution_start 事件工具名字段为 toolName（见 SDK ToolExecutionStartEvent），
+    // name 仅为兼容兜底；都取不到时记为 "unknown"
+    const e = event as { type?: string; toolName?: string; name?: string };
     if (e.type === "tool_execution_start") {
-      const result = circuitBreaker.check(e.name ?? "unknown");
+      const result = circuitBreaker.check(e.toolName ?? e.name ?? "unknown");
       if (result.action === "terminate") {
         doAbort();
         return;
