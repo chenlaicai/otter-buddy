@@ -78,7 +78,7 @@ function ConversationItem({
         />
         <div className="flex ml-auto">
           {convOtters.map(o => {
-            const color = getOtterColor(o.id, o.ci)
+            const color = getOtterColor(o.id)
             return (
               <div
                 key={o.id}

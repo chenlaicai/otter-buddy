@@ -90,13 +90,13 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     : []
 
   return (
-    <div className="px-6 pb-5 pt-2 flex-shrink-0">
-      <div className="max-w-[780px] mx-auto relative">
+    <div className="px-1 pb-5 pt-2 flex-shrink-0">
+      <div className="mx-auto relative">
         {/* Mention autocomplete */}
         {mentionQuery !== null && filteredOtters.length > 0 && (
           <div className="absolute bottom-16 left-1/2 -translate-x-1/2 glass-overlay rounded-2xl p-1 z-50 min-w-[180px]">
             {filteredOtters.map(o => {
-              const color = getOtterColor(o.id, o.ci)
+              const color = getOtterColor(o.id)
               return (
                 <div
                   key={o.id}

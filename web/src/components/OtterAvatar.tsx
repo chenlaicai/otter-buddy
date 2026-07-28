@@ -4,15 +4,13 @@ import { getOtterColor } from '../lib/otter-colors'
 export function OtterAvatar({
   otterId,
   name,
-  ci,
   size = 32,
 }: {
   otterId: string
   name: string
-  ci?: number
   size?: number
 }) {
-  const color = getOtterColor(otterId, ci)
+  const color = getOtterColor(otterId)
   const initial = name.charAt(0)
 
   return (

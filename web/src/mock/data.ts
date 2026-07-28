@@ -7,7 +7,6 @@ export interface Otter {
   createdAt: string
   role?: { name: string; resp: string[] }
   parentOtterId?: string
-  ci?: number
 }
 
 export interface Skill {
@@ -26,8 +25,8 @@ const bigOtter: Otter = {
 }
 
 const smallOtters: Otter[] = [
-  { id: 'o2', name: '分析獭', type: 'small', createdAt: '2026-07-01', role: { name: '方案A视角', resp: ['从用户体验角度分析', '关注易用性'] }, parentOtterId: 'o1', ci: 1 },
-  { id: 'o3', name: '测试獭', type: 'small', createdAt: '2026-07-01', role: { name: '方案B视角', resp: ['从技术架构角度分析', '关注可维护性'] }, parentOtterId: 'o1', ci: 2 },
+  { id: 'o2', name: '分析獭', type: 'small', createdAt: '2026-07-01', role: { name: '方案A视角', resp: ['从用户体验角度分析', '关注易用性'] }, parentOtterId: 'o1' },
+  { id: 'o3', name: '测试獭', type: 'small', createdAt: '2026-07-01', role: { name: '方案B视角', resp: ['从技术架构角度分析', '关注可维护性'] }, parentOtterId: 'o1' },
 ]
 
 export const skills: Skill[] = [
