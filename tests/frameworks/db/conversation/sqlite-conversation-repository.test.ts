@@ -60,7 +60,6 @@ function messageFixture(overrides: Partial<Message> = {}): Message {
     talkingStonePassedTo: ["otter-1"],
     status: "completed",
     body: "你好，请帮我分析一下数据",
-    attachments: null,
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
@@ -295,7 +294,6 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
         messageId: "msg-streaming",
         body: "助手的完整回复内容",
         talkingStonePassedTo: ["otter-1"],
-        attachments: null,
         completedAt: "2026-07-22T00:02:00Z",
         contextTokens: 150,
         contextTokensMax: 4096,
@@ -318,7 +316,6 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
         messageId: "msg-1",
         body: "新内容",
         talkingStonePassedTo: ["otter-1"],
-        attachments: null,
         completedAt: "2026-07-22T00:02:00Z",
       })).rejects.toThrow(/not found or not in speaking status/);
     });

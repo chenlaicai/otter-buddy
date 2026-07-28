@@ -1,12 +1,16 @@
-import { useRef, useEffect, useState, type CSSProperties } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { useRef, useEffect, useState, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { AlertTriangle, Square, Copy, Check, Clock } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
+import { parseCardTitle } from '../../lib/html-card'
+import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
+import { HtmlCard } from './HtmlCard'
 
 /** 复制按钮 */
 function CopyButton({ text }: { text: string }) {
@@ -29,27 +33,119 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-/** Markdown 渲染组件（GFM + 代码高亮） */
-function MarkdownContent({ children }: { children: string }) {
+/** Markdown 渲染变体：otter-body 可交互卡片 / user-body 静态卡片 / event-log 一律源码块 */
+type MarkdownVariant = 'otter-body' | 'user-body' | 'event-log'
+
+/** 卡片渲染上下文（消息级）：components 映射必须是模块级稳定引用，消息上下文经 context 传递 */
+interface CardRenderCtx {
+  variant: MarkdownVariant
+  messageId: string
+  authorId: string
+}
+const CardRenderContext = createContext<CardRenderCtx>({ variant: 'otter-body', messageId: '', authorId: '' })
+
+type CodeComponentProps = ComponentProps<'code'> & { node?: HastElement }
+
+/** 语法高亮源码块（与既有代码块样式一致） */
+function highlightSource(language: string, text: string) {
+  return <SyntaxHighlighter style={oneLight} language={language} PreTag="div" customStyle={{ margin: '8px 0', borderRadius: 8, fontSize: 13 }}>{text}</SyntaxHighlighter>
+}
+
+/** html-card-reply 围栏：折叠"表单数据"标签（点击展开查看 JSON 原文） */
+function CardReplyLabel({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
   return (
-    <ReactMarkdown
-      remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
-      components={{
-        code({ className, children, ...props }) {
-          const match = /language-(\w+)/.exec(className || '')
-          const text = String(children).replace(/\n$/, '')
-          if (match) {
-            return <SyntaxHighlighter style={oneLight} language={match[1]} PreTag="div" customStyle={{ margin: '8px 0', borderRadius: 8, fontSize: 13 }}>{text}</SyntaxHighlighter>
-          }
-          return <code className={className} {...props}>{children}</code>
-        },
-        p({ children, ...props }) {
-          return <p style={{ whiteSpace: 'pre-wrap' }} {...props}>{children}</p>
-        },
-      }}
-    >
-      {children}
-    </ReactMarkdown>
+    <span className="block my-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] bg-teal-400/15 text-teal-600 hover:bg-teal-400/25 transition"
+      >
+        表单数据 {open ? '▾' : '▸'}
+      </button>
+      {open && (
+        <pre className="mt-1 text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">{text}</pre>
+      )}
+    </span>
+  )
+}
+
+/** code 组件：先精确匹配 html-card 围栏（\w 不含连字符，落到通用正则会误判成 HTML 高亮），再走既有逻辑 */
+function CardAwareCode({ className, children, node, ...props }: CodeComponentProps) {
+  const ctx = useContext(CardRenderContext)
+  const text = String(children).replace(/\n$/, '')
+
+  if (className === 'language-html-card') {
+    // 事件流文本的 fenceIndex 与 message.body 不对应，一律源码块（不进 registry）
+    if (ctx.variant === 'event-log') return highlightSource('html', text)
+    // fenceIndex 经 remark 插件 hProperties 通道写入（mdast→hast 不透传任意 data key）
+    const fenceIndex = Number(node?.properties?.dataFenceIndex ?? 0)
+    // react-markdown 9.1：meta 在 hast data 上，不在 node.meta
+    const meta = (node?.data as { meta?: string } | undefined)?.meta
+    const cardId = `${ctx.messageId}:${fenceIndex}`
+    return (
+      <HtmlCard
+        key={cardId}
+        cardId={cardId}
+        fenceIndex={fenceIndex}
+        title={parseCardTitle(meta)}
+        code={text}
+        interactive={ctx.variant === 'otter-body'}
+        authorId={ctx.authorId}
+      />
+    )
+  }
+  if (className === 'language-html-card-reply') {
+    if (ctx.variant === 'event-log') return highlightSource('json', text)
+    return <CardReplyLabel text={text} />
+  }
+
+  const match = /language-(\w+)/.exec(className || '')
+  if (match) return highlightSource(match[1], text)
+  return <code className={className} {...props}>{children}</code>
+}
+
+/** pre 组件：卡片/回执标签不被 pre 包裹（避免继承等宽字体与 overflow 样式），其余保持默认。
+ *  pre 的 children 是 code 组件的 JSX element（尚未渲染成卡片），按 className 检测 */
+function CardAwarePre({ children, node, ...props }: ComponentProps<'pre'> & { node?: unknown }) {
+  void node
+  if (isValidElement(children)) {
+    const cls = (children.props as { className?: string }).className
+    if (cls === 'language-html-card' || cls === 'language-html-card-reply') return <>{children}</>
+  }
+  return <pre {...props}>{children}</pre>
+}
+
+function PreWrapP({ children, node, ...props }: ComponentProps<'p'> & { node?: unknown }) {
+  void node
+  return <p style={{ whiteSpace: 'pre-wrap' }} {...props}>{children}</p>
+}
+
+/** 三变体各持一份模块级 components 映射（内联定义每次渲染新建引用 → react-markdown 以引用为
+ *  element type → 流式期间已展开卡片反复重挂载、表单状态丢失；模块级常量引用稳定且变体间隔离） */
+const otterBodyComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP }
+const userBodyComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP }
+const eventLogComponents: Components = { code: CardAwareCode, pre: CardAwarePre, p: PreWrapP }
+
+const REMARK_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [
+  [remarkGfm, { singleTilde: false }],
+  remarkHtmlCardIndex,
+]
+
+/** Markdown 渲染组件（GFM + 代码高亮 + HTML 卡片路由） */
+function MarkdownContent({ children, variant = 'otter-body', messageId = '', authorId = '' }: {
+  children: string
+  variant?: MarkdownVariant
+  messageId?: string
+  authorId?: string
+}) {
+  const ctx = useMemo<CardRenderCtx>(() => ({ variant, messageId, authorId }), [variant, messageId, authorId])
+  const components = variant === 'otter-body' ? otterBodyComponents : variant === 'user-body' ? userBodyComponents : eventLogComponents
+  return (
+    <CardRenderContext.Provider value={ctx}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+        {children}
+      </ReactMarkdown>
+    </CardRenderContext.Provider>
   )
 }
 
@@ -199,7 +295,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess key={inFlight ? 'live' : 'done'} events={m.events} duration={m.dur || ''} status={m.status} />}
           <div className="relative group">
             {m.content
-              ? <MarkdownContent>{m.content}</MarkdownContent>
+              ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{m.content}</MarkdownContent>
               : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
             }
             <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
@@ -350,7 +446,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
         {expanded && str && (
           <div className="px-3 pb-2 pl-8">
             <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[400px] overflow-y-auto prose prose-xs max-w-none">
-              <MarkdownContent>{str}</MarkdownContent>
+              <MarkdownContent variant="event-log">{str}</MarkdownContent>
             </div>
           </div>
         )}

@@ -30,7 +30,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "get_context", "set_context", "delete_context",
     "search_terminology", "add_terminology",
     "list_artifacts", "update_artifact_status",
-    "get_active_participants",
+    "get_active_participants", "get_html_card_contract",
   ];
 
   if (!otterType || otterType === "big") {
@@ -44,7 +44,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "get_context", "set_context", "delete_context",
     "search_terminology", "add_terminology",
     "list_artifacts", "update_artifact_status",
-    "get_active_participants",
+    "get_active_participants", "get_html_card_contract",
   ];
 }
 

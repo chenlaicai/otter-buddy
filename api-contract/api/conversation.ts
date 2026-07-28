@@ -20,13 +20,6 @@ export interface CreateConversationRequestDTO {
   otterIds?: string[];
 }
 
-/** 附件值对象 */
-export interface Attachment {
-  type: string;
-  url: string;
-  name?: string;
-}
-
 /** 参与者 DTO */
 export interface ParticipantDTO {
   id: string;

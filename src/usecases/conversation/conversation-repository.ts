@@ -4,7 +4,6 @@ import type {
   ConversationStatus,
   Turn,
   LinkedResource,
-  Attachment,
   ConversationParticipant,
 } from "@entities/conversation/conversation";
 import type {
@@ -59,7 +58,6 @@ export interface ConversationRepository {
     messageId: string;
     body: string;
     talkingStonePassedTo: string[];
-    attachments: Attachment[] | null;
     completedAt: string;
     contextTokens?: number;
     contextTokensMax?: number;

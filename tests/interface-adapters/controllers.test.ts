@@ -126,7 +126,7 @@ describe("MessageController", () => {
         id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
         senderType: "user", senderId: "user-1",
         talkingStonePassedTo: ["otter-1"], status: "completed",
-        body: "Hello", attachments: null,
+        body: "Hello",
         sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
       }),
     } as unknown as QueryMessage;
@@ -146,7 +146,7 @@ describe("MessageController", () => {
         id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
         senderType: "otter", senderId: "otter-1",
         talkingStonePassedTo: null, status: "streaming",
-        body: null, attachments: null,
+        body: null,
         sequenceNum: 2, createdAt: "2026-07-16T00:00:00Z", completedAt: null,
       }),
     } as unknown as QueryMessage;
@@ -165,7 +165,7 @@ describe("MessageController", () => {
         id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
         senderType: "user", senderId: "user-1",
         talkingStonePassedTo: ["otter-1"], status: "completed",
-        body: "Hello", attachments: null,
+        body: "Hello",
         sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
       }),
     } as unknown as QueryMessage;

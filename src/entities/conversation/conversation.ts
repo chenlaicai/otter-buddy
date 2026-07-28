@@ -51,13 +51,6 @@ export interface LinkedResource {
   supersededBy: string | null;
 }
 
-/** 附件值对象 */
-export interface Attachment {
-  type: string;
-  url: string;
-  name?: string;
-}
-
 /** 对话参与者状态（UA-4~UA-10 进场/退场机制） */
 export type ParticipantStatus = "active" | "left";
 

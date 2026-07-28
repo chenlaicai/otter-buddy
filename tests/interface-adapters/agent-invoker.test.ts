@@ -12,7 +12,7 @@ const speakingMsg: Message = {
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
   senderType: "otter", senderId: "otter-1",
   talkingStonePassedTo: ["user-1"], status: "speaking",
-  body: "Response", attachments: null,
+  body: "Response",
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   createdAt: "2026-07-16T00:00:00Z", completedAt: null,
 };
@@ -21,7 +21,7 @@ const completedMsg: Message = {
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
   senderType: "otter", senderId: "otter-1",
   talkingStonePassedTo: ["user-1"], status: "completed",
-  body: "Response", attachments: null,
+  body: "Response",
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
 };
@@ -32,7 +32,7 @@ function mockSendMessage() {
     id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-1",
     talkingStonePassedTo: null, status: "streaming",
-    body: null, attachments: null,
+    body: null,
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
@@ -312,7 +312,7 @@ function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): Qu
     id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-1",
     talkingStonePassedTo: null, status: "streaming",
-    body: null, attachments: null,
+    body: null,
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };

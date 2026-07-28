@@ -1,5 +1,3 @@
-import type { Attachment } from "./conversation";
-
 /** 发送者类型（system 用于系统消息：Otter 进场/退场等事件通知） */
 export type SenderType = "user" | "otter" | "system";
 
@@ -19,7 +17,6 @@ export interface Message {
   talkingStonePassedTo: string[] | null; // 发言石传递：streaming 时为 null，completed 时必填非空。对齐 Snail 的 to_speakers 模式
   status: MessageStatus;
   body: string | null;
-  attachments: Attachment[] | null;
   sequenceNum: number;
   contextTokens: number | null;
   contextTokensMax: number | null;
