@@ -42,7 +42,7 @@ export interface AppConfig {
     warningThreshold: number;
     slidingWindowSize: number;
     slidingWindowRepeat: number;
-    steerTimeoutMs: number;
+    maxRepeatAfterWarning: number;
     tokenWarningThreshold: number;
     maxChainDepth: number;
     outputGuard: {
@@ -86,7 +86,7 @@ interface RawConfig {
     warningThreshold?: number;
     slidingWindowSize?: number;
     slidingWindowRepeat?: number;
-    steerTimeoutMs?: number;
+    maxRepeatAfterWarning?: number;
     tokenWarningThreshold?: number;
     maxChainDepth?: number;
     outputGuard?: {
@@ -160,7 +160,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     warningThreshold: d(raw.circuitBreaker?.warningThreshold, 20),
     slidingWindowSize: d(raw.circuitBreaker?.slidingWindowSize, 6),
     slidingWindowRepeat: d(raw.circuitBreaker?.slidingWindowRepeat, 3),
-    steerTimeoutMs: d(raw.circuitBreaker?.steerTimeoutMs, 30000),
+    maxRepeatAfterWarning: d(raw.circuitBreaker?.maxRepeatAfterWarning, 5),
     tokenWarningThreshold: d(raw.circuitBreaker?.tokenWarningThreshold, 50000),
     maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 20),
     outputGuard: buildOutputGuardConfig(raw),

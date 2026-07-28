@@ -2,9 +2,14 @@
  * ToolCallCircuitBreaker：Agent 工具调用熔断器。
  *
  * 防止 agent 陷入无限工具调用循环，保护 token 资源。
- * 通过 harness.on('tool_call') 钩子拦截，利用 harness.steer() 注入纠正提示。
+ * 通过 tool_execution_start 事件拦截，利用 session.steer() 注入纠正提示。
  *
- * 设计文档：F20260716bte2-agent-circuit-breaker
+ * 行为范式（事件驱动两档制，F20260728cbwt）：
+ *   首次触发规则 → steer 警告；警告后仍不纠正、继续触发规则满 maxRepeatAfterWarning 次
+ *   → terminate 当场中断。中途出现任何一次正常调用（allow）即解除警告状态。
+ *   时间维度的挂死保护由 OutputGuard 的流式超时负责，熔断器只管行为模式。
+ *
+ * 设计文档：F20260716bte2-agent-circuit-breaker（初版）、F20260728cbwt（事件驱动改造）
  */
 
 import type { Logger } from "@usecases/ports/logger";
@@ -12,22 +17,23 @@ import type { Logger } from "@usecases/ports/logger";
 export interface CircuitBreakerConfig {
   maxToolCalls: number;
   maxConsecutiveIdentical: number;
+  /** 首次 steer 警告后，容忍的继续触发次数；超过则 terminate */
+  maxRepeatAfterWarning: number;
   maxExecutionTimeMs: number;
   warningThreshold: number;
   slidingWindowSize: number;
   slidingWindowRepeat: number;
-  steerTimeoutMs: number;
   tokenWarningThreshold: number;
 }
 
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
   maxToolCalls: 40,
   maxConsecutiveIdentical: 5,
+  maxRepeatAfterWarning: 5,
   maxExecutionTimeMs: 300_000,
   warningThreshold: 20,
   slidingWindowSize: 6,
   slidingWindowRepeat: 3,
-  steerTimeoutMs: 30_000,
   tokenWarningThreshold: 50_000,
 };
 
@@ -35,6 +41,56 @@ interface CheckResult {
   blocked: boolean;
   reason?: string;
   action: "allow" | "warn" | "steer" | "terminate";
+  /** terminate 的触发规则标识，用于向上传递 abort 原因 */
+  trigger?: string;
+}
+
+/**
+ * 命令分发器：首个词是这些命令时，子命令才有区分度
+ * （`git status` 与 `git commit` 是不同行为，`ls -a` 与 `ls -l` 不是）。
+ */
+const COMMAND_DISPATCHERS = new Set([
+  "git", "gh", "npm", "npx", "yarn", "pnpm", "bun", "deno", "node",
+  "docker", "docker-compose", "kubectl", "sudo", "brew", "cargo", "go",
+  "pip", "pip3", "python", "python3", "make", "mvn", "gradle", "poetry", "uv",
+]);
+
+/** 提取 bash 命令的行为签名：按 shell 操作符切段，取每段的命令词（分发器带子命令），忽略参数 */
+function bashCommandSignature(command: string): string {
+  return command
+    .split(/&&|\|\||[;|\n]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .map((segment) => {
+      const words = segment.split(/\s+/).filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+      if (words.length === 0) return "";
+      const cmd = words[0].split("/").pop() ?? words[0];
+      const sub = words[1];
+      if (COMMAND_DISPATCHERS.has(cmd) && sub && !sub.startsWith("-")) {
+        return `${cmd} ${sub}`;
+      }
+      return cmd;
+    })
+    .filter(Boolean)
+    .join(" | ");
+}
+
+/**
+ * 构建工具调用的行为签名（"连续相同"的判据）。
+ * 同名工具不同行为不算重复：bash 看命令词、文件类工具看目标路径；
+ * 真正的卡壳（同一命令反复失败、反复读同一文件）才会累计。
+ */
+export function buildToolSignature(toolName: string, args?: unknown): string {
+  const a = (args ?? {}) as Record<string, unknown>;
+  if (toolName === "bash" && typeof a.command === "string") {
+    const sig = bashCommandSignature(a.command);
+    return sig ? `bash: ${sig}` : "bash";
+  }
+  if (toolName === "read" || toolName === "write" || toolName === "edit") {
+    const path = a.path ?? a.filePath ?? a.file_path;
+    if (typeof path === "string" && path) return `${toolName}: ${path}`;
+  }
+  return toolName;
 }
 
 /**
@@ -68,11 +124,10 @@ export class ToolCallCircuitBreaker {
   private readonly callHistory: string[] = [];
   private readonly startTime: number;
   private consecutiveCount = 0;
-  private lastToolName: string | null = null;
+  private lastSignature: string | null = null;
   private lastCheckResult: CheckResult | null = null;
-  private steered = false;
-  private steerDeadline: ReturnType<typeof setTimeout> | null = null;
-  private steerDeadlineAt: number | null = null;
+  /** 自上次 allow 以来连续 steer 的次数；allow 即清零（行为纠正即解除警告） */
+  private steerStrikes = 0;
 
   constructor(
     private readonly config: CircuitBreakerConfig,
@@ -85,39 +140,57 @@ export class ToolCallCircuitBreaker {
 
   /**
    * 检查工具调用是否应被拦截。
-   * 由 harness.on('tool_call') 钩子调用。
+   * 由 tool_execution_start 事件驱动，args 为事件携带的工具参数（用于行为签名）。
    */
-  check(toolName: string): CheckResult {
+  check(toolName: string, args?: unknown): CheckResult {
     this.callCount++;
-    this.callHistory.push(toolName);
-    this.updateConsecutive(toolName);
+    const signature = buildToolSignature(toolName, args);
+    this.callHistory.push(signature);
+    this.updateConsecutive(signature);
 
-    const result = this.evaluate(toolName);
+    const result = this.evaluate(signature);
     this.lastCheckResult = result;
     return result;
   }
 
-  /** 更新连续相同工具计数 */
-  private updateConsecutive(toolName: string): void {
-    if (toolName === this.lastToolName) {
+  /** 更新连续相同签名计数 */
+  private updateConsecutive(signature: string): void {
+    if (signature === this.lastSignature) {
       this.consecutiveCount++;
     } else {
       this.consecutiveCount = 1;
-      this.lastToolName = toolName;
+      this.lastSignature = signature;
     }
   }
 
-  /** 按优先级评估各项熔断规则 */
-  private evaluate(toolName: string): CheckResult {
-    return this.checkToolCallLimit()
-      ?? this.checkConsecutive(toolName)
+  /** 按优先级评估规则；steer 触发满 maxRepeatAfterWarning 次升级为 terminate */
+  private evaluate(signature: string): CheckResult {
+    const result = this.checkToolCallLimit()
+      ?? this.checkConsecutive(signature)
       ?? this.checkSlidingWindow()
       ?? this.checkExecutionTimeout()
-      ?? this.checkSteerDeadline()
-      ?? { blocked: false, action: "allow" };
+      ?? { blocked: false, action: "allow" as const };
+
+    if (result.action === "allow") {
+      this.steerStrikes = 0;
+      return result;
+    }
+    if (result.action === "steer") {
+      this.steerStrikes++;
+      if (this.steerStrikes > this.config.maxRepeatAfterWarning) {
+        this.logCircuitBreak("ignored_steer");
+        return {
+          blocked: true,
+          reason: `Force terminated: ${this.steerStrikes} steers ignored (last: ${result.reason})`,
+          action: "terminate",
+          trigger: "ignored_steer",
+        };
+      }
+    }
+    return result;
   }
 
-  /** B-1/B-2/B-5: 工具调用次数检查 */
+  /** B-1/B-2/B-5: 工具调用次数检查（到限 steer，超硬顶 terminate） */
   private checkToolCallLimit(): CheckResult | null {
     if (this.callCount === this.config.warningThreshold) {
       this.logger.warn(`[circuit-breaker] Warning: otter=${this.otterId} tool_calls=${this.callCount}`);
@@ -125,16 +198,15 @@ export class ToolCallCircuitBreaker {
     if (this.callCount <= this.config.maxToolCalls) return null;
     if (this.callCount > this.config.maxToolCalls + 3) {
       this.logCircuitBreak("tool_call_limit");
-      return { blocked: true, reason: `Force terminated: ${this.callCount} tool calls exceed hard limit`, action: "terminate" };
+      return { blocked: true, reason: `Force terminated: ${this.callCount} tool calls exceed hard limit`, action: "terminate", trigger: "tool_call_limit" };
     }
-    this.steered = true;
     return { blocked: true, reason: `Tool call limit reached (${this.callCount}/${this.config.maxToolCalls}). Call speak immediately.`, action: "steer" };
   }
 
-  /** B-3: 连续相同工具检查 */
-  private checkConsecutive(toolName: string): CheckResult | null {
+  /** B-3: 连续相同行为检查（按签名，同名工具不同行为不计） */
+  private checkConsecutive(signature: string): CheckResult | null {
     if (this.consecutiveCount <= this.config.maxConsecutiveIdentical) return null;
-    return { blocked: true, reason: `Consecutive identical tool "${toolName}" called ${this.consecutiveCount} times. Break the pattern.`, action: "steer" };
+    return { blocked: true, reason: `Consecutive identical call "${signature}" ${this.consecutiveCount} times. Break the pattern.`, action: "steer" };
   }
 
   /** B-3b: 滑动窗口跨工具交替循环检查 */
@@ -148,41 +220,7 @@ export class ToolCallCircuitBreaker {
     const elapsed = Date.now() - this.startTime;
     if (elapsed <= this.config.maxExecutionTimeMs) return null;
     this.logCircuitBreak("timeout");
-    return { blocked: true, reason: `Execution timeout: ${(elapsed / 1000).toFixed(1)}s exceeds ${this.config.maxExecutionTimeMs / 1000}s limit`, action: "terminate" };
-  }
-
-  /** B-5b: steer 后 wall-clock 超时安全网 */
-  private checkSteerDeadline(): CheckResult | null {
-    if (this.steerDeadlineAt === null) return null;
-    if (Date.now() <= this.steerDeadlineAt) return null;
-    return { blocked: true, reason: "Steer deadline exceeded", action: "terminate" };
-  }
-
-  /**
-   * 设置 steer 超时截止时间。
-   * B-5b：从 steer 注入起算 30 秒 wall-clock 硬边界。
-   */
-  setSteerDeadline(forceAbort: () => void): void {
-    if (this.steerDeadline) {
-      clearTimeout(this.steerDeadline);
-    }
-    this.steerDeadlineAt = Date.now() + this.config.steerTimeoutMs;
-    this.steerDeadline = setTimeout(() => {
-      this.logger.warn(
-        `[circuit-breaker] Steer timeout: otter=${this.otterId} — force aborting after ${this.config.steerTimeoutMs}ms`,
-      );
-      this.logCircuitBreak("steer_timeout");
-      forceAbort();
-    }, this.config.steerTimeoutMs);
-  }
-
-  /** 清除 steer 超时计时器 */
-  clearSteerDeadline(): void {
-    if (this.steerDeadline) {
-      clearTimeout(this.steerDeadline);
-      this.steerDeadline = null;
-    }
-    this.steerDeadlineAt = null;
+    return { blocked: true, reason: `Execution timeout: ${(elapsed / 1000).toFixed(1)}s exceeds ${this.config.maxExecutionTimeMs / 1000}s limit`, action: "terminate", trigger: "timeout" };
   }
 
   /** 获取调用历史（用于 B-6 完整日志） */

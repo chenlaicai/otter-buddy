@@ -455,7 +455,7 @@ export class PiSessionFactory implements AgentGateway {
       e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0; e._guardAbortReason = activeEntry?.guardAbortReason;
       throw err;
     } finally {
-      circuitBreaker.clearSteerDeadline(); unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
+      unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
     }

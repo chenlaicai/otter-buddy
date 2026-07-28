@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { attachCircuitBreaker } from "@frameworks/agent/circuit-breaker-helpers";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "@frameworks/agent/tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "@frameworks/agent/tool-call-circuit-breaker";
@@ -34,8 +34,8 @@ function mockSession() {
 }
 
 /** 构造 pi-coding-agent SDK 形状的 tool_execution_start 事件（字段为 toolName） */
-function sdkToolStart(toolName: string) {
-  return { type: "tool_execution_start", toolCallId: `tc-${toolName}`, toolName, args: {} };
+function sdkToolStart(toolName: string, args: unknown = {}) {
+  return { type: "tool_execution_start", toolCallId: `tc-${toolName}`, toolName, args };
 }
 
 function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerConfig {
@@ -43,14 +43,6 @@ function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerCo
 }
 
 describe("attachCircuitBreaker", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("从 SDK 事件的 toolName 字段取工具名（回归：不同工具交替调用不触发连续相同误判）", () => {
     const session = mockSession();
     const { circuitBreaker } = attachCircuitBreaker(
@@ -71,6 +63,32 @@ describe("attachCircuitBreaker", () => {
     expect(circuitBreaker.getCallHistory()).toEqual(
       Array.from({ length: 12 }, (_, i) => tools[i % 3]),
     );
+  });
+
+  it("bash 连击不同命令不触发 steer（t002 事故现场复现：排查式工作序列）", () => {
+    const session = mockSession();
+    attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      mockLogger(),
+    );
+
+    const commands = [
+      "git status",
+      "git add package-lock.json && git commit -m a",
+      "git branch --show-current",
+      "git checkout -b fix/x && git add y && git commit -m b",
+      "git branch -D fix/x && git checkout -b fix/x && git commit -m c",
+      "cat .husky/commit-msg",
+      "ls .githooks",
+    ];
+    for (const command of commands) {
+      session.emit(sdkToolStart("bash", { command }));
+    }
+
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(session.abort).not.toHaveBeenCalled();
   });
 
   it("SDK 事件下同名单工具连续超限仍会 steer（不误伤真实检测能力）", () => {
@@ -131,5 +149,45 @@ describe("attachCircuitBreaker", () => {
 
     session.emit(sdkToolStart("tool_5"));
     expect(session.abort).toHaveBeenCalledOnce();
+  });
+
+  it("abortOverride 收到 circuit_break:<trigger> 作为 abort 原因", () => {
+    const session = mockSession();
+    const abortOverride = vi.fn();
+    attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 1, maxToolCalls: 100 }),
+      mockLogger(),
+      abortOverride,
+    );
+
+    const stuck = () => session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
+    stuck(); // allow
+    stuck(); // steer（strike 1）
+    stuck(); // strike 2 > 1 → terminate
+
+    expect(abortOverride).toHaveBeenCalledOnce();
+    expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:ignored_steer");
+  });
+
+  it("steer 后行为纠正则不再 abort（事件驱动，无死亡定时器）", () => {
+    const session = mockSession();
+    attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 1, maxToolCalls: 100 }),
+      mockLogger(),
+    );
+
+    session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
+    session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
+    session.emit(sdkToolStart("bash", { command: "git commit -m x" })); // steer
+    expect(session.steer).toHaveBeenCalledOnce();
+
+    // 纠正：换命令继续工作，随后大量正常调用也不触发 terminate
+    session.emit(sdkToolStart("bash", { command: "git status" }));
+    for (let i = 0; i < 10; i++) session.emit(sdkToolStart("read", { path: `/f${i}.ts` }));
+    expect(session.abort).not.toHaveBeenCalled();
   });
 });
