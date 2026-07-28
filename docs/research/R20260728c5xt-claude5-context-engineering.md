@@ -119,14 +119,16 @@ Anthropic 发布 `claude doctor`（Claude Code 内 `/doctor`），自动审计 s
 
 ### 2.4 speak 尾随消息实证分析（2026-07-28 补充）
 
-对 3 个 session transcript（`data/sessions/*.jsonl`）中全部 15 次 speak 调用逐一分析：
+对 3 个 session transcript（`data/sessions/*.jsonl`）逐一分析，共 20 次 speak 调用（19 成功、1 失败）：
 
 | 发现 | 证据 | 推论 |
 |------|------|------|
-| **100% 出现尾随 assistant 消息** | 15/15 次 speak 成功后均有后续文本（15-700 字符） | 现行文案禁令完全未生效 |
+| **100% 出现尾随 assistant 消息** | 19 次成功调用后均有尾随 assistant 消息（19/19）：18 次为文本（15-698 字符），1 次为第二个 speak 工具调用 | 现行文案禁令完全未生效 |
 | **模型理解规则但无法遵守** | thinking 原文：「The speak call was successful. My turn is complete. I should not output any additional text.」——随后仍输出文本 | 不是教育问题：agent loop 在 tool_result 后强制模型再生成一条消息，「沉默」在结构上不可能 |
 | **双通道不信任** | 实质分析内容在 speak body 和尾随消息中重复出现（400-700 字符级） | 模型的天然发言通道是 assistant message 而非 tool 参数；尾随内容不进 DB body（agent-invoker.ts L272-279），增量信息有丢失风险 |
-| **双 speak 案例** | 一次 speak 成功后模型再次调用 speak（报错）并输出自我批评 | 成功后立即终止 loop 可一并消除此类浪费 |
+| **双 speak 案例** | 一次 speak 成功后模型再次调用 speak，撞上「Cannot start speaking for message with status: speaking」错误（即 19 成功 1 失败中唯一的失败） | 成功后立即终止 loop 可一并消除此类浪费 |
+
+> 数字勘误：本节初版写「15 次调用、15/15」，经对抗检视复算修正为 20 次调用、19 成功、尾随 19/19。定性结论不变且更强。
 
 **SDK 能力验证（pi-agent-core 0.80.10 源码确认）**：`AgentToolResult.terminate` 为 loop 一等公民能力——工具结果置 `terminate: true` 后 loop 不再发起下一轮 LLM 调用（agent-loop.js L124 `hasMoreToolCalls = !executedToolBatch.terminate`）。全链路（Otter 工具 → pi-session-factory 适配 → ToolDefinition wrapper → loop）逐层确认透传不丢失。边界：仅当同批次所有工具结果均为 terminate 时生效（agent-loop.js L378 `every()`），speak 与其他工具同批调用的边缘场景不覆盖，但 transcript 显示 speak 几乎均单独调用。
 

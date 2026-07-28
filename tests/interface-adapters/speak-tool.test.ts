@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 
-function makeSpeakTool(participants: Array<{ otterId: string; otterName: string }>) {
+function makeSpeakTool(
+  participants: Array<{ otterId: string; otterName: string }>,
+  options: { currentMessageId?: string; startSpeakingError?: Error } = {},
+) {
   const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
   const client = {
     conversation: {
@@ -11,13 +14,14 @@ function makeSpeakTool(participants: Array<{ otterId: string; otterName: string 
       },
       message: {
         startSpeaking: async (_id: string, input: { body: string; talkingStonePassedTo: string[] }) => {
+          if (options.startSpeakingError) throw options.startSpeakingError;
           speakingCalls.push(input);
         },
       },
     },
   } as unknown as OtterToolClient;
 
-  const ctx: ToolContext = { client, otterId: "otter-self", conversationId: "conv-1", currentMessageId: "msg-1" };
+  const ctx: ToolContext = { client, otterId: "otter-self", conversationId: "conv-1", currentMessageId: options.currentMessageId ?? "msg-1" };
   const speak = createTools(ctx).find(t => t.name === "speak")!;
   return { speak, speakingCalls };
 }
@@ -73,6 +77,22 @@ describe("speak 工具发言石目标校验", () => {
     const r2 = await speak.execute("c2", { body: "内容", talkingStonePassedTo: [] });
     expect(r2.content[0].text).toContain("[错误]");
     expect(r2.terminate).toBeUndefined();
+    expect(speakingCalls).toHaveLength(0);
+  });
+
+  it("currentMessageId 未设置时返回系统错误，不终止 loop", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, { currentMessageId: "" });
+    const res = await speak.execute("c1", { body: "内容", talkingStonePassedTo: ["otter-big"] });
+    expect(res.content[0].text).toContain("[错误]");
+    expect(res.terminate).toBeUndefined();
+    expect(speakingCalls).toHaveLength(0);
+  });
+
+  it("startSpeaking 声明失败时返回错误，不终止 loop", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, { startSpeakingError: new Error("db locked") });
+    const res = await speak.execute("c1", { body: "内容", talkingStonePassedTo: ["otter-big"] });
+    expect(res.content[0].text).toContain("[错误] 发言声明失败");
+    expect(res.terminate).toBeUndefined();
     expect(speakingCalls).toHaveLength(0);
   });
 });

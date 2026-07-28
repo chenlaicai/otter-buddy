@@ -147,8 +147,8 @@ terminate 生效后"不要输出任何文字"类禁令失去存在必要（模�
 - [x] speak description/返回值无"不要输出任何文字"类禁令
 - [x] 8 个工具 description 无参数复述，schema 语义完整
 - [x] SKILL.md 合规条款仅 Core Principles 一处，无借口枚举、无黑名单
-- [ ] 全量测试通过
-- [ ] 构建通过
+- [x] 全量测试通过（51 文件 / 602 用例）
+- [x] 构建通过（tsc --noEmit）
 
 ### 测试设计
 
@@ -175,6 +175,18 @@ terminate 生效后"不要输出任何文字"类禁令失去存在必要（模�
 
 ## 关联 [required]
 
-- **研究报告**：R20260728c5xt（PR #96）— 实证依据与 SDK 验证细节
+- **研究报告**：R20260728c5xt（本 PR Part 1）— 实证依据与 SDK 验证细节
 - **行为模式强化**：[F20260722d3k7](../22/F20260722d3k7-agent-behavior-pattern.md) — 本特性清理其引入的重复条款，合规效力不变
 - **博客依据**：[The new rules of context engineering for Claude 5 generation models](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models)
+
+## 交叉审视修订记录
+
+对抗检视（2026-07-28，按 adversarial-review 六维度执行）结论：**可以合入**，5 个发现均为建议级，处置如下：
+
+| # | 发现 | 严重度 | 处置 |
+|---|------|--------|------|
+| R1 | 研究报告"15 次调用、15/15"数字不复现：实际 20 次调用、19 成功、尾随 19/19（已独立复算确认） | 建议 | 本 PR 修正：R20260728c5xt §2.4 数字勘误（定性结论不变且更强） |
+| R2 | speak description 删除"每次回复只调用一次"后，批次语义缺口无文案缓释 | 建议 | 本 PR 修复：description 加回"speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）"——机制事实陈述，非禁令 |
+| R3 | currentMessageId 未设置、startSpeaking 异常两条失败路径无 terminate 断言 | 建议 | 本 PR 修复：补 2 个测试用例 |
+| R4 | PR 描述测试数（50 文件/577 用例）过时 | 建议 | 本 PR 修复：更新为 51 文件/602 用例 |
+| R5 | 特性文档验收标准未勾选 | 建议 | 本 PR 修复：已勾选 |

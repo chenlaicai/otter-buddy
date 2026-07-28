@@ -34,7 +34,7 @@ export interface ToolContext {
 function createSpeakTool(ctx: ToolContext): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。",
+    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。",
     parameters: {
       type: "object",
       properties: {
