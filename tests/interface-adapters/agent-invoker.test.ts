@@ -206,6 +206,22 @@ describe("AgentInvoker", () => {
     expect(msg._calls.abort[0].body).toContain("5 次工具调用");
   });
 
+  it("handles _guardAbortReason pre-captured on result (primary path)", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const streamingQm: QueryMessage = { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: Object.assign({ text: "" }, { _guardAbortReason: "streaming_timeout" }) }),
+      msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger(),
+    );
+    const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
+    expect(result.messageId).toBe("msg-streaming");
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain("[系统保护]");
+    expect(msg._calls.abort[0].body).toContain("超时");
+    expect(msg._calls.fail).toHaveLength(0);
+  });
+
   it("handles OutputGuard internal abort via getInternalAbortReason (SDK swallows abort)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
