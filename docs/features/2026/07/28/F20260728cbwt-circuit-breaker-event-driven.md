@@ -9,9 +9,11 @@ summary: |
   改为「首次触发规则 → steer 警告；警告后继续触发满 maxRepeatAfterWarning（默认 5）次
   → terminate 当场中断；中途任何一次正常调用（allow）即解除警告状态」。
   同时修复「连续相同」判据过粗：同名工具不再一律算重复，改为行为签名
-  （bash 取命令词、read/write/edit 取目标路径），排查式正常工作序列不再误报。
-  顺带修复：force abort 现在携带 circuit_break:<trigger> 原因（此前一律记为
-  internal_abort，用户侧文案与真实原因脱节）。
+  （bash 取命令词并穿透 sudo/time/env 包装与 -C 等带值 flag；read 取目标路径；
+  edit/write 取路径+内容指纹），排查式工作序列与同文件连续重构编辑不再误报。
+  顺带修复：force abort 携带 circuit_break:<trigger> 原因，且用户侧呈现熔断专属
+  文案「检测到工具调用异常循环」（此前一律 internal_abort →「输出异常」，
+  把熔断器误杀伪装成模型输出退化）。
 
 causal_links:
   from:
@@ -27,9 +29,11 @@ modules:
   - src/frameworks/agent/circuit-breaker-helpers.ts
   - src/frameworks/agent/pi-session-factory.ts
   - src/frameworks/config-service.ts
+  - src/interface-adapters/agent-runtime/agent-invoker.ts
   - config/config.yaml.example
   - tests/frameworks/agent/tool-call-circuit-breaker.test.ts
   - tests/frameworks/agent/circuit-breaker-helpers.test.ts
+  - tests/interface-adapters/agent-invoker.test.ts
 
 created_at: 2026-07-28
 ---
@@ -102,11 +106,12 @@ strike > maxRepeatAfterWarning（默认 5）→ terminate，当场中断流
 
 | 工具 | 签名 | 效果 |
 |------|------|------|
-| bash | `bash: <每段命令词，分发器带子命令>` | `git commit -m a` 与 `git commit -m b` 相同（真卡壳抓得住）；`git status` 与 `git commit` 不同（排查不误报）；`cd /x && git add y && git commit` → `cd \| git add \| git commit` |
-| read/write/edit | `<工具>: <路径>` | 反复读同一文件才算循环 |
+| bash | `bash: <每段命令词，分发器带子命令>` | `git commit -m a` 与 `git commit -m b` 相同（真卡壳抓得住）；`git status` 与 `git commit` 不同（排查不误报）；`cd /x && git add y && git commit` → `cd \| git add \| git commit`；穿透 `sudo`/`time`/`env`/`nice`/`watch` 包装层，跳过 `-C`/`-c`/`--git-dir` 等带值 flag（`git -C /repoA status` 与 `git -C /repoB commit` 不塌缩） |
+| read | `read: <路径>` | 反复读同一文件才算循环 |
+| edit/write | `<工具>: <路径>#<内容指纹>` | 同一文件的不同编辑是正常工作（重构连续编辑 10 次不误报）；同一编辑反复重试、同内容反复重写才是卡壳 |
 | 其他 | 工具名 | speak 刷屏等仍能抓住 |
 
-bash 命令词提取规则：按 `&&`、`||`、`;`、`|`、换行切段；跳过前导 `VAR=val` 赋值；取每段首个词（去路径前缀）；首词属于分发器集合（git/gh/npm/npx/docker/kubectl/…）且第二词非 flag 时带第二词。
+bash 命令词提取规则：按 `&&`、`||`、`;`、`|`、换行切段；跳过前导 `VAR=val` 赋值与包装层；取真实命令词（去路径前缀）；属于分发器集合（git/gh/npm/npx/docker/kubectl/…）时取第一个非 flag 词为子命令，带值 flag 连值跳过。
 
 ### 代码
 
@@ -130,10 +135,22 @@ bash 命令词提取规则：按 `&&`、`||`、`;`、`|`、换行切段；跳过
 3. **strike 全局记 + allow 清零，而非按签名维度各自记**：讨论中曾倾向按签名记警告（每个新循环重新享受先警告待遇）。实现时发现 allow 清零天然达成同样效果——新循环的前几次调用本来就是 allow，strike 已复位；全局计数还能覆盖滑窗 steer 的升级路径。两种方案效果等价，取实现更简者。
 4. **挂死保护归 OutputGuard**：移除死线后「agent 不调工具也不输出」的场景由 `streamingTimeoutMs` 覆盖，职责本就重复，删除后分工更清晰。
 
+### 对抗审视轮（独立 agent 审视 → 搭档逐题拍板）
+
+初版实现经独立 agent 对抗审视，发现 3 个应修项，全部按拍板修复：
+
+5. **同文件连续 edit/write 误杀（拍板：签名加内容指纹）**：审视发现签名只取路径时，重构场景对同一文件连续编辑 11 次仍会被杀。edit/write 签名加内容指纹（edit 取 edits 数组 oldText/newText、write 取 content 的 djb2 摘要）：不同编辑不算重复，同一编辑重试仍算卡壳。read 保持路径签名（反复读同一文件确实可疑）。
+6. **`git -C` / `sudo` 塌缩误报（拍板：穿透包装+跳过 flag）**：`git -C /repoA status` 与 `git -C /repoB commit` 曾被判为相同行为。签名提取穿透 sudo/time/env/nice/watch 包装层，跳过 `-C`/`-c`/`--git-dir`/`--work-tree`/`--namespace`/`--exec-path` 等带值 flag 及其值。
+7. **用户侧文案只修了一半（拍板：加专属文案）**：`circuit_break:*` 原因虽进了日志，但 buildAbortBody 兜底仍呈现「输出异常」。wrapInternalAbort/成功路径按归因打 `[circuit-breaker]` 前缀，buildAbortBody 对该前缀返回「[系统保护] 检测到工具调用异常循环，已自动中断。」，熔断 abort 不再伪装成 OutputGuard。
+8. **审视提出但拍板不做的项**：文档措辞降温、`tokenWarningThreshold` 死键接配置、`"warn"` action 与 `stageId` 死代码清理——搭档决定不在本 feature 内处理，留作后续观察项。
+
+审视确认无阻断缺陷的维度：两档制方向（比旧机制严格更宽容）、滑窗兜底有效性、跨规则 strike 语义、limit 硬顶与 ignored_steer 的先后关系（硬顶永远先触发）、abort 原因传递链路完整性。
+
 ## 测试
 
-- 新增签名单测 6 个（命令词提取、子命令区分、复合命令切段、环境变量/路径前缀、文件路径、退化兜底）
-- 新增行为测试 4 个：不同命令 bash 连击不 steer（t002 现场复现）、同一命令重试累计、steer 后纠正不升级、警告后满 N 次 terminate
-- helpers 集成测试更新：SDK 事件带 args 驱动、abort 原因 `circuit_break:<trigger>` 传递、无死亡定时器（纠正后大量调用不 abort）
+- 签名单测 10 个：命令词提取、子命令区分、复合命令切段、环境变量/路径前缀、包装层与带值 flag 穿透、write 内容指纹、edit 编辑指纹、退化兜底
+- 行为测试 8 个：不同命令 bash 连击不 steer（t002 现场复现）、同一命令重试累计、同文件不同编辑不杀（重构场景）、同一编辑重试杀、steer 后纠正不升级、警告后满 N 次 terminate、滑窗 steer 升级 terminate（全局 strike 跨规则路径）、跨规则 strike 累计
+- helpers 集成测试：SDK 事件带 args 驱动、三种 terminate 的 abort 原因（`circuit_break:ignored_steer` / `tool_call_limit` / `timeout`）、无死亡定时器（纠正后大量调用不 abort）
+- agent-invoker 回归：circuit_break abort 呈现熔断专属文案
 - 删除 4 个死线相关旧测试（机制已移除）
-- `npm run check`（lint + tsc）通过；`npx vitest run` 全量 616 个测试通过
+- `npm run check`（lint + tsc）通过；`npx vitest run` 全量 626 个测试通过

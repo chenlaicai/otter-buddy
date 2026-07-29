@@ -54,6 +54,32 @@ describe("buildToolSignature", () => {
     expect(buildToolSignature("bash")).toBe("bash");
     expect(buildToolSignature("search_memory", { query: "x" })).toBe("search_memory");
   });
+
+  it("bash 穿透包装层与带值 flag（git -C / sudo / time 不塌缩）", () => {
+    expect(buildToolSignature("bash", { command: "git -C /repoA status" })).toBe("bash: git status");
+    expect(buildToolSignature("bash", { command: "git -C /repoB commit -m x" })).toBe("bash: git commit");
+    expect(buildToolSignature("bash", { command: "git -c user.name=x commit -m y" })).toBe("bash: git commit");
+    expect(buildToolSignature("bash", { command: "sudo git commit -m x" })).toBe("bash: git commit");
+    expect(buildToolSignature("bash", { command: "sudo -E systemctl restart x" })).toBe("bash: systemctl");
+    expect(buildToolSignature("bash", { command: "time npm test" })).toBe("bash: npm test");
+  });
+
+  it("write 签名含内容指纹：同路径不同内容不算重复，同内容重写算重复", () => {
+    const v1 = buildToolSignature("write", { path: "/a.ts", content: "版本一" });
+    const v2 = buildToolSignature("write", { path: "/a.ts", content: "版本二" });
+    const v1Retry = buildToolSignature("write", { path: "/a.ts", content: "版本一" });
+    expect(v1).not.toBe(v2);
+    expect(v1).toBe(v1Retry);
+    expect(v1).toContain("write: /a.ts#");
+  });
+
+  it("edit 签名含编辑内容指纹：同文件不同编辑不算重复，同一编辑重试算重复", () => {
+    const e1 = buildToolSignature("edit", { path: "/a.ts", edits: [{ oldText: "x", newText: "y" }] });
+    const e2 = buildToolSignature("edit", { path: "/a.ts", edits: [{ oldText: "x", newText: "z" }] });
+    const e1Retry = buildToolSignature("edit", { path: "/a.ts", edits: [{ oldText: "x", newText: "y" }] });
+    expect(e1).not.toBe(e2);
+    expect(e1).toBe(e1Retry);
+  });
 });
 
 describe("ToolCallCircuitBreaker", () => {
@@ -246,6 +272,77 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     expect(result.action).toBe("terminate");
     expect(result.trigger).toBe("ignored_steer");
     expect(result.reason).toContain("steers ignored");
+  });
+
+  it("同一文件的不同编辑连续执行不算重复（重构场景不误杀）", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      "otter-1",
+      mockLogger(),
+    );
+
+    for (let i = 0; i < 7; i++) {
+      const result = cb.check("edit", { path: "/a.ts", edits: [{ oldText: `old_${i}`, newText: `new_${i}` }] });
+      expect(result.action).toBe("allow");
+    }
+  });
+
+  it("同一编辑反复重试才累计（edit 卡壳抓得住）", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      "otter-1",
+      mockLogger(),
+    );
+
+    const retry = () => cb.check("edit", { path: "/a.ts", edits: [{ oldText: "x", newText: "y" }] });
+    expect(retry().action).toBe("allow");
+    expect(retry().action).toBe("allow");
+    expect(retry().action).toBe("allow");
+
+    const result = retry();
+    expect(result.action).toBe("steer");
+    expect(result.reason).toContain("edit: /a.ts#");
+  });
+
+  it("滑窗 steer 被持续无视也会升级为 terminate（全局 strike 覆盖跨规则路径）", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({
+        slidingWindowSize: 6,
+        slidingWindowRepeat: 3,
+        maxRepeatAfterWarning: 2,
+        maxToolCalls: 100,
+        warningThreshold: 100,
+      }),
+      "otter-1",
+      mockLogger(),
+    );
+
+    // A-B-C 交替 18 次触发滑窗 steer（strike 1），继续无视 → strike 2、3
+    const tools = ["A", "B", "C"];
+    let lastAction = "";
+    for (let i = 0; i < 20; i++) {
+      lastAction = cb.check(tools[i % 3]).action;
+    }
+    expect(lastAction).toBe("terminate");
+  });
+
+  it("strike 跨规则累计：连续规则 steer 后接调用上限 steer，满额 terminate", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 3, maxToolCalls: 4, warningThreshold: 100 }),
+      "otter-1",
+      mockLogger(),
+    );
+
+    const stuck = () => cb.check("bash", { command: "git commit -m x" });
+    stuck(); // allow（call 1）
+    expect(stuck().action).toBe("steer"); // strike 1
+    expect(stuck().action).toBe("steer"); // strike 2
+    expect(stuck().action).toBe("steer"); // strike 3
+
+    // 换命令避开连续规则，但撞 maxToolCalls=4 的 limit-steer → strike 4 > 3
+    const result = cb.check("bash", { command: "git status" });
+    expect(result.action).toBe("terminate");
+    expect(result.trigger).toBe("ignored_steer");
   });
 
   it("detects sliding window cross-tool alternating loop (AC-8: B-3b)", () => {

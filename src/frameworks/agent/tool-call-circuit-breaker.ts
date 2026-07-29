@@ -55,6 +55,14 @@ const COMMAND_DISPATCHERS = new Set([
   "pip", "pip3", "python", "python3", "make", "mvn", "gradle", "poetry", "uv",
 ]);
 
+/** 包装命令：穿透取真实命令（`sudo git status` 按 `git status` 计） */
+const COMMAND_WRAPPERS = new Set(["sudo", "time", "env", "nice", "watch"]);
+
+/** 带子命令值的 flag：跳过 flag 时需连值一起跳（`git -C /repo status` → `git status`） */
+const VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
+
+const basename = (word: string): string => word.split("/").pop() ?? word;
+
 /** 提取 bash 命令的行为签名：按 shell 操作符切段，取每段的命令词（分发器带子命令），忽略参数 */
 function bashCommandSignature(command: string): string {
   return command
@@ -63,11 +71,18 @@ function bashCommandSignature(command: string): string {
     .filter(Boolean)
     .map((segment) => {
       const words = segment.split(/\s+/).filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
-      if (words.length === 0) return "";
-      const cmd = words[0].split("/").pop() ?? words[0];
-      const sub = words[1];
-      if (COMMAND_DISPATCHERS.has(cmd) && sub && !sub.startsWith("-")) {
-        return `${cmd} ${sub}`;
+      let i = 0;
+      while (i < words.length && (COMMAND_WRAPPERS.has(basename(words[i])) || words[i].startsWith("-"))) i++;
+      if (i >= words.length) return "";
+      const cmd = basename(words[i]);
+      if (!COMMAND_DISPATCHERS.has(cmd)) return cmd;
+      for (let j = i + 1; j < words.length; j++) {
+        const w = words[j];
+        if (w.startsWith("-")) {
+          if (VALUE_FLAGS.has(w)) j++;
+          continue;
+        }
+        return `${cmd} ${w}`;
       }
       return cmd;
     })
@@ -75,10 +90,50 @@ function bashCommandSignature(command: string): string {
     .join(" | ");
 }
 
+/** 短内容指纹（djb2，限长防大文件拖慢）：区分「同一文件的不同编辑」与「同一编辑的反复重试」 */
+function contentDigest(text: string): string {
+  const bound = text.length > 4096 ? text.slice(0, 4096) : text;
+  let h = 5381;
+  for (let i = 0; i < bound.length; i++) {
+    h = ((h << 5) + h + bound.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** 提取 edit/write 的内容指纹；无内容信息时返回空串 */
+function editContentDigest(toolName: string, a: Record<string, unknown>): string {
+  if (toolName === "write" && typeof a.content === "string") {
+    return contentDigest(a.content);
+  }
+  if (toolName === "edit") {
+    if (Array.isArray(a.edits)) {
+      const pairs = a.edits
+        .map((e) => {
+          const p = (e ?? {}) as Record<string, unknown>;
+          return `${String(p.oldText ?? p.old_string ?? "")}→${String(p.newText ?? p.new_string ?? "")}`;
+        })
+        .join("\n");
+      if (pairs) return contentDigest(pairs);
+    }
+    const single = `${String(a.oldText ?? a.old_string ?? "")}→${String(a.newText ?? a.new_string ?? "")}`;
+    if (single !== "→") return contentDigest(single);
+  }
+  return "";
+}
+
+/** 文件类工具签名：read 取路径；edit/write 取路径+内容指纹（区分不同编辑与同一编辑重试） */
+function fileToolSignature(toolName: string, a: Record<string, unknown>): string {
+  const path = a.path ?? a.filePath ?? a.file_path;
+  if (typeof path !== "string" || !path) return toolName;
+  if (toolName === "read") return `read: ${path}`;
+  const digest = editContentDigest(toolName, a);
+  return digest ? `${toolName}: ${path}#${digest}` : `${toolName}: ${path}`;
+}
+
 /**
  * 构建工具调用的行为签名（"连续相同"的判据）。
- * 同名工具不同行为不算重复：bash 看命令词、文件类工具看目标路径；
- * 真正的卡壳（同一命令反复失败、反复读同一文件）才会累计。
+ * 同名工具不同行为不算重复：bash 看命令词、read 看目标路径、edit/write 看路径+内容指纹；
+ * 真正的卡壳（同一命令反复失败、同一编辑反复重试、反复读同一文件）才会累计。
  */
 export function buildToolSignature(toolName: string, args?: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
@@ -87,8 +142,7 @@ export function buildToolSignature(toolName: string, args?: unknown): string {
     return sig ? `bash: ${sig}` : "bash";
   }
   if (toolName === "read" || toolName === "write" || toolName === "edit") {
-    const path = a.path ?? a.filePath ?? a.file_path;
-    if (typeof path === "string" && path) return `${toolName}: ${path}`;
+    return fileToolSignature(toolName, a);
   }
   return toolName;
 }

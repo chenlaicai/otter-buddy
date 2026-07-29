@@ -171,6 +171,47 @@ describe("attachCircuitBreaker", () => {
     expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:ignored_steer");
   });
 
+  it("tool_call_limit 硬顶 terminate 的原因为 circuit_break:tool_call_limit", () => {
+    const session = mockSession();
+    const abortOverride = vi.fn();
+    attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxToolCalls: 2, warningThreshold: 100, maxRepeatAfterWarning: 100 }),
+      mockLogger(),
+      abortOverride,
+    );
+
+    for (let i = 0; i < 6; i++) session.emit(sdkToolStart(`tool_${i}`));
+
+    expect(abortOverride).toHaveBeenCalledOnce();
+    expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
+  });
+
+  it("执行超时 terminate 的原因为 circuit_break:timeout", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxExecutionTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      session.emit(sdkToolStart("tool_1"));
+      vi.advanceTimersByTime(6000);
+      session.emit(sdkToolStart("tool_2"));
+
+      expect(abortOverride).toHaveBeenCalledOnce();
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("steer 后行为纠正则不再 abort（事件驱动，无死亡定时器）", () => {
     const session = mockSession();
     attachCircuitBreaker(

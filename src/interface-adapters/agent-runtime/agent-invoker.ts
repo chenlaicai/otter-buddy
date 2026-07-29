@@ -182,7 +182,8 @@ export class AgentInvoker {
     const ir = (p.result as Record<string, unknown>)._guardAbortReason as string | undefined ?? this.agentInvoke.getInternalAbortReason(p.messageId);
     if (ir) {
       this.abortedMessages.add(p.messageId);
-      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`[output-guard] ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
+      const prefix = ir.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
+      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
     return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage });
@@ -294,7 +295,9 @@ export class AgentInvoker {
     const reason = (err as { _guardAbortReason?: string })._guardAbortReason ?? this.agentInvoke.getInternalAbortReason(messageId);
     if (!reason) return err;
     this.abortedMessages.add(messageId);
-    return Object.assign(new Error(`[output-guard] ${reason}`), {
+    /** 按归因打前缀：熔断器 abort 不再伪装成 OutputGuard */
+    const prefix = reason.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
+    return Object.assign(new Error(`${prefix} ${reason}`), {
       _toolCallCount: (err as ErrorWithToolCallCount)._toolCallCount ?? 0,
     });
   }
@@ -302,6 +305,9 @@ export class AgentInvoker {
   /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
   private buildAbortBody(err: unknown, otterId: string, messageId: string): string {
     const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.startsWith("[circuit-breaker]")) {
+      return "[系统保护] 检测到工具调用异常循环，已自动中断。";
+    }
     if (errMsg.startsWith("[output-guard]")) {
       if (errMsg.includes("degenerate_output")) return "[系统保护] 检测到输出内容异常重复，已自动中断。";
       if (errMsg.includes("streaming_timeout")) return "[系统保护] 生成过程超时，已自动中断。";
