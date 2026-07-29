@@ -16,15 +16,16 @@ export function attachCircuitBreaker(
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
   abortOverride?: (reason?: string) => void,
-): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined } {
+): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: () => void } {
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
   const doAbort = abortOverride ?? (() => { session.abort(); });
 
   // per-event 超时：resettable timer，每次 tool_execution_start 重置
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   const maxPerEventMs = circuitBreakerConfig.maxPerEventTimeMs;
+  const clearEventTimer = () => { if (eventTimer) { clearTimeout(eventTimer); eventTimer = undefined; } };
   const resetEventTimer = () => {
-    if (eventTimer) clearTimeout(eventTimer);
+    clearEventTimer();
     eventTimer = setTimeout(() => {
       logger.warn(`[circuit-breaker] PER_EVENT_TIMEOUT: otter=${otterId} elapsed=${maxPerEventMs}ms`);
       doAbort("circuit_break:event_timeout");
@@ -40,7 +41,7 @@ export function attachCircuitBreaker(
       resetEventTimer();
       const result = circuitBreaker.check(e.toolName ?? e.name ?? "unknown", e.args);
       if (result.action === "terminate") {
-        if (eventTimer) clearTimeout(eventTimer);
+        clearEventTimer();
         doAbort(`circuit_break:${result.trigger ?? "unknown"}`);
         return;
       }
@@ -54,7 +55,8 @@ export function attachCircuitBreaker(
   const originalUnregister = unregisterToolCall;
   return {
     circuitBreaker,
-    unregisterToolCall: originalUnregister ? () => { if (eventTimer) clearTimeout(eventTimer); originalUnregister(); } : undefined,
+    unregisterToolCall: originalUnregister ? () => { clearEventTimer(); originalUnregister(); } : undefined,
+    clearEventTimer,
   };
 }
 

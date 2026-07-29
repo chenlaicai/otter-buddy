@@ -306,7 +306,7 @@ export class AgentInvoker {
   private buildAbortBody(err: unknown, otterId: string, messageId: string): string {
     const errMsg = err instanceof Error ? err.message : String(err);
     if (errMsg.startsWith("[circuit-breaker]")) {
-      if (errMsg.includes("event_timeout") || errMsg.includes("timeout")) return "[系统保护] 单次工具调用超时，已自动中断。";
+      if (errMsg.includes("event_timeout")) return "[系统保护] 单次工具调用超时，已自动中断。";
       return "[系统保护] 检测到工具调用异常循环，已自动中断。";
     }
     if (errMsg.startsWith("[output-guard]")) {
