@@ -360,6 +360,38 @@ describe("AgentInvoker", () => {
   });
 });
 
+describe("AgentInvoker — circuit_break abort 归因", () => {
+  it("circuit_break abort 呈现熔断专属文案，不再伪装成输出异常", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const streamingQm: QueryMessage = {
+      getMessageById: async () => ({
+        ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
+      }),
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "" }, internalAbortReason: "circuit_break:ignored_steer" }),
+      msg,
+      streamingQm,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(result.messageId).toBe("msg-streaming");
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toBe("[系统保护] 检测到工具调用异常循环，已自动中断。");
+  });
+});
+
 /** 创建可配置的 QueryMessage mock：按调用顺序返回不同消息状态 */
 function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): QueryMessage & { callCount: number } {
   const streamingMsg: Message = {

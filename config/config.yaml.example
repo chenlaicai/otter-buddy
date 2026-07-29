@@ -75,9 +75,10 @@ circuitBreaker:
   # 滑动窗口内重复次数触发阈值（默认 3）
   # 在 slidingWindowSize 次调用中，相同模式出现此次数则触发熔断
   slidingWindowRepeat: 3
-  # 引导操作超时时间，单位：毫秒（默认 30000，即 30 秒）
-  # 检测到问题模式后，系统尝试重定向 Agent 的超时时间
-  steerTimeoutMs: 30000
+  # steer 警告后容忍的继续触发次数（默认 5）
+  # 首次触发规则注入 steer 警告；之后每再触发一次记 1 次，超过此次数则强制中断
+  # 出现任何一次正常调用（allow）即清零解除
+  maxRepeatAfterWarning: 5
   # Token 使用量警告阈值（默认 50000）
   # 达到此阈值时发出高上下文/Token 使用量警告
   tokenWarningThreshold: 50000
