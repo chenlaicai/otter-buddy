@@ -32,6 +32,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { loadPromptFile } from "./prompt-loader";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
+import type { OtterRepository } from "@usecases/otter/otter-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
@@ -77,6 +78,8 @@ export interface AgentSessionFactoryConfig {
   createTools: (ctx: ToolContext) => AgentTool[];
   /** Otter 配置持久化（由 Composition Root 注入） */
   otterConfigProvider: OtterConfigProvider;
+  /** Otter Repository（由 Composition Root 注入，替代直接 DB 查询） */
+  otterRepo: OtterRepository;
 }
 
 /** pi-coding-agent 模块类型（动态加载） */
@@ -122,6 +125,7 @@ export class PiSessionFactory implements AgentGateway {
       createTools: (ctx: ToolContext) => AgentTool[];
       resourceLoader?: ResourceLoader;
       otterConfigProvider: OtterConfigProvider;
+      otterRepo: OtterRepository;
     },
     private readonly logger: Logger,
   ) {
@@ -375,23 +379,23 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 组装用户消息前缀：首次 invoke 时身份叠加在 otter 专属 prompt 之前（后续 invoke 从 session 历史恢复，不重复注入） */
-  private buildUserMessagePrefix(
+  private async buildUserMessagePrefix(
     otterId: string,
     otterType: string,
     otterPromptConfig: string | OtterPromptConfig | undefined,
     isFirstInvoke: boolean | undefined,
-  ): string {
+  ): Promise<string> {
     const otterPrompt = buildOtterPrompt(otterPromptConfig);
     if (!isFirstInvoke) return otterPrompt;
-    const identityPrefix = this.buildIdentityPrefix(otterId, otterType);
+    const identityPrefix = await this.buildIdentityPrefix(otterId, otterType);
     if (!identityPrefix) return otterPrompt;
     return [identityPrefix, otterPrompt].filter(Boolean).join("\n\n");
   }
 
   /** 构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源） */
-  private buildIdentityPrefix(otterId: string, otterType: string): string {
-    const otterRow = this.cfg.db.prepare("SELECT name FROM otters WHERE id = ?").get(otterId) as { name: string } | undefined;
-    if (!otterRow) {
+  private async buildIdentityPrefix(otterId: string, otterType: string): Promise<string> {
+    const otter = await this.cfg.otterRepo.getById(otterId);
+    if (!otter) {
       this.logger.warn('身份注入跳过：otters 表中不存在该记录', { otterId });
       return "";
     }
@@ -399,7 +403,7 @@ export class PiSessionFactory implements AgentGateway {
     const isBig = otterType === 'big';
     const identityBody = isBig ? this.bigOtterIdentity : this.smallOtterIdentity;
     return [
-      `## 你的身份\n- 名称：${otterRow.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
+      `## 你的身份\n- 名称：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
       identityBody,
     ].filter(Boolean).join("\n\n");
   }
@@ -423,7 +427,7 @@ export class PiSessionFactory implements AgentGateway {
     const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard } = this._attachGuards(session, sessionKey, otterId);
 
     // 3. 构建完整消息
-    const fullMessage = buildMessageWithContext(this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
+    const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
     this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
 
@@ -582,5 +586,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     identityPromptDir: config.identityPromptDir,
     createTools: config.createTools,
     otterConfigProvider: config.otterConfigProvider,
+    otterRepo: config.otterRepo,
   }, logger);
 }
