@@ -247,6 +247,7 @@ Commit 3: [F20260729c113][quality][BugFix] PiSessionFactory 注入 OtterReposito
 | SSE 等待方式 | Promise 直接存 resolve | 通知链路已存在，只需接通 |
 | OtterRepository 注入方式 | 完整接口注入 | 构造函数风格一致，不为单方法开窄接口 |
 | abort kind 分配 | `conflict` 用于状态冲突 | 代码库已有 2 处 `conflict` + `DOMAIN_ERROR_STATUS` 已映射 409；语义精确匹配 |
+| complete/fail kind 不一致 | 本次不改，属历史遗留 | `complete()`/`fail()` 对同类模式（"Cannot [verb] message with status"）用 `validation`(400)，`abort` 用 `conflict`(409)。`conflict` 语义更精确，后续 sweep 可统一 |
 | config 测试处理 | 删除 frozen 测试块 | 测实现细节（frozen）而非正确性，barrel Proxy 已覆盖 |
 
 ---
@@ -302,6 +303,25 @@ Commit 3: [F20260729c113][quality][BugFix] PiSessionFactory 注入 OtterReposito
 
 **阻塞项处理**: #1 kind 分配修正为 `conflict`，文档事实错误已修正。
 
+### 第三轮对抗检视
+
+**检视方**: 架构师 agent（最终审查）
+**日期**: 2026-07-29
+
+**结果**: 全部通过（8 项 PASS，无阻塞项）
+
+| # | 评级 | 检视意见 | 决策 |
+|---|------|----------|------|
+| 1 | PASS | complete/fail 对同类模式用 `validation`，abort 用 `conflict` 存在不一致 | 补充设计决策记录：complete/fail 为历史遗留，后续 sweep 统一 |
+| 2 | PASS | 测试文件 config 变量清理需连带处理 | 补充实施步骤 |
+| 3 | PASS | 无新发现 | — |
+| 4 | PASS | 建议补充调用处代码片段 | 文档已描述，实施时参照 |
+| 5-8 | PASS | 无新发现 | — |
+
+**新发现盲点**:
+- barrel Proxy 的 `Object.keys()` / `JSON.stringify()` 行为与 frozen 对象不同（当前无代码使用，不在范围）
+- #1 风险标 LOW 但优先级 P0 存在不一致（文档内部一致性问题）
+
 ---
 
-*本方案经过两轮对抗检视，由 issue #113 检视报告驱动。*
+*本方案经过三轮对抗检视，由 issue #113 检视报告驱动。*
