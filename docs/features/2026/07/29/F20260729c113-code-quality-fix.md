@@ -18,7 +18,7 @@
 | # | 问题 | 文件 | 风险 | 优先级 |
 |---|------|------|------|--------|
 | 1 | `abort()` 抛 `Error` 而非 `DomainError` | `send-message.ts:293-303` | LOW | P0 bug fix |
-| 2 | 模块级副作用读取文件系统 | `config-service.ts:232` | LOW-MED | P1 |
+| 2 | 模块级副作用读取文件系统 | `config-service.ts:232` | MEDIUM | P1 |
 | 3 | 框架层绕过 Repository 直接查 DB | `pi-session-factory.ts:393` | MEDIUM | P2 |
 | 4 | SSE 忙等待轮询浪费 CPU | `sse-streamer.ts:80` | LOW-MED | P1 |
 | 5 | `callHistory` 无界增长 | `tool-call-circuit-breaker.ts:179` | LOW | P1 |
@@ -45,6 +45,14 @@
 **方案**: 替换 4 处 `throw new Error` → `throw new DomainError`：
 - `Message not found` → kind: `"not_found"`
 - 其余 3 处 → kind: `"validation"`
+
+**kind 分配决策**: 对抗检视建议 `Cannot abort message with status` 使用 `conflict`(409)。**不采纳**：`conflict` 在整个代码库中从未使用（全仓只有 `validation` 和 `not_found` 两种 kind），为一个 case 引入新 kind 需要同步修改 `DOMAIN_ERROR_STATUS` 映射和前端错误处理，超出 bugfix 范围。`validation`(400) 语义上也成立——"操作在当前状态下不允许"本质是输入校验失败。**保持与全仓风格一致。**
+
+**测试补充**: 现有 abort 测试（`send-message.test.ts:753+`）仅覆盖 happy path。需补充 4 个 error path 测试用例：
+- message not found → 404
+- invalid status → 400
+- empty body → 400
+- invalid talkingStonePassedTo → 400
 
 **依赖**: `DomainError` 已在文件头部 import，零新增依赖。
 
@@ -128,9 +136,11 @@ if (this.callHistory.length > ToolCallCircuitBreaker.MAX_HISTORY) {
 
 **barrel 已有惰性方案**: `src/frameworks/config/index.ts` 用 `Proxy` + `initConfig()`/`getConfig()` 实现惰性初始化，不 re-export config-service 的 `config`。
 
-**方案**: 删除 `config-service.ts:232`。`loadConfig` 函数保留（`main.ts` 启动时用）。
+**方案**:
+1. 删除 `config-service.ts:232`。`loadConfig` 函数保留（`main.ts` 启动时用）。
+2. 更新 `tests/frameworks/config-service.test.ts`：该文件第 17 行直接导入 `config`（`typeof import("../../src/frameworks/config-service").config`），第 130-143 行测试 `config` 是否 frozen 且结构正确。删除导出后测试编译失败。**处理方式**：删除该测试块——barrel 的 Proxy config 已有独立行为，测试 eager-load 的 frozen 属性是测实现细节而非正确性。
 
-**风险评估**: grep 确认无文件直接从 `config-service` 导入 `config`（均通过 barrel）。但需注意测试文件中是否有直接 import——需在 worktree 中 grep 确认。
+**风险评估（MEDIUM）**: 生产代码均通过 barrel 导入 config，无影响。风险在于测试文件的同步修改：删除 `config` 导出 + 删除对应测试块。风险来自改动范围（测试文件），而非语义差异。
 
 ---
 
@@ -160,6 +170,10 @@ if (queue.length === 0) {
 删除 `onWait` 参数。调用处 `streamEvents` 删除 `() => { waiting = null; }` 传参。
 
 **边界情况**: `close()` 在无人等待时调用 `waiting?.()` 是 no-op（waiting 为 null）——与当前行为一致。Promise resolve 后 `waiting` 不会被显式置 null，但下次循环若队列仍空会重新赋值 `waiting = resolve`，不会 double-resolve。
+
+**测试补充**: 需覆盖 Promise 通知路径的边界场景：
+- push 在等待中被调用 → 事件正确消费
+- close 在等待中被调用 → 循环正确退出
 
 ---
 
@@ -208,12 +222,12 @@ Commit 3: [F20260729c113][quality][BugFix] PiSessionFactory 注入 OtterReposito
 
 ## 验证方式
 
-- **#1**: 单元测试验证 abort 抛出 DomainError 且 kind 正确
+- **#1**: 补充 4 个 error path 测试（message not found / invalid status / empty body / invalid talkingStonePassedTo），验证抛出 DomainError 且 kind 正确
 - **#5/#6**: 单元测试验证 push 超限后数组长度不超 MAX
 - **#7**: 检查 SchedulerService 构造接受 logger，错误走 logger.error
 - **#8**: TypeScript 编译通过（类型引用正确）
-- **#2**: `npm test` 通过（config 惰性加载不影响启动）
-- **#4**: SSE 流式测试通过（事件不丢失、close 正确终止）
+- **#2**: 删除 config-service 测试块 + `npm test` 通过
+- **#4**: 补充 Promise 通知路径测试（push/close 在等待中被调用），SSE 流式测试通过
 - **#3**: 身份注入功能测试通过（name 正确注入到 prompt）
 - **全量**: `npm test` + `npm run build` 通过
 
@@ -228,6 +242,43 @@ Commit 3: [F20260729c113][quality][BugFix] PiSessionFactory 注入 OtterReposito
 | config 副作用删除 vs 改懒加载 | 删除 | barrel 已有 Proxy 懒加载，源文件这行是遗留 |
 | SSE 等待方式 | Promise 直接存 resolve | 通知链路已存在，只需接通 |
 | OtterRepository 注入方式 | 完整接口注入 | 构造函数风格一致，不为单方法开窄接口 |
+| abort kind 分配 | 保持 `validation` | `conflict` 全仓未使用，不为单 case 引入新 kind |
+| config 测试处理 | 删除 frozen 测试块 | 测实现细节（frozen）而非正确性，barrel Proxy 已覆盖 |
+
+---
+
+## 不在范围
+
+原始 issue #113 提到但本次不修复的问题：
+
+| 问题 | 排除理由 |
+|------|----------|
+| 1.1 过度使用 `as` 类型断言 | 长期重构项，需逐处引入运行时验证（zod/io-ts），改动面大，不适合 bugfix |
+| 2.2 错误静默吞没（store-memory / agent-invoker） | 需逐处评估错误语义（是否应上抛、重试、死信），单独 issue 跟踪 |
+| 3.2 `activeSessions` Map 无界 | 依赖进程崩溃场景，已有 finally 清理；若需更稳健应加 TTL eviction，属功能增强 |
+| 3.3 进程信号处理（缺 SIGTERM） | 功能增强，需评估 graceful shutdown 策略，单独 issue 跟踪 |
+| 5.x 代码重复（术语搜索 / 系统消息创建） | 重构项，不影响正确性，单独 issue 跟踪 |
+| 6.x SRP 违反（main.ts / send-message / pi-session-factory） | 大型重构，每个文件需独立拆分方案，不适合本次 |
+| 7.x 命名不一致（Repository 方法 / PiSessionFactory 类名） | 命名规范统一需全仓 sweep，涉及 API 变更，单独 issue 跟踪 |
+
+---
+
+## 对抗检视记录
+
+### 第一轮对抗检视
+
+**检视方**: 架构师 agent（对抗性审查）
+**日期**: 2026-07-29
+
+**结果**: 有条件通过（8 项中 1 项 CONCERN）
+
+| # | 评级 | 检视意见 | 决策 |
+|---|------|----------|------|
+| 1 | PASS | kind 应考虑 `conflict`(409)；需补 error path 测试 | kind 保持 `validation`（理由见上）；采纳测试补充 |
+| 2 | CONCERN | 测试文件直接导入 config 会 break；Proxy vs frozen 语义差异 | 采纳测试影响；拒绝语义差异论（过度推演），风险上调 MEDIUM 的理由是测试文件改动 |
+| 3 | PASS | 需确认 `initAgentSessionFactory` 级联 | 采纳，实施时确认 |
+| 4 | PASS | 需补 Promise 通知路径测试 | 采纳 |
+| 5-8 | PASS | 无改进 | — |
 
 ---
 
