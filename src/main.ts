@@ -481,7 +481,8 @@ async function main(): Promise<void> {
   const uc = initUseCases(repos, agentGateway, embeddingService);
 
   /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
-  const otterToolClient = buildOtterToolClient(uc); agentGateway.setOtterToolClient(otterToolClient);
+  const otterToolClient = buildOtterToolClient(uc);
+  agentGateway.setOtterToolClient(otterToolClient);
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway);
 
@@ -494,9 +495,7 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({
-    uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser,
-  });
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser });
   startServer(controllers, appConfig.server.port);
 
   schedulerService.start().catch((err) => {

@@ -149,7 +149,7 @@ describe("PiSessionFactory 身份注入触发链路（pendingIdentity / createdN
     const otterRepo = {
       getById: async (id: string) => {
         const row = db.prepare("SELECT id, name, type FROM otters WHERE id = ?").get(id) as { id: string; name: string; type: string } | undefined;
-        return row ? { id: row.id, name: row.name, type: row.type, status: 'active', createdAt: '' } as never : null;
+        return row ? { id: row.id, name: row.name, type: row.type, status: 'active', role: null, parentOtterId: null, createdAt: '', dissolvedAt: null } : null;
       },
     } as unknown as OtterRepository;
     const factory = new PiSessionFactory({
@@ -278,7 +278,7 @@ describe("PiSessionFactory pendingIdentity 回归锁（真实 create/reset/destr
     const otterRepo = {
       getById: async (id: string) => {
         const row = db.prepare("SELECT id, name, type FROM otters WHERE id = ?").get(id) as { id: string; name: string; type: string } | undefined;
-        return row ? { id: row.id, name: row.name, type: row.type, status: 'active', createdAt: '' } as never : null;
+        return row ? { id: row.id, name: row.name, type: row.type, status: 'active', role: null, parentOtterId: null, createdAt: '', dissolvedAt: null } : null;
       },
     } as unknown as OtterRepository;
     const factory = new PiSessionFactory({
