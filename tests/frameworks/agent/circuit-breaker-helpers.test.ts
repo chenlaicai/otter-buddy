@@ -38,6 +38,11 @@ function sdkToolStart(toolName: string, args: unknown = {}) {
   return { type: "tool_execution_start", toolCallId: `tc-${toolName}`, toolName, args };
 }
 
+/** 构造 pi-coding-agent SDK 形状的 tool_execution_end 事件 */
+function sdkToolEnd(toolName: string) {
+  return { type: "tool_execution_end", toolCallId: `tc-${toolName}`, toolName };
+}
+
 function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerConfig {
   return { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...overrides };
 }
@@ -214,7 +219,7 @@ describe("attachCircuitBreaker", () => {
     }
   });
 
-  it("per-event 超时：下一次工具调用重置 timer，不误触发", () => {
+  it("per-event 超时：tool_execution_end 清除 timer，LLM 思考时间不计入", () => {
     vi.useFakeTimers();
     try {
       const session = mockSession();
@@ -227,18 +232,49 @@ describe("attachCircuitBreaker", () => {
         abortOverride,
       );
 
-      // 第一次调用
+      // 第一次工具调用：执行 3 秒后完成
       session.emit(sdkToolStart("tool_1"));
-      // 推进 4 秒（未超时）
-      vi.advanceTimersByTime(4000);
-      // 第二次调用重置 timer
-      session.emit(sdkToolStart("tool_2"));
-      // 再推进 4 秒（从第二次算起未超时）
-      vi.advanceTimersByTime(4000);
+      vi.advanceTimersByTime(3000);
+      session.emit(sdkToolEnd("tool_1"));
+
+      // LLM 思考 8 秒（超过阈值，但不计入 per-event 超时）
+      vi.advanceTimersByTime(8000);
       expect(abortOverride).not.toHaveBeenCalled();
 
-      // 再推进 2 秒（从第二次算起共 6 秒，超过 5 秒阈值）
-      vi.advanceTimersByTime(2000);
+      // 第二次工具调用：执行 4 秒后完成
+      session.emit(sdkToolStart("tool_2"));
+      vi.advanceTimersByTime(4000);
+      session.emit(sdkToolEnd("tool_2"));
+      expect(abortOverride).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：单次工具执行超过阈值即触发（不含思考时间）", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 工具执行 4 秒后完成
+      session.emit(sdkToolStart("tool_1"));
+      vi.advanceTimersByTime(4000);
+      session.emit(sdkToolEnd("tool_1"));
+
+      // LLM 思考 3 秒
+      vi.advanceTimersByTime(3000);
+
+      // 第二次工具执行，这次超过阈值
+      session.emit(sdkToolStart("tool_2"));
+      vi.advanceTimersByTime(5001);
       expect(abortOverride).toHaveBeenCalledOnce();
       expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
     } finally {
