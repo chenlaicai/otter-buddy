@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
+import remarkGfm from 'remark-gfm'
 import type { Code, Nodes } from 'mdast'
 import { remarkHtmlCardIndex } from './remark-html-card-index'
 
-/** 解析 + 转换后收集所有 html-card 围栏的 fenceIndex（按文档序） */
+/** 解析 + 转换后收集所有 html-card 围栏的 fenceIndex（按文档序）。
+ *  管线与 MessageList 的 REMARK_PLUGINS 对齐（remarkGfm singleTilde:false + index 插件） */
 function fenceIndexesOf(md: string): Array<number | undefined> {
-  const processor = unified().use(remarkParse).use(remarkHtmlCardIndex)
+  const processor = unified().use(remarkParse).use(remarkGfm, { singleTilde: false }).use(remarkHtmlCardIndex)
   const tree = processor.runSync(processor.parse(md))
   const indexes: Array<number | undefined> = []
   const visit = (node: Nodes) => {

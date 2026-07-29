@@ -288,6 +288,12 @@ otterCard.submit({
 - submit 节流补齐（设计明文但实现遗漏）；fenceIndex 缺失 fail-closed；预览丢弃判据改"消息不再含该卡围栏"（收起卡片不丢预览）；cardId 格式断言钉住
 - 教训：**文档审查与代码审查是两种不同的审视**——设计文档七轮全绿不代表实现忠实，"照契约使用即出错"的缺陷只有对着代码跑契约才能发现
 
+**第九轮（修复后复审——"最新修复最可疑"再次应验）**
+- **GFM 配置漂移**：渲染管线挂 remarkGfm 而后端剥离/前端 derive/插件测试都是裸 parse——R8 声称消灭的分叉只是从裸正则换成配置漂移。footnote definition 是 GFM 容器块，卡片写进脚注时三条解析链判定分裂（预览误丢/索引污染/回执闸门绕过）。三处解析点统一 `remarkParse + remarkGfm({singleTilde:false})` 与渲染管线逐字节对齐（实证零回归），共享向量补 footnote 用例
+- **BOM 使 position 切片偏移一字符**：micromark 在剥 BOM 后的值上算 offset，切片落原串错位——R8 切片机制自身的边界缺陷。解析前剥 BOM，向量钉住
+- **registry 生命周期分支测试补齐** + 顺手加固：registerCard 覆盖登记时清理旧 window 反向映射（旧 iframe 的 postMessage 不再被认领）
+- 教训：**"统一解析"必须统一到配置层**——同一颗 remark 树，插件配置不同就是两种语言
+
 ## 改动清单
 
 **后端**：

@@ -5,7 +5,13 @@
 
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
+import remarkGfm from 'remark-gfm'
 import type { Code, Nodes } from 'mdast'
+
+/** 解析管线必须与渲染管线（react-markdown 挂 remarkGfm singleTilde:false）逐字节对齐：
+ *  GFM 的 footnote definition 是容器块，裸 parse 与渲染对容器内围栏判定会分裂（R9） */
+const parseMd = (body: string) =>
+  unified().use(remarkParse).use(remarkGfm, { singleTilde: false }).parse(body)
 
 /** 单消息卡片预算：第 3 张起前端降级为源码块 */
 export const CARD_MAX_PER_MESSAGE = 2
@@ -30,7 +36,7 @@ function collectCodeNodes(body: string): Code[] {
     if (node.type === 'code') codes.push(node as Code)
     if ('children' in node) for (const child of node.children) visit(child)
   }
-  visit(unified().use(remarkParse).parse(body))
+  visit(parseMd(body))
   return codes
 }
 

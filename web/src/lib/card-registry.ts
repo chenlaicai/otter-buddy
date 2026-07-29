@@ -15,6 +15,10 @@ const byWindow = new Map<Window, string>()
 const byId = new Map<string, CardEntry>()
 
 export function registerCard(entry: CardEntry): void {
+  /** 同 cardId 重挂载（重展开）：清理旧 window 的反向映射——
+   *  旧 iframe 已脱离 DOM，其 postMessage 不应再被认领（source 白名单只含存活 iframe） */
+  const prev = byId.get(entry.cardId)
+  if (prev && prev.contentWindow !== entry.contentWindow) byWindow.delete(prev.contentWindow)
   byWindow.set(entry.contentWindow, entry.cardId)
   byId.set(entry.cardId, entry)
 }

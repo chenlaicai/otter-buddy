@@ -137,6 +137,16 @@ export const HTML_CARD_STRIP_VECTORS: HtmlCardStripTestVector[] = [
     input: '- 项目\n    ```html-card title="嵌套"\n    <div/>\n    ```\n- 之后',
     expected: "- 项目\n    [html-card: 嵌套]\n- 之后",
   },
+  {
+    name: "GFM footnote 定义内的围栏：footnote 是容器块，正常剥离（R9：解析管线挂 remarkGfm 与渲染对齐）",
+    input: '[^注]: 脚注\n\n    ```html-card title="脚注卡"\n    <div/>\n    ```\n\n正文',
+    expected: "[^注]: 脚注\n\n    [html-card: 脚注卡]\n\n正文",
+  },
+  {
+    name: "首部 BOM：剥除 BOM 后切片不错位（micromark offset 基于剥 BOM 后的值）",
+    input: '\uFEFF前文\n\n```html-card title="b"\n<x/>\n```\n\n后文',
+    expected: "前文\n\n[html-card: b]\n\n后文",
+  },
 ];
 
 /** 已回复集合派生（deriveRepliedCardIds）的共享向量：前端消费。

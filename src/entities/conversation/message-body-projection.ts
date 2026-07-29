@@ -18,7 +18,14 @@
  */
 
 import { remark } from "remark";
+import remarkGfm from "remark-gfm";
 import type { Code, Nodes } from "mdast";
+
+/**
+ * 解析管线必须与前端渲染（react-markdown 挂 remarkGfm singleTilde:false）逐字节对齐：
+ * GFM 的 footnote definition 是容器块，裸 parse 与渲染管线对容器内围栏判定会分裂（R9）。
+ */
+const parser = () => remark().use(remarkGfm, { singleTilde: false });
 
 /** 剥离选项：stripReplies=false 时只剥 html-card，保留 html-card-reply 原文（注入出口） */
 export interface StripHtmlCardOptions {
@@ -74,9 +81,11 @@ function collectFenceReplacements(tree: Nodes, stripReplies: boolean): FenceRepl
 export function stripHtmlCardFences(body: string, options?: StripHtmlCardOptions): string {
   const stripReplies = options?.stripReplies ?? true;
   if (!body.includes("html-card")) return body;
-  const replacements = collectFenceReplacements(remark().parse(body), stripReplies);
+  /** micromark 在剥离 BOM 后的值上计算 offset，切片落在原串会整体偏移一字符（R9）：先剥 BOM（投影文本无需保留） */
+  const src = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
+  const replacements = collectFenceReplacements(parser().parse(src), stripReplies);
   /** 从后往前替换，先替换不影响前面区间的 offset */
-  let out = body;
+  let out = src;
   for (const r of [...replacements].sort((a, b) => b.start - a.start)) {
     out = out.slice(0, r.start) + r.placeholder + out.slice(r.end);
   }
