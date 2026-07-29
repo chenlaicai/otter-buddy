@@ -95,7 +95,7 @@ describe('mergeMessages', () => {
   })
 
   it('双方进行中时保留 events 更长的一方（M7）', () => {
-    const evts = (n: number) => Array.from({ length: n }, (_, i) => ({ eventType: 'assistant_text', payload: { i } }))
+    const evts = (n: number) => Array.from({ length: n }, (_, i) => ({ ts: '2026-07-24T00:00:00Z', eventType: 'assistant_text', payload: { i } }))
     const current = [msg({ id: 'a', status: 'streaming', events: evts(5) })]
     const snapshot = [msg({ id: 'a', status: 'streaming', events: evts(3) })]
     expect(mergeMessages(current, snapshot)[0].events).toHaveLength(5)

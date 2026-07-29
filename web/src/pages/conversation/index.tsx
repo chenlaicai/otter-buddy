@@ -196,7 +196,7 @@ function ConversationPage() {
       if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); return }
 
       /** 按 messageId 隔离的 liveEvents 与 otter 元信息（每个 otter 独立，仅本次发送流程内使用） */
-      const liveEventsMap = new Map<string, Array<{ eventType: string; payload: Record<string, unknown> }>>()
+      const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
       const liveMeta = new Map<string, { otterId: string; otterName?: string }>()
 
       /** SSE 事件就地更新 allMessages 中的进行中消息（统一渲染通道：消息流只有 allMessages 一条） */
