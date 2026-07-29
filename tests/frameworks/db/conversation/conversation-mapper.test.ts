@@ -68,7 +68,6 @@ describe("rowToMessage", () => {
     sender_id: "user-1",
     status: "completed",
     body: "你好",
-    attachments: null,
     sequence_num: 1,
     turn_id: "turn-1",
     talking_stone_passed_to: null,
@@ -105,23 +104,6 @@ describe("rowToMessage", () => {
   it("talking_stone_passed_to 为 null 时返回 null", () => {
     const result = rowToMessage(baseRow);
     expect(result.talkingStonePassedTo).toBeNull();
-  });
-
-  it("attachments 为字符串时 JSON.parse 为数组", () => {
-    const row: MessageRow = {
-      ...baseRow,
-      attachments: '[{"type":"image","url":"https://example.com/img.png"}]',
-    };
-
-    const result = rowToMessage(row);
-    expect(result.attachments).toEqual([
-      { type: "image", url: "https://example.com/img.png" },
-    ]);
-  });
-
-  it("attachments 为 null 时返回 null", () => {
-    const result = rowToMessage(baseRow);
-    expect(result.attachments).toBeNull();
   });
 
   it("contextTokens 和 contextTokensMax 正确映射", () => {

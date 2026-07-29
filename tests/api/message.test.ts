@@ -93,7 +93,6 @@ describe("Message API", () => {
         senderId: "user-1",
         talkingStonePassedTo: [],
         body: "Hello otter",
-        attachments: undefined,
       });
       /** 钉住关键行为：首轮派发以持久化消息的解析结果为准，而不是请求体的空数组 */
       await readSSEEvents(res);
@@ -119,7 +118,6 @@ describe("Message API", () => {
         senderId: "user-1",
         talkingStonePassedTo: [],
         body: "Hello",
-        attachments: undefined,
       });
     });
 
@@ -178,7 +176,6 @@ describe("Message API", () => {
         senderId: "user-1",
         talkingStonePassedTo: ["otter-1"],
         body: "Hello otter",
-        attachments: undefined,
       });
     });
 
@@ -365,5 +362,43 @@ describe("Message API", () => {
       expect(body.error).toContain("terminal");
       expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("Message API - 未读注入剥离投影（F20260728htar）", () => {
+  it("html-card 替换为占位符、html-card-reply 保留 JSON", async () => {
+    const deps = createMockDeps();
+    const app = createTestApp(deps);
+    const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
+    deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+    deps.sendMessageUseCase.repo.getUnreadMessages.mockResolvedValue([
+      makeMessage({
+        id: "otter-msg-1", senderType: "otter", senderId: "otter-1",
+        body: '看卡片\n```html-card title="方案对比"\n<table><tr><td>噪声</td></tr></table>\n```\n完',
+      }),
+      makeMessage({
+        id: "user-msg-0", senderType: "user", senderId: "user-1", sequenceNum: 0,
+        body: '选择了方案 B\n```html-card-reply card="otter-msg-1:0"\n{"choice":"B"}\n```',
+      }),
+    ]);
+    let invokedContent = "";
+    deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
+      invokedContent = params.userMessageContent;
+      return { messageId: "agent-msg-1", duration: 100 };
+    });
+
+    const res = await app.request("/api/conversations/conv-1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderId: "user-1", talkingStonePassedTo: ["otter-1"], body: "Hello otter" }),
+    });
+    expect(res.status).toBe(200);
+    await readSSEEvents(res);
+
+    /** 卡片剥离为占位符（不含 HTML 噪声）；回执 JSON 原样保留（水獭直接可解析） */
+    expect(invokedContent).toContain("[html-card: 方案对比]");
+    expect(invokedContent).not.toContain("<table>");
+    expect(invokedContent).toContain('```html-card-reply card="otter-msg-1:0"');
+    expect(invokedContent).toContain('{"choice":"B"}');
   });
 });

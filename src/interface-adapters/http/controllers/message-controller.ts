@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { canAbortMessage } from "@entities/conversation/message";
+import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -88,7 +89,6 @@ export class MessageController {
         senderId: body.senderId,
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         body: body.body,
-        attachments: body.attachments,
       });
 
       /** 3. 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
@@ -188,8 +188,10 @@ export class MessageController {
       return `${roster}\n\n## 当前任务\n${userMessageContent}`;
     }
     const names = await this.resolveSenderNames(unreadMessages);
+    /** 注入给剥离投影：html-card 替换为占位符（卡片源码经 get_message 按需取回）；
+     *  html-card-reply 不剥——回执 JSON 是水獭的交互载荷，须直接可见（F20260728htar） */
     const formatted = unreadMessages
-      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '搭档' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ?? ''}`)
+      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '搭档' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ? stripHtmlCardsOnly(m.body) : ''}`)
       .join('\n');
     return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
   }

@@ -14,7 +14,6 @@ function mockMessage(overrides: Partial<Message> = {}): Message {
     talkingStonePassedTo: ["otter-1"],
     status: "completed",
     body: "消息",
-    attachments: null,
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,

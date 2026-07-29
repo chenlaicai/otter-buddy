@@ -26,7 +26,6 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     seq: msg.sequenceNum,
     tsp: msg.talkingStonePassedTo,
     turnId: msg.turnId,
-    attachments: msg.attachments,
     ...(senderName !== undefined && { sn: senderName }),
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),

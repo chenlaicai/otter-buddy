@@ -1,5 +1,6 @@
-import { Archive } from 'lucide-react'
+import { Archive, ShieldAlert } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
+import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
 
@@ -13,6 +14,10 @@ interface ChatViewProps {
   onGoToSettings: () => void
   onArchive: () => void
   otters: Otter[]
+  /** 卡片提交待确认预览（输入框上方单槽位） */
+  cardPreview?: CardPreview | null
+  onConfirmCard?: () => void
+  onRejectCard?: () => void
 }
 
 export function ChatView(props: ChatViewProps) {
@@ -60,6 +65,38 @@ export function ChatView(props: ChatViewProps) {
         onGoToSettings={props.onGoToSettings}
         otters={props.otters}
       />
+
+      {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}
+      {props.cardPreview && (
+        <div className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/60 px-4 py-3 flex-shrink-0">
+          <div className="flex items-start gap-1.5 text-[11px] text-amber-700 mb-2">
+            <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>以下内容由水獭卡片生成，请核对后发送；已提交的卡片不可重复提交，修改答案请让水獭重发新卡</span>
+          </div>
+          <div className="text-sm text-stone-700 whitespace-pre-wrap break-all mb-2">{props.cardPreview.summary}</div>
+          {props.cardPreview.dataJson !== null && (
+            <details open className="mb-2">
+              <summary className="text-[11px] text-stone-500 cursor-pointer select-none">数据 JSON（全文）</summary>
+              <pre className="mt-1 text-[11px] text-stone-500 bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap break-all max-h-[240px] overflow-y-auto">{props.cardPreview.dataJson}</pre>
+            </details>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={props.onConfirmCard}
+              className="px-3 py-1 text-xs font-medium text-white rounded-xl shadow-glow transition"
+              style={{ background: 'linear-gradient(135deg,#A88260,#8B6F47)' }}
+            >
+              发送
+            </button>
+            <button
+              onClick={props.onRejectCard}
+              className="px-3 py-1 text-xs glass-card text-stone-500 rounded-xl transition hover:bg-white/50"
+            >
+              拒绝
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <MessageInput

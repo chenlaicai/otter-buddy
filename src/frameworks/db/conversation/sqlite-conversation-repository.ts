@@ -1,7 +1,6 @@
 import type Database from "better-sqlite3";
 import type {
   ArtifactStatus,
-  Attachment,
   Conversation,
   ConversationParticipant,
   ConversationStatus,
@@ -9,6 +8,7 @@ import type {
   Turn,
 } from "@entities/conversation/conversation";
 import type { Message, MessageEvent } from "@entities/conversation/message";
+import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import type {
   ConversationRepository,
   GetMessagesOptions,
@@ -30,6 +30,17 @@ import { escapeFtsQuery } from "../fts-utils";
 
 export class SqliteConversationRepository implements ConversationRepository {
   constructor(private readonly db: Database.Database) {}
+
+  /**
+   * 应用层 FTS upsert（F20260728htar：废触发器后由 repository 接管）。
+   * messages_fts.body 存 html-card 剥离投影；messages.body 原文不动。
+   * 调用方必须在 db.transaction() 内使用（写消息 + FTS 同事务，中间崩溃不漂移）。
+   */
+  private upsertMessageFts(messageId: string, body: string): void {
+    this.db.prepare("DELETE FROM messages_fts WHERE message_id = ?").run(messageId);
+    this.db.prepare("INSERT INTO messages_fts (message_id, body) VALUES (?, ?)")
+      .run(messageId, stripHtmlCardFences(body));
+  }
 
   // ── Conversation CRUD ──
 
@@ -134,79 +145,104 @@ export class SqliteConversationRepository implements ConversationRepository {
   // ── Message 生命周期 ──
 
   async createCompletedMessage(message: Message): Promise<void> {
-    this.db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-        attachments, sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
-      VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      message.id, message.conversationId, message.senderType, message.senderId,
-      message.body, message.attachments ? JSON.stringify(message.attachments) : null,
-      message.sequenceNum, message.turnId,
-      message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
-      message.contextTokens, message.contextTokensMax, message.createdAt,
-    );
+    this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
+          sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
+        VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        message.id, message.conversationId, message.senderType, message.senderId,
+        message.body,
+        message.sequenceNum, message.turnId,
+        message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
+        message.contextTokens, message.contextTokensMax, message.createdAt,
+      );
+      this.upsertMessageFts(message.id, message.body ?? "");
+    })();
   }
 
   async createStreamingMessage(message: Message): Promise<void> {
-    this.db.prepare(`
-      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-        attachments, sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
-      VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      message.id, message.conversationId, message.senderType, message.senderId,
-      message.body, message.attachments ? JSON.stringify(message.attachments) : null,
-      message.sequenceNum, message.turnId,
-      message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
-      message.contextTokens, message.contextTokensMax, message.createdAt,
-    );
+    this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
+          sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
+        VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        message.id, message.conversationId, message.senderType, message.senderId,
+        message.body,
+        message.sequenceNum, message.turnId,
+        message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
+        message.contextTokens, message.contextTokensMax, message.createdAt,
+      );
+      /** body=null 时 FTS 写空串（复制旧触发器 COALESCE(NEW.body, '') 语义） */
+      this.upsertMessageFts(message.id, message.body ?? "");
+    })();
   }
 
   async startSpeaking(messageId: string, body: string, talkingStonePassedTo: string[]): Promise<void> {
-    const result = this.db.prepare(`
-      UPDATE messages SET status = 'speaking', body = ?, talking_stone_passed_to = ?
-      WHERE id = ? AND status = 'streaming'
-    `).run(body, JSON.stringify(talkingStonePassedTo), messageId);
-    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
+    this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE messages SET status = 'speaking', body = ?, talking_stone_passed_to = ?
+        WHERE id = ? AND status = 'streaming'
+      `).run(body, JSON.stringify(talkingStonePassedTo), messageId);
+      if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
+      this.upsertMessageFts(messageId, body);
+    })();
   }
 
   async completeMessage(input: {
     messageId: string; body: string; talkingStonePassedTo: string[];
-    attachments: Attachment[] | null; completedAt: string;
+    completedAt: string;
     contextTokens?: number; contextTokensMax?: number;
   }): Promise<void> {
-    const result = this.db.prepare(`
-      UPDATE messages SET status = 'completed', body = ?, talking_stone_passed_to = ?, attachments = ?,
-        context_tokens = ?, context_tokens_max = ?, completed_at = ?
-      WHERE id = ? AND status = 'speaking'
-    `).run(
-      input.body, JSON.stringify(input.talkingStonePassedTo),
-      input.attachments ? JSON.stringify(input.attachments) : null,
-      input.contextTokens ?? null, input.contextTokensMax ?? null,
-      input.completedAt, input.messageId,
-    );
-    if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in speaking status`);
+    this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE messages SET status = 'completed', body = ?, talking_stone_passed_to = ?,
+          context_tokens = ?, context_tokens_max = ?, completed_at = ?
+        WHERE id = ? AND status = 'speaking'
+      `).run(
+        input.body, JSON.stringify(input.talkingStonePassedTo),
+        input.contextTokens ?? null, input.contextTokensMax ?? null,
+        input.completedAt, input.messageId,
+      );
+      if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in speaking status`);
+      this.upsertMessageFts(input.messageId, input.body);
+    })();
   }
 
   async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
-    const updates: string[] = ["status = 'failed'", "completed_at = ?"];
-    const params: unknown[] = [failedAt];
-    if (body !== undefined) { updates.unshift("body = ?"); params.unshift(body); }
-    if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
-    params.push(messageId);
-    const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status IN ('streaming', 'speaking')`).run(...params);
-    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+    this.db.transaction(() => {
+      const updates: string[] = ["status = 'failed'", "completed_at = ?"];
+      const params: unknown[] = [failedAt];
+      if (body !== undefined) { updates.unshift("body = ?"); params.unshift(body); }
+      if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
+      params.push(messageId);
+      const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status IN ('streaming', 'speaking')`).run(...params);
+      if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+      /** 仅本次写入了 body 才 upsert（body 未变时旧触发器也不点火） */
+      if (body !== undefined) this.upsertMessageFts(messageId, body);
+    })();
   }
 
   async failInFlightMessages(failedAt: string, body: string): Promise<number> {
     /** streaming（body 为 null）写入中断说明；speaking 保留已有 speak body 但加中断标记前缀，
-     *  避免半截 body 被其它 otter 当作完整发言读入上下文（F5） */
-    const result = this.db.prepare(`
-      UPDATE messages SET status = 'failed',
-        body = CASE WHEN body IS NULL THEN ? ELSE ? || char(10) || char(10) || body END,
-        completed_at = ?
-      WHERE status IN ('streaming', 'speaking')
-    `).run(body, body, failedAt);
-    return result.changes;
+     *  避免半截 body 被其它 otter 当作完整发言读入上下文（F5）。
+     *  F20260728htar：批量 SQL 改"SELECT 受影响行 → JS 合成新 body → 逐行 UPDATE + FTS upsert"。 */
+    return this.db.transaction(() => {
+      const rows = this.db.prepare(
+        "SELECT id, body FROM messages WHERE status IN ('streaming', 'speaking')",
+      ).all() as { id: string; body: string | null }[];
+      const update = this.db.prepare(`
+        UPDATE messages SET status = 'failed', body = ?, completed_at = ?
+        WHERE id = ? AND status IN ('streaming', 'speaking')
+      `);
+      for (const row of rows) {
+        const newBody = row.body === null ? body : `${body}\n\n${row.body}`;
+        update.run(newBody, failedAt, row.id);
+        this.upsertMessageFts(row.id, newBody);
+      }
+      return rows.length;
+    })();
   }
 
   async closeOrphanedTurns(closedAt: string): Promise<number> {
@@ -226,11 +262,14 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async abortMessage(messageId: string, body: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
-    const result = this.db.prepare(`
-      UPDATE messages SET status = 'aborted', body = ?, talking_stone_passed_to = ?, completed_at = ?
-      WHERE id = ? AND status IN ('streaming', 'speaking')
-    `).run(body, JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
-    if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+    this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE messages SET status = 'aborted', body = ?, talking_stone_passed_to = ?, completed_at = ?
+        WHERE id = ? AND status IN ('streaming', 'speaking')
+      `).run(body, JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
+      if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+      this.upsertMessageFts(messageId, body);
+    })();
   }
 
   async getMaxSequenceNum(conversationId: string): Promise<number> {
@@ -334,7 +373,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(row => ({
       id: row.id, conversationId, senderType: row.sender_type as 'user' | 'otter' | 'system',
       senderId: row.sender_id, status: 'completed' as const, body: row.body,
-      attachments: null, sequenceNum: row.sequence_num, turnId: '',
+      sequenceNum: row.sequence_num, turnId: '',
       talkingStonePassedTo: null, contextTokens: null, contextTokensMax: null,
       createdAt: '', completedAt: null,
     }));
@@ -344,13 +383,15 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   async searchMessages(conversationId: string, query: string, limit = 10): Promise<Message[]> {
     const escaped = escapeFtsQuery(query);
+    /** 返回 fts.body（剥离投影）而非 messages.body 原文——检索出口不含 HTML 卡片源码；
+     *  消息其他字段仍取 m.*，body 用 fts.body 覆盖。回看源码走 getMessageById。 */
     const rows = this.db.prepare(`
-      SELECT m.* FROM messages m
+      SELECT m.*, fts.body AS fts_body FROM messages m
       INNER JOIN messages_fts fts ON fts.message_id = m.id
       WHERE m.conversation_id = ? AND messages_fts MATCH ?
       ORDER BY rank LIMIT ?
-    `).all(conversationId, escaped, limit) as MessageRow[];
-    return rows.map(rowToMessage);
+    `).all(conversationId, escaped, limit) as (MessageRow & { fts_body: string })[];
+    return rows.map(row => ({ ...rowToMessage(row), body: row.fts_body }));
   }
 
   // ── Turn 历史 ──

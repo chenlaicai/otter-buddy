@@ -1,4 +1,5 @@
 import type { AgentTool, ToolContext } from "./tool-factory";
+import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
 import { textResponse } from "./tool-helpers";
 
 export function createGetMessageTool(ctx: ToolContext): AgentTool {
@@ -42,7 +43,9 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
       });
       return textResponse(JSON.stringify(messages.map(m => ({
         id: m.id, senderType: m.senderType, senderId: m.senderId,
-        body: m.body, status: m.status, sequenceNum: m.sequenceNum, createdAt: m.createdAt,
+        /** 注入出口给剥离投影：html-card 替换为占位符（源码经 get_message 取回）；
+         *  html-card-reply 不剥（回执 JSON 是交互载荷，须直接可见） */
+        body: m.body === null ? null : stripHtmlCardsOnly(m.body), status: m.status, sequenceNum: m.sequenceNum, createdAt: m.createdAt,
       }))));
     },
   };
@@ -95,7 +98,9 @@ export function createGetTurnHistoryTool(ctx: ToolContext): AgentTool {
           status: entry.turn.status, createdAt: entry.turn.createdAt, closedAt: entry.turn.closedAt,
         },
         messages: entry.messages.map(m => ({
-          id: m.id, senderType: m.senderType, senderId: m.senderId, body: m.body, sequenceNum: m.sequenceNum,
+          id: m.id, senderType: m.senderType, senderId: m.senderId,
+          /** 与 list_messages 同款剥离投影（只剥 html-card，回执 JSON 保留） */
+          body: m.body === null ? null : stripHtmlCardsOnly(m.body), sequenceNum: m.sequenceNum,
         })),
       }))));
     },

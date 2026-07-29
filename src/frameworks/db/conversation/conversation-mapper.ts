@@ -1,6 +1,5 @@
 import type {
   ArtifactStatus,
-  Attachment,
   Conversation,
   ConversationStatus,
   ConversationParticipant,
@@ -35,7 +34,6 @@ export interface MessageRow {
   sender_id: string;
   status: string;
   body: string | null;
-  attachments: string | null;
   sequence_num: number;
   turn_id: string;
   talking_stone_passed_to: string | null;
@@ -123,9 +121,6 @@ export function rowToMessage(row: MessageRow): Message {
       : null,
     status: row.status as MessageStatus,
     body: row.body,
-    attachments: row.attachments
-      ? (JSON.parse(row.attachments) as Attachment[])
-      : null,
     sequenceNum: row.sequence_num,
     contextTokens: row.context_tokens,
     contextTokensMax: row.context_tokens_max,

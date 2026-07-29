@@ -89,7 +89,6 @@ function createMessageTables(db: Database.Database): void {
       sender_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'completed',
       body TEXT,
-      attachments TEXT,
       sequence_num INTEGER NOT NULL,
       turn_id TEXT NOT NULL,
       talking_stone_passed_to TEXT,
@@ -382,7 +381,10 @@ function createOtterContextTable(db: Database.Database): void {
   `);
 }
 
-/** 消息全文搜索（search_messages 工具支撑，trigram 分词） */
+/** 消息全文搜索（search_messages 工具支撑，trigram 分词）。
+ *  F20260728htar：FTS 写入改应用层（repository 写剥离投影），触发器废弃。
+ *  保留 DROP TRIGGER IF EXISTS：老库 sqlite_master 里已存在的触发器必须卸掉，
+ *  否则"触发器写原文 + 应用层写剥离文本"双写。 */
 function createMessagesFtsTable(db: Database.Database): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -392,20 +394,8 @@ function createMessagesFtsTable(db: Database.Database): void {
     );
 
     DROP TRIGGER IF EXISTS messages_fts_insert;
-    CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages BEGIN
-      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
-    END;
-
     DROP TRIGGER IF EXISTS messages_fts_delete;
-    CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
-      DELETE FROM messages_fts WHERE message_id = OLD.id;
-    END;
-
     DROP TRIGGER IF EXISTS messages_fts_update;
-    CREATE TRIGGER messages_fts_update AFTER UPDATE OF body ON messages BEGIN
-      DELETE FROM messages_fts WHERE message_id = OLD.id;
-      INSERT INTO messages_fts(message_id, body) VALUES (NEW.id, COALESCE(NEW.body, ''));
-    END;
   `);
 }
 

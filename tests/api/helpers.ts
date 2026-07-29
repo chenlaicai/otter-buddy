@@ -123,7 +123,6 @@ export function makeMessage(overrides: Partial<{
   talkingStonePassedTo: string[] | null;
   status: string;
   body: string | null;
-  attachments: unknown[] | null;
   sequenceNum: number;
   contextTokens: number | null;
   contextTokensMax: number | null;
@@ -140,7 +139,6 @@ export function makeMessage(overrides: Partial<{
     talkingStonePassedTo: overrides.talkingStonePassedTo ?? ["otter-1"],
     status: overrides.status ?? "completed",
     body: overrides.body ?? "Hello world",
-    attachments: overrides.attachments ?? null,
     sequenceNum: overrides.sequenceNum ?? 1,
     contextTokens: overrides.contextTokens ?? null,
     contextTokensMax: overrides.contextTokensMax ?? null,

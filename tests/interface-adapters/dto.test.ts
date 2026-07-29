@@ -16,7 +16,7 @@ describe("MessageDTO", () => {
       id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
       senderType: "user", senderId: "user-1",
       talkingStonePassedTo: ["otter-1"], status: "completed",
-      body: "Hello", attachments: null,
+      body: "Hello",
       sequenceNum: 1, contextTokens: null, contextTokensMax: null,
       createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:02Z",
     };
@@ -37,7 +37,7 @@ describe("MessageDTO", () => {
       id: "msg-2", conversationId: "conv-1", turnId: "turn-1",
       senderType: "otter", senderId: "otter-1",
       talkingStonePassedTo: null, status: "streaming",
-      body: null, attachments: null,
+      body: null,
       sequenceNum: 2, contextTokens: null, contextTokensMax: null,
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
     };
@@ -52,7 +52,7 @@ describe("MessageDTO", () => {
       id: "msg-3", conversationId: "conv-1", turnId: "turn-1",
       senderType: "otter", senderId: "otter-1",
       talkingStonePassedTo: ["user-1"], status: "completed",
-      body: "你好", attachments: null,
+      body: "你好",
       sequenceNum: 3, contextTokens: null, contextTokensMax: null,
       createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
     };

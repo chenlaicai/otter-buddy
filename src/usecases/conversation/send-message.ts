@@ -1,4 +1,3 @@
-import type { Attachment } from "@entities/conversation/conversation";
 import { DomainError } from "@entities/errors";
 import type {
   Message,
@@ -14,6 +13,7 @@ import {
   isValidCompletedMessageBody,
   isValidTalkingStonePass,
 } from "@entities/conversation/message";
+import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { canAddMessageToTurn } from "@entities/conversation/conversation";
 import type { ConversationRepository } from "./conversation-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
@@ -29,7 +29,6 @@ export interface SendMessageInput {
   senderId: string;
   talkingStonePassedTo: string[];
   body: string;
-  attachments?: Attachment[];
 }
 
 /** Otter 开始流式消息输入 */
@@ -37,7 +36,6 @@ export interface StartMessageInput {
   conversationId: string;
   senderId: string;
   talkingStonePassedTo: string[];
-  attachments?: Attachment[];
 }
 
 /** 流式事件输入 */
@@ -51,7 +49,6 @@ export interface MessageEventInput {
 export interface CompleteMessageInput {
   body: string;
   talkingStonePassedTo: string[];
-  attachments?: Attachment[];
   contextTokens?: number;
   contextTokensMax?: number;
 }
@@ -89,11 +86,12 @@ export class SendMessage {
   async send(input: SendMessageInput): Promise<Message> {
     const senderType = input.senderType ?? "user";
 
-    /** 用户未指定目标（无 @）时，由领域规则解析默认派发目标 */
-    const talkingStonePassedTo =
-      senderType === "user" && input.talkingStonePassedTo.length === 0
-        ? await this.resolveDefaultTargets(input.conversationId)
-        : input.talkingStonePassedTo;
+    /** 用户消息统一走目标解析：空目标按领域规则解析默认派发；
+     *  显式目标（@ / 卡片回执路由）校验"在场 + otter 未解散"，不合法退默认派发（F20260728htar）。
+     *  system 消息豁免校验（定时任务链：目标獭解散后任务消息不应被静默改派）。 */
+    const talkingStonePassedTo = senderType === "user"
+      ? await this.resolveUserTargets(input.conversationId, input.talkingStonePassedTo)
+      : input.talkingStonePassedTo;
 
     /** UA-8: completed 消息必须传递发言石（system 豁免） */
     if (!isValidTalkingStonePass(talkingStonePassedTo, "completed", senderType)) {
@@ -116,7 +114,6 @@ export class SendMessage {
       talkingStonePassedTo,
       status: "completed",
       body: input.body,
-      attachments: input.attachments ?? null,
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -126,8 +123,8 @@ export class SendMessage {
 
     await this._repo.createCompletedMessage(message);
 
-    /** B11: 索引消息内容到记忆系统 */
-    await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
+    /** B11: 索引消息内容到记忆系统（html-card 剥离投影，与 FTS 一致） */
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(input.body));
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this.repo, turn.id);
@@ -166,7 +163,6 @@ export class SendMessage {
       talkingStonePassedTo: input.talkingStonePassedTo,
       status: "streaming",
       body: null,
-      attachments: input.attachments ?? null,
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -238,18 +234,18 @@ export class SendMessage {
     }
 
     const { body, talkingStonePassedTo } = this.resolveCompleteParams(message, input);
-    const attachments = input?.attachments !== undefined ? input.attachments : message.attachments;
     const now = new Date().toISOString();
 
     await this._repo.completeMessage({
-      messageId, body, talkingStonePassedTo, attachments, completedAt: now,
+      messageId, body, talkingStonePassedTo, completedAt: now,
       contextTokens: input?.contextTokens, contextTokensMax: input?.contextTokensMax,
     });
-    await this.memoryIndex.indexMessage(message.id, message.conversationId, body);
+    /** 索引记忆用剥离投影（html-card 源码不入索引，与 FTS 一致） */
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(body));
     const turnClose = await tryCloseTurn(this.repo, message.turnId);
 
     return {
-      message: { ...message, status: "completed", body, talkingStonePassedTo, attachments, completedAt: now },
+      message: { ...message, status: "completed", body, talkingStonePassedTo, completedAt: now },
       turnClose,
     };
   }
@@ -309,8 +305,8 @@ export class SendMessage {
     const now = new Date().toISOString();
     await this._repo.abortMessage(messageId, input.body, input.talkingStonePassedTo, now);
 
-    /** B-4: 索引消息 body 到记忆系统（中断标记可识别） */
-    await this.memoryIndex.indexMessage(message.id, message.conversationId, input.body);
+    /** B-4: 索引消息 body 到记忆系统（中断标记可识别；html-card 剥离投影，与 FTS 一致） */
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(input.body));
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this.repo, message.turnId);
@@ -340,7 +336,6 @@ export class SendMessage {
       talkingStonePassedTo: [],
       status: "completed",
       body,
-      attachments: null,
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -394,6 +389,44 @@ export class SendMessage {
       "Cannot resolve default dispatch target: no last speaker and no big otter among participants",
       "validation",
     );
+  }
+
+  /**
+   * 解析用户消息的发言石目标（F20260728htar）：
+   * - 空目标：按领域规则解析默认派发（resolveDefaultTargets）
+   * - 显式目标（@ 提及 / 卡片回执路由到卡片作者）：校验"在场 + otter.status==='active'"
+   *   （与 resolveDefaultTargets 同款判据）。全部不合法退默认派发；部分不合法过滤掉。
+   *   顺带修复存量洞：用户 @ 此前无校验，会复活已解散的獭。
+   */
+  private async resolveUserTargets(conversationId: string, explicit: string[]): Promise<string[]> {
+    if (explicit.length === 0) {
+      return this.resolveDefaultTargets(conversationId);
+    }
+
+    const participants = await this._repo.getActiveParticipants(conversationId);
+    const activeOtterIds = new Set(participants.map((p) => p.otterId));
+
+    const valid: string[] = [];
+    for (const id of explicit) {
+      if (!activeOtterIds.has(id)) continue;
+      const otter = await this.otterRepo.getById(id);
+      if (otter?.status === "active") {
+        valid.push(id);
+      }
+    }
+
+    if (valid.length === 0) {
+      this.logger.info('显式发言石目标全部不可用（不在场或已解散），退默认派发', {
+        conversationId, explicitTargets: explicit,
+      });
+      return this.resolveDefaultTargets(conversationId);
+    }
+    if (valid.length < explicit.length) {
+      this.logger.info('部分显式发言石目标不可用（不在场或已解散），已过滤', {
+        conversationId, explicitTargets: explicit, validTargets: valid,
+      });
+    }
+    return valid;
   }
 
   /** 确保活跃 Turn 存在，无则创建新 Turn */

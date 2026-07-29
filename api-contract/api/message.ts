@@ -1,5 +1,3 @@
-import type { Attachment } from "./conversation";
-
 /** 消息响应 DTO（前端短字段名映射，D57） */
 export interface MessageDTO {
   id: string;
@@ -12,7 +10,6 @@ export interface MessageDTO {
   seq: number;
   tsp: string[] | null;
   turnId: string;
-  attachments: Attachment[] | null;
   /** 发送者显示名（otter 消息为 otter 名；user/system 省略） */
   sn?: string;
   ctx?: number;
@@ -36,5 +33,4 @@ export interface SendMessageRequestDTO {
   /** 发言石目标（@ 指定的 otter）。缺省或空数组表示未指定，由后端按默认规则解析（回复最后发言者，兜底大獭） */
   talkingStonePassedTo?: string[];
   body: string;
-  attachments?: Attachment[];
 }

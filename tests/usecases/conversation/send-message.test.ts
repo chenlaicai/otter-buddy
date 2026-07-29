@@ -235,7 +235,6 @@ function completedMessage(overrides: Partial<Message> = {}): Message {
     talkingStonePassedTo: ["otter-1"],
     status: "completed",
     body: "你好",
-    attachments: null,
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
@@ -256,7 +255,6 @@ function streamingMessage(overrides: Partial<Message> = {}): Message {
     talkingStonePassedTo: [],
     status: "streaming",
     body: null,
-    attachments: null,
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
@@ -269,8 +267,8 @@ function streamingMessage(overrides: Partial<Message> = {}): Message {
 describe("SendMessage", () => {
   describe("send", () => {
     it("创建已完成消息，返回 status=completed", async () => {
-      const repo = mockRepo();
-      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
+      const repo = mockRepo({ participants: [makeParticipant({ otterId: "otter-1" })] });
+      const sm = new SendMessage(repo, mockOtterRepo([makeOtter({ id: "otter-1" })]), mockMemoryIndex(), mockLogger());
 
       const msg = await sm.send({
         conversationId: "conv-1",
@@ -284,6 +282,132 @@ describe("SendMessage", () => {
       expect(msg.senderType).toBe("user");
       expect(msg.conversationId).toBe("conv-1");
     });
+
+    it("记忆索引写入 html-card 剥离投影（卡片源码不入索引）", async () => {
+      const repo = mockRepo({ participants: [makeParticipant({ otterId: "otter-1" })] });
+      /** 副作用断言：捕获实际索引的文本 */
+      const indexedContents: string[] = [];
+      const memoryIndex: MemoryIndexGateway = {
+        indexMessage: vi.fn(async (_id: string, _convId: string, content: string) => { indexedContents.push(content); }),
+        indexLinkedResource: vi.fn(),
+        indexFeature: vi.fn(),
+        indexResearch: vi.fn(),
+      };
+      const sm = new SendMessage(repo, mockOtterRepo([makeOtter({ id: "otter-1" })]), memoryIndex, mockLogger());
+
+      await sm.send({
+        conversationId: "conv-1",
+        senderId: "user-1",
+        talkingStonePassedTo: ["otter-1"],
+        body: '前言\n```html-card title="方案对比"\n<table/>\n```\n后记',
+      });
+
+      expect(indexedContents).toEqual(["前言\n[html-card: 方案对比]\n后记"]);
+    });
+  });
+});
+
+describe("SendMessage 显式目标校验（F20260728htar：在场 + otter 未解散）", () => {
+  it("显式目标在场且 active：原样保留", async () => {
+    const repo = mockRepo({ participants: [makeParticipant({ otterId: "otter-1" })] });
+    const sm = new SendMessage(repo, mockOtterRepo([makeOtter({ id: "otter-1" })]), mockMemoryIndex(), mockLogger());
+
+    const msg = await sm.send({
+      conversationId: "conv-1",
+      senderId: "user-1",
+      talkingStonePassedTo: ["otter-1"],
+      body: "回执",
+    });
+
+    expect(msg.talkingStonePassedTo).toEqual(["otter-1"]);
+  });
+
+  it("显式目标已解散：全部不合法退默认派发（兜底在场大獭，已解散者不被复活）", async () => {
+    const repo = mockRepo({
+      participants: [
+        makeParticipant({ otterId: "otter-big" }),
+        makeParticipant({ id: "p-2", otterId: "otter-dissolved" }),
+      ],
+    });
+    const sm = new SendMessage(
+      repo,
+      mockOtterRepo([
+        makeOtter({ id: "otter-big", type: "big" }),
+        makeOtter({ id: "otter-dissolved", status: "dissolved", dissolvedAt: "2026-01-02T00:00:00Z" }),
+      ]),
+      mockMemoryIndex(),
+      mockLogger(),
+    );
+
+    const msg = await sm.send({
+      conversationId: "conv-1",
+      senderId: "user-1",
+      talkingStonePassedTo: ["otter-dissolved"],
+      body: "回执",
+    });
+
+    expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
+  });
+
+  it("显式目标不在场（无参与记录）：退默认派发", async () => {
+    const repo = mockRepo({ participants: [makeParticipant({ otterId: "otter-big" })] });
+    const sm = new SendMessage(
+      repo,
+      mockOtterRepo([makeOtter({ id: "otter-big", type: "big" })]),
+      mockMemoryIndex(),
+      mockLogger(),
+    );
+
+    const msg = await sm.send({
+      conversationId: "conv-1",
+      senderId: "user-1",
+      talkingStonePassedTo: ["otter-ghost"],
+      body: "回执",
+    });
+
+    expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
+  });
+
+  it("部分目标不合法：过滤后保留合法目标，不退默认派发", async () => {
+    const repo = mockRepo({
+      participants: [
+        makeParticipant({ otterId: "otter-1" }),
+        makeParticipant({ id: "p-2", otterId: "otter-dissolved" }),
+      ],
+    });
+    const sm = new SendMessage(
+      repo,
+      mockOtterRepo([
+        makeOtter({ id: "otter-1" }),
+        makeOtter({ id: "otter-dissolved", status: "dissolved", dissolvedAt: "2026-01-02T00:00:00Z" }),
+      ]),
+      mockMemoryIndex(),
+      mockLogger(),
+    );
+
+    const msg = await sm.send({
+      conversationId: "conv-1",
+      senderId: "user-1",
+      talkingStonePassedTo: ["otter-1", "otter-dissolved"],
+      body: "回执",
+    });
+
+    expect(msg.talkingStonePassedTo).toEqual(["otter-1"]);
+  });
+
+  it("system 消息豁免校验：显式目标不在场也原样保留（定时任务链不改派）", async () => {
+    const repo = mockRepo();
+    const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
+
+    const msg = await sm.send({
+      conversationId: "conv-1",
+      senderType: "system",
+      senderId: "system",
+      talkingStonePassedTo: ["otter-dissolved"],
+      body: "定时任务触发",
+    });
+
+    expect(msg.talkingStonePassedTo).toEqual(["otter-dissolved"]);
   });
 });
 
@@ -470,8 +594,8 @@ describe("SendMessage", () => {
     });
 
     it("无活跃 Turn 时自动创建新 Turn", async () => {
-      const repo = mockRepo({ activeTurn: null, maxTurnNumber: 2 });
-      const sm = new SendMessage(repo, mockOtterRepo(), mockMemoryIndex(), mockLogger());
+      const repo = mockRepo({ activeTurn: null, maxTurnNumber: 2, participants: [makeParticipant({ otterId: "otter-1" })] });
+      const sm = new SendMessage(repo, mockOtterRepo([makeOtter({ id: "otter-1" })]), mockMemoryIndex(), mockLogger());
 
       const msg = await sm.send({
         conversationId: "conv-1",

@@ -15,6 +15,7 @@ import { ConversationModals, type ModalState } from './Modals'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
+import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 
@@ -362,6 +363,13 @@ function ConversationPage() {
     }
   }, [activeId, activeOtters, refreshMessages])
 
+  /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
+  const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
+    activeId,
+    messages: activeMessages,
+    onSendReply: (body, authorId) => { handleSend(body, authorId) },
+  })
+
   const stopStream = useCallback((messageId: string) => {
     if (!activeId) return
     /** 乐观更新为已中断（即时反馈）；随后以服务端为该消息的权威状态收敛 */
@@ -558,7 +566,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings.html' }} onArchive={handleArchive} otters={activeOtters} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings.html' }} onArchive={handleArchive} otters={activeOtters} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
