@@ -44,13 +44,17 @@
 
 **方案**: 替换 4 处 `throw new Error` → `throw new DomainError`：
 - `Message not found` → kind: `"not_found"`
-- 其余 3 处 → kind: `"validation"`
+- `Cannot abort message with status` → kind: `"conflict"`（资源状态冲突，非输入校验）
+- 其余 2 处（body / talkingStonePassedTo） → kind: `"validation"`
 
-**kind 分配决策**: 对抗检视建议 `Cannot abort message with status` 使用 `conflict`(409)。**不采纳**：`conflict` 在整个代码库中从未使用（全仓只有 `validation` 和 `not_found` 两种 kind），为一个 case 引入新 kind 需要同步修改 `DOMAIN_ERROR_STATUS` 映射和前端错误处理，超出 bugfix 范围。`validation`(400) 语义上也成立——"操作在当前状态下不允许"本质是输入校验失败。**保持与全仓风格一致。**
+**kind 分配决策**: `Cannot abort message with status` 使用 `conflict`(409) 而非 `validation`(400)。理由：
+- 代码库已有 2 处使用 `conflict`：`manage-participant.ts:43`（Otter already joined）、`manage-session.ts:58`（Otter already has active session）
+- `DOMAIN_ERROR_STATUS` 已映射 `conflict: 409`，无需修改映射表或前端
+- 语义精确：消息 status 是资源状态，不是客户端输入；"资源当前状态不允许该操作" = conflict
 
 **测试补充**: 现有 abort 测试（`send-message.test.ts:753+`）仅覆盖 happy path。需补充 4 个 error path 测试用例：
 - message not found → 404
-- invalid status → 400
+- invalid status → 409
 - empty body → 400
 - invalid talkingStonePassedTo → 400
 
@@ -242,7 +246,7 @@ Commit 3: [F20260729c113][quality][BugFix] PiSessionFactory 注入 OtterReposito
 | config 副作用删除 vs 改懒加载 | 删除 | barrel 已有 Proxy 懒加载，源文件这行是遗留 |
 | SSE 等待方式 | Promise 直接存 resolve | 通知链路已存在，只需接通 |
 | OtterRepository 注入方式 | 完整接口注入 | 构造函数风格一致，不为单方法开窄接口 |
-| abort kind 分配 | 保持 `validation` | `conflict` 全仓未使用，不为单 case 引入新 kind |
+| abort kind 分配 | `conflict` 用于状态冲突 | 代码库已有 2 处 `conflict` + `DOMAIN_ERROR_STATUS` 已映射 409；语义精确匹配 |
 | config 测试处理 | 删除 frozen 测试块 | 测实现细节（frozen）而非正确性，barrel Proxy 已覆盖 |
 
 ---
@@ -274,12 +278,30 @@ Commit 3: [F20260729c113][quality][BugFix] PiSessionFactory 注入 OtterReposito
 
 | # | 评级 | 检视意见 | 决策 |
 |---|------|----------|------|
-| 1 | PASS | kind 应考虑 `conflict`(409)；需补 error path 测试 | kind 保持 `validation`（理由见上）；采纳测试补充 |
+| 1 | PASS | kind 应考虑 `conflict`(409)；需补 error path 测试 | 初版保持 `validation`；第二轮检视发现 `conflict` 已有 2 处使用，改为采纳 `conflict` |
 | 2 | CONCERN | 测试文件直接导入 config 会 break；Proxy vs frozen 语义差异 | 采纳测试影响；拒绝语义差异论（过度推演），风险上调 MEDIUM 的理由是测试文件改动 |
 | 3 | PASS | 需确认 `initAgentSessionFactory` 级联 | 采纳，实施时确认 |
 | 4 | PASS | 需补 Promise 通知路径测试 | 采纳 |
 | 5-8 | PASS | 无改进 | — |
 
+### 第二轮对抗检视
+
+**检视方**: 架构师 agent（对抗性审查）
+**日期**: 2026-07-29
+
+**结果**: 有条件通过（8 项中 1 项 REJECT）
+
+| # | 评级 | 检视意见 | 决策 |
+|---|------|----------|------|
+| 1 | REJECT | "conflict 全仓未使用"是事实错误——已在 2 处生产代码使用 | 采纳：`Cannot abort with status` 改用 `conflict`(409) |
+| 2 | PASS | 删除测试块决策正确 | — |
+| 3 | PASS | 级联影响已正确评估 | — |
+| 4 | PASS | Promise 通知方案正确 | — |
+| 5-8 | PASS | 无改进 | — |
+| 不在范围 | PASS | 排除理由充分，无遗漏高价值项 | — |
+
+**阻塞项处理**: #1 kind 分配修正为 `conflict`，文档事实错误已修正。
+
 ---
 
-*本方案基于架构师视角对抗性审查，由 issue #113 检视报告驱动。*
+*本方案经过两轮对抗检视，由 issue #113 检视报告驱动。*
