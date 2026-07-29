@@ -90,8 +90,9 @@ onSSEEvent?.({ event: "message.start", data: {
 ## 设计决策
 
 1. **中间事件用客户端时间 `nowTs()` 而非扩展 SSE 契约**：event 间耗时差异在秒级，客户端时钟偏差不影响可读性；扩展每个 SSE 事件携带 `createdAt` 改动面大，当前不需要。
-2. **实时计时 100ms 刷新间隔**：视觉流畅（~10fps），CPU 开销可忽略（单个 `Date.now()` + DOM 更新）。
-3. **消息头部显示服务端 createdAt**：保证刷新后重新加载的时间一致性。
+2. **`nowTs()` 统一使用 ISO 8601 格式**：原先 `toLocaleString('zh-CN')` 返回的 locale 格式（`"2026/7/29 17:00:00"`）在 Safari 中无法被 `Date.parse()` 解析（返回 NaN），且与服务端 ISO 格式混用会导致时区偏移。统一改为 `toISOString()`。
+3. **实时计时 100ms 刷新间隔**：视觉流畅（~10fps），CPU 开销可忽略（单个 `Date.now()` + DOM 更新）。
+4. **消息头部显示服务端 createdAt**：保证刷新后重新加载的时间一致性。
 
 ## 涉及文件
 
@@ -99,9 +100,12 @@ onSSEEvent?.({ event: "message.start", data: {
 |------|------|
 | `api-contract/sse/events.ts` | `message.start` 类型加 `createdAt` |
 | `src/interface-adapters/agent-runtime/agent-invoker.ts` | `message.start` 事件加 `createdAt` |
+| `web/src/lib/utils.ts` | `nowTs()` 改为 ISO 8601 格式 |
 | `web/src/lib/mappers.ts` | `LocalMessageEvent` 加 `ts` |
-| `web/src/pages/conversation/index.tsx` | SSE handler 事件携带时间戳 + message.start 用服务端时间 |
-| `web/src/pages/conversation/MessageList.tsx` | EventItem 耗时 + StreamingProcess 实时计时 + 消息头部开始时间 |
+| `web/src/pages/conversation/index.tsx` | SSE handler 事件携带时间戳 + message.start 用服务端时间 + DB 事件 createdAt null guard |
+| `web/src/pages/conversation/MessageList.tsx` | EventItem 耗时 + StreamingProcess 实时计时 + 消息头部开始时间 + useEffect 依赖优化 |
+| `tests/api/message.test.ts` | message.start mock 补齐 createdAt |
+| `tests/interface-adapters/agent-invoker.test.ts` | 断言 message.start 携带 createdAt |
 
 ## 测试
 

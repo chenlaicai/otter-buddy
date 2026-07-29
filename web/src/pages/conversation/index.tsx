@@ -32,8 +32,8 @@ function mapMessageDTOs(msgs: Awaited<ReturnType<typeof api.listMessages>>): Loc
   return msgs.map((msg) => {
     const local = mapMessageDTO(msg)
     if (local.st === 'otter' && msg.events && msg.events.length > 0) {
-      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown>; createdAt: string }) => ({
-        ts: e.createdAt,
+      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown>; createdAt?: string }) => ({
+        ts: e.createdAt || local.ts,
         eventType: e.eventType,
         payload: e.payload,
       }))

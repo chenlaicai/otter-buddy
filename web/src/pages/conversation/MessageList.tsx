@@ -330,13 +330,13 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
   /** 流式进行中：实时计时 */
   const [elapsed, setElapsed] = useState<string | null>(null)
   useEffect(() => {
-    if (!inFlight || events.length === 0) return
+    if (!inFlight || events.length === 0) { setElapsed(null); return }
     const startTs = new Date(events[0].ts).getTime()
     const tick = () => setElapsed(`${((Date.now() - startTs) / 1000).toFixed(1)}s`)
     tick()
     const timer = setInterval(tick, 100)
     return () => clearInterval(timer)
-  }, [inFlight, events])
+  }, [inFlight, events.length, events[0]?.ts])
   const statusLabel = inFlight
     ? `进行中 · ${elapsed || '...'}`
     : status === 'failed'
