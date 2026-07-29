@@ -227,6 +227,3 @@ export function loadConfig(logger?: Logger): AppConfig {
 
   return config;
 }
-
-/** 不可变配置对象。启动时从 config.yaml 加载，运行期间不变。 */
-export const config: AppConfig = Object.freeze(loadConfig());

@@ -57,8 +57,8 @@ export function streamEvents(
     await processSSEQueue(stream, queue, () => closed, () => {
       closed = true;
       logSSEClose(logger, requestId, conversationId, startTime, 'terminal_event');
-    }, () => {
-      waiting = null;
+    }, (resolve) => {
+      waiting = resolve;
     });
   });
 
@@ -73,12 +73,11 @@ async function processSSEQueue(
   queue: SSEEvent[],
   isClosed: () => boolean,
   onTerminalEvent: () => void,
-  onWait: () => void,
+  setWaiting: (resolve: () => void) => void,
 ): Promise<void> {
   while (!isClosed()) {
     if (queue.length === 0) {
-      await new Promise<void>((resolve) => { setTimeout(resolve, 10) });
-      onWait();
+      await new Promise<void>((resolve) => { setWaiting(resolve); });
       continue;
     }
 
