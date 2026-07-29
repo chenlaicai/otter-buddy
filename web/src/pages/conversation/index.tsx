@@ -32,7 +32,8 @@ function mapMessageDTOs(msgs: Awaited<ReturnType<typeof api.listMessages>>): Loc
   return msgs.map((msg) => {
     const local = mapMessageDTO(msg)
     if (local.st === 'otter' && msg.events && msg.events.length > 0) {
-      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown> }) => ({
+      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown>; createdAt: string }) => ({
+        ts: e.createdAt,
         eventType: e.eventType,
         payload: e.payload,
       }))
@@ -216,7 +217,7 @@ function ConversationPage() {
           /** 进行中消息按服务端 sequence 插入消息流（M5：跨 otter 并发时序正确；同 id 原位替换兼容轮询快照） */
           const placeholder: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: otterName,
-            content: '', status: 'streaming', seq: data.seq, ts: nowTs(), dur: null, events: [],
+            content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
           }
           setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
           /** 确保发言者在参与者列表中（流中途 create_otter 的新獭）；fill-only，不覆盖已有条目 */
@@ -232,21 +233,21 @@ function ConversationPage() {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId)
           if (!liveEvents) return
-          liveEvents.push({ eventType: 'assistant_toolcall', payload: { content: data.content } })
+          liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
           syncLiveEvents(messageId)
         },
         'tool.result': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId)
           if (!liveEvents) return
-          liveEvents.push({ eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
+          liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
           syncLiveEvents(messageId)
         },
         'assistant_text': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId)
           if (!liveEvents) return
-          liveEvents.push({ eventType: 'assistant_text', payload: { content: data.content } })
+          liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
           syncLiveEvents(messageId)
         },
         'message.complete': (data) => {
