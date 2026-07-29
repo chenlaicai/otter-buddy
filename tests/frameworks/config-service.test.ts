@@ -8,19 +8,17 @@ vi.mock("node:fs", () => ({
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
 }));
 
-// Provide a default config so the module-level `config` export doesn't throw
+// Provide a default config so loadConfig tests work
 mockExistsSync.mockReturnValue(true);
 mockReadFileSync.mockReturnValue("llm:\n  provider: openai\n  model: gpt-4o\n");
 
 let validate: typeof import("../../src/frameworks/config-service").validate;
 let loadConfig: typeof import("../../src/frameworks/config-service").loadConfig;
-let config: typeof import("../../src/frameworks/config-service").config;
 
 beforeAll(async () => {
   const mod = await import("../../src/frameworks/config-service");
   validate = mod.validate;
   loadConfig = mod.loadConfig;
-  config = mod.config;
 });
 
 beforeEach(() => {
@@ -127,17 +125,3 @@ describe("loadConfig", () => {
   });
 });
 
-describe("config export", () => {
-  it("is frozen (immutable)", () => {
-    expect(Object.isFrozen(config)).toBe(true);
-  });
-
-  it("has expected structure", () => {
-    expect(config).toHaveProperty("db");
-    expect(config).toHaveProperty("server");
-    expect(config).toHaveProperty("memory");
-    expect(config).toHaveProperty("embedding");
-    expect(config).toHaveProperty("llm");
-    expect(config).toHaveProperty("circuitBreaker");
-  });
-});

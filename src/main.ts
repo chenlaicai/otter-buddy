@@ -439,6 +439,7 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGat
     sendMessage: uc.sendMessage,
     agentInvokePort,
     cronParser,
+    logger,
     manageScheduledTask: uc.manageScheduledTask,
   });
 
@@ -474,6 +475,7 @@ async function main(): Promise<void> {
     identityPromptDir: "./prompts/identity",
     createTools,
     otterConfigProvider,
+    otterRepo: repos.otter,
   }, logger);
 
   const uc = initUseCases(repos, agentGateway, embeddingService);
@@ -493,9 +495,7 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({
-    uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser,
-  });
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser });
   startServer(controllers, appConfig.server.port);
 
   schedulerService.start().catch((err) => {

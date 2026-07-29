@@ -175,6 +175,7 @@ function detectSlidingWindowRepeat(
 }
 
 export class ToolCallCircuitBreaker {
+  private static readonly MAX_HISTORY = 100;
   private callCount = 0;
   private readonly callHistory: string[] = [];
   private consecutiveCount = 0;
@@ -199,6 +200,9 @@ export class ToolCallCircuitBreaker {
     this.callCount++;
     const signature = buildToolSignature(toolName, args);
     this.callHistory.push(signature);
+    if (this.callHistory.length > ToolCallCircuitBreaker.MAX_HISTORY) {
+      this.callHistory.shift();
+    }
     this.updateConsecutive(signature);
 
     const result = this.evaluate(signature);

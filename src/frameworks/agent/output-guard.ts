@@ -39,6 +39,7 @@ export interface OutputGuardMetadata {
 }
 
 export class OutputGuard {
+  private static readonly MAX_SEGMENTS = 200;
   private accumulated = "";
   private readonly recentSegments: string[] = [];
   private segmentCheckCount = 0;
@@ -78,6 +79,9 @@ export class OutputGuard {
       targetLength,
     );
     this.recentSegments.push(segment);
+    if (this.recentSegments.length > OutputGuard.MAX_SEGMENTS) {
+      this.recentSegments.shift();
+    }
     this.segmentCheckCount++;
 
     // 5. 每 checkInterval 个片段检查一次重复

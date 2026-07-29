@@ -7,8 +7,17 @@ import type { AgentInvokePort } from '@usecases/scheduler/agent-invoke-port';
 import type { ManageScheduledTask, TaskChangeCallback } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import { DomainError } from '@entities/errors';
+import type { Logger } from '@usecases/ports/logger';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
+
+const mockLogger: Logger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: vi.fn(() => mockLogger),
+};
 
 /** 创建一个标准的 active 任务实体 */
 function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
@@ -278,6 +287,7 @@ describe('SchedulerService - start/stop', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       await service.start();
@@ -316,6 +326,7 @@ describe('SchedulerService - start/stop', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       await service.start();
@@ -343,6 +354,7 @@ describe('SchedulerService - start/stop', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       await service.start();
@@ -374,6 +386,7 @@ describe('SchedulerService - start/stop', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       await service.start();
@@ -416,6 +429,7 @@ describe('SchedulerService - trigger', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       const result = await service.trigger('task-1');
@@ -453,6 +467,7 @@ describe('SchedulerService - trigger', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       const err = await service.trigger('nonexistent').catch(e => e);
@@ -478,6 +493,7 @@ describe('SchedulerService - trigger', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       const err = await service.trigger('task-1').catch(e => e);
@@ -508,6 +524,7 @@ describe('SchedulerService - trigger', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       const err = await service.trigger('task-1').catch(e => e);
@@ -542,6 +559,7 @@ describe('SchedulerService - trigger', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       const err = await service.trigger('task-1').catch(e => e);
@@ -576,6 +594,7 @@ describe('SchedulerService - trigger', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       const err = await service.trigger('task-1').catch(e => e);
@@ -623,6 +642,7 @@ describe('SchedulerService - error handling', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       const err = await service.trigger('task-1').catch(e => e);
@@ -662,6 +682,7 @@ describe('SchedulerService - error handling', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       // 连续触发 3 次
@@ -695,6 +716,7 @@ describe('SchedulerService - error handling', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
       });
 
       // 只触发 2 次
@@ -741,6 +763,7 @@ describe('SchedulerService - onChange', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
         manageScheduledTask: manageScheduledTask as unknown as ManageScheduledTask,
       });
 
@@ -778,6 +801,7 @@ describe('SchedulerService - onChange', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
         manageScheduledTask: manageScheduledTask as unknown as ManageScheduledTask,
       });
 
@@ -827,6 +851,7 @@ describe('SchedulerService - onChange', () => {
         sendMessage: sendMessage as unknown as SendMessage,
         agentInvokePort: agentInvoke as unknown as AgentInvokePort,
         cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
         manageScheduledTask: manageScheduledTask as unknown as ManageScheduledTask,
       });
 

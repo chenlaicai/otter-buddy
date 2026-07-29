@@ -290,16 +290,16 @@ export class SendMessage {
   async abort(messageId: string, input: AbortMessageInput): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
-      throw new Error(`Message not found: ${messageId}`);
+      throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
     if (!canAbortMessage(message.status)) {
-      throw new Error(`Cannot abort message with status: ${message.status}`);
+      throw new DomainError(`Cannot abort message with status: ${message.status}`, "conflict");
     }
     if (!isValidCompletedMessageBody(input.body)) {
-      throw new Error("body must be non-empty string");
+      throw new DomainError("body must be non-empty string", "validation");
     }
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "aborted", message.senderType)) {
-      throw new Error("talkingStonePassedTo must be non-empty for aborted messages");
+      throw new DomainError("talkingStonePassedTo must be non-empty for aborted messages", "validation");
     }
 
     const now = new Date().toISOString();
