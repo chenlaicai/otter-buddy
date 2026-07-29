@@ -233,32 +233,14 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   private async _destroyInternal(otterId: string): Promise<void> {
-    // 1. 中止所有相关的活跃 session（先复制 key 列表，避免迭代时修改 Map）
-    const keysToDelete: string[] = [];
-    for (const [key] of this.activeSessions.entries()) {
-      if (key === otterId || key.startsWith(`${otterId}:`)) {
-        keysToDelete.push(key);
-      }
-    }
-
-    // 2. 逐个中止并删除
-    for (const key of keysToDelete) {
+    // 中止所有相关的活跃 session（先复制 key 列表，避免迭代时修改 Map）
+    const prefix = `${otterId}:`;
+    for (const key of [...this.activeSessions.keys()].filter(k => k === otterId || k.startsWith(prefix))) {
       const entry = this.activeSessions.get(key);
-      if (entry) {
-        try {
-          await entry.abort();
-        } catch {
-          // abort 失败不阻塞销毁流程
-        }
-        this.activeSessions.delete(key);
-      }
+      if (entry) { try { await entry.abort(); } catch { /* abort 失败不阻塞销毁 */ } this.activeSessions.delete(key); }
     }
-
-    // 3. 删除持久化数据（不删除 session 文件，保留用于审计）
-    this.cfg.db.transaction(() => {
-      this.sessionStore.delete(otterId);
-      this.cfg.otterConfigProvider.deleteConfig(otterId);
-    })();
+    // 删除持久化数据（不删除 session 文件，保留用于审计）
+    this.cfg.db.transaction(() => { this.sessionStore.delete(otterId); this.cfg.otterConfigProvider.deleteConfig(otterId); })();
     this.pendingIdentity.delete(otterId);
   }
 
