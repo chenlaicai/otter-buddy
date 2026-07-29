@@ -20,6 +20,7 @@ export interface LocalConversation {
 
 /** 前端本地消息事件 */
 export interface LocalMessageEvent {
+  ts: string
   eventType: string
   payload: Record<string, unknown>
 }

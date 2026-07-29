@@ -1,6 +1,6 @@
 /** SSE 事件类型映射 */
 export type SSEEventMap = {
-  "message.start": { messageId: string; otterId: string; otterName: string; seq?: number };
+  "message.start": { messageId: string; otterId: string; otterName: string; seq?: number; createdAt: string };
   "assistant_toolcall": { messageId: string; content: Array<Record<string, unknown>> };
   "tool.result": { messageId: string; toolName: string; result: unknown };
   "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };

@@ -275,7 +275,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
-          <span className="text-[11px] msg-meta">{inFlight ? '正在回复...' : `${fmtTime(m.ts)}${dur}`}</span>
+          <span className="text-[11px] msg-meta">{inFlight ? `${fmtTime(m.ts)} · 正在回复...` : `${fmtTime(m.ts)}${dur}`}</span>
           {/* token 条在主流程位置（#88），但 ctx 缺失（进行中/历史未持久化）时不渲染（M3） */}
           {!isUser && m.ctx != null && (
             <span className="flex items-center gap-1.5 text-[10px] msg-meta ml-1">
@@ -327,8 +327,18 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
   const inFlight = status === 'streaming' || status === 'speaking'
   /** 进行中的流式过程默认展开（实时可见），终态默认折叠 */
   const [collapsed, setCollapsed] = useState(!inFlight)
+  /** 流式进行中：实时计时 */
+  const [elapsed, setElapsed] = useState<string | null>(null)
+  useEffect(() => {
+    if (!inFlight || events.length === 0) { setElapsed(null); return }
+    const startTs = new Date(events[0].ts).getTime()
+    const tick = () => setElapsed(`${((Date.now() - startTs) / 1000).toFixed(1)}s`)
+    tick()
+    const timer = setInterval(tick, 100)
+    return () => clearInterval(timer)
+  }, [inFlight, events[0]?.ts])
   const statusLabel = inFlight
-    ? '进行中'
+    ? `进行中 · ${elapsed || '...'}`
     : status === 'failed'
       ? '失败'
       : status === 'aborted'
@@ -356,16 +366,17 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
       </div>
       {!collapsed && (
         <div className="streaming-body border-t border-otter-200/20 max-h-[400px] overflow-y-auto">
-          {events.map((evt, i) => <EventItem key={i} event={evt} />)}
+          {events.map((evt, i) => <EventItem key={i} event={evt} prevTs={i > 0 ? events[i - 1].ts : undefined} />)}
         </div>
       )}
     </div>
   )
 }
 
-function EventItem({ event }: { event: LocalMessageEvent }) {
+function EventItem({ event, prevTs }: { event: LocalMessageEvent; prevTs?: string }) {
   const { eventType, payload } = event
   const [expanded, setExpanded] = useState(false)
+  const elapsed = prevTs ? `+${((new Date(event.ts).getTime() - new Date(prevTs).getTime()) / 1000).toFixed(1)}s` : null
 
   /** assistant_toolcall：展示 event_type + 工具名 + 参数 */
   if (eventType === 'assistant_toolcall') {
@@ -385,6 +396,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
           <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-amber-50 text-amber-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{toolName} {paramsPreview}</span>
+          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
           <CopyButton text={paramsStr} />
         </div>
         {expanded && paramsStr && (
@@ -415,6 +427,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
           <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-teal-100 text-teal-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{name} {resultPreview}</span>
+          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
           <CopyButton text={resultText} />
         </div>
         {expanded && resultText && (
@@ -444,6 +457,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
           <span className={`text-[8px] text-stone-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
           <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-blue-50 text-blue-700">{eventType}</span>
           <span className="text-[11px] text-stone-600 truncate flex-1">{preview}</span>
+          {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
           <CopyButton text={str} />
         </div>
         {expanded && str && (
@@ -463,6 +477,7 @@ function EventItem({ event }: { event: LocalMessageEvent }) {
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-stone-100 last:border-0">
         <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-medium bg-red-50 text-red-700">{eventType}</span>
         <span className="text-[11px] text-red-600">{payload.message as string}</span>
+        {elapsed && <span className="text-[10px] text-stone-400 flex-shrink-0">{elapsed}</span>}
         <CopyButton text={payload.message as string} />
       </div>
     )

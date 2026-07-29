@@ -127,6 +127,10 @@ describe("AgentInvoker", () => {
     expect(eventTypes).toContain("message.start");
     expect(eventTypes).toContain("message.complete");
 
+    /** message.start 应携带 createdAt */
+    const startEvent = events.find((e) => e.event === "message.start");
+    expect(startEvent?.data).toHaveProperty("createdAt");
+
     /** D5-fix: turn.complete 在 message.complete 之后发出 */
     const completeIdx = eventTypes.indexOf("message.complete");
     const turnIdx = eventTypes.indexOf("turn.complete");

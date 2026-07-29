@@ -9,7 +9,7 @@ export function ctxPercent(tokens: number, max: number): number {
 }
 
 export function nowTs(): string {
-  return new Date().toLocaleString('zh-CN', { hour12: false })
+  return new Date().toISOString()
 }
 
 /** 格式化时间为 yyyy-MM-dd HH:mm:ss（本地时区） */

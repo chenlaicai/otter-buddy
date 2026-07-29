@@ -149,7 +149,7 @@ describe("Message API", () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
       deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
-        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
+        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1", otterName: "TestOtter", createdAt: "2026-07-29T00:00:00.000Z" } });
         params.onSSEEvent?.({ event: "message.delta", data: { text: "Hello" } });
         params.onSSEEvent?.({ event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });
         return { messageId: "agent-msg-1", duration: 1200 };
@@ -166,7 +166,7 @@ describe("Message API", () => {
 
       const events = await readSSEEvents(res);
       expect(events).toHaveLength(4);
-      expect(events[0]).toEqual({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
+      expect(events[0]).toEqual({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1", otterName: "TestOtter", createdAt: "2026-07-29T00:00:00.000Z" } });
       expect(events[1]).toEqual({ event: "message.delta", data: { text: "Hello" } });
       expect(events[2]).toEqual({ event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });
       expect(events[3]).toEqual({ event: "stream.end", data: {} });
@@ -208,7 +208,7 @@ describe("Message API", () => {
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
       let invocationCompleted = false;
       deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
-        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1" } });
+        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1", otterName: "TestOtter", createdAt: "2026-07-29T00:00:00.000Z" } });
         await new Promise((r) => setTimeout(r, 50));
         invocationCompleted = true;
         return { messageId: "agent-msg-1", duration: 50 };
