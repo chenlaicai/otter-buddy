@@ -46,6 +46,8 @@ export interface LocalMessage {
   ctx?: number
   ctxMax?: number
   turnId?: string
+  /** 消息来源 "web" | "feishu" */
+  src?: 'web' | 'feishu'
 }
 
 /** 前端本地 LinkedResource 类型（统一产物模型）
@@ -107,6 +109,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     ctx: dto.ctx,
     ctxMax: dto.ctxMax,
     turnId: dto.turnId,
+    src: dto.src as 'web' | 'feishu' | undefined,
   }
 }
 

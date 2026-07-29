@@ -127,7 +127,8 @@ describe("MessageController", () => {
         senderType: "user", senderId: "user-1",
         talkingStonePassedTo: ["otter-1"], status: "completed",
         body: "Hello",
-        sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+        sequenceNum: 1, source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
       }),
     } as unknown as QueryMessage;
     const ctrl = new MessageController({} as SendMessage, queryMessage, {} as AgentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter);
@@ -147,7 +148,8 @@ describe("MessageController", () => {
         senderType: "otter", senderId: "otter-1",
         talkingStonePassedTo: null, status: "streaming",
         body: null,
-        sequenceNum: 2, createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+        sequenceNum: 2, source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: null,
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
@@ -166,7 +168,8 @@ describe("MessageController", () => {
         senderType: "user", senderId: "user-1",
         talkingStonePassedTo: ["otter-1"], status: "completed",
         body: "Hello",
-        sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+        sequenceNum: 1, source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;

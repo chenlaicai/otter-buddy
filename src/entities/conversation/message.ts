@@ -1,6 +1,9 @@
 /** 发送者类型（system 用于系统消息：Otter 进场/退场等事件通知） */
 export type SenderType = "user" | "otter" | "system";
 
+/** 消息来源 */
+export type MessageSource = "web" | "feishu";
+
 /** 消息生命周期状态 */
 export type MessageStatus = "streaming" | "speaking" | "completed" | "failed" | "aborted";
 
@@ -20,6 +23,7 @@ export interface Message {
   sequenceNum: number;
   contextTokens: number | null;
   contextTokensMax: number | null;
+  source: MessageSource;
   createdAt: string;
   completedAt: string | null;
 }

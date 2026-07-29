@@ -275,6 +275,11 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>
+          {m.src === 'feishu' && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">
+              飞书
+            </span>
+          )}
           <span className="text-[11px] msg-meta">{inFlight ? `${fmtTime(m.ts)} · 正在回复...` : `${fmtTime(m.ts)}${dur}`}</span>
           {/* token 条在主流程位置（#88），但 ctx 缺失（进行中/历史未持久化）时不渲染（M3） */}
           {!isUser && m.ctx != null && (

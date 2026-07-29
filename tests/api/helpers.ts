@@ -430,6 +430,7 @@ export function createTestApp(deps: TestDeps): Hono {
       deps.schedulerService,
       deps.cronParser,
     ),
+    connection: {} as any, // TODO: 添加 mock
   };
 
   return createRouter(controllers, mockLogger());

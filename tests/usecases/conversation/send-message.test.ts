@@ -238,6 +238,7 @@ function completedMessage(overrides: Partial<Message> = {}): Message {
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
+    source: "web",
     createdAt: "2026-01-01T00:00:00Z",
     completedAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -259,7 +260,8 @@ function streamingMessage(overrides: Partial<Message> = {}): Message {
     contextTokens: null,
     contextTokensMax: null,
     createdAt: "2026-01-01T00:00:00Z",
-    completedAt: null,
+    source: "web",
+      completedAt: null,
     ...overrides,
   };
 }

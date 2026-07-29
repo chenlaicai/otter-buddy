@@ -24,7 +24,8 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     talkingStonePassedTo: ["user-1"], status: "completed",
     body: CARD_BODY, sequenceNum: 1,
     contextTokens: null, contextTokensMax: null,
-    createdAt: "2026-07-28T00:00:00Z", completedAt: "2026-07-28T00:01:00Z",
+    source: "web",
+      createdAt: "2026-07-28T00:00:00Z", completedAt: "2026-07-28T00:01:00Z",
     ...overrides,
   };
 }

@@ -12,6 +12,7 @@ import type {
   Message,
   MessageEvent,
   MessageEventType,
+  MessageSource,
   MessageStatus,
   SenderType,
 } from "@entities/conversation/message";
@@ -39,6 +40,7 @@ export interface MessageRow {
   talking_stone_passed_to: string | null;
   context_tokens: number | null;
   context_tokens_max: number | null;
+  source: string;
   created_at: string;
   completed_at: string | null;
 }
@@ -124,6 +126,7 @@ export function rowToMessage(row: MessageRow): Message {
     sequenceNum: row.sequence_num,
     contextTokens: row.context_tokens,
     contextTokensMax: row.context_tokens_max,
+    source: (row.source ?? "web") as MessageSource,
     createdAt: row.created_at,
     completedAt: row.completed_at,
   };
