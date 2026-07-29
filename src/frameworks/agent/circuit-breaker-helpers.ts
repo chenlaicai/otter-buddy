@@ -20,14 +20,27 @@ export function attachCircuitBreaker(
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
   const doAbort = abortOverride ?? (() => { session.abort(); });
 
+  // per-event 超时：resettable timer，每次 tool_execution_start 重置
+  let eventTimer: ReturnType<typeof setTimeout> | undefined;
+  const maxPerEventMs = circuitBreakerConfig.maxPerEventTimeMs;
+  const resetEventTimer = () => {
+    if (eventTimer) clearTimeout(eventTimer);
+    eventTimer = setTimeout(() => {
+      logger.warn(`[circuit-breaker] PER_EVENT_TIMEOUT: otter=${otterId} elapsed=${maxPerEventMs}ms`);
+      doAbort("circuit_break:event_timeout");
+    }, maxPerEventMs);
+  };
+
   /** 通过 subscribe 拦截 tool_execution_start 事件实现熔断 */
   const unregisterToolCall = session.subscribe((event: unknown) => {
     // pi-coding-agent SDK 的 tool_execution_start 事件工具名字段为 toolName（见 SDK ToolExecutionStartEvent），
     // name 仅为兼容兜底；都取不到时记为 "unknown"
     const e = event as { type?: string; toolName?: string; name?: string; args?: unknown };
     if (e.type === "tool_execution_start") {
+      resetEventTimer();
       const result = circuitBreaker.check(e.toolName ?? e.name ?? "unknown", e.args);
       if (result.action === "terminate") {
+        if (eventTimer) clearTimeout(eventTimer);
         doAbort(`circuit_break:${result.trigger ?? "unknown"}`);
         return;
       }
@@ -38,7 +51,11 @@ export function attachCircuitBreaker(
     }
   });
 
-  return { circuitBreaker, unregisterToolCall };
+  const originalUnregister = unregisterToolCall;
+  return {
+    circuitBreaker,
+    unregisterToolCall: originalUnregister ? () => { if (eventTimer) clearTimeout(eventTimer); originalUnregister(); } : undefined,
+  };
 }
 
 /** token 超阈值警告 */

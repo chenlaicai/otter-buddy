@@ -188,7 +188,7 @@ describe("attachCircuitBreaker", () => {
     expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
   });
 
-  it("执行超时 terminate 的原因为 circuit_break:timeout", () => {
+  it("per-event 超时：单次工具调用超时触发 abort(event_timeout)", () => {
     vi.useFakeTimers();
     try {
       const session = mockSession();
@@ -196,17 +196,51 @@ describe("attachCircuitBreaker", () => {
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxExecutionTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
         mockLogger(),
         abortOverride,
       );
 
+      // 触发一次工具调用，启动 timer
       session.emit(sdkToolStart("tool_1"));
-      vi.advanceTimersByTime(6000);
-      session.emit(sdkToolStart("tool_2"));
+      expect(abortOverride).not.toHaveBeenCalled();
 
+      // 推进时间到超时阈值
+      vi.advanceTimersByTime(5001);
       expect(abortOverride).toHaveBeenCalledOnce();
-      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:timeout");
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：下一次工具调用重置 timer，不误触发", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 第一次调用
+      session.emit(sdkToolStart("tool_1"));
+      // 推进 4 秒（未超时）
+      vi.advanceTimersByTime(4000);
+      // 第二次调用重置 timer
+      session.emit(sdkToolStart("tool_2"));
+      // 再推进 4 秒（从第二次算起未超时）
+      vi.advanceTimersByTime(4000);
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // 再推进 2 秒（从第二次算起共 6 秒，超过 5 秒阈值）
+      vi.advanceTimersByTime(2000);
+      expect(abortOverride).toHaveBeenCalledOnce();
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
     } finally {
       vi.useRealTimers();
     }
