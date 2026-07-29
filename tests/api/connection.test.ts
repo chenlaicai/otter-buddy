@@ -66,7 +66,7 @@ describe("Connection API", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body.name).toBe("测试群");
       expect(body.externalId).toBe("chat-123");
       expect(body.status).toBe("active");
@@ -100,7 +100,7 @@ describe("Connection API", () => {
       const res = await app.request("/api/connections");
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body).toEqual([]);
     });
 
@@ -111,7 +111,7 @@ describe("Connection API", () => {
       const res = await app.request("/api/connections");
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body).toHaveLength(2);
     });
   });
@@ -123,7 +123,7 @@ describe("Connection API", () => {
       const res = await app.request(`/api/connections/${conn.id}`);
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body.name).toBe("测试群");
     });
 
@@ -146,7 +146,7 @@ describe("Connection API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body.conversationId).toBe("conv-1");
       expect(body.status).toBe("active");
     });
@@ -191,7 +191,7 @@ describe("Connection API", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body.status).toBe("left");
     });
 
@@ -215,7 +215,7 @@ describe("Connection API", () => {
       const res = await app.request(`/api/connections/${conn.id}/session`);
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body.id).toBe("conv-1");
       expect(body.title).toBe("测试对话");
     });
@@ -237,7 +237,7 @@ describe("Connection API", () => {
       const res = await app.request("/api/connections/any/conversations");
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body).toHaveLength(2);
     });
 
@@ -249,7 +249,7 @@ describe("Connection API", () => {
       const res = await app.request("/api/connections/any/conversations");
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as any;
       expect(body[0].occupiedBy).toBe("测试群");
     });
   });
