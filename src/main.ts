@@ -433,7 +433,15 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGat
 
   const cronParser = new SimpleCronParser();
   const agentInvokePort = new AgentInvokePortAdapter(agentInvoker);
-  const schedulerService = new SchedulerService({ taskRepo: repos.scheduledTask, convRepo: repos.conversation, sendMessage: uc.sendMessage, agentInvokePort, cronParser, logger, manageScheduledTask: uc.manageScheduledTask });
+  const schedulerService = new SchedulerService({
+    taskRepo: repos.scheduledTask,
+    convRepo: repos.conversation,
+    sendMessage: uc.sendMessage,
+    agentInvokePort,
+    cronParser,
+    logger,
+    manageScheduledTask: uc.manageScheduledTask,
+  });
 
   return { agentInvoker, cronParser, schedulerService };
 }
@@ -473,8 +481,7 @@ async function main(): Promise<void> {
   const uc = initUseCases(repos, agentGateway, embeddingService);
 
   /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
-  const otterToolClient = buildOtterToolClient(uc);
-  agentGateway.setOtterToolClient(otterToolClient);
+  const otterToolClient = buildOtterToolClient(uc); agentGateway.setOtterToolClient(otterToolClient);
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway);
 
