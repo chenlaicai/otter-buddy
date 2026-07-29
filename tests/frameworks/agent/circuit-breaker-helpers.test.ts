@@ -47,7 +47,7 @@ function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerCo
   return { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...overrides };
 }
 
-describe("attachCircuitBreaker", () => {
+describe("attachCircuitBreaker - 工具名识别与兼容", () => {
   it("从 SDK 事件的 toolName 字段取工具名（回归：不同工具交替调用不触发连续相同误判）", () => {
     const session = mockSession();
     const { circuitBreaker } = attachCircuitBreaker(
@@ -138,7 +138,9 @@ describe("attachCircuitBreaker", () => {
     session.emit({ type: "tool_execution_start" });
     expect(circuitBreaker.getCallHistory()).toEqual(["unknown"]);
   });
+});
 
+describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
   it("terminate 动作调用 abort", () => {
     const session = mockSession();
     attachCircuitBreaker(
@@ -192,7 +194,9 @@ describe("attachCircuitBreaker", () => {
     expect(abortOverride).toHaveBeenCalledOnce();
     expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
   });
+});
 
+describe("attachCircuitBreaker - per-event 超时", () => {
   it("per-event 超时：单次工具调用超时触发 abort(event_timeout)", () => {
     vi.useFakeTimers();
     try {
@@ -331,7 +335,9 @@ describe("attachCircuitBreaker", () => {
       vi.useRealTimers();
     }
   });
+});
 
+describe("attachCircuitBreaker - steer 行为纠正", () => {
   it("steer 后行为纠正则不再 abort（事件驱动，无死亡定时器）", () => {
     const session = mockSession();
     attachCircuitBreaker(
