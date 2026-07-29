@@ -7,7 +7,7 @@
  * 行为范式（事件驱动两档制，F20260728cbwt）：
  *   首次触发规则 → steer 警告；警告后仍不纠正、继续触发规则满 maxRepeatAfterWarning 次
  *   → terminate 当场中断。中途出现任何一次正常调用（allow）即解除警告状态。
- *   时间维度的挂死保护由 OutputGuard 的流式超时负责，熔断器只管行为模式。
+ *   时间维度的挂死保护由 per-event 超时（circuit-breaker-helpers 中 resettable timer）负责，熔断器只管行为模式。
  *
  * 设计文档：F20260716bte2-agent-circuit-breaker（初版）、F20260728cbwt（事件驱动改造）
  */
@@ -19,7 +19,8 @@ export interface CircuitBreakerConfig {
   maxConsecutiveIdentical: number;
   /** 首次 steer 警告后，容忍的继续触发次数；超过则 terminate */
   maxRepeatAfterWarning: number;
-  maxExecutionTimeMs: number;
+  /** 单次工具调用最大执行时间（ms），超过则 abort */
+  maxPerEventTimeMs: number;
   warningThreshold: number;
   slidingWindowSize: number;
   slidingWindowRepeat: number;
@@ -30,7 +31,7 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
   maxToolCalls: 40,
   maxConsecutiveIdentical: 5,
   maxRepeatAfterWarning: 5,
-  maxExecutionTimeMs: 300_000,
+  maxPerEventTimeMs: 600_000,
   warningThreshold: 20,
   slidingWindowSize: 6,
   slidingWindowRepeat: 3,
@@ -176,7 +177,6 @@ function detectSlidingWindowRepeat(
 export class ToolCallCircuitBreaker {
   private callCount = 0;
   private readonly callHistory: string[] = [];
-  private readonly startTime: number;
   private consecutiveCount = 0;
   private lastSignature: string | null = null;
   private lastCheckResult: CheckResult | null = null;
@@ -188,9 +188,8 @@ export class ToolCallCircuitBreaker {
     private readonly otterId: string,
     private readonly logger: Logger,
     private readonly stageId?: string,
-  ) {
-    this.startTime = Date.now();
-  }
+  ) {}
+
 
   /**
    * 检查工具调用是否应被拦截。
@@ -222,7 +221,6 @@ export class ToolCallCircuitBreaker {
     const result = this.checkToolCallLimit()
       ?? this.checkConsecutive(signature)
       ?? this.checkSlidingWindow()
-      ?? this.checkExecutionTimeout()
       ?? { blocked: false, action: "allow" as const };
 
     if (result.action === "allow") {
@@ -267,14 +265,6 @@ export class ToolCallCircuitBreaker {
   private checkSlidingWindow(): CheckResult | null {
     if (!detectSlidingWindowRepeat(this.callHistory, this.config.slidingWindowSize, this.config.slidingWindowRepeat)) return null;
     return { blocked: true, reason: `Repeating tool call pattern detected in sliding window (K=${this.config.slidingWindowSize}, M=${this.config.slidingWindowRepeat}). Break the cycle.`, action: "steer" };
-  }
-
-  /** B-4: 执行时间超限检查 */
-  private checkExecutionTimeout(): CheckResult | null {
-    const elapsed = Date.now() - this.startTime;
-    if (elapsed <= this.config.maxExecutionTimeMs) return null;
-    this.logCircuitBreak("timeout");
-    return { blocked: true, reason: `Execution timeout: ${(elapsed / 1000).toFixed(1)}s exceeds ${this.config.maxExecutionTimeMs / 1000}s limit`, action: "terminate", trigger: "timeout" };
   }
 
   /** 获取调用历史（用于 B-6 完整日志） */

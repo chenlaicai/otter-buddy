@@ -38,7 +38,7 @@ export interface AppConfig {
   circuitBreaker: {
     maxToolCalls: number;
     maxConsecutiveIdentical: number;
-    maxExecutionTimeMs: number;
+    maxPerEventTimeMs: number;
     warningThreshold: number;
     slidingWindowSize: number;
     slidingWindowRepeat: number;
@@ -82,7 +82,7 @@ interface RawConfig {
   circuitBreaker?: {
     maxToolCalls?: number;
     maxConsecutiveIdentical?: number;
-    maxExecutionTimeMs?: number;
+    maxPerEventTimeMs?: number;
     warningThreshold?: number;
     slidingWindowSize?: number;
     slidingWindowRepeat?: number;
@@ -156,7 +156,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
   return {
     maxToolCalls: d(raw.circuitBreaker?.maxToolCalls, 40),
     maxConsecutiveIdentical: d(raw.circuitBreaker?.maxConsecutiveIdentical, 5),
-    maxExecutionTimeMs: d(raw.circuitBreaker?.maxExecutionTimeMs, 300000),
+    maxPerEventTimeMs: d(raw.circuitBreaker?.maxPerEventTimeMs, 600000),
     warningThreshold: d(raw.circuitBreaker?.warningThreshold, 20),
     slidingWindowSize: d(raw.circuitBreaker?.slidingWindowSize, 6),
     slidingWindowRepeat: d(raw.circuitBreaker?.slidingWindowRepeat, 3),

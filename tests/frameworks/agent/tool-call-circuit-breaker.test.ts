@@ -394,24 +394,6 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     }
   });
 
-  it("force terminates on execution timeout (AC-3: B-4)", () => {
-    const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxExecutionTimeMs: 5000, maxToolCalls: 100 }),
-      "otter-1",
-      mockLogger(),
-    );
-
-    expect(cb.check("tool_1").action).toBe("allow");
-
-    // Advance time past limit
-    vi.advanceTimersByTime(6000);
-
-    const result = cb.check("tool_2");
-    expect(result.action).toBe("terminate");
-    expect(result.blocked).toBe(true);
-    expect(result.reason).toContain("timeout");
-  });
-
   it("records call history as signatures (B-6)", () => {
     const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
 

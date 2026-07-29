@@ -506,8 +506,11 @@ export class PiSessionFactory implements AgentGateway {
     return buildResult("", tokenUsage, circuitBreaker, ctxMax);
   }
   private _attachGuards(session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> }, sessionKey: string, otterId: string) {
-    const activeEntry = this.activeSessions.get(sessionKey); const wrappedAbort = (reason?: string) => { if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-    const { circuitBreaker, unregisterToolCall } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
+    const activeEntry = this.activeSessions.get(sessionKey);
+    const timerRef: { clear: () => void } = { clear: () => {} };
+    const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
+    const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
+    timerRef.clear = clearEventTimer;
     const cfg = { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }; const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, () => wrappedAbort(outputGuard.getMetadata().reason));
     return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard };
   }

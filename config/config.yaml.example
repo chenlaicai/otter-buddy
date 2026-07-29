@@ -65,8 +65,8 @@ circuitBreaker:
   # 允许的最大连续相同工具调用次数（默认 5）
   # 连续相同调用达到此次数，触发熔断
   maxConsecutiveIdentical: 5
-  # Agent 最大执行时间，单位：毫秒（默认 300000，即 5 分钟）
-  maxExecutionTimeMs: 300000
+  # 单次工具调用最大执行时间，单位：毫秒（默认 600000，即 10 分钟）
+  maxPerEventTimeMs: 600000
   # 工具调用数警告阈值（默认 20）
   # 达到此次数时发出警告，早于熔断触发
   warningThreshold: 20

@@ -38,6 +38,11 @@ function sdkToolStart(toolName: string, args: unknown = {}) {
   return { type: "tool_execution_start", toolCallId: `tc-${toolName}`, toolName, args };
 }
 
+/** 构造 pi-coding-agent SDK 形状的 tool_execution_end 事件 */
+function sdkToolEnd(toolName: string) {
+  return { type: "tool_execution_end", toolCallId: `tc-${toolName}`, toolName };
+}
+
 function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerConfig {
   return { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...overrides };
 }
@@ -188,7 +193,7 @@ describe("attachCircuitBreaker", () => {
     expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
   });
 
-  it("执行超时 terminate 的原因为 circuit_break:timeout", () => {
+  it("per-event 超时：单次工具调用超时触发 abort(event_timeout)", () => {
     vi.useFakeTimers();
     try {
       const session = mockSession();
@@ -196,17 +201,132 @@ describe("attachCircuitBreaker", () => {
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxExecutionTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
         mockLogger(),
         abortOverride,
       );
 
+      // 触发一次工具调用，启动 timer
       session.emit(sdkToolStart("tool_1"));
-      vi.advanceTimersByTime(6000);
-      session.emit(sdkToolStart("tool_2"));
+      expect(abortOverride).not.toHaveBeenCalled();
 
+      // 推进时间到超时阈值
+      vi.advanceTimersByTime(5001);
       expect(abortOverride).toHaveBeenCalledOnce();
-      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:timeout");
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：tool_execution_end 清除 timer，LLM 思考时间不计入", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 第一次工具调用：执行 3 秒后完成
+      session.emit(sdkToolStart("tool_1"));
+      vi.advanceTimersByTime(3000);
+      session.emit(sdkToolEnd("tool_1"));
+
+      // LLM 思考 8 秒（超过阈值，但不计入 per-event 超时）
+      vi.advanceTimersByTime(8000);
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // 第二次工具调用：执行 4 秒后完成
+      session.emit(sdkToolStart("tool_2"));
+      vi.advanceTimersByTime(4000);
+      session.emit(sdkToolEnd("tool_2"));
+      expect(abortOverride).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：单次工具执行超过阈值即触发（不含思考时间）", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 工具执行 4 秒后完成
+      session.emit(sdkToolStart("tool_1"));
+      vi.advanceTimersByTime(4000);
+      session.emit(sdkToolEnd("tool_1"));
+
+      // LLM 思考 3 秒
+      vi.advanceTimersByTime(3000);
+
+      // 第二次工具执行，这次超过阈值
+      session.emit(sdkToolStart("tool_2"));
+      vi.advanceTimersByTime(5001);
+      expect(abortOverride).toHaveBeenCalledOnce();
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：unregisterToolCall 后 timer 不再触发", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      const { unregisterToolCall } = attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 触发一次工具调用，启动 timer
+      session.emit(sdkToolStart("tool_1"));
+      // unregister 清除 timer
+      unregisterToolCall?.();
+      // 推进超过阈值，timer 不应触发
+      vi.advanceTimersByTime(10000);
+      expect(abortOverride).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：clearEventTimer 可由外部调用清除 timer", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      const { clearEventTimer } = attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 触发一次工具调用，启动 timer
+      session.emit(sdkToolStart("tool_1"));
+      // 外部调用 clearEventTimer（模拟 OutputGuard/用户 abort 场景）
+      clearEventTimer();
+      // 推进超过阈值，timer 不应触发
+      vi.advanceTimersByTime(10000);
+      expect(abortOverride).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
