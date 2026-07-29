@@ -3,9 +3,7 @@ import type { ArtifactStatus, ConversationParticipant } from "@entities/conversa
 import type { Otter } from "@entities/otter/otter";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { TurnHistoryEntry } from "@usecases/conversation/conversation-repository";
-
-/** 渐进式披露：detail_level 控制返回详细程度 */
-export type DetailLevel = "summary" | "snippet" | "full";
+import type { DetailLevel } from "@entities/memory/memory-entry";
 
 /** 记忆条目（search_memory 返回结构，渐进式披露） */
 export interface MemorySearchEntry {

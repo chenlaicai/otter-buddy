@@ -433,14 +433,7 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGat
 
   const cronParser = new SimpleCronParser();
   const agentInvokePort = new AgentInvokePortAdapter(agentInvoker);
-  const schedulerService = new SchedulerService({
-    taskRepo: repos.scheduledTask,
-    convRepo: repos.conversation,
-    sendMessage: uc.sendMessage,
-    agentInvokePort,
-    cronParser,
-    manageScheduledTask: uc.manageScheduledTask,
-  });
+  const schedulerService = new SchedulerService({ taskRepo: repos.scheduledTask, convRepo: repos.conversation, sendMessage: uc.sendMessage, agentInvokePort, cronParser, logger, manageScheduledTask: uc.manageScheduledTask });
 
   return { agentInvoker, cronParser, schedulerService };
 }
@@ -474,6 +467,7 @@ async function main(): Promise<void> {
     identityPromptDir: "./prompts/identity",
     createTools,
     otterConfigProvider,
+    otterRepo: repos.otter,
   }, logger);
 
   const uc = initUseCases(repos, agentGateway, embeddingService);

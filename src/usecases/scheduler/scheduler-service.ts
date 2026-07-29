@@ -4,6 +4,7 @@ import type { AgentInvokePort } from './agent-invoke-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
+import type { Logger } from '@usecases/ports/logger';
 import { DomainError } from '@entities/errors';
 
 /** Cron 解析接口（由 frameworks 层实现） */
@@ -17,6 +18,7 @@ export interface SchedulerServiceOptions {
   sendMessage: SendMessage;
   agentInvokePort: AgentInvokePort;
   cronParser: CronParser;
+  logger: Logger;
   manageScheduledTask?: ManageScheduledTask;
 }
 
@@ -27,6 +29,7 @@ export class SchedulerService {
   private readonly sendMessage: SendMessage;
   private readonly agentInvokePort: AgentInvokePort;
   private readonly cronParser: CronParser;
+  private readonly logger: Logger;
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -34,6 +37,7 @@ export class SchedulerService {
     this.sendMessage = options.sendMessage;
     this.agentInvokePort = options.agentInvokePort;
     this.cronParser = options.cronParser;
+    this.logger = options.logger;
 
     // 注册任务变更回调
     if (options.manageScheduledTask) {
@@ -58,8 +62,7 @@ export class SchedulerService {
               }
             }
           } catch (error) {
-            // eslint-disable-next-line no-console
-            console.error(`Failed to handle task change: ${taskId} ${action}`, error);
+            this.logger.error(`Failed to handle task change: ${taskId} ${action}`, error as Error);
           }
         });
       });
@@ -122,8 +125,7 @@ export class SchedulerService {
       try {
         await this.triggerTask(task);
       } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error(`Failed to trigger task ${task.id}:`, error);
+        this.logger.error(`Failed to trigger task ${task.id}`, error as Error);
       }
       // 触发后重新调度下一次
       const updatedTask = await this.taskRepo.getById(task.id);
