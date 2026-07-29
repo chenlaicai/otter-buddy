@@ -336,7 +336,7 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
     tick()
     const timer = setInterval(tick, 100)
     return () => clearInterval(timer)
-  }, [inFlight, events.length, events[0]?.ts])
+  }, [inFlight, events[0]?.ts])
   const statusLabel = inFlight
     ? `进行中 · ${elapsed || '...'}`
     : status === 'failed'

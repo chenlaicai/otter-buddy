@@ -197,7 +197,7 @@ function ConversationPage() {
 
       /** 按 messageId 隔离的 liveEvents 与 otter 元信息（每个 otter 独立，仅本次发送流程内使用） */
       const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
-      const liveMeta = new Map<string, { otterId: string; otterName?: string }>()
+      const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
 
       /** SSE 事件就地更新 allMessages 中的进行中消息（统一渲染通道：消息流只有 allMessages 一条） */
       const syncLiveEvents = (messageId: string) => {
@@ -213,7 +213,7 @@ function ConversationPage() {
       consumeSSE(response, {        'message.start': (data) => {
           const { messageId, otterId, otterName } = data
           liveEventsMap.set(messageId, [])
-          liveMeta.set(messageId, { otterId, otterName })
+          liveMeta.set(messageId, { otterId, otterName, createdAt: data.createdAt || nowTs() })
           /** 进行中消息按服务端 sequence 插入消息流（M5：跨 otter 并发时序正确；同 id 原位替换兼容轮询快照） */
           const placeholder: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: otterName,
@@ -258,7 +258,7 @@ function ConversationPage() {
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
-            content: data.body ?? '', status: 'completed', ts: nowTs(), dur: data.duration,
+            content: data.body ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
@@ -282,9 +282,10 @@ function ConversationPage() {
         },
         'error': (data) => {
           const { messageId, otterId } = data
+          const meta = messageId ? liveMeta.get(messageId) : undefined
           const errMsg: LocalMessage = {
             id: messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: otterId || 'unknown',
-            content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
+            content: `[错误] ${data.message}`, status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
           showToast(`Agent 错误: ${data.message}`, 'error')
@@ -311,7 +312,7 @@ function ConversationPage() {
           }
           const abortedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: otterName,
-            content: data.body ?? '[搭档中断]', status: 'aborted', ts: nowTs(), dur: null,
+            content: data.body ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], abortedMsg) }))
@@ -327,7 +328,7 @@ function ConversationPage() {
           const otterId = meta?.otterId || ''
           const failedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
-            content: data.body ?? '[未完成]', status: 'failed', ts: nowTs(), dur: null,
+            content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
           setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
