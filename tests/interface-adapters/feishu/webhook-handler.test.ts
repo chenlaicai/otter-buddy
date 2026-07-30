@@ -57,6 +57,7 @@ describe("FeishuWebhookHandler", () => {
     feishuGateway = {
       replyText: replyTextMock as any,
       verifySignature: vi.fn().mockReturnValue(true),
+      decryptEventData: vi.fn().mockImplementation((data: string) => data),
     };
     logger = mockLogger();
 
@@ -94,6 +95,45 @@ describe("FeishuWebhookHandler", () => {
 
       // 验证返回 403
       expect(ctx._jsonCalls[0]).toEqual([{ error: "Invalid token" }, 403]);
+    });
+
+    it("加密事件正确解密处理", async () => {
+      const innerEvent = {
+        header: {
+          token: "test-token",
+          event_type: "im.message.receive_v1",
+        },
+        event: {
+          message: {
+            message_id: "msg-1",
+            chat_id: "chat-1",
+            message_type: "text",
+            content: JSON.stringify({ text: "加密消息" }),
+          },
+          sender: {
+            sender_id: { open_id: "user-1" },
+            sender_type: "user",
+          },
+        },
+      };
+      const encryptedData = "encrypted-base64-data";
+      const event = { encrypt: encryptedData };
+      const ctx = mockContext(JSON.stringify(event));
+
+      // mock decryptEventData 返回解密后的 JSON
+      vi.mocked(feishuGateway.decryptEventData).mockReturnValue(JSON.stringify(innerEvent));
+
+      vi.mocked(manageConnection.getCurrentConversation).mockResolvedValue({
+        id: "conv-1",
+        title: "测试对话",
+      });
+
+      await handler.handle(ctx);
+
+      // 验证解密被调用并返回正确结果
+      expect(feishuGateway.decryptEventData).toHaveBeenCalled();
+      // 验证消息被转发
+      expect(sendMock).toHaveBeenCalled();
     });
 
     it("机器人消息被忽略", async () => {

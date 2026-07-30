@@ -49,6 +49,7 @@ interface FeishuEvent {
   challenge?: string;
   token?: string;
   type?: string;
+  encrypt?: string;  // 加密事件
 }
 
 export interface FeishuWebhookConfig {
@@ -70,7 +71,13 @@ export class FeishuWebhookHandler {
   async handle(c: Context): Promise<Response> {
     try {
       const body = await c.req.text();
-      const event = JSON.parse(body) as FeishuEvent;
+      let event = JSON.parse(body) as FeishuEvent;
+
+      // 处理加密事件
+      if (event.encrypt) {
+        const decrypted = this.deps.feishuGateway.decryptEventData(event.encrypt);
+        event = JSON.parse(decrypted) as FeishuEvent;
+      }
 
       const authError = this.authenticateRequest(c, event, body);
       if (authError) return authError;
