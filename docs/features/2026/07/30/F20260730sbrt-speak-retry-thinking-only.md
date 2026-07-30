@@ -107,7 +107,8 @@ invokeConversation({ userMessageContent: retryMsg })
 | 文件 | 改动 |
 |------|------|
 | `.pi/SYSTEM.md` | 诚实直言段尾加一句困境上报原则 |
-| `src/interface-adapters/agent-runtime/agent-invoker.ts` | handleSpeakRetry 用 toolCallCount 区分 thinking-only、统一重试文本 |
+| `src/interface-adapters/agent-runtime/agent-invoker.ts` | handleSpeakRetry 用 toolCallCount 区分 thinking-only、统一重试文本、清理 extractAgentError 死代码 |
+| `tests/interface-adapters/agent-invoker.test.ts` | sendSystem mock 捕获 body + thinking-only/工具调用两个场景的提示词验证 |
 
 ## 测试
 
