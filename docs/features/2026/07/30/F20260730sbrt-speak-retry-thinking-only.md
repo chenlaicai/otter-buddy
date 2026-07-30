@@ -5,10 +5,10 @@ doc_type: feature
 
 summary: |
   speak 重试机制增强 + 系统提示词增加困境上报原则：
-  - handleSpeakRetry 区分 thinking-only 空响应 vs 有正文但漏 speak，给予不同重试提示
+  - handleSpeakRetry 用 toolCallCount 区分 thinking-only 空响应（toolCallCount=0）vs 有工具调用但漏 speak（toolCallCount>0），给予不同重试提示
   - thinking-only 重试提示引导 LLM 可以通过 speak 上报困境，而非泛泛要求"必须调用 speak"
   - 系统消息与重试 prompt 统一为同一文本，避免 LLM 上下文看到不一致的两条消息
-  - .pi/SYSTEM.md 诚实直言段尾增加"遇到确实推进不了的问题，如实说明困境比反复空转更有价值"
+  - .pi/SYSTEM.md 诚实直言段尾增加困境上报原则
 
 status: final
 change_type: feature
@@ -56,18 +56,18 @@ LLM 未调 speak → fail → sendSystem("你必须使用 speak...") → invokeC
 
 **.pi/SYSTEM.md** — 诚实直言段尾增加一句：
 
-> 遇到确实推进不了的问题，如实说明困境比反复空转更有价值。
+> 尝试多种方案仍无进展时，如实说明困境比反复空转更有价值。
 
 放在所有獭共用的 SYSTEM.md（而非 BIG_OTTER.md），因为这是通用行为原则。
 
 ### 2. speak 重试：区分 thinking-only
 
-**agent-invoker.ts handleSpeakRetry** — 根据 `resultText` 是否为空区分两种重试提示：
+**agent-invoker.ts handleSpeakRetry** — 用 `toolCallCount` 区分两种情况（`result.text` 在 `PiSessionFactory._buildInvokeResult` 中硬编码为空字符串，不可用）：
 
 | 情况 | 判断条件 | 重试提示 |
 |------|---------|---------|
-| thinking-only | `resultText` 为空 | "没有产生正文输出也没有调用工具。请调用 speak 结束发言——可以是结论，也可以是困境" |
-| 有正文但漏 speak | `resultText` 非空 | "没有调用 speak 就结束了。请重新组织答复并调用 speak" |
+| thinking-only（空响应） | `toolCallCount === 0` | "没有调用任何工具也没有输出正文。请调用 speak 结束发言——可以是结论，也可以是困境" |
+| 有工具调用但漏 speak | `toolCallCount > 0` | "没有调用 speak 就结束了。请重新组织答复并调用 speak" |
 
 ### 3. 系统消息与重试 prompt 统一
 
@@ -92,18 +92,20 @@ invokeConversation({ userMessageContent: retryMsg })
 
 1. **困境上报放在 SYSTEM.md 而非身份文件**：这是所有獭（大獭/小獭）都应遵守的行为原则，不与特定身份绑定。
 
-2. **重试提示不提"困境上报"四个字**：thinking-only 提示只说"可以是结论，也可以是困境"，给 LLM 出口但不预设它一定是卡住了——也可能只是格式遗漏。避免过于具体的指令限制 LLM 判断。
+2. **用 `toolCallCount` 而非 `result.text` 判断 thinking-only**：`result.text` 在 `PiSessionFactory._buildInvokeResult()` 中被硬编码为空字符串（LLM 实际输出通过 SSE 事件流推送，未回填到 `AgentRunResult.text`），因此不可用。`toolCallCount` 由事件处理器在 `tool_execution_start` 时累加，准确反映本轮 LLM 是否调用了工具。
 
-3. **去掉"这是错误的"**：原有重试 prompt 中的"这是错误的"是评判性语气，对卡死的 LLM 没有指导意义。改为直接说明情况和行动。
+3. **重试提示不提"困境上报"四个字**：thinking-only 提示只说"可以是结论，也可以是困境"，给 LLM 出口但不预设它一定是卡住了——也可能只是格式遗漏。避免过于具体的指令限制 LLM 判断。
 
-4. **系统消息与重试 prompt 必须一致**：两者都会出现在 LLM 上下文中（一个在历史、一个是当前 user message），内容不一致会造成困惑并浪费 token。
+4. **去掉"这是错误的"**：原有重试 prompt 中的"这是错误的"是评判性语气，对卡死的 LLM 没有指导意义。改为直接说明情况和行动。
+
+5. **系统消息与重试 prompt 必须一致**：两者都会出现在 LLM 上下文中（一个在历史、一个是当前 user message），内容不一致会造成困惑并浪费 token。
 
 ## 涉及文件
 
 | 文件 | 改动 |
 |------|------|
 | `.pi/SYSTEM.md` | 诚实直言段尾加一句困境上报原则 |
-| `src/interface-adapters/agent-runtime/agent-invoker.ts` | handleSpeakRetry 区分 thinking-only、统一重试文本 |
+| `src/interface-adapters/agent-runtime/agent-invoker.ts` | handleSpeakRetry 用 toolCallCount 区分 thinking-only、统一重试文本 |
 
 ## 测试
 
