@@ -36,6 +36,7 @@ describe("CommandDispatcher", () => {
     feishuGateway = {
       replyText: replyTextMock as any,
       verifySignature: vi.fn().mockReturnValue(true),
+      decryptEventData: vi.fn().mockImplementation((data: string) => data),
     };
     logger = mockLogger();
     dispatcher = new CommandDispatcher(manageConnection, queryMessage, feishuGateway, logger);
