@@ -9,6 +9,7 @@ import type {
   CreateOtterRequestDTO,
   OtterSessionDTO,
   SearchResultDTO,
+  MemoryEntryDTO,
   KeyInfoDTO,
   SettingsDTO,
   UpdateSettingsRequestDTO,
@@ -128,14 +129,33 @@ export function deleteLinkedResource(conversationId: string, resourceId: string)
 
 // ── Memory ──
 
-export function searchMemory(params: { query: string; limit?: number; layer?: string; granularity?: string; conversationId?: string }): Promise<SearchResultDTO> {
+export function searchMemory(params: {
+  query: string;
+  limit?: number;
+  granularity?: string;
+  conversationId?: string;
+  detail_level?: 'summary' | 'snippet' | 'full';
+  library?: string;
+}): Promise<SearchResultDTO> {
   const qs = new URLSearchParams()
   qs.set('query', params.query)
   if (params.limit) qs.set('limit', String(params.limit))
-  if (params.layer) qs.set('layer', params.layer)
   if (params.granularity) qs.set('granularity', params.granularity)
   if (params.conversationId) qs.set('conversationId', params.conversationId)
+  if (params.detail_level) qs.set('detail_level', params.detail_level)
+  if (params.library) qs.set('library', params.library)
   return request(`/memory/search?${qs}`)
+}
+
+export function getMemoryById(id: string): Promise<MemoryEntryDTO> {
+  return request(`/memory/${id}`)
+}
+
+export function searchSimilar(memoryEntryId: string, limit = 10): Promise<SearchResultDTO> {
+  return request('/memory/search/similar', {
+    method: 'POST',
+    body: JSON.stringify({ memoryEntryId, limit }),
+  })
 }
 
 export function flagMemory(id: string, flagged: boolean): Promise<{ status: string }> {
