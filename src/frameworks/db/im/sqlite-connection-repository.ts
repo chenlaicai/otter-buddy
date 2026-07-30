@@ -136,4 +136,66 @@ export class SqliteConnectionRepository implements ConnectionRepository {
     ).all(connectionId, limit ?? 50) as ConnectionSessionRow[];
     return rows.map(rowToSession);
   }
+
+  // ── 批量查询（优化 N+1 问题） ──
+
+  async getByIds(ids: string[]): Promise<Connection[]> {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db.prepare(
+      `SELECT * FROM connections WHERE id IN (${placeholders}) AND status = 'active'`
+    ).all(...ids) as ConnectionRow[];
+    return rows.map(rowToConnection);
+  }
+
+  async getActiveSessionsByConversations(conversationIds: string[]): Promise<ConnectionSession[]> {
+    if (conversationIds.length === 0) return [];
+    const placeholders = conversationIds.map(() => "?").join(",");
+    const rows = this.db.prepare(
+      `SELECT * FROM connection_sessions WHERE conversation_id IN (${placeholders}) AND status = 'active'`
+    ).all(...conversationIds) as ConnectionSessionRow[];
+    return rows.map(rowToSession);
+  }
+
+  // ── 事务操作（解决竞态条件） ──
+
+  async enterConversationTransaction(
+    connectionId: string,
+    conversationId: string,
+    oldSessionId: string | null,
+    newSession: ConnectionSession,
+  ): Promise<ConnectionSession> {
+    return this.db.transaction(() => {
+      // 1. 检查 conversation 是否已被其他 connection 占用
+      const existingSession = this.db.prepare(
+        "SELECT * FROM connection_sessions WHERE conversation_id = ? AND status = 'active'"
+      ).get(conversationId) as ConnectionSessionRow | undefined;
+
+      if (existingSession && existingSession.connection_id !== connectionId) {
+        throw new Error(`Conversation ${conversationId} is already occupied by connection ${existingSession.connection_id}`);
+      }
+
+      // 2. 释放旧 session（如果有）
+      if (oldSessionId) {
+        this.db.prepare(
+          "UPDATE connection_sessions SET status = 'released', released_at = ? WHERE id = ?"
+        ).run(newSession.joinedAt, oldSessionId);
+      }
+
+      // 3. 创建新 session
+      this.db.prepare(`
+        INSERT INTO connection_sessions (id, connection_id, conversation_id, status, joined_at, released_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        newSession.id,
+        newSession.connectionId,
+        newSession.conversationId,
+        newSession.status,
+        newSession.joinedAt,
+        newSession.releasedAt,
+      );
+
+      return newSession;
+    })();
+  }
 }

@@ -28,6 +28,11 @@ function mockConnectionRepo(overrides: Partial<ConnectionRepository> = {}): Conn
     createSession: vi.fn().mockResolvedValue(undefined),
     releaseSession: vi.fn().mockResolvedValue(undefined),
     getSessionHistory: vi.fn().mockResolvedValue([]),
+    getByIds: vi.fn().mockResolvedValue([]),
+    getActiveSessionsByConversations: vi.fn().mockResolvedValue([]),
+    enterConversationTransaction: vi.fn().mockImplementation(
+      async (_connId: string, _convId: string, _oldSessionId: string | null, newSession: ConnectionSession) => newSession
+    ),
     ...overrides,
   };
 }
@@ -147,14 +152,16 @@ describe("ManageConnection", () => {
     it("进入对话成功", async () => {
       vi.mocked(connRepo.getById).mockResolvedValue(connectionFixture());
       vi.mocked(convRepo.getById).mockResolvedValue(conversationFixture());
-      vi.mocked(connRepo.getActiveSessionByConversation).mockResolvedValue(null);
       vi.mocked(connRepo.getActiveSession).mockResolvedValue(null);
+      vi.mocked(connRepo.enterConversationTransaction).mockImplementation(
+        async (_connId, _convId, _oldSessionId, newSession) => newSession
+      );
 
       const result = await manageConnection.enterConversation("conn-1", "conv-1");
 
       expect(result.conversationId).toBe("conv-1");
       expect(result.status).toBe("active");
-      expect(connRepo.createSession).toHaveBeenCalled();
+      expect(connRepo.enterConversationTransaction).toHaveBeenCalled();
     });
 
     it("连接不存在时抛出错误", async () => {
@@ -190,8 +197,9 @@ describe("ManageConnection", () => {
     it("对话已被其他连接占用时抛出错误", async () => {
       vi.mocked(connRepo.getById).mockResolvedValue(connectionFixture());
       vi.mocked(convRepo.getById).mockResolvedValue(conversationFixture());
-      vi.mocked(connRepo.getActiveSessionByConversation).mockResolvedValue(
-        sessionFixture({ connectionId: "conn-other" })
+      vi.mocked(connRepo.getActiveSession).mockResolvedValue(null);
+      vi.mocked(connRepo.enterConversationTransaction).mockRejectedValue(
+        new Error("Conversation conv-1 is already occupied by connection conn-other")
       );
 
       await expect(manageConnection.enterConversation("conn-1", "conv-1"))
@@ -250,7 +258,7 @@ describe("ManageConnection", () => {
       vi.mocked(convRepo.getById)
         .mockResolvedValueOnce(conversationFixture({ id: "conv-1", title: "对话一" }))
         .mockResolvedValueOnce(conversationFixture({ id: "conv-2", title: "对话二" }));
-      vi.mocked(connRepo.getActiveSessionByConversation).mockResolvedValue(null);
+      vi.mocked(connRepo.getActiveSessionsByConversations).mockResolvedValue([]);
 
       const result = await manageConnection.listActiveConversations();
 
@@ -262,8 +270,8 @@ describe("ManageConnection", () => {
     it("显示占用状态", async () => {
       vi.mocked(convRepo.getAllIds).mockResolvedValue(["conv-1"]);
       vi.mocked(convRepo.getById).mockResolvedValue(conversationFixture());
-      vi.mocked(connRepo.getActiveSessionByConversation).mockResolvedValue(sessionFixture());
-      vi.mocked(connRepo.getById).mockResolvedValue(connectionFixture({ name: "飞书群A" }));
+      vi.mocked(connRepo.getActiveSessionsByConversations).mockResolvedValue([sessionFixture()]);
+      vi.mocked(connRepo.getByIds).mockResolvedValue([connectionFixture({ name: "飞书群A" })]);
 
       const result = await manageConnection.listActiveConversations();
 
@@ -275,7 +283,7 @@ describe("ManageConnection", () => {
       vi.mocked(convRepo.getById)
         .mockResolvedValueOnce(conversationFixture({ status: "completed" }))
         .mockResolvedValueOnce(conversationFixture({ id: "conv-2" }));
-      vi.mocked(connRepo.getActiveSessionByConversation).mockResolvedValue(null);
+      vi.mocked(connRepo.getActiveSessionsByConversations).mockResolvedValue([]);
 
       const result = await manageConnection.listActiveConversations();
 

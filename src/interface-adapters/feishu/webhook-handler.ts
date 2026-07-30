@@ -52,7 +52,7 @@ interface FeishuEvent {
 }
 
 export interface FeishuWebhookConfig {
-  verificationToken?: string;
+  verificationToken: string;
 }
 
 export class FeishuWebhookHandler {
@@ -72,18 +72,13 @@ export class FeishuWebhookHandler {
       const body = await c.req.text();
       const event = JSON.parse(body) as FeishuEvent;
 
-      // 处理 URL Verification Challenge
+      const authError = this.authenticateRequest(c, event, body);
+      if (authError) return authError;
+
       if (event.challenge) {
         return c.json({ challenge: event.challenge });
       }
 
-      // 验证 verification token
-      if (this.deps.config.verificationToken && event.header?.token !== this.deps.config.verificationToken) {
-        this.deps.logger.warn("Invalid Feishu verification token");
-        return c.json({ error: "Invalid token" }, 403);
-      }
-
-      // 处理消息事件
       if (event.header?.event_type === "im.message.receive_v1" && event.event?.message) {
         await this.handleMessage(event);
       }
@@ -95,18 +90,31 @@ export class FeishuWebhookHandler {
     }
   }
 
+  private authenticateRequest(c: Context, event: FeishuEvent, body: string): Response | null {
+    const token = event.header?.token ?? event.token;
+    if (token !== this.deps.config.verificationToken) {
+      this.deps.logger.warn("Invalid Feishu verification token");
+      return c.json({ error: "Invalid token" }, 403);
+    }
+
+    const signature = c.req.header("X-Lark-Signature") ?? "";
+    if (signature) {
+      const timestamp = c.req.header("X-Lark-Request-Timestamp") ?? "";
+      const nonce = c.req.header("X-Lark-Request-Nonce") ?? "";
+      if (!this.deps.feishuGateway.verifySignature(timestamp, nonce, body, signature)) {
+        this.deps.logger.warn("Invalid Feishu webhook signature");
+        return c.json({ error: "Invalid signature" }, 403);
+      }
+    }
+
+    return null;
+  }
+
   private async handleMessage(event: FeishuEvent): Promise<void> {
     const message = event.event!.message!;
     const sender = event.event!.sender!;
 
-    // 只处理文本消息
-    if (message.message_type !== "text") {
-      this.deps.logger.info("Ignoring non-text message", { messageType: message.message_type });
-      return;
-    }
-
-    // 忽略机器人自己的消息
-    if (sender.sender_type === "app") {
+    if (message.message_type !== "text" || sender.sender_type === "app") {
       return;
     }
 
@@ -120,17 +128,23 @@ export class FeishuWebhookHandler {
       textLength: text.length,
     });
 
-    // 确保 Connection 存在
     const connection = await this.deps.manageConnection.ensureConnection(chatId, chatId);
 
-    // 判断是否是命令
     if (text.startsWith("/")) {
       await this.deps.commandDispatcher.dispatch(connection.id, text, chatId);
       return;
     }
 
-    // 普通消息：发送到当前绑定的 Conversation
-    const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id);
+    await this.forwardToConversation(connection.id, chatId, sender.sender_id.open_id, text);
+  }
+
+  private async forwardToConversation(
+    connectionId: string,
+    chatId: string,
+    senderId: string,
+    text: string,
+  ): Promise<void> {
+    const conversation = await this.deps.manageConnection.getCurrentConversation(connectionId);
     if (!conversation) {
       await this.deps.feishuGateway.replyText(
         chatId,
@@ -139,10 +153,9 @@ export class FeishuWebhookHandler {
       return;
     }
 
-    // 发送消息到 Conversation
     await this.deps.sendMessage.send({
       conversationId: conversation.id,
-      senderId: sender.sender_id.open_id,
+      senderId,
       senderType: "user",
       talkingStonePassedTo: [],
       body: text,
@@ -150,9 +163,8 @@ export class FeishuWebhookHandler {
     });
 
     this.deps.logger.info("Message forwarded to conversation", {
-      connectionId: connection.id,
+      connectionId,
       conversationId: conversation.id,
-      messageId: message.message_id,
     });
   }
 }

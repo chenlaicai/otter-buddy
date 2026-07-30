@@ -62,7 +62,7 @@ export class ManageConnection {
     return this.createConnection(name, externalId);
   }
 
-  /** Connection 进入 Conversation（核心操作） */
+  /** Connection 进入 Conversation（核心操作，使用事务解决竞态条件） */
   async enterConversation(connectionId: string, conversationId: string): Promise<ConnectionSession> {
     // 1. 校验 connection 存在且 active
     const connection = await this.connRepo.getById(connectionId);
@@ -82,30 +82,17 @@ export class ManageConnection {
       throw new DomainError(`Conversation ${conversationId} is not active`, "validation");
     }
 
-    // 3. 检查该 conversation 是否已被其他 connection 占用
-    const existingSession = await this.connRepo.getActiveSessionByConversation(conversationId);
-    if (existingSession && existingSession.connectionId !== connectionId) {
-      throw new DomainError(
-        `Conversation ${conversationId} is already occupied by connection ${existingSession.connectionId}`,
-        "conflict"
-      );
-    }
-
-    // 4. 释放该 connection 的旧 active session（如有）
+    // 3. 检查是否已在目标 conversation 中
     const oldSession = await this.connRepo.getActiveSession(connectionId);
-    if (oldSession) {
-      if (oldSession.conversationId === conversationId) {
-        // 已经在目标 conversation 中，直接返回
-        return oldSession;
-      }
-      await this.connRepo.releaseSession(oldSession.id, new Date().toISOString());
+    if (oldSession && oldSession.conversationId === conversationId) {
+      return oldSession; // 已经在目标 conversation 中，直接返回
     }
 
-    // 5. 创建新 session
+    // 4. 使用事务执行进入操作（解决竞态条件）
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    const session: ConnectionSession = {
+    const newSession: ConnectionSession = {
       id,
       connectionId,
       conversationId,
@@ -114,7 +101,19 @@ export class ManageConnection {
       releasedAt: null,
     };
 
-    await this.connRepo.createSession(session);
+    try {
+      await this.connRepo.enterConversationTransaction(
+        connectionId,
+        conversationId,
+        oldSession?.id ?? null,
+        newSession,
+      );
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("already occupied")) {
+        throw new DomainError(err.message, "conflict");
+      }
+      throw err;
+    }
 
     this.logger.info('Connection entered conversation', {
       connectionId,
@@ -122,7 +121,7 @@ export class ManageConnection {
       sessionId: id,
     });
 
-    return session;
+    return newSession;
   }
 
   /** Connection 离开当前 Conversation */
@@ -140,32 +139,42 @@ export class ManageConnection {
     });
   }
 
-  /** 列出所有 active Conversation（供 /list 命令） */
+  /** 列出所有 active Conversation（供 /list 命令，优化 N+1 查询） */
   async listActiveConversations(): Promise<Array<{ id: string; title: string; occupiedBy?: string }>> {
     const conversationIds = await this.convRepo.getAllIds({ limit: 100 });
-    const result: Array<{ id: string; title: string; occupiedBy?: string }> = [];
+    if (conversationIds.length === 0) return [];
 
-    for (const id of conversationIds) {
-      const conversation = await this.convRepo.getById(id);
-      if (!conversation || conversation.status !== "active") {
-        continue;
-      }
+    // 批量查询 conversations
+    const conversations = await Promise.all(
+      conversationIds.map(id => this.convRepo.getById(id))
+    );
+    const activeConversations = conversations.filter(
+      (c): c is NonNullable<typeof c> => c !== null && c.status === "active"
+    );
 
-      const session = await this.connRepo.getActiveSessionByConversation(id);
-      let occupiedBy: string | undefined;
-      if (session) {
-        const connection = await this.connRepo.getById(session.connectionId);
-        occupiedBy = connection?.name;
-      }
+    if (activeConversations.length === 0) return [];
 
-      result.push({
-        id: conversation.id,
-        title: conversation.title,
-        occupiedBy,
-      });
-    }
+    // 批量查询 sessions
+    const activeConvIds = activeConversations.map(c => c.id);
+    const sessions = await this.connRepo.getActiveSessionsByConversations(activeConvIds);
 
-    return result;
+    // 批量查询 connections
+    const connectionIds = [...new Set(sessions.map(s => s.connectionId))];
+    const connections = connectionIds.length > 0
+      ? await this.connRepo.getByIds(connectionIds)
+      : [];
+    const connectionMap = new Map(connections.map(c => [c.id, c.name]));
+
+    // 组装结果
+    const sessionMap = new Map(sessions.map(s => [s.conversationId, s]));
+    return activeConversations.map(conv => {
+      const session = sessionMap.get(conv.id);
+      return {
+        id: conv.id,
+        title: conv.title,
+        occupiedBy: session ? connectionMap.get(session.connectionId) : undefined,
+      };
+    });
   }
 
   /** 获取 Connection 当前绑定的 Conversation */

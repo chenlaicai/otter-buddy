@@ -1,28 +1,44 @@
+import { createHash, createDecipheriv } from "node:crypto";
 import type { Logger } from "@usecases/ports/logger";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 
 export interface FeishuConfig {
   appId: string;
   appSecret: string;
-  verificationToken?: string;
+  verificationToken: string;  // 必填
   encryptKey?: string;
 }
 
 export class FeishuClient implements FeishuGateway {
   private accessToken: string | null = null;
   private tokenExpiresAt: number = 0;
+  private refreshPromise: Promise<string> | null = null;  // 解决并发刷新竞态
 
   constructor(
     private readonly config: FeishuConfig,
     private readonly logger: Logger,
   ) {}
 
-  /** 获取 tenant_access_token（自动缓存，过期前刷新） */
+  /** 获取 tenant_access_token（自动缓存，过期前刷新，并发安全） */
   async getAccessToken(): Promise<string> {
     if (this.accessToken && Date.now() < this.tokenExpiresAt) {
       return this.accessToken;
     }
 
+    // 如果已有刷新请求在进行中，等待同一个 promise
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.doRefreshToken();
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  private async doRefreshToken(): Promise<string> {
     const response = await fetch(
       "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
       {
@@ -102,15 +118,9 @@ export class FeishuClient implements FeishuGateway {
 
     // 飞书签名验证逻辑
     // 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/encrypt-key-encryption-configuration-case
-    const crypto = require("crypto");
     const content = timestamp + nonce + this.config.encryptKey + body;
-    const hash = crypto.createHash("sha256").update(content).digest("hex");
+    const hash = createHash("sha256").update(content).digest("hex");
     return hash === signature;
-  }
-
-  /** 处理 URL Verification Challenge */
-  handleChallenge(challenge: string): { challenge: string } {
-    return { challenge };
   }
 
   /** 解密加密的事件数据 */
@@ -119,12 +129,11 @@ export class FeishuClient implements FeishuGateway {
       return encryptedData;
     }
 
-    const crypto = require("crypto");
-    const key = crypto.createHash("sha256").update(this.config.encryptKey).digest();
+    const key = createHash("sha256").update(this.config.encryptKey).digest();
     const encrypted = Buffer.from(encryptedData, "base64");
     const iv = encrypted.subarray(0, 16);
     const data = encrypted.subarray(16);
-    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    const decipher = createDecipheriv("aes-256-cbc", key, iv);
     let decrypted = decipher.update(data);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
     return decrypted.toString("utf8");

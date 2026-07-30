@@ -16,4 +16,16 @@ export interface ConnectionRepository {
 
   // 历史查询
   getSessionHistory(connectionId: string, limit?: number): Promise<ConnectionSession[]>;
+
+  // 批量查询（优化 N+1 问题）
+  getByIds(ids: string[]): Promise<Connection[]>;
+  getActiveSessionsByConversations(conversationIds: string[]): Promise<ConnectionSession[]>;
+
+  // 事务操作（解决竞态条件）
+  enterConversationTransaction(
+    connectionId: string,
+    conversationId: string,
+    oldSessionId: string | null,
+    newSession: ConnectionSession,
+  ): Promise<ConnectionSession>;
 }
