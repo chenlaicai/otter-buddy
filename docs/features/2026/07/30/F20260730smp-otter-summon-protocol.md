@@ -4,21 +4,24 @@ title: otter-summon-protocol
 doc_type: feature
 
 summary: |
-  大獭召唤小獭的行为协议：在 BIG_OTTER.md 中嵌入召唤决策框架（场景表、原则、模板、多轮协作模式），
-  在 SMALL_OTTER.md 中强化产出标准化（发言三要素）。
-  纯 prompt 层改动，零代码变更——让现有 create_otter/dissolve_otter 工具形成完整的"召唤→协作→接住"工作流。
+  大獭召唤小獭的行为协议：召唤决策框架、systemPrompt 模板、多轮协作编排、产出接住。
+  信道分层：身份层（BIG_OTTER.md）只保留一句话声明，具体 know-how 放在 otter-summon skill（按需加载）。
+  小獭产出标准化：SMALL_OTTER.md 增加 speak 发言三要素（硬规则，留在身份层）。
+  本特性记录了"信道选择"的认知教训——与 F20260724skch 是对称错误。
 
 causal_links:
   from:
     - F20260721cap    # capability-oriented-skills：能力导向 skill 为小獭提供了能力基础
     - F20260720qs9y   # per-conversation-otter：每对话独立大獭是召唤的前提
+    - F20260724skch   # skill-tool-channel-consolidation：信道分层原则（本特性的设计依据）
 
 status: draft
 change_type: prompt
-tags: [agent, prompt, otter, summon, collaboration, identity]
+tags: [agent, prompt, otter, summon, collaboration, identity, skill, channel]
 modules:
   - prompts/identity/BIG_OTTER.md
   - prompts/identity/SMALL_OTTER.md
+  - .pi/skills/otter-summon/
 
 created_at: 2026-07-30
 ---
@@ -40,14 +43,38 @@ created_at: 2026-07-30
 
 根因：`create_otter` 是纯机制层工具，行为层（何时用、怎么用、用完怎么收）完全靠 LLM 自由发挥。
 
-### 设计思路
+### 信道分层决策
 
-不加新机制，而是让现有工具形成"召唤协议"：
+初版设计将召唤协议全部写入 BIG_OTTER.md（身份层，每次 invoke 必达）。用户指出这违反了 F20260724skch 建立的信道分层原则：
 
-- 大獭：知道何时召唤、怎么写 systemPrompt、怎么接住产出
-- 小獭：知道完成时该怎么发言、产出格式是什么
+> | 内容性质 | 位置 | 可达性 |
+> |------|------|------|
+> | 无条件遵守的硬规则 | SYSTEM.md / tool description | 每次必达 |
+> | 工具用法契约 | tool description | 每次必达 |
+> | 复杂任务的程序化 know-how | **skill** | **按需可达** |
 
-纯 prompt 改动，零代码风险，直接作用于大獭/小獭的首次 invoke 身份注入。
+召唤协议是"复杂任务的程序化 know-how"——包含场景判断、模板、编排模式，属于按需加载的内容。放在身份层会导致：
+1. 每次 invoke 都携带大量 token，即使本次对话不需要召唤
+2. 与身份层"轻量、稳定"的定位矛盾
+3. 违反 F20260724skch 的防再犯口诀："改行为规则前先问'这条规则在哪个信道上？'"
+
+**最终方案**：身份层一句话声明 → skill 按需加载详细协议。
+
+### 认知教训：信道选择是反复出现的设计偏差
+
+本特性的信道错放问题不是孤例。项目历史中，信道选择偏差出现过多次：
+
+| 时间 | 特性 | 偏差方向 | 纠正 |
+|------|------|---------|------|
+| F20260720k7m2 | skill-injection-native | 1:1 skill 内容应在 tool description | 删除 5 个 1:1 skill，内容归位 tool description |
+| F20260724skch | skill-tool-channel-consolidation | speak 规则在懒加载 skill（不可达） | 硬规则移到 SYSTEM.md，工具用法归位 tool description |
+| **F20260730smp** | **otter-summon-protocol** | **know-how 在身份 prompt（每次必达）** | **拆到 skill，身份层只留一句话** |
+
+**模式**：信道偏差有两种对称错误——
+- 把必达规则放到懒加载 skill（模型看不到）→ F20260724skch
+- 把按需 know-how 放到必达 prompt（token 浪费、层职责混淆）→ 本特性
+
+**防再犯**：设计 prompt 改动时，先分类内容性质（硬规则？工具契约？程序化 know-how？），再选择信道。
 
 ## 用户意图锚
 
@@ -57,12 +84,21 @@ created_at: 2026-07-30
 | UA-2 | "用户只抛出问题，然后大獭来解决，而小獭也是一种解决方式" | 小獭是解决方式 | 召唤是大獭解决问题的手段之一，不是独立流程 | 本次对话 |
 | UA-3 | "设计/开发/检视，彼此间可能是需要多轮对话的" | 多轮对话 | 需要编排能力：开发↔检视循环、发言石路由 | 本次对话 |
 | UA-4 | "otter 系统类似于提供了一个协作沟通的平台" | 协作平台 | 小獭不是 subagent，是协作参与者 | 本次对话 |
+| UA-5 | "要先整理清楚 system prompt 和 skill/tool 的边界" | 信道边界 | 内容必须放在正确的信道上 | 本次对话 |
 
 ## 设计方案
 
-### D1 — BIG_OTTER.md 增加召唤协议
+### D1 — BIG_OTTER.md：身份层只留一句话
 
-新增三个段落（`## 召唤小獭`、`### 召唤原则`、`### systemPrompt 模板`、`### 多轮协作模式`、`## 接住小獭`）：
+`## 召唤小獭` 段落从 59 行精简为 1 行：
+
+> 你有权也有责任在需要时创建和管理小獭。召唤的判断、systemPrompt 编写、协作编排——见 `otter-summon` skill。
+
+身份层职责：声明"你是谁"（有权召唤）。行为层职责：skill 教"怎么做"。
+
+### D2 — otter-summon skill：按需加载的召唤协议
+
+新增 `.pi/skills/otter-summon/SKILL.md`，包含：
 
 **召唤场景表**（5 种典型场景）：
 
@@ -74,11 +110,10 @@ created_at: 2026-07-30
 | 模拟多角色讨论 | 按立场命名 | 指定角色立场和关注点 |
 | 并行调研多个方向 | 按方向命名 | 指定调研方向和范围 |
 
-**召唤原则**（4 条）：
-1. 自己能搞定的不召唤（简单任务直接做）
-2. 召唤要有明确任务（systemPrompt 必须含四要素）
-3. 传递上下文（不让小獭从零开始）
-4. 小獭说完要接住（根据产出决定下一步）
+**召唤原则**（3 条）：
+1. 召唤要有明确任务（systemPrompt 必须含四要素）
+2. 传递上下文（不让小獭从零开始）
+3. 小獭说完要接住（根据产出决定下一步）
 
 **systemPrompt 模板**（四段式）：
 ```
@@ -88,31 +123,36 @@ created_at: 2026-07-30
 完成标准：[什么算做完]
 ```
 
-**多轮协作模式**（开发↔检视循环）：
-1. 创建开发獭 → 交给任务
-2. 开发獭产出 → 发言石传检视獭
-3. 检视獭审查 → 发言石传回开发獭
-4. 循环直到检视通过
-5. 整合结论 → 交给搭档
-
 **接住小獭**行为锚：审视产出 → 整合 → 补漏/再召唤 → 汇报搭档。
 
-### D2 — SMALL_OTTER.md 强化产出标准化
+**references/collaboration-patterns.md**：多轮协作详细模式（开发↔检视循环、并行调研、角色讨论）。
+
+### D3 — SMALL_OTTER.md：产出标准化（硬规则，留在身份层）
 
 新增 `## 完成任务时` 段落，要求小獭发言必须包含三要素：
 
-1. **结论/产出**：核心交付物（方案、检视报告、调研结论、代码变更说明）
+1. **结论/产出**：核心交付物
 2. **发现的问题**（如有）：职责外但值得大獭关注的问题
 3. **建议**（如有）：对后续工作的具体建议
 
-禁止泛泛而谈——"你的发言就是你的交付物"。
+这是硬规则（每次发言都必须遵守），放在身份层（每次必达信道）是正确的。
+
+## 信道分层总结
+
+| 内容 | 信道 | 理由 |
+|------|------|------|
+| "你有权召唤小獭" | BIG_OTTER.md（身份，必达） | 身份声明，稳定不变 |
+| 召唤场景/原则/模板/编排 | otter-summon skill（按需） | 程序化 know-how，复杂任务才需要 |
+| 小獭发言三要素 | SMALL_OTTER.md（身份，必达） | 硬规则，每次发言都必须遵守 |
 
 ## 改动清单
 
 | 文件 | 改动 |
 |------|------|
-| `prompts/identity/BIG_OTTER.md` | +59 行：召唤场景表、召唤原则、systemPrompt 模板、多轮协作模式、接住小獭 |
+| `prompts/identity/BIG_OTTER.md` | +1 行：召唤身份声明（一句话） |
 | `prompts/identity/SMALL_OTTER.md` | +10 行：完成任务时发言三要素 |
+| `.pi/skills/otter-summon/SKILL.md` | 新增：召唤协议核心（场景、原则、模板、接住） |
+| `.pi/skills/otter-summon/references/collaboration-patterns.md` | 新增：多轮协作编排模式 |
 
 ## 硬约束
 
@@ -120,16 +160,16 @@ created_at: 2026-07-30
 2. 不改变 `create_otter` / `dissolve_otter` 工具的接口和行为
 3. 不改变小獭的工具权限（仍为只读 + 协作工具）
 4. 不改变 skill 注入机制（ResourceLoader 不变）
-5. 场景表是引导而非穷举——大獭可根据实际判断灵活运用
+5. 身份层不膨胀——只保留声明，不放 know-how
 
 ## 设计取舍
 
 | 取舍 | 决策 | 替代方案 | 理由 |
 |------|------|---------|------|
-| 改动层 | 纯 prompt | 给 create_otter 增加 skillRefs 参数 | prompt 改动零风险，先验证效果再考虑工具层增强 |
+| 召唤协议位置 | skill（按需加载） | 身份 prompt（每次必达） | 符合 F20260724skch 信道分层原则；身份层应轻量 |
 | 场景粒度 | 5 种典型场景 | 只给原则不给场景 | 场景表降低 LLM 决策成本，但保留灵活性 |
-| 多轮协作 | 大獭编排 | 系统自动路由 | 大獭编排更灵活，系统路由增加机制复杂度 |
-| 小獭产出 | 三要素规范 | 不约束 | 规范化产出让大獭可可靠判断任务完成度 |
+| 多轮协作位置 | skill references/ | skill 核心 or 身份 prompt | 协作模式是进阶内容，渐进披露 |
+| 小獭产出规范 | 身份层硬规则 | 放在 skill | 每次发言都必须遵守，不是按需 |
 
 ## 验证
 
@@ -141,3 +181,4 @@ created_at: 2026-07-30
 | 多轮协作模式能运转 | 人工对话测试：抛出需要开发+检视的任务，观察发言石路由 |
 | 大獭接住小獭产出并整合 | 检查大獭在小獭发言后的后续行为 |
 | 简单任务大獭不召唤 | 人工对话测试：抛出简单问题，确认大獭直接回答 |
+| 身份层 token 不膨胀 | 对比改动前后 BIG_OTTER.md 字数 |
