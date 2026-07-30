@@ -30,6 +30,10 @@ description: >-
 
 简单问答、快速修改、直接能做的事——自己上手，不要多此一举。
 
+## systemPrompt 与身份层的关系
+
+你写的 systemPrompt 会叠加在小獭的身份 prompt（SMALL_OTTER.md）之后注入小獭上下文。不需要在 systemPrompt 中重复身份信息（"你是小獭"等），身份层已覆盖。只写任务相关的内容。
+
 ## 召唤原则
 
 - **召唤要有明确任务**：systemPrompt 必须包含——具体任务、背景信息、预期产出、完成标准

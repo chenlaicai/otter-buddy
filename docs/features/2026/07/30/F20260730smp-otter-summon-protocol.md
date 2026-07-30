@@ -156,7 +156,7 @@ created_at: 2026-07-30
 
 | 文件 | 改动 |
 |------|------|
-| `prompts/identity/BIG_OTTER.md` | +1 行：召唤身份声明（一句话） |
+| `prompts/identity/BIG_OTTER.md` | +4 行：召唤身份声明（一句话）+ 删除"你是谁"中的召唤描述冗余 |
 | `prompts/identity/SMALL_OTTER.md` | +10 行：完成任务时发言三要素 |
 | `.pi/skills/otter-summon/SKILL.md` | 新增：召唤协议核心（场景、原则、模板、接住） |
 | `.pi/skills/otter-summon/references/collaboration-patterns.md` | 新增：多轮协作编排模式 |
@@ -207,3 +207,15 @@ created_at: 2026-07-30
 | P2 | 多轮协作缺发言石路由细节和断裂恢复 | 增加路由说明和恢复策略 |
 
 **用户决策**：触发机制优化 skill description 即可，不在身份层堆砌触发指令。理由："这本来就是 LLM 的能力之一，不需要污染系统提示词。LLM 变强后不存在匹配不上的问题。"
+
+### 第二轮（agent 检视）：需修改
+
+第一轮 6 个修复全部验证通过。新发现 5 个问题（1 中 + 4 低）：
+
+| 严重度 | 问题 | 修复 |
+|--------|------|------|
+| 中 | 协作文档遗漏 `'user'` 路由目标，"单播"措辞不准确 | 修正路由说明：补充 `'user'` 选项，删除"单播"措辞 |
+| 低 | BIG_OTTER.md 删后逻辑衔接略突兀 | 改为"简单的事你直接上手做；复杂的事你也有办法——小獭是你的延伸" |
+| 低 | 改动清单 BIG_OTTER.md 行数标注不准 | 修正为 +4 行 |
+| 低 | SKILL.md 未说明 systemPrompt 与身份层叠加关系 | 新增"systemPrompt 与身份层的关系"段落 |
+| 低 | collaboration-patterns.md 缺排查类单轮协作说明 | 新增"排查类任务"段落 |
