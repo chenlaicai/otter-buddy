@@ -2,6 +2,7 @@ import type { ManageConversation } from '@usecases/conversation/manage-conversat
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
+import type { OtterRepository } from '@usecases/otter/otter-repository';
 
 const HEALING_CONVERSATION_TITLE = '🩺 Self-Healing';
 const HEALING_CONVERSATION_KEY = '__self_healing_conversation_id__';
@@ -15,10 +16,10 @@ export interface HealingConversationResult {
 export async function ensureHealingConversation(deps: {
   manageConversation: ManageConversation;
   convRepo: ConversationRepository;
+  otterRepo: OtterRepository;
   settings: SettingsRepository;
   sendMessage: SendMessage;
 }): Promise<HealingConversationResult> {
-  // 检查是否已有
   const existingId = await deps.settings.get(HEALING_CONVERSATION_KEY);
   if (existingId) {
     const conv = await deps.manageConversation.getById(existingId);
@@ -28,24 +29,20 @@ export async function ensureHealingConversation(deps: {
     }
   }
 
-  // 创建对话（ManageConversation.create 内部自动创建大獭 + 加入参与者）
-  const conversation = await deps.manageConversation.create({
-    title: HEALING_CONVERSATION_TITLE,
-  });
+  const conversation = await deps.manageConversation.create({ title: HEALING_CONVERSATION_TITLE });
 
-  // 查询参与者找到大獭 ID
+  // M1: 通过 otterRepo 验证 type === 'big'，不依赖参与者顺序
   const participants = await deps.convRepo.getActiveParticipants(conversation.id);
-  const bigOtterParticipant = participants.find(p => p.status === 'active');
-  if (!bigOtterParticipant) {
-    throw new Error('Self-Healing conversation created without a big otter participant');
+  let bigOtterId: string | undefined;
+  for (const p of participants) {
+    const otter = await deps.otterRepo.getById(p.otterId);
+    if (otter?.type === 'big') { bigOtterId = otter.id; break; }
   }
-  const bigOtterId = bigOtterParticipant.otterId;
+  if (!bigOtterId) throw new Error('Self-Healing conversation created without a big otter participant');
 
-  // 持久化
   await deps.settings.update(HEALING_CONVERSATION_KEY, conversation.id);
   await deps.settings.update(HEALING_BIG_OTTER_ID_KEY, bigOtterId);
 
-  // 发送首条引导消息
   await deps.sendMessage.sendSystem(conversation.id,
     `🩺 **Self-Healing 对话已创建**
 

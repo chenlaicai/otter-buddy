@@ -474,7 +474,7 @@ async function main(): Promise<void> {
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway);
 
   // Self-Healing 初始化（失败不阻塞启动）
-  ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, settings: repos.settings, sendMessage: uc.sendMessage })
+  ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
     .catch(err => logger.warn('Self-Healing init failed', { error: err instanceof Error ? err.message : String(err) }));
 

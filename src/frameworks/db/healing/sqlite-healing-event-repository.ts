@@ -89,10 +89,11 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
 
   async autoStaleDismiss(staleDays: number): Promise<number> {
     const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
     const result = this.db.prepare(`
-      UPDATE healing_events SET status = 'dismissed', resolved_at = datetime('now')
+      UPDATE healing_events SET status = 'dismissed', resolved_at = ?
       WHERE status = 'open' AND created_at < ?
-    `).run(cutoff);
+    `).run(now, cutoff);
     return result.changes;
   }
 }

@@ -167,8 +167,8 @@ export class SchedulerService {
     await this.createExecution(executionId, task.id, now);
 
     try {
-      const message = await this.createSystemMessageWithBody(task, effectiveBody!);
-      await this.invokeAgentWithTimeoutAndBody(task, effectiveBody!);
+      const message = await this.createSystemMessage(task, effectiveBody!);
+      await this.invokeAgentWithTimeout(task, effectiveBody!);
       await this.completeExecution(executionId, task.conversationId, message.id);
       await this.taskRepo.resetConsecutiveFailures(task.id, now);
       return { executionId };
@@ -204,36 +204,25 @@ export class SchedulerService {
     });
   }
 
-  private async createSystemMessage(task: ScheduledTask) {
+  private async createSystemMessage(task: ScheduledTask, body?: string) {
     return this.sendMessage.send({
       conversationId: task.conversationId,
       senderType: 'system',
       senderId: task.senderId,
-      body: task.body,
+      body: body ?? task.body,
       talkingStonePassedTo: task.talkingStonePassedTo,
     });
   }
 
-  private async createSystemMessageWithBody(task: ScheduledTask, body: string) {
-    return this.sendMessage.send({
-      conversationId: task.conversationId,
-      senderType: 'system',
-      senderId: task.senderId,
-      body,
-      talkingStonePassedTo: task.talkingStonePassedTo,
-    });
-  }
-
-  private async invokeAgentWithTimeout(task: ScheduledTask): Promise<void> {
+  private async invokeAgentWithTimeout(task: ScheduledTask, body?: string): Promise<void> {
     const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
     let timer: NodeJS.Timeout | undefined;
-
     try {
       await Promise.race([
         this.agentInvokePort.invokeConversation({
           otterId: task.talkingStonePassedTo[0],
           conversationId: task.conversationId,
-          userMessageContent: task.body,
+          userMessageContent: body ?? task.body,
           senderId: task.senderId,
         }),
         new Promise((_, reject) => {
@@ -241,32 +230,7 @@ export class SchedulerService {
         }),
       ]);
     } finally {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    }
-  }
-
-  private async invokeAgentWithTimeoutAndBody(task: ScheduledTask, body: string): Promise<void> {
-    const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
-    let timer: NodeJS.Timeout | undefined;
-
-    try {
-      await Promise.race([
-        this.agentInvokePort.invokeConversation({
-          otterId: task.talkingStonePassedTo[0],
-          conversationId: task.conversationId,
-          userMessageContent: body,
-          senderId: task.senderId,
-        }),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS);
-        }),
-      ]);
-    } finally {
-      if (timer) {
-        clearTimeout(timer);
-      }
+      if (timer) clearTimeout(timer);
     }
   }
 

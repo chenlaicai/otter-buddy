@@ -8,6 +8,7 @@ import type { HealingResolutionAction } from "@entities/healing/healing-event";
 import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
 import type { Logger } from "@usecases/ports/logger";
 
+
 export interface AgentTool {
   name: string;
   description: string;
@@ -26,23 +27,23 @@ export interface ToolContext {
   client: OtterToolClient;
   otterId: string;
   conversationId: string;
-  /** 当前 streaming 消息 ID（speak 工具用） */
   currentMessageId: string;
 }
 
 function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {
   const cleanBody = stripHealingReport(rawBody);
-  const report = parseHealingReport(rawBody);
-  if (report.hasIssues) {
+  const { hasIssues, issues } = parseHealingReport(rawBody);
+  if (hasIssues) {
     const now = new Date().toISOString();
     const meta = { otterId: ctx.otterId, conversationId: ctx.conversationId, messageId: ctx.currentMessageId };
-    for (const issue of report.issues) {
+    for (const issue of issues) {
+      if (issue.severity === 'high') logger?.warn('High severity healing event', { type: issue.type, description: issue.description });
       repo.create({
         id: crypto.randomUUID(), messageId: ctx.currentMessageId, conversationId: ctx.conversationId,
         otterId: ctx.otterId, errorType: issue.type, severity: issue.severity,
         description: issue.description, suggestion: issue.suggestion,
         context: meta, status: 'open', resolution: null, createdAt: now, resolvedAt: null,
-      }).catch(err => logger?.error('Failed to store healing event', err instanceof Error ? err : undefined, {}));
+      }).catch(err => logger?.error('Failed to store healing event', err instanceof Error ? err : new Error(String(err))));
     }
   }
   return cleanBody;
@@ -430,14 +431,12 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
     }
     const ids = params.eventIds as string[];
     if (!ids?.length) return textResponse("[错误] eventIds 不能为空");
-    if (action === 'resolve') {
-      const ra = ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction;
-      for (const id of ids) await healingRepo.resolve(id, { action: ra, decidedBy: 'agent', decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' });
-      return textResponse(`已标记 ${ids.length} 个事件为 resolved (${ra})`);
-    }
-    if (action === 'dismiss') {
-      for (const id of ids) await healingRepo.updateStatus(id, 'dismissed');
-      return textResponse(`已忽略 ${ids.length} 个事件`);
+    if (action === 'resolve' || action === 'dismiss') {
+      const fn = action === 'resolve'
+        ? (id: string) => healingRepo.resolve(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' })
+        : (id: string) => healingRepo.updateStatus(id, 'dismissed');
+      const res = await Promise.allSettled(ids.map(fn));
+      return textResponse(`完成: ${res.filter(r => r.status === 'fulfilled').length}/${ids.length} 成功`);
     }
     return textResponse(`未知操作: ${action}`);
   };
