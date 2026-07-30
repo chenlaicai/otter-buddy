@@ -59,7 +59,15 @@ export class AgentDispatchService {
     if (messages.length === 0) return [];
 
     const lastUserMsg = messages[0];
-    return lastUserMsg.talkingStonePassedTo ?? [];
+    const targets = lastUserMsg.talkingStonePassedTo ?? [];
+
+    this.deps.logger.info('resolveFirstTurnTargets', {
+      conversationId,
+      messageId: lastUserMsg.id,
+      talkingStonePassedTo: targets,
+    });
+
+    return targets;
   }
 
   private async executeChain(
@@ -144,9 +152,10 @@ export class AgentDispatchService {
       }
     }
 
+    // 过滤掉 senderId 和 "user"（用户不是 Otter，不能被调用）
     return {
       otterReply,
-      nextTargets: [...nextTargets].filter(id => id !== senderId),
+      nextTargets: [...nextTargets].filter(id => id !== senderId && id !== "user"),
     };
   }
 

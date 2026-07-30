@@ -32,6 +32,7 @@ function registerConvRoutes(app: Hono, c: Controllers): void {
 
 function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/messages", (ctx) => c.message.list(ctx));
+  app.get("/api/conversations/:id/subscribe", (ctx) => c.message.subscribe(ctx));
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/messages/:id", (ctx) => c.message.getById(ctx));
   app.get("/api/messages/:id/events", (ctx) => c.message.getEvents(ctx));

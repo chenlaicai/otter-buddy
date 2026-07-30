@@ -6,6 +6,7 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
+import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO } from "../dto/message-dto";
@@ -20,6 +21,7 @@ export class MessageController {
     private readonly logger: Logger,
     private readonly queryOtter: QueryOtter,
     private readonly maxChainDepth: number = 20,
+    private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -31,6 +33,33 @@ export class MessageController {
       if (otter) names.set(id, otter.name);
     }));
     return names;
+  }
+
+  /** 订阅消息广播（SSE 长连接） */
+  async subscribe(c: Context): Promise<Response> {
+    const conversationId = param(c, "id");
+
+    if (!this.messageBroadcaster) {
+      return c.json({ error: "Message broadcaster not configured" }, 500);
+    }
+
+    const { response, push, close } = streamEvents(c, undefined, this.logger);
+
+    // 订阅消息广播
+    const unsubscribe = this.messageBroadcaster.subscribe(conversationId, (message) => {
+      push({
+        event: "message",
+        data: toMessageDTO(message) as unknown as Record<string, unknown>,
+      });
+    });
+
+    // 客户端断连时取消订阅
+    c.req.raw.signal.addEventListener("abort", () => {
+      unsubscribe();
+      close();
+    });
+
+    return response;
   }
 
   async list(c: Context): Promise<Response> {

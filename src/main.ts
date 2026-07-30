@@ -71,9 +71,12 @@ import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { FeishuClient } from "@frameworks/feishu/client";
+import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
+import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
 import { FeishuWebhookHandler } from "@interface-adapters/feishu/webhook-handler";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { buildOtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client-builder";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化） */
@@ -236,13 +239,14 @@ interface ControllerDeps {
   settingsRepo: SqliteSettingsRepository;
   schedulerService: SchedulerService;
   cronParser: SimpleCronParser;
+  messageBroadcaster?: MessageBroadcaster;
 }
 
 function initControllers(deps: ControllerDeps) {
   return {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
-    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, appConfig.circuitBreaker.maxChainDepth),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, appConfig.circuitBreaker.maxChainDepth, deps.messageBroadcaster),
     memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
     settings: new SettingsController(deps.settings, deps.settingsRepo),
@@ -251,7 +255,8 @@ function initControllers(deps: ControllerDeps) {
   };
 }
 
-function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker): void {
+function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messageBroadcaster?: MessageBroadcaster): void {
+  logger.info("setupFeishu called", { hasConfig: !!appConfig.feishu });
   if (!appConfig.feishu) return;
 
   const feishuClient = new FeishuClient(appConfig.feishu, logger);
@@ -264,17 +269,41 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker): void 
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
   });
-  const feishuWebhookHandler = new FeishuWebhookHandler({
+
+  // 使用长连接方式（不需要公网 HTTP 回调）
+  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger);
+  const longConnectionHandler = new FeishuLongConnectionHandler({
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,
     commandDispatcher,
     feishuGateway: feishuClient,
     agentDispatchService,
-    config: { verificationToken: appConfig.feishu.verificationToken },
+    longConnectionGateway: longConnectionClient,
+    messageBroadcaster: messageBroadcaster!,
     logger,
   });
-  app.post("/feishu/webhook", (ctx) => feishuWebhookHandler.handle(ctx));
-  logger.info("Feishu webhook route registered");
+
+  // 启动长连接
+  longConnectionHandler.start().then(() => {
+    logger.info("Feishu long connection started");
+  }).catch((err) => {
+    logger.error("Failed to start Feishu long connection", err instanceof Error ? err : undefined);
+  });
+
+  // 保留 webhook 路由作为备用（如果配置了 verificationToken）
+  if (appConfig.feishu.verificationToken) {
+    const feishuWebhookHandler = new FeishuWebhookHandler({
+      manageConnection: uc.manageConnection,
+      sendMessage: uc.sendMessage,
+      commandDispatcher,
+      feishuGateway: feishuClient,
+      agentDispatchService,
+      config: { verificationToken: appConfig.feishu.verificationToken },
+      logger,
+    });
+    app.post("/feishu/webhook", (ctx) => feishuWebhookHandler.handle(ctx));
+    logger.info("Feishu webhook route registered (backup)");
+  }
 }
 
 function startServer(
@@ -282,9 +311,10 @@ function startServer(
   uc: UseCases,
   agentInvoker: AgentInvoker,
   port: number,
+  messageBroadcaster?: MessageBroadcaster,
 ): void {
   const app = new Hono();
-  setupFeishu(app, uc, agentInvoker);
+  setupFeishu(app, uc, agentInvoker, messageBroadcaster);
   app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {
@@ -324,13 +354,14 @@ async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGat
   await syncDocs.execute(process.cwd());
 }
 
-async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory) {
+async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory, messageBroadcaster?: MessageBroadcaster) {
   /** 预加载 pi-coding-agent SDK，避免首次创建对话时冷启动阻塞 HTTP 响应 */
   await agentGateway.warmup();
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
+    messageBroadcaster,
   );
 
   const cronParser = new SimpleCronParser();
@@ -348,9 +379,7 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGat
   return { agentInvoker, cronParser, schedulerService };
 }
 
-async function main(): Promise<void> {
-  syncApiKeyToAgentAuth(appConfig.llm);
-
+async function initDatabaseAndModels() {
   const db = initDatabase(appConfig.db, logger);
   initSchema(db, logger);
   await seedTerminologyData(db, logger);
@@ -364,6 +393,14 @@ async function main(): Promise<void> {
 
   const { model } = await initModels(appConfig.llm, logger);
   const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
+
+  return { db, otterConfigProvider, model, embeddingService, dispose };
+}
+
+async function main(): Promise<void> {
+  syncApiKeyToAgentAuth(appConfig.llm);
+
+  const { db, otterConfigProvider, model, embeddingService, dispose } = await initDatabaseAndModels();
 
   const repos = initRepositories(db);
   /** 服务重启兜底：遗留进行中消息置 failed、孤儿 turn 关闭（重启后不存在活跃 agent） */
@@ -386,7 +423,14 @@ async function main(): Promise<void> {
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway);
+  // 创建消息广播服务（Web + 飞书同步）
+  let messageBroadcaster: MessageBroadcaster | undefined;
+  if (appConfig.feishu) {
+    const feishuClient = new FeishuClient(appConfig.feishu, logger);
+    messageBroadcaster = new MessageBroadcaster(uc.manageConnection, feishuClient, logger);
+  }
+
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, messageBroadcaster);
 
   const settings: SettingsConfig = {
     provider: appConfig.llm.provider,
@@ -397,8 +441,8 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser });
-  startServer(controllers, uc, agentInvoker, appConfig.server.port);
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, messageBroadcaster });
+  startServer(controllers, uc, agentInvoker, appConfig.server.port, messageBroadcaster);
 
   schedulerService.start().catch((err) => {
     logger.error(`Failed to start scheduler: ${err}`);

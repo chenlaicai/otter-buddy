@@ -4,6 +4,7 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
+import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
 type ErrorWithToolCallCount = Error & { _toolCallCount?: number };
@@ -94,6 +95,7 @@ export class AgentInvoker {
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
     private readonly logger: Logger,
+    private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
   /**
@@ -262,6 +264,16 @@ export class AgentInvoker {
 
     /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
     onSSEEvent?.({ event: "turn.complete", data: {} });
+
+    // 广播消息到 Web 和飞书
+    if (this.messageBroadcaster && msg) {
+      this.messageBroadcaster.broadcast(msg).catch(err => {
+        this.logger.error("Failed to broadcast message", err instanceof Error ? err : undefined, {
+          messageId,
+          conversationId,
+        });
+      });
+    }
 
     return { messageId, duration, tokenUsage: result.tokenUsage, aggregatedTargets };
   }

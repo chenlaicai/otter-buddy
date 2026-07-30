@@ -204,4 +204,9 @@ export class ManageConnection {
   async listConnections(): Promise<Connection[]> {
     return this.connRepo.listActive();
   }
+
+  /** 根据 Conversation ID 获取活跃的 Session */
+  async getSessionByConversation(conversationId: string): Promise<ConnectionSession | null> {
+    return this.connRepo.getActiveSessionByConversation(conversationId);
+  }
 }

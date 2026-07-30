@@ -155,6 +155,37 @@ function ConversationPage() {
     return () => clearTimeout(timer)
   }, [activeId, allMessages, refreshMessages])
 
+  /** 订阅消息广播（支持飞书消息实时同步到 Web） */
+  useEffect(() => {
+    if (!activeId) return
+
+    // 建立 SSE 长连接订阅消息
+    const eventSource = new EventSource(`/api/conversations/${activeId}/subscribe`)
+
+    eventSource.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data)
+        setAllMessages(prev => {
+          const current = prev[activeId] || []
+          // 避免重复
+          if (current.some(m => m.id === message.id)) return prev
+          return { ...prev, [activeId]: [...current, message] }
+        })
+      } catch (err) {
+        console.error('Failed to parse subscription message:', err)
+      }
+    }
+
+    eventSource.onerror = () => {
+      // 重连由浏览器自动处理
+      console.log('SSE subscription reconnecting...')
+    }
+
+    return () => {
+      eventSource.close()
+    }
+  }, [activeId])
+
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
       if (!sessions[otter.id]) {
