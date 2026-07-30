@@ -37,16 +37,18 @@ function mockSendMessage() {
     createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
   const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
+  const sendSystemBodies: string[] = [];
   return {
     start: async () => streamingMsg,
     complete: async () => ({ message: completedMsg, turnClose: { closed: true, aggregatedTargets: ["user-1"] } }),
     fail: async (id: string) => { calls.fail!.push(id); },
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
-    sendSystem: async () => ({ ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const }),
+    sendSystem: async (_conversationId: string, body: string) => { sendSystemBodies.push(body); return { ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const }; },
     updateTokenUsage: async () => ({}),
     _calls: calls,
-  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] } };
+    _sendSystemBodies: sendSystemBodies,
+  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[] };
 }
 
 function mockQueryMessage(): QueryMessage {
@@ -544,6 +546,47 @@ describe("AgentInvoker speak retry", () => {
     /** 不得触发 speak 重试（无系统提醒消息、无第二次 invoke） */
     expect(msg._calls.sendSystem).toHaveLength(0);
     expect(eventTypes).not.toContain("message.failed");
+  });
+
+  it("thinking-only（toolCallCount=0）重试提示包含'没有调用任何工具'和'困境'", async () => {
+    const msg = mockSendMessage();
+    const qm = mockQueryMessageSequence(["streaming", "speaking"]);
+    /** 不传 tool_execution_start 事件 → toolCallCount=0 */
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "Response" } }),
+      msg, qm, mockManageSession(), mockQueryOtter(), mockLogger(),
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(msg._sendSystemBodies).toHaveLength(1);
+    expect(msg._sendSystemBodies[0]).toContain("没有调用任何工具");
+    expect(msg._sendSystemBodies[0]).toContain("困境");
+  });
+
+  it("有工具调用但漏 speak（toolCallCount>0）重试提示不包含'没有调用任何工具'", async () => {
+    const msg = mockSendMessage();
+    const qm = mockQueryMessageSequence(["streaming", "speaking"]);
+    /** 传 tool_execution_start 事件 → toolCallCount>0 */
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({
+        events: [{ type: "tool_execution_start", toolCallId: "tc-1", name: "read" } as AgentStreamEvent],
+        result: { text: "Response" },
+      }),
+      msg, qm, mockManageSession(), mockQueryOtter(), mockLogger(),
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(msg._sendSystemBodies).toHaveLength(1);
+    expect(msg._sendSystemBodies[0]).not.toContain("没有调用任何工具");
+    expect(msg._sendSystemBodies[0]).toContain("speak");
   });
 });
 

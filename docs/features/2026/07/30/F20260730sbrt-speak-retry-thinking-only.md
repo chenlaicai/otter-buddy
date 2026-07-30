@@ -112,5 +112,7 @@ invokeConversation({ userMessageContent: retryMsg })
 ## 测试
 
 - `npm run lint` — 无报错
-- `npm test` — 695/695 通过
+- `npm test` — 697/697 通过
 - `_handlePostInvocation` complexity — 未超限（三元表达式不增加 cyclomatic complexity）
+- 新增测试：thinking-only（toolCallCount=0）提示词包含"没有调用任何工具"和"困境"
+- 新增测试：有工具调用但漏 speak（toolCallCount>0）提示词不包含"没有调用任何工具"

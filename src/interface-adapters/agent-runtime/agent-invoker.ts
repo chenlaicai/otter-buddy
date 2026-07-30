@@ -82,23 +82,6 @@ function mapToMessageEventInput(
   }
 }
 
-/** 从 agent 事件中提取错误信息 */
-function extractAgentError(e: AgentStreamEvent): string | undefined {
-  if (e.type === "error") return String(e.error ?? e.message ?? "Unknown agent error");
-  if (e.type === "tool_execution_end" && e.error) return String(e.error);
-  if (e.type === "turn_end") return extractTurnEndError(e);
-  return undefined;
-}
-
-function extractTurnEndError(e: AgentStreamEvent): string | undefined {
-  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-  const msg = (inner ?? (e as Record<string, unknown>).message) as Record<string, unknown> | undefined;
-  if (msg?.stopReason === "error" || msg?.errorMessage) {
-    return String(msg.errorMessage ?? "Agent API error");
-  }
-  return undefined;
-}
-
 export class AgentInvoker {
   /** abort 标记按 messageId 键控（同一 otter 可并发多个 invoke，按 otterId 键控会跨消息串扰） */
   private readonly abortedMessages = new Set<string>();
@@ -201,7 +184,6 @@ export class AgentInvoker {
     messageId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
   }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; toolCallCount: number }> {
-    let agentError: string | undefined;
     let toolCallCount = 0;
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
@@ -225,7 +207,6 @@ export class AgentInvoker {
           const m = err instanceof Error ? err.message : String(err);
           this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
         });
-        if (!agentError) agentError = extractAgentError(e);
       },
     });
     return { result, toolCallCount };
@@ -370,7 +351,6 @@ export class AgentInvoker {
     senderId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
     retryCount: number;
-    agentError?: string;
     startTime: number;
     tokenUsage?: { input: number; output: number };
     toolCallCount?: number;
