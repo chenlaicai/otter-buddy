@@ -33,6 +33,7 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 import { loadPromptFile } from "./prompt-loader";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
@@ -75,7 +76,9 @@ export interface AgentSessionFactoryConfig {
   /** Otter 身份文案目录（含 BIG_OTTER.md / SMALL_OTTER.md，首次 invoke 时按类型注入） */
   identityPromptDir?: string;
   /** 工具工厂函数（由 Composition Root 注入，解耦 interface-adapters） */
-  createTools: (ctx: ToolContext) => AgentTool[];
+  createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
+  /** Healing event 仓库（可选，由 Composition Root 注入） */
+  healingRepo?: HealingEventRepository;
   /** Otter 配置持久化（由 Composition Root 注入） */
   otterConfigProvider: OtterConfigProvider;
   /** Otter Repository（由 Composition Root 注入，替代直接 DB 查询） */
@@ -122,7 +125,8 @@ export class PiSessionFactory implements AgentGateway {
       otterToolClient: OtterToolClient;
       model: unknown;
       identityPromptDir?: string;
-      createTools: (ctx: ToolContext) => AgentTool[];
+      createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
+      healingRepo?: HealingEventRepository;
       resourceLoader?: ResourceLoader;
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
@@ -554,7 +558,7 @@ export class PiSessionFactory implements AgentGateway {
       otterId,
       conversationId,
       currentMessageId: messageId ?? "",
-    });
+    }, this.cfg.healingRepo, this.logger);
 
     return otterTools
       .filter(t => allowedNames.includes(t.name))
@@ -585,6 +589,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     model: config.model,
     identityPromptDir: config.identityPromptDir,
     createTools: config.createTools,
+    healingRepo: config.healingRepo,
     otterConfigProvider: config.otterConfigProvider,
     otterRepo: config.otterRepo,
   }, logger);

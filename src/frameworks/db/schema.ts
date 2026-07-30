@@ -23,6 +23,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createMessagesFtsTable(db);
     createDocumentTables(db);
     createScheduledTaskTables(db);
+    createHealingEventTables(db);
 
     db.exec("COMMIT");
 
@@ -479,5 +480,31 @@ function createScheduledTaskTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
+  `);
+}
+
+/** Healing events 表（Self-Healing 系统） */
+function createHealingEventTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS healing_events (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      error_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      description TEXT NOT NULL,
+      suggestion TEXT NOT NULL DEFAULT '',
+      context TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      resolution TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_healing_events_status ON healing_events(status);
+    CREATE INDEX IF NOT EXISTS idx_healing_events_severity ON healing_events(severity);
+    CREATE INDEX IF NOT EXISTS idx_healing_events_created ON healing_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_healing_events_type ON healing_events(error_type);
   `);
 }

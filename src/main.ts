@@ -67,6 +67,10 @@ import { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
+import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
+import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
+import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
+import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/tool-factory";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化） */
 import { mkdirSync } from 'fs';
@@ -83,14 +87,9 @@ const logger = new PinoLogger({
   },
 });
 
-/** 加载配置 */
 const appConfig = loadConfig(logger);
 initConfig(appConfig);
 
-/**
- * MemoryIndexGateway 适配器：将 StoreMemory 适配为 MemoryIndexGateway。
- * StoreMemory.execute() 接受 MemoryEntryInput，此适配器将 index* 方法映射为 execute 调用。
- */
 class MemoryIndexAdapter implements MemoryIndexGateway {
   constructor(private readonly storeMemory: StoreMemory) {}
 
@@ -148,6 +147,7 @@ interface Repositories {
   feature: SqliteFeatureRepository;
   research: SqliteResearchRepository;
   scheduledTask: SqliteScheduledTaskRepository;
+  healingEvent: SqliteHealingEventRepository;
 }
 
 interface UseCases {
@@ -179,6 +179,7 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
     feature: new SqliteFeatureRepository(db),
     research: new SqliteResearchRepository(db),
     scheduledTask: new SqliteScheduledTaskRepository(db),
+    healingEvent: new SqliteHealingEventRepository(db),
   };
 }
 
@@ -216,7 +217,6 @@ function initUseCases(
   };
 }
 
-/** 构建 OtterToolClient 的 conversation.message 部分 */
 function buildMessageClient(uc: UseCases) {
   return {
     startSpeaking: (messageId: string, params: { body: string; talkingStonePassedTo: string[] }) =>
@@ -233,38 +233,19 @@ function buildMessageClient(uc: UseCases) {
   };
 }
 
-/** 构建 OtterToolClient 的 memory 部分（渐进式披露：支持 detail_level、getById 和 getDetails） */
 function buildMemoryClient(uc: UseCases) {
   return {
     getById: async (id: string) => {
       const entry = await uc.manageMemory.getById(id);
-      if (!entry) return null;
-      return { id: entry.id, content: entry.content, score: 1, layer: entry.layer };
+      return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
     },
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string) => {
-      const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library });
-      return result.entries.map(e => ({
-        id: e.id,
-        content: e.content,
-        score: e.score,
-        layer: e.layer,
-        snippet: e.snippet,
-        contentType: e.contentType,
-        metadata: e.metadata ?? undefined,
-        createdAt: e.createdAt,
-      }));
+      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library });
+      return entries.map(e => ({ id: e.id, content: e.content, score: e.score, layer: e.layer, snippet: e.snippet, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
     },
-    /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails: async (ids: string[]) => {
       const entries = await uc.manageMemory.getDetails(ids);
-      return entries.map(e => ({
-        id: e.id,
-        content: e.content,
-        layer: e.layer,
-        contentType: e.contentType,
-        metadata: e.metadata ?? undefined,
-        createdAt: e.createdAt,
-      }));
+      return entries.map(e => ({ id: e.id, content: e.content, layer: e.layer, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
     },
   };
 }
@@ -390,7 +371,6 @@ function startServer(
   });
 }
 
-/** 将 config.yaml 的 apiKey 同步到 pi-coding-agent 的 auth.json（SDK 不读 config.yaml） */
 function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string }): void {
   if (!llmConfig.apiKey) return;
   const homeDir = os.homedir();
@@ -441,6 +421,7 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGat
     cronParser,
     logger,
     manageScheduledTask: uc.manageScheduledTask,
+    healingRepo: repos.healingEvent,
   });
 
   return { agentInvoker, cronParser, schedulerService };
@@ -469,11 +450,17 @@ async function main(): Promise<void> {
   await syncDocuments(repos, embeddingService);
 
   /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */
+  const healingRepo = repos.healingEvent;
   const agentGateway = await initAgentSessionFactory({
     model, db,
     otterToolClient: {} as OtterToolClient,
     identityPromptDir: "./prompts/identity",
-    createTools,
+    createTools: (ctx, repo, log) => {
+      const tools = createTools(ctx, repo, log);
+      if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
+      return tools;
+    },
+    healingRepo,
     otterConfigProvider,
     otterRepo: repos.otter,
   }, logger);
@@ -485,6 +472,11 @@ async function main(): Promise<void> {
   agentGateway.setOtterToolClient(otterToolClient);
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway);
+
+  // Self-Healing 初始化（失败不阻塞启动）
+  ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, settings: repos.settings, sendMessage: uc.sendMessage })
+    .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
+    .catch(err => logger.warn('Self-Healing init failed', { error: err instanceof Error ? err.message : String(err) }));
 
   const settings: SettingsConfig = {
     provider: appConfig.llm.provider,

@@ -31,6 +31,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "search_terminology", "add_terminology",
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
+    "manage_healing_events",
   ];
 
   if (!otterType || otterType === "big") {

@@ -5,6 +5,7 @@ import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
+import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import { DomainError } from '@entities/errors';
 
 /** Cron 解析接口（由 frameworks 层实现） */
@@ -20,6 +21,7 @@ export interface SchedulerServiceOptions {
   cronParser: CronParser;
   logger: Logger;
   manageScheduledTask?: ManageScheduledTask;
+  healingRepo?: HealingEventRepository;
 }
 
 export class SchedulerService {
@@ -30,6 +32,7 @@ export class SchedulerService {
   private readonly agentInvokePort: AgentInvokePort;
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
+  private readonly healingRepo?: HealingEventRepository;
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -38,6 +41,7 @@ export class SchedulerService {
     this.agentInvokePort = options.agentInvokePort;
     this.cronParser = options.cronParser;
     this.logger = options.logger;
+    this.healingRepo = options.healingRepo;
 
     // 注册任务变更回调
     if (options.manageScheduledTask) {
@@ -143,12 +147,28 @@ export class SchedulerService {
 
     await this.claimAndValidateTask(task, now);
 
+    // ── Healing: 动态替换 body ──
+    let effectiveBody: string | null = task.body;
+    if (this.healingRepo && task.body.includes('[self-healing-analysis]')) {
+      try {
+        await this.healingRepo.autoStaleDismiss(30);
+      } catch (err) {
+        this.logger.warn('autoStaleDismiss failed, continuing with analysis', { error: err instanceof Error ? err.message : String(err) });
+      }
+      effectiveBody = await buildHealingAnalysisBody(this.healingRepo);
+      if (effectiveBody === null) {
+        this.logger.info('Healing analysis skipped: no open events');
+        return { executionId: '' };
+      }
+    }
+    // ── end healing ──
+
     const executionId = crypto.randomUUID();
     await this.createExecution(executionId, task.id, now);
 
     try {
-      const message = await this.createSystemMessage(task);
-      await this.invokeAgentWithTimeout(task);
+      const message = await this.createSystemMessageWithBody(task, effectiveBody!);
+      await this.invokeAgentWithTimeoutAndBody(task, effectiveBody!);
       await this.completeExecution(executionId, task.conversationId, message.id);
       await this.taskRepo.resetConsecutiveFailures(task.id, now);
       return { executionId };
@@ -194,6 +214,16 @@ export class SchedulerService {
     });
   }
 
+  private async createSystemMessageWithBody(task: ScheduledTask, body: string) {
+    return this.sendMessage.send({
+      conversationId: task.conversationId,
+      senderType: 'system',
+      senderId: task.senderId,
+      body,
+      talkingStonePassedTo: task.talkingStonePassedTo,
+    });
+  }
+
   private async invokeAgentWithTimeout(task: ScheduledTask): Promise<void> {
     const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
     let timer: NodeJS.Timeout | undefined;
@@ -204,6 +234,29 @@ export class SchedulerService {
           otterId: task.talkingStonePassedTo[0],
           conversationId: task.conversationId,
           userMessageContent: task.body,
+          senderId: task.senderId,
+        }),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  private async invokeAgentWithTimeoutAndBody(task: ScheduledTask, body: string): Promise<void> {
+    const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+    let timer: NodeJS.Timeout | undefined;
+
+    try {
+      await Promise.race([
+        this.agentInvokePort.invokeConversation({
+          otterId: task.talkingStonePassedTo[0],
+          conversationId: task.conversationId,
+          userMessageContent: body,
           senderId: task.senderId,
         }),
         new Promise((_, reject) => {
@@ -247,4 +300,55 @@ export class SchedulerService {
   private async getAllActiveTasks(): Promise<ScheduledTask[]> {
     return this.taskRepo.getAllActive();
   }
+}
+
+const MAX_PROMPT_LENGTH = 8000;
+
+/** 构建 healing 分析任务的动态 prompt。返回 null 表示无待处理事件。 */
+async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Promise<string | null> {
+  const stats = await healingRepo.getStats();
+  const openEvents = await healingRepo.findOpen(20);
+
+  if (openEvents.length === 0) {
+    return null;
+  }
+
+  const eventsByType = openEvents.reduce((acc, e) => {
+    (acc[e.errorType] ??= []).push(e);
+    return acc;
+  }, {} as Record<string, typeof openEvents>);
+
+  let prompt = `## Self-Healing 定期分析任务
+
+当前系统健康概况：
+- 待处理: ${stats.open} 个
+- 已解决: ${stats.resolved} 个
+- 已忽略: ${stats.dismissed} 个
+- 按类型分布: ${JSON.stringify(stats.byType)}
+- 按严重程度分布: ${JSON.stringify(stats.bySeverity)}
+
+以下是待处理的 healing events（共 ${openEvents.length} 条，按类型分组）：
+
+`;
+
+  for (const [type, events] of Object.entries(eventsByType)) {
+    prompt += `### ${type} (${events.length} 条)\n\n`;
+    for (const e of events) {
+      prompt += `- [${e.severity}] ${e.description}\n`;
+      if (e.suggestion) prompt += `  建议: ${e.suggestion}\n`;
+    }
+    prompt += '\n';
+  }
+
+  prompt += `请执行以下步骤：
+1. 分析上述问题的根因，识别是否有重复/聚类模式
+2. 对于你有能力直接修复的（术语、记忆类），提出具体建议
+3. 对于需要修改 prompt 或代码的，生成清晰的修复描述
+4. 与搭档讨论，达成共识后记录决策`;
+
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    prompt = prompt.slice(0, MAX_PROMPT_LENGTH) + '\n\n... (内容过长已截断，请使用 manage_healing_events 工具查询更多)';
+  }
+
+  return prompt;
 }
