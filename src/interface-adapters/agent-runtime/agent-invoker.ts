@@ -186,7 +186,7 @@ export class AgentInvoker {
       await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
-    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage });
+    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage, resultText: p.result.text });
   }
 
   /**
@@ -373,8 +373,9 @@ export class AgentInvoker {
     agentError?: string;
     startTime: number;
     tokenUsage?: { input: number; output: number };
+    resultText?: string;
   }): Promise<ConversationInvokeResult> {
-    const { messageId, otterId, conversationId, senderId, onSSEEvent, retryCount, startTime, tokenUsage } = params;
+    const { messageId, otterId, conversationId, senderId, onSSEEvent, retryCount, startTime, tokenUsage, resultText } = params;
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
@@ -385,15 +386,21 @@ export class AgentInvoker {
       /** 通知前端当前消息失败，清除 streaming 状态 */
       onSSEEvent?.({ event: "message.failed", data: { messageId, body: failBody } });
 
-      const sysMsg = await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
+      /** thinking-only（空响应）vs 有正文但漏了 speak：区分提示。系统消息与重试 prompt 保持一致 */
+      const isThinkingOnly = !resultText || resultText.trim().length === 0;
+      const retryMsg = isThinkingOnly
+        ? "[系统提醒] 你上一轮没有产生正文输出也没有调用工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
+        : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请重新组织答复并调用 speak。";
+
+      const sysMsg = await this.sendMessage.sendSystem(conversationId, retryMsg);
 
       /** 通知前端系统消息已创建 */
       onSSEEvent?.({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
 
-      /** 重试：将系统提醒作为 userMessageContent，session 已有历史上下文 */
+      /** 重试：系统消息已入历史，此处作为 userMessageContent 再次传入确保 LLM 注意到 */
       const retryResult = await this.invokeConversation({
         otterId, conversationId,
-        userMessageContent: "[系统提醒] 你上一次发言没有调用 speak 工具就结束了，这是错误的。你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。",
+        userMessageContent: retryMsg,
         senderId, onSSEEvent, retryCount: 1,
       });
       /** 合并重试的 tokenUsage（重试路径可能已更新） */
