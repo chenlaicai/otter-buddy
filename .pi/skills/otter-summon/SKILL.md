@@ -1,10 +1,14 @@
 ---
 name: otter-summon
 description: >-
-  大獭召唤小獭的决策与编排协议。当任务复杂度超出单个 agent 的高效处理范围时
-  （需求分析、代码实现、方案检视、多角色讨论、并行调研），大獭通过 create_otter
-  创建专门的小獭协作完成。涵盖：召唤判断、systemPrompt 编写、多轮协作编排、
-  产出接住与整合。
+  This skill should be used when the task requires multiple specialized agents
+  to collaborate — e.g., "帮我分析一下这个需求", "做个技术方案", "审查这个 PR",
+  "写代码并 review", "调研几个方向", "模拟多角色讨论", "排查一下这个问题",
+  or any task involving requirement analysis, code implementation + review,
+  parallel research, multi-role discussion, or debugging that benefits from
+  dedicated agents working together.
+  Covers summon decision framework, systemPrompt template, multi-round
+  collaboration orchestration, and output integration.
 ---
 
 # Otter Summon Protocol
@@ -20,6 +24,7 @@ description: >-
 | 代码/方案检视 | 检视獭 | 指定要检视的产出（PR/方案/文件），期望结构化检视报告 |
 | 模拟多角色讨论 | 按立场命名 | 指定角色立场和关注点，期望该视角的独立观点 |
 | 并行调研多个方向 | 按方向命名 | 指定调研方向和范围，期望调研结论 |
+| 调试/排查 | 排查獭 | 指定问题现象、已有线索、排查范围，期望根因分析和修复建议 |
 
 ### 不召唤的情况
 
@@ -46,6 +51,24 @@ description: >-
 预期产出：[你期望小獭输出什么格式的内容]
 
 完成标准：[什么情况算做完]
+```
+
+**示例**：
+
+```
+你的任务：分析"大獭召唤小獭"功能的实现方案，输出结构化技术设计文档
+
+背景信息：
+- 当前大獭有 create_otter/dissolve_otter 工具，但缺乏使用指引
+- 用户期望大獭能自主决定何时召唤小獭
+- 相关代码在 src/interface-adapters/agent-runtime/tools/tool-factory.ts
+
+预期产出：结构化技术方案，包含问题分析、设计方案、改动清单、验收标准
+
+完成标准：
+- 覆盖所有已知场景（需求分析、代码实现、方案检视、多角色讨论、并行调研）
+- systemPrompt 模板具体可执行
+- 与现有架构（skill/tool/identity 三层）一致
 ```
 
 ## 接住小獭产出
