@@ -55,7 +55,7 @@ describe("FeishuWebhookHandler", () => {
     sendMessage = { send: sendMock } as any;
     commandDispatcher = { dispatch: dispatchMock } as any;
     feishuGateway = {
-      replyText: replyTextMock,
+      replyText: replyTextMock as any,
       verifySignature: vi.fn().mockReturnValue(true),
     };
     logger = mockLogger();

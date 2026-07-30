@@ -34,7 +34,7 @@ describe("CommandDispatcher", () => {
       getMessages: vi.fn().mockResolvedValue([]),
     } as any;
     feishuGateway = {
-      replyText: replyTextMock,
+      replyText: replyTextMock as any,
       verifySignature: vi.fn().mockReturnValue(true),
     };
     logger = mockLogger();
@@ -115,9 +115,20 @@ describe("CommandDispatcher", () => {
       });
       vi.mocked(queryMessage.getMessages).mockResolvedValue([
         {
+          id: "msg-1",
+          conversationId: "conv-1",
+          turnId: "turn-1",
           senderType: "user",
+          senderId: "user-1",
+          talkingStonePassedTo: ["otter-1"],
+          status: "completed",
           body: "你好",
+          sequenceNum: 1,
+          contextTokens: null,
+          contextTokensMax: null,
+          source: "web",
           createdAt: "2026-07-30T10:00:00Z",
+          completedAt: "2026-07-30T10:00:00Z",
         },
       ]);
 
