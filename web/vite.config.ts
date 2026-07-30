@@ -12,6 +12,7 @@ export default defineConfig({
         memory: resolve(__dirname, 'memory.html'),
         skills: resolve(__dirname, 'skills.html'),
         settings: resolve(__dirname, 'settings.html'),
+        connections: resolve(__dirname, 'connections.html'),
       },
     },
   },

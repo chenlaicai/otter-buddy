@@ -119,7 +119,30 @@ CREATE UNIQUE INDEX idx_conn_sessions_conv_active ON connection_sessions(convers
 | GET | /api/connections/:id/session | 获取当前 Session |
 | POST | /api/connections/:id/enter | 进入 Conversation |
 | POST | /api/connections/:id/leave | 离开 Conversation |
+| GET | /api/connections/:id/conversations | 获取可进入的对话列表 |
 | POST | /feishu/webhook | 飞书事件订阅入口 |
+
+### Web UI
+
+新增 Connection 管理页面 `/connections`，功能包括：
+
+**Connection 列表**
+- 显示所有 Connection 的名称、状态、当前绑定的对话
+- 支持创建新 Connection（输入名称和飞书群 ID）
+
+**Connection 详情**
+- 显示 Connection 详细信息
+- 显示当前 Session 状态
+- 支持进入/离开对话操作
+
+**页面路由**
+- `/connections` - Connection 列表页
+- 从主导航栏可访问
+
+**UI 设计**
+- 复用现有的 glass-card 样式
+- 使用现有的组件库（lucide-react 图标）
+- 响应式布局，适配移动端
 
 ### 配置
 
@@ -156,6 +179,10 @@ feishu:
 - `api-contract/api/message.ts` - MessageDTO 添加 src 字段
 - `web/src/lib/mappers.ts` - LocalMessage 添加 src 字段
 - `web/src/pages/conversation/MessageList.tsx` - 显示来源标签
+- `web/connections.html` - Connection 页面入口
+- `web/src/pages/connections/index.tsx` - Connection 页面主组件
+- `web/src/api/client.ts` - 添加 Connection API 调用
+- `web/src/lib/mappers.ts` - 添加 Connection 类型映射
 
 ## 测试
 
