@@ -73,6 +73,7 @@ import { ConnectionController } from "@interface-adapters/http/controllers/conne
 import { FeishuClient } from "@frameworks/feishu/client";
 import { FeishuWebhookHandler } from "@interface-adapters/feishu/webhook-handler";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
+import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import { buildOtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client-builder";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化） */
@@ -250,16 +251,20 @@ function initControllers(deps: ControllerDeps) {
   };
 }
 
-function setupFeishu(app: Hono, uc: UseCases): void {
+function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker): void {
   if (!appConfig.feishu) return;
 
   const feishuClient = new FeishuClient(appConfig.feishu, logger);
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishuClient, logger);
+  const agentDispatchService = new AgentDispatchService(
+    uc.sendMessage, uc.queryMessage, uc.queryOtter, agentInvoker, logger, appConfig.circuitBreaker.maxChainDepth
+  );
   const feishuWebhookHandler = new FeishuWebhookHandler({
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,
     commandDispatcher,
     feishuGateway: feishuClient,
+    agentDispatchService,
     config: { verificationToken: appConfig.feishu.verificationToken },
     logger,
   });
@@ -270,10 +275,11 @@ function setupFeishu(app: Hono, uc: UseCases): void {
 function startServer(
   controllers: ReturnType<typeof initControllers>,
   uc: UseCases,
+  agentInvoker: AgentInvoker,
   port: number,
 ): void {
   const app = new Hono();
-  setupFeishu(app, uc);
+  setupFeishu(app, uc, agentInvoker);
   app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {
@@ -387,7 +393,7 @@ async function main(): Promise<void> {
   };
 
   const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser });
-  startServer(controllers, uc, appConfig.server.port);
+  startServer(controllers, uc, agentInvoker, appConfig.server.port);
 
   schedulerService.start().catch((err) => {
     logger.error(`Failed to start scheduler: ${err}`);

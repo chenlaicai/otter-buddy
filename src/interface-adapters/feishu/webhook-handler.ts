@@ -3,6 +3,7 @@ import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { CommandDispatcher } from "./command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
+import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import type { Logger } from "@usecases/ports/logger";
 
 interface FeishuEvent {
@@ -49,7 +50,7 @@ interface FeishuEvent {
   challenge?: string;
   token?: string;
   type?: string;
-  encrypt?: string;  // 加密事件
+  encrypt?: string;
 }
 
 export interface FeishuWebhookConfig {
@@ -63,6 +64,7 @@ export class FeishuWebhookHandler {
       sendMessage: SendMessage;
       commandDispatcher: CommandDispatcher;
       feishuGateway: FeishuGateway;
+      agentDispatchService: AgentDispatchService;
       config: FeishuWebhookConfig;
       logger: Logger;
     },
@@ -160,7 +162,8 @@ export class FeishuWebhookHandler {
       return;
     }
 
-    await this.deps.sendMessage.send({
+    // 存消息
+    const message = await this.deps.sendMessage.send({
       conversationId: conversation.id,
       senderId,
       senderType: "user",
@@ -169,9 +172,56 @@ export class FeishuWebhookHandler {
       source: "feishu",
     });
 
-    this.deps.logger.info("Message forwarded to conversation", {
+    this.deps.logger.info("Message saved to conversation", {
       connectionId,
       conversationId: conversation.id,
+      messageId: message.id,
+    });
+
+    // 异步触发 Agent 派发（不阻塞 webhook 响应）
+    this.triggerAgentDispatch(conversation.id, text, senderId, chatId);
+  }
+
+  private triggerAgentDispatch(
+    conversationId: string,
+    userMessageContent: string,
+    senderId: string,
+    chatId: string,
+  ): void {
+    // 异步执行，不阻塞 webhook 响应
+    this.deps.agentDispatchService.dispatchWithoutSSE(
+      conversationId,
+      userMessageContent,
+      senderId,
+      async (otterId, reply) => {
+        // Agent 回复后通过飞书回复
+        try {
+          await this.deps.feishuGateway.replyText(chatId, reply);
+          this.deps.logger.info("Otter reply sent to Feishu", {
+            conversationId,
+            otterId,
+            chatId,
+          });
+        } catch (err) {
+          // 飞书回复失败不影响主流程
+          this.deps.logger.error("Failed to send reply to Feishu", err instanceof Error ? err : undefined, {
+            conversationId,
+            otterId,
+            chatId,
+          });
+        }
+      },
+    ).then(result => {
+      if (result.error) {
+        this.deps.logger.error("Agent dispatch failed", undefined, {
+          conversationId,
+          error: result.error,
+        });
+      }
+    }).catch(err => {
+      this.deps.logger.error("Agent dispatch exception", err instanceof Error ? err : undefined, {
+        conversationId,
+      });
     });
   }
 }

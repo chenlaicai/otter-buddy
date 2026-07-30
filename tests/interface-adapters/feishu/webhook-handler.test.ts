@@ -61,11 +61,16 @@ describe("FeishuWebhookHandler", () => {
     };
     logger = mockLogger();
 
+    const agentDispatchService = {
+      dispatchWithoutSSE: vi.fn().mockResolvedValue({}),
+    };
+
     handler = new FeishuWebhookHandler({
       manageConnection,
       sendMessage,
       commandDispatcher,
       feishuGateway,
+      agentDispatchService,
       config: { verificationToken: "test-token" },
       logger,
     });
