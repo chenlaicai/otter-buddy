@@ -116,6 +116,7 @@ export class AgentInvoker {
       otterId,
       conversationId,
       messageLength: userMessageContent.length,
+      ...(retryCount > 0 && { retryCount }),
     });
 
     const dynamicContext = await this.buildDynamicContext(otterId);
@@ -389,6 +390,7 @@ export class AgentInvoker {
     }
 
     /** 第二次仍失败：fail + 发言石额外包含 user */
+    this.logger.warn('Speak retry exhausted, failing message', { messageId, otterId, conversationId });
     const failBody = "[系统] 重试后仍未调用 speak 工具";
     try {
       await this.sendMessage.fail(messageId, failBody, [senderId]);

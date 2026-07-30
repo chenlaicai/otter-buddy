@@ -81,9 +81,11 @@ function mockAgentInvoke(options: {
   throwOnInvoke?: Error;
   toolCallCount?: number;
   internalAbortReason?: string;
-}): AgentInvokePort {
+}): AgentInvokePort & { _invokeMessages: string[] } {
+  const invokeMessages: string[] = [];
   return {
     invoke: async (_otterId: string, _message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => {
+      invokeMessages.push(_message);
       if (options.throwOnInvoke) throw options.throwOnInvoke;
       for (const evt of options.events ?? []) {
         opts?.onEvent?.(evt);
@@ -92,6 +94,7 @@ function mockAgentInvoke(options: {
     },
     abort: () => {},
     getToolCallCount: () => options.toolCallCount ?? 0,
+    _invokeMessages: invokeMessages,
     getInternalAbortReason: () => options.internalAbortReason,
   };
 }
@@ -587,6 +590,23 @@ describe("AgentInvoker speak retry", () => {
     expect(msg._sendSystemBodies).toHaveLength(1);
     expect(msg._sendSystemBodies[0]).not.toContain("没有调用任何工具");
     expect(msg._sendSystemBodies[0]).toContain("speak");
+  });
+
+  it("sendSystem 与 userMessageContent 使用相同的重试文本", async () => {
+    const msg = mockSendMessage();
+    const qm = mockQueryMessageSequence(["streaming", "speaking"]);
+    const agent = mockAgentInvoke({ result: { text: "Response" } });
+    const invoker = new AgentInvoker(agent, msg, qm, mockManageSession(), mockQueryOtter(), mockLogger());
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    /** sendSystem body（DB/前端）与第二次 invoke 的 userMessageContent（LLM）应一致 */
+    expect(msg._sendSystemBodies).toHaveLength(1);
+    expect(agent._invokeMessages).toHaveLength(2);
+    expect(msg._sendSystemBodies[0]).toBe(agent._invokeMessages[1]);
   });
 });
 
