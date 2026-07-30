@@ -1,5 +1,5 @@
 ---
-id: F20260730smp
+id: F20260730smpc
 title: otter-summon-protocol
 doc_type: feature
 
