@@ -1,5 +1,6 @@
 import type {
   MemoryEntry,
+  MemoryLayer,
   RetrievalGranularity,
   DetailLevel,
 } from "@entities/memory/memory-entry";
@@ -27,6 +28,8 @@ export interface SearchQuery {
   detailLevel?: DetailLevel;
   /** 指定库 key，不传则全库搜索 */
   library?: string;
+  /** 按记忆层过滤（working/historical） */
+  layer?: MemoryLayer;
 }
 
 export interface RetrievalResultEntry extends MemoryEntry {
@@ -203,6 +206,7 @@ export class SearchMemory {
   private async searchConversationInternal(query: SearchQuery): Promise<RetrievalResult> {
     const detailLevel = query.detailLevel ?? "snippet";
     const filters: SearchFilters = {
+      layer: query.layer,
       granularity: query.granularity,
       conversationId: query.conversationId,
     };

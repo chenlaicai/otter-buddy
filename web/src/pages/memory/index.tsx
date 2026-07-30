@@ -73,6 +73,7 @@ function TerminologyCard({ entry }: { entry: MemoryEntryDTO }) {
 
 function MemorySearchPage() {
   const [query, setQuery] = useState('')
+  const [layer, setLayer] = useState('')
   const [granularity, setGranularity] = useState('')
   const [detailLevel, setDetailLevel] = useState<'summary' | 'snippet' | 'full'>('snippet')
   const [library, setLibrary] = useState('')
@@ -104,6 +105,7 @@ function MemorySearchPage() {
       const result = await api.searchMemory({
         query: q,
         limit: 20,
+        layer: layer || undefined,
         granularity: granularity || undefined,
         detail_level: detailLevel,
         library: library || undefined,
@@ -209,6 +211,15 @@ function MemorySearchPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-stone-500 mb-1.5">记忆层</label>
+            <select value={layer} onChange={e => setLayer(e.target.value)} className="form-input w-full">
+              <option value="">全部</option>
+              <option value="working">工作记忆</option>
+              <option value="historical">历史对话</option>
+            </select>
           </div>
 
           <div>

@@ -132,6 +132,7 @@ export function deleteLinkedResource(conversationId: string, resourceId: string)
 export function searchMemory(params: {
   query: string;
   limit?: number;
+  layer?: string;
   granularity?: string;
   conversationId?: string;
   detail_level?: 'summary' | 'snippet' | 'full';
@@ -140,6 +141,7 @@ export function searchMemory(params: {
   const qs = new URLSearchParams()
   qs.set('query', params.query)
   if (params.limit) qs.set('limit', String(params.limit))
+  if (params.layer) qs.set('layer', params.layer)
   if (params.granularity) qs.set('granularity', params.granularity)
   if (params.conversationId) qs.set('conversationId', params.conversationId)
   if (params.detail_level) qs.set('detail_level', params.detail_level)
