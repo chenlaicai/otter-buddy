@@ -389,15 +389,16 @@ export class AgentInvoker {
       /** toolCallCount=0 表示 LLM 本轮没有调用任何工具（thinking-only 空响应）；>0 表示有工具调用但漏了 speak */
       const isThinkingOnly = (toolCallCount ?? 0) === 0;
       const retryMsg = isThinkingOnly
-        ? "[系统提醒] 你上一轮没有调用任何工具也没有输出正文。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
-        : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请重新组织答复并调用 speak。";
+        ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
+        : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
 
+      /** sendSystem 写入消息 DB（前端展示/审计），LLM 通过下方 userMessageContent 接收指令 */
       const sysMsg = await this.sendMessage.sendSystem(conversationId, retryMsg);
 
       /** 通知前端系统消息已创建 */
       onSSEEvent?.({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
 
-      /** 重试：系统消息已入历史，此处作为 userMessageContent 再次传入确保 LLM 注意到 */
+      /** 重试：retryMsg 作为 userMessageContent 传入 agent session，LLM 通过此消息接收重试指令 */
       const retryResult = await this.invokeConversation({
         otterId, conversationId,
         userMessageContent: retryMsg,

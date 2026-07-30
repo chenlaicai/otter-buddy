@@ -66,8 +66,8 @@ LLM 未调 speak → fail → sendSystem("你必须使用 speak...") → invokeC
 
 | 情况 | 判断条件 | 重试提示 |
 |------|---------|---------|
-| thinking-only（空响应） | `toolCallCount === 0` | "没有调用任何工具也没有输出正文。请调用 speak 结束发言——可以是结论，也可以是困境" |
-| 有工具调用但漏 speak | `toolCallCount > 0` | "没有调用 speak 就结束了。请重新组织答复并调用 speak" |
+| thinking-only（空响应） | `toolCallCount === 0` | "没有调用任何工具。请调用 speak 结束发言——可以是结论，也可以是困境" |
+| 有工具调用但漏 speak | `toolCallCount > 0` | "没有调用 speak 就结束了。请调用 speak 结束发言——可以是结论，也可以是困境" |
 
 ### 3. 系统消息与重试 prompt 统一
 
@@ -94,11 +94,13 @@ invokeConversation({ userMessageContent: retryMsg })
 
 2. **用 `toolCallCount` 而非 `result.text` 判断 thinking-only**：`result.text` 在 `PiSessionFactory._buildInvokeResult()` 中被硬编码为空字符串（LLM 实际输出通过 SSE 事件流推送，未回填到 `AgentRunResult.text`），因此不可用。`toolCallCount` 由事件处理器在 `tool_execution_start` 时累加，准确反映本轮 LLM 是否调用了工具。
 
-3. **重试提示不提"困境上报"四个字**：thinking-only 提示只说"可以是结论，也可以是困境"，给 LLM 出口但不预设它一定是卡住了——也可能只是格式遗漏。避免过于具体的指令限制 LLM 判断。
+3. **两种场景都给"困境"出口**：thinking-only 和有工具调用但漏 speak 都允许 LLM 通过 speak 报告困境。调了工具但仍然卡住的情况同样存在，不应只给 thinking-only 这个出口。
 
-4. **去掉"这是错误的"**：原有重试 prompt 中的"这是错误的"是评判性语气，对卡死的 LLM 没有指导意义。改为直接说明情况和行动。
+4. **去掉"也没有输出正文"**：`toolCallCount` 只能证明 LLM 是否调用了工具，无法证明是否输出了文本（`result.text` 硬编码为空）。断言"没有输出正文"可能与事实矛盾，导致 LLM 困惑。
 
-5. **系统消息与重试 prompt 必须一致**：两者都会出现在 LLM 上下文中（一个在历史、一个是当前 user message），内容不一致会造成困惑并浪费 token。
+5. **去掉"这是错误的"**：原有重试 prompt 中的"这是错误的"是评判性语气，对卡死的 LLM 没有指导意义。改为直接说明情况和行动。
+
+6. **`sendSystem` 与 `userMessageContent` 职责不同**：`sendSystem` 写入消息 DB（前端展示/审计记录），`userMessageContent` 传入 agent session（LLM 可见）。两者内容相同但通道不同，`sendSystem` 不会进入 LLM 的 session 历史。
 
 ## 涉及文件
 
