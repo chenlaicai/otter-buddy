@@ -291,13 +291,14 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
   });
 
   // 保留 webhook 路由作为备用（如果配置了 verificationToken）
-  if (appConfig.feishu.verificationToken) {
+  if (appConfig.feishu.verificationToken && messageBroadcaster) {
     const feishuWebhookHandler = new FeishuWebhookHandler({
       manageConnection: uc.manageConnection,
       sendMessage: uc.sendMessage,
       commandDispatcher,
       feishuGateway: feishuClient,
       agentDispatchService,
+      messageBroadcaster,
       config: { verificationToken: appConfig.feishu.verificationToken },
       logger,
     });

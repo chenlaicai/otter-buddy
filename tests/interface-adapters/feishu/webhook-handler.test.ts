@@ -65,12 +65,17 @@ describe("FeishuWebhookHandler", () => {
       dispatchWithoutSSE: vi.fn().mockResolvedValue({}),
     } as any;
 
+    const messageBroadcaster = {
+      broadcast: vi.fn().mockResolvedValue(undefined),
+    } as any;
+
     handler = new FeishuWebhookHandler({
       manageConnection,
       sendMessage,
       commandDispatcher,
       feishuGateway,
       agentDispatchService,
+      messageBroadcaster,
       config: { verificationToken: "test-token" },
       logger,
     });
