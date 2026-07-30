@@ -82,23 +82,6 @@ function mapToMessageEventInput(
   }
 }
 
-/** 从 agent 事件中提取错误信息 */
-function extractAgentError(e: AgentStreamEvent): string | undefined {
-  if (e.type === "error") return String(e.error ?? e.message ?? "Unknown agent error");
-  if (e.type === "tool_execution_end" && e.error) return String(e.error);
-  if (e.type === "turn_end") return extractTurnEndError(e);
-  return undefined;
-}
-
-function extractTurnEndError(e: AgentStreamEvent): string | undefined {
-  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-  const msg = (inner ?? (e as Record<string, unknown>).message) as Record<string, unknown> | undefined;
-  if (msg?.stopReason === "error" || msg?.errorMessage) {
-    return String(msg.errorMessage ?? "Agent API error");
-  }
-  return undefined;
-}
-
 export class AgentInvoker {
   /** abort 标记按 messageId 键控（同一 otter 可并发多个 invoke，按 otterId 键控会跨消息串扰） */
   private readonly abortedMessages = new Set<string>();
@@ -133,6 +116,7 @@ export class AgentInvoker {
       otterId,
       conversationId,
       messageLength: userMessageContent.length,
+      ...(retryCount > 0 && { retryCount }),
     });
 
     const dynamicContext = await this.buildDynamicContext(otterId);
@@ -186,7 +170,7 @@ export class AgentInvoker {
       await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
-    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage });
+    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage, toolCallCount: p.toolCallCount });
   }
 
   /**
@@ -201,7 +185,6 @@ export class AgentInvoker {
     messageId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
   }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; toolCallCount: number }> {
-    let agentError: string | undefined;
     let toolCallCount = 0;
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
@@ -225,7 +208,6 @@ export class AgentInvoker {
           const m = err instanceof Error ? err.message : String(err);
           this.logger.warn(`Failed to persist message event for ${params.messageId}: ${m}`);
         });
-        if (!agentError) agentError = extractAgentError(e);
       },
     });
     return { result, toolCallCount };
@@ -370,11 +352,11 @@ export class AgentInvoker {
     senderId: string;
     onSSEEvent?: (event: AgentSSEEvent) => void;
     retryCount: number;
-    agentError?: string;
     startTime: number;
     tokenUsage?: { input: number; output: number };
+    toolCallCount?: number;
   }): Promise<ConversationInvokeResult> {
-    const { messageId, otterId, conversationId, senderId, onSSEEvent, retryCount, startTime, tokenUsage } = params;
+    const { messageId, otterId, conversationId, senderId, onSSEEvent, retryCount, startTime, tokenUsage, toolCallCount } = params;
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
@@ -385,15 +367,22 @@ export class AgentInvoker {
       /** 通知前端当前消息失败，清除 streaming 状态 */
       onSSEEvent?.({ event: "message.failed", data: { messageId, body: failBody } });
 
-      const sysMsg = await this.sendMessage.sendSystem(conversationId, "你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。");
+      /** toolCallCount=0 表示 LLM 本轮没有调用任何工具（thinking-only 空响应）；>0 表示有工具调用但漏了 speak */
+      const isThinkingOnly = (toolCallCount ?? 0) === 0;
+      const retryMsg = isThinkingOnly
+        ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
+        : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
+
+      /** sendSystem 写入消息 DB（前端展示/审计），LLM 通过下方 userMessageContent 接收指令 */
+      const sysMsg = await this.sendMessage.sendSystem(conversationId, retryMsg);
 
       /** 通知前端系统消息已创建 */
       onSSEEvent?.({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
 
-      /** 重试：将系统提醒作为 userMessageContent，session 已有历史上下文 */
+      /** 重试：retryMsg 作为 userMessageContent 传入 agent session，LLM 通过此消息接收重试指令 */
       const retryResult = await this.invokeConversation({
         otterId, conversationId,
-        userMessageContent: "[系统提醒] 你上一次发言没有调用 speak 工具就结束了，这是错误的。你必须使用 speak 工具来结束你的发言。请重新组织答复并调用 speak。",
+        userMessageContent: retryMsg,
         senderId, onSSEEvent, retryCount: 1,
       });
       /** 合并重试的 tokenUsage（重试路径可能已更新） */
@@ -401,6 +390,7 @@ export class AgentInvoker {
     }
 
     /** 第二次仍失败：fail + 发言石额外包含 user */
+    this.logger.warn('Speak retry exhausted, failing message', { messageId, otterId, conversationId });
     const failBody = "[系统] 重试后仍未调用 speak 工具";
     try {
       await this.sendMessage.fail(messageId, failBody, [senderId]);
