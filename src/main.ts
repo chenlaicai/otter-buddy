@@ -256,9 +256,14 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker): void 
 
   const feishuClient = new FeishuClient(appConfig.feishu, logger);
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishuClient, logger);
-  const agentDispatchService = new AgentDispatchService(
-    uc.sendMessage, uc.queryMessage, uc.queryOtter, agentInvoker, logger, appConfig.circuitBreaker.maxChainDepth
-  );
+  const agentDispatchService = new AgentDispatchService({
+    sendMessage: uc.sendMessage,
+    queryMessage: uc.queryMessage,
+    queryOtter: uc.queryOtter,
+    agentInvokePort: agentInvoker,
+    logger,
+    maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
+  });
   const feishuWebhookHandler = new FeishuWebhookHandler({
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,

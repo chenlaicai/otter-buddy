@@ -2,7 +2,7 @@ import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projecti
 import type { SendMessage } from "./send-message";
 import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
-import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
+import type { AgentInvokePort } from "@usecases/ports/agent-invoke-port";
 import type { Logger } from "@usecases/ports/logger";
 
 export interface AgentDispatchResult {
@@ -12,12 +12,14 @@ export interface AgentDispatchResult {
 
 export class AgentDispatchService {
   constructor(
-    private readonly sendMessageUseCase: SendMessage,
-    private readonly queryMessage: QueryMessage,
-    private readonly queryOtter: QueryOtter,
-    private readonly agentInvoker: AgentInvoker,
-    private readonly logger: Logger,
-    private readonly maxChainDepth: number = 20,
+    private readonly deps: {
+      sendMessage: SendMessage;
+      queryMessage: QueryMessage;
+      queryOtter: QueryOtter;
+      agentInvokePort: AgentInvokePort;
+      logger: Logger;
+      maxChainDepth?: number;
+    },
   ) {}
 
   /** 触发 Agent 派发（非 SSE 模式，用于飞书路径） */
@@ -46,14 +48,14 @@ export class AgentDispatchService {
       return reply;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error('Agent 派发异常', err instanceof Error ? err : new Error(msg), { conversationId });
+      this.deps.logger.error('Agent 派发异常', err instanceof Error ? err : new Error(msg), { conversationId });
       return { error: `Agent 派发失败: ${msg}` };
     }
   }
 
   private async resolveFirstTurnTargets(conversationId: string): Promise<string[]> {
     // 获取最新用户消息的 talkingStonePassedTo
-    const messages = await this.queryMessage.getMessages(conversationId, { limit: 1, senderType: "user" });
+    const messages = await this.deps.queryMessage.getMessages(conversationId, { limit: 1, senderType: "user" });
     if (messages.length === 0) return [];
 
     const lastUserMsg = messages[0];
@@ -69,72 +71,89 @@ export class AgentDispatchService {
   ): Promise<AgentDispatchResult> {
     let depth = 0;
     let lastOtterReply: string | undefined;
+    const maxDepth = this.deps.maxChainDepth ?? 20;
 
-    while (targets.length > 0 && depth < this.maxChainDepth) {
+    while (targets.length > 0 && depth < maxDepth) {
       depth++;
-
-      // 每跳重建名册
-      const roster = await this.buildRoster(conversationId);
-
-      // 并行派发
-      const promises = targets.map(async otterId => {
-        const messageWithContext = await this.buildMessageWithContext(
-          conversationId, otterId, userMessageContent, senderId, roster
-        );
-
-        this.logger.info('发言链调用', {
-          otterId,
-          messageLength: messageWithContext.length,
-          messagePreview: messageWithContext.substring(0, 200),
-        });
-
-        return this.agentInvoker.invokeConversation({
-          otterId, conversationId,
-          userMessageContent: messageWithContext,
-          senderId,
-          onSSEEvent: () => {}, // 空操作，不推送 SSE
-        });
-      });
-
-      const results = await Promise.allSettled(promises);
-
-      // 标记已读
-      await this.markBatchRead(conversationId, results);
-
-      // 获取 Otter 回复
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          const msg = await this.queryMessage.getMessageById(r.value.messageId);
-          if (msg?.body) {
-            lastOtterReply = msg.body;
-            onOtterReply?.(msg.senderId, msg.body);
-          }
-        }
-      }
-
-      // 解析下一轮目标
-      const nextTargets = new Set<string>();
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value.aggregatedTargets) {
-          for (const id of r.value.aggregatedTargets) {
-            nextTargets.add(id);
-          }
-        }
-      }
-      targets = [...nextTargets].filter(id => id !== senderId);
+      const result = await this.executeOneHop(conversationId, userMessageContent, senderId, targets, onOtterReply);
+      lastOtterReply = result.otterReply ?? lastOtterReply;
+      targets = result.nextTargets;
     }
 
     if (targets.length > 0) {
-      this.logger.warn('发言链达到深度上限', { depth, targets, conversationId });
+      this.deps.logger.warn('发言链达到深度上限', { depth, targets, conversationId });
     }
 
     return { otterReply: lastOtterReply };
   }
 
+  private async executeOneHop(
+    conversationId: string,
+    userMessageContent: string,
+    senderId: string,
+    targets: string[],
+    onOtterReply?: (otterId: string, reply: string) => void,
+  ): Promise<{ otterReply?: string; nextTargets: string[] }> {
+    const roster = await this.buildRoster(conversationId);
+
+    const promises = targets.map(async otterId => {
+      const messageWithContext = await this.buildMessageWithContext(
+        conversationId, otterId, userMessageContent, senderId, roster
+      );
+
+      this.deps.logger.info('发言链调用', {
+        otterId,
+        messageLength: messageWithContext.length,
+        messagePreview: messageWithContext.substring(0, 200),
+      });
+
+      return this.deps.agentInvokePort.invokeConversation({
+        otterId, conversationId,
+        userMessageContent: messageWithContext,
+        senderId,
+      });
+    });
+
+    const results = await Promise.allSettled(promises);
+    await this.markBatchRead(conversationId, results);
+
+    return this.processHopResults(results, senderId, onOtterReply);
+  }
+
+  private async processHopResults(
+    results: PromiseSettledResult<{ messageId: string; aggregatedTargets?: string[] }>[],
+    senderId: string,
+    onOtterReply?: (otterId: string, reply: string) => void,
+  ): Promise<{ otterReply?: string; nextTargets: string[] }> {
+    let otterReply: string | undefined;
+    const nextTargets = new Set<string>();
+
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
+
+      const msg = await this.deps.queryMessage.getMessageById(r.value.messageId);
+      if (msg?.body) {
+        otterReply = msg.body;
+        onOtterReply?.(msg.senderId, msg.body);
+      }
+
+      if (r.value.aggregatedTargets) {
+        for (const id of r.value.aggregatedTargets) {
+          nextTargets.add(id);
+        }
+      }
+    }
+
+    return {
+      otterReply,
+      nextTargets: [...nextTargets].filter(id => id !== senderId),
+    };
+  }
+
   private async buildRoster(conversationId: string): Promise<string> {
-    const participants = await this.sendMessageUseCase.repo.getActiveParticipants(conversationId);
+    const participants = await this.deps.sendMessage.repo.getActiveParticipants(conversationId);
     const lines = await Promise.all(participants.map(async p => {
-      const otter = await this.queryOtter.getById(p.otterId);
+      const otter = await this.deps.queryOtter.getById(p.otterId);
       return `- ${otter?.name ?? p.otterId} (otterId: ${p.otterId})`;
     }));
     lines.push(`- 搭档（传 'user' 即交还发言权）`);
@@ -148,7 +167,7 @@ export class AgentDispatchService {
     senderId: string,
     roster: string,
   ): Promise<string> {
-    const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
+    const unreadMessages = await this.deps.sendMessage.repo.getUnreadMessages(conversationId, otterId);
     if (unreadMessages.length === 0) {
       return `${roster}\n\n## 当前任务\n${userMessageContent}`;
     }
@@ -163,7 +182,7 @@ export class AgentDispatchService {
     const names = new Map<string, string>();
     const otterSenderIds = [...new Set(messages.filter(m => m.senderType === "otter").map(m => m.senderId))];
     await Promise.all(otterSenderIds.map(async id => {
-      const otter = await this.queryOtter.getById(id);
+      const otter = await this.deps.queryOtter.getById(id);
       if (otter) names.set(id, otter.name);
     }));
     return names;
@@ -173,13 +192,13 @@ export class AgentDispatchService {
     conversationId: string,
     results: PromiseSettledResult<{ messageId: string }>[],
   ): Promise<void> {
-    const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
+    const currentTurn = await this.deps.sendMessage.repo.getActiveTurn(conversationId);
     if (!currentTurn) return;
     for (const r of results) {
       if (r.status !== 'fulfilled') continue;
-      const msg = await this.queryMessage.getMessageById(r.value.messageId);
+      const msg = await this.deps.queryMessage.getMessageById(r.value.messageId);
       if (msg) {
-        await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
+        await this.deps.sendMessage.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
       }
     }
   }

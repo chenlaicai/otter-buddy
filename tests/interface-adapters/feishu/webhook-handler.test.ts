@@ -63,7 +63,7 @@ describe("FeishuWebhookHandler", () => {
 
     const agentDispatchService = {
       dispatchWithoutSSE: vi.fn().mockResolvedValue({}),
-    };
+    } as any;
 
     handler = new FeishuWebhookHandler({
       manageConnection,
