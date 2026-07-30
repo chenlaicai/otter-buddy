@@ -85,11 +85,14 @@ function MemorySearchPage() {
   const [expandEntryId, setExpandEntryId] = useState<string | null>(null)
   const [expandEntry, setExpandEntry] = useState<MemoryEntryDTO | null>(null)
   const [expandLoading, setExpandLoading] = useState(false)
+  const [expandError, setExpandError] = useState<string | null>(null)
 
   // 查找相似 Modal
   const [similarEntryId, setSimilarEntryId] = useState<string | null>(null)
   const [similarResults, setSimilarResults] = useState<MemoryEntryDTO[]>([])
   const [similarLoading, setSimilarLoading] = useState(false)
+  const [similarError, setSimilarError] = useState<string | null>(null)
+  const similarRequestIdRef = useRef(0)
 
   // 细化搜索 Modal（保留原功能）
   const [refineQuery, setRefineQuery] = useState('')
@@ -136,32 +139,35 @@ function MemorySearchPage() {
   async function expandContext(id: string) {
     setExpandEntryId(id)
     setExpandEntry(null)
+    setExpandError(null)
     setExpandLoading(true)
     try {
       const entry = await api.getMemoryById(id)
       setExpandEntry(entry)
     } catch (err) {
       console.error('Failed to get memory detail:', err)
-      showToast('加载失败', 'error')
-      setExpandEntryId(null)
+      setExpandError('加载失败，请稍后重试')
     } finally {
       setExpandLoading(false)
     }
   }
 
   async function findSimilar(id: string) {
+    const myId = ++similarRequestIdRef.current
     setSimilarEntryId(id)
     setSimilarResults([])
+    setSimilarError(null)
     setSimilarLoading(true)
     try {
       const result = await api.searchSimilar(id)
+      if (myId !== similarRequestIdRef.current) return
       setSimilarResults(result.entries)
     } catch (err) {
       console.error('Failed to search similar:', err)
-      showToast('查找相似失败', 'error')
-      setSimilarEntryId(null)
+      if (myId !== similarRequestIdRef.current) return
+      setSimilarError('查找失败，请稍后重试')
     } finally {
-      setSimilarLoading(false)
+      if (myId === similarRequestIdRef.current) setSimilarLoading(false)
     }
   }
 
@@ -373,7 +379,7 @@ function MemorySearchPage() {
         )}
         {!expandLoading && !expandEntry && expandEntryId && (
           <div className="text-sm text-stone-500 text-center py-8">
-            该记忆条目不存在或已被删除
+            {expandError || '该记忆条目不存在或已被删除'}
           </div>
         )}
       </Modal>
@@ -393,7 +399,7 @@ function MemorySearchPage() {
         )}
         {!similarLoading && similarResults.length === 0 && (
           <div className="text-sm text-stone-500 text-center py-8">
-            未找到相似记忆
+            {similarError || '未找到相似记忆'}
           </div>
         )}
         {!similarLoading && similarResults.length > 0 && (

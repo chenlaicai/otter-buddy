@@ -35,6 +35,8 @@ export interface SearchResultDTO {
 export interface SearchQueryDTO {
   query: string;
   limit?: number;
+  /** 按记忆层过滤（working/historical） */
+  layer?: string;
   granularity?: string;
   conversationId?: string;
   /** 渐进式披露：控制返回内容的详细程度 */

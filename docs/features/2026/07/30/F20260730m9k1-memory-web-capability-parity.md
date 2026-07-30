@@ -86,7 +86,7 @@ Web 端记忆搜索页面（`web/src/pages/memory/index.tsx`）当前仅实现�
 
 | # | 缺口 | 影响 | 优先级 |
 |---|------|------|--------|
-| G0 | `layer` 过滤器从未生效 | 前端有"记忆层"下拉（working/historical），但后端 controller 不读取 `layer` 参数，用户选择后被静默忽略。**现有 bug** | P0 |
+| G0 | `layer` 过滤器从未生效 | 前端有"记忆层"下拉（working/historical），但后端 controller 不读取 `layer` 参数，用户选择后被静默忽略。**现有 bug，已修复后端 layer 支持** | P0 |
 | G1 | 搜索不传 detail_level | 返回固定 snippet 级别，无法快速浏览（summary）或查看完整内容（full） | P0 |
 | G2 | "展开上下文"是空壳 | 后端 batch API 已就绪，前端未接入；残留占位文本"上下文详情将在后续版本中展示" | P0 |
 | G3 | 没有术语库搜索入口 | Agent 可搜索术语库，Web 用户不能 | P0 |
@@ -143,15 +143,16 @@ Web 端搜索页面支持 Agent 端 search_memory 工具的全部参数：
 
 **文件**: `web/src/api/client.ts`
 
-**G0 修复**：移除 `layer` 参数。后端 controller 不读取此参数，现有前端 UI 的"记忆层"下拉从未生效（静默丢弃）。移除前端 UI 中的"记忆层"下拉，避免给用户虚假的过滤预期。
+**G0 修复**：后端 controller 原本不读取 `layer` 参数（前端有 UI 但被静默丢弃）。实际修复方案：**补上后端 layer 支持**（SearchQuery + controller + filters），保留前端"记忆层"下拉，使其真正生效。比原设计文档的"移除 layer"方案更好——功能完整。
 
 新增/改造函数：
 
 ```typescript
-// 1. 增强搜索：移除无效 layer 参数，新增 detail_level 和 library
+// 1. 增强搜索：保留 layer（后端已修复支持），新增 detail_level 和 library
 export function searchMemory(params: {
   query: string;
   limit?: number;
+  layer?: string;                                     // 保留，后端已支持
   granularity?: string;
   conversationId?: string;
   detail_level?: 'summary' | 'snippet' | 'full';  // 新增
@@ -172,7 +173,7 @@ export function searchSimilar(memoryEntryId: string, limit?: number): Promise<Se
 **文件**: `web/src/pages/memory/index.tsx`
 
 左侧面板改造：
-- **移除**："记忆层"下拉（working/historical）及对应的 `layer` state 变量和 `useState` 声明 — G0 修复，此过滤器从未生效
+- **保留**："记忆层"下拉（working/historical）— G0 修复后端 layer 支持，过滤器现在真正生效
 - **保留**："粒度"下拉（coarse/fine）— 后端实际使用此参数。tooltip："控制搜索范围：粗粒度搜索标题和摘要，细粒度搜索完整内容"
 - **新增**："库选择" — radio group 或 tabs：全部 / 对话库 / 术语库
 - **新增**："详细程度" — select：summary / snippet（默认） / full。tooltip："控制返回内容量：摘要/片段/全文"
@@ -355,7 +356,7 @@ const meta = entry.metadata as TerminologyMetadata | null
 | 术语库入口 | 集成在搜索页面 | 独立页面 | 减少页面跳转，搜索体验一致 |
 | snippet 渲染 | `split(/<\/?b>/)` + React 组件渲染 | dangerouslySetInnerHTML | 避免 XSS 风险；正则大小写敏感，用户内容中 `<B>` 不误判为高亮 |
 | 来源标记 | 文字标签 | 图标 | 文字更直观，无需额外图标资源 |
-| layer 过滤器 | 移除（G0 修复） | 后端补实现 | 后端不改动约束，且该过滤器从未生效 |
+| layer 过滤器 | 后端补实现（G0 修复） | 移除前端 UI | 功能完整优先，后端仓储层已支持，只需贯通 use case + controller |
 | 术语搜索路由 | 统一管道 library=terminology | 独立术语端点（search_terminology） | 与 Agent 端 search_memory 工具行为一致，减少 API 表面积 |
 
 ## 核心业务行为 [required]
@@ -376,7 +377,7 @@ const meta = entry.metadata as TerminologyMetadata | null
 
 ### 功能验收
 
-- [ ] G0 修复：移除"记忆层"下拉，搜索不传 layer 参数
+- [ ] G0 修复：后端补上 layer 支持（SearchQuery + controller + filters），"记忆层"下拉现在真正生效
 - [ ] 搜索面板支持 detail_level 切换（summary/snippet/full）
 - [ ] 搜索面板支持 library 切换（全部/对话库/术语库）
 - [ ] 搜索结果默认展示 snippet（高亮匹配片段），非全文 content
