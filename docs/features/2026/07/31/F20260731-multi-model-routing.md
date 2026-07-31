@@ -133,6 +133,7 @@ llm:
 - `alias` 不能重复
 - `models[]` 不能为空
 - 扫描 otter_configs 表，对引用了不存在的 modelAlias 的 otter 发出警告日志
+- 检测旧格式（`llm.provider` + `llm.model`）并给出迁移提示，不支持旧格式需手动迁移
 
 ### D2 — ModelPool（模型池）
 
@@ -146,6 +147,18 @@ llm:
 | `describeModels()` | 返回模型描述列表，供 prompt 注入 |
 | `hasModel(alias)` | 检查 alias 是否存在 |
 | `getContextWindow(alias)` | 获取模型的 contextWindow |
+| `getAllEntries()` | 返回所有 ModelEntry，供 ensurePiCodingAgent 遍历设 key |
+
+**`initModels()` 新签名**：
+```typescript
+export async function initModels(
+  modelConfig: AppConfig["llm"],
+  logger?: Logger,
+): Promise<{ models: Models; model: unknown; modelPool: ModelPool }>
+```
+- `models`：pi-ai Models 注册表（所有 provider 已注册）
+- `model`：默认模型（兼容旧代码引用）
+- `modelPool`：ModelPool 实例
 
 **构建过程**：
 - 创建一个 `pi-ai createModels()` 实例
@@ -167,7 +180,7 @@ llm:
 - 验证 `models.getModel("custom-alias", modelId)` 返回的 model 能否正确发起请求
 - 验证 `setRuntimeApiKey("custom-alias", key)` 是否能正确为后续请求提供 auth
 - 验证单 Models 实例注册多个不同 ID 的 provider 后，跨 provider 的 model 能否正常工作
-- B 计划：若不支持，每个 alias 创建独立的 Models 实例（`Map<alias, { models, model }>`）
+- B 计划：若不支持，每个 alias 创建独立的 Models 实例（`Map<alias, { models, model }>`），每个实例自带 auth，ModelRuntime 不再需要跨 provider 设 key
 
 ### D3 — 数据流
 
@@ -183,7 +196,8 @@ config.yaml (llm.models[] + llm.default)
 ```
 
 **modelAlias 传递路径**：
-- `create_otter 工具` → `CreateOtterInput.modelAlias` → `AgentConfig.modelAlias` → `SessionRestore.createSessionAndPersist()` → `OtterConfigProvider.setConfig()` → DB
+- `create_otter 工具` → `OtterToolClient.CreateOtterInput.modelAlias` → `CreateOtter.execute()` → `AgentConfig.modelAlias` → `PiSessionFactory.create()` → `OtterConfigProvider.setConfig()` → DB
+- 注意：有两个 `CreateOtterInput` 接口（`otter-tool-client.ts` 和 `create-otter.ts`），都需要增加 modelAlias 字段
 
 **模型解析时机**：
 - invoke 时从 `otterConfig.modelAlias` 读取，通过 `modelPool.getModel(alias)` 解析
@@ -212,6 +226,7 @@ config.yaml (llm.models[] + llm.default)
 - 通过扩展 `ToolContext` 接口注入：`ToolContext` 增加可选 `modelPool?: ModelPool` 字段
 - 不改 `createTools` 签名，避免影响所有调用方和测试文件
 - `createCreateOtterTool` 从 `ctx.modelPool` 获取 modelPool
+- **注入点**：`PiSessionFactory.cfg` 增加 `modelPool: ModelPool` 字段，`buildCustomTools()` 中构造 ToolContext 时填入 `modelPool: this.cfg.modelPool`
 
 ### D6 — Prompt 注入
 
@@ -242,8 +257,14 @@ config.yaml (llm.models[] + llm.default)
 - 将解析后的模型传给 `createAgentSession({ model })`
 - 记录日志：otterId、requestedAlias、resolvedAlias、provider
 
+**大獭的 default 模型回退逻辑**：
+- 大獭不是通过 create_otter 创建的，otterConfig 中没有 modelAlias
+- 模型解析逻辑：`otterConfig.modelAlias ?? modelPool.getDefaultModel()`
+- 即：有 modelAlias 用指定模型，没有则用 default
+
 **ensurePiCodingAgent() 改造**：
-- 遍历 ModelPool 所有模型，每个条目调用 `setRuntimeApiKey(alias, key)`
+- 通过 `this.cfg.modelPool.getAllEntries()` 获取所有模型条目
+- 遍历每个条目，调用 `setRuntimeApiKey(alias, key)`
 - 不做 provider 去重（每个 alias 对应独立的 provider 实例和 auth）
 
 ### D8 — 其他适配
@@ -283,7 +304,7 @@ config.yaml (llm.models[] + llm.default)
 | `src/usecases/otter/create-otter.ts` | CreateOtterInput 增加 modelAlias，execute() 透传 |
 | `src/interface-adapters/agent-runtime/otter-tool-client.ts` | CreateOtterInput 增加 modelAlias |
 | `src/frameworks/agent/session-restore.ts` | createSessionAndPersist() 透传 modelAlias（含内部两个调用点） |
-| `src/frameworks/agent/pi-session-factory.ts` | 接收 ModelPool，invoke 按 otter 解析模型（_createSessionWithTools 增加 otterConfig 参数），ensurePiCodingAgent 遍历设 key，reset 保留 modelAlias，日志增加模型信息，_buildInvokeResult per-otter contextWindow，buildIdentityPrefix 注入模型描述 |
+| `src/frameworks/agent/pi-session-factory.ts` | 接收 ModelPool，invoke 按 otter 解析模型（_createSessionWithTools 增加 otterConfig 参数），ensurePiCodingAgent 遍历设 key，reset 保留 modelAlias，日志增加模型信息，_buildInvokeResult per-otter contextWindow，buildIdentityPrefix 注入模型描述，buildCustomTools 注入 modelPool 到 ToolContext |
 | `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | ToolContext 增加可选 modelPool 字段，create_otter 增加 modelAlias + 校验 |
 | `src/main.ts` | 组装 ModelPool，syncApiKeyToAgentAuth 遍历，settings 适配，启动时校验 |
 
@@ -311,6 +332,7 @@ config.yaml (llm.models[] + llm.default)
 
 ### Phase 4: Session 工厂
 - pi-session-factory.ts — 接收 ModelPool，invoke 解析模型，ensurePiCodingAgent 遍历设 key，reset 保留，日志，contextWindow
+- pi-session-factory.ts — buildCustomTools 中注入 modelPool 到 ToolContext
 
 ### Phase 5: 工具 + Prompt
 - tool-factory.ts — ToolContext 增加可选 modelPool 字段，create_otter 增加 modelAlias + 校验
@@ -336,7 +358,7 @@ config.yaml (llm.models[] + llm.default)
 
 ## 审视记录
 
-经四轮架构师对抗审视：
+经六轮架构师对抗审视：
 
 | 问题 | 轮次 | 修复 |
 |------|------|------|
@@ -355,3 +377,8 @@ config.yaml (llm.models[] + llm.default)
 | _createSessionWithTools 缺 otterConfig | 第 5 轮 | 签名增加 otterConfig 参数 |
 | _buildInvokeResult 的 contextWindow 来源 | 第 5 轮 | 签名增加 otterId，从 modelPool.getContextWindow(alias) 获取 |
 | B 计划实现细节 | 第 5 轮 | 补充 B 计划的具体实现细节 |
+| 两个 CreateOtterInput 接口需同步改动 | 第 6 轮 | D3 数据流明确标出 OtterToolClient.CreateOtterInput |
+| ToolContext 的 modelPool 注入点未明确 | 第 6 轮 | buildCustomTools 中从 this.cfg.modelPool 注入 |
+| initModels 返回类型未写 | 第 6 轮 | 补充新签名 |
+| 大獭 default 模型回退逻辑未说明 | 第 6 轮 | D7 明确 otterConfig.modelAlias ?? modelPool.getDefaultModel() |
+| apiKey 多 provider 环境变量限制 | 第 6 轮 | 每个 model 条目独立 apiKey，env var 回退需扩展 |
