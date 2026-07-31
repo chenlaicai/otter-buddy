@@ -25,6 +25,8 @@ export interface CreateOtterInput {
   type: "big" | "small";
   systemPrompt: string;
   parentOtterId: string;
+  /** 模型别名（多模型路由，可选） */
+  modelAlias?: string;
 }
 
 /** 链接资源输入 */

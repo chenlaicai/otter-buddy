@@ -33,11 +33,21 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
       otter_id TEXT PRIMARY KEY,
       system_prompt TEXT,
       otter_type TEXT NOT NULL DEFAULT 'big' CHECK(otter_type IN ('big', 'small')),
+      model_alias TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `).run();
   logger.info('Ensured otter_configs table exists');
+
+  // 检查 model_alias 列是否存在（为已存在的表添加列）
+  const otterConfigColumns = db.prepare("PRAGMA table_info(otter_configs)").all() as Array<{ name: string }>;
+  const hasModelAlias = otterConfigColumns.some(col => col.name === 'model_alias');
+
+  if (!hasModelAlias) {
+    db.prepare("ALTER TABLE otter_configs ADD COLUMN model_alias TEXT").run();
+    logger.info('Added model_alias column to otter_configs table');
+  }
 
   // 检查 last_read_turn_number 字段是否存在
   const participantColumns = db.prepare("PRAGMA table_info(conversation_participants)").all() as Array<{ name: string }>;

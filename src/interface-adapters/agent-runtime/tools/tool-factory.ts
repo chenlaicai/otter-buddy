@@ -4,9 +4,8 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { type ToolResponse, textResponse } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
-import type { HealingResolutionAction } from "@entities/healing/healing-event";
-import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
 import type { Logger } from "@usecases/ports/logger";
+import { interceptHealingReport } from "./healing-tools";
 
 
 export interface AgentTool {
@@ -20,6 +19,15 @@ export interface AgentTool {
 export type { ToolResponse } from "./tool-helpers";
 
 /**
+ * 模型池接口（用于工具层校验 modelAlias，不依赖 frameworks 层）。
+ * 与 ModelPool 接口一致，但定义在 interface-adapters 层避免循环依赖。
+ */
+export interface ModelPoolLike {
+  hasModel(alias: string): boolean;
+  describeModels(): Array<{ alias: string; description?: string; strengths?: string[]; weaknesses?: string[] }>;
+}
+
+/**
  * 工具上下文：invoke 时由系统注入，闭包捕获。
  * otterId、conversationId、currentMessageId 由系统注入，LLM 不传。
  */
@@ -28,25 +36,8 @@ export interface ToolContext {
   otterId: string;
   conversationId: string;
   currentMessageId: string;
-}
-
-function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {
-  const cleanBody = stripHealingReport(rawBody);
-  const { hasIssues, issues } = parseHealingReport(rawBody);
-  if (hasIssues) {
-    const now = new Date().toISOString();
-    const meta = { otterId: ctx.otterId, conversationId: ctx.conversationId, messageId: ctx.currentMessageId };
-    for (const issue of issues) {
-      if (issue.severity === 'high') logger?.warn('High severity healing event', { type: issue.type, description: issue.description });
-      repo.create({
-        id: crypto.randomUUID(), messageId: ctx.currentMessageId, conversationId: ctx.conversationId,
-        otterId: ctx.otterId, errorType: issue.type, severity: issue.severity,
-        description: issue.description, suggestion: issue.suggestion,
-        context: meta, status: 'open', resolution: null, createdAt: now, resolvedAt: null,
-      }).catch(err => logger?.error('Failed to store healing event', err instanceof Error ? err : new Error(String(err))));
-    }
-  }
-  return cleanBody;
+  /** 模型池（多模型路由，可选，用于校验 modelAlias） */
+  modelPool?: ModelPoolLike;
 }
 
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
@@ -162,10 +153,18 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
         name: { type: "string", description: "Otter 名称" },
         type: { type: "string", enum: ["big", "small"], description: "Otter 类型" },
         systemPrompt: { type: "string", description: "系统提示词" },
+        modelAlias: { type: "string", description: "模型别名（可选，不传使用默认模型）。可选值见身份提示中的模型列表。" },
       },
       required: ["name", "type", "systemPrompt"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
+      // 校验 modelAlias
+      const modelAlias = params.modelAlias as string | undefined;
+      if (modelAlias && modelAlias.trim().length > 0 && ctx.modelPool && !ctx.modelPool.hasModel(modelAlias)) {
+        const available = ctx.modelPool.describeModels().map(m => m.alias).join(", ");
+        return textResponse(`[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`);
+      }
+
       /** 检查是否已有同名参与者 */
       const existing = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const duplicate = existing.find(p => p.otterName === params.name);
@@ -177,6 +176,7 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
         type: params.type as "big" | "small",
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
+        modelAlias: modelAlias?.trim() || undefined,
       });
       /** 创建后自动加入当前对话参与者 */
       await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
@@ -416,46 +416,6 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
         joinedAtTurnNumber: p.joinedAtTurnNumber,
       }))));
     },
-  };
-}
-
-export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: HealingEventRepository): AgentTool {
-  const exec = async (_id: string, params: Record<string, unknown>): Promise<ToolResponse> => {
-    const action = params.action as string;
-    if (action === 'query') {
-      const status = (params.status as string) ?? 'open';
-      let events = await healingRepo.findAll(status as 'open' | 'resolved' | 'dismissed', 50);
-      const et = params.errorType as string | undefined;
-      if (et) events = events.filter(e => e.errorType === et);
-      return textResponse(JSON.stringify(events, null, 2));
-    }
-    const ids = params.eventIds as string[];
-    if (!ids?.length) return textResponse("[错误] eventIds 不能为空");
-    if (action === 'resolve' || action === 'dismiss') {
-      const fn = action === 'resolve'
-        ? (id: string) => healingRepo.resolve(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' })
-        : (id: string) => healingRepo.updateStatus(id, 'dismissed');
-      const res = await Promise.allSettled(ids.map(fn));
-      return textResponse(`完成: ${res.filter(r => r.status === 'fulfilled').length}/${ids.length} 成功`);
-    }
-    return textResponse(`未知操作: ${action}`);
-  };
-  return {
-    name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）。查看待处理问题、标记已解决/忽略。",
-    parameters: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["query", "resolve", "dismiss"], description: "操作类型" },
-        status: { type: "string", enum: ["open", "resolved", "dismissed"], description: "按状态筛选" },
-        errorType: { type: "string", description: "按错误类型筛选" },
-        eventIds: { type: "array", items: { type: "string" }, description: "event ID 列表" },
-        resolutionAction: { type: "string", enum: ["prompt_updated", "memory_added", "tool_fixed", "config_changed", "no_action", "deferred"], description: "修复行动" },
-        resolutionNotes: { type: "string", description: "解决方式说明" },
-      },
-      required: ["action"],
-    },
-    execute: exec,
   };
 }
 

@@ -114,7 +114,7 @@ describe("initModels — custom provider routing", () => {
     mockConfig.llm.provider = "unknown";
     mockConfig.llm.apiKey = "sk-test";
 
-    await expect(initModels(mockConfig.llm)).rejects.toThrow("Unsupported LLM provider: unknown");
+    await expect(initModels(mockConfig.llm)).rejects.toThrow("Unsupported LLM provider type: unknown");
   });
 });
 

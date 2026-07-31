@@ -2,7 +2,7 @@
  * Barrel export：保持 `import { config } from "@frameworks/config"` 路径不变。
  * 实际实现见同级 config-service.ts。
  */
-export { loadConfig, type AppConfig } from "../config-service";
+export { loadConfig, type AppConfig, type ModelConfig } from "../config-service";
 import type { AppConfig } from "../config-service";
 
 /**

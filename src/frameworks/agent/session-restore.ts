@@ -55,6 +55,7 @@ export class SessionRestore {
     return this.createAndReturnSession(otterId, {
       systemPrompt: existingConfig.systemPrompt,
       otterType: existingConfig.otterType,
+      modelAlias: existingConfig.modelAlias,
     }, piCodingAgent, sessionDir);
   }
 
@@ -95,13 +96,14 @@ export class SessionRestore {
     return this.createAndReturnSession(otterId, {
       systemPrompt: config?.systemPrompt,
       otterType: config?.otterType ?? 'big',
+      modelAlias: config?.modelAlias,
     }, piCodingAgent, sessionDir, cause);
   }
 
   /** 创建 session 并返回 sessionManager */
   private createAndReturnSession(
     otterId: string,
-    config: { systemPrompt?: string | OtterPromptConfig; otterType: string },
+    config: { systemPrompt?: string | OtterPromptConfig; otterType: string; modelAlias?: string },
     piCodingAgent: unknown,
     sessionDir: string,
     cause?: unknown,
@@ -127,7 +129,7 @@ export class SessionRestore {
   /** 创建 session 并持久化，返回 sessionManager（延迟写入，文件可能尚未落盘） */
   createSessionAndPersist(
     otterId: string,
-    config: { systemPrompt?: string | OtterPromptConfig; otterType: string },
+    config: { systemPrompt?: string | OtterPromptConfig; otterType: string; modelAlias?: string },
     piCodingAgent: unknown,
     sessionDir: string,
     allowOverwrite: boolean,
@@ -160,6 +162,7 @@ export class SessionRestore {
         this.otterConfigProvider.setConfig(otterId, {
           systemPrompt: config.systemPrompt,
           otterType: config.otterType as OtterType,
+          modelAlias: config.modelAlias,
         });
         this.sessionStore.setWithFile(otterId, sessionId, sessionFile);
       })();

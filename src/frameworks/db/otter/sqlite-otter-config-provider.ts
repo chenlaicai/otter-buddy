@@ -7,8 +7,8 @@ export class SqliteOtterConfigProvider implements OtterConfigProvider {
 
   getConfig(otterId: string): OtterConfig | null {
     const row = this.db.prepare(
-      "SELECT system_prompt, otter_type FROM otter_configs WHERE otter_id = ?"
-    ).get(otterId) as { system_prompt: string | null; otter_type: string } | undefined;
+      "SELECT system_prompt, otter_type, model_alias FROM otter_configs WHERE otter_id = ?"
+    ).get(otterId) as { system_prompt: string | null; otter_type: string; model_alias: string | null } | undefined;
 
     if (!row) return null;
 
@@ -25,6 +25,7 @@ export class SqliteOtterConfigProvider implements OtterConfigProvider {
     return {
       systemPrompt,
       otterType: row.otter_type as OtterType,
+      modelAlias: row.model_alias ?? undefined,
     };
   }
 
@@ -32,13 +33,14 @@ export class SqliteOtterConfigProvider implements OtterConfigProvider {
     const systemPromptJson = config.systemPrompt ? JSON.stringify(config.systemPrompt) : null;
 
     this.db.prepare(`
-      INSERT INTO otter_configs (otter_id, system_prompt, otter_type, updated_at)
-      VALUES (?, ?, ?, datetime('now'))
+      INSERT INTO otter_configs (otter_id, system_prompt, otter_type, model_alias, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
       ON CONFLICT(otter_id) DO UPDATE SET
         system_prompt = excluded.system_prompt,
         otter_type = excluded.otter_type,
+        model_alias = excluded.model_alias,
         updated_at = excluded.updated_at
-    `).run(otterId, systemPromptJson, config.otterType);
+    `).run(otterId, systemPromptJson, config.otterType, config.modelAlias ?? null);
   }
 
   deleteConfig(otterId: string): void {

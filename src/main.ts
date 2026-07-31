@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { loadConfig, initConfig } from "@frameworks/config";
+import { loadConfig, initConfig, type AppConfig } from "@frameworks/config";
 import { PinoLogger } from "@frameworks/logger";
 import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
@@ -83,7 +83,7 @@ import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
 import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
-import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化） */
 import { mkdirSync } from 'fs';
@@ -436,8 +436,8 @@ function startServer(
   });
 }
 
-function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string }): void {
-  if (!llmConfig.apiKey) return;
+/** 将 config.yaml 的 apiKey 同步到 pi-coding-agent 的 auth.json（SDK 不读 config.yaml） */
+function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"]): void {
   const homeDir = os.homedir();
   const agentDir = path.join(homeDir, ".pi", "agent");
   const authPath = path.join(agentDir, "auth.json");
@@ -447,11 +447,31 @@ function syncApiKeyToAgentAuth(llmConfig: { provider: string; apiKey?: string })
   } catch {
     /* 文件不存在或格式错误，使用空对象 */
   }
-  if (auth[llmConfig.provider] !== llmConfig.apiKey) {
-    auth[llmConfig.provider] = llmConfig.apiKey;
+
+  let changed = false;
+
+  // 多模型模式：遍历所有模型
+  if (llmConfig.models && llmConfig.models.length > 0) {
+    for (const mc of llmConfig.models) {
+      if (!mc.apiKey) continue;
+      const key = mc.alias; // 用 alias 作为 auth key
+      if (auth[key] !== mc.apiKey) {
+        auth[key] = mc.apiKey;
+        changed = true;
+      }
+    }
+  } else if (llmConfig.apiKey) {
+    // 单模型模式：兼容旧逻辑
+    if (auth[llmConfig.provider] !== llmConfig.apiKey) {
+      auth[llmConfig.provider] = llmConfig.apiKey;
+      changed = true;
+    }
+  }
+
+  if (changed) {
     fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(authPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
-    logger.info(`Synced ${llmConfig.provider} API key to ${authPath}`);
+    logger.info(`Synced API keys to ${authPath}`);
   }
 }
 
@@ -493,39 +513,47 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGat
   return { agentInvoker, cronParser, schedulerService };
 }
 
+/** 启动时校验：扫描 otter_configs 中引用了不存在的 modelAlias 的 otter */
+function validateModelAliases(db: Database.Database, modelPool: { hasModel(alias: string): boolean }): void {
+  const allConfigs = db.prepare("SELECT otter_id, model_alias FROM otter_configs WHERE model_alias IS NOT NULL").all() as Array<{ otter_id: string; model_alias: string }>;
+  for (const row of allConfigs) {
+    if (!modelPool.hasModel(row.model_alias)) {
+      logger.warn(`Otter ${row.otter_id} 引用了不存在的模型别名「${row.model_alias}」，invoke 时将回退到默认模型`);
+    }
+  }
+}
+
 async function initDatabaseAndModels() {
   const db = initDatabase(appConfig.db, logger);
   initSchema(db, logger);
   await seedTerminologyData(db, logger);
-
-  // 执行数据库迁移
   migrateDatabase(db, logger);
 
-  // 创建 OtterConfigProvider 并迁移现有数据
   const otterConfigProvider = new SqliteOtterConfigProvider(db);
   migrateExistingData(db, otterConfigProvider, logger);
 
-  const { model } = await initModels(appConfig.llm, logger);
+  const { model, modelPool } = await initModels(appConfig.llm, logger);
   const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
 
-  return { db, otterConfigProvider, model, embeddingService, dispose };
+  return { db, otterConfigProvider, model, modelPool, embeddingService, dispose };
 }
 
 // eslint-disable-next-line max-lines-per-function -- Composition Root 合并初始化逻辑
 async function main(): Promise<void> {
   syncApiKeyToAgentAuth(appConfig.llm);
 
-  const { db, otterConfigProvider, model, embeddingService, dispose } = await initDatabaseAndModels();
+  const { db, otterConfigProvider, model, modelPool, embeddingService, dispose } = await initDatabaseAndModels();
 
   const repos = initRepositories(db);
-  /** 服务重启兜底：遗留进行中消息置 failed、孤儿 turn 关闭（重启后不存在活跃 agent） */
   await reconcileOrphans(repos.conversation, logger);
   await syncDocuments(repos, embeddingService);
+
+  if (modelPool) validateModelAliases(db, modelPool);
 
   /** 创建 PiSessionFactory（OtterToolClient 稍后注入，skills 由 SDK ResourceLoader 原生发现） */
   const healingRepo = repos.healingEvent;
   const agentGateway = await initAgentSessionFactory({
-    model, db,
+    model, modelPool, db,
     otterToolClient: {} as OtterToolClient,
     identityPromptDir: "./prompts/identity",
     createTools: (ctx, repo, log) => {
@@ -570,8 +598,8 @@ async function main(): Promise<void> {
     .catch(err => logger.warn('Self-Healing init failed', { error: err instanceof Error ? err.message : String(err) }));
 
   const settings: SettingsConfig = {
-    provider: appConfig.llm.provider,
-    model: appConfig.llm.model,
+    provider: appConfig.llm.default ?? appConfig.llm.provider,
+    model: modelPool ? modelPool.getDefaultAlias() : appConfig.llm.model,
     port: appConfig.server.port,
     dbPath: appConfig.db.path,
     embeddingModelPath: appConfig.embedding.modelPath,

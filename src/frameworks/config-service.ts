@@ -9,6 +9,19 @@ import * as path from "node:path";
 import * as yaml from "js-yaml";
 import type { Logger } from "@usecases/ports/logger";
 
+/** 单个模型配置 */
+export interface ModelConfig {
+  alias: string;
+  provider: string;
+  model: string;
+  apiKey?: string;
+  apiBaseUrl?: string;
+  description?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  contextWindow?: number;
+}
+
 /** 应用配置结构（与原 config.ts 同构） */
 export interface AppConfig {
   db: {
@@ -34,6 +47,10 @@ export interface AppConfig {
     model: string;
     apiKey?: string;
     apiBaseUrl?: string;
+    /** 多模型配置：默认模型 alias */
+    default?: string;
+    /** 多模型配置：模型列表 */
+    models?: ModelConfig[];
   };
   circuitBreaker: {
     maxToolCalls: number;
@@ -73,6 +90,18 @@ interface RawConfig {
     model?: string;
     apiKey?: string;
     apiBaseUrl?: string;
+    default?: string;
+    models?: Array<{
+      alias?: string;
+      provider?: string;
+      model?: string;
+      apiKey?: string;
+      apiBaseUrl?: string;
+      description?: string;
+      strengths?: string[];
+      weaknesses?: string[];
+      contextWindow?: number;
+    }>;
   };
   memory?: {
     rrfK?: number;
@@ -118,19 +147,62 @@ function d<T>(value: T | undefined, fallback: T): T {
   return value !== undefined ? value : fallback;
 }
 
+/**
+ * 校验多模型配置（llm.models[]）。
+ * 填充 default 值，为单模型兼容填充 provider/model。
+ */
+function validateMultiModel(raw: RawConfig): void {
+  const models = raw.llm!.models!;
+
+  // 校验每个 model 条目
+  for (const m of models) {
+    if (!m.alias) throw new Error("配置校验失败: llm.models[] 中存在缺少 alias 的条目");
+    if (!m.provider) throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 为必填字段`);
+    if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
+    if (!VALID_PROVIDERS.includes(m.provider)) {
+      throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${m.provider}`);
+    }
+  }
+
+  // 校验 alias 唯一性
+  const aliases = models.map(m => m.alias!);
+  const duplicates = aliases.filter((a, i) => aliases.indexOf(a) !== i);
+  if (duplicates.length > 0) {
+    throw new Error(`配置校验失败: llm.models[] 中存在重复的 alias: ${duplicates.join(", ")}`);
+  }
+
+  // 校验 default 有效性
+  if (raw.llm!.default && !aliases.includes(raw.llm!.default)) {
+    throw new Error(`配置校验失败: llm.default "${raw.llm!.default}" 不在 models[] 中。可用 alias: ${aliases.join(", ")}`);
+  }
+
+  // default 缺省时使用第一个模型
+  if (!raw.llm!.default) {
+    raw.llm!.default = models[0].alias;
+  }
+
+  // 为单模型兼容填充 provider/model（使用 default 模型）
+  const defaultModel = models.find(m => m.alias === raw.llm!.default)!;
+  raw.llm!.provider = defaultModel.provider!;
+  raw.llm!.model = defaultModel.model!;
+  raw.llm!.apiKey = defaultModel.apiKey;
+  raw.llm!.apiBaseUrl = defaultModel.apiBaseUrl;
+}
+
 /** 校验必填字段和类型，失败直接抛异常（导出供测试） */
 export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { provider: string; model: string } } {
-  if (!raw.llm?.provider) {
-    throw new Error("配置校验失败: llm.provider 为必填字段");
+  // 多模型模式
+  if (raw.llm?.models && raw.llm.models.length > 0) {
+    validateMultiModel(raw);
+  } else {
+    // 单模型模式：传统校验
+    if (!raw.llm?.provider) throw new Error("配置校验失败: llm.provider 为必填字段");
+    if (!raw.llm?.model) throw new Error("配置校验失败: llm.model 为必填字段");
+    if (!VALID_PROVIDERS.includes(raw.llm.provider)) {
+      throw new Error(`配置校验失败: llm.provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${raw.llm.provider}`);
+    }
   }
-  if (!raw.llm?.model) {
-    throw new Error("配置校验失败: llm.model 为必填字段");
-  }
-  if (!VALID_PROVIDERS.includes(raw.llm.provider)) {
-    throw new Error(
-      `配置校验失败: llm.provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${raw.llm.provider}`,
-    );
-  }
+
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
   }
@@ -204,6 +276,18 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
       model: raw.llm.model,
       apiKey: raw.llm.apiKey ?? undefined,
       apiBaseUrl: raw.llm.apiBaseUrl ?? undefined,
+      default: raw.llm.default,
+      models: raw.llm.models?.map(m => ({
+        alias: m.alias!,
+        provider: m.provider!,
+        model: m.model!,
+        apiKey: m.apiKey ?? undefined,
+        apiBaseUrl: m.apiBaseUrl ?? undefined,
+        description: m.description ?? undefined,
+        strengths: m.strengths ?? undefined,
+        weaknesses: m.weaknesses ?? undefined,
+        contextWindow: m.contextWindow ?? undefined,
+      })),
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
