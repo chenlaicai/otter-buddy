@@ -1,6 +1,7 @@
 export type ParsedCommand =
   | { command: 'list' }
   | { command: 'in'; conversationId: string }
+  | { command: 'out' }
   | { command: 'history' }
   | { command: 'help' }
   | { command: 'unknown'; raw: string };
@@ -8,6 +9,7 @@ export type ParsedCommand =
 export function parseCommand(text: string): ParsedCommand {
   const trimmed = text.trim();
   if (trimmed === '/list') return { command: 'list' };
+  if (trimmed === '/out') return { command: 'out' };
   if (trimmed === '/history') return { command: 'history' };
   if (trimmed === '/help') return { command: 'help' };
   const inMatch = trimmed.match(/^\/in\s+(\S+)$/);
@@ -46,5 +48,6 @@ export function formatMessageHistory(messages: Array<{ senderType: string; body:
 export const HELP_TEXT = `可用命令:
 /list - 查看所有活跃对话
 /in <对话ID> - 进入指定对话
+/out - 退出当前对话
 /history - 查看当前对话历史消息
 /help - 显示此帮助信息`;

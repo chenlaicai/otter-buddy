@@ -44,6 +44,12 @@ export class CommandDispatcher {
         break;
       }
 
+      case "out": {
+        await this.manageConnection.leaveConversation(connectionId);
+        await this.feishuGateway.replyText(chatId, "已退出当前对话");
+        break;
+      }
+
       case "history": {
         const conversation = await this.manageConnection.getCurrentConversation(connectionId);
         if (!conversation) {
