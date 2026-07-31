@@ -149,13 +149,25 @@ llm:
 
 **构建过程**：
 - 创建一个 `pi-ai createModels()` 实例
-- 遍历 `config.llm.models[]`，对每个条目调用 `loadProvider()` 注册 provider
+- 遍历 `config.llm.models[]`，对每个条目独立创建 provider 实例（不复用）
 - 用 `Map<alias, ModelEntry>` 做查找
 
+**`loadProvider` 签名改造**：
+- 当前签名：`loadProvider(provider, modelId, llmConfig)` — provider 用于 switch-case 模块加载
+- 新签名：`loadProvider(providerType, modelId, alias, llmConfig)` — providerType 用于模块加载（openai/anthropic），alias 用于注册 provider ID
+- config 中每个 model 条目保留 `provider` 字段作为 providerType（pi-ai 原生类型名），`alias` 作为路由键
+- `loadCustomProvider()` 同理：providerType 做 if/else 模块选择，alias 做 `createProvider({ id: alias })`
+
+**VALID_PROVIDERS 处理**：
+- 扩展白名单支持 pi-ai 的全部 provider：`["openai", "anthropic", "google", "mistral", "deepseek", ...]`
+- 或改为动态校验（检查 pi-ai 是否支持该 provider）
+
 **SPIKE 测试**：
-- 验证 pi-ai 支持单 Models 实例多 provider
-- 验证 `setRuntimeApiKey()` 支持多次调不同 provider
-- B 计划：若不支持，每个 alias 创建独立的 Models 实例
+- 验证 `createProvider({ id: "custom-alias", ... })` 是否被 pi-ai 接受
+- 验证 `models.getModel("custom-alias", modelId)` 返回的 model 能否正确发起请求
+- 验证 `setRuntimeApiKey("custom-alias", key)` 是否能正确为后续请求提供 auth
+- 验证单 Models 实例注册多个不同 ID 的 provider 后，跨 provider 的 model 能否正常工作
+- B 计划：若不支持，每个 alias 创建独立的 Models 实例（`Map<alias, { models, model }>`）
 
 ### D3 — 数据流
 
@@ -197,8 +209,9 @@ config.yaml (llm.models[] + llm.default)
 - 校验失败返回错误信息，列出可用模型
 
 **modelPool 注入**：
-- 通过闭包注入：`createTools(ctx, modelPool)` 签名扩展
-- 不改 ToolContext 接口，modelPool 作为参数传入
+- 通过扩展 `ToolContext` 接口注入：`ToolContext` 增加可选 `modelPool?: ModelPool` 字段
+- 不改 `createTools` 签名，避免影响所有调用方和测试文件
+- `createCreateOtterTool` 从 `ctx.modelPool` 获取 modelPool
 
 ### D6 — Prompt 注入
 
@@ -223,20 +236,21 @@ config.yaml (llm.models[] + llm.default)
 ### D7 — invoke 时模型解析
 
 `PiSessionFactory._createSessionWithTools()` 中：
+- 签名增加 `otterConfig` 参数（从 `_executeWithSession` 传入）
 - 从 `otterConfig` 读取 `modelAlias`
 - 通过 `modelPool.getModel(alias)` 解析模型，不存在时回退到默认模型
 - 将解析后的模型传给 `createAgentSession({ model })`
 - 记录日志：otterId、requestedAlias、resolvedAlias、provider
 
 **ensurePiCodingAgent() 改造**：
-- 遍历 ModelPool 所有模型，按 provider 去重设置 API key
-- 替代当前只设置一个 provider key 的逻辑
+- 遍历 ModelPool 所有模型，每个条目调用 `setRuntimeApiKey(alias, key)`
+- 不做 provider 去重（每个 alias 对应独立的 provider 实例和 auth）
 
 ### D8 — 其他适配
 
 | 改动点 | 说明 |
 |--------|------|
-| `_buildInvokeResult()` | 使用 per-otter 的 contextWindow，从 modelPool 获取 |
+| `_buildInvokeResult()` | 签名增加 otterId 参数，从 otterConfig 读 modelAlias，通过 modelPool.getContextWindow(alias) 获取 per-otter contextWindow |
 | `syncApiKeyToAgentAuth()` | 遍历 models[] 设置所有 provider 的 key |
 | `settings` 接口 | 显示 default 模型信息 |
 | LLM request 日志 | 增加 modelAlias 字段 |
@@ -269,9 +283,9 @@ config.yaml (llm.models[] + llm.default)
 | `src/usecases/otter/create-otter.ts` | CreateOtterInput 增加 modelAlias，execute() 透传 |
 | `src/interface-adapters/agent-runtime/otter-tool-client.ts` | CreateOtterInput 增加 modelAlias |
 | `src/frameworks/agent/session-restore.ts` | createSessionAndPersist() 透传 modelAlias（含内部两个调用点） |
-| `src/frameworks/agent/pi-session-factory.ts` | 接收 ModelPool，invoke 按 otter 解析模型，ensurePiCodingAgent 遍历设 key，reset 保留 modelAlias，日志增加模型信息，_buildInvokeResult per-otter contextWindow，buildIdentityPrefix 注入模型描述 |
-| `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | createTools 增加 modelPool 参数，create_otter 增加 modelAlias + 校验 |
-| `src/main.ts` | 组装 ModelPool，createTools 传 modelPool，syncApiKeyToAgentAuth 遍历，settings 适配 |
+| `src/frameworks/agent/pi-session-factory.ts` | 接收 ModelPool，invoke 按 otter 解析模型（_createSessionWithTools 增加 otterConfig 参数），ensurePiCodingAgent 遍历设 key，reset 保留 modelAlias，日志增加模型信息，_buildInvokeResult per-otter contextWindow，buildIdentityPrefix 注入模型描述 |
+| `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | ToolContext 增加可选 modelPool 字段，create_otter 增加 modelAlias + 校验 |
+| `src/main.ts` | 组装 ModelPool，syncApiKeyToAgentAuth 遍历，settings 适配，启动时校验 |
 
 ## 实施顺序
 
@@ -299,7 +313,7 @@ config.yaml (llm.models[] + llm.default)
 - pi-session-factory.ts — 接收 ModelPool，invoke 解析模型，ensurePiCodingAgent 遍历设 key，reset 保留，日志，contextWindow
 
 ### Phase 5: 工具 + Prompt
-- tool-factory.ts — createTools 增加 modelPool，create_otter 增加 modelAlias + 校验
+- tool-factory.ts — ToolContext 增加可选 modelPool 字段，create_otter 增加 modelAlias + 校验
 - pi-session-factory.ts — buildIdentityPrefix 注入模型描述
 
 ### Phase 6: 组装
@@ -316,7 +330,7 @@ config.yaml (llm.models[] + llm.default)
 | 能力描述 | description + strengths + weaknesses | 完整信息帮助大獭决策，运维维护合理 |
 | modelAlias 传递 | AgentConfig 直接加字段 | 类型安全，改动面极小 |
 | 大獭模型 | 固定用 default | 大獭是决策者，用最强模型 |
-| modelPool 注入工具层 | 闭包注入 | 不改 ToolContext 接口 |
+| modelPool 注入工具层 | ToolContext 扩展字段 | 不改 createTools 签名，避免影响所有调用方 |
 | getModel 行为 | 不存在时回退默认 | 容错，避免单点失败 |
 | contextWindow | per-otter 从 modelPool 获取 | 熔断器配置准确 |
 
@@ -335,3 +349,9 @@ config.yaml (llm.models[] + llm.default)
 | modelPool 注入工具层机制 | 第 3 轮 | 闭包注入，扩展 createTools 签名 |
 | 模型变更时存量 otter 处理 | 第 4 轮 | 启动时扫描警告 |
 | 大獭决策有效性 | 第 4 轮 | 完整设计一步到位，出了效果再调整 |
+| loadProvider switch-case 与 alias 矛盾 | 第 5 轮 | loadProvider 签名改为 (providerType, modelId, alias, llmConfig) |
+| VALID_PROVIDERS 白名单限制 | 第 5 轮 | 扩展白名单支持 pi-ai 全部 provider |
+| createTools 签名变更影响面 | 第 5 轮 | 改为 ToolContext 扩展字段，不改 createTools 签名 |
+| _createSessionWithTools 缺 otterConfig | 第 5 轮 | 签名增加 otterConfig 参数 |
+| _buildInvokeResult 的 contextWindow 来源 | 第 5 轮 | 签名增加 otterId，从 modelPool.getContextWindow(alias) 获取 |
+| B 计划实现细节 | 第 5 轮 | 补充 B 计划的具体实现细节 |
