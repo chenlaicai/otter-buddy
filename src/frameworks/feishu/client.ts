@@ -1,6 +1,7 @@
 import { createHash, createDecipheriv } from "node:crypto";
 import type { Logger } from "@usecases/ports/logger";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
+import type { FeishuAccessTokenManager } from "./access-token-manager";
 
 export interface FeishuConfig {
   appId: string;
@@ -10,72 +11,15 @@ export interface FeishuConfig {
 }
 
 export class FeishuClient implements FeishuGateway {
-  private accessToken: string | null = null;
-  private tokenExpiresAt: number = 0;
-  private refreshPromise: Promise<string> | null = null;  // 解决并发刷新竞态
-
   constructor(
     private readonly config: FeishuConfig,
     private readonly logger: Logger,
+    private readonly tokenManager: FeishuAccessTokenManager,
   ) {}
-
-  /** 获取 tenant_access_token（自动缓存，过期前刷新，并发安全） */
-  async getAccessToken(): Promise<string> {
-    if (this.accessToken && Date.now() < this.tokenExpiresAt) {
-      return this.accessToken;
-    }
-
-    // 如果已有刷新请求在进行中，等待同一个 promise
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    this.refreshPromise = this.doRefreshToken();
-    try {
-      return await this.refreshPromise;
-    } finally {
-      this.refreshPromise = null;
-    }
-  }
-
-  private async doRefreshToken(): Promise<string> {
-    const response = await fetch(
-      "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          app_id: this.config.appId,
-          app_secret: this.config.appSecret,
-        }),
-      },
-    );
-
-    const data = (await response.json()) as {
-      code: number;
-      msg: string;
-      tenant_access_token: string;
-      expire: number;
-    };
-
-    if (data.code !== 0) {
-      throw new Error(`Failed to get access token: ${data.msg}`);
-    }
-
-    this.accessToken = data.tenant_access_token;
-    // 提前 5 分钟刷新
-    this.tokenExpiresAt = Date.now() + (data.expire - 300) * 1000;
-
-    this.logger.info("Feishu access token refreshed", {
-      expiresIn: data.expire,
-    });
-
-    return this.accessToken;
-  }
 
   /** 发送文本消息到群 */
   async replyText(chatId: string, text: string): Promise<void> {
-    const token = await this.getAccessToken();
+    const token = await this.tokenManager.getAccessToken();
 
     const response = await fetch(
       "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
@@ -116,8 +60,6 @@ export class FeishuClient implements FeishuGateway {
       return true; // 未配置加密密钥时跳过验证
     }
 
-    // 飞书签名验证逻辑
-    // 参考: https://open.feishu.cn/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/encrypt-key-encryption-configuration-case
     const content = timestamp + nonce + this.config.encryptKey + body;
     const hash = createHash("sha256").update(content).digest("hex");
     return hash === signature;

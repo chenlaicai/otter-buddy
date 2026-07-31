@@ -71,6 +71,7 @@ import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { FeishuClient } from "@frameworks/feishu/client";
+import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
 import { FeishuWebhookHandler } from "@interface-adapters/feishu/webhook-handler";
@@ -259,7 +260,8 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
   logger.info("setupFeishu called", { hasConfig: !!appConfig.feishu });
   if (!appConfig.feishu) return;
 
-  const feishuClient = new FeishuClient(appConfig.feishu, logger);
+  const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
+  const feishuClient = new FeishuClient(appConfig.feishu, logger, tokenManager);
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishuClient, logger);
   const agentDispatchService = new AgentDispatchService({
     sendMessage: uc.sendMessage,
@@ -271,7 +273,7 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
   });
 
   // 使用长连接方式（不需要公网 HTTP 回调）
-  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger);
+  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, tokenManager);
   const longConnectionHandler = new FeishuLongConnectionHandler({
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,
@@ -427,7 +429,8 @@ async function main(): Promise<void> {
   // 创建消息广播服务（Web + 飞书同步）
   let messageBroadcaster: MessageBroadcaster | undefined;
   if (appConfig.feishu) {
-    const feishuClient = new FeishuClient(appConfig.feishu, logger);
+    const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
+    const feishuClient = new FeishuClient(appConfig.feishu, logger, tokenManager);
     messageBroadcaster = new MessageBroadcaster(uc.manageConnection, feishuClient, logger);
   }
 

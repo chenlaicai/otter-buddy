@@ -1,6 +1,7 @@
 import { WSClient, EventDispatcher } from "@larksuiteoapi/node-sdk";
 import type { Logger } from "@usecases/ports/logger";
 import type { FeishuLongConnectionGateway, FeishuLongConnectionMessage } from "@usecases/im/feishu-long-connection-gateway";
+import type { FeishuAccessTokenManager } from "./access-token-manager";
 
 export interface FeishuConfig {
   appId: string;
@@ -56,13 +57,11 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
   private wsClient: WSClient;
   private eventDispatcher: EventDispatcher;
   private messageHandler: ((msg: FeishuLongConnectionMessage) => void) | null = null;
-  private accessToken: string | null = null;
-  private tokenExpiresAt: number = 0;
-  private refreshPromise: Promise<string> | null = null;
 
   constructor(
     private readonly config: FeishuConfig,
     private readonly logger: Logger,
+    private readonly tokenManager: FeishuAccessTokenManager,
   ) {
     this.eventDispatcher = new EventDispatcher({
       verificationToken: config.verificationToken,
@@ -72,7 +71,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     this.wsClient = new WSClient({
       appId: config.appId,
       appSecret: config.appSecret,
-      loggerLevel: 0, // debug level for more verbose logging
+      loggerLevel: 0,
       onReady: () => {
         this.logger.info("Feishu WSClient onReady callback fired");
         const status = this.wsClient.getConnectionStatus();
@@ -97,7 +96,6 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
   /** 启动长连接 */
   async start(): Promise<void> {
     try {
-      // 注册消息处理器
       this.logger.info("Registering Feishu event handlers", {
         eventType: "im.message.receive_v1",
       });
@@ -116,7 +114,6 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
         eventDispatcher: this.eventDispatcher,
       });
 
-      // 检查连接状态
       const status = this.wsClient.getConnectionStatus();
       this.logger.info("Feishu long connection started", {
         connectionState: status.state,
@@ -209,61 +206,9 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     }
   }
 
-  /** 获取 tenant_access_token（自动缓存，过期前刷新，并发安全） */
-  async getAccessToken(): Promise<string> {
-    if (this.accessToken && Date.now() < this.tokenExpiresAt) {
-      return this.accessToken;
-    }
-
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    this.refreshPromise = this.doRefreshToken();
-    try {
-      return await this.refreshPromise;
-    } finally {
-      this.refreshPromise = null;
-    }
-  }
-
-  private async doRefreshToken(): Promise<string> {
-    const response = await fetch(
-      "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          app_id: this.config.appId,
-          app_secret: this.config.appSecret,
-        }),
-      },
-    );
-
-    const data = (await response.json()) as {
-      code: number;
-      msg: string;
-      tenant_access_token: string;
-      expire: number;
-    };
-
-    if (data.code !== 0) {
-      throw new Error(`Failed to get access token: ${data.msg}`);
-    }
-
-    this.accessToken = data.tenant_access_token;
-    this.tokenExpiresAt = Date.now() + (data.expire - 300) * 1000;
-
-    this.logger.info("Feishu access token refreshed", {
-      expiresIn: data.expire,
-    });
-
-    return this.accessToken;
-  }
-
   /** 发送文本消息到群 */
   async sendText(chatId: string, text: string): Promise<string> {
-    const token = await this.getAccessToken();
+    const token = await this.tokenManager.getAccessToken();
 
     const response = await fetch(
       "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
@@ -302,7 +247,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
 
   /** 更新消息（用于流式响应） */
   async patchText(messageId: string, text: string): Promise<void> {
-    const token = await this.getAccessToken();
+    const token = await this.tokenManager.getAccessToken();
 
     await fetch(`https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`, {
       method: "PATCH",
