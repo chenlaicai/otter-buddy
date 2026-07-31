@@ -22,24 +22,25 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # 检查 PR 标题是否包含编号格式：[F{日期}{随机字符}] 或 [R{日期}{随机字符}]
-          # F = feature/bugfix，R = research
-          # 例如：[F20260727ui6x]、[F20260724glas]、[R20260728c5xt]
-          if ! echo "$PR_TITLE" | grep -qE '^\[[FR][0-9]{8}[a-zA-Z0-9]{4,}\]'; then
+          # PR 标题格式：[ID][模块] 描述
+          # ID: [F{日期}{随机字符}] 或 [R{日期}{随机字符}]
+          # 模块: [agent] [web] [prompt] [research] 等
+          if ! echo "$PR_TITLE" | grep -qE '^\[[FR][0-9]{8}[a-zA-Z0-9]{4,}\]\[[a-z]+\]'; then
             echo "❌ PR 标题格式错误"
             echo "当前标题: $PR_TITLE"
             echo ""
-            echo "PR 标题必须以编号开头，格式为：[F{日期}{随机字符}] 或 [R{日期}{随机字符}]"
+            echo "格式：[ID][模块] 描述"
             echo "示例："
+            echo "  [F20260730sbrt][agent][Enhancement] speak 重试区分 thinking-only"
             echo "  [F20260727ui6x][web][BugFix] 对话界面多项 UI 修复"
-            echo "  [F20260724glas][web][Feature Update] UI 玻璃材质体系重设计 v2.3"
-            echo "  [F20260725otid] Otter 身份认知体系 + 搭档术语统一"
+            echo "  [F20260724glas][web] UI 玻璃材质体系重设计"
             echo "  [R20260728c5xt][research] claude5-context-engineering 洞察报告"
             echo ""
-            echo "编号规则："
+            echo "规则："
             echo "  - 前缀: F（feature/bugfix）或 R（research）"
-            echo "  - {日期}: 8位数字，格式 YYYYMMDD"
-            echo "  - {随机字符}: 4位以上字母数字"
+            echo "  - 日期: 8位数字 YYYYMMDD"
+            echo "  - 随机字符: 4位以上字母数字"
+            echo "  - 模块: agent / web / prompt / research 等小写标签"
             exit 1
           fi
           echo "✅ PR 标题格式正确"
