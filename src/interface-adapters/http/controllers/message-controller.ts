@@ -1,12 +1,12 @@
 import type { Context } from "hono";
 import { canAbortMessage } from "@entities/conversation/message";
-import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO } from "../dto/message-dto";
@@ -20,7 +20,7 @@ export class MessageController {
     private readonly agentInvoker: AgentInvoker,
     private readonly logger: Logger,
     private readonly queryOtter: QueryOtter,
-    private readonly maxChainDepth: number = 20,
+    private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
@@ -166,89 +166,29 @@ export class MessageController {
     push: (event: { event: string; data: Record<string, unknown> }) => void,
   ): Promise<void> {
     const { conversationId, userMessageContent, senderId, allTargets } = ctx;
-    let depth = 0;
-    while (targets.length > 0 && depth < this.maxChainDepth) {
-      depth++;
-      for (const id of targets) allTargets.add(id);
 
-      /** 每跳重建名册：链中可能有 otter 被创建/解散 */
-      const roster = await this.buildRoster(conversationId);
-
-      const promises = targets.map(async otterId => {
-        const messageWithContext = await this.buildMessageWithContext(conversationId, otterId, userMessageContent, senderId, roster);
-        this.logger.info('发言链调用', { otterId, messageLength: messageWithContext.length, messagePreview: messageWithContext.substring(0, 200) });
+    // 使用 DispatchChainEngine 执行发言链
+    await this.dispatchChainEngine.executeChain({
+      conversationId,
+      userMessageContent,
+      senderId,
+      initialTargets: targets,
+      invokeFn: async (params) => {
+        for (const id of params.otterId ? [params.otterId] : []) allTargets.add(id);
         return this.agentInvoker.invokeConversation({
-          otterId, conversationId, userMessageContent: messageWithContext,
-          senderId, onSSEEvent: push,
+          otterId: params.otterId,
+          conversationId: params.conversationId,
+          userMessageContent: params.userMessageContent,
+          senderId: params.senderId,
+          onSSEEvent: push,
         });
-      });
-      const results = await Promise.allSettled(promises);
-
-      await this.markBatchRead(conversationId, results);
-
-      const nextTargets = new Set<string>();
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value.aggregatedTargets) {
-          for (const id of r.value.aggregatedTargets) {
-            nextTargets.add(id);
-          }
-        }
-      }
-      targets = [...nextTargets].filter(id => id !== senderId);
-    }
-
-    /** 深度耗尽且仍有待派发目标：显式落地，发言石交还用户（不静默截断） */
-    if (targets.length > 0) {
-      await this.handleChainDepthExceeded(conversationId, targets, depth, push);
-    }
-  }
-
-  /** 在场成员名册：name ↔ otterId 映射确定性注入，speak 决策时免费在场 */
-  private async buildRoster(conversationId: string): Promise<string> {
-    const participants = await this.sendMessageUseCase.repo.getActiveParticipants(conversationId);
-    const lines = await Promise.all(participants.map(async p => {
-      const otter = await this.queryOtter.getById(p.otterId);
-      return `- ${otter?.name ?? p.otterId} (otterId: ${p.otterId})`;
-    }));
-    lines.push(`- 搭档（传 'user' 即交还发言权）`);
-    return `## 在场成员\n${lines.join('\n')}`;
-  }
-
-  /** 组装派发上下文：名册 + 具名对话历史 + 当前任务 */
-  private async buildMessageWithContext(
-    conversationId: string,
-    otterId: string,
-    userMessageContent: string,
-    senderId: string,
-    roster: string,
-  ): Promise<string> {
-    const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
-    if (unreadMessages.length === 0) {
-      return `${roster}\n\n## 当前任务\n${userMessageContent}`;
-    }
-    const names = await this.resolveSenderNames(unreadMessages);
-    /** 注入给剥离投影：html-card 替换为占位符（卡片源码经 get_message 按需取回）；
-     *  html-card-reply 不剥——回执 JSON 是水獭的交互载荷，须直接可见（F20260728htar） */
-    const formatted = unreadMessages
-      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '搭档' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ? stripHtmlCardsOnly(m.body) : ''}`)
-      .join('\n');
-    return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
-  }
-
-  /** 本批派发完成后，将各 otter 的已读位置推进到当前 turn */
-  private async markBatchRead(
-    conversationId: string,
-    results: PromiseSettledResult<{ messageId: string }>[],
-  ): Promise<void> {
-    const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
-    if (!currentTurn) return;
-    for (const r of results) {
-      if (r.status !== 'fulfilled') continue;
-      const msg = await this.queryMessage.getMessageById(r.value.messageId);
-      if (msg) {
-        await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
-      }
-    }
+      },
+      callbacks: {
+        onDepthExceeded: async (pendingTargets, depth) => {
+          await this.handleChainDepthExceeded(conversationId, pendingTargets, depth, push);
+        },
+      },
+    });
   }
 
   /** 发言链触顶：warn 日志 + 系统消息提示用户接管 */
@@ -261,7 +201,7 @@ export class MessageController {
     this.logger.warn('发言链达到深度上限，交还用户', { depth, pendingTargets, conversationId });
     const sysMsg = await this.sendMessageUseCase.sendSystem(
       conversationId,
-      `发言接力已达系统安全上限（${this.maxChainDepth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
+      `发言接力已达系统安全上限（${depth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     );
     push({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
   }

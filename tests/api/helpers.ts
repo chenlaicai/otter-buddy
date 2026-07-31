@@ -16,6 +16,7 @@ import { MemoryController } from "../../src/interface-adapters/http/controllers/
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
+import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-chain-engine";
 import type { Logger } from "../../src/usecases/ports/logger";
 
 /** 创建 noop Logger mock */
@@ -393,12 +394,24 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.manageConversation,
     deps.manageParticipant,
   );
+
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+
+  const dispatchChainEngine = new DispatchChainEngine({
+    sendMessage: deps.sendMessageUseCase,
+    queryMessage: deps.queryMessage,
+    queryOtter: deps.queryOtter,
+    logger,
+    maxChainDepth: 20,
+  });
+
   const messageCtrl = new MessageController(
     deps.sendMessageUseCase,
     deps.queryMessage,
     deps.agentInvoker,
-    { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
+    logger,
     deps.queryOtter,
+    dispatchChainEngine,
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,

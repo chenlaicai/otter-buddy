@@ -78,6 +78,7 @@ import { FeishuWebhookHandler } from "@interface-adapters/feishu/webhook-handler
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { buildOtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client-builder";
 
@@ -241,6 +242,7 @@ interface ControllerDeps {
   settingsRepo: SqliteSettingsRepository;
   schedulerService: SchedulerService;
   cronParser: SimpleCronParser;
+  dispatchChainEngine: DispatchChainEngine;
   messageBroadcaster?: MessageBroadcaster;
 }
 
@@ -248,7 +250,7 @@ function initControllers(deps: ControllerDeps) {
   return {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
-    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, appConfig.circuitBreaker.maxChainDepth, deps.messageBroadcaster),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
     memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
     settings: new SettingsController(deps.settings, deps.settingsRepo),
@@ -264,13 +266,18 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
   const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
   const feishuClient = new FeishuClient(appConfig.feishu, logger, tokenManager);
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishuClient, logger);
-  const agentDispatchService = new AgentDispatchService({
+  const dispatchChainEngine = new DispatchChainEngine({
     sendMessage: uc.sendMessage,
     queryMessage: uc.queryMessage,
     queryOtter: uc.queryOtter,
-    agentInvokePort: agentInvoker,
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
+  });
+  const agentDispatchService = new AgentDispatchService({
+    dispatchChainEngine,
+    queryMessage: uc.queryMessage,
+    agentInvokePort: agentInvoker,
+    logger,
   });
 
   // 创建消息处理器
@@ -439,6 +446,15 @@ async function main(): Promise<void> {
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, messageBroadcaster);
 
+  // 创建发言链调度引擎
+  const dispatchChainEngine = new DispatchChainEngine({
+    sendMessage: uc.sendMessage,
+    queryMessage: uc.queryMessage,
+    queryOtter: uc.queryOtter,
+    logger,
+    maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
+  });
+
   const settings: SettingsConfig = {
     provider: appConfig.llm.provider,
     model: appConfig.llm.model,
@@ -448,7 +464,7 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, messageBroadcaster });
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster });
   startServer(controllers, uc, agentInvoker, appConfig.server.port, messageBroadcaster);
 
   schedulerService.start().catch((err) => {
