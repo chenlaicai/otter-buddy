@@ -52,7 +52,7 @@ function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: Healing
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。",
+    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。【系统自愈】如果本次调用遇到系统问题（工具故障、检索缺失、格式异常等），在 body 末尾附加 `<healing>[issues]` 块（type/severity/description/suggestion 各一行）；顺利则输出 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档不会看到。",
     parameters: {
       type: "object",
       properties: {
