@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type Database from "better-sqlite3";
 
 import { loadConfig, initConfig, type AppConfig } from "@frameworks/config";
 import { PinoLogger } from "@frameworks/logger";
