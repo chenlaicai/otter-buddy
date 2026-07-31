@@ -155,33 +155,169 @@ function ConversationPage() {
     return () => clearTimeout(timer)
   }, [activeId, allMessages, refreshMessages])
 
-  /** 订阅消息广播（支持飞书消息实时同步到 Web） */
+  /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
   useEffect(() => {
     if (!activeId) return
 
-    // 建立 SSE 长连接订阅消息
+    console.log('[SSE-subscribe] 建立订阅, activeId:', activeId)
+
     const eventSource = new EventSource(`/api/conversations/${activeId}/subscribe`)
 
-    eventSource.onmessage = (event) => {
+    eventSource.onopen = () => {
+      console.log('[SSE-subscribe] 连接已打开, readyState:', eventSource.readyState)
+    }
+
+    // streaming 生命周期状态（per-subscription，与 handleSend 的 liveEventsMap 同构）
+    const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
+    const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
+
+    const syncLiveEvents = (messageId: string) => {
+      const liveEvents = liveEventsMap.get(messageId)
+      if (!liveEvents) return
+      setAllMessages(prev => {
+        const list = prev[activeId]
+        if (!list?.some(m => m.id === messageId)) return prev
+        return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
+      })
+    }
+
+    // 已完成消息（用户消息、非 streaming 的 otter 消息）
+    const handleMessage = (e: MessageEvent) => {
       try {
-        const message = JSON.parse(event.data)
+        const dto = JSON.parse(e.data)
+        const message = mapMessageDTO(dto)
+        console.log('[SSE-subscribe] 收到消息:', message.id, message.st, message.content?.slice(0, 30))
         setAllMessages(prev => {
           const current = prev[activeId] || []
-          // 避免重复
           if (current.some(m => m.id === message.id)) return prev
           return { ...prev, [activeId]: [...current, message] }
         })
       } catch (err) {
-        console.error('Failed to parse subscription message:', err)
+        console.error('[SSE-subscribe] 解析消息失败:', err)
       }
     }
 
-    eventSource.onerror = () => {
-      // 重连由浏览器自动处理
-      console.log('SSE subscription reconnecting...')
+    // message.start → 创建 streaming 占位消息
+    const handleMessageStart = (e: MessageEvent) => {
+      console.log('[SSE-subscribe] handleMessageStart CALLED, type:', e.type, 'data:', e.data?.slice(0, 60))
+      try {
+        const data = JSON.parse(e.data)
+        const { messageId, otterId, otterName } = data
+        liveEventsMap.set(messageId, [])
+        liveMeta.set(messageId, { otterId, otterName, createdAt: data.createdAt || nowTs() })
+        const placeholder: LocalMessage = {
+          id: messageId, st: 'otter', si: otterId, sn: otterName,
+          content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
+        if (otterId && activeId) {
+          setAllOtters(prev => {
+            const convOtters = prev[activeId] || []
+            if (convOtters.some(o => o.id === otterId)) return prev
+            return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
+          })
+        }
+      } catch (err) {
+        console.error('[SSE-subscribe] message.start 解析失败:', err)
+      }
+    }
+
+    // assistant_text / assistant_toolcall / tool.result → 累积 liveEvents
+    const handleAssistantText = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        const liveEvents = liveEventsMap.get(data.messageId)
+        if (!liveEvents) return
+        liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
+        syncLiveEvents(data.messageId)
+      } catch { /* skip */ }
+    }
+    const handleAssistantToolcall = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        const liveEvents = liveEventsMap.get(data.messageId)
+        if (!liveEvents) return
+        liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
+        syncLiveEvents(data.messageId)
+      } catch { /* skip */ }
+    }
+    const handleToolResult = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        const liveEvents = liveEventsMap.get(data.messageId)
+        if (!liveEvents) return
+        liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
+        syncLiveEvents(data.messageId)
+      } catch { /* skip */ }
+    }
+
+    // message.complete → upsert 最终消息
+    const handleMessageComplete = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        const { messageId } = data
+        const liveEvents = liveEventsMap.get(messageId) || []
+        const meta = liveMeta.get(messageId)
+        const otterId = meta?.otterId || ''
+        const finalMsg: LocalMessage = {
+          id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
+          content: data.body ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration,
+          events: liveEvents.length > 0 ? liveEvents : undefined,
+          ctx: data.ctx, ctxMax: data.ctxMax, turnId: data.turnId || undefined,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
+        liveEventsMap.delete(messageId)
+        liveMeta.delete(messageId)
+      } catch (err) {
+        console.error('[SSE-subscribe] message.complete 解析失败:', err)
+      }
+    }
+
+    // message.failed / error → 标记失败
+    const handleMessageFailed = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        const { messageId } = data
+        const liveEvents = liveEventsMap.get(messageId) || []
+        const meta = liveMeta.get(messageId)
+        const failedMsg: LocalMessage = {
+          id: messageId, st: 'otter', si: meta?.otterId || '',
+          content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
+          events: liveEvents.length > 0 ? liveEvents : undefined,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
+        liveEventsMap.delete(messageId)
+        liveMeta.delete(messageId)
+      } catch { /* skip */ }
+    }
+    const handleError = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        const errMsg: LocalMessage = {
+          id: data.messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: data.otterId || 'unknown',
+          content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
+        showToast(`Agent 错误: ${data.message}`, 'error')
+      } catch { /* skip */ }
+    }
+
+    // 注册所有事件监听
+    eventSource.addEventListener("message", handleMessage)
+    eventSource.addEventListener("message.start", handleMessageStart)
+    eventSource.addEventListener("assistant_text", handleAssistantText)
+    eventSource.addEventListener("assistant_toolcall", handleAssistantToolcall)
+    eventSource.addEventListener("tool.result", handleToolResult)
+    eventSource.addEventListener("message.complete", handleMessageComplete)
+    eventSource.addEventListener("message.failed", handleMessageFailed)
+    eventSource.addEventListener("error", handleError)
+
+    eventSource.onerror = (err) => {
+      console.warn('[SSE-subscribe] 连接错误, readyState:', eventSource.readyState, 'err:', err)
     }
 
     return () => {
+      console.log('[SSE-subscribe] 清理订阅, activeId:', activeId)
       eventSource.close()
     }
   }, [activeId])

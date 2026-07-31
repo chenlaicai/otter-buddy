@@ -43,18 +43,38 @@ export class MessageController {
       return c.json({ error: "Message broadcaster not configured" }, 500);
     }
 
+    this.logger.info("[subscribe] SSE subscription request", { conversationId });
+
     const { response, push, close } = streamEvents(c, undefined, this.logger);
 
-    // 订阅消息广播
-    const unsubscribe = this.messageBroadcaster.subscribe(conversationId, (message) => {
-      push({
-        event: "message",
-        data: toMessageDTO(message) as unknown as Record<string, unknown>,
-      });
-    });
+    // 订阅消息广播（消息 + streaming 事件）
+    const unsubscribe = this.messageBroadcaster.subscribe(
+      conversationId,
+      // 消息回调：已完成消息（用户消息、飞书消息等）
+      (message) => {
+        this.logger.info("[subscribe] Broadcasting message to SSE", {
+          conversationId,
+          messageId: message.id,
+          senderType: message.senderType,
+        });
+        push({
+          event: "message",
+          data: toMessageDTO(message) as unknown as Record<string, unknown>,
+        });
+      },
+      // 事件回调：agent streaming 事件（message.start, assistant_text, message.complete 等）
+      (event) => {
+        this.logger.info("[subscribe] Forwarding streaming event to SSE", {
+          conversationId,
+          eventType: event.event,
+        });
+        push(event);
+      },
+    );
 
     // 客户端断连时取消订阅
     c.req.raw.signal.addEventListener("abort", () => {
+      this.logger.info("[subscribe] Client abort signal received", { conversationId });
       unsubscribe();
       close();
     });

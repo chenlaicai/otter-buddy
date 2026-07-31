@@ -278,6 +278,7 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
     queryMessage: uc.queryMessage,
     agentInvokePort: agentInvoker,
     logger,
+    messageBroadcaster,
   });
 
   // 创建消息处理器
@@ -441,7 +442,7 @@ async function main(): Promise<void> {
   if (appConfig.feishu) {
     const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
     const feishuClient = new FeishuClient(appConfig.feishu, logger, tokenManager);
-    messageBroadcaster = new MessageBroadcaster(uc.manageConnection, feishuClient, logger);
+    messageBroadcaster = new MessageBroadcaster(uc.manageConnection, feishuClient, uc.queryOtter, logger);
   }
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, messageBroadcaster);

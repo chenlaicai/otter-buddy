@@ -87,7 +87,6 @@ export class FeishuMessageProcessor {
     senderId: string,
   ): void {
     // 异步执行，不阻塞消息处理
-    // 注意：不在这里发送回复到飞书，由 messageBroadcaster 统一处理消息同步
     this.deps.agentDispatchService.dispatchWithoutSSE(
       conversationId,
       userMessageContent,
@@ -97,6 +96,33 @@ export class FeishuMessageProcessor {
         this.deps.logger.error("Agent dispatch failed", undefined, {
           conversationId,
           error: result.error,
+        });
+        return;
+      }
+      // Agent 回复同步到飞书端（带名字前缀）
+      if (result.messageId && result.otterReply) {
+        // 构造最小 Message 对象（broadcastToFeishu 只用 id/conversationId/senderType/senderId/body/source）
+        const agentMsg = {
+          id: result.messageId,
+          conversationId,
+          turnId: "",
+          senderType: "otter" as const,
+          senderId: "",
+          talkingStonePassedTo: null,
+          status: "completed" as const,
+          body: result.otterReply,
+          sequenceNum: 0,
+          contextTokens: null,
+          contextTokensMax: null,
+          source: "web" as const,
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        };
+        this.deps.messageBroadcaster.broadcastToFeishuOnly(agentMsg).catch(err => {
+          this.deps.logger.error("Failed to broadcast agent reply to Feishu", err instanceof Error ? err : undefined, {
+            conversationId,
+            messageId: result.messageId,
+          });
         });
       }
     }).catch(err => {

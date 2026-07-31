@@ -11,9 +11,15 @@ export interface SSEEvent {
 /** 终端事件：发出后关闭 SSE 流（仅 stream.end，per-message 事件不再关闭流） */
 const TERMINAL_EVENTS = new Set(["stream.end"]);
 
+/** Keep-alive 间隔（毫秒）：防止代理/浏览器关闭空闲 SSE 连接 */
+const SSE_KEEPALIVE_INTERVAL_MS = 15_000;
+
 /**
  * 创建 SSE 流，返回响应和事件推送函数。
  * onAbort 在客户端断连时调用（可选；注意断连不等于要中止 Agent 生成）。
+ *
+ * 内置 keep-alive：每 15 秒发送一条 SSE 注释（`:` 开头），防止反向代理或浏览器
+ * 因空闲超时而关闭连接。
  */
 export function streamEvents(
   c: Context,
@@ -47,8 +53,16 @@ export function streamEvents(
   };
 
   const response = streamSSE(c, async (stream) => {
+    // Keep-alive: 定期发送 SSE 注释，防止空闲连接被关闭
+    const keepAliveTimer = setInterval(() => {
+      if (!closed) {
+        stream.write(':\n\n').catch(() => { /* stream closed, ignore */ });
+      }
+    }, SSE_KEEPALIVE_INTERVAL_MS);
+
     stream.onAbort(() => {
       closed = true;
+      clearInterval(keepAliveTimer);
       logSSEClose(logger, requestId, conversationId, startTime, 'client_abort');
       onAbort?.();
       waiting?.();
@@ -56,6 +70,7 @@ export function streamEvents(
 
     await processSSEQueue(stream, queue, () => closed, () => {
       closed = true;
+      clearInterval(keepAliveTimer);
       logSSEClose(logger, requestId, conversationId, startTime, 'terminal_event');
     }, (resolve) => {
       waiting = resolve;

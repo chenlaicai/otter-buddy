@@ -266,7 +266,9 @@ export class AgentInvoker {
     onSSEEvent?.({ event: "turn.complete", data: {} });
 
     // 广播消息到 Web 和飞书
-    if (this.messageBroadcaster && msg) {
+    // 当 onSSEEvent 存在时（subscription 流式路径），跳过 broadcast 避免重复：
+    // streaming 事件已通过 subscription 推送，飞书端由 FeishuMessageProcessor 单独处理
+    if (this.messageBroadcaster && msg && !onSSEEvent) {
       this.messageBroadcaster.broadcast(msg).catch(err => {
         this.logger.error("Failed to broadcast message", err instanceof Error ? err : undefined, {
           messageId,
