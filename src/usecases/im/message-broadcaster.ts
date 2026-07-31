@@ -57,6 +57,14 @@ export class MessageBroadcaster {
     await this.broadcastToFeishu(message);
   }
 
+  /**
+   * 仅广播到飞书端
+   * 用于 Web 端发消息时，同步到飞书（Web 端已有 SSE 流，不需要重复广播）
+   */
+  async broadcastToFeishuOnly(message: Message): Promise<void> {
+    await this.broadcastToFeishu(message);
+  }
+
   private broadcastToWeb(message: Message): void {
     const subscribers = this.webSubscribers.get(message.conversationId);
     if (!subscribers || subscribers.size === 0) {
@@ -84,6 +92,11 @@ export class MessageBroadcaster {
   private async broadcastToFeishu(message: Message): Promise<void> {
     // 只同步用户消息和 Otter 回复（不同步系统消息）
     if (message.senderType === "system") {
+      return;
+    }
+
+    // 不同步飞书来源的消息（防止回环）
+    if (message.source === "feishu") {
       return;
     }
 

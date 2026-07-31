@@ -120,6 +120,16 @@ export class MessageController {
         body: body.body,
       });
 
+      // 广播 Web 消息到飞书端（实时同步）
+      if (this.messageBroadcaster) {
+        this.messageBroadcaster.broadcastToFeishuOnly(userMessage).catch(err => {
+          this.logger.error("Failed to broadcast web message to feishu", err instanceof Error ? err : undefined, {
+            conversationId,
+            messageId: userMessage.id,
+          });
+        });
+      }
+
       /** 3. 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
       const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
