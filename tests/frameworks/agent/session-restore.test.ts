@@ -158,12 +158,14 @@ describe("SessionRestore modelAlias 持久化", () => {
   });
 
   it("session 文件丢失重建时保留 modelAlias", async () => {
+    // 先创建带 modelAlias 的配置
     provider.setConfig("o1", { otterType: "small", modelAlias: "powerful" });
     store.setWithFile("o1", "sid-old", "/tmp/missing.jsonl");
 
     const result = await restore.restoreOrCreate("o1", makePiCodingAgent(), "/tmp/sessions");
 
     expect(result.createdNew).toBe(true);
+    // 重建后 modelAlias 应保留
     const config = provider.getConfig("o1");
     expect(config?.modelAlias).toBe("powerful");
   });
