@@ -75,6 +75,7 @@ import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manage
 import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
 import { FeishuWebhookHandler } from "@interface-adapters/feishu/webhook-handler";
+import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
@@ -272,16 +273,22 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
   });
 
-  // 使用长连接方式（不需要公网 HTTP 回调）
-  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, tokenManager);
-  const longConnectionHandler = new FeishuLongConnectionHandler({
+  // 创建消息处理器
+  const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,
     commandDispatcher,
     feishuGateway: feishuClient,
     agentDispatchService,
-    longConnectionGateway: longConnectionClient,
     messageBroadcaster: messageBroadcaster!,
+    logger,
+  });
+
+  // 使用长连接方式（不需要公网 HTTP 回调）
+  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, tokenManager);
+  const longConnectionHandler = new FeishuLongConnectionHandler({
+    longConnectionGateway: longConnectionClient,
+    messageProcessor,
     logger,
   });
 
@@ -293,14 +300,10 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
   });
 
   // 保留 webhook 路由作为备用（如果配置了 verificationToken）
-  if (appConfig.feishu.verificationToken && messageBroadcaster) {
+  if (appConfig.feishu.verificationToken) {
     const feishuWebhookHandler = new FeishuWebhookHandler({
-      manageConnection: uc.manageConnection,
-      sendMessage: uc.sendMessage,
-      commandDispatcher,
+      messageProcessor,
       feishuGateway: feishuClient,
-      agentDispatchService,
-      messageBroadcaster,
       config: { verificationToken: appConfig.feishu.verificationToken },
       logger,
     });

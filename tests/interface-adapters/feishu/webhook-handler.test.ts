@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FeishuWebhookHandler } from "@interface-adapters/feishu/webhook-handler";
-import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
-import type { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
+import type { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import type { Logger } from "@usecases/ports/logger";
 import type { Context } from "hono";
 
@@ -34,48 +32,25 @@ function mockContext(body: string, headers: Record<string, string> = {}): Contex
 
 describe("FeishuWebhookHandler", () => {
   let handler: FeishuWebhookHandler;
-  let manageConnection: ManageConnection;
-  let sendMessage: SendMessage;
-  let commandDispatcher: CommandDispatcher;
   let feishuGateway: FeishuGateway;
   let logger: Logger;
-  let sendMock: ReturnType<typeof vi.fn>;
-  let dispatchMock: ReturnType<typeof vi.fn>;
-  let replyTextMock: ReturnType<typeof vi.fn>;
+  let messageProcessor: FeishuMessageProcessor;
 
   beforeEach(() => {
-    sendMock = vi.fn().mockResolvedValue({ id: "msg-1" });
-    dispatchMock = vi.fn().mockResolvedValue(undefined);
-    replyTextMock = vi.fn().mockResolvedValue(undefined);
-
-    manageConnection = {
-      ensureConnection: vi.fn().mockResolvedValue({ id: "conn-1", name: "test" }),
-      getCurrentConversation: vi.fn().mockResolvedValue(null),
-    } as any;
-    sendMessage = { send: sendMock } as any;
-    commandDispatcher = { dispatch: dispatchMock } as any;
     feishuGateway = {
-      replyText: replyTextMock as any,
+      replyText: vi.fn().mockResolvedValue(undefined),
       verifySignature: vi.fn().mockReturnValue(true),
       decryptEventData: vi.fn().mockImplementation((data: string) => data),
     };
     logger = mockLogger();
 
-    const agentDispatchService = {
-      dispatchWithoutSSE: vi.fn().mockResolvedValue({}),
-    } as any;
-
-    const messageBroadcaster = {
-      broadcast: vi.fn().mockResolvedValue(undefined),
+    messageProcessor = {
+      process: vi.fn().mockResolvedValue(undefined),
     } as any;
 
     handler = new FeishuWebhookHandler({
-      manageConnection,
-      sendMessage,
-      commandDispatcher,
+      messageProcessor,
       feishuGateway,
-      agentDispatchService,
-      messageBroadcaster,
       config: { verificationToken: "test-token" },
       logger,
     });
@@ -91,7 +66,6 @@ describe("FeishuWebhookHandler", () => {
 
       await handler.handle(ctx);
 
-      // 验证返回 challenge
       expect(ctx._jsonCalls[0][0]).toEqual({ challenge: "test-challenge" });
     });
 
@@ -103,7 +77,6 @@ describe("FeishuWebhookHandler", () => {
 
       await handler.handle(ctx);
 
-      // 验证返回 403
       expect(ctx._jsonCalls[0]).toEqual([{ error: "Invalid token" }, 403]);
     });
 
@@ -130,20 +103,12 @@ describe("FeishuWebhookHandler", () => {
       const event = { encrypt: encryptedData };
       const ctx = mockContext(JSON.stringify(event));
 
-      // mock decryptEventData 返回解密后的 JSON
       vi.mocked(feishuGateway.decryptEventData).mockReturnValue(JSON.stringify(innerEvent));
-
-      vi.mocked(manageConnection.getCurrentConversation).mockResolvedValue({
-        id: "conv-1",
-        title: "测试对话",
-      });
 
       await handler.handle(ctx);
 
-      // 验证解密被调用并返回正确结果
       expect(feishuGateway.decryptEventData).toHaveBeenCalled();
-      // 验证消息被转发
-      expect(sendMock).toHaveBeenCalled();
+      expect(messageProcessor.process).toHaveBeenCalled();
     });
 
     it("机器人消息被忽略", async () => {
@@ -169,11 +134,10 @@ describe("FeishuWebhookHandler", () => {
 
       await handler.handle(ctx);
 
-      // 验证消息未发送
-      expect(sendMock).not.toHaveBeenCalled();
+      expect(messageProcessor.process).not.toHaveBeenCalled();
     });
 
-    it("命令消息分发到 CommandDispatcher", async () => {
+    it("命令消息分发到消息处理器", async () => {
       const event = {
         header: {
           token: "test-token",
@@ -196,16 +160,10 @@ describe("FeishuWebhookHandler", () => {
 
       await handler.handle(ctx);
 
-      // 验证命令被分发
-      expect(dispatchMock).toHaveBeenCalled();
+      expect(messageProcessor.process).toHaveBeenCalled();
     });
 
-    it("普通消息发送到 Conversation", async () => {
-      vi.mocked(manageConnection.getCurrentConversation).mockResolvedValue({
-        id: "conv-1",
-        title: "测试对话",
-      });
-
+    it("普通消息发送到消息处理器", async () => {
       const event = {
         header: {
           token: "test-token",
@@ -228,13 +186,10 @@ describe("FeishuWebhookHandler", () => {
 
       await handler.handle(ctx);
 
-      // 验证消息发送成功
-      expect(sendMock).toHaveBeenCalled();
+      expect(messageProcessor.process).toHaveBeenCalled();
     });
 
-    it("未进入对话时返回提示", async () => {
-      vi.mocked(manageConnection.getCurrentConversation).mockResolvedValue(null);
-
+    it("非文本消息被忽略", async () => {
       const event = {
         header: {
           token: "test-token",
@@ -244,8 +199,8 @@ describe("FeishuWebhookHandler", () => {
           message: {
             message_id: "msg-1",
             chat_id: "chat-1",
-            message_type: "text",
-            content: JSON.stringify({ text: "你好" }),
+            message_type: "image",
+            content: JSON.stringify({ image_key: "xxx" }),
           },
           sender: {
             sender_id: { open_id: "user-1" },
@@ -257,11 +212,7 @@ describe("FeishuWebhookHandler", () => {
 
       await handler.handle(ctx);
 
-      // 验证返回提示信息
-      expect(replyTextMock).toHaveBeenCalled();
-      const [chatId, text] = replyTextMock.mock.calls[0];
-      expect(chatId).toBe("chat-1");
-      expect(text).toContain("当前未进入任何对话");
+      expect(messageProcessor.process).not.toHaveBeenCalled();
     });
 
     it("签名验证失败返回 403", async () => {
@@ -291,7 +242,6 @@ describe("FeishuWebhookHandler", () => {
 
       await handler.handle(ctx);
 
-      // 验证返回 403
       expect(ctx._jsonCalls[0]).toEqual([{ error: "Invalid signature" }, 403]);
     });
   });

@@ -1,10 +1,6 @@
 import type { Context } from "hono";
-import type { ManageConnection } from "@usecases/im/manage-connection";
-import type { SendMessage } from "@usecases/conversation/send-message";
-import type { CommandDispatcher } from "./command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
-import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
-import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { FeishuMessageProcessor } from "./message-processor";
 import type { Logger } from "@usecases/ports/logger";
 
 interface FeishuEvent {
@@ -61,12 +57,8 @@ export interface FeishuWebhookConfig {
 export class FeishuWebhookHandler {
   constructor(
     private readonly deps: {
-      manageConnection: ManageConnection;
-      sendMessage: SendMessage;
-      commandDispatcher: CommandDispatcher;
+      messageProcessor: FeishuMessageProcessor;
       feishuGateway: FeishuGateway;
-      agentDispatchService: AgentDispatchService;
-      messageBroadcaster: MessageBroadcaster;
       config: FeishuWebhookConfig;
       logger: Logger;
     },
@@ -129,92 +121,19 @@ export class FeishuWebhookHandler {
       return;
     }
 
-    const chatId = message.chat_id;
-    const content = JSON.parse(message.content) as { text: string };
-    const text = content.text.trim();
+    try {
+      const content = JSON.parse(message.content) as { text: string };
 
-    this.deps.logger.info("Received Feishu message", {
-      chatId,
-      messageId: message.message_id,
-      textLength: text.length,
-    });
-
-    const connection = await this.deps.manageConnection.ensureConnection(chatId, chatId);
-
-    if (text.startsWith("/")) {
-      await this.deps.commandDispatcher.dispatch(connection.id, text, chatId);
-      return;
-    }
-
-    await this.forwardToConversation(connection.id, chatId, sender.sender_id.open_id, text);
-  }
-
-  private async forwardToConversation(
-    connectionId: string,
-    chatId: string,
-    senderId: string,
-    text: string,
-  ): Promise<void> {
-    const conversation = await this.deps.manageConnection.getCurrentConversation(connectionId);
-    if (!conversation) {
-      await this.deps.feishuGateway.replyText(
-        chatId,
-        "当前未进入任何对话，请先使用 /in <对话ID> 进入对话\n\n使用 /list 查看可用对话"
-      );
-      return;
-    }
-
-    // 存消息
-    const message = await this.deps.sendMessage.send({
-      conversationId: conversation.id,
-      senderId,
-      senderType: "user",
-      talkingStonePassedTo: [],
-      body: text,
-      source: "feishu",
-    });
-
-    this.deps.logger.info("Message saved to conversation", {
-      connectionId,
-      conversationId: conversation.id,
-      messageId: message.id,
-    });
-
-    // 广播飞书消息到 Web 端（实时同步）
-    this.deps.messageBroadcaster.broadcast(message).catch(err => {
-      this.deps.logger.error("Failed to broadcast webhook message", err instanceof Error ? err : undefined, {
-        conversationId: conversation.id,
-        messageId: message.id,
+      await this.deps.messageProcessor.process({
+        chatId: message.chat_id,
+        text: content.text.trim(),
+        senderId: sender.sender_id.open_id,
+        messageId: message.message_id,
       });
-    });
-
-    // 异步触发 Agent 派发（不阻塞 webhook 响应）
-    // Agent 回复通过 messageBroadcaster 统一同步到飞书和 Web 端
-    this.triggerAgentDispatch(conversation.id, text, senderId);
-  }
-
-  private triggerAgentDispatch(
-    conversationId: string,
-    userMessageContent: string,
-    senderId: string,
-  ): void {
-    // 异步执行，不阻塞 webhook 响应
-    // 注意：不在这里发送回复到飞书，由 messageBroadcaster 统一处理消息同步
-    this.deps.agentDispatchService.dispatchWithoutSSE(
-      conversationId,
-      userMessageContent,
-      senderId,
-    ).then(result => {
-      if (result.error) {
-        this.deps.logger.error("Agent dispatch failed", undefined, {
-          conversationId,
-          error: result.error,
-        });
-      }
-    }).catch(err => {
-      this.deps.logger.error("Agent dispatch exception", err instanceof Error ? err : undefined, {
-        conversationId,
+    } catch (err) {
+      this.deps.logger.error("Failed to process Feishu webhook message", err instanceof Error ? err : undefined, {
+        messageId: message.message_id,
       });
-    });
+    }
   }
 }
