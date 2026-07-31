@@ -140,10 +140,10 @@ export class MessageController {
         body: body.body,
       });
 
-      // 广播 Web 消息到飞书端（实时同步）
+      // 广播用户消息到外部渠道（飞书等）
       if (this.messageBroadcaster) {
-        this.messageBroadcaster.broadcastToFeishuOnly(userMessage).catch(err => {
-          this.logger.error("Failed to broadcast web message to feishu", err instanceof Error ? err : undefined, {
+        this.messageBroadcaster.broadcast(userMessage).catch(err => {
+          this.logger.error("Failed to broadcast user message", err instanceof Error ? err : undefined, {
             conversationId,
             messageId: userMessage.id,
           });
@@ -157,20 +157,35 @@ export class MessageController {
       const allTargets = new Set(firstTurnTargets);
       const { response, push, close } = streamEvents(c);
 
-      /** 5. 启动调度循环 */
-      const dispatchLoop = (targets: string[]) =>
-        this.dispatchTurnLoop(targets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets }, push);
+      /** 5. 订阅 broadcaster：统一接收 agent streaming 事件和完成消息 */
+      if (this.messageBroadcaster) {
+        this.messageBroadcaster.subscribe(
+          conversationId,
+          // onMessage：完成消息（不推送给 Web，避免重复；但需要 stream.end 触发关闭）
+          () => { /* 完成消息由 message.complete 事件处理 */ },
+          // onEvent：streaming 事件 → 推送到 POST SSE 流
+          (event) => {
+            push(event);
+            // message.complete 后关闭流
+            if (event.event === "message.complete") {
+              push({ event: "stream.end", data: {} });
+              close();
+            }
+          },
+        );
+      }
 
       /** 6. 启动调度循环（异常时通知前端并收尾，不静默悬挂 SSE） */
-      dispatchLoop(firstTurnTargets)
+      const allTargetsRef = allTargets;
+      this.dispatchTurnLoop(firstTurnTargets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets: allTargetsRef })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
           push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
         })
         .finally(() => {
-          push({ event: "stream.end", data: {} });
-          close();
+          // 兜底：如果 subscribe 回调没有关闭流（如无 agent 事件），在此关闭
+          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
         });
 
       return response;
@@ -183,11 +198,10 @@ export class MessageController {
   private async dispatchTurnLoop(
     targets: string[],
     ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string> },
-    push: (event: { event: string; data: Record<string, unknown> }) => void,
   ): Promise<void> {
     const { conversationId, userMessageContent, senderId, allTargets } = ctx;
 
-    // 使用 DispatchChainEngine 执行发言链
+    // 使用 DispatchChainEngine 执行发言链（事件通过 broadcastEvent 统一推送到订阅者）
     await this.dispatchChainEngine.executeChain({
       conversationId,
       userMessageContent,
@@ -200,12 +214,11 @@ export class MessageController {
           conversationId: params.conversationId,
           userMessageContent: params.userMessageContent,
           senderId: params.senderId,
-          onSSEEvent: push,
         });
       },
       callbacks: {
         onDepthExceeded: async (pendingTargets, depth) => {
-          await this.handleChainDepthExceeded(conversationId, pendingTargets, depth, push);
+          await this.handleChainDepthExceeded(conversationId, pendingTargets, depth);
         },
       },
     });
@@ -216,14 +229,15 @@ export class MessageController {
     conversationId: string,
     pendingTargets: string[],
     depth: number,
-    push: (event: { event: string; data: Record<string, unknown> }) => void,
   ): Promise<void> {
     this.logger.warn('发言链达到深度上限，交还用户', { depth, pendingTargets, conversationId });
     const sysMsg = await this.sendMessageUseCase.sendSystem(
       conversationId,
       `发言接力已达系统安全上限（${depth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     );
-    push({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+    if (this.messageBroadcaster) {
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+    }
   }
 
   async getById(c: Context): Promise<Response> {

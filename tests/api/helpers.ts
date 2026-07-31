@@ -405,6 +405,25 @@ export function createTestApp(deps: TestDeps): Hono {
     maxChainDepth: 20,
   });
 
+  // 创建 mock broadcaster，支持 subscribe + broadcastEvent 完整链路
+  const broadcastEventCalls: Array<{ event: string; data: Record<string, unknown> }> = [];
+  const eventSubscribers = new Map<string, Set<(event: { event: string; data: Record<string, unknown> }) => void>>();
+  const mockBroadcaster = {
+    broadcastEvent: (convId: string, event: { event: string; data: Record<string, unknown> }) => {
+      broadcastEventCalls.push(event);
+      const subs = eventSubscribers.get(convId);
+      if (subs) { for (const cb of subs) cb(event); }
+    },
+    broadcast: async () => {},
+    subscribe: (convId: string, _onMessage: any, onEvent?: (event: { event: string; data: Record<string, unknown> }) => void) => {
+      if (onEvent) {
+        if (!eventSubscribers.has(convId)) eventSubscribers.set(convId, new Set());
+        eventSubscribers.get(convId)!.add(onEvent);
+      }
+      return () => { eventSubscribers.get(convId)?.delete(onEvent!); };
+    },
+  };
+
   const messageCtrl = new MessageController(
     deps.sendMessageUseCase,
     deps.queryMessage,
@@ -412,6 +431,7 @@ export function createTestApp(deps: TestDeps): Hono {
     logger,
     deps.queryOtter,
     dispatchChainEngine,
+    mockBroadcaster as any,
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,
@@ -446,7 +466,13 @@ export function createTestApp(deps: TestDeps): Hono {
     connection: {} as any, // TODO: 添加 mock
   };
 
-  return createRouter(controllers, mockLogger());
+  const app = createRouter(controllers, mockLogger(), undefined);
+
+  // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
+  (app as any).__broadcastEventCalls = broadcastEventCalls;
+  (app as any).__mockBroadcaster = mockBroadcaster;
+
+  return app;
 }
 
 /** 创建类型安全的 mock deps，各测试按需覆盖 */

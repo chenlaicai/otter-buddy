@@ -159,15 +159,9 @@ function ConversationPage() {
   useEffect(() => {
     if (!activeId) return
 
-    console.log('[SSE-subscribe] 建立订阅, activeId:', activeId)
+    const ctrl = new AbortController()
 
-    const eventSource = new EventSource(`/api/conversations/${activeId}/subscribe`)
-
-    eventSource.onopen = () => {
-      console.log('[SSE-subscribe] 连接已打开, readyState:', eventSource.readyState)
-    }
-
-    // streaming 生命周期状态（per-subscription，与 handleSend 的 liveEventsMap 同构）
+    // streaming 生命周期状态
     const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
     const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
 
@@ -181,33 +175,23 @@ function ConversationPage() {
       })
     }
 
-    // 已完成消息（用户消息、非 streaming 的 otter 消息）
-    const handleMessage = (e: MessageEvent) => {
-      try {
-        const dto = JSON.parse(e.data)
-        const message = mapMessageDTO(dto)
-        console.log('[SSE-subscribe] 收到消息:', message.id, message.st, message.content?.slice(0, 30))
+    // 事件分发器
+    const handlers: Record<string, (data: Record<string, unknown>) => void> = {
+      'message': (data) => {
+        const message = mapMessageDTO(data as Parameters<typeof mapMessageDTO>[0])
         setAllMessages(prev => {
           const current = prev[activeId] || []
           if (current.some(m => m.id === message.id)) return prev
           return { ...prev, [activeId]: [...current, message] }
         })
-      } catch (err) {
-        console.error('[SSE-subscribe] 解析消息失败:', err)
-      }
-    }
-
-    // message.start → 创建 streaming 占位消息
-    const handleMessageStart = (e: MessageEvent) => {
-      console.log('[SSE-subscribe] handleMessageStart CALLED, type:', e.type, 'data:', e.data?.slice(0, 60))
-      try {
-        const data = JSON.parse(e.data)
-        const { messageId, otterId, otterName } = data
+      },
+      'message.start': (data) => {
+        const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
         liveEventsMap.set(messageId, [])
-        liveMeta.set(messageId, { otterId, otterName, createdAt: data.createdAt || nowTs() })
+        liveMeta.set(messageId, { otterId, otterName, createdAt: (data.createdAt as string) || nowTs() })
         const placeholder: LocalMessage = {
           id: messageId, st: 'otter', si: otterId, sn: otterName,
-          content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
+          content: '', status: 'streaming', seq: data.seq as number, ts: (data.createdAt as string) || nowTs(), dur: null, events: [],
         }
         setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
         if (otterId && activeId) {
@@ -217,109 +201,97 @@ function ConversationPage() {
             return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
           })
         }
-      } catch (err) {
-        console.error('[SSE-subscribe] message.start 解析失败:', err)
-      }
-    }
-
-    // assistant_text / assistant_toolcall / tool.result → 累积 liveEvents
-    const handleAssistantText = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
-        const liveEvents = liveEventsMap.get(data.messageId)
+      },
+      'assistant_text': (data) => {
+        const liveEvents = liveEventsMap.get(data.messageId as string)
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
-        syncLiveEvents(data.messageId)
-      } catch { /* skip */ }
-    }
-    const handleAssistantToolcall = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
-        const liveEvents = liveEventsMap.get(data.messageId)
+        syncLiveEvents(data.messageId as string)
+      },
+      'assistant_toolcall': (data) => {
+        const liveEvents = liveEventsMap.get(data.messageId as string)
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
-        syncLiveEvents(data.messageId)
-      } catch { /* skip */ }
-    }
-    const handleToolResult = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
-        const liveEvents = liveEventsMap.get(data.messageId)
+        syncLiveEvents(data.messageId as string)
+      },
+      'tool.result': (data) => {
+        const liveEvents = liveEventsMap.get(data.messageId as string)
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
-        syncLiveEvents(data.messageId)
-      } catch { /* skip */ }
-    }
-
-    // message.complete → upsert 最终消息
-    const handleMessageComplete = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
-        const { messageId } = data
+        syncLiveEvents(data.messageId as string)
+      },
+      'message.complete': (data) => {
+        const { messageId } = data as { messageId: string }
         const liveEvents = liveEventsMap.get(messageId) || []
         const meta = liveMeta.get(messageId)
-        const otterId = meta?.otterId || ''
         const finalMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
-          content: data.body ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration,
+          id: messageId, st: 'otter', si: meta?.otterId || '', sn: meta?.otterName,
+          content: (data.body as string) ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration as string,
           events: liveEvents.length > 0 ? liveEvents : undefined,
-          ctx: data.ctx, ctxMax: data.ctxMax, turnId: data.turnId || undefined,
+          ctx: data.ctx as number, ctxMax: data.ctxMax as number, turnId: (data.turnId as string) || undefined,
         }
         setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
-      } catch (err) {
-        console.error('[SSE-subscribe] message.complete 解析失败:', err)
-      }
-    }
-
-    // message.failed / error → 标记失败
-    const handleMessageFailed = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
-        const { messageId } = data
+      },
+      'message.failed': (data) => {
+        const { messageId } = data as { messageId: string }
         const liveEvents = liveEventsMap.get(messageId) || []
         const meta = liveMeta.get(messageId)
         const failedMsg: LocalMessage = {
           id: messageId, st: 'otter', si: meta?.otterId || '',
-          content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
+          content: (data.body as string) ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
         setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
-      } catch { /* skip */ }
-    }
-    const handleError = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data)
+      },
+      'error': (data) => {
         const errMsg: LocalMessage = {
-          id: data.messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: data.otterId || 'unknown',
+          id: (data.messageId as string) || `err-${crypto.randomUUID()}`, st: 'otter', si: (data.otterId as string) || 'unknown',
           content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
         }
         setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
         showToast(`Agent 错误: ${data.message}`, 'error')
-      } catch { /* skip */ }
+      },
     }
 
-    // 注册所有事件监听
-    eventSource.addEventListener("message", handleMessage)
-    eventSource.addEventListener("message.start", handleMessageStart)
-    eventSource.addEventListener("assistant_text", handleAssistantText)
-    eventSource.addEventListener("assistant_toolcall", handleAssistantToolcall)
-    eventSource.addEventListener("tool.result", handleToolResult)
-    eventSource.addEventListener("message.complete", handleMessageComplete)
-    eventSource.addEventListener("message.failed", handleMessageFailed)
-    eventSource.addEventListener("error", handleError)
+    // SSE 订阅：用 XMLHttpRequest 流式读取（比 fetch + ReadableStream 更可靠）
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', `/api/conversations/${activeId}/subscribe`)
+    let buffer = ''
+    let currentEvent = ''
+    let currentData = ''
 
-    eventSource.onerror = (err) => {
-      console.warn('[SSE-subscribe] 连接错误, readyState:', eventSource.readyState, 'err:', err)
+    xhr.onprogress = () => {
+      buffer += xhr.responseText.slice(buffer.length)
+      const lines = buffer.split('\n')
+      buffer = lines.pop()!
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7)
+        } else if (line.startsWith('data: ')) {
+          currentData = line.slice(6)
+        } else if (line === '' && currentEvent) {
+          try {
+            const data = JSON.parse(currentData)
+            handlers[currentEvent]?.(data)
+          } catch { /* skip malformed */ }
+          currentEvent = ''
+          currentData = ''
+        }
+      }
     }
 
-    return () => {
-      console.log('[SSE-subscribe] 清理订阅, activeId:', activeId)
-      eventSource.close()
+    xhr.onerror = () => {
+      // 连接断开，浏览器会自动重连（由后端 keep-alive 维持）
     }
+
+    xhr.send()
+
+    return () => { xhr.abort() }
   }, [activeId])
 
   useEffect(() => {

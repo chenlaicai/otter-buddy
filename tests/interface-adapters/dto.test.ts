@@ -28,7 +28,7 @@ describe("MessageDTO", () => {
     expect(dto.content).toBe("Hello");
     expect(dto.status).toBe("completed");
     expect(dto.ts).toBe("2026-07-16T00:00:00Z");
-    expect(dto.dur).toBe("2.0s");
+    expect(dto.dur).toBeNull(); // 用户消息不显示耗时
     expect(dto.seq).toBe(1);
     expect(dto.tsp).toEqual(["otter-1"]);
   });

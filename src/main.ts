@@ -278,7 +278,6 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
     queryMessage: uc.queryMessage,
     agentInvokePort: agentInvoker,
     logger,
-    messageBroadcaster,
   });
 
   // 创建消息处理器
@@ -329,7 +328,7 @@ function startServer(
 ): void {
   const app = new Hono();
   setupFeishu(app, uc, agentInvoker, messageBroadcaster);
-  app.route("/", createRouter(controllers, logger));
+  app.route("/", createRouter(controllers, logger, messageBroadcaster));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);

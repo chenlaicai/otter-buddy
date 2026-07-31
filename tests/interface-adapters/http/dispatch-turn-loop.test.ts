@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -75,6 +76,14 @@ describe("dispatchTurnLoop 深度上限", () => {
       maxChainDepth: 2,
     });
 
+    // 创建 mock broadcaster，捕获 broadcastEvent 调用
+    const broadcastEventCalls: Array<{ event: string; data: Record<string, unknown> }> = [];
+    const mockBroadcaster = {
+      broadcastEvent: (_convId: string, event: { event: string; data: Record<string, unknown> }) => { broadcastEventCalls.push(event); },
+      broadcast: async () => {},
+      subscribe: () => () => {},
+    };
+
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
@@ -82,6 +91,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       logger as never,
       queryOtterStub,
       dispatchChainEngine,
+      mockBroadcaster as unknown as MessageBroadcaster,
     );
     const res = await postMessage(createApp(ctrl));
     const sseText = await res.text();
@@ -95,7 +105,8 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(depthWarn!.data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
     expect(systemBodies).toHaveLength(1);
     expect(systemBodies[0]).toContain("2 跳");
-    expect(sseText).toContain("system.message");
+    // system.message 现在通过 broadcastEvent 推送（不在 POST SSE 流中）
+    expect(broadcastEventCalls.some(e => e.event === "system.message")).toBe(true);
     expect(sseText).toContain("stream.end");
   });
 

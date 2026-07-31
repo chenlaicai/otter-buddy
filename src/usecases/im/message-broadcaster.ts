@@ -90,14 +90,6 @@ export class MessageBroadcaster {
   }
 
   /**
-   * 仅广播到飞书端
-   * 用于 Web 端发消息时，同步到飞书（Web 端已有 SSE 流，不需要重复广播）
-   */
-  async broadcastToFeishuOnly(message: Message): Promise<void> {
-    await this.broadcastToFeishu(message);
-  }
-
-  /**
    * 广播 SSE 事件到 Web 端订阅者
    * 用于飞书路径的 agent streaming 事件转发
    */
@@ -122,6 +114,12 @@ export class MessageBroadcaster {
   }
 
   private broadcastToWeb(message: Message): void {
+    // Web 用户消息不推送给 Web 订阅者（发送方已有本地消息，避免重复）
+    // 飞书用户消息需要推送给 Web（跨接入点同步）
+    if (message.senderType === "user" && message.source === "web") {
+      return;
+    }
+
     const subscribers = this.webSubscribers.get(message.conversationId);
     if (!subscribers || subscribers.size === 0) {
       this.logger.info("[broadcastToWeb] 无订阅者，跳过", {

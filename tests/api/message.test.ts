@@ -148,10 +148,12 @@ describe("Message API", () => {
     it("streams SSE events with correct content on success", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-      deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
-        params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1", otterName: "TestOtter", createdAt: "2026-07-29T00:00:00.000Z" } });
-        params.onSSEEvent?.({ event: "message.delta", data: { text: "Hello" } });
-        params.onSSEEvent?.({ event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });
+      // 通过 broadcaster 推送事件（统一架构）
+      const broadcaster = (app as any).__mockBroadcaster;
+      deps.agentInvoker.invokeConversation.mockImplementation(async () => {
+        broadcaster.broadcastEvent("conv-1", { event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1", otterName: "TestOtter", createdAt: "2026-07-29T00:00:00.000Z" } });
+        broadcaster.broadcastEvent("conv-1", { event: "message.delta", data: { text: "Hello" } });
+        broadcaster.broadcastEvent("conv-1", { event: "message.complete", data: { messageId: "agent-msg-1", duration: "1.2s" } });
         return { messageId: "agent-msg-1", duration: 1200 };
       });
 
@@ -182,9 +184,10 @@ describe("Message API", () => {
     it("streams error event when agent invocation fails", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
       deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-      /** 模拟真实行为：invokeConversation 捕获错误后通过 onSSEEvent 发送 error 事件并正常返回 */
-      deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
-        params.onSSEEvent?.({ event: "error", data: { message: "LLM rate limited" } });
+      // 通过 broadcaster 推送错误事件
+      const broadcaster = (app as any).__mockBroadcaster;
+      deps.agentInvoker.invokeConversation.mockImplementation(async () => {
+        broadcaster.broadcastEvent("conv-1", { event: "error", data: { message: "LLM rate limited" } });
         return { messageId: "agent-msg-1", duration: 100 };
       });
 

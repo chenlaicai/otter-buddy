@@ -87,7 +87,9 @@ export class FeishuMessageProcessor {
     senderId: string,
   ): void {
     // 异步执行，不阻塞消息处理
-    this.deps.agentDispatchService.dispatchWithoutSSE(
+    // Agent 事件通过 AgentInvoker.broadcastEvent 统一推送给所有订阅者
+    // Agent 完成消息通过 AgentInvoker.broadcast 统一推送到外部渠道
+    this.deps.agentDispatchService.dispatch(
       conversationId,
       userMessageContent,
       senderId,
@@ -96,33 +98,6 @@ export class FeishuMessageProcessor {
         this.deps.logger.error("Agent dispatch failed", undefined, {
           conversationId,
           error: result.error,
-        });
-        return;
-      }
-      // Agent 回复同步到飞书端（带名字前缀）
-      if (result.messageId && result.otterReply) {
-        // 构造最小 Message 对象（broadcastToFeishu 只用 id/conversationId/senderType/senderId/body/source）
-        const agentMsg = {
-          id: result.messageId,
-          conversationId,
-          turnId: "",
-          senderType: "otter" as const,
-          senderId: "",
-          talkingStonePassedTo: null,
-          status: "completed" as const,
-          body: result.otterReply,
-          sequenceNum: 0,
-          contextTokens: null,
-          contextTokensMax: null,
-          source: "web" as const,
-          createdAt: new Date().toISOString(),
-          completedAt: new Date().toISOString(),
-        };
-        this.deps.messageBroadcaster.broadcastToFeishuOnly(agentMsg).catch(err => {
-          this.deps.logger.error("Failed to broadcast agent reply to Feishu", err instanceof Error ? err : undefined, {
-            conversationId,
-            messageId: result.messageId,
-          });
         });
       }
     }).catch(err => {
