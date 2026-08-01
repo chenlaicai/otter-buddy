@@ -379,11 +379,11 @@ function initControllers(deps: ControllerDeps) {
   };
 }
 
-function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messageBroadcaster: MessageBroadcaster, feishuClient: FeishuClient, tokenManager: FeishuAccessTokenManager): void {
+function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager }): void {
   logger.info("setupFeishu called", { hasConfig: !!appConfig.feishu });
   if (!appConfig.feishu) return;
 
-  const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishuClient, logger);
+  const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
   const dispatchChainEngine = new DispatchChainEngine({
     sendMessage: uc.sendMessage,
     queryMessage: uc.queryMessage,
@@ -403,14 +403,14 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,
     commandDispatcher,
-    feishuGateway: feishuClient,
+    feishuGateway: feishu.client,
     agentDispatchService,
-    messageBroadcaster,
+    messageBroadcaster: feishu.broadcaster,
     logger,
   });
 
   // 使用长连接方式（不需要公网 HTTP 回调）
-  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, tokenManager);
+  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, feishu.tokenManager);
   const longConnectionHandler = new FeishuLongConnectionHandler({
     longConnectionGateway: longConnectionClient,
     messageProcessor,
@@ -430,13 +430,11 @@ function startServer(
   uc: UseCases,
   agentInvoker: AgentInvoker,
   port: number,
-  messageBroadcaster?: MessageBroadcaster,
-  feishuClient?: FeishuClient,
-  tokenManager?: FeishuAccessTokenManager,
+  feishu?: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager },
 ): void {
   const app = new Hono();
-  if (messageBroadcaster && feishuClient && tokenManager) {
-    setupFeishu(app, uc, agentInvoker, messageBroadcaster, feishuClient, tokenManager);
+  if (feishu) {
+    setupFeishu(app, uc, agentInvoker, feishu);
   }
   app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
@@ -554,16 +552,15 @@ async function main(): Promise<void> {
   agentGateway.setOtterToolClient(otterToolClient);
 
   // 创建飞书客户端（长连接和广播共享同一个实例，避免重复 token 刷新）
-  let feishuClient: FeishuClient | undefined;
-  let feishuTokenManager: FeishuAccessTokenManager | undefined;
-  let messageBroadcaster: MessageBroadcaster | undefined;
+  let feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager } | undefined;
   if (appConfig.feishu) {
-    feishuTokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
-    feishuClient = new FeishuClient(appConfig.feishu, logger, feishuTokenManager);
-    messageBroadcaster = new MessageBroadcaster(uc.manageConnection, feishuClient, uc.queryOtter, logger);
+    const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
+    const client = new FeishuClient(appConfig.feishu, logger, tokenManager);
+    const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
+    feishu = { broadcaster, client, tokenManager };
   }
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, messageBroadcaster);
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, feishu?.broadcaster);
 
   // 创建发言链调度引擎
   const dispatchChainEngine = new DispatchChainEngine({
@@ -588,8 +585,8 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster });
-  startServer(controllers, uc, agentInvoker, appConfig.server.port, messageBroadcaster, feishuClient, feishuTokenManager);
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster });
+  startServer(controllers, uc, agentInvoker, appConfig.server.port, feishu);
 
   schedulerService.start().catch((err) => {
     logger.error(`Failed to start scheduler: ${err}`);
