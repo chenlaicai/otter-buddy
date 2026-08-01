@@ -379,20 +379,13 @@ function initControllers(deps: ControllerDeps) {
   };
 }
 
-function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager }): void {
+function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager; dispatchChainEngine: DispatchChainEngine }): void {
   logger.info("setupFeishu called", { hasConfig: !!appConfig.feishu });
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
-  const dispatchChainEngine = new DispatchChainEngine({
-    sendMessage: uc.sendMessage,
-    queryMessage: uc.queryMessage,
-    queryOtter: uc.queryOtter,
-    logger,
-    maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
-  });
   const agentDispatchService = new AgentDispatchService({
-    dispatchChainEngine,
+    dispatchChainEngine: feishu.dispatchChainEngine,
     queryMessage: uc.queryMessage,
     agentInvokePort: agentInvoker,
     logger,
@@ -430,7 +423,7 @@ function startServer(
   uc: UseCases,
   agentInvoker: AgentInvoker,
   port: number,
-  feishu?: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager },
+  feishu?: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager; dispatchChainEngine: DispatchChainEngine },
 ): void {
   const app = new Hono();
   if (feishu) {
@@ -551,18 +544,7 @@ async function main(): Promise<void> {
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
 
-  // 创建飞书客户端（长连接和广播共享同一个实例，避免重复 token 刷新）
-  let feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager } | undefined;
-  if (appConfig.feishu) {
-    const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
-    const client = new FeishuClient(appConfig.feishu, logger, tokenManager);
-    const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
-    feishu = { broadcaster, client, tokenManager };
-  }
-
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, feishu?.broadcaster);
-
-  // 创建发言链调度引擎
+  // 创建发言链调度引擎（Web 和飞书路径共享）
   const dispatchChainEngine = new DispatchChainEngine({
     sendMessage: uc.sendMessage,
     queryMessage: uc.queryMessage,
@@ -570,6 +552,17 @@ async function main(): Promise<void> {
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
   });
+
+  // 创建飞书客户端（长连接和广播共享同一个实例，避免重复 token 刷新）
+  let feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager; dispatchChainEngine: DispatchChainEngine } | undefined;
+  if (appConfig.feishu) {
+    const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
+    const client = new FeishuClient(appConfig.feishu, logger, tokenManager);
+    const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
+    feishu = { broadcaster, client, tokenManager, dispatchChainEngine };
+  }
+
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, feishu?.broadcaster);
 
   // Self-Healing 初始化（失败不阻塞启动）
   ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage })
