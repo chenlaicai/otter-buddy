@@ -72,7 +72,6 @@ export class MessageBroadcaster {
       this.logger.info("Web subscriber removed", {
         conversationId,
         remainingCount: msgSubs?.size ?? 0,
-        caller: new Error().stack?.split("\n").slice(1, 4).join(" <- "),
       });
     };
   }

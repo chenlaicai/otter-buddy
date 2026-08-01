@@ -164,7 +164,7 @@ interface Repositories {
   healingEvent: SqliteHealingEventRepository;
 }
 
-export interface UseCases {
+interface UseCases {
   manageConversation: ManageConversation;
   manageMemory: ManageMemory;
   manageTerminology: ManageTerminology;

@@ -11,7 +11,7 @@ export interface ChainHopResult {
 
 export interface ChainCallbacks {
   /** 深度耗尽时的额外处理（MC 发系统消息，ADS 仅日志） */
-  onDepthExceeded?: (pendingTargets: string[], depth: number) => void;
+  onDepthExceeded?: (pendingTargets: string[], depth: number) => void | Promise<void>;
 }
 
 export interface InvokeFnParams {
@@ -74,7 +74,7 @@ export class DispatchChainEngine {
 
     if (targets.length > 0) {
       this.deps.logger.warn('发言链达到深度上限', { depth, targets, conversationId });
-      callbacks?.onDepthExceeded?.(targets, depth);
+      await callbacks?.onDepthExceeded?.(targets, depth);
     }
 
     return { otterReply: lastOtterReply };
