@@ -1,13 +1,9 @@
-import { createHash, createDecipheriv } from "node:crypto";
 import type { Logger } from "@usecases/ports/logger";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuAccessTokenManager } from "./access-token-manager";
+import type { FeishuConfig } from "./types";
 
-export interface FeishuConfig {
-  appId: string;
-  appSecret: string;
-  encryptKey?: string;
-}
+export type { FeishuConfig };
 
 export class FeishuClient implements FeishuGateway {
   constructor(
@@ -53,31 +49,4 @@ export class FeishuClient implements FeishuGateway {
     this.logger.info("Feishu message sent", { chatId, textLength: text.length });
   }
 
-  /** 验证 Webhook 签名 */
-  verifySignature(timestamp: string, nonce: string, body: string, signature: string): boolean {
-    if (!this.config.encryptKey) {
-      this.logger.warn("飞书签名验证跳过：未配置 encryptKey，生产环境建议配置以防止伪造请求");
-      return true;
-    }
-
-    const content = timestamp + nonce + this.config.encryptKey + body;
-    const hash = createHash("sha256").update(content).digest("hex");
-    return hash === signature;
-  }
-
-  /** 解密加密的事件数据 */
-  decryptEventData(encryptedData: string): string {
-    if (!this.config.encryptKey) {
-      return encryptedData;
-    }
-
-    const key = createHash("sha256").update(this.config.encryptKey).digest();
-    const encrypted = Buffer.from(encryptedData, "base64");
-    const iv = encrypted.subarray(0, 16);
-    const data = encrypted.subarray(16);
-    const decipher = createDecipheriv("aes-256-cbc", key, iv);
-    let decrypted = decipher.update(data);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return decrypted.toString("utf8");
-  }
 }

@@ -2,12 +2,9 @@ import { WSClient, EventDispatcher } from "@larksuiteoapi/node-sdk";
 import type { Logger } from "@usecases/ports/logger";
 import type { FeishuLongConnectionGateway, FeishuLongConnectionMessage } from "@usecases/im/feishu-long-connection-gateway";
 import type { FeishuAccessTokenManager } from "./access-token-manager";
+import type { FeishuConfig } from "./types";
 
-export interface FeishuConfig {
-  appId: string;
-  appSecret: string;
-  encryptKey?: string;
-}
+export type { FeishuConfig };
 
 interface FeishuEventData {
   event_id?: string;
@@ -243,20 +240,4 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     return data.data.message_id;
   }
 
-  /** 更新消息（用于流式响应） */
-  async patchText(messageId: string, text: string): Promise<void> {
-    const token = await this.tokenManager.getAccessToken();
-
-    await fetch(`https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`, {
-      method: "PATCH",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        msg_type: "text",
-        content: JSON.stringify({ text }),
-      }),
-    });
-  }
 }

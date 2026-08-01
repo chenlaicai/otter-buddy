@@ -101,7 +101,7 @@ circuitBreaker:
   streamingTimeoutMs: 120000
 
 # === 飞书集成配置（可选）===
-# 配置后启用飞书 Webhook 接入，支持 IM 大厅功能
+# 配置后启用飞书长连接接入，支持 IM 大厅功能
 # 飞书群可通过命令与系统对话交互
 # feishu:
 #   # 飞书应用 App ID（必填，从飞书开放平台获取）
@@ -115,11 +115,11 @@ circuitBreaker:
 # 1. 在飞书开放平台创建自建应用
 # 2. 启用"机器人"能力
 # 3. 订阅事件：im.message.receive_v1
-# 4. 配置请求地址：https://your-domain.com/feishu/webhook
-# 5. 获取 App ID 和 App Secret，填入上方配置
-# 6. 在 Web 端创建 Connection，绑定飞书群
-# 7. 在飞书群中使用命令：
+# 4. 获取 App ID 和 App Secret，填入上方配置
+# 5. 在 Web 端创建 Connection，绑定飞书群
+# 6. 在飞书群中使用命令：
 #    /list - 查看所有活跃对话
 #    /in <对话ID> - 进入指定对话
+#    /out - 退出当前对话
 #    /history - 查看当前对话历史消息
 #    /help - 显示帮助信息
