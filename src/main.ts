@@ -380,7 +380,7 @@ function initControllers(deps: ControllerDeps) {
   };
 }
 
-function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messageBroadcaster?: MessageBroadcaster): void {
+function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messageBroadcaster: MessageBroadcaster): void {
   logger.info("setupFeishu called", { hasConfig: !!appConfig.feishu });
   if (!appConfig.feishu) return;
 
@@ -408,7 +408,7 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
     commandDispatcher,
     feishuGateway: feishuClient,
     agentDispatchService,
-    messageBroadcaster: messageBroadcaster!,
+    messageBroadcaster,
     logger,
   });
 
@@ -448,7 +448,9 @@ function startServer(
   messageBroadcaster?: MessageBroadcaster,
 ): void {
   const app = new Hono();
-  setupFeishu(app, uc, agentInvoker, messageBroadcaster);
+  if (messageBroadcaster) {
+    setupFeishu(app, uc, agentInvoker, messageBroadcaster);
+  }
   app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {

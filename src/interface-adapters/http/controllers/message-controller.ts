@@ -114,7 +114,7 @@ export class MessageController {
       });
       return c.json(dtos);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -189,7 +189,7 @@ export class MessageController {
 
       return response;
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -249,7 +249,7 @@ export class MessageController {
       const senderNames = await this.resolveSenderNames([msg]);
       return c.json(toMessageDTO(msg, senderNames.get(msg.senderId)));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -259,7 +259,7 @@ export class MessageController {
       const events = await this.queryMessage.getMessageEvents(id);
       return c.json(events.map(toMessageEventDTO));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -281,7 +281,7 @@ export class MessageController {
       this.agentInvoker.abort(msg.senderId, id);
       return c.json({ status: "aborted" }, 202);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }
