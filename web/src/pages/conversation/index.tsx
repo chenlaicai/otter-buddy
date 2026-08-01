@@ -287,7 +287,7 @@ function ConversationPage() {
             try {
               const data = JSON.parse(currentData)
               handlers[currentEvent]?.(data)
-            } catch { /* skip malformed */ }
+            } catch (err) { console.warn('[SSE-subscribe] malformed JSON:', currentEvent, currentData.slice(0, 80), err) }
             currentEvent = ''
             currentData = ''
           }
@@ -709,7 +709,7 @@ function ConversationPage() {
   function ctxAction(action: string, cid: string) {
     closeCtxMenu(); setActiveId(cid)
     if (action === 'archive') setModal({ type: 'archive', cid })
-    if (action === 'child') setModal({ type: 'child', parentId: cid })
+    else if (action === 'child') setModal({ type: 'child', parentId: cid })
   }
 
   const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null

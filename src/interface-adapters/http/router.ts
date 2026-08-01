@@ -91,7 +91,8 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
     const requestId = randomUUID();
     const start = Date.now();
 
-    // 注入 requestId 到 context
+    // 注入 requestId 到 context（下游 sse-streamer、http-error 通过 c.get('requestId') 读取）
+    c.set('requestId' as never, requestId);
     c.header('X-Request-ID', requestId);
 
     await next();

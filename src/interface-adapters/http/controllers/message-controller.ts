@@ -162,16 +162,12 @@ export class MessageController {
       if (this.messageBroadcaster) {
         unsubscribe = this.messageBroadcaster.subscribe(
           conversationId,
-          // onMessage：完成消息（不推送给 Web，避免重复；但需要 stream.end 触发关闭）
-          () => { /* 完成消息由 message.complete 事件处理 */ },
+          // onMessage 为空：POST SSE 流仅接收当前请求触发的 agent 事件（通过 onEvent）。
+          // 其他消息（飞书用户消息等）通过 GET SSE 订阅接收，避免重复推送。
+          () => {},
           // onEvent：streaming 事件 → 推送到 POST SSE 流
           (event) => {
             push(event);
-            // message.complete 后关闭流
-            if (event.event === "message.complete") {
-              push({ event: "stream.end", data: {} });
-              close();
-            }
           },
         );
       }

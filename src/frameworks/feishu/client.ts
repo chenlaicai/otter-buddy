@@ -57,7 +57,8 @@ export class FeishuClient implements FeishuGateway {
   /** 验证 Webhook 签名 */
   verifySignature(timestamp: string, nonce: string, body: string, signature: string): boolean {
     if (!this.config.encryptKey) {
-      return true; // 未配置加密密钥时跳过验证
+      this.logger.warn("飞书签名验证跳过：未配置 encryptKey，生产环境建议配置以防止伪造请求");
+      return true;
     }
 
     const content = timestamp + nonce + this.config.encryptKey + body;
