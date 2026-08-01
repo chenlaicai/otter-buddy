@@ -219,11 +219,11 @@ function ConversationPage() {
         syncLiveEvents(data.messageId as string)
       },
       'message.complete': (data) => {
-        const { messageId } = data as { messageId: string }
+        const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
         const liveEvents = liveEventsMap.get(messageId) || []
         const meta = liveMeta.get(messageId)
         const finalMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: meta?.otterId || '', sn: meta?.otterName,
+          id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
           content: (data.body as string) ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration as string,
           events: liveEvents.length > 0 ? liveEvents : undefined,
           ctx: data.ctx as number, ctxMax: data.ctxMax as number, turnId: (data.turnId as string) || undefined,
@@ -416,10 +416,10 @@ function ConversationPage() {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
           const meta = liveMeta.get(messageId)
-          const otterId = meta?.otterId || ''
+          const otterId = meta?.otterId || data.otterId || ''
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
+            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
             content: data.body ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
@@ -500,9 +500,9 @@ function ConversationPage() {
         'system.message': (data) => {
           const sysMsg: LocalMessage = {
             id: data.messageId, st: 'system', si: 'system',
-            content: data.content, ts: nowTs(), dur: null,
+            content: data.content, seq: data.seq as number, ts: nowTs(), dur: null,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), sysMsg] }))
+          setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], sysMsg) }))
         },
         'agent.idle': () => { /* 信息性事件，不做处理 */ },
       }, { onError: () => {

@@ -165,8 +165,12 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (!el) return
+    // 仅当用户已在底部附近（100px 阈值）时自动滚到底，避免浏览历史时被强制拉回
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight
     }
   }, [messages])
 

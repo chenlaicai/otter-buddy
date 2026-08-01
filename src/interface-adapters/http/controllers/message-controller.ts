@@ -51,15 +51,25 @@ export class MessageController {
     const unsubscribe = this.messageBroadcaster.subscribe(
       conversationId,
       // 消息回调：已完成消息（用户消息、飞书消息等）
-      (message) => {
+      async (message) => {
         this.logger.info("[subscribe] Broadcasting message to SSE", {
           conversationId,
           messageId: message.id,
           senderType: message.senderType,
         });
+        // 解析发送者名称（与 list/getById 一致，避免 subscribe 遗漏 sn 导致前端显示 "Otter"）
+        let senderName: string | undefined;
+        if (message.senderType === "otter") {
+          const otter = await this.queryOtter.getById(message.senderId);
+          senderName = otter?.name;
+        } else if (message.senderType === "user") {
+          senderName = "我";
+        } else {
+          senderName = "系统";
+        }
         push({
           event: "message",
-          data: toMessageDTO(message) as unknown as Record<string, unknown>,
+          data: toMessageDTO(message, senderName) as unknown as Record<string, unknown>,
         });
       },
       // 事件回调：agent streaming 事件（message.start, assistant_text, message.complete 等）

@@ -369,7 +369,9 @@ export class PiSessionFactory implements AgentGateway {
     }
 
     // 1. 恢复或创建 session（文件丢失/损坏时会重建全新 session，见 createdNew）
+    this.logger.debug('[invoke] Restoring session', { otterId });
     const { sessionManager, createdNew } = await this._restoreOrCreateSession(otterId);
+    this.logger.debug('[invoke] Session restored', { otterId, createdNew });
 
     // 2. 从数据库加载配置
     const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
@@ -381,8 +383,10 @@ export class PiSessionFactory implements AgentGateway {
     const needsIdentity = createdNew || this.pendingIdentity.has(otterId);
 
     // 4. 创建 AgentSession 并执行（不修改原始 options 对象；options 缺省时也要保证身份注入标志传递）
+    this.logger.debug('[invoke] Executing with session', { otterId, needsIdentity });
     const invokeOptions = { ...options, isFirstInvoke: needsIdentity } as InvokeOptions;
     const result = await this._executeWithSession(otterId, message, invokeOptions, sessionManager, otterConfig);
+    this.logger.debug('[invoke] Execution complete', { otterId });
 
     // 5. 注入成功后才消费标记（invoke 失败时保留，下次重试仍会注入）
     this.pendingIdentity.delete(otterId);
@@ -478,12 +482,15 @@ export class PiSessionFactory implements AgentGateway {
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
     // 1. 构建工具配置并创建 AgentSession
+    this.logger.debug('[execute] Creating session with tools', { otterId });
     const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager);
+    this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
     // 2. 熔断器 + 输出退化检测
     const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard } = this._attachGuards(session, sessionKey, otterId);
 
     // 3. 构建完整消息并记录日志
+    this.logger.debug('[execute] Building message', { otterId });
     const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
     this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
@@ -532,6 +539,7 @@ export class PiSessionFactory implements AgentGateway {
     });
 
     const piCodingAgent = this.piCodingAgent!;
+    this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel as never,
       sessionManager,
@@ -540,6 +548,7 @@ export class PiSessionFactory implements AgentGateway {
       resourceLoader: this.resourceLoader ?? undefined,
       modelRuntime: this.modelRuntime as any,
     });
+    this.logger.debug('[createSession] createAgentSession returned', { otterId });
 
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     this.activeSessions.set(sessionKey, { abort: () => session.abort(), toolCallCount: 0 });

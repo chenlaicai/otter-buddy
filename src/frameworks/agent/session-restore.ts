@@ -36,8 +36,10 @@ export class SessionRestore {
   ): Promise<SessionRestoreResult> {
     const stored = this.sessionStore.getWithFile(otterId);
     if (!stored?.sessionFile) {
+      this.logger.debug('[SessionRestore] No session file in DB, handling missing', { otterId });
       return this.handleMissingSession(otterId, piCodingAgent, sessionDir);
     }
+    this.logger.debug('[SessionRestore] Restoring existing session', { otterId, sessionFile: stored.sessionFile });
     return this.restoreExistingSession(otterId, stored.sessionFile, piCodingAgent, sessionDir);
   }
 
@@ -68,6 +70,7 @@ export class SessionRestore {
   ): SessionRestoreResult {
     try {
       const SessionManagerClass = getSessionManagerClass(piCodingAgent);
+      this.logger.debug('[SessionRestore] Opening session file', { otterId, sessionFile });
       const sessionManager = SessionManagerClass.open(sessionFile);
       const restoredSessionId = sessionManager.getSessionId();
       if (!restoredSessionId) {
@@ -112,7 +115,9 @@ export class SessionRestore {
     this.sessionStore.delete(otterId);
 
     // 创建 session 并获取 sessionManager（延迟写入，文件可能尚未落盘）
+    this.logger.debug('[SessionRestore] Creating new session', { otterId });
     const sessionManager = this.createSessionAndPersist(otterId, config, piCodingAgent, sessionDir, true);
+    this.logger.debug('[SessionRestore] Session created and persisted', { otterId });
 
     // 验证持久化成功
     const stored = this.sessionStore.getWithFile(otterId);

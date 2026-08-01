@@ -131,13 +131,17 @@ export class AgentInvoker {
       ...(retryCount > 0 && { retryCount }),
     });
 
+    this.logger.debug('Building dynamic context', { otterId });
     const dynamicContext = await this.buildDynamicContext(otterId);
+    this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary });
 
+    this.logger.debug('Creating streaming message', { otterId, conversationId });
     const message = await this.sendMessage.start({
       conversationId,
       senderId: otterId,
       talkingStonePassedTo: [senderId],
     });
+    this.logger.debug('Streaming message created', { otterId, messageId: message.id });
 
     const otter = await this.queryOtter.getById(otterId);
     /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确） */
@@ -200,6 +204,7 @@ export class AgentInvoker {
     emitEvent: (event: AgentSSEEvent) => void;
   }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; toolCallCount: number }> {
     let toolCallCount = 0;
+    this.logger.debug('Calling agentInvoke.invoke', { otterId: params.otterId, messageId: params.messageId });
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
       conversationId: params.conversationId,
@@ -262,10 +267,14 @@ export class AgentInvoker {
     const totalTokens = result.tokenUsage ? result.tokenUsage.input + result.tokenUsage.output : undefined;
     /** 从 DB 获取 speak 存储的 body，通过 SSE 直接带给前端（避免前端额外 API 调用） */
     const msg = await this.queryMessage.getMessageById(messageId);
+    /** 获取 otter 名称（与 message.start 一致，防止 liveMeta 丢失时前端回退到 "Otter"） */
+    const otter = await this.queryOtter.getById(otterId);
     emitEvent({
       event: "message.complete",
       data: {
         messageId,
+        otterId,
+        otterName: otter?.name ?? otterId,
         body: msg?.body ?? '',
         turnId: msg?.turnId ?? '',
         duration: `${(duration / 1000).toFixed(1)}s`,
@@ -401,8 +410,8 @@ export class AgentInvoker {
       /** sendSystem 写入消息 DB（前端展示/审计），LLM 通过下方 userMessageContent 接收指令 */
       const sysMsg = await this.sendMessage.sendSystem(conversationId, retryMsg);
 
-      /** 通知前端系统消息已创建 */
-      emitEvent({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+      /** 通知前端系统消息已创建（带 seq 保证前端按序插入） */
+      emitEvent({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });
 
       /** 重试：retryMsg 作为 userMessageContent 传入 agent session，LLM 通过此消息接收重试指令 */
       const retryResult = await this.invokeConversation({

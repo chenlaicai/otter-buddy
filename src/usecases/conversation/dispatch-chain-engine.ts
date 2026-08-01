@@ -61,7 +61,7 @@ export class DispatchChainEngine {
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
-    const maxDepth = this.deps.maxChainDepth ?? 20;
+    const maxDepth = this.deps.maxChainDepth ?? 100;
 
     while (targets.length > 0 && depth < maxDepth) {
       depth++;
@@ -121,7 +121,11 @@ export class DispatchChainEngine {
     const nextTargets = new Set<string>();
 
     for (const r of results) {
-      if (r.status !== "fulfilled") continue;
+      if (r.status !== "fulfilled") {
+        const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        this.deps.logger.error('发言链目标调用失败', r.reason instanceof Error ? r.reason : new Error(reason));
+        continue;
+      }
 
       const msg = await this.deps.queryMessage.getMessageById(r.value.messageId);
       if (msg?.body) {
