@@ -176,7 +176,7 @@ function ConversationPage() {
     // 事件分发器
     const handlers: Record<string, (data: Record<string, unknown>) => void> = {
       'message': (data) => {
-        const message = mapMessageDTO(data as Parameters<typeof mapMessageDTO>[0])
+        const message = mapMessageDTO(data as unknown as Parameters<typeof mapMessageDTO>[0])
         setAllMessages(prev => {
           const current = prev[activeId] || []
           if (current.some(m => m.id === message.id)) return prev
