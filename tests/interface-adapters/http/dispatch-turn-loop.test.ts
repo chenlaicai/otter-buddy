@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
+import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -66,29 +68,50 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
+    const dispatchChainEngine = new DispatchChainEngine({
+      sendMessage: useCase as unknown as SendMessage,
+      queryMessage: queryMessageStub,
+      queryOtter: queryOtterStub,
+      logger: logger as never,
+      maxChainDepth: 2,
+    });
+
+    // 创建 mock broadcaster，捕获 broadcastEvent 调用
+    const broadcastEventCalls: Array<{ event: string; data: Record<string, unknown> }> = [];
+    const mockBroadcaster = {
+      broadcastEvent: (_convId: string, event: { event: string; data: Record<string, unknown> }) => { broadcastEventCalls.push(event); },
+      broadcast: async () => {},
+      subscribe: () => () => {},
+    };
+
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
       agentInvoker,
       logger as never,
       queryOtterStub,
-      2,
+      dispatchChainEngine,
+      mockBroadcaster as unknown as MessageBroadcaster,
     );
     const res = await postMessage(createApp(ctrl));
     const sseText = await res.text();
 
     /** depth=2：只派发 2 跳，第 3 跳被截断 */
     expect(dispatchCount).toBe(2);
-    expect(warns).toHaveLength(1);
-    expect(warns[0].msg).toBe("发言链达到深度上限，交还用户");
-    expect(warns[0].data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
+    // DispatchChainEngine 和 MessageController 都会记录 warn 日志
+    expect(warns.length).toBeGreaterThanOrEqual(1);
+    const depthWarn = warns.find(w => w.msg === "发言链达到深度上限，交还用户");
+    expect(depthWarn).toBeDefined();
+    expect(depthWarn!.data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
     expect(systemBodies).toHaveLength(1);
     expect(systemBodies[0]).toContain("2 跳");
-    expect(sseText).toContain("system.message");
+    // system.message 现在通过 broadcastEvent 推送（不在 POST SSE 流中）
+    expect(broadcastEventCalls.some(e => e.event === "system.message")).toBe(true);
     expect(sseText).toContain("stream.end");
   });
 
-  it("发言石无目标时正常结束，不发系统消息", async () => {    const { useCase, systemBodies } = makeSendMessageUseCase();
+  it("发言石无目标时正常结束，不发系统消息", async () => {
+    const { useCase, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     let dispatchCount = 0;
     const agentInvoker = {
@@ -98,13 +121,21 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
+    const dispatchChainEngine = new DispatchChainEngine({
+      sendMessage: useCase as unknown as SendMessage,
+      queryMessage: queryMessageStub,
+      queryOtter: queryOtterStub,
+      logger: logger as never,
+      maxChainDepth: 2,
+    });
+
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
       agentInvoker,
       logger as never,
       queryOtterStub,
-      2,
+      dispatchChainEngine,
     );
     const res = await postMessage(createApp(ctrl));
     await res.text();
@@ -133,13 +164,21 @@ describe("dispatchTurnLoop 深度上限", () => {
       },
     } as unknown as AgentInvoker;
 
+    const dispatchChainEngine = new DispatchChainEngine({
+      sendMessage: useCase as unknown as SendMessage,
+      queryMessage: queryMessageStub,
+      queryOtter,
+      logger: logger as never,
+      maxChainDepth: 2,
+    });
+
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
       agentInvoker,
       logger as never,
       queryOtter,
-      2,
+      dispatchChainEngine,
     );
     const res = await postMessage(createApp(ctrl));
     await res.text();

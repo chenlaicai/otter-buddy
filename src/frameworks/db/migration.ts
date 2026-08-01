@@ -18,6 +18,15 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added session_file column to agent_sessions table');
   }
 
+  // 检查 messages 表的 source 字段是否存在
+  const msgColumns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  const hasSource = msgColumns.some(col => col.name === 'source');
+
+  if (!hasSource) {
+    db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
+    logger.info('Added source column to messages table');
+  }
+
   // 创建 otter_configs 表
   db.prepare(`
     CREATE TABLE IF NOT EXISTS otter_configs (

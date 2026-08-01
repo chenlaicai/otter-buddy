@@ -14,7 +14,8 @@ const speakingMsg: Message = {
   talkingStonePassedTo: ["user-1"], status: "speaking",
   body: "Response",
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
-  createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+  source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: null,
 };
 
 const completedMsg: Message = {
@@ -23,7 +24,8 @@ const completedMsg: Message = {
   talkingStonePassedTo: ["user-1"], status: "completed",
   body: "Response",
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
-  createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+  source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
 };
 
 /** 创建 SendMessage mock，记录调用并返回模拟消息 */
@@ -34,7 +36,8 @@ function mockSendMessage() {
     talkingStonePassedTo: null, status: "streaming",
     body: null,
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
-    createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+    source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
   const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
   const sendSystemBodies: string[] = [];
@@ -439,7 +442,8 @@ function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): Qu
     talkingStonePassedTo: null, status: "streaming",
     body: null,
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
-    createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+    source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
   let callCount = 0;
   return {

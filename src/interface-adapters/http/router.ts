@@ -8,6 +8,7 @@ import type { MemoryController } from "./controllers/memory-controller";
 import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
 import type { ScheduledTaskController } from "./controllers/scheduled-task-controller";
+import type { ConnectionController } from "./controllers/connection-controller";
 
 export interface Controllers {
   conversation: ConversationController;
@@ -17,6 +18,7 @@ export interface Controllers {
   keyInfo: KeyInfoController;
   settings: SettingsController;
   scheduledTask: ScheduledTaskController;
+  connection: ConnectionController;
 }
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
@@ -30,6 +32,7 @@ function registerConvRoutes(app: Hono, c: Controllers): void {
 
 function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/messages", (ctx) => c.message.list(ctx));
+  app.get("/api/conversations/:id/subscribe", (ctx) => c.message.subscribe(ctx));
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/messages/:id", (ctx) => c.message.getById(ctx));
   app.get("/api/messages/:id/events", (ctx) => c.message.getEvents(ctx));
@@ -69,6 +72,16 @@ function registerScheduledTaskRoutes(app: Hono, c: Controllers): void {
   app.get("/api/scheduled-tasks/:taskId/executions", (ctx) => c.scheduledTask.listExecutions(ctx));
 }
 
+function registerConnectionRoutes(app: Hono, c: Controllers): void {
+  app.get("/api/connections", (ctx) => c.connection.list(ctx));
+  app.post("/api/connections", (ctx) => c.connection.create(ctx));
+  app.get("/api/connections/:id", (ctx) => c.connection.getById(ctx));
+  app.get("/api/connections/:id/session", (ctx) => c.connection.getSession(ctx));
+  app.post("/api/connections/:id/enter", (ctx) => c.connection.enterConversation(ctx));
+  app.post("/api/connections/:id/leave", (ctx) => c.connection.leaveConversation(ctx));
+  app.get("/api/connections/:id/conversations", (ctx) => c.connection.listActiveConversations(ctx));
+}
+
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
 export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   const app = new Hono();
@@ -78,7 +91,8 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
     const requestId = randomUUID();
     const start = Date.now();
 
-    // 注入 requestId 到 context
+    // 注入 requestId 到 context（下游 sse-streamer、http-error 通过 c.get('requestId') 读取）
+    c.set('requestId' as never, requestId);
     c.header('X-Request-ID', requestId);
 
     await next();
@@ -98,5 +112,7 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   registerOtterRoutes(app, ctrl);
   registerDataRoutes(app, ctrl);
   registerScheduledTaskRoutes(app, ctrl);
+  registerConnectionRoutes(app, ctrl);
+
   return app;
 }

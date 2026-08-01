@@ -148,14 +148,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.transaction(() => {
       this.db.prepare(`
         INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-          sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
-        VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)
+          sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, created_at)
+        VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         message.id, message.conversationId, message.senderType, message.senderId,
         message.body,
         message.sequenceNum, message.turnId,
         message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
-        message.contextTokens, message.contextTokensMax, message.createdAt,
+        message.contextTokens, message.contextTokensMax, message.source, message.createdAt,
       );
       this.upsertMessageFts(message.id, message.body ?? "");
     })();
@@ -165,14 +165,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.transaction(() => {
       this.db.prepare(`
         INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-          sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
-        VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?)
+          sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, created_at)
+        VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         message.id, message.conversationId, message.senderType, message.senderId,
         message.body,
         message.sequenceNum, message.turnId,
         message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
-        message.contextTokens, message.contextTokensMax, message.createdAt,
+        message.contextTokens, message.contextTokensMax, message.source, message.createdAt,
       );
       /** body=null 时 FTS 写空串（复制旧触发器 COALESCE(NEW.body, '') 语义） */
       this.upsertMessageFts(message.id, message.body ?? "");
@@ -375,6 +375,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       senderId: row.sender_id, status: 'completed' as const, body: row.body,
       sequenceNum: row.sequence_num, turnId: '',
       talkingStonePassedTo: null, contextTokens: null, contextTokensMax: null,
+      source: 'web' as const,
       createdAt: '', completedAt: null,
     }));
   }

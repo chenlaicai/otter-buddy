@@ -18,6 +18,7 @@ describe("MessageDTO", () => {
       talkingStonePassedTo: ["otter-1"], status: "completed",
       body: "Hello",
       sequenceNum: 1, contextTokens: null, contextTokensMax: null,
+      source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:02Z",
     };
     const dto = toMessageDTO(msg);
@@ -27,7 +28,7 @@ describe("MessageDTO", () => {
     expect(dto.content).toBe("Hello");
     expect(dto.status).toBe("completed");
     expect(dto.ts).toBe("2026-07-16T00:00:00Z");
-    expect(dto.dur).toBe("2.0s");
+    expect(dto.dur).toBeNull(); // 用户消息不显示耗时
     expect(dto.seq).toBe(1);
     expect(dto.tsp).toEqual(["otter-1"]);
   });
@@ -39,6 +40,7 @@ describe("MessageDTO", () => {
       talkingStonePassedTo: null, status: "streaming",
       body: null,
       sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+      source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
     };
     const dto = toMessageDTO(msg);
@@ -54,6 +56,7 @@ describe("MessageDTO", () => {
       talkingStonePassedTo: ["user-1"], status: "completed",
       body: "你好",
       sequenceNum: 3, contextTokens: null, contextTokensMax: null,
+      source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
     };
     expect(toMessageDTO(msg, "小獭").sn).toBe("小獭");

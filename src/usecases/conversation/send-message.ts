@@ -3,6 +3,7 @@ import type {
   Message,
   MessageEvent,
   MessageEventType,
+  MessageSource,
 } from "@entities/conversation/message";
 import {
   canAppendEvent,
@@ -29,6 +30,8 @@ export interface SendMessageInput {
   senderId: string;
   talkingStonePassedTo: string[];
   body: string;
+  /** 用户消息来源（"web" | "feishu"），默认 "web"。agent/系统消息不需要此字段 */
+  source?: MessageSource;
 }
 
 /** Otter 开始流式消息输入 */
@@ -85,6 +88,7 @@ export class SendMessage {
   /** 用户发送消息（立即 completed） */
   async send(input: SendMessageInput): Promise<Message> {
     const senderType = input.senderType ?? "user";
+    const source = input.source ?? "web";
 
     /** 用户消息统一走目标解析：空目标按领域规则解析默认派发；
      *  显式目标（@ / 卡片回执路由）校验"在场 + otter 未解散"，不合法退默认派发（F20260728htar）。
@@ -117,6 +121,7 @@ export class SendMessage {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
+      source,
       createdAt: now,
       completedAt: now,
     };
@@ -135,6 +140,7 @@ export class SendMessage {
       messageId: message.id,
       senderId: input.senderId,
       messageLength: input.body.length,
+      source,
       action: 'send',
     });
 
@@ -166,6 +172,7 @@ export class SendMessage {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
+      source: null, // agent 消息不需要标记来源，广播给所有已连接前端
       createdAt: now,
       completedAt: null,
     };
@@ -339,6 +346,7 @@ export class SendMessage {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
+      source: null, // 系统消息不需要标记来源
       createdAt: now,
       completedAt: now,
     };

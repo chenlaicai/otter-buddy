@@ -1,11 +1,12 @@
-import { MessageCircle, Search, Package, Settings } from 'lucide-react'
+import { MessageCircle, Search, Package, Settings, Link2 } from 'lucide-react'
 
-type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings'
+type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings' | 'connections'
 
 const tabs: { key: ViewKey; label: string; href: string; icon: typeof MessageCircle }[] = [
   { key: 'conversation', label: '对话', href: '/', icon: MessageCircle },
   { key: 'memory', label: '记忆搜索', href: '/memory.html', icon: Search },
   { key: 'skills', label: '能力库', href: '/skills.html', icon: Package },
+  { key: 'connections', label: '连接', href: '/connections.html', icon: Link2 },
   { key: 'settings', label: '设置', href: '/settings.html', icon: Settings },
 ]
 
@@ -16,7 +17,7 @@ export function TopBar({ activeView }: { activeView: ViewKey }) {
       {/* Logo left-aligned */}
       <div className="flex items-center gap-2 flex-1">
         <img src="/otter-icon.png" alt="Otter Buddy" className="w-6 h-6 rounded-full" />
-        <span className="text-sm font-bold tracking-tight text-otter-600">Otter Buddy</span>
+        <span className="text-sm font-bold tracking-tight text-otter-600">Otter Buddy <span className="text-xs text-stone-400">v20260730-im</span></span>
       </div>
 
       {/* Tabs centered (← UA-12) */}

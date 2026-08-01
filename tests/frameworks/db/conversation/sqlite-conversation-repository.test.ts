@@ -10,6 +10,8 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   initSchema(db);
+  // 添加 source 列（模拟 migration）
+  db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
   return db;
 }
 
@@ -63,6 +65,7 @@ function messageFixture(overrides: Partial<Message> = {}): Message {
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
+    source: "web",
     createdAt: "2026-07-22T00:01:00Z",
     completedAt: "2026-07-22T00:01:00Z",
     ...overrides,
@@ -261,7 +264,8 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
         id: "msg-streaming",
         body: null,
         talkingStonePassedTo: null,
-        completedAt: null,
+        source: "web",
+      completedAt: null,
         status: "streaming",
       });
       await repo.createStreamingMessage(message);
@@ -283,7 +287,8 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
         id: "msg-streaming",
         body: null,
         talkingStonePassedTo: null,
-        completedAt: null,
+        source: "web",
+      completedAt: null,
         status: "streaming",
       }));
 
@@ -343,7 +348,8 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
         id: "msg-streaming",
         body: null,
         talkingStonePassedTo: null,
-        completedAt: null,
+        source: "web",
+      completedAt: null,
         status: "streaming",
       }));
 
@@ -387,7 +393,8 @@ describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724c
         id: "msg-streaming",
         body: null,
         talkingStonePassedTo: null,
-        completedAt: null,
+        source: "web",
+      completedAt: null,
         status: "streaming",
       }));
 
@@ -558,14 +565,16 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         id: "msg-streaming",
         body: null,
         talkingStonePassedTo: null,
-        completedAt: null,
+        source: "web",
+      completedAt: null,
         status: "streaming",
       }));
       await repo.createStreamingMessage(messageFixture({
         id: "msg-speaking",
         body: null,
         talkingStonePassedTo: null,
-        completedAt: null,
+        source: "web",
+      completedAt: null,
         status: "streaming",
         sequenceNum: 2,
       }));
@@ -608,7 +617,8 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         sequenceNum: 2,
         body: null,
         talkingStonePassedTo: null,
-        completedAt: null,
+        source: "web",
+      completedAt: null,
         status: "streaming",
       }));
 
@@ -645,7 +655,8 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
       await repo.createCompletedMessage(messageFixture({ senderId: "otter-1" }));
       await repo.createStreamingMessage(messageFixture({
         id: "msg-inflight", senderId: "otter-1", sequenceNum: 2,
-        body: null, talkingStonePassedTo: null, completedAt: null, status: "streaming",
+        body: null, talkingStonePassedTo: null, source: "web",
+      completedAt: null, status: "streaming",
       }));
 
       const unread = await repo.getUnreadMessages("conv-1", "otter-reader");

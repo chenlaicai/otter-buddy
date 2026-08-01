@@ -1,10 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
+
+function mockLogger() {
+  return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => mockLogger() };
+}
 import { Hono } from "hono";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
+import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { CreateOtter } from "@usecases/otter/create-otter";
@@ -48,7 +53,7 @@ describe("ConversationController", () => {
 
   it("returns 200 with DTO for existing conversation", async () => {
     const manageConv = { getById: async () => mockConversation() } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant);
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1");
     expect(res.status).toBe(200);
@@ -59,7 +64,7 @@ describe("ConversationController", () => {
 
   it("returns 404 for non-existent conversation", async () => {
     const manageConv = { getById: async () => null } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant);
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/nonexistent");
     expect(res.status).toBe(404);
@@ -72,7 +77,7 @@ describe("ConversationController", () => {
     const managePart = {
       getActiveParticipants: async () => [{ participant: { otterId: "otter-1" }, otterName: "Big Otter" }],
     } as unknown as ManageParticipant;
-    const ctrl = new ConversationController(manageConv, managePart);
+    const ctrl = new ConversationController(manageConv, managePart, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations", {
       method: "POST",
@@ -94,7 +99,7 @@ describe("OtterController", () => {
 
   it("returns 200 with DTO for existing otter", async () => {
     const queryOtter = { getById: async () => mockOtter() } as unknown as QueryOtter;
-    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter);
+    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/otters/otter-1");
     expect(res.status).toBe(200);
@@ -105,7 +110,7 @@ describe("OtterController", () => {
 
   it("returns 404 for non-existent otter", async () => {
     const queryOtter = { getById: async () => null } as unknown as QueryOtter;
-    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter);
+    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/otters/nonexistent");
     expect(res.status).toBe(404);
@@ -127,10 +132,20 @@ describe("MessageController", () => {
         senderType: "user", senderId: "user-1",
         talkingStonePassedTo: ["otter-1"], status: "completed",
         body: "Hello",
-        sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+        sequenceNum: 1, source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
       }),
     } as unknown as QueryMessage;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, {} as AgentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter);
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+    const queryOtter = { getById: async () => null } as unknown as QueryOtter;
+    const dispatchChainEngine = new DispatchChainEngine({
+      sendMessage: {} as SendMessage,
+      queryMessage,
+      queryOtter,
+      logger: mockLogger,
+      maxChainDepth: 20,
+    });
+    const ctrl = new MessageController({} as SendMessage, queryMessage, {} as AgentInvoker, mockLogger, queryOtter, dispatchChainEngine);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1");
     expect(res.status).toBe(200);
@@ -147,11 +162,12 @@ describe("MessageController", () => {
         senderType: "otter", senderId: "otter-1",
         talkingStonePassedTo: null, status: "streaming",
         body: null,
-        sequenceNum: 2, createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+        sequenceNum: 2, source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: null,
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter);
+    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter, {} as DispatchChainEngine);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1/abort", { method: "POST" });
     expect(res.status).toBe(202);
@@ -166,11 +182,12 @@ describe("MessageController", () => {
         senderType: "user", senderId: "user-1",
         talkingStonePassedTo: ["otter-1"], status: "completed",
         body: "Hello",
-        sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
+        sequenceNum: 1, source: "web",
+      createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter);
+    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter, {} as DispatchChainEngine);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1/abort", { method: "POST" });
     expect(res.status).toBe(400);
@@ -185,12 +202,22 @@ describe("MessageController sendMessage validation", () => {
   }
 
   it("returns 400 when senderId is missing", async () => {
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+    const queryOtter = { getById: async () => null } as unknown as QueryOtter;
+    const dispatchChainEngine = new DispatchChainEngine({
+      sendMessage: {} as SendMessage,
+      queryMessage: {} as QueryMessage,
+      queryOtter,
+      logger: mockLogger,
+      maxChainDepth: 20,
+    });
     const ctrl = new MessageController(
       {} as SendMessage,
       {} as QueryMessage,
       {} as AgentInvoker,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
-      { getById: async () => null } as unknown as QueryOtter,
+      mockLogger,
+      queryOtter,
+      dispatchChainEngine,
     );
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1/messages", {
@@ -202,12 +229,22 @@ describe("MessageController sendMessage validation", () => {
   });
 
   it("returns 400 when body is missing", async () => {
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+    const queryOtter = { getById: async () => null } as unknown as QueryOtter;
+    const dispatchChainEngine = new DispatchChainEngine({
+      sendMessage: {} as SendMessage,
+      queryMessage: {} as QueryMessage,
+      queryOtter,
+      logger: mockLogger,
+      maxChainDepth: 20,
+    });
     const ctrl = new MessageController(
       {} as SendMessage,
       {} as QueryMessage,
       {} as AgentInvoker,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
-      { getById: async () => null } as unknown as QueryOtter,
+      mockLogger,
+      queryOtter,
+      dispatchChainEngine,
     );
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1/messages", {
@@ -230,7 +267,7 @@ describe("SettingsController", () => {
     const ctrl = new SettingsController({
       provider: "openai", model: "gpt-4o", port: 3000,
       dbPath: "./otter-buddy.db", embeddingModelPath: "Xenova/bge-m3", embeddingDim: 1024,
-    }, mockSettingsRepo);
+    }, mockSettingsRepo, mockLogger());
     const app = new Hono();
     app.get("/api/settings", (c) => ctrl.getSettings(c));
     const res = await app.request("/api/settings");
@@ -251,7 +288,7 @@ describe("MemoryController", () => {
   };
 
   function createApp(searchMemory: SearchMemory, manageMemory: ManageMemory): Hono {
-    const ctrl = new MemoryController(searchMemory, manageMemory);
+    const ctrl = new MemoryController(searchMemory, manageMemory, mockLogger());
     const app = new Hono();
     app.get("/api/memory/search", (c) => ctrl.search(c));
     app.get("/api/memory/batch", (c) => ctrl.getDetails(c));

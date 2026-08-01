@@ -89,6 +89,7 @@ export class ManageParticipant {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
+      source: "web",
       createdAt: now,
       completedAt: now,
     };
@@ -155,6 +156,7 @@ export class ManageParticipant {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
+      source: "web",
       createdAt: now,
       completedAt: now,
     };

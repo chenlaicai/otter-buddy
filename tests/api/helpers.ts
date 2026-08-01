@@ -16,6 +16,7 @@ import { MemoryController } from "../../src/interface-adapters/http/controllers/
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
+import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-chain-engine";
 import type { Logger } from "../../src/usecases/ports/logger";
 
 /** 创建 noop Logger mock */
@@ -389,33 +390,70 @@ export interface TestDeps {
 }
 
 export function createTestApp(deps: TestDeps): Hono {
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+
   const conversationCtrl = new ConversationController(
     deps.manageConversation,
     deps.manageParticipant,
+    logger,
   );
+
+  const dispatchChainEngine = new DispatchChainEngine({
+    sendMessage: deps.sendMessageUseCase,
+    queryMessage: deps.queryMessage,
+    queryOtter: deps.queryOtter,
+    logger,
+    maxChainDepth: 20,
+  });
+
+  // 创建 mock broadcaster，支持 subscribe + broadcastEvent 完整链路
+  const broadcastEventCalls: Array<{ event: string; data: Record<string, unknown> }> = [];
+  const eventSubscribers = new Map<string, Set<(event: { event: string; data: Record<string, unknown> }) => void>>();
+  const mockBroadcaster = {
+    broadcastEvent: (convId: string, event: { event: string; data: Record<string, unknown> }) => {
+      broadcastEventCalls.push(event);
+      const subs = eventSubscribers.get(convId);
+      if (subs) { for (const cb of subs) cb(event); }
+    },
+    broadcast: async () => {},
+    subscribe: (convId: string, _onMessage: any, onEvent?: (event: { event: string; data: Record<string, unknown> }) => void) => {
+      if (onEvent) {
+        if (!eventSubscribers.has(convId)) eventSubscribers.set(convId, new Set());
+        eventSubscribers.get(convId)!.add(onEvent);
+      }
+      return () => { eventSubscribers.get(convId)?.delete(onEvent!); };
+    },
+  };
+
   const messageCtrl = new MessageController(
     deps.sendMessageUseCase,
     deps.queryMessage,
     deps.agentInvoker,
-    { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
+    logger,
     deps.queryOtter,
+    dispatchChainEngine,
+    mockBroadcaster as any,
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,
     deps.dissolveOtterUseCase,
     deps.manageSession,
     deps.queryOtter,
+    logger,
   );
   const memoryCtrl = new MemoryController(
     deps.searchMemory,
     deps.manageMemory,
+    logger,
   );
   const keyInfoCtrl = new KeyInfoController(
     deps.manageKeyInfo,
+    logger,
   );
   const settingsCtrl = new SettingsController(
     deps.settingsConfig,
     deps.settingsRepo,
+    logger,
   );
 
   const controllers: Controllers = {
@@ -429,10 +467,18 @@ export function createTestApp(deps: TestDeps): Hono {
       deps.manageScheduledTask,
       deps.schedulerService,
       deps.cronParser,
+      logger,
     ),
+    connection: {} as any, // TODO: 添加 mock
   };
 
-  return createRouter(controllers, mockLogger());
+  const app = createRouter(controllers, mockLogger());
+
+  // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
+  (app as any).__broadcastEventCalls = broadcastEventCalls;
+  (app as any).__mockBroadcaster = mockBroadcaster;
+
+  return app;
 }
 
 /** 创建类型安全的 mock deps，各测试按需覆盖 */

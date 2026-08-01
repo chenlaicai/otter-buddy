@@ -15,6 +15,8 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   initSchema(db);
+  // 添加 source 列（模拟 migration）
+  db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
   return db;
 }
 
@@ -36,6 +38,7 @@ function messageFixture(overrides: Partial<Message> = {}): Message {
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
+    source: "web",
     createdAt: "2026-07-28T00:01:00Z",
     completedAt: "2026-07-28T00:01:00Z",
     ...overrides,
@@ -81,7 +84,8 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
 
   it("createStreamingMessage：body=null 时 FTS 写空串", async () => {
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
 
     expect(ftsRows(db)).toEqual([{ message_id: "msg-s", body: "" }]);
@@ -89,7 +93,8 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
 
   it("startSpeaking：FTS 更新为发言 body 的剥离投影", async () => {
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
     await repo.startSpeaking("msg-s", CARD_BODY, ["user-1"]);
 
@@ -100,7 +105,8 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
 
   it("completeMessage：FTS 更新为最终 body 的剥离投影（仍单行）", async () => {
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
     await repo.startSpeaking("msg-s", "中间 body", ["user-1"]);
     await repo.completeMessage({
@@ -114,7 +120,8 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
 
   it("failMessage 带 body：FTS 更新为合成错误文本；不带 body：FTS 保持原值", async () => {
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
     await repo.startSpeaking("msg-s", CARD_BODY, ["user-1"]);
 
@@ -124,7 +131,8 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
 
     /** 带 body（运行期主路径：合成文本整体替换）：FTS 跟随更新 */
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-f", sequenceNum: 2, body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-f", sequenceNum: 2, body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
     await repo.startSpeaking("msg-f", CARD_BODY, ["user-1"]);
     await repo.failMessage("msg-f", "2026-07-28T00:04:00Z", "[错误] 模型限流");
@@ -134,10 +142,12 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
 
   it("failInFlightMessages：逐行合成新 body 后 FTS 与剥离文本一致", async () => {
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-streaming", body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-streaming", body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-speaking", sequenceNum: 2, body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-speaking", sequenceNum: 2, body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
     await repo.startSpeaking("msg-speaking", CARD_BODY, ["user-1"]);
 
@@ -154,7 +164,8 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
 
   it("abortMessage：FTS 更新为中止 body 的剥离投影", async () => {
     await repo.createStreamingMessage(messageFixture({
-      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", completedAt: null,
+      id: "msg-s", body: null, talkingStonePassedTo: null, status: "streaming", source: "web",
+      completedAt: null,
     }));
     await repo.abortMessage("msg-s", CARD_BODY, ["user-1"], "2026-07-28T00:06:00Z");
 

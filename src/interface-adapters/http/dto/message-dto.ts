@@ -22,13 +22,15 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     content: msg.body,
     status: msg.status,
     ts: msg.createdAt,
-    dur: duration(msg.createdAt, msg.completedAt),
+    // 用户消息和系统消息不显示耗时（仅 agent 消息有意义）
+    dur: msg.senderType === "otter" ? duration(msg.createdAt, msg.completedAt) : null,
     seq: msg.sequenceNum,
     tsp: msg.talkingStonePassedTo,
     turnId: msg.turnId,
     ...(senderName !== undefined && { sn: senderName }),
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),
+    ...(msg.source && msg.source !== "web" && { src: msg.source }),
   };
 }
 

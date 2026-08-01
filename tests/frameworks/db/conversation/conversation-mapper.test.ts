@@ -73,6 +73,7 @@ describe("rowToMessage", () => {
     talking_stone_passed_to: null,
     context_tokens: null,
     context_tokens_max: null,
+    source: "web",
     created_at: "2026-01-01T00:00:00Z",
     completed_at: null,
   };

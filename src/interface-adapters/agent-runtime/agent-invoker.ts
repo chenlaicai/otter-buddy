@@ -4,6 +4,7 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
+import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
 type ErrorWithToolCallCount = Error & { _toolCallCount?: number };
@@ -94,11 +95,15 @@ export class AgentInvoker {
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
     private readonly logger: Logger,
+    private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
   /**
    * 驱动 Agent 对话：构建上下文 -> 创建 streaming 消息 -> invoke -> 事件映射 -> 完成/失败。
    * B7-B11 行为实现。
+   *
+   * streaming 事件通过 messageBroadcaster.broadcastEvent 统一推送给所有订阅者。
+   * onSSEEvent 可选覆盖（测试用），默认走 broadcastEvent。
    */
   async invokeConversation(params: {
     otterId: string;
@@ -110,6 +115,13 @@ export class AgentInvoker {
   }): Promise<ConversationInvokeResult> {
     const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0 } = params;
     const startTime = Date.now();
+
+    // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
+    const emitEvent = onSSEEvent ?? ((event: AgentSSEEvent): void => {
+      if (this.messageBroadcaster) {
+        this.messageBroadcaster.broadcastEvent(conversationId, event);
+      }
+    });
 
     // 记录 Agent 调用开始日志
     this.logger.info('Agent invocation started', {
@@ -129,18 +141,18 @@ export class AgentInvoker {
 
     const otter = await this.queryOtter.getById(otterId);
     /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确） */
-    onSSEEvent?.({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
+    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
 
     try {
       const { result, toolCallCount } = await this.executeAgentInvocation({
-        otterId, userMessageContent, dynamicContext, conversationId, messageId: message.id, onSSEEvent,
+        otterId, userMessageContent, dynamicContext, conversationId, messageId: message.id, emitEvent,
       });
       return await this._handlePostInvocation({
-        messageId: message.id, otterId, senderId, result, toolCallCount, startTime, onSSEEvent, retryCount, userMessageContent, conversationId,
+        messageId: message.id, otterId, senderId, result, toolCallCount, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
       });
     } catch (err) {
       const finalErr = this.wrapInternalAbort(message.id, err);
-      await this.handleInvokeError(message.id, otterId, finalErr, onSSEEvent, senderId);
+      await this.handleInvokeError(message.id, otterId, finalErr, emitEvent, senderId);
       return { messageId: message.id, duration: Date.now() - startTime };
     }
   }
@@ -150,27 +162,29 @@ export class AgentInvoker {
     messageId: string; otterId: string; senderId: string;
     result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
     toolCallCount: number; startTime: number;
-    onSSEEvent?: (event: AgentSSEEvent) => void; retryCount?: number;
+    emitEvent: (event: AgentSSEEvent) => void;
+    onSSEEvent?: (event: AgentSSEEvent) => void;
+    retryCount?: number;
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
     const msg = await this.queryMessage.getMessageById(p.messageId);
     this.logger.info('Agent invocation finished', { messageId: p.messageId, otterId: p.otterId, messageStatus: msg?.status, tokenUsage: p.result.tokenUsage });
     if (msg?.status === "speaking") {
       const cr = await this.sendMessage.complete(p.messageId);
-      return this.completeAgentInvocation({ otterId: p.otterId, conversationId: p.conversationId ?? "", messageId: p.messageId, senderId: p.senderId, result: p.result, startTime: p.startTime, onSSEEvent: p.onSSEEvent, aggregatedTargets: cr.turnClose.aggregatedTargets });
+      return this.completeAgentInvocation({ otterId: p.otterId, conversationId: p.conversationId ?? "", messageId: p.messageId, senderId: p.senderId, result: p.result, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose.aggregatedTargets });
     }
     if (this.abortedMessages.has(p.messageId)) {
-      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
+      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), p.emitEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
     const ir = (p.result as Record<string, unknown>)._guardAbortReason as string | undefined ?? this.agentInvoke.getInternalAbortReason(p.messageId);
     if (ir) {
       this.abortedMessages.add(p.messageId);
       const prefix = ir.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
-      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), p.onSSEEvent, p.senderId);
+      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), p.emitEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
-    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage, toolCallCount: p.toolCallCount });
+    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, emitEvent: p.emitEvent, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage, toolCallCount: p.toolCallCount });
   }
 
   /**
@@ -183,7 +197,7 @@ export class AgentInvoker {
     dynamicContext: DynamicContext;
     conversationId: string;
     messageId: string;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    emitEvent: (event: AgentSSEEvent) => void;
   }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; toolCallCount: number }> {
     let toolCallCount = 0;
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
@@ -193,10 +207,10 @@ export class AgentInvoker {
       onEvent: (e: AgentStreamEvent) => {
         this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
         if (e.type === "tool_execution_start") toolCallCount++;
-        /** 所有事件如实推送到 SSE（event 就是 event，不抑制） */
+        /** 所有事件如实推送到订阅者（event 就是 event，不抑制） */
         const sse = mapToSSEEvent(e);
         if (sse) {
-          params.onSSEEvent?.({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
+          params.emitEvent({ event: sse.event, data: { ...sse.data, messageId: params.messageId } });
         }
         if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
           /** speak 工具执行完毕，记录日志 */
@@ -223,10 +237,10 @@ export class AgentInvoker {
     senderId: string;
     result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
     startTime: number;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    emitEvent: (event: AgentSSEEvent) => void;
     aggregatedTargets?: string[];
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, messageId, result, startTime, onSSEEvent, aggregatedTargets } = params;
+    const { otterId, conversationId, messageId, result, startTime, emitEvent, aggregatedTargets } = params;
 
     /** 消息已在 invokeConversation 中通过 sendMessage.complete() 完成，此处发 SSE 事件和清理状态 */
 
@@ -248,7 +262,7 @@ export class AgentInvoker {
     const totalTokens = result.tokenUsage ? result.tokenUsage.input + result.tokenUsage.output : undefined;
     /** 从 DB 获取 speak 存储的 body，通过 SSE 直接带给前端（避免前端额外 API 调用） */
     const msg = await this.queryMessage.getMessageById(messageId);
-    onSSEEvent?.({
+    emitEvent({
       event: "message.complete",
       data: {
         messageId,
@@ -261,7 +275,17 @@ export class AgentInvoker {
     });
 
     /** D5-fix: turn.complete 在 message.complete 之后发出（设计文档事件顺序） */
-    onSSEEvent?.({ event: "turn.complete", data: {} });
+    emitEvent({ event: "turn.complete", data: {} });
+
+    // 广播消息到 Web 和飞书
+    if (this.messageBroadcaster && msg) {
+      this.messageBroadcaster.broadcast(msg).catch(err => {
+        this.logger.error("Failed to broadcast message", err instanceof Error ? err : undefined, {
+          messageId,
+          conversationId,
+        });
+      });
+    }
 
     return { messageId, duration, tokenUsage: result.tokenUsage, aggregatedTargets };
   }
@@ -309,7 +333,7 @@ export class AgentInvoker {
     messageId: string,
     otterId: string,
     err: unknown,
-    onSSEEvent?: (event: AgentSSEEvent) => void,
+    emitEvent: (event: AgentSSEEvent) => void,
     senderId?: string,
   ): Promise<void> {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -327,7 +351,7 @@ export class AgentInvoker {
       }
       /** 携带 otter 身份：前端可能在 abort 前已乐观清除 streaming entry，无法本地解析名称 */
       const otter = await this.queryOtter.getById(otterId);
-      onSSEEvent?.({ event: "message.aborted", data: { messageId, body, otterId, otterName: otter?.name } });
+      emitEvent({ event: "message.aborted", data: { messageId, body, otterId, otterName: otter?.name } });
     } else {
       /** error 路径：标记失败，发送 error SSE 事件 */
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -336,7 +360,7 @@ export class AgentInvoker {
       } catch {
         /** fail() 出错时不覆盖原始错误 */
       }
-      onSSEEvent?.({ event: "error", data: { message: msg, messageId, otterId } });
+      emitEvent({ event: "error", data: { message: msg, messageId, otterId } });
     }
   }
 
@@ -350,13 +374,14 @@ export class AgentInvoker {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    emitEvent: (event: AgentSSEEvent) => void;
     onSSEEvent?: (event: AgentSSEEvent) => void;
     retryCount: number;
     startTime: number;
     tokenUsage?: { input: number; output: number };
     toolCallCount?: number;
   }): Promise<ConversationInvokeResult> {
-    const { messageId, otterId, conversationId, senderId, onSSEEvent, retryCount, startTime, tokenUsage, toolCallCount } = params;
+    const { messageId, otterId, conversationId, senderId, emitEvent, retryCount, startTime, tokenUsage, toolCallCount } = params;
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
@@ -365,7 +390,7 @@ export class AgentInvoker {
       try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
 
       /** 通知前端当前消息失败，清除 streaming 状态 */
-      onSSEEvent?.({ event: "message.failed", data: { messageId, body: failBody } });
+      emitEvent({ event: "message.failed", data: { messageId, body: failBody } });
 
       /** toolCallCount=0 表示 LLM 本轮没有调用任何工具（thinking-only 空响应）；>0 表示有工具调用但漏了 speak */
       const isThinkingOnly = (toolCallCount ?? 0) === 0;
@@ -377,13 +402,14 @@ export class AgentInvoker {
       const sysMsg = await this.sendMessage.sendSystem(conversationId, retryMsg);
 
       /** 通知前端系统消息已创建 */
-      onSSEEvent?.({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+      emitEvent({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
 
       /** 重试：retryMsg 作为 userMessageContent 传入 agent session，LLM 通过此消息接收重试指令 */
       const retryResult = await this.invokeConversation({
         otterId, conversationId,
         userMessageContent: retryMsg,
-        senderId, onSSEEvent, retryCount: 1,
+        senderId, retryCount: 1,
+        onSSEEvent: params.onSSEEvent,
       });
       /** 合并重试的 tokenUsage（重试路径可能已更新） */
       return { ...retryResult, tokenUsage: retryResult.tokenUsage ?? tokenUsage };
@@ -398,7 +424,7 @@ export class AgentInvoker {
 
     const duration = Date.now() - startTime;
     /** msg2 终结：发送 message.failed（不是 complete），关闭消息生命周期 */
-    onSSEEvent?.({ event: "message.failed", data: { messageId, body: failBody } });
+    emitEvent({ event: "message.failed", data: { messageId, body: failBody } });
 
     return { messageId, duration, tokenUsage };
   }

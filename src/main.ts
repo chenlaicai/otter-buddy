@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 合并 main 分支 healing 代码后行数增加 */
 /**
  * Composition Root - 依赖注入装配点。
  * main.ts 是唯一允许跨层引用的文件（Composition Root 豁免）。
@@ -67,6 +68,18 @@ import { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
+import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
+import { ManageConnection } from "@usecases/im/manage-connection";
+import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
+import { FeishuClient } from "@frameworks/feishu/client";
+import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
+import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
+import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
+import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
+import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
+import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
 import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
@@ -147,6 +160,7 @@ interface Repositories {
   feature: SqliteFeatureRepository;
   research: SqliteResearchRepository;
   scheduledTask: SqliteScheduledTaskRepository;
+  connection: SqliteConnectionRepository;
   healingEvent: SqliteHealingEventRepository;
 }
 
@@ -166,6 +180,7 @@ interface UseCases {
   dissolveOtter: DissolveOtter;
   manageContext: ManageContext;
   manageScheduledTask: ManageScheduledTask;
+  manageConnection: ManageConnection;
 }
 
 function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
@@ -179,6 +194,7 @@ function initRepositories(db: ReturnType<typeof initDatabase>): Repositories {
     feature: new SqliteFeatureRepository(db),
     research: new SqliteResearchRepository(db),
     scheduledTask: new SqliteScheduledTaskRepository(db),
+    connection: new SqliteConnectionRepository(db),
     healingEvent: new SqliteHealingEventRepository(db),
   };
 }
@@ -209,11 +225,12 @@ function initUseCases(
   const dissolveOtter = new DissolveOtter(repos.otter, agentGateway, manageSession);
   const manageContext = new ManageContext(repos.otterContext);
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
+  const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   return {
     manageConversation, manageMemory, manageTerminology, storeMemory, searchMemory,
     sendMessage, queryMessage, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
-    manageScheduledTask,
+    manageScheduledTask, manageConnection,
   };
 }
 
@@ -345,25 +362,73 @@ interface ControllerDeps {
   settingsRepo: SqliteSettingsRepository;
   schedulerService: SchedulerService;
   cronParser: SimpleCronParser;
+  dispatchChainEngine: DispatchChainEngine;
+  messageBroadcaster?: MessageBroadcaster;
 }
 
 function initControllers(deps: ControllerDeps) {
   return {
-    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
-    otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
-    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, appConfig.circuitBreaker.maxChainDepth),
-    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
-    keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
-    settings: new SettingsController(deps.settings, deps.settingsRepo),
-    scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser),
+    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant, logger),
+    otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter, logger),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
+    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, logger),
+    keyInfo: new KeyInfoController(deps.uc.manageKeyInfo, logger),
+    settings: new SettingsController(deps.settings, deps.settingsRepo, logger),
+    scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser, logger),
+    connection: new ConnectionController(deps.uc.manageConnection, logger),
   };
+}
+
+function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager; dispatchChainEngine: DispatchChainEngine }): void {
+  logger.info("setupFeishu called", { hasConfig: !!appConfig.feishu });
+  if (!appConfig.feishu) return;
+
+  const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
+  const agentDispatchService = new AgentDispatchService({
+    dispatchChainEngine: feishu.dispatchChainEngine,
+    queryMessage: uc.queryMessage,
+    agentInvokePort: agentInvoker,
+    logger,
+  });
+
+  // 创建消息处理器
+  const messageProcessor = new FeishuMessageProcessor({
+    manageConnection: uc.manageConnection,
+    sendMessage: uc.sendMessage,
+    commandDispatcher,
+    feishuGateway: feishu.client,
+    agentDispatchService,
+    messageBroadcaster: feishu.broadcaster,
+    logger,
+  });
+
+  // 使用长连接方式（不需要公网 HTTP 回调）
+  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, feishu.tokenManager);
+  const longConnectionHandler = new FeishuLongConnectionHandler({
+    longConnectionGateway: longConnectionClient,
+    messageProcessor,
+    logger,
+  });
+
+  // 启动长连接
+  longConnectionHandler.start().then(() => {
+    logger.info("Feishu long connection started");
+  }).catch((err) => {
+    logger.error("Failed to start Feishu long connection", err instanceof Error ? err : undefined);
+  });
 }
 
 function startServer(
   controllers: ReturnType<typeof initControllers>,
+  uc: UseCases,
+  agentInvoker: AgentInvoker,
   port: number,
+  feishu?: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager; dispatchChainEngine: DispatchChainEngine },
 ): void {
   const app = new Hono();
+  if (feishu) {
+    setupFeishu(app, uc, agentInvoker, feishu);
+  }
   app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {
@@ -402,13 +467,14 @@ async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGat
   await syncDocs.execute(process.cwd());
 }
 
-async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory) {
+async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory, messageBroadcaster?: MessageBroadcaster) {
   /** 预加载 pi-coding-agent SDK，避免首次创建对话时冷启动阻塞 HTTP 响应 */
   await agentGateway.warmup();
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
+    messageBroadcaster,
   );
 
   const cronParser = new SimpleCronParser();
@@ -427,9 +493,7 @@ async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGat
   return { agentInvoker, cronParser, schedulerService };
 }
 
-async function main(): Promise<void> {
-  syncApiKeyToAgentAuth(appConfig.llm);
-
+async function initDatabaseAndModels() {
   const db = initDatabase(appConfig.db, logger);
   initSchema(db, logger);
   await seedTerminologyData(db, logger);
@@ -443,6 +507,15 @@ async function main(): Promise<void> {
 
   const { model } = await initModels(appConfig.llm, logger);
   const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
+
+  return { db, otterConfigProvider, model, embeddingService, dispose };
+}
+
+// eslint-disable-next-line max-lines-per-function -- Composition Root 合并初始化逻辑
+async function main(): Promise<void> {
+  syncApiKeyToAgentAuth(appConfig.llm);
+
+  const { db, otterConfigProvider, model, embeddingService, dispose } = await initDatabaseAndModels();
 
   const repos = initRepositories(db);
   /** 服务重启兜底：遗留进行中消息置 failed、孤儿 turn 关闭（重启后不存在活跃 agent） */
@@ -471,7 +544,25 @@ async function main(): Promise<void> {
   const otterToolClient = buildOtterToolClient(uc);
   agentGateway.setOtterToolClient(otterToolClient);
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway);
+  // 创建发言链调度引擎（Web 和飞书路径共享）
+  const dispatchChainEngine = new DispatchChainEngine({
+    sendMessage: uc.sendMessage,
+    queryMessage: uc.queryMessage,
+    queryOtter: uc.queryOtter,
+    logger,
+    maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
+  });
+
+  // 创建飞书客户端（长连接和广播共享同一个实例，避免重复 token 刷新）
+  let feishu: { broadcaster: MessageBroadcaster; client: FeishuClient; tokenManager: FeishuAccessTokenManager; dispatchChainEngine: DispatchChainEngine } | undefined;
+  if (appConfig.feishu) {
+    const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
+    const client = new FeishuClient(appConfig.feishu, logger, tokenManager);
+    const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
+    feishu = { broadcaster, client, tokenManager, dispatchChainEngine };
+  }
+
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, feishu?.broadcaster);
 
   // Self-Healing 初始化（失败不阻塞启动）
   ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage })
@@ -487,8 +578,8 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser });
-  startServer(controllers, appConfig.server.port);
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster });
+  startServer(controllers, uc, agentInvoker, appConfig.server.port, feishu);
 
   schedulerService.start().catch((err) => {
     logger.error(`Failed to start scheduler: ${err}`);

@@ -258,3 +258,62 @@ export function listExecutions(taskId: string, options?: { limit?: number; offse
   if (options?.offset) qs.set('offset', String(options.offset))
   return request(`/scheduled-tasks/${taskId}/executions?${qs}`)
 }
+
+// ── Connections (IM 大厅) ──
+
+export interface ConnectionDTO {
+  id: string
+  name: string
+  externalId: string
+  externalType: string
+  metadata: Record<string, unknown> | null
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConnectionSessionDTO {
+  id: string
+  connectionId: string
+  conversationId: string
+  status: string
+  joinedAt: string
+  releasedAt: string | null
+}
+
+export interface CreateConnectionRequestDTO {
+  name: string
+  externalId: string
+}
+
+export interface EnterConversationRequestDTO {
+  conversationId: string
+}
+
+export function listConnections(): Promise<ConnectionDTO[]> {
+  return request('/connections')
+}
+
+export function createConnection(body: CreateConnectionRequestDTO): Promise<ConnectionDTO> {
+  return request('/connections', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function getConnection(id: string): Promise<ConnectionDTO> {
+  return request(`/connections/${id}`)
+}
+
+export function getConnectionSession(id: string): Promise<{ id: string; title: string } | null> {
+  return request(`/connections/${id}/session`)
+}
+
+export function enterConversation(connectionId: string, body: EnterConversationRequestDTO): Promise<ConnectionSessionDTO> {
+  return request(`/connections/${connectionId}/enter`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function leaveConversation(connectionId: string): Promise<{ status: string }> {
+  return request(`/connections/${connectionId}/leave`, { method: 'POST' })
+}
+
+export function listActiveConversations(): Promise<Array<{ id: string; title: string; occupiedBy?: string }>> {
+  return request('/connections/any/conversations')
+}

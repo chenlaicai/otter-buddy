@@ -53,6 +53,11 @@ export interface AppConfig {
     };
     streamingTimeoutMs: number;
   };
+  feishu?: {
+    appId: string;
+    appSecret: string;
+    encryptKey?: string;
+  };
 }
 
 /** config.yaml 的原始 YAML 结构 */
@@ -96,6 +101,11 @@ interface RawConfig {
       checkInterval?: number;
     };
     streamingTimeoutMs?: number;
+  };
+  feishu?: {
+    appId?: string;
+    appSecret?: string;
+    encryptKey?: string;
   };
 }
 
@@ -168,6 +178,17 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
   };
 }
 
+function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
+  if (!raw.feishu?.appId || !raw.feishu?.appSecret) {
+    return undefined;
+  }
+  return {
+    appId: raw.feishu.appId,
+    appSecret: raw.feishu.appSecret,
+    encryptKey: raw.feishu.encryptKey ?? undefined,
+  };
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig */
 function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string } }): AppConfig {
   return {
@@ -185,6 +206,7 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
       apiBaseUrl: raw.llm.apiBaseUrl ?? undefined,
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
+    feishu: buildFeishuConfig(raw),
   };
 }
 

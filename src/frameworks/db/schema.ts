@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 合并 main 分支 healing events 表定义后行数增加 */
 import type Database from "better-sqlite3";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -5,6 +6,7 @@ import type { Logger } from "@usecases/ports/logger";
  * 初始化全部 Schema（幂等，可重复调用）。
  * 所有 CREATE 使用 IF NOT EXISTS，禁止 ALTER TABLE。单事务内执行。
  */
+// eslint-disable-next-line max-statements -- 多表初始化，语句数由表数量决定
 export function initSchema(db: Database.Database, logger?: Logger): void {
   const startTime = Date.now();
   db.exec("BEGIN");
@@ -23,6 +25,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createMessagesFtsTable(db);
     createDocumentTables(db);
     createScheduledTaskTables(db);
+    createConnectionTables(db);
     createHealingEventTables(db);
 
     db.exec("COMMIT");
@@ -480,6 +483,46 @@ function createScheduledTaskTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
+  `);
+}
+
+/** 连接表：connections + connection_sessions（IM 大厅） */
+function createConnectionTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      external_type TEXT NOT NULL DEFAULT 'feishu',
+      metadata TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_external_id
+      ON connections(external_id) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_connections_status ON connections(status);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS connection_sessions (
+      id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      released_at TEXT,
+      FOREIGN KEY (connection_id) REFERENCES connections(id),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conn_sessions_conv_active
+      ON connection_sessions(conversation_id) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_conn_sessions_conn_active
+      ON connection_sessions(connection_id) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_conn_sessions_conn_history
+      ON connection_sessions(connection_id, joined_at);
   `);
 }
 

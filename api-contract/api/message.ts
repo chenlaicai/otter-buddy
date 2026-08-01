@@ -14,6 +14,8 @@ export interface MessageDTO {
   sn?: string;
   ctx?: number;
   ctxMax?: number;
+  /** 消息来源 "web" | "feishu"，仅非 web 时携带 */
+  src?: string;
   events?: MessageEventDTO[];
 }
 

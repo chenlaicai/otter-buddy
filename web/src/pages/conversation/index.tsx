@@ -155,6 +155,168 @@ function ConversationPage() {
     return () => clearTimeout(timer)
   }, [activeId, allMessages, refreshMessages])
 
+  /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
+  useEffect(() => {
+    if (!activeId) return
+
+    // streaming 生命周期状态
+    const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
+    const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
+
+    const syncLiveEvents = (messageId: string) => {
+      const liveEvents = liveEventsMap.get(messageId)
+      if (!liveEvents) return
+      setAllMessages(prev => {
+        const list = prev[activeId]
+        if (!list?.some(m => m.id === messageId)) return prev
+        return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
+      })
+    }
+
+    // 事件分发器
+    const handlers: Record<string, (data: Record<string, unknown>) => void> = {
+      'message': (data) => {
+        const message = mapMessageDTO(data as unknown as Parameters<typeof mapMessageDTO>[0])
+        setAllMessages(prev => {
+          const current = prev[activeId] || []
+          if (current.some(m => m.id === message.id)) return prev
+          return { ...prev, [activeId]: [...current, message] }
+        })
+      },
+      'message.start': (data) => {
+        const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
+        liveEventsMap.set(messageId, [])
+        liveMeta.set(messageId, { otterId, otterName, createdAt: (data.createdAt as string) || nowTs() })
+        const placeholder: LocalMessage = {
+          id: messageId, st: 'otter', si: otterId, sn: otterName,
+          content: '', status: 'streaming', seq: data.seq as number, ts: (data.createdAt as string) || nowTs(), dur: null, events: [],
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
+        if (otterId && activeId) {
+          setAllOtters(prev => {
+            const convOtters = prev[activeId] || []
+            if (convOtters.some(o => o.id === otterId)) return prev
+            return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
+          })
+        }
+      },
+      'assistant_text': (data) => {
+        const liveEvents = liveEventsMap.get(data.messageId as string)
+        if (!liveEvents) return
+        liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
+        syncLiveEvents(data.messageId as string)
+      },
+      'assistant_toolcall': (data) => {
+        const liveEvents = liveEventsMap.get(data.messageId as string)
+        if (!liveEvents) return
+        liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
+        syncLiveEvents(data.messageId as string)
+      },
+      'tool.result': (data) => {
+        const liveEvents = liveEventsMap.get(data.messageId as string)
+        if (!liveEvents) return
+        liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
+        syncLiveEvents(data.messageId as string)
+      },
+      'message.complete': (data) => {
+        const { messageId } = data as { messageId: string }
+        const liveEvents = liveEventsMap.get(messageId) || []
+        const meta = liveMeta.get(messageId)
+        const finalMsg: LocalMessage = {
+          id: messageId, st: 'otter', si: meta?.otterId || '', sn: meta?.otterName,
+          content: (data.body as string) ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration as string,
+          events: liveEvents.length > 0 ? liveEvents : undefined,
+          ctx: data.ctx as number, ctxMax: data.ctxMax as number, turnId: (data.turnId as string) || undefined,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
+        liveEventsMap.delete(messageId)
+        liveMeta.delete(messageId)
+      },
+      'message.failed': (data) => {
+        const { messageId } = data as { messageId: string }
+        const liveEvents = liveEventsMap.get(messageId) || []
+        const meta = liveMeta.get(messageId)
+        const failedMsg: LocalMessage = {
+          id: messageId, st: 'otter', si: meta?.otterId || '',
+          content: (data.body as string) ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
+          events: liveEvents.length > 0 ? liveEvents : undefined,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
+        liveEventsMap.delete(messageId)
+        liveMeta.delete(messageId)
+      },
+      'error': (data) => {
+        const errMsg: LocalMessage = {
+          id: (data.messageId as string) || `err-${crypto.randomUUID()}`, st: 'otter', si: (data.otterId as string) || 'unknown',
+          content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
+        showToast(`Agent 错误: ${data.message}`, 'error')
+      },
+    }
+
+    // SSE 订阅：用 XMLHttpRequest 流式读取，带指数退避重连
+    let xhr: XMLHttpRequest | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectDelay = 1000
+    const maxDelay = 30000
+    let disposed = false
+
+    function connect() {
+      if (disposed) return
+      xhr = new XMLHttpRequest()
+      xhr.open('GET', `/api/conversations/${activeId}/subscribe`)
+      let buffer = ''
+      let currentEvent = ''
+      let currentData = ''
+
+      xhr.onprogress = () => {
+        if (!xhr) return
+        buffer += xhr.responseText.slice(buffer.length)
+        const lines = buffer.split('\n')
+        buffer = lines.pop()!
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7)
+          } else if (line.startsWith('data: ')) {
+            currentData = line.slice(6)
+          } else if (line === '' && currentEvent) {
+            try {
+              const data = JSON.parse(currentData)
+              handlers[currentEvent]?.(data)
+            } catch (err) { console.warn('[SSE-subscribe] malformed JSON:', currentEvent, currentData.slice(0, 80), err) }
+            currentEvent = ''
+            currentData = ''
+          }
+        }
+        // 收到数据后重置重连延迟
+        reconnectDelay = 1000
+      }
+
+      xhr.onerror = () => { scheduleReconnect() }
+      xhr.onload = () => { if (!disposed) scheduleReconnect() }
+
+      xhr.send()
+    }
+
+    function scheduleReconnect() {
+      if (disposed) return
+      reconnectTimer = setTimeout(() => {
+        reconnectDelay = Math.min(reconnectDelay * 2, maxDelay)
+        connect()
+      }, reconnectDelay)
+    }
+
+    connect()
+
+    return () => {
+      disposed = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (xhr) xhr.abort()
+    }
+  }, [activeId])
+
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
       if (!sessions[otter.id]) {
@@ -363,7 +525,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, activeOtters, refreshMessages])
+  }, [activeId, refreshMessages])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -545,7 +707,7 @@ function ConversationPage() {
   function ctxAction(action: string, cid: string) {
     closeCtxMenu(); setActiveId(cid)
     if (action === 'archive') setModal({ type: 'archive', cid })
-    if (action === 'child') setModal({ type: 'child', parentId: cid })
+    else if (action === 'child') setModal({ type: 'child', parentId: cid })
   }
 
   const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null

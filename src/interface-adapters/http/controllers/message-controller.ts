@@ -1,11 +1,12 @@
 import type { Context } from "hono";
 import { canAbortMessage } from "@entities/conversation/message";
-import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
+import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO } from "../dto/message-dto";
@@ -19,7 +20,8 @@ export class MessageController {
     private readonly agentInvoker: AgentInvoker,
     private readonly logger: Logger,
     private readonly queryOtter: QueryOtter,
-    private readonly maxChainDepth: number = 20,
+    private readonly dispatchChainEngine: DispatchChainEngine,
+    private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -31,6 +33,53 @@ export class MessageController {
       if (otter) names.set(id, otter.name);
     }));
     return names;
+  }
+
+  /** 订阅消息广播（SSE 长连接） */
+  async subscribe(c: Context): Promise<Response> {
+    const conversationId = param(c, "id");
+
+    if (!this.messageBroadcaster) {
+      return c.json({ error: "Message broadcaster not configured" }, 500);
+    }
+
+    this.logger.info("[subscribe] SSE subscription request", { conversationId });
+
+    const { response, push, close } = streamEvents(c, undefined, this.logger);
+
+    // 订阅消息广播（消息 + streaming 事件）
+    const unsubscribe = this.messageBroadcaster.subscribe(
+      conversationId,
+      // 消息回调：已完成消息（用户消息、飞书消息等）
+      (message) => {
+        this.logger.info("[subscribe] Broadcasting message to SSE", {
+          conversationId,
+          messageId: message.id,
+          senderType: message.senderType,
+        });
+        push({
+          event: "message",
+          data: toMessageDTO(message) as unknown as Record<string, unknown>,
+        });
+      },
+      // 事件回调：agent streaming 事件（message.start, assistant_text, message.complete 等）
+      (event) => {
+        this.logger.info("[subscribe] Forwarding streaming event to SSE", {
+          conversationId,
+          eventType: event.event,
+        });
+        push(event);
+      },
+    );
+
+    // 客户端断连时取消订阅
+    c.req.raw.signal.addEventListener("abort", () => {
+      this.logger.info("[subscribe] Client abort signal received", { conversationId });
+      unsubscribe();
+      close();
+    });
+
+    return response;
   }
 
   async list(c: Context): Promise<Response> {
@@ -65,7 +114,7 @@ export class MessageController {
       });
       return c.json(dtos);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -91,6 +140,16 @@ export class MessageController {
         body: body.body,
       });
 
+      // 广播用户消息到外部渠道（飞书等）
+      if (this.messageBroadcaster) {
+        this.messageBroadcaster.broadcast(userMessage).catch(err => {
+          this.logger.error("Failed to broadcast user message", err instanceof Error ? err : undefined, {
+            conversationId,
+            messageId: userMessage.id,
+          });
+        });
+      }
+
       /** 3. 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
       const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
@@ -98,25 +157,39 @@ export class MessageController {
       const allTargets = new Set(firstTurnTargets);
       const { response, push, close } = streamEvents(c);
 
-      /** 5. 启动调度循环 */
-      const dispatchLoop = (targets: string[]) =>
-        this.dispatchTurnLoop(targets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets }, push);
+      /** 5. 订阅 broadcaster：统一接收 agent streaming 事件和完成消息 */
+      let unsubscribe: (() => void) | undefined;
+      if (this.messageBroadcaster) {
+        unsubscribe = this.messageBroadcaster.subscribe(
+          conversationId,
+          // onMessage 为空：POST SSE 流仅接收当前请求触发的 agent 事件（通过 onEvent）。
+          // 其他消息（飞书用户消息等）通过 GET SSE 订阅接收，避免重复推送。
+          () => {},
+          // onEvent：streaming 事件 → 推送到 POST SSE 流
+          (event) => {
+            push(event);
+          },
+        );
+      }
 
       /** 6. 启动调度循环（异常时通知前端并收尾，不静默悬挂 SSE） */
-      dispatchLoop(firstTurnTargets)
+      const allTargetsRef = allTargets;
+      this.dispatchTurnLoop(firstTurnTargets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets: allTargetsRef })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
           push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
         })
         .finally(() => {
-          push({ event: "stream.end", data: {} });
-          close();
+          // 清理订阅，防止内存泄漏
+          unsubscribe?.();
+          // 兜底：如果 subscribe 回调没有关闭流（如无 agent 事件），在此关闭
+          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
         });
 
       return response;
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -124,92 +197,30 @@ export class MessageController {
   private async dispatchTurnLoop(
     targets: string[],
     ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string> },
-    push: (event: { event: string; data: Record<string, unknown> }) => void,
   ): Promise<void> {
     const { conversationId, userMessageContent, senderId, allTargets } = ctx;
-    let depth = 0;
-    while (targets.length > 0 && depth < this.maxChainDepth) {
-      depth++;
-      for (const id of targets) allTargets.add(id);
 
-      /** 每跳重建名册：链中可能有 otter 被创建/解散 */
-      const roster = await this.buildRoster(conversationId);
-
-      const promises = targets.map(async otterId => {
-        const messageWithContext = await this.buildMessageWithContext(conversationId, otterId, userMessageContent, senderId, roster);
-        this.logger.info('发言链调用', { otterId, messageLength: messageWithContext.length, messagePreview: messageWithContext.substring(0, 200) });
+    // 使用 DispatchChainEngine 执行发言链（事件通过 broadcastEvent 统一推送到订阅者）
+    await this.dispatchChainEngine.executeChain({
+      conversationId,
+      userMessageContent,
+      senderId,
+      initialTargets: targets,
+      invokeFn: async (params) => {
+        for (const id of params.otterId ? [params.otterId] : []) allTargets.add(id);
         return this.agentInvoker.invokeConversation({
-          otterId, conversationId, userMessageContent: messageWithContext,
-          senderId, onSSEEvent: push,
+          otterId: params.otterId,
+          conversationId: params.conversationId,
+          userMessageContent: params.userMessageContent,
+          senderId: params.senderId,
         });
-      });
-      const results = await Promise.allSettled(promises);
-
-      await this.markBatchRead(conversationId, results);
-
-      const nextTargets = new Set<string>();
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value.aggregatedTargets) {
-          for (const id of r.value.aggregatedTargets) {
-            nextTargets.add(id);
-          }
-        }
-      }
-      targets = [...nextTargets].filter(id => id !== senderId);
-    }
-
-    /** 深度耗尽且仍有待派发目标：显式落地，发言石交还用户（不静默截断） */
-    if (targets.length > 0) {
-      await this.handleChainDepthExceeded(conversationId, targets, depth, push);
-    }
-  }
-
-  /** 在场成员名册：name ↔ otterId 映射确定性注入，speak 决策时免费在场 */
-  private async buildRoster(conversationId: string): Promise<string> {
-    const participants = await this.sendMessageUseCase.repo.getActiveParticipants(conversationId);
-    const lines = await Promise.all(participants.map(async p => {
-      const otter = await this.queryOtter.getById(p.otterId);
-      return `- ${otter?.name ?? p.otterId} (otterId: ${p.otterId})`;
-    }));
-    lines.push(`- 搭档（传 'user' 即交还发言权）`);
-    return `## 在场成员\n${lines.join('\n')}`;
-  }
-
-  /** 组装派发上下文：名册 + 具名对话历史 + 当前任务 */
-  private async buildMessageWithContext(
-    conversationId: string,
-    otterId: string,
-    userMessageContent: string,
-    senderId: string,
-    roster: string,
-  ): Promise<string> {
-    const unreadMessages = await this.sendMessageUseCase.repo.getUnreadMessages(conversationId, otterId);
-    if (unreadMessages.length === 0) {
-      return `${roster}\n\n## 当前任务\n${userMessageContent}`;
-    }
-    const names = await this.resolveSenderNames(unreadMessages);
-    /** 注入给剥离投影：html-card 替换为占位符（卡片源码经 get_message 按需取回）；
-     *  html-card-reply 不剥——回执 JSON 是水獭的交互载荷，须直接可见（F20260728htar） */
-    const formatted = unreadMessages
-      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '搭档' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ? stripHtmlCardsOnly(m.body) : ''}`)
-      .join('\n');
-    return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
-  }
-
-  /** 本批派发完成后，将各 otter 的已读位置推进到当前 turn */
-  private async markBatchRead(
-    conversationId: string,
-    results: PromiseSettledResult<{ messageId: string }>[],
-  ): Promise<void> {
-    const currentTurn = await this.sendMessageUseCase.repo.getActiveTurn(conversationId);
-    if (!currentTurn) return;
-    for (const r of results) {
-      if (r.status !== 'fulfilled') continue;
-      const msg = await this.queryMessage.getMessageById(r.value.messageId);
-      if (msg) {
-        await this.sendMessageUseCase.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
-      }
-    }
+      },
+      callbacks: {
+        onDepthExceeded: async (pendingTargets, depth) => {
+          await this.handleChainDepthExceeded(conversationId, pendingTargets, depth);
+        },
+      },
+    });
   }
 
   /** 发言链触顶：warn 日志 + 系统消息提示用户接管 */
@@ -217,14 +228,15 @@ export class MessageController {
     conversationId: string,
     pendingTargets: string[],
     depth: number,
-    push: (event: { event: string; data: Record<string, unknown> }) => void,
   ): Promise<void> {
     this.logger.warn('发言链达到深度上限，交还用户', { depth, pendingTargets, conversationId });
     const sysMsg = await this.sendMessageUseCase.sendSystem(
       conversationId,
-      `发言接力已达系统安全上限（${this.maxChainDepth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
+      `发言接力已达系统安全上限（${depth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     );
-    push({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+    if (this.messageBroadcaster) {
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+    }
   }
 
   async getById(c: Context): Promise<Response> {
@@ -237,7 +249,7 @@ export class MessageController {
       const senderNames = await this.resolveSenderNames([msg]);
       return c.json(toMessageDTO(msg, senderNames.get(msg.senderId)));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -247,7 +259,7 @@ export class MessageController {
       const events = await this.queryMessage.getMessageEvents(id);
       return c.json(events.map(toMessageEventDTO));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -269,7 +281,7 @@ export class MessageController {
       this.agentInvoker.abort(msg.senderId, id);
       return c.json({ status: "aborted" }, 202);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }
