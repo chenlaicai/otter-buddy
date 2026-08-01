@@ -30,7 +30,8 @@ export interface SendMessageInput {
   senderId: string;
   talkingStonePassedTo: string[];
   body: string;
-  source?: MessageSource;  // 默认 "web"
+  /** 用户消息来源（"web" | "feishu"），默认 "web"。agent/系统消息不需要此字段 */
+  source?: MessageSource;
 }
 
 /** Otter 开始流式消息输入 */
@@ -171,7 +172,7 @@ export class SendMessage {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
-      source: "web",
+      source: null, // agent 消息不需要标记来源，广播给所有已连接前端
       createdAt: now,
       completedAt: null,
     };
@@ -345,7 +346,7 @@ export class SendMessage {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
-      source: "web",
+      source: null, // 系统消息不需要标记来源
       createdAt: now,
       completedAt: now,
     };

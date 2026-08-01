@@ -30,7 +30,7 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     ...(senderName !== undefined && { sn: senderName }),
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),
-    ...(msg.source !== "web" && { src: msg.source }),
+    ...(msg.source && msg.source !== "web" && { src: msg.source }),
   };
 }
 
