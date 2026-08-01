@@ -114,7 +114,7 @@ describe("initModels — custom provider routing", () => {
     mockConfig.llm.provider = "unknown";
     mockConfig.llm.apiKey = "sk-test";
 
-    await expect(initModels(mockConfig.llm)).rejects.toThrow("Unsupported LLM provider: unknown");
+    await expect(initModels(mockConfig.llm)).rejects.toThrow("Unsupported LLM provider type: unknown");
   });
 });
 
@@ -204,5 +204,72 @@ describe("initModels — createCustomApiKeyAuth", () => {
     });
 
     expect(result).toEqual({ auth: { apiKey: "sk-config-wins" }, source: "config.yaml" });
+  });
+});
+
+describe("initModels — multi-model mode", () => {
+  it("returns ModelPool when models[] is configured", async () => {
+    mockConfig.llm = {
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: undefined,
+      apiBaseUrl: undefined,
+      default: "fast",
+      models: [
+        { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast" },
+        { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful" },
+      ],
+    } as any;
+
+    // Mock getModel to return different models based on call
+    let getModelCallCount = 0;
+    mockGetModel.mockImplementation(() => {
+      getModelCallCount++;
+      return getModelCallCount === 1
+        ? { id: "gpt-4o-mini" }
+        : { id: "gpt-4o" };
+    });
+
+    const result = await initModels(mockConfig.llm);
+
+    expect(result.modelPool).toBeDefined();
+    expect(result.modelPool.getDefaultAlias()).toBe("fast");
+    expect(result.modelPool.hasModel("fast")).toBe(true);
+    expect(result.modelPool.hasModel("powerful")).toBe(true);
+  });
+
+  it("single-model mode returns ModelPool with one entry", async () => {
+    mockConfig.llm = { provider: "openai", model: "gpt-4o", apiKey: undefined, apiBaseUrl: undefined };
+
+    const result = await initModels(mockConfig.llm);
+
+    expect(result.modelPool).toBeDefined();
+    expect(result.modelPool.getDefaultAlias()).toBe("openai");
+    expect(result.modelPool.hasModel("openai")).toBe(true);
+  });
+
+  it("multi-model mode registers each model with alias as provider ID", async () => {
+    mockConfig.llm = {
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: "sk-default",
+      apiBaseUrl: undefined,
+      default: "fast",
+      models: [
+        { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast" },
+        { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful" },
+      ],
+    } as any;
+
+    mockGetModel.mockReturnValue({ id: "model" });
+    mockCreateProvider.mockReturnValue({ id: "custom" });
+
+    await initModels(mockConfig.llm);
+
+    // Each model should call createProvider with alias as ID
+    const createProviderCalls = mockCreateProvider.mock.calls;
+    expect(createProviderCalls.length).toBe(2);
+    expect(createProviderCalls[0][0].id).toBe("fast");
+    expect(createProviderCalls[1][0].id).toBe("powerful");
   });
 });

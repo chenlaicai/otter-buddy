@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */ // 多模型路由改造导致文件增长，后续可拆分
 /**
  * PiSessionFactory：基于 pi-coding-agent SDK（createAgentSession）的 AgentGateway 实现。
  *
@@ -38,6 +39,7 @@ import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
 import { SessionRestore } from "./session-restore";
+import type { ModelPool } from "@frameworks/llm/model-pool";
 
 /** Agent 事件（流式推送，与 AgentStreamEvent 兼容） */
 export interface AgentEvent {
@@ -71,8 +73,10 @@ export interface AgentSessionFactoryConfig {
   db: Database.Database;
   sessionDir?: string;
   otterToolClient: OtterToolClient;
-  /** pi-ai Model 对象（由 models-factory 创建） */
+  /** pi-ai Model 对象（由 models-factory 创建，单模型模式时使用） */
   model: unknown;
+  /** ModelPool（多模型路由，可选） */
+  modelPool?: ModelPool;
   /** Otter 身份文案目录（含 BIG_OTTER.md / SMALL_OTTER.md，首次 invoke 时按类型注入） */
   identityPromptDir?: string;
   /** 工具工厂函数（由 Composition Root 注入，解耦 interface-adapters） */
@@ -124,6 +128,7 @@ export class PiSessionFactory implements AgentGateway {
       sessionDir: string;
       otterToolClient: OtterToolClient;
       model: unknown;
+      modelPool?: ModelPool;
       identityPromptDir?: string;
       createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
       healingRepo?: HealingEventRepository;
@@ -195,10 +200,22 @@ export class PiSessionFactory implements AgentGateway {
       const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
       this.modelRuntime = await ModelRuntimeClass.create() as { setRuntimeApiKey(provider: string, key: string): Promise<void> };
 
-      const llmConfig = appConfig.llm;
-      if (llmConfig.apiKey && this.modelRuntime) {
-        await this.modelRuntime.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
-        this.logger.info(`Set runtime API key for ${llmConfig.provider}`);
+      // 多模型模式：遍历所有模型设置 API key
+      if (this.cfg.modelPool) {
+        const entries = this.cfg.modelPool.getAllEntries();
+        for (const entry of entries) {
+          if (entry.config.apiKey && this.modelRuntime) {
+            await this.modelRuntime.setRuntimeApiKey(entry.alias, entry.config.apiKey);
+            this.logger.info(`Set runtime API key for alias=${entry.alias}`);
+          }
+        }
+      } else {
+        // 单模型模式：兼容旧逻辑
+        const llmConfig = appConfig.llm;
+        if (llmConfig.apiKey && this.modelRuntime) {
+          await this.modelRuntime.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
+          this.logger.info(`Set runtime API key for ${llmConfig.provider}`);
+        }
       }
     }
     return this.piCodingAgent;
@@ -228,6 +245,7 @@ export class PiSessionFactory implements AgentGateway {
     this.sessionRestore.createSessionAndPersist(otterId, {
       systemPrompt: config.systemPrompt,
       otterType: (config.context?.otterType as OtterType) ?? 'big',
+      modelAlias: config.modelAlias,
     }, this.piCodingAgent, this.cfg.sessionDir, allowOverwrite);
   }
 
@@ -297,6 +315,7 @@ export class PiSessionFactory implements AgentGateway {
           this.cfg.otterConfigProvider.setConfig(otterId, {
             systemPrompt: context.systemPrompt,
             otterType: existingConfig?.otterType ?? 'big',
+            modelAlias: existingConfig?.modelAlias, // 保留 modelAlias
           });
         }
       })();
@@ -406,10 +425,46 @@ export class PiSessionFactory implements AgentGateway {
     /** 未知类型按小獭处理（文案侧的保守默认；schema 约束下不可达，工具门控独立判定） */
     const isBig = otterType === 'big';
     const identityBody = isBig ? this.bigOtterIdentity : this.smallOtterIdentity;
+
+    // 大獭且多模型时注入模型选择指南
+    const modelGuidance = isBig ? this.buildModelSelectionGuidance() : '';
+
     return [
       `## 你的身份\n- 名称：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
       identityBody,
+      modelGuidance,
     ].filter(Boolean).join("\n\n");
+  }
+
+  /** 构建模型选择指南（注入大獭 prompt） */
+  private buildModelSelectionGuidance(): string {
+    if (!this.cfg.modelPool) return "";
+    const models = this.cfg.modelPool.describeModels();
+    if (models.length <= 1) return "";
+
+    const lines = models.map(m => {
+      const strengths = m.strengths?.length ? `优势: ${m.strengths.join("、")}` : "";
+      const weaknesses = m.weaknesses?.length ? `劣势: ${m.weaknesses.join("、")}` : "";
+      const details = [strengths, weaknesses].filter(Boolean).join("；");
+      return `- **${m.alias}**：${m.description ?? "无描述"}${details ? `\n  ${details}` : ""}`;
+    });
+
+    return [
+      "",
+      "## 可用模型",
+      "",
+      ...lines,
+      "",
+      "创建小獭时可通过 `modelAlias` 参数选择模型。不指定则使用默认模型。",
+      "只在任务有明确的模型适配需求时才选择，大多数情况下默认模型即可。",
+    ].join("\n");
+  }
+
+  /** 获取 otter 的模型别名（用于日志） */
+  private getModelAliasForLog(otterId: string): string {
+    if (!this.cfg.modelPool) return 'default';
+    const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+    return otterConfig?.modelAlias ?? this.cfg.modelPool.getDefaultAlias();
   }
 
   /** 使用 session 执行 invoke */
@@ -423,26 +478,26 @@ export class PiSessionFactory implements AgentGateway {
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
     // 1. 构建工具配置并创建 AgentSession
-    const { session, sessionKey } = await this._createSessionWithTools(
-      otterId, otterType, options, sessionManager,
-    );
+    const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager);
 
     // 2. 熔断器 + 输出退化检测
     const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard } = this._attachGuards(session, sessionKey, otterId);
 
-    // 3. 构建完整消息
+    // 3. 构建完整消息并记录日志
     const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
-    this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
-    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
+    this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
+    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
     try {
       await session.prompt(fullMessage);
       const result = this._buildInvokeResult(otterId, session, circuitBreaker);
-      result.outputGuardMetadata = outputGuard.getMetadata(); if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
+      result.outputGuardMetadata = outputGuard.getMetadata();
+      if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
       return result;
     } catch (err) {
       const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
-      e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0; e._guardAbortReason = activeEntry?.guardAbortReason;
+      e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
+      e._guardAbortReason = activeEntry?.guardAbortReason;
       throw err;
     } finally {
       unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
@@ -459,8 +514,18 @@ export class PiSessionFactory implements AgentGateway {
     const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId);
     const codingTools = getCodingToolsForOtterType(otterType);
 
+    // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
+    let resolvedModel = this.cfg.model;
+    let resolvedAlias = 'default';
+    if (this.cfg.modelPool) {
+      const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+      const modelAlias = otterConfig?.modelAlias;
+      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
+      resolvedAlias = modelAlias ?? this.cfg.modelPool.getDefaultAlias();
+    }
+
     this.logger.info('Tools registered for agent session', {
-      otterId, otterType,
+      otterId, otterType, modelAlias: resolvedAlias,
       codingTools,
       customToolNames: customTools.map(t => t.name),
       whitelist: [...codingTools, ...customTools.map(t => t.name)],
@@ -468,7 +533,7 @@ export class PiSessionFactory implements AgentGateway {
 
     const piCodingAgent = this.piCodingAgent!;
     const { session } = await piCodingAgent.createAgentSession({
-      model: this.cfg.model as never,
+      model: resolvedModel as never,
       sessionManager,
       tools: [...codingTools, ...customTools.map(t => t.name)],
       customTools: customTools as never,
@@ -492,7 +557,14 @@ export class PiSessionFactory implements AgentGateway {
     const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
     checkTokenWarning(otterId, stats.tokens, this.logger);
 
-    const ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
+    // per-otter contextWindow
+    let ctxMax: number | undefined;
+    if (this.cfg.modelPool) {
+      const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+      ctxMax = this.cfg.modelPool.getContextWindow(otterConfig?.modelAlias);
+    } else {
+      ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
+    }
     return buildResult("", tokenUsage, circuitBreaker, ctxMax);
   }
   private _attachGuards(session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> }, sessionKey: string, otterId: string) {
@@ -558,6 +630,7 @@ export class PiSessionFactory implements AgentGateway {
       otterId,
       conversationId,
       currentMessageId: messageId ?? "",
+      modelPool: this.cfg.modelPool,
     }, this.cfg.healingRepo, this.logger);
 
     return otterTools
@@ -587,6 +660,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     sessionDir: config.sessionDir ?? "./data/sessions",
     otterToolClient: config.otterToolClient,
     model: config.model,
+    modelPool: config.modelPool,
     identityPromptDir: config.identityPromptDir,
     createTools: config.createTools,
     healingRepo: config.healingRepo,

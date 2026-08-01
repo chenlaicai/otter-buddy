@@ -1,0 +1,174 @@
+/**
+ * create_otter 工具 modelAlias 校验测试
+ */
+import { describe, it, expect } from "vitest";
+import { createTools, type ToolContext, type ModelPoolLike } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+
+function makeModelPool(aliases: string[]): ModelPoolLike {
+  return {
+    hasModel: (alias: string) => aliases.includes(alias),
+    describeModels: () => aliases.map(alias => ({ alias, description: `Model ${alias}` })),
+  };
+}
+
+function makeCreateOtterTool(options: {
+  modelPool?: ModelPoolLike;
+  existingParticipants?: Array<{ otterId: string; otterName: string }>;
+  createError?: Error;
+} = {}) {
+  const createCalls: Array<{ name: string; type: string; modelAlias?: string }> = [];
+  const joinCalls: Array<{ conversationId: string; otterId: string }> = [];
+
+  const client = {
+    conversation: {
+      participant: {
+        getActive: async () => options.existingParticipants ?? [],
+        join: async (conversationId: string, otterId: string) => {
+          joinCalls.push({ conversationId, otterId });
+        },
+      },
+    },
+    otter: {
+      create: async (params: { name: string; type: string; systemPrompt: string; parentOtterId: string; modelAlias?: string }) => {
+        if (options.createError) throw options.createError;
+        createCalls.push({ name: params.name, type: params.type, modelAlias: params.modelAlias });
+        return { id: "new-otter-id", name: params.name };
+      },
+    },
+  } as unknown as OtterToolClient;
+
+  const ctx: ToolContext = {
+    client,
+    otterId: "parent-otter",
+    conversationId: "conv-1",
+    currentMessageId: "msg-1",
+    modelPool: options.modelPool,
+  };
+
+  const tools = createTools(ctx);
+  const createOtter = tools.find(t => t.name === "create_otter")!;
+  return { createOtter, createCalls, joinCalls };
+}
+
+describe("create_otter 工具 modelAlias 校验", () => {
+  it("不传 modelAlias 时正常创建，modelAlias 为 undefined", async () => {
+    const { createOtter, createCalls } = makeCreateOtterTool({
+      modelPool: makeModelPool(["default", "fast"]),
+    });
+
+    const result = await createOtter.execute("c1", {
+      name: "小獭",
+      type: "small",
+      systemPrompt: "你是小獭",
+    });
+
+    expect(result.content[0].text).toContain("Otter created");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].modelAlias).toBeUndefined();
+  });
+
+  it("传入有效 modelAlias 时正常创建", async () => {
+    const { createOtter, createCalls } = makeCreateOtterTool({
+      modelPool: makeModelPool(["default", "fast"]),
+    });
+
+    const result = await createOtter.execute("c1", {
+      name: "快速小獭",
+      type: "small",
+      systemPrompt: "你是小獭",
+      modelAlias: "fast",
+    });
+
+    expect(result.content[0].text).toContain("Otter created");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].modelAlias).toBe("fast");
+  });
+
+  it("传入无效 modelAlias 时返回错误", async () => {
+    const { createOtter, createCalls } = makeCreateOtterTool({
+      modelPool: makeModelPool(["default", "fast"]),
+    });
+
+    const result = await createOtter.execute("c1", {
+      name: "小獭",
+      type: "small",
+      systemPrompt: "你是小獭",
+      modelAlias: "nonexistent",
+    });
+
+    expect(result.content[0].text).toContain("[错误]");
+    expect(result.content[0].text).toContain("nonexistent");
+    expect(result.content[0].text).toContain("default");
+    expect(result.content[0].text).toContain("fast");
+    expect(createCalls).toHaveLength(0);
+  });
+
+  it("传入空字符串 modelAlias 时正常创建（走默认）", async () => {
+    const { createOtter, createCalls } = makeCreateOtterTool({
+      modelPool: makeModelPool(["default", "fast"]),
+    });
+
+    const result = await createOtter.execute("c1", {
+      name: "小獭",
+      type: "small",
+      systemPrompt: "你是小獭",
+      modelAlias: "",
+    });
+
+    expect(result.content[0].text).toContain("Otter created");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].modelAlias).toBeUndefined();
+  });
+
+  it("传入空白字符串 modelAlias 时正常创建（走默认）", async () => {
+    const { createOtter, createCalls } = makeCreateOtterTool({
+      modelPool: makeModelPool(["default", "fast"]),
+    });
+
+    const result = await createOtter.execute("c1", {
+      name: "小獭",
+      type: "small",
+      systemPrompt: "你是小獭",
+      modelAlias: "   ",
+    });
+
+    expect(result.content[0].text).toContain("Otter created");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].modelAlias).toBeUndefined();
+  });
+
+  it("无 modelPool 时跳过校验，正常创建", async () => {
+    const { createOtter, createCalls } = makeCreateOtterTool({
+      // modelPool 未配置
+    });
+
+    const result = await createOtter.execute("c1", {
+      name: "小獭",
+      type: "small",
+      systemPrompt: "你是小獭",
+      modelAlias: "anything",
+    });
+
+    expect(result.content[0].text).toContain("Otter created");
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].modelAlias).toBe("anything");
+  });
+
+  it("同名参与者已存在时返回错误", async () => {
+    const { createOtter, createCalls } = makeCreateOtterTool({
+      modelPool: makeModelPool(["default"]),
+      existingParticipants: [{ otterId: "existing-id", otterName: "小獭" }],
+    });
+
+    const result = await createOtter.execute("c1", {
+      name: "小獭",
+      type: "small",
+      systemPrompt: "你是小獭",
+    });
+
+    expect(result.content[0].text).toContain("[错误]");
+    expect(result.content[0].text).toContain("同名参与者");
+    expect(createCalls).toHaveLength(0);
+  });
+});

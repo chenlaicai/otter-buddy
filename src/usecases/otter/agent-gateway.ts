@@ -5,6 +5,8 @@ export interface AgentConfig {
   /** Otter 级系统提示词（可选，与平台 prompt 叠加） */
   systemPrompt?: string | OtterPromptConfig;
   context?: Record<string, unknown>;
+  /** 模型别名（多模型路由，可选） */
+  modelAlias?: string;
 }
 
 /** Agent 重置上下文 */

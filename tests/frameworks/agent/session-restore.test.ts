@@ -23,11 +23,12 @@ function makeDb(): Database.Database {
 }
 
 function makeConfigProvider(): OtterConfigProvider {
-  const configs = new Map<string, { systemPrompt?: string; otterType: string }>();
+  const configs = new Map<string, { systemPrompt?: string; otterType: string; modelAlias?: string }>();
   return {
     getConfig: (id: string) => configs.get(id) ?? null,
-    setConfig: (id: string, cfg: { systemPrompt?: string; otterType: string }) => { configs.set(id, cfg); },
+    setConfig: (id: string, cfg: { systemPrompt?: string; otterType: string; modelAlias?: string }) => { configs.set(id, cfg); },
     deleteConfig: (id: string) => { configs.delete(id); },
+    hasConfig: (id: string) => configs.has(id),
   } as unknown as OtterConfigProvider;
 }
 
@@ -113,5 +114,71 @@ describe("SessionRestore.createdNew 信号", () => {
     const result = await restore.restoreOrCreate("o1", makePiCodingAgent(openImpl), "/tmp/sessions");
 
     expect(result.createdNew).toBe(true);
+  });
+});
+
+describe("SessionRestore modelAlias 持久化", () => {
+  let db: Database.Database;
+  let store: AgentSessionStore;
+  let provider: OtterConfigProvider;
+  let restore: SessionRestore;
+
+  beforeEach(() => {
+    db = makeDb();
+    store = createAgentSessionStore(db);
+    provider = makeConfigProvider();
+    restore = new SessionRestore(store, provider, mockLogger(), db);
+  });
+
+  it("createSessionAndPersist 保存 modelAlias 到配置", () => {
+    restore.createSessionAndPersist(
+      "o1",
+      { otterType: "small", modelAlias: "fast" },
+      makePiCodingAgent(),
+      "/tmp/sessions",
+      false,
+    );
+
+    const config = provider.getConfig("o1");
+    expect(config?.modelAlias).toBe("fast");
+    expect(config?.otterType).toBe("small");
+  });
+
+  it("createSessionAndPersist 不传 modelAlias 时为 undefined", () => {
+    restore.createSessionAndPersist(
+      "o1",
+      { otterType: "big" },
+      makePiCodingAgent(),
+      "/tmp/sessions",
+      false,
+    );
+
+    const config = provider.getConfig("o1");
+    expect(config?.modelAlias).toBeUndefined();
+  });
+
+  it("session 文件丢失重建时保留 modelAlias", async () => {
+    // 先创建带 modelAlias 的配置
+    provider.setConfig("o1", { otterType: "small", modelAlias: "powerful" });
+    store.setWithFile("o1", "sid-old", "/tmp/missing.jsonl");
+
+    const result = await restore.restoreOrCreate("o1", makePiCodingAgent(), "/tmp/sessions");
+
+    expect(result.createdNew).toBe(true);
+    // 重建后 modelAlias 应保留
+    const config = provider.getConfig("o1");
+    expect(config?.modelAlias).toBe("powerful");
+  });
+
+  it("session 文件损坏重建时保留 modelAlias", async () => {
+    provider.setConfig("o1", { otterType: "small", modelAlias: "fast" });
+    store.setWithFile("o1", "sid-old", "/tmp/corrupt.jsonl");
+    const openImpl = () => ({ getSessionId: () => null, getSessionFile: () => null });
+
+    const result = await restore.restoreOrCreate("o1", makePiCodingAgent(openImpl), "/tmp/sessions");
+
+    expect(result.createdNew).toBe(true);
+    const config = provider.getConfig("o1");
+    expect(config?.modelAlias).toBe("fast");
   });
 });

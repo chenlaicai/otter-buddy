@@ -125,3 +125,85 @@ describe("loadConfig", () => {
   });
 });
 
+describe("validate — multi-model", () => {
+  it("passes with valid multi-model config", () => {
+    const raw = {
+      llm: {
+        default: "fast",
+        models: [
+          { alias: "fast", provider: "openai", model: "gpt-4o-mini" },
+          { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514" },
+        ],
+      },
+    };
+    expect(() => validate(raw)).not.toThrow();
+    expect(raw.llm.default).toBe("fast");
+    expect(raw.llm.models).toBeDefined();
+  });
+
+  it("sets default to first model when not specified", () => {
+    const raw = {
+      llm: {
+        models: [
+          { alias: "fast", provider: "openai", model: "gpt-4o-mini" },
+          { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514" },
+        ],
+      },
+    };
+    validate(raw);
+    expect(raw.llm.default).toBe("fast");
+  });
+
+  it("throws when model alias is missing", () => {
+    expect(() => validate({
+      llm: {
+        models: [
+          { provider: "openai", model: "gpt-4o" },
+        ],
+      },
+    })).toThrow("缺少 alias");
+  });
+
+  it("throws when model provider is missing", () => {
+    expect(() => validate({
+      llm: {
+        models: [
+          { alias: "test", model: "gpt-4o" },
+        ],
+      },
+    })).toThrow("provider 为必填字段");
+  });
+
+  it("throws when model provider is invalid", () => {
+    expect(() => validate({
+      llm: {
+        models: [
+          { alias: "test", provider: "google", model: "gemini-pro" },
+        ],
+      },
+    })).toThrow("openai / anthropic");
+  });
+
+  it("throws when aliases are duplicated", () => {
+    expect(() => validate({
+      llm: {
+        models: [
+          { alias: "same", provider: "openai", model: "gpt-4o" },
+          { alias: "same", provider: "anthropic", model: "claude-sonnet-4-20250514" },
+        ],
+      },
+    })).toThrow("重复的 alias");
+  });
+
+  it("throws when default alias not in models", () => {
+    expect(() => validate({
+      llm: {
+        default: "nonexistent",
+        models: [
+          { alias: "fast", provider: "openai", model: "gpt-4o" },
+        ],
+      },
+    })).toThrow("不在 models[] 中");
+  });
+});
+

@@ -11,6 +11,8 @@ export interface CreateOtterInput {
   /** Otter 级系统提示词（可选，与平台 prompt 叠加） */
   systemPrompt?: string | OtterPromptConfig;
   context?: Record<string, unknown>;
+  /** 模型别名（多模型路由，可选） */
+  modelAlias?: string;
 }
 
 export class CreateOtter {
@@ -42,6 +44,7 @@ export class CreateOtter {
       await this.agentGateway.create(id, {
         systemPrompt: params.systemPrompt,
         context: { ...params.context, otterType: params.type },
+        modelAlias: params.modelAlias,
       });
     } catch (err) {
       /** B1 回归守护：Agent 创建失败时回滚 DB 记录，避免孤立 Otter */

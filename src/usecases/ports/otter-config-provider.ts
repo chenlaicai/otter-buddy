@@ -5,6 +5,8 @@ export type OtterType = 'big' | 'small';
 export interface OtterConfig {
   systemPrompt?: string | OtterPromptConfig;
   otterType: OtterType;
+  /** 模型别名（多模型路由，可选） */
+  modelAlias?: string;
 }
 
 export interface OtterConfigProvider {

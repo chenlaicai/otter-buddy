@@ -18,18 +18,38 @@ database:
 
 # === LLM 配置（必填）===
 llm:
-  # LLM 提供商，可选值：openai / anthropic（必填）
-  provider: openai
-  # 模型标识符，例如 gpt-4o、claude-sonnet-4-20250514（必填）
-  model: gpt-4o
-  # API Key（可选）
-  # 优先级：此配置值 > 存储的凭据 > 环境变量（OPENAI_API_KEY 或 ANTHROPIC_API_KEY）
-  # 方式一：直接填入 API Key
+  # 默认模型的 alias（多模型模式必填）
+  default: "default"
+  # 模型列表（多模型模式）
+  # 每个模型有唯一 alias，大獭创建小獭时可通过 modelAlias 选择
+  models:
+    - alias: "default"
+      provider: openai
+      model: gpt-4o
+      # API Key（可选）
+      # 优先级：此配置值 > 存储的凭据 > 环境变量（OPENAI_API_KEY 或 ANTHROPIC_API_KEY）
+      # apiKey: "sk-your-actual-key"
+      # 自定义 API 基础地址（可选）
+      # apiBaseUrl: "https://your-proxy.com/v1"
+      description: "平衡型模型，适合日常对话和编码"
+      strengths: ["强推理", "代码能力优秀", "长上下文"]
+      weaknesses: ["价格较高"]
+      contextWindow: 128000
+
+    # 示例：添加第二个模型
+    # - alias: "fast"
+    #   provider: anthropic
+    #   model: claude-haiku-4-20250514
+    #   apiKey: "sk-your-key"
+    #   description: "轻量快速模型，适合简单任务"
+    #   strengths: ["极快", "便宜"]
+    #   weaknesses: ["复杂推理有限"]
+    #   contextWindow: 200000
+
+  # === 单模型模式（兼容旧格式，与 models[] 二选一）===
+  # provider: openai
+  # model: gpt-4o
   # apiKey: "sk-your-actual-key"
-  # 方式二：不配置此项，自动从环境变量读取
-  # 自定义 API 基础地址（可选）
-  # 用于代理或私有部署，例如 https://your-proxy.com/v1
-  # 不配置则使用各提供商的默认地址
   # apiBaseUrl: "https://your-proxy.com/v1"
 
 # === 记忆系统配置 ===
