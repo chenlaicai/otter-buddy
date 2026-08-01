@@ -6,7 +6,6 @@ import type { FeishuAccessTokenManager } from "./access-token-manager";
 export interface FeishuConfig {
   appId: string;
   appSecret: string;
-  verificationToken?: string;
   encryptKey?: string;
 }
 
@@ -64,7 +63,6 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     private readonly tokenManager: FeishuAccessTokenManager,
   ) {
     this.eventDispatcher = new EventDispatcher({
-      verificationToken: config.verificationToken,
       encryptKey: config.encryptKey,
     });
 

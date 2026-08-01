@@ -75,7 +75,6 @@ import { FeishuClient } from "@frameworks/feishu/client";
 import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
-import { FeishuWebhookHandler } from "@interface-adapters/feishu/webhook-handler";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
@@ -426,18 +425,6 @@ function setupFeishu(app: Hono, uc: UseCases, agentInvoker: AgentInvoker, messag
   }).catch((err) => {
     logger.error("Failed to start Feishu long connection", err instanceof Error ? err : undefined);
   });
-
-  // 保留 webhook 路由作为备用（如果配置了 verificationToken）
-  if (appConfig.feishu.verificationToken) {
-    const feishuWebhookHandler = new FeishuWebhookHandler({
-      messageProcessor,
-      feishuGateway: feishuClient,
-      config: { verificationToken: appConfig.feishu.verificationToken },
-      logger,
-    });
-    app.post("/feishu/webhook", (ctx) => feishuWebhookHandler.handle(ctx));
-    logger.info("Feishu webhook route registered (backup)");
-  }
 }
 
 function startServer(

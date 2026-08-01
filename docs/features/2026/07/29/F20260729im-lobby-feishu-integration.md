@@ -13,6 +13,21 @@ Feature
 - 一个对话同时只能有一个连接进入（独占约束）
 - 飞书消息需要同步到 Web 端，但 Web 消息不回流飞书（防回环）
 
+## 技术选型：长连接 vs Webhook
+
+采用飞书 SDK 的 **WSClient 长连接模式**，而非传统的 Webhook HTTP 回调。
+
+**选型理由：**
+- **无需公网 IP/域名**：长连接模式由客户端主动连接飞书服务器，适合本地开发和内网部署
+- **无需配置回调地址**：Webhook 需要在飞书开放平台配置公网可达的回调 URL
+- **实时性更好**：WebSocket 双向通信，消息延迟更低
+- **部署更简单**：不需要反向代理、SSL 证书等基础设施
+
+**架构：**
+```
+飞书服务器 ←─WebSocket─→ WSClient（本服务）←─内部事件─→ MessageProcessor
+```
+
 ## 核心设计
 
 ### 1. Connection-Session 模型
@@ -120,7 +135,6 @@ CREATE UNIQUE INDEX idx_conn_sessions_conv_active ON connection_sessions(convers
 | POST | /api/connections/:id/enter | 进入 Conversation |
 | POST | /api/connections/:id/leave | 离开 Conversation |
 | GET | /api/connections/:id/conversations | 获取可进入的对话列表 |
-| POST | /feishu/webhook | 飞书事件订阅入口 |
 
 ### Web UI
 
@@ -151,8 +165,7 @@ CREATE UNIQUE INDEX idx_conn_sessions_conv_active ON connection_sessions(convers
 feishu:
   appId: "cli_xxxxxxxxxxxxxxxx"
   appSecret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  verificationToken: "optional-token"
-  encryptKey: "optional-encrypt-key"
+  encryptKey: "optional-encrypt-key"  # 可选，用于解密飞书加密事件
 ```
 
 ## 文件清单
@@ -165,7 +178,10 @@ feishu:
 - `src/usecases/im/feishu-gateway.ts` - 飞书网关接口
 - `src/frameworks/db/im/sqlite-connection-repository.ts` - SQLite 实现
 - `src/frameworks/feishu/client.ts` - 飞书 API 客户端
-- `src/interface-adapters/feishu/webhook-handler.ts` - Webhook 处理
+- `src/frameworks/feishu/long-connection-client.ts` - 飞书长连接客户端（WSClient）
+- `src/frameworks/feishu/access-token-manager.ts` - 飞书 Token 管理
+- `src/interface-adapters/feishu/long-connection-handler.ts` - 长连接事件处理
+- `src/interface-adapters/feishu/message-processor.ts` - 飞书消息处理
 - `src/interface-adapters/feishu/command-dispatcher.ts` - 命令分发
 - `src/interface-adapters/http/controllers/connection-controller.ts` - REST 控制器
 - `src/interface-adapters/http/dto/connection-dto.ts` - DTO 转换

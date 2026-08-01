@@ -6,7 +6,6 @@ import type { FeishuAccessTokenManager } from "./access-token-manager";
 export interface FeishuConfig {
   appId: string;
   appSecret: string;
-  verificationToken: string;  // 必填
   encryptKey?: string;
 }
 

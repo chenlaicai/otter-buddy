@@ -56,7 +56,6 @@ export interface AppConfig {
   feishu?: {
     appId: string;
     appSecret: string;
-    verificationToken: string;  // 必填，用于验证飞书 Webhook
     encryptKey?: string;
   };
 }
@@ -106,7 +105,6 @@ interface RawConfig {
   feishu?: {
     appId?: string;
     appSecret?: string;
-    verificationToken?: string;
     encryptKey?: string;
   };
 }
@@ -181,13 +179,12 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
 }
 
 function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
-  if (!raw.feishu?.appId || !raw.feishu?.appSecret || !raw.feishu?.verificationToken) {
+  if (!raw.feishu?.appId || !raw.feishu?.appSecret) {
     return undefined;
   }
   return {
     appId: raw.feishu.appId,
     appSecret: raw.feishu.appSecret,
-    verificationToken: raw.feishu.verificationToken,
     encryptKey: raw.feishu.encryptKey ?? undefined,
   };
 }

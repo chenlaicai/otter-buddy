@@ -108,8 +108,6 @@ circuitBreaker:
 #   appId: "cli_xxxxxxxxxxxxxxxx"
 #   # 飞书应用 App Secret（必填，从飞书开放平台获取）
 #   appSecret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-#   # 事件订阅验证 Token（必填，飞书开放平台 -> 事件订阅 -> Verification Token）
-#   verificationToken: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 #   # 事件加密密钥（可选，用于解密飞书加密事件）
 #   encryptKey: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
