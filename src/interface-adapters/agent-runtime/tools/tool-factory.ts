@@ -3,11 +3,12 @@ import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artif
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { type ToolResponse, textResponse } from "./tool-helpers";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { HealingResolutionAction } from "@entities/healing/healing-event";
+import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
+import type { Logger } from "@usecases/ports/logger";
 
-/**
- * Agent 工具类型（与 Pi AgentTool 接口兼容）。
- * name + description + parameters + execute(toolCallId, params) => ToolResponse。
- */
+
 export interface AgentTool {
   name: string;
   description: string;
@@ -26,16 +27,32 @@ export interface ToolContext {
   client: OtterToolClient;
   otterId: string;
   conversationId: string;
-  /** 当前 streaming 消息 ID（speak 工具用） */
   currentMessageId: string;
 }
 
-// ── 现有工具（8 个，从 ToolDependencies 迁移到 ToolContext） ──
+function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {
+  const cleanBody = stripHealingReport(rawBody);
+  const { hasIssues, issues } = parseHealingReport(rawBody);
+  if (hasIssues) {
+    const now = new Date().toISOString();
+    const meta = { otterId: ctx.otterId, conversationId: ctx.conversationId, messageId: ctx.currentMessageId };
+    for (const issue of issues) {
+      if (issue.severity === 'high') logger?.warn('High severity healing event', { type: issue.type, description: issue.description });
+      repo.create({
+        id: crypto.randomUUID(), messageId: ctx.currentMessageId, conversationId: ctx.conversationId,
+        otterId: ctx.otterId, errorType: issue.type, severity: issue.severity,
+        description: issue.description, suggestion: issue.suggestion,
+        context: meta, status: 'open', resolution: null, createdAt: now, resolvedAt: null,
+      }).catch(err => logger?.error('Failed to store healing event', err instanceof Error ? err : new Error(String(err))));
+    }
+  }
+  return cleanBody;
+}
 
-function createSpeakTool(ctx: ToolContext): AgentTool {
+function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。",
+    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。【系统自愈】如果本次调用遇到系统问题（工具故障、检索缺失、格式异常等），在 body 末尾附加 `<healing>[issues]` 块（type/severity/description/suggestion 各一行）；顺利则输出 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档不会看到。",
     parameters: {
       type: "object",
       properties: {
@@ -49,24 +66,18 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       required: ["body", "talkingStonePassedTo"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      if (!ctx.currentMessageId) {
-        return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法声明发言。");
-      }
+      if (!ctx.currentMessageId) return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法声明发言。");
 
-      const body = params.body as string;
+      const rawBody = params.body as string;
       const recipients = params.talkingStonePassedTo as string[];
+      const cleanBody = healingRepo && rawBody
+        ? interceptHealingReport(rawBody, ctx, healingRepo, logger)
+        : rawBody;
 
-      if (!body || body.trim().length === 0) {
-        return textResponse("[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。");
-      }
-      if (!recipients || recipients.length === 0) {
-        return textResponse("[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者 ID。");
-      }
-      if (recipients.includes(ctx.otterId)) {
-        return textResponse(`[错误] 不能把发言石传给自己（${ctx.otterId}）。请先调用 get_active_participants 获取在场成员，然后选择其他参与者。`);
-      }
+      if (!cleanBody || cleanBody.trim().length === 0) return textResponse("[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。");
+      if (!recipients || recipients.length === 0) return textResponse("[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者 ID。");
+      if (recipients.includes(ctx.otterId)) return textResponse(`[错误] 不能把发言石传给自己（${ctx.otterId}）。请先调用 get_active_participants 获取在场成员，然后选择其他参与者。`);
 
-      /** 目标必须是在场参与者或 'user'：非法目标会被 dispatcher 静默丢弃（链条无声终止） */
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const validIds = new Set([...active.map(p => p.otterId), "user"]);
       const invalid = recipients.filter(id => !validIds.has(id));
@@ -76,12 +87,10 @@ function createSpeakTool(ctx: ToolContext): AgentTool {
       }
 
       try {
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body, talkingStonePassedTo: recipients });
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: recipients });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return textResponse(`[错误] 发言声明失败：${msg}。请重试。`);
+        return textResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
-      /** terminate: speak 成功即回合终点，loop 不再发起下一轮生成（结构性终止，不依赖模型自觉） */
       return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。系统将自动调度下一位发言者。"), terminate: true };
     },
   };
@@ -410,13 +419,49 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/**
- * 工具工厂：invoke 时调用，闭包捕获 ToolContext。
- * 返回全部 20 个 AgentTool 实例。
- */
-export function createTools(ctx: ToolContext): AgentTool[] {
+export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: HealingEventRepository): AgentTool {
+  const exec = async (_id: string, params: Record<string, unknown>): Promise<ToolResponse> => {
+    const action = params.action as string;
+    if (action === 'query') {
+      const status = (params.status as string) ?? 'open';
+      let events = await healingRepo.findAll(status as 'open' | 'resolved' | 'dismissed', 50);
+      const et = params.errorType as string | undefined;
+      if (et) events = events.filter(e => e.errorType === et);
+      return textResponse(JSON.stringify(events, null, 2));
+    }
+    const ids = params.eventIds as string[];
+    if (!ids?.length) return textResponse("[错误] eventIds 不能为空");
+    if (action === 'resolve' || action === 'dismiss') {
+      const fn = action === 'resolve'
+        ? (id: string) => healingRepo.resolve(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' })
+        : (id: string) => healingRepo.updateStatus(id, 'dismissed');
+      const res = await Promise.allSettled(ids.map(fn));
+      return textResponse(`完成: ${res.filter(r => r.status === 'fulfilled').length}/${ids.length} 成功`);
+    }
+    return textResponse(`未知操作: ${action}`);
+  };
+  return {
+    name: "manage_healing_events",
+    description: "查询和管理 healing events（系统自愈问题记录）。查看待处理问题、标记已解决/忽略。",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["query", "resolve", "dismiss"], description: "操作类型" },
+        status: { type: "string", enum: ["open", "resolved", "dismissed"], description: "按状态筛选" },
+        errorType: { type: "string", description: "按错误类型筛选" },
+        eventIds: { type: "array", items: { type: "string" }, description: "event ID 列表" },
+        resolutionAction: { type: "string", enum: ["prompt_updated", "memory_added", "tool_fixed", "config_changed", "no_action", "deferred"], description: "修复行动" },
+        resolutionNotes: { type: "string", description: "解决方式说明" },
+      },
+      required: ["action"],
+    },
+    execute: exec,
+  };
+}
+
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool[] {
   return [
-    createSpeakTool(ctx),
+    createSpeakTool(ctx, healingRepo, logger),
     createInviteParticipantTool(ctx),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
