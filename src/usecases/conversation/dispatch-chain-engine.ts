@@ -110,20 +110,26 @@ export class DispatchChainEngine {
     const results = await Promise.allSettled(promises);
     await this.markBatchRead(conversationId, results);
 
-    return this.processHopResults(results, senderId);
+    return this.processHopResults(results, senderId, conversationId, targets);
   }
 
   private async processHopResults(
     results: PromiseSettledResult<InvokeFnResult>[],
     senderId: string,
+    conversationId?: string,
+    targets?: string[],
   ): Promise<ChainHopResult> {
     let otterReply: string | undefined;
     const nextTargets = new Set<string>();
 
-    for (const r of results) {
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
       if (r.status !== "fulfilled") {
         const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-        this.deps.logger.error('发言链目标调用失败', r.reason instanceof Error ? r.reason : new Error(reason));
+        this.deps.logger.error('发言链目标调用失败', r.reason instanceof Error ? r.reason : new Error(reason), {
+          conversationId,
+          otterId: targets?.[i],
+        });
         continue;
       }
 

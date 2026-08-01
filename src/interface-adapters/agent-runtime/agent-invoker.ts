@@ -392,6 +392,8 @@ export class AgentInvoker {
   }): Promise<ConversationInvokeResult> {
     const { messageId, otterId, conversationId, senderId, emitEvent, retryCount, startTime, tokenUsage, toolCallCount } = params;
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
+    const otter = await this.queryOtter.getById(otterId);
+    const otterName = otter?.name ?? otterId;
 
     if (retryCount === 0) {
       /** 第一次：fail + 系统提醒 + 重试 */
@@ -399,7 +401,7 @@ export class AgentInvoker {
       try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
 
       /** 通知前端当前消息失败，清除 streaming 状态 */
-      emitEvent({ event: "message.failed", data: { messageId, body: failBody } });
+      emitEvent({ event: "message.failed", data: { messageId, otterId, otterName, body: failBody } });
 
       /** toolCallCount=0 表示 LLM 本轮没有调用任何工具（thinking-only 空响应）；>0 表示有工具调用但漏了 speak */
       const isThinkingOnly = (toolCallCount ?? 0) === 0;
@@ -433,7 +435,7 @@ export class AgentInvoker {
 
     const duration = Date.now() - startTime;
     /** msg2 终结：发送 message.failed（不是 complete），关闭消息生命周期 */
-    emitEvent({ event: "message.failed", data: { messageId, body: failBody } });
+    emitEvent({ event: "message.failed", data: { messageId, otterId, otterName, body: failBody } });
 
     return { messageId, duration, tokenUsage };
   }

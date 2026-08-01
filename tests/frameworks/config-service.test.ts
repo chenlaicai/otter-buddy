@@ -72,7 +72,7 @@ describe("loadConfig", () => {
     expect(cfg.memory.rrfK).toBe(60);
     expect(cfg.embedding.dimensions).toBe(1024);
     expect(cfg.circuitBreaker.maxToolCalls).toBe(40);
-    expect(cfg.circuitBreaker.maxChainDepth).toBe(20);
+    expect(cfg.circuitBreaker.maxChainDepth).toBe(100);
   });
 
   it("overrides maxChainDepth from yaml", () => {

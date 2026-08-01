@@ -233,11 +233,11 @@ function ConversationPage() {
         liveMeta.delete(messageId)
       },
       'message.failed': (data) => {
-        const { messageId } = data as { messageId: string }
+        const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
         const liveEvents = liveEventsMap.get(messageId) || []
         const meta = liveMeta.get(messageId)
         const failedMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: meta?.otterId || '',
+          id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
           content: (data.body as string) ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
@@ -487,9 +487,9 @@ function ConversationPage() {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
           const meta = liveMeta.get(messageId)
-          const otterId = meta?.otterId || ''
+          const otterId = meta?.otterId || data.otterId || ''
           const failedMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName,
+            id: messageId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
             content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }

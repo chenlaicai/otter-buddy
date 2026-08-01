@@ -5,7 +5,7 @@ export type SSEEventMap = {
   "tool.result": { messageId: string; toolName: string; result: unknown };
   "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };
   "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number };
-  "message.failed": { messageId: string; body?: string };
+  "message.failed": { messageId: string; otterId: string; otterName: string; body?: string };
   "message.aborted": { messageId: string; body?: string; otterId?: string; otterName?: string };
   "system.message": { messageId: string; content: string; seq: number };
   "turn.complete": Record<string, never>;
