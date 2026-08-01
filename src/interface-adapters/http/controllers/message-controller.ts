@@ -158,8 +158,9 @@ export class MessageController {
       const { response, push, close } = streamEvents(c);
 
       /** 5. 订阅 broadcaster：统一接收 agent streaming 事件和完成消息 */
+      let unsubscribe: (() => void) | undefined;
       if (this.messageBroadcaster) {
-        this.messageBroadcaster.subscribe(
+        unsubscribe = this.messageBroadcaster.subscribe(
           conversationId,
           // onMessage：完成消息（不推送给 Web，避免重复；但需要 stream.end 触发关闭）
           () => { /* 完成消息由 message.complete 事件处理 */ },
@@ -184,6 +185,8 @@ export class MessageController {
           push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
         })
         .finally(() => {
+          // 清理订阅，防止内存泄漏
+          unsubscribe?.();
           // 兜底：如果 subscribe 回调没有关闭流（如无 agent 事件），在此关闭
           setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
         });

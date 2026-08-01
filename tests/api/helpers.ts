@@ -466,7 +466,7 @@ export function createTestApp(deps: TestDeps): Hono {
     connection: {} as any, // TODO: 添加 mock
   };
 
-  const app = createRouter(controllers, mockLogger(), undefined);
+  const app = createRouter(controllers, mockLogger());
 
   // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
   (app as any).__broadcastEventCalls = broadcastEventCalls;

@@ -448,7 +448,7 @@ function startServer(
 ): void {
   const app = new Hono();
   setupFeishu(app, uc, agentInvoker, messageBroadcaster);
-  app.route("/", createRouter(controllers, logger, messageBroadcaster));
+  app.route("/", createRouter(controllers, logger));
   app.use("/*", serveStatic({ root: "./web/dist" }));
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);

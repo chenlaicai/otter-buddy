@@ -257,41 +257,66 @@ function ConversationPage() {
       },
     }
 
-    // SSE 订阅：用 XMLHttpRequest 流式读取（比 fetch + ReadableStream 更可靠）
-    const xhr = new XMLHttpRequest()
-    xhr.open('GET', `/api/conversations/${activeId}/subscribe`)
-    let buffer = ''
-    let currentEvent = ''
-    let currentData = ''
+    // SSE 订阅：用 XMLHttpRequest 流式读取，带指数退避重连
+    let xhr: XMLHttpRequest | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectDelay = 1000
+    const maxDelay = 30000
+    let disposed = false
 
-    xhr.onprogress = () => {
-      buffer += xhr.responseText.slice(buffer.length)
-      const lines = buffer.split('\n')
-      buffer = lines.pop()!
+    function connect() {
+      if (disposed) return
+      xhr = new XMLHttpRequest()
+      xhr.open('GET', `/api/conversations/${activeId}/subscribe`)
+      let buffer = ''
+      let currentEvent = ''
+      let currentData = ''
 
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7)
-        } else if (line.startsWith('data: ')) {
-          currentData = line.slice(6)
-        } else if (line === '' && currentEvent) {
-          try {
-            const data = JSON.parse(currentData)
-            handlers[currentEvent]?.(data)
-          } catch { /* skip malformed */ }
-          currentEvent = ''
-          currentData = ''
+      xhr.onprogress = () => {
+        if (!xhr) return
+        buffer += xhr.responseText.slice(buffer.length)
+        const lines = buffer.split('\n')
+        buffer = lines.pop()!
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7)
+          } else if (line.startsWith('data: ')) {
+            currentData = line.slice(6)
+          } else if (line === '' && currentEvent) {
+            try {
+              const data = JSON.parse(currentData)
+              handlers[currentEvent]?.(data)
+            } catch { /* skip malformed */ }
+            currentEvent = ''
+            currentData = ''
+          }
         }
+        // 收到数据后重置重连延迟
+        reconnectDelay = 1000
       }
+
+      xhr.onerror = () => { scheduleReconnect() }
+      xhr.onload = () => { if (!disposed) scheduleReconnect() }
+
+      xhr.send()
     }
 
-    xhr.onerror = () => {
-      // 连接断开，浏览器会自动重连（由后端 keep-alive 维持）
+    function scheduleReconnect() {
+      if (disposed) return
+      reconnectTimer = setTimeout(() => {
+        reconnectDelay = Math.min(reconnectDelay * 2, maxDelay)
+        connect()
+      }, reconnectDelay)
     }
 
-    xhr.send()
+    connect()
 
-    return () => { xhr.abort() }
+    return () => {
+      disposed = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (xhr) xhr.abort()
+    }
   }, [activeId])
 
   useEffect(() => {

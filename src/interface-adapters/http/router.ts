@@ -83,7 +83,7 @@ function registerConnectionRoutes(app: Hono, c: Controllers): void {
 }
 
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
-export function createRouter(ctrl: Controllers, logger: Logger, messageBroadcaster?: import("@usecases/im/message-broadcaster").MessageBroadcaster): Hono {
+export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   const app = new Hono();
 
   /** HTTP 请求日志中间件 */
@@ -112,15 +112,6 @@ export function createRouter(ctrl: Controllers, logger: Logger, messageBroadcast
   registerDataRoutes(app, ctrl);
   registerScheduledTaskRoutes(app, ctrl);
   registerConnectionRoutes(app, ctrl);
-
-  // 测试端点：直接触发 broadcastEvent
-  if (messageBroadcaster) {
-    app.post("/api/test/broadcast-event", async (c) => {
-      const body = await c.req.json();
-      messageBroadcaster.broadcastEvent(body.conversationId, { event: body.event, data: body.data });
-      return c.json({ ok: true });
-    });
-  }
 
   return app;
 }
