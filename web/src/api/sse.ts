@@ -44,7 +44,7 @@ export function consumeSSE(
                 const handler = handlers[currentEvent as SSEEventType] as ((d: unknown) => void) | undefined
                 handler?.(data)
               } catch {
-                // skip malformed JSON
+                console.warn('[SSE] malformed JSON:', rawData.slice(0, 80))
               }
             }
           }

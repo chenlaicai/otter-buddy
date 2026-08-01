@@ -1,9 +1,6 @@
 /** 连接状态 */
 export type ConnectionStatus = "active" | "inactive";
 
-/** 消息来源 */
-export type MessageSource = "web" | "feishu";
-
 /** Connection 实体：飞书群在系统中的代理 */
 export interface Connection {
   id: string;

@@ -190,7 +190,12 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
       });
 
       if (this.messageHandler) {
-        this.messageHandler(feishuMessage);
+        Promise.resolve(this.messageHandler(feishuMessage)).catch((err) => {
+          this.logger.error("Message handler error", err instanceof Error ? err : undefined, {
+            chatId: feishuMessage.chatId,
+            messageId: feishuMessage.messageId,
+          });
+        });
       } else {
         this.logger.warn("No message handler registered");
       }
