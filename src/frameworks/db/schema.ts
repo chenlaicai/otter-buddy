@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 合并 main 分支 healing events 表定义后行数增加 */
 import type Database from "better-sqlite3";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -5,6 +6,7 @@ import type { Logger } from "@usecases/ports/logger";
  * 初始化全部 Schema（幂等，可重复调用）。
  * 所有 CREATE 使用 IF NOT EXISTS，禁止 ALTER TABLE。单事务内执行。
  */
+// eslint-disable-next-line max-statements -- 多表初始化，语句数由表数量决定
 export function initSchema(db: Database.Database, logger?: Logger): void {
   const startTime = Date.now();
   db.exec("BEGIN");

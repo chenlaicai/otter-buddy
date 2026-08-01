@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 合并 main 分支 healing 代码后行数增加 */
 /**
  * Composition Root - 依赖注入装配点。
  * main.ts 是唯一允许跨层引用的文件（Composition Root 豁免）。
@@ -530,6 +531,7 @@ async function initDatabaseAndModels() {
   return { db, otterConfigProvider, model, embeddingService, dispose };
 }
 
+// eslint-disable-next-line max-lines-per-function -- Composition Root 合并初始化逻辑
 async function main(): Promise<void> {
   syncApiKeyToAgentAuth(appConfig.llm);
 

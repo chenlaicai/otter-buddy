@@ -152,43 +152,15 @@ export class MessageBroadcaster {
   }
 
   private async broadcastToFeishu(message: Message): Promise<void> {
-    // 只同步用户消息和 Otter 回复（不同步系统消息）
-    if (message.senderType === "system") {
-      return;
-    }
+    if (!this.shouldBroadcastToFeishu(message)) return;
 
-    // 不同步飞书来源的消息（防止回环）
-    if (message.source === "feishu") {
-      this.logger.debug("Skipping feishu message broadcast (source=feishu)", {
-        messageId: message.id,
-        conversationId: message.conversationId,
-      });
-      return;
-    }
-
-    // 查找绑定到该对话的飞书连接
     const session = await this.manageConnection.getSessionByConversation(message.conversationId);
-    if (!session) {
-      return;
-    }
+    if (!session) return;
 
-    // 获取连接信息
     const connection = await this.manageConnection.getConnection(session.connectionId);
-    if (!connection) {
-      return;
-    }
+    if (!connection) return;
 
-    // 构建消息文本（用户消息加 [用户] 前缀，Otter 消息加名字前缀）
-    let text: string;
-    if (message.senderType === "user") {
-      text = `[用户] ${message.body ?? "(空消息)"}`;
-    } else if (message.senderType === "otter") {
-      const otter = await this.queryOtter.getById(message.senderId);
-      const name = otter?.name ?? message.senderId;
-      text = `[${name}] ${message.body ?? "(空消息)"}`;
-    } else {
-      text = message.body ?? "(空消息)";
-    }
+    const text = await this.buildFeishuMessageText(message);
 
     try {
       await this.feishuGateway.replyText(connection.externalId, text);
@@ -203,5 +175,29 @@ export class MessageBroadcaster {
         messageId: message.id,
       });
     }
+  }
+
+  /** 判断消息是否应该广播到飞书 */
+  private shouldBroadcastToFeishu(message: Message): boolean {
+    if (message.senderType === "system") return false;
+    if (message.source === "feishu") {
+      this.logger.debug("Skipping feishu message broadcast (source=feishu)", {
+        messageId: message.id,
+        conversationId: message.conversationId,
+      });
+      return false;
+    }
+    return true;
+  }
+
+  /** 构建飞书消息文本（带发送者前缀） */
+  private async buildFeishuMessageText(message: Message): Promise<string> {
+    const body = message.body ?? "(空消息)";
+    if (message.senderType === "user") return `[用户] ${body}`;
+    if (message.senderType === "otter") {
+      const otter = await this.queryOtter.getById(message.senderId);
+      return `[${otter?.name ?? message.senderId}] ${body}`;
+    }
+    return body;
   }
 }

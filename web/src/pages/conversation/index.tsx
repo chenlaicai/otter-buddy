@@ -159,8 +159,6 @@ function ConversationPage() {
   useEffect(() => {
     if (!activeId) return
 
-    const ctrl = new AbortController()
-
     // streaming 生命周期状态
     const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
     const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()

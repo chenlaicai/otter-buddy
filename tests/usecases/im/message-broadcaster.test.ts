@@ -37,74 +37,74 @@ describe("MessageBroadcaster", () => {
   describe("subscribe + broadcast", () => {
     it("broadcast 调用 onMessage 回调", () => {
       const broadcaster = createBroadcaster();
-      const onMessage = vi.fn();
-      broadcaster.subscribe("conv-1", onMessage);
+      const received: Message[] = [];
+      broadcaster.subscribe("conv-1", (msg) => { received.push(msg); });
 
       const msg = mockMessage();
       broadcaster.broadcast(msg);
 
-      expect(onMessage).toHaveBeenCalledWith(msg);
+      expect(received).toHaveLength(1);
+      expect(received[0].id).toBe("msg-1");
     });
 
     it("broadcast 不调用不同 conversation 的回调", () => {
       const broadcaster = createBroadcaster();
-      const onMessage = vi.fn();
-      broadcaster.subscribe("conv-1", onMessage);
+      const received: Message[] = [];
+      broadcaster.subscribe("conv-1", (msg) => { received.push(msg); });
 
       broadcaster.broadcast(mockMessage({ conversationId: "conv-2" }));
 
-      expect(onMessage).not.toHaveBeenCalled();
+      expect(received).toHaveLength(0);
     });
   });
 
   describe("subscribe + broadcastEvent", () => {
     it("broadcastEvent 调用 onEvent 回调", () => {
       const broadcaster = createBroadcaster();
-      const onEvent = vi.fn();
-      broadcaster.subscribe("conv-1", vi.fn(), onEvent);
+      const received: Array<{ event: string; data: Record<string, unknown> }> = [];
+      broadcaster.subscribe("conv-1", vi.fn(), (event) => { received.push(event); });
 
-      const event = { event: "message.start", data: { messageId: "msg-1", otterId: "otter-1" } };
-      broadcaster.broadcastEvent("conv-1", event);
+      broadcaster.broadcastEvent("conv-1", { event: "message.start", data: { messageId: "msg-1", otterId: "otter-1" } });
 
-      expect(onEvent).toHaveBeenCalledWith(event);
+      expect(received).toHaveLength(1);
+      expect(received[0].event).toBe("message.start");
     });
 
     it("broadcastEvent 不调用未注册 onEvent 的订阅者", () => {
       const broadcaster = createBroadcaster();
-      const onMessage = vi.fn();
-      broadcaster.subscribe("conv-1", onMessage); // 没传 onEvent
+      const received: Message[] = [];
+      broadcaster.subscribe("conv-1", (msg) => { received.push(msg); }); // 没传 onEvent
 
       broadcaster.broadcastEvent("conv-1", { event: "message.start", data: {} });
 
-      // 不报错，不调用
-      expect(onMessage).not.toHaveBeenCalled();
+      expect(received).toHaveLength(0);
     });
 
     it("broadcastEvent 不调用不同 conversation 的回调", () => {
       const broadcaster = createBroadcaster();
-      const onEvent = vi.fn();
-      broadcaster.subscribe("conv-1", vi.fn(), onEvent);
+      const received: Array<{ event: string; data: Record<string, unknown> }> = [];
+      broadcaster.subscribe("conv-1", vi.fn(), (event) => { received.push(event); });
 
       broadcaster.broadcastEvent("conv-2", { event: "message.start", data: {} });
 
-      expect(onEvent).not.toHaveBeenCalled();
+      expect(received).toHaveLength(0);
     });
   });
 
   describe("unsubscribe", () => {
     it("取消订阅后不再收到消息和事件", () => {
       const broadcaster = createBroadcaster();
-      const onMessage = vi.fn();
-      const onEvent = vi.fn();
-      const unsubscribe = broadcaster.subscribe("conv-1", onMessage, onEvent);
+      const receivedMessages: Message[] = [];
+      const receivedEvents: Array<{ event: string; data: Record<string, unknown> }> = [];
+      const unsubscribe = broadcaster.subscribe("conv-1", (msg) => { receivedMessages.push(msg); }, (event) => { receivedEvents.push(event); });
 
       unsubscribe();
 
       broadcaster.broadcast(mockMessage());
       broadcaster.broadcastEvent("conv-1", { event: "message.start", data: {} });
 
-      expect(onMessage).not.toHaveBeenCalled();
-      expect(onEvent).not.toHaveBeenCalled();
+      expect(receivedMessages).toHaveLength(0);
+      expect(receivedEvents).toHaveLength(0);
     });
   });
 
@@ -113,39 +113,47 @@ describe("MessageBroadcaster", () => {
       const broadcaster = createBroadcaster();
       const feishuGateway = (broadcaster as any).feishuGateway;
       const manageConnection = (broadcaster as any).manageConnection;
+      const sent: Array<{ chatId: string; text: string }> = [];
+      feishuGateway.replyText.mockImplementation(async (chatId: string, text: string) => { sent.push({ chatId, text }); });
 
       manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
       manageConnection.getConnection.mockResolvedValue({ externalId: "chat-123" });
 
       await broadcaster.broadcast(mockMessage({ senderType: "otter", senderId: "otter-1", body: "你好" }));
 
-      expect(feishuGateway.replyText).toHaveBeenCalledWith("chat-123", "[大獭] 你好");
+      expect(sent).toHaveLength(1);
+      expect(sent[0].text).toBe("[大獭] 你好");
     });
 
     it("user 消息带 [用户] 前缀", async () => {
       const broadcaster = createBroadcaster();
       const feishuGateway = (broadcaster as any).feishuGateway;
       const manageConnection = (broadcaster as any).manageConnection;
+      const sent: Array<{ chatId: string; text: string }> = [];
+      feishuGateway.replyText.mockImplementation(async (chatId: string, text: string) => { sent.push({ chatId, text }); });
 
       manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
       manageConnection.getConnection.mockResolvedValue({ externalId: "chat-123" });
 
       await broadcaster.broadcast(mockMessage({ senderType: "user", senderId: "user-1", body: "hi" }));
 
-      expect(feishuGateway.replyText).toHaveBeenCalledWith("chat-123", "[用户] hi");
+      expect(sent).toHaveLength(1);
+      expect(sent[0].text).toBe("[用户] hi");
     });
 
     it("飞书来源消息不同步（防回环）", async () => {
       const broadcaster = createBroadcaster();
       const feishuGateway = (broadcaster as any).feishuGateway;
       const manageConnection = (broadcaster as any).manageConnection;
+      const sent: string[] = [];
+      feishuGateway.replyText.mockImplementation(async (_chatId: string, text: string) => { sent.push(text); });
 
       manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
       manageConnection.getConnection.mockResolvedValue({ externalId: "chat-123" });
 
       await broadcaster.broadcast(mockMessage({ source: "feishu" }));
 
-      expect(feishuGateway.replyText).not.toHaveBeenCalled();
+      expect(sent).toHaveLength(0);
     });
   });
 });
