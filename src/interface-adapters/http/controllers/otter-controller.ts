@@ -4,16 +4,19 @@ import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { CreateOtterInput } from "@usecases/otter/create-otter";
+import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
 import type { CreateOtterRequestDTO } from "../dto/otter-dto";
 
 export class OtterController {
   constructor(
+
     private readonly createOtterUseCase: CreateOtter,
     private readonly dissolveOtterUseCase: DissolveOtter,
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
+      private readonly logger: Logger,
   ) {}
 
   async getById(c: Context): Promise<Response> {
@@ -25,7 +28,7 @@ export class OtterController {
       }
       return c.json(toOtterDTO(otter));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -43,7 +46,7 @@ export class OtterController {
       const otter = await this.createOtterUseCase.execute(input);
       return c.json(toOtterDTO(otter), 201);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -54,7 +57,7 @@ export class OtterController {
       await this.dissolveOtterUseCase.execute(id, body.summary);
       return c.json({ status: "dissolved" });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -64,7 +67,7 @@ export class OtterController {
       const sessions = await this.manageSession.getSessionHistory(id);
       return c.json(sessions.map(toOtterSessionDTO));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -74,7 +77,7 @@ export class OtterController {
       const session = await this.manageSession.createSession(id);
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -93,7 +96,7 @@ export class OtterController {
       const session = await this.manageSession.createSession(id);
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }

@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { SchedulerService } from '@usecases/scheduler/scheduler-service';
 import type { CronParser } from '@usecases/scheduler/scheduler-service';
+import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from '../http-error';
 import {
   toScheduledTaskDTO,
@@ -12,9 +13,11 @@ import {
 
 export class ScheduledTaskController {
   constructor(
+
     private readonly manageScheduledTask: ManageScheduledTask,
     private readonly schedulerService: SchedulerService,
     private readonly cronParser: CronParser,
+      private readonly logger: Logger,
   ) {}
 
   /** 创建定时任务 */
@@ -38,7 +41,7 @@ export class ScheduledTaskController {
 
       return c.json(toScheduledTaskDTO(task, nextTrigger.toISOString()), 201);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -55,7 +58,7 @@ export class ScheduledTaskController {
 
       return c.json(dtos);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -71,7 +74,7 @@ export class ScheduledTaskController {
       const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
       return c.json(toScheduledTaskDTO(task, nextTrigger.toISOString()));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -93,7 +96,7 @@ export class ScheduledTaskController {
       const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
       return c.json(toScheduledTaskDTO(task, nextTrigger.toISOString()));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -104,7 +107,7 @@ export class ScheduledTaskController {
       await this.manageScheduledTask.delete(taskId);
       return c.json({ status: 'deleted' });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -115,7 +118,7 @@ export class ScheduledTaskController {
       const result = await this.schedulerService.trigger(taskId);
       return c.json({ executionId: result.executionId });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -141,7 +144,7 @@ export class ScheduledTaskController {
         offset,
       });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }

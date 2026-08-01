@@ -43,7 +43,7 @@ describe("Connection API", () => {
 
     // 创建一个简单的测试 app，只注册 connection 路由
     app = new Hono();
-    const connectionCtrl = new ConnectionController(manageConnection);
+    const connectionCtrl = new ConnectionController(manageConnection, mockLogger() as any);
     app.get("/api/connections", (ctx) => connectionCtrl.list(ctx));
     app.post("/api/connections", (ctx) => connectionCtrl.create(ctx));
     app.get("/api/connections/:id", (ctx) => connectionCtrl.getById(ctx));

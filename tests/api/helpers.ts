@@ -390,12 +390,13 @@ export interface TestDeps {
 }
 
 export function createTestApp(deps: TestDeps): Hono {
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+
   const conversationCtrl = new ConversationController(
     deps.manageConversation,
     deps.manageParticipant,
+    logger,
   );
-
-  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
 
   const dispatchChainEngine = new DispatchChainEngine({
     sendMessage: deps.sendMessageUseCase,
@@ -438,17 +439,21 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.dissolveOtterUseCase,
     deps.manageSession,
     deps.queryOtter,
+    logger,
   );
   const memoryCtrl = new MemoryController(
     deps.searchMemory,
     deps.manageMemory,
+    logger,
   );
   const keyInfoCtrl = new KeyInfoController(
     deps.manageKeyInfo,
+    logger,
   );
   const settingsCtrl = new SettingsController(
     deps.settingsConfig,
     deps.settingsRepo,
+    logger,
   );
 
   const controllers: Controllers = {
@@ -462,6 +467,7 @@ export function createTestApp(deps: TestDeps): Hono {
       deps.manageScheduledTask,
       deps.schedulerService,
       deps.cronParser,
+      logger,
     ),
     connection: {} as any, // TODO: 添加 mock
   };

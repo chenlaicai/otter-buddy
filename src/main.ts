@@ -368,14 +368,14 @@ interface ControllerDeps {
 
 function initControllers(deps: ControllerDeps) {
   return {
-    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant),
-    otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter),
+    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant, logger),
+    otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter, logger),
     message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
-    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory),
-    keyInfo: new KeyInfoController(deps.uc.manageKeyInfo),
-    settings: new SettingsController(deps.settings, deps.settingsRepo),
-    scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser),
-    connection: new ConnectionController(deps.uc.manageConnection),
+    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, logger),
+    keyInfo: new KeyInfoController(deps.uc.manageKeyInfo, logger),
+    settings: new SettingsController(deps.settings, deps.settingsRepo, logger),
+    scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser, logger),
+    connection: new ConnectionController(deps.uc.manageConnection, logger),
   };
 }
 

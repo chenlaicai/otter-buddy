@@ -1,13 +1,16 @@
 import type { Context } from "hono";
 import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import type { LinkedResourceInput } from "@usecases/conversation/manage-key-info";
+import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 import { toKeyInfoDTO, toLinkedResourceDTO } from "../dto/key-info-dto";
 import type { LinkResourceRequestDTO } from "../dto/key-info-dto";
 
 export class KeyInfoController {
   constructor(
+
     private readonly manageKeyInfo: ManageKeyInfo,
+      private readonly logger: Logger,
   ) {}
 
   async getKeyResources(c: Context): Promise<Response> {
@@ -16,7 +19,7 @@ export class KeyInfoController {
       const resources = await this.manageKeyInfo.getLinkedResources(conversationId);
       return c.json(toKeyInfoDTO(resources));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -40,7 +43,7 @@ export class KeyInfoController {
       const resource = await this.manageKeyInfo.linkResource(input);
       return c.json(toLinkedResourceDTO(resource), 201);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -51,7 +54,7 @@ export class KeyInfoController {
       await this.manageKeyInfo.flagResource(resourceId, body.flagged);
       return c.json({ status: "ok" });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -61,7 +64,7 @@ export class KeyInfoController {
       await this.manageKeyInfo.deleteLinkedResource(resourceId);
       return c.body(null, 204);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }

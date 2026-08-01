@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import type { Logger } from "@usecases/ports/logger";
 import { handleError } from "../http-error";
 import type { UpdateSettingsRequestDTO } from "@contract/api/settings";
 
@@ -15,8 +16,10 @@ export interface SettingsConfig {
 
 export class SettingsController {
   constructor(
+
     private readonly settings: SettingsConfig,
     private readonly settingsRepo: SettingsRepository,
+      private readonly logger: Logger,
   ) {}
 
   async getSettings(c: Context): Promise<Response> {
@@ -28,7 +31,7 @@ export class SettingsController {
         model: stored.model ?? this.settings.model,
       });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -48,7 +51,7 @@ export class SettingsController {
         model: stored.model ?? this.settings.model,
       });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }

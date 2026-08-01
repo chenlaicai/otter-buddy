@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { CreateConversationInput } from "@usecases/conversation/manage-conversation";
+import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 import {
   toConversationDTO,
@@ -12,8 +13,10 @@ import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
 
 export class ConversationController {
   constructor(
+
     private readonly manageConversation: ManageConversation,
     private readonly manageParticipant: ManageParticipant,
+      private readonly logger: Logger,
   ) {}
 
   async list(c: Context): Promise<Response> {
@@ -37,7 +40,7 @@ export class ConversationController {
       );
       return c.json(items.filter((x): x is NonNullable<typeof x> => x !== null));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -52,7 +55,7 @@ export class ConversationController {
       const otterIds = participantsWithOtter.map((p) => p.participant.otterId);
       return c.json(toConversationListItemDTO(conv, otterIds), 201);
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -65,7 +68,7 @@ export class ConversationController {
       }
       return c.json(toConversationDTO(conv));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -75,7 +78,7 @@ export class ConversationController {
       await this.manageConversation.complete(id);
       return c.json({ status: "completed" });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -85,7 +88,7 @@ export class ConversationController {
       await this.manageConversation.archive(id);
       return c.json({ status: "archived" });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -97,7 +100,7 @@ export class ConversationController {
         toParticipantDTO(participant, otterName, { otterType, roleName })
       ));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }

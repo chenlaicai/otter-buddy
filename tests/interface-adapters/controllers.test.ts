@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
+
+function mockLogger() {
+  return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => mockLogger() };
+}
 import { Hono } from "hono";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
@@ -49,7 +53,7 @@ describe("ConversationController", () => {
 
   it("returns 200 with DTO for existing conversation", async () => {
     const manageConv = { getById: async () => mockConversation() } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant);
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1");
     expect(res.status).toBe(200);
@@ -60,7 +64,7 @@ describe("ConversationController", () => {
 
   it("returns 404 for non-existent conversation", async () => {
     const manageConv = { getById: async () => null } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant);
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/nonexistent");
     expect(res.status).toBe(404);
@@ -73,7 +77,7 @@ describe("ConversationController", () => {
     const managePart = {
       getActiveParticipants: async () => [{ participant: { otterId: "otter-1" }, otterName: "Big Otter" }],
     } as unknown as ManageParticipant;
-    const ctrl = new ConversationController(manageConv, managePart);
+    const ctrl = new ConversationController(manageConv, managePart, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations", {
       method: "POST",
@@ -95,7 +99,7 @@ describe("OtterController", () => {
 
   it("returns 200 with DTO for existing otter", async () => {
     const queryOtter = { getById: async () => mockOtter() } as unknown as QueryOtter;
-    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter);
+    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/otters/otter-1");
     expect(res.status).toBe(200);
@@ -106,7 +110,7 @@ describe("OtterController", () => {
 
   it("returns 404 for non-existent otter", async () => {
     const queryOtter = { getById: async () => null } as unknown as QueryOtter;
-    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter);
+    const ctrl = new OtterController({} as CreateOtter, {} as DissolveOtter, {} as ManageSession, queryOtter, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/otters/nonexistent");
     expect(res.status).toBe(404);
@@ -263,7 +267,7 @@ describe("SettingsController", () => {
     const ctrl = new SettingsController({
       provider: "openai", model: "gpt-4o", port: 3000,
       dbPath: "./otter-buddy.db", embeddingModelPath: "Xenova/bge-m3", embeddingDim: 1024,
-    }, mockSettingsRepo);
+    }, mockSettingsRepo, mockLogger());
     const app = new Hono();
     app.get("/api/settings", (c) => ctrl.getSettings(c));
     const res = await app.request("/api/settings");
@@ -284,7 +288,7 @@ describe("MemoryController", () => {
   };
 
   function createApp(searchMemory: SearchMemory, manageMemory: ManageMemory): Hono {
-    const ctrl = new MemoryController(searchMemory, manageMemory);
+    const ctrl = new MemoryController(searchMemory, manageMemory, mockLogger());
     const app = new Hono();
     app.get("/api/memory/search", (c) => ctrl.search(c));
     app.get("/api/memory/batch", (c) => ctrl.getDetails(c));

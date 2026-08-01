@@ -2,14 +2,17 @@ import type { Context } from "hono";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryLayer, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
+import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 import { toMemoryEntryDTO } from "../dto/memory-dto";
 import type { SearchSimilarRequestDTO, FlagMemoryRequestDTO } from "../dto/memory-dto";
 
 export class MemoryController {
   constructor(
+
     private readonly searchMemory: SearchMemory,
     private readonly manageMemory: ManageMemory,
+      private readonly logger: Logger,
   ) {}
 
   async search(c: Context): Promise<Response> {
@@ -40,7 +43,7 @@ export class MemoryController {
         total: result.total,
       });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -54,7 +57,7 @@ export class MemoryController {
         total: result.total,
       });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -75,7 +78,7 @@ export class MemoryController {
         total: entries.length,
       });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -88,7 +91,7 @@ export class MemoryController {
       }
       return c.json(toMemoryEntryDTO(entry));
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -99,7 +102,7 @@ export class MemoryController {
       await this.manageMemory.flagMemory(id, body.flagged);
       return c.json({ status: "flagged", flagged: body.flagged });
     } catch (err) {
-      return handleError(c, err);
+      return handleError(c, err, this.logger);
     }
   }
 }
