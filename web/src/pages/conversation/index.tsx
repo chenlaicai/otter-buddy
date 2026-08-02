@@ -739,7 +739,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings.html' }} onArchive={handleArchive} otters={activeOtters} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
