@@ -596,10 +596,10 @@ function ConversationPage() {
       const dto = await api.createConversation({ title })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
-      setActiveId(conv.id)
       setModal({ type: 'none' })
       showToast('对话已创建', 'success')
-      await loadConversationDetail(conv.id)
+      // 混合架构：创建新对话后整页刷新，确保 URL 与内容一致
+      window.location.href = `/conversation/${conv.id}`
     } catch { showToast('创建对话失败', 'error') }
   }
 
@@ -609,10 +609,10 @@ function ConversationPage() {
       const dto = await api.createConversation({ title })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [...prev, conv])
-      setActiveId(conv.id)
       setModal({ type: 'none' })
       showToast('子对话已创建', 'success')
-      await loadConversationDetail(conv.id)
+      // 混合架构：创建子对话后整页刷新，确保 URL 与内容一致
+      window.location.href = `/conversation/${conv.id}`
     } catch { showToast('创建子对话失败', 'error') }
   }
 
