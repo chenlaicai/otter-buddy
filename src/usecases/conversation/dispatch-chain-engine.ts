@@ -61,7 +61,7 @@ export class DispatchChainEngine {
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
-    const maxDepth = this.deps.maxChainDepth ?? 20;
+    const maxDepth = this.deps.maxChainDepth ?? 100;
 
     while (targets.length > 0 && depth < maxDepth) {
       depth++;
@@ -110,18 +110,28 @@ export class DispatchChainEngine {
     const results = await Promise.allSettled(promises);
     await this.markBatchRead(conversationId, results);
 
-    return this.processHopResults(results, senderId);
+    return this.processHopResults(results, senderId, conversationId, targets);
   }
 
   private async processHopResults(
     results: PromiseSettledResult<InvokeFnResult>[],
     senderId: string,
+    conversationId?: string,
+    targets?: string[],
   ): Promise<ChainHopResult> {
     let otterReply: string | undefined;
     const nextTargets = new Set<string>();
 
-    for (const r of results) {
-      if (r.status !== "fulfilled") continue;
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status !== "fulfilled") {
+        const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        this.deps.logger.error('发言链目标调用失败', r.reason instanceof Error ? r.reason : new Error(reason), {
+          conversationId,
+          otterId: targets?.[i],
+        });
+        continue;
+      }
 
       const msg = await this.deps.queryMessage.getMessageById(r.value.messageId);
       if (msg?.body) {

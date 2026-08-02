@@ -51,16 +51,35 @@ export class MessageController {
     const unsubscribe = this.messageBroadcaster.subscribe(
       conversationId,
       // 消息回调：已完成消息（用户消息、飞书消息等）
-      (message) => {
-        this.logger.info("[subscribe] Broadcasting message to SSE", {
-          conversationId,
-          messageId: message.id,
-          senderType: message.senderType,
-        });
-        push({
-          event: "message",
-          data: toMessageDTO(message) as unknown as Record<string, unknown>,
-        });
+      async (message) => {
+        try {
+          this.logger.info("[subscribe] Broadcasting message to SSE", {
+            conversationId,
+            messageId: message.id,
+            senderType: message.senderType,
+          });
+          // 解析发送者名称（与 list/getById 一致，避免 subscribe 遗漏 sn 导致前端显示 "Otter"）
+          let senderName: string | undefined;
+          if (message.senderType === "otter") {
+            const otter = await this.queryOtter.getById(message.senderId);
+            senderName = otter?.name;
+          } else if (message.senderType === "user") {
+            senderName = "我";
+          } else {
+            senderName = "系统";
+          }
+          push({
+            event: "message",
+            data: toMessageDTO(message, senderName) as unknown as Record<string, unknown>,
+          });
+        } catch (err) {
+          this.logger.error("[subscribe] Failed to broadcast message", err instanceof Error ? err : undefined, { messageId: message.id });
+          // 降级：名称解析失败也要推送消息（前端回退到 otterId/其他名称解析）
+          push({
+            event: "message",
+            data: toMessageDTO(message) as unknown as Record<string, unknown>,
+          });
+        }
       },
       // 事件回调：agent streaming 事件（message.start, assistant_text, message.complete 等）
       (event) => {
@@ -235,7 +254,7 @@ export class MessageController {
       `发言接力已达系统安全上限（${depth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     );
     if (this.messageBroadcaster) {
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body } });
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });
     }
   }
 

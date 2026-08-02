@@ -244,7 +244,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     slidingWindowRepeat: d(raw.circuitBreaker?.slidingWindowRepeat, 3),
     maxRepeatAfterWarning: d(raw.circuitBreaker?.maxRepeatAfterWarning, 5),
     tokenWarningThreshold: d(raw.circuitBreaker?.tokenWarningThreshold, 50000),
-    maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 20),
+    maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 100),
     outputGuard: buildOutputGuardConfig(raw),
     streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
   };

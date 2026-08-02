@@ -24,9 +24,10 @@ function mockMessage(overrides: Partial<Message> = {}): Message {
 
 function createTestApp(broadcaster: MessageBroadcaster) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+  const queryOtter = { getById: vi.fn().mockResolvedValue({ id: "otter-1", name: "大獭", type: "big" }) };
   const ctrl = new MessageController(
     {} as SendMessage, {} as QueryMessage, {} as AgentInvoker,
-    logger as any, {} as QueryOtter, {} as DispatchChainEngine, broadcaster,
+    logger as any, queryOtter as unknown as QueryOtter, {} as DispatchChainEngine, broadcaster,
   );
   const app = new Hono();
   app.get("/api/conversations/:id/subscribe", (c) => ctrl.subscribe(c));

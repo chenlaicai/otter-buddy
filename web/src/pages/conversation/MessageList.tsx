@@ -165,8 +165,12 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (!el) return
+    // 仅当用户已在底部附近（100px 阈值）时自动滚到底，避免浏览历史时被强制拉回
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight
     }
   }, [messages])
 
@@ -238,14 +242,18 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
 }
 
 function MessageItem({ message: m, otters, onStopStream }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void }) {
-  // System 消息：居中显示，特殊样式
+  // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
     return (
       <div className="flex justify-center my-3 animate-slideIn">
-        <div className="glass-card px-4 py-2 text-xs text-stone-500 flex items-center gap-2 max-w-[500px]">
-          <Clock size={14} className="text-stone-400 flex-shrink-0" />
-          <span className="flex-1">{m.content}</span>
-          <span className="msg-meta text-[11px] flex-shrink-0">{fmtTime(m.ts)}</span>
+        <div className="glass-card px-4 py-2 text-xs text-stone-500 max-w-[600px]">
+          <div className="flex items-center gap-2 mb-1">
+            <Clock size={14} className="text-stone-400 flex-shrink-0" />
+            <span className="msg-meta text-[11px]">系统消息 · {fmtTime(m.ts)}</span>
+          </div>
+          <div className="leading-relaxed system-msg-body [&_strong]:font-semibold [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5">
+            <MarkdownContent variant="otter-body">{m.content}</MarkdownContent>
+          </div>
         </div>
       </div>
     )
