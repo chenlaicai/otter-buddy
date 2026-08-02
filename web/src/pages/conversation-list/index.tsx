@@ -6,6 +6,7 @@ import type { LocalConversation } from '../../lib/mappers'
 import { mapConversationDTO } from '../../lib/mappers'
 import { showToast } from '../../components/Toast'
 import { AppLayout } from '../../components/AppLayout'
+import { Modal, ModalButton } from '../../components/Modal'
 import { LeftPanel } from '../conversation/LeftPanel'
 import * as api from '../../api/client'
 
@@ -14,12 +15,6 @@ export default function ConversationListPage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [newTitle, setNewTitle] = useState('')
-
-  // TODO: 实现创建对话 Modal
-  void showCreate
-  void newTitle
-  void setShowCreate
-  void setNewTitle
 
   useEffect(() => {
     api.listConversations()
@@ -39,9 +34,27 @@ export default function ConversationListPage() {
   }, [])
 
   const handleNewConversation = useCallback(() => {
-    // TODO: 实现创建对话 Modal
-    showToast('创建对话功能待实现', 'info')
+    setShowCreate(true)
+    setNewTitle('')
   }, [])
+
+  const handleCreateConversation = useCallback(async () => {
+    if (!newTitle.trim()) {
+      showToast('请输入对话标题', 'error')
+      return
+    }
+    try {
+      const dto = await api.createConversation({ title: newTitle })
+      const conv = mapConversationDTO(dto)
+      setConversations(prev => [conv, ...prev])
+      setShowCreate(false)
+      showToast('对话已创建', 'success')
+      // 混合架构：创建新对话后整页刷新，确保 URL 与内容一致
+      window.location.href = `/conversation/${conv.id}`
+    } catch {
+      showToast('创建对话失败', 'error')
+    }
+  }, [newTitle])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, _cid: string) => {
     e.preventDefault()
@@ -78,6 +91,28 @@ export default function ConversationListPage() {
             </button>
           </div>
         </div>
+
+        <Modal
+          isOpen={showCreate}
+          onClose={() => setShowCreate(false)}
+          title="新建对话"
+          footer={
+            <>
+              <ModalButton onClick={() => setShowCreate(false)}>取消</ModalButton>
+              <ModalButton variant="primary" onClick={handleCreateConversation}>创建</ModalButton>
+            </>
+          }
+        >
+          <label className="block text-xs font-medium text-stone-500 mb-1.5">对话标题</label>
+          <input
+            value={newTitle}
+            onChange={e => setNewTitle(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleCreateConversation()}
+            className="form-input w-full"
+            placeholder="输入对话标题..."
+            autoFocus
+          />
+        </Modal>
       </AppLayout>
     )
   }
@@ -101,6 +136,28 @@ export default function ConversationListPage() {
           </div>
         </div>
       </div>
+
+      <Modal
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        title="新建对话"
+        footer={
+          <>
+            <ModalButton onClick={() => setShowCreate(false)}>取消</ModalButton>
+            <ModalButton variant="primary" onClick={handleCreateConversation}>创建</ModalButton>
+          </>
+        }
+      >
+        <label className="block text-xs font-medium text-stone-500 mb-1.5">对话标题</label>
+        <input
+          value={newTitle}
+          onChange={e => setNewTitle(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleCreateConversation()}
+          className="form-input w-full"
+          placeholder="输入对话标题..."
+          autoFocus
+        />
+      </Modal>
     </AppLayout>
   )
 }

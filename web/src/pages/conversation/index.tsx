@@ -714,9 +714,15 @@ function ConversationPage() {
   }
 
   function ctxAction(action: string, cid: string) {
-    closeCtxMenu(); setActiveId(cid)
-    if (action === 'archive') setModal({ type: 'archive', cid })
-    else if (action === 'child') setModal({ type: 'child', parentId: cid })
+    closeCtxMenu()
+    // 混合架构：右键菜单操作时整页刷新，确保 URL 与内容一致
+    if (action === 'archive') {
+      setModal({ type: 'archive', cid })
+    } else if (action === 'child') {
+      setModal({ type: 'child', parentId: cid })
+    } else {
+      window.location.href = `/conversation/${cid}`
+    }
   }
 
   const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
