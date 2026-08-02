@@ -53,6 +53,10 @@ function ConversationPage() {
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
+  // 从 URL 获取对话 ID
+  const urlParams = new URLSearchParams(window.location.search)
+  const urlConvId = urlParams.get('id')
+
   // 定时任务状态
   const [scheduledTaskModal, setScheduledTaskModal] = useState<{
     type: 'none' | 'create' | 'edit'
@@ -76,7 +80,9 @@ function ConversationPage() {
       .then(({ conversations: convs }) => {
         setConversations(convs)
         if (convs.length > 0) {
-          setActiveId(convs[0].id)
+          // 优先使用 URL 中的对话 ID，否则使用第一个对话
+          const targetId = urlConvId && convs.some(c => c.id === urlConvId) ? urlConvId : convs[0].id
+          setActiveId(targetId)
           setPageState('normal')
         } else {
           setPageState('empty')
@@ -570,7 +576,10 @@ function ConversationPage() {
       })
   }, [activeId])
 
-  const handleSelectConv = useCallback((id: string) => { setActiveId(id); setPageState('normal') }, [])
+  const handleSelectConv = useCallback((id: string) => {
+    // 混合架构：切换对话时整页刷新
+    window.location.href = `/conversation/${id}`
+  }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
 

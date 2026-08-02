@@ -4,10 +4,10 @@ type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings' | 'connections'
 
 const tabs: { key: ViewKey; label: string; href: string; icon: typeof MessageCircle }[] = [
   { key: 'conversation', label: '对话', href: '/', icon: MessageCircle },
-  { key: 'memory', label: '记忆搜索', href: '/memory.html', icon: Search },
-  { key: 'skills', label: '能力库', href: '/skills.html', icon: Package },
-  { key: 'connections', label: '连接', href: '/connections.html', icon: Link2 },
-  { key: 'settings', label: '设置', href: '/settings.html', icon: Settings },
+  { key: 'memory', label: '记忆搜索', href: '/memory', icon: Search },
+  { key: 'skills', label: '能力库', href: '/skills', icon: Package },
+  { key: 'connections', label: '连接', href: '/connections', icon: Link2 },
+  { key: 'settings', label: '设置', href: '/settings', icon: Settings },
 ]
 
 /** Global unified TopBar - same component on all pages (← UA-10, UA-12) */

@@ -431,7 +431,18 @@ function startServer(
     setupFeishu(app, uc, agentInvoker, feishu);
   }
   app.route("/", createRouter(controllers, logger));
+
+  // 混合架构路由：功能页面独立 HTML，对话详情页独立 HTML
+  app.get('/', serveStatic({ root: './web/dist', path: 'index.html' }))
+  app.get('/conversation/:id', serveStatic({ root: './web/dist', path: 'conversation.html' }))
+  app.get('/memory', serveStatic({ root: './web/dist', path: 'memory.html' }))
+  app.get('/skills', serveStatic({ root: './web/dist', path: 'skills.html' }))
+  app.get('/connections', serveStatic({ root: './web/dist', path: 'connections.html' }))
+  app.get('/settings', serveStatic({ root: './web/dist', path: 'settings.html' }))
+
+  // 静态资源
   app.use("/*", serveStatic({ root: "./web/dist" }));
+
   serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
   });

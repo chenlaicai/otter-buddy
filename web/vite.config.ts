@@ -9,6 +9,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
+        conversation: resolve(__dirname, 'conversation.html'),
         memory: resolve(__dirname, 'memory.html'),
         skills: resolve(__dirname, 'skills.html'),
         settings: resolve(__dirname, 'settings.html'),
