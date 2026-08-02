@@ -53,6 +53,10 @@ function ConversationPage() {
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
+  // 从 URL 路径获取对话 ID（格式：/conversation/:id）
+  const pathParts = window.location.pathname.split('/')
+  const urlConvId = pathParts.length >= 3 && pathParts[1] === 'conversation' ? pathParts[2] : null
+
   // 定时任务状态
   const [scheduledTaskModal, setScheduledTaskModal] = useState<{
     type: 'none' | 'create' | 'edit'
@@ -76,7 +80,9 @@ function ConversationPage() {
       .then(({ conversations: convs }) => {
         setConversations(convs)
         if (convs.length > 0) {
-          setActiveId(convs[0].id)
+          // 优先使用 URL 中的对话 ID，否则使用第一个对话
+          const targetId = urlConvId && convs.some(c => c.id === urlConvId) ? urlConvId : convs[0].id
+          setActiveId(targetId)
           setPageState('normal')
         } else {
           setPageState('empty')
@@ -570,7 +576,10 @@ function ConversationPage() {
       })
   }, [activeId])
 
-  const handleSelectConv = useCallback((id: string) => { setActiveId(id); setPageState('normal') }, [])
+  const handleSelectConv = useCallback((id: string) => {
+    // 混合架构：切换对话时整页刷新
+    window.location.href = `/conversation/${id}`
+  }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
 
@@ -587,10 +596,10 @@ function ConversationPage() {
       const dto = await api.createConversation({ title })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [conv, ...prev])
-      setActiveId(conv.id)
       setModal({ type: 'none' })
       showToast('对话已创建', 'success')
-      await loadConversationDetail(conv.id)
+      // 混合架构：创建新对话后整页刷新，确保 URL 与内容一致
+      window.location.href = `/conversation/${conv.id}`
     } catch { showToast('创建对话失败', 'error') }
   }
 
@@ -600,10 +609,10 @@ function ConversationPage() {
       const dto = await api.createConversation({ title })
       const conv = mapConversationDTO(dto)
       setConversations(prev => [...prev, conv])
-      setActiveId(conv.id)
       setModal({ type: 'none' })
       showToast('子对话已创建', 'success')
-      await loadConversationDetail(conv.id)
+      // 混合架构：创建子对话后整页刷新，确保 URL 与内容一致
+      window.location.href = `/conversation/${conv.id}`
     } catch { showToast('创建子对话失败', 'error') }
   }
 
@@ -705,9 +714,15 @@ function ConversationPage() {
   }
 
   function ctxAction(action: string, cid: string) {
-    closeCtxMenu(); setActiveId(cid)
-    if (action === 'archive') setModal({ type: 'archive', cid })
-    else if (action === 'child') setModal({ type: 'child', parentId: cid })
+    closeCtxMenu()
+    // 混合架构：右键菜单操作时整页刷新，确保 URL 与内容一致
+    if (action === 'archive') {
+      setModal({ type: 'archive', cid })
+    } else if (action === 'child') {
+      setModal({ type: 'child', parentId: cid })
+    } else {
+      window.location.href = `/conversation/${cid}`
+    }
   }
 
   const activeConvForMenu = ctxMenu ? conversations.find(c => c.id === ctxMenu.cid) : null
@@ -730,7 +745,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings.html' }} onArchive={handleArchive} otters={activeOtters} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
