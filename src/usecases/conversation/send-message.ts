@@ -172,7 +172,7 @@ export class SendMessage {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
-      source: 'web', // agent 消息默认 web，广播给所有已连接前端
+      source: null, // agent 消息不需要标记来源，广播给所有已连接前端
       createdAt: now,
       completedAt: null,
     };
@@ -346,7 +346,7 @@ export class SendMessage {
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
-      source: 'web', // 系统消息默认 web
+      source: null, // 系统消息不需要标记来源
       createdAt: now,
       completedAt: now,
     };

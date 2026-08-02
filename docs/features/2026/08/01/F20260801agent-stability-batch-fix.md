@@ -39,7 +39,8 @@
 | 文件 | 改动 |
 |------|------|
 | `send-message.ts` | `start()` 和 `sendSystem()` 中 `source: null` → `source: 'web'` |
-| `message.ts` | `MessageSource` 类型去掉 `null`（与 DB NOT NULL 约束对齐） |
+| `message.ts` | `MessageSource` 类型保留 `null`（agent/系统消息不需要标记来源） |
+| `sqlite-conversation-repository.ts` | INSERT 时 source 为 null 则不带该列，让 DB DEFAULT 生效 |
 | `dispatch-chain-engine.ts` | `processHopResults` 中 rejected 的 Promise 加 `logger.error` |
 | `agent-invoker.ts` | 关键路径加 debug 日志（`buildDynamicContext` → `sendMessage.start` → `executeAgentInvocation`） |
 | `pi-session-factory.ts` | `_invokeInternal` 和 `_executeWithSession` 加 debug 日志 |
@@ -47,8 +48,9 @@
 
 ### 决策记录
 
-- **source 默认值选择 'web'**：agent/系统消息不需要标记来源，但 DB 列是 NOT NULL。选择 `'web'` 而非修改 DB 约束，因为：(1) 迁移已设 DEFAULT 'web'；(2) 保持与用户消息一致的值域。
+- **source 字段处理**：原始设计是 agent/系统消息不需要 source（广播给所有已连接前端）。DB migration 添加的 `NOT NULL DEFAULT 'web'` 是实现细节。正确做法是 INSERT 时 source 为 null 就不带该列，让 DEFAULT 生效。类型定义保留 `null` 以表达设计意图。
 - **日志级别选择 debug**：避免 info 级别日志过多影响正常运行。排查时通过 `LOG_LEVEL=debug` 启用。
+- **Session 文件丢失**：`@earendil-works/pi-coding-agent` SDK 的 `SessionManager.create()` 使用延迟写入（首条 assistant 消息后才落盘），进程退出前未生成 assistant 消息则 session 文件永久丢失。本次修复让问题可诊断（debug 日志），但无法从应用层修改 SDK 的文件写入策略。已记录为已知边界。
 
 ---
 

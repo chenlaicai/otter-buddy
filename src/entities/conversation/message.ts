@@ -5,7 +5,7 @@ export type SenderType = "user" | "otter" | "system";
  * 用户消息来源（标识消息从哪个前端接入点发送）。
  * 仅用户消息有意义；agent/系统消息不需要——它们广播给所有已连接前端。
  */
-export type MessageSource = "web" | "feishu";
+export type MessageSource = "web" | "feishu" | null;
 
 /** 消息生命周期状态 */
 export type MessageStatus = "streaming" | "speaking" | "completed" | "failed" | "aborted";
