@@ -53,9 +53,9 @@ function ConversationPage() {
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
-  // 从 URL 获取对话 ID
-  const urlParams = new URLSearchParams(window.location.search)
-  const urlConvId = urlParams.get('id')
+  // 从 URL 路径获取对话 ID（格式：/conversation/:id）
+  const pathParts = window.location.pathname.split('/')
+  const urlConvId = pathParts.length >= 3 && pathParts[1] === 'conversation' ? pathParts[2] : null
 
   // 定时任务状态
   const [scheduledTaskModal, setScheduledTaskModal] = useState<{
