@@ -304,7 +304,7 @@ build 末尾跑下载脚本；失败用 `|| echo` 兜底不阻断构建（模型
 
 - `npm run lint` 无报错
 - `npx tsc --noEmit` 类型检查通过
-- `npx vitest run` 全量 910/910 测试通过（含 resolveEnvSettings 9 个 + ensure-model 7 个 + config-service 补 localModelPath）
+- `npx vitest run` 全量 911/911 测试通过（含 resolveEnvSettings 9 个 + ensure-model 7 个 + config-service 补 localModelPath + 默认值边界测试）
 
 ### 集成（端到端，真实 worker 线程）
 
@@ -351,6 +351,21 @@ cos(hello world, 你好世界): 0.8997   ← 多语言语义相似度生效
 - **M3 ensure-model 与 config-service 默认值不一致**（中）→ ensure-model `?? "bge-m3"` vs config-service `"Xenova/bge-m3"`。修复：加注释说明差异（ensure-model 是 modelPath 完全未传的兜底，applyDefaults 总会填值）。
 
 其余 L 级（CI=false 字符串 truthy、多实例并发下载无锁、同步阻塞启动、CI 产物无模型）权衡可接受。
+
+### 第三轮审视（终审前）
+
+第三轮独立 agent 审视命中 2 中 + 2 低，全部处理：
+
+- **M1 config-service 默认 modelPath 本地模式错误**（中）→ 用户设 `localModelPath` 不设 `modelPath` 时，applyDefaults 填远程 repo id `"Xenova/bge-m3"`，worker 查 `models/Xenova/bge-m3/` 而非 `models/bge-m3/`，加载失败。修复：`localModelPath` 存在时默认改为 `"bge-m3"`（目录名）+ 补边界测试。
+- **M2 文档 build 命令未同步 B1 括号修复**（中）→ 变更 10 的示例代码仍为旧形式 `download || echo` 无括号，与实际 package.json 不一致。修复：补括号。
+- **L1 文档测试数过期**（低）→ 901→911。
+- **L2 download 脚本死代码**（低）→ `expectedSize === null` 分支在 H1 修复后永不可达（JSON 所有文件都有 size），删除。
+
+### 第四轮终审
+
+第四轮独立 agent 终审：**前三轮修复全部验证正确，无回归**。仅剩低级清理项（文档测试数 910→911 笔误、补第三轮审视记录本段）。health-controller 硬编码 embeddingModel 是 pre-existing 问题（非本 PR 引入），独立处理。三处 `??` 兜底默认值不一致（ensure-model "bge-m3" vs 其他 "Xenova/bge-m3"）是防御性死代码，已注释说明，权衡可接受。
+
+**判定：建议合并。**
 
 ## 关联
 
