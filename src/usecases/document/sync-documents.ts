@@ -32,13 +32,13 @@ export interface SyncResult {
 
 /** F20260803mval: 内容指纹，用于 upsert 判定（变更才 update + reindex） */
 function featureFingerprint(doc: FeatureDocument): string {
-  return [doc.title, doc.summary, doc.changeType, doc.status,
+  return [doc.title, doc.summary, doc.changeType, doc.status, doc.filePath,
     JSON.stringify(doc.tags), JSON.stringify(doc.modules),
     JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes)].join("|");
 }
 
 function researchFingerprint(doc: ResearchDocument): string {
-  return [doc.title, doc.summary, doc.explorationType, doc.status,
+  return [doc.title, doc.summary, doc.explorationType, doc.status, doc.filePath,
     JSON.stringify(doc.tags), doc.conclusion ?? "",
     JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes)].join("|");
 }
@@ -212,12 +212,14 @@ export class SyncDocuments {
     const diskIds = await this.collectDiskIds(rootDir, dir);
     const dbDocs = await repo.findAll();
     const dbIds = new Set(dbDocs.filter(d => d.status !== "archived").map(d => d.id));
+    // F20260803mval: supersedes 引用检查用全量 ID（含 archived），归档文档作为引用目标仍合法（B5）
+    const allDbIds = new Set(dbDocs.map(d => d.id));
     for (const id of diskIds) {
       if (!dbIds.has(id)) result.reconcileGaps.push(id);
     }
     for (const d of dbDocs) {
       for (const sup of d.supersedes) {
-        if (!dbIds.has(sup) && !diskIds.has(sup)) {
+        if (!allDbIds.has(sup) && !diskIds.has(sup)) {
           result.supersedesDangling.push(`${d.id} -> ${sup}`);
         }
       }

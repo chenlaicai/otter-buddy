@@ -249,6 +249,18 @@ PR #128 经代码评审 agent 审视，命中 4 个真 bug（已修）+ 若干�
 - sync-documents 行为测试（5 个：新文档/内容变 upsert/内容不变 skip/未知枚举 warnings/supersedes 悬空）
 - health-controller 测试（4 个：healthy=true、reconcileGaps、embedding 不可用、DB 异常 200）
 
+**第四轮终审追加修复**（rebase 后 G1 + 终审新发现）：
+- G1 共享单一 memoryIndex 实例（main 创建传给 syncDocuments + initUseCases），移除 UseCases 死字段 storeMemory
+- S2 feature-mapper/research-mapper 读取侧加 isKnown fallback（C1 写入侧修复的对称补全，防非 sync 路径绕过类型安全）
+- S3 storeEmbedding 加 hasVec 守卫（C2 hasVec 守卫的对称补全，D22 降级下避免日志噪声）
+- B5 reconcileType supersedes 悬空检查用全量 ID（含 archived），防归档文档作为引用目标被误报
+- G2 指纹加入 filePath，文件移动后正确触发 update 而非误归档
+
+**已知限制（终审确认，需 config/接口层支持，非本 PR scope）**：
+- G3 健康端点 rootDir=process.cwd()，生产部署若 cwd 不在项目根会假报 healthy（需 config 支持）
+- G4 embeddingModel 硬编码（需 EmbeddingGateway 加 modelName 属性）
+- G5 replaceBySource 的 fire-and-forget embedding 窗口（FTS 可搜 vec 不可搜，fire-and-forget 固有）
+
 ## 涉及文件
 
 | 文件 | 改动 |

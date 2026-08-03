@@ -161,6 +161,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void> {
+    // F20260803mval: vec 扩展不可用时 memory_vec 表不存在，跳过（与 deleteBySource/replaceEntryBySource 一致，S3）
+    if (!this.hasVec) return;
     /** vec0 不支持 INSERT OR REPLACE，先删除再插入 */
     this.db.exec("BEGIN");
     try {
