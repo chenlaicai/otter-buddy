@@ -56,9 +56,8 @@ export function chunkMarkdown(body: string): MarkdownChunk[] {
   const trimmed = body.trim();
   if (!trimmed) return [];
 
-  // 去掉 H1 标题行（文档标题已在 frontmatter.title，不参与分段）
-  // ^#\s+ 精确匹配 H1（不匹配 H2 的 "## "，因第二个字符 # 非 \s）
-  const bodyNoH1 = body.replace(/^#\s+[^\n]+/gm, "").replace(/^\n+/, "");
+  // PR审视 B1：去掉 H1 标题行需代码块感知——代码块内的 "# xxx"（markdown 示例/shell 注释）不能删
+  const bodyNoH1 = removeH1OutsideCodeblocks(body);
   if (!bodyNoH1.trim()) return [];
 
   // 短文档：整个 body 作为一个 chunk
@@ -68,6 +67,24 @@ export function chunkMarkdown(body: string): MarkdownChunk[] {
 
   const chunks = processLevel(bodyNoH1, 2, []);
   return mergeShortChunks(chunks);
+}
+
+/** PR审视 B1：去除 H1 标题行，但跳过代码块内的行（状态机跟踪围栏） */
+function removeH1OutsideCodeblocks(body: string): string {
+  const lines = body.split("\n");
+  let inCode = false;
+  const result: string[] = [];
+  for (const line of lines) {
+    if (isFenceLine(line)) {
+      inCode = !inCode;
+      result.push(line);
+    } else if (!inCode && /^#\s+[^\n]+/.test(line)) {
+      // H1 在代码块外，跳过（文档标题已在 frontmatter.title）
+    } else {
+      result.push(line);
+    }
+  }
+  return result.join("\n").replace(/^\n+/, "");
 }
 
 /**
@@ -100,12 +117,14 @@ function processLevel(text: string, level: number, parentPath: string[]): Markdo
  * 只切指定 level 的标题（精确匹配 # 数量）。更高级别标题（外层已切好，通常不出现）
  * 和更低级别标题都作为内容的一部分。第一个指定级别标题之前的内容是前言 section
  * （title=null）。
+ * PR审视 B2：代码块状态感知——代码块内的 "# xxx" / "## xxx"（markdown 示例）不是标题，不切分。
  */
 function splitByHeadingLevel(text: string, level: number): RawSection[] {
   const lines = text.split("\n");
   const sections: RawSection[] = [];
   let currentTitle: string | null = null;
   let currentLines: string[] = [];
+  let inCode = false;
 
   // 精确匹配指定 level：#{level} 后面不能紧跟 #（否则是更深层级）
   const headingRegex = new RegExp(`^#{${level}}(?!#)\\s+(.+)$`);
@@ -119,14 +138,22 @@ function splitByHeadingLevel(text: string, level: number): RawSection[] {
   };
 
   for (const line of lines) {
-    const headingMatch = line.match(headingRegex);
-    if (headingMatch) {
-      flush();
-      currentTitle = headingMatch[1].trim();
-      currentLines = [line];
-    } else {
+    if (isFenceLine(line)) {
+      inCode = !inCode;
       currentLines.push(line);
+      continue;
     }
+    // 只在非代码块内匹配标题
+    if (!inCode) {
+      const headingMatch = line.match(headingRegex);
+      if (headingMatch) {
+        flush();
+        currentTitle = headingMatch[1].trim();
+        currentLines = [line];
+        continue;
+      }
+    }
+    currentLines.push(line);
   }
   flush();
 
@@ -218,7 +245,10 @@ function splitIntoAtomicBlocks(text: string): Block[] {
 }
 
 /** M2 修正：同时识别 ``` 和 ~~~ 围栏（CommonMark 两种合法 fenced code block） */
+/** PR审视 B4：最多允许 3 个前导空格（CommonMark 规范），4+ 空格缩进是 indented code block 非围栏 */
 function isFenceLine(line: string): boolean {
+  const indent = line.length - line.trimStart().length;
+  if (indent > 3) return false;
   const trimmed = line.trimStart();
   return trimmed.startsWith("```") || trimmed.startsWith("~~~");
 }
@@ -244,7 +274,8 @@ function forceSplitByLines(text: string, headingPath: string[]): MarkdownChunk[]
 
 /**
  * 短 chunk 合并：charCount < MIN_CHUNK_SIZE 的 chunk 合并到相邻。
- * 非末尾合并到下一个；末尾合并到前一个。合并后 headingPath 用合并目标的。
+ * 优先合并到前一个（如已入 merged）；否则合并到后一个。合并后 headingPath 用合并目标的。
+ * PR审视 M1：创建新对象而非原地修改，避免 mutation 风险。
  */
 function mergeShortChunks(chunks: MarkdownChunk[]): MarkdownChunk[] {
   if (chunks.length <= 1) return chunks;
@@ -256,16 +287,21 @@ function mergeShortChunks(chunks: MarkdownChunk[]): MarkdownChunk[] {
       merged.push(chunk);
       continue;
     }
-    // 短 chunk：合并到前一个（如有）或后一个
+    // 短 chunk：合并到前一个（如有）或后一个（M1：创建新对象）
     if (merged.length > 0) {
       const prev = merged[merged.length - 1];
-      prev.content = prev.content + "\n" + chunk.content;
-      prev.charCount = prev.content.length;
-      // headingPath 保留 prev 的（更精确的定位）
+      merged[merged.length - 1] = {
+        content: prev.content + "\n" + chunk.content,
+        headingPath: prev.headingPath,
+        charCount: prev.content.length + 1 + chunk.content.length,
+      };
     } else if (i + 1 < chunks.length) {
       const next = chunks[i + 1];
-      next.content = chunk.content + "\n" + next.content;
-      next.charCount = next.content.length;
+      chunks[i + 1] = {
+        content: chunk.content + "\n" + next.content,
+        headingPath: next.headingPath,
+        charCount: chunk.content.length + 1 + next.content.length,
+      };
     } else {
       // 只有一个短 chunk，直接保留
       merged.push(chunk);

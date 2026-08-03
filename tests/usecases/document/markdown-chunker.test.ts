@@ -128,4 +128,21 @@ describe("chunkMarkdown", () => {
     const oversized = result.filter(c => c.charCount > 6000);
     expect(oversized.length).toBe(0);
   });
+
+  it("PR审视 B1/B2：代码块内的 H1/H2 不被误删/误切", () => {
+    const codeblock = "```markdown\n# 代码块内标题\n## 代码块内小节\nsome content\n```";
+    const body = "## 背景\n" + big(2000) + "\n" + codeblock + "\n" + big(2000);
+    const result = chunkMarkdown(body);
+    // 代码块内的标题文本不应被 H1 去除删除
+    const allContent = result.map(c => c.content).join("\n");
+    expect(allContent).toContain("代码块内标题");
+    expect(allContent).toContain("代码块内小节");
+    // 代码块不应被标题切分逻辑截断（开闭围栏配对）
+    for (const c of result) {
+      if (c.content.includes("```markdown")) {
+        const fences = (c.content.match(/```/g) || []).length;
+        expect(fences % 2).toBe(0); // 开闭配对
+      }
+    }
+  });
 });

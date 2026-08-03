@@ -283,10 +283,11 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
     .get() as { value: string } | undefined;
   if (done?.value === 'done') return;
 
-  // M14：sync 有错误时不执行清理（防失败文档正文索引永久消失）
+  // PR审视 B7：不用 syncErrors==0 作 guard——文档 frontmatter 错误是永久性的，
+  // 会导致迁移永远不执行（死锁）。sync 成功的文档已有新 chunk；sync 失败的文档
+  // 旧 feature_body 删了无妨（下次 sync 成功会生成 chunk）。
   if (syncErrors > 0) {
-    logger.warn(`Skipping chunking migration: sync had ${syncErrors} errors, will retry next startup`);
-    return;
+    logger.warn(`Chunking migration proceeding despite ${syncErrors} sync errors (failed docs will get chunks on next successful sync)`);
   }
 
   const migrate = db.transaction(() => {

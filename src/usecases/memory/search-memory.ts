@@ -353,12 +353,14 @@ export class SearchMemory {
           : Number(a.entry.metadata?.chunk_index ?? 0) - Number(b.entry.metadata?.chunk_index ?? 0),
       );
       const best = group[0];
-      const extraHits = Math.min(group.length - 1, MAX_MULTI_HIT_BOOST_COUNT);
+      // PR审视 B8/M4：multi_hit_count 只统计 chunk 命中（summary 命中不是 chunk 命中，boost 语义是"多 chunk 命中"）
+      const chunkHitCount = group.filter(h => h.entry.contentType.includes("_chunk")).length;
+      const extraHits = Math.min(Math.max(chunkHitCount - 1, 0), MAX_MULTI_HIT_BOOST_COUNT);
       // M15：创建新对象而非原地修改
       result.push({
         ...best,
         finalScore: best.finalScore + MULTI_HIT_BOOST * extraHits,
-        multiHitCount: group.length,
+        multiHitCount: chunkHitCount,
       });
     }
     return result;
@@ -372,7 +374,8 @@ export class SearchMemory {
   private preAggregateFtsBySource<T extends { entryId: string; ftsRank: number; entry: MemoryEntry }>(hits: T[]): T[] {
     const groups = new Map<string, T[]>();
     for (const hit of hits) {
-      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}`;
+      // PR审视 B6：key 加 contentType，防 summary（feature）被同源 chunk（feature_chunk）的 top-3 限制挤掉
+      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}|${hit.entry.contentType}`;
       const group = groups.get(key);
       if (group) group.push(hit);
       else groups.set(key, [hit]);

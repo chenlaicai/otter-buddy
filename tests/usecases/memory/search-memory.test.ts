@@ -243,6 +243,8 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
     const docBase = { layer: "document" as const, sourceId: "F123", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
     storeEntry(db, { ...docBase, id: "summary-1", contentType: "feature", content: "记忆系统校验链路设计概要" });
     storeEntry(db, { ...docBase, id: "body-1", contentType: "feature_chunk", content: "正文详细描述了记忆系统的校验链路与 BM25 ranking 机制" });
+    /** PR审视 B8：F123 的第 2 个 chunk，测多 chunk 命中 boost（multi_hit_count 只统计 chunk） */
+    storeEntry(db, { ...docBase, id: "body-1b", contentType: "feature_chunk", content: "记忆系统的 embedding 与向量检索路径补充" });
     /** 另一个文档的 body entry，不同 sourceId */
     storeEntry(db, { ...docBase, id: "body-2", sourceId: "F456", contentType: "feature_chunk", content: "另一文档关于 FTS5 trigram 配置" });
   });
