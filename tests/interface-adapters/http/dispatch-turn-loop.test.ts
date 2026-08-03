@@ -7,6 +7,7 @@ import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
+import type { ManageReadState } from "@usecases/conversation/manage-read-state";
 
 function createApp(controller: MessageController): Hono {
   const app = new Hono();
@@ -87,6 +88,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
+      { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
       logger as never,
       queryOtterStub,
@@ -132,6 +134,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
+      { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
       logger as never,
       queryOtterStub,
@@ -175,6 +178,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     const ctrl = new MessageController(
       useCase as unknown as SendMessage,
       queryMessageStub,
+      { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       agentInvoker,
       logger as never,
       queryOtter,

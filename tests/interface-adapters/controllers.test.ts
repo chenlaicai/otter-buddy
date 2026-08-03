@@ -19,6 +19,7 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
+import type { ManageReadState } from "@usecases/conversation/manage-read-state";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Conversation } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
@@ -206,7 +207,7 @@ describe("MessageController", () => {
       logger: mockLogger,
       maxChainDepth: 20,
     });
-    const ctrl = new MessageController({} as SendMessage, queryMessage, {} as AgentInvoker, mockLogger, queryOtter, dispatchChainEngine);
+    const ctrl = new MessageController({} as SendMessage, queryMessage, { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState, {} as AgentInvoker, mockLogger, queryOtter, dispatchChainEngine);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1");
     expect(res.status).toBe(200);
@@ -228,7 +229,7 @@ describe("MessageController", () => {
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter, {} as DispatchChainEngine);
+    const ctrl = new MessageController({} as SendMessage, queryMessage, { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter, {} as DispatchChainEngine);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1/abort", { method: "POST" });
     expect(res.status).toBe(202);
@@ -248,7 +249,7 @@ describe("MessageController", () => {
       }),
     } as unknown as QueryMessage;
     const agentInvoker = { abort: () => {} } as unknown as AgentInvoker;
-    const ctrl = new MessageController({} as SendMessage, queryMessage, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter, {} as DispatchChainEngine);
+    const ctrl = new MessageController({} as SendMessage, queryMessage, { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState, agentInvoker, { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() }, { getById: async () => null } as unknown as QueryOtter, {} as DispatchChainEngine);
     const app = createApp(ctrl);
     const res = await app.request("/api/messages/msg-1/abort", { method: "POST" });
     expect(res.status).toBe(400);
@@ -275,6 +276,7 @@ describe("MessageController sendMessage validation", () => {
     const ctrl = new MessageController(
       {} as SendMessage,
       {} as QueryMessage,
+      { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       {} as AgentInvoker,
       mockLogger,
       queryOtter,
@@ -302,6 +304,7 @@ describe("MessageController sendMessage validation", () => {
     const ctrl = new MessageController(
       {} as SendMessage,
       {} as QueryMessage,
+      { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState,
       {} as AgentInvoker,
       mockLogger,
       queryOtter,

@@ -107,6 +107,19 @@ export class ManageConversation {
     return this.repo.getAllIds(options);
   }
 
+  /** 批量查询会话列表（含未读计数 + last_message，一条 SQL JOIN 替代 N+1） */
+  async listWithMeta(
+    userId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<Array<Conversation & {
+    otterIds: string[];
+    unreadCount: number;
+    lastMessagePreview: string | null;
+    lastMessageTs: string | null;
+  }>> {
+    return this.repo.listConversationsWithMeta(userId, options);
+  }
+
   /** 置顶对话（幂等） */
   async pin(id: string): Promise<void> {
     const conv = await this.repo.getById(id);

@@ -5,7 +5,7 @@ import type {
 } from "@contract/api/message";
 
 export type { MessageDTO, MessageEventDTO };
-export type { SendMessageRequestDTO } from "@contract/api/message";
+export type { SendMessageRequestDTO, MessageListResponseDTO, UnreadStateDTO, MarkReadResponseDTO, MarkReadRequestDTO } from "@contract/api/message";
 
 /** 计算消息持续时间 */
 function duration(createdAt: string, completedAt: string | null): string | null {
@@ -44,3 +44,5 @@ export function toMessageEventDTO(evt: MessageEvent): MessageEventDTO {
     createdAt: evt.createdAt,
   };
 }
+
+/** 搜索结果 DTO 已移除（搜索能力与分页冲突，完整移除） */

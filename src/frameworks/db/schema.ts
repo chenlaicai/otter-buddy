@@ -27,6 +27,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createScheduledTaskTables(db);
     createConnectionTables(db);
     createHealingEventTables(db);
+    createUserReadStateTable(db);
 
     db.exec("COMMIT");
 
@@ -550,5 +551,22 @@ function createHealingEventTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_healing_events_severity ON healing_events(severity);
     CREATE INDEX IF NOT EXISTS idx_healing_events_created ON healing_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_healing_events_type ON healing_events(error_type);
+  `);
+}
+
+/** Web 用户已读状态（消息级，与 otter agent 的 turn 级 last_read_turn_number 独立）。
+ *  单用户预留多用户：user_id 当前固定 "web-user"，多用户扩展时按 user 隔离。 */
+function createUserReadStateTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_user_read_state (
+      user_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      last_read_message_seq INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, conversation_id),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_read_state_conv ON conversation_user_read_state(conversation_id);
   `);
 }

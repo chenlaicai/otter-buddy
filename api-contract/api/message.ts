@@ -36,3 +36,28 @@ export interface SendMessageRequestDTO {
   talkingStonePassedTo?: string[];
   body: string;
 }
+
+/** 消息列表响应（包裹对象，含 hasMore 分页标识） */
+export interface MessageListResponseDTO {
+  messages: MessageDTO[];
+  hasMore: boolean;
+}
+
+/** 未读状态 DTO */
+export interface UnreadStateDTO {
+  lastReadSeq: number;
+  unreadCount: number;
+  firstUnreadMessageId: string | null;
+  firstUnreadSeq: number | null;
+}
+
+/** 标记已读响应 DTO */
+export interface MarkReadResponseDTO {
+  lastReadSeq: number;
+  unreadCount: number;
+}
+
+/** 标记已读请求 DTO */
+export interface MarkReadRequestDTO {
+  messageSeq: number;
+}

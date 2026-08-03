@@ -16,6 +16,11 @@ export class QueryMessage {
     return this.repo.getMessages(conversationId, options);
   }
 
+  /** after 游标查询：比指定消息更新的消息（升序），用于向下分页 */
+  async getMessagesAfter(messageId: string, count: number): Promise<Message[]> {
+    return this.repo.getMessagesAfter(messageId, count);
+  }
+
   async getMessageEvents(messageId: string): Promise<MessageEvent[]> {
     return this.repo.getMessageEvents(messageId);
   }
@@ -63,5 +68,31 @@ export class QueryMessage {
     const before = await this.repo.getMessagesBefore(messageId, count);
     const after = await this.repo.getMessagesAfter(messageId, count);
     return [...before, target, ...after].sort((a, b) => a.sequenceNum - b.sequenceNum);
+  }
+
+  /** Web 用户未读状态（只读）：已读位置 + 未读计数 + 第一条未读消息 */
+  async getUnreadState(conversationId: string, userId: string): Promise<{
+    lastReadSeq: number;
+    unreadCount: number;
+    firstUnreadMessageId: string | null;
+    firstUnreadSeq: number | null;
+  }> {
+    const state = await this.repo.getUserReadState(conversationId, userId);
+    if (!state) {
+      // 首次访问（无已读记录）：不视为全部未读，前端加载后初始化已读到最新
+      return { lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null };
+    }
+    const lastReadSeq = state.lastReadSeq;
+    const unreadCount = await this.repo.getUnreadCount(conversationId, userId);
+    if (unreadCount === 0) {
+      return { lastReadSeq, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null };
+    }
+    const firstUnread = await this.repo.getFirstUnreadMessage(conversationId, userId);
+    return {
+      lastReadSeq,
+      unreadCount,
+      firstUnreadMessageId: firstUnread?.id ?? null,
+      firstUnreadSeq: firstUnread?.sequenceNum ?? null,
+    };
   }
 }

@@ -400,6 +400,101 @@ export class SqliteConversationRepository implements ConversationRepository {
     }));
   }
 
+  // ── Web 用户已读状态（消息级，与 otter 的 turn 级独立） ──
+
+  async getUserReadState(conversationId: string, userId: string): Promise<{ lastReadSeq: number } | null> {
+    const row = this.db.prepare(
+      "SELECT last_read_message_seq FROM conversation_user_read_state WHERE user_id = ? AND conversation_id = ?",
+    ).get(userId, conversationId) as { last_read_message_seq: number } | undefined;
+    return row ? { lastReadSeq: row.last_read_message_seq } : null;
+  }
+
+  async upsertUserReadState(conversationId: string, userId: string, lastReadSeq: number): Promise<void> {
+    /** ON CONFLICT 用 MAX：只前进不后退（用户向上回看旧消息不应降低已读位置） */
+    this.db.prepare(`
+      INSERT INTO conversation_user_read_state (user_id, conversation_id, last_read_message_seq, updated_at)
+      VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id, conversation_id) DO UPDATE SET
+        last_read_message_seq = MAX(excluded.last_read_message_seq, last_read_message_seq),
+        updated_at = datetime('now')
+    `).run(userId, conversationId, lastReadSeq);
+  }
+
+  async getFirstUnreadMessage(conversationId: string, userId: string): Promise<Message | null> {
+    const row = this.db.prepare(`
+      SELECT m.* FROM messages m
+      WHERE m.conversation_id = ?
+        AND m.sequence_num > COALESCE(
+          (SELECT last_read_message_seq FROM conversation_user_read_state WHERE user_id = ? AND conversation_id = ?), 0
+        )
+        AND m.status NOT IN ('streaming', 'speaking')
+      ORDER BY m.sequence_num ASC LIMIT 1
+    `).get(conversationId, userId, conversationId) as MessageRow | undefined;
+    return row ? rowToMessage(row) : null;
+  }
+
+  async getUnreadCount(conversationId: string, userId: string): Promise<number> {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) as cnt FROM messages
+      WHERE conversation_id = ?
+        AND sequence_num > COALESCE(
+          (SELECT last_read_message_seq FROM conversation_user_read_state WHERE user_id = ? AND conversation_id = ?), 0
+        )
+        AND status NOT IN ('streaming', 'speaking')
+    `).get(conversationId, userId, conversationId) as { cnt: number };
+    return row.cnt;
+  }
+
+  async getLastMessage(conversationId: string): Promise<Message | null> {
+    const row = this.db.prepare(
+      "SELECT * FROM messages WHERE conversation_id = ? AND status NOT IN ('streaming', 'speaking') ORDER BY sequence_num DESC LIMIT 1",
+    ).get(conversationId) as MessageRow | undefined;
+    return row ? rowToMessage(row) : null;
+  }
+
+  async listConversationsWithMeta(
+    userId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<Array<Conversation & { otterIds: string[]; unreadCount: number; lastMessagePreview: string | null; lastMessageTs: string | null }>> {
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+    const rows = this.db.prepare(`
+      SELECT c.*,
+        COALESCE(u.last_read_message_seq, 0) AS last_read_seq,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id
+          AND m.sequence_num > COALESCE(u.last_read_message_seq, 0)
+          AND m.status NOT IN ('streaming', 'speaking')) AS unread_count,
+        lm.body AS last_message_body,
+        lm.created_at AS last_message_ts,
+        (SELECT GROUP_CONCAT(otter_id, ',') FROM conversation_otters WHERE conversation_id = c.id) AS otter_ids_flat
+      FROM conversations c
+      LEFT JOIN conversation_user_read_state u ON u.conversation_id = c.id AND u.user_id = ?
+      LEFT JOIN messages lm ON lm.id = (
+        SELECT id FROM messages WHERE conversation_id = c.id AND status NOT IN ('streaming', 'speaking')
+        ORDER BY sequence_num DESC LIMIT 1
+      )
+      WHERE c.status != 'archived'
+      ORDER BY c.pinned DESC, c.created_at DESC LIMIT ? OFFSET ?
+    `).all(userId, limit, offset) as Array<ConversationRow & {
+      last_read_seq: number; unread_count: number;
+      last_message_body: string | null; last_message_ts: string | null;
+      otter_ids_flat: string | null;
+    }>;
+    return rows.map(row => {
+      const conv = rowToConversation(row);
+      const preview = row.last_message_body
+        ? row.last_message_body.replace(/<[^>]*>/g, "").slice(0, 50)
+        : null;
+      return {
+        ...conv,
+        otterIds: row.otter_ids_flat ? row.otter_ids_flat.split(",") : [],
+        unreadCount: row.unread_count,
+        lastMessagePreview: preview,
+        lastMessageTs: row.last_message_ts,
+      };
+    });
+  }
+
   // ── Message 全文搜索（FTS5） ──
 
   async searchMessages(conversationId: string, query: string, limit = 10): Promise<Message[]> {

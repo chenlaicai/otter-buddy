@@ -1,4 +1,6 @@
+import { type RefObject } from 'react'
 import { Archive, ShieldAlert } from 'lucide-react'
+import type { VirtuosoHandle } from 'react-virtuoso'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
@@ -14,6 +16,20 @@ interface ChatViewProps {
   onGoToSettings: () => void
   onArchive: () => void
   otters: Otter[]
+  // virtuoso props 透传
+  conversationId: string
+  virtuosoRef: RefObject<VirtuosoHandle | null>
+  firstItemIndex: number
+  initialTopMostItemIndex: number | { index: 'LAST' }
+  onAtBottomChange: (atBottom: boolean) => void
+  newMessagesCount?: number
+  onJumpToBottom?: () => void
+  onLoadMore?: () => void
+  loadingMore?: boolean
+  onLoadMoreAfter?: () => void
+  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void
+  unreadSeparatorSeq?: number | null
+  highlightMessageId?: string | null
   /** 卡片提交待确认预览（输入框上方单槽位） */
   cardPreview?: CardPreview | null
   onConfirmCard?: () => void
@@ -64,6 +80,19 @@ export function ChatView(props: ChatViewProps) {
         onRetry={props.onRetry}
         onGoToSettings={props.onGoToSettings}
         otters={props.otters}
+        conversationId={props.conversationId}
+        virtuosoRef={props.virtuosoRef}
+        firstItemIndex={props.firstItemIndex}
+        initialTopMostItemIndex={props.initialTopMostItemIndex}
+        onAtBottomChange={props.onAtBottomChange}
+        newMessagesCount={props.newMessagesCount}
+        onJumpToBottom={props.onJumpToBottom}
+        onLoadMore={props.onLoadMore}
+        loadingMore={props.loadingMore}
+        onLoadMoreAfter={props.onLoadMoreAfter}
+        onRangeChanged={props.onRangeChanged}
+        unreadSeparatorSeq={props.unreadSeparatorSeq}
+        highlightMessageId={props.highlightMessageId}
       />
 
       {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}

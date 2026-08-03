@@ -275,11 +275,15 @@ body {
 .msg-content hr { border: none; border-top: 1px solid rgba(139,111,71,0.15); margin: 12px 0; }
 .msg-content del { color: #A8A29E; }
 
-/* 气泡性能预算：视口外气泡跳过渲染（backdrop-filter 重采样的主要成本）。
-   底部 3 行豁免：滚动锚定 scrollTop=scrollHeight 依赖底部真实高度，
-   估算高度会导致打开/切换长对话时停错位置 */
-.msg-content { content-visibility: auto; contain-intrinsic-size: auto 90px; }
-.msg-scroll > *:nth-last-child(-n+3) .msg-content { content-visibility: visible; }
+/* 消息高亮（搜索/permalink 跳转后脉冲 2s） */
+.highlight-message {
+  animation: highlight-pulse 2s ease-out;
+}
+@keyframes highlight-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(168, 130, 96, 0.5); }
+  30% { box-shadow: 0 0 0 6px rgba(168, 130, 96, 0.2); }
+  100% { box-shadow: 0 0 0 0 rgba(168, 130, 96, 0); }
+}
 
 /* Streaming collapse */
 .streaming-collapsed .streaming-body { display: none; }

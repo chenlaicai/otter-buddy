@@ -16,10 +16,8 @@ describe("Conversation API", () => {
 
   describe("GET /api/conversations", () => {
     it("returns conversation list", async () => {
-      deps.manageConversation.getAllIds.mockResolvedValue(["conv-1"]);
-      deps.manageConversation.getById.mockResolvedValue(makeConversation());
-      deps.manageParticipant.getActiveParticipants.mockResolvedValue([
-        { participant: makeParticipant({ otterId: "otter-1" }), otterName: "Big Otter" },
+      deps.manageConversation.listWithMeta.mockResolvedValue([
+        { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 0, lastMessagePreview: null, lastMessageTs: null },
       ]);
 
       const res = await app.request("/api/conversations");
@@ -30,9 +28,8 @@ describe("Conversation API", () => {
       expect(body[0].otterIds).toEqual(["otter-1"]);
     });
 
-    it("filters out null entries when conversation not found", async () => {
-      deps.manageConversation.getAllIds.mockResolvedValue(["conv-missing"]);
-      deps.manageConversation.getById.mockResolvedValue(null);
+    it("returns empty list when listWithMeta returns empty", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue([]);
 
       const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);
@@ -41,7 +38,7 @@ describe("Conversation API", () => {
     });
 
     it("returns empty array when no conversations", async () => {
-      deps.manageConversation.getAllIds.mockResolvedValue([]);
+      deps.manageConversation.listWithMeta.mockResolvedValue([]);
 
       const res = await app.request("/api/conversations");
       expect(res.status).toBe(200);

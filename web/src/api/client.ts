@@ -3,6 +3,9 @@ import type {
   ConversationListItemDTO,
   CreateConversationRequestDTO,
   MessageDTO,
+  MessageListResponseDTO,
+  UnreadStateDTO,
+  MarkReadResponseDTO,
   MessageEventDTO,
   SendMessageRequestDTO,
   OtterDTO,
@@ -76,8 +79,32 @@ export function getParticipants(conversationId: string): Promise<ParticipantDTO[
 
 // ── Messages ──
 
-export function listMessages(conversationId: string, limit = 50): Promise<MessageDTO[]> {
-  return request(`/conversations/${conversationId}/messages?limit=${limit}`)
+export function listMessages(conversationId: string, limit = 50, before?: string): Promise<MessageListResponseDTO> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (before) qs.set('before', before)
+  return request(`/conversations/${conversationId}/messages?${qs}`)
+}
+
+/** after 游标向下分页（加载比 after 消息更新的历史消息） */
+export function listMessagesAfter(conversationId: string, after: string, limit = 50): Promise<MessageListResponseDTO> {
+  const qs = new URLSearchParams({ after, limit: String(limit) })
+  return request(`/conversations/${conversationId}/messages/after?${qs}`)
+}
+
+/** 未读状态 */
+export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> {
+  return request(`/conversations/${conversationId}/unread`)
+}
+
+/** 标记已读 */
+export function markRead(conversationId: string, messageSeq: number): Promise<MarkReadResponseDTO> {
+  return request(`/conversations/${conversationId}/read`, { method: 'POST', body: JSON.stringify({ messageSeq }) })
+}
+
+/** 加载目标消息上下文（搜索跳转 / 未读窗口加载） */
+export function expandMessage(messageId: string, direction: 'before' | 'after' | 'both' = 'both', count = 25): Promise<MessageDTO[]> {
+  const qs = new URLSearchParams({ direction, count: String(count) })
+  return request(`/messages/${messageId}/expand?${qs}`)
 }
 
 export function getMessageEvents(messageId: string): Promise<MessageEventDTO[]> {

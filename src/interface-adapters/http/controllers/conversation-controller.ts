@@ -30,17 +30,18 @@ export class ConversationController {
       if (isNaN(limit) || isNaN(offset) || limit < 0 || offset < 0) {
         return c.json({ error: "Invalid pagination parameters" }, 400);
       }
-      const ids = await this.manageConversation.getAllIds({ limit, offset });
-      const items = await Promise.all(
-        ids.map(async (id) => {
-          const conv = await this.manageConversation.getById(id);
-          if (!conv) return null;
-          const participantsWithOtter = await this.manageParticipant.getActiveParticipants(id);
-          const otterIds = participantsWithOtter.map((p) => p.participant.otterId);
-          return toConversationListItemDTO(conv, otterIds);
-        }),
-      );
-      return c.json(items.filter((x): x is NonNullable<typeof x> => x !== null));
+      /** 批量 JOIN 查询（含未读计数 + last_message），替代 N+1 */
+      const userId = c.req.query("userId") ?? "web-user";
+      const items = await this.manageConversation.listWithMeta(userId, { limit, offset });
+      return c.json(items.map((item) => toConversationListItemDTO(
+        item,
+        item.otterIds,
+        {
+          unreadCount: item.unreadCount,
+          lastMessagePreview: item.lastMessagePreview,
+          lastMessageTs: item.lastMessageTs,
+        },
+      )));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
