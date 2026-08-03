@@ -61,6 +61,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260728htar 一次性补丁 */
   rebuildMessagesFtsStripped(db, logger);
   dropMessagesAttachmentsColumn(db, logger);
+  addPinnedColumn(db, logger);
 }
 
 /**
@@ -103,6 +104,16 @@ function dropMessagesAttachmentsColumn(db: Database.Database, logger: Logger): v
 
   db.prepare("ALTER TABLE messages DROP COLUMN attachments").run();
   logger.info('Dropped attachments column from messages table');
+}
+
+/** F20260803pncv：conversations 表添加 pinned 列（置顶功能）。PRAGMA 探测幂等。 */
+function addPinnedColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+  const hasPinned = columns.some(col => col.name === 'pinned');
+  if (hasPinned) return;
+
+  db.prepare("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
+  logger.info('Added pinned column to conversations table');
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

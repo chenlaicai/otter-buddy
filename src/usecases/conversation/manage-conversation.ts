@@ -33,6 +33,7 @@ export class ManageConversation {
       title: params.title,
       status: "active",
       summary: null,
+      pinned: false,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -104,6 +105,24 @@ export class ManageConversation {
   /** 获取所有对话 ID（分页） */
   async getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]> {
     return this.repo.getAllIds(options);
+  }
+
+  /** 置顶对话（幂等） */
+  async pin(id: string): Promise<void> {
+    const conv = await this.repo.getById(id);
+    if (!conv) {
+      throw new DomainError(`Conversation not found: ${id}`, "not_found");
+    }
+    await this.repo.updatePinned(id, true);
+  }
+
+  /** 取消置顶对话（幂等，保护检查在 controller 层） */
+  async unpin(id: string): Promise<void> {
+    const conv = await this.repo.getById(id);
+    if (!conv) {
+      throw new DomainError(`Conversation not found: ${id}`, "not_found");
+    }
+    await this.repo.updatePinned(id, false);
   }
 
 }

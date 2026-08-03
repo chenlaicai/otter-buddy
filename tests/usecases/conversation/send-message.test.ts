@@ -72,6 +72,7 @@ function mockRepo(opts: {
     updateStatus: vi.fn(),
     getIdsByOtterId: vi.fn(async () => []),
     getAllIds: vi.fn(async () => []),
+    updatePinned: vi.fn().mockResolvedValue(undefined),
     getOtterIds: vi.fn(async () => []),
     createTurn: vi.fn(async (turn: Turn) => {
       turns.push(turn);

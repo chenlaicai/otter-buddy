@@ -30,6 +30,7 @@ function conversationFixture(overrides: Partial<Conversation> = {}): Conversatio
     title: "测试对话",
     status: "active",
     summary: null,
+    pinned: false,
     createdAt: "2026-07-22T00:00:00Z",
     updatedAt: "2026-07-22T00:00:00Z",
     completedAt: null,
@@ -158,6 +159,31 @@ describe("SqliteConversationRepository - 对话与 Turn 基础操作", () => {
       await repo.create(conversationFixture());
 
       await expect(repo.updateStatus("conv-1", "active" as any, "2026-07-22T10:00:00Z")).rejects.toThrow();
+    });
+  });
+
+  describe("updatePinned + getAllIds 排序", () => {
+    it("updatePinned 更新 pinned 状态", async () => {
+      await repo.create(conversationFixture());
+
+      await repo.updatePinned("conv-1", true);
+      expect((await repo.getById("conv-1"))!.pinned).toBe(true);
+
+      await repo.updatePinned("conv-1", false);
+      expect((await repo.getById("conv-1"))!.pinned).toBe(false);
+    });
+
+    it("getAllIds 按 pinned DESC, created_at DESC 排序", async () => {
+      await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-01T00:00:00Z" }));
+      await repo.create(conversationFixture({ id: "conv-b", createdAt: "2026-07-02T00:00:00Z" }));
+      await repo.create(conversationFixture({ id: "conv-c", createdAt: "2026-07-03T00:00:00Z" }));
+
+      await repo.updatePinned("conv-a", true);
+
+      const ids = await repo.getAllIds();
+      expect(ids[0]).toBe("conv-a");
+      expect(ids[1]).toBe("conv-c");
+      expect(ids[2]).toBe("conv-b");
     });
   });
 

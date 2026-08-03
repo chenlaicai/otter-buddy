@@ -2,7 +2,9 @@ import type { Context } from "hono";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { CreateConversationInput } from "@usecases/conversation/manage-conversation";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Logger } from "@usecases/ports/logger";
+import { HEALING_CONVERSATION_KEY } from "@usecases/healing/constants";
 import { handleError, param } from "../http-error";
 import {
   toConversationDTO,
@@ -13,10 +15,10 @@ import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
 
 export class ConversationController {
   constructor(
-
     private readonly manageConversation: ManageConversation,
     private readonly manageParticipant: ManageParticipant,
-      private readonly logger: Logger,
+    private readonly settings: SettingsRepository,
+    private readonly logger: Logger,
   ) {}
 
   async list(c: Context): Promise<Response> {
@@ -99,6 +101,32 @@ export class ConversationController {
       return c.json(participantsWithOtter.map(({ participant, otterName, otterType, roleName }) =>
         toParticipantDTO(participant, otterName, { otterType, roleName })
       ));
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  async pin(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      await this.manageConversation.pin(id);
+      return c.json({ status: "pinned" });
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  async unpin(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      // healing 保护：settings 返回 healing 对话 ID 时拒绝 unpin。
+      // settings 为 null（healing 初始化失败）时不拒绝——此时无 healing 对话需要保护。
+      const healingId = await this.settings.get(HEALING_CONVERSATION_KEY);
+      if (id === healingId) {
+        return c.json({ error: "系统对话不可取消置顶" }, 403);
+      }
+      await this.manageConversation.unpin(id);
+      return c.json({ status: "unpinned" });
     } catch (err) {
       return handleError(c, err, this.logger);
     }

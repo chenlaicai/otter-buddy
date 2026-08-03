@@ -7,6 +7,7 @@ export interface Conversation {
   title: string;
   status: ConversationStatus;
   summary: string | null;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
