@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
-import type { MemoryLayer, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
+import type { MemoryLayer, MemoryContentType, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
 import type { Logger } from "@usecases/ports/logger";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { handleError, param } from "../http-error";
@@ -29,6 +29,11 @@ export class MemoryController {
       const detailLevel = c.req.query("detail_level") as DetailLevel | undefined;
       const library = c.req.query("library");
       const layer = c.req.query("layer") as MemoryLayer | undefined;
+      /** F20260803fbit: contentType 多选（逗号分隔），如 ?contentType=feature_body,feature */
+      const contentTypeParam = c.req.query("contentType") as string | undefined;
+      const contentType = contentTypeParam
+        ? (contentTypeParam.split(",").map(s => s.trim()).filter(Boolean) as MemoryContentType[])
+        : undefined;
 
       const result = await this.searchMemory.search({
         query,
@@ -38,6 +43,7 @@ export class MemoryController {
         detailLevel,
         library,
         layer,
+        contentType,
       });
 
       /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */

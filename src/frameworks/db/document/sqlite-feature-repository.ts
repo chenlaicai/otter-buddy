@@ -20,12 +20,13 @@ export class SqliteFeatureRepository implements FeatureRepository {
   async insert(doc: FeatureDocument): Promise<void> {
     const row = entityToRow(doc);
     this.db.prepare(`
-      INSERT INTO features (id, title, summary, change_type, status, tags, modules, causal_links_from, supersedes, file_path, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO features (id, title, summary, body_hash, change_type, status, tags, modules, causal_links_from, supersedes, file_path, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id,
       row.title,
       row.summary,
+      row.body_hash,
       row.change_type,
       row.status,
       row.tags,
@@ -46,11 +47,11 @@ export class SqliteFeatureRepository implements FeatureRepository {
     const row = entityToRow(doc);
     this.db.prepare(`
       UPDATE features
-      SET title = ?, summary = ?, change_type = ?, status = ?, tags = ?, modules = ?,
+      SET title = ?, summary = ?, body_hash = ?, change_type = ?, status = ?, tags = ?, modules = ?,
           causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?
       WHERE id = ?
     `).run(
-      row.title, row.summary, row.change_type, row.status, row.tags, row.modules,
+      row.title, row.summary, row.body_hash, row.change_type, row.status, row.tags, row.modules,
       row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.id
     );
   }

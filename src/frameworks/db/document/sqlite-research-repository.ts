@@ -20,12 +20,13 @@ export class SqliteResearchRepository implements ResearchRepository {
   async insert(doc: ResearchDocument): Promise<void> {
     const row = entityToRow(doc);
     this.db.prepare(`
-      INSERT INTO research (id, title, summary, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO research (id, title, summary, body_hash, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id,
       row.title,
       row.summary,
+      row.body_hash,
       row.exploration_type,
       row.status,
       row.tags,
@@ -46,11 +47,11 @@ export class SqliteResearchRepository implements ResearchRepository {
     const row = entityToRow(doc);
     this.db.prepare(`
       UPDATE research
-      SET title = ?, summary = ?, exploration_type = ?, status = ?, tags = ?, conclusion = ?,
+      SET title = ?, summary = ?, body_hash = ?, exploration_type = ?, status = ?, tags = ?, conclusion = ?,
           causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?
       WHERE id = ?
     `).run(
-      row.title, row.summary, row.exploration_type, row.status, row.tags, row.conclusion,
+      row.title, row.summary, row.body_hash, row.exploration_type, row.status, row.tags, row.conclusion,
       row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.id
     );
   }

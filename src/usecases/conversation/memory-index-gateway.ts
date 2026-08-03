@@ -13,16 +13,28 @@ export interface MemoryIndexGateway {
     content: string,
     resourceType?: string,
   ): Promise<void>;
-  /** 索引 Feature 文档到记忆系统 */
+  /** 索引 Feature 文档 summary 到记忆系统 */
   indexFeature(
     id: string,
     summary: string,
     metadata: Record<string, unknown>,
   ): Promise<void>;
-  /** 索引 Research 文档到记忆系统 */
+  /** 索引 Research 文档 summary 到记忆系统 */
   indexResearch(
     id: string,
     summary: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void>;
+  /** F20260803fbit: 索引 Feature 文档正文（独立 entry，与 summary entry 并存） */
+  indexFeatureBody(
+    id: string,
+    body: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void>;
+  /** F20260803fbit: 索引 Research 文档正文 */
+  indexResearchBody(
+    id: string,
+    body: string,
     metadata: Record<string, unknown>,
   ): Promise<void>;
 }

@@ -20,6 +20,7 @@ import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { MemoryContentType } from "@entities/memory/memory-entry";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-context-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
@@ -152,6 +153,34 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
       metadata,
     });
   }
+
+  /** F20260803fbit: 索引 Feature 文档正文（独立 entry，与 summary 并存） */
+  async indexFeatureBody(id: string, body: string, metadata: Record<string, unknown>): Promise<void> {
+    await this.storeMemory.replaceBySource({
+      layer: "document",
+      contentType: "feature_body",
+      sourceId: id,
+      sourceTable: "features",
+      conversationId: undefined,
+      granularity: "coarse",
+      content: body,
+      metadata: { ...metadata, part: "body" },
+    });
+  }
+
+  /** F20260803fbit: 索引 Research 文档正文 */
+  async indexResearchBody(id: string, body: string, metadata: Record<string, unknown>): Promise<void> {
+    await this.storeMemory.replaceBySource({
+      layer: "document",
+      contentType: "research_body",
+      sourceId: id,
+      sourceTable: "research",
+      conversationId: undefined,
+      granularity: "coarse",
+      content: body,
+      metadata: { ...metadata, part: "body" },
+    });
+  }
 }
 
 interface Repositories {
@@ -262,8 +291,8 @@ function buildMemoryClient(uc: UseCases) {
       const entry = await uc.manageMemory.getById(id);
       return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
     },
-    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string) => {
-      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library });
+    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, contentType?: MemoryContentType[]) => {
+      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, contentType });
       return entries.map(e => ({ id: e.id, content: e.content, score: e.score, layer: e.layer, snippet: e.snippet, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
     },
     getDetails: async (ids: string[]) => {

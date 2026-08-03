@@ -1,4 +1,5 @@
 import type { OtterToolClient } from "../otter-tool-client";
+import type { MemoryContentType } from "@entities/memory/memory-entry";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
@@ -127,16 +128,26 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           type: "string",
           description: "指定库 key（如 conversation、terminology），不传则全库搜索",
         },
+        content_type: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["message", "fact", "linked_resource", "feature", "feature_body", "research", "research_body"],
+          },
+          description: "按内容类型过滤（多选）。feature=文档概要、feature_body=文档正文、research=研究概要、research_body=研究正文、message=对话消息、fact=事实、linked_resource=链接资源。如只搜文档正文传 [\"feature_body\"]",
+        },
       },
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "snippet";
+      const contentType = params.content_type as MemoryContentType[] | undefined;
       const entries = await ctx.client.memory.search(
         params.query as string,
         (params.limit as number) ?? 10,
         detailLevel,
         params.library as string | undefined,
+        contentType,
       );
       return textResponse(JSON.stringify(entries));
     },

@@ -1,6 +1,7 @@
 import type {
   MemoryEntry,
   MemoryLayer,
+  MemoryContentType,
   RetrievalGranularity,
   DetailLevel,
 } from "@entities/memory/memory-entry";
@@ -13,7 +14,7 @@ import type {
 } from "./memory-repository";
 import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
-import type { SearchEngine, RrfHit } from "./search-engine";
+import type { SearchEngine, RrfHit, ScoredHit } from "./search-engine";
 import type { Logger } from "@usecases/ports/logger";
 
 /** snippet 降级截取长度（FTS5 highlight 不可用时） */
@@ -28,8 +29,10 @@ export interface SearchQuery {
   detailLevel?: DetailLevel;
   /** 指定库 key，不传则全库搜索 */
   library?: string;
-  /** 按记忆层过滤（working/historical） */
+  /** 按记忆层过滤（working/historical/document） */
   layer?: MemoryLayer;
+  /** F20260803fbit: 按 contentType 过滤（多选），支持"只搜 body"或"只搜 summary" */
+  contentType?: MemoryContentType[];
 }
 
 export interface RetrievalResultEntry extends MemoryEntry {
@@ -209,6 +212,7 @@ export class SearchMemory {
       layer: query.layer,
       granularity: query.granularity,
       conversationId: query.conversationId,
+      contentType: query.contentType,
     };
 
     /**
@@ -289,8 +293,10 @@ export class SearchMemory {
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
 
     const scored = this.searchEngine.rerank(rrfHits, weightMap);
-    scored.sort((a, b) => b.finalScore - a.finalScore);
-    const top = scored.slice(0, limit);
+    /** F20260803fbit: 按 (sourceTable, sourceId) 去重，同文档 summary+body 双命中只保留高分者 */
+    const deduped = this.dedupBySource(scored);
+    deduped.sort((a, b) => b.finalScore - a.finalScore);
+    const top = deduped.slice(0, limit);
 
     /** S15: 批量递增检索计数 */
     await this.repo.incrementRetrievalCounts(top.map((h) => h.entryId));
@@ -305,6 +311,24 @@ export class SearchMemory {
       })),
       total: top.length,
     };
+  }
+
+  /**
+   * F20260803fbit: 按 (sourceTable, sourceId) 去重。
+   * 同文档的 summary entry + body entry 是不同 entryId 但同源，
+   * 双命中时只保留 finalScore 最高者，防止单文档霸占 limit 名额。
+   * message/fact/linked_resource 的 sourceId 互不冲突，去重对它们无副作用。
+   */
+  private dedupBySource(scored: ScoredHit[]): ScoredHit[] {
+    const seen = new Map<string, ScoredHit>();
+    for (const hit of scored) {
+      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}`;
+      const existing = seen.get(key);
+      if (!existing || hit.finalScore > existing.finalScore) {
+        seen.set(key, hit);
+      }
+    }
+    return Array.from(seen.values());
   }
 
   /** 根据 detail_level 构建返回内容 */

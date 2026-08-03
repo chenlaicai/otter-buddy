@@ -21,7 +21,9 @@ export type MemoryContentType =
   | "fact"
   | "linked_resource"
   | "feature"
-  | "research";
+  | "feature_body"
+  | "research"
+  | "research_body";
 
 /** Feature 记忆条目的 metadata */
 export interface FeatureMemoryMetadata {

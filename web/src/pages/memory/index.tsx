@@ -28,7 +28,9 @@ const typeIconComponents: Record<string, typeof MessageSquare> = {
   fact: Lightbulb,
   linked_resource: LinkIcon,
   feature: FileText,
+  feature_body: FileText,
   research: FileText,
+  research_body: FileText,
 }
 
 const layerLabels: Record<string, string> = {
