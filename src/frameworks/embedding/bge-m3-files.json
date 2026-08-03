@@ -1,0 +1,8 @@
+[
+  { "path": "config.json", "size": 770 },
+  { "path": "tokenizer.json", "size": 17082821 },
+  { "path": "tokenizer_config.json", "size": 1173 },
+  { "path": "special_tokens_map.json", "size": 964 },
+  { "path": "onnx/model.onnx", "size": 607298 },
+  { "path": "onnx/model.onnx_data", "size": 2266820608 }
+]

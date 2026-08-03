@@ -21,6 +21,7 @@ modules:
   - src/frameworks/embedding/embedding-env-config.ts
   - src/frameworks/embedding/embedding-service.ts
   - src/frameworks/embedding/ensure-model.ts
+  - src/frameworks/embedding/bge-m3-files.json
   - src/frameworks/config-service.ts
   - src/main.ts
   - src/interface-adapters/http/controllers/settings-controller.ts
@@ -289,6 +290,7 @@ build 末尾跑下载脚本；失败用 `|| echo` 兜底不阻断构建（模型
 | `api-contract/api/settings.ts` | SettingsDTO 加 embeddingLocalModelPath |
 | `web/src/pages/settings/index.tsx` | Embedding 状态区加"加载模式"行 |
 | `src/frameworks/embedding/ensure-model.ts` | 新增：启动时检查模型文件，缺失则 spawn 下载脚本 |
+| `src/frameworks/embedding/bge-m3-files.json` | 新增：必需文件清单单一真相源（ensure-model + download 脚本共享） |
 | `scripts/download-bge-m3.mjs` | 新增：幂等下载脚本（断点续传 + 失败说明 + CI 跳过） |
 | `package.json` | build 末尾挂下载步骤；新增 download:bge-m3 独立脚本 |
 | `eslint.config.mjs` | scripts/*.mjs 的 node globals 配置块 |
@@ -337,6 +339,18 @@ cos(hello world, 你好世界): 0.8997   ← 多语言语义相似度生效
 - **L3 模型加载 race condition**（低，pre-existing）→ 变更 7 修：`extractor: null` 标志位改 `extractorPromise: Promise|null`，消除预加载与并发 embed 的双重加载。
 
 审视验证通过的关键点：worker thread cwd 与主线程一致、workerData 传递 undefined 正确、`bge-m3` 是合法 HF model ID、本地模式文件缺失时错误信息清晰、向后兼容（现有 config.yaml 不含 localModelPath 时走远程模式）、.gitignore 正确排除 2.27GB。
+
+### 第二轮审视（下载机制新增后）
+
+第二轮独立 agent 对抗审视命中 1 阻断 + 1 高 + 2 中：
+
+- **B1 build 命令 `\|\| echo` 吞掉所有失败**（阻断）→ `A && B && C \|\| echo` 中 `\|\|` 绑定整个 `&&` 链，lint/tsc 失败也被 echo 吞掉、build exit 0。修复：`(download \|\| echo)` 用括号隔离，使 `\|\|` 只绑定 download。
+- **H1 tokenizer.json 等 4 文件 size=null 截断不检测**（高）→ curl 下载中断后文件存在但截断，size=null 只查存在不查大小，认为完整跳过，worker 加载截断文件会 crash。修复：所有 6 个文件补全实际 size（tokenizer.json=17082821 等），全部校验。
+- **M1 build-time 下载硬编码 bge-m3 路径**（中）→ 与可配置 modelPath 不一致，用户改 modelPath 时 build 下载的文件路径和 worker 查找路径不匹配。权衡可接受：config.yaml.example 示例固定 bge-m3，偏离示例属自定义配置。
+- **M2 REQUIRED_FILES 双份定义漂移风险**（中）→ ensure-model.ts 和 download 脚本各维护一份常量列表。修复：抽 `bge-m3-files.json` 单一真相源，两处共享同一份。
+- **M3 ensure-model 与 config-service 默认值不一致**（中）→ ensure-model `?? "bge-m3"` vs config-service `"Xenova/bge-m3"`。修复：加注释说明差异（ensure-model 是 modelPath 完全未传的兜底，applyDefaults 总会填值）。
+
+其余 L 级（CI=false 字符串 truthy、多实例并发下载无锁、同步阻塞启动、CI 产物无模型）权衡可接受。
 
 ## 关联
 

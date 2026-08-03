@@ -8,22 +8,15 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Logger } from "@usecases/ports/logger";
+import FILES from "./bge-m3-files.json";
 
-/** 必需文件（与 scripts/download-bge-m3.mjs 保持一致） */
-const REQUIRED_FILES: Array<{ rel: string; size: number | null }> = [
-  { rel: "config.json", size: 770 },
-  { rel: "tokenizer.json", size: null },
-  { rel: "tokenizer_config.json", size: null },
-  { rel: "special_tokens_map.json", size: null },
-  { rel: "onnx/model.onnx", size: 607298 },
-  { rel: "onnx/model.onnx_data", size: 2266820608 },
-];
+/** 必需文件（单一真相源：bge-m3-files.json，scripts/download-bge-m3.mjs 共享同一份） */
+const REQUIRED_FILES = FILES.map((f) => ({ rel: f.path, size: f.size }));
 
 export function isModelPresent(modelDir: string): boolean {
   return REQUIRED_FILES.every((f) => {
     const full = path.join(modelDir, f.rel);
     if (!existsSync(full)) return false;
-    if (f.size === null) return true;
     try {
       return statSync(full).size === f.size;
     } catch {
@@ -45,7 +38,9 @@ export function ensureBgeM3Model(
   const modelDir = path.resolve(
     process.cwd(),
     config.localModelPath,
-    config.modelPath ?? "bge-m3",
+    config.modelPath ?? "bge-m3", // 与 config-service.ts applyDefaults 默认 "Xenova/bge-m3" 不同：
+    // 此处是 modelPath 完全未传的兜底（实际 applyDefaults 总会填值）。config.yaml.example
+    // 示例用 "bge-m3"（目录名），此处与之对齐。
   );
 
   if (isModelPresent(modelDir)) {

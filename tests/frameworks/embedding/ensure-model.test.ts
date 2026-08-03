@@ -28,7 +28,7 @@ beforeEach(async () => {
 describe("isModelPresent", () => {
   it("all files present with correct sizes -> true", () => {
     mockExistsSync.mockReturnValue(true);
-    const sizes = [770, 607298, 2266820608];
+    const sizes = [770, 17082821, 1173, 964, 607298, 2266820608];
     mockStatSync.mockImplementation(() => ({ size: sizes.shift() }));
     expect(isModelPresent("/models/bge-m3")).toBe(true);
   });
@@ -53,7 +53,7 @@ describe("ensureBgeM3Model", () => {
   });
 
   it("local mode + files present -> logs present, no download", () => {
-    const sizes = [770, 607298, 2266820608];
+    const sizes = [770, 17082821, 1173, 964, 607298, 2266820608];
     mockExistsSync.mockReturnValue(true);
     mockStatSync.mockImplementation(() => ({ size: sizes.shift() }));
     ensureBgeM3Model({ localModelPath: "./models", modelPath: "bge-m3" }, logger);

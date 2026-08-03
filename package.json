@@ -5,7 +5,7 @@
   "main": "dist/src/main.js",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
-    "build": "npm run lint && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npx tsc && npx tsc-alias -f && node scripts/download-bge-m3.mjs || echo \"[bge-m3] 模型下载失败，启动时将重试或降级 FTS-only\"",
+    "build": "npm run lint && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npx tsc && npx tsc-alias -f && (node scripts/download-bge-m3.mjs || echo \"[bge-m3] 模型下载失败，启动时将重试或降级 FTS-only\")",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "pretest": "npm run lint",

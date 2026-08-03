@@ -13,23 +13,21 @@
  *   BGE_M3_DIR=/path node scripts/...             # 自定义模型目录
  *   HF_ENDPOINT=https://hf-mirror.com node ...    # 自定义镜像
  */
-import { existsSync, statSync, mkdirSync } from "node:fs";
+import { existsSync, statSync, mkdirSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODEL_DIR = process.env.BGE_M3_DIR || path.join(process.cwd(), "models", "bge-m3");
 const MIRROR = process.env.HF_ENDPOINT || "https://hf-mirror.com";
 const REPO = "Xenova/bge-m3";
 
-/** 必需文件清单（path + 期望字节数；size=null 只校验存在不校验大小） */
-const FILES = [
-  { path: "config.json", size: 770 },
-  { path: "tokenizer.json", size: null },
-  { path: "tokenizer_config.json", size: null },
-  { path: "special_tokens_map.json", size: null },
-  { path: "onnx/model.onnx", size: 607298 },
-  { path: "onnx/model.onnx_data", size: 2266820608 },
-];
+/** 必需文件清单（单一真相源：bge-m3-files.json，ensure-model.ts 共享同一份。
+ * 全部校验 size 防截断。size 来源：hf-mirror.com/Xenova/bge-m3/tree/main 实测字节数。） */
+const FILES = JSON.parse(
+  readFileSync(path.join(__dirname, "..", "src", "frameworks", "embedding", "bge-m3-files.json"), "utf8"),
+);
 
 function fileComplete(relPath, expectedSize) {
   const full = path.join(MODEL_DIR, relPath);
