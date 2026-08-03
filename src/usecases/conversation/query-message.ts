@@ -9,6 +9,11 @@ export class QueryMessage {
     return this.repo.getMessageById(id);
   }
 
+  /** 指定 sender 在对话中的最新消息（markBatchRead rejected 路径用） */
+  async getLastMessageBySender(conversationId: string, senderId: string): Promise<Message | null> {
+    return this.repo.getLastMessageBySender(conversationId, senderId);
+  }
+
   async getMessages(
     conversationId: string,
     options: GetMessagesOptions,

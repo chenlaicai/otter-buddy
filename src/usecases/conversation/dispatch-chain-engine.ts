@@ -108,7 +108,7 @@ export class DispatchChainEngine {
     });
 
     const results = await Promise.allSettled(promises);
-    await this.markBatchRead(conversationId, results);
+    await this.markBatchRead(conversationId, results, targets);
 
     return this.processHopResults(results, senderId, conversationId, targets);
   }
@@ -151,12 +151,12 @@ export class DispatchChainEngine {
     };
   }
 
-  /** 在场成员名册：name ↔ otterId 映射确定性注入，speak 决策时免费在场 */
+  /** 在场成员名册：name 映射注入，speak 决策时免费在场（F20260803trrf: 去 otterId，speak 改用名字） */
   async buildRoster(conversationId: string): Promise<string> {
     const participants = await this.deps.sendMessage.repo.getActiveParticipants(conversationId);
     const lines = await Promise.all(participants.map(async p => {
       const otter = await this.deps.queryOtter.getById(p.otterId);
-      return `- ${otter?.name ?? p.otterId} (otterId: ${p.otterId})`;
+      return `- ${otter?.name ?? p.otterId}`;
     }));
     lines.push(`- 搭档（传 'user' 即交还发言权）`);
     return `## 在场成员\n${lines.join('\n')}`;
@@ -194,15 +194,30 @@ export class DispatchChainEngine {
   private async markBatchRead(
     conversationId: string,
     results: PromiseSettledResult<InvokeFnResult>[],
+    targets: string[],
   ): Promise<void> {
-    const currentTurn = await this.deps.sendMessage.repo.getActiveTurn(conversationId);
-    if (!currentTurn) return;
-    for (const r of results) {
-      if (r.status !== 'fulfilled') continue;
-      const msg = await this.deps.queryMessage.getMessageById(r.value.messageId);
-      if (msg) {
-        await this.deps.sendMessage.repo.updateLastReadTurnNumber(conversationId, msg.senderId, currentTurn.turnNumber);
+    /** F20260803trrf: 不依赖 getActiveTurn（turn 已在 complete() 中关闭，返回 null）。
+     *  用 msg.turnId 反查 turn_number；fulfilled + rejected 都推进 last_read。 */
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      let messageId: string | undefined;
+      if (r.status === 'fulfilled') {
+        messageId = r.value.messageId;
+      } else {
+        /** rejected：invokeFn 抛错（罕见，agent-invoker.invokeConversation 已 catch 大部分）。
+         *  用 targets[i] 反查该 otter 最新消息（发言已 start 但 invoke 失败）。
+         *  限制（review P1）：lastMsg 是该 otter 自己发的最新消息，推进到的是"自己上次发言的 turn"
+         *  而非"应读的最新 turn"。精确修复需在 buildMessageWithContext 时记录注入的最新 turn，
+         *  改动大且 rejected 极罕见，接受此 best-effort 语义。 */
+        const lastMsg = await this.deps.queryMessage.getLastMessageBySender(conversationId, targets[i]);
+        messageId = lastMsg?.id;
       }
+      if (!messageId) continue;
+      const msg = await this.deps.queryMessage.getMessageById(messageId);
+      if (!msg) continue;
+      const turn = await this.deps.sendMessage.repo.getTurnById(msg.turnId);
+      if (!turn) continue;
+      await this.deps.sendMessage.repo.updateLastReadTurnNumber(conversationId, msg.senderId, turn.turnNumber);
     }
   }
 }

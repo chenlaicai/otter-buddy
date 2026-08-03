@@ -37,6 +37,9 @@ function makeSendMessageUseCase() {
     },
     repo: {
       getUnreadMessages: async () => [],
+      getTurnById: async () => null,
+      markParticipantLeft: async () => {},
+      getLastMessageBySender: async () => null,
       getActiveTurn: async () => null,
       updateLastReadTurnNumber: async () => {},
       getActiveParticipants: async () => [],
@@ -188,9 +191,10 @@ describe("dispatchTurnLoop 深度上限", () => {
     await res.text();
 
     expect(contexts).toHaveLength(1);
-    /** 名册：name ↔ otterId 映射在场 */
+    /** 名册：name 映射在场（F20260803trrf: 去 otterId，speak 改用名字） */
     expect(contexts[0]).toContain("## 在场成员");
-    expect(contexts[0]).toContain("小獭 (otterId: otter-x)");
+    expect(contexts[0]).toContain("- 小獭");
+    expect(contexts[0]).not.toContain("otterId:");
     expect(contexts[0]).toContain("'user'");
     /** 历史消息用名字标注，不用 UUID */
     expect(contexts[0]).toContain("[小獭] 万象更新");

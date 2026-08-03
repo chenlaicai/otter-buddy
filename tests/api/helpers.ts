@@ -495,6 +495,9 @@ export function createMockDeps(): TestDeps {
       ...mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
       repo: {
         getUnreadMessages: vi.fn().mockResolvedValue([]),
+        getTurnById: vi.fn().mockResolvedValue(null),
+        markParticipantLeft: vi.fn().mockResolvedValue(undefined),
+        getLastMessageBySender: vi.fn().mockResolvedValue(null),
         getActiveTurn: vi.fn().mockResolvedValue(null),
         updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
         getActiveParticipants: vi.fn().mockResolvedValue([]),
