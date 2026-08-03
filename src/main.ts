@@ -172,7 +172,6 @@ interface UseCases {
   manageConversation: ManageConversation;
   manageMemory: ManageMemory;
   manageTerminology: ManageTerminology;
-  storeMemory: StoreMemory;
   searchMemory: SearchMemory;
   sendMessage: SendMessage;
   queryMessage: QueryMessage;
@@ -208,13 +207,12 @@ function initUseCases(
   repos: Repositories,
   agentGateway: PiSessionFactory,
   embeddingService: EmbeddingGateway,
+  memoryIndex: MemoryIndexGateway,
 ): UseCases {
   const searchEngine = new SearchEngine(appConfig.memory);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
-  const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
-  const memoryIndex = new MemoryIndexAdapter(storeMemory);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageReadState = new ManageReadState(repos.conversation);
@@ -233,7 +231,7 @@ function initUseCases(
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   return {
-    manageConversation, manageMemory, manageTerminology, storeMemory, searchMemory,
+    manageConversation, manageMemory, manageTerminology, searchMemory,
     sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
@@ -501,13 +499,13 @@ function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"]): void {
   }
 }
 
-async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGateway): Promise<void> {
+async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway): Promise<void> {
   const fileSystem = new NodeFileSystem();
   const syncDocs = new SyncDocuments(
     fileSystem,
     repos.feature,
     repos.research,
-    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger)),
+    memoryIndex,
     logger
   );
   await syncDocs.execute(process.cwd());
@@ -564,7 +562,7 @@ async function initDatabaseAndModels() {
   return { db, otterConfigProvider, model, modelPool, embeddingService, dispose };
 }
 
-// eslint-disable-next-line max-lines-per-function -- Composition Root 合并初始化逻辑
+// eslint-disable-next-line max-lines-per-function, max-statements -- Composition Root 合并初始化逻辑
 async function main(): Promise<void> {
   syncApiKeyToAgentAuth(appConfig.llm);
 
@@ -572,7 +570,9 @@ async function main(): Promise<void> {
 
   const repos = initRepositories(db);
   await reconcileOrphans(repos.conversation, logger);
-  await syncDocuments(repos, embeddingService);
+  /** F20260803mval: 共享单一 memoryIndex 实例，避免 syncDocuments 与 initUseCases 各自 new StoreMemory 双实例（G1） */
+  const memoryIndex = new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
+  await syncDocuments(repos, memoryIndex);
 
   if (modelPool) validateModelAliases(db, modelPool);
 
@@ -592,7 +592,7 @@ async function main(): Promise<void> {
     otterRepo: repos.otter,
   }, logger);
 
-  const uc = initUseCases(repos, agentGateway, embeddingService);
+  const uc = initUseCases(repos, agentGateway, embeddingService, memoryIndex);
 
   /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
   const otterToolClient = buildOtterToolClient(uc);
