@@ -229,7 +229,8 @@ export class SearchMemory {
       // F20260803chunk M6: FTS 预聚合，每 source 最多保留 top-3 chunk 防 long doc 霸占 limit
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
       snippetMap = new Map(aggregatedFts.map((h) => [h.entryId, h.snippet]));
-      const vecHits = await this.searchVec(query.query, filters, query.limit);
+      // PR审视 B10: vec 预聚合同样限制每 source top-3，防长文档 chunk 霸占 RRF
+      const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
       rrfHits = this.searchEngine.rrfFusion(
         aggregatedFts.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
         vecHits,
@@ -237,7 +238,7 @@ export class SearchMemory {
     } else {
       const ftsHits = await this.repo.searchFTS(query.query, filters);
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
-      const vecHits = await this.searchVec(query.query, filters, query.limit);
+      const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
       rrfHits = this.searchEngine.rrfFusion(aggregatedFts, vecHits);
     }
 
@@ -346,15 +347,20 @@ export class SearchMemory {
 
     const result: ScoredHit[] = [];
     for (const group of groups.values()) {
+      // PR审视 M5：优先选 chunk 作代表（如 group 含 chunk 命中）——用户搜正文时应返回匹配的
+      // 正文片段而非 summary 概述。无 chunk 命中时 fallback 到全部 group（summary-only 场景）。
+      const CHUNK_TYPES = new Set(["feature_chunk", "research_chunk"]);
+      const chunkHits = group.filter(h => CHUNK_TYPES.has(h.entry.contentType));
+      const candidates = chunkHits.length > 0 ? chunkHits : group;
       // S8：tie-breaker 按 chunk_index 保证确定性（finalScore 相同时）
-      group.sort((a, b) =>
+      candidates.sort((a, b) =>
         b.finalScore !== a.finalScore
           ? b.finalScore - a.finalScore
           : Number(a.entry.metadata?.chunk_index ?? 0) - Number(b.entry.metadata?.chunk_index ?? 0),
       );
-      const best = group[0];
-      // PR审视 B8/M4：multi_hit_count 只统计 chunk 命中（summary 命中不是 chunk 命中，boost 语义是"多 chunk 命中"）
-      const chunkHitCount = group.filter(h => h.entry.contentType.includes("_chunk")).length;
+      const best = candidates[0];
+      // PR审视 B8/M4：multi_hit_count 只统计 chunk 命中（M6：用显式集合而非 includes 防误匹配）
+      const chunkHitCount = chunkHits.length;
       const extraHits = Math.min(Math.max(chunkHitCount - 1, 0), MAX_MULTI_HIT_BOOST_COUNT);
       // M15：创建新对象而非原地修改
       result.push({
@@ -367,14 +373,13 @@ export class SearchMemory {
   }
 
   /**
-   * F20260803chunk M6: FTS 预聚合，每 (sourceTable, sourceId) 最多保留 top-3 chunk。
+   * F20260803chunk M6: FTS 预聚合，每 (sourceTable, sourceId, contentType) 最多保留 top-3。
    * 防 long doc（53K 字符 × 19 chunk）占满 DEFAULT_FTS_LIMIT 挤掉其他文档（决策 D8）。
-   * ftsRank 越小越好（BM25 rank）。
+   * ftsRank 越小越好（BM25 rank）。B6: key 含 contentType 防 summary 被 chunk 挤掉。
    */
   private preAggregateFtsBySource<T extends { entryId: string; ftsRank: number; entry: MemoryEntry }>(hits: T[]): T[] {
     const groups = new Map<string, T[]>();
     for (const hit of hits) {
-      // PR审视 B6：key 加 contentType，防 summary（feature）被同源 chunk（feature_chunk）的 top-3 限制挤掉
       const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}|${hit.entry.contentType}`;
       const group = groups.get(key);
       if (group) group.push(hit);
@@ -383,6 +388,23 @@ export class SearchMemory {
     const result: T[] = [];
     for (const group of groups.values()) {
       group.sort((a, b) => a.ftsRank - b.ftsRank);
+      result.push(...group.slice(0, 3));
+    }
+    return result;
+  }
+
+  /** PR审视 B10: vec 预聚合，每 (source, contentType) 最多 top-3，防长文档 chunk 霸占 RRF。distance 越小越好。 */
+  private preAggregateVecBySource(hits: VecHit[]): VecHit[] {
+    const groups = new Map<string, VecHit[]>();
+    for (const hit of hits) {
+      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}|${hit.entry.contentType}`;
+      const group = groups.get(key);
+      if (group) group.push(hit);
+      else groups.set(key, [hit]);
+    }
+    const result: VecHit[] = [];
+    for (const group of groups.values()) {
+      group.sort((a, b) => a.distance - b.distance);
       result.push(...group.slice(0, 3));
     }
     return result;

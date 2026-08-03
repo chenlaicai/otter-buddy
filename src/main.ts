@@ -159,6 +159,8 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   /** F20260803chunk: 索引 Feature 文档分段 chunks（N 个独立 entry，原子替换旧 chunks） */
   async indexFeatureChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
     if (chunks.length === 0) return;  // M17：空 chunks 不索引
+    // PR审视 S14：title 重命名为 doc_title 避免冗余字段
+    const { title, ...metaRest } = metadata;
     const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
       layer: "document",
       contentType: "feature_chunk",
@@ -168,8 +170,8 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
       granularity: "fine",  // D4：chunk 是细粒度
       content: cleanMarkdownForFts(c.content),  // D2：每个 chunk 独立清理
       metadata: {
-        ...metadata,
-        doc_title: metadata.title,  // M10：供前端展示文档标题
+        ...metaRest,
+        doc_title: title,  // M10：供前端展示文档标题（S14：不保留冗余 title 字段）
         part: "chunk",
         chunk_index: i,
         chunk_total: chunks.length,
@@ -183,6 +185,7 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   /** F20260803chunk: 索引 Research 文档分段 chunks */
   async indexResearchChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
     if (chunks.length === 0) return;
+    const { title, ...metaRest } = metadata;
     const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
       layer: "document",
       contentType: "research_chunk",  // M19：research_chunk 区别于 feature_chunk
@@ -192,8 +195,8 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
       granularity: "fine",
       content: cleanMarkdownForFts(c.content),
       metadata: {
-        ...metadata,
-        doc_title: metadata.title,
+        ...metaRest,
+        doc_title: title,
         part: "chunk",
         chunk_index: i,
         chunk_total: chunks.length,
