@@ -229,6 +229,33 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }
   }
 
+  /**
+   * PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries）。
+   * 复用 replaceEntriesBySource 的 DELETE WHERE 模式（单事务删 entries+fts+vec+weights）。
+   */
+  async deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: string): Promise<void> {
+    this.db.exec("BEGIN");
+    try {
+      const oldRows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+        .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
+      ).run(sourceTable, sourceId, contentType);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void> {
     // F20260803mval: vec 扩展不可用时 memory_vec 表不存在，跳过（与 deleteBySource/replaceEntryBySource 一致，S3）
     if (!this.hasVec) return;

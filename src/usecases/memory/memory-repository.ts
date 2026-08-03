@@ -50,6 +50,8 @@ export interface MemoryRepository {
   replaceEntryBySource(entry: MemoryEntry): Promise<void>;
   /** F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条），chunk 索引用 */
   replaceEntriesBySource(entries: MemoryEntry[]): Promise<void>;
+  /** PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
+  deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
   getEmbedding(memoryEntryId: string): Promise<Float32Array | null>;

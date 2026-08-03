@@ -147,4 +147,9 @@ export class StoreMemory {
 
     return entries.map((e) => e.id);
   }
+
+  /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
+  async deleteChunksBySource(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void> {
+    await this.repo.deleteBySourceAndType(sourceTable, sourceId, contentType);
+  }
 }

@@ -30,7 +30,7 @@ export class MemoryController {
       const detailLevel = c.req.query("detail_level") as DetailLevel | undefined;
       const library = c.req.query("library");
       const layer = c.req.query("layer") as MemoryLayer | undefined;
-      /** F20260803fbit: contentType 多选（逗号分隔），如 ?content_type=feature_body,feature
+      /** F20260803fbit/F20260803chunk: contentType 多选（逗号分隔），如 ?content_type=feature_chunk,feature
        *  命名与 detail_level 一致用 snake_case；agent 工具参数也是 content_type */
       const contentTypeParam = c.req.query("content_type") as string | undefined;
       let contentType: MemoryContentType[] | undefined;

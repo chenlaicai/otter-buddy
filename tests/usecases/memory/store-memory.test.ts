@@ -47,6 +47,7 @@ function statefulRepo(): MemoryRepository & {
     deleteBySource: async () => {},
     replaceEntryBySource: async () => {},
     replaceEntriesBySource: async () => {},
+    deleteBySourceAndType: async () => {},
   };
 }
 

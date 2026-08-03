@@ -158,7 +158,11 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
 
   /** F20260803chunk: 索引 Feature 文档分段 chunks（N 个独立 entry，原子替换旧 chunks） */
   async indexFeatureChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
-    if (chunks.length === 0) return;  // M17：空 chunks 不索引
+    // PR审视 S3-14：空 chunks（body 清空）时删除旧 chunk entries，防残留
+    if (chunks.length === 0) {
+      await this.storeMemory.deleteChunksBySource("features", id, "feature_chunk");
+      return;
+    }
     // PR审视 S14：title 重命名为 doc_title 避免冗余字段
     const { title, ...metaRest } = metadata;
     const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
@@ -184,7 +188,10 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
 
   /** F20260803chunk: 索引 Research 文档分段 chunks */
   async indexResearchChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
-    if (chunks.length === 0) return;
+    if (chunks.length === 0) {
+      await this.storeMemory.deleteChunksBySource("research", id, "research_chunk");
+      return;
+    }
     const { title, ...metaRest } = metadata;
     const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
       layer: "document",
@@ -630,7 +637,7 @@ async function main(): Promise<void> {
   const memoryIndex = new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
   const syncResult = await syncDocuments(repos, memoryIndex);
   // F20260803chunk B3+B7: 迁移在 sync 之后执行（独立函数，不嵌入 migrateDatabase）。
-  // M14: sync 有 errors 时不清理（防失败文档正文索引永久消失），下次启动重试
+  // PR审视 S3-01: syncErrors 仅作日志提示（B7 修复后不再 guard），迁移始终执行
   migrateFeatureBodyToChunks(db, logger, syncResult.errors.length);
 
   if (modelPool) validateModelAliases(db, modelPool);
