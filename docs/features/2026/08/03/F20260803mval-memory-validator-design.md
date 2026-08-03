@@ -213,7 +213,7 @@ sed 批量改 16+ 文档 `change_type: bugfix` 为 `change_type: fix`。DB CHECK
 
 9. **SyncResult 持久化 settings 表 JSON**（审视补全）：原设计悬置"settings 表或独立 health 表"。审视指出不能悬置。定为 settings 表 JSON。
 
-10. **正文索引/embedding 不在本 F，但创建 Task B/C stub F 文档**（审视调整）：原设计"另立 F"无承诺。审视指出"可见但不可修=观测债务"。本 F 至少创建 stub F 文档给跟踪链接，避免无限期推迟。
+10. **正文索引/embedding 不在本 F**：本 F 聚焦 validator + 链路可见性。正文索引（Task B）与 embedding 离线（Task C）是独立变更，在各自 PR 创建 F 文档，Issue #124 作跟踪锚点。健康端点让这俩断裂可见，即使暂不修也能暴露。
 
 ## 对抗审视记录
 
@@ -242,8 +242,6 @@ sed 批量改 16+ 文档 `change_type: bugfix` 为 `change_type: fix`。DB CHECK
 | `src/usecases/memory/search-memory.ts` | 搜索结果附 degraded 标志 |
 | `web/src/pages/memory/index.tsx` | 健康度 banner |
 | `docs/features/2026/08/*.md`（16+ 文档） | bugfix -> fix 批量统一 |
-| `docs/features/2026/08/0X/F2026080X....-doc-body-index.md` | 新增 stub：Task B 正文索引 |
-| `docs/features/2026/08/0X/F2026080X....-embedding-offline.md` | 新增 stub：Task C embedding 离线 |
 
 ## 测试
 
@@ -258,5 +256,4 @@ sed 批量改 16+ 文档 `change_type: bugfix` 为 `change_type: fix`。DB CHECK
 
 ## 关联
 
-- Issue #124 记忆搜索系统 4 个独立缺陷
-- Task B（正文索引）、Task C（embedding 离线）本 F 创建 stub F 文档给跟踪链接
+- Issue #124 记忆搜索系统 4 个独立缺陷（Task B/C 在各自 PR 创建 F 文档）
