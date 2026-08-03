@@ -243,9 +243,14 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
         return textResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
       }
       await ctx.client.otter.dissolve(targetOtterId);
-      /** F20260803trrf: 顺带更新 participant status（预存问题：dissolve 不更新 participant，名册仍显示已解散 otter） */
-      await ctx.client.conversation.participant.leave(ctx.conversationId, targetOtterId);
-      return textResponse(`Otter ${targetOtterId} dissolved`);
+      /** F20260803trrf: 顺带更新 participant status。leave 失败不阻断 dissolve（otter 已销毁不可逆），仅附警告。 */
+      let warning = "";
+      try {
+        await ctx.client.conversation.participant.leave(ctx.conversationId, targetOtterId);
+      } catch {
+        warning = "（警告：participant 记录未更新，名册可能残留）";
+      }
+      return textResponse(`Otter ${targetOtterId} dissolved${warning}`);
     },
   };
 }

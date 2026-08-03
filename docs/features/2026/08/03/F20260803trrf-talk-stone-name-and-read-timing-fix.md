@@ -128,7 +128,7 @@ tsrr 的假设是"给 LLM otterId，它就会用"。test003 证伪了这个假�
 - 精确匹配 `otterName`（区分大小写），失败返回错误附可用名单
 - 'user' 是保留 token，不参与名字匹配
 - 不做模糊匹配/前缀匹配--模糊匹配会让 LLM 误以为部分输入可用，反而增加不确定性
-- **Unicode 归一化**：otter 名字可能含 middle dot 等 Unicode 字符（test003 中"成语小獭·文文"的"·"有 U+00B7/U+30FB/U+2022 多种编码）。resolve 前对名字和查询值做 NFC 归一化再比较；错误回执**原样展示**可用名字让 LLM 可复制
+- **Unicode 归一化（防御性）**：resolve 前对名字和查询值做 NFC 归一化（处理组合字符如 e+´=é）。注意 NFC **不**统一语义相似但 codepoint 不同的字符（middle dot U+00B7/U+30FB/U+2022 经 NFC 后仍各不相同）。真正的兜底是错误回执**原样展示**可用名字--LLM 复制即用相同 codepoint，不依赖归一化
 
 **otterName 注入方式（技术决策）**：speak execute 内从 `getActiveParticipants` 结果中按 `ctx.otterId` 找到自己的 `otterName`，不改 `ToolContext` 接口。理由：resolve 本就要查 participants，复用同一份数据零额外查询；避免 `buildCustomTools` async 化（`pi-session-factory.ts:625` 是同步方法）。
 
@@ -216,7 +216,7 @@ for (let i = 0; i < results.length; i++) {
 - speak 传 'user' -> 原样保留
 - speak 传不在场的名字 -> 错误回执附可用名单（纯名字，原样展示供 LLM 复制）
 - speak 传自己名字 -> 错误（不能传给自己）
-- speak 传含 Unicode 变体的名字（middle dot U+00B7 vs U+30FB）-> NFC 归一化后匹配成功
+- （NFC 仅处理组合字符；middle dot 变体靠错误回执原样展示兜底，不专门测试）
 - 名册格式断言：含名字、不含 otterId
 - dissolve_otter 后 participant status -> left，名册不再显示该 otter
 
@@ -238,6 +238,10 @@ for (let i = 0; i < results.length; i++) {
 4. **Part B 同 turn 重复注入**：保持 `>=` 意味着发言者下次 invoke 会收到同 turn 里别人发的消息（如 system join 消息）。量小可接受，且这些消息重复注入无害。
 
 5. **两 part 同 PR**：Part A 改 speak 工具契约，Part B 改 dispatch 引擎已读机制，无代码依赖。同 PR 理由：同源于 test003 一次诊断、都是 tsrr 残留、用户明确要求合并（UA-4）。
+
+6. **Part A dissolve 跨对话 participant 残留（已知限制）**：`dissolve_otter` 只更新 `ctx.conversationId` 的 participant。若 otter 参与多对话，其他对话的名册仍显示已解散 otter。根治需 `getActiveParticipants` join `otter.status='active'`（更大范围，另立）。本特性 dissolve leave 加了 try-catch 错误隔离（leave 失败不阻断 dissolve，附警告）。
+
+7. **Part A markParticipantLeft 审计字段**：与正式 `updateParticipantLeave` 不同，`markParticipantLeft` 不记录 `leftAtTurnId`/`leftAtTurnNumber`（dissolve 场景无特定 turn，null 合理）。审计查询"dissolved otter 在哪个 turn 离开"会得到 null。
 
 ## 决策记录（对抗审视后用户拍板）
 
