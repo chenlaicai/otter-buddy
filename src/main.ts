@@ -659,6 +659,7 @@ async function main(): Promise<void> {
     port: appConfig.server.port,
     dbPath: appConfig.db.path,
     embeddingModelPath: appConfig.embedding.modelPath,
+    embeddingLocalModelPath: appConfig.embedding.localModelPath,
     embeddingDim: appConfig.embedding.dimensions,
   };
 

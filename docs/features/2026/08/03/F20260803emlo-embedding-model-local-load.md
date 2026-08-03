@@ -18,8 +18,13 @@ change_type: fix
 tags: [embedding, bge-m3, model-loading, offline, config-wiring, huggingface, worker-thread, memory-vec]
 modules:
   - src/frameworks/embedding/bge-m3-worker.ts
+  - src/frameworks/embedding/embedding-env-config.ts
   - src/frameworks/embedding/embedding-service.ts
   - src/frameworks/config-service.ts
+  - src/main.ts
+  - src/interface-adapters/http/controllers/settings-controller.ts
+  - api-contract/api/settings.ts
+  - web/src/pages/settings/index.tsx
   - config/config.yaml.example
   - .gitignore
 
@@ -110,31 +115,35 @@ export async function initEmbeddingService(
 
 **为什么 workerData 而非环境变量**：workerData 是 Node.js 主线程 → worker 线程传递结构化数据的标准通道，类型安全、无需序列化字符串解析。环境变量是全局共享的，多 worker 场景下会冲突。
 
-### 2. worker 按配置切换本地/远程模式
+### 2. worker 按配置切换本地/远程模式（env 配置抽纯函数）
 
-`bge-m3-worker.ts:31-66`：worker 读取 `workerData`，根据 `localModelPath` 是否存在切换两种模式：
+env 配置逻辑抽到独立纯函数 `embedding-env-config.ts:resolveEnvSettings(cfg, cwd?, hfEndpointEnv?)`，返回 `{ allowLocalModels, allowRemoteModels, localModelPath?, remoteHost?, modelId }`。worker 入口（top-level `throw if !parentPort`）无法被 test import，抽离后可单测。worker 只做 `env.* = settings.*` 赋值：
 
 ```typescript
-const { pipeline, env } = await import("@huggingface/transformers");
-const cfg = (workerData ?? {}) as WorkerConfig;
-
-if (cfg.localModelPath) {
-  // 本地模式：模型文件已预置，禁用远程避免触发下载
-  env.allowLocalModels = true;
-  env.allowRemoteModels = false;
-  env.localModelPath = path.resolve(process.cwd(), cfg.localModelPath);
-} else {
-  // 远程模式：尊重 HF_ENDPOINT 环境变量以支持镜像（如 https://hf-mirror.com/）
-  env.allowLocalModels = false;
-  env.allowRemoteModels = true;
-  const hfEndpoint = process.env.HF_ENDPOINT;
-  if (hfEndpoint) {
-    env.remoteHost = hfEndpoint.endsWith("/") ? hfEndpoint : `${hfEndpoint}/`;
+// embedding-env-config.ts（纯函数，可单测）
+export function resolveEnvSettings(cfg, cwd = process.cwd(), hfEndpointEnv = process.env.HF_ENDPOINT) {
+  const modelId = cfg.modelPath ?? "Xenova/bge-m3";
+  if (cfg.localModelPath) {
+    return { allowLocalModels: true, allowRemoteModels: false,
+             localModelPath: path.resolve(cwd, cfg.localModelPath), modelId };
   }
+  const s = { allowLocalModels: false, allowRemoteModels: true, modelId };
+  if (hfEndpointEnv) {
+    s.remoteHost = hfEndpointEnv.endsWith("/") ? hfEndpointEnv : `${hfEndpointEnv}/`;
+  }
+  return s;
 }
-const modelId = cfg.modelPath ?? "Xenova/bge-m3";
-const pipe = await pipeline("feature-extraction", modelId, { dtype: "fp32" });
+
+// bge-m3-worker.ts（调用纯函数 + 赋值 env）
+const settings = resolveEnvSettings((workerData ?? {}) as WorkerConfig);
+env.allowLocalModels = settings.allowLocalModels;
+env.allowRemoteModels = settings.allowRemoteModels;
+if (settings.localModelPath) env.localModelPath = settings.localModelPath;
+if (settings.remoteHost) env.remoteHost = settings.remoteHost;
+const pipe = await pipeline("feature-extraction", settings.modelId, { dtype: "fp32" });
 ```
+
+`bge-m3-worker.ts` 原 `getExtractor` 的 lazy 加载同时改为 **promise cache**（见变更 7），消除预加载与并发 embed 请求的 race。
 
 **本地模式路径解析**：transformers.js v4 的 `env.localModelPath` 是模型根目录，`pipeline(modelId)` 会在 `<localModelPath>/<modelId>/` 下找 `config.json`。所以 config 配 `localModelPath: ./models` + `modelPath: bge-m3` → 实际查 `<cwd>/models/bge-m3/config.json`。
 
@@ -142,7 +151,7 @@ const pipe = await pipeline("feature-extraction", modelId, { dtype: "fp32" });
 
 **为什么远程模式显式 `allowLocalModels=false`**：避免本地残留的旧模型文件意外命中，确保远程模式行为可预测。
 
-**HF_ENDPOINT 末尾斜杠处理**：transformers.js 的 `remotePathTemplate` 是 `{model}/resolve/{revision}/`，与 `remoteHost` 拼接。若用户设 `HF_ENDPOINT=https://hf-mirror.com`（无尾斜杠），拼接变成 `https://hf-mirror.comXenova/...` 导致 404。补尾斜杠是必要兜底。
+**HF_ENDPOINT 末尾斜杠处理**：transformers.js v4 的 `pathJoin`（`hub/utils.js:10`）会自动处理首尾斜杠，`remoteHost` 有无尾斜杠产出的 URL 相同。补尾斜杠是**与默认值 `https://huggingface.co/` 格式保持一致**的防御性处理，避免未来版本若改为直接字符串拼接时出错。当前版本属 harmless redundancy。
 
 ### 3. config schema 加 localModelPath 字段
 
@@ -192,6 +201,36 @@ models/bge-m3/
 
 `model.onnx_data` 由用户提供（hf-mirror 慢但支持断点续传，用户用支持 resume 的工具下载）；其余 5 个小文件由本任务通过 hf-mirror 拉取（curl --retry 3）。
 
+### 7. worker 懒加载改 promise cache（对抗审视 L3）
+
+`bge-m3-worker.ts` 原 `getExtractor` 用 `let extractor: ... | null` 标志位做 lazy 加载。文件末尾预加载调用（`getExtractor().then(...)`）与 `port.on("message")` 中的 `getExtractor()` 调用可能同时 in-flight，两个调用都进入 `if (!extractor)` 块，各自调用 `pipeline()` 加载 2.27GB 模型，造成内存峰值翻倍 + `postMessage({type:"ready"})` 发两次。
+
+改为 `let extractorPromise: Promise<Extractor> | null`，`getExtractor()` 返回已有 promise 而非重新启动加载：
+
+```typescript
+let extractorPromise: Promise<Extractor> | null = null;
+
+function getExtractor(): Promise<Extractor> {
+  if (!extractorPromise) {
+    extractorPromise = (async () => { /* pipeline 加载 */ })();
+  }
+  return extractorPromise;
+}
+```
+
+第二次调用拿到同一个 promise，不会重复加载。失败时 promise 被 reject 但仍缓存（后续调用也 reject，错误一致），这是可接受的--worker 加载失败本就走 FTS-only 降级，不会重试。
+
+**为什么纳入本 F**：race 在代码 I touched（getExtractor 重构），虽是 pre-existing 问题，但既然改了这块就一并修干净。
+
+### 8. settings API 补 embedding 加载模式可观测性（对抗审视 L1）
+
+`main.ts:631` 的 `embeddingModelPath: appConfig.embedding.modelPath` 本地模式下值为 `"bge-m3"`（只是目录名），settings API 消费者无法区分本地加载还是远程下载。补 `embeddingLocalModelPath` 字段透传到 settings：
+
+- `api-contract/api/settings.ts` SettingsDTO 加 `embeddingLocalModelPath?: string`
+- `settings-controller.ts` SettingsConfig 同步加
+- `main.ts` settings 构造透传 `appConfig.embedding.localModelPath`
+- `web/src/pages/settings/index.tsx` Embedding 状态区加"加载模式"行：本地模式显示 `本地（./models）`，远程模式显示 `远程（HuggingFace）`
+
 ## 设计决策
 
 1. **本地/远程双模式而非仅本地**：保留远程模式支持（1）开发环境能联网时首次自动下载的便利；（2）未来可能换更轻量模型（如 int8 量化版 568MB）时无需改代码；（3）HF_ENDPOINT 镜像支持作为网络受限环境的中间方案。单一本地模式会让"换模型"变成代码改动。
@@ -210,9 +249,14 @@ models/bge-m3/
 
 | 文件 | 改动 |
 |------|------|
-| `src/frameworks/embedding/bge-m3-worker.ts` | 读 workerData；按 localModelPath 切换本地/远程模式；import env；去硬编码 |
+| `src/frameworks/embedding/bge-m3-worker.ts` | 读 workerData；调 resolveEnvSettings 赋值 env；去硬编码；lazy 加载改 promise cache（变更 7） |
+| `src/frameworks/embedding/embedding-env-config.ts` | 新增：resolveEnvSettings 纯函数 + WorkerConfig/ResolvedEnvSettings 类型 |
 | `src/frameworks/embedding/embedding-service.ts` | `_embedConfig` → `embedConfig`；workerData 透传；EmbeddingConfig 加 localModelPath |
 | `src/frameworks/config-service.ts` | AppConfig.embedding + RawConfig.embedding 加 localModelPath 字段 |
+| `src/main.ts` | settings 构造透传 embeddingLocalModelPath |
+| `src/interface-adapters/http/controllers/settings-controller.ts` | SettingsConfig 加 embeddingLocalModelPath |
+| `api-contract/api/settings.ts` | SettingsDTO 加 embeddingLocalModelPath |
+| `web/src/pages/settings/index.tsx` | Embedding 状态区加"加载模式"行 |
 | `config/config.yaml.example` | 默认改为本地模式；文档说明两种模式 + 目录结构 |
 | `.gitignore` | 排除 `models/` |
 | `models/bge-m3/*` | 模型文件预置（gitignore，不提交） |
@@ -223,7 +267,7 @@ models/bge-m3/
 
 - `npm run lint` 无报错
 - `npx tsc --noEmit` 类型检查通过
-- `npx vitest run` 全量 854/854 测试通过（含 config-service.test.ts 19 个，确认新字段不破坏现有配置解析）
+- `npx vitest run` 全量 864/864 测试通过（含新增 9 个 resolveEnvSettings 单测 + config-service 补 localModelPath 解析测试）
 
 ### 集成（端到端，真实 worker 线程）
 
@@ -235,6 +279,7 @@ embed-1: 2.9s               ← 首次 embed（含 tokenizer warm-up）
 embed-2: 47.8ms             ← 第二次 embed（已 warm）
 dim: 1024                   ← 维度正确
 cos(hello world, 你好世界): 0.8997   ← 多语言语义相似度生效
+3 concurrent embeds: 147ms  ← promise cache 生效，无双重加载（变更 7 验证）
 ```
 
 ### 验收对照（Issue #124 Task C）
@@ -245,6 +290,18 @@ cos(hello world, 你好世界): 0.8997   ← 多语言语义相似度生效
 | `memory_vec` 表有向量数据写入 | ✅ service.available=true 后 embed 调用成功，主流程会写入（依赖 Task B/D 文档入库后才有内容可 embed） |
 | 语义搜索生效：搜近义词能命中 | ✅ cos 0.90 证明语义编码正确，中英文跨语言生效 |
 | 降级路径仍保留 | ✅ worker 加载失败仍 postMessage `{type:'error',id:-1}`，service 的 setupHandlers 原样保留 fallback 逻辑 |
+
+## 对抗审视记录
+
+本 F 经独立 agent 对抗审视（PR #130），命中 2 个中等问题 + 3 个低问题，全部处理：
+
+- **M1 零测试覆盖**（中）→ 变更 2 抽 `resolveEnvSettings` 纯函数 + 新增 `embedding-env-config.test.ts`（9 个 case 覆盖 local/remote 模式切换、HF_ENDPOINT 尾斜杠、默认值回退）；config-service.test.ts 补 localModelPath 解析测试。
+- **M2 文档 HF_ENDPOINT 论证错误**（中）→ 变更 2 文档段落修正：transformers.js v4 `pathJoin` 自动处理首尾斜杠，补尾斜杠是与默认值格式一致的防御性处理，非"必要兜底"。
+- **L1 settings API 信息丢失**（低）→ 变更 8 补 `embeddingLocalModelPath` 到 SettingsDTO/SettingsConfig/main.ts/web，前端加"加载模式"行。
+- **L2 `HF_ENDPOINT="/"` 边界**（低）→ 权衡可接受，荒谬输入不加防御（过度工程）。
+- **L3 模型加载 race condition**（低，pre-existing）→ 变更 7 修：`extractor: null` 标志位改 `extractorPromise: Promise|null`，消除预加载与并发 embed 的双重加载。
+
+审视验证通过的关键点：worker thread cwd 与主线程一致、workerData 传递 undefined 正确、`bge-m3` 是合法 HF model ID、本地模式文件缺失时错误信息清晰、向后兼容（现有 config.yaml 不含 localModelPath 时走远程模式）、.gitignore 正确排除 2.27GB。
 
 ## 关联
 

@@ -21,7 +21,7 @@ function SettingsPage() {
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
-  const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingDim: number } | null>(null)
+  const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number } | null>(null)
   const [glassT, setGlassT] = useState(() => {
     const v = parseFloat(localStorage.getItem('otter-glass-t') || '0.85')
     return isNaN(v) ? 0.85 : Math.min(1, Math.max(0.6, v))
@@ -38,7 +38,7 @@ function SettingsPage() {
       .then(s => {
         setProvider(s.provider)
         setModel(s.model)
-        setSettingsInfo({ port: s.port, dbPath: s.dbPath, embeddingModelPath: s.embeddingModelPath, embeddingDim: s.embeddingDim })
+        setSettingsInfo({ port: s.port, dbPath: s.dbPath, embeddingModelPath: s.embeddingModelPath, embeddingLocalModelPath: s.embeddingLocalModelPath, embeddingDim: s.embeddingDim })
       })
       .catch(() => showToast('加载设置失败', 'error'))
   }, [])
@@ -183,6 +183,14 @@ function SettingsPage() {
                 <div className="flex justify-between items-center py-2 border-b border-white/30">
                   <span className="text-sm text-stone-500">模型</span>
                   <span className="text-sm text-stone-400">{settingsInfo?.embeddingModelPath ?? '...'}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-white/30">
+                  <span className="text-sm text-stone-500">加载模式</span>
+                  <span className="text-sm text-stone-400">
+                    {settingsInfo?.embeddingLocalModelPath
+                      ? `本地（${settingsInfo.embeddingLocalModelPath}）`
+                      : '远程（HuggingFace）'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-white/30">
                   <span className="text-sm text-stone-500">维度</span>
