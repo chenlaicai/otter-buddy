@@ -273,4 +273,23 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
     expect(types).not.toContain("feature_body");
     expect(types).toContain("feature");
   });
+
+  it("F20260803fbit: replaceEntryBySource content_type 过滤--summary 和 body entry 共存", async () => {
+    /** 同 sourceId 的 summary entry (feature) + body entry (feature_body) 应互不删除 */
+    const coBase = { layer: "document" as const, sourceId: "F789", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
+    storeEntry(db, { ...coBase, id: "co-sum-1", contentType: "feature", content: "特征文档概要原始" });
+    storeEntry(db, { ...coBase, id: "co-body-1", contentType: "feature_body", content: "特征文档正文详情内容" });
+
+    /** replaceEntryBySource 替换 feature entry（新 id=co-sum-2），不应删 feature_body */
+    await repo.replaceEntryBySource({
+      ...coBase, id: "co-sum-2", contentType: "feature", content: "特征文档概要更新版",
+    });
+
+    /** 搜"特征文档"应命中 co-body-1（保留）+ co-sum-2（新插），不命中 co-sum-1（已删） */
+    const all = await repo.searchFTS("特征文档", { layer: "document" });
+    const ids = all.map(h => h.entryId);
+    expect(ids).toContain("co-body-1");
+    expect(ids).toContain("co-sum-2");
+    expect(ids).not.toContain("co-sum-1");
+  });
 });

@@ -256,9 +256,9 @@ export class SearchMemory {
     const vecHits = await this.repo.searchVec(embedding, limit + 1, {});
     const filtered = vecHits.filter((h) => h.entryId !== memoryEntryId);
 
-    /** 3. 单源 RRF + 重排 */
+    /** 3. 单源 RRF + 重排（searchSimilar 不去重：语义是"找相似条目"，同源多 entry 合法） */
     const rrfHits = this.searchEngine.buildSingleSourceRrfHits(filtered);
-    return this.rerankAndReturn(rrfHits, limit);
+    return this.rerankAndReturn(rrfHits, limit, undefined, undefined, false);
   }
 
   /** vec0 搜索（含降级逻辑，D22） */
@@ -283,6 +283,8 @@ export class SearchMemory {
     limit: number,
     detailLevel?: DetailLevel,
     snippetMap?: Map<string, string | undefined>,
+    /** F20260803fbit: searchSimilar 路径不需要按 sourceId 去重（语义是"找相似条目"，同源多 entry 是合法结果） */
+    dedup = true,
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
     if (hitIds.length === 0) {
@@ -294,7 +296,7 @@ export class SearchMemory {
 
     const scored = this.searchEngine.rerank(rrfHits, weightMap);
     /** F20260803fbit: 按 (sourceTable, sourceId) 去重，同文档 summary+body 双命中只保留高分者 */
-    const deduped = this.dedupBySource(scored);
+    const deduped = dedup ? this.dedupBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
     const top = deduped.slice(0, limit);
 

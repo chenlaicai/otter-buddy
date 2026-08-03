@@ -148,6 +148,21 @@ describe("SyncDocuments - F20260803mval", () => {
     expect(memoryIndex.indexFeature).toHaveBeenCalled();
   });
 
+  it("F20260803fbit: 只改 body（summary 不变）触发 updated + reindex body", async () => {
+    // existing 的 bodyHash 对应旧 body "# 旧正文\n"，文件 body 是 "# 新正文\n"
+    const existing = makeDoc({ summary: "测试摘要", bodyHash: computeBodyHash("# 旧正文\n") });
+    const featureRepo = makeStatefulFeatureRepo([existing]);
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureBody: vi.fn(async () => {}), indexResearchBody: vi.fn(async () => {}) };
+    const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
+
+    const result = await sync.execute("/root");
+
+    expect(result.updated).toBe(1);
+    expect(featureRepo.updateContent).toHaveBeenCalled();
+    expect(memoryIndex.indexFeatureBody).toHaveBeenCalled();
+  });
+
   it("已有文档内容不变：skip，不调 updateContent/indexFeature", async () => {
     // F20260803fbit: existing 的 bodyHash 要匹配文件内容算出的值，否则指纹不等走 updated
     const existing = makeDoc({ summary: "测试摘要", bodyHash: computeBodyHash("# 正文\n") });
