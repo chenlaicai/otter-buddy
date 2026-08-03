@@ -107,10 +107,7 @@ const appConfig = loadConfig(logger);
 initConfig(appConfig);
 
 class MemoryIndexAdapter implements MemoryIndexGateway {
-  constructor(
-    private readonly storeMemory: StoreMemory,
-    private readonly memoryRepo: SqliteMemoryRepository,
-  ) {}
+  constructor(private readonly storeMemory: StoreMemory) {}
 
   async indexMessage(messageId: string, conversationId: string, content: string): Promise<void> {
     await this.storeMemory.execute({
@@ -130,9 +127,8 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 
   async indexFeature(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
-    // F20260803mval: upsert 语义，先删旧 entry 防 FTS 命中陈旧 summary（内容漂移修复）
-    await this.memoryRepo.deleteBySource("features", id);
-    await this.storeMemory.execute({
+    // F20260803mval: replaceBySource 单事务原子替换（删旧+插新），防 B2 非原子丢数据
+    await this.storeMemory.replaceBySource({
       layer: "document",
       contentType: "feature",
       sourceId: id,
@@ -145,9 +141,7 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 
   async indexResearch(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
-    // F20260803mval: upsert 语义，先删旧 entry 防陈旧 summary
-    await this.memoryRepo.deleteBySource("research", id);
-    await this.storeMemory.execute({
+    await this.storeMemory.replaceBySource({
       layer: "document",
       contentType: "research",
       sourceId: id,
@@ -220,7 +214,7 @@ function initUseCases(
   const manageTerminology = new ManageTerminology(repos.terminology);
   const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
-  const memoryIndex = new MemoryIndexAdapter(storeMemory, repos.memory);
+  const memoryIndex = new MemoryIndexAdapter(storeMemory);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageReadState = new ManageReadState(repos.conversation);
@@ -513,7 +507,7 @@ async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGat
     fileSystem,
     repos.feature,
     repos.research,
-    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger), repos.memory),
+    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger)),
     logger
   );
   await syncDocs.execute(process.cwd());

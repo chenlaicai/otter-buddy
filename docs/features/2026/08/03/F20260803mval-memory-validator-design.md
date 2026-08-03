@@ -241,12 +241,13 @@ PR #128 经代码评审 agent 审视，命中 4 个真 bug（已修）+ 若干�
 - 变更 10 "共享 findAll" → 实施时 reconcileSync 与 archiveDeletedDocuments 各自 findAll（文档量小，性能可接受）。
 - 涉及文件表 → degraded 标志实现在 `memory-controller.ts`（非 `search-memory.ts`）。
 
-**已知限制（本 PR 不修）**：
-- B2 upsert 非原子：`deleteBySource` 与 `storeEntry` 不在同一事务，中间失败会丢 memory entry。彻底修复需重构事务边界，scope 大；storeEntry 失败概率低（DB 锁/磁盘满）。留后续。
+**追加修复（用户要求 PR 完整，不留后续）**：
+- B2 upsert 非原子 → 新增 `MemoryRepository.replaceEntryBySource` + `StoreMemory.replaceBySource`，单事务内删旧+插新；`indexFeature`/`indexResearch` 改用此原子路径，`MemoryIndexAdapter` 不再注入 memoryRepo
 
-**测试缺口（本 PR 部分补）**：
-- 补：migration 表重建幂等测试
-- 未补：upsert reindex 行为测试、reconcileSync 测试、健康端点测试（留后续）
+**测试覆盖（全部补齐）**：
+- migration 表重建幂等测试（3 个：移除 CHECK + 数据完整、幂等、全新库）
+- sync-documents 行为测试（5 个：新文档/内容变 upsert/内容不变 skip/未知枚举 warnings/supersedes 悬空）
+- health-controller 测试（4 个：healthy=true、reconcileGaps、embedding 不可用、DB 异常 200）
 
 ## 涉及文件
 
