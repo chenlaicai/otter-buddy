@@ -64,6 +64,19 @@ describe("cleanMarkdownForFts - F20260803fbit", () => {
     expect(cleanMarkdownForFts("")).toBe("");
   });
 
+  it("纯 frontmatter 残留（无正文）返回空串", () => {
+    // parseFrontmatterFromContent 已剥离 frontmatter，body 为空或仅换行
+    expect(cleanMarkdownForFts("\n\n")).toBe("");
+  });
+
+  it("超长 body（100KB）不抛异常不超时", () => {
+    const huge = "标题内容\n".repeat(10000); // ~100KB
+    const result = cleanMarkdownForFts(huge);
+    expect(result.length).toBeGreaterThan(0);
+    // "标题内容\n" 不含 markdown 语法，清理后内容不变
+    expect(result).toContain("标题内容");
+  });
+
   it("综合：代码块里的函数名保留可搜", () => {
     const body = "## 背景\n\n```ts\nfunction createHash() {\n  return crypto.createHash('sha256');\n}\n```\n\n### 用法\n\n调用 `createHash()` 生成哈希。";
     const cleaned = cleanMarkdownForFts(body);

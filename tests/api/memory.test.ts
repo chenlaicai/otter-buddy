@@ -54,6 +54,29 @@ describe("Memory API", () => {
         library: "conversation",
       });
     });
+
+    it("F20260803fbit: passes content_type filter to search", async () => {
+      deps.searchMemory.search.mockResolvedValue({ entries: [], total: 0 });
+
+      const res = await app.request(
+        "/api/memory/search?query=hello&content_type=feature_body,feature",
+      );
+      expect(res.status).toBe(200);
+      expect(deps.searchMemory.search).toHaveBeenCalledWith({
+        query: "hello",
+        limit: 10,
+        contentType: ["feature_body", "feature"],
+      });
+    });
+
+    it("F20260803fbit: returns 400 for invalid content_type", async () => {
+      const res = await app.request(
+        "/api/memory/search?query=hello&content_type=invalid_type",
+      );
+      expect(res.status).toBe(400);
+      const body = await json(res);
+      expect(body.error).toContain("invalid content_type");
+    });
   });
 
   // ─── POST /api/memory/search/similar ───

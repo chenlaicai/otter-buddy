@@ -233,4 +233,13 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
     await new Promise(r => setTimeout(r, 10));
     expect(embedding.receivedContents[0].length).toBe(6000);
   });
+
+  it("空字符串不截断不抛异常", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, embedding, noopLogger());
+    await store.execute({ ...SAMPLE_INPUT, content: "" });
+    await new Promise(r => setTimeout(r, 10));
+    expect(embedding.receivedContents[0]).toBe("");
+  });
 });
