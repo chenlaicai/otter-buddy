@@ -149,7 +149,6 @@ export class MessageController {
   /** after 游标向下分页：加载比 after 消息更新的历史消息（升序） */
   async listAfter(c: Context): Promise<Response> {
     try {
-      const conversationId = param(c, "id");
       const rawLimit = Number(c.req.query("limit") ?? "50");
       const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
       const after = c.req.query("after");

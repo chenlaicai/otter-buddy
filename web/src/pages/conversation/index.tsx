@@ -18,7 +18,7 @@ import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
 import { consumeSSE } from '../../api/sse'
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+import { type VirtuosoHandle } from 'react-virtuoso'
 import type { MessageDTO } from '@contract/api'
 
 async function loadInitialData(): Promise<{
@@ -77,7 +77,6 @@ function ConversationPage() {
   const [firstItemIndex, setFirstItemIndex] = useState(100000)
   const [initialTopMostItemIndex, setInitialTopMostItemIndex] = useState<number | { index: 'LAST' }>({ index: 'LAST' })
   const isAtBottomRef = useRef(true)
-  const [isAtBottom, setIsAtBottom] = useState(true)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
@@ -219,7 +218,6 @@ function ConversationPage() {
   /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用） */
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     isAtBottomRef.current = atBottom
-    setIsAtBottom(atBottom)
     if (atBottom) setNewMessagesCount(0)
   }, [])
 
