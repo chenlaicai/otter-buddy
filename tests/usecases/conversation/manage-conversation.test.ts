@@ -296,7 +296,7 @@ describe("ManageConversation", () => {
     });
 
     it("unpin 存在的对话 -> 更新 pinned 为 false", async () => {
-      const conv = existingConv();
+      const conv = existingConv({ pinned: true });
       const repo = mockRepo(new Map([[conv.id, conv]]));
       const mc = new ManageConversation(repo, mockCreateOtter());
 

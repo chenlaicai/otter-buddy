@@ -139,6 +139,16 @@ describe("ConversationController", () => {
     expect(body.error).toBe("系统对话不可取消置顶");
     expect(manageConv.unpin).not.toHaveBeenCalled();
   });
+
+  it("unpin 不存在返回 404", async () => {
+    const manageConv = {
+      unpin: vi.fn().mockRejectedValue(new DomainError("Conversation not found", "not_found")),
+    } as unknown as ManageConversation;
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/nonexistent/unpin", { method: "PATCH" });
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("OtterController", () => {
