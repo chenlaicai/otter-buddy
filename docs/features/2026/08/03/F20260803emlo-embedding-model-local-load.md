@@ -20,11 +20,13 @@ modules:
   - src/frameworks/embedding/bge-m3-worker.ts
   - src/frameworks/embedding/embedding-env-config.ts
   - src/frameworks/embedding/embedding-service.ts
+  - src/frameworks/embedding/ensure-model.ts
   - src/frameworks/config-service.ts
   - src/main.ts
   - src/interface-adapters/http/controllers/settings-controller.ts
   - api-contract/api/settings.ts
   - web/src/pages/settings/index.tsx
+  - scripts/download-bge-m3.mjs
   - config/config.yaml.example
   - .gitignore
 
@@ -231,6 +233,35 @@ function getExtractor(): Promise<Extractor> {
 - `main.ts` settings 构造透传 `appConfig.embedding.localModelPath`
 - `web/src/pages/settings/index.tsx` Embedding 状态区加"加载模式"行：本地模式显示 `本地（./models）`，远程模式显示 `远程（HuggingFace）`
 
+### 9. 模型下载脚本（幂等 + 断点续传 + 失败说明）
+
+`scripts/download-bge-m3.mjs`：独立 CLI 脚本，确保模型文件就位。
+
+- **幂等**：检查 `models/bge-m3/` 下 6 个必需文件（config/tokenizer/onnx 等），存在且 size 匹配则跳过
+- **断点续传**：curl `-C -` 已下载部分不重下（2.27GB 大文件恢复关键），`--retry 3` 失败自动重试
+- **镜像**：默认 `https://hf-mirror.com`（HF 不可达），尊重 `HF_ENDPOINT` 环境变量换镜像
+- **CI 跳过**：检测 `CI=true` 自动跳过（CI 不需要真实模型，测试全 mock），`--force` 可强制
+- **失败可见**：下载失败打印详细手动说明（缺失文件列表 + URL + 目标路径 + 工具建议）后 exit 1
+
+**为什么 curl 而非 node fetch**：curl 原生支持 `-C -` 断点续传，node fetch 需手写 Range 头 + 状态管理。2.27GB 在不稳定网络上断点续传是刚需。
+
+### 10. build + 启动时自动检查下载
+
+**build 集成**（`package.json`）：
+```
+"build": "... && node scripts/download-bge-m3.mjs || echo \"[bge-m3] 模型下载失败，启动时将重试或降级 FTS-only\""
+```
+build 末尾跑下载脚本；失败用 `|| echo` 兜底不阻断构建（模型不是构建产物必需），启动时还有第二道防线。
+
+**启动集成**（`main.ts` + `ensure-model.ts`）：
+`initEmbeddingService` 前调 `ensureBgeM3Model(appConfig.embedding, logger)`：
+- 本地模式 + 文件就位：记 info 日志，跳过
+- 本地模式 + 文件缺失：spawn 下载脚本（同步阻塞启动，正常情况文件已存在秒过；丢失场景阻塞可接受）
+- 下载失败：warn 降级提示，不抛异常 -> worker 加载会失败 -> 走 FTS-only fallback（不阻塞主流程）
+- 远程模式：直接跳过（worker 自行处理远程下载）
+
+**为什么 build + 启动双检查**：build 时下载覆盖"首次部署"场景；启动时检查覆盖"文件丢失"场景（如误删 models/、迁移环境）。两道防线确保模型缺失不静默。
+
 ## 设计决策
 
 1. **本地/远程双模式而非仅本地**：保留远程模式支持（1）开发环境能联网时首次自动下载的便利；（2）未来可能换更轻量模型（如 int8 量化版 568MB）时无需改代码；（3）HF_ENDPOINT 镜像支持作为网络受限环境的中间方案。单一本地模式会让"换模型"变成代码改动。
@@ -257,6 +288,10 @@ function getExtractor(): Promise<Extractor> {
 | `src/interface-adapters/http/controllers/settings-controller.ts` | SettingsConfig 加 embeddingLocalModelPath |
 | `api-contract/api/settings.ts` | SettingsDTO 加 embeddingLocalModelPath |
 | `web/src/pages/settings/index.tsx` | Embedding 状态区加"加载模式"行 |
+| `src/frameworks/embedding/ensure-model.ts` | 新增：启动时检查模型文件，缺失则 spawn 下载脚本 |
+| `scripts/download-bge-m3.mjs` | 新增：幂等下载脚本（断点续传 + 失败说明 + CI 跳过） |
+| `package.json` | build 末尾挂下载步骤；新增 download:bge-m3 独立脚本 |
+| `eslint.config.mjs` | scripts/*.mjs 的 node globals 配置块 |
 | `config/config.yaml.example` | 默认改为本地模式；文档说明两种模式 + 目录结构 |
 | `.gitignore` | 排除 `models/` |
 | `models/bge-m3/*` | 模型文件预置（gitignore，不提交） |
@@ -267,7 +302,7 @@ function getExtractor(): Promise<Extractor> {
 
 - `npm run lint` 无报错
 - `npx tsc --noEmit` 类型检查通过
-- `npx vitest run` 全量 864/864 测试通过（含新增 9 个 resolveEnvSettings 单测 + config-service 补 localModelPath 解析测试）
+- `npx vitest run` 全量 901/901 测试通过（含 resolveEnvSettings 9 个 + ensure-model 6 个 + config-service 补 localModelPath）
 
 ### 集成（端到端，真实 worker 线程）
 
