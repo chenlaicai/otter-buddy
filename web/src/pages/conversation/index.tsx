@@ -88,6 +88,7 @@ function ConversationPage() {
   const [unreadSeparatorSeq, setUnreadSeparatorSeq] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current) }, [])
 
   // 从 URL 路径获取对话 ID（格式：/conversation/:id）
   const pathParts = window.location.pathname.split('/')
@@ -140,6 +141,11 @@ function ConversationPage() {
       setHasMoreBefore(listResp.hasMore)
       setHasMoreAfter(false)
       setUnreadState(unread)
+      // 首次访问（无已读记录）：初始化已读到最新，避免下次进入显示全部未读
+      if (unread.lastReadSeq === 0 && unread.unreadCount === 0 && msgs.length > 0) {
+        const maxSeq = msgs[msgs.length - 1]?.seq
+        if (maxSeq != null) api.markRead(convId, maxSeq).catch(() => {})
+      }
       setUnreadSeparatorSeq(null)
       // 未读定位：第一条未读消息
       if (unread.firstUnreadSeq != null && unread.firstUnreadMessageId) {
@@ -240,7 +246,7 @@ function ConversationPage() {
       if (resp.messages.length === 0) { setHasMoreBefore(false); return }
       const olderMsgs = mapMessageDTOs(resp.messages) // DESC -> 升序
       setHasMoreBefore(resp.hasMore)
-      setFirstItemIndex(prev => prev - olderMsgs.length)
+      setFirstItemIndex(prev => Math.max(0, prev - olderMsgs.length))
       setAllMessages(prev => ({
         ...prev,
         [activeId]: [...olderMsgs, ...(prev[activeId] || [])],
@@ -322,14 +328,14 @@ function ConversationPage() {
       setFirstItemIndex(FIRST_ITEM_INDEX_BASE)
       setHasMoreBefore(true)
       setHasMoreAfter(true)
-      requestAnimationFrame(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
         const idx = expandedMsgs.findIndex(m => m.id === messageId)
         if (idx >= 0) {
           virtuosoRef.current?.scrollToIndex({ index: FIRST_ITEM_INDEX_BASE + idx, behavior: 'smooth', align: 'center' })
           setHighlightMessageId(messageId)
           setTimeout(() => setHighlightMessageId(null), 2000)
         }
-      })
+      }))
     }
   }, [activeId, allMessages, firstItemIndex])
 
@@ -401,6 +407,8 @@ function ConversationPage() {
             return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
           })
         }
+        if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+        maybeScrollToBottom()
       },
       'assistant_text': (data) => {
         const liveEvents = liveEventsMap.get(data.messageId as string)
@@ -593,6 +601,8 @@ function ConversationPage() {
               return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
             })
           }
+          if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+          if (isAtBottomRef.current) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' }))
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data

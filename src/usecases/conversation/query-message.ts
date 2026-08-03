@@ -78,7 +78,11 @@ export class QueryMessage {
     firstUnreadSeq: number | null;
   }> {
     const state = await this.repo.getUserReadState(conversationId, userId);
-    const lastReadSeq = state?.lastReadSeq ?? 0;
+    if (!state) {
+      // 首次访问（无已读记录）：不视为全部未读，前端加载后初始化已读到最新
+      return { lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null };
+    }
+    const lastReadSeq = state.lastReadSeq;
     const unreadCount = await this.repo.getUnreadCount(conversationId, userId);
     if (unreadCount === 0) {
       return { lastReadSeq, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null };
