@@ -359,6 +359,7 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
           const participantsWithOtter = await uc.manageParticipant.getActiveParticipants(convId);
           return participantsWithOtter.map(p => ({ ...p.participant, otterName: p.otterName }));
         },
+        leave: (convId, otterId) => uc.manageParticipant.markLeft(convId, otterId),
       },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
     },

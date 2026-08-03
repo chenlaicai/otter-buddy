@@ -41,6 +41,42 @@ export interface ToolContext {
   modelPool?: ModelPoolLike;
 }
 
+/** F20260803trrf: name->id resolve（NFC 归一化），speak 改用名字，系统侧做映射 */
+function resolveTalkingStoneTargets(
+  recipients: string[],
+  active: Array<{ otterId: string; otterName: string }>,
+): { resolvedIds: string[]; invalid: string[] } {
+  const byName = new Map<string, string>();
+  for (const p of active) byName.set(p.otterName.normalize("NFC"), p.otterId);
+  const resolvedIds: string[] = [];
+  const invalid: string[] = [];
+  for (const r of recipients) {
+    if (r === "user") { resolvedIds.push("user"); continue; }
+    const id = byName.get(r.normalize("NFC"));
+    if (id) resolvedIds.push(id); else invalid.push(r);
+  }
+  return { resolvedIds, invalid };
+}
+
+/** F20260803trrf: 校验 + resolve，降低 execute 复杂度 */
+function validateAndResolve(
+  recipients: string[],
+  active: Array<{ otterId: string; otterName: string }>,
+  selfOtterId: string,
+): { resolvedIds: string[]; error?: string } {
+  if (!recipients || recipients.length === 0) return { resolvedIds: [], error: "[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者名字。" };
+  const { resolvedIds, invalid } = resolveTalkingStoneTargets(recipients, active);
+  if (resolvedIds.includes(selfOtterId)) {
+    const myName = active.find(p => p.otterId === selfOtterId)?.otterName ?? selfOtterId;
+    return { resolvedIds: [], error: `[错误] 不能把发言石传给自己（${myName}）。请选择其他参与者。` };
+  }
+  if (invalid.length > 0) {
+    const options = [...active.map(p => p.otterName), "搭档('user')"].join("、");
+    return { resolvedIds: [], error: `[错误] 发言石目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 speak。` };
+  }
+  return { resolvedIds };
+}
+
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
@@ -52,7 +88,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言权交给谁（必须用 otterId 或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要搭档接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的 otterId（不是名字）；(3) 不能传自己的 otterId。不确定在场成员时先调 get_active_participants。",
+          description: "发言权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要搭档接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的名字（不是 otterId）；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -67,19 +103,13 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         : rawBody;
 
       if (!cleanBody || cleanBody.trim().length === 0) return textResponse("[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。");
-      if (!recipients || recipients.length === 0) return textResponse("[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者 ID。");
-      if (recipients.includes(ctx.otterId)) return textResponse(`[错误] 不能把发言石传给自己（${ctx.otterId}）。请先调用 get_active_participants 获取在场成员，然后选择其他参与者。`);
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
-      const validIds = new Set([...active.map(p => p.otterId), "user"]);
-      const invalid = recipients.filter(id => !validIds.has(id));
-      if (invalid.length > 0) {
-        const options = [...active.map(p => `${p.otterName}(${p.otterId})`), "搭档('user')"].join("、");
-        return textResponse(`[错误] 发言石目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的 otterId 重新调用 speak。`);
-      }
+      const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
+      if (error) return textResponse(error);
 
       try {
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: recipients });
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
       } catch (err) {
         return textResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
@@ -213,6 +243,8 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
         return textResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
       }
       await ctx.client.otter.dissolve(targetOtterId);
+      /** F20260803trrf: 顺带更新 participant status（预存问题：dissolve 不更新 participant，名册仍显示已解散 otter） */
+      await ctx.client.conversation.participant.leave(ctx.conversationId, targetOtterId);
       return textResponse(`Otter ${targetOtterId} dissolved`);
     },
   };
@@ -413,7 +445,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话中所有活跃参与者（otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。",
+    description: "获取当前对话中所有活跃参与者（otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。speak 的 talkingStonePassedTo 用 otterName；invite/dissolve 用 otterId。",
     parameters: {
       type: "object",
       properties: {},

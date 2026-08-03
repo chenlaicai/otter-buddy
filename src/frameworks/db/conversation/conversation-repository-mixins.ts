@@ -3,12 +3,18 @@ import type {
   ArtifactStatus,
   ConversationParticipant,
   LinkedResource,
+  Turn,
 } from "@entities/conversation/conversation";
+import type { Message } from "@entities/conversation/message";
 import {
   rowToLinkedResource,
+  rowToMessage,
   rowToParticipant,
+  rowToTurn,
   type LinkedResourceRow,
+  type MessageRow,
   type ParticipantRow,
+  type TurnRow,
 } from "./conversation-mapper";
 
 /**
@@ -198,4 +204,25 @@ export function getUnreadMessages(
       AND m.status NOT IN ('streaming', 'speaking')
     ORDER BY m.sequence_num ASC
   `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; body: string | null; sequence_num: number }>;
+}
+
+/** F20260803trrf: 按 id 查 turn（不论 status，markBatchRead 在 turn 关闭后反查 turn_number） */
+export function getTurnById(db: Database.Database, turnId: string): Turn | null {
+  const row = db.prepare(`SELECT * FROM turns WHERE id = ?`).get(turnId) as TurnRow | undefined;
+  return row ? rowToTurn(row) : null;
+}
+
+/** F20260803trrf: 指定 sender 的最新消息（markBatchRead rejected 路径用） */
+export function getLastMessageBySender(db: Database.Database, conversationId: string, senderId: string): Message | null {
+  const row = db.prepare(
+    `SELECT * FROM messages WHERE conversation_id = ? AND sender_id = ? ORDER BY sequence_num DESC LIMIT 1`,
+  ).get(conversationId, senderId) as MessageRow | undefined;
+  return row ? rowToMessage(row) : null;
+}
+
+/** F20260803trrf: 标记 participant 已离开（dissolve_otter 顺带修，不要求 active turn） */
+export function markParticipantLeft(db: Database.Database, conversationId: string, otterId: string): void {
+  db.prepare(
+    `UPDATE conversation_participants SET status = 'left', left_at = datetime('now') WHERE conversation_id = ? AND otter_id = ? AND status = 'active'`,
+  ).run(conversationId, otterId);
 }

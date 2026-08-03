@@ -67,6 +67,8 @@ export interface OtterToolClient {
     participant: {
       join(conversationId: string, otterId: string): Promise<ConversationParticipant>;
       getActive(conversationId: string): Promise<Array<ConversationParticipant & { otterName: string }>>;
+      /** 标记 otter 在指定对话中已离开（dissolve_otter 顺带修） */
+      leave(conversationId: string, otterId: string): Promise<void>;
     };
     getActiveTurnNumber(conversationId: string): Promise<number>;
   };
