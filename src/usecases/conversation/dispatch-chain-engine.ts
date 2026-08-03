@@ -205,7 +205,10 @@ export class DispatchChainEngine {
         messageId = r.value.messageId;
       } else {
         /** rejected：invokeFn 抛错（罕见，agent-invoker.invokeConversation 已 catch 大部分）。
-         *  用 targets[i] 反查该 otter 最新消息（发言已 start 但 invoke 失败） */
+         *  用 targets[i] 反查该 otter 最新消息（发言已 start 但 invoke 失败）。
+         *  限制（review P1）：lastMsg 是该 otter 自己发的最新消息，推进到的是"自己上次发言的 turn"
+         *  而非"应读的最新 turn"。精确修复需在 buildMessageWithContext 时记录注入的最新 turn，
+         *  改动大且 rejected 极罕见，接受此 best-effort 语义。 */
         const lastMsg = await this.deps.queryMessage.getLastMessageBySender(conversationId, targets[i]);
         messageId = lastMsg?.id;
       }

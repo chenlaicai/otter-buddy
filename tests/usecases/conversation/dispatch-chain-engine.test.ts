@@ -98,4 +98,31 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
 
     expect(m.updateLastReadTurnNumber).not.toHaveBeenCalled();
   });
+
+  it("多 targets：各自 last_read 独立推进到自己的 turn", async () => {
+    const m = makeMocks();
+    m.getMessageById.mockImplementation(async (id: string) => {
+      if (id === "m-1") return makeMsg({ id: "m-1", senderId: "otter-1", turnId: "turn-1" });
+      if (id === "m-2") return makeMsg({ id: "m-2", senderId: "otter-2", turnId: "turn-2" });
+      return null;
+    });
+    m.getTurnById.mockImplementation(async (turnId: string) => {
+      if (turnId === "turn-1") return makeTurn({ id: "turn-1", turnNumber: 5 });
+      if (turnId === "turn-2") return makeTurn({ id: "turn-2", turnNumber: 7 });
+      return null;
+    });
+    const engine = new DispatchChainEngine({ sendMessage: m.sendMessage, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: ["otter-1", "otter-2"],
+      invokeFn: async ({ otterId }) => ({ messageId: otterId === "otter-1" ? "m-1" : "m-2" }),
+    });
+
+    const calls = m.updateLastReadTurnNumber.mock.calls as Array<[string, string, number]>;
+    expect(calls).toHaveLength(2);
+    const byOtter = new Map(calls.map(([, otterId, turnNum]) => [otterId, turnNum]));
+    expect(byOtter.get("otter-1")).toBe(5);
+    expect(byOtter.get("otter-2")).toBe(7);
+  });
 });

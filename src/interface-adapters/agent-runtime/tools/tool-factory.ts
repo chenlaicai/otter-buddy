@@ -48,14 +48,15 @@ function resolveTalkingStoneTargets(
 ): { resolvedIds: string[]; invalid: string[] } {
   const byName = new Map<string, string>();
   for (const p of active) byName.set(p.otterName.normalize("NFC"), p.otterId);
-  const resolvedIds: string[] = [];
+  /** 用 Set 去重，防止 LLM 传重复名字导致 DB 存重复 otterId（F20260803trrf review P3） */
+  const resolvedSet = new Set<string>();
   const invalid: string[] = [];
   for (const r of recipients) {
-    if (r === "user") { resolvedIds.push("user"); continue; }
+    if (r === "user") { resolvedSet.add("user"); continue; }
     const id = byName.get(r.normalize("NFC"));
-    if (id) resolvedIds.push(id); else invalid.push(r);
+    if (id) resolvedSet.add(id); else invalid.push(r);
   }
-  return { resolvedIds, invalid };
+  return { resolvedIds: [...resolvedSet], invalid };
 }
 
 /** F20260803trrf: 校验 + resolve，降低 execute 复杂度 */
