@@ -713,13 +713,31 @@ function ConversationPage() {
     } catch { showToast('删除失败', 'error') }
   }
 
-  function ctxAction(action: string, cid: string) {
+  async function ctxAction(action: string, cid: string) {
     closeCtxMenu()
     // 混合架构：右键菜单操作时整页刷新，确保 URL 与内容一致
     if (action === 'archive') {
       setModal({ type: 'archive', cid })
     } else if (action === 'child') {
       setModal({ type: 'child', parentId: cid })
+    } else if (action === 'pin') {
+      try {
+        await api.pinConversation(cid)
+        window.location.reload()
+      } catch (err) {
+        showToast((err as Error).message ?? '置顶失败', 'error')
+      }
+    } else if (action === 'unpin') {
+      try {
+        await api.unpinConversation(cid)
+        window.location.reload()
+      } catch (err) {
+        if ((err as { status?: number }).status === 403) {
+          showToast('系统对话不可取消置顶', 'error')
+        } else {
+          showToast((err as Error).message ?? '取消置顶失败', 'error')
+        }
+      }
     } else {
       window.location.href = `/conversation/${cid}`
     }
@@ -779,6 +797,7 @@ function ConversationPage() {
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+            <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
             <div onClick={() => ctxAction('archive', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status !== 'archived' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
             <div onClick={() => ctxAction('child', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">创建子对话</div>
           </div>

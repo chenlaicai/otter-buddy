@@ -395,6 +395,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const conversationCtrl = new ConversationController(
     deps.manageConversation,
     deps.manageParticipant,
+    { get: vi.fn().mockResolvedValue(null) } as any,
     logger,
   );
 

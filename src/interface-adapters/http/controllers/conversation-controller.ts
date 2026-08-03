@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { CreateConversationInput } from "@usecases/conversation/manage-conversation";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 import {
@@ -11,11 +12,14 @@ import {
 } from "../dto/conversation-dto";
 import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
 
+const HEALING_CONVERSATION_KEY = '__self_healing_conversation_id__';
+
 export class ConversationController {
   constructor(
 
     private readonly manageConversation: ManageConversation,
     private readonly manageParticipant: ManageParticipant,
+    private readonly settings: SettingsRepository,
       private readonly logger: Logger,
   ) {}
 
@@ -99,6 +103,30 @@ export class ConversationController {
       return c.json(participantsWithOtter.map(({ participant, otterName, otterType, roleName }) =>
         toParticipantDTO(participant, otterName, { otterType, roleName })
       ));
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  async pin(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      await this.manageConversation.pin(id);
+      return c.json({ status: "pinned" });
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  async unpin(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const healingId = await this.settings.get(HEALING_CONVERSATION_KEY);
+      if (id === healingId) {
+        return c.json({ error: "系统对话不可取消置顶" }, 403);
+      }
+      await this.manageConversation.unpin(id);
+      return c.json({ status: "unpinned" });
     } catch (err) {
       return handleError(c, err, this.logger);
     }

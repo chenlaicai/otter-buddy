@@ -369,7 +369,7 @@ interface ControllerDeps {
 
 function initControllers(deps: ControllerDeps) {
   return {
-    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant, logger),
+    conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant, deps.settingsRepo, logger),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter, logger),
     message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
     memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, logger),

@@ -28,7 +28,7 @@ import type { MemoryEntry } from "@entities/memory/memory-entry";
 
 function mockConversation(): Conversation {
   return {
-    id: "conv-1", title: "Test", status: "active", summary: null,
+    id: "conv-1", title: "Test", status: "active", summary: null, pinned: false,
     createdAt: "2026-07-16T00:00:00Z", updatedAt: "2026-07-16T00:00:00Z",
     completedAt: null, archivedAt: null,
   };
@@ -53,7 +53,7 @@ describe("ConversationController", () => {
 
   it("returns 200 with DTO for existing conversation", async () => {
     const manageConv = { getById: async () => mockConversation() } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1");
     expect(res.status).toBe(200);
@@ -64,7 +64,7 @@ describe("ConversationController", () => {
 
   it("returns 404 for non-existent conversation", async () => {
     const manageConv = { getById: async () => null } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/nonexistent");
     expect(res.status).toBe(404);
@@ -77,7 +77,7 @@ describe("ConversationController", () => {
     const managePart = {
       getActiveParticipants: async () => [{ participant: { otterId: "otter-1" }, otterName: "Big Otter" }],
     } as unknown as ManageParticipant;
-    const ctrl = new ConversationController(manageConv, managePart, mockLogger());
+    const ctrl = new ConversationController(manageConv, managePart, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations", {
       method: "POST",

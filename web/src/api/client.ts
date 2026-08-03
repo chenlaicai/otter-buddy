@@ -26,7 +26,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(body.error ?? res.statusText)
+    throw Object.assign(new Error(body.error ?? res.statusText), { status: res.status })
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -51,6 +51,14 @@ export function getConversation(id: string): Promise<ConversationDTO> {
 
 export function archiveConversation(id: string): Promise<{ status: string }> {
   return request(`/conversations/${id}/archive`, { method: 'PATCH' })
+}
+
+export function pinConversation(id: string): Promise<{ status: string }> {
+  return request(`/conversations/${id}/pin`, { method: 'PATCH' })
+}
+
+export function unpinConversation(id: string): Promise<{ status: string }> {
+  return request(`/conversations/${id}/unpin`, { method: 'PATCH' })
 }
 
 export function getParticipants(conversationId: string): Promise<ParticipantDTO[]> {

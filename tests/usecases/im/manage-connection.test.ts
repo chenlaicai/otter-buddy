@@ -66,6 +66,7 @@ function conversationFixture(overrides: Partial<Conversation> = {}): Conversatio
     title: "测试对话",
     status: "active",
     summary: null,
+    pinned: false,
     createdAt: "2026-07-29T00:00:00Z",
     updatedAt: "2026-07-29T00:00:00Z",
     completedAt: null,

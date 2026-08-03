@@ -25,11 +25,18 @@ export async function ensureHealingConversation(deps: {
     const conv = await deps.manageConversation.getById(existingId);
     if (conv && conv.status === 'active') {
       const bigOtterId = await deps.settings.get(HEALING_BIG_OTTER_ID_KEY);
-      if (bigOtterId) return { conversationId: existingId, bigOtterId };
+      if (bigOtterId) {
+        /** 恢复置顶（失败不中断，下次启动恢复） */
+        try { await deps.manageConversation.pin(existingId); } catch { /* 启动恢复 */ }
+        return { conversationId: existingId, bigOtterId };
+      }
     }
   }
 
   const conversation = await deps.manageConversation.create({ title: HEALING_CONVERSATION_TITLE });
+
+  /** 自动置顶（失败不中断，下次启动恢复） */
+  try { await deps.manageConversation.pin(conversation.id); } catch { /* 启动恢复 */ }
 
   // M1: 通过 otterRepo 验证 type === 'big'，不依赖参与者顺序
   const participants = await deps.convRepo.getActiveParticipants(conversation.id);

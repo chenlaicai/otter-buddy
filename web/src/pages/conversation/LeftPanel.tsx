@@ -1,4 +1,4 @@
-import { Search, Plus } from 'lucide-react'
+import { Search, Plus, Pin } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor } from '../../lib/otter-colors'
 
@@ -12,6 +12,9 @@ interface LeftPanelProps {
 }
 
 export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters }: LeftPanelProps) {
+  const pinnedConvs = conversations.filter(c => c.pinned)
+  const normalConvs = conversations.filter(c => !c.pinned)
+
   return (
     <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
       <div className="p-3 flex gap-2 border-b border-white/40">
@@ -29,7 +32,20 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {conversations.map(c => (
+        {pinnedConvs.map(c => (
+          <ConversationItem
+            key={c.id}
+            conversation={c}
+            isActive={c.id === activeId}
+            onSelect={onSelect}
+            onContextMenu={onContextMenu}
+            otters={otters}
+          />
+        ))}
+        {pinnedConvs.length > 0 && normalConvs.length > 0 && (
+          <div className="my-1 border-t border-white/30" />
+        )}
+        {normalConvs.map(c => (
           <ConversationItem
             key={c.id}
             conversation={c}
@@ -69,7 +85,10 @@ function ConversationItem({
         isActive ? 'conv-active' : 'hover:bg-white/30'
       }`}
     >
-      <div className="text-xs font-medium text-stone-700 truncate">{c.title}</div>
+      <div className="text-xs font-medium text-stone-700 truncate flex items-center gap-1">
+        {c.pinned && <Pin className="w-3 h-3 text-otter-400 flex-shrink-0" />}
+        <span className="truncate">{c.title}</span>
+      </div>
       <div className="flex items-center gap-1 mt-0.5">
         <div
           className={`w-1 h-1 rounded-full ${
