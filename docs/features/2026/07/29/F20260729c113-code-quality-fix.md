@@ -1,3 +1,32 @@
+---
+id: F20260729c113
+title: code-quality-fix
+doc_type: feature
+
+summary: |
+  代码质量修复方案：基于 issue #113 对抗性审查发现 8 项问题（含 1 个隐藏 bug）。
+  隐藏 bug 为 abort() 抛 Error 而非 DomainError，导致客户端收到 500 而非 404/422。
+  其余为代码卫生与架构合规：模块级副作用读文件系统、框架层绕过 Repository 直接查 DB、
+  SSE 忙等待轮询浪费 CPU、callHistory/recentSegments 无界增长、Scheduler 用 console.error、
+  DetailLevel 类型定义重复。按风险分三批修复。
+
+status: final
+change_type: bugfix
+tags: [code-quality, bugfix, architecture, cleanup, error-handling]
+modules:
+  - src/usecases/conversation/send-message.ts
+  - src/frameworks/config-service.ts
+  - src/frameworks/agent/pi-session-factory.ts
+  - src/interface-adapters/http/sse-streamer.ts
+  - src/frameworks/agent/tool-call-circuit-breaker.ts
+  - src/frameworks/agent/output-guard.ts
+  - src/usecases/scheduler/scheduler-service.ts
+  - src/entities/memory/memory-entry.ts
+  - src/interface-adapters/agent-runtime/otter-tool-client.ts
+
+created_at: 2026-07-29
+---
+
 # F20260729c113 代码质量修复方案
 
 **Issue**: #113 代码质量对抗性检视报告
