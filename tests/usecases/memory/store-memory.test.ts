@@ -189,3 +189,57 @@ describe("StoreMemory.execute()", () => {
     expect(repo.storedEntries[0].id).toBe(id);
   });
 });
+
+describe("StoreMemory - F20260803fbit embedding 截断", () => {
+  function capturingEmbedGateway(): EmbeddingGateway & { receivedContents: string[] } {
+    const receivedContents: string[] = [];
+    return {
+      receivedContents,
+      available: true,
+      embed: async (content: string) => {
+        receivedContents.push(content);
+        return new Float32Array([0.1, 0.2]);
+      },
+    };
+  }
+
+  it("短文本不截断，embed 收到原文", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, embedding, noopLogger());
+    const shortContent = "短文本";
+    await store.execute({ ...SAMPLE_INPUT, content: shortContent });
+    // fire-and-forget，等微任务
+    await new Promise(r => setTimeout(r, 10));
+    expect(embedding.receivedContents[0]).toBe(shortContent);
+  });
+
+  it("超长文本截断到 6000 字符，embed 收到截断版", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, embedding, noopLogger());
+    const longContent = "x".repeat(10000);
+    await store.execute({ ...SAMPLE_INPUT, content: longContent });
+    await new Promise(r => setTimeout(r, 10));
+    expect(embedding.receivedContents[0].length).toBe(6000);
+  });
+
+  it("replaceBySource 路径也截断", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, embedding, noopLogger());
+    const longContent = "y".repeat(10000);
+    await store.replaceBySource({ ...SAMPLE_INPUT, content: longContent });
+    await new Promise(r => setTimeout(r, 10));
+    expect(embedding.receivedContents[0].length).toBe(6000);
+  });
+
+  it("空字符串不截断不抛异常", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, embedding, noopLogger());
+    await store.execute({ ...SAMPLE_INPUT, content: "" });
+    await new Promise(r => setTimeout(r, 10));
+    expect(embedding.receivedContents[0]).toBe("");
+  });
+});

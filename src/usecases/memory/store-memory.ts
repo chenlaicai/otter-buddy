@@ -19,11 +19,21 @@ export interface MemoryEntryInput {
 }
 
 export class StoreMemory {
+  /** F20260803fbit: bge-m3 8192 tokens 上限的 ~75%，中英文混合留余量 */
+  private static readonly EMBED_MAX_CHARS = 6000;
+
   constructor(
     private readonly repo: MemoryRepository,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly logger: Logger,
   ) {}
+
+  /** F20260803fbit: 截断 content 防 embedding worker OOM。FTS 灌全量不受影响 */
+  private truncateForEmbed(content: string): string {
+    return content.length > StoreMemory.EMBED_MAX_CHARS
+      ? content.slice(0, StoreMemory.EMBED_MAX_CHARS)
+      : content;
+  }
 
   async execute(input: MemoryEntryInput): Promise<string> {
     const id = crypto.randomUUID();
@@ -45,9 +55,10 @@ export class StoreMemory {
     await this.repo.storeEntry(entry);
 
     /** 异步 fire-and-forget embedding（D27: 不阻塞返回）
-     *  D22 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞 */
+     *  D22 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞
+     *  F20260803fbit: 截断防超长 body OOM worker */
     this.embeddingGateway
-      .embed(input.content)
+      .embed(this.truncateForEmbed(input.content))
       .then((emb) => {
         this.repo.storeEmbedding(id, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${id}: ${err}`);
@@ -81,8 +92,9 @@ export class StoreMemory {
 
     await this.repo.replaceEntryBySource(entry);
 
+    // F20260803fbit: 截断防超长 body OOM worker（与 execute 路径对称）
     this.embeddingGateway
-      .embed(input.content)
+      .embed(this.truncateForEmbed(input.content))
       .then((emb) => {
         this.repo.storeEmbedding(id, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${id}: ${err}`);

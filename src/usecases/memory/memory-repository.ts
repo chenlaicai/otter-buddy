@@ -2,6 +2,7 @@ import type {
   MemoryEntry,
   MemoryWeight,
   MemoryLayer,
+  MemoryContentType,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
 
@@ -9,6 +10,8 @@ export interface SearchFilters {
   layer?: MemoryLayer;
   granularity?: RetrievalGranularity;
   conversationId?: string;
+  /** F20260803fbit: 按 contentType 过滤（多选 IN 查询），支持"只搜 body"或"只搜 summary" */
+  contentType?: MemoryContentType[];
 }
 
 /** 检索来源标识 */

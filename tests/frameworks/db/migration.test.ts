@@ -222,3 +222,41 @@ describe("migrateDatabase - F20260803mval 补丁: rebuildDocumentTablesDropCheck
     }
   });
 });
+
+describe("migrateDatabase - F20260803fbit body_hash 列", () => {
+  it("全新库：initSchema 已含 body_hash，migrate 不报错（幂等）", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      migrateDatabase(db, mockLogger());
+      // 跑第二次验证幂等
+      migrateDatabase(db, mockLogger());
+      const cols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
+      expect(cols.some(c => c.name === "body_hash")).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("老库无 body_hash 列：migrate 补列，跑两次不报错（幂等）", () => {
+    const db = new Database(":memory:");
+    try {
+      // 用 initSchema 建全表（含 body_hash），再 DROP 模拟老库
+      initSchema(db);
+      db.exec("ALTER TABLE features DROP COLUMN body_hash");
+      db.exec("ALTER TABLE research DROP COLUMN body_hash");
+      const beforeF = (db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>);
+      expect(beforeF.some(c => c.name === "body_hash")).toBe(false);
+
+      migrateDatabase(db, mockLogger());
+      const fCols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
+      expect(fCols.some(c => c.name === "body_hash")).toBe(true);
+      const rCols = db.prepare("PRAGMA table_info(research)").all() as Array<{ name: string }>;
+      expect(rCols.some(c => c.name === "body_hash")).toBe(true);
+      // 第二次不报错（幂等）
+      migrateDatabase(db, mockLogger());
+    } finally {
+      db.close();
+    }
+  });
+});

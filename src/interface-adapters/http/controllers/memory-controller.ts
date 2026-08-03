@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
-import type { MemoryLayer, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
+import type { MemoryLayer, MemoryContentType, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
+import { isMemoryContentType } from "@entities/memory/memory-entry";
 import type { Logger } from "@usecases/ports/logger";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { handleError, param } from "../http-error";
@@ -29,6 +30,18 @@ export class MemoryController {
       const detailLevel = c.req.query("detail_level") as DetailLevel | undefined;
       const library = c.req.query("library");
       const layer = c.req.query("layer") as MemoryLayer | undefined;
+      /** F20260803fbit: contentType 多选（逗号分隔），如 ?content_type=feature_body,feature
+       *  命名与 detail_level 一致用 snake_case；agent 工具参数也是 content_type */
+      const contentTypeParam = c.req.query("content_type") as string | undefined;
+      let contentType: MemoryContentType[] | undefined;
+      if (contentTypeParam) {
+        const parts = contentTypeParam.split(",").map(s => s.trim()).filter(Boolean);
+        const invalid = parts.filter(s => !isMemoryContentType(s));
+        if (invalid.length > 0) {
+          return c.json({ error: `invalid content_type: ${invalid.join(", ")}` }, 400);
+        }
+        contentType = parts as MemoryContentType[];
+      }
 
       const result = await this.searchMemory.search({
         query,
@@ -38,6 +51,7 @@ export class MemoryController {
         detailLevel,
         library,
         layer,
+        contentType,
       });
 
       /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */

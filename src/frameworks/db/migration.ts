@@ -66,6 +66,28 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260803mval 一次性补丁：移除文档表枚举 CHECK 约束 */
   rebuildDocumentTablesDropCheck(db, logger);
+
+  /** F20260803fbit: features/research 表加 body_hash 列（驱动 upsert 指纹比较） */
+  addBodyHashColumns(db, logger);
+}
+
+/**
+ * F20260803fbit: 为 features/research 表加 body_hash 列。
+ * 老库已跑过 rebuildDocumentTablesDropCheck（标记 done 不会重建），
+ * 需要独立 ADD COLUMN 补列。PRAGMA table_info 检测列存在性作幂等。
+ */
+function addBodyHashColumns(db: Database.Database, logger: Logger): void {
+  const featuresCols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
+  if (!featuresCols.some(col => col.name === 'body_hash')) {
+    db.prepare("ALTER TABLE features ADD COLUMN body_hash TEXT").run();
+    logger.info('Added body_hash column to features table');
+  }
+
+  const researchCols = db.prepare("PRAGMA table_info(research)").all() as Array<{ name: string }>;
+  if (!researchCols.some(col => col.name === 'body_hash')) {
+    db.prepare("ALTER TABLE research ADD COLUMN body_hash TEXT").run();
+    logger.info('Added body_hash column to research table');
+  }
 }
 
 /**
@@ -160,6 +182,7 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
           id TEXT PRIMARY KEY,
           title TEXT NOT NULL,
           summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+          body_hash TEXT,
           change_type TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'draft',
           tags TEXT NOT NULL DEFAULT '[]',
@@ -184,6 +207,7 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
           id TEXT PRIMARY KEY,
           title TEXT NOT NULL,
           summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+          body_hash TEXT,
           exploration_type TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'draft',
           tags TEXT NOT NULL DEFAULT '[]',
