@@ -13,7 +13,10 @@ import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
 interface EmbeddingConfig {
+  /** 模型标识：local 模式下为 localModelPath 下的目录名；remote 模式下为 HF repo id */
   modelPath?: string;
+  /** 本地模型根目录。设置后 worker 走本地加载、禁用远程下载 */
+  localModelPath?: string;
 }
 
 interface EmbedRequest {
@@ -143,11 +146,16 @@ const noopLogger: Logger = {
  * 创建 Worker Thread 运行 bge-m3 模型，通过 postMessage 通信。
  */
 export async function initEmbeddingService(
-  _embedConfig?: EmbeddingConfig,
+  embedConfig?: EmbeddingConfig,
   logger?: Logger,
 ): Promise<{ service: EmbeddingGateway; dispose: () => void }> {
   const workerPath = path.join(__dirname, "bge-m3-worker.js");
-  const worker = new Worker(workerPath);
+  const worker = new Worker(workerPath, {
+    workerData: {
+      modelPath: embedConfig?.modelPath ?? "Xenova/bge-m3",
+      localModelPath: embedConfig?.localModelPath,
+    },
+  });
   const service = new EmbeddingServiceImpl(worker, logger || noopLogger);
 
   return {

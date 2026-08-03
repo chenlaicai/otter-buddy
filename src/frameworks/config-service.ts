@@ -41,6 +41,8 @@ export interface AppConfig {
   embedding: {
     dimensions: number;
     modelPath: string;
+    /** 本地模型根目录。设置后走本地加载（不联网下载），modelPath 作为其下子目录名 */
+    localModelPath?: string;
   };
   llm: {
     provider: string;
@@ -112,6 +114,7 @@ interface RawConfig {
   embedding?: {
     dimensions?: number;
     modelPath?: string;
+    localModelPath?: string;
   };
   circuitBreaker?: {
     maxToolCalls?: number;
@@ -270,6 +273,7 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
     embedding: {
       dimensions: d(raw.embedding?.dimensions, 1024),
       modelPath: d(raw.embedding?.modelPath, "Xenova/bge-m3"),
+      localModelPath: raw.embedding?.localModelPath ?? undefined,
     },
     llm: {
       provider: raw.llm.provider,
