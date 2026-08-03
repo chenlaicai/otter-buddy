@@ -19,7 +19,7 @@ causal_links:
     - F20260723mk75
 
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [sender-name, dto, projection, sse, contract, talking-stone, chain, circuit-breaker]
 modules:
   - api-contract/

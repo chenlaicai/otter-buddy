@@ -405,15 +405,18 @@ function createMessagesFtsTable(db: Database.Database): void {
   `);
 }
 
-/** 文档表：features + research（F20260721qh74 文档数据模型） */
+/** 文档表：features + research（F20260721qh74 文档数据模型）
+ *  F20260803mval: 移除 change_type/status/exploration_type 的 CHECK 约束，
+ *  枚举合法性改由应用层 known-values.ts 单一真相源判定。DB 不再做枚举约束，
+ *  避免工作流演进时 DB CHECK 与应用层同步过期（曾导致 41 文档入库失败）。 */
 function createDocumentTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS features (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
-      change_type TEXT NOT NULL CHECK(change_type IN ('feature', 'refactor', 'fix')),
-      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'development', 'locked', 'archived')),
+      change_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
       tags TEXT NOT NULL DEFAULT '[]',
       modules TEXT NOT NULL DEFAULT '[]',
       causal_links_from TEXT NOT NULL DEFAULT '[]',
@@ -432,8 +435,8 @@ function createDocumentTables(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
-      exploration_type TEXT NOT NULL CHECK(exploration_type IN ('technical', 'market', 'user-research')),
-      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'development', 'locked', 'archived')),
+      exploration_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
       tags TEXT NOT NULL DEFAULT '[]',
       conclusion TEXT,
       causal_links_from TEXT NOT NULL DEFAULT '[]',

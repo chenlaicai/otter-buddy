@@ -1,8 +1,7 @@
-/** Research 文档状态 */
-export type ResearchStatus = "draft" | "development" | "locked" | "archived";
+import type { ResearchStatus, ExplorationType } from "./known-values";
 
-/** Research 探索类型 */
-export type ExplorationType = "technical" | "market" | "user-research";
+/** Research 文档状态、探索类型：从 known-values 单一真相源派生（F20260803mval） */
+export type { ResearchStatus, ExplorationType } from "./known-values";
 
 /** Research 文档实体 */
 export interface ResearchDocument {

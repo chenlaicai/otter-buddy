@@ -44,6 +44,7 @@ function statefulRepo(): MemoryRepository & {
     incrementRetrievalCounts: async () => {},
     flagMemory: async () => {},
     updateLayerByConversation: async () => {},
+    deleteBySource: async () => {},
   };
 }
 

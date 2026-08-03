@@ -23,7 +23,7 @@ causal_links:
     - F20260724glas
 
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [ui, modal, conversation, typography, layout, markdown, color, ci]
 modules:
   - web/src/pages/conversation/

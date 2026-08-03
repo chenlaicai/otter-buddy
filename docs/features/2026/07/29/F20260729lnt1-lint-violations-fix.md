@@ -14,7 +14,7 @@ causal_links:
     - F20260729cbpt   # per-event 超时改造（引入行数超限）
 
 status: final
-change_type: bugfix
+change_type: fix
 tags: [lint, ci, code-quality]
 modules:
   - src/frameworks/agent/pi-session-factory.ts

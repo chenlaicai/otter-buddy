@@ -447,6 +447,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const memoryCtrl = new MemoryController(
     deps.searchMemory,
     deps.manageMemory,
+    { available: true, embed: async () => new Float32Array(1024) },
     logger,
   );
   const keyInfoCtrl = new KeyInfoController(
@@ -473,6 +474,7 @@ export function createTestApp(deps: TestDeps): Hono {
       logger,
     ),
     connection: {} as any, // TODO: 添加 mock
+    health: {} as any, // TODO: 添加 mock
   };
 
   const app = createRouter(controllers, mockLogger());

@@ -84,6 +84,28 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }
   }
 
+  /** F20260803mval: 按 source 删除记忆条目（entries + fts + vec + weights 联动删除） */
+  async deleteBySource(sourceTable: string, sourceId: string): Promise<void> {
+    this.db.exec("BEGIN");
+    try {
+      const rows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ?")
+        .all(sourceTable, sourceId) as Array<{ id: string }>;
+      for (const row of rows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ?"
+      ).run(sourceTable, sourceId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void> {
     /** vec0 不支持 INSERT OR REPLACE，先删除再插入 */
     this.db.exec("BEGIN");

@@ -22,7 +22,7 @@ causal_links:
     - F20260727guard  # OutputGuard（接管时间维度的挂死保护）
 
 status: final
-change_type: bugfix
+change_type: fix
 tags: [circuit-breaker, steer, incident-fix, event-driven, tool-signature]
 modules:
   - src/frameworks/agent/tool-call-circuit-breaker.ts

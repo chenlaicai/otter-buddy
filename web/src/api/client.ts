@@ -204,6 +204,22 @@ export function searchSimilar(memoryEntryId: string, limit = 10): Promise<Search
   })
 }
 
+// ── Health (F20260803mval) ──
+
+export interface MemoryHealthDTO {
+  healthy: boolean
+  documentsOnDisk: number
+  documentsInDb: number
+  reconcileGaps: string[]
+  embeddingAvailable: boolean
+  embeddingModel: string
+  error?: string
+}
+
+export function getMemoryHealth(): Promise<MemoryHealthDTO> {
+  return request('/health/memory')
+}
+
 export function flagMemory(id: string, flagged: boolean): Promise<{ status: string }> {
   return request(`/memory/${id}/flag`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
 }

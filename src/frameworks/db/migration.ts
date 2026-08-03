@@ -62,6 +62,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   rebuildMessagesFtsStripped(db, logger);
   dropMessagesAttachmentsColumn(db, logger);
   addPinnedColumn(db, logger);
+
+  /** F20260803mval 一次性补丁：移除文档表枚举 CHECK 约束 */
+  rebuildDocumentTablesDropCheck(db, logger);
 }
 
 /**
@@ -114,6 +117,95 @@ function addPinnedColumn(db: Database.Database, logger: Logger): void {
 
   db.prepare("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0").run();
   logger.info('Added pinned column to conversations table');
+}
+
+/**
+ * F20260803mval 补丁：重建 features/research 表移除枚举 CHECK 约束。
+ * SQLite 不支持 ALTER TABLE DROP CHECK，必须 CREATE new -> INSERT FROM old -> DROP old -> RENAME。
+ * settings 表 doc_check_constraints_dropped=done 作幂等键。
+ * 新表定义与 schema.ts createDocumentTables 一致（无 change_type/status/exploration_type 的枚举 CHECK）。
+ * 枚举合法性改由应用层 known-values.ts 单一真相源判定。
+ */
+// eslint-disable-next-line max-lines-per-function -- 表重建含 CREATE/INSERT/DROP/RENAME 四步，拆分降低可读性
+function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'doc_check_constraints_dropped'")
+    .get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  // 检测旧 CHECK 约束是否存在（通过 sqlite_master 的 schema 文本）
+  const featuresSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='features'")
+    .get() as { sql: string } | undefined;
+  const hasFeaturesCheck = featuresSchema?.sql?.includes("CHECK(change_type IN") ?? false;
+
+  const researchSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='research'")
+    .get() as { sql: string } | undefined;
+  const hasResearchCheck = researchSchema?.sql?.includes("CHECK(exploration_type IN") ?? false;
+
+  const markDone = () => db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('doc_check_constraints_dropped', 'done', datetime('now')) " +
+    "ON CONFLICT(key) DO UPDATE SET value='done', updated_at=datetime('now')"
+  ).run();
+
+  if (!hasFeaturesCheck && !hasResearchCheck) {
+    // 全新库（initSchema 已建无 CHECK 表）或已迁移，标记 done
+    markDone();
+    return;
+  }
+
+  const rebuild = db.transaction(() => {
+    if (hasFeaturesCheck) {
+      db.exec(`
+        CREATE TABLE features_new (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+          change_type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft',
+          tags TEXT NOT NULL DEFAULT '[]',
+          modules TEXT NOT NULL DEFAULT '[]',
+          causal_links_from TEXT NOT NULL DEFAULT '[]',
+          supersedes TEXT NOT NULL DEFAULT '[]',
+          file_path TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          CHECK(id LIKE 'F%')
+        );
+        INSERT INTO features_new (id, title, summary, change_type, status, tags, modules, causal_links_from, supersedes, file_path, created_at)
+        SELECT id, title, summary, change_type, status, tags, modules, causal_links_from, supersedes, file_path, created_at FROM features;
+        DROP TABLE features;
+        ALTER TABLE features_new RENAME TO features;
+        CREATE INDEX IF NOT EXISTS idx_features_status ON features(status);
+        CREATE INDEX IF NOT EXISTS idx_features_created_at ON features(created_at);
+      `);
+    }
+    if (hasResearchCheck) {
+      db.exec(`
+        CREATE TABLE research_new (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+          exploration_type TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft',
+          tags TEXT NOT NULL DEFAULT '[]',
+          conclusion TEXT,
+          causal_links_from TEXT NOT NULL DEFAULT '[]',
+          supersedes TEXT NOT NULL DEFAULT '[]',
+          file_path TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          CHECK(id LIKE 'R%')
+        );
+        INSERT INTO research_new (id, title, summary, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at)
+        SELECT id, title, summary, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at FROM research;
+        DROP TABLE research;
+        ALTER TABLE research_new RENAME TO research;
+        CREATE INDEX IF NOT EXISTS idx_research_status ON research(status);
+        CREATE INDEX IF NOT EXISTS idx_research_created_at ON research(created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_exploration_type ON research(exploration_type);
+      `);
+    }
+    markDone();
+  });
+  rebuild();
+  logger.info('Rebuilt features/research tables to drop CHECK constraints (doc_check_constraints_dropped=done)');
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

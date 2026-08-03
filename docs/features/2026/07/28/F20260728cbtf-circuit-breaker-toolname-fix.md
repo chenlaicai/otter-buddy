@@ -18,7 +18,7 @@ causal_links:
     - F20260727guard  # OutputGuard（误杀的对外呈现路径）
 
 status: final
-change_type: bugfix
+change_type: fix
 tags: [circuit-breaker, pi-sdk, tool-call, steer, ci, incident-fix]
 modules:
   - src/frameworks/agent/circuit-breaker-helpers.ts

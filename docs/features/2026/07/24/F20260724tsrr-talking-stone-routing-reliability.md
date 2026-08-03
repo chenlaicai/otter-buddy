@@ -19,7 +19,7 @@ causal_links:
     - F20260724skch
 
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [talking-stone, routing, speak, prompt, roster, streaming, ux, markdown]
 modules:
   - src/interface-adapters/http/controllers/

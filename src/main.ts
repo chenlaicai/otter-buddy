@@ -59,6 +59,7 @@ import { ConversationController } from "@interface-adapters/http/controllers/con
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
+import { HealthController } from "@interface-adapters/http/controllers/health-controller";
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
@@ -106,7 +107,10 @@ const appConfig = loadConfig(logger);
 initConfig(appConfig);
 
 class MemoryIndexAdapter implements MemoryIndexGateway {
-  constructor(private readonly storeMemory: StoreMemory) {}
+  constructor(
+    private readonly storeMemory: StoreMemory,
+    private readonly memoryRepo: SqliteMemoryRepository,
+  ) {}
 
   async indexMessage(messageId: string, conversationId: string, content: string): Promise<void> {
     await this.storeMemory.execute({
@@ -126,6 +130,8 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 
   async indexFeature(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
+    // F20260803mval: upsert 语义，先删旧 entry 防 FTS 命中陈旧 summary（内容漂移修复）
+    await this.memoryRepo.deleteBySource("features", id);
     await this.storeMemory.execute({
       layer: "document",
       contentType: "feature",
@@ -139,6 +145,8 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 
   async indexResearch(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
+    // F20260803mval: upsert 语义，先删旧 entry 防陈旧 summary
+    await this.memoryRepo.deleteBySource("research", id);
     await this.storeMemory.execute({
       layer: "document",
       contentType: "research",
@@ -212,7 +220,7 @@ function initUseCases(
   const manageTerminology = new ManageTerminology(repos.terminology);
   const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
-  const memoryIndex = new MemoryIndexAdapter(storeMemory);
+  const memoryIndex = new MemoryIndexAdapter(storeMemory, repos.memory);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageReadState = new ManageReadState(repos.conversation);
@@ -370,6 +378,12 @@ interface ControllerDeps {
   cronParser: SimpleCronParser;
   dispatchChainEngine: DispatchChainEngine;
   messageBroadcaster?: MessageBroadcaster;
+  /** F20260803mval: 健康端点依赖 */
+  featureRepo: SqliteFeatureRepository;
+  researchRepo: SqliteResearchRepository;
+  embeddingGateway: EmbeddingGateway;
+  fs: NodeFileSystem;
+  rootDir: string;
 }
 
 function initControllers(deps: ControllerDeps) {
@@ -377,11 +391,12 @@ function initControllers(deps: ControllerDeps) {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant, deps.settingsRepo, logger),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter, logger),
     message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.uc.manageReadState, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
-    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, logger),
+    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, deps.embeddingGateway, logger),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo, logger),
     settings: new SettingsController(deps.settings, deps.settingsRepo, logger),
     scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser, logger),
     connection: new ConnectionController(deps.uc.manageConnection, logger),
+    health: new HealthController(deps.featureRepo, deps.researchRepo, deps.embeddingGateway, deps.fs, deps.rootDir, logger),
   };
 }
 
@@ -498,7 +513,7 @@ async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGat
     fileSystem,
     repos.feature,
     repos.research,
-    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger)),
+    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger), repos.memory),
     logger
   );
   await syncDocs.execute(process.cwd());
@@ -623,7 +638,7 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster });
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster, featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService, fs: new NodeFileSystem(), rootDir: process.cwd() });
   startServer(controllers, uc, agentInvoker, appConfig.server.port, feishu);
 
   schedulerService.start().catch((err) => {

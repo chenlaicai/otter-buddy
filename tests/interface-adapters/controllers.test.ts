@@ -352,7 +352,7 @@ describe("MemoryController", () => {
   };
 
   function createApp(searchMemory: SearchMemory, manageMemory: ManageMemory): Hono {
-    const ctrl = new MemoryController(searchMemory, manageMemory, mockLogger());
+    const ctrl = new MemoryController(searchMemory, manageMemory, { available: true, embed: async () => new Float32Array(1024) }, mockLogger());
     const app = new Hono();
     app.get("/api/memory/search", (c) => ctrl.search(c));
     app.get("/api/memory/batch", (c) => ctrl.getDetails(c));

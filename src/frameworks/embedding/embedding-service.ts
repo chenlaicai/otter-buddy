@@ -86,6 +86,8 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
 
     this.worker.on("error", (err: Error) => {
       this.logger.error("Worker Thread error", err);
+      // F20260803mval: worker 崩溃后 ready 重置 false，避免健康端点误报 embedding 可用
+      this.readyState.ready = false;
       this.pendingRequests.forEach(({ reject }) =>
         reject(new Error(`Worker error: ${err.message}`)),
       );

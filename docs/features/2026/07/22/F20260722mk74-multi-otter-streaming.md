@@ -14,7 +14,7 @@ causal_links:
     - F20260721speak   # speak Skill
 
 status: implemented
-change_type: bugfix
+change_type: fix
 tags: [startup, agent, sse, streaming, speak, multi-otter, concurrency]
 modules: [scripts, src/main.ts, src/frameworks/agent, src/interface-adapters/agent-runtime, src/interface-adapters/http, web/src/pages/conversation]
 

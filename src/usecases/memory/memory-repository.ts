@@ -41,6 +41,8 @@ export interface MemoryRepository {
   // 写入
   storeEntry(entry: MemoryEntry): Promise<void>;
   storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
+  /** F20260803mval: 按 source 删除记忆条目（upsert reindex 时清旧 entry，防 FTS 命中陈旧内容） */
+  deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
   getEmbedding(memoryEntryId: string): Promise<Float32Array | null>;

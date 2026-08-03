@@ -16,7 +16,7 @@ causal_links:
     - F20260721speak   # speak Skill（assistant_text 事件模型）
 
 status: implemented
-change_type: bugfix
+change_type: fix
 tags: [startup, script, embedding, sse, sdk, onnxruntime]
 modules: [scripts, frameworks/agent, frameworks/embedding, interface-adapters/agent-runtime, usecases/memory]
 

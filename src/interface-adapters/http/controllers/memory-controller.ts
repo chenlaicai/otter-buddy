@@ -3,6 +3,7 @@ import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryLayer, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
 import type { Logger } from "@usecases/ports/logger";
+import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { handleError, param } from "../http-error";
 import { toMemoryEntryDTO } from "../dto/memory-dto";
 import type { SearchSimilarRequestDTO, FlagMemoryRequestDTO } from "../dto/memory-dto";
@@ -12,6 +13,7 @@ export class MemoryController {
 
     private readonly searchMemory: SearchMemory,
     private readonly manageMemory: ManageMemory,
+    private readonly embeddingGateway: EmbeddingGateway,
       private readonly logger: Logger,
   ) {}
 
@@ -38,9 +40,12 @@ export class MemoryController {
         layer,
       });
 
+      /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */
+      const degraded = result.total === 0 && !this.embeddingGateway.available;
       return c.json({
         entries: result.entries.map((e) => toMemoryEntryDTO(e, e.score, e.source, e.snippet)),
         total: result.total,
+        ...(degraded ? { degraded: true, degradedReason: "embedding 不可用，语义检索降级，结果可能不完整" } : {}),
       });
     } catch (err) {
       return handleError(c, err, this.logger);
