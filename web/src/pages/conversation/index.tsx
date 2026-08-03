@@ -17,6 +17,7 @@ import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
+import { ApiError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 
 async function loadInitialData(): Promise<{
@@ -721,21 +722,23 @@ function ConversationPage() {
     } else if (action === 'child') {
       setModal({ type: 'child', parentId: cid })
     } else if (action === 'pin') {
+      showToast('正在置顶...', 'info')
       try {
         await api.pinConversation(cid)
         window.location.reload()
       } catch (err) {
-        showToast((err as Error).message || '置顶失败', 'error')
+        showToast(err instanceof ApiError ? err.message : '置顶失败', 'error')
       }
     } else if (action === 'unpin') {
+      showToast('正在取消置顶...', 'info')
       try {
         await api.unpinConversation(cid)
         window.location.reload()
       } catch (err) {
-        if ((err as { status?: number }).status === 403) {
+        if (err instanceof ApiError && err.status === 403) {
           showToast('系统对话不可取消置顶', 'error')
         } else {
-          showToast((err as Error).message || '取消置顶失败', 'error')
+          showToast(err instanceof ApiError ? err.message : '取消置顶失败', 'error')
         }
       }
     } else {

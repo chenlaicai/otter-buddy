@@ -32,6 +32,9 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
+        {pinnedConvs.length > 0 && (
+          <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium text-stone-400 uppercase tracking-wide">置顶</div>
+        )}
         {pinnedConvs.map(c => (
           <ConversationItem
             key={c.id}

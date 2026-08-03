@@ -119,6 +119,8 @@ export class ConversationController {
   async unpin(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
+      // healing 保护：settings 返回 healing 对话 ID 时拒绝 unpin。
+      // settings 为 null（healing 初始化失败）时不拒绝——此时无 healing 对话需要保护。
       const healingId = await this.settings.get(HEALING_CONVERSATION_KEY);
       if (id === healingId) {
         return c.json({ error: "系统对话不可取消置顶" }, 403);
