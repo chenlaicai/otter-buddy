@@ -1,15 +1,16 @@
 import type { Context } from "hono";
-import { canAbortMessage } from "@entities/conversation/message";
+import { canAbortMessage, type Message } from "@entities/conversation/message";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
+import type { ManageReadState } from "@usecases/conversation/manage-read-state";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { handleError, param } from "../http-error";
-import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
-import type { SendMessageRequestDTO } from "../dto/message-dto";
+import { toMessageDTO, toMessageEventDTO, toMessageSearchResultDTO } from "../dto/message-dto";
+import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 
 export class MessageController {
@@ -17,6 +18,7 @@ export class MessageController {
   constructor(
     private readonly sendMessageUseCase: SendMessage,
     private readonly queryMessage: QueryMessage,
+    private readonly manageReadState: ManageReadState,
     private readonly agentInvoker: AgentInvoker,
     private readonly logger: Logger,
     private readonly queryOtter: QueryOtter,
@@ -33,6 +35,29 @@ export class MessageController {
       if (otter) names.set(id, otter.name);
     }));
     return names;
+  }
+
+  /** 批量构建 MessageDTO（含 events + 发送者名），list/listAfter/expand 复用，避免 N+1 */
+  private async buildMessageDTOs(messages: Message[]): Promise<MessageDTO[]> {
+    const messageIds = messages.filter((m) => m.senderType === "otter").map((m) => m.id);
+    const allEvents = messageIds.length > 0
+      ? await this.queryMessage.getMessageEventsByMessageIds(messageIds)
+      : [];
+    const eventsByMsg = new Map<string, typeof allEvents>();
+    for (const evt of allEvents) {
+      const arr = eventsByMsg.get(evt.messageId) ?? [];
+      arr.push(evt);
+      eventsByMsg.set(evt.messageId, arr);
+    }
+    const senderNames = await this.resolveSenderNames(messages);
+    return messages.map((msg) => {
+      const dto = toMessageDTO(msg, senderNames.get(msg.senderId));
+      const evts = eventsByMsg.get(msg.id);
+      if (evts && evts.length > 0) {
+        dto.events = evts.map(toMessageEventDTO);
+      }
+      return dto;
+    });
   }
 
   /** 订阅消息广播（SSE 长连接） */
@@ -111,27 +136,30 @@ export class MessageController {
         limit,
         before,
       });
-      /** 批量查询 events（避免前端 N+1 请求） */
-      const messageIds = messages.filter((m) => m.senderType === "otter").map((m) => m.id);
-      const allEvents = messageIds.length > 0
-        ? await this.queryMessage.getMessageEventsByMessageIds(messageIds)
-        : [];
-      const eventsByMsg = new Map<string, typeof allEvents>();
-      for (const evt of allEvents) {
-        const arr = eventsByMsg.get(evt.messageId) ?? [];
-        arr.push(evt);
-        eventsByMsg.set(evt.messageId, arr);
+      const dtos = await this.buildMessageDTOs(messages);
+      const hasMore = messages.length === limit
+        && messages.length > 0
+        && messages[messages.length - 1].sequenceNum > 1;
+      return c.json({ messages: dtos, hasMore });
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** after 游标向下分页：加载比 after 消息更新的历史消息（升序） */
+  async listAfter(c: Context): Promise<Response> {
+    try {
+      const conversationId = param(c, "id");
+      const rawLimit = Number(c.req.query("limit") ?? "50");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
+      const after = c.req.query("after");
+      if (!after) {
+        return c.json({ error: "after parameter is required" }, 400);
       }
-      const senderNames = await this.resolveSenderNames(messages);
-      const dtos = messages.map((msg) => {
-        const dto = toMessageDTO(msg, senderNames.get(msg.senderId));
-        const evts = eventsByMsg.get(msg.id);
-        if (evts && evts.length > 0) {
-          dto.events = evts.map(toMessageEventDTO);
-        }
-        return dto;
-      });
-      return c.json(dtos);
+      const messages = await this.queryMessage.getMessagesAfter(after, limit);
+      const dtos = await this.buildMessageDTOs(messages);
+      const hasMore = messages.length === limit;
+      return c.json({ messages: dtos, hasMore });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -299,6 +327,67 @@ export class MessageController {
       }
       this.agentInvoker.abort(msg.senderId, id);
       return c.json({ status: "aborted" }, 202);
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** 搜索消息（FTS5 trigram，复用 searchMessages use case） */
+  async search(c: Context): Promise<Response> {
+    try {
+      const conversationId = param(c, "id");
+      const q = c.req.query("q") ?? "";
+      const rawLimit = Number(c.req.query("limit") ?? "10");
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 10;
+      if (!q) {
+        return c.json([]);
+      }
+      const messages = await this.queryMessage.searchMessages(conversationId, q, limit);
+      const senderNames = await this.resolveSenderNames(messages);
+      return c.json(messages.map((msg) => toMessageSearchResultDTO(msg, senderNames.get(msg.senderId))));
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** 未读状态（消息级，基于 last_read_message_seq） */
+  async getUnreadState(c: Context): Promise<Response> {
+    try {
+      const conversationId = param(c, "id");
+      const userId = c.req.query("userId") ?? "web-user";
+      const state = await this.queryMessage.getUnreadState(conversationId, userId);
+      return c.json(state);
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** 标记已读（只前进不后退） */
+  async markRead(c: Context): Promise<Response> {
+    try {
+      const conversationId = param(c, "id");
+      const userId = c.req.query("userId") ?? "web-user";
+      const body = await c.req.json<MarkReadRequestDTO>();
+      if (typeof body.messageSeq !== "number" || body.messageSeq < 0) {
+        return c.json({ error: "messageSeq must be a non-negative number" }, 400);
+      }
+      const result = await this.manageReadState.markRead(conversationId, userId, body.messageSeq);
+      return c.json(result);
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** 加载目标消息上下文（搜索跳转 / 未读窗口加载用） */
+  async expand(c: Context): Promise<Response> {
+    try {
+      const messageId = param(c, "id");
+      const direction = (c.req.query("direction") ?? "both") as "before" | "after" | "both";
+      const rawCount = Number(c.req.query("count") ?? "25");
+      const count = Number.isFinite(rawCount) && rawCount > 0 ? rawCount : 25;
+      const messages = await this.queryMessage.expandMessage(messageId, direction, count);
+      const dtos = await this.buildMessageDTOs(messages);
+      return c.json(dtos);
     } catch (err) {
       return handleError(c, err, this.logger);
     }

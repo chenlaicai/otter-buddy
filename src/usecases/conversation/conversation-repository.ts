@@ -136,4 +136,40 @@ export interface ConversationRepository {
     conversationId: string,
     otterId: string,
   ): Promise<Message[]>;
+
+  // Web 用户已读状态（消息级，与 otter 的 turn 级已读独立）
+  /** 获取 Web 用户的已读位置 */
+  getUserReadState(
+    conversationId: string,
+    userId: string,
+  ): Promise<{ lastReadSeq: number } | null>;
+  /** 更新已读位置（只前进不后退：MAX(excluded, current)） */
+  upsertUserReadState(
+    conversationId: string,
+    userId: string,
+    lastReadSeq: number,
+  ): Promise<void>;
+  /** 第一条未读消息（seq > lastReadSeq，排除 streaming/speaking） */
+  getFirstUnreadMessage(
+    conversationId: string,
+    userId: string,
+  ): Promise<Message | null>;
+  /** Web 用户未读消息计数 */
+  getUnreadCount(
+    conversationId: string,
+    userId: string,
+  ): Promise<number>;
+  /** 会话最后一条消息（排除 streaming/speaking，用于列表预览） */
+  getLastMessage(conversationId: string): Promise<Message | null>;
+
+  // 会话列表批量查询（含未读计数 + last_message，替代 N+1）
+  listConversationsWithMeta(
+    userId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<Array<Conversation & {
+    otterIds: string[];
+    unreadCount: number;
+    lastMessagePreview: string | null;
+    lastMessageTs: string | null;
+  }>>;
 }

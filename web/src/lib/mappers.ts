@@ -16,6 +16,12 @@ export interface LocalConversation {
   title: string
   status: 'active' | 'completed' | 'archived'
   otterIds: string[]
+  /** 未读消息计数（消息级） */
+  unreadCount?: number
+  /** 最后一条消息预览 */
+  lastMessagePreview?: string | null
+  /** 最后一条消息时间戳 */
+  lastMessageTs?: string | null
 }
 
 /** 前端本地消息事件 */
@@ -92,6 +98,9 @@ export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDT
     title: dto.title,
     status: dto.status as 'active' | 'completed' | 'archived',
     otterIds: 'otterIds' in dto ? dto.otterIds : [],
+    ...('unreadCount' in dto && { unreadCount: dto.unreadCount }),
+    ...('lastMessagePreview' in dto && { lastMessagePreview: dto.lastMessagePreview }),
+    ...('lastMessageTs' in dto && { lastMessageTs: dto.lastMessageTs }),
   }
 }
 

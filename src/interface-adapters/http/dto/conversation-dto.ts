@@ -23,8 +23,15 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
 export function toConversationListItemDTO(
   conv: Conversation,
   otterIds: string[],
+  extra?: { unreadCount?: number; lastMessagePreview?: string | null; lastMessageTs?: string | null },
 ): ConversationListItemDTO {
-  return { ...toConversationDTO(conv), otterIds };
+  return {
+    ...toConversationDTO(conv),
+    otterIds,
+    ...(extra?.unreadCount !== undefined && { unreadCount: extra.unreadCount }),
+    ...(extra?.lastMessagePreview !== undefined && { lastMessagePreview: extra.lastMessagePreview }),
+    ...(extra?.lastMessageTs !== undefined && { lastMessageTs: extra.lastMessageTs }),
+  };
 }
 
 export function toParticipantDTO(

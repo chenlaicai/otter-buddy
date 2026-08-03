@@ -6,6 +6,7 @@ import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
+import type { ManageReadState } from "@usecases/conversation/manage-read-state";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { Message } from "@entities/conversation/message";
 
@@ -26,7 +27,7 @@ function createTestApp(broadcaster: MessageBroadcaster) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
   const queryOtter = { getById: vi.fn().mockResolvedValue({ id: "otter-1", name: "大獭", type: "big" }) };
   const ctrl = new MessageController(
-    {} as SendMessage, {} as QueryMessage, {} as AgentInvoker,
+    {} as SendMessage, {} as QueryMessage, { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) } as unknown as ManageReadState, {} as AgentInvoker,
     logger as any, queryOtter as unknown as QueryOtter, {} as DispatchChainEngine, broadcaster,
   );
   const app = new Hono();

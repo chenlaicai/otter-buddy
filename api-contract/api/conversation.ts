@@ -9,9 +9,15 @@ export interface ConversationDTO {
   archivedAt: string | null;
 }
 
-/** 对话列表项 DTO（含 otterIds） */
+/** 对话列表项 DTO（含 otterIds + 未读计数 + 最后消息预览） */
 export interface ConversationListItemDTO extends ConversationDTO {
   otterIds: string[];
+  /** 未读消息计数（消息级，基于 last_read_message_seq） */
+  unreadCount?: number;
+  /** 最后一条消息预览（剥离 HTML 标签后前 50 字符） */
+  lastMessagePreview?: string | null;
+  /** 最后一条消息时间戳 */
+  lastMessageTs?: string | null;
 }
 
 /** 创建对话请求 DTO */

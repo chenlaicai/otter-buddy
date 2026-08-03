@@ -1,8 +1,11 @@
-import { Archive, ShieldAlert } from 'lucide-react'
+import { useState, type RefObject } from 'react'
+import { Archive, ShieldAlert, Search } from 'lucide-react'
+import type { VirtuosoHandle } from 'react-virtuoso'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
+import { MessageSearch } from './MessageSearch'
 
 interface ChatViewProps {
   conversation: Conversation | null
@@ -13,7 +16,22 @@ interface ChatViewProps {
   onRetry: () => void
   onGoToSettings: () => void
   onArchive: () => void
+  onJumpToMessage: (messageId: string) => void
   otters: Otter[]
+  // virtuoso props 透传
+  conversationId: string
+  virtuosoRef: RefObject<VirtuosoHandle | null>
+  firstItemIndex: number
+  initialTopMostItemIndex: number | { index: 'LAST' }
+  onAtBottomChange: (atBottom: boolean) => void
+  newMessagesCount?: number
+  onJumpToBottom?: () => void
+  onLoadMore?: () => void
+  loadingMore?: boolean
+  onLoadMoreAfter?: () => void
+  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void
+  unreadSeparatorSeq?: number | null
+  highlightMessageId?: string | null
   /** 卡片提交待确认预览（输入框上方单槽位） */
   cardPreview?: CardPreview | null
   onConfirmCard?: () => void
@@ -22,6 +40,7 @@ interface ChatViewProps {
 
 export function ChatView(props: ChatViewProps) {
   const { conversation: c } = props
+  const [showSearch, setShowSearch] = useState(false)
 
   return (
     <main className="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
@@ -46,6 +65,12 @@ export function ChatView(props: ChatViewProps) {
         {c && (
           <div className="flex gap-1.5">
             <button
+              onClick={() => setShowSearch(s => !s)}
+              className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"
+            >
+              <Search className="w-3 h-3" /> 搜索
+            </button>
+            <button
               onClick={props.onArchive}
               disabled={c.status === 'archived'}
               className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -56,6 +81,10 @@ export function ChatView(props: ChatViewProps) {
         )}
       </div>
 
+      {showSearch && c && (
+        <MessageSearch conversationId={c.id} onJumpToMessage={props.onJumpToMessage} onClose={() => setShowSearch(false)} />
+      )}
+
       {/* Message List */}
       <MessageList
         messages={props.messages}
@@ -64,6 +93,19 @@ export function ChatView(props: ChatViewProps) {
         onRetry={props.onRetry}
         onGoToSettings={props.onGoToSettings}
         otters={props.otters}
+        conversationId={props.conversationId}
+        virtuosoRef={props.virtuosoRef}
+        firstItemIndex={props.firstItemIndex}
+        initialTopMostItemIndex={props.initialTopMostItemIndex}
+        onAtBottomChange={props.onAtBottomChange}
+        newMessagesCount={props.newMessagesCount}
+        onJumpToBottom={props.onJumpToBottom}
+        onLoadMore={props.onLoadMore}
+        loadingMore={props.loadingMore}
+        onLoadMoreAfter={props.onLoadMoreAfter}
+        onRangeChanged={props.onRangeChanged}
+        unreadSeparatorSeq={props.unreadSeparatorSeq}
+        highlightMessageId={props.highlightMessageId}
       />
 
       {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}

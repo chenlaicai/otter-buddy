@@ -30,6 +30,7 @@ import { ManageConversation } from "@usecases/conversation/manage-conversation";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { QueryMessage } from "@usecases/conversation/query-message";
+import { ManageReadState } from "@usecases/conversation/manage-read-state";
 import { SendMessage } from "@usecases/conversation/send-message";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import { SearchEngine } from "@usecases/memory/search-engine";
@@ -173,6 +174,7 @@ interface UseCases {
   searchMemory: SearchMemory;
   sendMessage: SendMessage;
   queryMessage: QueryMessage;
+  manageReadState: ManageReadState;
   manageParticipant: ManageParticipant;
   manageKeyInfo: ManageKeyInfo;
   queryOtter: QueryOtter;
@@ -213,6 +215,7 @@ function initUseCases(
   const memoryIndex = new MemoryIndexAdapter(storeMemory);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
+  const manageReadState = new ManageReadState(repos.conversation);
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
@@ -229,7 +232,7 @@ function initUseCases(
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   return {
     manageConversation, manageMemory, manageTerminology, storeMemory, searchMemory,
-    sendMessage, queryMessage, manageParticipant, manageKeyInfo,
+    sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
   };
@@ -246,6 +249,8 @@ function buildMessageClient(uc: UseCases) {
       uc.queryMessage.getMessages(convId, { limit: opts?.limit, before: opts?.before }),
     search: (convId: string, query: string, limit?: number) =>
       uc.queryMessage.searchMessages(convId, query, limit),
+    expand: (messageId: string, direction: "before" | "after" | "both", count: number) =>
+      uc.queryMessage.expandMessage(messageId, direction, count),
     getTurnHistory: (convId: string, opts?: { includeMessages?: boolean }) =>
       uc.queryMessage.getTurnHistory(convId, opts),
   };
@@ -371,7 +376,7 @@ function initControllers(deps: ControllerDeps) {
   return {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant, logger),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter, logger),
-    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
+    message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.uc.manageReadState, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
     memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, logger),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo, logger),
     settings: new SettingsController(deps.settings, deps.settingsRepo, logger),

@@ -375,6 +375,7 @@ export interface TestDeps {
   sendMessageUseCase: any;
   queryMessage: any;
   agentInvoker: any;
+  manageReadState: any;
   createOtterUseCase: any;
   dissolveOtterUseCase: any;
   manageSession: any;
@@ -428,6 +429,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const messageCtrl = new MessageController(
     deps.sendMessageUseCase,
     deps.queryMessage,
+    deps.manageReadState,
     deps.agentInvoker,
     logger,
     deps.queryOtter,
@@ -484,7 +486,7 @@ export function createTestApp(deps: TestDeps): Hono {
 /** 创建类型安全的 mock deps，各测试按需覆盖 */
 export function createMockDeps(): TestDeps {
   return {
-    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds"]),
+    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta"]),
     manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
     sendMessageUseCase: {
       ...mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
@@ -497,6 +499,7 @@ export function createMockDeps(): TestDeps {
     },
     queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
     agentInvoker: mockMethods(["invokeConversation", "abort"]),
+    manageReadState: { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) },
     createOtterUseCase: mockMethods(["execute"]),
     dissolveOtterUseCase: mockMethods(["execute"]),
     manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory"]),

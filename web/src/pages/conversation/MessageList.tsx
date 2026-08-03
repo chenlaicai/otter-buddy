@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps } from 'react'
+import { useRef, useEffect, useState, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps, type RefObject } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
@@ -11,6 +11,7 @@ import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 
 /** 复制按钮 */
 function CopyButton({ text }: { text: string }) {
@@ -152,6 +153,10 @@ function MarkdownContent({ children, variant = 'otter-body', messageId = '', aut
   )
 }
 
+const LoadingHeader = ({ context }: { context?: { loadingMore: boolean } }) => {
+  return context?.loadingMore ? <div className="text-center py-2 text-xs text-stone-400">加载中...</div> : null
+}
+
 interface MessageListProps {
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
@@ -159,21 +164,30 @@ interface MessageListProps {
   onRetry: () => void
   onGoToSettings: () => void
   otters: Otter[]
+  /** 会话 ID（作为 Virtuoso key，切换会话强制 remount 重新消费 initialTopMostItemIndex） */
+  conversationId: string
+  virtuosoRef: RefObject<VirtuosoHandle | null>
+  firstItemIndex: number
+  initialTopMostItemIndex: number | { index: 'LAST' }
+  onAtBottomChange: (atBottom: boolean) => void
+  newMessagesCount?: number
+  onJumpToBottom?: () => void
+  onLoadMore?: () => void
+  loadingMore?: boolean
+  onLoadMoreAfter?: () => void
+  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void
+  unreadSeparatorSeq?: number | null
+  highlightMessageId?: string | null
 }
 
-export function MessageList({ messages, state, onStopStream, onRetry, onGoToSettings, otters }: MessageListProps) {
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    // 仅当用户已在底部附近（100px 阈值）时自动滚到底，避免浏览历史时被强制拉回
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
-    if (isNearBottom) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [messages])
-
+export function MessageList({
+  messages, state, onStopStream, onRetry, onGoToSettings, otters,
+  conversationId, virtuosoRef, firstItemIndex, initialTopMostItemIndex,
+  onAtBottomChange, newMessagesCount = 0, onJumpToBottom, onLoadMore,
+  loadingMore, onLoadMoreAfter,
+  onRangeChanged,
+  unreadSeparatorSeq, highlightMessageId,
+}: MessageListProps) {
   if (state === 'no-llm') {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3.5">
@@ -213,16 +227,50 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
   }
 
   return (
-    <div ref={scrollRef} className="msg-scroll flex-1 overflow-y-auto py-4">
-      {messages.map((m, i) => {
-        const prevTurnId = i > 0 ? messages[i - 1].turnId : undefined
-        const isNewTurn = m.turnId && m.turnId !== prevTurnId
-        return (
-          <div key={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
-            <MessageItem message={m} otters={otters} onStopStream={onStopStream} />
-          </div>
-        )
-      })}
+    <div className="flex-1 flex flex-col overflow-hidden relative">
+      <Virtuoso
+        key={conversationId}
+        ref={virtuosoRef}
+        data={messages}
+        computeItemKey={(_, item) => item.id}
+        firstItemIndex={firstItemIndex}
+        initialTopMostItemIndex={initialTopMostItemIndex}
+        followOutput={(atBottom) => atBottom ? 'smooth' : false}
+        startReached={() => onLoadMore?.()}
+        endReached={() => onLoadMoreAfter?.()}
+        atBottomStateChange={onAtBottomChange}
+        rangeChanged={onRangeChanged}
+        itemContent={(index, m) => {
+          const arrIdx = index - firstItemIndex
+          const prev = arrIdx > 0 ? messages[arrIdx - 1] : undefined
+          const isNewTurn = m.turnId && m.turnId !== prev?.turnId
+          return (
+            <div data-message-id={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
+              {unreadSeparatorSeq != null && m.seq === unreadSeparatorSeq && (
+                <div className="flex items-center gap-2 my-2 mx-auto" style={{ maxWidth: '72%' }}>
+                  <div className="flex-1 h-px bg-teal-400/40" />
+                  <span className="text-[10px] text-teal-500 font-medium px-2">未读消息</span>
+                  <div className="flex-1 h-px bg-teal-400/40" />
+                </div>
+              )}
+              <MessageItem message={m} otters={otters} onStopStream={onStopStream} highlighted={highlightMessageId === m.id} />
+            </div>
+          )
+        }}
+        components={{ Header: LoadingHeader }}
+        context={{ loadingMore: loadingMore ?? false }}
+        overscan={200}
+        className="flex-1"
+      />
+      {newMessagesCount > 0 && onJumpToBottom && (
+        <button
+          onClick={onJumpToBottom}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full shadow-glow text-sm text-white transition hover:scale-105"
+          style={{ background: 'linear-gradient(135deg,#A88260,#8B6F47)' }}
+        >
+          新消息 {newMessagesCount} 条 ↓
+        </button>
+      )}
       {state === 'error' && (
         <div className="mx-auto px-1 my-2">
           <div className="bg-red-400/10 border border-red-400/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-sm text-red-500">
@@ -241,7 +289,7 @@ export function MessageList({ messages, state, onStopStream, onRetry, onGoToSett
   )
 }
 
-function MessageItem({ message: m, otters, onStopStream }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void }) {
+function MessageItem({ message: m, otters, onStopStream, highlighted }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; highlighted?: boolean }) {
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
     return (
@@ -305,7 +353,7 @@ function MessageItem({ message: m, otters, onStopStream }: { message: Message; o
         <div
           className={`msg-content rounded-3xl px-4 py-2.5 text-sm leading-relaxed text-stone-700 ${
             isUser ? 'bubble-user' : 'bubble-otter'
-          } ${!isUser && inFlight ? 'bubble-live' : ''}`}
+          } ${!isUser && inFlight ? 'bubble-live' : ''} ${highlighted ? 'highlight-message' : ''}`}
           style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess key={inFlight ? 'live' : 'done'} events={m.events} duration={m.dur || ''} status={m.status} />}

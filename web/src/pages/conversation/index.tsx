@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
-import { isInFlight, upsertMessage, insertBySeq, mergeMessages } from '../../lib/message-stream'
+import { isInFlight, upsertMessage, insertBySeq } from '../../lib/message-stream'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -18,6 +18,8 @@ import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
 import { consumeSSE } from '../../api/sse'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+import type { MessageDTO } from '@contract/api'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
@@ -28,7 +30,7 @@ async function loadInitialData(): Promise<{
 }
 
 /** listMessages DTO → LocalMessage（events 已嵌入响应，无需额外请求） */
-function mapMessageDTOs(msgs: Awaited<ReturnType<typeof api.listMessages>>): LocalMessage[] {
+function mapMessageDTOs(msgs: MessageDTO[]): LocalMessage[] {
   return msgs.map((msg) => {
     const local = mapMessageDTO(msg)
     if (local.st === 'otter' && msg.events && msg.events.length > 0) {
@@ -42,6 +44,23 @@ function mapMessageDTOs(msgs: Awaited<ReturnType<typeof api.listMessages>>): Loc
   }).reverse()
 }
 
+/** MessageDTO[] -> LocalMessage[]（核心映射，不反转；用于 after 分页返回的 ASC 数据） */
+function mapMessagesCore(msgs: MessageDTO[]): LocalMessage[] {
+  return msgs.map((msg) => {
+    const local = mapMessageDTO(msg)
+    if (local.st === 'otter' && msg.events && msg.events.length > 0) {
+      local.events = msg.events.map((e: { eventType: string; payload: Record<string, unknown>; createdAt?: string }) => ({
+        ts: e.createdAt || local.ts,
+        eventType: e.eventType,
+        payload: e.payload,
+      }))
+    }
+    return local
+  })
+}
+
+const FIRST_ITEM_INDEX_BASE = 100000
+
 function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -52,6 +71,24 @@ function ConversationPage() {
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
+
+  // 虚拟滚动状态（react-virtuoso）
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const [firstItemIndex, setFirstItemIndex] = useState(100000)
+  const [initialTopMostItemIndex, setInitialTopMostItemIndex] = useState<number | { index: 'LAST' }>({ index: 'LAST' })
+  const isAtBottomRef = useRef(true)
+  const [isAtBottom, setIsAtBottom] = useState(true)
+  const [newMessagesCount, setNewMessagesCount] = useState(0)
+  // 双向分页状态
+  const [hasMoreBefore, setHasMoreBefore] = useState(false)
+  const [hasMoreAfter, setHasMoreAfter] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const loadingMoreRef = useRef(false)
+  // 未读状态
+  const [unreadState, setUnreadState] = useState<{ lastReadSeq: number; unreadCount: number; firstUnreadMessageId: string | null; firstUnreadSeq: number | null } | null>(null)
+  const [unreadSeparatorSeq, setUnreadSeparatorSeq] = useState<number | null>(null)
+  const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 从 URL 路径获取对话 ID（格式：/conversation/:id）
   const pathParts = window.location.pathname.split('/')
@@ -93,14 +130,40 @@ function ConversationPage() {
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
-      const [msgs, keyInfo, participants] = await Promise.all([
+      const [listResp, keyInfo, participants, unread] = await Promise.all([
         api.listMessages(convId, 100),
         api.getKeyResources(convId),
         api.getParticipants(convId),
+        api.getUnreadState(convId),
       ])
+      let msgs = mapMessageDTOs(listResp.messages)
+      setFirstItemIndex(FIRST_ITEM_INDEX_BASE)
+      setHasMoreBefore(listResp.hasMore)
+      setHasMoreAfter(false)
+      setUnreadState(unread)
+      setUnreadSeparatorSeq(null)
+      // 未读定位：第一条未读消息
+      if (unread.firstUnreadSeq != null && unread.firstUnreadMessageId) {
+        const unreadIdx = msgs.findIndex(m => m.seq === unread.firstUnreadSeq)
+        if (unreadIdx >= 0) {
+          setInitialTopMostItemIndex(FIRST_ITEM_INDEX_BASE + unreadIdx)
+          setUnreadSeparatorSeq(unread.firstUnreadSeq)
+        } else {
+          // 未读不在窗口（大量未读）：expand 加载未读附近
+          const expanded = await api.expandMessage(unread.firstUnreadMessageId, 'both', 25)
+          msgs = mapMessagesCore(expanded)
+          setHasMoreBefore(true)
+          setHasMoreAfter(true)
+          const expandIdx = msgs.findIndex(m => m.seq === unread.firstUnreadSeq)
+          setInitialTopMostItemIndex(expandIdx >= 0 ? FIRST_ITEM_INDEX_BASE + expandIdx : { index: 'LAST' })
+          setUnreadSeparatorSeq(unread.firstUnreadSeq)
+        }
+      } else {
+        setInitialTopMostItemIndex({ index: 'LAST' })
+      }
       setAllMessages(prev => ({
         ...prev,
-        [convId]: mapMessageDTOs(msgs),
+        [convId]: msgs,
       }))
       setAllLinkedRes(prev => ({
         ...prev,
@@ -118,33 +181,159 @@ function ConversationPage() {
   }, [])
 
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
+  /** 增量刷新：只拉比当前最新消息更新的消息（after 游标），不触碰 prepend 的历史 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
-      const snapshot = mapMessageDTOs(await api.listMessages(convId, 100))
-      const snapshotIds = new Set(snapshot.map(m => m.id))
-      let outOfWindow: string[] = []
+      const list = allMessages[convId] || []
+      const newest = list[list.length - 1]
+      if (!newest?.id) return
+      const resp = await api.listMessagesAfter(convId, newest.id, 100)
+      const newerMsgs = mapMessagesCore(resp.messages) // ASC
+      if (newerMsgs.length === 0) return
+      const newerIds = new Set(newerMsgs.map(m => m.id))
       setAllMessages(prev => {
         const current = prev[convId] || []
-        outOfWindow = current
-          .filter(m => isInFlight(m) && !snapshotIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
-          .map(m => m.id)
-        return { ...prev, [convId]: mergeMessages(current, snapshot) }
+        let merged = current
+        for (const msg of newerMsgs) {
+          merged = insertBySeq(merged, msg) // 同 id 替换（in-flight 终态），新消息按 seq 有序插入
+        }
+        return { ...prev, [convId]: merged }
       })
-      /** limit=100 窗口外的进行中消息：定点拉取收敛（否则其终态永远不会出现在快照里） */
-      for (const id of outOfWindow) {
+      /** 增量结果未含的 in-flight 消息：定点拉取收敛（SSE 断连兜底） */
+      const outOfWindow = list.filter(m => isInFlight(m) && !newerIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
+      for (const m of outOfWindow) {
         try {
-          const serverMsg = mapMessageDTO(await api.getMessage(id))
+          const serverMsg = mapMessageDTO(await api.getMessage(m.id))
           setAllMessages(prev => {
-            const list = prev[convId]
-            if (!list?.some(m => m.id === id)) return prev
-            return { ...prev, [convId]: list.map(m => m.id === id ? { ...serverMsg, events: m.events } : m) }
+            const l = prev[convId]
+            if (!l?.some(x => x.id === m.id)) return prev
+            return { ...prev, [convId]: l.map(x => x.id === m.id ? { ...serverMsg, events: m.events } : x) }
           })
-        } catch { /* 下轮轮询重试 */ }
+        } catch { /* 下轮重试 */ }
       }
     } catch (err) {
       console.error('Failed to refresh messages:', err)
     }
+  }, [allMessages])
+
+  /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用） */
+  const handleAtBottomChange = useCallback((atBottom: boolean) => {
+    isAtBottomRef.current = atBottom
+    setIsAtBottom(atBottom)
+    if (atBottom) setNewMessagesCount(0)
   }, [])
+
+  /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
+  const handleJumpToBottom = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' })
+    setNewMessagesCount(0)
+  }, [])
+
+  /** 向上加载更旧的历史消息（startReached 触发，before 游标） */
+  const loadMoreBefore = useCallback(async () => {
+    if (!activeId || loadingMoreRef.current || !hasMoreBefore) return
+    const list = allMessages[activeId] || []
+    const oldest = list[0]
+    if (!oldest?.id) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const resp = await api.listMessages(activeId, 50, oldest.id)
+      if (resp.messages.length === 0) { setHasMoreBefore(false); return }
+      const olderMsgs = mapMessageDTOs(resp.messages) // DESC -> 升序
+      setHasMoreBefore(resp.hasMore)
+      setFirstItemIndex(prev => prev - olderMsgs.length)
+      setAllMessages(prev => ({
+        ...prev,
+        [activeId]: [...olderMsgs, ...(prev[activeId] || [])],
+      }))
+    } catch (err) {
+      console.error('Failed to load more history:', err)
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [activeId, hasMoreBefore, allMessages])
+
+  /** 向下加载更新的历史消息（endReached 触发，after 游标） */
+  const loadMoreAfter = useCallback(async () => {
+    if (!activeId || loadingMoreRef.current || !hasMoreAfter) return
+    const list = allMessages[activeId] || []
+    const newest = list[list.length - 1]
+    if (!newest?.id) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const resp = await api.listMessagesAfter(activeId, newest.id, 50)
+      if (resp.messages.length === 0) { setHasMoreAfter(false); return }
+      const newerMsgs = mapMessagesCore(resp.messages) // ASC，不反转，直接 append
+      setHasMoreAfter(resp.hasMore)
+      setAllMessages(prev => ({
+        ...prev,
+        [activeId]: [...(prev[activeId] || []), ...newerMsgs],
+      }))
+    } catch (err) {
+      console.error('Failed to load more after:', err)
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [activeId, hasMoreAfter, allMessages])
+
+  /** rangeChanged：检测视口内最大 seq，debounce 标记已读 */
+  const handleRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
+    if (!activeId) return
+    const list = allMessages[activeId] || []
+    if (list.length === 0) return
+    const startArr = Math.max(0, range.startIndex - firstItemIndex)
+    const endArr = Math.min(list.length - 1, range.endIndex - firstItemIndex)
+    let maxSeq = 0
+    for (let i = startArr; i <= endArr; i++) {
+      const s = list[i]?.seq
+      if (s != null && s > maxSeq) maxSeq = s
+    }
+    if (maxSeq === 0) return
+    const lastRead = unreadState?.lastReadSeq ?? 0
+    if (maxSeq <= lastRead) return
+    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
+    markReadTimerRef.current = setTimeout(async () => {
+      try {
+        const resp = await api.markRead(activeId, maxSeq)
+        setUnreadState(prev => prev ? { ...prev, lastReadSeq: resp.lastReadSeq, unreadCount: resp.unreadCount } : prev)
+        setUnreadSeparatorSeq(prev => prev != null && maxSeq >= prev ? null : prev)
+        setConversations(prev => prev.map(c => c.id === activeId ? { ...c, unreadCount: resp.unreadCount } : c))
+      } catch (err) {
+        console.error('Failed to mark read:', err)
+      }
+    }, 500)
+  }, [activeId, allMessages, firstItemIndex, unreadState])
+
+  /** 跳转到消息：已加载则 scrollToIndex，未加载则 expand 加载后定位；高亮 2s */
+  const handleJumpToMessage = useCallback(async (messageId: string) => {
+    if (!activeId) return
+    const msgs = allMessages[activeId] || []
+    const targetIndex = msgs.findIndex(m => m.id === messageId)
+    if (targetIndex >= 0) {
+      virtuosoRef.current?.scrollToIndex({ index: firstItemIndex + targetIndex, behavior: 'smooth', align: 'center' })
+      setHighlightMessageId(messageId)
+      setTimeout(() => setHighlightMessageId(null), 2000)
+    } else {
+      const expanded = await api.expandMessage(messageId, 'both', 25)
+      const expandedMsgs = mapMessagesCore(expanded)
+      setAllMessages(prev => ({ ...prev, [activeId]: expandedMsgs }))
+      setFirstItemIndex(FIRST_ITEM_INDEX_BASE)
+      setHasMoreBefore(true)
+      setHasMoreAfter(true)
+      requestAnimationFrame(() => {
+        const idx = expandedMsgs.findIndex(m => m.id === messageId)
+        if (idx >= 0) {
+          virtuosoRef.current?.scrollToIndex({ index: FIRST_ITEM_INDEX_BASE + idx, behavior: 'smooth', align: 'center' })
+          setHighlightMessageId(messageId)
+          setTimeout(() => setHighlightMessageId(null), 2000)
+        }
+      })
+    }
+  }, [activeId, allMessages, firstItemIndex])
 
   useEffect(() => {
     if (activeId && !allMessages[activeId]) {
@@ -169,6 +358,12 @@ function ConversationPage() {
     const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
     const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
 
+    const maybeScrollToBottom = () => {
+      if (isAtBottomRef.current) {
+        requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' }))
+      }
+    }
+
     const syncLiveEvents = (messageId: string) => {
       const liveEvents = liveEventsMap.get(messageId)
       if (!liveEvents) return
@@ -177,6 +372,7 @@ function ConversationPage() {
         if (!list?.some(m => m.id === messageId)) return prev
         return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
       })
+      maybeScrollToBottom()
     }
 
     // 事件分发器
@@ -188,6 +384,8 @@ function ConversationPage() {
           if (current.some(m => m.id === message.id)) return prev
           return { ...prev, [activeId]: [...current, message] }
         })
+        if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+        maybeScrollToBottom()
       },
       'message.start': (data) => {
         const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
@@ -237,6 +435,7 @@ function ConversationPage() {
         setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
+        maybeScrollToBottom()
       },
       'message.failed': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
@@ -745,7 +944,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} onJumpToMessage={handleJumpToMessage} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
@@ -810,15 +1009,7 @@ function ConversationPage() {
         <ExecutionHistoryModal
           taskId={executionHistoryTaskId}
           onClose={() => setExecutionHistoryTaskId(null)}
-          onJumpToMessage={(messageId) => {
-            // 滚动到消息
-            const el = document.getElementById(`msg-${messageId}`)
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-              el.classList.add('highlight-message')
-              setTimeout(() => el.classList.remove('highlight-message'), 2000)
-            }
-          }}
+          onJumpToMessage={handleJumpToMessage}
         />
       )}
     </AppLayout>

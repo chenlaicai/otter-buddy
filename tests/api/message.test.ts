@@ -23,10 +23,11 @@ describe("Message API", () => {
       const res = await app.request("/api/conversations/conv-1/messages");
       expect(res.status).toBe(200);
       const body = await json(res);
-      expect(body).toHaveLength(2);
-      expect(body[0].id).toBe("msg-1");
-      expect(body[0].st).toBe("user");
-      expect(body[0].content).toBe("Hello world");
+      expect(body.messages).toHaveLength(2);
+      expect(body.messages[0].id).toBe("msg-1");
+      expect(body.messages[0].st).toBe("user");
+      expect(body.messages[0].content).toBe("Hello world");
+      expect(body.hasMore).toBe(false);
       expect(deps.queryMessage.getMessages).toHaveBeenCalledWith("conv-1", {
         limit: 50,
         before: undefined,

@@ -159,6 +159,12 @@ function mockRepo(opts: {
     updateTokenUsage: vi.fn(async () => {}),
     updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
+    getUserReadState: vi.fn().mockResolvedValue(null),
+    upsertUserReadState: vi.fn().mockResolvedValue(undefined),
+    getFirstUnreadMessage: vi.fn().mockResolvedValue(null),
+    getUnreadCount: vi.fn().mockResolvedValue(0),
+    getLastMessage: vi.fn().mockResolvedValue(null),
+    listConversationsWithMeta: vi.fn().mockResolvedValue([]),
   };
 }
 
