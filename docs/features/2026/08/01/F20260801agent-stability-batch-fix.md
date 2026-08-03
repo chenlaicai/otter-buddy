@@ -1,4 +1,38 @@
-# F20260801 Agent 稳定性批量修复
+---
+id: F20260801stab
+title: agent-stability-batch-fix
+doc_type: feature
+
+summary: |
+  Agent 稳定性批量修复 5 个问题：1) invocation hang（session 文件丢失 + messages.source NOT NULL
+  约束冲突 + processHopResults 静默吞错）；2) 发言名字显示 "Otter" 而非实际名称（subscribe 端点
+  遗漏 resolveSenderNames + message.complete 事件缺 otterName）；3) system.message 显示顺序反转；
+  4) 发言接龙 20 轮限制过小；5) 浏览历史时自动跳到底部。
+
+causal_links:
+  from:
+    - F20260724regd   # sender-name-projection：发言名字显示问题是该修复的回归
+
+status: final
+change_type: bugfix
+tags: [agent, stability, bugfix, invocation, sender-name, message-ordering, session]
+modules:
+  - src/usecases/conversation/send-message.ts
+  - src/usecases/conversation/dispatch-chain-engine.ts
+  - src/interface-adapters/agent-runtime/agent-invoker.ts
+  - src/frameworks/agent/pi-session-factory.ts
+  - src/frameworks/agent/session-restore.ts
+  - src/interface-adapters/http/controllers/message-controller.ts
+  - api-contract/sse/events.ts
+  - src/frameworks/config-service.ts
+  - src/frameworks/db/conversation/sqlite-conversation-repository.ts
+  - src/entities/conversation/message.ts
+  - web/src/pages/conversation/
+
+created_at: 2026-08-01
+---
+
+# F20260801stab Agent 稳定性批量修复
 
 > 日期：2026-08-01
 > 模块：agent / web / api-contract
