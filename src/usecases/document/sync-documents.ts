@@ -8,6 +8,12 @@ import { parseFrontmatterFromContent } from "./frontmatter-parse";
 import { validateFeatureFrontmatter, validateResearchFrontmatter } from "@entities/document/frontmatter-validator";
 import type { FeatureDocument, ChangeType, FeatureStatus } from "@entities/document/feature";
 import type { ResearchDocument, ExplorationType, ResearchStatus } from "@entities/document/research";
+import {
+  isKnownChangeType,
+  isKnownFeatureStatus,
+  isKnownResearchStatus,
+  isKnownExplorationType,
+} from "@entities/document/known-values";
 
 export interface SyncResult {
   synced: number;
@@ -281,12 +287,15 @@ export class SyncDocuments {
     filePath: string
   ): FeatureDocument {
     const causalLinks = fm.causal_links as Record<string, unknown> | undefined;
+    // F20260803mval: 未知枚举值 fallback 到默认，防 as 强转使类型安全形同虚设
+    const ct = (fm.change_type as string) || "feature";
+    const st = (fm.status as string) || "draft";
     return {
       id: fm.id as string,
       title: fm.title as string,
       summary: (fm.summary as string).trim(),
-      changeType: ((fm.change_type as string) || "feature") as ChangeType,
-      status: ((fm.status as string) || "draft") as FeatureStatus,
+      changeType: (isKnownChangeType(ct) ? ct : "feature") as ChangeType,
+      status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       modules: Array.isArray(fm.modules) ? (fm.modules as string[]) : [],
       causalLinksFrom: Array.isArray(causalLinks?.from)
@@ -305,12 +314,14 @@ export class SyncDocuments {
     filePath: string
   ): ResearchDocument {
     const causalLinks = fm.causal_links as Record<string, unknown> | undefined;
+    const et = (fm.exploration_type as string) || "technical";
+    const st = (fm.status as string) || "draft";
     return {
       id: fm.id as string,
       title: fm.title as string,
       summary: (fm.summary as string).trim(),
-      explorationType: ((fm.exploration_type as string) || "technical") as ExplorationType,
-      status: ((fm.status as string) || "draft") as ResearchStatus,
+      explorationType: (isKnownExplorationType(et) ? et : "technical") as ExplorationType,
+      status: (isKnownResearchStatus(st) ? st : "draft") as ResearchStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       conclusion: (fm.conclusion as string) || null,
       causalLinksFrom: Array.isArray(causalLinks?.from)

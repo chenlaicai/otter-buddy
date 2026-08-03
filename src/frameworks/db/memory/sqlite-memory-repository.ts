@@ -93,7 +93,10 @@ export class SqliteMemoryRepository implements MemoryRepository {
         .all(sourceTable, sourceId) as Array<{ id: string }>;
       for (const row of rows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
-        this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        // F20260803mval: memory_vec 是 vec0 虚拟表，sqlite-vec 扩展不可用时表不存在（D22 降级），删除前检查
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
       }
       this.db.prepare(

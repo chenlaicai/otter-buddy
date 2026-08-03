@@ -86,8 +86,12 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
 
     this.worker.on("error", (err: Error) => {
       this.logger.error("Worker Thread error", err);
-      // F20260803mval: worker 崩溃后 ready 重置 false，避免健康端点误报 embedding 可用
+      // F20260803mval: worker 崩溃后重置 ready + 设 loadError + 拒绝 waiters，
+      // 避免 waitForReady 永久挂起导致 waiters 数组无限增长（内存泄漏）
       this.readyState.ready = false;
+      this.readyState.loadError = new Error(`Worker error: ${err.message}`);
+      this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
+      this.readyState.waiters.length = 0;
       this.pendingRequests.forEach(({ reject }) =>
         reject(new Error(`Worker error: ${err.message}`)),
       );

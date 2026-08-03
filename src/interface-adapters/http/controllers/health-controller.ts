@@ -59,9 +59,9 @@ export class HealthController {
         "Memory health check failed",
         err instanceof Error ? err : undefined,
       );
+      // F20260803mval: 返回 200 + healthy:false（非 500），客户端只需看 body 判定健康度
       return c.json(
         { healthy: false, error: err instanceof Error ? err.message : String(err) },
-        500,
       );
     }
   }

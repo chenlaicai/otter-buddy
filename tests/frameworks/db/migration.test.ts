@@ -140,3 +140,85 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
     });
   });
 });
+
+/**
+ * F20260803mval 补丁测试：rebuildDocumentTablesDropCheck
+ * 重建 features/research 表移除枚举 CHECK 约束（SQLite 不支持 DROP CHECK，必须重建表）
+ */
+describe("migrateDatabase - F20260803mval 补丁: rebuildDocumentTablesDropCheck", () => {
+  /** 模拟旧库：features 表带枚举 CHECK 约束 */
+  function createOldSchemaDb(): Database.Database {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    // initSchema 建的 features 已无 CHECK，DROP 后用旧式定义重建（模拟升级前旧库）
+    db.exec("DROP TABLE features");
+    db.exec(`
+      CREATE TABLE features (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+        change_type TEXT NOT NULL CHECK(change_type IN ('feature', 'refactor', 'fix')),
+        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'development', 'locked', 'archived')),
+        tags TEXT NOT NULL DEFAULT '[]',
+        modules TEXT NOT NULL DEFAULT '[]',
+        causal_links_from TEXT NOT NULL DEFAULT '[]',
+        supersedes TEXT NOT NULL DEFAULT '[]',
+        file_path TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        CHECK(id LIKE 'F%')
+      );
+    `);
+    db.prepare(
+      "INSERT INTO features (id, title, summary, change_type, status, file_path) VALUES (?, ?, ?, 'feature', 'draft', ?)"
+    ).run("F20260803ol1", "旧文档", "旧摘要内容", "docs/features/old.md");
+    return db;
+  }
+
+  it("移除 CHECK 约束，新枚举值（prompt/final）可入库，旧数据完整保留", () => {
+    const db = createOldSchemaDb();
+    try {
+      migrateDatabase(db, mockLogger());
+
+      // CHECK 移除：旧约束拒收的值现在可入
+      expect(() =>
+        db.prepare(
+          "INSERT INTO features (id, title, summary, change_type, status, file_path) VALUES (?, ?, ?, 'prompt', 'final', ?)"
+        ).run("F20260803prm1", "提示词文档", "摘要", "docs/features/p.md")
+      ).not.toThrow();
+
+      // 旧数据完整迁移
+      const row = db.prepare("SELECT title, summary FROM features WHERE id = 'F20260803ol1'").get() as { title: string; summary: string };
+      expect(row.title).toBe("旧文档");
+      expect(row.summary).toBe("旧摘要内容");
+
+      // 幂等键
+      const key = db.prepare("SELECT value FROM settings WHERE key = 'doc_check_constraints_dropped'").get() as { value: string };
+      expect(key.value).toBe("done");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("幂等：二次迁移不报错不重复重建", () => {
+    const db = createOldSchemaDb();
+    try {
+      migrateDatabase(db, mockLogger());
+      expect(() => migrateDatabase(db, mockLogger())).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("全新库（initSchema 建的无 CHECK 表）：直接 markDone 不重建", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db); // 新 schema 无 CHECK
+      migrateDatabase(db, mockLogger());
+      const key = db.prepare("SELECT value FROM settings WHERE key = 'doc_check_constraints_dropped'").get() as { value: string };
+      expect(key.value).toBe("done");
+    } finally {
+      db.close();
+    }
+  });
+});

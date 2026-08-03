@@ -112,7 +112,7 @@ export interface ValidationResult {
 
 新建 `src/entities/document/known-values.ts`：
 ```typescript
-export const KNOWN_CHANGE_TYPES = ["feature","refactor","fix","bugfix","prompt","feature-update"] as const;
+export const KNOWN_CHANGE_TYPES = ["feature","refactor","fix","prompt","feature-update"] as const;
 export const KNOWN_FEATURE_STATUSES = ["draft","proposed","design","development","locked","final","implemented","archived"] as const;
 export const KNOWN_RESEARCH_STATUSES = KNOWN_FEATURE_STATUSES;
 export const KNOWN_EXPLORATION_TYPES = ["technical","market","user-research"] as const;
@@ -223,6 +223,30 @@ sed 批量改 16+ 文档 `change_type: bugfix` 为 `change_type: fix`。DB CHECK
 - **阻断2：幂等 skip 内容漂移**--sync ID 存在就 skip 不比内容，reconcileSync 只比 ID 不比指纹。调整：变更 6 改 upsert + 变更 10 对账比指纹。
 
 其余审视意见（warn 静默、健康端点元问题、embeddingAvailable 不可信、BOM、title trim、supersedes 悬空、ID 范围、bugfix/fix 统一）已分别纳入对应变更/决策。
+
+## PR 代码评审落地差异（第三轮审视）
+
+PR #128 经代码评审 agent 审视，命中 4 个真 bug（已修）+ 若干设计偏差（据此回写）。
+
+**真 bug（已修）**：
+- C2 `deleteBySource` 无条件删 memory_vec，vec 扩展不可用时炸 → 删除前检查 `this.hasVec`
+- C3 embedding worker error 重置 ready 但未设 loadError，`waitForReady` 永久挂起 + waiters 泄漏 → 补设 loadError + 拒绝 waiters
+- C1 `buildFeatureDocument` 未知 change_type 仍 `as` 强转 → 改 `isKnownChangeType` 检查后 fallback "feature"
+- S1 健康端点 catch 返回 500 → 改 200 + `healthy:false`
+
+**设计偏差（实现调整，本文档据此回写）**：
+- 变更 7 SyncResult 持久化 → 实施时改为健康端点**实时查询**（磁盘 vs DB + embedding 状态），不持久化 SyncResult。理由：实时查询避开"sync 失败则持久化也失败"的共同失败模式。`lastSyncErrors` 等历史字段不提供，仅当前态。
+- 变更 8 degraded 条件 → 实现为 `total===0 && !embeddingAvailable`（controller 无 reconcileGaps 数据，因 SyncResult 不持久化）。原承诺的 `reconcileGaps>0` 条件待持久化后再启。
+- 变更 10 reconcileSync → `staleDocuments`（内容指纹对账）未单独实现，由变更 6 upsert 兜底（指纹变则 update）。reconcileSync 只做 missingInDb + supersedes 悬空。
+- 变更 10 "共享 findAll" → 实施时 reconcileSync 与 archiveDeletedDocuments 各自 findAll（文档量小，性能可接受）。
+- 涉及文件表 → degraded 标志实现在 `memory-controller.ts`（非 `search-memory.ts`）。
+
+**已知限制（本 PR 不修）**：
+- B2 upsert 非原子：`deleteBySource` 与 `storeEntry` 不在同一事务，中间失败会丢 memory entry。彻底修复需重构事务边界，scope 大；storeEntry 失败概率低（DB 锁/磁盘满）。留后续。
+
+**测试缺口（本 PR 部分补）**：
+- 补：migration 表重建幂等测试
+- 未补：upsert reindex 行为测试、reconcileSync 测试、健康端点测试（留后续）
 
 ## 涉及文件
 
