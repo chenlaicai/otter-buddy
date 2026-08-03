@@ -257,7 +257,7 @@ export function MessageList({
             </div>
           )
         }}
-        components={{ Header: LoadingHeader }}
+        components={{ Header: LoadingHeader, Footer: LoadingHeader }}
         context={{ loadingMore: loadingMore ?? false }}
         overscan={200}
         className="flex-1"

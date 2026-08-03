@@ -131,12 +131,15 @@ function ConversationPage() {
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
-      const [listResp, keyInfo, participants, unread] = await Promise.all([
+      const [listResp, keyInfo, participants] = await Promise.all([
         api.listMessages(convId, 100),
         api.getKeyResources(convId),
         api.getParticipants(convId),
-        api.getUnreadState(convId),
       ])
+      // 未读状态独立加载，失败不阻塞会话展示（降级为无未读）
+      const unread = await api.getUnreadState(convId).catch(() => ({
+        lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null,
+      }))
       let msgs = mapMessageDTOs(listResp.messages)
       setFirstItemIndex(FIRST_ITEM_INDEX_BASE)
       setHasMoreBefore(listResp.hasMore)
@@ -191,7 +194,8 @@ function ConversationPage() {
   const refreshMessages = useCallback(async (convId: string) => {
     try {
       const list = allMessages[convId] || []
-      const newest = list[list.length - 1]
+      const realMsgs = list.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
+      const newest = realMsgs[realMsgs.length - 1]
       if (!newest?.id) return
       const resp = await api.listMessagesAfter(convId, newest.id, 100)
       const newerMsgs = mapMessagesCore(resp.messages) // ASC
@@ -372,6 +376,13 @@ function ConversationPage() {
         setAllMessages(prev => {
           const current = prev[activeId] || []
           if (current.some(m => m.id === message.id)) return prev
+          // tmp 去重：乐观消息（tmp-）按 st|si|content 匹配后替换为真实消息
+          const tmpIdx = current.findIndex(m => m.id.startsWith('tmp-') && m.st === message.st && m.si === message.si && m.content === message.content)
+          if (tmpIdx >= 0) {
+            const next = [...current]
+            next[tmpIdx] = message
+            return { ...prev, [activeId]: next }
+          }
           return { ...prev, [activeId]: [...current, message] }
         })
         if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
