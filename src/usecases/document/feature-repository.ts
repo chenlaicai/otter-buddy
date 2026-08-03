@@ -13,4 +13,7 @@ export interface FeatureRepository {
 
   /** 更新状态 */
   updateStatus(id: string, status: FeatureDocument["status"]): Promise<void>;
+
+  /** F20260803mval: 更新文档内容（upsert 场景，内容指纹变了重新 index） */
+  updateContent(doc: FeatureDocument): Promise<void>;
 }

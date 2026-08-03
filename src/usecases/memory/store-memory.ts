@@ -59,4 +59,39 @@ export class StoreMemory {
 
     return id;
   }
+
+  /**
+   * F20260803mval: 按 source 原子替换（单事务内删旧+插新），用于文档 upsert reindex。
+   * 防 B2 非原子问题：原 deleteBySource + execute 两事务，中间失败会丢 memory entry。
+   */
+  async replaceBySource(input: MemoryEntryInput): Promise<string> {
+    const id = crypto.randomUUID();
+    const entry = {
+      id,
+      layer: input.layer,
+      contentType: input.contentType,
+      sourceId: input.sourceId,
+      sourceTable: input.sourceTable,
+      conversationId: input.conversationId ?? null,
+      granularity: input.granularity,
+      content: input.content,
+      metadata: input.metadata ?? null,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.repo.replaceEntryBySource(entry);
+
+    this.embeddingGateway
+      .embed(input.content)
+      .then((emb) => {
+        this.repo.storeEmbedding(id, emb).catch((err) => {
+          this.logger.warn(`Failed to store embedding for ${id}: ${err}`);
+        });
+      })
+      .catch((err) => {
+        this.logger.debug(`Embedding generation failed for ${id}: ${err}`);
+      });
+
+    return id;
+  }
 }

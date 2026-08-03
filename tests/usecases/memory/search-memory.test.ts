@@ -172,6 +172,8 @@ describe("SearchMemory - progressive disclosure", () => {
       incrementRetrievalCounts: async () => {},
       flagMemory: async () => {},
       updateLayerByConversation: async () => {},
+      deleteBySource: async () => {},
+      replaceEntryBySource: async () => {},
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {

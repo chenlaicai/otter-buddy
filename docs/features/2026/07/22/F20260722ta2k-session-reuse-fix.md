@@ -15,7 +15,7 @@ causal_links:
 
 # 元数据
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [session, pi-sdk, reuse, performance]
 modules: [src/frameworks/agent/, src/frameworks/db/]
 

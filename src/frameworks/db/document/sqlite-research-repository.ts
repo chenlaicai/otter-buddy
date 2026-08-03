@@ -40,4 +40,18 @@ export class SqliteResearchRepository implements ResearchRepository {
   async updateStatus(id: string, status: ResearchStatus): Promise<void> {
     this.db.prepare("UPDATE research SET status = ? WHERE id = ?").run(status, id);
   }
+
+  /** F20260803mval: upsert 场景更新文档内容（内容指纹变了） */
+  async updateContent(doc: ResearchDocument): Promise<void> {
+    const row = entityToRow(doc);
+    this.db.prepare(`
+      UPDATE research
+      SET title = ?, summary = ?, exploration_type = ?, status = ?, tags = ?, conclusion = ?,
+          causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?
+      WHERE id = ?
+    `).run(
+      row.title, row.summary, row.exploration_type, row.status, row.tags, row.conclusion,
+      row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.id
+    );
+  }
 }

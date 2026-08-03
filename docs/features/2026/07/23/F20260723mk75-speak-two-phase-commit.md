@@ -13,7 +13,7 @@ causal_links:
     - F20260722ta2k
 
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [speak, streaming, sse, agent, talking-stone, prompt, chain, identity]
 modules:
   - src/usecases/conversation/

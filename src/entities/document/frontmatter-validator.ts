@@ -1,6 +1,15 @@
+import {
+  isKnownChangeType,
+  isKnownFeatureStatus,
+  isKnownResearchStatus,
+  isKnownExplorationType,
+} from "./known-values";
+
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
+  /** F20260803mval: 未知枚举值等软警告，不阻断入库，进 SyncResult 上报健康端点 */
+  warnings: string[];
 }
 
 export function validateFeatureFrontmatter(
@@ -8,23 +17,24 @@ export function validateFeatureFrontmatter(
   filePath?: string
 ): ValidationResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   validateCommonFields(fm, errors);
 
-  // 如果基础字段缺失，短路返回，避免级联错误
+  // 结构字段缺失，短路返回避免级联错误
   if (errors.length > 0) {
-    return { valid: false, errors };
+    return { valid: false, errors, warnings };
   }
 
   validateFeatureId(fm.id, errors);
   validateSummary(fm.summary, errors);
-  validateFeatureStatus(fm.status, errors);
-  validateChangeType(fm.change_type, errors);
+  validateFeatureStatus(fm.status, warnings);
+  validateChangeType(fm.change_type, warnings);
   validateSupersedesPrefix(fm.supersedes, "F", errors);
   if (filePath) {
     validateFilePath(fm.id as string, filePath, errors);
   }
 
-  return { valid: errors.length === 0, errors };
+  return { valid: errors.length === 0, errors, warnings };
 }
 
 export function validateResearchFrontmatter(
@@ -32,37 +42,43 @@ export function validateResearchFrontmatter(
   filePath?: string
 ): ValidationResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   validateCommonFields(fm, errors);
 
   if (errors.length > 0) {
-    return { valid: false, errors };
+    return { valid: false, errors, warnings };
   }
 
   validateResearchId(fm.id, errors);
   validateSummary(fm.summary, errors);
-  validateExplorationType(fm.exploration_type, errors);
+  validateResearchStatus(fm.status, warnings);
+  validateExplorationType(fm.exploration_type, warnings);
   validateSupersedesPrefix(fm.supersedes, "R", errors);
   if (filePath) {
     validateFilePath(fm.id as string, filePath, errors);
   }
 
-  return { valid: errors.length === 0, errors };
+  return { valid: errors.length === 0, errors, warnings };
 }
 
 function validateCommonFields(fm: Record<string, unknown>, errors: string[]): void {
   if (!fm.id || typeof fm.id !== "string") errors.push("Missing id");
-  if (!fm.title || typeof fm.title !== "string") errors.push("Missing title");
+  // F20260803mval: title 加 trim 校验，防纯空格通过
+  if (!fm.title || typeof fm.title !== "string" || (fm.title as string).trim().length === 0) {
+    errors.push("Missing or blank title");
+  }
   if (!fm.summary || typeof fm.summary !== "string") errors.push("Missing summary");
 }
 
 function validateFeatureId(id: unknown, errors: string[]): void {
-  if (id && !/^F\d{8}[a-z0-9]{4}$/.test(id as string)) {
+  // F20260803mval: 后缀长度 3-8（数据支撑：实际范围 3-5）
+  if (id && !/^F\d{8}[a-z0-9]{3,8}$/.test(id as string)) {
     errors.push(`Invalid feature ID format: ${id}`);
   }
 }
 
 function validateResearchId(id: unknown, errors: string[]): void {
-  if (id && !/^R\d{8}[a-z0-9]{4}$/.test(id as string)) {
+  if (id && !/^R\d{8}[a-z0-9]{3,8}$/.test(id as string)) {
     errors.push(`Invalid research ID format: ${id}`);
   }
 }
@@ -76,24 +92,32 @@ function validateSummary(summary: unknown, errors: string[]): void {
   }
 }
 
-function validateFeatureStatus(status: unknown, errors: string[]): void {
-  const validStatuses = ["draft", "development", "locked", "archived"];
-  if (status && !validStatuses.includes(status as string)) {
-    errors.push(`Invalid status: ${status}`);
+/** F20260803mval: 未知值进 warnings 不阻断（应用层不再硬卡语义枚举） */
+function validateFeatureStatus(status: unknown, warnings: string[]): void {
+  if (status && typeof status === "string" && !isKnownFeatureStatus(status)) {
+    warnings.push(`Unknown feature status: ${status}`);
   }
 }
 
-function validateChangeType(changeType: unknown, errors: string[]): void {
-  const validChangeTypes = ["feature", "refactor", "fix"];
-  if (changeType && !validChangeTypes.includes(changeType as string)) {
-    errors.push(`Invalid change_type: ${changeType}`);
+function validateChangeType(changeType: unknown, warnings: string[]): void {
+  if (changeType && typeof changeType === "string" && !isKnownChangeType(changeType as string)) {
+    warnings.push(`Unknown change_type: ${changeType}`);
   }
 }
 
-function validateExplorationType(explorationType: unknown, errors: string[]): void {
-  const validExplorationTypes = ["technical", "market", "user-research"];
-  if (explorationType && !validExplorationTypes.includes(explorationType as string)) {
-    errors.push(`Invalid exploration_type: ${explorationType}`);
+function validateResearchStatus(status: unknown, warnings: string[]): void {
+  if (status && typeof status === "string" && !isKnownResearchStatus(status)) {
+    warnings.push(`Unknown research status: ${status}`);
+  }
+}
+
+function validateExplorationType(explorationType: unknown, warnings: string[]): void {
+  if (
+    explorationType &&
+    typeof explorationType === "string" &&
+    !isKnownExplorationType(explorationType)
+  ) {
+    warnings.push(`Unknown exploration_type: ${explorationType}`);
   }
 }
 

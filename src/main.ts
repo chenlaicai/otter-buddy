@@ -59,6 +59,7 @@ import { ConversationController } from "@interface-adapters/http/controllers/con
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
+import { HealthController } from "@interface-adapters/http/controllers/health-controller";
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
@@ -126,7 +127,8 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 
   async indexFeature(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
-    await this.storeMemory.execute({
+    // F20260803mval: replaceBySource 单事务原子替换（删旧+插新），防 B2 非原子丢数据
+    await this.storeMemory.replaceBySource({
       layer: "document",
       contentType: "feature",
       sourceId: id,
@@ -139,7 +141,7 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 
   async indexResearch(id: string, summary: string, metadata: Record<string, unknown>): Promise<void> {
-    await this.storeMemory.execute({
+    await this.storeMemory.replaceBySource({
       layer: "document",
       contentType: "research",
       sourceId: id,
@@ -170,7 +172,6 @@ interface UseCases {
   manageConversation: ManageConversation;
   manageMemory: ManageMemory;
   manageTerminology: ManageTerminology;
-  storeMemory: StoreMemory;
   searchMemory: SearchMemory;
   sendMessage: SendMessage;
   queryMessage: QueryMessage;
@@ -206,13 +207,12 @@ function initUseCases(
   repos: Repositories,
   agentGateway: PiSessionFactory,
   embeddingService: EmbeddingGateway,
+  memoryIndex: MemoryIndexGateway,
 ): UseCases {
   const searchEngine = new SearchEngine(appConfig.memory);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
-  const storeMemory = new StoreMemory(repos.memory, embeddingService, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
-  const memoryIndex = new MemoryIndexAdapter(storeMemory);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageReadState = new ManageReadState(repos.conversation);
@@ -231,7 +231,7 @@ function initUseCases(
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   return {
-    manageConversation, manageMemory, manageTerminology, storeMemory, searchMemory,
+    manageConversation, manageMemory, manageTerminology, searchMemory,
     sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
@@ -370,6 +370,12 @@ interface ControllerDeps {
   cronParser: SimpleCronParser;
   dispatchChainEngine: DispatchChainEngine;
   messageBroadcaster?: MessageBroadcaster;
+  /** F20260803mval: 健康端点依赖 */
+  featureRepo: SqliteFeatureRepository;
+  researchRepo: SqliteResearchRepository;
+  embeddingGateway: EmbeddingGateway;
+  fs: NodeFileSystem;
+  rootDir: string;
 }
 
 function initControllers(deps: ControllerDeps) {
@@ -377,11 +383,12 @@ function initControllers(deps: ControllerDeps) {
     conversation: new ConversationController(deps.uc.manageConversation, deps.uc.manageParticipant, deps.settingsRepo, logger),
     otter: new OtterController(deps.uc.createOtter, deps.uc.dissolveOtter, deps.uc.manageSession, deps.uc.queryOtter, logger),
     message: new MessageController(deps.uc.sendMessage, deps.uc.queryMessage, deps.uc.manageReadState, deps.agentInvoker, logger, deps.uc.queryOtter, deps.dispatchChainEngine, deps.messageBroadcaster),
-    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, logger),
+    memory: new MemoryController(deps.uc.searchMemory, deps.uc.manageMemory, deps.embeddingGateway, logger),
     keyInfo: new KeyInfoController(deps.uc.manageKeyInfo, logger),
     settings: new SettingsController(deps.settings, deps.settingsRepo, logger),
     scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser, logger),
     connection: new ConnectionController(deps.uc.manageConnection, logger),
+    health: new HealthController(deps.featureRepo, deps.researchRepo, deps.embeddingGateway, deps.fs, deps.rootDir, logger),
   };
 }
 
@@ -492,13 +499,13 @@ function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"]): void {
   }
 }
 
-async function syncDocuments(repos: Repositories, embeddingService: EmbeddingGateway): Promise<void> {
+async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway): Promise<void> {
   const fileSystem = new NodeFileSystem();
   const syncDocs = new SyncDocuments(
     fileSystem,
     repos.feature,
     repos.research,
-    new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger)),
+    memoryIndex,
     logger
   );
   await syncDocs.execute(process.cwd());
@@ -555,7 +562,7 @@ async function initDatabaseAndModels() {
   return { db, otterConfigProvider, model, modelPool, embeddingService, dispose };
 }
 
-// eslint-disable-next-line max-lines-per-function -- Composition Root 合并初始化逻辑
+// eslint-disable-next-line max-lines-per-function, max-statements -- Composition Root 合并初始化逻辑
 async function main(): Promise<void> {
   syncApiKeyToAgentAuth(appConfig.llm);
 
@@ -563,7 +570,9 @@ async function main(): Promise<void> {
 
   const repos = initRepositories(db);
   await reconcileOrphans(repos.conversation, logger);
-  await syncDocuments(repos, embeddingService);
+  /** F20260803mval: 共享单一 memoryIndex 实例，避免 syncDocuments 与 initUseCases 各自 new StoreMemory 双实例（G1） */
+  const memoryIndex = new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
+  await syncDocuments(repos, memoryIndex);
 
   if (modelPool) validateModelAliases(db, modelPool);
 
@@ -583,7 +592,7 @@ async function main(): Promise<void> {
     otterRepo: repos.otter,
   }, logger);
 
-  const uc = initUseCases(repos, agentGateway, embeddingService);
+  const uc = initUseCases(repos, agentGateway, embeddingService, memoryIndex);
 
   /** 构建 OtterToolClient 并注入 agentGateway（解决循环依赖） */
   const otterToolClient = buildOtterToolClient(uc);
@@ -623,7 +632,7 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster });
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster, featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService, fs: new NodeFileSystem(), rootDir: process.cwd() });
   startServer(controllers, uc, agentInvoker, appConfig.server.port, feishu);
 
   schedulerService.start().catch((err) => {

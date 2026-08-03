@@ -13,7 +13,7 @@ causal_links:
     - F20260723mk75
 
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [streaming, sse, refresh, message-status, polling, frontend]
 modules:
   - src/interface-adapters/http/

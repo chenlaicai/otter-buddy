@@ -20,7 +20,7 @@ causal_links:
     - F20260724regd
 
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [skill, tool, prompt-channel, speak, abort, system-prompt, pi-sdk]
 modules:
   - .pi/

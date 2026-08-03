@@ -40,4 +40,18 @@ export class SqliteFeatureRepository implements FeatureRepository {
   async updateStatus(id: string, status: FeatureStatus): Promise<void> {
     this.db.prepare("UPDATE features SET status = ? WHERE id = ?").run(status, id);
   }
+
+  /** F20260803mval: upsert 场景更新文档内容（内容指纹变了） */
+  async updateContent(doc: FeatureDocument): Promise<void> {
+    const row = entityToRow(doc);
+    this.db.prepare(`
+      UPDATE features
+      SET title = ?, summary = ?, change_type = ?, status = ?, tags = ?, modules = ?,
+          causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?
+      WHERE id = ?
+    `).run(
+      row.title, row.summary, row.change_type, row.status, row.tags, row.modules,
+      row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.id
+    );
+  }
 }

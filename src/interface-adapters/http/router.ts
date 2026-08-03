@@ -9,6 +9,7 @@ import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
 import type { ScheduledTaskController } from "./controllers/scheduled-task-controller";
 import type { ConnectionController } from "./controllers/connection-controller";
+import type { HealthController } from "./controllers/health-controller";
 
 export interface Controllers {
   conversation: ConversationController;
@@ -19,6 +20,7 @@ export interface Controllers {
   settings: SettingsController;
   scheduledTask: ScheduledTaskController;
   connection: ConnectionController;
+  health: HealthController;
 }
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
@@ -55,6 +57,7 @@ function registerOtterRoutes(app: Hono, c: Controllers): void {
 }
 
 function registerDataRoutes(app: Hono, c: Controllers): void {
+  app.get("/api/health/memory", (ctx) => c.health.memory(ctx));
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
   app.post("/api/memory/search/similar", (ctx) => c.memory.searchSimilar(ctx));
   app.get("/api/memory/batch", (ctx) => c.memory.getDetails(ctx));

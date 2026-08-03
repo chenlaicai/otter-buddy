@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Search, Star, MessageSquare, Lightbulb, Link as LinkIcon, FileText } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
@@ -98,6 +98,12 @@ function MemorySearchPage() {
   const [refineQuery, setRefineQuery] = useState('')
   const [showRefine, setShowRefine] = useState(false)
 
+  // F20260803mval: 记忆系统健康状态（降级时显示 banner）
+  const [health, setHealth] = useState<api.MemoryHealthDTO | null>(null)
+  useEffect(() => {
+    api.getMemoryHealth().then(setHealth).catch(() => {})
+  }, [])
+
   async function doSearch(searchQuery?: string) {
     const q = searchQuery ?? query
     if (!q.trim()) return
@@ -177,6 +183,14 @@ function MemorySearchPage() {
 
   return (
     <AppLayout activeView="memory">
+      {health && !health.healthy && (
+        <div className="mx-3 mt-3 rounded-xl border border-amber-300/60 bg-amber-50/80 px-4 py-2.5 text-sm text-amber-800 flex items-center gap-2">
+          <span className="font-medium">记忆系统降级：</span>
+          {health.reconcileGaps.length > 0 && <span>{health.reconcileGaps.length} 个文档未入库；</span>}
+          {!health.embeddingAvailable && <span>语义检索不可用；</span>}
+          <span className="text-amber-600">搜索结果可能不完整</span>
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         {/* Search Panel */}
         <aside className="w-64 glass rounded-3xl flex flex-col flex-shrink-0 overflow-y-auto p-4 space-y-4">

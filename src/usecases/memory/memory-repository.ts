@@ -41,6 +41,10 @@ export interface MemoryRepository {
   // 写入
   storeEntry(entry: MemoryEntry): Promise<void>;
   storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
+  /** F20260803mval: 按 source 删除记忆条目（upsert reindex 时清旧 entry，防 FTS 命中陈旧内容） */
+  deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
+  /** F20260803mval: 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，B2 修复） */
+  replaceEntryBySource(entry: MemoryEntry): Promise<void>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
   getEmbedding(memoryEntryId: string): Promise<Float32Array | null>;

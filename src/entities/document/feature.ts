@@ -1,8 +1,7 @@
-/** Feature 文档状态 */
-export type FeatureStatus = "draft" | "development" | "locked" | "archived";
+import type { ChangeType, FeatureStatus } from "./known-values";
 
-/** Feature 变更类型 */
-export type ChangeType = "feature" | "refactor" | "fix";
+/** Feature 文档状态、变更类型：从 known-values 单一真相源派生（F20260803mval） */
+export type { ChangeType, FeatureStatus } from "./known-values";
 
 /** Feature 文档实体 */
 export interface FeatureDocument {

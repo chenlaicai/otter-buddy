@@ -84,7 +84,85 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }
   }
 
+  /** F20260803mval: 按 source 删除记忆条目（entries + fts + vec + weights 联动删除） */
+  async deleteBySource(sourceTable: string, sourceId: string): Promise<void> {
+    this.db.exec("BEGIN");
+    try {
+      const rows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ?")
+        .all(sourceTable, sourceId) as Array<{ id: string }>;
+      for (const row of rows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        // F20260803mval: memory_vec 是 vec0 虚拟表，sqlite-vec 扩展不可用时表不存在（D22 降级），删除前检查
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ?"
+      ).run(sourceTable, sourceId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /** F20260803mval: 按 source 原子替换（单事务删旧+插新），B2 修复 */
+  async replaceEntryBySource(entry: MemoryEntry): Promise<void> {
+    this.db.exec("BEGIN");
+    try {
+      // 删旧（同 source），复用 deleteBySource 的联动删除逻辑
+      const oldRows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ?")
+        .all(entry.sourceTable, entry.sourceId) as Array<{ id: string }>;
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ?"
+      ).run(entry.sourceTable, entry.sourceId);
+
+      // 插新（同 storeEntry 逻辑，但同一事务内）
+      this.db.prepare(`
+        INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
+          conversation_id, granularity, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        entry.id,
+        entry.layer,
+        entry.contentType,
+        entry.sourceId,
+        entry.sourceTable,
+        entry.conversationId ?? null,
+        entry.granularity,
+        entry.content,
+        entry.metadata ? JSON.stringify(entry.metadata) : null,
+        entry.createdAt,
+      );
+      this.db.prepare(`
+        INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
+      `).run(entry.id, entry.content);
+      this.db.prepare(`
+        INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
+        VALUES (?, 0, NULL, 0)
+      `).run(entry.id);
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void> {
+    // F20260803mval: vec 扩展不可用时 memory_vec 表不存在，跳过（与 deleteBySource/replaceEntryBySource 一致，S3）
+    if (!this.hasVec) return;
     /** vec0 不支持 INSERT OR REPLACE，先删除再插入 */
     this.db.exec("BEGIN");
     try {

@@ -15,7 +15,7 @@ causal_links:
     - F20260722ta2k
 
 status: draft
-change_type: bugfix
+change_type: fix
 tags: [abort, tool-call-count, streaming, agent-runtime]
 modules:
   - src/interface-adapters/agent-runtime/agent-invoker.ts

@@ -18,7 +18,7 @@ causal_links:
     - F20260728cbwt   # 同一起事故的第二次修复（熔断器机制），流程问题由本文档收口
 
 status: final
-change_type: bugfix
+change_type: fix
 tags: [skill, dev-process, repo-safety, worktree, incident-fix]
 modules:
   - .pi/skills/repo-safety/SKILL.md
