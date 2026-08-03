@@ -16,6 +16,7 @@ import {
   isKnownExplorationType,
 } from "@entities/document/known-values";
 import { cleanMarkdownForFts } from "./markdown-noise-cleaner";
+import { chunkMarkdown } from "./markdown-chunker";
 
 export interface SyncResult {
   synced: number;
@@ -23,8 +24,8 @@ export interface SyncResult {
   /** F20260803mval: upsert 更新的文档数（内容指纹变了） */
   updated: number;
   archived: number;
-  /** F20260803fbit: 正文 entry 索引数（new + updated 分支累加），运维对照文档数确认覆盖 */
-  bodyEntriesIndexed: number;
+  /** F20260803chunk: chunk entry 索引数（new + updated 分支累加 chunk 数），运维对照文档数×平均chunk数确认覆盖 */
+  chunkEntriesIndexed: number;
   /** F20260803mval: 未知枚举值等软警告，不阻断入库，进健康端点暴露 */
   warnings: string[];
   /** F20260803mval: 磁盘有 DB 无的文档 ID（同步失败正向对账） */
@@ -49,9 +50,11 @@ function researchFingerprint(doc: ResearchDocument): string {
 }
 
 /** F20260803fbit: 计算 body_hash（清理后 body 的 sha256 前 16 字符） */
+/** F20260803chunk: D3 加版本前缀 "chunk-v1|"，版本变化触发全量 reindex 生成 chunk */
+const CHUNKING_VERSION = "chunk-v1";
 function computeBodyHash(cleanedBody: string): string | null {
   if (!cleanedBody) return null;
-  return createHash("sha256").update(cleanedBody).digest("hex").slice(0, 16);
+  return createHash("sha256").update(`${CHUNKING_VERSION}|${cleanedBody}`).digest("hex").slice(0, 16);
 }
 
 export class SyncDocuments {
@@ -66,7 +69,7 @@ export class SyncDocuments {
   async execute(rootDir: string): Promise<SyncResult> {
     const startTime = Date.now();
     const result: SyncResult = {
-      synced: 0, skipped: 0, updated: 0, archived: 0, bodyEntriesIndexed: 0,
+      synced: 0, skipped: 0, updated: 0, archived: 0, chunkEntriesIndexed: 0,
       warnings: [], reconcileGaps: [], supersedesDangling: [], errors: [],
     };
 
@@ -81,7 +84,7 @@ export class SyncDocuments {
     const duration = Date.now() - startTime;
     this.logger.info('Document sync completed', {
       synced: result.synced, skipped: result.skipped, updated: result.updated,
-      archived: result.archived, bodyEntriesIndexed: result.bodyEntriesIndexed,
+      archived: result.archived, chunkEntriesIndexed: result.chunkEntriesIndexed,
       errors: result.errors.length,
       warnings: result.warnings.length, reconcileGaps: result.reconcileGaps.length,
       supersedesDangling: result.supersedesDangling.length,
@@ -139,39 +142,43 @@ export class SyncDocuments {
     }
 
     // F20260803fbit: 清理 markdown 噪声（代码围栏/标题井号/列表符号等）防 trigram 索引污染
-    const body = cleanMarkdownForFts(rawBody);
+    // F20260803chunk B1: 同时保留 rawBody（给 chunkMarkdown 切分）和 cleanedBody（给 computeBodyHash）
+    const cleanedBody = cleanMarkdownForFts(rawBody);
 
     if (type === "feature") {
-      await this.syncFeatureDoc(frontmatter, relativePath, body, result);
+      await this.syncFeatureDoc(frontmatter, relativePath, rawBody, cleanedBody, result);
     } else {
-      await this.syncResearchDoc(frontmatter, relativePath, body, result);
+      await this.syncResearchDoc(frontmatter, relativePath, rawBody, cleanedBody, result);
     }
   }
 
   private async syncFeatureDoc(
     fm: Record<string, unknown>,
     filePath: string,
-    body: string,
+    rawBody: string,
+    cleanedBody: string,
     result: SyncResult
   ): Promise<void> {
-    const doc = this.buildFeatureDocument(fm, filePath, body);
+    const doc = this.buildFeatureDocument(fm, filePath, cleanedBody);
     const existing = await this.featureRepo.findById(doc.id);
     const meta = {
-      doc_type: "feature" as const, change_type: doc.changeType, tags: doc.tags,
+      doc_type: "feature" as const, title: doc.title, change_type: doc.changeType, tags: doc.tags,
       modules: doc.modules, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
       await this.featureRepo.insert(doc);
       await this.memoryIndex.indexFeature(doc.id, doc.summary, meta);
-      await this.memoryIndex.indexFeatureBody(doc.id, body, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexFeatureChunks(doc.id, chunks, meta);
       result.synced++;
-      result.bodyEntriesIndexed++;
+      result.chunkEntriesIndexed += chunks.length;
     } else if (featureFingerprint(doc) !== featureFingerprint(existing)) {
       await this.featureRepo.updateContent(doc);
       await this.memoryIndex.indexFeature(doc.id, doc.summary, meta);
-      await this.memoryIndex.indexFeatureBody(doc.id, body, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexFeatureChunks(doc.id, chunks, meta);
       result.updated++;
-      result.bodyEntriesIndexed++;
+      result.chunkEntriesIndexed += chunks.length;
     } else {
       result.skipped++;
     }
@@ -180,27 +187,30 @@ export class SyncDocuments {
   private async syncResearchDoc(
     fm: Record<string, unknown>,
     filePath: string,
-    body: string,
+    rawBody: string,
+    cleanedBody: string,
     result: SyncResult
   ): Promise<void> {
-    const doc = this.buildResearchDocument(fm, filePath, body);
+    const doc = this.buildResearchDocument(fm, filePath, cleanedBody);
     const existing = await this.researchRepo.findById(doc.id);
     const meta = {
-      doc_type: "research" as const, exploration_type: doc.explorationType, tags: doc.tags,
+      doc_type: "research" as const, title: doc.title, exploration_type: doc.explorationType, tags: doc.tags,
       conclusion: doc.conclusion, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
       await this.researchRepo.insert(doc);
       await this.memoryIndex.indexResearch(doc.id, doc.summary, meta);
-      await this.memoryIndex.indexResearchBody(doc.id, body, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexResearchChunks(doc.id, chunks, meta);
       result.synced++;
-      result.bodyEntriesIndexed++;
+      result.chunkEntriesIndexed += chunks.length;
     } else if (researchFingerprint(doc) !== researchFingerprint(existing)) {
       await this.researchRepo.updateContent(doc);
       await this.memoryIndex.indexResearch(doc.id, doc.summary, meta);
-      await this.memoryIndex.indexResearchBody(doc.id, body, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexResearchChunks(doc.id, chunks, meta);
       result.updated++;
-      result.bodyEntriesIndexed++;
+      result.chunkEntriesIndexed += chunks.length;
     } else {
       result.skipped++;
     }

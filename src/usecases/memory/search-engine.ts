@@ -21,6 +21,8 @@ export interface ScoredHit {
   rrfScore: number;
   source: RetrievalSource;
   entry: MemoryEntry;
+  /** F20260803chunk: 同源多 chunk 命中数（dedupAndBoostBySource 设置，>1 时注入返回 metadata） */
+  multiHitCount?: number;
 }
 
 /**

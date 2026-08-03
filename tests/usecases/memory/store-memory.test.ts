@@ -46,6 +46,7 @@ function statefulRepo(): MemoryRepository & {
     updateLayerByConversation: async () => {},
     deleteBySource: async () => {},
     replaceEntryBySource: async () => {},
+    replaceEntriesBySource: async () => {},
   };
 }
 

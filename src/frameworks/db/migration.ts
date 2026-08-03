@@ -268,3 +268,48 @@ export function migrateExistingData(
 
   logger.warn('Migration completed. IMPORTANT: All old sessions will be recreated on first invoke. Previous session context and system prompts will be lost. You need to reconfigure system prompts after migration.');
 }
+
+/**
+ * F20260803chunk: 清理旧 feature_body/research_body entries（chunking 取代整 body entry，决策 D1）。
+ *
+ * B7：独立 export 函数，不加入 migrateDatabase 函数体（migrateDatabase 在 sync 之前执行）。
+ *     在 main.ts 中 syncDocuments 之后单独调用。
+ * B3：sync 之前调用会删旧数据，sync 失败则正文索引消失；移到 sync 之后则 sync 失败旧数据还在。
+ * M14：加 syncErrors 参数，仅当 sync 无错误时执行清理。防 sync 部分失败时清掉失败文档正文索引。
+ * S10：vec 删除 try-catch 加 log warn（防吞非 table-not-found 错误）。
+ */
+export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger, syncErrors: number): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'chunking_v1_migrated'")
+    .get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  // M14：sync 有错误时不执行清理（防失败文档正文索引永久消失）
+  if (syncErrors > 0) {
+    logger.warn(`Skipping chunking migration: sync had ${syncErrors} errors, will retry next startup`);
+    return;
+  }
+
+  const migrate = db.transaction(() => {
+    const types = ["feature_body", "research_body"];
+    for (const ct of types) {
+      const rows = db.prepare("SELECT id FROM memory_entries WHERE content_type = ?").all(ct) as Array<{ id: string }>;
+      for (const row of rows) {
+        db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        // S10：vec 删除 try-catch 加 log warn（vec0 表可能不存在，D22 降级）
+        try {
+          db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        } catch (e) {
+          logger.warn(`migrateFeatureBodyToChunks: memory_vec delete failed for ${row.id}: ${e}`);
+        }
+        db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      db.prepare("DELETE FROM memory_entries WHERE content_type = ?").run(ct);
+    }
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('chunking_v1_migrated', 'done', datetime('now')) " +
+      "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+    ).run();
+  });
+  migrate();
+  logger.info('Migrated feature_body/research_body entries to chunk model (chunking_v1_migrated=done)');
+}

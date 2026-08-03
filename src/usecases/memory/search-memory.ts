@@ -226,16 +226,19 @@ export class SearchMemory {
 
     if (useHighlight) {
       const ftsHits = await this.repo.searchFTSWithHighlight(query.query, filters);
-      snippetMap = new Map(ftsHits.map((h) => [h.entryId, h.snippet]));
+      // F20260803chunk M6: FTS 预聚合，每 source 最多保留 top-3 chunk 防 long doc 霸占 limit
+      const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
+      snippetMap = new Map(aggregatedFts.map((h) => [h.entryId, h.snippet]));
       const vecHits = await this.searchVec(query.query, filters, query.limit);
       rrfHits = this.searchEngine.rrfFusion(
-        ftsHits.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
+        aggregatedFts.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
         vecHits,
       );
     } else {
       const ftsHits = await this.repo.searchFTS(query.query, filters);
+      const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
       const vecHits = await this.searchVec(query.query, filters, query.limit);
-      rrfHits = this.searchEngine.rrfFusion(ftsHits, vecHits);
+      rrfHits = this.searchEngine.rrfFusion(aggregatedFts, vecHits);
     }
 
     /** 2. 重排 + 返回（传递 snippet 信息用于降级） */
@@ -295,8 +298,8 @@ export class SearchMemory {
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
 
     const scored = this.searchEngine.rerank(rrfHits, weightMap);
-    /** F20260803fbit: 按 (sourceTable, sourceId) 去重，同文档 summary+body 双命中只保留高分者 */
-    const deduped = dedup ? this.dedupBySource(scored) : scored;
+    /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
+    const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
     const top = deduped.slice(0, limit);
 
@@ -304,33 +307,82 @@ export class SearchMemory {
     await this.repo.incrementRetrievalCounts(top.map((h) => h.entryId));
 
     return {
-      entries: top.map((h) => ({
-        ...h.entry,
-        score: h.finalScore,
-        source: h.source,
-        userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
-        ...this.buildSnippet(h.entry, detailLevel, snippetMap),
-      })),
+      entries: top.map((h) => {
+        // M12: multi_hit_count 仅 >1 时注入 metadata（searchSimilar 路径无此字段不变）
+        const meta = h.multiHitCount && h.multiHitCount > 1
+          ? { ...(h.entry.metadata ?? {}), multi_hit_count: h.multiHitCount }
+          : h.entry.metadata;
+        return {
+          ...h.entry,
+          metadata: meta,
+          score: h.finalScore,
+          source: h.source,
+          userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
+          ...this.buildSnippet(h.entry, detailLevel, snippetMap),
+        };
+      }),
       total: top.length,
     };
   }
 
   /**
-   * F20260803fbit: 按 (sourceTable, sourceId) 去重。
-   * 同文档的 summary entry + body entry 是不同 entryId 但同源，
-   * 双命中时只保留 finalScore 最高者，防止单文档霸占 limit 名额。
-   * message/fact/linked_resource 的 sourceId 互不冲突，去重对它们无副作用。
+   * F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分。
+   * 同源多 chunk 命中是正信号（文档多处匹配），取最高分 chunk 作代表，
+   * 加 additive boost（0.01/hit，封顶 5 hits=0.05，决策 D5+S2）。
+   * M15: 创建新对象而非原地修改 finalScore（避免 mutation 风险）。
+   * S8: tie-breaker 按 chunk_index 保证确定性。
    */
-  private dedupBySource(scored: ScoredHit[]): ScoredHit[] {
-    const seen = new Map<string, ScoredHit>();
+  private dedupAndBoostBySource(scored: ScoredHit[]): ScoredHit[] {
+    const MULTI_HIT_BOOST = 0.01;
+    const MAX_MULTI_HIT_BOOST_COUNT = 5;
+
+    const groups = new Map<string, ScoredHit[]>();
     for (const hit of scored) {
       const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}`;
-      const existing = seen.get(key);
-      if (!existing || hit.finalScore > existing.finalScore) {
-        seen.set(key, hit);
-      }
+      const group = groups.get(key);
+      if (group) group.push(hit);
+      else groups.set(key, [hit]);
     }
-    return Array.from(seen.values());
+
+    const result: ScoredHit[] = [];
+    for (const group of groups.values()) {
+      // S8：tie-breaker 按 chunk_index 保证确定性（finalScore 相同时）
+      group.sort((a, b) =>
+        b.finalScore !== a.finalScore
+          ? b.finalScore - a.finalScore
+          : Number(a.entry.metadata?.chunk_index ?? 0) - Number(b.entry.metadata?.chunk_index ?? 0),
+      );
+      const best = group[0];
+      const extraHits = Math.min(group.length - 1, MAX_MULTI_HIT_BOOST_COUNT);
+      // M15：创建新对象而非原地修改
+      result.push({
+        ...best,
+        finalScore: best.finalScore + MULTI_HIT_BOOST * extraHits,
+        multiHitCount: group.length,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * F20260803chunk M6: FTS 预聚合，每 (sourceTable, sourceId) 最多保留 top-3 chunk。
+   * 防 long doc（53K 字符 × 19 chunk）占满 DEFAULT_FTS_LIMIT 挤掉其他文档（决策 D8）。
+   * ftsRank 越小越好（BM25 rank）。
+   */
+  private preAggregateFtsBySource<T extends { entryId: string; ftsRank: number; entry: MemoryEntry }>(hits: T[]): T[] {
+    const groups = new Map<string, T[]>();
+    for (const hit of hits) {
+      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}`;
+      const group = groups.get(key);
+      if (group) group.push(hit);
+      else groups.set(key, [hit]);
+    }
+    const result: T[] = [];
+    for (const group of groups.values()) {
+      group.sort((a, b) => a.ftsRank - b.ftsRank);
+      result.push(...group.slice(0, 3));
+    }
+    return result;
   }
 
   /** 根据 detail_level 构建返回内容 */

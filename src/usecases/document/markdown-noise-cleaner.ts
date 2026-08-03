@@ -18,10 +18,10 @@ export function cleanMarkdownForFts(body: string): string {
   return body
     // HTML 注释
     .replace(/<!--[\s\S]*?-->/g, '')
-    // 代码围栏开头（保留代码内容，只删围栏行）
-    .replace(/^```[^\n]*\n/gm, '')
+    // 代码围栏开头（保留代码内容，只删围栏行）；F20260803chunk B6: 同时清理 ``` 和 ~~~ 围栏
+    .replace(/^(?:```|~~~)[^\n]*\n/gm, '')
     // 代码围栏结尾
-    .replace(/^```\s*$/gm, '')
+    .replace(/^(?:```|~~~)\s*$/gm, '')
     // 标题井号（保留标题文本）
     .replace(/^#{1,6}\s+/gm, '')
     // 无序列表符号
