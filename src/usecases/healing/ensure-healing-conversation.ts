@@ -3,10 +3,19 @@ import type { ConversationRepository } from '@usecases/conversation/conversation
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
+import type { Logger } from '@usecases/ports/logger';
+import { HEALING_CONVERSATION_KEY, HEALING_BIG_OTTER_ID_KEY } from '@usecases/healing/constants';
 
 const HEALING_CONVERSATION_TITLE = '🩺 Self-Healing';
-const HEALING_CONVERSATION_KEY = '__self_healing_conversation_id__';
-const HEALING_BIG_OTTER_ID_KEY = '__self_healing_big_otter_id__';
+
+/** 置顶 healing 对话（失败不中断，记录日志，下次启动恢复） */
+async function pinHealing(manageConversation: ManageConversation, id: string, logger: Logger): Promise<void> {
+  try {
+    await manageConversation.pin(id);
+  } catch (err) {
+    logger.warn('Failed to pin healing conversation', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
 
 export interface HealingConversationResult {
   conversationId: string;
@@ -19,6 +28,7 @@ export async function ensureHealingConversation(deps: {
   otterRepo: OtterRepository;
   settings: SettingsRepository;
   sendMessage: SendMessage;
+  logger: Logger;
 }): Promise<HealingConversationResult> {
   const existingId = await deps.settings.get(HEALING_CONVERSATION_KEY);
   if (existingId) {
@@ -26,17 +36,14 @@ export async function ensureHealingConversation(deps: {
     if (conv && conv.status === 'active') {
       const bigOtterId = await deps.settings.get(HEALING_BIG_OTTER_ID_KEY);
       if (bigOtterId) {
-        /** 恢复置顶（失败不中断，下次启动恢复） */
-        try { await deps.manageConversation.pin(existingId); } catch { /* 启动恢复 */ }
+        await pinHealing(deps.manageConversation, existingId, deps.logger);
         return { conversationId: existingId, bigOtterId };
       }
     }
   }
 
   const conversation = await deps.manageConversation.create({ title: HEALING_CONVERSATION_TITLE });
-
-  /** 自动置顶（失败不中断，下次启动恢复） */
-  try { await deps.manageConversation.pin(conversation.id); } catch { /* 启动恢复 */ }
+  await pinHealing(deps.manageConversation, conversation.id, deps.logger);
 
   // M1: 通过 otterRepo 验证 type === 'big'，不依赖参与者顺序
   const participants = await deps.convRepo.getActiveParticipants(conversation.id);

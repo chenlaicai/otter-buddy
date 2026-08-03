@@ -4,6 +4,7 @@ import type { ManageParticipant } from "@usecases/conversation/manage-participan
 import type { CreateConversationInput } from "@usecases/conversation/manage-conversation";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Logger } from "@usecases/ports/logger";
+import { HEALING_CONVERSATION_KEY } from "@usecases/healing/constants";
 import { handleError, param } from "../http-error";
 import {
   toConversationDTO,
@@ -12,15 +13,12 @@ import {
 } from "../dto/conversation-dto";
 import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
 
-const HEALING_CONVERSATION_KEY = '__self_healing_conversation_id__';
-
 export class ConversationController {
   constructor(
-
     private readonly manageConversation: ManageConversation,
     private readonly manageParticipant: ManageParticipant,
     private readonly settings: SettingsRepository,
-      private readonly logger: Logger,
+    private readonly logger: Logger,
   ) {}
 
   async list(c: Context): Promise<Response> {
