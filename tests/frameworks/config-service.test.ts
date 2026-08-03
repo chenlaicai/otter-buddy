@@ -136,6 +136,18 @@ describe("loadConfig", () => {
     expect(cfg.embedding.modelPath).toBe("bge-m3");
     expect(cfg.embedding.localModelPath).toBe("./models");
   });
+
+  it("defaults modelPath to bge-m3 when localModelPath set but modelPath omitted", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  provider: openai\n  model: gpt-4o\nembedding:\n  localModelPath: ./models\n",
+    );
+
+    const cfg = loadConfig();
+    // 本地模式默认 modelPath 为目录名（models/bge-m3/），而非远程 repo id
+    expect(cfg.embedding.modelPath).toBe("bge-m3");
+    expect(cfg.embedding.localModelPath).toBe("./models");
+  });
 });
 
 describe("validate — multi-model", () => {

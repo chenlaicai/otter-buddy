@@ -250,7 +250,7 @@ function getExtractor(): Promise<Extractor> {
 
 **build 集成**（`package.json`）：
 ```
-"build": "... && node scripts/download-bge-m3.mjs || echo \"[bge-m3] 模型下载失败，启动时将重试或降级 FTS-only\""
+"build": "... && (node scripts/download-bge-m3.mjs || echo \"[bge-m3] 模型下载失败，启动时将重试或降级 FTS-only\")"
 ```
 build 末尾跑下载脚本；失败用 `|| echo` 兜底不阻断构建（模型不是构建产物必需），启动时还有第二道防线。
 
@@ -304,7 +304,7 @@ build 末尾跑下载脚本；失败用 `|| echo` 兜底不阻断构建（模型
 
 - `npm run lint` 无报错
 - `npx tsc --noEmit` 类型检查通过
-- `npx vitest run` 全量 901/901 测试通过（含 resolveEnvSettings 9 个 + ensure-model 6 个 + config-service 补 localModelPath）
+- `npx vitest run` 全量 910/910 测试通过（含 resolveEnvSettings 9 个 + ensure-model 7 个 + config-service 补 localModelPath）
 
 ### 集成（端到端，真实 worker 线程）
 

@@ -32,7 +32,6 @@ const FILES = JSON.parse(
 function fileComplete(relPath, expectedSize) {
   const full = path.join(MODEL_DIR, relPath);
   if (!existsSync(full)) return false;
-  if (expectedSize === null) return true;
   try {
     return statSync(full).size === expectedSize;
   } catch {
