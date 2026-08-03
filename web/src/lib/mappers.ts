@@ -15,6 +15,7 @@ export interface LocalConversation {
   id: string
   title: string
   status: 'active' | 'completed' | 'archived'
+  pinned: boolean
   otterIds: string[]
   /** 未读消息计数（消息级） */
   unreadCount?: number
@@ -97,6 +98,7 @@ export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDT
     id: dto.id,
     title: dto.title,
     status: dto.status as 'active' | 'completed' | 'archived',
+    pinned: dto.pinned,
     otterIds: 'otterIds' in dto ? dto.otterIds : [],
     ...('unreadCount' in dto && { unreadCount: dto.unreadCount }),
     ...('lastMessagePreview' in dto && { lastMessagePreview: dto.lastMessagePreview }),

@@ -50,6 +50,10 @@ function mockRepo(initialConversations: Map<string, Conversation> = new Map()): 
     }),
     getIdsByOtterId: vi.fn(async () => []),
     getAllIds: vi.fn(async () => []),
+    updatePinned: vi.fn(async (id: string, pinned: boolean) => {
+      const conv = conversations.get(id);
+      if (conv) conv.pinned = pinned;
+    }),
     getOtterIds: vi.fn(async () => []),
     createTurn: vi.fn(),
     getActiveTurn: vi.fn(async () => null),
@@ -119,6 +123,7 @@ function existingConv(overrides: Partial<Conversation> = {}): Conversation {
     title: "测试对话",
     status: "active",
     summary: null,
+    pinned: false,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     completedAt: null,
@@ -271,6 +276,50 @@ describe("ManageConversation", () => {
       await expect(mc.archive("nonexistent")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "not_found",
       );
+    });
+  });
+
+  describe("pin / unpin", () => {
+    it("pin 存在的对话 -> 更新 pinned 为 true", async () => {
+      const conv = existingConv();
+      const repo = mockRepo(new Map([[conv.id, conv]]));
+      const mc = new ManageConversation(repo, mockCreateOtter());
+
+      await mc.pin(conv.id);
+
+      expect(repo._conversations.get(conv.id)?.pinned).toBe(true);
+    });
+
+    it("pin 不存在的对话 -> 抛出 DomainError not_found，不调用 updatePinned", async () => {
+      const repo = mockRepo();
+      const mc = new ManageConversation(repo, mockCreateOtter());
+
+      await expect(mc.pin("nonexistent")).rejects.toThrow(DomainError);
+      await expect(mc.pin("nonexistent")).rejects.toSatisfy(
+        (err: DomainError) => err.kind === "not_found",
+      );
+      expect(repo.updatePinned).not.toHaveBeenCalled();
+    });
+
+    it("unpin 存在的对话 -> 更新 pinned 为 false", async () => {
+      const conv = existingConv({ pinned: true });
+      const repo = mockRepo(new Map([[conv.id, conv]]));
+      const mc = new ManageConversation(repo, mockCreateOtter());
+
+      await mc.unpin(conv.id);
+
+      expect(repo._conversations.get(conv.id)?.pinned).toBe(false);
+    });
+
+    it("unpin 不存在的对话 -> 抛出 DomainError not_found，不调用 updatePinned", async () => {
+      const repo = mockRepo();
+      const mc = new ManageConversation(repo, mockCreateOtter());
+
+      await expect(mc.unpin("nonexistent")).rejects.toThrow(DomainError);
+      await expect(mc.unpin("nonexistent")).rejects.toSatisfy(
+        (err: DomainError) => err.kind === "not_found",
+      );
+      expect(repo.updatePinned).not.toHaveBeenCalled();
     });
   });
 });

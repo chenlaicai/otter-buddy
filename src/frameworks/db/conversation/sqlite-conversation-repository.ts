@@ -48,11 +48,12 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`
-        INSERT INTO conversations (id, title, status, summary, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO conversations (id, title, status, summary, pinned, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         conversation.id, conversation.title, conversation.status,
-        conversation.summary, conversation.createdAt, conversation.updatedAt,
+        conversation.summary, conversation.pinned ? 1 : 0,
+        conversation.createdAt, conversation.updatedAt,
       );
 
       if (otterIds && otterIds.length > 0) {
@@ -99,9 +100,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
     const rows = this.db.prepare(
-      "SELECT id FROM conversations ORDER BY created_at DESC LIMIT ? OFFSET ?",
+      "SELECT id FROM conversations ORDER BY pinned DESC, created_at DESC LIMIT ? OFFSET ?",
     ).all(limit, offset) as { id: string }[];
     return rows.map(r => r.id);
+  }
+
+  async updatePinned(id: string, pinned: boolean): Promise<void> {
+    this.db.prepare("UPDATE conversations SET pinned = ? WHERE id = ?")
+      .run(pinned ? 1 : 0, id);
   }
 
   // ── Participants (static association) ──
@@ -468,7 +474,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         ORDER BY sequence_num DESC LIMIT 1
       )
       WHERE c.status != 'archived'
-      ORDER BY c.created_at DESC LIMIT ? OFFSET ?
+      ORDER BY c.pinned DESC, c.created_at DESC LIMIT ? OFFSET ?
     `).all(userId, limit, offset) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
       last_message_body: string | null; last_message_ts: string | null;

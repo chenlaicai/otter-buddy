@@ -38,6 +38,7 @@ export interface ConversationRepository {
   ): Promise<void>;
   getIdsByOtterId(otterId: string): Promise<string[]>;
   getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]>;
+  updatePinned(id: string, pinned: boolean): Promise<void>;
 
   // 对话参与者
   getOtterIds(conversationId: string): Promise<string[]>;

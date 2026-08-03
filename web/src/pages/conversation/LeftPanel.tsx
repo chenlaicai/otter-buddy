@@ -1,4 +1,4 @@
-import { Search, Plus } from 'lucide-react'
+import { Search, Plus, Pin } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor } from '../../lib/otter-colors'
 
@@ -12,6 +12,9 @@ interface LeftPanelProps {
 }
 
 export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters }: LeftPanelProps) {
+  const pinnedConvs = conversations.filter(c => c.pinned)
+  const normalConvs = conversations.filter(c => !c.pinned)
+
   return (
     <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
       <div className="p-3 flex gap-2 border-b border-white/40">
@@ -29,7 +32,23 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {conversations.map(c => (
+        {pinnedConvs.length > 0 && (
+          <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium text-stone-400 uppercase tracking-wide">置顶</div>
+        )}
+        {pinnedConvs.map(c => (
+          <ConversationItem
+            key={c.id}
+            conversation={c}
+            isActive={c.id === activeId}
+            onSelect={onSelect}
+            onContextMenu={onContextMenu}
+            otters={otters}
+          />
+        ))}
+        {pinnedConvs.length > 0 && normalConvs.length > 0 && (
+          <div className="my-1 border-t border-white/30" />
+        )}
+        {normalConvs.map(c => (
           <ConversationItem
             key={c.id}
             conversation={c}
@@ -70,7 +89,10 @@ function ConversationItem({
       }`}
     >
       <div className="flex items-center gap-1.5">
-        <div className="text-xs font-medium text-stone-700 truncate flex-1">{c.title}</div>
+        <div className="text-xs font-medium text-stone-700 truncate flex-1 flex items-center gap-1">
+          {c.pinned && <Pin className="w-3 h-3 text-otter-400 flex-shrink-0" />}
+          <span className="truncate">{c.title}</span>
+        </div>
         {c.unreadCount != null && c.unreadCount > 0 && (
           <span className="min-w-[16px] h-4 px-1 rounded-full bg-red-400 text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">
             {c.unreadCount > 99 ? '99+' : c.unreadCount}

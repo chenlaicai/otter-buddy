@@ -26,10 +26,11 @@ import type { Otter } from "@entities/otter/otter";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
+import { DomainError } from "@entities/errors";
 
 function mockConversation(): Conversation {
   return {
-    id: "conv-1", title: "Test", status: "active", summary: null,
+    id: "conv-1", title: "Test", status: "active", summary: null, pinned: false,
     createdAt: "2026-07-16T00:00:00Z", updatedAt: "2026-07-16T00:00:00Z",
     completedAt: null, archivedAt: null,
   };
@@ -49,12 +50,14 @@ describe("ConversationController", () => {
     app.get("/api/conversations/:id", (c) => controller.getById(c));
     app.post("/api/conversations", (c) => controller.create(c));
     app.patch("/api/conversations/:id/complete", (c) => controller.complete(c));
+    app.patch("/api/conversations/:id/pin", (c) => controller.pin(c));
+    app.patch("/api/conversations/:id/unpin", (c) => controller.unpin(c));
     return app;
   }
 
   it("returns 200 with DTO for existing conversation", async () => {
     const manageConv = { getById: async () => mockConversation() } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/conv-1");
     expect(res.status).toBe(200);
@@ -65,7 +68,7 @@ describe("ConversationController", () => {
 
   it("returns 404 for non-existent conversation", async () => {
     const manageConv = { getById: async () => null } as unknown as ManageConversation;
-    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, mockLogger());
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations/nonexistent");
     expect(res.status).toBe(404);
@@ -78,7 +81,7 @@ describe("ConversationController", () => {
     const managePart = {
       getActiveParticipants: async () => [{ participant: { otterId: "otter-1" }, otterName: "Big Otter" }],
     } as unknown as ManageParticipant;
-    const ctrl = new ConversationController(manageConv, managePart, mockLogger());
+    const ctrl = new ConversationController(manageConv, managePart, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
     const app = createApp(ctrl);
     const res = await app.request("/api/conversations", {
       method: "POST",
@@ -88,6 +91,64 @@ describe("ConversationController", () => {
     expect(res.status).toBe(201);
     const body = await res.json() as Record<string, unknown>;
     expect(body.title).toBe("Test");
+  });
+
+  it("pin 成功返回 200 和 status=pinned", async () => {
+    const manageConv = {
+      pin: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ManageConversation;
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/conv-1/pin", { method: "PATCH" });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.status).toBe("pinned");
+  });
+
+  it("pin 不存在返回 404", async () => {
+    const manageConv = {
+      pin: vi.fn().mockRejectedValue(new DomainError("Conversation not found", "not_found")),
+    } as unknown as ManageConversation;
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/nonexistent/pin", { method: "PATCH" });
+    expect(res.status).toBe(404);
+  });
+
+  it("unpin 成功返回 200 和 status=unpinned", async () => {
+    const manageConv = {
+      unpin: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ManageConversation;
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/conv-1/unpin", { method: "PATCH" });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.status).toBe("unpinned");
+  });
+
+  it("unpin healing 对话被拒绝返回 403", async () => {
+    const healingId = "healing-conv-id";
+    const manageConv = {
+      unpin: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ManageConversation;
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(healingId) } as any, mockLogger());
+    const app = createApp(ctrl);
+    const res = await app.request(`/api/conversations/${healingId}/unpin`, { method: "PATCH" });
+    expect(res.status).toBe(403);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe("系统对话不可取消置顶");
+    expect(manageConv.unpin).not.toHaveBeenCalled();
+  });
+
+  it("unpin 不存在返回 404", async () => {
+    const manageConv = {
+      unpin: vi.fn().mockRejectedValue(new DomainError("Conversation not found", "not_found")),
+    } as unknown as ManageConversation;
+    const ctrl = new ConversationController(manageConv, {} as ManageParticipant, { get: vi.fn().mockResolvedValue(null) } as any, mockLogger());
+    const app = createApp(ctrl);
+    const res = await app.request("/api/conversations/nonexistent/unpin", { method: "PATCH" });
+    expect(res.status).toBe(404);
   });
 });
 

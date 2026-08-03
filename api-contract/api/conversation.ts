@@ -3,6 +3,7 @@ export interface ConversationDTO {
   id: string;
   title: string;
   status: string;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

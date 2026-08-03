@@ -17,6 +17,7 @@ import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
 import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
+import { ApiError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
 import { type VirtuosoHandle } from 'react-virtuoso'
 import type { MessageDTO } from '@contract/api'
@@ -905,13 +906,33 @@ function ConversationPage() {
     } catch { showToast('删除失败', 'error') }
   }
 
-  function ctxAction(action: string, cid: string) {
+  async function ctxAction(action: string, cid: string) {
     closeCtxMenu()
     // 混合架构：右键菜单操作时整页刷新，确保 URL 与内容一致
     if (action === 'archive') {
       setModal({ type: 'archive', cid })
     } else if (action === 'child') {
       setModal({ type: 'child', parentId: cid })
+    } else if (action === 'pin') {
+      showToast('正在置顶...', 'info')
+      try {
+        await api.pinConversation(cid)
+        window.location.reload()
+      } catch (err) {
+        showToast(err instanceof ApiError ? err.message : '置顶失败', 'error')
+      }
+    } else if (action === 'unpin') {
+      showToast('正在取消置顶...', 'info')
+      try {
+        await api.unpinConversation(cid)
+        window.location.reload()
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 403) {
+          showToast('系统对话不可取消置顶', 'error')
+        } else {
+          showToast(err instanceof ApiError ? err.message : '取消置顶失败', 'error')
+        }
+      }
     } else {
       window.location.href = `/conversation/${cid}`
     }
@@ -971,6 +992,7 @@ function ConversationPage() {
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+            <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
             <div onClick={() => ctxAction('archive', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status !== 'archived' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
             <div onClick={() => ctxAction('child', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">创建子对话</div>
           </div>

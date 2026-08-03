@@ -13,6 +13,7 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
     id: conv.id,
     title: conv.title,
     status: conv.status,
+    pinned: conv.pinned,
     createdAt: conv.createdAt,
     updatedAt: conv.updatedAt,
     completedAt: conv.completedAt,
