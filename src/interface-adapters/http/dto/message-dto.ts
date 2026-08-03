@@ -2,11 +2,10 @@ import type { Message, MessageEvent } from "@entities/conversation/message";
 import type {
   MessageDTO,
   MessageEventDTO,
-  MessageSearchResultDTO,
 } from "@contract/api/message";
 
 export type { MessageDTO, MessageEventDTO };
-export type { SendMessageRequestDTO, MessageListResponseDTO, MessageSearchResultDTO, UnreadStateDTO, MarkReadResponseDTO, MarkReadRequestDTO } from "@contract/api/message";
+export type { SendMessageRequestDTO, MessageListResponseDTO, UnreadStateDTO, MarkReadResponseDTO, MarkReadRequestDTO } from "@contract/api/message";
 
 /** 计算消息持续时间 */
 function duration(createdAt: string, completedAt: string | null): string | null {
@@ -46,19 +45,4 @@ export function toMessageEventDTO(evt: MessageEvent): MessageEventDTO {
   };
 }
 
-/** 搜索结果 DTO（精简字段，复用 toMessageDTO 的字段映射逻辑） */
-export function toMessageSearchResultDTO(
-  msg: Message,
-  senderName?: string,
-): MessageSearchResultDTO {
-  const dto = toMessageDTO(msg, senderName);
-  return {
-    id: dto.id,
-    seq: dto.seq,
-    content: dto.content ?? "",
-    st: dto.st,
-    ...(dto.sn !== undefined && { sn: dto.sn }),
-    ts: dto.ts,
-    turnId: dto.turnId,
-  };
-}
+/** 搜索结果 DTO 已移除（搜索能力与分页冲突，完整移除） */

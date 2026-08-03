@@ -2,7 +2,7 @@
 
 ## 概述
 
-完整重建对话消息展示机制，解决进入会话停在顶部、无分页、无未读定位、无搜索等问题。引入 react-virtuoso 虚拟滚动、双向游标分页、消息级未读追踪、FTS5 搜索跳转，支撑成百上千条消息的流畅交互。
+完整重建对话消息展示机制，解决进入会话停在顶部、无分页、无未读定位等问题。引入 react-virtuoso 虚拟滚动、双向游标分页、消息级未读追踪，支撑成百上千条消息的流畅交互。
 
 ## 背景
 
@@ -14,12 +14,13 @@
 4. **轮询吞历史**：`mergeMessages`（message-stream.ts:52 注释"窗口外终态可丢弃"）在用户 prepend 历史后会静默丢弃
 5. **无新消息提示**：查看历史时新消息静默追加，无"新消息 N 条"浮窗
 6. **无未读定位**：后端有 turn 级已读（给 otter agent 用），但 Web 用户无已读追踪
-7. **无搜索**：后端 FTS5 已实现但只给 agent 工具用，无 HTTP 端点
-8. **permalink 失效**：`getElementById('msg-${id}')` 找不到元素（MessageList 没设 DOM id），`.highlight-message` CSS 未定义
+7. **permalink 失效**：`getElementById('msg-${id}')` 找不到元素（MessageList 没设 DOM id），`.highlight-message` CSS 未定义
 
 ### 需求
 
-一次性建立完整的、长期正确的消息展示机制：进入展示最新、向上拉分页加载历史、查看历史时新消息提示可跳转、未读定位、消息搜索。消息量会成百上千，不考虑浏览器兼容性。
+一次性建立完整的、长期正确的消息展示机制：进入展示最新、向上拉分页加载历史、查看历史时新消息提示可跳转、未读定位。消息量会成百上千，不考虑浏览器兼容性。
+
+**搜索能力明确排除**：虚拟滚动下浏览器 Ctrl+F 失效（视口外消息不渲染），应用级搜索需要 expand 跳转路径加载未命中消息上下文——这条路径与分页天然冲突，是 bug 集中点，且使用场景低频。引入不成比例的复杂度，故移除（后端 FTS5 仍保留给 agent 工具，未读定位的 expand 端点保留）。
 
 ## 架构决策
 
@@ -53,7 +54,6 @@ CREATE TABLE conversation_user_read_state (
 
 **新增 HTTP 端点**：
 - `GET /api/conversations/:id/messages/after?after=&limit=` — after 游标向下分页（复用 getMessagesAfter）
-- `GET /api/conversations/:id/messages/search?q=&limit=` — FTS5 搜索（复用 searchMessages）
 - `GET /api/conversations/:id/unread` — 未读状态（firstUnread + count）
 - `POST /api/conversations/:id/read` — 标记已读（MAX 只前进不后退）
 - `GET /api/messages/:id/expand?direction=&count=` — 加载目标消息上下文（复用 expandMessage）
@@ -83,7 +83,7 @@ CREATE TABLE conversation_user_read_state (
 
 **未读定位**：进入会话查 `getUnreadState`；未读在窗口内定位 + 分隔线；不在窗口（大量未读）用 `expandMessage` 加载未读附近；`rangeChanged` debounce 500ms 标记已读，清除分隔线 + 更新列表 badge
 
-**搜索跳转**：已加载 `scrollToIndex` + 高亮 2s；未加载 `expandMessage` 替换列表后定位
+**permalink 跳转**（定时任务"查看消息"）：已加载消息 `scrollToIndex` + 高亮 2s（搜索能力已移除，未加载消息不处理）
 
 ## 对抗审视修正
 
@@ -102,4 +102,4 @@ CREATE TABLE conversation_user_read_state (
 - 后端 tsc --noEmit 通过
 - 前端 tsc --noEmit + vite build 通过
 - 全量测试 826 passed（65 files）
-- 边界场景：1000+ 条滚动、动态高度（代码块+表格+HtmlCard）、流式状态流转、搜索命中最旧消息、空会话首条消息、连续快速上滚、切换会话重置、标记已读后切回、expand 后双向分页
+- 边界场景：1000+ 条滚动、动态高度（代码块+表格+HtmlCard）、流式状态流转、空会话首条消息、连续快速上滚、切换会话重置、标记已读后切回、expand 后双向分页

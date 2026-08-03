@@ -4,7 +4,6 @@ import type {
   CreateConversationRequestDTO,
   MessageDTO,
   MessageListResponseDTO,
-  MessageSearchResultDTO,
   UnreadStateDTO,
   MarkReadResponseDTO,
   MessageEventDTO,
@@ -73,12 +72,6 @@ export function listMessages(conversationId: string, limit = 50, before?: string
 export function listMessagesAfter(conversationId: string, after: string, limit = 50): Promise<MessageListResponseDTO> {
   const qs = new URLSearchParams({ after, limit: String(limit) })
   return request(`/conversations/${conversationId}/messages/after?${qs}`)
-}
-
-/** 消息搜索（FTS5） */
-export function searchMessages(conversationId: string, query: string, limit = 10): Promise<MessageSearchResultDTO[]> {
-  const qs = new URLSearchParams({ q: query, limit: String(limit) })
-  return request(`/conversations/${conversationId}/messages/search?${qs}`)
 }
 
 /** 未读状态 */

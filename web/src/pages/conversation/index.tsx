@@ -313,7 +313,7 @@ function ConversationPage() {
   }, [activeId, allMessages, firstItemIndex, unreadState])
 
   /** 跳转到消息：已加载则 scrollToIndex，未加载则 expand 加载后定位；高亮 2s */
-  const handleJumpToMessage = useCallback(async (messageId: string) => {
+  const handleJumpToMessage = useCallback((messageId: string) => {
     if (!activeId) return
     const msgs = allMessages[activeId] || []
     const targetIndex = msgs.findIndex(m => m.id === messageId)
@@ -321,21 +321,6 @@ function ConversationPage() {
       virtuosoRef.current?.scrollToIndex({ index: firstItemIndex + targetIndex, behavior: 'smooth', align: 'center' })
       setHighlightMessageId(messageId)
       setTimeout(() => setHighlightMessageId(null), 2000)
-    } else {
-      const expanded = await api.expandMessage(messageId, 'both', 25)
-      const expandedMsgs = mapMessagesCore(expanded)
-      setAllMessages(prev => ({ ...prev, [activeId]: expandedMsgs }))
-      setFirstItemIndex(FIRST_ITEM_INDEX_BASE)
-      setHasMoreBefore(true)
-      setHasMoreAfter(true)
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        const idx = expandedMsgs.findIndex(m => m.id === messageId)
-        if (idx >= 0) {
-          virtuosoRef.current?.scrollToIndex({ index: FIRST_ITEM_INDEX_BASE + idx, behavior: 'smooth', align: 'center' })
-          setHighlightMessageId(messageId)
-          setTimeout(() => setHighlightMessageId(null), 2000)
-        }
-      }))
     }
   }, [activeId, allMessages, firstItemIndex])
 
@@ -952,7 +937,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} onJumpToMessage={handleJumpToMessage} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}

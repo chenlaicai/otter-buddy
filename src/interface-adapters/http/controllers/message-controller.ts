@@ -9,7 +9,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { handleError, param } from "../http-error";
-import { toMessageDTO, toMessageEventDTO, toMessageSearchResultDTO } from "../dto/message-dto";
+import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 
@@ -326,24 +326,6 @@ export class MessageController {
       }
       this.agentInvoker.abort(msg.senderId, id);
       return c.json({ status: "aborted" }, 202);
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  /** 搜索消息（FTS5 trigram，复用 searchMessages use case） */
-  async search(c: Context): Promise<Response> {
-    try {
-      const conversationId = param(c, "id");
-      const q = c.req.query("q") ?? "";
-      const rawLimit = Number(c.req.query("limit") ?? "10");
-      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 10;
-      if (!q) {
-        return c.json([]);
-      }
-      const messages = await this.queryMessage.searchMessages(conversationId, q, limit);
-      const senderNames = await this.resolveSenderNames(messages);
-      return c.json(messages.map((msg) => toMessageSearchResultDTO(msg, senderNames.get(msg.senderId))));
     } catch (err) {
       return handleError(c, err, this.logger);
     }

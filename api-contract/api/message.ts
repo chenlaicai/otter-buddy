@@ -43,17 +43,6 @@ export interface MessageListResponseDTO {
   hasMore: boolean;
 }
 
-/** 消息搜索结果 DTO（精简字段，不含 events/dur/ctx） */
-export interface MessageSearchResultDTO {
-  id: string;
-  seq: number;
-  content: string;
-  st: string;
-  sn?: string;
-  ts: string;
-  turnId: string;
-}
-
 /** 未读状态 DTO */
 export interface UnreadStateDTO {
   lastReadSeq: number;
