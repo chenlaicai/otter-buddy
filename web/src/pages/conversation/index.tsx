@@ -725,7 +725,7 @@ function ConversationPage() {
         await api.pinConversation(cid)
         window.location.reload()
       } catch (err) {
-        showToast((err as Error).message ?? '置顶失败', 'error')
+        showToast((err as Error).message || '置顶失败', 'error')
       }
     } else if (action === 'unpin') {
       try {
@@ -735,7 +735,7 @@ function ConversationPage() {
         if ((err as { status?: number }).status === 403) {
           showToast('系统对话不可取消置顶', 'error')
         } else {
-          showToast((err as Error).message ?? '取消置顶失败', 'error')
+          showToast((err as Error).message || '取消置顶失败', 'error')
         }
       }
     } else {

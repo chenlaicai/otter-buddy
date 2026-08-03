@@ -2,6 +2,7 @@
  * F20260728htar 一次性补丁测试：
  * (a) messages_fts_stripped_rebuild：存量 FTS 重建为剥离投影（settings 幂等键）
  * (b) attachments_drop_column：messages 表 DROP COLUMN attachments（PRAGMA 探测幂等）
+ * F20260803pncv：addPinnedColumn — conversations 表添加 pinned 列（PRAGMA 探测幂等）
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
@@ -105,6 +106,37 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
 
       const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
       expect(columns.some(c => c.name === "attachments")).toBe(false);
+    });
+  });
+
+  describe("addPinnedColumn", () => {
+    it("旧库升级：conversations 表无 pinned 列时，migrateDatabase 添加该列且默认值为 0", () => {
+      /** 模拟旧库：initSchema 建的表已含 pinned，先 DROP 模拟升级前状态 */
+      db.prepare("ALTER TABLE conversations DROP COLUMN pinned").run();
+
+      const beforeColumns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+      expect(beforeColumns.some(c => c.name === "pinned")).toBe(false);
+
+      migrateDatabase(db, mockLogger());
+
+      const afterColumns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string; dflt_value: string | null; notnull: number }>;
+      const pinnedCol = afterColumns.find(c => c.name === "pinned");
+      expect(pinnedCol).toBeDefined();
+      expect(pinnedCol!.dflt_value).toBe("0");
+      expect(pinnedCol!.notnull).toBe(1);
+
+      /** 验证默认值：插入一条记录，pinned 应为 0 */
+      db.prepare("INSERT INTO conversations (id, title) VALUES ('conv-test', '测试')").run();
+      const row = db.prepare("SELECT pinned FROM conversations WHERE id = 'conv-test'").get() as { pinned: number };
+      expect(row.pinned).toBe(0);
+    });
+
+    it("幂等：已有 pinned 列的库，migrateDatabase 不报错", () => {
+      /** initSchema 已创建 pinned 列，直接 migrate 不应抛错 */
+      expect(() => migrateDatabase(db, mockLogger())).not.toThrow();
+
+      const columns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+      expect(columns.some(c => c.name === "pinned")).toBe(true);
     });
   });
 });
