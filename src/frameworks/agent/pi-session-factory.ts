@@ -29,6 +29,7 @@ import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-inv
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig, ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import { config as appConfig } from "@frameworks/config";
+import type { ModelConfig } from "@frameworks/config";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { loadPromptFile } from "./prompt-loader";
@@ -149,7 +150,10 @@ export class PiSessionFactory implements AgentGateway {
   /** 待注入身份的 otter（create/reset 后标记，注入成功才消费；进程重启丢失由 createdNew 兜底。已知边界：首次注入被 abort 时重试会重复注入一次，罕见无害，有意不处理） */
   private readonly pendingIdentity = new Set<string>();
   /** pi-coding-agent ModelRuntime 最小接口（SDK ESM-only，无法直接导入类型） */
-  private modelRuntime: { setRuntimeApiKey(provider: string, key: string): Promise<void> } | null = null;
+  private modelRuntime: {
+    setRuntimeApiKey(provider: string, key: string): Promise<void>;
+    registerProvider(providerId: string, config: Record<string, unknown>): void;
+  } | null = null;
   private otterToolClient: OtterToolClient;
 
   constructor(
@@ -228,16 +232,15 @@ export class PiSessionFactory implements AgentGateway {
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
       const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
-      this.modelRuntime = await ModelRuntimeClass.create() as { setRuntimeApiKey(provider: string, key: string): Promise<void> };
+      this.modelRuntime = await ModelRuntimeClass.create() as {
+        setRuntimeApiKey(provider: string, key: string): Promise<void>;
+        registerProvider(providerId: string, config: Record<string, unknown>): void;
+      };
 
-      // 多模型模式：遍历所有模型设置 API key
+      // 多模型模式：遍历所有模型注册 provider + 设置 API key
       if (this.cfg.modelPool) {
-        const entries = this.cfg.modelPool.getAllEntries();
-        for (const entry of entries) {
-          if (entry.config.apiKey && this.modelRuntime) {
-            await this.modelRuntime.setRuntimeApiKey(entry.alias, entry.config.apiKey);
-            this.logger.info(`Set runtime API key for alias=${entry.alias}`);
-          }
+        for (const entry of this.cfg.modelPool.getAllEntries()) {
+          await this._registerRuntimeModel(entry.alias, entry.config, entry.model);
         }
       } else {
         // 单模型模式：兼容旧逻辑
@@ -249,6 +252,45 @@ export class PiSessionFactory implements AgentGateway {
       }
     }
     return this.piCodingAgent;
+  }
+
+  /**
+   * 把一个模型条目注册进 ModelRuntime。
+   * 自定义 alias 必须注册进 ModelRuntime 的 provider 注册表：
+   * AgentSession 鉴权走 modelRuntime.getAuth()，对未知 provider 直接返回 undefined
+   * （报 "No API key found for <alias>"），即使已 setRuntimeApiKey 也查不到。
+   * alias 与内置 provider 同名时跳过注册（内置 provider 天然在注册表中）。
+   */
+  private async _registerRuntimeModel(alias: string, config: ModelConfig, model: unknown): Promise<void> {
+    if (!this.modelRuntime) return;
+    if (alias !== config.provider) {
+      const m = model as {
+        id: string; name?: string; reasoning?: boolean; input?: string[];
+        cost?: unknown; contextWindow?: number; maxTokens?: number;
+        thinkingLevelMap?: unknown; compat?: unknown;
+      };
+      this.modelRuntime.registerProvider(alias, {
+        baseUrl: config.apiBaseUrl,
+        apiKey: config.apiKey,
+        api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
+        models: [{
+          id: m.id,
+          name: m.name ?? m.id,
+          reasoning: m.reasoning ?? false,
+          thinkingLevelMap: m.thinkingLevelMap,
+          input: m.input ?? ["text"],
+          cost: m.cost,
+          contextWindow: m.contextWindow,
+          maxTokens: m.maxTokens,
+          compat: m.compat,
+        }],
+      });
+      this.logger.info(`Registered runtime provider for alias=${alias}`);
+    }
+    if (config.apiKey) {
+      await this.modelRuntime.setRuntimeApiKey(alias, config.apiKey);
+      this.logger.info(`Set runtime API key for alias=${alias}`);
+    }
   }
 
   /** create() 外部版本（带锁） */
