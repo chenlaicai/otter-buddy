@@ -17,6 +17,7 @@ import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
+import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
@@ -587,6 +588,7 @@ async function initDatabaseAndModels() {
   migrateExistingData(db, otterConfigProvider, logger);
 
   const { model, modelPool } = await initModels(appConfig.llm, logger);
+  ensureBgeM3Model(appConfig.embedding, logger);
   const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
 
   return { db, otterConfigProvider, model, modelPool, embeddingService, dispose };
@@ -659,6 +661,7 @@ async function main(): Promise<void> {
     port: appConfig.server.port,
     dbPath: appConfig.db.path,
     embeddingModelPath: appConfig.embedding.modelPath,
+    embeddingLocalModelPath: appConfig.embedding.localModelPath,
     embeddingDim: appConfig.embedding.dimensions,
   };
 

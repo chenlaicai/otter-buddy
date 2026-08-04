@@ -71,6 +71,8 @@ describe("loadConfig", () => {
     expect(cfg.db.path).toBe("./otter-buddy.db");
     expect(cfg.memory.rrfK).toBe(60);
     expect(cfg.embedding.dimensions).toBe(1024);
+    expect(cfg.embedding.modelPath).toBe("Xenova/bge-m3");
+    expect(cfg.embedding.localModelPath).toBeUndefined();
     expect(cfg.circuitBreaker.maxToolCalls).toBe(40);
     expect(cfg.circuitBreaker.maxChainDepth).toBe(100);
   });
@@ -122,6 +124,29 @@ describe("loadConfig", () => {
     expect(cfg.memory.rrfK).toBe(100);
     expect(cfg.embedding.dimensions).toBe(512);
     expect(cfg.circuitBreaker.maxToolCalls).toBe(10);
+  });
+
+  it("parses embedding.localModelPath when set", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  provider: openai\n  model: gpt-4o\nembedding:\n  dimensions: 1024\n  modelPath: bge-m3\n  localModelPath: ./models\n",
+    );
+
+    const cfg = loadConfig();
+    expect(cfg.embedding.modelPath).toBe("bge-m3");
+    expect(cfg.embedding.localModelPath).toBe("./models");
+  });
+
+  it("defaults modelPath to bge-m3 when localModelPath set but modelPath omitted", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  provider: openai\n  model: gpt-4o\nembedding:\n  localModelPath: ./models\n",
+    );
+
+    const cfg = loadConfig();
+    // 本地模式默认 modelPath 为目录名（models/bge-m3/），而非远程 repo id
+    expect(cfg.embedding.modelPath).toBe("bge-m3");
+    expect(cfg.embedding.localModelPath).toBe("./models");
   });
 });
 

@@ -5,6 +5,8 @@ export interface SettingsDTO {
   port: number;
   dbPath: string;
   embeddingModelPath: string;
+  /** 本地模型根目录。设置后走本地加载，未设置走远程下载 */
+  embeddingLocalModelPath?: string;
   embeddingDim: number;
 }
 
