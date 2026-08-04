@@ -186,11 +186,24 @@ function MemorySearchPage() {
   return (
     <AppLayout activeView="memory">
       {health && !health.healthy && (
-        <div className="mx-3 mt-3 rounded-xl border border-amber-300/60 bg-amber-50/80 px-4 py-2.5 text-sm text-amber-800 flex items-center gap-2">
-          <span className="font-medium">记忆系统降级：</span>
-          {health.reconcileGaps.length > 0 && <span>{health.reconcileGaps.length} 个文档未入库；</span>}
-          {!health.embeddingAvailable && <span>语义检索不可用；</span>}
-          <span className="text-amber-600">搜索结果可能不完整</span>
+        <div className="mx-3 mt-3 rounded-xl border border-amber-300/60 bg-amber-50/80 px-4 py-2.5 text-sm text-amber-800 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">记忆系统降级：</span>
+            {health.reconcileGaps.length > 0 && <span>{health.reconcileGaps.length} 个文档未入库；</span>}
+            {!health.embeddingAvailable && <span>语义检索不可用；</span>}
+            <span className="text-amber-600">搜索结果可能不完整</span>
+          </div>
+          {health.gapReasons && health.gapReasons.length > 0 && (
+            <ul className="text-xs text-amber-700 space-y-0.5 mt-1 max-h-40 overflow-y-auto">
+              {health.gapReasons.map(r => (
+                <li key={r.id} className="font-mono">
+                  <span className="font-semibold">{r.id}</span>
+                  <span className="text-amber-500"> — </span>
+                  {r.errors.join('; ') || '未知原因'}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       <div className="flex flex-1 overflow-hidden p-3 gap-3">

@@ -13,12 +13,19 @@ causal_links:
     - F20260803frmt   # frontmatter-backfill：F20260803vmsg 缺 frontmatter 是该批回填遗漏
   to: []
 
-status: shipped
+status: implemented
 change_type: fix
 tags: [memory, sync, frontmatter, convention, observability, json-import, reconcile-gap]
 modules:
   - src/frameworks/embedding/ensure-model.ts
   - src/usecases/document/sync-documents.ts
+  - src/usecases/document/disk-id-scanner.ts
+  - src/interface-adapters/http/controllers/health-controller.ts
+  - web/src/api/client.ts
+  - web/src/pages/memory/index.tsx
+  - scripts/lint-docs.mjs
+  - .githooks/pre-commit
+  - package.json
   - docs/README.md
 ---
 
@@ -163,11 +170,70 @@ docs/research/2026/07/28/R20260728c5xt-*.md  ✓
 
 ## 设计反思：为什么这套问题能存在至今
 
-1. **health 端点报 gap 但不报原因**。设计上只暴露**症状**（X 个未入库），不暴露**根因**（哪份文档违反什么规则）。用户看到 banner 不知道是什么、为什么、怎么修。本次只补了 sync 日志层；后续可考虑 health 端点直接带 `gapReasons` 字段。
-2. **创建期无校验**。validator 是后置兜底，不是前置引导。LLM 写文档靠记忆/惯例，约束散落在代码里没有文档化的真相源。docs/README.md 解决的就是这一条。
-3. **F20260803vmsg 的隐藏 bug**：`parseFrontmatterFromContent` 抛 "Missing frontmatter" 时，`collectDiskIds` 也用同一份扫描逻辑，但它在 try/catch 里吞掉异常。结果是：缺 frontmatter 的文档既不在 DB 里，也不在 disk ID 集合里——双重消失。本次通过补 frontmatter 绕过；后续可让 `collectDiskIds` 用更宽松的扫描（正则提 id）独立于 frontmatter 解析。
+1. **health 端点报 gap 但不报原因**。设计上只暴露**症状**（X 个未入库），不暴露**根因**（哪份文档违反什么规则）。用户看到 banner 不知道是什么、为什么、怎么修。本次补了 `gapReasons` 字段 + 前端展开列表。
+2. **创建期无校验**。validator 是后置兜底，不是前置引导。LLM 写文档靠记忆/惯例，约束散落在代码里没有文档化的真相源。docs/README.md + lint:docs pre-commit hook 解决的就是这一条。
+3. **F20260803vmsg 的隐藏 bug**：`parseFrontmatterFromContent` 抛 "Missing frontmatter" 时，`collectDiskIds` 也用同一份扫描逻辑，但它在 try/catch 里吞掉异常。结果是：缺 frontmatter 的文档既不在 DB 里，也不在 disk ID 集合里——双重消失。本次抽共享 scanner 走文件名兜底修掉。
 
-Follow-up（不在本 PR）：
-- health 端点补 `gapReasons`
-- `collectDiskIds` 与 `parseFrontmatterFromContent` 解耦
-- 可选：pre-commit hook 跑 validator，把反馈从运行时推到 commit 时
+Follow-up（原计划留给后续 PR，本次一并清掉）：
+
+### Follow-up 1：health 端点补 `gapReasons`
+
+`HealthController.memory` 对每个 gap ID 反查文件路径，跑 validator 拿失败原因，返回 `gapReasons: [{id, file, errors}]`。前端 `memory/index.tsx` banner 改成可展开列表，直接显示每个 gap 的具体违规（不再只看"8 个文档未入库"猜原因）。
+
+### Follow-up 2：`collectDiskIds` 与 `parseFrontmatterFromContent` 解耦
+
+抽 `src/usecases/document/disk-id-scanner.ts` 作为共享 scanner：
+- 优先用 frontmatter（单一真相源）
+- frontmatter 缺失/损坏时走**文件名正则兜底**（`F\d{8}[a-z0-9]{3,8}` / `R\d{8}[a-z0-9]{3,8}`）
+- 返回 `Map<id, filepath>` 让 health 端点能反查文件做二次校验
+
+`SyncDocuments.collectDiskIds` 和 `HealthController.collectDiskIds` 都改为委托给共享 scanner，消除两处实现分裂。缺 frontmatter 的文档现在会出现在 `reconcileGaps` 里（不再双重消失）。
+
+### Follow-up 3：`lint:docs` + pre-commit hook
+
+`scripts/lint-docs.mjs`：复用 dist/ 里编译好的 validator + parser（不重复规则），扫 `docs/features` + `docs/research` 全量校验。退出码 0/1，违规阻断 commit。
+
+`package.json` 加 `lint:docs` 脚本；`.githooks/pre-commit` 在 `npm run check` 后追加 `npm run lint:docs`。反馈链路：**写完文档 -> commit -> 立刻知道违规**，从运行时（启动 sync）推到 commit 时。
+
+顺手修了 4 份文档的枚举值违规（`change_type: bugfix` -> `fix`、`status: shipped` -> `implemented`、`change_type: feat` -> `feature`）--这些是 F20260803mval 决策 5"bugfix 统一为 fix"的漏网之鱼，lint:docs 一跑就暴露了。
+
+## 验证
+
+### summary 长度全量校验
+
+```
+455 F20260725otid
+141 F20260727ui6x
+396 F20260803chunk
+394 F20260803emlo
+357 F20260803fbit
+```
+
+全部 ≤ 500。
+
+### lint:docs 全量通过
+
+```
+[lint:docs] 96 docs OK
+```
+
+0 errors, 0 warnings。
+
+### 端到端 health
+
+```
+healthy: true
+documentsOnDisk: 95 | documentsInDb: 95
+reconcileGaps: []
+gapReasons: []
+embeddingAvailable: true
+```
+
+### JSON import
+
+`npm run build` tsc --noEmit 通过；启动时不再抛 `ERR_IMPORT_ATTRIBUTE_MISSING`。
+
+## 后续可能改进（不在本 PR）
+
+- `gapReasons` 字段已暴露但前端 banner 当前只在 `!healthy` 时显示。可加一个"查看详情"展开控件，长列表折叠。
+- `lint:docs` 当前依赖 dist/ 已构建。可考虑用 `tsx` 直接跑 TS 源，去掉对 build 顺序的依赖（但会增加一个 devDep）。

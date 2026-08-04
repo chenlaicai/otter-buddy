@@ -10,8 +10,8 @@ causal_links:
   from: []
   to: []
 
-status: shipped
-change_type: feat
+status: implemented
+change_type: feature
 tags: [web, conversation, message, virtual-scroll, react-virtuoso, pagination, unread, sse, cqrs]
 modules:
   - web/src/pages/conversation/MessageList.tsx

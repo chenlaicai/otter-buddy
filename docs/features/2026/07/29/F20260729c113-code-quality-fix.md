@@ -11,7 +11,7 @@ summary: |
   DetailLevel 类型定义重复。按风险分三批修复。
 
 status: final
-change_type: bugfix
+change_type: fix
 tags: [code-quality, bugfix, architecture, cleanup, error-handling]
 modules:
   - src/usecases/conversation/send-message.ts

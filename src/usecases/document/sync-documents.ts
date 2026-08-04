@@ -17,6 +17,7 @@ import {
 } from "@entities/document/known-values";
 import { cleanMarkdownForFts } from "./markdown-noise-cleaner";
 import { chunkMarkdown } from "./markdown-chunker";
+import { scanDiskIds } from "./disk-id-scanner";
 
 export interface SyncResult {
   synced: number;
@@ -257,7 +258,8 @@ export class SyncDocuments {
     repo: { findAll(): Promise<T[]> },
     result: SyncResult,
   ): Promise<void> {
-    const diskIds = await this.collectDiskIds(rootDir, dir);
+    const diskIdMap = await scanDiskIds(this.fs, path.join(rootDir, dir));
+    const diskIds = new Set(diskIdMap.keys());
     const dbDocs = await repo.findAll();
     const dbIds = new Set(dbDocs.filter(d => d.status !== "archived").map(d => d.id));
     // F20260803mval: supersedes 引用检查用全量 ID（含 archived），归档文档作为引用目标仍合法（B5）
@@ -276,21 +278,10 @@ export class SyncDocuments {
 
   /** 扫描磁盘文档提取 ID 集合（对账用，独立于 syncFile 避免共享盲区） */
   private async collectDiskIds(rootDir: string, dir: string): Promise<Set<string>> {
-    const fullPath = path.join(rootDir, dir);
-    const files = await this.scanMarkdownFiles(fullPath);
-    const ids = new Set<string>();
-    for (const file of files) {
-      try {
-        const content = await this.fs.readFile(file);
-        const { frontmatter } = parseFrontmatterFromContent(content);
-        if (frontmatter.id && typeof frontmatter.id === "string") {
-          ids.add(frontmatter.id as string);
-        }
-      } catch {
-        // 解析失败的文件已在 syncFile 记 errors，此处跳过
-      }
-    }
-    return ids;
+    // F20260804dcnv: 委托给共享 scanner（frontmatter 解析失败时走文件名兜底，
+    // 避免缺 frontmatter 的文档双重消失）
+    const map = await scanDiskIds(this.fs, path.join(rootDir, dir));
+    return new Set(map.keys());
   }
 
   private async archiveDeletedDocuments(rootDir: string, result: SyncResult): Promise<void> {
