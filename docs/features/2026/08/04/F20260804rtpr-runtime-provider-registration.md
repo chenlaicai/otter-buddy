@@ -63,6 +63,11 @@ pi-coding-agent 0.81 的 `AgentSession._getRequiredRequestAuth()`（agent-sessio
 
 alias 与内置 provider 同名时跳过注册——内置 provider 本来就在注册表中，重复注册会用单模型列表覆盖内置模型全集，反而引入回归。
 
+另有两处健壮性加固（对抗审视第二轮发现）：
+
+- **初始化完成才缓存**：`ensurePiCodingAgent()` 原先先缓存 `this.piCodingAgent` 再执行注册循环，注册中途抛错会留下半初始化缓存态，后续调用直接命中缓存，provider 注册永久缺失直到进程重启。改为局部变量走完全部初始化后再赋值。
+- **baseUrl 兜底**：`registerProvider` 的 baseUrl 取 `config.apiBaseUrl ?? m.baseUrl`（pool model 的 baseUrl 由 models-factory template 兜底，总有值），消除 config 只配 apiKey 不配 apiBaseUrl 时 SDK 对"注册了 models 但无 baseUrl"的同步抛错。
+
 配套改动：`ModelPool.getAllEntries()` 返回值增加 `model` 字段（注册需要模型元数据），唯一调用方就是 ensurePiCodingAgent。
 
 ## 验证
@@ -79,4 +84,6 @@ alias 与内置 provider 同名时跳过注册——内置 provider 本来就在
 - 注册进 runtime 的模型列表只有 pool 里那一个模型；SDK 交互式 `/model` 列表不代表完整可用集，但本系统不走交互式模型选择，无影响。
 - **覆盖面边界（预先存在，本 PR 未改）**：models-factory 只在 model id 不在内置 dict 时才以 alias 覆写 provider 字段（models-factory.ts:95-112）。若 alias 配置的是 dict 已知模型（如 `gpt-4o`），pool model.provider 保持内置 id，鉴权走内置 provider，alias 下的 runtime key 不被查阅——纯 config.yaml 配 key（无对应环境变量）时仍会报 "No API key found"。mimo/kimi 均不在 dict 中，本 PR 报告的场景已覆盖；dict 已知模型 + 自定义 alias 的组合留待后续。
 - **env 兜底不生效（预先存在）**：models-factory 的 auth 有 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 环境变量兜底（models-factory.ts:43-61），但 runtime 侧注册只接受 config.yaml 的 apiKey。自定义 alias + 不配 apiKey 只靠 env 的配置在本修复后仍会鉴权失败。
+- **病态 alias 命名**：跳过注册的条件是 `alias !== config.provider`（自身内置 id）。若 alias 刻意撞上**另一个**内置 id（如 `alias: "openai"` 配 `provider: anthropic`），extension 注册会 overlay 到该内置 provider 上，把 runtime 注册表中它的模型全集缩成单模型。需用户刻意取误导性 alias，概率极低，不防护。
+- `_registerRuntimeModel` 本身（api 映射、跳过分支、baseUrl 兜底链）无单测覆盖：pi-session-factory 无现有测试 harness，为私有方法新建脚手架超出本 PR 范围，留待后续。
 

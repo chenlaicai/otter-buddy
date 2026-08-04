@@ -209,11 +209,13 @@ export class PiSessionFactory implements AgentGateway {
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     if (!this.piCodingAgent) {
-      this.piCodingAgent = await loadPiCodingAgent();
+      /** 先走完全部初始化再缓存：中途抛错（如 registerProvider 失败）不得留下
+       *  半初始化的缓存态，否则后续调用直接命中缓存、provider 注册永久缺失直到重启 */
+      const piCodingAgent = await loadPiCodingAgent();
 
       /** 创建 ResourceLoader：通过 SDK 原生协议注入 skills（替代手动拼接） */
       if (!this.resourceLoader) {
-        const { DefaultResourceLoader, getAgentDir } = this.piCodingAgent as unknown as {
+        const { DefaultResourceLoader, getAgentDir } = piCodingAgent as unknown as {
           DefaultResourceLoader: new (options: unknown) => ResourceLoader;
           getAgentDir: () => string;
         };
@@ -231,7 +233,7 @@ export class PiSessionFactory implements AgentGateway {
       }
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
-      const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
+      const ModelRuntimeClass = (piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
       this.modelRuntime = await ModelRuntimeClass.create() as {
         setRuntimeApiKey(provider: string, key: string): Promise<void>;
         registerProvider(providerId: string, config: Record<string, unknown>): void;
@@ -250,6 +252,8 @@ export class PiSessionFactory implements AgentGateway {
           this.logger.info(`Set runtime API key for ${llmConfig.provider}`);
         }
       }
+
+      this.piCodingAgent = piCodingAgent;
     }
     return this.piCodingAgent;
   }
