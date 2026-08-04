@@ -51,8 +51,13 @@ export class ManageKeyInfo {
   }
 
   private validateInput(input: LinkedResourceInput): void {
-    if (input.resourceType === "fact" && !input.content) {
-      throw new Error("fact 类型资源必须提供 content");
+    if (input.resourceType === "fact") {
+      if (!input.content) {
+        throw new Error("fact 类型资源必须提供 content");
+      }
+      if (input.content.length > 500) {
+        throw new Error("fact 类型资源的 content 不能超过 500 字符。长内容请先写入文件，再创建 file 类型资源指向文件路径。");
+      }
     }
     if (input.resourceType !== "fact" && !input.url) {
       throw new Error("非 fact 类型资源必须提供 url");

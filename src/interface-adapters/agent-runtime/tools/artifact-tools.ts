@@ -40,7 +40,8 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
 
       return textResponse(JSON.stringify(resources.map(r => ({
         id: r.id, resourceType: r.resourceType, url: r.url, title: r.title,
-        content: r.content, category: r.category, userFlagged: r.userFlagged,
+        content: r.content && r.content.length > 200 ? r.content.slice(0, 200) + "…(已截断)" : r.content,
+        category: r.category, userFlagged: r.userFlagged,
         status: r.status, groupId: r.groupId, linkedAtTurnNumber: r.linkedAtTurnNumber,
         statusChangedAtTurnNumber: r.statusChangedAtTurnNumber, supersededBy: r.supersededBy,
       }))));
