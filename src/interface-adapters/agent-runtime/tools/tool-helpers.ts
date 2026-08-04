@@ -10,8 +10,8 @@ export function textResponse(text: string): ToolResponse {
   return { content: [{ type: "text", text }], details: {} };
 }
 
-/** F20260804hcob: html-card 围栏匹配，排除 html-card-reply（回执围栏，不算卡片） */
-const HTML_CARD_FENCE = /```html-card(?!-reply)/;
+/** F20260804hcob: html-card 围栏匹配（``` 与 ~~~ 两种合法围栏，与渲染侧对齐），排除 html-card-reply（回执围栏，不算卡片） */
+const HTML_CARD_FENCE = /(?:```|~~~)html-card(?!-reply)/;
 
 /**
  * speak body 校验：返回错误文案（null 表示通过）。

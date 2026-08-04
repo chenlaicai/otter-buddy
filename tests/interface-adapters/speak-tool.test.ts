@@ -132,6 +132,19 @@ describe("speak 工具 html-card 位置校验", () => {
     expect(speakingCalls).toHaveLength(1);
   });
 
+  it("body 用 ~~~ 围栏（渲染侧合法卡片）：与 ``` 草稿混用时正常提交，不误拒", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
+      turnAssistantText: "```html-card title=\"草稿\"\n<div>draft</div>\n```",
+    });
+    const res = await speak.execute("c1", {
+      body: "方案：\n~~~html-card title=\"方案\"\n<div>final</div>\n~~~",
+      talkingStonePassedTo: ["user"],
+    });
+    expect(res.content[0].text).toContain("发言已提交成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+
   it("assistant 文本只有 html-card-reply 回执围栏：不误伤，正常提交", async () => {
     const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
       turnAssistantText: "我解析一下这张 ```html-card-reply 回执的内容。",

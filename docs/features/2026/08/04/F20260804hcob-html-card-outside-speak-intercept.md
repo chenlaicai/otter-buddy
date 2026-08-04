@@ -57,11 +57,11 @@ speak execute 闭包新增校验（`validateSpeakBody`，`tool-helpers.ts`）：
 
 ### 2. 本轮文本累积（检测能力）
 
-`ToolContext` 新增可选 `getTurnAssistantText: () => string`，由 `PiSessionFactory` 接线：
+`ToolContext` 新增可选 `getTurnAssistantText: () => string`，由 `PiSessionFactory` 接线（`updateTurnText`）：
 
-- 每次 invoke 创建 `turnText` 缓冲，`message_end` 事件中提取 assistant 文本块追加（`extractAssistantTextFromMessageEnd`，与 agent-invoker 的提取逻辑同构）
-- 时序依据：pi SDK 中 assistant 消息（含工具调用）的 `message_end` 先于该消息的工具执行触发，因此 speak execute 运行时缓冲已包含同消息的文本——正是失败模式现场
-- 缓冲按 invoke 隔离，speak retry 的新 invoke 拿到新缓冲，无跨轮串扰
+- 缓冲**按 assistant 消息隔离**：`message_start`（role=assistant）清零、`message_end` 追加文本块——检测范围收窄到"本条消息"。若按整个 invoke 累积，上一轮文本里的 stray 围栏会误拒后续所有无卡 speak，且无合规出口形成 livelock（对抗审视 H1）
+- 时序依据（已对照 SDK 源码验证）：pi-agent-core `agent-loop.js` 在 `message_end` emit 之后才 `executeToolCalls`，因此 speak execute 运行时缓冲已包含同消息文本——正是失败模式现场
+- `user`/`toolResult` 的 message_start 不清零、message_end 不累积
 
 ### 3. 契约补强（主手段）
 
@@ -70,22 +70,43 @@ speak description 两处修改：
 - "speak 之后的任何输出都不会被展示" → "speak 之外的任何输出（**之前或之后**）都不会进入消息，搭档看不到"
 - 【HTML 卡片】段新增硬规则："卡片围栏必须完整写在 body 参数内——写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用"
 
+`get_html_card_contract` 完整契约同步补充该强制规则（契约工具是唯一事实源，不能只改 description）。
+
 ## 验证
 
-- `tests/interface-adapters/speak-tool.test.ts` 新增 4 例：
+- `tests/interface-adapters/speak-tool.test.ts` 新增 5 例：
   1. 文本有围栏 + body 没有 → 拒绝、不提交、不 terminate，错误文案含 html-card/body 指引
   2. 文本有围栏 + body 也有 → 正常提交（不阻断合法用法：先起草后定稿）
-  3. 文本只有 `html-card-reply` → 不误伤
-  4. 未注入 `getTurnAssistantText` → 行为不变（向后兼容）
+  3. body 用 `~~~` 围栏（渲染侧合法）→ 与 ``` 草稿混用不误拒（围栏判定与渲染侧对齐）
+  4. 文本只有 `html-card-reply` → 不误伤
+  5. 未注入 `getTurnAssistantText` → 行为不变（向后兼容）
+- `tests/frameworks/agent/turn-text-buffer.test.ts` 接线层 6 例：message_start 清零（防 livelock）、message_end 累积、user/toolResult 不影响、同消息文本+speak 工具调用场景、assistantMessageEvent 包装形状、空内容边界
 - 全量 `vitest run` 通过；`eslint` 通过（validateSpeakBody 抽到 tool-helpers 以控制 execute 圈复杂度与文件行数）
+
+## 对抗审视记录
+
+PR 评审 agent 对照 pi-coding-agent SDK 源码逐条验证后 request changes，处置如下：
+
+| 发现 | 结论 | 处置 |
+|------|------|------|
+| H1 缓冲按 invoke 累积 → 误拒 + livelock | 成立 | 改为按 assistant 消息隔离（message_start 清零） |
+| M1 正则与渲染侧围栏判定不对称（`~~~` 漏匹配） | 成立 | 正则扩为 `(?:```\|~~~)html-card(?!-reply)`；行内提及误伤记入已知边界 |
+| M2 接线层零测试，SDK 改版会静默失效 | 成立 | 补 turn-text-buffer.test.ts 6 例 |
+| L1 healing event 在校验通过前落库，被拒会产生重复事件 | 成立但低危 | 记入已知边界，不改（拆分剥离/持久化收益不抵复杂度） |
+| L2 熔断器 steer 文案 "Call speak immediately" 与拒绝态矛盾 | 成立但低危 | 记录在案，不改（兜底场景本需人工介入） |
+| L3 F 文档"重试拿到新缓冲"表述不准 | 成立 | 本文档已修正 |
+| L4 契约工具未同步强制规则 | 成立 | html-card-contract-tool.ts 已补 |
+| 时序/事件形状两大假绿嫌疑 | **不成立** | SDK 源码验证 message_end 先于工具执行、载荷形状正确 |
+
+## 已知边界
+
+- 检测依赖 pi SDK `message_end` 先于工具执行的事件顺序；若 SDK 改版打乱顺序，拦截退化为"检测不到"（静默通过），不会误伤。接线测试（turn-text-buffer.test.ts）守住本仓库侧的形状假设，SDK 侧升级需回归验证。
+- 行内提及误伤：模型在文本里以行内代码形式讨论 ` ```html-card ` 语法（非围栏块），正则同样命中，若 body 无卡会被拒。判定逻辑与渲染侧（mdast `code.lang`）并非同一事实源，完全对齐需共享 mdast 解析，收益不抵复杂度，暂以正则为准。
+- 被拒绝的 speak 若携带 healing report，healing event 已在校验前落库（L1），重试再报会产生重复事件——低频且无害（管理工具可按 messageId 去重），暂不处理。
+- 只拦截 html-card 一类"文本 vs body"错位；模型把其他关键内容（如表格、长文）写在文本里而 body 只写摘要的泛化问题不在本特性范围——契约措辞的"speak 之外的输出搭档看不到"对该类问题同样起预防作用。
 
 ## 影响范围
 
 - 运行时行为变化仅一处：speak 在"文本有卡片而 body 没有"时从"静默成功"变为"拒绝 + 重试指引"。
 - 前端、DB schema、消息渲染管线零改动。
 - 顺带删了 pi-session-factory 一条冗余 debug 日志（`[execute] Building message`，与紧随的 `LLM request` info 日志重复）——为 max-statements 限额腾位。
-
-## 已知边界
-
-- 检测依赖 pi SDK `message_end` 先于工具执行的事件顺序；若 SDK 改版打乱顺序，拦截退化为"检测不到"（静默通过），不会误伤。
-- 只拦截 html-card 一类"文本 vs body"错位；模型把其他关键内容（如表格、长文）写在文本里而 body 只写摘要的泛化问题不在本特性范围——契约措辞的"speak 之外的输出搭档看不到"对该类问题同样起预防作用。

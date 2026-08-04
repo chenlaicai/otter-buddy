@@ -106,7 +106,7 @@ async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
 }
 
 /** F20260804hcob: 从 message_end 事件提取 assistant 文本块（与 agent-invoker 的提取逻辑同构；user/toolResult 不计） */
-function extractAssistantTextFromMessageEnd(e: AgentEvent): string {
+export function extractAssistantTextFromMessageEnd(e: AgentEvent): string {
   const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
   const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
   const role = msg?.role as string | undefined;
@@ -116,6 +116,23 @@ function extractAssistantTextFromMessageEnd(e: AgentEvent): string {
     .filter(c => c.type === "text")
     .map(c => String(c.text ?? ""))
     .join("\n");
+}
+
+/**
+ * F20260804hcob: 维护本轮 assistant 文本缓冲（speak 检测"卡片写在 speak 外"用）。
+ * 缓冲按 assistant 消息隔离：message_start（role=assistant）清零，message_end 追加——
+ * 检测范围收窄到"本条消息"，避免上一轮文本里的 stray 围栏误拒后续无卡 speak（甚至 livelock）。
+ */
+export function updateTurnText(turnText: { text: string }, e: AgentEvent): void {
+  if (e.type === "message_start") {
+    const msg = (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+    if (msg?.role === "assistant") turnText.text = "";
+    return;
+  }
+  if (e.type === "message_end") {
+    const text = extractAssistantTextFromMessageEnd(e);
+    if (text) turnText.text += (turnText.text ? "\n" : "") + text;
+  }
 }
 
 export class PiSessionFactory implements AgentGateway {
@@ -496,7 +513,7 @@ export class PiSessionFactory implements AgentGateway {
 
     // 1. 构建工具配置并创建 AgentSession
     this.logger.debug('[execute] Creating session with tools', { otterId });
-    /** F20260804hcob: 本轮 assistant 文本缓冲（message_end 累积），speak 检测"卡片写在 speak 外"用 */
+    /** F20260804hcob: 当前 assistant 消息的文本缓冲（按消息清零/累积），speak 检测"卡片写在 speak 外"用 */
     const turnText = { text: "" };
     const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
     this.logger.debug('[execute] Session created', { otterId, sessionKey });
@@ -627,10 +644,8 @@ export class PiSessionFactory implements AgentGateway {
       if (e.type === "tool_execution_start" && activeEntry) {
         activeEntry.toolCallCount++;
       }
-      /** F20260804hcob: message_end 先于本消息的工具执行触发，此时累积的文本即为 speak 之外的输出 */
-      if (e.type === "message_end" && turnText) {
-        turnText.text += extractAssistantTextFromMessageEnd(e);
-      }
+      /** F20260804hcob: message_start/end 维护本轮文本缓冲（message_end 先于本消息的工具执行触发） */
+      if (turnText) updateTurnText(turnText, e);
       if (e.type !== "message_update") {
         onEvent?.(e);
       }
