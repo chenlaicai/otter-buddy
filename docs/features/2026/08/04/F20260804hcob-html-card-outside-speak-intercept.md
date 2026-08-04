@@ -74,12 +74,13 @@ speak description 两处修改：
 
 ## 验证
 
-- `tests/interface-adapters/speak-tool.test.ts` 新增 5 例：
+- `tests/interface-adapters/speak-tool.test.ts` 新增 6 例：
   1. 文本有围栏 + body 没有 → 拒绝、不提交、不 terminate，错误文案含 html-card/body 指引
   2. 文本有围栏 + body 也有 → 正常提交（不阻断合法用法：先起草后定稿）
   3. body 用 `~~~` 围栏（渲染侧合法）→ 与 ``` 草稿混用不误拒（围栏判定与渲染侧对齐）
-  4. 文本只有 `html-card-reply` → 不误伤
-  5. 未注入 `getTurnAssistantText` → 行为不变（向后兼容）
+  4. 文本用 `~~~` 围栏写卡片 + body 没有 → 同样拒绝（text 侧围栏判定回归锁）
+  5. 文本只有 `html-card-reply` → 不误伤
+  6. 未注入 `getTurnAssistantText` → 行为不变（向后兼容）
 - `tests/frameworks/agent/turn-text-buffer.test.ts` 接线层 6 例：message_start 清零（防 livelock）、message_end 累积、user/toolResult 不影响、同消息文本+speak 工具调用场景、assistantMessageEvent 包装形状、空内容边界
 - 全量 `vitest run` 通过；`eslint` 通过（validateSpeakBody 抽到 tool-helpers 以控制 execute 圈复杂度与文件行数）
 
@@ -98,9 +99,12 @@ PR 评审 agent 对照 pi-coding-agent SDK 源码逐条验证后 request changes
 | L4 契约工具未同步强制规则 | 成立 | html-card-contract-tool.ts 已补 |
 | 时序/事件形状两大假绿嫌疑 | **不成立** | SDK 源码验证 message_end 先于工具执行、载荷形状正确 |
 
+**第二轮复审（整改验证）**：独立 agent 复核 SDK 源码后总评 approve with comments——H1 整改无失衡误拒风险（message_start 每条恰好一次、与 message_end 恒配对；失衡方向恒为漏检）、M1/M2/L4 到位，无新 Critical/High/Medium。两个 Low 顺手处理：检测收窄引入的漏检模式补入"已知边界"（下节首条）；text 侧 `~~~` 拒绝路径补直接回归用例（验证节第 4 例）。
+
 ## 已知边界
 
-- 检测依赖 pi SDK `message_end` 先于工具执行的事件顺序；若 SDK 改版打乱顺序，拦截退化为"检测不到"（静默通过），不会误伤。接线测试（turn-text-buffer.test.ts）守住本仓库侧的形状假设，SDK 侧升级需回归验证。
+- 检测范围收窄到"speak 所在的本条 assistant 消息"（防 livelock 的必要代价），两个由此产生的漏检模式：(a) 卡片写在同一 invoke 内**更早的** assistant 消息里 → 检测不到；(b) 被拒后模型重试 speak 时不再输出围栏文本、也不把卡片移入 body → 拦截静默放行，卡片彻底丢失但模型仍可能声称"已用卡片呈现"。两者方向都是漏检（fail-open），不会误伤。
+- 检测依赖 pi SDK `message_end` 先于工具执行的事件顺序（已对照 SDK 源码验证：assistant message_start 每条恰好一次且与 message_end 恒配对；失衡只发生在流异常"有 start 无 end"，结果为漏检，安全方向）；若 SDK 改版打乱顺序，拦截退化为"检测不到"（静默通过），不会误伤。接线测试（turn-text-buffer.test.ts）守住本仓库侧的形状假设，SDK 侧升级需回归验证。
 - 行内提及误伤：模型在文本里以行内代码形式讨论 ` ```html-card ` 语法（非围栏块），正则同样命中，若 body 无卡会被拒。判定逻辑与渲染侧（mdast `code.lang`）并非同一事实源，完全对齐需共享 mdast 解析，收益不抵复杂度，暂以正则为准。
 - 被拒绝的 speak 若携带 healing report，healing event 已在校验前落库（L1），重试再报会产生重复事件——低频且无害（管理工具可按 messageId 去重），暂不处理。
 - 只拦截 html-card 一类"文本 vs body"错位；模型把其他关键内容（如表格、长文）写在文本里而 body 只写摘要的泛化问题不在本特性范围——契约措辞的"speak 之外的输出搭档看不到"对该类问题同样起预防作用。

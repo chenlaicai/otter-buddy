@@ -145,6 +145,16 @@ describe("speak 工具 html-card 位置校验", () => {
     expect(speakingCalls).toHaveLength(1);
   });
 
+  it("assistant 文本用 ~~~ 围栏写卡片而 body 没有：同样拒绝", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
+      turnAssistantText: "方案如下：\n~~~html-card title=\"方案\"\n<div>x</div>\n~~~",
+    });
+    const res = await speak.execute("c1", { body: "方案已用卡片呈现。", talkingStonePassedTo: ["user"] });
+    expect(res.content[0].text).toContain("[错误]");
+    expect(res.terminate).toBeUndefined();
+    expect(speakingCalls).toHaveLength(0);
+  });
+
   it("assistant 文本只有 html-card-reply 回执围栏：不误伤，正常提交", async () => {
     const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
       turnAssistantText: "我解析一下这张 ```html-card-reply 回执的内容。",
