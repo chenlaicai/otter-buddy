@@ -189,7 +189,7 @@ function MemorySearchPage() {
         <div className="mx-3 mt-3 rounded-xl border border-amber-300/60 bg-amber-50/80 px-4 py-2.5 text-sm text-amber-800 flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <span className="font-medium">记忆系统降级：</span>
-            {health.reconcileGaps.length > 0 && <span>{health.reconcileGaps.length} 个文档未入库；</span>}
+            {health.reconcileGaps?.length > 0 && <span>{health.reconcileGaps.length} 个文档未入库；</span>}
             {!health.embeddingAvailable && <span>语义检索不可用；</span>}
             <span className="text-amber-600">搜索结果可能不完整</span>
           </div>

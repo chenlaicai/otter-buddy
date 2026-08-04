@@ -192,14 +192,14 @@ Follow-up（原计划留给后续 PR，本次一并清掉）：
 
 ```
 healthy: true
-documentsOnDisk: 95 | documentsInDb: 95
+documentsOnDisk: 96 | documentsInDb: 96
 reconcileGaps: []
 gapReasons: []
 embeddingAvailable: true
 ```
 
-数量差异说明（`documentsOnDisk` 计的是**唯一 ID 数**，不是 .md 文件数）：
-- 磁盘 .md 文件数：96（`find docs -name '*.md' | wc -l`）
+数量说明（`documentsOnDisk` 计的是**唯一 ID 数**，不是 .md 文件数）：
+- 磁盘 .md 文件数：96（`find docs/features docs/research -name '*.md' | wc -l`）
 - 唯一 ID 数：96--ID 冲突已修复（见下）
 - `lint:docs` 报 96，与 health 一致
 

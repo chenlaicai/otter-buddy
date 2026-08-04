@@ -69,7 +69,7 @@ summary: |
 ---
 id: F20260804xxxx
 title: kebab-case-title
-doc_type: feature
+doc_type: feature          # 信息性字段，validator 不校验；用于区分 feature/research
 
 summary: |
   一句话说改动是什么。
@@ -78,9 +78,9 @@ summary: |
 
 causal_links:
   from:
-    - F20260803xxxx   # 因果上游
+    - F20260803xxxx   # 因果上游（sync 读取，存入 DB metadata）
   to:
-    - F20260805xxxx   # 因果下游（可空）
+    - F20260805xxxx   # 文档约定，系统不自动维护反向引用；可空
 
 status: development      # draft / proposed / design / development / locked / final / implemented / archived
 change_type: feature     # feature / refactor / fix / prompt / feature-update
