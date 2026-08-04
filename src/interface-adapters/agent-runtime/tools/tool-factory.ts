@@ -3,7 +3,7 @@ import type { MemoryContentType } from "@entities/memory/memory-entry";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
-import { type ToolResponse, textResponse } from "./tool-helpers";
+import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { interceptHealingReport } from "./healing-tools";
@@ -39,6 +39,11 @@ export interface ToolContext {
   currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */
   modelPool?: ModelPoolLike;
+  /**
+   * 当前 assistant 消息的文本（speak 之外的输出）。
+   * 由 session 工厂按消息维护（message_start 清零、message_end 累积）；speak 用它检测"卡片写在 speak 外"的错误用法。
+   */
+  getTurnAssistantText?: () => string;
 }
 
 /** F20260803trrf: name->id resolve（NFC 归一化），speak 改用名字，系统侧做映射 */
@@ -81,7 +86,7 @@ function validateAndResolve(
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。【系统自愈】如果本次调用遇到系统问题（工具故障、检索缺失、格式异常等），在 body 末尾附加 `<healing>[issues]` 块（type/severity/description/suggestion 各一行）；顺利则输出 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档不会看到。",
+    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。卡片围栏必须完整写在 body 参数内——写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。【系统自愈】如果本次调用遇到系统问题（工具故障、检索缺失、格式异常等），在 body 末尾附加 `<healing>[issues]` 块（type/severity/description/suggestion 各一行）；顺利则输出 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档不会看到。",
     parameters: {
       type: "object",
       properties: {
@@ -103,7 +108,9 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         ? interceptHealingReport(rawBody, ctx, healingRepo, logger)
         : rawBody;
 
-      if (!cleanBody || cleanBody.trim().length === 0) return textResponse("[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。");
+      /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
+      const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
+      if (bodyError) return textResponse(bodyError);
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
