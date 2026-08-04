@@ -90,6 +90,18 @@ export class SyncDocuments {
       supersedesDangling: result.supersedesDangling.length,
       duration, action: 'sync_complete',
     });
+    // F20260804jsyn: 把 errors/warnings/reconcileGaps/supersedesDangling 的具体内容
+    // 也打到日志——之前只打 count，导致 gap 根因只能反推（违反"运行时可观测"原则）
+    if (result.errors.length > 0) {
+      this.logger.error('Sync errors detail', undefined, {
+        errors: result.errors, action: 'sync_errors_detail',
+      });
+    }
+    if (result.warnings.length > 0) {
+      this.logger.warn('Sync warnings detail', {
+        warnings: result.warnings, action: 'sync_warnings_detail',
+      });
+    }
 
     return result;
   }

@@ -4,7 +4,9 @@ title: document-chunking
 doc_type: feature
 
 summary: |
-  文档正文分段索引（chunking）。承接 F20260803fbit（feature-body-index）的 body 独立 entry 基础设施，将整文档 body entry（feature_body/research_body）升级为按标题结构切分的多 chunk entries（feature_chunk/research_chunk）。分段算法基于 91 个文档实测数据（100% 有 H2，97.8% section <2000 字符）：短文档（<3000）单 chunk；按 H2 切；H2 超阈值（3000）下沉 H3；H3 仍超阈值按段落+代码块兜底切分（代码块状态机原子化）；导航型标题合并子 section；短 chunk 合并相邻。聚合策略：dedupBySource 升级为 dedupAndBoostBySource，同源多 chunk 命中取最高分代表 + additive boost（0.03/hit，封顶 5 hits=0.15），metadata 标注 multi_hit_count。关键技术决策：(1) feature_chunk 取代 feature_body（不并存），迁移脚本清理旧 entry；(2) 先在原始 markdown 分段再逐 chunk cleanMarkdownForFts（关键顺序，先清理会删标题井号失去边界）；(3) body_hash 加版本前缀 "chunk-v1|" 触发全量 reindex；(4) chunk granularity="fine"；(5) replaceEntriesBySource 1:N 原子替换；(6) embedding 每 chunk 独立 fire-and-forget，FTS 先行 embedding 等 PR #130。经两轮独立 agent 对抗审视 + 用户拍板。
+  文档正文分段索引（chunking）：将整文档 body entry 升级为按标题结构切分的多 chunk entry（feature_chunk/research_chunk），解决整 body 单 entry 的 embedding 截断、BM25 稀释、无法定位 section、多命中信号丢失四局限。
+  承接 F20260803fbit 的 body 独立 entry + replaceEntryBySource + body_hash 基础设施，分段在原始 markdown 上按 H2/H3 切（保留标题边界），逐 chunk 独立清理后索引。body_hash 加版本前缀触发全量 reindex。
+  聚合策略 dedupBySource 升级为 dedupAndBoostBySource：同源多 chunk 命中取最高分 + additive boost。经两轮对抗审视定稿。
 
 causal_links:
   from:

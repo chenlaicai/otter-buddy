@@ -4,19 +4,9 @@ title: dialog-ui-fixes
 doc_type: feature
 
 summary: |
-  修复对话界面的多个 UI 问题，提升用户体验：
-  1. 弹窗字体颜色对比度不足：将 text-stone-500/400 提升为 text-stone-600/500，
-     确保在玻璃材质背景上的可读性
-  2. 移除"子对话"按钮和"完成"按钮：简化对话头部操作区，仅保留归档按钮
-  3. 彻底移除完成功能：移除 CompleteModal、confirmComplete、右键菜单项、api.completeConversation
-  4. 消息气泡两侧空间优化：将 padding 从 px-6 减小到 px-1，减少视觉留白
-  5. 消息换行显示修复：在 Markdown 渲染的 p 标签添加 whiteSpace: pre-wrap，
-     保留用户输入的换行格式
-  6. 小獭颜色动态分配：从颜色池中按顺序为每只小獭分配不同颜色
-  7. 统一布局宽度约束：移除 max-w-[780px]，统一 padding 为 px-1
-  8. 清理死代码：ciCounter、handleCreateChild、handleComplete、ci 参数、otterColors 导出
-  9. package-lock.json 路径修正：修正 pi-ai 的 bin 路径格式
-  10. CI 添加 PR 标题格式校验
+  修复对话界面多项 UI 问题：对比度、换行、布局、死代码清理等共 10 项。
+  玻璃材质背景上字体对比度不足、Markdown 换行丢失、功能裁剪后死代码残留。
+  各问题逐一定点修复——颜色提升、pre-wrap 保留换行、移除完成功能、统一 padding、CI 加 PR 标题校验。
 
 causal_links:
   from:
