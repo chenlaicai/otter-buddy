@@ -105,6 +105,19 @@ async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
   return piCodingAgentCache;
 }
 
+/** F20260804hcob: 从 message_end 事件提取 assistant 文本块（与 agent-invoker 的提取逻辑同构；user/toolResult 不计） */
+function extractAssistantTextFromMessageEnd(e: AgentEvent): string {
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+  const role = msg?.role as string | undefined;
+  const content = msg?.content as Array<Record<string, unknown>> | undefined;
+  if (!content || role === "user" || role === "toolResult") return "";
+  return content
+    .filter(c => c.type === "text")
+    .map(c => String(c.text ?? ""))
+    .join("\n");
+}
+
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
@@ -483,18 +496,19 @@ export class PiSessionFactory implements AgentGateway {
 
     // 1. 构建工具配置并创建 AgentSession
     this.logger.debug('[execute] Creating session with tools', { otterId });
-    const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager);
+    /** F20260804hcob: 本轮 assistant 文本缓冲（message_end 累积），speak 检测"卡片写在 speak 外"用 */
+    const turnText = { text: "" };
+    const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
     this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
     // 2. 熔断器 + 输出退化检测
     const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard } = this._attachGuards(session, sessionKey, otterId);
 
     // 3. 构建完整消息并记录日志
-    this.logger.debug('[execute] Building message', { otterId });
     const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
     this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
-    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
+    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent, turnText));
     try {
       await session.prompt(fullMessage);
       const result = this._buildInvokeResult(otterId, session, circuitBreaker);
@@ -514,11 +528,11 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession */
-  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager) {
+  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, turnText?: { text: string }) {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType);
-    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId);
+    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId, turnText);
     const codingTools = getCodingToolsForOtterType(otterType);
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
@@ -602,15 +616,20 @@ export class PiSessionFactory implements AgentGateway {
 
   getInternalAbortReason(messageId: string): string | undefined { const s = `:${messageId}`; for (const [k, e] of this.activeSessions) { if (e.guardAbortReason && k.endsWith(s) && k.length > s.length) { const r = e.guardAbortReason; e.guardAbortReason = undefined; return r; } } return undefined; }
 
-  /** 创建 session 事件处理器：跟踪工具调用 + 转发事件到 onEvent 回调 */
+  /** 创建 session 事件处理器：跟踪工具调用 + 累积本轮 assistant 文本 + 转发事件到 onEvent 回调 */
   private createEventHandler(
     activeEntry: { abort: () => void; toolCallCount: number } | undefined,
     onEvent?: (event: AgentEvent) => void,
+    turnText?: { text: string },
   ): (event: unknown) => void {
     return (event: unknown) => {
       const e = event as AgentEvent;
       if (e.type === "tool_execution_start" && activeEntry) {
         activeEntry.toolCallCount++;
+      }
+      /** F20260804hcob: message_end 先于本消息的工具执行触发，此时累积的文本即为 speak 之外的输出 */
+      if (e.type === "message_end" && turnText) {
+        turnText.text += extractAssistantTextFromMessageEnd(e);
       }
       if (e.type !== "message_update") {
         onEvent?.(e);
@@ -627,6 +646,7 @@ export class PiSessionFactory implements AgentGateway {
     conversationId: string,
     allowedNames: string[],
     messageId?: string,
+    turnText?: { text: string },
   ): Array<{
     name: string;
     label: string;
@@ -640,6 +660,7 @@ export class PiSessionFactory implements AgentGateway {
       conversationId,
       currentMessageId: messageId ?? "",
       modelPool: this.cfg.modelPool,
+      getTurnAssistantText: turnText ? () => turnText.text : undefined,
     }, this.cfg.healingRepo, this.logger);
 
     return otterTools

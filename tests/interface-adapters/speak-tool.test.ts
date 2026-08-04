@@ -4,7 +4,7 @@ import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-to
 
 function makeSpeakTool(
   participants: Array<{ otterId: string; otterName: string }>,
-  options: { currentMessageId?: string; startSpeakingError?: Error } = {},
+  options: { currentMessageId?: string; startSpeakingError?: Error; turnAssistantText?: string } = {},
 ) {
   const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
   const client = {
@@ -21,7 +21,11 @@ function makeSpeakTool(
     },
   } as unknown as OtterToolClient;
 
-  const ctx: ToolContext = { client, otterId: "otter-self", conversationId: "conv-1", currentMessageId: options.currentMessageId ?? "msg-1" };
+  const ctx: ToolContext = {
+    client, otterId: "otter-self", conversationId: "conv-1",
+    currentMessageId: options.currentMessageId ?? "msg-1",
+    ...(options.turnAssistantText !== undefined && { getTurnAssistantText: () => options.turnAssistantText! }),
+  };
   const speak = createTools(ctx).find(t => t.name === "speak")!;
   return { speak, speakingCalls };
 }
@@ -97,5 +101,52 @@ describe("speak 工具发言石目标校验", () => {
     expect(res.content[0].text).toContain("[错误] 发言声明失败");
     expect(res.terminate).toBeUndefined();
     expect(speakingCalls).toHaveLength(0);
+  });
+});
+
+/** F20260804hcob: html-card 写在 speak 之外的检测拦截 */
+describe("speak 工具 html-card 位置校验", () => {
+  it("assistant 文本含 html-card 围栏而 body 没有：拒绝、不提交、不终止，错误信息指导移入 body", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
+      turnAssistantText: "方案如下：\n```html-card title=\"方案\"\n<div>...</div>\n```\n请查看。",
+    });
+    const res = await speak.execute("c1", { body: "详细方案已用 HTML 卡片呈现，请查看。", talkingStonePassedTo: ["user"] });
+    const text = res.content[0].text;
+    expect(text).toContain("[错误]");
+    expect(text).toContain("html-card");
+    expect(text).toContain("body");
+    expect(res.terminate).toBeUndefined();
+    expect(speakingCalls).toHaveLength(0);
+  });
+
+  it("assistant 文本和 body 都含 html-card 围栏：正常提交", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
+      turnAssistantText: "```html-card title=\"草稿\"\n<div>draft</div>\n```",
+    });
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案\"\n<div>final</div>\n```",
+      talkingStonePassedTo: ["user"],
+    });
+    expect(res.content[0].text).toContain("发言已提交成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+
+  it("assistant 文本只有 html-card-reply 回执围栏：不误伤，正常提交", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
+      turnAssistantText: "我解析一下这张 ```html-card-reply 回执的内容。",
+    });
+    const res = await speak.execute("c1", { body: "回执已确认。", talkingStonePassedTo: ["user"] });
+    expect(res.content[0].text).toContain("发言已提交成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+
+  it("未注入 getTurnAssistantText（其他调用方）：行为不变，正常提交", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS);
+    const res = await speak.execute("c1", { body: "普通发言", talkingStonePassedTo: ["user"] });
+    expect(res.content[0].text).toContain("发言已提交成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
   });
 });
