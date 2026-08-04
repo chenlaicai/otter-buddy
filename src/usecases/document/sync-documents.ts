@@ -1,4 +1,4 @@
-import * as path from "path";
+import * as path from "node:path";
 import { createHash } from "crypto";
 import type { FileSystemGateway } from "@usecases/ports/file-system-gateway";
 import type { FeatureRepository } from "./feature-repository";
@@ -258,7 +258,7 @@ export class SyncDocuments {
     repo: { findAll(): Promise<T[]> },
     result: SyncResult,
   ): Promise<void> {
-    const diskIdMap = await scanDiskIds(this.fs, path.join(rootDir, dir));
+    const diskIdMap = await scanDiskIds(this.fs, path.join(rootDir, dir), this.logger);
     const diskIds = new Set(diskIdMap.keys());
     const dbDocs = await repo.findAll();
     const dbIds = new Set(dbDocs.filter(d => d.status !== "archived").map(d => d.id));

@@ -34,8 +34,8 @@ export class HealthController {
   async memory(c: Context): Promise<Response> {
     try {
       const [diskFeatureMap, diskResearchMap, dbFeatures, dbResearch] = await Promise.all([
-        scanDiskIds(this.fs, path.join(this.rootDir, "docs/features")),
-        scanDiskIds(this.fs, path.join(this.rootDir, "docs/research")),
+        scanDiskIds(this.fs, path.join(this.rootDir, "docs/features"), this.logger),
+        scanDiskIds(this.fs, path.join(this.rootDir, "docs/research"), this.logger),
         this.featureRepo.findAll(),
         this.researchRepo.findAll(),
       ]);

@@ -7,12 +7,23 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { scanDiskIds } from "@usecases/document/disk-id-scanner";
 import type { FileSystemGateway, DirEntry } from "@usecases/ports/file-system-gateway";
+import type { Logger } from "@usecases/ports/logger";
 
 function mkFile(name: string): DirEntry {
   return { name, isDirectory: () => false, isFile: () => true };
 }
 function mkDir(name: string): DirEntry {
   return { name, isDirectory: () => true, isFile: () => false };
+}
+
+function mockLogger(): Logger & { warns: string[] } {
+  const warns: string[] = [];
+  return {
+    info: () => {}, debug: () => {}, error: () => {},
+    warn: (msg: string) => { warns.push(msg); },
+    child: () => mockLogger(),
+    warns,
+  };
 }
 
 function makeFs(files: Record<string, string>): FileSystemGateway {
@@ -103,9 +114,26 @@ describe("disk-id-scanner - F20260804dcnv", () => {
     expect(map.size).toBe(0);
   });
 
-  it("同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）记 warn，后者覆盖", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // 通过 readDir 返回两个文件，文件名前缀 ID 相同
+  it("递归进入子目录找 .md 文件（scanRec 核心路径）", async () => {
+    // 用真实目录层级结构模拟：docs/features/2026/08/04/F...md
+    const fs: FileSystemGateway = {
+      readFile: vi.fn(async () => "---\nid: F20260804abcd\ntitle: t\nsummary: s\n---\n"),
+      readDir: vi.fn(async (dir: string) => {
+        if (dir === "docs/features") return [mkDir("2026")];
+        if (dir === "docs/features/2026") return [mkDir("08")];
+        if (dir === "docs/features/2026/08") return [mkDir("04")];
+        if (dir === "docs/features/2026/08/04") return [mkFile("F20260804abcd-x.md")];
+        return [];
+      }),
+      exists: vi.fn(async () => true),
+    };
+    const map = await scanDiskIds(fs, "docs/features");
+    expect(map.size).toBe(1);
+    expect(map.get("F20260804abcd")).toBe("docs/features/2026/08/04/F20260804abcd-x.md");
+  });
+
+  it("同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）走 logger.warn，后者覆盖", async () => {
+    const logger = mockLogger();
     const fs: FileSystemGateway = {
       readFile: vi.fn(async () => "no frontmatter"),
       readDir: vi.fn(async (dir: string) => {
@@ -119,10 +147,28 @@ describe("disk-id-scanner - F20260804dcnv", () => {
       }),
       exists: vi.fn(async () => true),
     };
+    const map = await scanDiskIds(fs, "docs/features", logger);
+    expect(map.size).toBe(1);
+    // 断言 warn 的内容（不绑定调用次数--避免绑定实现细节）
+    expect(logger.warns.some(w => /ID 冲突/.test(w))).toBe(true);
+  });
+
+  it("不传 logger 时静默处理冲突，不抛错", async () => {
+    const fs: FileSystemGateway = {
+      readFile: vi.fn(async () => "no frontmatter"),
+      readDir: vi.fn(async (dir: string) => {
+        if (dir === "docs/features") {
+          return [
+            mkFile("F20260804dup-foo.md"),
+            mkFile("F20260804dup-bar.md"),
+          ];
+        }
+        return [];
+      }),
+      exists: vi.fn(async () => true),
+    };
+    // 不传 logger，不应抛错
     const map = await scanDiskIds(fs, "docs/features");
     expect(map.size).toBe(1);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0][0]).toMatch(/ID 冲突/);
-    warnSpy.mockRestore();
   });
 });

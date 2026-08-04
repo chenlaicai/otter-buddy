@@ -198,7 +198,13 @@ gapReasons: []
 embeddingAvailable: true
 ```
 
-数量差异说明：修复前 `documentsOnDisk: 93`（F20260803vmsg 缺 frontmatter 被 scanner 吞掉不计）；修复后 95 = 93 + F20260803vmsg（文件名兜底现在能收）+ F20260804dcnv（本 F 文档本身）。`lint:docs` 报 96 是因为它扫了 docs/ 全部 .md（含本 F 文档刚加入时算 1 份，与 health 端点的 95 差 1 是统计口径不同：health 端点把本 F 也算进 diskIds，lint:docs 在 commit 时点扫到 96 是因为加入了本次新文件后总数）。
+数量差异说明（`documentsOnDisk` 计的是**唯一 ID 数**，不是 .md 文件数）：
+- 磁盘 .md 文件数：96（`find docs -name '*.md' | wc -l`）
+- 唯一 ID 数：95--因为 `F20260722mk74` 被两份文件共用（`multi-otter-streaming.md` 和 `startup-reliability-fixes.md`），scanner 的 ID 冲突 warn 已暴露这个预存问题，后者覆盖前者
+- `lint:docs` 报 96 是因为它扫文件数，不是唯一 ID
+- 修复前 health 报 93：F20260803vmsg 缺 frontmatter 被 scanner 吞掉（-1），加上同样的 ID 冲突（-1），再加上... 实际差异需要更细致的归因，但核心是 scanner 修复后多收了缺 frontmatter 的文档
+
+**预存问题（不在本 PR 修复范围）**：`F20260722mk74` ID 冲突--两份不同内容的文档共用同一 ID。scanner warn 已暴露，需 content 层面决策哪份保留、哪份改 ID。
 
 ### JSON import
 

@@ -13,6 +13,7 @@
  */
 import * as path from "node:path";
 import type { FileSystemGateway, DirEntry } from "@usecases/ports/file-system-gateway";
+import type { Logger } from "@usecases/ports/logger";
 import { parseFrontmatterFromContent } from "@usecases/document/frontmatter-parse";
 
 /** 文件名提 ID：F20260803vmsg-xxx.md / R20260716x2k9-xxx.md / F20260803vmsg.md */
@@ -21,13 +22,17 @@ const ID_FROM_FILENAME = /^([FR]\d{8}[a-z0-9]{3,8})(?:[-.]|$)/;
 /**
  * 递归扫描 dir，返回 id -> 绝对文件路径 的映射。
  * frontmatter 缺失或损坏的文件走文件名兜底。
+ *
+ * @param logger 可选 Logger。传入时 ID 冲突等异常情况会走 logger.warn；
+ *               不传则静默（用于不想引入副作用的纯函数式调用方）。
  */
 export async function scanDiskIds(
   fs: FileSystemGateway,
   dir: string,
+  logger?: Logger,
 ): Promise<Map<string, string>> {
   const ids = new Map<string, string>();
-  await scanRec(fs, dir, ids);
+  await scanRec(fs, dir, ids, logger);
   return ids;
 }
 
@@ -35,6 +40,7 @@ async function scanRec(
   fs: FileSystemGateway,
   dir: string,
   ids: Map<string, string>,
+  logger?: Logger,
 ): Promise<void> {
   let entries: DirEntry[];
   try {
@@ -45,18 +51,18 @@ async function scanRec(
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      await scanRec(fs, full, ids);
+      await scanRec(fs, full, ids, logger);
       continue;
     }
     if (!entry.name.endsWith(".md")) continue;
     const id = await extractId(fs, full, entry.name);
     if (id) {
       // F20260804dcnv: 同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）
-      // 静默覆盖会让被覆盖的文件双重消失--和本 PR 要修的 bug 同类。记 console.warn
-      // 而非吞掉，让 operator 能发现命名冲突。
+      // 静默覆盖会让被覆盖的文件双重消失--和本 PR 要修的 bug 同类。走 Logger
+      // 让 operator 能发现命名冲突（不直接 console.warn，保持 use case 层纯净）。
       const existing = ids.get(id);
       if (existing && existing !== full) {
-        console.warn(
+        logger?.warn(
           `[disk-id-scanner] ID 冲突：${id} 同时出现在\n  ${existing}\n  ${full}\n后者覆盖前者，前者将不可见于 reconcile。`
         );
       }
