@@ -106,4 +106,50 @@ export class StoreMemory {
 
     return id;
   }
+
+  /**
+   * F20260803chunk: 按 source 原子替换多条 entry（1:N），用于文档 chunk 索引 reindex。
+   * 删旧全部 chunk + 插新 N 个 chunk（单事务）。每 chunk 独立 fire-and-forget embedding。
+   * M16: N 个 chunk embedding 串行排队 bge-m3 worker，首次部署 ~546 embedding 约 27s，
+   *      期间实时搜索的 query embedding 会排队（FTS 不受影响）。批量接口/优先级队列见 follow-up。
+   */
+  async replaceChunksBySource(inputs: MemoryEntryInput[]): Promise<string[]> {
+    if (inputs.length === 0) return [];
+    const now = new Date().toISOString();
+    const entries = inputs.map((input) => ({
+      id: crypto.randomUUID(),
+      layer: input.layer,
+      contentType: input.contentType,
+      sourceId: input.sourceId,
+      sourceTable: input.sourceTable,
+      conversationId: input.conversationId ?? null,
+      granularity: input.granularity,
+      content: input.content,
+      metadata: input.metadata ?? null,
+      createdAt: now,
+    }));
+
+    await this.repo.replaceEntriesBySource(entries);
+
+    // 异步 fire-and-forget embedding（每 chunk 独立，chunk 长度可控 truncateForEmbed 几乎不触发）
+    for (const entry of entries) {
+      this.embeddingGateway
+        .embed(this.truncateForEmbed(entry.content))
+        .then((emb) => {
+          this.repo.storeEmbedding(entry.id, emb).catch((err) => {
+            this.logger.warn(`Failed to store embedding for ${entry.id}: ${err}`);
+          });
+        })
+        .catch((err) => {
+          this.logger.debug(`Embedding generation failed for ${entry.id}: ${err}`);
+        });
+    }
+
+    return entries.map((e) => e.id);
+  }
+
+  /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
+  async deleteChunksBySource(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void> {
+    await this.repo.deleteBySourceAndType(sourceTable, sourceId, contentType);
+  }
 }

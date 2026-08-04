@@ -34,10 +34,11 @@ import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
 import { SendMessage } from "@usecases/conversation/send-message";
-import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
+import type { MemoryIndexGateway, ChunkData } from "@usecases/conversation/memory-index-gateway";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { SearchMemory } from "@usecases/memory/search-memory";
-import { StoreMemory } from "@usecases/memory/store-memory";
+import { StoreMemory, type MemoryEntryInput } from "@usecases/memory/store-memory";
+import { cleanMarkdownForFts } from "@usecases/document/markdown-noise-cleaner";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import { ManageTerminology } from "@usecases/memory/manage-terminology";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
@@ -46,9 +47,9 @@ import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
 import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
 import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
-import { migrateDatabase, migrateExistingData } from "@frameworks/db/migration";
+import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks } from "@frameworks/db/migration";
 import { reconcileOrphans } from "@usecases/conversation/reconcile-orphans";
-import { SyncDocuments } from "@usecases/document/sync-documents";
+import { SyncDocuments, type SyncResult } from "@usecases/document/sync-documents";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { CreateOtter } from "@usecases/otter/create-otter";
 import { DissolveOtter } from "@usecases/otter/dissolve-otter";
@@ -155,32 +156,62 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
     });
   }
 
-  /** F20260803fbit: 索引 Feature 文档正文（独立 entry，与 summary 并存） */
-  async indexFeatureBody(id: string, body: string, metadata: Record<string, unknown>): Promise<void> {
-    await this.storeMemory.replaceBySource({
+  /** F20260803chunk: 索引 Feature 文档分段 chunks（N 个独立 entry，原子替换旧 chunks） */
+  async indexFeatureChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
+    // PR审视 S3-14：空 chunks（body 清空）时删除旧 chunk entries，防残留
+    if (chunks.length === 0) {
+      await this.storeMemory.deleteChunksBySource("features", id, "feature_chunk");
+      return;
+    }
+    // PR审视 S14：title 重命名为 doc_title 避免冗余字段
+    const { title, ...metaRest } = metadata;
+    const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
       layer: "document",
-      contentType: "feature_body",
+      contentType: "feature_chunk",
       sourceId: id,
       sourceTable: "features",
       conversationId: undefined,
-      granularity: "coarse",
-      content: body,
-      metadata: { ...metadata, part: "body" },
-    });
+      granularity: "fine",  // D4：chunk 是细粒度
+      content: cleanMarkdownForFts(c.content),  // D2：每个 chunk 独立清理
+      metadata: {
+        ...metaRest,
+        doc_title: title,  // M10：供前端展示文档标题（S14：不保留冗余 title 字段）
+        part: "chunk",
+        chunk_index: i,
+        chunk_total: chunks.length,
+        heading_path: c.headingPath,
+        char_count: c.charCount,
+      },
+    }));
+    await this.storeMemory.replaceChunksBySource(inputs);
   }
 
-  /** F20260803fbit: 索引 Research 文档正文 */
-  async indexResearchBody(id: string, body: string, metadata: Record<string, unknown>): Promise<void> {
-    await this.storeMemory.replaceBySource({
+  /** F20260803chunk: 索引 Research 文档分段 chunks */
+  async indexResearchChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
+    if (chunks.length === 0) {
+      await this.storeMemory.deleteChunksBySource("research", id, "research_chunk");
+      return;
+    }
+    const { title, ...metaRest } = metadata;
+    const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
       layer: "document",
-      contentType: "research_body",
+      contentType: "research_chunk",  // M19：research_chunk 区别于 feature_chunk
       sourceId: id,
       sourceTable: "research",
       conversationId: undefined,
-      granularity: "coarse",
-      content: body,
-      metadata: { ...metadata, part: "body" },
-    });
+      granularity: "fine",
+      content: cleanMarkdownForFts(c.content),
+      metadata: {
+        ...metaRest,
+        doc_title: title,
+        part: "chunk",
+        chunk_index: i,
+        chunk_total: chunks.length,
+        heading_path: c.headingPath,
+        char_count: c.charCount,
+      },
+    }));
+    await this.storeMemory.replaceChunksBySource(inputs);
   }
 }
 
@@ -530,7 +561,7 @@ function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"]): void {
   }
 }
 
-async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway): Promise<void> {
+async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway): Promise<SyncResult> {
   const fileSystem = new NodeFileSystem();
   const syncDocs = new SyncDocuments(
     fileSystem,
@@ -539,7 +570,7 @@ async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGatewa
     memoryIndex,
     logger
   );
-  await syncDocs.execute(process.cwd());
+  return syncDocs.execute(process.cwd());
 }
 
 async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory, messageBroadcaster?: MessageBroadcaster) {
@@ -604,7 +635,10 @@ async function main(): Promise<void> {
   await reconcileOrphans(repos.conversation, logger);
   /** F20260803mval: 共享单一 memoryIndex 实例，避免 syncDocuments 与 initUseCases 各自 new StoreMemory 双实例（G1） */
   const memoryIndex = new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
-  await syncDocuments(repos, memoryIndex);
+  const syncResult = await syncDocuments(repos, memoryIndex);
+  // F20260803chunk B3+B7: 迁移在 sync 之后执行（独立函数，不嵌入 migrateDatabase）。
+  // PR审视 S3-01: syncErrors 仅作日志提示（B7 修复后不再 guard），迁移始终执行
+  migrateFeatureBodyToChunks(db, logger, syncResult.errors.length);
 
   if (modelPool) validateModelAliases(db, modelPool);
 

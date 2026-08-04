@@ -163,9 +163,9 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           type: "array",
           items: {
             type: "string",
-            enum: ["message", "fact", "linked_resource", "feature", "feature_body", "research", "research_body"],
+            enum: ["message", "fact", "linked_resource", "feature", "feature_chunk", "research", "research_chunk"],
           },
-          description: "按内容类型过滤（多选）。feature=文档概要、feature_body=文档正文、research=研究概要、research_body=研究正文、message=对话消息、fact=事实、linked_resource=链接资源。如只搜文档正文传 [\"feature_body\"]",
+          description: "按内容类型过滤（多选）。feature=文档概要、feature_chunk=文档分段片段、research=研究概要、research_chunk=研究分段片段、message=对话消息、fact=事实、linked_resource=链接资源。如只搜文档正文片段传 [\"feature_chunk\"]",
         },
       },
       required: ["query"],

@@ -179,8 +179,8 @@ function mockMemoryIndex(): MemoryIndexGateway {
     indexLinkedResource: vi.fn(),
     indexFeature: vi.fn(),
     indexResearch: vi.fn(),
-    indexFeatureBody: vi.fn(),
-    indexResearchBody: vi.fn(),
+    indexFeatureChunks: vi.fn(),
+    indexResearchChunks: vi.fn(),
   };
 }
 
@@ -306,8 +306,8 @@ describe("SendMessage", () => {
         indexLinkedResource: vi.fn(),
         indexFeature: vi.fn(),
         indexResearch: vi.fn(),
-        indexFeatureBody: vi.fn(),
-        indexResearchBody: vi.fn(),
+        indexFeatureChunks: vi.fn(),
+        indexResearchChunks: vi.fn(),
       };
       const sm = new SendMessage(repo, mockOtterRepo([makeOtter({ id: "otter-1" })]), memoryIndex, mockLogger());
 

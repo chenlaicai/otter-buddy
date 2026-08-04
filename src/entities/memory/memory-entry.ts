@@ -21,13 +21,13 @@ export type MemoryContentType =
   | "fact"
   | "linked_resource"
   | "feature"
-  | "feature_body"
+  | "feature_chunk"
   | "research"
-  | "research_body";
+  | "research_chunk";
 
 /** F20260803fbit: 运行时校验字符串是否为合法 MemoryContentType（HTTP 参数校验等） */
 const VALID_CONTENT_TYPES: ReadonlySet<string> = new Set<MemoryContentType>([
-  "message", "fact", "linked_resource", "feature", "feature_body", "research", "research_body",
+  "message", "fact", "linked_resource", "feature", "feature_chunk", "research", "research_chunk",
 ]);
 export function isMemoryContentType(s: string): s is MemoryContentType {
   return VALID_CONTENT_TYPES.has(s);

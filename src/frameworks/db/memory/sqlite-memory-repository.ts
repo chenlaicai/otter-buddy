@@ -161,6 +161,101 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }
   }
 
+  /**
+   * F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条）。
+   * 用于 chunk 索引：文档 reindex 时删旧全部 chunk + 插新 N 个 chunk。
+   * M1：所有 entries 必须同 (sourceTable, sourceId, contentType)，不一致抛异常。
+   */
+  async replaceEntriesBySource(entries: MemoryEntry[]): Promise<void> {
+    if (entries.length === 0) return;
+    const { sourceTable, sourceId, contentType } = entries[0];
+    // M1 校验：所有 entries 必须同 source
+    for (const e of entries) {
+      if (e.sourceTable !== sourceTable || e.sourceId !== sourceId || e.contentType !== contentType) {
+        throw new Error(
+          `replaceEntriesBySource requires homogeneous source, got mixed: ${e.sourceTable}/${e.sourceId}/${e.contentType}`,
+        );
+      }
+    }
+
+    this.db.exec("BEGIN");
+    try {
+      // 删旧（同 source + 同 contentType 的全部 entry）
+      const oldRows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+        .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
+      ).run(sourceTable, sourceId, contentType);
+
+      // 插新（N 条 entry，每条独立 entryId）
+      for (const entry of entries) {
+        this.db.prepare(`
+          INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
+            conversation_id, granularity, content, metadata, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          entry.id,
+          entry.layer,
+          entry.contentType,
+          entry.sourceId,
+          entry.sourceTable,
+          entry.conversationId ?? null,
+          entry.granularity,
+          entry.content,
+          entry.metadata ? JSON.stringify(entry.metadata) : null,
+          entry.createdAt,
+        );
+        this.db.prepare(`
+          INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
+        `).run(entry.id, entry.content);
+        this.db.prepare(`
+          INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
+          VALUES (?, 0, NULL, 0)
+        `).run(entry.id);
+      }
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries）。
+   * 复用 replaceEntriesBySource 的 DELETE WHERE 模式（单事务删 entries+fts+vec+weights）。
+   */
+  async deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: string): Promise<void> {
+    this.db.exec("BEGIN");
+    try {
+      const oldRows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+        .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
+      ).run(sourceTable, sourceId, contentType);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void> {
     // F20260803mval: vec 扩展不可用时 memory_vec 表不存在，跳过（与 deleteBySource/replaceEntryBySource 一致，S3）
     if (!this.hasVec) return;

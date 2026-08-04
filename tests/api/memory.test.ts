@@ -59,13 +59,13 @@ describe("Memory API", () => {
       deps.searchMemory.search.mockResolvedValue({ entries: [], total: 0 });
 
       const res = await app.request(
-        "/api/memory/search?query=hello&content_type=feature_body,feature",
+        "/api/memory/search?query=hello&content_type=feature_chunk,feature",
       );
       expect(res.status).toBe(200);
       expect(deps.searchMemory.search).toHaveBeenCalledWith({
         query: "hello",
         limit: 10,
-        contentType: ["feature_body", "feature"],
+        contentType: ["feature_chunk", "feature"],
       });
     });
 

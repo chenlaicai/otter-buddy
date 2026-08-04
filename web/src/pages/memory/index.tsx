@@ -28,9 +28,9 @@ const typeIconComponents: Record<string, typeof MessageSquare> = {
   fact: Lightbulb,
   linked_resource: LinkIcon,
   feature: FileText,
-  feature_body: FileText,
+  feature_chunk: FileText,
   research: FileText,
-  research_body: FileText,
+  research_chunk: FileText,
 }
 
 const layerLabels: Record<string, string> = {
@@ -319,6 +319,12 @@ function MemorySearchPage() {
                             {(() => { const Icon = typeIconComponents[e.contentType] || FileText; return <Icon className="w-3 h-3" /> })()}
                             {e.contentType}
                           </span>
+                          {e.metadata?.heading_path && Array.isArray(e.metadata.heading_path) && (e.metadata.heading_path as string[]).length > 0 && (
+                            <>
+                              <span>·</span>
+                              <span className="text-stone-500 truncate max-w-[200px]">{(e.metadata.heading_path as string[]).join(' › ')}</span>
+                            </>
+                          )}
                           <span>·</span>
                           <span>{e.conversationId || '-'}</span>
                           <span>·</span>
