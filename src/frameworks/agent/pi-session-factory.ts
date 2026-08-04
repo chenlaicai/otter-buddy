@@ -265,12 +265,14 @@ export class PiSessionFactory implements AgentGateway {
     if (!this.modelRuntime) return;
     if (alias !== config.provider) {
       const m = model as {
-        id: string; name?: string; reasoning?: boolean; input?: string[];
+        id: string; name?: string; reasoning?: boolean; input?: string[]; baseUrl?: string;
         cost?: unknown; contextWindow?: number; maxTokens?: number;
         thinkingLevelMap?: unknown; compat?: unknown;
       };
       this.modelRuntime.registerProvider(alias, {
-        baseUrl: config.apiBaseUrl,
+        // config 只配 apiKey 不配 apiBaseUrl 时回退到 pool model 的 baseUrl（template 兜底，总有值），
+        // 否则 SDK 对"注册了 models 但无 baseUrl"的 provider 同步抛错
+        baseUrl: config.apiBaseUrl ?? m.baseUrl,
         apiKey: config.apiKey,
         api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
         models: [{

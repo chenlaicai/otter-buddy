@@ -10,7 +10,7 @@ summary: |
 
 causal_links:
   from:
-    - F20260731mmrk   # 多模型路由：引入 alias 作为 provider id 的方案，但只覆盖了 app 侧注册表
+    - F20260731mmr   # 多模型路由：引入 alias 作为 provider id 的方案，但只覆盖了 app 侧注册表
   to: []
 
 status: implemented
@@ -52,7 +52,7 @@ pi-coding-agent 0.81 的 `AgentSession._getRequiredRequestAuth()`（agent-sessio
 
 ### 为什么以前能跑
 
-旧配置 alias 就叫 `anthropic`，**撞上了内置 provider id**，runtime 注册表天然认识它，配合 runtime key 恰好能解析。换成 `mimo`/`kimi` 后巧合失效。这是 F20260731mmrk 多模型路由的遗留盲点：当时只用 `alias=anthropic` 验证过，自定义 alias 路径从未真正跑通。
+旧配置 alias 就叫 `anthropic`，**撞上了内置 provider id**，runtime 注册表天然认识它，配合 runtime key 恰好能解析。换成 `mimo`/`kimi` 后巧合失效。这是 F20260731mmr 多模型路由的遗留盲点：当时只用 `alias=anthropic` 验证过，自定义 alias 路径从未真正跑通。
 
 ## 修复方案
 
@@ -77,3 +77,6 @@ alias 与内置 provider 同名时跳过注册——内置 provider 本来就在
 
 - 单模型模式（无 `models[]`）不注册：provider id 即内置 id（anthropic/openai），runtime 天然认识，行为不变。
 - 注册进 runtime 的模型列表只有 pool 里那一个模型；SDK 交互式 `/model` 列表不代表完整可用集，但本系统不走交互式模型选择，无影响。
+- **覆盖面边界（预先存在，本 PR 未改）**：models-factory 只在 model id 不在内置 dict 时才以 alias 覆写 provider 字段（models-factory.ts:95-112）。若 alias 配置的是 dict 已知模型（如 `gpt-4o`），pool model.provider 保持内置 id，鉴权走内置 provider，alias 下的 runtime key 不被查阅——纯 config.yaml 配 key（无对应环境变量）时仍会报 "No API key found"。mimo/kimi 均不在 dict 中，本 PR 报告的场景已覆盖；dict 已知模型 + 自定义 alias 的组合留待后续。
+- **env 兜底不生效（预先存在）**：models-factory 的 auth 有 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 环境变量兜底（models-factory.ts:43-61），但 runtime 侧注册只接受 config.yaml 的 apiKey。自定义 alias + 不配 apiKey 只靠 env 的配置在本修复后仍会鉴权失败。
+
