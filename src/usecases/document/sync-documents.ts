@@ -276,14 +276,6 @@ export class SyncDocuments {
     }
   }
 
-  /** 扫描磁盘文档提取 ID 集合（对账用，独立于 syncFile 避免共享盲区） */
-  private async collectDiskIds(rootDir: string, dir: string): Promise<Set<string>> {
-    // F20260804dcnv: 委托给共享 scanner（frontmatter 解析失败时走文件名兜底，
-    // 避免缺 frontmatter 的文档双重消失）
-    const map = await scanDiskIds(this.fs, path.join(rootDir, dir));
-    return new Set(map.keys());
-  }
-
   private async archiveDeletedDocuments(rootDir: string, result: SyncResult): Promise<void> {
     const dbFeatures = await this.featureRepo.findAll();
     for (const doc of dbFeatures) {

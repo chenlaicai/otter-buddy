@@ -81,31 +81,32 @@ export class HealthController {
     }
   }
 
-  /** 对一组 gap ID 批量跑 validator，返回每个文档的失败原因 */
+  /** 对一组 gap ID 并行跑 validator，返回每个文档的失败原因 */
   private async reasonFor(
     gapIds: string[],
     diskMap: Map<string, string>,
     type: "feature" | "research",
   ): Promise<Array<{ id: string; file: string; errors: string[] }>> {
-    const out: Array<{ id: string; file: string; errors: string[] }> = [];
-    for (const id of gapIds) {
-      const file = diskMap.get(id);
-      if (!file) continue;
-      const errors: string[] = [];
-      try {
-        const content = await this.fs.readFile(file);
-        const rel = path.relative(this.rootDir, file);
-        const { frontmatter } = parseFrontmatterFromContent(content);
-        const v = type === "feature"
-          ? validateFeatureFrontmatter(frontmatter, rel)
-          : validateResearchFrontmatter(frontmatter, rel);
-        errors.push(...v.errors);
-      } catch (e) {
-        // frontmatter 整体解析失败（如 Missing frontmatter）
-        errors.push(e instanceof Error ? e.message : String(e));
-      }
-      out.push({ id, file: path.relative(this.rootDir, file), errors });
-    }
-    return out;
+    const results = await Promise.all(
+      gapIds.map(async (id) => {
+        const file = diskMap.get(id);
+        if (!file) return null;
+        const errors: string[] = [];
+        try {
+          const content = await this.fs.readFile(file);
+          const rel = path.relative(this.rootDir, file);
+          const { frontmatter } = parseFrontmatterFromContent(content);
+          const v = type === "feature"
+            ? validateFeatureFrontmatter(frontmatter, rel)
+            : validateResearchFrontmatter(frontmatter, rel);
+          errors.push(...v.errors);
+        } catch (e) {
+          // frontmatter 整体解析失败（如 Missing frontmatter）
+          errors.push(e instanceof Error ? e.message : String(e));
+        }
+        return { id, file: path.relative(this.rootDir, file), errors };
+      }),
+    );
+    return results.filter((r): r is { id: string; file: string; errors: string[] } => r !== null);
   }
 }

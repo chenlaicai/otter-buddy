@@ -82,8 +82,8 @@ causal_links:
   to:
     - F20260805xxxx   # 因果下游（可空）
 
-status: development      # development / shipped / archived / superseded
-change_type: feat        # feat / fix / refactor / docs / chore
+status: development      # draft / proposed / design / development / locked / final / implemented / archived
+change_type: feature     # feature / refactor / fix / prompt / feature-update
 tags: [area, concept]
 modules:
   - src/path/to/file.ts

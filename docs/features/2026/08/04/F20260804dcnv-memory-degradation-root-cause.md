@@ -137,37 +137,6 @@ if (result.warnings.length > 0) {
 
 `embeddingAvailable: false` 的根因就是这条——远程 HF 不可达 + 配置路径拼接错。主仓库 config 已改对。
 
-## 验证
-
-### summary 长度全量校验
-
-```
-455 F20260725otid
-141 F20260727ui6x
-396 F20260803chunk
-394 F20260803emlo
-357 F20260803fbit
-```
-
-全部 ≤ 500。
-
-### 路径一致性
-
-```
-docs/research/2026/07/16/R20260716x2k9-*.md  ✓
-docs/research/2026/07/17/R20260717y3k8-*.md  ✓
-docs/research/2026/07/28/R20260728c5xt-*.md  ✓
-```
-
-### 启动 sync 行为
-
-修复前：`synced:85, errors:9, reconcileGaps:8`
-修复后预期：`synced:93, errors:0, reconcileGaps:0`（启动后 health 端点 healthy:true）
-
-### JSON import
-
-`npm run build` tsc --noEmit 通过；启动时不再抛 `ERR_IMPORT_ATTRIBUTE_MISSING`。
-
 ## 设计反思：为什么这套问题能存在至今
 
 1. **health 端点报 gap 但不报原因**。设计上只暴露**症状**（X 个未入库），不暴露**根因**（哪份文档违反什么规则）。用户看到 banner 不知道是什么、为什么、怎么修。本次补了 `gapReasons` 字段 + 前端展开列表。
@@ -228,6 +197,8 @@ reconcileGaps: []
 gapReasons: []
 embeddingAvailable: true
 ```
+
+数量差异说明：修复前 `documentsOnDisk: 93`（F20260803vmsg 缺 frontmatter 被 scanner 吞掉不计）；修复后 95 = 93 + F20260803vmsg（文件名兜底现在能收）+ F20260804dcnv（本 F 文档本身）。`lint:docs` 报 96 是因为它扫了 docs/ 全部 .md（含本 F 文档刚加入时算 1 份，与 health 端点的 95 差 1 是统计口径不同：health 端点把本 F 也算进 diskIds，lint:docs 在 commit 时点扫到 96 是因为加入了本次新文件后总数）。
 
 ### JSON import
 

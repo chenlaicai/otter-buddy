@@ -50,7 +50,18 @@ async function scanRec(
     }
     if (!entry.name.endsWith(".md")) continue;
     const id = await extractId(fs, full, entry.name);
-    if (id) ids.set(id, full);
+    if (id) {
+      // F20260804dcnv: 同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）
+      // 静默覆盖会让被覆盖的文件双重消失--和本 PR 要修的 bug 同类。记 console.warn
+      // 而非吞掉，让 operator 能发现命名冲突。
+      const existing = ids.get(id);
+      if (existing && existing !== full) {
+        console.warn(
+          `[disk-id-scanner] ID 冲突：${id} 同时出现在\n  ${existing}\n  ${full}\n后者覆盖前者，前者将不可见于 reconcile。`
+        );
+      }
+      ids.set(id, full);
+    }
   }
 }
 
