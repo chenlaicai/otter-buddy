@@ -696,13 +696,19 @@ export class PiSessionFactory implements AgentGateway {
     const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
     const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
     timerRef.clear = clearEventTimer;
-    /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时 */
+    /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
+    const cb = appConfig.circuitBreaker;
     const cfg: Partial<OutputGuardConfig> = {
-      ...appConfig.circuitBreaker?.outputGuard,
-      streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs,
-      firstByteTimeoutMs: appConfig.circuitBreaker?.firstByteTimeoutMs,
+      ...cb?.outputGuard,
+      ...(cb?.streamingTimeoutMs !== undefined && { streamingTimeoutMs: cb.streamingTimeoutMs }),
+      ...(cb?.firstByteTimeoutMs !== undefined && { firstByteTimeoutMs: cb.firstByteTimeoutMs }),
     };
-    const guardAbort = () => wrappedAbort(outputGuard.getMetadata().reason);
+    /** abort 返回 Promise：fire 路径无人 await，catch 防 unhandledRejection */
+    const guardAbort = () => {
+      void wrappedAbort(outputGuard.getMetadata().reason).catch((err: unknown) => {
+        this.logger.warn(`[output-guard] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    };
     const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, guardAbort);
     const armFirstByte = () => outputGuard.armFirstByteTimer(guardAbort);
     return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte };

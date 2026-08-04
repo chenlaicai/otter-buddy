@@ -65,8 +65,13 @@ export class OutputGuard {
   /** 最近一次 arm 时传入的 abort（timeout fire 时用） */
   private pendingAbort: (() => void) | null = null;
 
-  /** pause ref-count：原因集合，清空才真正 resume（冻结语义） */
-  private readonly pauseReasons = new Set<PauseReason>();
+  /**
+   * pause ref-count：按原因计数（并行工具调用会同原因多次 start/end，
+   * Set 去重会导致第一个 end 就重建计时器误杀其余工具——PR #138 检视 S1）。
+   * 计数归零才真正 resume（冻结语义：pause 时长不计入 elapsed）。
+   */
+  private readonly pauseCounts = new Map<PauseReason, number>();
+  private pauseTotal = 0;
   private pausedRemainingMs: number | null = null;
   private pausedKind: "first_byte" | "streaming" | null = null;
 
@@ -75,6 +80,8 @@ export class OutputGuard {
   /** 首字节延迟埋点 */
   private firstByteArmedAt = 0;
   private firstByteLatencyMs: number | undefined;
+  /** 终态标记：destroy 后拒绝任何 resume/arm 复活计时器 */
+  private destroyed = false;
 
   constructor(
     private readonly config: OutputGuardConfig,
@@ -91,8 +98,7 @@ export class OutputGuard {
 
   /** prompt 发出前 arm 首字节计时器（覆盖排队 + prefill 静默期） */
   armFirstByteTimer(abort: () => void): void {
-    if (!this.config.enabled || this.tripped) return;
-    this.firstByteArmedAt = Date.now();
+    if (!this.config.enabled || this.tripped || this.destroyed) return;
     this.armTimer("first_byte", this.config.firstByteTimeoutMs, abort);
   }
 
@@ -102,16 +108,20 @@ export class OutputGuard {
    */
   onDelta(delta: string, deltaType: string | undefined, abort: () => void): boolean {
     if (this.tripped) return true;
-    if (!this.config.enabled) return false;
+    if (!this.config.enabled || this.destroyed) return false;
 
-    /** 活跃信号：无 pause 时按滑动预算重 arm；pause 期间只更新回调，由 resume 重建 */
-    if (this.pauseReasons.size === 0) {
+    if (this.pauseTotal === 0) {
+      /** 首字节延迟埋点：首字节窗口 → 滑动窗口切换点即首个 delta 到达时刻 */
       if (this.timerKind === "first_byte" && this.firstByteArmedAt > 0) {
         this.firstByteLatencyMs = Date.now() - this.firstByteArmedAt;
       }
       this.armTimer("streaming", this.config.streamingTimeoutMs, abort);
     } else {
+      /** pause 期间到达的 delta：生成实际在恢复，把冻结剩余重置为全额滑动预算
+       *  （防 SDK 行为变化后 resume 用陈旧小额剩余重建、恢复即误杀） */
       this.pendingAbort = abort;
+      this.pausedRemainingMs = this.config.streamingTimeoutMs;
+      this.pausedKind = "streaming";
     }
 
     if (!DETECTION_DELTA_TYPES.has(deltaType ?? "")) return false;
@@ -120,6 +130,9 @@ export class OutputGuard {
     if (verdict.degenerate) {
       this.tripped = true;
       this.tripReason = "degenerate_output";
+      /** trip 即停表：否则僵尸计时器会在 abort 展开期间二次 fire，
+       *  覆写 tripReason（degenerate_output → streaming_timeout）并重复 abort（检视 S2） */
+      this.clearTimerOnly();
       this.logger.warn(
         `[output-guard] Degenerate output detected: otter=${this.otterId} ` +
         `mechanism=${verdict.mechanism} ${verdict.detail}`,
@@ -135,27 +148,32 @@ export class OutputGuard {
     this.detector.reset();
   }
 
-  /** pause（冻结语义）：记录剩余时间并停表；多原因叠加用 ref-count */
+  /** pause（冻结语义）：首个暂停原因记录剩余时间并停表；同原因可叠加（并行工具） */
   pause(reason: PauseReason): void {
-    if (this.pauseReasons.has(reason)) return;
-    if (this.pauseReasons.size === 0 && this.timer !== null) {
+    if (this.destroyed) return;
+    if (this.pauseTotal === 0 && this.timer !== null) {
       this.pausedRemainingMs = Math.max(this.timerBudgetMs - (Date.now() - this.timerStartedAt), 0);
       this.pausedKind = this.timerKind;
       this.clearTimerOnly();
     }
-    this.pauseReasons.add(reason);
+    this.pauseCounts.set(reason, (this.pauseCounts.get(reason) ?? 0) + 1);
+    this.pauseTotal++;
   }
 
   /**
-   * resume：原因集合清空后重建计时器。
-   * compaction / auto_retry 结束后 re-arm 首字节窗口（后续是冷请求全量 prefill）；
+   * resume：计数归零后重建计时器。
+   * 最后释放的原因是 compaction / auto_retry 时 re-arm 首字节窗口（后续是冷请求全量 prefill）；
    * 工具结束恢复冻结的剩余时间。
    */
   resume(reason: PauseReason, abort: () => void): void {
-    if (!this.pauseReasons.delete(reason)) return;
+    const count = this.pauseCounts.get(reason) ?? 0;
+    if (count === 0) return;
+    if (count === 1) this.pauseCounts.delete(reason);
+    else this.pauseCounts.set(reason, count - 1);
+    this.pauseTotal--;
     this.pendingAbort = abort;
-    if (this.pauseReasons.size > 0) return;
-    if (this.tripped || !this.config.enabled) return;
+    if (this.pauseTotal > 0) return;
+    if (this.tripped || !this.config.enabled || this.destroyed) return;
 
     if (reason === "compaction" || reason === "auto_retry") {
       this.armTimer("first_byte", this.config.firstByteTimeoutMs, abort);
@@ -169,12 +187,15 @@ export class OutputGuard {
   }
 
   get isPaused(): boolean {
-    return this.pauseReasons.size > 0;
+    return this.pauseTotal > 0;
   }
 
-  /** 清理资源，必须在 invoke 生命周期的 finally 块中调用 */
+  /** 清理资源，必须在 invoke 生命周期的 finally 块中调用；终态，不可复活 */
   destroy(): void {
+    this.destroyed = true;
     this.clearTimerOnly();
+    this.pauseCounts.clear();
+    this.pauseTotal = 0;
     this.pendingAbort = null;
   }
 
@@ -192,12 +213,17 @@ export class OutputGuard {
     this.timerKind = kind;
     this.timerBudgetMs = budgetMs;
     this.timerStartedAt = Date.now();
+    /** 首字节窗口 arm 时刻同步刷新埋点基准（compaction/auto_retry re-arm 也走这里，
+     *  否则埋点会把"原始 arm→delta"记成 TTFT 并覆盖真值——检视 S3） */
+    if (kind === "first_byte") this.firstByteArmedAt = this.timerStartedAt;
     this.pendingAbort = abort;
     this.timer = setTimeout(() => this.onTimeout(), budgetMs);
   }
 
   private onTimeout(): void {
     this.timer = null;
+    /** trip 后可能残留到期回调（防御；正常路径 trip 已停表） */
+    if (this.tripped || this.destroyed) return;
     /** SDK 事件丢失兜底：compaction 进行中是健康零 delta，不 fire，重新 arm */
     if (this.isCompactingFn?.()) {
       this.logger.warn(`[output-guard] Timeout suppressed by isCompacting fallback: otter=${this.otterId} kind=${this.timerKind}`);

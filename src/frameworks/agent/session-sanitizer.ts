@@ -54,7 +54,8 @@ function placeholder(blockType: string, originalLength: number): string {
   return `[输出异常重复，已截断。块类型 ${blockType}，原始长度 ${originalLength} 字符]`;
 }
 
-/** 从叶节点沿 parentId 回溯活跃分支（同 SDK buildSessionPath 语义：叶 = 最后一条 entry） */
+/** 从叶节点沿 parentId 回溯活跃分支（同 SDK buildSessionPath 语义：叶 = 最后一条 entry）；
+ *  visited 集防损坏文件的 parentId 成环死循环 */
 function resolveActiveBranch(entries: SessionEntry[]): SessionEntry[] {
   const byId = new Map<string, SessionEntry>();
   for (const e of entries) {
@@ -63,8 +64,10 @@ function resolveActiveBranch(entries: SessionEntry[]): SessionEntry[] {
   const leaf = [...entries].reverse().find((e) => e.id);
   if (!leaf) return [];
   const pathEntries: SessionEntry[] = [];
+  const visited = new Set<string>();
   let current: SessionEntry | undefined = leaf;
   while (current) {
+    if (current.id && !visited.add(current.id)) break;
     pathEntries.push(current);
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }

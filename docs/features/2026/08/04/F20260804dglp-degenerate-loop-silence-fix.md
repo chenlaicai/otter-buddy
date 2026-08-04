@@ -248,9 +248,18 @@ messages/messages_fts 无退化文本（dc2f9481 的 body 仅 32 字节）；mes
 
 实现完成后用全部 29 个真实 session 文件（64 个 ≥5KB assistant 块）做全量验证，发现初版机制 A（累计重复位置数 ≥50）误伤面过大（58/64 检出）：良性"整段复述两遍"（单窗口计数=2，但重复位置数≈块长一半）和 ASCII 表格框线（同构边框行）都会累计到 50 次命中。判据收紧为**单窗口出现次数 ≥50** 后：检出降到 24/64，人工逐条核对 24 条全部为真退化（最小 9KB 周期 67），良性复述与表格全部正确逃逸；8 条根因 entry 保持全检出。配置字段相应命名 maxWindowRepeats。
 
+### 第五轮（2026-08-04，PR 代码对抗检视，独立 agent 复现驱动）：3 严重实证 bug + 建议项，全部修复/采纳
+
+- 【严重 S1】并行工具调用击穿 ref-count：SDK 默认 toolExecution=parallel，一条消息多个 toolCall 会同原因多次 tool_execution_start/end，原因集合 Set 去重导致第一个 end 就重建计时器误杀其余工具 → pause 改**按原因计数**（Map<PauseReason, number>），归零才 resume；
+- 【严重 S2】退化 trip 后计时器未清：abort 展开耗时超剩余预算时僵尸计时器二次 fire，tripReason 被覆写为 streaming_timeout、abort 二次调用 → trip 即停表 + onTimeout 入口判 tripped；
+- 【严重 S3】compaction/auto_retry re-arm 未刷新 firstByteArmedAt：首字节埋点把"原始 arm→delta"记成 TTFT 并覆盖真值（300s 调参依据被污染）→ armTimer 在 first_byte 时同步刷新基准；
+- 【建议采纳】pause 期间收 delta 重置冻结剩余为全额（SDK 行为变化防御）、destroy 置终态防复活、cfg 构造过滤 undefined 暗雷、分支回溯加 visited 防环、abort promise catch 防 unhandledRejection；
+- 【如实记录】检测器"滚动哈希"实为每字符全量重算（O(n·w)），叠加每次 invoke 全量重扫活跃分支，大 session 下每次 invoke 尾部有确定性成本（1.88MB 约 10⁷-10⁸ 次 charCodeAt），功能正确、成本已知；工具结束后下一轮请求同为冷 prefill 但用滑动窗口（120s）而非首字节窗口（300s）——已知不对称，当前余量够，靠埋点观测后再调；sanitizer hits 计数含已被 compaction 摘要不进上下文的块（无害幂等，报告口径知悉）；
+- 【配置兼容】outputGuard 的旧字段（segmentLength/maxRepeatedSegments/checkInterval）被 detector.* 替代，老 yaml 里的自定义阈值静默忽略——现行部署未配 outputGuard 段（吃默认值），无实际损失；新旧映射以 config.yaml.example 注释为准。
+
 ## 实施验证结果（2026-08-04）
 
-- `npx tsc --noEmit` 通过；`npx vitest run` 全量 958 通过（含新增 detector 11 + guard 22 + sanitizer 8）；
+- `npx tsc --noEmit` 通过；`npx vitest run` 全量 975 通过（含新增 detector 11 + guard 27 + sanitizer 8，guard 含 S1/S2/S3 回归用例）；
 - 阳性：8 条真实退化 entry 全检出（机制 A），含周期 67 盲区条目与 153KB 近似重复 thinking；
 - 阴性：全部 session 文件 64 个 ≥5KB 块扫描，良性块（复述两遍/ASCII 表格/正常分析）零误伤；
 - 离线脚本 `scripts/sanitize-sessions.mjs` dry-run：6 个文件 24 块命中，与人工核对一致；
