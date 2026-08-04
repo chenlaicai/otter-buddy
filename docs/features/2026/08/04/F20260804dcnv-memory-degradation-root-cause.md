@@ -200,11 +200,10 @@ embeddingAvailable: true
 
 数量差异说明（`documentsOnDisk` 计的是**唯一 ID 数**，不是 .md 文件数）：
 - 磁盘 .md 文件数：96（`find docs -name '*.md' | wc -l`）
-- 唯一 ID 数：95--因为 `F20260722mk74` 被两份文件共用（`multi-otter-streaming.md` 和 `startup-reliability-fixes.md`），scanner 的 ID 冲突 warn 已暴露这个预存问题，后者覆盖前者
-- `lint:docs` 报 96 是因为它扫文件数，不是唯一 ID
-- 修复前 health 报 93：F20260803vmsg 缺 frontmatter 被 scanner 吞掉（-1），加上同样的 ID 冲突（-1），再加上... 实际差异需要更细致的归因，但核心是 scanner 修复后多收了缺 frontmatter 的文档
+- 唯一 ID 数：96--ID 冲突已修复（见下）
+- `lint:docs` 报 96，与 health 一致
 
-**预存问题（不在本 PR 修复范围）**：`F20260722mk74` ID 冲突--两份不同内容的文档共用同一 ID。scanner warn 已暴露，需 content 层面决策哪份保留、哪份改 ID。
+**ID 冲突修复**：scanner 的 warn 暴露了 `F20260722mk74` 被两份文件共用（`multi-otter-streaming.md` PR #79 和 `startup-reliability-fixes.md` PR #68）。PR #68 先发，保留 `F20260722mk74`；PR #79 的 `multi-otter-streaming.md` 改 ID 为 `F20260722mots`，文件名同步重命名，causal_links.from 补 `F20260722mk74` 标明继承关系。
 
 ### JSON import
 

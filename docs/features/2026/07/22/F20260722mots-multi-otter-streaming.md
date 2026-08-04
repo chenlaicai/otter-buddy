@@ -1,5 +1,5 @@
 ---
-id: F20260722mk74
+id: F20260722mots
 title: multi-otter-streaming
 doc_type: feature
 
@@ -12,6 +12,7 @@ causal_links:
     - F20260721de6j   # 可观测性与日志基础设施（pino 引入）
     - F20260721x8k9   # 对话定时任务（scheduler 引入）
     - F20260721speak   # speak Skill
+    - F20260722mk74   # startup-reliability-fixes：同日先发的启动修复，本 F 在其基础上继续
 
 status: implemented
 change_type: fix
@@ -21,7 +22,7 @@ modules: [scripts, src/main.ts, src/frameworks/agent, src/interface-adapters/age
 created_at: 2026-07-22
 ---
 
-# F20260722mk74 - 启动修复 + 多 Otter 并发流式发言 + speak 工具链路修复
+# F20260722mots - 启动修复 + 多 Otter 并发流式发言 + speak 工具链路修复
 
 ## 1. 问题描述
 
