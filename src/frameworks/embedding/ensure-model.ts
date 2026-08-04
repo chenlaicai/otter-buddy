@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Logger } from "@usecases/ports/logger";
-import FILES from "./bge-m3-files.json";
+import FILES from "./bge-m3-files.json" with { type: "json" };
 
 /** 必需文件（单一真相源：bge-m3-files.json，scripts/download-bge-m3.mjs 共享同一份） */
 const REQUIRED_FILES = FILES.map((f) => ({ rel: f.path, size: f.size }));

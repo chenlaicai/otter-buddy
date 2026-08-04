@@ -12,3 +12,6 @@ if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
 fi
 
 npm run check
+# F20260804dcnv: 文档 frontmatter 校验（commit-time gate，反馈从运行时推到 commit 时）
+# 复用 dist/ 编译产物，依赖上一行 `npm run check` 已构建
+npm run lint:docs

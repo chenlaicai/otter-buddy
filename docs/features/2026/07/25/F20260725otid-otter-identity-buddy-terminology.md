@@ -4,19 +4,10 @@ title: otter-identity-and-buddy-terminology
 doc_type: feature
 
 summary: |
-  为海獭团队建立身份认知体系，并让身份注入在真实流程中真正生效：
-  1. 身份文案：新增 prompts/identity/BIG_OTTER.md（海獭团队首领 + 搭档的
-     工作+生活伙伴，生动但克制）与 SMALL_OTTER.md（大獭创建的专门执行者，
-     编码只读 + 协作工具完整，干完即走），首次 invoke 按类型注入。
-  2. 注入链路修复：旧实现以"无 session 记录"判定首次，但 create() 在创建时
-     就持久化记录，身份注入（含改名前的旧版名称头部）从未在真实流程触发。
-     改为 pendingIdentity 显式标记（create/reset）+ SessionRestore createdNew
-     信号（文件丢失重建/进程重启兜底）双保险，注入成功才消费标记。
-  3. 称呼统一：人类参与者在獭可见文本中统一为"搭档"（ protocol 关键字
-     'user' 保留），平台 prompt 与术语库写明 user/用户=搭档 的映射。
-  4. 平台层单一事实源：四条行为边界（不自我贬低/承认不确定/诚实优于服从/
-     安全底线）适用于所有獭，放 .pi/SYSTEM.md；删除只写不读的死文件
-     prompts/platform/SYSTEM_PROMPT.md 及其配置链，其独有好内容并入 .pi/SYSTEM.md。
+  为海獭团队建立三层身份认知体系（平台 .pi/SYSTEM.md + 类型 BIG_OTTER/SMALL_OTTER + 专属 create_otter），并修复身份注入链路从未在真实流程触发的死代码缺陷。
+  根因：旧实现以"无 session 记录"判定首次 invoke，但 create() 创建时就持久化 agent_sessions 记录，isFirstInvoke 恒 false，身份文案（含改名前旧版名称头部）从未注入。
+  主机制：pendingIdentity 显式标记（create/reset）+ SessionRestore createdNew 信号（文件丢失重建/进程重启兜底）双保险，注入成功才消费标记；SDK 无 systemPrompt 覆盖 API，走消息前缀注入。
+  同时统一獭可见文本为"搭档"（protocol 关键字 user 保留 + 平台 prompt 与术语库写明映射），死文件 SYSTEM_PROMPT.md 独有内容并入 .pi/SYSTEM.md 后删除。
 
 causal_links:
   from:

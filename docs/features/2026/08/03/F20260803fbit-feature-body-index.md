@@ -4,7 +4,9 @@ title: feature-body-index
 doc_type: feature
 
 summary: |
-  修复特性/研究文档正文不进 FTS 索引的问题（Issue #124 Task B）。承接 F20260803mval（Task A）的 upsert + replaceBySource 基础设施。根因三处叠加：syncFile 解析 frontmatter 时丢弃 body；indexFeature 签名只收 summary；upsert 内容指纹不含 body（文档改 body 不触发 reindex）。设计核心：body 作为独立 memory_entry（contentType=feature_body/research_body），与 summary entry 并存，为 chunking 演进铺路 + 同文档双证据源 ranking 提升。关键技术决策：(1) 升级 replaceEntryBySource 的 DELETE WHERE 加 content_type 过滤；(2) features/research 表加 body_hash 列驱动指纹比较，避免扩 MemoryIndexGateway 读接口；(3) 搜索结果按 sourceId 去重；(4) store-memory 的 execute + replaceBySource 两处 embedding 调用前截断 body 到 6000 字符，FTS 灌清理后版本；(5) features/research 的 mapper + repository 同步加 body_hash 列映射；(6) markdown 噪声清理（删语法符号保留代码内容/标题文本，防 "###"/"```" 等符号污染 trigram 索引拉低 BM25 相关性）；(7) 后端 contentType filter（SearchFilters 接口 + searchFTS/searchVec SQL + memory-controller + search_memory 工具参数），让用户能"只搜 body"或"只搜 summary"。经两轮独立 agent 对抗审视 + 用户第三轮挑战，最终纳入噪声清理与 contentType filter（原误判为 follow-up）。chunking 真实收益但成本数量级上升，且 embedding 收益依赖 Task C，已评论 issue #124 建议另开专属 issue。
+  修复特性/研究文档正文（body）不进 FTS 索引的问题（Issue #124 Task B）。
+  根因三处叠加：syncFile 解析 frontmatter 时丢弃 body；indexFeature 签名只收 summary；内容指纹不含 body 导致改 body 不触发 reindex。
+  body 作为独立 memory_entry（contentType=feature_body/research_body）与 summary entry 并存；通过 body_hash 列驱动指纹比较、replaceEntryBySource 加 content_type 过滤实现原子替换；并配套 markdown 噪声清理、embedding 截断、搜索结果去重、后端 contentType filter。
 
 causal_links:
   from:

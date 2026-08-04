@@ -80,6 +80,69 @@ describe("HealthController - F20260803mval", () => {
     expect((body.reconcileGaps as string[]).length).toBeGreaterThan(0);
   });
 
+  it("F20260804dcnv: gap 文档跑 validator，gapReasons 返回失败原因", async () => {
+    // 让 mock 返回 summary 超长的 frontmatter（违反 ≤500 规则）
+    const featureRepo = {
+      findById: vi.fn(), findAll: vi.fn(async () => []),
+      insert: vi.fn(), updateStatus: vi.fn(), updateContent: vi.fn(),
+    } as unknown as FeatureRepository;
+    const researchRepo = {
+      findById: vi.fn(), findAll: vi.fn(async () => []),
+      insert: vi.fn(), updateStatus: vi.fn(), updateContent: vi.fn(),
+    } as unknown as ResearchRepository;
+    const longSummary = "x".repeat(600);
+    const fs: FileSystemGateway = {
+      readFile: vi.fn(async () => `---\nid: F20260804long\ntitle: t\nsummary: ${longSummary}\n---\n`),
+      readDir: vi.fn(async (dir: string) => {
+        if (dir.endsWith("docs/features")) return [{ name: "2026", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("2026")) return [{ name: "08", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("08")) return [{ name: "04", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("04")) return [{ name: "F20260804long-x.md", isDirectory: () => false, isFile: () => true }];
+        return [];
+      }),
+      exists: vi.fn(async () => true),
+    };
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", mockLogger());
+    const res = await makeApp(ctrl).request("/api/health/memory");
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.healthy).toBe(false);
+    const gaps = body.gapReasons as Array<{ id: string; errors: string[] }>;
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0].id).toBe("F20260804long");
+    expect(gaps[0].errors.join(" ")).toMatch(/Summary length 600 out of range/);
+  });
+
+  it("F20260804dcnv: frontmatter 缺失 -> gapReasons 含 Missing frontmatter", async () => {
+    const featureRepo = {
+      findById: vi.fn(), findAll: vi.fn(async () => []),
+      insert: vi.fn(), updateStatus: vi.fn(), updateContent: vi.fn(),
+    } as unknown as FeatureRepository;
+    const researchRepo = {
+      findById: vi.fn(), findAll: vi.fn(async () => []),
+      insert: vi.fn(), updateStatus: vi.fn(), updateContent: vi.fn(),
+    } as unknown as ResearchRepository;
+    const fs: FileSystemGateway = {
+      readFile: vi.fn(async () => "# F20260804nometa: 标题\n\nbody\n"),
+      readDir: vi.fn(async (dir: string) => {
+        if (dir.endsWith("docs/features")) return [{ name: "2026", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("2026")) return [{ name: "08", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("08")) return [{ name: "04", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("04")) return [{ name: "F20260804nometa-x.md", isDirectory: () => false, isFile: () => true }];
+        return [];
+      }),
+      exists: vi.fn(async () => true),
+    };
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", mockLogger());
+    const res = await makeApp(ctrl).request("/api/health/memory");
+    const body = await res.json() as Record<string, unknown>;
+    // 文件名兜底提 ID -> F20260804nometa 进 diskIds，但 DB 没有 -> gap
+    expect((body.reconcileGaps as string[])).toContain("F20260804nometa");
+    const gaps = body.gapReasons as Array<{ id: string; errors: string[] }>;
+    const gap = gaps.find(g => g.id === "F20260804nometa");
+    expect(gap).toBeDefined();
+    expect(gap!.errors.join(" ")).toMatch(/Missing frontmatter/);
+  });
+
   it("embedding 不可用 -> healthy=false", async () => {
     const { featureRepo, researchRepo, fs } = makeRepos({ dbFeatureIds: ["F1"], diskIds: ["F1"] });
     const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(false), fs, "/root", mockLogger());

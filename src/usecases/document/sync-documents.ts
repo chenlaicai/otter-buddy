@@ -1,4 +1,4 @@
-import * as path from "path";
+import * as path from "node:path";
 import { createHash } from "crypto";
 import type { FileSystemGateway } from "@usecases/ports/file-system-gateway";
 import type { FeatureRepository } from "./feature-repository";
@@ -17,6 +17,7 @@ import {
 } from "@entities/document/known-values";
 import { cleanMarkdownForFts } from "./markdown-noise-cleaner";
 import { chunkMarkdown } from "./markdown-chunker";
+import { scanDiskIds } from "./disk-id-scanner";
 
 export interface SyncResult {
   synced: number;
@@ -90,6 +91,18 @@ export class SyncDocuments {
       supersedesDangling: result.supersedesDangling.length,
       duration, action: 'sync_complete',
     });
+    // F20260804jsyn: 把 errors/warnings/reconcileGaps/supersedesDangling 的具体内容
+    // 也打到日志——之前只打 count，导致 gap 根因只能反推（违反"运行时可观测"原则）
+    if (result.errors.length > 0) {
+      this.logger.error('Sync errors detail', undefined, {
+        errors: result.errors, action: 'sync_errors_detail',
+      });
+    }
+    if (result.warnings.length > 0) {
+      this.logger.warn('Sync warnings detail', {
+        warnings: result.warnings, action: 'sync_warnings_detail',
+      });
+    }
 
     return result;
   }
@@ -245,7 +258,8 @@ export class SyncDocuments {
     repo: { findAll(): Promise<T[]> },
     result: SyncResult,
   ): Promise<void> {
-    const diskIds = await this.collectDiskIds(rootDir, dir);
+    const diskIdMap = await scanDiskIds(this.fs, path.join(rootDir, dir), this.logger);
+    const diskIds = new Set(diskIdMap.keys());
     const dbDocs = await repo.findAll();
     const dbIds = new Set(dbDocs.filter(d => d.status !== "archived").map(d => d.id));
     // F20260803mval: supersedes 引用检查用全量 ID（含 archived），归档文档作为引用目标仍合法（B5）
@@ -260,25 +274,6 @@ export class SyncDocuments {
         }
       }
     }
-  }
-
-  /** 扫描磁盘文档提取 ID 集合（对账用，独立于 syncFile 避免共享盲区） */
-  private async collectDiskIds(rootDir: string, dir: string): Promise<Set<string>> {
-    const fullPath = path.join(rootDir, dir);
-    const files = await this.scanMarkdownFiles(fullPath);
-    const ids = new Set<string>();
-    for (const file of files) {
-      try {
-        const content = await this.fs.readFile(file);
-        const { frontmatter } = parseFrontmatterFromContent(content);
-        if (frontmatter.id && typeof frontmatter.id === "string") {
-          ids.add(frontmatter.id as string);
-        }
-      } catch {
-        // 解析失败的文件已在 syncFile 记 errors，此处跳过
-      }
-    }
-    return ids;
   }
 
   private async archiveDeletedDocuments(rootDir: string, result: SyncResult): Promise<void> {

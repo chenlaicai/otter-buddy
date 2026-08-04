@@ -4,7 +4,7 @@ title: embedding-model-local-load
 doc_type: feature
 
 summary: |
-  修复 bge-m3 embedding 模型加载失败导致 memory_vec 表永远 0 行的缺陷。根因是双层 bug 叠加：embedding-service.ts 把传入的 embedConfig 参数命名为 _embedConfig 直接丢弃，config-service.ts 里 embedding.modelPath 字段形同虚设；bge-m3-worker.ts 又硬编码 "Xenova/bge-m3" 且每次启动都从 HuggingFace 远程拉取。用户环境无法访问 huggingface.co（连接超时），导致每次启动 fetch failed、静默降级 FTS-only、向量检索路径永远空。修复将配置真正透传给 worker（workerData），并新增 localModelPath 字段切换本地/远程两种加载模式：本地模式禁用远程下载、模型文件预置在 models/ 目录；远程模式尊重 HF_ENDPOINT 环境变量支持镜像。模型权重文件（2.27GB 的 model.onnx_data 由用户提供 + 5 个小文件从 hf-mirror 拉取）置于仓库 models/bge-m3/，加入 .gitignore。集成测试验证：模型从本地路径加载成功，1024 维输出，cos("hello world","你好世界")=0.90 证明多语言语义检索生效。降级路径保留：worker 加载失败仍走原 FTS-only fallback 不阻塞主流程。
+  修复 bge-m3 embedding 模型加载失败导致 memory_vec 表永远 0 行、向量检索路径永远空的缺陷。根因是双层 bug 叠加网络不可达：embedding-service.ts 把传入的 embedConfig 参数命名为 _embedConfig 直接丢弃（配置从未生效），bge-m3-worker.ts 硬编码 Xenova/bge-m3 且强制每次从 HuggingFace 远程拉取，用户环境 HF 不可达导致 fetch failed、静默降级 FTS-only。修复将配置通过 workerData 真正透传给 worker，新增 localModelPath 字段切换本地/远程双模式：本地模式禁用远程下载、模型文件预置 models/ 目录；远程模式尊重 HF_ENDPOINT 环境变量支持镜像。加载失败仍走 FTS-only 降级不阻塞主流程。
 
 causal_links:
   from:

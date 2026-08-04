@@ -15,7 +15,7 @@ causal_links:
     - F20260721x7k3   # docs-format-sync：同步系统要求 frontmatter，本补丁为缺漏文档补齐
 
 status: final
-change_type: bugfix
+change_type: fix
 tags: [docs, frontmatter, metadata, bugfix, sync, issue-124]
 modules:
   - docs/features/2026/07/29/F20260729c113-code-quality-fix.md

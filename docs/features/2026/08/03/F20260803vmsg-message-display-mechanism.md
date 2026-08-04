@@ -1,3 +1,27 @@
+---
+id: F20260803vmsg
+title: message-display-mechanism
+doc_type: feature
+
+summary: |
+  完整重建对话消息展示机制：react-virtuoso 虚拟滚动、双向游标分页、消息级未读追踪，支撑成百上千条消息的流畅交互。修复进入会话停在顶部、轮询吞历史、N+1 列表查询等 7 项既有缺陷。
+
+causal_links:
+  from: []
+  to: []
+
+status: implemented
+change_type: feature
+tags: [web, conversation, message, virtual-scroll, react-virtuoso, pagination, unread, sse, cqrs]
+modules:
+  - web/src/pages/conversation/MessageList.tsx
+  - web/src/pages/conversation/message-stream.ts
+  - src/interface-adapters/http/controllers/message-controller.ts
+  - src/interface-adapters/http/router.ts
+  - src/usecases/conversation/manage-read-state.ts
+  - src/frameworks/storage/schema.ts
+---
+
 # F20260803vmsg: 对话消息展示机制
 
 ## 概述
