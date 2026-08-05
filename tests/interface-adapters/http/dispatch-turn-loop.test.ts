@@ -4,6 +4,7 @@ import { MessageController } from "@interface-adapters/http/controllers/message-
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SendMessage } from "@usecases/conversation/send-message";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
@@ -35,17 +36,17 @@ function makeSendMessageUseCase() {
       systemBodies.push(body);
       return { id: "sys-msg-1", body };
     },
-    repo: {
-      getUnreadMessages: async () => [],
-      getTurnById: async () => null,
-      markParticipantLeft: async () => {},
-      getLastMessageBySender: async () => null,
-      getActiveTurn: async () => null,
-      updateLastReadTurnNumber: async () => {},
-      getActiveParticipants: async () => [],
-    },
   };
-  return { useCase, systemBodies };
+  const conversationRepo = {
+    getUnreadMessages: async () => [],
+    getTurnById: async () => null,
+    markParticipantLeft: async () => {},
+    getLastMessageBySender: async () => null,
+    getActiveTurn: async () => null,
+    updateLastReadTurnNumber: async () => {},
+    getActiveParticipants: async () => [],
+  } as unknown as ConversationRepository;
+  return { useCase, conversationRepo, systemBodies };
 }
 
 const queryOtterStub = { getById: async () => null } as unknown as QueryOtter;
@@ -61,7 +62,7 @@ function postMessage(app: Hono) {
 
 describe("dispatchTurnLoop 深度上限", () => {
   it("触顶时停止派发、warn 日志、sendSystem 并推 system.message", async () => {
-    const { useCase, systemBodies } = makeSendMessageUseCase();
+    const { useCase, conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     /** 发言石永远互传 → 死循环，必须由 maxChainDepth 截断 */
     let dispatchCount = 0;
@@ -73,7 +74,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     } as unknown as AgentInvoker;
 
     const dispatchChainEngine = new DispatchChainEngine({
-      sendMessage: useCase as unknown as SendMessage,
+      conversationRepo,
       queryMessage: queryMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
@@ -116,7 +117,7 @@ describe("dispatchTurnLoop 深度上限", () => {
   });
 
   it("发言石无目标时正常结束，不发系统消息", async () => {
-    const { useCase, systemBodies } = makeSendMessageUseCase();
+    const { useCase, conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
     let dispatchCount = 0;
     const agentInvoker = {
@@ -127,7 +128,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     } as unknown as AgentInvoker;
 
     const dispatchChainEngine = new DispatchChainEngine({
-      sendMessage: useCase as unknown as SendMessage,
+      conversationRepo,
       queryMessage: queryMessageStub,
       queryOtter: queryOtterStub,
       logger: logger as never,
@@ -152,11 +153,11 @@ describe("dispatchTurnLoop 深度上限", () => {
   });
 
   it("派发上下文包含在场成员名册与具名历史", async () => {
-    const { useCase } = makeSendMessageUseCase();
-    useCase.repo.getActiveParticipants = async () => [
+    const { useCase, conversationRepo } = makeSendMessageUseCase();
+    conversationRepo.getActiveParticipants = async () => [
       { otterId: "otter-x" },
     ] as never;
-    useCase.repo.getUnreadMessages = async () => [
+    conversationRepo.getUnreadMessages = async () => [
       { senderType: "otter", senderId: "otter-x", body: "万象更新" },
     ] as never;
     const { logger } = makeLogger();
@@ -171,7 +172,7 @@ describe("dispatchTurnLoop 深度上限", () => {
     } as unknown as AgentInvoker;
 
     const dispatchChainEngine = new DispatchChainEngine({
-      sendMessage: useCase as unknown as SendMessage,
+      conversationRepo,
       queryMessage: queryMessageStub,
       queryOtter,
       logger: logger as never,
