@@ -18,6 +18,7 @@ change_type: fix
 tags: [frontend, projection, error-handling]
 modules:
   - web/src/pages/conversation/index.tsx
+  - web/src/lib/message-stream.ts
   - .github/workflows/ci.yml
 ---
 
