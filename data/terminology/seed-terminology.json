@@ -30,10 +30,19 @@
     "id": "seed-004",
     "term": "重启獭生",
     "aliases": ["Restart Otter Life"],
-    "definition": "搭档表达不满时触发的 Otter 个体内部机制：封存当前 session 为反面案例，开新 session 换角度重来。",
-    "context": null,
+    "definition": "搭档触发的 Otter 个体内部机制：封存当前 session（前世），以全新上下文开启新一世继续。触发原因不限于对回复不满，也可能是 session 自身异常需要重开；不预设前世为反面案例。",
+    "context": "2026-08-05 文案中性化（F20260805rsto）：旧定义为「搭档表达不满时触发…封存为反面案例」，已废弃",
     "examples": null,
     "category": "机制"
+  },
+  {
+    "id": "seed-011",
+    "term": "世",
+    "aliases": ["第N世", "前世", "Session #N"],
+    "definition": "Otter 一段 session 生命周期的计数单位。重启獭生封存前世、开启新一世；各世记录可在 Otter 详情的 Session Chain 中查看。",
+    "context": "2026-08-05 由 F20260805rsto 引入，对齐右栏卡片原「Session #N」表述",
+    "examples": null,
+    "category": "概念"
   },
   {
     "id": "seed-005",
