@@ -211,14 +211,17 @@ function ConversationPage() {
       }
       /** 增量结果未含的 in-flight 消息：定点拉取收敛（SSE 断连兜底）。
        *  不能在增量为空时提前返回——in-flight 恰好是最新消息时 /after 恒为空，
-       *  其状态迁移（streaming→aborted/completed）只能靠定点拉取收敛（F20260805abpl） */
+       *  其状态迁移（streaming→aborted/completed）只能靠定点拉取收敛（F20260805abpp） */
       const outOfWindow = findStaleInFlight(list, new Set(newerMsgs.map(m => m.id)))
       for (const m of outOfWindow) {
         try {
           const serverMsg = mapMessageDTO(await api.getMessage(m.id))
           setAllMessages(prev => {
             const l = prev[convId]
-            if (!l?.some(x => x.id === m.id)) return prev
+            const existing = l?.find(x => x.id === m.id)
+            if (!existing) return prev
+            /** 仍在生成且内容未变：跳过替换，避免引用抖动触发轮询 effect 空转重排 */
+            if (existing.status === serverMsg.status && existing.content === serverMsg.content) return prev
             return { ...prev, [convId]: l.map(x => x.id === m.id ? { ...serverMsg, events: m.events } : x) }
           })
         } catch { /* 下轮重试 */ }
@@ -338,7 +341,7 @@ function ConversationPage() {
   }, [activeId, allMessages, loadConversationDetail])
 
   /** 刷新页面后若有仍在生成的消息（SSE 已断），轮询续看直到全部进入终态。
-   *  自续期（F20260805abpl）：空转（增量为空、状态未变）不改变 allMessages，
+   *  自续期（F20260805abpp）：空转（增量为空、状态未变）不改变 allMessages，
    *  若依赖 effect 重跑来排下一轮，轮询链在首次无变化后永久停转——故循环自我排期，
    *  直到 allMessages 变化触发重跑时由入口条件（是否仍有 in-flight）决定去留 */
   useEffect(() => {
@@ -467,21 +470,41 @@ function ConversationPage() {
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
       },
-      /** F20260805abpl：常驻通道必须处理 message.aborted——MPA 整页刷新后随发送请求建立的
+      /** F20260805abpp：常驻通道必须处理 message.aborted——MPA 整页刷新后随发送请求建立的
        *  SSE 流已死，abort 终态只能经此通道到达；缺失时 streaming 占位消息永久卡在生成中 */
       'message.aborted': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
         const liveEvents = liveEventsMap.get(messageId) || []
         const meta = liveMeta.get(messageId)
+        /** 身份以 SSE 事件为准（服务端已携带），liveMeta 作回退——与发送流处理器一致 */
+        const otterId = dataOtterId || meta?.otterId || ''
+        const otterName = dataOtterName ?? meta?.otterName
+        /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
+        if (otterId && otterName && activeId) {
+          setAllOtters(prev => {
+            const convOtters = prev[activeId] || []
+            if (convOtters.some(o => o.id === otterId)) return prev
+            return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
+          })
+        }
         const abortedMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
+          id: messageId, st: 'otter', si: otterId, sn: otterName,
           content: (data.body as string) ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || nowTs(), dur: null,
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], abortedMsg) }))
-        showToast('回复已中断', 'info')
+        /** 仅在 in-flight→终态迁移时 toast：发送流与常驻通道订阅同一广播总线，
+         *  页面停留期间 abort 会双通道投递，第二个到达的 handler 不得重复提示 */
+        let transitioned = false
+        setAllMessages(prev => {
+          const list = prev[activeId] || []
+          const existing = list.find(m => m.id === messageId)
+          transitioned = !existing || isInFlight(existing)
+          return { ...prev, [activeId]: upsertMessage(list, abortedMsg) }
+        })
+        if (transitioned) showToast('回复已中断', 'info')
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
+        maybeScrollToBottom()
       },
       'error': (data) => {
         const errMsg: LocalMessage = {
@@ -717,8 +740,15 @@ function ConversationPage() {
             content: data.body ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], abortedMsg) }))
-          showToast('回复已中断', 'info')
+          /** 仅在 in-flight→终态迁移时 toast：与常驻 /subscribe 通道共享广播总线，双通道投递去重 */
+          let transitioned = false
+          setAllMessages(prev => {
+            const list = prev[activeId] || []
+            const existing = list.find(m => m.id === messageId)
+            transitioned = !existing || isInFlight(existing)
+            return { ...prev, [activeId]: upsertMessage(list, abortedMsg) }
+          })
+          if (transitioned) showToast('回复已中断', 'info')
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
         },

@@ -43,7 +43,7 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
 }
 
 /**
- * 需要向服务器定点拉取终态的进行中消息（F20260805abpl）。
+ * 需要向服务器定点拉取终态的进行中消息（F20260805abpp）。
  * /after 增量游标是本地最后一条消息，结果严格在其之后——
  * 游标消息自身的 streaming→aborted/completed 状态迁移永远不在增量里，
  * 尤其 in-flight 恰好是最新消息时增量恒为空，定点拉取是唯一收敛路径。

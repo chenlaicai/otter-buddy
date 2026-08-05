@@ -48,7 +48,7 @@ export interface OutputGuardMetadata {
   firstByteLatencyMs?: number;
 }
 
-/** pause 原因（ref-count 集合的元素） */
+/** pause 原因（按原因 ref-count） */
 export type PauseReason = "tool" | "compaction" | "auto_retry";
 
 /** delta 类型白名单：text/thinking 进重复检测；toolcall 只作活跃信号 */
@@ -171,6 +171,13 @@ export class OutputGuard {
    * prefill（全量上下文重算），与 prompt 首发同性质，统一用首字节预算覆盖
    * （F20260805abpp：工具结束曾恢复冻结的滑动剩余预算，大上下文 prefill 超过
    * 滑动预算被误切——《对话列表的状态图标》streaming_timeout 事故根因）。
+   *
+   * 已知例外（架构师检视 S1）：speak 等 terminate 工具的 end 之后没有新请求，
+   * 此处 arm 的首字节计时器为虚空请求布防，安全性依赖 invoke finally 的
+   * destroy() 及时跟进（agent_end → prompt() resolve → cleanup 是同步微任务链）。
+   * 若未来引入慢 agent_end/turn_end 扩展钩子（>firstByteTimeoutMs），虚空计时器
+   * 会 fire 并把成功 run 误报为 first_byte_timeout——届时需在 terminate 批次
+   * 结束时显式抑制 arm。
    */
   resume(reason: PauseReason, abort: () => void): void {
     const count = this.pauseCounts.get(reason) ?? 0;
@@ -218,8 +225,8 @@ export class OutputGuard {
     this.timerKind = kind;
     this.timerBudgetMs = budgetMs;
     this.timerStartedAt = Date.now();
-    /** 首字节窗口 arm 时刻同步刷新埋点基准（compaction/auto_retry re-arm 也走这里，
-     *  否则埋点会把"原始 arm→delta"记成 TTFT 并覆盖真值——检视 S3） */
+    /** 首字节窗口 arm 时刻同步刷新埋点基准（tool/compaction/auto_retry resume 的
+     *  re-arm 也走这里，否则埋点会把"原始 arm→delta"记成 TTFT 并覆盖真值——检视 S3） */
     if (kind === "first_byte") this.firstByteArmedAt = this.timerStartedAt;
     this.pendingAbort = abort;
     this.timer = setTimeout(() => this.onTimeout(), budgetMs);

@@ -128,7 +128,7 @@ describe('mergeMessages', () => {
   })
 })
 
-describe('findStaleInFlight（F20260805abpl：/after 增量不含游标消息自身的状态迁移）', () => {
+describe('findStaleInFlight（F20260805abpp：/after 增量不含游标消息自身的状态迁移）', () => {
   it('in-flight 恰好是最新消息（增量恒为空）时必须被挑出定点拉取', () => {
     const list = [msg({ id: 'a', seq: 1 }), msg({ id: 'b', seq: 2, status: 'streaming' })]
     const stale = findStaleInFlight(list, new Set())
@@ -139,12 +139,18 @@ describe('findStaleInFlight（F20260805abpl：/after 增量不含游标消息自
     const list = [
       msg({ id: 'done', status: 'completed' }),
       msg({ id: 'aborted', status: 'aborted' }),
-      msg({ id: 'tmp-1', st: 'user', si: 'user', status: undefined }),
-      msg({ id: 'err-1', status: 'failed' }),
+      /** tmp/err 前缀即使状态像 in-flight 也必须排除（本地乐观消息无服务器对应物） */
+      msg({ id: 'tmp-x', status: 'streaming', content: '' }),
+      msg({ id: 'err-x', status: 'streaming', content: '' }),
       msg({ id: 'fresh', status: 'streaming' }),
     ]
     const stale = findStaleInFlight(list, new Set(['fresh']))
     expect(stale).toEqual([])
+  })
+
+  it('speaking 状态同样视为 in-flight 需定点拉取', () => {
+    const list = [msg({ id: 's', status: 'speaking' })]
+    expect(findStaleInFlight(list, new Set()).map(m => m.id)).toEqual(['s'])
   })
 
   it('user 消息不视为 in-flight，即使 status 异常', () => {

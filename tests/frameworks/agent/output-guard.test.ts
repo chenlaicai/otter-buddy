@@ -367,6 +367,87 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
     vi.advanceTimersByTime(10_000);
     expect(abort).not.toHaveBeenCalled();
   });
+
+  it("工具 resume re-arm 首字节窗口后，首个 delta 到达即切回滑动窗口（300s 暴露面只覆盖首 delta 之前）", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 3000, firstByteTimeoutMs: 300_000 }),
+      "otter-1", mockLogger(),
+    );
+    const abort = vi.fn();
+
+    guard.onDelta(randomText(50, 23), "text_delta", abort);
+    guard.pause("tool");
+    guard.resume("tool", abort); // re-arm 首字节窗口 300s
+    vi.advanceTimersByTime(10_000); // post-tool prefill 10s：首字节窗口内容忍
+    expect(abort).not.toHaveBeenCalled();
+
+    guard.onDelta(randomText(50, 24), "text_delta", abort); // 首个 delta → 切滑动窗口 3s
+    vi.advanceTimersByTime(3001);
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("streaming_timeout");
+  });
+
+  it("混合 pause 反向释放：compaction 先放不 arm，tool 后放 arm 首字节窗口", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
+      "otter-1", mockLogger(),
+    );
+    const abort = vi.fn();
+
+    guard.onDelta(randomText(50, 25), "text_delta", abort);
+    guard.pause("tool");
+    guard.pause("compaction");
+    guard.resume("compaction", abort); // tool 仍在跑：不得 arm
+    vi.advanceTimersByTime(10_000);
+    expect(abort).not.toHaveBeenCalled();
+
+    guard.resume("tool", abort); // 计数归零 → 首字节窗口（与释放顺序无关）
+    vi.advanceTimersByTime(2001); // 超滑动预算不误切
+    expect(abort).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(6000);
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("first_byte_timeout");
+  });
+
+  it("isCompacting 兜底在首字节 kind 下同样抑制并重新 arm", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
+      "otter-1", mockLogger(),
+    );
+    const abort = vi.fn();
+    let compacting = true;
+    guard.setIsCompacting(() => compacting);
+
+    guard.onDelta(randomText(50, 26), "text_delta", abort);
+    guard.pause("tool");
+    guard.resume("tool", abort); // 首字节窗口 8s
+    vi.advanceTimersByTime(8001); // 到期但 compaction 进行中 → 抑制并重新 arm
+    expect(abort).not.toHaveBeenCalled();
+
+    compacting = false;
+    vi.advanceTimersByTime(8001); // 重新 arm 的首字节窗口到期
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("first_byte_timeout");
+  });
+
+  it("工具 resume re-arm 刷新首字节埋点基准：上报 post-tool prefill 耗时", () => {
+    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const abort = vi.fn();
+
+    guard.armFirstByteTimer(abort);
+    vi.advanceTimersByTime(200);
+    guard.onDelta(randomText(50, 27), "text_delta", abort); // prompt TTFT 200ms
+    expect(guard.getMetadata().firstByteLatencyMs).toBe(200);
+
+    guard.pause("tool");
+    vi.advanceTimersByTime(5000); // 工具执行 5s
+    guard.resume("tool", abort); // re-arm 首字节窗口，基准刷新
+    vi.advanceTimersByTime(150);
+    guard.onDelta(randomText(50, 28), "text_delta", abort); // post-tool prefill 150ms
+
+    // 若基准未刷新会报 200+5000+150=5350ms 并覆盖真值
+    expect(guard.getMetadata().firstByteLatencyMs).toBe(150);
+  });
 });
 
 describe("OutputGuard trip 语义（PR 检视 S2/S3 回归）", () => {

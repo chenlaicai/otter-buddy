@@ -89,10 +89,11 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
 ### Part 2：前端 abort 投影（`conversation/index.tsx` + `message-stream.ts`）
 
 - 常驻 `/subscribe` handlers 补 `message.aborted`（与发送流处理器对齐：
-  upsert 终态消息 + toast + 清理 live 状态）；
+  upsert 终态消息 + toast + 清理 live 状态）；两条通道订阅同一广播总线，
+  toast 以"in-flight→终态迁移"为条件去重，避免双通道投递双提示；
 - `refreshMessages`：in-flight 定点拉取移到空增量 early-return 之前（改为不提前返回），
   提取纯函数 `findStaleInFlight`（message-stream.ts）固化"/after 不含游标消息自身
-  状态迁移"这一不变量；
+  状态迁移"这一不变量；定点拉取结果无变化时跳过 setState，避免引用抖动；
 - 续看轮询 effect 改自续期循环：`refreshMessages` 完成后无条件排下一轮，
   直到 allMessages 变化触发 effect 重跑时由入口条件（仍有 in-flight）决定去留——
   空转不再断链。
@@ -102,15 +103,55 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
 - `tests/frameworks/agent/output-guard.test.ts`：
   - 工具结束 resume re-arm 首字节窗口，prefill 静默超滑动预算不误切（事故 1 回归）；
   - 并行工具 ref-count + 末个 resume 首字节窗口；pause 期间 delta 后 resume 仍首字节窗口；
+  - resume 后首个 delta 到达即切回滑动窗口（300s 暴露面只覆盖首 delta 之前）；
+  - 混合 pause 双向释放顺序；isCompacting 兜底覆盖 first_byte kind；工具路径埋点基准刷新；
   - attach 层 tool_execution_start/end 全链路（首字节窗口断言）。
-- `web/src/lib/message-stream.test.ts`：`findStaleInFlight` 三例
-  （in-flight 为最新消息必被挑出；终态/tmp/err/已在增量中的排除；user 消息不算 in-flight）。
-- 根仓 `npm run check` 全绿（979 测试）；web `vitest run` + `tsc --noEmit` 全绿（73 测试）。
+- `web/src/lib/message-stream.test.ts`：`findStaleInFlight`
+  （in-flight 为最新消息必被挑出；终态/tmp/err/已在增量中的排除；speaking 状态覆盖；
+  user 消息不算 in-flight）。
+- 根仓 `npm run check` 全绿；web `vitest run` + `tsc --noEmit` 全绿。
+
+## 对抗审视记录（第一轮：架构师检视 + 代码检视并行）
+
+### 架构师检视（针对 Part 1，对照 SDK 源码逐条验证）
+
+- 【严重 S1，记录不修】**terminate 工具路径上"resume 后必有新请求"不成立**：speak 工具
+  terminate 批次结束后 SDK 直接 agent_end，没有新模型请求，但 resume 仍 arm 300s 首字节
+  计时器。当前不炸依赖 invoke finally 的 destroy() 及时跟进（同步微任务链）；慢扩展钩子
+  （>300s 的 agent_end/turn_end 钩子）出现时虚空计时器会 fire 并把成功 run 误报为
+  first_byte_timeout。默认部署（无扩展）不可达。处置：已知例外写入 resume() 注释，
+  未来引入慢钩子时需在 terminate 批次结束显式抑制 arm。
+- 【建议 I1，记录】pause 期间 delta 的防御（旧：冻结剩余重置为全额滑动预算）已删除，
+  乱序 delta 场景下中途挂死检出窗口从 120s 放宽到 300s（收到下一个 delta 即自愈）。
+  方向与事故修复相反但影响有限，如实记录。
+- 【建议 I2，记录】`firstByteLatencyMs` 统计总体变化：含工具的回合现在上报最后一个
+  post-tool prefill 耗时（恰是事故 1 想观测的总体），与历史数据的 prompt TTFT 不再是
+  同一总体，调参时注意。已补工具路径埋点测试。
+- 【建议 I3，已修】补四条测试：resume→delta 切回滑动窗口、混合 pause 反向释放、
+  first_byte kind 的 isCompacting 兜底、工具路径埋点基准刷新。
+- 验证通过：SDK 工具只在 assistant 流式结束后执行（不存在流式中途 tool 暂停）；
+  工具事件 start/end 配对完备（abort/异常路径均有 end）；auto_retry 特例交互无洞。
+
+### 代码检视（全量 diff）
+
+- 【必须修，已修】web 侧 5 处注释文档 ID 误写 `F20260805abpl`（实际 abpp）——断链。
+- 【建议 S1，已修】双通道投递双 toast：两条通道共享广播总线，页面停留期间 abort 会
+  双份投递。处置：toast 以 in-flight→终态迁移为条件，后到的 handler 不重复提示
+  （发送流与常驻通道两侧同步修改）。
+- 【建议 S3，已修】常驻 handler 身份解析改为事件优先（与发送流对齐），补 allOtters
+  fill-only 兜底与 maybeScrollToBottom。
+- 【可选 O1，已修】定点拉取结果无变化时跳过 setState（消除引用抖动导致的轮询空转重排）。
+- 【可选 O3，已修】findStaleInFlight 测试原 tmp/err 用例是空转（被 isInFlight 先行排除），
+  改为 otter+streaming 形态真正覆盖前缀过滤；补 speaking 状态用例。
+- 【可选 O4，已修】output-guard 两处滞后注释（ref-count 措辞、armTimer 枚举）。
+- 【可选 O2，记录】轮询自续期循环竞态检查结论：cleanup cancelled 标志覆盖完备，
+  不会双倍轮询；活跃流式期间轮询被饿死但 SSE 活着，无害。
 
 ## 影响面
 
 - **agent 行为**：工具调用后的首次模型响应窗口从滑动剩余（≤120s）变为首字节预算
   （默认 300s）。正常流式下首个 delta 到达即切回滑动窗口，无感知；大上下文 prefill
   不再被误切，真正挂死的请求仍会被 first_byte_timeout 兜底（文案"模型响应超时"）。
+  已知例外见"对抗审视记录"S1。
 - **API/持久化**：无变化。
 - **前端**：abort 终态在 MPA 刷新后可靠投影；in-flight 消息的轮询收敛不再断链。
