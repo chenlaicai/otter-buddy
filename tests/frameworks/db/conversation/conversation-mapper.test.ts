@@ -76,6 +76,7 @@ describe("rowToMessage", () => {
     context_tokens: null,
     context_tokens_max: null,
     source: "web",
+    metadata: null,
     created_at: "2026-01-01T00:00:00Z",
     completed_at: null,
   };

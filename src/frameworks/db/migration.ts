@@ -69,6 +69,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260803fbit: features/research 表加 body_hash 列（驱动 upsert 指纹比较） */
   addBodyHashColumns(db, logger);
+
+  /** F20260805rbrg：messages 表添加 metadata 列（招聘桥接查重用） */
+  addMessagesMetadataColumn(db, logger);
 }
 
 /**
@@ -87,6 +90,23 @@ function addBodyHashColumns(db: Database.Database, logger: Logger): void {
   if (!researchCols.some(col => col.name === 'body_hash')) {
     db.prepare("ALTER TABLE research ADD COLUMN body_hash TEXT").run();
     logger.info('Added body_hash column to research table');
+  }
+}
+
+/** F20260805rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
+function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'metadata')) {
+    db.prepare("ALTER TABLE messages ADD COLUMN metadata TEXT").run();
+    logger.info('Added metadata column to messages table');
+  }
+
+  // 表达式索引：JSON_EXTRACT(metadata, '$.externalId') 查询加速
+  // 避免 messages 表增长后 findByExternalId 退化为全表扫描
+  const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
+  if (!indexes.some(idx => idx.name === 'idx_messages_external_id')) {
+    db.prepare("CREATE INDEX idx_messages_external_id ON messages((JSON_EXTRACT(metadata, '$.externalId')))").run();
+    logger.info('Created expression index on messages.metadata.externalId');
   }
 }
 

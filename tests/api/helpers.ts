@@ -473,6 +473,10 @@ export function createTestApp(deps: TestDeps): Hono {
     ),
     connection: {} as any, // TODO: 添加 mock
     health: {} as any, // TODO: 添加 mock
+    inbound: {
+      optionsEvents: (c: any) => c.body(null, 204),
+      receiveEvents: async (c: any) => c.json({ ok: true }),
+    } as any,
   };
 
   const app = createRouter(controllers, mockLogger());

@@ -31,6 +31,8 @@ export interface SearchQuery {
   library?: string;
   /** 按记忆层过滤（working/historical/document） */
   layer?: MemoryLayer;
+/** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+  createdAfter?: string;
   /** F20260803fbit: 按 contentType 过滤（多选），支持"只搜 body"或"只搜 summary" */
   contentType?: MemoryContentType[];
 }
@@ -212,6 +214,7 @@ export class SearchMemory {
       layer: query.layer,
       granularity: query.granularity,
       conversationId: query.conversationId,
+      createdAfter: query.createdAfter,
       contentType: query.contentType,
     };
 

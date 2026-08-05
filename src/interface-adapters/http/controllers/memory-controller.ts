@@ -43,6 +43,9 @@ export class MemoryController {
         contentType = parts as MemoryContentType[];
       }
 
+      /** F20260805rbrg: 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
+      const createdAfter = c.req.query("created_after") || undefined;
+
       const result = await this.searchMemory.search({
         query,
         limit,
@@ -52,6 +55,7 @@ export class MemoryController {
         library,
         layer,
         contentType,
+        createdAfter,
       });
 
       /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */

@@ -13,6 +13,20 @@ export type MessageStatus = "streaming" | "speaking" | "completed" | "failed" | 
 /** 消息事件类型 */
 export type MessageEventType = "tool_result" | "assistant_toolcall" | "assistant_text" | "error";
 
+/** 消息外部元数据（用于查重等场景，F20260805rbrg） */
+export interface MessageMetadata {
+  /** 单条消息去重 ID：`boss:{bossId}:{mid}` */
+  externalId?: string;
+  /** 批量消息去重 ID 数组（JSON 数组存储，配合 JSON_EACH 查询） */
+  externalIds?: string[];
+  /** 桥接状态事件类型（status kind 时填），如 "anti-bot-detected" */
+  eventType?: string;
+  /** 严重度（status kind 时填）：warning | critical */
+  severity?: "warning" | "critical";
+  /** 其他自定义键 */
+  [key: string]: unknown;
+}
+
 /** 消息实体（含发言石传递） */
 export interface Message {
   id: string;
@@ -27,6 +41,8 @@ export interface Message {
   contextTokens: number | null;
   contextTokensMax: number | null;
   source: MessageSource;
+  /** 可选外部元数据（F20260805rbrg 招聘桥接用，旧消息为 null）。可选以避免破坏既有 Message 构造点。 */
+  metadata?: MessageMetadata | null;
   createdAt: string;
   completedAt: string | null;
 }

@@ -158,6 +158,7 @@ function createMockConvRepo() {
     getMessageEventsByMessageIds: vi.fn(),
     getMaxEventSequenceNum: vi.fn(),
     searchMessages: vi.fn(),
+    findByExternalId: vi.fn(async () => null),
     getTurnHistory: vi.fn(),
     linkResource: vi.fn(),
     getLinkedResources: vi.fn(),
