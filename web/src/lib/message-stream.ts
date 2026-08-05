@@ -43,6 +43,17 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
 }
 
 /**
+ * 需要向服务器定点拉取终态的进行中消息（F20260805abpl）。
+ * /after 增量游标是本地最后一条消息，结果严格在其之后——
+ * 游标消息自身的 streaming→aborted/completed 状态迁移永远不在增量里，
+ * 尤其 in-flight 恰好是最新消息时增量恒为空，定点拉取是唯一收敛路径。
+ */
+export function findStaleInFlight(list: LocalMessage[], newerIds: Set<string>): LocalMessage[] {
+  return list.filter(m =>
+    isInFlight(m) && !newerIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
+}
+
+/**
  * 轮询快照与本地列表合并：
  * - 过期快照不回退本地已终态的消息（响应在 message.complete 之前发出、之后到达）
  * - 双方均进行中时，保留 events 更长的一方（appendEvent 持久化滞后于 SSE，快照 events 可能瞬态更少）

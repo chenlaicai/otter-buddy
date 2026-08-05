@@ -4,7 +4,7 @@ import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
-import { isInFlight, upsertMessage, insertBySeq } from '../../lib/message-stream'
+import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight } from '../../lib/message-stream'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -199,18 +199,20 @@ function ConversationPage() {
       if (!newest?.id) return
       const resp = await api.listMessagesAfter(convId, newest.id, 100)
       const newerMsgs = mapMessagesCore(resp.messages) // ASC
-      if (newerMsgs.length === 0) return
-      const newerIds = new Set(newerMsgs.map(m => m.id))
-      setAllMessages(prev => {
-        const current = prev[convId] || []
-        let merged = current
-        for (const msg of newerMsgs) {
-          merged = insertBySeq(merged, msg) // 同 id 替换（in-flight 终态），新消息按 seq 有序插入
-        }
-        return { ...prev, [convId]: merged }
-      })
-      /** 增量结果未含的 in-flight 消息：定点拉取收敛（SSE 断连兜底） */
-      const outOfWindow = list.filter(m => isInFlight(m) && !newerIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
+      if (newerMsgs.length > 0) {
+        setAllMessages(prev => {
+          const current = prev[convId] || []
+          let merged = current
+          for (const msg of newerMsgs) {
+            merged = insertBySeq(merged, msg) // 同 id 替换（in-flight 终态），新消息按 seq 有序插入
+          }
+          return { ...prev, [convId]: merged }
+        })
+      }
+      /** 增量结果未含的 in-flight 消息：定点拉取收敛（SSE 断连兜底）。
+       *  不能在增量为空时提前返回——in-flight 恰好是最新消息时 /after 恒为空，
+       *  其状态迁移（streaming→aborted/completed）只能靠定点拉取收敛（F20260805abpl） */
+      const outOfWindow = findStaleInFlight(list, new Set(newerMsgs.map(m => m.id)))
       for (const m of outOfWindow) {
         try {
           const serverMsg = mapMessageDTO(await api.getMessage(m.id))
@@ -335,13 +337,25 @@ function ConversationPage() {
     }
   }, [activeId, allMessages, loadConversationDetail])
 
-  /** 刷新页面后若有仍在生成的消息（SSE 已断），轮询续看直到全部进入终态 */
+  /** 刷新页面后若有仍在生成的消息（SSE 已断），轮询续看直到全部进入终态。
+   *  自续期（F20260805abpl）：空转（增量为空、状态未变）不改变 allMessages，
+   *  若依赖 effect 重跑来排下一轮，轮询链在首次无变化后永久停转——故循环自我排期，
+   *  直到 allMessages 变化触发重跑时由入口条件（是否仍有 in-flight）决定去留 */
   useEffect(() => {
     if (!activeId) return
     const msgs = allMessages[activeId]
     if (!msgs || !msgs.some(isInFlight)) return
-    const timer = setTimeout(() => refreshMessages(activeId), 2000)
-    return () => clearTimeout(timer)
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const scheduleNext = () => {
+      timer = setTimeout(() => {
+        void refreshMessages(activeId).finally(() => {
+          if (!cancelled) scheduleNext()
+        })
+      }, 2000)
+    }
+    scheduleNext()
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
   }, [activeId, allMessages, refreshMessages])
 
   /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
@@ -450,6 +464,22 @@ function ConversationPage() {
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
         setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
+        liveEventsMap.delete(messageId)
+        liveMeta.delete(messageId)
+      },
+      /** F20260805abpl：常驻通道必须处理 message.aborted——MPA 整页刷新后随发送请求建立的
+       *  SSE 流已死，abort 终态只能经此通道到达；缺失时 streaming 占位消息永久卡在生成中 */
+      'message.aborted': (data) => {
+        const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
+        const liveEvents = liveEventsMap.get(messageId) || []
+        const meta = liveMeta.get(messageId)
+        const abortedMsg: LocalMessage = {
+          id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
+          content: (data.body as string) ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || nowTs(), dur: null,
+          events: liveEvents.length > 0 ? liveEvents : undefined,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], abortedMsg) }))
+        showToast('回复已中断', 'info')
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
       },

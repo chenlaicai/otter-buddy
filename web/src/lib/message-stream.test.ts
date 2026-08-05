@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { LocalMessage } from './mappers'
-import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages } from './message-stream'
+import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages, findStaleInFlight } from './message-stream'
 
 function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
   return {
@@ -125,5 +125,30 @@ describe('mergeMessages', () => {
     const current = [msg({ id: 'err-abc', status: 'failed', content: '[错误] x' })]
     const snapshot = [msg({ id: 'a', seq: 1 })]
     expect(mergeMessages(current, snapshot).map(m => m.id)).toEqual(['a', 'err-abc'])
+  })
+})
+
+describe('findStaleInFlight（F20260805abpl：/after 增量不含游标消息自身的状态迁移）', () => {
+  it('in-flight 恰好是最新消息（增量恒为空）时必须被挑出定点拉取', () => {
+    const list = [msg({ id: 'a', seq: 1 }), msg({ id: 'b', seq: 2, status: 'streaming' })]
+    const stale = findStaleInFlight(list, new Set())
+    expect(stale.map(m => m.id)).toEqual(['b'])
+  })
+
+  it('终态消息、tmp/err 本地消息、已在增量中的消息都被排除', () => {
+    const list = [
+      msg({ id: 'done', status: 'completed' }),
+      msg({ id: 'aborted', status: 'aborted' }),
+      msg({ id: 'tmp-1', st: 'user', si: 'user', status: undefined }),
+      msg({ id: 'err-1', status: 'failed' }),
+      msg({ id: 'fresh', status: 'streaming' }),
+    ]
+    const stale = findStaleInFlight(list, new Set(['fresh']))
+    expect(stale).toEqual([])
+  })
+
+  it('user 消息不视为 in-flight，即使 status 异常', () => {
+    const list = [msg({ id: 'u', st: 'user', si: 'user', status: 'streaming' })]
+    expect(findStaleInFlight(list, new Set())).toEqual([])
   })
 })
