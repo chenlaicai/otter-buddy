@@ -689,7 +689,7 @@ export class PiSessionFactory implements AgentGateway {
   }
   private _attachGuards(session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> }, sessionKey: string, otterId: string) {
     const activeEntry = this.activeSessions.get(sessionKey);
-    const timerRef: { clear: () => void } = { clear: () => {} };
+    const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
     const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
     const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
     timerRef.clear = clearEventTimer;
