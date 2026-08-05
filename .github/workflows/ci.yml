@@ -76,5 +76,8 @@ jobs:
           npm --prefix web ci
           npm --prefix web run build
 
+      - name: Run web tests
+        run: npm --prefix web test
+
       - name: Run tests
         run: npm test
