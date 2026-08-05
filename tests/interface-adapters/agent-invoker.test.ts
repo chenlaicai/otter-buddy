@@ -6,6 +6,8 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
+import type { OtterSession } from "@entities/otter/otter-session";
+import { DomainError } from "@entities/errors";
 import type { Logger } from "@usecases/ports/logger";
 
 const speakingMsg: Message = {
@@ -58,8 +60,28 @@ function mockQueryMessage(): QueryMessage {
   return { getMessageById: async () => speakingMsg } as unknown as QueryMessage;
 }
 
-function mockManageSession(): ManageSession {
-  return { getActiveSession: async () => null } as unknown as ManageSession;
+function makeSession(overrides: Partial<OtterSession> = {}): OtterSession {
+  return {
+    id: "sess-1", otterId: "otter-1", status: "active",
+    previousSessionId: null, startedAt: "2026-08-05T00:00:00Z",
+    archivedAt: null, archiveReason: null, isNegativeCase: false,
+    summary: null,
+    ...overrides,
+  };
+}
+
+/**
+ * F20260805rsto：mock 必须含 createSession——invoke 兜底分支在
+ * getActiveSession 为 null 时会调它；缺了会 TypeError 被裸 catch 静默吞掉（假绿）。
+ */
+function mockManageSession(overrides?: Partial<{
+  getActiveSession: ManageSession["getActiveSession"];
+  createSession: ManageSession["createSession"];
+}>): ManageSession {
+  return {
+    getActiveSession: overrides?.getActiveSession ?? (async () => null),
+    createSession: overrides?.createSession ?? (async (otterId: string) => makeSession({ id: "sess-backfill", otterId })),
+  } as unknown as ManageSession;
 }
 
 function mockQueryOtter(): QueryOtter {
@@ -84,11 +106,13 @@ function mockAgentInvoke(options: {
   throwOnInvoke?: Error;
   toolCallCount?: number;
   internalAbortReason?: string;
-}): AgentInvokePort & { _invokeMessages: string[] } {
+}): AgentInvokePort & { _invokeMessages: string[]; _invokeContexts: Array<{ sessionSummary?: string } | undefined> } {
   const invokeMessages: string[] = [];
+  const invokeContexts: Array<{ sessionSummary?: string } | undefined> = [];
   return {
-    invoke: async (_otterId: string, _message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => {
+    invoke: async (_otterId: string, _message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void; dynamicContext?: { sessionSummary?: string } }) => {
       invokeMessages.push(_message);
+      invokeContexts.push(opts?.dynamicContext);
       if (options.throwOnInvoke) throw options.throwOnInvoke;
       for (const evt of options.events ?? []) {
         opts?.onEvent?.(evt);
@@ -98,6 +122,7 @@ function mockAgentInvoke(options: {
     abort: () => {},
     getToolCallCount: () => options.toolCallCount ?? 0,
     _invokeMessages: invokeMessages,
+    _invokeContexts: invokeContexts,
     getInternalAbortReason: () => options.internalAbortReason,
   };
 }
@@ -718,5 +743,72 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain("0 次工具调用");
     expect(msg._calls.abort[0].body).toContain("[搭档中断]");
+  });
+
+  /** F20260805rsto：invoke 兜底——domain 无 active session 时补登记，restart 不再静默空操作 */
+  describe("domain session 兜底（F20260805rsto）", () => {
+    function buildInvoker(manageSession: ManageSession) {
+      const agentInvoke = mockAgentInvoke({ events: [{ type: "turn_end" }] });
+      const invoker = new AgentInvoker(
+        agentInvoke, mockSendMessage(), mockQueryMessage(), manageSession, mockQueryOtter(), mockLogger(),
+      );
+      return { invoker, agentInvoke };
+    }
+
+    it("无 active session 时调 createSession 补登记，新行 summary 经 dynamicContext 注入", async () => {
+      const manageSession = mockManageSession({
+        getActiveSession: async () => null,
+        createSession: async (otterId: string) =>
+          makeSession({ id: "sess-backfill", otterId, summary: "前情摘要内容" }),
+      });
+      const { invoker, agentInvoke } = buildInvoker(manageSession);
+
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hi", senderId: "user-1", onSSEEvent: () => {},
+      });
+
+      expect(agentInvoke._invokeContexts[0]?.sessionSummary).toContain("前情摘要内容");
+    });
+
+    it("补登记撞 conflict（并发他人已建）时重读 active 并继续，不报错", async () => {
+      let reads = 0;
+      const manageSession = mockManageSession({
+        getActiveSession: async () => {
+          reads++;
+          // 第一次（兜底判定）无，第二次（conflict 后重读）有
+          return reads === 1 ? null : makeSession({ id: "sess-other" });
+        },
+        createSession: async () => {
+          throw new DomainError("already has an active session", "conflict");
+        },
+      });
+      const { invoker, agentInvoke } = buildInvoker(manageSession);
+
+      const result = await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hi", senderId: "user-1", onSSEEvent: () => {},
+      });
+
+      expect(result.messageId).toBe("msg-streaming");
+      expect(reads).toBe(2);
+      expect(agentInvoke._invokeMessages).toHaveLength(1);
+    });
+
+    it("补登记失败且重读仍无 session 时降级为无摘要上下文，不阻塞对话", async () => {
+      const manageSession = mockManageSession({
+        getActiveSession: async () => null,
+        createSession: async () => { throw new Error("db locked"); },
+      });
+      const { invoker, agentInvoke } = buildInvoker(manageSession);
+
+      const result = await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hi", senderId: "user-1", onSSEEvent: () => {},
+      });
+
+      expect(result.messageId).toBe("msg-streaming");
+      expect(agentInvoke._invokeMessages).toHaveLength(1);
+    });
   });
 });

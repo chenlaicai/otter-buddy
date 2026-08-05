@@ -2,7 +2,6 @@ import type Database from "better-sqlite3";
 import type { Otter } from "@entities/otter/otter";
 import type {
   OtterSession,
-  SessionHandoffSummary,
   SessionStatus,
 } from "@entities/otter/otter-session";
 import type {
@@ -53,14 +52,15 @@ export class SqliteOtterRepository implements OtterRepository {
 
   async createSession(session: OtterSession): Promise<void> {
     this.db.prepare(`
-      INSERT INTO otter_sessions (id, otter_id, status, previous_session_id, started_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO otter_sessions (id, otter_id, status, previous_session_id, started_at, summary)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       session.id,
       session.otterId,
       session.status,
       session.previousSessionId,
       session.startedAt,
+      session.summary,
     );
   }
 
@@ -103,25 +103,9 @@ export class SqliteOtterRepository implements OtterRepository {
     return row ? rowToSession(row) : null;
   }
 
-  async setHandoffSummary(
-    sessionId: string,
-    handoffSummary: SessionHandoffSummary,
-  ): Promise<void> {
+  async setSessionSummary(sessionId: string, summary: string): Promise<void> {
     this.db.prepare(`
-      UPDATE otter_sessions SET handoff_summary = ? WHERE id = ?
-    `).run(JSON.stringify(handoffSummary), sessionId);
-  }
-
-  async restoreSessionStatus(
-    sessionId: string,
-    status: SessionStatus,
-  ): Promise<void> {
-    this.db.prepare(`
-      UPDATE otter_sessions SET status = ?, archived_at = NULL, archive_reason = NULL WHERE id = ?
-    `).run(status, sessionId);
-  }
-
-  async deleteSession(sessionId: string): Promise<void> {
-    this.db.prepare(`DELETE FROM otter_sessions WHERE id = ?`).run(sessionId);
+      UPDATE otter_sessions SET summary = ? WHERE id = ?
+    `).run(summary, sessionId);
   }
 }

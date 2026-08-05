@@ -409,14 +409,11 @@ export class PiSessionFactory implements AgentGateway {
       throw err;
     }
 
-    // 6. 清理旧 session 文件（安全检查：避免删除刚创建的文件）
+    // 6. 保留旧 session 文件（F20260805rsto：与 destroy() 的审计策略统一）。
+    // domain 账本行说「封存」，证据文件就不能删——且新 session header 的 parentSession
+    // 血缘指针指向旧文件，删了就是悬空指针。旧文件不再被引用，仅作审计留档。
     if (oldSessionFile && oldSessionFile !== sessionFile) {
-      try {
-        fs.unlinkSync(oldSessionFile);
-        this.logger.debug(`Deleted old session file: ${oldSessionFile}`);
-      } catch (err) {
-        this.logger.warn(`Failed to delete old session file: ${oldSessionFile}`, { error: err });
-      }
+      this.logger.debug(`Previous session file retained for audit: ${oldSessionFile}`);
     }
 
     // 7. 标记下次 invoke 重新注入身份（新 session 上下文中没有身份内容）

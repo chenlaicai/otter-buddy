@@ -46,9 +46,13 @@ function downloadFile(relPath) {
   // -L 跟随重定向（hf-mirror 会 307 到 CDN）
   // -C - 断点续传（已下载部分不重下，大文件恢复关键）
   // --retry 3 失败自动重试
+  // F20260805rsto 防 hang：HF 阻断环境下 TCP connect 会无限挂起（npm run build 卡死根因）。
+  // connect-timeout 限连接；speed-limit/speed-time 杀「连着但零吞吐」的假连接；max-time 兜底（2.27GB 大文件给足余量）
   const result = spawnSync(
     "curl",
-    ["-sSL", "-C", "-", "--retry", "3", "--retry-delay", "2", "-o", dest, url],
+    ["-sSL", "-C", "-", "--retry", "3", "--retry-delay", "2",
+     "--connect-timeout", "10", "--speed-time", "30", "--speed-limit", "1024",
+     "--max-time", "1800", "-o", dest, url],
     { stdio: "inherit" },
   );
   return result.status === 0;

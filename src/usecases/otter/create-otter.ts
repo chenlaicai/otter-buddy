@@ -1,6 +1,8 @@
 import type { Otter, OtterType, OtterRole } from "@entities/otter/otter";
+import { buildNewSession } from "@entities/otter/otter-session";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
+import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
 
 export interface CreateOtterInput {
@@ -19,6 +21,7 @@ export class CreateOtter {
   constructor(
     private readonly repo: OtterRepository,
     private readonly agentGateway: AgentGateway,
+    private readonly logger: Logger,
   ) {}
 
   async execute(params: CreateOtterInput): Promise<Otter> {
@@ -48,6 +51,30 @@ export class CreateOtter {
       });
     } catch (err) {
       /** B1 回归守护：Agent 创建失败时回滚 DB 记录，避免孤立 Otter */
+      await this.repo.deleteOtter(id);
+      throw err;
+    }
+
+    /**
+     * 3. 建首世 domain session（F20260805rsto）。
+     * 不变量：「有 agent 会话 ⟹ 有 active domain session」。獭出生即建账，
+     * restart/dissolve 的 archive 前置条件（存在 active session）恒真。
+     * 直接用 repo + 实体工厂而非注入 ManageSession——避免
+     * CreateOtter → ManageSession → ManageConversation → CreateOtter 组装环。
+     */
+    try {
+      await this.repo.createSession(buildNewSession(id, null));
+      this.logger.info('Session created', { otterId: id, action: 'create' });
+    } catch (err) {
+      /**
+       * 回滚顺序不可颠倒：先 destroy agent，再 deleteOtter。
+       * agent_sessions.otter_id REFERENCES otters(id) 且 foreign_keys=ON——
+       * 不 destroy 就 deleteOtter 会 FK 违规，回滚自身抛错、双残留。
+       * （createSession 是单条原子 INSERT，失败即无 session 行，故无需 deleteSession。）
+       */
+      try {
+        await this.agentGateway.destroy(id);
+      } catch { /* 回滚尽力而为，不掩盖原始错误 */ }
       await this.repo.deleteOtter(id);
       throw err;
     }

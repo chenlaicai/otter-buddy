@@ -95,7 +95,6 @@ describe("rowToSession", () => {
     is_negative_case: 0,
     summary: null,
     previous_session_id: null,
-    handoff_summary: null,
   };
 
   it("将 snake_case 行映射为 camelCase 会话实体", () => {
@@ -120,29 +119,6 @@ describe("rowToSession", () => {
   it("is_negative_case: 0 转为 false", () => {
     const result = rowToSession(baseRow);
     expect(result.isNegativeCase).toBe(false);
-  });
-
-  it("handoff_summary 为字符串时 JSON.parse 解析为对象", () => {
-    const summary = {
-      conversationId: "conv-1",
-      sessionSequence: 2,
-      keyDecisions: ["决定使用新方案"],
-      pendingTasks: ["完成测试"],
-      activeContext: "正在开发功能",
-      participantStatus: { "otter-1": "active" },
-    };
-    const row: SessionRow = {
-      ...baseRow,
-      handoff_summary: JSON.stringify(summary),
-    };
-
-    const result = rowToSession(row);
-    expect(result.handoffSummary).toEqual(summary);
-  });
-
-  it("handoff_summary 为 null 时返回 null", () => {
-    const result = rowToSession(baseRow);
-    expect(result.handoffSummary).toBeNull();
   });
 
   it("归档的会话有 archivedAt 和 archiveReason", () => {
