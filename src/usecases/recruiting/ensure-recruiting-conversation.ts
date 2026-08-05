@@ -125,6 +125,8 @@ async function sendWelcomeMessage(
 4. 在 Chrome 登录一次 BOSS 直聘（\`https://www.zhipin.com/web/geek/chat\`）
 5. 等 alarm 自动触发（最多 35 分钟），或在扩展 options 页点"立即扫描一次"
 
+**注意**：首次扫描只设置水位线（记录当前消息位置），**不推送任何历史消息**——这是防全量历史推送的设计。第二轮扫描（再等 30-35 分钟）才会推送水位线之后的**新消息**。所以装好扩展后，最快约 60-70 分钟才能看到第一条招聘消息进入本对话。
+
 完整指南见：\`docs/user-guide/recruiting-bridge.md\`
 
 如果搭档问"为什么没消息进来"或"扩展怎么配"，请引用上面步骤。`,

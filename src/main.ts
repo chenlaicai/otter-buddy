@@ -713,7 +713,7 @@ async function main(): Promise<void> {
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, feishu?.broadcaster);
 
   // Self-Healing 初始化（失败不阻塞启动）
-  ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
+  const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
     .catch(err => logger.warn('Self-Healing init failed', { error: err instanceof Error ? err.message : String(err) }));
 
@@ -721,6 +721,7 @@ async function main(): Promise<void> {
   let processInboundRecruit: ProcessInboundRecruit | undefined;
   let inboundApiKey: string | undefined;
   let getBridgeStatus: GetBridgeStatus | undefined;
+  let recruitingInit: Promise<void> = Promise.resolve();
   if (appConfig.inbound?.recruiting?.apiKey) {
     inboundApiKey = appConfig.inbound.recruiting.apiKey;
     processInboundRecruit = new ProcessInboundRecruit(
@@ -732,7 +733,7 @@ async function main(): Promise<void> {
       logger,
     );
     getBridgeStatus = new GetBridgeStatus(repos.settings);
-    ensureRecruitingConversation({
+    recruitingInit = ensureRecruitingConversation({
       convRepo: repos.conversation,
       otterRepo: repos.otter,
       createOtter: uc.createOtter,
@@ -762,8 +763,11 @@ async function main(): Promise<void> {
   const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster, featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService, fs: new NodeFileSystem(), rootDir: process.cwd(), processInboundRecruit, inboundApiKey, getBridgeStatus });
   startServer(controllers, uc, agentInvoker, appConfig.server.port, feishu);
 
-  schedulerService.start().catch((err) => {
-    logger.error(`Failed to start scheduler: ${err}`);
+  // 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到
+  Promise.allSettled([healingInit, recruitingInit]).then(() => {
+    schedulerService.start().catch((err) => {
+      logger.error(`Failed to start scheduler: ${err}`);
+    });
   });
 
   process.on("SIGINT", () => {
