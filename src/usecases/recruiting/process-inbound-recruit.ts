@@ -124,10 +124,10 @@ export class ProcessInboundRecruit {
     // 2. 组装批量系统消息 body
     const body = formatRecruitBatch(fresh);
 
-    // 3. 入库：metadata 标记 externalIds（便于后续追溯/查重），单条系统消息
+    // 3. 入库：metadata 标记 externalIds（JSON 数组，便于查重），单条系统消息
     const externalIds = fresh.map(m => m.externalId);
     const metadata: MessageMetadata = {
-      externalId: externalIds.join('|'),
+      externalIds,
     };
     const message = await this.sendMessage.send({
       conversationId,

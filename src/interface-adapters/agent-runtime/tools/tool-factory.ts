@@ -167,7 +167,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           type: "string",
           description: "指定库 key（如 conversation、terminology），不传则全库搜索",
         },
-created_after: {
+        created_after: {
           type: "string",
           description: "ISO timestamp（如 2026-08-04T00:00:00Z），仅返回此时间之后创建的记忆。定时摘要等场景用此过滤'今日新增'。",
         },
@@ -190,7 +190,7 @@ created_after: {
         (params.limit as number) ?? 10,
         detailLevel,
         params.library as string | undefined,
-params.created_after as string | undefined,
+        params.created_after as string | undefined,
         contentType,
       );
       return textResponse(JSON.stringify(entries));

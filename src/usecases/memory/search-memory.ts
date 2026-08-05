@@ -214,7 +214,7 @@ export class SearchMemory {
       layer: query.layer,
       granularity: query.granularity,
       conversationId: query.conversationId,
-createdAfter: query.createdAfter,
+      createdAfter: query.createdAfter,
       contentType: query.contentType,
     };
 

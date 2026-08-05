@@ -516,11 +516,16 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(row => ({ ...rowToMessage(row), body: row.fts_body }));
   }
 
-  /** F20260805rbrg：按 metadata.externalId 查重。metadata 是 JSON 字符串，用 JSON_EXTRACT 提取。 */
+  /** F20260805rbrg：按 metadata 查重。支持单条（externalId）和批量（externalIds 数组）两种格式。 */
   async findByExternalId(externalId: string): Promise<Message | null> {
+    // 单条消息：externalId 字段精确匹配
+    // 批量消息：externalIds JSON 数组中包含该值（用 JSON_EACH 展开）
     const row = this.db.prepare(`
-      SELECT * FROM messages WHERE JSON_EXTRACT(metadata, '$.externalId') = ? LIMIT 1
-    `).get(externalId) as MessageRow | undefined;
+      SELECT * FROM messages WHERE
+        JSON_EXTRACT(metadata, '$.externalId') = ?
+        OR EXISTS (SELECT 1 FROM JSON_EACH(JSON_EXTRACT(metadata, '$.externalIds')) WHERE value = ?)
+      LIMIT 1
+    `).get(externalId, externalId) as MessageRow | undefined;
     return row ? rowToMessage(row) : null;
   }
 

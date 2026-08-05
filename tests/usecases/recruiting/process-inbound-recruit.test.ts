@@ -135,7 +135,7 @@ describe('ProcessInboundRecruit', () => {
       expect(sent.body).toContain('共 2 条新消息');
       expect(sent.body).toContain('字节');
       expect(sent.body).toContain('美团');
-      expect(sent.metadata?.externalId).toBe('boss:b1:m1|boss:b2:m2');
+      expect(sent.metadata?.externalIds).toEqual(['boss:b1:m1', 'boss:b2:m2']);
       expect(sent.talkingStonePassedTo).toEqual([BIG_OTTER_ID]);
       expect(sent.senderType).toBe('system');
       await flushAsync();

@@ -15,8 +15,10 @@ export type MessageEventType = "tool_result" | "assistant_toolcall" | "assistant
 
 /** 消息外部元数据（用于查重等场景，F20260805rbrg） */
 export interface MessageMetadata {
-  /** 招聘桥接去重 ID：`boss:{bossId}:{mid}` */
+  /** 单条消息去重 ID：`boss:{bossId}:{mid}` */
   externalId?: string;
+  /** 批量消息去重 ID 数组（JSON 数组存储，配合 JSON_EACH 查询） */
+  externalIds?: string[];
   /** 桥接状态事件类型（status kind 时填），如 "anti-bot-detected" */
   eventType?: string;
   /** 严重度（status kind 时填）：warning | critical */
