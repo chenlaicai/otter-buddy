@@ -164,6 +164,10 @@ export async function ensureRecruitingConversation(deps: {
   const existing = await tryReuseExisting(deps.settings, deps.convRepo);
   if (existing) return existing;
 
+  // 二次检查：缩小并发创建的竞态窗口（TOCTOU 防护）
+  const recheck = await tryReuseExisting(deps.settings, deps.convRepo);
+  if (recheck) return recheck;
+
   // 2. 读 systemPrompt
   const systemPrompt = readSystemPrompt(deps.promptPathOverride);
 
