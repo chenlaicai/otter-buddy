@@ -26,23 +26,6 @@ export function upsertMessage(list: LocalMessage[], msg: LocalMessage): LocalMes
 }
 
 /**
- * 终态消息 upsert：与已有投影合并保留字段，避免整体替换丢失 events/seq/ts。
- * MPA 新页面的 live 状态为空，终态事件（complete/failed/aborted/error）构造的消息缺
- * events/seq/ts 等字段，整体替换会抹掉 DTO 快照已加载的投影（工具调用链、消息时间、
- * 时序锚点）。调用方把能确定的字段放进 msg（ts 传空串表示未知），已有投影回退补齐。
- */
-export function upsertTerminalMessage(list: LocalMessage[], msg: LocalMessage): LocalMessage[] {
-  const existing = list.find(m => m.id === msg.id)
-  if (!existing) return upsertMessage(list, msg)
-  // 合并：新消息的显式字段覆盖旧值，undefined 字段回退到旧值
-  const merged: LocalMessage = {
-    ...existing,
-    ...Object.fromEntries(Object.entries(msg).filter(([_, v]) => v !== undefined)),
-  }
-  return upsertMessage(list, merged)
-}
-
-/**
  * 按 seq 有序插入进行中消息（M5：append 位置必须等于服务端 sequence 时序）。
  * 规则：同 id 原位替换；否则插到第一个 seq 更大的消息之前；
  * 无 seq 的消息（tmp 乐观消息）不参与比较，自然保持在尾部之前插入的消息之后。
