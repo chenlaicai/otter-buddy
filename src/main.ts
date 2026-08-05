@@ -48,6 +48,7 @@ import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-
 import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks } from "@frameworks/db/migration";
+import { backfillSessionLedger } from "@frameworks/db/otter/backfill-session-ledger";
 import { reconcileOrphans } from "@usecases/conversation/reconcile-orphans";
 import { SyncDocuments, type SyncResult } from "@usecases/document/sync-documents";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
@@ -282,7 +283,7 @@ function initUseCases(
   const queryOtter = new QueryOtter(repos.otter);
   /** createOtter 必须先于 manageConversation 初始化：
    *  ManageConversation.create() 需要调用 createOtter.execute() 为每个对话创建独立大獭 */
-  const createOtter = new CreateOtter(repos.otter, agentGateway);
+  const createOtter = new CreateOtter(repos.otter, agentGateway, logger);
   const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory, logger,
@@ -633,6 +634,9 @@ async function main(): Promise<void> {
 
   const repos = initRepositories(db);
   await reconcileOrphans(repos.conversation, logger);
+  /** F20260805rsto：存量獭补建首世 domain session（有 agent 会话但账本无行的那批），
+   *  否则它们的 restart/dissolve 仍是空操作。幂等，每次启动跑。 */
+  await backfillSessionLedger(db, repos.otter, logger);
   /** F20260803mval: 共享单一 memoryIndex 实例，避免 syncDocuments 与 initUseCases 各自 new StoreMemory 双实例（G1） */
   const memoryIndex = new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
   const syncResult = await syncDocuments(repos, memoryIndex);

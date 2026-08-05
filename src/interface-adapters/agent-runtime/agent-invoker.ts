@@ -447,23 +447,37 @@ export class AgentInvoker {
     this.agentInvoke.abort(otterId, messageId);
   }
 
-  /** 构建 DynamicContext：会话摘要 + 交接摘要（B-CS-3）。记忆召回由 agent 通过 search_memory tool 主动触发 */
+  /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发 */
   private async buildDynamicContext(
     otterId: string,
   ): Promise<DynamicContext> {
     const ctx: DynamicContext = {};
 
     try {
-      const session = await this.manageSession.getActiveSession(otterId);
-      if (session?.handoffSummary) {
-        /** B-CS-3: 交接摘要优先于普通 summary（信息密度更高） */
-        ctx.sessionSummary = [
-          `[Session #${session.handoffSummary.sessionSequence} 交接摘要]`,
-          `关键决策: ${session.handoffSummary.keyDecisions.join("; ") || "无"}`,
-          `待完成任务: ${session.handoffSummary.pendingTasks.join("; ") || "无"}`,
-          `当前上下文: ${session.handoffSummary.activeContext}`,
-        ].join("\n");
-      } else if (session?.summary) {
+      let session = await this.manageSession.getActiveSession(otterId);
+      if (!session) {
+        /**
+         * F20260805rsto 兜底：agent 会话存在但 domain 账本缺失（存量獭/异常路径）时补登记，
+         * 保证「有 agent 会话 ⟹ 有 active domain session」，restart/dissolve 不再空操作。
+         * 挂在这是因此处每次 invoke 本来就查一次 getActiveSession，零额外读放大，
+         * 且 web/飞书/定时任务全部汇入本 invoker。
+         */
+        try {
+          session = await this.manageSession.createSession(otterId);
+          this.logger.info('Backfilled missing domain session on invoke', { otterId, action: 'session_backfill' });
+        } catch (backfillErr) {
+          /**
+           * 并发补登记撞 conflict 属良性（他人已建）；其余失败必须留痕——
+           * 兜底坏掉的唯一表现是 restart 再次静默空操作（F20260805rsto 原 bug 复发）。
+           */
+          this.logger.warn('Domain session backfill failed, re-reading active session', {
+            otterId,
+            error: backfillErr instanceof Error ? backfillErr.message : String(backfillErr),
+          });
+          session = await this.manageSession.getActiveSession(otterId).catch(() => null);
+        }
+      }
+      if (session?.summary) {
         ctx.sessionSummary = session.summary;
       }
     } catch (err) {
