@@ -228,4 +228,62 @@ describe("ensureHealingConversation - pin 行为", () => {
     expect(result.bigOtterId).toBe(bigOtterId);
     expect(logger.warn).toHaveBeenCalled();
   });
+
+  it("CAS 模式：并发创建时，第二个进程检测到锁值变化后复用已有对话", async () => {
+    const conv = existingConversation();
+    const bigOtterId = "otter-big-001";
+    let callCount = 0;
+
+    const manageConversation = {
+      create: vi.fn(),
+      getById: vi.fn(async () => conv),
+      pin: vi.fn(async () => {}),
+    } as unknown as ManageConversation;
+
+    const convRepo = {
+      getActiveParticipants: vi.fn(),
+    } as unknown as ConversationRepository;
+
+    const otterRepo = {
+      getById: vi.fn(),
+    } as unknown as OtterRepository;
+
+    const settings = {
+      get: vi.fn(async (key: string) => {
+        callCount++;
+        // 第一次调用返回 null（无已有对话）
+        // 第二次调用（CAS 确认）返回不同的值（另一个进程抢先了）
+        // 第三次调用（tryReuseExisting）返回已有对话 ID
+        if (key === HEALING_CONVERSATION_KEY) {
+          if (callCount === 1) return null;
+          if (callCount === 2) return "other-process-value";
+          return conv.id;
+        }
+        if (key === HEALING_BIG_OTTER_ID_KEY) return bigOtterId;
+        return null;
+      }),
+      update: vi.fn(),
+      getAll: vi.fn(async () => ({})),
+    } as unknown as SettingsRepository;
+
+    const sendMessage = {
+      sendSystem: vi.fn(),
+    } as unknown as SendMessage;
+
+    const logger = mockLogger();
+
+    const result = await ensureHealingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      settings,
+      sendMessage,
+      logger,
+    });
+
+    // 应该复用已有对话，而不是创建新对话
+    expect(result.conversationId).toBe(conv.id);
+    expect(result.bigOtterId).toBe(bigOtterId);
+    expect(manageConversation.create).not.toHaveBeenCalled();
+  });
 });
