@@ -180,7 +180,6 @@ export function makeSession(overrides: Partial<{
   archiveReason: string | null;
   isNegativeCase: boolean;
   summary: string | null;
-  handoffSummary: unknown;
 }> = {}) {
   return {
     id: overrides.id ?? "session-1",
@@ -192,7 +191,6 @@ export function makeSession(overrides: Partial<{
     archiveReason: overrides.archiveReason ?? null,
     isNegativeCase: overrides.isNegativeCase ?? false,
     summary: overrides.summary ?? null,
-    handoffSummary: overrides.handoffSummary ?? null,
   };
 }
 
@@ -499,6 +497,9 @@ export function createMockDeps(): TestDeps {
       ...mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
       repo: {
         getUnreadMessages: vi.fn().mockResolvedValue([]),
+        getTurnById: vi.fn().mockResolvedValue(null),
+        markParticipantLeft: vi.fn().mockResolvedValue(undefined),
+        getLastMessageBySender: vi.fn().mockResolvedValue(null),
         getActiveTurn: vi.fn().mockResolvedValue(null),
         updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
         getActiveParticipants: vi.fn().mockResolvedValue([]),
@@ -509,7 +510,7 @@ export function createMockDeps(): TestDeps {
     manageReadState: { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) },
     createOtterUseCase: mockMethods(["execute"]),
     dissolveOtterUseCase: mockMethods(["execute"]),
-    manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory"]),
+    manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory", "setSessionSummary"]),
     queryOtter: mockMethods(["getById", "getBigOtter"]),
     searchMemory: mockMethods(["search", "searchSimilar"]),
     manageMemory: mockMethods(["getById", "getDetails", "flagMemory", "updateLayer"]),

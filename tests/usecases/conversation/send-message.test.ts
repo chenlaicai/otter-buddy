@@ -161,6 +161,9 @@ function mockRepo(opts: {
     updateTokenUsage: vi.fn(async () => {}),
     updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
+    getTurnById: vi.fn().mockResolvedValue(null),
+    markParticipantLeft: vi.fn().mockResolvedValue(undefined),
+    getLastMessageBySender: vi.fn().mockResolvedValue(null),
     getUserReadState: vi.fn().mockResolvedValue(null),
     upsertUserReadState: vi.fn().mockResolvedValue(undefined),
     getFirstUnreadMessage: vi.fn().mockResolvedValue(null),
@@ -177,6 +180,8 @@ function mockMemoryIndex(): MemoryIndexGateway {
     indexLinkedResource: vi.fn(),
     indexFeature: vi.fn(),
     indexResearch: vi.fn(),
+    indexFeatureChunks: vi.fn(),
+    indexResearchChunks: vi.fn(),
   };
 }
 
@@ -193,9 +198,7 @@ function mockOtterRepo(otters: Otter[] = []): OtterRepository {
     archiveSession: vi.fn(),
     getSessionHistory: vi.fn(async () => []),
     getSessionById: vi.fn(async () => null),
-    setHandoffSummary: vi.fn(),
-    restoreSessionStatus: vi.fn(),
-    deleteSession: vi.fn(),
+    setSessionSummary: vi.fn(),
   };
 }
 
@@ -302,6 +305,8 @@ describe("SendMessage", () => {
         indexLinkedResource: vi.fn(),
         indexFeature: vi.fn(),
         indexResearch: vi.fn(),
+        indexFeatureChunks: vi.fn(),
+        indexResearchChunks: vi.fn(),
       };
       const sm = new SendMessage(repo, mockOtterRepo([makeOtter({ id: "otter-1" })]), memoryIndex, mockLogger());
 

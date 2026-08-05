@@ -178,35 +178,6 @@ describe("Otter API", () => {
     });
   });
 
-  // ─── POST /api/otters/:id/sessions ───
-
-  describe("POST /api/otters/:id/sessions", () => {
-    it("creates a new session", async () => {
-      const session = makeSession({ id: "new-session" });
-      deps.manageSession.createSession.mockResolvedValue(session);
-
-      const res = await app.request("/api/otters/otter-1/sessions", {
-        method: "POST",
-      });
-
-      expect(res.status).toBe(201);
-      const body = await json(res);
-      expect(body.id).toBe("new-session");
-    });
-
-    it("returns 409 when active session already exists", async () => {
-      deps.manageSession.createSession.mockRejectedValue(
-        new DomainError("Otter otter-1 already has an active session: s1", "conflict"),
-      );
-
-      const res = await app.request("/api/otters/otter-1/sessions", {
-        method: "POST",
-      });
-
-      expect(res.status).toBe(409);
-    });
-  });
-
   // ─── POST /api/otters/:id/restart ───
 
   describe("POST /api/otters/:id/restart", () => {
@@ -231,9 +202,53 @@ describe("Otter API", () => {
         isNegativeCase: false,
         summary: "Restarting",
       });
-      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1", { summary: "Restarting" });
+      /** 顺序 load-bearing：archive 必须先于 createSession，否则 createSession 撞 active 必 409 */
+      expect(
+        deps.manageSession.archiveSession.mock.invocationCallOrder[0],
+      ).toBeLessThan(deps.manageSession.createSession.mock.invocationCallOrder[0]);
     });
 
+    it("F20260805rsto 竞态认领：createSession 撞 conflict 时认领兜底新行、补写 summary、按成功返回", async () => {
+      const activeSession = makeSession({ id: "old-session" });
+      const adopted = makeSession({ id: "backfilled-session" });
+      deps.manageSession.getActiveSession
+        .mockResolvedValueOnce(activeSession)  // restart 入口查到旧 active
+        .mockResolvedValueOnce(adopted);       // conflict 后重读到兜底新行
+      deps.manageSession.archiveSession.mockResolvedValue(activeSession);
+      deps.manageSession.createSession.mockRejectedValue(
+        new DomainError("Otter otter-1 already has an active session: backfilled-session", "conflict"),
+      );
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: "前情" }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await json(res);
+      expect(body.id).toBe("backfilled-session");
+      expect(deps.manageSession.setSessionSummary).toHaveBeenCalledWith("backfilled-session", "前情");
+    });
+
+    it("F20260805rsto：小獭不支持重启（重启是大獭专属，小獭用解散），返回 400", async () => {
+      deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "small" }));
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(400);
+      expect(deps.manageSession.archiveSession).not.toHaveBeenCalled();
+      expect(deps.manageSession.createSession).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 防御路径：无 active session 时跳过 archive 直接建新 session。
+     * F20260805rsto 后正常獭恒有 active session（CreateOtter 建账 + 启动迁移 + invoke 兜底），
+     * 此路径在生产应不可达，保留仅为控制器防御分支的回归守护。
+     */
     it("creates new session when no active session exists", async () => {
       const newSession = makeSession({ id: "fresh-session" });
       deps.manageSession.getActiveSession.mockResolvedValue(null);
@@ -245,7 +260,7 @@ describe("Otter API", () => {
 
       expect(res.status).toBe(201);
       expect(deps.manageSession.archiveSession).not.toHaveBeenCalled();
-      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1", { summary: undefined });
     });
   });
 });

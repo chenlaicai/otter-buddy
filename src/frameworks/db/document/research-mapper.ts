@@ -6,6 +6,7 @@ export interface ResearchRow {
   id: string;
   title: string;
   summary: string;
+  body_hash: string | null;
   exploration_type: string;
   status: string;
   tags: string;
@@ -25,6 +26,7 @@ export function rowToEntity(row: ResearchRow): ResearchDocument {
     id: row.id,
     title: row.title,
     summary: row.summary,
+    bodyHash: row.body_hash,
     explorationType: (isKnownExplorationType(et) ? et : "technical") as ExplorationType,
     status: (isKnownResearchStatus(st) ? st : "draft") as ResearchStatus,
     tags: JSON.parse(row.tags),
@@ -42,6 +44,7 @@ export function entityToRow(doc: ResearchDocument): ResearchRow {
     id: doc.id,
     title: doc.title,
     summary: doc.summary,
+    body_hash: doc.bodyHash,
     exploration_type: doc.explorationType,
     status: doc.status,
     tags: JSON.stringify(doc.tags),

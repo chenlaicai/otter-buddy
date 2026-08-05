@@ -2,6 +2,7 @@ import type {
   MemoryEntry,
   MemoryWeight,
   MemoryLayer,
+  MemoryContentType,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
 
@@ -9,8 +10,10 @@ export interface SearchFilters {
   layer?: MemoryLayer;
   granularity?: RetrievalGranularity;
   conversationId?: string;
-  /** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+/** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
   createdAfter?: string;
+  /** F20260803fbit: 按 contentType 过滤（多选 IN 查询），支持"只搜 body"或"只搜 summary" */
+  contentType?: MemoryContentType[];
 }
 
 /** 检索来源标识 */
@@ -47,6 +50,10 @@ export interface MemoryRepository {
   deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
   /** F20260803mval: 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，B2 修复） */
   replaceEntryBySource(entry: MemoryEntry): Promise<void>;
+  /** F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条），chunk 索引用 */
+  replaceEntriesBySource(entries: MemoryEntry[]): Promise<void>;
+  /** PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
+  deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
   getEmbedding(memoryEntryId: string): Promise<Float32Array | null>;

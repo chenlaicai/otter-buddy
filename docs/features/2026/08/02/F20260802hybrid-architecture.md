@@ -1,4 +1,30 @@
-# F20260802hybrid-architecture: Web 前端混合架构
+---
+id: F20260802hybr
+title: hybrid-architecture
+doc_type: feature
+
+summary: |
+  Web 前端混合架构：功能页面间 MPA 整页刷新，对话内 SPA 实时交互。每个对话有独立 URL /conversation/:id，
+  功能页面用现代 URL（/memory /skills /settings /connections），对话内 SSE 不中断。
+  Vite 多入口构建，服务端路由实现干净 URL（无 .html 后缀）。解决对话无独立 URL、URL 带 .html 后缀、
+  800+ 行巨型组件、无法深链接等问题。
+
+status: final
+change_type: feature
+tags: [web, frontend, architecture, mpa, spa, routing, vite, hybrid]
+modules:
+  - src/main.ts
+  - web/vite.config.ts
+  - web/src/pages/conversation/
+  - web/src/pages/memory/
+  - web/src/pages/skills/
+  - web/src/pages/settings/
+  - web/src/pages/connections/
+
+created_at: 2026-08-02
+---
+
+# F20260802hybr Web 前端混合架构
 
 ## 概述
 

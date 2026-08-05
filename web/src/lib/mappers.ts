@@ -74,7 +74,8 @@ export interface LocalLinkedResource {
 export interface LocalOtterSession {
   id: string
   otterId: string
-  status: 'active' | 'archived'
+  status: 'active' | 'archived' | 'restarted'
+  previousSessionId: string | null
   startedAt: string
   archivedAt: string | null
   archiveReason: string | null
@@ -152,7 +153,8 @@ export function mapSessionDTO(dto: OtterSessionDTO): LocalOtterSession {
   return {
     id: dto.id,
     otterId: dto.otterId,
-    status: dto.status as 'active' | 'archived',
+    status: dto.status as 'active' | 'archived' | 'restarted',
+    previousSessionId: dto.previousSessionId,
     startedAt: dto.startedAt,
     archivedAt: dto.archivedAt,
     archiveReason: dto.archiveReason,

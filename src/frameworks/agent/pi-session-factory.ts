@@ -29,6 +29,7 @@ import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-inv
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig, ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import { config as appConfig } from "@frameworks/config";
+import type { ModelConfig } from "@frameworks/config";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { loadPromptFile } from "./prompt-loader";
@@ -38,6 +39,8 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
+import type { OutputGuardConfig } from "./output-guard";
+import { sanitizeSessionFile } from "./session-sanitizer";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 
@@ -54,7 +57,7 @@ export interface AgentRunResult {
   tokenUsage?: { input: number; output: number };
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
-  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
 }
 
 /** invoke() 选项 */
@@ -105,6 +108,36 @@ async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
   return piCodingAgentCache;
 }
 
+/** F20260804hcob: 从 message_end 事件提取 assistant 文本块（与 agent-invoker 的提取逻辑同构；user/toolResult 不计） */
+export function extractAssistantTextFromMessageEnd(e: AgentEvent): string {
+  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
+  const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+  const role = msg?.role as string | undefined;
+  const content = msg?.content as Array<Record<string, unknown>> | undefined;
+  if (!content || role === "user" || role === "toolResult") return "";
+  return content
+    .filter(c => c.type === "text")
+    .map(c => String(c.text ?? ""))
+    .join("\n");
+}
+
+/**
+ * F20260804hcob: 维护本轮 assistant 文本缓冲（speak 检测"卡片写在 speak 外"用）。
+ * 缓冲按 assistant 消息隔离：message_start（role=assistant）清零，message_end 追加——
+ * 检测范围收窄到"本条消息"，避免上一轮文本里的 stray 围栏误拒后续无卡 speak（甚至 livelock）。
+ */
+export function updateTurnText(turnText: { text: string }, e: AgentEvent): void {
+  if (e.type === "message_start") {
+    const msg = (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
+    if (msg?.role === "assistant") turnText.text = "";
+    return;
+  }
+  if (e.type === "message_end") {
+    const text = extractAssistantTextFromMessageEnd(e);
+    if (text) turnText.text += (turnText.text ? "\n" : "") + text;
+  }
+}
+
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
@@ -119,7 +152,10 @@ export class PiSessionFactory implements AgentGateway {
   /** 待注入身份的 otter（create/reset 后标记，注入成功才消费；进程重启丢失由 createdNew 兜底。已知边界：首次注入被 abort 时重试会重复注入一次，罕见无害，有意不处理） */
   private readonly pendingIdentity = new Set<string>();
   /** pi-coding-agent ModelRuntime 最小接口（SDK ESM-only，无法直接导入类型） */
-  private modelRuntime: { setRuntimeApiKey(provider: string, key: string): Promise<void> } | null = null;
+  private modelRuntime: {
+    setRuntimeApiKey(provider: string, key: string): Promise<void>;
+    registerProvider(providerId: string, config: Record<string, unknown>): void;
+  } | null = null;
   private otterToolClient: OtterToolClient;
 
   constructor(
@@ -175,11 +211,13 @@ export class PiSessionFactory implements AgentGateway {
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     if (!this.piCodingAgent) {
-      this.piCodingAgent = await loadPiCodingAgent();
+      /** 先走完全部初始化再缓存：中途抛错（如 registerProvider 失败）不得留下
+       *  半初始化的缓存态，否则后续调用直接命中缓存、provider 注册永久缺失直到重启 */
+      const piCodingAgent = await loadPiCodingAgent();
 
       /** 创建 ResourceLoader：通过 SDK 原生协议注入 skills（替代手动拼接） */
       if (!this.resourceLoader) {
-        const { DefaultResourceLoader, getAgentDir } = this.piCodingAgent as unknown as {
+        const { DefaultResourceLoader, getAgentDir } = piCodingAgent as unknown as {
           DefaultResourceLoader: new (options: unknown) => ResourceLoader;
           getAgentDir: () => string;
         };
@@ -197,17 +235,16 @@ export class PiSessionFactory implements AgentGateway {
       }
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
-      const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
-      this.modelRuntime = await ModelRuntimeClass.create() as { setRuntimeApiKey(provider: string, key: string): Promise<void> };
+      const ModelRuntimeClass = (piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
+      this.modelRuntime = await ModelRuntimeClass.create() as {
+        setRuntimeApiKey(provider: string, key: string): Promise<void>;
+        registerProvider(providerId: string, config: Record<string, unknown>): void;
+      };
 
-      // 多模型模式：遍历所有模型设置 API key
+      // 多模型模式：遍历所有模型注册 provider + 设置 API key
       if (this.cfg.modelPool) {
-        const entries = this.cfg.modelPool.getAllEntries();
-        for (const entry of entries) {
-          if (entry.config.apiKey && this.modelRuntime) {
-            await this.modelRuntime.setRuntimeApiKey(entry.alias, entry.config.apiKey);
-            this.logger.info(`Set runtime API key for alias=${entry.alias}`);
-          }
+        for (const entry of this.cfg.modelPool.getAllEntries()) {
+          await this._registerRuntimeModel(entry.alias, entry.config, entry.model);
         }
       } else {
         // 单模型模式：兼容旧逻辑
@@ -217,8 +254,51 @@ export class PiSessionFactory implements AgentGateway {
           this.logger.info(`Set runtime API key for ${llmConfig.provider}`);
         }
       }
+
+      this.piCodingAgent = piCodingAgent;
     }
     return this.piCodingAgent;
+  }
+
+  /**
+   * 把一个模型条目注册进 ModelRuntime。
+   * 自定义 alias 必须注册进 ModelRuntime 的 provider 注册表：
+   * AgentSession 鉴权走 modelRuntime.getAuth()，对未知 provider 直接返回 undefined
+   * （报 "No API key found for <alias>"），即使已 setRuntimeApiKey 也查不到。
+   * alias 与内置 provider 同名时跳过注册（内置 provider 天然在注册表中）。
+   */
+  private async _registerRuntimeModel(alias: string, config: ModelConfig, model: unknown): Promise<void> {
+    if (!this.modelRuntime) return;
+    if (alias !== config.provider) {
+      const m = model as {
+        id: string; name?: string; reasoning?: boolean; input?: string[]; baseUrl?: string;
+        cost?: unknown; contextWindow?: number; maxTokens?: number;
+        thinkingLevelMap?: unknown; compat?: unknown;
+      };
+      this.modelRuntime.registerProvider(alias, {
+        // config 只配 apiKey 不配 apiBaseUrl 时回退到 pool model 的 baseUrl（template 兜底，总有值），
+        // 否则 SDK 对"注册了 models 但无 baseUrl"的 provider 同步抛错
+        baseUrl: config.apiBaseUrl ?? m.baseUrl,
+        apiKey: config.apiKey,
+        api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
+        models: [{
+          id: m.id,
+          name: m.name ?? m.id,
+          reasoning: m.reasoning ?? false,
+          thinkingLevelMap: m.thinkingLevelMap,
+          input: m.input ?? ["text"],
+          cost: m.cost,
+          contextWindow: m.contextWindow,
+          maxTokens: m.maxTokens,
+          compat: m.compat,
+        }],
+      });
+      this.logger.info(`Registered runtime provider for alias=${alias}`);
+    }
+    if (config.apiKey) {
+      await this.modelRuntime.setRuntimeApiKey(alias, config.apiKey);
+      this.logger.info(`Set runtime API key for alias=${alias}`);
+    }
   }
 
   /** create() 外部版本（带锁） */
@@ -329,14 +409,11 @@ export class PiSessionFactory implements AgentGateway {
       throw err;
     }
 
-    // 6. 清理旧 session 文件（安全检查：避免删除刚创建的文件）
+    // 6. 保留旧 session 文件（F20260805rsto：与 destroy() 的审计策略统一）。
+    // domain 账本行说「封存」，证据文件就不能删——且新 session header 的 parentSession
+    // 血缘指针指向旧文件，删了就是悬空指针。旧文件不再被引用，仅作审计留档。
     if (oldSessionFile && oldSessionFile !== sessionFile) {
-      try {
-        fs.unlinkSync(oldSessionFile);
-        this.logger.debug(`Deleted old session file: ${oldSessionFile}`);
-      } catch (err) {
-        this.logger.warn(`Failed to delete old session file: ${oldSessionFile}`, { error: err });
-      }
+      this.logger.debug(`Previous session file retained for audit: ${oldSessionFile}`);
     }
 
     // 7. 标记下次 invoke 重新注入身份（新 session 上下文中没有身份内容）
@@ -483,24 +560,24 @@ export class PiSessionFactory implements AgentGateway {
 
     // 1. 构建工具配置并创建 AgentSession
     this.logger.debug('[execute] Creating session with tools', { otterId });
-    const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager);
+    /** F20260804hcob: 当前 assistant 消息的文本缓冲（按消息清零/累积），speak 检测"卡片写在 speak 外"用 */
+    const turnText = { text: "" };
+    const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
     this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
     // 2. 熔断器 + 输出退化检测
-    const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard } = this._attachGuards(session, sessionKey, otterId);
+    const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = this._attachGuards(session, sessionKey, otterId);
 
     // 3. 构建完整消息并记录日志
-    this.logger.debug('[execute] Building message', { otterId });
     const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
     this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
-    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent));
+    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent, turnText));
     try {
+      /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
+      armFirstByte();
       await session.prompt(fullMessage);
-      const result = this._buildInvokeResult(otterId, session, circuitBreaker);
-      result.outputGuardMetadata = outputGuard.getMetadata();
-      if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
-      return result;
+      return this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
     } catch (err) {
       const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
       e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
@@ -510,15 +587,49 @@ export class PiSessionFactory implements AgentGateway {
       unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
+      /** F20260804dglp 修复 3：dispose 后清洗 session 文件，斩断退化内容污染飞轮 */
+      this.sanitizeSessionSafely(otterId, sessionManager);
+    }
+  }
+
+  /** prompt 成功后的结果组装 + 首字节延迟埋点日志（F20260804dglp） */
+  private _buildPromptResult(
+    otterId: string,
+    session: { getSessionStats: () => { tokens: { input: number; output: number } } },
+    circuitBreaker: ToolCallCircuitBreaker,
+    outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number } },
+    activeEntry: { guardAbortReason?: string } | undefined,
+  ): AgentRunResult {
+    const result = this._buildInvokeResult(otterId, session, circuitBreaker);
+    const guardMeta = outputGuard.getMetadata();
+    result.outputGuardMetadata = guardMeta;
+    if (guardMeta.firstByteLatencyMs !== undefined) {
+      this.logger.info('LLM first-byte latency', { otterId, firstByteLatencyMs: guardMeta.firstByteLatencyMs });
+    }
+    if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
+    return result;
+  }
+
+  /** session 文件清洗（幂等；失败只告警，绝不影响 invoke 主路径） */
+  private sanitizeSessionSafely(otterId: string, sessionManager: SessionManager): void {
+    try {
+      const file = sessionManager.getSessionFile();
+      if (!file) return;
+      const result = sanitizeSessionFile(file);
+      if (result.replacedBlocks > 0) {
+        this.logger.warn(`[session-sanitizer] 清洗退化块: otter=${otterId} blocks=${result.replacedBlocks}`, { hits: result.hits });
+      }
+    } catch (err) {
+      this.logger.warn(`[session-sanitizer] 清洗失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   /** 创建带工具配置的 AgentSession */
-  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager) {
+  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, turnText?: { text: string }) {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType);
-    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId);
+    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId, turnText);
     const codingTools = getCodingToolsForOtterType(otterType);
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
@@ -578,12 +689,26 @@ export class PiSessionFactory implements AgentGateway {
   }
   private _attachGuards(session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> }, sessionKey: string, otterId: string) {
     const activeEntry = this.activeSessions.get(sessionKey);
-    const timerRef: { clear: () => void } = { clear: () => {} };
+    const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
     const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
     const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
     timerRef.clear = clearEventTimer;
-    const cfg = { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }; const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, () => wrappedAbort(outputGuard.getMetadata().reason));
-    return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard };
+    /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
+    const cb = appConfig.circuitBreaker;
+    const cfg: Partial<OutputGuardConfig> = {
+      ...cb?.outputGuard,
+      ...(cb?.streamingTimeoutMs !== undefined && { streamingTimeoutMs: cb.streamingTimeoutMs }),
+      ...(cb?.firstByteTimeoutMs !== undefined && { firstByteTimeoutMs: cb.firstByteTimeoutMs }),
+    };
+    /** abort 返回 Promise：fire 路径无人 await，catch 防 unhandledRejection */
+    const guardAbort = () => {
+      void wrappedAbort(outputGuard.getMetadata().reason).catch((err: unknown) => {
+        this.logger.warn(`[output-guard] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    };
+    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, guardAbort);
+    const armFirstByte = () => outputGuard.armFirstByteTimer(guardAbort);
+    return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte };
   }
   /** 中断指定 Otter 的 Agent 生成 */
   abort(otterId: string, messageId?: string): void {
@@ -602,16 +727,19 @@ export class PiSessionFactory implements AgentGateway {
 
   getInternalAbortReason(messageId: string): string | undefined { const s = `:${messageId}`; for (const [k, e] of this.activeSessions) { if (e.guardAbortReason && k.endsWith(s) && k.length > s.length) { const r = e.guardAbortReason; e.guardAbortReason = undefined; return r; } } return undefined; }
 
-  /** 创建 session 事件处理器：跟踪工具调用 + 转发事件到 onEvent 回调 */
+  /** 创建 session 事件处理器：跟踪工具调用 + 累积本轮 assistant 文本 + 转发事件到 onEvent 回调 */
   private createEventHandler(
     activeEntry: { abort: () => void; toolCallCount: number } | undefined,
     onEvent?: (event: AgentEvent) => void,
+    turnText?: { text: string },
   ): (event: unknown) => void {
     return (event: unknown) => {
       const e = event as AgentEvent;
       if (e.type === "tool_execution_start" && activeEntry) {
         activeEntry.toolCallCount++;
       }
+      /** F20260804hcob: message_start/end 维护本轮文本缓冲（message_end 先于本消息的工具执行触发） */
+      if (turnText) updateTurnText(turnText, e);
       if (e.type !== "message_update") {
         onEvent?.(e);
       }
@@ -627,6 +755,7 @@ export class PiSessionFactory implements AgentGateway {
     conversationId: string,
     allowedNames: string[],
     messageId?: string,
+    turnText?: { text: string },
   ): Array<{
     name: string;
     label: string;
@@ -640,6 +769,7 @@ export class PiSessionFactory implements AgentGateway {
       conversationId,
       currentMessageId: messageId ?? "",
       modelPool: this.cfg.modelPool,
+      getTurnAssistantText: turnText ? () => turnText.text : undefined,
     }, this.cfg.healingRepo, this.logger);
 
     return otterTools

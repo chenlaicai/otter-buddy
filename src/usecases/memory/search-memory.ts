@@ -1,6 +1,7 @@
 import type {
   MemoryEntry,
   MemoryLayer,
+  MemoryContentType,
   RetrievalGranularity,
   DetailLevel,
 } from "@entities/memory/memory-entry";
@@ -13,7 +14,7 @@ import type {
 } from "./memory-repository";
 import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
-import type { SearchEngine, RrfHit } from "./search-engine";
+import type { SearchEngine, RrfHit, ScoredHit } from "./search-engine";
 import type { Logger } from "@usecases/ports/logger";
 
 /** snippet 降级截取长度（FTS5 highlight 不可用时） */
@@ -28,10 +29,12 @@ export interface SearchQuery {
   detailLevel?: DetailLevel;
   /** 指定库 key，不传则全库搜索 */
   library?: string;
-  /** 按记忆层过滤（working/historical） */
+  /** 按记忆层过滤（working/historical/document） */
   layer?: MemoryLayer;
-  /** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+/** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
   createdAfter?: string;
+  /** F20260803fbit: 按 contentType 过滤（多选），支持"只搜 body"或"只搜 summary" */
+  contentType?: MemoryContentType[];
 }
 
 export interface RetrievalResultEntry extends MemoryEntry {
@@ -211,7 +214,8 @@ export class SearchMemory {
       layer: query.layer,
       granularity: query.granularity,
       conversationId: query.conversationId,
-      createdAfter: query.createdAfter,
+createdAfter: query.createdAfter,
+      contentType: query.contentType,
     };
 
     /**
@@ -225,16 +229,20 @@ export class SearchMemory {
 
     if (useHighlight) {
       const ftsHits = await this.repo.searchFTSWithHighlight(query.query, filters);
-      snippetMap = new Map(ftsHits.map((h) => [h.entryId, h.snippet]));
-      const vecHits = await this.searchVec(query.query, filters, query.limit);
+      // F20260803chunk M6: FTS 预聚合，每 source 最多保留 top-3 chunk 防 long doc 霸占 limit
+      const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
+      snippetMap = new Map(aggregatedFts.map((h) => [h.entryId, h.snippet]));
+      // PR审视 B10: vec 预聚合同样限制每 source top-3，防长文档 chunk 霸占 RRF
+      const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
       rrfHits = this.searchEngine.rrfFusion(
-        ftsHits.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
+        aggregatedFts.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
         vecHits,
       );
     } else {
       const ftsHits = await this.repo.searchFTS(query.query, filters);
-      const vecHits = await this.searchVec(query.query, filters, query.limit);
-      rrfHits = this.searchEngine.rrfFusion(ftsHits, vecHits);
+      const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
+      const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
+      rrfHits = this.searchEngine.rrfFusion(aggregatedFts, vecHits);
     }
 
     /** 2. 重排 + 返回（传递 snippet 信息用于降级） */
@@ -255,9 +263,9 @@ export class SearchMemory {
     const vecHits = await this.repo.searchVec(embedding, limit + 1, {});
     const filtered = vecHits.filter((h) => h.entryId !== memoryEntryId);
 
-    /** 3. 单源 RRF + 重排 */
+    /** 3. 单源 RRF + 重排（searchSimilar 不去重：语义是"找相似条目"，同源多 entry 合法） */
     const rrfHits = this.searchEngine.buildSingleSourceRrfHits(filtered);
-    return this.rerankAndReturn(rrfHits, limit);
+    return this.rerankAndReturn(rrfHits, limit, undefined, undefined, false);
   }
 
   /** vec0 搜索（含降级逻辑，D22） */
@@ -282,6 +290,8 @@ export class SearchMemory {
     limit: number,
     detailLevel?: DetailLevel,
     snippetMap?: Map<string, string | undefined>,
+    /** F20260803fbit: searchSimilar 路径不需要按 sourceId 去重（语义是"找相似条目"，同源多 entry 是合法结果） */
+    dedup = true,
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
     if (hitIds.length === 0) {
@@ -292,22 +302,115 @@ export class SearchMemory {
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
 
     const scored = this.searchEngine.rerank(rrfHits, weightMap);
-    scored.sort((a, b) => b.finalScore - a.finalScore);
-    const top = scored.slice(0, limit);
+    /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
+    const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
+    deduped.sort((a, b) => b.finalScore - a.finalScore);
+    const top = deduped.slice(0, limit);
 
     /** S15: 批量递增检索计数 */
     await this.repo.incrementRetrievalCounts(top.map((h) => h.entryId));
 
     return {
-      entries: top.map((h) => ({
-        ...h.entry,
-        score: h.finalScore,
-        source: h.source,
-        userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
-        ...this.buildSnippet(h.entry, detailLevel, snippetMap),
-      })),
+      entries: top.map((h) => {
+        // M12: multi_hit_count 仅 >1 时注入 metadata（searchSimilar 路径无此字段不变）
+        const meta = h.multiHitCount && h.multiHitCount > 1
+          ? { ...(h.entry.metadata ?? {}), multi_hit_count: h.multiHitCount }
+          : h.entry.metadata;
+        return {
+          ...h.entry,
+          metadata: meta,
+          score: h.finalScore,
+          source: h.source,
+          userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
+          ...this.buildSnippet(h.entry, detailLevel, snippetMap),
+        };
+      }),
       total: top.length,
     };
+  }
+
+  /**
+   * F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分。
+   * 同源多 chunk 命中是正信号（文档多处匹配），取最高分 chunk 作代表，
+   * 加 additive boost（0.01/hit，封顶 5 hits=0.05，决策 D5+S2）。
+   * M15: 创建新对象而非原地修改 finalScore（避免 mutation 风险）。
+   * S8: tie-breaker 按 chunk_index 保证确定性。
+   */
+  private dedupAndBoostBySource(scored: ScoredHit[]): ScoredHit[] {
+    const MULTI_HIT_BOOST = 0.01;
+    const MAX_MULTI_HIT_BOOST_COUNT = 5;
+
+    const groups = new Map<string, ScoredHit[]>();
+    for (const hit of scored) {
+      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}`;
+      const group = groups.get(key);
+      if (group) group.push(hit);
+      else groups.set(key, [hit]);
+    }
+
+    const result: ScoredHit[] = [];
+    for (const group of groups.values()) {
+      // PR审视 M5：优先选 chunk 作代表（如 group 含 chunk 命中）——用户搜正文时应返回匹配的
+      // 正文片段而非 summary 概述。无 chunk 命中时 fallback 到全部 group（summary-only 场景）。
+      const CHUNK_TYPES = new Set(["feature_chunk", "research_chunk"]);
+      const chunkHits = group.filter(h => CHUNK_TYPES.has(h.entry.contentType));
+      const candidates = chunkHits.length > 0 ? chunkHits : group;
+      // S8：tie-breaker 按 chunk_index 保证确定性（finalScore 相同时）
+      candidates.sort((a, b) =>
+        b.finalScore !== a.finalScore
+          ? b.finalScore - a.finalScore
+          : Number(a.entry.metadata?.chunk_index ?? 0) - Number(b.entry.metadata?.chunk_index ?? 0),
+      );
+      const best = candidates[0];
+      // PR审视 B8/M4：multi_hit_count 只统计 chunk 命中（M6：用显式集合而非 includes 防误匹配）
+      const chunkHitCount = chunkHits.length;
+      const extraHits = Math.min(Math.max(chunkHitCount - 1, 0), MAX_MULTI_HIT_BOOST_COUNT);
+      // M15：创建新对象而非原地修改
+      result.push({
+        ...best,
+        finalScore: best.finalScore + MULTI_HIT_BOOST * extraHits,
+        multiHitCount: chunkHitCount,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * F20260803chunk M6: FTS 预聚合，每 (sourceTable, sourceId, contentType) 最多保留 top-3。
+   * 防 long doc（53K 字符 × 19 chunk）占满 DEFAULT_FTS_LIMIT 挤掉其他文档（决策 D8）。
+   * ftsRank 越小越好（BM25 rank）。B6: key 含 contentType 防 summary 被 chunk 挤掉。
+   */
+  private preAggregateFtsBySource<T extends { entryId: string; ftsRank: number; entry: MemoryEntry }>(hits: T[]): T[] {
+    const groups = new Map<string, T[]>();
+    for (const hit of hits) {
+      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}|${hit.entry.contentType}`;
+      const group = groups.get(key);
+      if (group) group.push(hit);
+      else groups.set(key, [hit]);
+    }
+    const result: T[] = [];
+    for (const group of groups.values()) {
+      group.sort((a, b) => a.ftsRank - b.ftsRank);
+      result.push(...group.slice(0, 3));
+    }
+    return result;
+  }
+
+  /** PR审视 B10: vec 预聚合，每 (source, contentType) 最多 top-3，防长文档 chunk 霸占 RRF。distance 越小越好。 */
+  private preAggregateVecBySource(hits: VecHit[]): VecHit[] {
+    const groups = new Map<string, VecHit[]>();
+    for (const hit of hits) {
+      const key = `${hit.entry.sourceTable}|${hit.entry.sourceId}|${hit.entry.contentType}`;
+      const group = groups.get(key);
+      if (group) group.push(hit);
+      else groups.set(key, [hit]);
+    }
+    const result: VecHit[] = [];
+    for (const group of groups.values()) {
+      group.sort((a, b) => a.distance - b.distance);
+      result.push(...group.slice(0, 3));
+    }
+    return result;
   }
 
   /** 根据 detail_level 构建返回内容 */

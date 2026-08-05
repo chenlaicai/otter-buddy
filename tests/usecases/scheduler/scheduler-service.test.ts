@@ -176,6 +176,9 @@ function createMockConvRepo() {
     updateTokenUsage: vi.fn(async () => {}),
     updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
+    getTurnById: vi.fn().mockResolvedValue(null),
+    markParticipantLeft: vi.fn().mockResolvedValue(undefined),
+    getLastMessageBySender: vi.fn().mockResolvedValue(null),
   };
 }
 

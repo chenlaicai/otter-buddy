@@ -177,6 +177,15 @@ export class ManageParticipant {
     };
   }
 
+  /**
+   * 标记 otter 在对话中已离开（F20260803trrf: dissolve_otter 顺带修）。
+   * 与 leave() 的区别：不要求 active turn、不创建系统消息--仅更新 participant status。
+   * 用于 dissolve 场景（otter 被解散时，可能无 active turn）。
+   */
+  async markLeft(conversationId: string, otterId: string): Promise<void> {
+    await this.repo.markParticipantLeft(conversationId, otterId);
+  }
+
   /** 获取当前在场的所有 Otter（UA-7） */
   async getActiveParticipants(
     conversationId: string,

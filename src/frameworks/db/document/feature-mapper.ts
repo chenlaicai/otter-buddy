@@ -6,6 +6,7 @@ export interface FeatureRow {
   id: string;
   title: string;
   summary: string;
+  body_hash: string | null;
   change_type: string;
   status: string;
   tags: string;
@@ -25,6 +26,7 @@ export function rowToEntity(row: FeatureRow): FeatureDocument {
     id: row.id,
     title: row.title,
     summary: row.summary,
+    bodyHash: row.body_hash,
     changeType: (isKnownChangeType(ct) ? ct : "feature") as ChangeType,
     status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
     tags: JSON.parse(row.tags),
@@ -42,6 +44,7 @@ export function entityToRow(doc: FeatureDocument): FeatureRow {
     id: doc.id,
     title: doc.title,
     summary: doc.summary,
+    body_hash: doc.bodyHash,
     change_type: doc.changeType,
     status: doc.status,
     tags: JSON.stringify(doc.tags),

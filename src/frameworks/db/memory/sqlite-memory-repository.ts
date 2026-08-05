@@ -110,13 +110,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   /** F20260803mval: 按 source 原子替换（单事务删旧+插新），B2 修复 */
+  /** F20260803fbit: DELETE/SELECT WHERE 加 content_type 过滤，防 summary entry 和 body entry 互相删除 */
   async replaceEntryBySource(entry: MemoryEntry): Promise<void> {
     this.db.exec("BEGIN");
     try {
-      // 删旧（同 source），复用 deleteBySource 的联动删除逻辑
+      // 删旧（同 source + 同 contentType），复用 deleteBySource 的联动删除逻辑
       const oldRows = this.db
-        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ?")
-        .all(entry.sourceTable, entry.sourceId) as Array<{ id: string }>;
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+        .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string }>;
       for (const row of oldRows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
         if (this.hasVec) {
@@ -125,8 +126,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
       }
       this.db.prepare(
-        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ?"
-      ).run(entry.sourceTable, entry.sourceId);
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
+      ).run(entry.sourceTable, entry.sourceId, entry.contentType);
 
       // 插新（同 storeEntry 逻辑，但同一事务内）
       this.db.prepare(`
@@ -153,6 +154,101 @@ export class SqliteMemoryRepository implements MemoryRepository {
         VALUES (?, 0, NULL, 0)
       `).run(entry.id);
 
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条）。
+   * 用于 chunk 索引：文档 reindex 时删旧全部 chunk + 插新 N 个 chunk。
+   * M1：所有 entries 必须同 (sourceTable, sourceId, contentType)，不一致抛异常。
+   */
+  async replaceEntriesBySource(entries: MemoryEntry[]): Promise<void> {
+    if (entries.length === 0) return;
+    const { sourceTable, sourceId, contentType } = entries[0];
+    // M1 校验：所有 entries 必须同 source
+    for (const e of entries) {
+      if (e.sourceTable !== sourceTable || e.sourceId !== sourceId || e.contentType !== contentType) {
+        throw new Error(
+          `replaceEntriesBySource requires homogeneous source, got mixed: ${e.sourceTable}/${e.sourceId}/${e.contentType}`,
+        );
+      }
+    }
+
+    this.db.exec("BEGIN");
+    try {
+      // 删旧（同 source + 同 contentType 的全部 entry）
+      const oldRows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+        .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
+      ).run(sourceTable, sourceId, contentType);
+
+      // 插新（N 条 entry，每条独立 entryId）
+      for (const entry of entries) {
+        this.db.prepare(`
+          INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
+            conversation_id, granularity, content, metadata, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          entry.id,
+          entry.layer,
+          entry.contentType,
+          entry.sourceId,
+          entry.sourceTable,
+          entry.conversationId ?? null,
+          entry.granularity,
+          entry.content,
+          entry.metadata ? JSON.stringify(entry.metadata) : null,
+          entry.createdAt,
+        );
+        this.db.prepare(`
+          INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
+        `).run(entry.id, entry.content);
+        this.db.prepare(`
+          INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
+          VALUES (?, 0, NULL, 0)
+        `).run(entry.id);
+      }
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries）。
+   * 复用 replaceEntriesBySource 的 DELETE WHERE 模式（单事务删 entries+fts+vec+weights）。
+   */
+  async deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: string): Promise<void> {
+    this.db.exec("BEGIN");
+    try {
+      const oldRows = this.db
+        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+        .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        if (this.hasVec) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      this.db.prepare(
+        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
+      ).run(sourceTable, sourceId, contentType);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -216,6 +312,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   async searchFTS(query: string, filters: SearchFilters): Promise<FTSHit[]> {
     const escaped = escapeFtsQuery(query);
+    const ct = this.buildContentTypeClause(filters);
     const rows = this.db.prepare(`
       SELECT me.*, fts.rank AS bm25_score
       FROM memory_fts fts
@@ -225,6 +322,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
         AND (? IS NULL OR me.created_at >= ?)
+        ${ct.clause}
       ORDER BY fts.rank
       LIMIT ?
     `).all(
@@ -233,6 +331,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
       filters.createdAfter ?? null, filters.createdAfter ?? null,
+      ...ct.params,
       DEFAULT_FTS_LIMIT,
     ) as FtsRow[];
 
@@ -245,6 +344,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   async searchFTSWithHighlight(query: string, filters: SearchFilters): Promise<SnippetHit[]> {
     const escaped = escapeFtsQuery(query);
+    const ct = this.buildContentTypeClause(filters);
     const rows = this.db.prepare(`
       SELECT me.*, fts.rank AS bm25_score, highlight(memory_fts, 1, '<b>', '</b>') AS snippet
       FROM memory_fts fts
@@ -254,6 +354,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
         AND (? IS NULL OR me.created_at >= ?)
+        ${ct.clause}
       ORDER BY fts.rank
       LIMIT ?
     `).all(
@@ -262,6 +363,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
       filters.createdAfter ?? null, filters.createdAfter ?? null,
+      ...ct.params,
       DEFAULT_FTS_LIMIT,
     ) as FtsHighlightRow[];
 
@@ -275,6 +377,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   ): Promise<VecHit[]> {
     if (!this.hasVec) return [];
 
+    const ct = this.buildContentTypeClause(filters);
     const rows = this.db.prepare(`
       SELECT mv.memory_entry_id, mv.distance, me.*
       FROM memory_vec mv
@@ -285,6 +388,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
         AND (? IS NULL OR me.created_at >= ?)
+        ${ct.clause}
       ORDER BY mv.distance
     `).all(
       embedding, limit,
@@ -292,6 +396,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
       filters.createdAfter ?? null, filters.createdAfter ?? null,
+      ...ct.params,
     ) as VecRow[];
 
     return rows.map(row => ({
@@ -299,6 +404,13 @@ export class SqliteMemoryRepository implements MemoryRepository {
       distance: row.distance,
       entry: rowToMemoryEntry(row),
     }));
+  }
+
+  /** F20260803fbit: 构造 contentType IN (...) 过滤子句（数组多选） */
+  private buildContentTypeClause(filters: SearchFilters): { clause: string; params: unknown[] } {
+    if (!filters.contentType?.length) return { clause: "", params: [] };
+    const placeholders = filters.contentType.map(() => "?").join(",");
+    return { clause: `AND me.content_type IN (${placeholders})`, params: [...filters.contentType] };
   }
 
   async incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void> {

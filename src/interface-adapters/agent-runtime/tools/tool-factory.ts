@@ -1,8 +1,10 @@
+/* eslint-disable max-lines -- 合并 main 分支 contentType + recruiting createdAfter 后行数增加 */
 import type { OtterToolClient } from "../otter-tool-client";
+import type { MemoryContentType } from "@entities/memory/memory-entry";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
-import { type ToolResponse, textResponse } from "./tool-helpers";
+import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { interceptHealingReport } from "./healing-tools";
@@ -38,12 +40,54 @@ export interface ToolContext {
   currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */
   modelPool?: ModelPoolLike;
+  /**
+   * 当前 assistant 消息的文本（speak 之外的输出）。
+   * 由 session 工厂按消息维护（message_start 清零、message_end 累积）；speak 用它检测"卡片写在 speak 外"的错误用法。
+   */
+  getTurnAssistantText?: () => string;
+}
+
+/** F20260803trrf: name->id resolve（NFC 归一化），speak 改用名字，系统侧做映射 */
+function resolveTalkingStoneTargets(
+  recipients: string[],
+  active: Array<{ otterId: string; otterName: string }>,
+): { resolvedIds: string[]; invalid: string[] } {
+  const byName = new Map<string, string>();
+  for (const p of active) byName.set(p.otterName.normalize("NFC"), p.otterId);
+  /** 用 Set 去重，防止 LLM 传重复名字导致 DB 存重复 otterId（F20260803trrf review P3） */
+  const resolvedSet = new Set<string>();
+  const invalid: string[] = [];
+  for (const r of recipients) {
+    if (r === "user") { resolvedSet.add("user"); continue; }
+    const id = byName.get(r.normalize("NFC"));
+    if (id) resolvedSet.add(id); else invalid.push(r);
+  }
+  return { resolvedIds: [...resolvedSet], invalid };
+}
+
+/** F20260803trrf: 校验 + resolve，降低 execute 复杂度 */
+function validateAndResolve(
+  recipients: string[],
+  active: Array<{ otterId: string; otterName: string }>,
+  selfOtterId: string,
+): { resolvedIds: string[]; error?: string } {
+  if (!recipients || recipients.length === 0) return { resolvedIds: [], error: "[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者名字。" };
+  const { resolvedIds, invalid } = resolveTalkingStoneTargets(recipients, active);
+  if (resolvedIds.includes(selfOtterId)) {
+    const myName = active.find(p => p.otterId === selfOtterId)?.otterName ?? selfOtterId;
+    return { resolvedIds: [], error: `[错误] 不能把发言石传给自己（${myName}）。请选择其他参与者。` };
+  }
+  if (invalid.length > 0) {
+    const options = [...active.map(p => p.otterName), "搭档('user')"].join("、");
+    return { resolvedIds: [], error: `[错误] 发言石目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 speak。` };
+  }
+  return { resolvedIds };
 }
 
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之后的任何输出都不会被展示。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。【系统自愈】如果本次调用遇到系统问题（工具故障、检索缺失、格式异常等），在 body 末尾附加 `<healing>[issues]` 块（type/severity/description/suggestion 各一行）；顺利则输出 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档不会看到。",
+    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。卡片围栏必须完整写在 body 参数内——写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。【系统自愈】如果本次调用遇到系统问题（工具故障、检索缺失、格式异常等），在 body 末尾附加 `<healing>[issues]` 块（type/severity/description/suggestion 各一行）；顺利则输出 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档不会看到。",
     parameters: {
       type: "object",
       properties: {
@@ -51,7 +95,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言权交给谁（必须用 otterId 或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要搭档接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的 otterId（不是名字）；(3) 不能传自己的 otterId。不确定在场成员时先调 get_active_participants。",
+          description: "发言权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要搭档接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的名字（不是 otterId）；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -65,20 +109,16 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         ? interceptHealingReport(rawBody, ctx, healingRepo, logger)
         : rawBody;
 
-      if (!cleanBody || cleanBody.trim().length === 0) return textResponse("[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。");
-      if (!recipients || recipients.length === 0) return textResponse("[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者 ID。");
-      if (recipients.includes(ctx.otterId)) return textResponse(`[错误] 不能把发言石传给自己（${ctx.otterId}）。请先调用 get_active_participants 获取在场成员，然后选择其他参与者。`);
+      /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
+      const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
+      if (bodyError) return textResponse(bodyError);
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
-      const validIds = new Set([...active.map(p => p.otterId), "user"]);
-      const invalid = recipients.filter(id => !validIds.has(id));
-      if (invalid.length > 0) {
-        const options = [...active.map(p => `${p.otterName}(${p.otterId})`), "搭档('user')"].join("、");
-        return textResponse(`[错误] 发言石目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的 otterId 重新调用 speak。`);
-      }
+      const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
+      if (error) return textResponse(error);
 
       try {
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: recipients });
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
       } catch (err) {
         return textResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
@@ -127,21 +167,31 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           type: "string",
           description: "指定库 key（如 conversation、terminology），不传则全库搜索",
         },
-        created_after: {
+created_after: {
           type: "string",
           description: "ISO timestamp（如 2026-08-04T00:00:00Z），仅返回此时间之后创建的记忆。定时摘要等场景用此过滤'今日新增'。",
+        },
+        content_type: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["message", "fact", "linked_resource", "feature", "feature_chunk", "research", "research_chunk"],
+          },
+          description: "按内容类型过滤（多选）。feature=文档概要、feature_chunk=文档分段片段、research=研究概要、research_chunk=研究分段片段、message=对话消息、fact=事实、linked_resource=链接资源。如只搜文档正文片段传 [\"feature_chunk\"]",
         },
       },
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "snippet";
+      const contentType = params.content_type as MemoryContentType[] | undefined;
       const entries = await ctx.client.memory.search(
         params.query as string,
         (params.limit as number) ?? 10,
         detailLevel,
         params.library as string | undefined,
-        params.created_after as string | undefined,
+params.created_after as string | undefined,
+        contentType,
       );
       return textResponse(JSON.stringify(entries));
     },
@@ -207,7 +257,14 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
         return textResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
       }
       await ctx.client.otter.dissolve(targetOtterId);
-      return textResponse(`Otter ${targetOtterId} dissolved`);
+      /** F20260803trrf: 顺带更新 participant status。leave 失败不阻断 dissolve（otter 已销毁不可逆），仅附警告。 */
+      let warning = "";
+      try {
+        await ctx.client.conversation.participant.leave(ctx.conversationId, targetOtterId);
+      } catch {
+        warning = "（警告：participant 记录未更新，名册可能残留）";
+      }
+      return textResponse(`Otter ${targetOtterId} dissolved${warning}`);
     },
   };
 }
@@ -407,7 +464,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话中所有活跃参与者（otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。",
+    description: "获取当前对话中所有活跃参与者（otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。speak 的 talkingStonePassedTo 用 otterName；invite/dissolve 用 otterId。",
     parameters: {
       type: "object",
       properties: {},

@@ -3,14 +3,15 @@ name: adversarial-review
 description: >-
   This skill should be used when the user asks to "审查代码", "review PR", "代码检视",
   "帮我看看这个 PR", "做 code review", "审查一下", "检查代码质量",
-  or needs to perform adversarial code review, identify issues in code changes,
-  or produce a structured review report. Covers multi-dimensional checking,
-  independent verification, and structured problem reporting.
+  "审查方案", "审视文档", "评审设计", "挑挑毛病",
+  or needs to perform adversarial review of code changes or design documents,
+  identify issues, or produce a structured review report. Covers multi-dimensional
+  checking, independent verification, and structured problem reporting.
 ---
 
 # Adversarial Review
 
-Find real problems in code changes. This is not a rubber stamp.
+Find real problems in the review target — code changes (PR) or design documents. This is not a rubber stamp.
 
 ## Core Principles
 
@@ -47,6 +48,21 @@ See `references/review-dimensions.md` for detailed guidance on each dimension.
 | 5 | Test Coverage | Are core behaviors tested? Do tests verify external behavior? |
 | 6 | Maintainability | Clear naming? Comments on complex logic? Unnecessary duplication? |
 
+#### 审视对象是方案 / 设计文档时
+
+6 维度按以下适配，流程（独立核实、报告、禁用语）不变：
+
+| 代码维度 | 文档对应 |
+|----------|----------|
+| Correctness | 方案与需求意图一致？逻辑链完整、无跳步？ |
+| Edge Cases | 边界场景与失败路径在方案中被考虑？ |
+| Security | 方案是否引入新的攻击面或权限扩大？ |
+| Architecture Compliance | 符合项目架构约束、分层与术语？ |
+| Test Coverage | 方案含可验证的验收标准？ |
+| Maintainability | 文档可读、决策有据、后续开发者能理解？ |
+
+文档审视的"独立核实"= 对照代码与既有文档，验证方案中的事实性断言（"现有实现是 X"这类话必须亲验）。step 1 的"PR description + changed file list"读作：方案文档本体 + 其声称覆盖的需求上下文。
+
 ### 3. Verify Independently
 
 Execute verification commands directly:
@@ -56,6 +72,8 @@ Execute verification commands directly:
 - Verify key behaviors match expectations
 
 Do not rely on the developer's reported results.
+
+If you have no execution permission (e.g., a review-only otter with read-only tools): independent verification means reading the changed code line by line and statically checking it against the test files. You must explicitly state in the report that tests/builds could not be run — never claim verification you did not perform.
 
 ### 4. Output Report
 

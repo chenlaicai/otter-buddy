@@ -41,6 +41,8 @@ export interface AppConfig {
   embedding: {
     dimensions: number;
     modelPath: string;
+    /** 本地模型根目录。设置后走本地加载（不联网下载），modelPath 作为其下子目录名 */
+    localModelPath?: string;
   };
   llm: {
     provider: string;
@@ -64,11 +66,17 @@ export interface AppConfig {
     maxChainDepth: number;
     outputGuard: {
       enabled: boolean;
-      segmentLength: number;
-      maxRepeatedSegments: number;
-      checkInterval: number;
+      /** 退化检测器参数（F20260804dglp 双机制） */
+      detector: {
+        windowLength: number;
+        maxWindowRepeats: number;
+        minBlockLength: number;
+        distinctRatioThreshold: number;
+      };
     };
     streamingTimeoutMs: number;
+    /** 首字节超时（F20260804dglp）：prompt 后无 delta 的挂死保护 */
+    firstByteTimeoutMs: number;
   };
   feishu?: {
     appId: string;
@@ -117,6 +125,7 @@ interface RawConfig {
   embedding?: {
     dimensions?: number;
     modelPath?: string;
+    localModelPath?: string;
   };
   circuitBreaker?: {
     maxToolCalls?: number;
@@ -130,11 +139,15 @@ interface RawConfig {
     maxChainDepth?: number;
     outputGuard?: {
       enabled?: boolean;
-      segmentLength?: number;
-      maxRepeatedSegments?: number;
-      checkInterval?: number;
+      detector?: {
+        windowLength?: number;
+        maxWindowRepeats?: number;
+        minBlockLength?: number;
+        distinctRatioThreshold?: number;
+      };
     };
     streamingTimeoutMs?: number;
+    firstByteTimeoutMs?: number;
   };
   feishu?: {
     appId?: string;
@@ -236,11 +249,15 @@ function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
 }
 
 function buildOutputGuardConfig(raw: RawConfig): AppConfig["circuitBreaker"]["outputGuard"] {
+  const rawDetector = raw.circuitBreaker?.outputGuard?.detector;
   return {
     enabled: d(raw.circuitBreaker?.outputGuard?.enabled, true),
-    segmentLength: d(raw.circuitBreaker?.outputGuard?.segmentLength, 100),
-    maxRepeatedSegments: d(raw.circuitBreaker?.outputGuard?.maxRepeatedSegments, 50),
-    checkInterval: d(raw.circuitBreaker?.outputGuard?.checkInterval, 20),
+    detector: {
+      windowLength: d(rawDetector?.windowLength, 100),
+      maxWindowRepeats: d(rawDetector?.maxWindowRepeats, 50),
+      minBlockLength: d(rawDetector?.minBlockLength, 5000),
+      distinctRatioThreshold: d(rawDetector?.distinctRatioThreshold, 0.3),
+    },
   };
 }
 
@@ -257,6 +274,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 100),
     outputGuard: buildOutputGuardConfig(raw),
     streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
+    firstByteTimeoutMs: d(raw.circuitBreaker?.firstByteTimeoutMs, 300000),
   };
 }
 
@@ -290,7 +308,10 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
     memory: buildMemoryConfig(raw),
     embedding: {
       dimensions: d(raw.embedding?.dimensions, 1024),
-      modelPath: d(raw.embedding?.modelPath, "Xenova/bge-m3"),
+      // 本地模式默认 modelPath 为目录名（models/bge-m3/）；远程模式默认为 HF repo id。
+      // 用户设了 localModelPath 但没设 modelPath 时，本地目录名 "bge-m3" 才是正确默认。
+      modelPath: d(raw.embedding?.modelPath, raw.embedding?.localModelPath ? "bge-m3" : "Xenova/bge-m3"),
+      localModelPath: raw.embedding?.localModelPath ?? undefined,
     },
     llm: {
       provider: raw.llm.provider,

@@ -133,6 +133,8 @@ export class SqliteConversationRepository implements ConversationRepository {
     return row ? rowToTurn(row) : null;
   }
 
+  async getTurnById(turnId: string): Promise<Turn | null> { return mixins.getTurnById(this.db, turnId); }
+
   async closeTurn(turnId: string, closedAt: string): Promise<void> {
     this.db.prepare(`UPDATE turns SET status = 'closed', closed_at = ? WHERE id = ?`).run(closedAt, turnId);
   }
@@ -391,17 +393,18 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getActiveParticipants(conversationId: string): Promise<ConversationParticipant[]> { return mixins.getActiveParticipants(this.db, conversationId); }
   async updateParticipantLeave(participantId: string, leftAtTurnId: string, leftAtTurnNumber: number, leftAt: string): Promise<void> { mixins.updateParticipantLeave(this.db, participantId, leftAtTurnId, leftAtTurnNumber, leftAt); }
   async updateLastReadTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastReadTurnNumber(this.db, conversationId, otterId, turnNumber); }
+  async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }
   async getUnreadMessages(conversationId: string, otterId: string): Promise<Message[]> {
-    const rows = mixins.getUnreadMessages(this.db, conversationId, otterId);
-    return rows.map(row => ({
+    return mixins.getUnreadMessages(this.db, conversationId, otterId).map(row => ({
       id: row.id, conversationId, senderType: row.sender_type as 'user' | 'otter' | 'system',
       senderId: row.sender_id, status: 'completed' as const, body: row.body,
-      sequenceNum: row.sequence_num, turnId: '',
-      talkingStonePassedTo: null, contextTokens: null, contextTokensMax: null,
-      source: 'web' as const,
+      sequenceNum: row.sequence_num, turnId: '', talkingStonePassedTo: null,
+      contextTokens: null, contextTokensMax: null, source: 'web' as const,
       createdAt: '', completedAt: null,
     }));
   }
+
+  async getLastMessageBySender(conversationId: string, senderId: string): Promise<Message | null> { return mixins.getLastMessageBySender(this.db, conversationId, senderId); }
 
   // ── Web 用户已读状态（消息级，与 otter 的 turn 级独立） ──
 

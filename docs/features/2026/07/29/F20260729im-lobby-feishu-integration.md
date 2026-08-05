@@ -1,4 +1,29 @@
-# F20260729im IM 大厅：飞书接入对话能力
+---
+id: F20260729imlo
+title: lobby-feishu-integration
+doc_type: feature
+
+summary: |
+  IM 大厅：飞书接入对话能力。新增 Connection-Session 模型，飞书群作为 Connection 进入对话，
+  独占约束（一个对话同时只能有一个连接进入）。采用飞书 SDK WSClient 长连接模式，无需公网 IP/域名。
+  飞书消息自动同步到 Web 端展示，Web 消息不回流飞书（防回环）。连接可自由切换进入不同对话。
+
+status: final
+change_type: feature
+tags: [im, feishu, lobby, connection, long-connection, websocket, integration]
+modules:
+  - src/entities/im/
+  - src/usecases/im/
+  - src/frameworks/feishu/
+  - src/frameworks/db/im/
+  - src/interface-adapters/feishu/
+  - src/interface-adapters/http/controllers/connection-controller.ts
+  - web/src/pages/connections/
+
+created_at: 2026-07-29
+---
+
+# F20260729imlo IM 大厅：飞书接入对话能力
 
 ## 变更类型
 Feature

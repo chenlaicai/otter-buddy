@@ -131,6 +131,9 @@ function mockRepo(opts: {
     updateTokenUsage: vi.fn(async () => {}),
     updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
+    getTurnById: vi.fn().mockResolvedValue(null),
+    markParticipantLeft: vi.fn().mockResolvedValue(undefined),
+    getLastMessageBySender: vi.fn().mockResolvedValue(null),
     getUserReadState: vi.fn().mockResolvedValue(null),
     upsertUserReadState: vi.fn().mockResolvedValue(undefined),
     getFirstUnreadMessage: vi.fn().mockResolvedValue(null),
@@ -152,9 +155,7 @@ function mockOtterRepo(otters: Map<string, Otter> = new Map()): OtterRepository 
     archiveSession: vi.fn(),
     getSessionHistory: vi.fn(async () => []),
     getSessionById: vi.fn(async () => null),
-    setHandoffSummary: vi.fn(),
-    restoreSessionStatus: vi.fn(),
-    deleteSession: vi.fn(),
+    setSessionSummary: vi.fn(),
   };
 }
 

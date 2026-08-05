@@ -67,7 +67,7 @@ function storeEntry(db: Database.Database, entry: MemoryEntry): void {
       conversation_id, granularity, content, metadata, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    entry.id, '', entry.contentType, entry.sourceId, entry.sourceTable,
+    entry.id, entry.layer, entry.contentType, entry.sourceId, entry.sourceTable,
     entry.conversationId ?? null, entry.granularity, entry.content,
     entry.metadata ? JSON.stringify(entry.metadata) : null, entry.createdAt,
   );
@@ -174,6 +174,8 @@ describe("SearchMemory - progressive disclosure", () => {
       updateLayerByConversation: async () => {},
       deleteBySource: async () => {},
       replaceEntryBySource: async () => {},
+      replaceEntriesBySource: async () => {},
+      deleteBySourceAndType: async () => {},
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {
@@ -224,5 +226,82 @@ describe("SearchMemory - progressive disclosure", () => {
   it("ManageMemory.getDetails 超过批量上限抛出错误", async () => {
     const tooManyIds = Array.from({ length: 101 }, (_, i) => `id-${i}`);
     await expect(manageMemory.getDetails(tooManyIds)).rejects.toThrow(/exceeds limit/);
+  });
+});
+
+describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
+  let db: Database.Database;
+  let repo: SqliteMemoryRepository;
+  let searchMemory: SearchMemory;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteMemoryRepository(db);
+    const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
+
+    /** 构造同文档的 summary entry + body entry，同 sourceId="F123" */
+    const docBase = { layer: "document" as const, sourceId: "F123", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
+    storeEntry(db, { ...docBase, id: "summary-1", contentType: "feature", content: "记忆系统校验链路设计概要" });
+    storeEntry(db, { ...docBase, id: "body-1", contentType: "feature_chunk", content: "正文详细描述了记忆系统的校验链路与 BM25 ranking 机制" });
+    /** PR审视 B8：F123 的第 2 个 chunk，测多 chunk 命中 boost（multi_hit_count 只统计 chunk） */
+    storeEntry(db, { ...docBase, id: "body-1b", contentType: "feature_chunk", content: "记忆系统的 embedding 与向量检索路径补充" });
+    /** 另一个文档的 body entry，不同 sourceId */
+    storeEntry(db, { ...docBase, id: "body-2", sourceId: "F456", contentType: "feature_chunk", content: "另一文档关于 FTS5 trigram 配置" });
+  });
+
+  it("去重：同文档 summary+body 双命中只返回 1 条", async () => {
+    const result = await searchMemory.search({ query: "记忆系统", limit: 10, layer: "document", library: "conversation" });
+    /** summary-1 和 body-1 都命中"记忆系统"，但同 sourceId=F123，去重后只保留高分者 */
+    const f123Entries = result.entries.filter(e => e.sourceId === "F123");
+    expect(f123Entries.length).toBe(1);
+  });
+
+  it("F20260803chunk: 同源多 chunk 命中注入 multi_hit_count", async () => {
+    const result = await searchMemory.search({ query: "记忆系统", limit: 10, layer: "document", library: "conversation" });
+    /** summary-1（feature）+ body-1（feature_chunk）都命中"记忆系统"，同 F123，multi_hit_count=2 */
+    const f123Entry = result.entries.find(e => e.sourceId === "F123");
+    expect(f123Entry).toBeDefined();
+    expect(f123Entry?.metadata?.multi_hit_count).toBe(2);
+  });
+
+  it("contentType filter：只搜 feature_chunk 排除 summary", async () => {
+    const result = await searchMemory.search({
+      query: "记忆系统", limit: 10, layer: "document", library: "conversation",
+      contentType: ["feature_chunk"],
+    });
+    /** 只命中 body-1（feature_chunk），不命中 summary-1（feature） */
+    const types = result.entries.map(e => e.contentType);
+    expect(types).not.toContain("feature");
+    expect(types).toContain("feature_chunk");
+  });
+
+  it("contentType filter：只搜 feature 排除 body", async () => {
+    const result = await searchMemory.search({
+      query: "记忆系统", limit: 10, layer: "document", library: "conversation",
+      contentType: ["feature"],
+    });
+    const types = result.entries.map(e => e.contentType);
+    expect(types).not.toContain("feature_chunk");
+    expect(types).toContain("feature");
+  });
+
+  it("F20260803fbit: replaceEntryBySource content_type 过滤--summary 和 body entry 共存", async () => {
+    /** 同 sourceId 的 summary entry (feature) + body entry (feature_chunk) 应互不删除 */
+    const coBase = { layer: "document" as const, sourceId: "F789", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
+    storeEntry(db, { ...coBase, id: "co-sum-1", contentType: "feature", content: "特征文档概要原始" });
+    storeEntry(db, { ...coBase, id: "co-body-1", contentType: "feature_chunk", content: "特征文档正文详情内容" });
+
+    /** replaceEntryBySource 替换 feature entry（新 id=co-sum-2），不应删 feature_chunk */
+    await repo.replaceEntryBySource({
+      ...coBase, id: "co-sum-2", contentType: "feature", content: "特征文档概要更新版",
+    });
+
+    /** 搜"特征文档"应命中 co-body-1（保留）+ co-sum-2（新插），不命中 co-sum-1（已删） */
+    const all = await repo.searchFTS("特征文档", { layer: "document" });
+    const ids = all.map(h => h.entryId);
+    expect(ids).toContain("co-body-1");
+    expect(ids).toContain("co-sum-2");
+    expect(ids).not.toContain("co-sum-1");
   });
 });

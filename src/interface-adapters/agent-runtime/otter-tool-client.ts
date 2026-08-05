@@ -3,7 +3,7 @@ import type { ArtifactStatus, ConversationParticipant } from "@entities/conversa
 import type { Otter } from "@entities/otter/otter";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { TurnHistoryEntry } from "@usecases/conversation/conversation-repository";
-import type { DetailLevel } from "@entities/memory/memory-entry";
+import type { DetailLevel, MemoryContentType } from "@entities/memory/memory-entry";
 
 /** 记忆条目（search_memory 返回结构，渐进式披露） */
 export interface MemorySearchEntry {
@@ -67,12 +67,14 @@ export interface OtterToolClient {
     participant: {
       join(conversationId: string, otterId: string): Promise<ConversationParticipant>;
       getActive(conversationId: string): Promise<Array<ConversationParticipant & { otterName: string }>>;
+      /** 标记 otter 在指定对话中已离开（dissolve_otter 顺带修） */
+      leave(conversationId: string, otterId: string): Promise<void>;
     };
     getActiveTurnNumber(conversationId: string): Promise<number>;
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
-    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string): Promise<MemorySearchEntry[]>;
+search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[]): Promise<MemorySearchEntry[]>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
   };

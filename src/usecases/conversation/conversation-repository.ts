@@ -46,6 +46,8 @@ export interface ConversationRepository {
   // Turn 管理
   createTurn(turn: Turn): Promise<void>;
   getActiveTurn(conversationId: string): Promise<Turn | null>;
+  /** 按 id 查 turn（不论 status，用于 markBatchRead 在 turn 关闭后反查 turn_number） */
+  getTurnById(turnId: string): Promise<Turn | null>;
   closeTurn(turnId: string, closedAt: string): Promise<void>;
   getMaxTurnNumber(conversationId: string): Promise<number>;
   getMessagesByTurnId(turnId: string): Promise<Message[]>;
@@ -135,11 +137,18 @@ export interface ConversationRepository {
     otterId: string,
     turnNumber: number,
   ): Promise<void>;
+  /** 标记参与者已离开（dissolve_otter 顺带修：不要求 active turn，不创建系统消息） */
+  markParticipantLeft(conversationId: string, otterId: string): Promise<void>;
   /** 获取未读消息（从 lastReadTurnNumber 之后的消息） */
   getUnreadMessages(
     conversationId: string,
     otterId: string,
   ): Promise<Message[]>;
+  /** 获取指定 sender 在对话中的最新消息（markBatchRead rejected 路径：invoke 失败但消息已 start） */
+  getLastMessageBySender(
+    conversationId: string,
+    senderId: string,
+  ): Promise<Message | null>;
 
   // Web 用户已读状态（消息级，与 otter 的 turn 级已读独立）
   /** 获取 Web 用户的已读位置 */

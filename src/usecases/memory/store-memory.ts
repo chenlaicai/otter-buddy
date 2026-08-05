@@ -19,11 +19,21 @@ export interface MemoryEntryInput {
 }
 
 export class StoreMemory {
+  /** F20260803fbit: bge-m3 8192 tokens 上限的 ~75%，中英文混合留余量 */
+  private static readonly EMBED_MAX_CHARS = 6000;
+
   constructor(
     private readonly repo: MemoryRepository,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly logger: Logger,
   ) {}
+
+  /** F20260803fbit: 截断 content 防 embedding worker OOM。FTS 灌全量不受影响 */
+  private truncateForEmbed(content: string): string {
+    return content.length > StoreMemory.EMBED_MAX_CHARS
+      ? content.slice(0, StoreMemory.EMBED_MAX_CHARS)
+      : content;
+  }
 
   async execute(input: MemoryEntryInput): Promise<string> {
     const id = crypto.randomUUID();
@@ -45,9 +55,10 @@ export class StoreMemory {
     await this.repo.storeEntry(entry);
 
     /** 异步 fire-and-forget embedding（D27: 不阻塞返回）
-     *  D22 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞 */
+     *  D22 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞
+     *  F20260803fbit: 截断防超长 body OOM worker */
     this.embeddingGateway
-      .embed(input.content)
+      .embed(this.truncateForEmbed(input.content))
       .then((emb) => {
         this.repo.storeEmbedding(id, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${id}: ${err}`);
@@ -81,8 +92,9 @@ export class StoreMemory {
 
     await this.repo.replaceEntryBySource(entry);
 
+    // F20260803fbit: 截断防超长 body OOM worker（与 execute 路径对称）
     this.embeddingGateway
-      .embed(input.content)
+      .embed(this.truncateForEmbed(input.content))
       .then((emb) => {
         this.repo.storeEmbedding(id, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${id}: ${err}`);
@@ -93,5 +105,51 @@ export class StoreMemory {
       });
 
     return id;
+  }
+
+  /**
+   * F20260803chunk: 按 source 原子替换多条 entry（1:N），用于文档 chunk 索引 reindex。
+   * 删旧全部 chunk + 插新 N 个 chunk（单事务）。每 chunk 独立 fire-and-forget embedding。
+   * M16: N 个 chunk embedding 串行排队 bge-m3 worker，首次部署 ~546 embedding 约 27s，
+   *      期间实时搜索的 query embedding 会排队（FTS 不受影响）。批量接口/优先级队列见 follow-up。
+   */
+  async replaceChunksBySource(inputs: MemoryEntryInput[]): Promise<string[]> {
+    if (inputs.length === 0) return [];
+    const now = new Date().toISOString();
+    const entries = inputs.map((input) => ({
+      id: crypto.randomUUID(),
+      layer: input.layer,
+      contentType: input.contentType,
+      sourceId: input.sourceId,
+      sourceTable: input.sourceTable,
+      conversationId: input.conversationId ?? null,
+      granularity: input.granularity,
+      content: input.content,
+      metadata: input.metadata ?? null,
+      createdAt: now,
+    }));
+
+    await this.repo.replaceEntriesBySource(entries);
+
+    // 异步 fire-and-forget embedding（每 chunk 独立，chunk 长度可控 truncateForEmbed 几乎不触发）
+    for (const entry of entries) {
+      this.embeddingGateway
+        .embed(this.truncateForEmbed(entry.content))
+        .then((emb) => {
+          this.repo.storeEmbedding(entry.id, emb).catch((err) => {
+            this.logger.warn(`Failed to store embedding for ${entry.id}: ${err}`);
+          });
+        })
+        .catch((err) => {
+          this.logger.debug(`Embedding generation failed for ${entry.id}: ${err}`);
+        });
+    }
+
+    return entries.map((e) => e.id);
+  }
+
+  /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
+  async deleteChunksBySource(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void> {
+    await this.repo.deleteBySourceAndType(sourceTable, sourceId, contentType);
   }
 }

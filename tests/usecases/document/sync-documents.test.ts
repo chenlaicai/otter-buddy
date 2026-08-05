@@ -3,6 +3,7 @@
  * 覆盖 upsert（新/内容变/内容不变）、unknown 枚举 warnings、reconcileSync supersedes 悬空
  */
 import { describe, it, expect, vi } from "vitest";
+import { createHash } from "crypto";
 import { SyncDocuments } from "@usecases/document/sync-documents";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
@@ -10,19 +11,29 @@ import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gat
 import type { FileSystemGateway } from "@usecases/ports/file-system-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import type { FeatureDocument } from "@entities/document/feature";
+import { cleanMarkdownForFts } from "@usecases/document/markdown-noise-cleaner";
+
+/** F20260803fbit: 算 bodyHash，与 sync-documents 的 computeBodyHash 一致 */
+/** F20260803chunk: 加版本前缀 "chunk-v1|"（D3 触发全量 reindex） */
+function computeBodyHash(rawBody: string): string | null {
+  const cleaned = cleanMarkdownForFts(rawBody);
+  if (!cleaned) return null;
+  return createHash("sha256").update(`chunk-v1|${cleaned}`).digest("hex").slice(0, 16);
+}
 
 function mockLogger(): Logger {
   return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => mockLogger() };
 }
 
 const FEATURE_FM = (id: string, summary: string, changeType = "feature", supersedes = "") =>
-  `---\nid: ${id}\ntitle: 测试文档\nsummary: ${summary}\nchange_type: ${changeType}\nstatus: draft\nsupersedes: [${supersedes ? `"${supersedes}"` : ""}]\ncreated_at: 2026-08-03\n---\n# 正文\n`;
+  `---\nid: ${id}\ntitle: 测试文档\nsummary: ${summary}\nchange_type: ${changeType}\nstatus: draft\nsupersedes: [${supersedes ? `"${supersedes}"` : ""}]\ncreated_at: 2026-08-03\n---\n# 正文\n这是文档正文内容，用于测试分段索引。\n`;
 
 function makeDoc(overrides: Partial<FeatureDocument> = {}): FeatureDocument {
   return {
     id: "F20260803tst1",
     title: "测试文档",
     summary: "测试摘要",
+    bodyHash: null,
     changeType: "feature",
     status: "draft",
     tags: [],
@@ -87,7 +98,7 @@ function makeFs(fileMap: Record<string, string>): FileSystemGateway {
 describe("SyncDocuments - F20260803mval", () => {
   it("新文档：insert + indexFeature，synced=1", async () => {
     const featureRepo = makeStatefulFeatureRepo([]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn() };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
 
@@ -98,10 +109,36 @@ describe("SyncDocuments - F20260803mval", () => {
     expect(memoryIndex.indexFeature).toHaveBeenCalled();
   });
 
+  it("F20260803fbit: 新文档索引 body entry，chunkEntriesIndexed=1", async () => {
+    const featureRepo = makeStatefulFeatureRepo([]);
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "新摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
+
+    const result = await sync.execute("/root");
+
+    expect(memoryIndex.indexFeatureChunks).toHaveBeenCalled();
+    expect(result.chunkEntriesIndexed).toBe(1);
+  });
+
+  it("F20260803fbit: body 经 markdown 噪声清理后索引（chunkEntriesIndexed + feature 入库）", async () => {
+    const featureRepo = makeStatefulFeatureRepo([]);
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const fm = `---\nid: F20260803tst1\ntitle: 测试\nsummary: 摘要\nchange_type: feature\nstatus: draft\ncreated_at: 2026-08-03\n---\n## 标题\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n`;
+    const fs = makeFs({ "F20260803tst1.md": fm });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
+
+    const result = await sync.execute("/root");
+
+    expect(result.chunkEntriesIndexed).toBe(1);
+    expect(featureRepo.insert).toHaveBeenCalled();
+    // 噪声清理的正确性由 cleanMarkdownForFts 单元测试覆盖
+  });
+
   it("已有文档内容变：updateContent + indexFeature，updated=1", async () => {
     const existing = makeDoc({ summary: "旧摘要" });
     const featureRepo = makeStatefulFeatureRepo([existing]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn() };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
 
@@ -112,11 +149,27 @@ describe("SyncDocuments - F20260803mval", () => {
     expect(memoryIndex.indexFeature).toHaveBeenCalled();
   });
 
+  it("F20260803fbit: 只改 body（summary 不变）触发 updated + reindex body", async () => {
+    // existing 的 bodyHash 对应旧 body "# 旧正文\n"，文件 body 是 "# 新正文\n"
+    const existing = makeDoc({ summary: "测试摘要", bodyHash: computeBodyHash("# 旧正文\n") });
+    const featureRepo = makeStatefulFeatureRepo([existing]);
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
+
+    const result = await sync.execute("/root");
+
+    expect(result.updated).toBe(1);
+    expect(featureRepo.updateContent).toHaveBeenCalled();
+    expect(memoryIndex.indexFeatureChunks).toHaveBeenCalled();
+  });
+
   it("已有文档内容不变：skip，不调 updateContent/indexFeature", async () => {
-    const existing = makeDoc({ summary: "测试摘要" });
+    // F20260803fbit: existing 的 bodyHash 要匹配文件内容算出的值，否则指纹不等走 updated
+    const existing = makeDoc({ summary: "测试摘要", bodyHash: computeBodyHash("# 正文\n这是文档正文内容，用于测试分段索引。\n") });
     const featureRepo = makeStatefulFeatureRepo([existing]);
     const indexFeature = vi.fn(async () => {});
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature, indexResearch: vi.fn() };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature, indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
 
@@ -125,11 +178,12 @@ describe("SyncDocuments - F20260803mval", () => {
     expect(result.skipped).toBe(1);
     expect(featureRepo.updateContent).not.toHaveBeenCalled();
     expect(indexFeature).not.toHaveBeenCalled();
+    expect(memoryIndex.indexFeatureChunks).not.toHaveBeenCalled();
   });
 
   it("未知 change_type：warnings 收集，valid=true 继续入库", async () => {
     const featureRepo = makeStatefulFeatureRepo([]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn() };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "摘要", "unknown-xyz") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
 
@@ -142,7 +196,7 @@ describe("SyncDocuments - F20260803mval", () => {
   it("reconcileSync：supersedes 悬空引用 -> supersedesDangling", async () => {
     const existing = makeDoc({ summary: "测试摘要", supersedes: ["F20990101xxxx"] });
     const featureRepo = makeStatefulFeatureRepo([existing]);
-    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn() };
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
     const fs = makeFs({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要", "feature", "F20990101xxxx") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, mockLogger());
 

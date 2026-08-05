@@ -145,10 +145,6 @@ export function getSessionHistory(otterId: string): Promise<OtterSessionDTO[]> {
   return request(`/otters/${otterId}/sessions`)
 }
 
-export function createSession(otterId: string): Promise<OtterSessionDTO> {
-  return request(`/otters/${otterId}/sessions`, { method: 'POST' })
-}
-
 export function restartOtter(otterId: string, summary?: string): Promise<OtterSessionDTO> {
   return request(`/otters/${otterId}/restart`, { method: 'POST', body: summary ? JSON.stringify({ summary }) : undefined })
 }
@@ -206,11 +202,19 @@ export function searchSimilar(memoryEntryId: string, limit = 10): Promise<Search
 
 // ── Health (F20260803mval) ──
 
+export interface MemoryGapReason {
+  id: string
+  file: string
+  errors: string[]
+}
+
 export interface MemoryHealthDTO {
   healthy: boolean
   documentsOnDisk: number
   documentsInDb: number
   reconcileGaps: string[]
+  /** F20260804dcnv: 每个 gap 文档的 validator 失败原因，让 banner 直接显示根因 */
+  gapReasons?: MemoryGapReason[]
   embeddingAvailable: boolean
   embeddingModel: string
   error?: string

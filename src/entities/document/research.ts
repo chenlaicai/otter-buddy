@@ -8,6 +8,8 @@ export interface ResearchDocument {
   id: string;
   title: string;
   summary: string;
+  /** F20260803fbit: 正文清理后的 sha256 前 16 字符，驱动 upsert 指纹比较 */
+  bodyHash: string | null;
   explorationType: ExplorationType;
   status: ResearchStatus;
   tags: string[];

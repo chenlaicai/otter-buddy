@@ -1,4 +1,5 @@
-import * as path from "path";
+import * as path from "node:path";
+import { createHash } from "crypto";
 import type { FileSystemGateway } from "@usecases/ports/file-system-gateway";
 import type { FeatureRepository } from "./feature-repository";
 import type { ResearchRepository } from "./research-repository";
@@ -14,6 +15,9 @@ import {
   isKnownResearchStatus,
   isKnownExplorationType,
 } from "@entities/document/known-values";
+import { cleanMarkdownForFts } from "./markdown-noise-cleaner";
+import { chunkMarkdown } from "./markdown-chunker";
+import { scanDiskIds } from "./disk-id-scanner";
 
 export interface SyncResult {
   synced: number;
@@ -21,6 +25,8 @@ export interface SyncResult {
   /** F20260803mval: upsert 更新的文档数（内容指纹变了） */
   updated: number;
   archived: number;
+  /** F20260803chunk: chunk entry 索引数（new + updated 分支累加 chunk 数），运维对照文档数×平均chunk数确认覆盖 */
+  chunkEntriesIndexed: number;
   /** F20260803mval: 未知枚举值等软警告，不阻断入库，进健康端点暴露 */
   warnings: string[];
   /** F20260803mval: 磁盘有 DB 无的文档 ID（同步失败正向对账） */
@@ -31,16 +37,25 @@ export interface SyncResult {
 }
 
 /** F20260803mval: 内容指纹，用于 upsert 判定（变更才 update + reindex） */
+/** F20260803fbit: 指纹加入 bodyHash，文档改正文触发 reindex */
 function featureFingerprint(doc: FeatureDocument): string {
-  return [doc.title, doc.summary, doc.changeType, doc.status, doc.filePath,
+  return [doc.title, doc.summary, doc.bodyHash, doc.changeType, doc.status, doc.filePath,
     JSON.stringify(doc.tags), JSON.stringify(doc.modules),
     JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes)].join("|");
 }
 
 function researchFingerprint(doc: ResearchDocument): string {
-  return [doc.title, doc.summary, doc.explorationType, doc.status, doc.filePath,
+  return [doc.title, doc.summary, doc.bodyHash, doc.explorationType, doc.status, doc.filePath,
     JSON.stringify(doc.tags), doc.conclusion ?? "",
     JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes)].join("|");
+}
+
+/** F20260803fbit: 计算 body_hash（清理后 body 的 sha256 前 16 字符） */
+/** F20260803chunk: D3 加版本前缀 "chunk-v1|"，版本变化触发全量 reindex 生成 chunk */
+const CHUNKING_VERSION = "chunk-v1";
+function computeBodyHash(cleanedBody: string): string | null {
+  if (!cleanedBody) return null;
+  return createHash("sha256").update(`${CHUNKING_VERSION}|${cleanedBody}`).digest("hex").slice(0, 16);
 }
 
 export class SyncDocuments {
@@ -55,7 +70,7 @@ export class SyncDocuments {
   async execute(rootDir: string): Promise<SyncResult> {
     const startTime = Date.now();
     const result: SyncResult = {
-      synced: 0, skipped: 0, updated: 0, archived: 0,
+      synced: 0, skipped: 0, updated: 0, archived: 0, chunkEntriesIndexed: 0,
       warnings: [], reconcileGaps: [], supersedesDangling: [], errors: [],
     };
 
@@ -70,11 +85,24 @@ export class SyncDocuments {
     const duration = Date.now() - startTime;
     this.logger.info('Document sync completed', {
       synced: result.synced, skipped: result.skipped, updated: result.updated,
-      archived: result.archived, errors: result.errors.length,
+      archived: result.archived, chunkEntriesIndexed: result.chunkEntriesIndexed,
+      errors: result.errors.length,
       warnings: result.warnings.length, reconcileGaps: result.reconcileGaps.length,
       supersedesDangling: result.supersedesDangling.length,
       duration, action: 'sync_complete',
     });
+    // F20260804jsyn: 把 errors/warnings/reconcileGaps/supersedesDangling 的具体内容
+    // 也打到日志——之前只打 count，导致 gap 根因只能反推（违反"运行时可观测"原则）
+    if (result.errors.length > 0) {
+      this.logger.error('Sync errors detail', undefined, {
+        errors: result.errors, action: 'sync_errors_detail',
+      });
+    }
+    if (result.warnings.length > 0) {
+      this.logger.warn('Sync warnings detail', {
+        warnings: result.warnings, action: 'sync_warnings_detail',
+      });
+    }
 
     return result;
   }
@@ -108,7 +136,8 @@ export class SyncDocuments {
   ): Promise<void> {
     const relativePath = path.relative(rootDir, file);
     const content = await this.fs.readFile(file);
-    const { frontmatter } = parseFrontmatterFromContent(content);
+    // F20260803fbit: 接住 body（parseFrontmatterFromContent 已返回，原调用方丢弃）
+    const { frontmatter, content: rawBody } = parseFrontmatterFromContent(content);
 
     const validation =
       type === "feature"
@@ -125,32 +154,44 @@ export class SyncDocuments {
       for (const w of validation.warnings) result.warnings.push(`${id}: ${w}`);
     }
 
+    // F20260803fbit: 清理 markdown 噪声（代码围栏/标题井号/列表符号等）防 trigram 索引污染
+    // F20260803chunk B1: 同时保留 rawBody（给 chunkMarkdown 切分）和 cleanedBody（给 computeBodyHash）
+    const cleanedBody = cleanMarkdownForFts(rawBody);
+
     if (type === "feature") {
-      await this.syncFeatureDoc(frontmatter, relativePath, result);
+      await this.syncFeatureDoc(frontmatter, relativePath, rawBody, cleanedBody, result);
     } else {
-      await this.syncResearchDoc(frontmatter, relativePath, result);
+      await this.syncResearchDoc(frontmatter, relativePath, rawBody, cleanedBody, result);
     }
   }
 
   private async syncFeatureDoc(
     fm: Record<string, unknown>,
     filePath: string,
+    rawBody: string,
+    cleanedBody: string,
     result: SyncResult
   ): Promise<void> {
-    const doc = this.buildFeatureDocument(fm, filePath);
+    const doc = this.buildFeatureDocument(fm, filePath, cleanedBody);
     const existing = await this.featureRepo.findById(doc.id);
     const meta = {
-      doc_type: "feature" as const, change_type: doc.changeType, tags: doc.tags,
+      doc_type: "feature" as const, title: doc.title, change_type: doc.changeType, tags: doc.tags,
       modules: doc.modules, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
       await this.featureRepo.insert(doc);
       await this.memoryIndex.indexFeature(doc.id, doc.summary, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexFeatureChunks(doc.id, chunks, meta);
       result.synced++;
+      result.chunkEntriesIndexed += chunks.length;
     } else if (featureFingerprint(doc) !== featureFingerprint(existing)) {
       await this.featureRepo.updateContent(doc);
       await this.memoryIndex.indexFeature(doc.id, doc.summary, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexFeatureChunks(doc.id, chunks, meta);
       result.updated++;
+      result.chunkEntriesIndexed += chunks.length;
     } else {
       result.skipped++;
     }
@@ -159,22 +200,30 @@ export class SyncDocuments {
   private async syncResearchDoc(
     fm: Record<string, unknown>,
     filePath: string,
+    rawBody: string,
+    cleanedBody: string,
     result: SyncResult
   ): Promise<void> {
-    const doc = this.buildResearchDocument(fm, filePath);
+    const doc = this.buildResearchDocument(fm, filePath, cleanedBody);
     const existing = await this.researchRepo.findById(doc.id);
     const meta = {
-      doc_type: "research" as const, exploration_type: doc.explorationType, tags: doc.tags,
+      doc_type: "research" as const, title: doc.title, exploration_type: doc.explorationType, tags: doc.tags,
       conclusion: doc.conclusion, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
       await this.researchRepo.insert(doc);
       await this.memoryIndex.indexResearch(doc.id, doc.summary, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexResearchChunks(doc.id, chunks, meta);
       result.synced++;
+      result.chunkEntriesIndexed += chunks.length;
     } else if (researchFingerprint(doc) !== researchFingerprint(existing)) {
       await this.researchRepo.updateContent(doc);
       await this.memoryIndex.indexResearch(doc.id, doc.summary, meta);
+      const chunks = chunkMarkdown(rawBody);
+      await this.memoryIndex.indexResearchChunks(doc.id, chunks, meta);
       result.updated++;
+      result.chunkEntriesIndexed += chunks.length;
     } else {
       result.skipped++;
     }
@@ -209,7 +258,8 @@ export class SyncDocuments {
     repo: { findAll(): Promise<T[]> },
     result: SyncResult,
   ): Promise<void> {
-    const diskIds = await this.collectDiskIds(rootDir, dir);
+    const diskIdMap = await scanDiskIds(this.fs, path.join(rootDir, dir), this.logger);
+    const diskIds = new Set(diskIdMap.keys());
     const dbDocs = await repo.findAll();
     const dbIds = new Set(dbDocs.filter(d => d.status !== "archived").map(d => d.id));
     // F20260803mval: supersedes 引用检查用全量 ID（含 archived），归档文档作为引用目标仍合法（B5）
@@ -224,25 +274,6 @@ export class SyncDocuments {
         }
       }
     }
-  }
-
-  /** 扫描磁盘文档提取 ID 集合（对账用，独立于 syncFile 避免共享盲区） */
-  private async collectDiskIds(rootDir: string, dir: string): Promise<Set<string>> {
-    const fullPath = path.join(rootDir, dir);
-    const files = await this.scanMarkdownFiles(fullPath);
-    const ids = new Set<string>();
-    for (const file of files) {
-      try {
-        const content = await this.fs.readFile(file);
-        const { frontmatter } = parseFrontmatterFromContent(content);
-        if (frontmatter.id && typeof frontmatter.id === "string") {
-          ids.add(frontmatter.id as string);
-        }
-      } catch {
-        // 解析失败的文件已在 syncFile 记 errors，此处跳过
-      }
-    }
-    return ids;
   }
 
   private async archiveDeletedDocuments(rootDir: string, result: SyncResult): Promise<void> {
@@ -286,7 +317,8 @@ export class SyncDocuments {
 
   private buildFeatureDocument(
     fm: Record<string, unknown>,
-    filePath: string
+    filePath: string,
+    body: string
   ): FeatureDocument {
     const causalLinks = fm.causal_links as Record<string, unknown> | undefined;
     // F20260803mval: 未知枚举值 fallback 到默认，防 as 强转使类型安全形同虚设
@@ -296,6 +328,7 @@ export class SyncDocuments {
       id: fm.id as string,
       title: fm.title as string,
       summary: (fm.summary as string).trim(),
+      bodyHash: computeBodyHash(body),
       changeType: (isKnownChangeType(ct) ? ct : "feature") as ChangeType,
       status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
@@ -313,7 +346,8 @@ export class SyncDocuments {
 
   private buildResearchDocument(
     fm: Record<string, unknown>,
-    filePath: string
+    filePath: string,
+    body: string
   ): ResearchDocument {
     const causalLinks = fm.causal_links as Record<string, unknown> | undefined;
     const et = (fm.exploration_type as string) || "technical";
@@ -322,6 +356,7 @@ export class SyncDocuments {
       id: fm.id as string,
       title: fm.title as string,
       summary: (fm.summary as string).trim(),
+      bodyHash: computeBodyHash(body),
       explorationType: (isKnownExplorationType(et) ? et : "technical") as ExplorationType,
       status: (isKnownResearchStatus(st) ? st : "draft") as ResearchStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],

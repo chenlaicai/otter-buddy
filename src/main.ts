@@ -17,9 +17,11 @@ import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
+import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { MemoryContentType } from "@entities/memory/memory-entry";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-context-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
@@ -32,10 +34,11 @@ import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
 import { SendMessage } from "@usecases/conversation/send-message";
-import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
+import type { MemoryIndexGateway, ChunkData } from "@usecases/conversation/memory-index-gateway";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { SearchMemory } from "@usecases/memory/search-memory";
-import { StoreMemory } from "@usecases/memory/store-memory";
+import { StoreMemory, type MemoryEntryInput } from "@usecases/memory/store-memory";
+import { cleanMarkdownForFts } from "@usecases/document/markdown-noise-cleaner";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import { ManageTerminology } from "@usecases/memory/manage-terminology";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
@@ -44,9 +47,10 @@ import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
 import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
 import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
-import { migrateDatabase, migrateExistingData } from "@frameworks/db/migration";
+import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks } from "@frameworks/db/migration";
+import { backfillSessionLedger } from "@frameworks/db/otter/backfill-session-ledger";
 import { reconcileOrphans } from "@usecases/conversation/reconcile-orphans";
-import { SyncDocuments } from "@usecases/document/sync-documents";
+import { SyncDocuments, type SyncResult } from "@usecases/document/sync-documents";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { CreateOtter } from "@usecases/otter/create-otter";
 import { DissolveOtter } from "@usecases/otter/dissolve-otter";
@@ -158,6 +162,64 @@ class MemoryIndexAdapter implements MemoryIndexGateway {
       metadata,
     });
   }
+
+  /** F20260803chunk: 索引 Feature 文档分段 chunks（N 个独立 entry，原子替换旧 chunks） */
+  async indexFeatureChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
+    // PR审视 S3-14：空 chunks（body 清空）时删除旧 chunk entries，防残留
+    if (chunks.length === 0) {
+      await this.storeMemory.deleteChunksBySource("features", id, "feature_chunk");
+      return;
+    }
+    // PR审视 S14：title 重命名为 doc_title 避免冗余字段
+    const { title, ...metaRest } = metadata;
+    const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
+      layer: "document",
+      contentType: "feature_chunk",
+      sourceId: id,
+      sourceTable: "features",
+      conversationId: undefined,
+      granularity: "fine",  // D4：chunk 是细粒度
+      content: cleanMarkdownForFts(c.content),  // D2：每个 chunk 独立清理
+      metadata: {
+        ...metaRest,
+        doc_title: title,  // M10：供前端展示文档标题（S14：不保留冗余 title 字段）
+        part: "chunk",
+        chunk_index: i,
+        chunk_total: chunks.length,
+        heading_path: c.headingPath,
+        char_count: c.charCount,
+      },
+    }));
+    await this.storeMemory.replaceChunksBySource(inputs);
+  }
+
+  /** F20260803chunk: 索引 Research 文档分段 chunks */
+  async indexResearchChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
+    if (chunks.length === 0) {
+      await this.storeMemory.deleteChunksBySource("research", id, "research_chunk");
+      return;
+    }
+    const { title, ...metaRest } = metadata;
+    const inputs: MemoryEntryInput[] = chunks.map((c, i) => ({
+      layer: "document",
+      contentType: "research_chunk",  // M19：research_chunk 区别于 feature_chunk
+      sourceId: id,
+      sourceTable: "research",
+      conversationId: undefined,
+      granularity: "fine",
+      content: cleanMarkdownForFts(c.content),
+      metadata: {
+        ...metaRest,
+        doc_title: title,
+        part: "chunk",
+        chunk_index: i,
+        chunk_total: chunks.length,
+        heading_path: c.headingPath,
+        char_count: c.charCount,
+      },
+    }));
+    await this.storeMemory.replaceChunksBySource(inputs);
+  }
 }
 
 interface Repositories {
@@ -227,7 +289,7 @@ function initUseCases(
   const queryOtter = new QueryOtter(repos.otter);
   /** createOtter 必须先于 manageConversation 初始化：
    *  ManageConversation.create() 需要调用 createOtter.execute() 为每个对话创建独立大獭 */
-  const createOtter = new CreateOtter(repos.otter, agentGateway);
+  const createOtter = new CreateOtter(repos.otter, agentGateway, logger);
   const manageConversation = new ManageConversation(repos.conversation, createOtter);
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory, logger,
@@ -268,8 +330,9 @@ function buildMemoryClient(uc: UseCases) {
       const entry = await uc.manageMemory.getById(id);
       return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
     },
-    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string) => {
-      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter });
+    // eslint-disable-next-line max-params -- 合并 main 分支 contentType + recruiting createdAfter 参数
+    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string, contentType?: MemoryContentType[]) => {
+      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType });
       return entries.map(e => ({ id: e.id, content: e.content, score: e.score, layer: e.layer, snippet: e.snippet, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
     },
     getDetails: async (ids: string[]) => {
@@ -336,6 +399,7 @@ function buildOtterToolClient(uc: UseCases): OtterToolClient {
           const participantsWithOtter = await uc.manageParticipant.getActiveParticipants(convId);
           return participantsWithOtter.map(p => ({ ...p.participant, otterName: p.otterName }));
         },
+        leave: (convId, otterId) => uc.manageParticipant.markLeft(convId, otterId),
       },
       getActiveTurnNumber: (convId) => uc.manageConversation.getActiveTurnNumber(convId),
     },
@@ -522,7 +586,7 @@ function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"]): void {
   }
 }
 
-async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway): Promise<void> {
+async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway): Promise<SyncResult> {
   const fileSystem = new NodeFileSystem();
   const syncDocs = new SyncDocuments(
     fileSystem,
@@ -531,7 +595,7 @@ async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGatewa
     memoryIndex,
     logger
   );
-  await syncDocs.execute(process.cwd());
+  return syncDocs.execute(process.cwd());
 }
 
 async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory, messageBroadcaster?: MessageBroadcaster) {
@@ -580,6 +644,7 @@ async function initDatabaseAndModels() {
   migrateExistingData(db, otterConfigProvider, logger);
 
   const { model, modelPool } = await initModels(appConfig.llm, logger);
+  ensureBgeM3Model(appConfig.embedding, logger);
   const { service: embeddingService, dispose } = await initEmbeddingService(appConfig.embedding, logger);
 
   return { db, otterConfigProvider, model, modelPool, embeddingService, dispose };
@@ -593,9 +658,15 @@ async function main(): Promise<void> {
 
   const repos = initRepositories(db);
   await reconcileOrphans(repos.conversation, logger);
+  /** F20260805rsto：存量獭补建首世 domain session（有 agent 会话但账本无行的那批），
+   *  否则它们的 restart/dissolve 仍是空操作。幂等，每次启动跑。 */
+  await backfillSessionLedger(db, repos.otter, logger);
   /** F20260803mval: 共享单一 memoryIndex 实例，避免 syncDocuments 与 initUseCases 各自 new StoreMemory 双实例（G1） */
   const memoryIndex = new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
-  await syncDocuments(repos, memoryIndex);
+  const syncResult = await syncDocuments(repos, memoryIndex);
+  // F20260803chunk B3+B7: 迁移在 sync 之后执行（独立函数，不嵌入 migrateDatabase）。
+  // PR审视 S3-01: syncErrors 仅作日志提示（B7 修复后不再 guard），迁移始终执行
+  migrateFeatureBodyToChunks(db, logger, syncResult.errors.length);
 
   if (modelPool) validateModelAliases(db, modelPool);
 
@@ -684,6 +755,7 @@ async function main(): Promise<void> {
     port: appConfig.server.port,
     dbPath: appConfig.db.path,
     embeddingModelPath: appConfig.embedding.modelPath,
+    embeddingLocalModelPath: appConfig.embedding.localModelPath,
     embeddingDim: appConfig.embedding.dimensions,
   };
 

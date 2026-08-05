@@ -687,4 +687,59 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
       expect(unread.map(m => m.id)).toEqual(["msg-1"]);
     });
   });
+
+  describe("getTurnById（F20260803trrf: markBatchRead 时序修复）", () => {
+    it("按 id 查 turn，不论 status（关闭后仍可查）", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      await repo.closeTurn("turn-1", "2026-07-22T00:01:00Z");
+
+      const turn = await repo.getTurnById("turn-1");
+      expect(turn).not.toBeNull();
+      expect(turn!.id).toBe("turn-1");
+      expect(turn!.status).toBe("closed");
+    });
+
+    it("不存在的 turnId 返回 null", async () => {
+      expect(await repo.getTurnById("nope")).toBeNull();
+    });
+  });
+
+  describe("getLastMessageBySender（F20260803trrf: rejected 路径用）", () => {
+    it("返回指定 sender 的最新消息（按 sequence_num desc）", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      await repo.createCompletedMessage(messageFixture({ senderId: "otter-1", sequenceNum: 1 }));
+      await repo.createCompletedMessage(messageFixture({ id: "msg-2", senderId: "otter-1", sequenceNum: 2 }));
+      await repo.createCompletedMessage(messageFixture({ id: "msg-3", senderId: "otter-2", sequenceNum: 3 }));
+
+      const msg = await repo.getLastMessageBySender("conv-1", "otter-1");
+      expect(msg!.id).toBe("msg-2");
+    });
+
+    it("无消息时返回 null", async () => {
+      await repo.create(conversationFixture());
+      expect(await repo.getLastMessageBySender("conv-1", "otter-1")).toBeNull();
+    });
+  });
+
+  describe("markParticipantLeft（F20260803trrf: dissolve 顺带修）", () => {
+    it("更新 participant status 为 left，名册不再显示", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      insertOtter(db, "otter-x");
+      await repo.createParticipant({
+        id: "part-1", conversationId: "conv-1", otterId: "otter-x",
+        joinedAtTurnId: null, joinedAtTurnNumber: 0,
+        leftAtTurnId: null, leftAtTurnNumber: null,
+        status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
+        lastReadTurnNumber: 0,
+      });
+
+      await repo.markParticipantLeft("conv-1", "otter-x");
+
+      const active = await repo.getActiveParticipants("conv-1");
+      expect(active.find(p => p.otterId === "otter-x")).toBeUndefined();
+    });
+  });
 });

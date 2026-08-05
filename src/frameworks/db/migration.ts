@@ -67,8 +67,30 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260803mval 一次性补丁：移除文档表枚举 CHECK 约束 */
   rebuildDocumentTablesDropCheck(db, logger);
 
+  /** F20260803fbit: features/research 表加 body_hash 列（驱动 upsert 指纹比较） */
+  addBodyHashColumns(db, logger);
+
   /** F20260805rbrg：messages 表添加 metadata 列（招聘桥接查重用） */
   addMessagesMetadataColumn(db, logger);
+}
+
+/**
+ * F20260803fbit: 为 features/research 表加 body_hash 列。
+ * 老库已跑过 rebuildDocumentTablesDropCheck（标记 done 不会重建），
+ * 需要独立 ADD COLUMN 补列。PRAGMA table_info 检测列存在性作幂等。
+ */
+function addBodyHashColumns(db: Database.Database, logger: Logger): void {
+  const featuresCols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
+  if (!featuresCols.some(col => col.name === 'body_hash')) {
+    db.prepare("ALTER TABLE features ADD COLUMN body_hash TEXT").run();
+    logger.info('Added body_hash column to features table');
+  }
+
+  const researchCols = db.prepare("PRAGMA table_info(research)").all() as Array<{ name: string }>;
+  if (!researchCols.some(col => col.name === 'body_hash')) {
+    db.prepare("ALTER TABLE research ADD COLUMN body_hash TEXT").run();
+    logger.info('Added body_hash column to research table');
+  }
 }
 
 /** F20260805rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
@@ -180,6 +202,7 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
           id TEXT PRIMARY KEY,
           title TEXT NOT NULL,
           summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+          body_hash TEXT,
           change_type TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'draft',
           tags TEXT NOT NULL DEFAULT '[]',
@@ -204,6 +227,7 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
           id TEXT PRIMARY KEY,
           title TEXT NOT NULL,
           summary TEXT NOT NULL CHECK(length(summary) BETWEEN 1 AND 500),
+          body_hash TEXT,
           exploration_type TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'draft',
           tags TEXT NOT NULL DEFAULT '[]',
@@ -263,4 +287,50 @@ export function migrateExistingData(
   }
 
   logger.warn('Migration completed. IMPORTANT: All old sessions will be recreated on first invoke. Previous session context and system prompts will be lost. You need to reconfigure system prompts after migration.');
+}
+
+/**
+ * F20260803chunk: 清理旧 feature_body/research_body entries（chunking 取代整 body entry，决策 D1）。
+ *
+ * B7：独立 export 函数，不加入 migrateDatabase 函数体（migrateDatabase 在 sync 之前执行）。
+ *     在 main.ts 中 syncDocuments 之后单独调用。
+ * B3：sync 之前调用会删旧数据，sync 失败则正文索引消失；移到 sync 之后则 sync 失败旧数据还在。
+ * M14：加 syncErrors 参数，仅当 sync 无错误时执行清理。防 sync 部分失败时清掉失败文档正文索引。
+ * S10：vec 删除 try-catch 加 log warn（防吞非 table-not-found 错误）。
+ */
+export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger, syncErrors: number): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'chunking_v1_migrated'")
+    .get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  // PR审视 B7：不用 syncErrors==0 作 guard——文档 frontmatter 错误是永久性的，
+  // 会导致迁移永远不执行（死锁）。sync 成功的文档已有新 chunk；sync 失败的文档
+  // 旧 feature_body 删了无妨（下次 sync 成功会生成 chunk）。
+  if (syncErrors > 0) {
+    logger.warn(`Chunking migration proceeding despite ${syncErrors} sync errors (failed docs will get chunks on next successful sync)`);
+  }
+
+  const migrate = db.transaction(() => {
+    const types = ["feature_body", "research_body"];
+    for (const ct of types) {
+      const rows = db.prepare("SELECT id FROM memory_entries WHERE content_type = ?").all(ct) as Array<{ id: string }>;
+      for (const row of rows) {
+        db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        // S10：vec 删除 try-catch 加 log warn（vec0 表可能不存在，D22 降级）
+        try {
+          db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        } catch (e) {
+          logger.warn(`migrateFeatureBodyToChunks: memory_vec delete failed for ${row.id}: ${e}`);
+        }
+        db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+      }
+      db.prepare("DELETE FROM memory_entries WHERE content_type = ?").run(ct);
+    }
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('chunking_v1_migrated', 'done', datetime('now')) " +
+      "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+    ).run();
+  });
+  migrate();
+  logger.info('Migrated feature_body/research_body entries to chunk model (chunking_v1_migrated=done)');
 }
