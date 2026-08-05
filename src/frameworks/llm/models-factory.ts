@@ -41,7 +41,19 @@ function needsCustomProvider(llmConfig: AppConfig["llm"]): boolean {
  * 解析优先级：configApiKey → credential.key → 标准环境变量。
  */
 function createCustomApiKeyAuth(configApiKey?: string, provider?: string) {
-  const envVarName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+  // 根据 provider 类型选择环境变量
+  let envVarName: string;
+  switch (provider) {
+    case "anthropic":
+      envVarName = "ANTHROPIC_API_KEY";
+      break;
+    case "kimi-coding":
+      envVarName = "KIMI_API_KEY";
+      break;
+    default:
+      envVarName = "OPENAI_API_KEY";
+      break;
+  }
   return {
     name: `${provider} API key`,
     resolve: async ({ ctx, credential }: { ctx: { env: (name: string) => Promise<string | undefined> }; credential?: { key?: string } }) => {
