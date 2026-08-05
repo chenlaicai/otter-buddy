@@ -429,8 +429,8 @@ async function reportStatus(event) {
     return;
   }
 
-  // 30 分钟去重（key = type）
-  const dedupKey = event.type;
+  // 30 分钟去重（key = type+detail，避免同类型不同 detail 被吞）
+  const dedupKey = `${event.type}::${event.detail ?? ''}`;
   const data = await STORAGE.get([STATUS_DEDUP_KEY]);
   const dedup = data[STATUS_DEDUP_KEY] ?? {};
   const lastTs = dedup[dedupKey];
@@ -530,7 +530,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           body: JSON.stringify({
             source: "boss-zhipin-bridge",
             kind: "status",
-            payload: { events: [{ type: "extension-installed", severity: "warning", at: new Date().toISOString(), detail: "test-connection ping" }] },
+            payload: { events: [{ type: "extension-installed", severity: "info", at: new Date().toISOString(), detail: "test-connection ping" }] },
           }),
         });
         sendResponse({ ok: resp.ok, status: resp.status, body: (await resp.text()).slice(0, 200) });

@@ -111,8 +111,13 @@ export class InboundController {
   }
 
   private setCorsHeaders(c: Context): void {
-    c.header('Access-Control-Allow-Origin', '*');
+    // 纵深防御：只允许 chrome-extension:// origin，不允许 *
+    // background SW 的 fetch 不受 CORS 限制，只有 options 页需要 CORS
+    const origin = c.req.header('Origin') ?? '';
+    if (origin.startsWith('chrome-extension://')) {
+      c.header('Access-Control-Allow-Origin', origin);
+    }
     c.header('Access-Control-Allow-Headers', 'Content-Type, X-Inbound-Key');
-    c.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    c.header('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
   }
 }
