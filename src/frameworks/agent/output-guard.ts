@@ -5,13 +5,15 @@
  * 1. 退化重复检测：text/thinking delta 喂给 DegenerateDetector（双机制），
  *    toolcall_delta 只作活跃信号（合法大文件写入会误伤重复检测）；
  * 2. 超时体系：首字节超时（prompt 前 arm，覆盖排队+prefill）+ per-delta 滑动超时；
- * 3. 健康窗口避让：工具执行 / compaction / auto-retry 期间 pause（冻结语义 + ref-count）。
+ * 3. 健康窗口避让：工具执行 / compaction / auto-retry 期间 pause（停表 + ref-count）。
  *
- * 计时语义（F20260804dglp 根因 2b 修复）：pause 时冻结剩余时间，
- * resume 时按剩余时间重建——pause 时长不计入 elapsed（旧实现 resumeTimer
- * 用 now - timerStartedAt，pause 超时的调用恢复后 1s 必误杀）。
+ * 计时语义（F20260805abpp）：pause 即停表，resume 一律 re-arm 首字节窗口——
+ * 所有 pause 原因（tool/compaction/auto_retry）结束后都是新请求的冷 prefill，
+ * 与 prompt 首发同性质。（F20260804dglp 曾按"工具结束恢复冻结的滑动剩余"设计，
+ * 大上下文 prefill 超滑动预算被误切，见该文档根因 2b 的演进。）
  *
- * 设计文档：F20260727guard-degenerate-output-guard（初版）、F20260804dglp（重构）
+ * 设计文档：F20260727guard-degenerate-output-guard（初版）、F20260804dglp（重构）、
+ * F20260805abpp（resume 统一首字节窗口）
  */
 
 import type { Logger } from "@usecases/ports/logger";
@@ -46,7 +48,7 @@ export interface OutputGuardMetadata {
   firstByteLatencyMs?: number;
 }
 
-/** pause 原因（ref-count 集合的元素） */
+/** pause 原因（按原因 ref-count） */
 export type PauseReason = "tool" | "compaction" | "auto_retry";
 
 /** delta 类型白名单：text/thinking 进重复检测；toolcall 只作活跃信号 */
@@ -68,12 +70,10 @@ export class OutputGuard {
   /**
    * pause ref-count：按原因计数（并行工具调用会同原因多次 start/end，
    * Set 去重会导致第一个 end 就重建计时器误杀其余工具——PR #138 检视 S1）。
-   * 计数归零才真正 resume（冻结语义：pause 时长不计入 elapsed）。
+   * 计数归零才真正 resume（停表语义：pause 时长不计入任何超时预算）。
    */
   private readonly pauseCounts = new Map<PauseReason, number>();
   private pauseTotal = 0;
-  private pausedRemainingMs: number | null = null;
-  private pausedKind: "first_byte" | "streaming" | null = null;
 
   /** fire 前的兜底查询（SDK compaction 事件丢失时防误杀） */
   private isCompactingFn: (() => boolean) | undefined;
@@ -126,15 +126,11 @@ export class OutputGuard {
        */
       this.pauseCounts.delete("auto_retry");
       this.pauseTotal = 0;
-      this.pausedRemainingMs = null;
-      this.pausedKind = null;
       this.armTimer("streaming", this.config.streamingTimeoutMs, abort);
     } else {
-      /** pause 期间到达的 delta：生成实际在恢复，把冻结剩余重置为全额滑动预算
-       *  （防 SDK 行为变化后 resume 用陈旧小额剩余重建、恢复即误杀） */
+      /** pause 期间到达的 delta（SDK 事件乱序等边界）：只更新 abort 引用，
+       *  resume 时统一 arm 首字节窗口（F20260805abpp 后不再有冻结剩余可恢复） */
       this.pendingAbort = abort;
-      this.pausedRemainingMs = this.config.streamingTimeoutMs;
-      this.pausedKind = "streaming";
     }
 
     if (!DETECTION_DELTA_TYPES.has(deltaType ?? "")) return false;
@@ -161,22 +157,27 @@ export class OutputGuard {
     this.detector.reset();
   }
 
-  /** pause（冻结语义）：首个暂停原因记录剩余时间并停表；同原因可叠加（并行工具） */
+  /** pause：首个暂停原因停表；同原因可叠加（并行工具），计数归零才真正 resume */
   pause(reason: PauseReason): void {
     if (this.destroyed) return;
-    if (this.pauseTotal === 0 && this.timer !== null) {
-      this.pausedRemainingMs = Math.max(this.timerBudgetMs - (Date.now() - this.timerStartedAt), 0);
-      this.pausedKind = this.timerKind;
-      this.clearTimerOnly();
-    }
+    if (this.pauseTotal === 0) this.clearTimerOnly();
     this.pauseCounts.set(reason, (this.pauseCounts.get(reason) ?? 0) + 1);
     this.pauseTotal++;
   }
 
   /**
-   * resume：计数归零后重建计时器。
-   * 最后释放的原因是 compaction / auto_retry 时 re-arm 首字节窗口（后续是冷请求全量 prefill）；
-   * 工具结束恢复冻结的剩余时间。
+   * resume：计数归零后 re-arm 首字节窗口。
+   * 所有 pause 原因（tool / compaction / auto_retry）结束后跟随的都是新请求的冷
+   * prefill（全量上下文重算），与 prompt 首发同性质，统一用首字节预算覆盖
+   * （F20260805abpp：工具结束曾恢复冻结的滑动剩余预算，大上下文 prefill 超过
+   * 滑动预算被误切——《对话列表的状态图标》streaming_timeout 事故根因）。
+   *
+   * 已知例外（架构师检视 S1）：speak 等 terminate 工具的 end 之后没有新请求，
+   * 此处 arm 的首字节计时器为虚空请求布防，安全性依赖 invoke finally 的
+   * destroy() 及时跟进（agent_end → prompt() resolve → cleanup 是同步微任务链）。
+   * 若未来引入慢 agent_end/turn_end 扩展钩子（>firstByteTimeoutMs），虚空计时器
+   * 会 fire 并把成功 run 误报为 first_byte_timeout——届时需在 terminate 批次
+   * 结束时显式抑制 arm。
    */
   resume(reason: PauseReason, abort: () => void): void {
     const count = this.pauseCounts.get(reason) ?? 0;
@@ -187,16 +188,7 @@ export class OutputGuard {
     this.pendingAbort = abort;
     if (this.pauseTotal > 0) return;
     if (this.tripped || !this.config.enabled || this.destroyed) return;
-
-    if (reason === "compaction" || reason === "auto_retry") {
-      this.armTimer("first_byte", this.config.firstByteTimeoutMs, abort);
-      return;
-    }
-    if (this.pausedRemainingMs !== null) {
-      this.armTimer(this.pausedKind ?? "streaming", Math.max(this.pausedRemainingMs, 1), abort);
-      this.pausedRemainingMs = null;
-      this.pausedKind = null;
-    }
+    this.armTimer("first_byte", this.config.firstByteTimeoutMs, abort);
   }
 
   get isPaused(): boolean {
@@ -233,8 +225,8 @@ export class OutputGuard {
     this.timerKind = kind;
     this.timerBudgetMs = budgetMs;
     this.timerStartedAt = Date.now();
-    /** 首字节窗口 arm 时刻同步刷新埋点基准（compaction/auto_retry re-arm 也走这里，
-     *  否则埋点会把"原始 arm→delta"记成 TTFT 并覆盖真值——检视 S3） */
+    /** 首字节窗口 arm 时刻同步刷新埋点基准（tool/compaction/auto_retry resume 的
+     *  re-arm 也走这里，否则埋点会把"原始 arm→delta"记成 TTFT 并覆盖真值——检视 S3） */
     if (kind === "first_byte") this.firstByteArmedAt = this.timerStartedAt;
     this.pendingAbort = abort;
     this.timer = setTimeout(() => this.onTimeout(), budgetMs);

@@ -191,24 +191,29 @@ describe("OutputGuard 超时体系", () => {
   });
 });
 
-describe("OutputGuard pause/resume（冻结语义 + ref-count，F20260804dglp 根因 2b）", () => {
+describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口，F20260805abpp）", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("pause 时长不计入 elapsed：pause 超过 timeout 后 resume 不误杀（存量 bug 回归）", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", mockLogger());
+  it("工具结束 resume re-arm 首字节窗口：post-tool 冷 prefill 超滑动预算不误切（F20260805abpp 事故回归）", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 5000, firstByteTimeoutMs: 30_000 }),
+      "otter-1", mockLogger(),
+    );
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 4), "text_delta", abort);
-    vi.advanceTimersByTime(2000); // 消耗 2s，剩余 3s
+    vi.advanceTimersByTime(2000);
     guard.pause("tool");
-    vi.advanceTimersByTime(600_000); // 工具执行 600s（远超 timeout）——旧实现 resume 后 1s 必误杀
+    vi.advanceTimersByTime(600_000); // 工具执行 600s——停表，不计入任何预算
     guard.resume("tool", abort);
 
-    vi.advanceTimersByTime(2999);
-    expect(abort).not.toHaveBeenCalled(); // 冻结语义：剩余 3s 没用完
-    vi.advanceTimersByTime(2);
+    // 旧实现恢复滑动剩余（3s）：大上下文 prefill 静默 3s 即误切（streaming_timeout 事故根因）
+    vi.advanceTimersByTime(5001); // 已超滑动预算 5s
+    expect(abort).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(25_000); // 首字节预算 30s 到期
     expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("first_byte_timeout");
   });
 
   it("ref-count：两个不同 pause 源，只 resume 一个不重建计时器", () => {
@@ -228,7 +233,10 @@ describe("OutputGuard pause/resume（冻结语义 + ref-count，F20260804dglp �
   });
 
   it("并行工具：同原因两次 pause，第一个 end 不重建计时器（PR 检视 S1 回归）", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 3000, firstByteTimeoutMs: 4000 }),
+      "otter-1", mockLogger(),
+    );
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 11), "text_delta", abort);
@@ -239,9 +247,12 @@ describe("OutputGuard pause/resume（冻结语义 + ref-count，F20260804dglp �
     vi.advanceTimersByTime(600_000); // 慢工具执行 600s
     expect(abort).not.toHaveBeenCalled();
 
-    guard.resume("tool", abort); // 慢工具结束 → 恢复冻结剩余
-    vi.advanceTimersByTime(3001);
+    guard.resume("tool", abort); // 慢工具结束 → re-arm 首字节窗口（F20260805abpp）
+    vi.advanceTimersByTime(3001); // 已超滑动预算，首字节窗口内不误切
+    expect(abort).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
     expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("first_byte_timeout");
   });
 
   it("compaction_end 后 re-arm 首字节窗口（冷 prefill）", () => {
@@ -283,20 +294,24 @@ describe("OutputGuard pause/resume（冻结语义 + ref-count，F20260804dglp �
     expect(guard.getMetadata().reason).toBe("first_byte_timeout");
   });
 
-  it("pause 期间到达 delta：冻结剩余重置为全额（SDK 行为变化的防御）", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", mockLogger());
+  it("pause 期间到达 delta：resume 仍 arm 首字节窗口，不受陈旧剩余影响（F20260805abpp）", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 5000, firstByteTimeoutMs: 8000 }),
+      "otter-1", mockLogger(),
+    );
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 12), "text_delta", abort);
-    vi.advanceTimersByTime(4500); // 剩余 500ms 时
+    vi.advanceTimersByTime(4500);
     guard.pause("tool");
-    guard.onDelta(randomText(50, 13), "text_delta", abort); // pause 期间来了 delta
+    guard.onDelta(randomText(50, 13), "text_delta", abort); // pause 期间来的 delta：只更新 abort 引用
     guard.resume("tool", abort);
 
-    vi.advanceTimersByTime(4999); // 全额 5s 而非陈旧剩余 500ms
+    vi.advanceTimersByTime(5001); // 超滑动预算不误切（旧冻结语义下按陈旧剩余 500ms 早误杀了）
     expect(abort).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(2);
+    vi.advanceTimersByTime(3000); // 首字节预算 8s 到期
     expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("first_byte_timeout");
   });
 
   it("destroy 终态：destroy 后 resume 不复活计时器", () => {
@@ -351,6 +366,87 @@ describe("OutputGuard pause/resume（冻结语义 + ref-count，F20260804dglp �
     guard.onDelta(randomText(50, 22), "text_delta", abort); // 混合 pause：走防御分支，不释放
     vi.advanceTimersByTime(10_000);
     expect(abort).not.toHaveBeenCalled();
+  });
+
+  it("工具 resume re-arm 首字节窗口后，首个 delta 到达即切回滑动窗口（300s 暴露面只覆盖首 delta 之前）", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 3000, firstByteTimeoutMs: 300_000 }),
+      "otter-1", mockLogger(),
+    );
+    const abort = vi.fn();
+
+    guard.onDelta(randomText(50, 23), "text_delta", abort);
+    guard.pause("tool");
+    guard.resume("tool", abort); // re-arm 首字节窗口 300s
+    vi.advanceTimersByTime(10_000); // post-tool prefill 10s：首字节窗口内容忍
+    expect(abort).not.toHaveBeenCalled();
+
+    guard.onDelta(randomText(50, 24), "text_delta", abort); // 首个 delta → 切滑动窗口 3s
+    vi.advanceTimersByTime(3001);
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("streaming_timeout");
+  });
+
+  it("混合 pause 反向释放：compaction 先放不 arm，tool 后放 arm 首字节窗口", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
+      "otter-1", mockLogger(),
+    );
+    const abort = vi.fn();
+
+    guard.onDelta(randomText(50, 25), "text_delta", abort);
+    guard.pause("tool");
+    guard.pause("compaction");
+    guard.resume("compaction", abort); // tool 仍在跑：不得 arm
+    vi.advanceTimersByTime(10_000);
+    expect(abort).not.toHaveBeenCalled();
+
+    guard.resume("tool", abort); // 计数归零 → 首字节窗口（与释放顺序无关）
+    vi.advanceTimersByTime(2001); // 超滑动预算不误切
+    expect(abort).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(6000);
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("first_byte_timeout");
+  });
+
+  it("isCompacting 兜底在首字节 kind 下同样抑制并重新 arm", () => {
+    const guard = new OutputGuard(
+      makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
+      "otter-1", mockLogger(),
+    );
+    const abort = vi.fn();
+    let compacting = true;
+    guard.setIsCompacting(() => compacting);
+
+    guard.onDelta(randomText(50, 26), "text_delta", abort);
+    guard.pause("tool");
+    guard.resume("tool", abort); // 首字节窗口 8s
+    vi.advanceTimersByTime(8001); // 到期但 compaction 进行中 → 抑制并重新 arm
+    expect(abort).not.toHaveBeenCalled();
+
+    compacting = false;
+    vi.advanceTimersByTime(8001); // 重新 arm 的首字节窗口到期
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("first_byte_timeout");
+  });
+
+  it("工具 resume re-arm 刷新首字节埋点基准：上报 post-tool prefill 耗时", () => {
+    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const abort = vi.fn();
+
+    guard.armFirstByteTimer(abort);
+    vi.advanceTimersByTime(200);
+    guard.onDelta(randomText(50, 27), "text_delta", abort); // prompt TTFT 200ms
+    expect(guard.getMetadata().firstByteLatencyMs).toBe(200);
+
+    guard.pause("tool");
+    vi.advanceTimersByTime(5000); // 工具执行 5s
+    guard.resume("tool", abort); // re-arm 首字节窗口，基准刷新
+    vi.advanceTimersByTime(150);
+    guard.onDelta(randomText(50, 28), "text_delta", abort); // post-tool prefill 150ms
+
+    // 若基准未刷新会报 200+5000+150=5350ms 并覆盖真值
+    expect(guard.getMetadata().firstByteLatencyMs).toBe(150);
   });
 });
 
@@ -440,10 +536,14 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
     expect(onAbort).not.toHaveBeenCalled();
   });
 
-  it("tool_execution_start/end 驱动 pause/resume", () => {
+  it("tool_execution_start/end 驱动 pause/resume（resume 为首字节窗口，F20260805abpp）", () => {
     const { session, fire } = makeSession();
     const onAbort = vi.fn();
-    attachOutputGuard(session, "otter-1", makeConfig({ streamingTimeoutMs: 3000 }), mockLogger(), onAbort);
+    attachOutputGuard(
+      session, "otter-1",
+      makeConfig({ streamingTimeoutMs: 3000, firstByteTimeoutMs: 4000 }),
+      mockLogger(), onAbort,
+    );
 
     fire(updateEvent("text_delta", randomText(50, 8)));
     fire({ type: "tool_execution_start", name: "bash" });
@@ -451,7 +551,9 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
     expect(onAbort).not.toHaveBeenCalled();
 
     fire({ type: "tool_execution_end", name: "bash" });
-    vi.advanceTimersByTime(3001);
+    vi.advanceTimersByTime(3001); // 超滑动预算：首字节窗口内不误切
+    expect(onAbort).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000); // 首字节预算 4s 到期
     expect(onAbort).toHaveBeenCalled();
   });
 
