@@ -311,6 +311,11 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async searchFTS(query: string, filters: SearchFilters): Promise<FTSHit[]> {
+    // F20260805hybrid: trigram tokenizer 需要至少3个字符，短查询回退到 LIKE
+    if (query.length < 3) {
+      return this.searchWithLike(query, filters);
+    }
+
     const escaped = escapeFtsQuery(query);
     const ct = this.buildContentTypeClause(filters);
     const rows = this.db.prepare(`
@@ -342,7 +347,21 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }));
   }
 
+  /** 短查询（<3字符）回退到 LIKE 查询 */
+  private searchWithLike(query: string, filters: SearchFilters): FTSHit[] {
+    return this.searchWithLikeBase(query, filters).map(row => ({
+      entryId: row.id,
+      ftsRank: row.bm25_score,
+      entry: rowToMemoryEntry(row),
+    }));
+  }
+
   async searchFTSWithHighlight(query: string, filters: SearchFilters): Promise<SnippetHit[]> {
+    // F20260805hybrid: trigram tokenizer 需要至少3个字符，短查询回退到 LIKE
+    if (query.length < 3) {
+      return this.searchWithLikeAndHighlight(query, filters);
+    }
+
     const escaped = escapeFtsQuery(query);
     const ct = this.buildContentTypeClause(filters);
     const rows = this.db.prepare(`
@@ -368,6 +387,44 @@ export class SqliteMemoryRepository implements MemoryRepository {
     ) as FtsHighlightRow[];
 
     return rows.map(rowToSnippetHit);
+  }
+
+  /** 短查询（<3字符）回退到 LIKE 查询，带高亮 */
+  private searchWithLikeAndHighlight(query: string, filters: SearchFilters): SnippetHit[] {
+    return this.searchWithLikeBase(query, filters).map(row => {
+      const snippet = row.content || '';
+      const highlighted = snippet.replace(new RegExp(query, 'g'), `<b>${query}</b>`);
+      return {
+        entryId: row.id,
+        ftsRank: row.bm25_score,
+        entry: rowToMemoryEntry(row),
+        snippet: highlighted,
+      };
+    });
+  }
+
+  /** 短查询（<3字符）LIKE 查询基础方法 */
+  private searchWithLikeBase(query: string, filters: SearchFilters): FtsRow[] {
+    const ct = this.buildContentTypeClause(filters);
+    const likePattern = `%${query}%`;
+    return this.db.prepare(`
+      SELECT me.*, 0 AS bm25_score
+      FROM memory_entries me
+      WHERE me.content LIKE ?
+        AND (? IS NULL OR me.layer = ?)
+        AND (? IS NULL OR me.granularity = ?)
+        AND (? IS NULL OR me.conversation_id = ?)
+        ${ct.clause}
+      ORDER BY me.created_at DESC
+      LIMIT ?
+    `).all(
+      likePattern,
+      filters.layer ?? null, filters.layer ?? null,
+      filters.granularity ?? null, filters.granularity ?? null,
+      filters.conversationId ?? null, filters.conversationId ?? null,
+      ...ct.params,
+      DEFAULT_FTS_LIMIT,
+    ) as FtsRow[];
   }
 
   async searchVec(
