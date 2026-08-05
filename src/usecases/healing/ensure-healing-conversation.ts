@@ -22,7 +22,7 @@ export interface HealingConversationResult {
   bigOtterId: string;
 }
 
-/** 尝试复用已有的 healing 对话（TOCTOU 防护：每次创建前都调用） */
+/** 尝试复用已有的 healing 对话 */
 async function tryReuseExisting(
   manageConversation: ManageConversation,
   settings: SettingsRepository,
@@ -46,15 +46,25 @@ export async function ensureHealingConversation(deps: {
   sendMessage: SendMessage;
   logger: Logger;
 }): Promise<HealingConversationResult> {
-  // 1. 检查已有
+  // 1. 检查已有（使用 CAS 模式：先读再写，利用 settings 的 upsert 原子性）
   const existing = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
   if (existing) return existing;
 
-  // 2. 二次检查：缩小并发创建的竞态窗口（TOCTOU 防护）
-  const recheck = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
-  if (recheck) return recheck;
+  // 2. CAS 模式：先写入临时值占位，再二次确认
+  //    如果并发进程抢先写入，当前进程会读到对方的值，从而放弃创建
+  const lockValue = `pending:${Date.now()}`;
+  await deps.settings.update(HEALING_CONVERSATION_KEY, lockValue);
 
-  // 3. 创建新对话
+  // 3. 二次确认：如果值不是自己写入的，说明另一个进程抢先了
+  const currentValue = await deps.settings.get(HEALING_CONVERSATION_KEY);
+  if (currentValue !== lockValue) {
+    // 另一个进程抢先了，等待其完成后读取结果
+    const recheck = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
+    if (recheck) return recheck;
+    // 如果仍然无效（对方创建失败），继续尝试创建
+  }
+
+  // 4. 创建新对话
   const conversation = await deps.manageConversation.create({ title: HEALING_CONVERSATION_TITLE });
   await pinHealing(deps.manageConversation, conversation.id, deps.logger);
 

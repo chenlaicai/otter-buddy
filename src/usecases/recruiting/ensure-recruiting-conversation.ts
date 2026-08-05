@@ -164,11 +164,18 @@ export async function ensureRecruitingConversation(deps: {
   const existing = await tryReuseExisting(deps.settings, deps.convRepo);
   if (existing) return existing;
 
-  // 二次检查：缩小并发创建的竞态窗口（TOCTOU 防护）
-  const recheck = await tryReuseExisting(deps.settings, deps.convRepo);
-  if (recheck) return recheck;
+  // 2. CAS 模式：先写入临时值占位，再二次确认
+  const lockValue = `pending:${Date.now()}`;
+  await deps.settings.update(RECRUITING_CONVERSATION_KEY, lockValue);
 
-  // 2. 读 systemPrompt
+  // 3. 二次确认：如果值不是自己写入的，说明另一个进程抢先了
+  const currentValue = await deps.settings.get(RECRUITING_CONVERSATION_KEY);
+  if (currentValue !== lockValue) {
+    const recheck = await tryReuseExisting(deps.settings, deps.convRepo);
+    if (recheck) return recheck;
+  }
+
+  // 4. 读 systemPrompt
   const systemPrompt = readSystemPrompt(deps.promptPathOverride);
 
   // 3. 创建带角色 prompt 的大獭
