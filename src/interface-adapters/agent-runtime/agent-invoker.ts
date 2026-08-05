@@ -181,8 +181,25 @@ export class AgentInvoker {
       await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), p.emitEvent, p.senderId);
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
+    return this._handleGuardAbortOrSpeakRetry(p);
+  }
+
+  /** guard abort / 重试判断：提取以降低 _handlePostInvocation 圈复杂度 */
+  private async _handleGuardAbortOrSpeakRetry(p: {
+    messageId: string; otterId: string; senderId: string;
+    result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
+    toolCallCount: number; startTime: number;
+    emitEvent: (event: AgentSSEEvent) => void;
+    onSSEEvent?: (event: AgentSSEEvent) => void;
+    retryCount?: number;
+    userMessageContent?: string; conversationId?: string;
+  }): Promise<ConversationInvokeResult> {
     const ir = (p.result as Record<string, unknown>)._guardAbortReason as string | undefined ?? this.agentInvoke.getInternalAbortReason(p.messageId);
     if (ir) {
+      /** F146: degenerate_output 梯度介入：重试一次，再犯才落终态 */
+      if (ir === "degenerate_output" && (p.retryCount ?? 0) === 0) {
+        return this.handleDegenerateRetry(p);
+      }
       this.abortedMessages.add(p.messageId);
       const prefix = ir.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
       await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), p.emitEvent, p.senderId);
@@ -375,6 +392,75 @@ export class AgentInvoker {
   }
 
   /**
+   * 重试通用逻辑：fail（过渡态）+ sendSystem（提醒）+ invokeConversation（重试）。
+   * handleDegenerateRetry 和 handleSpeakRetry 共用。
+   */
+  private async executeRetryWithSystemReminder(params: {
+    messageId: string; otterId: string; conversationId: string;
+    senderId: string; failBody: string; retryMsg: string;
+    emitEvent: (event: AgentSSEEvent) => void;
+    onSSEEvent?: (event: AgentSSEEvent) => void;
+    tokenUsage?: { input: number; output: number };
+  }): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, conversationId, senderId, failBody, retryMsg, emitEvent, tokenUsage } = params;
+    const startTime = Date.now();
+
+    /** 1. fail 当前消息（前端展示过渡态） */
+    try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
+    const otter = await this.queryOtter.getById(otterId);
+    const otterName = otter?.name ?? otterId;
+    emitEvent({ event: "message.failed", data: { messageId, otterId, otterName, body: failBody } });
+
+    /** 2. 注入系统提醒（DB + LLM 上下文） */
+    let sysMsg;
+    try {
+      sysMsg = await this.sendMessage.sendSystem(conversationId, retryMsg);
+      emitEvent({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });
+    } catch (err) {
+      /** sendSystem 失败：降级为直接 abort，避免 double-terminal 事件 */
+      this.logger.warn('sendSystem failed during retry, falling back to abort', { messageId, otterId, error: err instanceof Error ? err.message : String(err) });
+      this.abortedMessages.add(messageId);
+      const body = "[系统保护] 检测到输出异常重复，已自动中断。";
+      try { await this.sendMessage.abort(messageId, { body, talkingStonePassedTo: [senderId] }); } catch { /* ignore */ }
+      emitEvent({ event: "message.aborted", data: { messageId, body, otterId, otterName } });
+      return { messageId, duration: Date.now() - startTime };
+    }
+
+    /** 3. 重试（retryCount=1 标记已重试，再犯走终态） */
+    const retryResult = await this.invokeConversation({
+      otterId, conversationId,
+      userMessageContent: retryMsg,
+      senderId, retryCount: 1,
+      onSSEEvent: params.onSSEEvent,
+    });
+    this.logger.info('Retry completed', { messageId, otterId, retryTokenUsage: retryResult.tokenUsage });
+    return { ...retryResult, tokenUsage: retryResult.tokenUsage ?? tokenUsage };
+  }
+
+  /**
+   * degenerate_output 梯度介入：abort + 系统提醒 + 重试一次。再犯才落终态。
+   * 仅 retryCount===0 时调用；重试时传 retryCount=1，再犯走 abort 终态。
+   */
+  private async handleDegenerateRetry(p: {
+    messageId: string; otterId: string; senderId: string;
+    result: { text: string; tokenUsage?: { input: number; output: number } };
+    toolCallCount: number; startTime: number;
+    emitEvent: (event: AgentSSEEvent) => void;
+    onSSEEvent?: (event: AgentSSEEvent) => void;
+    retryCount?: number;
+    userMessageContent?: string; conversationId?: string;
+  }): Promise<ConversationInvokeResult> {
+    this.logger.info('Degenerate output retry triggered', { messageId: p.messageId, otterId: p.otterId });
+    return this.executeRetryWithSystemReminder({
+      messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "",
+      senderId: p.senderId, emitEvent: p.emitEvent, onSSEEvent: p.onSSEEvent,
+      failBody: "[系统] 检测到输出异常重复，正在自我纠正",
+      retryMsg: "[系统提醒] 你上一轮陷入重复循环，分析已在上下文中，不要重新推理，直接基于已有结论调用 speak 输出。",
+      tokenUsage: p.result.tokenUsage,
+    });
+  }
+
+  /**
    * speak 重试：agent 未调 speak 就结束时，注入系统提醒并触发重试。
    * 最多重试 1 次。第二次失败时发言石额外包含 user。
    */
@@ -397,34 +483,19 @@ export class AgentInvoker {
     const otterName = otter?.name ?? otterId;
 
     if (retryCount === 0) {
-      /** 第一次：fail + 系统提醒 + 重试 */
-      const failBody = "[系统] 未调用 speak 工具结束发言";
-      try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
-
-      /** 通知前端当前消息失败，清除 streaming 状态 */
-      emitEvent({ event: "message.failed", data: { messageId, otterId, otterName, body: failBody } });
-
       /** toolCallCount=0 表示 LLM 本轮没有调用任何工具（thinking-only 空响应）；>0 表示有工具调用但漏了 speak */
       const isThinkingOnly = (toolCallCount ?? 0) === 0;
       const retryMsg = isThinkingOnly
         ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
         : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
 
-      /** sendSystem 写入消息 DB（前端展示/审计），LLM 通过下方 userMessageContent 接收指令 */
-      const sysMsg = await this.sendMessage.sendSystem(conversationId, retryMsg);
-
-      /** 通知前端系统消息已创建（带 seq 保证前端按序插入） */
-      emitEvent({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });
-
-      /** 重试：retryMsg 作为 userMessageContent 传入 agent session，LLM 通过此消息接收重试指令 */
-      const retryResult = await this.invokeConversation({
-        otterId, conversationId,
-        userMessageContent: retryMsg,
-        senderId, retryCount: 1,
+      return this.executeRetryWithSystemReminder({
+        messageId, otterId, conversationId, senderId, emitEvent,
         onSSEEvent: params.onSSEEvent,
+        failBody: "[系统] 未调用 speak 工具结束发言",
+        retryMsg,
+        tokenUsage,
       });
-      /** 合并重试的 tokenUsage（重试路径可能已更新） */
-      return { ...retryResult, tokenUsage: retryResult.tokenUsage ?? tokenUsage };
     }
 
     /** 第二次仍失败：fail + 发言石额外包含 user */
