@@ -225,3 +225,59 @@ After:
 ---
 
 *本方案经过两轮架构自检，由架构师视角驱动。*
+
+---
+
+## 对抗检视记录
+
+### 第一轮对抗检视
+
+**检视方**: 架构师 agent "Sartre"（对抗性审查）
+**日期**: 2026-08-05
+**评级**: CONDITIONAL_PASS
+
+| # | 严重度 | 问题 | 决策 |
+|---|--------|------|------|
+| 1 | HIGH | `{} as OtterToolClient` 空对象绕过运行时守卫 | 采纳: 改为 `null` + `== null` 守卫 |
+| 2 | MEDIUM | `appConfig.feishu!` 非空断言 | 采纳: 签名改为 `FeishuConfig` |
+| 3 | MEDIUM | `as unknown as InboundController` 双重断言 | 采纳: `NoopInboundController` 类 |
+| 4 | LOW | feishu 长连接 fire-and-forget | 记录为技术债务 |
+| 5 | LOW | scheduler 启动 Promise 未 await | 记录为技术债务 |
+| 6 | LOW | `model: unknown` 丢失类型信息 | 记录为技术债务 |
+| 7 | LOW | Repositories 绑定具体 SQLite 类型 | 已知技术债务 |
+| 8 | LOW | buildMemoryClient.search 6 参数 | 记录为技术债务 |
+
+**阻塞项**: 无
+**修复提交**: `af16507`
+
+### 第二轮对抗检视
+
+**检视方**: 架构师 agent "Planck"（对抗性审查）
+**日期**: 2026-08-05
+**评级**: CONDITIONAL_PASS
+
+**前一轮修复验证**: 3/3 全部 VERIFIED ✅
+
+| # | 原问题 | 验证结果 |
+|---|--------|----------|
+| 1 | `{} as OtterToolClient` | VERIFIED: `null` + `== null` 守卫 |
+| 2 | `createFeishuBundle` `!` 断言 | VERIFIED: 签名改为 `FeishuConfig` |
+| 3 | `as unknown as` 双重断言 | VERIFIED: `NoopInboundController` 类 |
+
+**新发现** (全部 LOW):
+
+| # | 问题 | 决策 |
+|---|------|------|
+| 1 | `main.ts:65` 仍有 `appConfig.feishu!` | 采纳: 提取 `feishuCfg` 局部变量 |
+| 2 | 模块级副作用 | 不修复: Composition Root 语义可接受 |
+| 3 | `InboundPort` 结构重复 | 记录为技术债务 |
+| 4 | HTTP 服务器无 graceful shutdown | 记录为技术债务 |
+| 5 | `otterToolClient: null` 时间耦合 | 不修复: 同步调用链保证安全 |
+| 6 | `NoopInboundController` 未导出 | 不修复: 当前无测试复用需求 |
+
+**阻塞项**: 无
+**修复提交**: `5b1a909`
+
+---
+
+*本方案经过两轮对抗检视，所有 HIGH/MEDIUM 项已修复，LOW 项记录为技术债务。*
