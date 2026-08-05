@@ -25,10 +25,10 @@ function seedOtter(db: Database.Database, id: string, status = "active"): void {
   ).run(id, `獭-${id}`, status);
 }
 
-function seedAgentSession(db: Database.Database, otterId: string): void {
+function seedAgentSession(db: Database.Database, otterId: string, createdAt?: string): void {
   db.prepare(
-    `INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES (?, ?)`,
-  ).run(otterId, `pi-${otterId}`);
+    `INSERT INTO agent_sessions (otter_id, pi_session_id, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+  ).run(otterId, `pi-${otterId}`, createdAt ?? '2026-08-04 08:00:00', createdAt ?? '2026-08-04 08:00:00');
 }
 
 describe("backfillSessionLedger (F20260805rsto)", () => {
@@ -56,6 +56,8 @@ describe("backfillSessionLedger (F20260805rsto)", () => {
     expect(session).not.toBeNull();
     expect(session!.otterId).toBe("o1");
     expect(session!.previousSessionId).toBeNull();
+    /** startedAt 取 agent 会话创建时刻作近似，而非补登记时刻 */
+    expect(session!.startedAt).toBe("2026-08-04 08:00:00");
   });
 
   it("幂等：已有 active session 的獭跳过，不重复建行", async () => {

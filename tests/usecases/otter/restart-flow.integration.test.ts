@@ -68,7 +68,8 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
       createOtter,
       {} as DissolveOtter,
       manageSession,
-      {} as QueryOtter,
+      /** restart 控制器会查 otter 类型（小獭拒重启，F20260805rsto），stub 为大獭 */
+      { getById: async () => ({ type: "big" }) } as unknown as QueryOtter,
       mockLogger(),
     );
     app = new Hono();
@@ -178,7 +179,7 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
         id: "backfilled-by-invoke", otterId: otter.id, status: "active",
         previousSessionId: firstSession.id, startedAt: new Date().toISOString(),
         archivedAt: null, archiveReason: null, isNegativeCase: false,
-        summary: null, handoffSummary: null,
+        summary: null,
       });
     });
 

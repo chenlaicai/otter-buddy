@@ -38,7 +38,6 @@ function mockRepo(options?: { failCreateSession?: boolean }) {
       }
       createdSessions.push(session);
     }),
-    deleteSession: vi.fn(async () => {}),
   } as unknown as OtterRepository & {
     _createdOtters: Array<{ id: string; name: string }>;
     _deletedOtterIds: string[];

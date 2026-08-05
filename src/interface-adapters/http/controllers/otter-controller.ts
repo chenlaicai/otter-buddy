@@ -76,6 +76,11 @@ export class OtterController {
   async restart(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
+      /** F20260805rsto：重启是大獭专属机制，小獭用解散——前端入口已隐藏，后端兜底校验 */
+      const otter = await this.queryOtter.getById(id);
+      if (otter?.type === "small") {
+        throw new DomainError("小獭不支持重启獭生，请使用解散", "validation");
+      }
       const body: { summary?: string } = await c.req.json().catch(() => ({}));
       const active = await this.manageSession.getActiveSession(id);
       if (active) {

@@ -65,7 +65,7 @@ function makeSession(overrides: Partial<OtterSession> = {}): OtterSession {
     id: "sess-1", otterId: "otter-1", status: "active",
     previousSessionId: null, startedAt: "2026-08-05T00:00:00Z",
     archivedAt: null, archiveReason: null, isNegativeCase: false,
-    summary: null, handoffSummary: null,
+    summary: null,
     ...overrides,
   };
 }

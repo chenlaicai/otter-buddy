@@ -48,7 +48,6 @@ describe("buildNewSession (F20260805rsto)", () => {
     expect(s.archivedAt).toBeNull();
     expect(s.archiveReason).toBeNull();
     expect(s.isNegativeCase).toBe(false);
-    expect(s.handoffSummary).toBeNull();
     expect(new Date(s.startedAt).getTime()).not.toBeNaN();
   });
 

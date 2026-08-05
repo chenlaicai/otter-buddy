@@ -18,8 +18,8 @@ export async function backfillSessionLedger(
   logger: Logger,
 ): Promise<void> {
   const rows = db
-    .prepare("SELECT otter_id FROM agent_sessions")
-    .all() as Array<{ otter_id: string }>;
+    .prepare("SELECT otter_id, created_at FROM agent_sessions")
+    .all() as Array<{ otter_id: string; created_at: string }>;
 
   let backfilled = 0;
   for (const row of rows) {
@@ -28,7 +28,10 @@ export async function backfillSessionLedger(
       if (!otter || otter.status !== "active") continue;
       const active = await otterRepo.getActiveSession(row.otter_id);
       if (active) continue;
-      await otterRepo.createSession(buildNewSession(row.otter_id, null));
+      /** startedAt 取 agent 会话的创建时刻作近似——比补登记时刻更贴近獭的真实「出生」 */
+      const session = buildNewSession(row.otter_id, null);
+      session.startedAt = row.created_at;
+      await otterRepo.createSession(session);
       backfilled++;
     } catch (err) {
       logger.warn("Session ledger backfill failed for otter", {

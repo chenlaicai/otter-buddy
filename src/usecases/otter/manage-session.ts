@@ -1,4 +1,4 @@
-import type { OtterSession, SessionHandoffSummary } from "@entities/otter/otter-session";
+import type { OtterSession } from "@entities/otter/otter-session";
 import {
   canArchiveSession,
   archiveReasonToSessionStatus,
@@ -28,12 +28,6 @@ export interface ArchiveSessionInput {
   reason: string;
   isNegativeCase: boolean;
   summary?: string;
-}
-
-/** Session 交接结果 */
-export interface HandoffResult {
-  archivedSession: OtterSession;
-  newSession: OtterSession;
 }
 
 export class ManageSession {
@@ -129,7 +123,7 @@ export class ManageSession {
 
   /**
    * 归档核心逻辑（不含 Agent reset）。
-   * 提取为独立方法供 handoffSession 复用，避免双重 reset。
+   * 提取为独立方法，供 archiveSession 内部组合（reset 在其后统一执行）。
    */
   private async archiveSessionCore(
     sessionId: string,
@@ -176,87 +170,5 @@ export class ManageSession {
 
   async getSessionHistory(otterId: string): Promise<OtterSession[]> {
     return this.repo.getSessionHistory(otterId);
-  }
-
-  /**
-   * Session 交接（B-CS-1, B-CS-2, B-CS-3）。
-   *
-   * 原子操作：归档当前 Session -> 创建新 Session -> 存储交接摘要 -> Agent reset。
-   * 交接摘要双重存储：Session handoffSummary（交接用）+ memory_entries（检索用，由调用方负责）。
-   *
-   * 错误回滚：若 createSession / setHandoffSummary 失败，
-   * 回滚归档状态和记忆层转换；Agent reset 延到最后一步执行，失败前可安全回滚。
-   *
-   * @param sessionId - 当前活跃 Session 的 ID
-   * @param handoffSummary - 由 LLM 生成的结构化交接摘要
-   * @param reason - 交接原因（如 "token_threshold", "user指令"）
-   */
-  async handoffSession(
-    sessionId: string,
-    handoffSummary: SessionHandoffSummary,
-    reason: string,
-  ): Promise<HandoffResult> {
-    /** 1. 归档当前 Session（不含 Agent reset，由最后一步统一执行） */
-    const { session, targetStatus, archivedAt, conversationIds, originalStatus } =
-      await this.archiveSessionCore(sessionId, {
-        reason,
-        isNegativeCase: false,
-      });
-
-    const archivedSession: OtterSession = {
-      ...session,
-      status: targetStatus,
-      archivedAt,
-      archiveReason: reason,
-      isNegativeCase: false,
-      summary: null,
-    };
-
-    /** 2. 创建新 Session（链式关系） */
-    let newSession: OtterSession;
-    try {
-      newSession = await this.createSession(archivedSession.otterId);
-    } catch (e) {
-      await this.rollbackArchive(session, originalStatus, conversationIds);
-      throw e;
-    }
-
-    /** 3. 存储交接摘要到新 Session */
-    try {
-      await this.repo.setHandoffSummary(newSession.id, handoffSummary);
-    } catch (e) {
-      await this.rollbackArchive(session, originalStatus, conversationIds, newSession.id);
-      throw e;
-    }
-
-    /** 4. Agent reset，注入交接摘要作为上下文（B-CS-3）——最后执行，不可回滚 */
-    await this.agentGateway.reset(archivedSession.otterId, {
-      context: { handoffSummary },
-    });
-
-    return {
-      archivedSession,
-      newSession: { ...newSession, handoffSummary },
-    };
-  }
-
-  /** 回滚归档：恢复 session 状态 + 记忆层转换 + 清理僵尸新 Session */
-  private async rollbackArchive(
-    session: OtterSession,
-    originalStatus: OtterSession["status"],
-    conversationIds: string[],
-    newSessionId?: string,
-  ) {
-    await this.repo.restoreSessionStatus(session.id, originalStatus);
-    if (newSessionId) {
-      await this.repo.deleteSession(newSessionId);
-    }
-    for (const conversationId of conversationIds) {
-      await this.memoryLayer.updateLayer(
-        conversationId,
-        "historical",
-        "working",
-      );
-    }
   }
 }

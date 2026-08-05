@@ -198,13 +198,16 @@ function OtterParticipantCard({
           <MoreHorizontal className="w-3.5 h-3.5" />
         </span>
       )}
-      <button
-        onClick={e => { e.stopPropagation(); onRestart(o.id) }}
-        className="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"
-      >
-        <RotateCcw className="w-2.5 h-2.5" />
-        重启
-      </button>
+      {/* F20260805rsto：重启是大獭专属（小獭用解散），与详情弹窗 footer 对齐 */}
+      {isBig && (
+        <button
+          onClick={e => { e.stopPropagation(); onRestart(o.id) }}
+          className="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"
+        >
+          <RotateCcw className="w-2.5 h-2.5" />
+          重启
+        </button>
+      )}
     </div>
   )
 }

@@ -232,6 +232,18 @@ describe("Otter API", () => {
       expect(deps.manageSession.setSessionSummary).toHaveBeenCalledWith("backfilled-session", "前情");
     });
 
+    it("F20260805rsto：小獭不支持重启（重启是大獭专属，小獭用解散），返回 400", async () => {
+      deps.queryOtter.getById.mockResolvedValue(makeOtter({ type: "small" }));
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(400);
+      expect(deps.manageSession.archiveSession).not.toHaveBeenCalled();
+      expect(deps.manageSession.createSession).not.toHaveBeenCalled();
+    });
+
     /**
      * 防御路径：无 active session 时跳过 archive 直接建新 session。
      * F20260805rsto 后正常獭恒有 active session（CreateOtter 建账 + 启动迁移 + invoke 兜底），

@@ -21,11 +21,21 @@ modules:
   - src/usecases/otter/manage-session.ts
   - src/usecases/otter/create-otter.ts
   - src/usecases/otter/dissolve-otter.ts
+  - src/usecases/otter/otter-repository.ts
+  - src/entities/otter/otter-session.ts
   - src/frameworks/agent/pi-session-factory.ts
   - src/frameworks/agent/session-restore.ts
+  - src/frameworks/db/schema.ts
+  - src/frameworks/db/otter/sqlite-otter-repository.ts
+  - src/frameworks/db/otter/otter-mapper.ts
+  - src/frameworks/db/otter/backfill-session-ledger.ts
   - src/interface-adapters/agent-runtime/agent-invoker.ts
   - web/src/pages/conversation/index.tsx
+  - web/src/pages/conversation/Modals.tsx
+  - web/src/pages/conversation/RightPanel.tsx
   - web/src/lib/mappers.ts
+  - web/tsconfig.json
+  - scripts/download-bge-m3.mjs
   - tests/api/otter.test.ts
 ---
 
@@ -123,10 +133,13 @@ const session = await this.manageSession.createSession(id);  // 唯一被执行�
 - **mapper 补全链信息**：`LocalOtterSession.status` 补 `'restarted'`；`mapSessionDTO` 透传 `previousSessionId`。
 - **Session Chain 表链式化**（Modals.tsx）：按 `previousSessionId` 拉链排序、标注「第 N 世」；状态区分「✓ 当前 / 已重启 / 已归档」（不再笼统显示「归档」）；active 行高亮；active 行的 summary 标注为「前情：…」（它是注入新獭生的前情摘要，非封存摘要——二轮评审发现的语义混淆项，随本次一并解决）。右栏卡片「Session #N」对齐术语为「第 N 世」。
 
-### 另行立项（不在本 bugfix 范围）
+### 第三轮收口（用户拍板：全部并入本 PR，不留残留）
 
-- `isNegativeCase` 产品语义确认（原次生问题 3）；
-- handoffSession 接入或删除；pi 层「reset 删旧文件 vs destroy 留审计」策略统一（原次生问题 6、7）——注意「封存为反面案例」语义下，账本行留着而证据 jsonl 被 unlink，二者目前自相矛盾。
+- **文案中性化**：RestartModal「封存当前 Session 为反面案例」改为中性描述——重启不一定因为前世失败，不预设反面。`isNegativeCase` 字段保留（未来 dissolve 等场景可用），不再与文案矛盾。
+- **pi 层文件策略统一**（原次生问题 7 + 二轮评审 #11）：`_resetInternal` 不再 unlink 旧 session jsonl——账本说「封存」证据就不能删，与 `destroy()` 的审计策略对齐；parentSession 血缘指针不再悬空。
+- **handoffSession 死代码链整体切除**（原次生问题 6）：`ManageSession.handoffSession`、repo 的 `setHandoffSummary`/`restoreSessionStatus`/`deleteSession`、`SessionHandoffSummary` 类型、`OtterSession.handoffSummary` 字段、buildDynamicContext 交接摘要注入分支、schema 新库 `handoff_summary` 列，全部移除。token 阈值主动交接（B-CS-1）的设计保留在 F20260716zq9q，未来接入时按设计重做；重启路径的 summary 注入已覆盖主要诉求。**附带效果**：旧库缺 `handoff_summary` 列的隐患（二轮评审 A3）随 mapper 停止读取该列而消解，无需迁移补丁；旧库残留列无害。
+- **小獭入口统一**：重启是大獭专属机制（小獭用解散）——右栏卡片不再对小獭显示重启按钮（对齐详情弹窗 footer），restart 控制器对 small 类型兜底返回 400。
+- **小项**：backfill 的 `startedAt` 取 `agent_sessions.created_at` 近似（不再用补登记时刻）；web tsconfig 移除弃用的 `baseUrl`（paths 改相对路径，TS7 兼容）；download-bge-m3.mjs 加 `--connect-timeout`/`--speed-limit`/`--max-time`，修掉 HF 阻断环境下 `npm run build` 挂死的根因。
 
 ## 验证方式
 
@@ -175,3 +188,4 @@ const session = await this.manageSession.createSession(id);  // 唯一被执行�
 - 2026-08-05：对抗审视（上表）后修正方案。**用户拍板一**：存量獭补账用「启动时一次性迁移」（懒补有坑——对话前点 restart 仍空操作一次）。**用户拍板二**：接受 restart 阻塞在 pi 锁上（异步化引入「已返回成功但重置未完成」窗口期，复杂度高）。
 - 2026-08-05：技术拍板（架构师）：解环用纯工厂方案（不注入 ManageSession）；兜底放 AgentInvoker 而非 SessionRestore；删除 POST /sessions 端点；回滚顺序 destroy → deleteOtter。
 - 2026-08-05：二轮 PR 审视后，**用户拍板**：前端展示修复（重启后刷新、链式展示、restarted 状态、active 行摘要语义）不做延后立项，并入本 PR 一并修完，不留残留。
+- 2026-08-05：**用户拍板（第三轮收口）**：①「封存为反面案例」改中性文案——重启不预设前世失败；②全部残留项（pi 文件策略矛盾、handoffSession 死代码、handoff_summary 缺迁移、小獭入口不一致、startedAt 近似、tsconfig baseUrl、下载 hang）都在本 PR 收口，不另开 PR。**架构师技术拍板**：handoffSession 选择删除而非接入（token 阈值交接属未实现 feature，设计保留 F20260716zq9q 未来重做）；pi 文件策略统一为「保留审计」（reset 不再删旧文件）；小獭不可重启（对齐弹窗既有语义，后端兜底 400）。

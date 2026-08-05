@@ -447,7 +447,7 @@ export class AgentInvoker {
     this.agentInvoke.abort(otterId, messageId);
   }
 
-  /** 构建 DynamicContext：会话摘要 + 交接摘要（B-CS-3）。记忆召回由 agent 通过 search_memory tool 主动触发 */
+  /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发 */
   private async buildDynamicContext(
     otterId: string,
   ): Promise<DynamicContext> {
@@ -477,15 +477,7 @@ export class AgentInvoker {
           session = await this.manageSession.getActiveSession(otterId).catch(() => null);
         }
       }
-      if (session?.handoffSummary) {
-        /** B-CS-3: 交接摘要优先于普通 summary（信息密度更高） */
-        ctx.sessionSummary = [
-          `[Session #${session.handoffSummary.sessionSequence} 交接摘要]`,
-          `关键决策: ${session.handoffSummary.keyDecisions.join("; ") || "无"}`,
-          `待完成任务: ${session.handoffSummary.pendingTasks.join("; ") || "无"}`,
-          `当前上下文: ${session.handoffSummary.activeContext}`,
-        ].join("\n");
-      } else if (session?.summary) {
+      if (session?.summary) {
         ctx.sessionSummary = session.summary;
       }
     } catch (err) {

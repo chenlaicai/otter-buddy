@@ -154,10 +154,7 @@ function mockOtterRepo(otters: Map<string, Otter> = new Map()): OtterRepository 
     archiveSession: vi.fn(),
     getSessionHistory: vi.fn(async () => []),
     getSessionById: vi.fn(async () => null),
-    setHandoffSummary: vi.fn(),
     setSessionSummary: vi.fn(),
-    restoreSessionStatus: vi.fn(),
-    deleteSession: vi.fn(),
   };
 }
 

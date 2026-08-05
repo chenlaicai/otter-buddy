@@ -243,7 +243,7 @@ function RestartModal(props: ModalsProps) {
       }
     >
       <p className="text-sm text-stone-600">
-        重启 <strong className="text-otter-500">{otter?.name}</strong> 的獭生将封存当前 Session 为反面案例，并开新 Session 换角度重来。
+        重启 <strong className="text-otter-500">{otter?.name}</strong> 的獭生将封存当前 Session（前世），以全新上下文开启新一世。前世记录可在详情的 Session Chain 中查看。
       </p>
       <div className="mt-3">
         <label className="block text-xs font-medium text-stone-600 mb-1.5">前情摘要（可编辑）</label>
