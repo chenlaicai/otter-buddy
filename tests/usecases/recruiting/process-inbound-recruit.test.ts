@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ProcessInboundRecruit } from '@usecases/recruiting/process-inbound-recruit';
+import type { MessageMetadata } from '@entities/conversation/message';
 import type { Logger } from '@usecases/ports/logger';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { QueryMessage } from '@usecases/conversation/query-message';
@@ -22,12 +23,14 @@ function makeLogger(): Logger {
 }
 
 interface MockState {
-  sentMessages: Array<{ conversationId: string; body: string; metadata: unknown; talkingStonePassedTo: string[]; senderType: string }>;
+  sentMessages: Array<{ conversationId: string; body: string; metadata: MessageMetadata | null; talkingStonePassedTo: string[]; senderType: string }>;
   executeChainCalls: Array<{ initialTargets: string[]; conversationId: string }>;
   findByExternalIdCalls: string[];
 }
 
-function makeMocks(): { mocks: MockState; depSet: ConstructorParameters<typeof ProcessInboundRecruit>[0][]; instances: any } {
+type ProcessInboundRecruitCtorArgs = ConstructorParameters<typeof ProcessInboundRecruit>;
+
+function makeMocks(): { mocks: MockState; depSet: ProcessInboundRecruitCtorArgs; instances: any } {
   const state: MockState = {
     sentMessages: [],
     executeChainCalls: [],
@@ -86,7 +89,7 @@ function makeMocks(): { mocks: MockState; depSet: ConstructorParameters<typeof P
 
   return {
     mocks: state,
-    depSet: [settingsRepo, queryMessage, sendMessage, dispatchChainEngine, agentInvokePort, makeLogger()] as any,
+    depSet: [settingsRepo, queryMessage, sendMessage, dispatchChainEngine, agentInvokePort, makeLogger()] as ProcessInboundRecruitCtorArgs,
     instances: { settingsRepo, queryMessage, sendMessage, dispatchChainEngine, agentInvokePort },
   };
 }
@@ -132,7 +135,7 @@ describe('ProcessInboundRecruit', () => {
       expect(sent.body).toContain('共 2 条新消息');
       expect(sent.body).toContain('字节');
       expect(sent.body).toContain('美团');
-      expect(sent.metadata.externalId).toBe('boss:b1:m1|boss:b2:m2');
+      expect(sent.metadata?.externalId).toBe('boss:b1:m1|boss:b2:m2');
       expect(sent.talkingStonePassedTo).toEqual([BIG_OTTER_ID]);
       expect(sent.senderType).toBe('system');
       await flushAsync();

@@ -1,5 +1,9 @@
 import type { MessageMetadata } from '@entities/conversation/message';
-import { RECRUITING_CONVERSATION_KEY, RECRUITING_BIG_OTTER_ID_KEY } from './constants';
+import {
+  RECRUITING_CONVERSATION_KEY,
+  RECRUITING_BIG_OTTER_ID_KEY,
+  RECRUITING_LAST_BRIDGE_EVENT_AT_KEY,
+} from './constants';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
 import type { QueryMessage } from '@usecases/conversation/query-message';
 import type { SendMessage } from '@usecases/conversation/send-message';
@@ -74,6 +78,9 @@ export class ProcessInboundRecruit {
     if (!conversationId || !bigOtterId) {
       throw new Error('Recruiting conversation not initialized. Run ensureRecruitingConversation on boot.');
     }
+
+    // 记录扩展活动时间戳（用于诊断"扩展是否在跑"），不阻塞主流程
+    void this.settings.update(RECRUITING_LAST_BRIDGE_EVENT_AT_KEY, new Date().toISOString()).catch(() => {});
 
     if (payload.kind === 'recruit') {
       return this.handleRecruit(conversationId, bigOtterId, payload.messages);

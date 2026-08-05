@@ -107,7 +107,27 @@ async function sendWelcomeMessage(
 
 **桥接状态**：扩展会把异常（反爬、登录失效等）也推到这里，critical 事件需要你立即通知搭档。
 
-角色定义全文见你的 systemPrompt。`,
+---
+
+## ⚠️ 搭档必读：启用招聘消息接入
+
+**如果你看到这条消息但还没有看到任何 [招聘消息批次·...] 或 [桥接状态·...] 消息进入**——说明你还没配置 Chrome 扩展。按下面步骤来（5 分钟）：
+
+1. otter-buddy 的 \`config/config.yaml\` 加：
+   \`\`\`yaml
+   inbound:
+     recruiting:
+       apiKey: "随机长字符串"  # openssl rand -hex 32 生成
+   \`\`\`
+   保存后重启 otter-buddy
+2. Chrome → \`chrome://extensions\` → 开"开发者模式" → "加载已解压的扩展程序" → 选 \`extensions/boss-zhipin-bridge\` 目录
+3. 右键扩展图标 → 选项 → 填 otter URL（默认 \`http://localhost:3010/api/inbound/events\`）+ apiKey → 点"测试连接"（应绿）→ "保存配置"
+4. 在 Chrome 登录一次 BOSS 直聘（\`https://www.zhipin.com/web/geek/chat\`）
+5. 等 alarm 自动触发（最多 35 分钟），或在扩展 options 页点"立即扫描一次"
+
+完整指南见：\`docs/user-guide/recruiting-bridge.md\`
+
+如果搭档问"为什么没消息进来"或"扩展怎么配"，请引用上面步骤。`,
   );
 }
 

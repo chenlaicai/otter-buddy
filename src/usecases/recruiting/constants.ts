@@ -10,6 +10,9 @@ export const RECRUITING_CONVERSATION_KEY = '__recruiting_conversation_id__';
 /** 专用对话 big otter ID 在 settings 表的 key */
 export const RECRUITING_BIG_OTTER_ID_KEY = '__recruiting_big_otter_id__';
 
+/** 扩展最后活动时间戳（ISO string），用于诊断"扩展是否在跑" */
+export const RECRUITING_LAST_BRIDGE_EVENT_AT_KEY = '__recruiting_last_bridge_event_at__';
+
 /** 专用对话标题 */
 export const RECRUITING_CONVERSATION_TITLE = '💼 求职助手';
 
