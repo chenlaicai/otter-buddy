@@ -361,7 +361,7 @@ describe("SearchMemory - library 路由", () => {
     db = createTestDb();
     termRepo = new SqliteTerminologyRepository(db);
     const memoryRepo = new SqliteMemoryRepository(db);
-    const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     searchMemory = new SearchMemory(memoryRepo, mockEmbeddingGateway(), searchEngine, mockLogger(), termRepo);
 
     await termRepo.add(SAMPLE_ENTRY);

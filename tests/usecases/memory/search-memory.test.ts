@@ -97,7 +97,7 @@ describe("SearchMemory - progressive disclosure", () => {
   beforeEach(() => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
-    const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
     manageMemory = new ManageMemory(repo);
 
@@ -183,7 +183,7 @@ describe("SearchMemory - progressive disclosure", () => {
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
 
-    const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
 
     const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
@@ -237,7 +237,7 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
   beforeEach(() => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
-    const searchEngine = new SearchEngine({ rrfK: 60, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
 
     /** 构造同文档的 summary entry + body entry，同 sourceId="F123" */
@@ -303,5 +303,132 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
     expect(ids).toContain("co-body-1");
     expect(ids).toContain("co-sum-2");
     expect(ids).not.toContain("co-sum-1");
+  });
+});
+
+describe("SearchMemory - 混合搜索融合策略", () => {
+  it("FTS 高质量 + Vec 低质量：FTS 结果应优先", async () => {
+    const db = createTestDb();
+
+    // 存入梁山伯相关内容（FTS 会命中），使用不同的 sourceId 避免去重
+    storeEntry(db, { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" });
+    storeEntry(db, { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁山伯在草桥亭遇见祝英台" });
+    storeEntry(db, { ...BASE_ENTRY, id: "e3", sourceId: "src-3", content: "今天天气很好" }); // 不相关
+
+    // Mock embedding gateway，返回低质量的 vec 结果
+    const mockEmbedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1, 0.2, 0.3]),
+    };
+
+    // Mock repo：FTS 返回高质量结果，vec 返回低质量结果
+    const mockRepo = {
+      hasVecTable: () => true,
+      searchFTSWithHighlight: async () => [
+        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" }, snippet: "<b>梁山伯</b>与祝英台" },
+        { entryId: "e2", ftsRank: -8, entry: { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁山伯在草桥亭遇见祝英台" }, snippet: "<b>梁山伯</b>在草桥亭" },
+      ],
+      searchFTS: async () => [],
+      // Vec 返回低质量结果（distance 很大，similarity 很低）
+      searchVec: async () => [
+        { entryId: "e3", distance: 0.9, entry: { ...BASE_ENTRY, id: "e3", sourceId: "src-3", content: "今天天气很好" } }, // similarity = 0.1 < 0.3，应被过滤
+      ],
+      getWeights: async () => [
+        { memoryEntryId: "e1", retrievalCount: 0, lastRetrievedAt: null, userFlagged: false },
+        { memoryEntryId: "e2", retrievalCount: 0, lastRetrievedAt: null, userFlagged: false },
+      ],
+      getById: async () => null,
+      getEmbedding: async () => null,
+      getDetails: async () => [],
+      storeEntry: async () => {},
+      storeEmbedding: async () => {},
+      incrementRetrievalCounts: async () => {},
+      flagMemory: async () => {},
+      updateLayerByConversation: async () => {},
+      deleteBySource: async () => {},
+      replaceEntryBySource: async () => {},
+      replaceEntriesBySource: async () => {},
+      deleteBySourceAndType: async () => {},
+    } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
+
+    const searchEngine = new SearchEngine({
+      rrfK: 60,
+      alpha: 0.4,
+      vecSimilarityThreshold: 0.3,
+      bothBoost: 1.2,
+      weightHalfLifeDays: 7,
+      userFlagMultiplier: 2,
+      frequencyBoostFactor: 0.1,
+    });
+    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+
+    const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
+
+    // e3 应该被 vecSimilarityThreshold 过滤掉
+    console.log("Result entries:", result.entries.map(e => ({ id: e.id, score: e.score, source: e.source })));
+    expect(result.entries.length).toBe(2);
+    expect(result.entries[0].id).toBe("e1");
+    expect(result.entries[1].id).toBe("e2");
+    // 不应该包含 e3（低质量 vec 结果）
+    expect(result.entries.find(e => e.id === "e3")).toBeUndefined();
+  });
+
+  it("Vec 高质量结果应保留", async () => {
+    const db = createTestDb();
+
+    storeEntry(db, { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" });
+    storeEntry(db, { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁祝故事" }); // 语义相关但 FTS 不一定命中
+
+    const mockEmbedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1, 0.2, 0.3]),
+    };
+
+    const mockRepo = {
+      hasVecTable: () => true,
+      searchFTSWithHighlight: async () => [
+        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" }, snippet: "<b>梁山伯</b>与祝英台" },
+      ],
+      searchFTS: async () => [],
+      // Vec 返回高质量结果（distance 小，similarity 高）
+      searchVec: async () => [
+        { entryId: "e1", distance: 0.2, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" } }, // similarity = 0.8
+        { entryId: "e2", distance: 0.4, entry: { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁祝故事" } }, // similarity = 0.6
+      ],
+      getWeights: async () => [
+        { memoryEntryId: "e1", retrievalCount: 0, lastRetrievedAt: null, userFlagged: false },
+        { memoryEntryId: "e2", retrievalCount: 0, lastRetrievedAt: null, userFlagged: false },
+      ],
+      getById: async () => null,
+      getEmbedding: async () => null,
+      getDetails: async () => [],
+      storeEntry: async () => {},
+      storeEmbedding: async () => {},
+      incrementRetrievalCounts: async () => {},
+      flagMemory: async () => {},
+      updateLayerByConversation: async () => {},
+      deleteBySource: async () => {},
+      replaceEntryBySource: async () => {},
+      replaceEntriesBySource: async () => {},
+      deleteBySourceAndType: async () => {},
+    } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
+
+    const searchEngine = new SearchEngine({
+      rrfK: 60,
+      alpha: 0.4,
+      vecSimilarityThreshold: 0.3,
+      bothBoost: 1.2,
+      weightHalfLifeDays: 7,
+      userFlagMultiplier: 2,
+      frequencyBoostFactor: 0.1,
+    });
+    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+
+    const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
+
+    // e1 和 e2 都应该保留（e2 的 similarity=0.6 >= 0.3）
+    expect(result.entries.length).toBe(2);
+    expect(result.entries.find(e => e.id === "e1")).toBeDefined();
+    expect(result.entries.find(e => e.id === "e2")).toBeDefined();
   });
 });
