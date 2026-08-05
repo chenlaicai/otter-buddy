@@ -149,6 +149,21 @@ const session = await this.manageSession.createSession(id);  // 唯一被执行�
 | 10 | 每对话一獭导致 otter_sessions 行数膨胀、前端开始显示 Session #1 | 可延后 | 另行评估 |
 | 11 | 「封存为反面案例」但证据 jsonl 被 reset unlink，账本与证据自相矛盾 | 可延后 | 并入另行立项的 pi 层文件策略统一 |
 
+## 对抗审视记录·第二轮（PR 检视，2026-08-05，独立评审 agent）
+
+聚焦全链路完整性与「假实现」检测。结论：主链路真实闭环（restart→archive→reset→建链→summary 注入逐环核实），无阻断合并项；抓到 5 个应修，全部在本 PR 内修复：
+
+| # | 评审发现 | 处置 |
+|---|---------|------|
+| 1 | **restart 竞态 409**：archive 内 reset 等 pi 锁（可达数分钟）期间，invoke 兜底抢先建行 → restart 的 createSession 撞 conflict → 用户见 409，但 archive+reset 已执行、summary 丢失 | 控制器新增 `tryAdoptBackfilledSession`：conflict 时认领既有新行 + `setSessionSummary` 补写前情，按 201 返回；配集成测试模拟该竞态 |
+| 2 | 文档承诺的端到端测试未交付（根因在所有层被 mock 时不可见） | 新增 `restart-flow.integration.test.ts`：真 sqlite + 真 CreateOtter/ManageSession/OtterController，仅 seam pi 层；含首世建账、全链路、**事故形态回归**（存量獭 backfill 后 restart）、竞态认领四用例 |
+| 3 | agent-invoker 测试 mock 缺 `createSession`——兜底分支抛 TypeError 被裸 catch 吞掉，测试假绿 | mock 补齐；新增兜底三用例（补登记+summary 注入 dynamicContext / conflict 重读 / 失败降级不阻塞对话） |
+| 4 | 两处顺序 load-bearing 但无顺序断言：create-otter 回滚（destroy→deleteOtter）、控制器 restart（archive→createSession） | 各加 `invocationCallOrder` 断言 |
+| 5 | 兜底内层 catch 无日志——兜底坏掉的唯一表现是原 bug 静默复发 | 补 warn 日志 |
+| — | 附带修正：回滚注释的 FK 论证不准确（真正约束是 agent_sessions.otter_id FK，非 otter_sessions） | 注释修正 |
+
+可延后项（评审确认）：Session Chain 表 active 行显示前情摘要的语义混淆（随前端立项）；历史文档中 POST /sessions 残留引用（时点文档不改）。
+
 ## 决策记录
 
 - 2026-08-05：用户操作中发现「重启后看不出任何生效迹象」，排查确认为空操作 bug。用户定性「这是严重 bug」，要求基于真实代码完整分析并写清文档。

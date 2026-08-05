@@ -198,6 +198,7 @@ function mockOtterRepo(otters: Otter[] = []): OtterRepository {
     getSessionHistory: vi.fn(async () => []),
     getSessionById: vi.fn(async () => null),
     setHandoffSummary: vi.fn(),
+    setSessionSummary: vi.fn(),
     restoreSessionStatus: vi.fn(),
     deleteSession: vi.fn(),
   };

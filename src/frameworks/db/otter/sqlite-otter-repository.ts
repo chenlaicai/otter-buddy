@@ -113,6 +113,12 @@ export class SqliteOtterRepository implements OtterRepository {
     `).run(JSON.stringify(handoffSummary), sessionId);
   }
 
+  async setSessionSummary(sessionId: string, summary: string): Promise<void> {
+    this.db.prepare(`
+      UPDATE otter_sessions SET summary = ? WHERE id = ?
+    `).run(summary, sessionId);
+  }
+
   async restoreSessionStatus(
     sessionId: string,
     status: SessionStatus,

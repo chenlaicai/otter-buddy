@@ -146,6 +146,13 @@ describe("CreateOtter", () => {
       /** otter 行必须删除（session 单条 INSERT 原子，失败无行，无 FK 阻碍） */
       expect(repo._deletedOtterIds).toHaveLength(1);
       expect(repo._deletedOtterIds[0]).toBe(gateway._createdAgentIds[0]);
+      /**
+       * 顺序 load-bearing（agent_sessions.otter_id FK → otters）：必须 destroy 先于 deleteOtter，
+       * 否则回滚自身 FK 违规、双残留。用 invocationCallOrder 锁定。
+       */
+      const destroyOrder = (gateway.destroy as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+      const deleteOrder = (repo.deleteOtter as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+      expect(destroyOrder).toBeLessThan(deleteOrder);
     });
 
     it("传入 role 和 parentOtterId 时保留在返回的 otter 中", async () => {

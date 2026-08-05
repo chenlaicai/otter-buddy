@@ -203,6 +203,33 @@ describe("Otter API", () => {
         summary: "Restarting",
       });
       expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1", { summary: "Restarting" });
+      /** 顺序 load-bearing：archive 必须先于 createSession，否则 createSession 撞 active 必 409 */
+      expect(
+        deps.manageSession.archiveSession.mock.invocationCallOrder[0],
+      ).toBeLessThan(deps.manageSession.createSession.mock.invocationCallOrder[0]);
+    });
+
+    it("F20260805rsto 竞态认领：createSession 撞 conflict 时认领兜底新行、补写 summary、按成功返回", async () => {
+      const activeSession = makeSession({ id: "old-session" });
+      const adopted = makeSession({ id: "backfilled-session" });
+      deps.manageSession.getActiveSession
+        .mockResolvedValueOnce(activeSession)  // restart 入口查到旧 active
+        .mockResolvedValueOnce(adopted);       // conflict 后重读到兜底新行
+      deps.manageSession.archiveSession.mockResolvedValue(activeSession);
+      deps.manageSession.createSession.mockRejectedValue(
+        new DomainError("Otter otter-1 already has an active session: backfilled-session", "conflict"),
+      );
+
+      const res = await app.request("/api/otters/otter-1/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: "前情" }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await json(res);
+      expect(body.id).toBe("backfilled-session");
+      expect(deps.manageSession.setSessionSummary).toHaveBeenCalledWith("backfilled-session", "前情");
     });
 
     /**

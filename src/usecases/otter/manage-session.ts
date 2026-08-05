@@ -88,6 +88,11 @@ export class ManageSession {
     return this.repo.getActiveSession(otterId);
   }
 
+  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情） */
+  async setSessionSummary(sessionId: string, summary: string): Promise<void> {
+    await this.repo.setSessionSummary(sessionId, summary);
+  }
+
   /**
    * 归档 Session（完整业务操作）。
    * 含：状态更新 + 工作记忆转历史 + Agent reset。

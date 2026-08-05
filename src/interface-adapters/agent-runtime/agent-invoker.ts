@@ -465,8 +465,15 @@ export class AgentInvoker {
         try {
           session = await this.manageSession.createSession(otterId);
           this.logger.info('Backfilled missing domain session on invoke', { otterId, action: 'session_backfill' });
-        } catch {
-          /** 并发补登记撞 conflict 属良性（他人已建）；重读一次，仍无则走外层降级 */
+        } catch (backfillErr) {
+          /**
+           * 并发补登记撞 conflict 属良性（他人已建）；其余失败必须留痕——
+           * 兜底坏掉的唯一表现是 restart 再次静默空操作（F20260805rsto 原 bug 复发）。
+           */
+          this.logger.warn('Domain session backfill failed, re-reading active session', {
+            otterId,
+            error: backfillErr instanceof Error ? backfillErr.message : String(backfillErr),
+          });
           session = await this.manageSession.getActiveSession(otterId).catch(() => null);
         }
       }

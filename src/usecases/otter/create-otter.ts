@@ -68,9 +68,9 @@ export class CreateOtter {
     } catch (err) {
       /**
        * 回滚顺序不可颠倒：先 destroy agent，再 deleteOtter。
-       * FK 约束 otter_sessions.otter_id REFERENCES otters(id)（foreign_keys=ON），
-       * 若 session 行已落库而先删 otter 会 FK 违规；
-       * 此处 createSession 为单条 INSERT（原子），失败即无行，故无需 deleteSession。
+       * agent_sessions.otter_id REFERENCES otters(id) 且 foreign_keys=ON——
+       * 不 destroy 就 deleteOtter 会 FK 违规，回滚自身抛错、双残留。
+       * （createSession 是单条原子 INSERT，失败即无 session 行，故无需 deleteSession。）
        */
       try {
         await this.agentGateway.destroy(id);

@@ -31,6 +31,8 @@ export interface OtterRepository {
     sessionId: string,
     handoffSummary: SessionHandoffSummary,
   ): Promise<void>;
+  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情） */
+  setSessionSummary(sessionId: string, summary: string): Promise<void>;
   /** 回滚归档：恢复 session 到指定状态（用于 handoff 失败回滚） */
   restoreSessionStatus(
     sessionId: string,
