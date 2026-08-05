@@ -694,7 +694,7 @@ async function main(): Promise<void> {
 
   // 创建发言链调度引擎（Web 和飞书路径共享）
   const dispatchChainEngine = new DispatchChainEngine({
-    sendMessage: uc.sendMessage,
+    conversationRepo: repos.conversation,
     queryMessage: uc.queryMessage,
     queryOtter: uc.queryOtter,
     logger,
