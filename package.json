@@ -13,7 +13,10 @@
     "test": "vitest run",
     "check": "npm run build",
     "download:bge-m3": "node scripts/download-bge-m3.mjs",
-    "start": "npm run build && node dist/src/main.js"
+    "start": "npm run build && node dist/src/main.js",
+    "test:capability": "npm run build && vitest run --config vitest.capability.config.ts",
+    "test:capability:only": "vitest run --config vitest.capability.config.ts",
+    "test:all": "npm test && npm run test:capability"
   },
   "keywords": [],
   "author": "",

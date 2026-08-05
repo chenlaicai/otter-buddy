@@ -1,0 +1,28 @@
+# 能力测试专用配置（B 类：真系统 + 真 embedding + 真 LLM）
+# 本文件入库、零机密。LLM 端点与密钥由 config/config.test.local.yaml（gitignored）
+# 或环境变量 OTTER_TEST_LLM_PROVIDER / OTTER_TEST_LLM_MODEL /
+# OTTER_TEST_LLM_API_KEY / OTTER_TEST_LLM_BASE_URL 在 harness 启动时覆盖。
+# __TMPDIR__ 由 harness 替换为每个测试文件的临时目录。
+server:
+  port: 0
+database:
+  path: "__TMPDIR__/otter-capability.db"
+  walMode: false
+embedding:
+  dimensions: 1024
+  modelPath: bge-m3
+  # 真 bge-m3 本地模型，本层永远禁止 mock embedding
+  localModelPath: ./models
+llm:
+  default: "test-default"
+  models:
+    - alias: "test-default"
+      # 占位 provider（通过校验）；实际端点由 local overlay / 环境变量覆盖
+      provider: openai
+      model: "__placeholder__"
+      contextWindow: 128000
+circuitBreaker:
+  # 能力测试应短平快：收紧工具调用上限与链深，防失控烧钱
+  maxToolCalls: 25
+  maxChainDepth: 4
+  maxPerEventTimeMs: 120000

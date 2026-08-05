@@ -10,6 +10,7 @@ dist/
 
 # Local config (managed by user, not tracked)
 config/config.yaml
+config/config.test.local.yaml
 
 # IDE
 .vscode/
