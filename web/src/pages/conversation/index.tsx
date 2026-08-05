@@ -507,11 +507,13 @@ function ConversationPage() {
         maybeScrollToBottom()
       },
       'error': (data) => {
+        const messageId = data.messageId as string | undefined
         const errMsg: LocalMessage = {
-          id: (data.messageId as string) || `err-${crypto.randomUUID()}`, st: 'otter', si: (data.otterId as string) || 'unknown',
+          id: messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: (data.otterId as string) || 'unknown',
           content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
+        /** messageId 存在时走 upsertTerminalMessage 保留投影字段（F20260805abpp S4-1 同类） */
+        setAllMessages(prev => ({ ...prev, [activeId]: messageId ? upsertTerminalMessage(prev[activeId] || [], errMsg) : upsertMessage(prev[activeId] || [], errMsg) }))
         showToast(`Agent 错误: ${data.message}`, 'error')
       },
     }
@@ -712,7 +714,8 @@ function ConversationPage() {
             id: messageId || `err-${crypto.randomUUID()}`, st: 'otter', si: otterId || 'unknown',
             content: `[错误] ${data.message}`, status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], errMsg) }))
+          /** messageId 存在时走 upsertTerminalMessage 保留投影字段（F20260805abpp S4-1 同类） */
+          setAllMessages(prev => ({ ...prev, [activeId]: messageId ? upsertTerminalMessage(prev[activeId] || [], errMsg) : upsertMessage(prev[activeId] || [], errMsg) }))
           showToast(`Agent 错误: ${data.message}`, 'error')
           if (messageId) {
             liveEventsMap.delete(messageId)
