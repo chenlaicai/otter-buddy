@@ -21,8 +21,10 @@ describe('SqliteMemoryRepository.createdAfter 时间过滤', () => {
 
     // FTS 重建（不依赖触发器）—— memory_fts 表的列是 content 不是 body
     db.prepare("DELETE FROM memory_fts").run();
+    db.prepare("DELETE FROM memory_fts_jieba").run();
     for (const row of db.prepare("SELECT id, content FROM memory_entries").all() as Array<{ id: string; content: string }>) {
       db.prepare("INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)").run(row.id, row.content);
+      db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)").run(row.id, row.content);
     }
   });
 

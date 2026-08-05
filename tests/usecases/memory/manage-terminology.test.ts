@@ -72,6 +72,10 @@ function createTestDb(): Database.Database {
       content,
       tokenize = 'trigram'
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
+      memory_entry_id UNINDEXED,
+      content
+    );
   `);
   return db;
 }
