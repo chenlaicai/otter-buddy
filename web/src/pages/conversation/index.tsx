@@ -89,6 +89,10 @@ function ConversationPage() {
   const [unreadSeparatorSeq, setUnreadSeparatorSeq] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** abort toast 同步去重（F20260805abpp 第三轮检视 S-1）：发送流与常驻通道共享广播总线，
+   *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
+   *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
+  const abortNotifiedRef = useRef<Set<string>>(new Set())
   useEffect(() => () => { if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current) }, [])
 
   // 从 URL 路径获取对话 ID（格式：/conversation/:id）
@@ -487,21 +491,25 @@ function ConversationPage() {
             return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
           })
         }
-        const abortedMsg: LocalMessage = {
-          id: messageId, st: 'otter', si: otterId, sn: otterName,
-          content: (data.body as string) ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || nowTs(), dur: null,
-          events: liveEvents.length > 0 ? liveEvents : undefined,
-        }
-        /** 仅在 in-flight→终态迁移时 toast：发送流与常驻通道订阅同一广播总线，
-         *  页面停留期间 abort 会双通道投递，第二个到达的 handler 不得重复提示 */
-        let transitioned = false
+        /** MPA 新页面 liveEvents/liveMeta 为空：与已有投影合并保留 events/seq/ts 等字段
+         *  （第三轮检视 S-2：整体替换会抹掉 DTO 快照已加载的工具调用链与消息时间） */
         setAllMessages(prev => {
           const list = prev[activeId] || []
           const existing = list.find(m => m.id === messageId)
-          transitioned = !existing || isInFlight(existing)
+          const abortedMsg: LocalMessage = {
+            id: messageId, st: 'otter', si: otterId || existing?.si || '', sn: otterName ?? existing?.sn,
+            content: (data.body as string) ?? '[搭档中断]', status: 'aborted',
+            ts: meta?.createdAt || existing?.ts || nowTs(), dur: null,
+            seq: existing?.seq,
+            events: liveEvents.length > 0 ? liveEvents : existing?.events,
+            ctx: existing?.ctx, ctxMax: existing?.ctxMax, turnId: existing?.turnId,
+          }
           return { ...prev, [activeId]: upsertMessage(list, abortedMsg) }
         })
-        if (transitioned) showToast('回复已中断', 'info')
+        if (!abortNotifiedRef.current.has(messageId)) {
+          abortNotifiedRef.current.add(messageId)
+          showToast('回复已中断', 'info')
+        }
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
         maybeScrollToBottom()
@@ -740,15 +748,25 @@ function ConversationPage() {
             content: data.body ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || nowTs(), dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
-          /** 仅在 in-flight→终态迁移时 toast：与常驻 /subscribe 通道共享广播总线，双通道投递去重 */
-          let transitioned = false
+          /** 与已有投影合并保留 events/seq/ts 等字段（第三轮检视 S-2：整体替换会抹掉
+           *  DTO 快照已加载的工具调用链与消息时间） */
           setAllMessages(prev => {
             const list = prev[activeId] || []
             const existing = list.find(m => m.id === messageId)
-            transitioned = !existing || isInFlight(existing)
-            return { ...prev, [activeId]: upsertMessage(list, abortedMsg) }
+            const merged: LocalMessage = {
+              ...abortedMsg,
+              si: abortedMsg.si || existing?.si || '', sn: abortedMsg.sn ?? existing?.sn,
+              ts: meta?.createdAt || existing?.ts || abortedMsg.ts,
+              seq: existing?.seq,
+              events: abortedMsg.events ?? existing?.events,
+              ctx: existing?.ctx, ctxMax: existing?.ctxMax, turnId: existing?.turnId,
+            }
+            return { ...prev, [activeId]: upsertMessage(list, merged) }
           })
-          if (transitioned) showToast('回复已中断', 'info')
+          if (!abortNotifiedRef.current.has(messageId)) {
+            abortNotifiedRef.current.add(messageId)
+            showToast('回复已中断', 'info')
+          }
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
         },

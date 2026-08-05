@@ -111,7 +111,7 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
   user 消息不算 in-flight）。
 - 根仓 `npm run check` 全绿；web `vitest run` + `tsc --noEmit` 全绿。
 
-## 对抗审视记录（第一轮：架构师检视 + 代码检视并行）
+## 对抗审视记录（三轮：架构师检视 + 代码检视 + 端到端时序检视）
 
 ### 架构师检视（针对 Part 1，对照 SDK 源码逐条验证）
 
@@ -146,6 +146,27 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
 - 【可选 O4，已修】output-guard 两处滞后注释（ref-count 措辞、armTimer 枚举）。
 - 【可选 O2，记录】轮询自续期循环竞态检查结论：cleanup cancelled 标志覆盖完备，
   不会双倍轮询；活跃流式期间轮询被饿死但 SSE 活着，无害。
+
+### 第三轮检视（端到端时序回放 / React 调度语义 / commit 交互）
+
+- 【严重 S-1，已修】**toast 去重标志放在 functional updater 闭包里同步读取，存在零 toast
+  竞态**：React 19 只在无 pending update 时同步执行 updater（eager state 优化），流式期间
+  delta 的 setState 常使 updater 延迟到 render 阶段——`transitioned` 同步读取恒为 false，
+  toast 被静默跳过，恰好覆盖本 PR 主打的事故场景。处置：改用 ref 持有的
+  `Set<messageId>` 同步去重（abortNotifiedRef），绕开 React 调度时序。
+- 【建议 S-2，已修】MPA 新页面（liveMeta/liveEvents 为空）经常驻通道收到 message.aborted
+  时，整体替换会降级已有 DTO 投影：events（工具调用链）被抹、ts 被改写为到达时刻、
+  seq/ctx/turnId 丢失。处置：两个 abort handler 的 upsert 均改为与已有消息字段合并
+  （events/seq/ts/ctx/ctxMax/turnId 回退保留），与定点拉取的保留模式对齐。
+- 【建议 S-3，记录不修】定点拉取永久失败（如消息 404）时自续期轮询无界。当前代码库无
+  消息删除路径，属假设场景；如未来出现，可加连续失败计数上限。
+- 【可选 O-1，记录】SSE abort 先于整页快照 commit 到达时，快照可能把气泡从"已中断"闪回
+  "生成中"，≤2s 后由定点拉取收敛——窗口窄、无害。
+- 【可选 O-2，复核阴性】自续期轮询与"无变化不 setState"的两种交错均安全，不会双循环、
+  不会多发请求。
+- 【可选 O-3，复核阴性】first_byte_timeout 与 streaming_timeout 的归因/重试路径无差异
+  （仅文案分支）；两个 commit 无矛盾；mapMessageDTO/getMessage/广播通道核查均无第三通道竞争。
+  附带存量发现：常驻通道 error handler 的 toast 无同款去重（单槽 Toast 下视觉良性）。
 
 ## 影响面
 
