@@ -335,6 +335,72 @@ describe("attachCircuitBreaker - per-event 超时", () => {
       vi.useRealTimers();
     }
   });
+
+  it("per-event 超时：并行工具调用各自独立计时（issue #140）", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 并行启动两个工具调用
+      session.emit(sdkToolStart("tool_A"));
+      session.emit(sdkToolStart("tool_B"));
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // tool_A 在 3 秒后完成
+      vi.advanceTimersByTime(3000);
+      session.emit(sdkToolEnd("tool_A"));
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // tool_B 在 4 秒后完成（总计 7 秒，超过阈值，但 tool_B 自己只执行了 4 秒）
+      vi.advanceTimersByTime(1000);
+      session.emit(sdkToolEnd("tool_B"));
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // 验证：两个工具都正常完成，没有触发超时
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：并行工具调用中单个超时不影响其他（issue #140）", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 并行启动两个工具调用
+      session.emit(sdkToolStart("tool_A"));
+      session.emit(sdkToolStart("tool_B"));
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // tool_A 正常完成（3 秒）
+      vi.advanceTimersByTime(3000);
+      session.emit(sdkToolEnd("tool_A"));
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // tool_B 超时（再过 3 秒，总计 6 秒超过阈值）
+      vi.advanceTimersByTime(3001);
+      expect(abortOverride).toHaveBeenCalledOnce();
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("attachCircuitBreaker - steer 行为纠正", () => {
