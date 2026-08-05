@@ -10,7 +10,6 @@ import {
   bufferToFloat32Array,
   rowToMemoryEntry,
   rowToMemoryWeight,
-  rowToSnippetHit,
   type FtsRow,
   type FtsHighlightRow,
   type MemoryEntryRow,
@@ -18,6 +17,7 @@ import {
   type VecRow,
 } from "./memory-mapper";
 import type { SnippetHit } from "@usecases/memory/memory-repository";
+import { tokenizeWithJieba, tokenizeQuery } from "@frameworks/db/jieba-tokenizer";
 
 import { escapeFtsQuery } from "../fts-utils";
 
@@ -72,6 +72,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
         INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
       `).run(entry.id, entry.content);
 
+      // F20260805hybrid: jieba 分词，支持中文短查询
+      const tokenizedContent = tokenizeWithJieba(entry.content);
+      this.db.prepare(`
+        INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
+      `).run(entry.id, tokenizedContent);
+
       this.db.prepare(`
         INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
         VALUES (?, 0, NULL, 0)
@@ -93,6 +99,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         .all(sourceTable, sourceId) as Array<{ id: string }>;
       for (const row of rows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         // F20260803mval: memory_vec 是 vec0 虚拟表，sqlite-vec 扩展不可用时表不存在（D22 降级），删除前检查
         if (this.hasVec) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
@@ -120,6 +127,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string }>;
       for (const row of oldRows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         if (this.hasVec) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         }
@@ -149,6 +157,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
       this.db.prepare(`
         INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
       `).run(entry.id, entry.content);
+      this.db.prepare(`
+        INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
+      `).run(entry.id, tokenizeWithJieba(entry.content));
       this.db.prepare(`
         INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
         VALUES (?, 0, NULL, 0)
@@ -186,6 +197,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
       for (const row of oldRows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         if (this.hasVec) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         }
@@ -217,6 +229,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
           INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
         `).run(entry.id, entry.content);
         this.db.prepare(`
+          INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
+        `).run(entry.id, tokenizeWithJieba(entry.content));
+        this.db.prepare(`
           INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
           VALUES (?, 0, NULL, 0)
         `).run(entry.id);
@@ -241,6 +256,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
       for (const row of oldRows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         if (this.hasVec) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         }
@@ -311,13 +327,18 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async searchFTS(query: string, filters: SearchFilters): Promise<FTSHit[]> {
-    const escaped = escapeFtsQuery(query);
+    // F20260805hybrid: 使用 jieba 分词表支持中文短查询
+    const tokenizedQuery = tokenizeQuery(query);
+    if (tokenizedQuery.length === 0) return [];
+
     const ct = this.buildContentTypeClause(filters);
+    const ftsQuery = tokenizedQuery.map((t: string) => escapeFtsQuery(t)).join(" OR ");
+
     const rows = this.db.prepare(`
       SELECT me.*, fts.rank AS bm25_score
-      FROM memory_fts fts
+      FROM memory_fts_jieba fts
       JOIN memory_entries me ON fts.memory_entry_id = me.id
-      WHERE memory_fts MATCH ?
+      WHERE memory_fts_jieba MATCH ?
         AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
@@ -326,7 +347,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       ORDER BY fts.rank
       LIMIT ?
     `).all(
-      escaped,
+      ftsQuery,
       filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
@@ -343,13 +364,18 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   async searchFTSWithHighlight(query: string, filters: SearchFilters): Promise<SnippetHit[]> {
-    const escaped = escapeFtsQuery(query);
+    // F20260805hybrid: 搜索走 jieba 表，高亮走原始内容（避免分词碎片化）
+    const tokenizedQuery = tokenizeQuery(query);
+    if (tokenizedQuery.length === 0) return [];
+
     const ct = this.buildContentTypeClause(filters);
+    const ftsQuery = tokenizedQuery.map((t: string) => escapeFtsQuery(t)).join(" OR ");
+
     const rows = this.db.prepare(`
-      SELECT me.*, fts.rank AS bm25_score, highlight(memory_fts, 1, '<b>', '</b>') AS snippet
-      FROM memory_fts fts
+      SELECT me.*, fts.rank AS bm25_score
+      FROM memory_fts_jieba fts
       JOIN memory_entries me ON fts.memory_entry_id = me.id
-      WHERE memory_fts MATCH ?
+      WHERE memory_fts_jieba MATCH ?
         AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
@@ -358,7 +384,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       ORDER BY fts.rank
       LIMIT ?
     `).all(
-      escaped,
+      ftsQuery,
       filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
@@ -367,7 +393,20 @@ export class SqliteMemoryRepository implements MemoryRepository {
       DEFAULT_FTS_LIMIT,
     ) as FtsHighlightRow[];
 
-    return rows.map(rowToSnippetHit);
+    // 应用层高亮：在原始 content 上做简单替换
+    return rows.map(row => {
+      const content = row.content || '';
+      let highlighted = content;
+      for (const token of tokenizedQuery) {
+        highlighted = highlighted.replaceAll(token, `<b>${token}</b>`);
+      }
+      return {
+        entryId: row.id,
+        ftsRank: row.bm25_score,
+        entry: rowToMemoryEntry(row),
+        snippet: highlighted,
+      };
+    });
   }
 
   async searchVec(

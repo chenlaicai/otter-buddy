@@ -173,6 +173,14 @@ function createMemoryTables(db: Database.Database): void {
     );
   `);
 
+  // F20260805hybrid: jieba 分词表，支持中文短查询
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
+      memory_entry_id UNINDEXED,
+      content
+    );
+  `);
+
   /** vec0 虚拟表：sqlite-vec 不可用时跳过（D22 降级模式） */
   try {
     db.exec(`
