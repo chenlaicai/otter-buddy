@@ -37,15 +37,6 @@ describe("Conversation API", () => {
       expect(body).toHaveLength(0);
     });
 
-    it("returns empty array when no conversations", async () => {
-      deps.manageConversation.listWithMeta.mockResolvedValue([]);
-
-      const res = await app.request("/api/conversations");
-      expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body).toEqual([]);
-    });
-
     it("returns 400 for invalid pagination parameters", async () => {
       const res = await app.request("/api/conversations?limit=abc");
       expect(res.status).toBe(400);
