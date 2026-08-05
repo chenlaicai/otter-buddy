@@ -16,7 +16,8 @@
     "start": "npm run build && node dist/src/main.js",
     "test:capability": "npm run build && vitest run --config vitest.capability.config.ts",
     "test:capability:only": "vitest run --config vitest.capability.config.ts",
-    "test:all": "npm test && npm run test:capability"
+    "test:all": "npm test && npm run test:capability",
+    "lint:capability": "node scripts/lint-capability-docs.mjs"
   },
   "keywords": [],
   "author": "",

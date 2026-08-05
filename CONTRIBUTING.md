@@ -13,6 +13,7 @@ npm run check
 - Explain why the change is needed.
 - Call out whether the change affects agent behavior, memory system, persistence, or API behavior.
 - Run `npm run check` before opening a PR.
+- 涉及 LLM 行为（prompt/skill/工具选择/协议）的改动：F 文档声明 `capability_test`（用例路径或 n/a 理由），见 docs/README.md「能力测试约定」。
 
 ## Commit Message Format
 

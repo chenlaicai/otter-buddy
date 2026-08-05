@@ -20,6 +20,7 @@ causal_links:
 
 status: implemented
 change_type: feature
+capability_test: tests/capability/otter-lifecycle.capability.test.ts
 tags: [test, capability-test, otter, restart, identity, speak, session]
 modules:
   - tests/capability/otter-lifecycle.capability.test.ts

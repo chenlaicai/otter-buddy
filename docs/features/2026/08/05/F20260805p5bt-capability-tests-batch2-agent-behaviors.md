@@ -19,6 +19,7 @@ causal_links:
 
 status: implemented
 change_type: feature
+capability_test: tests/capability/agent-behavior.capability.test.ts
 tags: [test, capability-test, otter-summon, skill, terminology, multi-model, dissolve]
 modules:
   - tests/capability/agent-collaboration.capability.test.ts

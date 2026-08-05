@@ -19,6 +19,7 @@ causal_links:
 
 status: implemented
 change_type: feature
+capability_test: tests/capability/memory-recall.capability.test.ts
 tags: [test, capability-test, llm-behavior, embedding, vitest, e2e]
 modules:
   - vitest.capability.config.ts
