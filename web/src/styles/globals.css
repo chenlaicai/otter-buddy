@@ -48,7 +48,9 @@
 
   /* 玻璃不透明度全局系数（设置页滑杆可调 0.45~1.0，越低越透；
      各层 token 用 calc 按系数缩放，reduced-transparency 兜底直接
-     覆盖为实色、不受系数影响） */
+     覆盖为实色、不受系数影响。
+     例外：L3 --overlay-bg 不随系数缩放（F20260805dmux）——弹层承载
+     正文阅读，不透明度须保底对比度，见下方 L3 注释） */
   --glass-t: 0.85;
 
   /* L0 chrome（顶栏）：最透 */
@@ -67,10 +69,11 @@
   --bubble-blur: blur(16px) saturate(140%);
   --card-shadow: 0 1px 3px rgba(42,32,20,0.07), 0 4px 14px rgba(42,32,20,0.05);
 
-  /* L3 弹层：最透 + 最强 blur */
+  /* L3 弹层：近实底 + 最强 blur */
   --scrim: rgba(28,22,16,0.30);
   --scrim-blur: blur(6px);
-  --overlay-bg: linear-gradient(165deg, rgb(255 253 249 / calc(78% * var(--glass-t))), rgb(255 251 244 / calc(62% * var(--glass-t))));
+  /* 弹层是最高层级且承载正文阅读，不透明度需保证文字对比度（不与 glass-t 联动降透） */
+  --overlay-bg: linear-gradient(165deg, rgb(255 253 249 / 96%), rgb(255 251 244 / 93%));
   --overlay-blur: blur(40px) saturate(180%);
   --overlay-shadow: 0 24px 64px rgba(42,32,20,0.22), 0 4px 16px rgba(42,32,20,0.10);
 
