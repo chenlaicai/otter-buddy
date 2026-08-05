@@ -115,7 +115,7 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
   user 消息不算 in-flight）。
 - 根仓 `npm run check` 全绿；web `vitest run` + `tsc --noEmit` 全绿。
 
-## 对抗审视记录（四轮：架构师 / 代码质量 / 端到端时序 / 修复面与乱序矩阵）
+## 对抗审视记录（五轮：架构师 / 代码质量 / 端到端时序 / 修复面与乱序矩阵 / 最终状态复核）
 
 ### 架构师检视（针对 Part 1，对照 SDK 源码逐条验证）
 
@@ -194,6 +194,19 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
 - 复核阴性：ref Set 去重无 React 调度依赖（S-1 修复正确）；双通道 aborted upsert 经
   existing 合并幂等；aborted→complete 双终态事件后端互斥不可达；后端归因竞态（用户 abort
   vs guard abort）无双丢窗口，用户归因优先是注释写明的设计。
+
+### 第五轮检视（upsertTerminalMessage 字段矩阵 / commit 4 行为差异 / CI 盲区 / 最终一致性）
+
+- 结论：**通过，可以合并**。字段优先级矩阵（`??`/`||` 选择、spread 顺序、六个调用点的
+  ts 哨兵约定）逐项验证无洞；commit 4 对 M6 tmp 补戳、滚动位置无行为差异；文档与 5 个
+  commit 最终一致；根仓 983 测试 + web 77 测试实跑全绿。
+- 【建议，存量后续跟进】两个通道的 error handler 仍用裸 upsertMessage：携带真实
+  messageId 的 error 事件会整体替换 in-flight 占位、抹掉 events/seq/ts（S4-1 同类），
+  且若后续 message.failed 到达，existing 已被抹过、不可恢复。main 上即如此，本 PR 未触碰。
+- 【建议，流程缺口后续跟进】CI 从不执行 web 测试（ci.yml 无 `npm --prefix web test`
+  步骤）——本 PR 的全部前端回归测试在 CI 零覆盖。
+- 【可选，记录】dur 不在合并保留清单：事件缺 duration 时会抹掉 existing.dur，
+  需"已有 dur 的终态消息 + 重复 complete 事件"才可达（subscribe 不重放历史），几乎不可达。
 
 ## 影响面
 
