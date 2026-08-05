@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import type { LocalOtter as Otter, LocalOtterSession as OtterSession } from '../../lib/mappers'
+import { sortSessionChain } from '../../lib/session-chain'
 
 interface Skill { id: string; name: string; desc: string; type: string; assignedTo: string[] }
 const mockSkills: Skill[] = [
@@ -265,20 +266,15 @@ function OtterDetailModal(props: ModalsProps) {
   if (!otter) return null
 
   const sessions: OtterSession[] = props.sessions[otter.id] || []
-  /** F20260805rsto：按 previousSessionId 拉链排序（首世在前），链外残留按时间附加 */
-  const chain: OtterSession[] = (() => {
-    const byPrev = new Map(sessions.map(s => [s.previousSessionId, s] as const))
-    const ordered: OtterSession[] = []
-    let cur = byPrev.get(null)
-    while (cur) { ordered.push(cur); cur = byPrev.get(cur.id) }
-    for (const s of sessions) if (!ordered.includes(s)) ordered.push(s)
-    return ordered
-  })()
+  const chain: OtterSession[] = sortSessionChain(sessions)
 
   const copySessionId = (id: string) => {
-    navigator.clipboard.writeText(id)
-    setCopiedId(id)
-    setTimeout(() => setCopiedId(cur => (cur === id ? null : cur)), 1500)
+    if (!navigator.clipboard) return
+    // 打勾反馈挂在 resolve 之后，避免复制实际失败也显示成功
+    navigator.clipboard.writeText(id).then(() => {
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(cur => (cur === id ? null : cur)), 1500)
+    }).catch(() => {})
   }
 
   return (

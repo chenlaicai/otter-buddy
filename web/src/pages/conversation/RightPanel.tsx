@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
+import { sortSessionChain } from '../../lib/session-chain'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
 
@@ -172,6 +173,8 @@ function OtterParticipantCard({
 }) {
   const isBig = o.type === 'big'
   const activeS = sessions.find(s => s.status === 'active')
+  /** F20260805dmux：世数与详情弹窗同口径（拉链位置），不用 sessions.length */
+  const activeGen = activeS ? sortSessionChain(sessions).indexOf(activeS) + 1 : 0
 
   return (
     <div
@@ -184,7 +187,7 @@ function OtterParticipantCard({
         <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
         {activeS && (
           <div className="text-[9px] text-stone-400">
-            第{sessions.length}世 · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
+            第{activeGen}世 · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
           </div>
         )}
       </div>
