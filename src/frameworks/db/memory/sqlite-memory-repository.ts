@@ -224,6 +224,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
+        AND (? IS NULL OR me.created_at >= ?)
       ORDER BY fts.rank
       LIMIT ?
     `).all(
@@ -231,6 +232,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
+      filters.createdAfter ?? null, filters.createdAfter ?? null,
       DEFAULT_FTS_LIMIT,
     ) as FtsRow[];
 
@@ -251,6 +253,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
+        AND (? IS NULL OR me.created_at >= ?)
       ORDER BY fts.rank
       LIMIT ?
     `).all(
@@ -258,6 +261,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
+      filters.createdAfter ?? null, filters.createdAfter ?? null,
       DEFAULT_FTS_LIMIT,
     ) as FtsHighlightRow[];
 
@@ -280,12 +284,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND (? IS NULL OR me.layer = ?)
         AND (? IS NULL OR me.granularity = ?)
         AND (? IS NULL OR me.conversation_id = ?)
+        AND (? IS NULL OR me.created_at >= ?)
       ORDER BY mv.distance
     `).all(
       embedding, limit,
       filters.layer ?? null, filters.layer ?? null,
       filters.granularity ?? null, filters.granularity ?? null,
       filters.conversationId ?? null, filters.conversationId ?? null,
+      filters.createdAfter ?? null, filters.createdAfter ?? null,
     ) as VecRow[];
 
     return rows.map(row => ({

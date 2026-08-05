@@ -9,6 +9,8 @@ export interface SearchFilters {
   layer?: MemoryLayer;
   granularity?: RetrievalGranularity;
   conversationId?: string;
+  /** F20260804rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+  createdAfter?: string;
 }
 
 /** 检索来源标识 */

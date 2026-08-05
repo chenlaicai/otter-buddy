@@ -60,6 +60,11 @@ import { OtterController } from "@interface-adapters/http/controllers/otter-cont
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
 import { HealthController } from "@interface-adapters/http/controllers/health-controller";
+import { InboundController } from "@interface-adapters/http/controllers/inbound-controller";
+import type { Context } from "hono";
+import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
+import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
+import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
@@ -262,8 +267,8 @@ function buildMemoryClient(uc: UseCases) {
       const entry = await uc.manageMemory.getById(id);
       return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
     },
-    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string) => {
-      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library });
+    search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string) => {
+      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter });
       return entries.map(e => ({ id: e.id, content: e.content, score: e.score, layer: e.layer, snippet: e.snippet, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
     },
     getDetails: async (ids: string[]) => {
@@ -376,6 +381,9 @@ interface ControllerDeps {
   embeddingGateway: EmbeddingGateway;
   fs: NodeFileSystem;
   rootDir: string;
+  /** F20260804rbrg: 招聘桥接 inbound 用例（undefined 时不启用） */
+  processInboundRecruit?: ProcessInboundRecruit;
+  inboundApiKey?: string;
 }
 
 function initControllers(deps: ControllerDeps) {
@@ -389,6 +397,16 @@ function initControllers(deps: ControllerDeps) {
     scheduledTask: new ScheduledTaskController(deps.uc.manageScheduledTask, deps.schedulerService, deps.cronParser, logger),
     connection: new ConnectionController(deps.uc.manageConnection, logger),
     health: new HealthController(deps.featureRepo, deps.researchRepo, deps.embeddingGateway, deps.fs, deps.rootDir, logger),
+    inbound: deps.processInboundRecruit && deps.inboundApiKey
+      ? new InboundController(
+          deps.inboundApiKey,
+          deps.processInboundRecruit,
+          logger,
+        )
+      : ({
+          optionsEvents: (c: Context) => c.body(null, 204),
+          receiveEvents: (c: Context) => c.json({ ok: false, error: 'inbound not configured' }, 503),
+        } as unknown as InboundController),
   };
 }
 
@@ -623,6 +641,36 @@ async function main(): Promise<void> {
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
     .catch(err => logger.warn('Self-Healing init failed', { error: err instanceof Error ? err.message : String(err) }));
 
+  // F20260804rbrg：招聘桥接初始化（仅当 config.inbound.recruiting.apiKey 配置时启用）
+  let processInboundRecruit: ProcessInboundRecruit | undefined;
+  let inboundApiKey: string | undefined;
+  if (appConfig.inbound?.recruiting?.apiKey) {
+    inboundApiKey = appConfig.inbound.recruiting.apiKey;
+    processInboundRecruit = new ProcessInboundRecruit(
+      repos.settings,
+      uc.queryMessage,
+      uc.sendMessage,
+      dispatchChainEngine,
+      agentInvoker,  // AgentInvoker 实现 AgentInvokePort
+      logger,
+    );
+    ensureRecruitingConversation({
+      convRepo: repos.conversation,
+      otterRepo: repos.otter,
+      createOtter: uc.createOtter,
+      settings: repos.settings,
+      sendMessage: uc.sendMessage,
+      logger,
+    })
+      .then(({ conversationId, bigOtterId }) => ensureRecruitingScheduler({
+        manageScheduledTask: uc.manageScheduledTask,
+        scheduledTaskRepo: repos.scheduledTask,
+        recruitingConversationId: conversationId,
+        bigOtterId,
+      }))
+      .catch(err => logger.warn('Recruiting init failed', { error: err instanceof Error ? err.message : String(err) }));
+  }
+
   const settings: SettingsConfig = {
     provider: appConfig.llm.default ?? appConfig.llm.provider,
     model: modelPool ? modelPool.getDefaultAlias() : appConfig.llm.model,
@@ -632,7 +680,7 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster, featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService, fs: new NodeFileSystem(), rootDir: process.cwd() });
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster, featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService, fs: new NodeFileSystem(), rootDir: process.cwd(), processInboundRecruit, inboundApiKey });
   startServer(controllers, uc, agentInvoker, appConfig.server.port, feishu);
 
   schedulerService.start().catch((err) => {

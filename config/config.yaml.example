@@ -143,3 +143,11 @@ circuitBreaker:
 #    /out - 退出当前对话
 #    /history - 查看当前对话历史消息
 #    /help - 显示帮助信息
+
+# === 招聘桥接 Inbound 配置（可选）===
+# 配置后启用 Chrome 扩展（boss-zhipin-bridge）向 otter-buddy 推送 BOSS 直聘消息
+# apiKey 是扩展和服务端共享的密钥，扩展端 options 页要填同样的值
+# 生成建议：openssl rand -hex 32
+# inbound:
+#   recruiting:
+#     apiKey: "生成一个随机长字符串作为共享密钥"

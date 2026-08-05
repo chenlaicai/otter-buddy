@@ -75,6 +75,11 @@ export interface AppConfig {
     appSecret: string;
     encryptKey?: string;
   };
+  inbound?: {
+    recruiting?: {
+      apiKey: string;
+    };
+  };
 }
 
 /** config.yaml 的原始 YAML 结构 */
@@ -135,6 +140,11 @@ interface RawConfig {
     appId?: string;
     appSecret?: string;
     encryptKey?: string;
+  };
+  inbound?: {
+    recruiting?: {
+      apiKey?: string;
+    };
   };
 }
 
@@ -261,6 +271,17 @@ function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
   };
 }
 
+function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
+  if (!raw.inbound?.recruiting?.apiKey) {
+    return undefined;
+  }
+  return {
+    recruiting: {
+      apiKey: raw.inbound.recruiting.apiKey,
+    },
+  };
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig */
 function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string } }): AppConfig {
   return {
@@ -291,6 +312,7 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
+    inbound: buildInboundConfig(raw),
   };
 }
 

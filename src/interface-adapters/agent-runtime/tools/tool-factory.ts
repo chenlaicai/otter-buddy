@@ -108,11 +108,11 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由） */
+/** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由 + 时间过滤） */
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: "检索记忆。有明确历史信号时才检索（搭档提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。渐进式披露：先 summary/snippet 定位相关条目，再用 get_memory_detail 深入。可指定 library 路由到特定库。记忆与当前上下文冲突时以当前上下文为准。",
+    description: "检索记忆。有明确历史信号时才检索（搭档提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。渐进式披露：先 summary/snippet 定位相关条目，再用 get_memory_detail 深入。可指定 library 路由到特定库；可指定 created_after 过滤时间范围（如定时摘要查今日新增）。记忆与当前上下文冲突时以当前上下文为准。",
     parameters: {
       type: "object",
       properties: {
@@ -127,6 +127,10 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           type: "string",
           description: "指定库 key（如 conversation、terminology），不传则全库搜索",
         },
+        created_after: {
+          type: "string",
+          description: "ISO timestamp（如 2026-08-04T00:00:00Z），仅返回此时间之后创建的记忆。定时摘要等场景用此过滤'今日新增'。",
+        },
       },
       required: ["query"],
     },
@@ -137,6 +141,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         (params.limit as number) ?? 10,
         detailLevel,
         params.library as string | undefined,
+        params.created_after as string | undefined,
       );
       return textResponse(JSON.stringify(entries));
     },

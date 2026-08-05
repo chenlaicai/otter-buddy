@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "BOSS 直聘桥接 → otter-buddy",
+  "version": "0.1.0",
+  "description": "把 BOSS 直聘上的新 HR 消息批量转发到 otter-buddy 的求职助手对话。otter-buddy 项目的一部分（F20260804rbrg）。",
+  "permissions": [
+    "storage",
+    "alarms",
+    "windows",
+    "tabs",
+    "webRequest",
+    "notifications",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.zhipin.com/*",
+    "http://localhost:3000/*",
+    "http://localhost:3010/*",
+    "http://127.0.0.1:3000/*",
+    "http://127.0.0.1:3010/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.zhipin.com/web/geek/chat*",
+        "https://www.zhipin.com/web/geek/chat"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "BOSS 桥接 - 点击立即扫描",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "options_page": "options.html"
+}

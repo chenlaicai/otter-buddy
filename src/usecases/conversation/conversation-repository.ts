@@ -97,6 +97,9 @@ export interface ConversationRepository {
   // Message 全文搜索（FTS5）
   searchMessages(conversationId: string, query: string, limit?: number): Promise<Message[]>;
 
+  /** F20260804rbrg：按 metadata.externalId 查重（招聘桥接去重用） */
+  findByExternalId(externalId: string): Promise<Message | null>;
+
   // Turn 历史（含消息）
   getTurnHistory(conversationId: string, includeMessages?: boolean): Promise<TurnHistoryEntry[]>;
 

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- conversation repo 含 message/turn/participant/read-state 等多域操作 */
 import type Database from "better-sqlite3";
 import type {
   ArtifactStatus,
@@ -155,11 +156,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       const includeSource = message.source != null;
       const cols = includeSource
         ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)`;
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
         message.body,
@@ -167,6 +168,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
         message.contextTokens, message.contextTokensMax,
         ...(includeSource ? [message.source] : []),
+        message.metadata ? JSON.stringify(message.metadata) : null,
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
@@ -179,11 +181,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       const includeSource = message.source != null;
       const cols = includeSource
         ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?)`;
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
         message.body,
@@ -191,6 +193,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
         message.contextTokens, message.contextTokensMax,
         ...(includeSource ? [message.source] : []),
+        message.metadata ? JSON.stringify(message.metadata) : null,
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
@@ -508,6 +511,14 @@ export class SqliteConversationRepository implements ConversationRepository {
       ORDER BY rank LIMIT ?
     `).all(conversationId, escaped, limit) as (MessageRow & { fts_body: string })[];
     return rows.map(row => ({ ...rowToMessage(row), body: row.fts_body }));
+  }
+
+  /** F20260804rbrg：按 metadata.externalId 查重。metadata 是 JSON 字符串，用 JSON_EXTRACT 提取。 */
+  async findByExternalId(externalId: string): Promise<Message | null> {
+    const row = this.db.prepare(`
+      SELECT * FROM messages WHERE JSON_EXTRACT(metadata, '$.externalId') = ? LIMIT 1
+    `).get(externalId) as MessageRow | undefined;
+    return row ? rowToMessage(row) : null;
   }
 
   // ── Turn 历史 ──

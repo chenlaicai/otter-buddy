@@ -38,6 +38,11 @@ export class QueryMessage {
     return this.repo.searchMessages(conversationId, query, limit);
   }
 
+  /** F20260804rbrg：按 metadata.externalId 查重 */
+  async findByExternalId(externalId: string): Promise<Message | null> {
+    return this.repo.findByExternalId(externalId);
+  }
+
   /** 获取 Turn 历史链（含消息） */
   async getTurnHistory(
     conversationId: string,

@@ -30,6 +30,8 @@ export interface SearchQuery {
   library?: string;
   /** 按记忆层过滤（working/historical） */
   layer?: MemoryLayer;
+  /** F20260804rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+  createdAfter?: string;
 }
 
 export interface RetrievalResultEntry extends MemoryEntry {
@@ -209,6 +211,7 @@ export class SearchMemory {
       layer: query.layer,
       granularity: query.granularity,
       conversationId: query.conversationId,
+      createdAfter: query.createdAfter,
     };
 
     /**

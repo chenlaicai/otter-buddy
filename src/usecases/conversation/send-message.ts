@@ -3,6 +3,7 @@ import type {
   Message,
   MessageEvent,
   MessageEventType,
+  MessageMetadata,
   MessageSource,
 } from "@entities/conversation/message";
 import {
@@ -32,6 +33,8 @@ export interface SendMessageInput {
   body: string;
   /** 用户消息来源（"web" | "feishu"），默认 "web"。agent/系统消息不需要此字段 */
   source?: MessageSource;
+  /** F20260804rbrg：外部元数据（招聘桥接查重用，外部消息才填） */
+  metadata?: MessageMetadata | null;
 }
 
 /** Otter 开始流式消息输入 */
@@ -122,6 +125,7 @@ export class SendMessage {
       contextTokens: null,
       contextTokensMax: null,
       source,
+      metadata: input.metadata ?? null,
       createdAt: now,
       completedAt: now,
     };

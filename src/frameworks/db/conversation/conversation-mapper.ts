@@ -12,6 +12,7 @@ import type {
   Message,
   MessageEvent,
   MessageEventType,
+  MessageMetadata,
   MessageSource,
   MessageStatus,
   SenderType,
@@ -42,6 +43,7 @@ export interface MessageRow {
   context_tokens: number | null;
   context_tokens_max: number | null;
   source: string;
+  metadata: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -129,6 +131,7 @@ export function rowToMessage(row: MessageRow): Message {
     contextTokens: row.context_tokens,
     contextTokensMax: row.context_tokens_max,
     source: (row.source ?? "web") as MessageSource,
+    metadata: row.metadata ? (JSON.parse(row.metadata) as MessageMetadata) : null,
     createdAt: row.created_at,
     completedAt: row.completed_at,
   };

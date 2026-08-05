@@ -100,6 +100,8 @@ function createMessageTables(db: Database.Database): void {
       talking_stone_passed_to TEXT,
       context_tokens INTEGER,
       context_tokens_max INTEGER,
+      source TEXT,
+      metadata TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),

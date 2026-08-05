@@ -10,6 +10,7 @@ import type { SettingsController } from "./controllers/settings-controller";
 import type { ScheduledTaskController } from "./controllers/scheduled-task-controller";
 import type { ConnectionController } from "./controllers/connection-controller";
 import type { HealthController } from "./controllers/health-controller";
+import type { InboundController } from "./controllers/inbound-controller";
 
 export interface Controllers {
   conversation: ConversationController;
@@ -21,6 +22,7 @@ export interface Controllers {
   scheduledTask: ScheduledTaskController;
   connection: ConnectionController;
   health: HealthController;
+  inbound: InboundController;
 }
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
@@ -91,6 +93,12 @@ function registerConnectionRoutes(app: Hono, c: Controllers): void {
   app.get("/api/connections/:id/conversations", (ctx) => c.connection.listActiveConversations(ctx));
 }
 
+/** F20260804rbrg：通用 inbound 端点（按 source 分发到 use case，路由名不焊死领域） */
+function registerInboundRoutes(app: Hono, c: Controllers): void {
+  app.options('/api/inbound/events', (ctx) => c.inbound.optionsEvents(ctx));
+  app.post('/api/inbound/events', (ctx) => c.inbound.receiveEvents(ctx));
+}
+
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
 export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   const app = new Hono();
@@ -122,6 +130,7 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   registerDataRoutes(app, ctrl);
   registerScheduledTaskRoutes(app, ctrl);
   registerConnectionRoutes(app, ctrl);
+  registerInboundRoutes(app, ctrl);
 
   return app;
 }

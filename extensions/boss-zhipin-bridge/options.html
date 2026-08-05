@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>BOSS 直聘桥接 - 配置</title>
+  <style>
+    body { font-family: -apple-system, "Helvetica Neue", sans-serif; padding: 20px; max-width: 900px; margin: 0 auto; color: #333; }
+    h1 { font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    h2 { font-size: 14px; margin-top: 28px; color: #666; }
+    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .row label { width: 130px; font-size: 13px; color: #666; }
+    .row input { flex: 1; padding: 6px; font-family: ui-monospace, monospace; font-size: 12px; border: 1px solid #ddd; border-radius: 4px; }
+    button { padding: 6px 14px; cursor: pointer; background: #4a90e2; color: white; border: none; border-radius: 4px; font-size: 13px; }
+    button.secondary { background: #888; }
+    button.danger { background: #d9534f; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    #status-area { background: #f8f9fa; border: 1px solid #eaecef; padding: 10px; margin-top: 12px; font-size: 12px; min-height: 60px; }
+    .status-line { padding: 4px 0; border-bottom: 1px solid #f0f0f0; }
+    .status-line:last-child { border-bottom: none; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; }
+    .badge-ok { background: #d4edda; color: #155724; }
+    .badge-warn { background: #fff3cd; color: #856404; }
+    .badge-crit { background: #f8d7da; color: #721c24; }
+    .badge-paused { background: #d1ecf1; color: #0c5460; }
+    details { margin-top: 6px; }
+    summary { cursor: pointer; font-size: 12px; color: #666; }
+    pre { background: #f4f4f4; padding: 6px; overflow: auto; font-size: 11px; max-height: 200px; }
+    .hint { color: #999; font-size: 11px; margin-left: 138px; margin-top: -4px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <h1>BOSS 直聘桥接 → otter-buddy 配置</h1>
+
+  <h2>otter-buddy 连接</h2>
+  <div class="row">
+    <label>otter URL</label>
+    <input id="otterUrl" placeholder="http://localhost:3010/api/inbound/events" />
+  </div>
+  <div class="row">
+    <label>X-Inbound-Key</label>
+    <input id="otterKey" type="password" placeholder="与 otter config.inbound.recruiting.apiKey 一致" />
+  </div>
+  <div class="hint">key 从 otter-buddy 的 config.yaml 复制过来（与 <code>inbound.recruiting.apiKey</code> 字段一致）。</div>
+  <div class="row">
+    <label></label>
+    <button id="save">保存配置</button>
+    <button id="test" class="secondary">测试连接</button>
+  </div>
+
+  <h2>立即操作</h2>
+  <div class="row">
+    <label></label>
+    <button id="scan-now">立即扫描一次</button>
+    <button id="clear-paused" class="danger">清除反爬暂停状态</button>
+    <button id="clear-all" class="danger">清空本地数据</button>
+  </div>
+
+  <h2>运行状态</h2>
+  <div id="status-area">加载中...</div>
+
+  <details>
+    <summary>最近捕获的 webRequest（调试用）</summary>
+    <pre id="captured">(点'刷新'加载)</pre>
+  </details>
+
+  <details>
+    <summary>水位线（每个 bossId 已读位置）</summary>
+    <pre id="waterline">(点'刷新'加载)</pre>
+  </details>
+
+  <details>
+    <summary>错误计数器</summary>
+    <pre id="counters">(点'刷新'加载)</pre>
+  </details>
+
+  <script src="options.js"></script>
+</body>
+</html>

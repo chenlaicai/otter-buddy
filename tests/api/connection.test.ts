@@ -12,8 +12,6 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   initSchema(db);
-  // 添加 source 列
-  db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
   return db;
 }
 
