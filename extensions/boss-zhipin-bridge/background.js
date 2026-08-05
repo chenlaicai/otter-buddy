@@ -109,9 +109,22 @@ chrome.action.onClicked.addListener(() => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// 扫描主流程
+// 扫描主流程（带并发锁，防止手动+alarm 同时触发）
 // ─────────────────────────────────────────────────────────────
+let scanRunning = false;
 async function runScanCycle() {
+  if (scanRunning) {
+    console.log("[boss-bridge] scan already running, skip");
+    return { skipped: "already-running" };
+  }
+  scanRunning = true;
+  try {
+    return await doScanCycle();
+  } finally {
+    scanRunning = false;
+  }
+}
+async function doScanCycle() {
   console.log("[boss-bridge] scan cycle start");
   await setScanPhase("开始扫描（检查反爬暂停标志）");
 
@@ -327,6 +340,9 @@ async function forwardToOtter(payload) {
       const c = counters[ERROR_COUNTERS_KEY] ?? {};
       c["forward-failed"] = 0;
       await STORAGE.set({ [ERROR_COUNTERS_KEY]: c });
+
+      // drain：补发缓冲消息（恢复后把之前失败的也发出去）
+      await drainForwardBuffer(url, key, source);
       return;
     }
 
@@ -350,6 +366,34 @@ async function bufferForRetry(payload) {
   buf.push({ at: Date.now(), payload });
   while (buf.length > MAX_BUFFERED) buf.shift();
   await STORAGE.set({ [FORWARD_BUFFER_KEY]: buf });
+}
+
+/** 恢复后补发缓冲消息（逐条发，失败的保留在 buffer 中） */
+async function drainForwardBuffer(url, key, source) {
+  const data = await STORAGE.get([FORWARD_BUFFER_KEY]);
+  const buf = data[FORWARD_BUFFER_KEY] ?? [];
+  if (buf.length === 0) return;
+
+  console.log(`[boss-bridge] draining ${buf.length} buffered messages`);
+  const remaining = [];
+  for (const item of buf) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Inbound-Key": key },
+        body: JSON.stringify({ source, kind: item.payload.kind, payload: item.payload.payload }),
+      });
+      if (!resp.ok) {
+        remaining.push(item); // 服务端拒绝，保留
+      }
+    } catch {
+      remaining.push(item); // 网络错误，保留
+    }
+  }
+  await STORAGE.set({ [FORWARD_BUFFER_KEY]: remaining });
+  if (remaining.length > 0) {
+    console.warn(`[boss-bridge] ${remaining.length} buffered messages still pending`);
+  }
 }
 
 async function incrementError(counterKey, payloadToBuffer = null) {

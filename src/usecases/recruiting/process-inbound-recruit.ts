@@ -157,7 +157,7 @@ export class ProcessInboundRecruit {
     return { accepted: fresh.length, deduplicated };
   }
 
-  /** 桥接状态事件：每个事件插入系统消息 → 触发大獭 invoke */
+  /** 桥接状态事件：每个事件插入系统消息 → 触发大獭 invoke（容错：单条失败不阻塞后续） */
   private async handleStatus(
     conversationId: string,
     bigOtterId: string,
@@ -168,38 +168,52 @@ export class ProcessInboundRecruit {
     }
 
     let accepted = 0;
+    const failed: string[] = [];
     for (const event of events) {
       // 状态事件无 externalId 查重（30 分钟去重在扩展端做）。每个事件一条系统消息
-      const body = formatStatusEvent(event);
-      const metadata: MessageMetadata = {
-        eventType: event.type,
-        severity: event.severity,
-      };
-      const message = await this.sendMessage.send({
-        conversationId,
-        senderType: 'system',
-        senderId: 'boss-zhipin-bridge',
-        talkingStonePassedTo: [bigOtterId],
-        body,
-        metadata,
-      });
+      try {
+        const body = formatStatusEvent(event);
+        const metadata: MessageMetadata = {
+          eventType: event.type,
+          severity: event.severity,
+        };
+        const message = await this.sendMessage.send({
+          conversationId,
+          senderType: 'system',
+          senderId: 'boss-zhipin-bridge',
+          talkingStonePassedTo: [bigOtterId],
+          body,
+          metadata,
+        });
 
-      this.logger.info('inbound status: event inserted', {
-        conversationId,
-        messageId: message.id,
-        type: event.type,
-        severity: event.severity,
-      });
+        this.logger.info('inbound status: event inserted', {
+          conversationId,
+          messageId: message.id,
+          type: event.type,
+          severity: event.severity,
+        });
 
-      void this.triggerDispatch(conversationId, bigOtterId, body).catch(err => {
+        void this.triggerDispatch(conversationId, bigOtterId, body).catch(err => {
+          this.logger.error(
+            'inbound status: dispatch failed',
+            err instanceof Error ? err : new Error(String(err)),
+            { conversationId, messageId: message.id, type: event.type },
+          );
+        });
+
+        accepted++;
+      } catch (err) {
+        failed.push(`${event.type}(${event.severity})`);
         this.logger.error(
-          'inbound status: dispatch failed',
+          'inbound status: event insert failed, continuing',
           err instanceof Error ? err : new Error(String(err)),
-          { conversationId, messageId: message.id, type: event.type },
+          { conversationId, type: event.type, severity: event.severity },
         );
-      });
+      }
+    }
 
-      accepted++;
+    if (failed.length > 0) {
+      this.logger.warn('inbound status: some events failed', { failed, accepted, total: events.length });
     }
 
     return { accepted, deduplicated: 0 };
