@@ -327,6 +327,7 @@ export class AgentInvoker {
     if (errMsg.startsWith("[output-guard]")) {
       if (errMsg.includes("degenerate_output")) return "[系统保护] 检测到输出内容异常重复，已自动中断。";
       if (errMsg.includes("streaming_timeout")) return "[系统保护] 生成过程超时，已自动中断。";
+      if (errMsg.includes("first_byte_timeout")) return "[系统保护] 模型响应超时，已自动中断。";
       return "[系统保护] 输出异常，已自动中断。";
     }
     const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? this.agentInvoke.getToolCallCount(otterId, messageId);

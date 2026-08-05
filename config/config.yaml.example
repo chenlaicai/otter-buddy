@@ -117,18 +117,26 @@ circuitBreaker:
   # 注意：按"每条用户消息"计数，用户发新消息后重置；并行扇出不额外计跳
   # 触顶时系统向对话注入提示消息，发言石交还用户
   maxChainDepth: 20
-  # === 文本生成退化检测（OutputGuard）===
+  # === 文本生成退化检测（OutputGuard，F20260804dglp）===
   outputGuard:
     # 是否启用退化检测（默认 true）
     enabled: true
-    # 片段长度（字符），用于检测重复模式（默认 100）
-    segmentLength: 100
-    # 相同片段重复多少次触发 abort（默认 50）
-    maxRepeatedSegments: 50
-    # 每累积多少个片段检查一次重复（默认 20）
-    checkInterval: 20
+    # 退化检测器参数（双机制：非对齐滑窗精确重复 + distinct-ratio 近似重复）
+    detector:
+      # 滑窗/分段长度（字符）（默认 100）
+      windowLength: 100
+      # 机制 A：同一窗口出现多少次触发 abort（默认 50）
+      # 失控循环的单窗口计数 ≈ 块长/周期；良性"整段复述两遍"计数=2，不误伤
+      maxWindowRepeats: 50
+      # 机制 B：块最小长度（字符），低于此不做 ratio 判定（默认 5000）
+      minBlockLength: 5000
+      # 机制 B：distinct/total ≤ 此值判退化（默认 0.3；合法块实测最低 0.838）
+      distinctRatioThreshold: 0.3
   # 流式超时（毫秒），连续无新内容则 abort（默认 120000，即 2 分钟）
   streamingTimeoutMs: 120000
+  # 首字节超时（毫秒），prompt 发出后无任何 delta 则 abort（默认 300000，即 5 分钟）
+  # 覆盖排队 + prefill 静默期；大上下文 TTFT 实测 ~70s，留足余量
+  firstByteTimeoutMs: 300000
 
 # === 飞书集成配置（可选）===
 # 配置后启用飞书长连接接入，支持 IM 大厅功能

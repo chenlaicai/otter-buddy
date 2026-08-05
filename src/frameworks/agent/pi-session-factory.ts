@@ -39,6 +39,8 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
+import type { OutputGuardConfig } from "./output-guard";
+import { sanitizeSessionFile } from "./session-sanitizer";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 
@@ -55,7 +57,7 @@ export interface AgentRunResult {
   tokenUsage?: { input: number; output: number };
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
-  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
 }
 
 /** invoke() 选项 */
@@ -567,7 +569,7 @@ export class PiSessionFactory implements AgentGateway {
     this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
     // 2. 熔断器 + 输出退化检测
-    const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard } = this._attachGuards(session, sessionKey, otterId);
+    const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = this._attachGuards(session, sessionKey, otterId);
 
     // 3. 构建完整消息并记录日志
     const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
@@ -575,11 +577,10 @@ export class PiSessionFactory implements AgentGateway {
 
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent, turnText));
     try {
+      /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
+      armFirstByte();
       await session.prompt(fullMessage);
-      const result = this._buildInvokeResult(otterId, session, circuitBreaker);
-      result.outputGuardMetadata = outputGuard.getMetadata();
-      if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
-      return result;
+      return this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
     } catch (err) {
       const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
       e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
@@ -589,6 +590,40 @@ export class PiSessionFactory implements AgentGateway {
       unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
+      /** F20260804dglp 修复 3：dispose 后清洗 session 文件，斩断退化内容污染飞轮 */
+      this.sanitizeSessionSafely(otterId, sessionManager);
+    }
+  }
+
+  /** prompt 成功后的结果组装 + 首字节延迟埋点日志（F20260804dglp） */
+  private _buildPromptResult(
+    otterId: string,
+    session: { getSessionStats: () => { tokens: { input: number; output: number } } },
+    circuitBreaker: ToolCallCircuitBreaker,
+    outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number } },
+    activeEntry: { guardAbortReason?: string } | undefined,
+  ): AgentRunResult {
+    const result = this._buildInvokeResult(otterId, session, circuitBreaker);
+    const guardMeta = outputGuard.getMetadata();
+    result.outputGuardMetadata = guardMeta;
+    if (guardMeta.firstByteLatencyMs !== undefined) {
+      this.logger.info('LLM first-byte latency', { otterId, firstByteLatencyMs: guardMeta.firstByteLatencyMs });
+    }
+    if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
+    return result;
+  }
+
+  /** session 文件清洗（幂等；失败只告警，绝不影响 invoke 主路径） */
+  private sanitizeSessionSafely(otterId: string, sessionManager: SessionManager): void {
+    try {
+      const file = sessionManager.getSessionFile();
+      if (!file) return;
+      const result = sanitizeSessionFile(file);
+      if (result.replacedBlocks > 0) {
+        this.logger.warn(`[session-sanitizer] 清洗退化块: otter=${otterId} blocks=${result.replacedBlocks}`, { hits: result.hits });
+      }
+    } catch (err) {
+      this.logger.warn(`[session-sanitizer] 清洗失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -661,8 +696,22 @@ export class PiSessionFactory implements AgentGateway {
     const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
     const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
     timerRef.clear = clearEventTimer;
-    const cfg = { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }; const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, () => wrappedAbort(outputGuard.getMetadata().reason));
-    return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard };
+    /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
+    const cb = appConfig.circuitBreaker;
+    const cfg: Partial<OutputGuardConfig> = {
+      ...cb?.outputGuard,
+      ...(cb?.streamingTimeoutMs !== undefined && { streamingTimeoutMs: cb.streamingTimeoutMs }),
+      ...(cb?.firstByteTimeoutMs !== undefined && { firstByteTimeoutMs: cb.firstByteTimeoutMs }),
+    };
+    /** abort 返回 Promise：fire 路径无人 await，catch 防 unhandledRejection */
+    const guardAbort = () => {
+      void wrappedAbort(outputGuard.getMetadata().reason).catch((err: unknown) => {
+        this.logger.warn(`[output-guard] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    };
+    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, guardAbort);
+    const armFirstByte = () => outputGuard.armFirstByteTimer(guardAbort);
+    return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte };
   }
   /** 中断指定 Otter 的 Agent 生成 */
   abort(otterId: string, messageId?: string): void {

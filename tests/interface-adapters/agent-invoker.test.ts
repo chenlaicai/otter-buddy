@@ -432,6 +432,34 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toBe("[系统保护] 单次工具调用超时，已自动中断。");
   });
+
+  it("output-guard first_byte_timeout 呈现模型响应超时专属文案", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const streamingQm: QueryMessage = {
+      getMessageById: async () => ({
+        ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
+      }),
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "" }, internalAbortReason: "first_byte_timeout" }),
+      msg,
+      streamingQm,
+      mockManageSession(),
+      mockQueryOtter(),
+      mockLogger(),
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    expect(msg._calls.abort[0].body).toBe("[系统保护] 模型响应超时，已自动中断。");
+  });
 });
 
 /** 创建可配置的 QueryMessage mock：按调用顺序返回不同消息状态 */
