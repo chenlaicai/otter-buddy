@@ -1,10 +1,12 @@
 /**
  * jieba 中文分词工具
  *
- * 使用 nodejieba 对中文内容进行分词，支持任意长度中文查询。
+ * 使用 @node-rs/jieba 对中文内容进行分词，支持任意长度中文查询。
  */
 
-import nodejieba from "nodejieba";
+import { Jieba } from "@node-rs/jieba";
+
+const jieba = new Jieba();
 
 /** 中文停用词列表 */
 const STOP_WORDS = new Set([
@@ -25,7 +27,7 @@ const STOP_WORDS = new Set([
  */
 export function tokenizeWithJieba(text: string): string {
   if (!text) return "";
-  const words = nodejieba.cut(text);
+  const words = jieba.cut(text, false);
   return words.join(" ");
 }
 
@@ -36,6 +38,6 @@ export function tokenizeWithJieba(text: string): string {
  */
 export function tokenizeQuery(query: string): string[] {
   if (!query) return [];
-  const words = nodejieba.cut(query);
+  const words = jieba.cut(query, false);
   return words.filter(word => !STOP_WORDS.has(word));
 }
