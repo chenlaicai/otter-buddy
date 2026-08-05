@@ -184,7 +184,7 @@ function OtterParticipantCard({
         <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
         {activeS && (
           <div className="text-[9px] text-stone-400">
-            Session #{sessions.length} · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
+            第{sessions.length}世 · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
           </div>
         )}
       </div>

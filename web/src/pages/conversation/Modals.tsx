@@ -263,6 +263,15 @@ function OtterDetailModal(props: ModalsProps) {
   if (!otter) return null
 
   const sessions: OtterSession[] = props.sessions[otter.id] || []
+  /** F20260805rsto：按 previousSessionId 拉链排序（首世在前），链外残留按时间附加 */
+  const chain: OtterSession[] = (() => {
+    const byPrev = new Map(sessions.map(s => [s.previousSessionId, s] as const))
+    const ordered: OtterSession[] = []
+    let cur = byPrev.get(null)
+    while (cur) { ordered.push(cur); cur = byPrev.get(cur.id) }
+    for (const s of sessions) if (!ordered.includes(s)) ordered.push(s)
+    return ordered
+  })()
   const otterSkills: Skill[] = mockSkills.filter(s => s.assignedTo.includes(otter.id))
 
   return (
@@ -320,6 +329,7 @@ function OtterDetailModal(props: ModalsProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-stone-500 border-b border-white/30">
+              <th className="py-1.5 px-2 text-left">世</th>
               <th className="py-1.5 px-2 text-left">状态</th>
               <th className="py-1.5 px-2 text-left">开始</th>
               <th className="py-1.5 px-2 text-left">归档</th>
@@ -329,16 +339,20 @@ function OtterDetailModal(props: ModalsProps) {
             </tr>
           </thead>
           <tbody>
-            {sessions.map(s => (
-              <tr key={s.id} className="border-b border-white/20">
+            {chain.map((s, i) => (
+              <tr key={s.id} className={`border-b border-white/20 ${s.status === 'active' ? 'bg-otter-400/5' : ''}`}>
+                <td className="py-1.5 px-2 text-xs text-stone-600">第{i + 1}世</td>
                 <td className="py-1.5 px-2 text-xs text-stone-600">
-                  {s.status === 'active' ? '✓ 活跃' : '归档'}
+                  {s.status === 'active' ? '✓ 当前' : s.status === 'restarted' ? '已重启' : '已归档'}
                 </td>
                 <td className="py-1.5 px-2 text-xs text-stone-600">{s.startedAt}</td>
                 <td className="py-1.5 px-2 text-xs text-stone-600">{s.archivedAt || '-'}</td>
                 <td className="py-1.5 px-2 text-xs text-stone-600">{s.archiveReason || '-'}</td>
                 <td className="py-1.5 px-2 text-xs text-stone-600">{s.isNegativeCase ? '是' : '-'}</td>
-                <td className="py-1.5 px-2 text-xs text-stone-600">{s.summary || '-'}</td>
+                {/* F20260805rsto：active 行的 summary 是注入新獭生的「前情」，不是封存摘要，标注区分 */}
+                <td className="py-1.5 px-2 text-xs text-stone-600">
+                  {s.summary ? (s.status === 'active' ? `前情：${s.summary}` : s.summary) : '-'}
+                </td>
               </tr>
             ))}
           </tbody>

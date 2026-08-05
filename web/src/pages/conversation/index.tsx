@@ -863,9 +863,14 @@ function ConversationPage() {
 
   async function confirmRestart(summary: string) {
     if (modal.type !== 'restart') return
+    const otterId = modal.otterId
     try {
-      await api.restartOtter(modal.otterId, summary)
-      setModal({ type: 'none' }); showToast('Session 已封存，新 Session 已开始', 'success')
+      await api.restartOtter(otterId, summary)
+      /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
+       *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
+      const dtos = await api.getSessionHistory(otterId)
+      setSessions(prev => ({ ...prev, [otterId]: dtos.map(mapSessionDTO) }))
+      setModal({ type: 'none' }); showToast('前世已封存，新一世獭生已开始', 'success')
     } catch { showToast('重启失败', 'error') }
   }
 

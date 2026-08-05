@@ -117,9 +117,14 @@ const session = await this.manageSession.createSession(id);  // 唯一被执行�
 - 补登记的 session `startedAt` 为补登记时刻，与真实对话历史不符：可接受（评审 #9，可延后改进为取 agent_sessions.created_at 近似）。
 - restart archive 与 createSession 非原子：中间态由 invoke 兜底自愈，可观测性靠日志。
 
+### 前端展示修复（用户拍板并入本 PR，原「另行立项」取消）
+
+- **重启后重拉 session 链**（conversation/index.tsx confirmRestart）：原加载 effect 的 `!sessions[id]` 守卫导致重启后弹窗/卡片恒显旧数据；现重启成功即重拉 history。toast 文案对齐「前世已封存，新一世獭生已开始」。
+- **mapper 补全链信息**：`LocalOtterSession.status` 补 `'restarted'`；`mapSessionDTO` 透传 `previousSessionId`。
+- **Session Chain 表链式化**（Modals.tsx）：按 `previousSessionId` 拉链排序、标注「第 N 世」；状态区分「✓ 当前 / 已重启 / 已归档」（不再笼统显示「归档」）；active 行高亮；active 行的 summary 标注为「前情：…」（它是注入新獭生的前情摘要，非封存摘要——二轮评审发现的语义混淆项，随本次一并解决）。右栏卡片「Session #N」对齐术语为「第 N 世」。
+
 ### 另行立项（不在本 bugfix 范围）
 
-- 前端：重启后刷新 sessions、Session Chain 链式展示、restarted 状态显示（原次生问题 4、5）；
 - `isNegativeCase` 产品语义确认（原次生问题 3）；
 - handoffSession 接入或删除；pi 层「reset 删旧文件 vs destroy 留审计」策略统一（原次生问题 6、7）——注意「封存为反面案例」语义下，账本行留着而证据 jsonl 被 unlink，二者目前自相矛盾。
 
@@ -169,3 +174,4 @@ const session = await this.manageSession.createSession(id);  // 唯一被执行�
 - 2026-08-05：用户操作中发现「重启后看不出任何生效迹象」，排查确认为空操作 bug。用户定性「这是严重 bug」，要求基于真实代码完整分析并写清文档。
 - 2026-08-05：对抗审视（上表）后修正方案。**用户拍板一**：存量獭补账用「启动时一次性迁移」（懒补有坑——对话前点 restart 仍空操作一次）。**用户拍板二**：接受 restart 阻塞在 pi 锁上（异步化引入「已返回成功但重置未完成」窗口期，复杂度高）。
 - 2026-08-05：技术拍板（架构师）：解环用纯工厂方案（不注入 ManageSession）；兜底放 AgentInvoker 而非 SessionRestore；删除 POST /sessions 端点；回滚顺序 destroy → deleteOtter。
+- 2026-08-05：二轮 PR 审视后，**用户拍板**：前端展示修复（重启后刷新、链式展示、restarted 状态、active 行摘要语义）不做延后立项，并入本 PR 一并修完，不留残留。
