@@ -86,6 +86,11 @@ async function loadCustomProvider(
     modelsDict = modelsMod.ANTHROPIC_MODELS;
     const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
     api = apiMod.anthropicMessagesApi();
+  } else if (providerType === "kimi-coding") {
+    const modelsMod = await import("@earendil-works/pi-ai/providers/kimi-coding.models");
+    modelsDict = modelsMod.KIMI_CODING_MODELS;
+    const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
+    api = apiMod.anthropicMessagesApi();
   } else {
     throw new Error(`Unsupported LLM provider type: ${providerType}`);
   }
@@ -143,6 +148,10 @@ async function loadProvider(providerType: string, modelId: string, alias: string
     case "anthropic": {
       const mod = await import("@earendil-works/pi-ai/providers/anthropic");
       return mod.anthropicProvider();
+    }
+    case "kimi-coding": {
+      const mod = await import("@earendil-works/pi-ai/providers/kimi-coding");
+      return mod.kimiCodingProvider();
     }
     default:
       throw new Error(`Unsupported LLM provider type: ${providerType}`);
