@@ -113,24 +113,33 @@ chrome.action.onClicked.addListener(() => {
 // ─────────────────────────────────────────────────────────────
 async function runScanCycle() {
   console.log("[boss-bridge] scan cycle start");
+  await setScanPhase("开始扫描（检查反爬暂停标志）");
 
   // 反爬暂停标志：上一次 critical 后等用户手动恢复
   const flags = await STORAGE.get(["paused-due-to-antibot"]);
   if (flags["paused-due-to-antibot"]) {
     console.log("[boss-bridge] paused due to anti-bot, skip");
-    return;
+    await setScanPhase("已暂停（反爬）— 跳过");
+    return { skipped: "paused" };
   }
 
   // 1. 拿 / 复用 / 创建 minimized window
+  await setScanPhase("准备 BOSS tab");
   const tab = await getOrCreateBossTab();
-  if (!tab) return; // 错误已上报
+  if (!tab) {
+    await setScanPhase("失败：无法开 BOSS tab");
+    return { error: "no-tab" };
+  }
 
   // 2. 等 SPA 加载（首次/复用都需要点时间）
+  await setScanPhase(`等 SPA 加载 25s（tab ${tab.id}）`);
   await sleep(SCAN_DWELL_MS);
 
   // 3. 检查 about:blank（反爬）
   const reloaded = await chrome.tabs.get(tab.id);
+  await setScanPhase(`当前 tab URL: ${reloaded.url?.slice(0, 80)}`);
   if (!reloaded.url || reloaded.url === "about:blank" || reloaded.title === "") {
+    await setScanPhase("反爬触发，暂停");
     await reportStatus({
       type: "anti-bot-detected",
       severity: "critical",
@@ -138,25 +147,40 @@ async function runScanCycle() {
     });
     await STORAGE.set({ "paused-due-to-antibot": true });
     showBadge("!", [255, 0, 0]);
-    return;
+    return { error: "anti-bot" };
+  }
+
+  // 如果不是聊天页（如跳到登录页），content script 不会注入
+  if (!reloaded.url.includes("/web/geek/chat")) {
+    await setScanPhase(`非聊天页（URL=${reloaded.url.slice(0, 60)}），可能需要登录`);
+    await reportStatus({
+      type: "login-expired",
+      severity: "critical",
+      detail: `BOSS tab 跳到非聊天页（URL=${reloaded.url}），可能未登录或登录失效`,
+    });
+    return { error: "not-chat-page", url: reloaded.url };
   }
 
   // 4. 让 content script 扫 DOM，对未读会话主动 click 触发 historyMsg（拿到 bossId）
+  await setScanPhase("扫 DOM + 模拟点击未读会话");
   const baseline = getRecentBossIds(60_000); // click 前 1 分钟的 bossId
   let scanResult;
   try {
     scanResult = await chrome.tabs.sendMessage(tab.id, { type: "scan-and-trigger" });
   } catch (err) {
+    await setScanPhase(`失败：content script 没响应（${err.message}）。在 BOSS tab 上 Cmd+R 刷新一次`);
     await reportStatus({ type: "scan-failed", severity: "warning", detail: `content script error: ${err.message}` });
-    return;
+    return { error: "cs-error", detail: err.message };
   }
 
   if (!scanResult?.ok) {
+    await setScanPhase(`扫描失败：${scanResult?.error || "unknown"}`);
     await reportStatus({ type: "scan-failed", severity: "warning", detail: scanResult?.error || "unknown" });
-    return;
+    return { error: scanResult?.error || "scan-failed" };
   }
 
   // 5. 等 click 触发的 historyMsg 响应
+  await setScanPhase(`扫到 ${scanResult.conversations.length} 个会话，点击 ${scanResult.clickedCount} 个未读，等 8s`);
   await sleep(POST_CLICK_WAIT_MS);
 
   // 6. 拿 click 后的新 bossId 列表，对每个 bossId 调 historyMsg 拿全文
@@ -448,6 +472,12 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/** 把扫描阶段写到 storage，options 页能看到进度 */
+async function setScanPhase(phase) {
+  console.log("[boss-bridge] phase:", phase);
+  await STORAGE.set({ "boss-bridge-scan-phase": phase });
+}
+
 function extractMessageText(msg) {
   if (!msg.body) return "(empty)";
   const t = msg.body.type;
@@ -482,10 +512,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "test-connection") {
     (async () => {
       try {
-        const cfg = await STORAGE.get(["otterUrl", "otterKey"]);
-        const resp = await fetch(cfg.otterUrl, {
+        // 优先用 options 页传来的当前输入框值；没有才回落到 storage
+        let otterUrl = msg.otterUrl;
+        let otterKey = msg.otterKey;
+        if (!otterUrl || !otterKey) {
+          const cfg = await STORAGE.get(["otterUrl", "otterKey"]);
+          otterUrl = otterUrl || cfg.otterUrl;
+          otterKey = otterKey || cfg.otterKey;
+        }
+        if (!otterUrl || !otterKey) {
+          sendResponse({ ok: false, error: "otterUrl/otterKey 未配置" });
+          return;
+        }
+        const resp = await fetch(otterUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-Inbound-Key": cfg.otterKey },
+          headers: { "Content-Type": "application/json", "X-Inbound-Key": otterKey },
           body: JSON.stringify({
             source: "boss-zhipin-bridge",
             kind: "status",

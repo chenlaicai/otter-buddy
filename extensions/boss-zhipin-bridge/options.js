@@ -11,6 +11,14 @@ async function loadConfig() {
 }
 
 async function renderStatus() {
+  // 扫描进行中：渲染扫描进度，不被覆盖
+  if (scanInProgress) {
+    const phase = await chrome.storage.local.get(["boss-bridge-scan-phase"]);
+    const phaseText = phase["boss-bridge-scan-phase"] || "(未知)";
+    $("status-area").innerHTML = `<div class="status-line"><span class="badge badge-warn">扫描中</span> ${phaseText}</div>`;
+    return;
+  }
+
   const data = await chrome.storage.local.get([
     "last-scan-at",
     "paused-due-to-antibot",
@@ -57,19 +65,29 @@ async function saveConfig() {
   setStatus("配置已保存 ✓");
 }
 
-function setStatus(msg) {
-  // 短暂提示
-  const old = $("status-area").innerHTML;
+let scanInProgress = false;
+
+function setStatus(msg, persistent = false) {
+  // persistent=true 时不被周期 renderStatus 覆盖（扫描/测试连接等长操作用）
   $("status-area").innerHTML = `<div class="status-line">${msg}</div>`;
-  setTimeout(renderStatus, 1500);
+  if (!persistent) {
+    setTimeout(renderStatus, 1500);
+  }
 }
 
 // 事件绑定
 $("save").addEventListener("click", saveConfig);
 
 $("test").addEventListener("click", async () => {
+  // 直接从输入框读当前值（不依赖 storage），避免"改了未保存"的陷阱
+  const otterUrl = $("otterUrl").value.trim();
+  const otterKey = $("otterKey").value.trim();
+  if (!otterUrl || !otterKey) {
+    setStatus(`<span class="badge badge-crit">失败</span> URL 和 Key 都要填`);
+    return;
+  }
   setStatus("测试连接中...");
-  const resp = await chrome.runtime.sendMessage({ type: "test-connection" });
+  const resp = await chrome.runtime.sendMessage({ type: "test-connection", otterUrl, otterKey });
   if (resp?.ok) {
     setStatus(`<span class="badge badge-ok">连接成功</span> otter 返回 ${resp.status}`);
   } else {
@@ -78,16 +96,19 @@ $("test").addEventListener("click", async () => {
 });
 
 $("scan-now").addEventListener("click", async () => {
-  setStatus("立即扫描中（~30-40s）...");
-  // 通过模拟 alarm 触发：直接发消息给 background 触发扫描
-  // background 的 runScanCycle 是内部函数，这里用 action.onClicked 不行（扩展图标才能触发）
-  // 简化：直接调 chrome.runtime.sendMessage 触发一个特殊 type
-  // 但 background 的 alarm handler 是私有的，让 background 暴露这个能力
+  scanInProgress = true;
+  await chrome.storage.local.set({ "boss-bridge-scan-phase": "触发中..." });
+  setStatus("立即扫描中（~30-40s）...", true);
+
   chrome.runtime.sendMessage({ type: "trigger-scan-now" }, (resp) => {
+    scanInProgress = false;
+    chrome.storage.local.remove(["boss-bridge-scan-phase"]);
     if (chrome.runtime.lastError) {
       setStatus(`<span class="badge badge-crit">扫描失败</span> ${chrome.runtime.lastError.message}`);
+    } else if (resp?.ok) {
+      setStatus(`<span class="badge badge-ok">扫描完成</span> ${JSON.stringify(resp)}`);
     } else {
-      setStatus(`<span class="badge badge-ok">扫描完成</span> ${JSON.stringify(resp ?? {})}`);
+      setStatus(`<span class="badge badge-crit">扫描出错</span> ${resp?.error ?? "未知"}`);
     }
   });
 });
