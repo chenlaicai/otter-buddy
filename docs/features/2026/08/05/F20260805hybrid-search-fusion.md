@@ -1,3 +1,20 @@
+---
+id: F20260805hybrid
+title: 混合搜索融合策略升级
+type: feature
+status: in-progress
+created: 2026-08-05
+updated: 2026-08-05
+authors:
+  - orca
+tags:
+  - memory
+  - search
+  - rrf
+  - jieba
+summary: "使用三阶段RRF融合策略和jieba分词，解决Vec低质量结果污染和中文短查询支持问题"
+---
+
 # F20260805hybrid-search-fusion: 混合搜索融合策略升级
 
 ## 问题
