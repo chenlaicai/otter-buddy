@@ -4,16 +4,20 @@ import * as fs from "node:fs";
 import type Database from "better-sqlite3";
 import type { AppConfig } from "@frameworks/config";
 import type { PinoLogger } from "@frameworks/logger";
-import { initDatabase } from "@frameworks/db/database";
+import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
-import { migrateDatabase, migrateExistingData } from "@frameworks/db/migration";
+import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks } from "@frameworks/db/migration";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import { backfillSessionLedger } from "@frameworks/db/otter/backfill-session-ledger";
+import { seedTerminologyData } from "@frameworks/db/memory/seed-terminology";
+import { reconcileOrphans } from "@usecases/conversation/reconcile-orphans";
+import type { SyncResult } from "@usecases/document/sync-documents";
 import type { Repositories } from "./types";
 import { initRepositories } from "./repositories";
 
@@ -47,15 +51,23 @@ export async function initDatabaseAndModels(appConfig: AppConfig, logger: PinoLo
     migrateExistingData(db, otterConfigProvider, logger);
   }
 
-  const dispose = () => {
-    disposeEmbedding();
-  };
-
-  return { db, otterConfigProvider, model, modelPool, embeddingService, dispose };
+  return { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding };
 }
 
 export function initRepositoriesWithDb(db: Database.Database): Repositories {
   return initRepositories(db);
+}
+
+/** DB 初始化后的种子数据 + 孤儿修复 + ledger 回填 */
+export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: PinoLogger): Promise<void> {
+  await seedTerminologyData(db, logger);
+  await reconcileOrphans(repos.conversation, logger);
+  await backfillSessionLedger(db, repos.otter, logger);
+}
+
+/** sync 完成后的 chunk 迁移（独立于 migrateDatabase，PR 审视 S3-01） */
+export function postSyncMigrations(db: Database.Database, logger: PinoLogger, syncResult: SyncResult): void {
+  migrateFeatureBodyToChunks(db, logger, syncResult.errors.length);
 }
 
 export function validateModelAliases(db: Database.Database, modelPool: { hasModel(alias: string): boolean }, logger: PinoLogger): void {
@@ -65,6 +77,10 @@ export function validateModelAliases(db: Database.Database, modelPool: { hasMode
       logger.warn(`Otter ${row.otter_id} 引用了不存在的模型别名「${row.model_alias}」，invoke 时将回退到默认模型`);
     }
   }
+}
+
+export function shutdownDatabase(db: Database.Database, logger: PinoLogger): void {
+  closeDatabase(db, logger);
 }
 
 export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: PinoLogger): void {
@@ -80,18 +96,16 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: PinoL
 
   let changed = false;
 
-  // 多模型模式：遍历所有模型
   if (llmConfig.models && llmConfig.models.length > 0) {
     for (const mc of llmConfig.models) {
       if (!mc.apiKey) continue;
-      const key = mc.alias; // 用 alias 作为 auth key
+      const key = mc.alias;
       if (auth[key] !== mc.apiKey) {
         auth[key] = mc.apiKey;
         changed = true;
       }
     }
   } else if (llmConfig.apiKey) {
-    // 单模型模式：兼容旧逻辑
     if (auth[llmConfig.provider] !== llmConfig.apiKey) {
       auth[llmConfig.provider] = llmConfig.apiKey;
       changed = true;

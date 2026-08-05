@@ -17,13 +17,12 @@ export interface ServerDeps {
   agentInvoker: AgentInvoker;
   appConfig: AppConfig;
   uc: UseCases;
-  port: number;
   feishu?: FeishuBundle;
   logger: PinoLogger;
 }
 
 export function startServer(deps: ServerDeps): void {
-  const { controllers, agentInvoker, appConfig, uc, port, feishu, logger } = deps;
+  const { controllers, agentInvoker, appConfig, uc, feishu, logger } = deps;
   const app = new Hono();
   if (feishu) {
     setupFeishu(appConfig, uc, agentInvoker, feishu, logger);
@@ -39,7 +38,7 @@ export function startServer(deps: ServerDeps): void {
 
   app.use("/*", serveStatic({ root: "./web/dist" }));
 
-  serve({ fetch: app.fetch, port }, (info) => {
+  serve({ fetch: app.fetch, port: appConfig.server.port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
   });
 }

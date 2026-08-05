@@ -1,7 +1,14 @@
 import type { AppConfig } from "@frameworks/config";
 import type { PinoLogger } from "@frameworks/logger";
+import type Database from "better-sqlite3";
+import type { ModelPool } from "@frameworks/llm/model-pool";
+import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { Repositories, UseCases } from "./types";
+import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
@@ -27,6 +34,37 @@ export interface FeishuBundle {
   client: FeishuClient;
   tokenManager: FeishuAccessTokenManager;
   dispatchChainEngine: DispatchChainEngine;
+}
+
+/** 创建 AgentGateway（PiSessionFactory），解决 OtterToolClient 循环依赖 */
+export async function createAgentGateway(options: {
+  repos: Repositories;
+  otterConfigProvider: OtterConfigProvider;
+  model: unknown;
+  modelPool: ModelPool;
+  db: Database.Database;
+  logger: PinoLogger;
+}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void }> {
+  const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
+  // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
+  const agentGateway = await initAgentSessionFactory({
+    model, modelPool, db,
+    otterToolClient: {} as OtterToolClient,
+    identityPromptDir: "./prompts/identity",
+    createTools: (ctx, repo, log) => {
+      const tools = createTools(ctx, repo, log);
+      if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
+      return tools;
+    },
+    healingRepo: repos.healingEvent,
+    otterConfigProvider,
+    otterRepo: repos.otter,
+  }, logger);
+
+  return {
+    agentGateway,
+    resolveOtterToolClient: (client: OtterToolClient) => agentGateway.setOtterToolClient(client),
+  };
 }
 
 export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: PinoLogger): DispatchChainEngine {
@@ -64,16 +102,14 @@ export async function initAgentAndScheduler(repos: Repositories, uc: UseCases, a
   return { agentInvoker, cronParser, schedulerService };
 }
 
-export function createFeishuBundle(appConfig: AppConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: PinoLogger): FeishuBundle | undefined {
-  if (!appConfig.feishu) return undefined;
-  const tokenManager = new FeishuAccessTokenManager(appConfig.feishu, logger);
-  const client = new FeishuClient(appConfig.feishu, logger, tokenManager);
+export function createFeishuBundle(appConfig: AppConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: PinoLogger): FeishuBundle {
+  const tokenManager = new FeishuAccessTokenManager(appConfig.feishu!, logger);
+  const client = new FeishuClient(appConfig.feishu!, logger, tokenManager);
   const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
   return { broadcaster, client, tokenManager, dispatchChainEngine };
 }
 
 export function setupFeishu(appConfig: AppConfig, uc: UseCases, agentInvoker: AgentInvoker, feishu: FeishuBundle, logger: PinoLogger): void {
-  logger.info("setupFeishu called", { hasConfig: !!appConfig.feishu });
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
