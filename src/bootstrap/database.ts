@@ -3,11 +3,11 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import type Database from "better-sqlite3";
 import type { AppConfig } from "@frameworks/config";
-import type { PinoLogger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
-import type { ModelPool } from "@frameworks/llm/model-pool";
+import { ModelPool } from "@frameworks/llm/model-pool";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
@@ -30,7 +30,21 @@ export interface DatabaseBootstrapResult {
   dispose: () => void;
 }
 
-export async function initDatabaseAndModels(appConfig: AppConfig, logger: PinoLogger): Promise<DatabaseBootstrapResult> {
+/** 测试注入预构建模型（如 initFauxModels）时，未带 pool 则用 llm 配置合成单条目池 */
+function synthesizePool(model: unknown, llm: AppConfig["llm"]): ModelPool {
+  const alias = llm.default ?? "default";
+  return new ModelPool(alias, new Map([[alias, {
+    config: { alias, provider: llm.provider, model: llm.model },
+    model,
+  }]]));
+}
+
+export async function initDatabaseAndModels(
+  appConfig: AppConfig,
+  logger: Logger,
+  /** 测试注入预构建模型（如 initFauxModels），跳过 initModels（无密钥环境下 initModels 会抛错） */
+  modelsOverride?: { model: unknown; modelPool?: ModelPool },
+): Promise<DatabaseBootstrapResult> {
   const dbPath = appConfig.db.path;
   const isNewDb = !fs.existsSync(dbPath);
   const db = initDatabase(appConfig.db, logger);
@@ -38,13 +52,17 @@ export async function initDatabaseAndModels(appConfig: AppConfig, logger: PinoLo
   if (isNewDb) {
     logger.info("New database detected, running schema initialization");
     initSchema(db, logger);
-  } else {
-    migrateDatabase(db, logger);
   }
+  /** initSchema 只建基础表结构，不含历史补丁列（如 agent_sessions.session_file）。
+   *  migrateDatabase 幂等（PRAGMA 检查 + IF NOT EXISTS），新库也必须跑到最新结构——
+   *  否则下方 migrateExistingData 读 session_file 直接崩（F20260805codx 曾把两者做成互斥分支，新库无法启动）。 */
+  migrateDatabase(db, logger);
 
   const otterConfigProvider = new SqliteOtterConfigProvider(db);
   ensureBgeM3Model(appConfig.embedding, logger);
-  const { model, modelPool } = await initModels(appConfig.llm, logger);
+  const { model, modelPool } = modelsOverride
+    ? { model: modelsOverride.model, modelPool: modelsOverride.modelPool ?? synthesizePool(modelsOverride.model, appConfig.llm) }
+    : await initModels(appConfig.llm, logger);
   const { service: embeddingService, dispose: disposeEmbedding } = await initEmbeddingService(appConfig.embedding, logger);
 
   if (isNewDb) {
@@ -59,18 +77,18 @@ export function initRepositoriesWithDb(db: Database.Database): Repositories {
 }
 
 /** DB 初始化后的种子数据 + 孤儿修复 + ledger 回填 */
-export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: PinoLogger): Promise<void> {
+export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
   await seedTerminologyData(db, logger);
   await reconcileOrphans(repos.conversation, logger);
   await backfillSessionLedger(db, repos.otter, logger);
 }
 
 /** sync 完成后的 chunk 迁移（独立于 migrateDatabase，PR 审视 S3-01） */
-export function postSyncMigrations(db: Database.Database, logger: PinoLogger, syncResult: SyncResult): void {
+export function postSyncMigrations(db: Database.Database, logger: Logger, syncResult: SyncResult): void {
   migrateFeatureBodyToChunks(db, logger, syncResult.errors.length);
 }
 
-export function validateModelAliases(db: Database.Database, modelPool: { hasModel(alias: string): boolean }, logger: PinoLogger): void {
+export function validateModelAliases(db: Database.Database, modelPool: { hasModel(alias: string): boolean }, logger: Logger): void {
   const allConfigs = db.prepare("SELECT otter_id, model_alias FROM otter_configs WHERE model_alias IS NOT NULL").all() as Array<{ otter_id: string; model_alias: string }>;
   for (const row of allConfigs) {
     if (!modelPool.hasModel(row.model_alias)) {
@@ -79,11 +97,11 @@ export function validateModelAliases(db: Database.Database, modelPool: { hasMode
   }
 }
 
-export function shutdownDatabase(db: Database.Database, logger: PinoLogger): void {
+export function shutdownDatabase(db: Database.Database, logger: Logger): void {
   closeDatabase(db, logger);
 }
 
-export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: PinoLogger): void {
+export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logger): void {
   const homeDir = os.homedir();
   const agentDir = path.join(homeDir, ".pi", "agent");
   const authPath = path.join(agentDir, "auth.json");

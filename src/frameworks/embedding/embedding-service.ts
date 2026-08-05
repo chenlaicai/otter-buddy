@@ -17,6 +17,14 @@ interface EmbeddingConfig {
   modelPath?: string;
   /** 本地模型根目录。设置后 worker 走本地加载、禁用远程下载 */
   localModelPath?: string;
+  /** worker 脚本路径覆盖（测试用），默认本模块同目录的 bge-m3-worker.js */
+  workerPath?: string;
+  /**
+   * worker 线程的 execArgv 覆盖。默认继承 process.execArgv——
+   * vitest 等宿主注入的 --conditions development 会让 worker 内 @huggingface/transformers
+   * 解析到非生产构建导致推理挂起，测试环境必须显式传 []。
+   */
+  workerExecArgv?: string[];
 }
 
 interface EmbedRequest {
@@ -100,6 +108,19 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
       );
       this.pendingRequests.clear();
     });
+
+    /** worker 线程退出（onnxruntime 原生崩溃等场景 error 事件可能不触发）：
+     *  必须拒绝所有 waiters/pending，否则 embed 永久挂起且无任何日志 */
+    this.worker.on("exit", (code) => {
+      this.logger.error(`Embedding worker exited unexpectedly, code=${code}`);
+      this.readyState.ready = false;
+      const err = new Error(`Worker exited with code ${code}`);
+      this.readyState.loadError = err;
+      this.readyState.waiters.forEach(w => w.reject(err));
+      this.readyState.waiters.length = 0;
+      this.pendingRequests.forEach(({ reject }) => reject(err));
+      this.pendingRequests.clear();
+    });
   }
 
   private waitForReady(): Promise<void> {
@@ -149,8 +170,9 @@ export async function initEmbeddingService(
   embedConfig?: EmbeddingConfig,
   logger?: Logger,
 ): Promise<{ service: EmbeddingGateway; dispose: () => void }> {
-  const workerPath = path.join(__dirname, "bge-m3-worker.js");
+  const workerPath = embedConfig?.workerPath ?? path.join(__dirname, "bge-m3-worker.js");
   const worker = new Worker(workerPath, {
+    ...(embedConfig?.workerExecArgv ? { execArgv: embedConfig.workerExecArgv } : {}),
     workerData: {
       modelPath: embedConfig?.modelPath ?? "Xenova/bge-m3",
       localModelPath: embedConfig?.localModelPath,

@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import type { AppConfig } from "@frameworks/config";
-import type { PinoLogger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
@@ -53,7 +53,7 @@ export interface ControllerDeps {
   getBridgeStatus?: GetBridgeStatus;
 }
 
-export function initControllers(deps: ControllerDeps, logger: PinoLogger) {
+export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, agentInvoker, appConfig, modelPool, settingsRepo, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus } = deps;
 
   const settings: SettingsConfig = {

@@ -20,6 +20,15 @@ export function initConfig(config: AppConfig): void {
 }
 
 /**
+ * 测试专用：清空配置单例。
+ * 同一进程内多次 buildApp（如 Class A 的 build-app 测试）之间调用，
+ * 避免上一次装配的配置泄漏到下一次。生产代码不得调用。
+ */
+export function resetConfigForTests(): void {
+  _config = null;
+}
+
+/**
  * 获取配置。
  * 必须在 initConfig() 之后调用。
  */

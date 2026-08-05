@@ -49,6 +49,10 @@ export interface AppConfig {
     modelPath: string;
     /** 本地模型根目录。设置后走本地加载（不联网下载），modelPath 作为其下子目录名 */
     localModelPath?: string;
+    /** worker 脚本路径覆盖（测试用：vitest 下 dist 编译产物不存在于 src 树），默认取本模块同目录的 bge-m3-worker.js */
+    workerPath?: string;
+    /** worker 线程 execArgv 覆盖（测试用：vitest 注入的 --conditions 会让 worker 内模型库解析错乱），默认继承 process.execArgv */
+    workerExecArgv?: string[];
   };
   llm: {
     provider: string;
@@ -354,17 +358,17 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
  * 启动时调用一次，校验失败直接抛出异常终止进程。
  * 导出供测试使用。
  */
-export function loadConfig(logger?: Logger): AppConfig {
-  if (!fs.existsSync(CONFIG_PATH)) {
+export function loadConfig(logger?: Logger, configPath: string = CONFIG_PATH): AppConfig {
+  if (!fs.existsSync(configPath)) {
     const error = new Error(
-      `配置文件不存在: ${CONFIG_PATH}\n` +
+      `配置文件不存在: ${configPath}\n` +
       "请复制 config/config.yaml.example 为 config/config.yaml 并填入实际配置。",
     );
 
     // 记录配置加载失败日志
     if (logger) {
       logger.error('Configuration loading failed', error, {
-        configPath: CONFIG_PATH,
+        configPath,
         reason: 'file_not_found',
       });
     }
@@ -372,14 +376,14 @@ export function loadConfig(logger?: Logger): AppConfig {
     throw error;
   }
 
-  const raw = yaml.load(fs.readFileSync(CONFIG_PATH, "utf8")) as RawConfig;
+  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as RawConfig;
   validate(raw);
   const config = applyDefaults(raw);
 
   // 记录配置加载成功日志
   if (logger) {
     logger.info('Configuration loaded', {
-      configPath: CONFIG_PATH,
+      configPath,
       provider: config.llm.provider,
       model: config.llm.model,
       port: config.server.port,
