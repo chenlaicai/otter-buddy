@@ -61,7 +61,7 @@ See `references/review-dimensions.md` for detailed guidance on each dimension.
 | Test Coverage | 方案含可验证的验收标准？ |
 | Maintainability | 文档可读、决策有据、后续开发者能理解？ |
 
-文档审视的"独立核实"= 对照代码与既有文档，验证方案中的事实性断言（"现有实现是 X"这类话必须亲验）。
+文档审视的"独立核实"= 对照代码与既有文档，验证方案中的事实性断言（"现有实现是 X"这类话必须亲验）。step 1 的"PR description + changed file list"读作：方案文档本体 + 其声称覆盖的需求上下文。
 
 ### 3. Verify Independently
 
