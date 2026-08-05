@@ -93,7 +93,7 @@ function registerConnectionRoutes(app: Hono, c: Controllers): void {
   app.get("/api/connections/:id/conversations", (ctx) => c.connection.listActiveConversations(ctx));
 }
 
-/** F20260804rbrg：通用 inbound 端点（按 source 分发到 use case，路由名不焊死领域） */
+/** F20260805rbrg：通用 inbound 端点（按 source 分发到 use case，路由名不焊死领域） */
 function registerInboundRoutes(app: Hono, c: Controllers): void {
   app.options('/api/inbound/events', (ctx) => c.inbound.optionsEvents(ctx));
   app.post('/api/inbound/events', (ctx) => c.inbound.receiveEvents(ctx));

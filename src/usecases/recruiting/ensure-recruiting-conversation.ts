@@ -132,7 +132,7 @@ async function sendWelcomeMessage(
 }
 
 /**
- * F20260804rbrg：boot 时幂等创建"💼 求职助手"专用对话。
+ * F20260805rbrg：boot 时幂等创建"💼 求职助手"专用对话。
  *
  * 参考 F20260730heal 的 ensureHealingConversation 并扩展：healing 对话无 systemPrompt，
  * recruiting 需要注入求职助手角色 systemPrompt。

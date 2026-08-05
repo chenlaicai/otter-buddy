@@ -108,4 +108,4 @@ memory 里的求职接触记录会保留——你想回顾"我接触过哪些公
 
 ## 设计文档
 
-完整技术设计（含 4 轮审视决策史）：`docs/features/2026/08/04/F20260804rbrg-recruiting-bridge.md`
+完整技术设计（含 4 轮审视决策史）：`docs/features/2026/08/04/F20260805rbrg-recruiting-bridge.md`

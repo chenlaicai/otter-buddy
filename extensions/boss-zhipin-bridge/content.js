@@ -1,5 +1,5 @@
 /**
- * F20260804rbrg: BOSS 直聘桥接 - content script
+ * F20260805rbrg: BOSS 直聘桥接 - content script
  *
  * 跑在 https://www.zhipin.com/web/geek/chat 真实页面上下文里，共享页面 cookie/origin。
  * 职责：

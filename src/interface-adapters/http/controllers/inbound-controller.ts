@@ -5,7 +5,7 @@ import type { GetBridgeStatus } from '@usecases/recruiting/get-bridge-status';
 import { parseInboundRequest } from '../dto/inbound-dto';
 
 /**
- * F20260804rbrg：通用 inbound 端点。
+ * F20260805rbrg：通用 inbound 端点。
  *
  * 路由 `/api/inbound/events`（不焊死领域名，按 source 分发到 use case）。
  * 当前只支持 source="boss-zhipin-bridge" → ProcessInboundRecruit。

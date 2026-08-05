@@ -13,7 +13,7 @@ export type MessageStatus = "streaming" | "speaking" | "completed" | "failed" | 
 /** 消息事件类型 */
 export type MessageEventType = "tool_result" | "assistant_toolcall" | "assistant_text" | "error";
 
-/** 消息外部元数据（用于查重等场景，F20260804rbrg） */
+/** 消息外部元数据（用于查重等场景，F20260805rbrg） */
 export interface MessageMetadata {
   /** 招聘桥接去重 ID：`boss:{bossId}:{mid}` */
   externalId?: string;
@@ -39,7 +39,7 @@ export interface Message {
   contextTokens: number | null;
   contextTokensMax: number | null;
   source: MessageSource;
-  /** 可选外部元数据（F20260804rbrg 招聘桥接用，旧消息为 null）。可选以避免破坏既有 Message 构造点。 */
+  /** 可选外部元数据（F20260805rbrg 招聘桥接用，旧消息为 null）。可选以避免破坏既有 Message 构造点。 */
   metadata?: MessageMetadata | null;
   createdAt: string;
   completedAt: string | null;

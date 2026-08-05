@@ -47,7 +47,7 @@ export interface ProcessResult {
 }
 
 /**
- * F20260804rbrg：处理外部桥接（boss-zhipin-bridge）推送的入站事件。
+ * F20260805rbrg：处理外部桥接（boss-zhipin-bridge）推送的入站事件。
  *
  * **关键设计：一次扫描 = 一条系统消息 = 一次大獭 invoke**
  *

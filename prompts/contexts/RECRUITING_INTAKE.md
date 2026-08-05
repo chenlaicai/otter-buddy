@@ -1,6 +1,6 @@
 # 求职助手角色 prompt
 
-> F20260804rbrg：注入到"💼 求职助手"专用对话大獭的 systemPrompt（通过 otterConfigProvider 持久化）。
+> F20260805rbrg：注入到"💼 求职助手"专用对话大獭的 systemPrompt（通过 otterConfigProvider 持久化）。
 > Spike 4 实测验证：5 类消息全部分类正确，严格遵守 prompt 边界。
 
 ---

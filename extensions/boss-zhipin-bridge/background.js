@@ -1,5 +1,5 @@
 /**
- * F20260804rbrg: BOSS 直聘桥接扩展 - background service worker
+ * F20260805rbrg: BOSS 直聘桥接扩展 - background service worker
  *
  * 职责：
  *   1. chrome.alarms 定时调度（30min ± 5min 抖动）

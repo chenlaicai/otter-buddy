@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BOSS 直聘桥接 → otter-buddy",
   "version": "0.1.0",
-  "description": "把 BOSS 直聘上的新 HR 消息批量转发到 otter-buddy 的求职助手对话。otter-buddy 项目的一部分（F20260804rbrg）。",
+  "description": "把 BOSS 直聘上的新 HR 消息批量转发到 otter-buddy 的求职助手对话。otter-buddy 项目的一部分（F20260805rbrg）。",
   "permissions": [
     "storage",
     "alarms",

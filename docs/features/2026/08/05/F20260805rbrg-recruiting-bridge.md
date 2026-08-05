@@ -1,5 +1,5 @@
 ---
-id: F20260804rbrg
+id: F20260805rbrg
 title: recruiting-bridge
 doc_type: feature
 
@@ -38,7 +38,7 @@ modules:
 created_at: 2026-08-04
 ---
 
-# F20260804rbrg 招聘桥接（recruiting-bridge）
+# F20260805rbrg 招聘桥接（recruiting-bridge）
 
 ## 背景
 

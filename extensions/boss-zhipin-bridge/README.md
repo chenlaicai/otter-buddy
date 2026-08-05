@@ -1,6 +1,6 @@
 # BOSS 直聘桥接 → otter-buddy
 
-> otter-buddy 的招聘消息接入扩展（F20260804rbrg）。
+> otter-buddy 的招聘消息接入扩展（F20260805rbrg）。
 > 把 BOSS 直聘上的新 HR 消息**批量转发**到 otter-buddy 的"💼 求职助手"对话。
 
 ## 它做什么
@@ -67,4 +67,4 @@
 
 ## 设计文档
 
-完整设计在 otter-buddy 仓库：`docs/features/2026/08/04/F20260804rbrg-recruiting-bridge.md`
+完整设计在 otter-buddy 仓库：`docs/features/2026/08/04/F20260805rbrg-recruiting-bridge.md`

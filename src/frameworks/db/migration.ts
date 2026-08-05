@@ -67,11 +67,11 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260803mval 一次性补丁：移除文档表枚举 CHECK 约束 */
   rebuildDocumentTablesDropCheck(db, logger);
 
-  /** F20260804rbrg：messages 表添加 metadata 列（招聘桥接查重用） */
+  /** F20260805rbrg：messages 表添加 metadata 列（招聘桥接查重用） */
   addMessagesMetadataColumn(db, logger);
 }
 
-/** F20260804rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
+/** F20260805rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
 function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
   if (columns.some(col => col.name === 'metadata')) return;

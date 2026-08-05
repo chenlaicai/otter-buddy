@@ -513,7 +513,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     return rows.map(row => ({ ...rowToMessage(row), body: row.fts_body }));
   }
 
-  /** F20260804rbrg：按 metadata.externalId 查重。metadata 是 JSON 字符串，用 JSON_EXTRACT 提取。 */
+  /** F20260805rbrg：按 metadata.externalId 查重。metadata 是 JSON 字符串，用 JSON_EXTRACT 提取。 */
   async findByExternalId(externalId: string): Promise<Message | null> {
     const row = this.db.prepare(`
       SELECT * FROM messages WHERE JSON_EXTRACT(metadata, '$.externalId') = ? LIMIT 1

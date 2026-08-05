@@ -14,7 +14,7 @@ export interface BridgeStatus {
 }
 
 /**
- * F20260804rbrg：读取扩展最后活动时间戳，返回简化状态分类。
+ * F20260805rbrg：读取扩展最后活动时间戳，返回简化状态分类。
  *
  * 状态阈值：
  *   - never-seen：从未收到扩展上报（可能未配置/未启动/otter 刚重启）

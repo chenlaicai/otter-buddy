@@ -8,7 +8,7 @@ import {
 } from './constants';
 
 /**
- * F20260804rbrg：boot 时幂等创建每日摘要 scheduled task。
+ * F20260805rbrg：boot 时幂等创建每日摘要 scheduled task。
  *
  * 参考 F20260730heal 的 ensureHealingScheduler：检查同名 active 任务存在则跳过，
  * 否则创建。body 用固定 prompt 文本（不是 [self-healing-analysis] 拦截标记），

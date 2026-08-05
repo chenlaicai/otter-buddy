@@ -382,10 +382,10 @@ interface ControllerDeps {
   embeddingGateway: EmbeddingGateway;
   fs: NodeFileSystem;
   rootDir: string;
-  /** F20260804rbrg: 招聘桥接 inbound 用例（undefined 时不启用） */
+  /** F20260805rbrg: 招聘桥接 inbound 用例（undefined 时不启用） */
   processInboundRecruit?: ProcessInboundRecruit;
   inboundApiKey?: string;
-  /** F20260804rbrg: 桥接状态查询（undefined 时不启用） */
+  /** F20260805rbrg: 桥接状态查询（undefined 时不启用） */
   getBridgeStatus?: GetBridgeStatus;
 }
 
@@ -646,7 +646,7 @@ async function main(): Promise<void> {
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
     .catch(err => logger.warn('Self-Healing init failed', { error: err instanceof Error ? err.message : String(err) }));
 
-  // F20260804rbrg：招聘桥接初始化（仅当 config.inbound.recruiting.apiKey 配置时启用）
+  // F20260805rbrg：招聘桥接初始化（仅当 config.inbound.recruiting.apiKey 配置时启用）
   let processInboundRecruit: ProcessInboundRecruit | undefined;
   let inboundApiKey: string | undefined;
   let getBridgeStatus: GetBridgeStatus | undefined;
