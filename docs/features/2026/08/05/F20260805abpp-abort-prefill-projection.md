@@ -90,7 +90,11 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
 
 - 常驻 `/subscribe` handlers 补 `message.aborted`（与发送流处理器对齐：
   upsert 终态消息 + toast + 清理 live 状态）；两条通道订阅同一广播总线，
-  toast 以"in-flight→终态迁移"为条件去重，避免双通道投递双提示；
+  toast 用 ref 持有的 `Set<messageId>` 同步去重（第三轮检视 S-1：updater 闭包
+  标志依赖 React 调度时序，存在零 toast 竞态）；
+- 所有终态事件 handler（complete/failed/aborted × 两通道）统一走
+  `upsertTerminalMessage`：与已有投影合并保留 events/seq/ts/ctx/turnId，
+  避免整体替换降级 DTO 快照（第四轮检视 S4-1）；
 - `refreshMessages`：in-flight 定点拉取移到空增量 early-return 之前（改为不提前返回），
   提取纯函数 `findStaleInFlight`（message-stream.ts）固化"/after 不含游标消息自身
   状态迁移"这一不变量；定点拉取结果无变化时跳过 setState，避免引用抖动；
@@ -111,7 +115,7 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
   user 消息不算 in-flight）。
 - 根仓 `npm run check` 全绿；web `vitest run` + `tsc --noEmit` 全绿。
 
-## 对抗审视记录（三轮：架构师检视 + 代码检视 + 端到端时序检视）
+## 对抗审视记录（四轮：架构师 / 代码质量 / 端到端时序 / 修复面与乱序矩阵）
 
 ### 架构师检视（针对 Part 1，对照 SDK 源码逐条验证）
 
@@ -167,6 +171,29 @@ guard 于 01:38:03 真实触发 `degenerate_output`（repeat_window 50 次）并
 - 【可选 O-3，复核阴性】first_byte_timeout 与 streaming_timeout 的归因/重试路径无差异
   （仅文案分支）；两个 commit 无矛盾；mapMessageDTO/getMessage/广播通道核查均无第三通道竞争。
   附带存量发现：常驻通道 error handler 的 toast 无同款去重（单槽 Toast 下视觉良性）。
+
+### 第四轮检视（第三轮修复面 + abort 生命周期乱序 + 后端归因竞态）
+
+- 【建议 S4-1，已修】**S-2 的合并保留只修了 abort 路径，complete/failed 四个终态 handler
+  是同一缺陷模式的未修实例**——触发条件更常见（任何"生成中整页刷新 → 完成事件经常驻通道
+  到达"的正常流程都会抹掉工具调用链、改写时间戳、丢 seq 锚点）。处置：提取纯函数
+  `upsertTerminalMessage`（message-stream.ts），六个终态 handler（complete/failed/aborted ×
+  两通道）统一走合并保留路径，补三条单测。
+- 【建议 S4-2，已修】文档"修复方案"节 toast 去重描述停留在 commit 1/2 的废弃机制
+  （in-flight→终态迁移条件），与最终实现的 ref Set 同步去重不一致——已更正。
+- 【可选 O4-1，记录】stopStream 乐观中断后 finally 的 getMessage 可能把气泡闪回"生成中"
+  （服务端 abort 尚未 unwind），秒级窗口，存量行为。
+- 【可选 O4-2，记录】abortNotifiedRef 无清理：MPA 切换对话必整页刷新重建组件，id 唯一、
+  数量极小；未来若改 SPA 内切对话需重估。
+- 【可选 O4-3，记录】中断按钮 409 无用户可见反馈（catch 仅 console.error，finally 的
+  getMessage 会收敛状态）。本 PR 后 409 路径已降级为兜底揭示，重要性大幅下降。
+- 【可选 O4-4，记录】后端 sendMessage.abort() 失败被吞但 message.aborted 照发，DB 与前端
+  可能永久发散——需 DB 写失败才可达，存量、极窄。
+- 【可选 O4-5，记录】常驻通道缺 system.message 处理器（发送流有），MPA 刷新后系统消息
+  在下次整页加载前不显示——存量缺口，与本 PR 正交。
+- 复核阴性：ref Set 去重无 React 调度依赖（S-1 修复正确）；双通道 aborted upsert 经
+  existing 合并幂等；aborted→complete 双终态事件后端互斥不可达；后端归因竞态（用户 abort
+  vs guard abort）无双丢窗口，用户归因优先是注释写明的设计。
 
 ## 影响面
 

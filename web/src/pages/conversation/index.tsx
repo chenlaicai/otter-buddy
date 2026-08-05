@@ -4,7 +4,7 @@ import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
-import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight } from '../../lib/message-stream'
+import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage } from '../../lib/message-stream'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -452,11 +452,11 @@ function ConversationPage() {
         const meta = liveMeta.get(messageId)
         const finalMsg: LocalMessage = {
           id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
-          content: (data.body as string) ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration as string,
+          content: (data.body as string) ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration as string,
           events: liveEvents.length > 0 ? liveEvents : undefined,
           ctx: data.ctx as number, ctxMax: data.ctxMax as number, turnId: (data.turnId as string) || undefined,
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], finalMsg) }))
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], finalMsg) }))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
         maybeScrollToBottom()
@@ -467,10 +467,10 @@ function ConversationPage() {
         const meta = liveMeta.get(messageId)
         const failedMsg: LocalMessage = {
           id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
-          content: (data.body as string) ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
+          content: (data.body as string) ?? '[未完成]', status: 'failed', ts: meta?.createdAt || '', dur: null,
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], failedMsg) }))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
       },
@@ -491,21 +491,13 @@ function ConversationPage() {
             return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
           })
         }
-        /** MPA 新页面 liveEvents/liveMeta 为空：与已有投影合并保留 events/seq/ts 等字段
-         *  （第三轮检视 S-2：整体替换会抹掉 DTO 快照已加载的工具调用链与消息时间） */
-        setAllMessages(prev => {
-          const list = prev[activeId] || []
-          const existing = list.find(m => m.id === messageId)
-          const abortedMsg: LocalMessage = {
-            id: messageId, st: 'otter', si: otterId || existing?.si || '', sn: otterName ?? existing?.sn,
-            content: (data.body as string) ?? '[搭档中断]', status: 'aborted',
-            ts: meta?.createdAt || existing?.ts || nowTs(), dur: null,
-            seq: existing?.seq,
-            events: liveEvents.length > 0 ? liveEvents : existing?.events,
-            ctx: existing?.ctx, ctxMax: existing?.ctxMax, turnId: existing?.turnId,
-          }
-          return { ...prev, [activeId]: upsertMessage(list, abortedMsg) }
-        })
+        /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
+        const abortedMsg: LocalMessage = {
+          id: messageId, st: 'otter', si: otterId, sn: otterName,
+          content: (data.body as string) ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
+          events: liveEvents.length > 0 ? liveEvents : undefined,
+        }
+        setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], abortedMsg) }))
         if (!abortNotifiedRef.current.has(messageId)) {
           abortNotifiedRef.current.add(messageId)
           showToast('回复已中断', 'info')
@@ -691,16 +683,16 @@ function ConversationPage() {
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
-            content: data.body ?? '', status: 'completed', ts: meta?.createdAt || nowTs(), dur: data.duration,
+            content: data.body ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
           }
-          /** upsert 原地替换 message.start 插入的占位消息，保持时序位置；
+          /** upsertTerminalMessage 原位替换 message.start 插入的占位消息并保留投影字段；
            *  M6：恰好一条未戳 tmp 时补戳 turnId（分隔线立即正确）；
            *  多条并发 tmp 时不戳（到达顺序未必等于发送顺序），留给轮询快照纠正 */
           setAllMessages(prev => {
-            const list = upsertMessage(prev[activeId] || [], finalMsg)
+            const list = upsertTerminalMessage(prev[activeId] || [], finalMsg)
             if (!data.turnId) return { ...prev, [activeId]: list }
             const unstamped = list.filter(m => m.id.startsWith('tmp-') && !m.turnId)
             if (unstamped.length !== 1) return { ...prev, [activeId]: list }
@@ -745,24 +737,11 @@ function ConversationPage() {
           }
           const abortedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: otterName,
-            content: data.body ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || nowTs(), dur: null,
+            content: data.body ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
-          /** 与已有投影合并保留 events/seq/ts 等字段（第三轮检视 S-2：整体替换会抹掉
-           *  DTO 快照已加载的工具调用链与消息时间） */
-          setAllMessages(prev => {
-            const list = prev[activeId] || []
-            const existing = list.find(m => m.id === messageId)
-            const merged: LocalMessage = {
-              ...abortedMsg,
-              si: abortedMsg.si || existing?.si || '', sn: abortedMsg.sn ?? existing?.sn,
-              ts: meta?.createdAt || existing?.ts || abortedMsg.ts,
-              seq: existing?.seq,
-              events: abortedMsg.events ?? existing?.events,
-              ctx: existing?.ctx, ctxMax: existing?.ctxMax, turnId: existing?.turnId,
-            }
-            return { ...prev, [activeId]: upsertMessage(list, merged) }
-          })
+          /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], abortedMsg) }))
           if (!abortNotifiedRef.current.has(messageId)) {
             abortNotifiedRef.current.add(messageId)
             showToast('回复已中断', 'info')
@@ -778,10 +757,10 @@ function ConversationPage() {
           const otterId = meta?.otterId || data.otterId || ''
           const failedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
-            content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
+            content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || '', dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertMessage(prev[activeId] || [], failedMsg) }))
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], failedMsg) }))
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
         },
