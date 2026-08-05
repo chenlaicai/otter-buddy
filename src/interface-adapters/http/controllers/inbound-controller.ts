@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import type { Logger } from '@usecases/ports/logger';
 import type { ProcessInboundRecruit } from '@usecases/recruiting/process-inbound-recruit';
+import type { GetBridgeStatus } from '@usecases/recruiting/get-bridge-status';
 import { parseInboundRequest } from '../dto/inbound-dto';
 
 /**
@@ -15,10 +16,10 @@ import { parseInboundRequest } from '../dto/inbound-dto';
  * 共享密钥 X-Inbound-Key 从 config.inbound.recruiting.apiKey 读，boot 时注入。
  */
 export class InboundController {
-  // eslint-disable-next-line max-params -- 3 个 DI 依赖均为必需
   constructor(
     private readonly apiKey: string,
     private readonly processInboundRecruit: ProcessInboundRecruit,
+    private readonly getBridgeStatus: GetBridgeStatus | undefined,
     private readonly logger: Logger,
   ) {}
 
@@ -27,6 +28,30 @@ export class InboundController {
     this.setCorsHeaders(c);
     c.header('Access-Control-Max-Age', '86400');
     return c.body(null, 204);
+  }
+
+  /** 查询桥接状态（GET /api/inbound/status） */
+  async getStatus(c: Context): Promise<Response> {
+    this.setCorsHeaders(c);
+
+    // 校验共享密钥
+    const provided = c.req.header('X-Inbound-Key');
+    if (!provided || provided !== this.apiKey) {
+      return c.json({ ok: false, error: 'invalid X-Inbound-Key' }, 401);
+    }
+
+    if (!this.getBridgeStatus) {
+      return c.json({ ok: false, error: 'bridge status not configured' }, 503);
+    }
+
+    try {
+      const status = await this.getBridgeStatus.execute();
+      return c.json({ ok: true, ...status });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error('get bridge status failed', err instanceof Error ? err : new Error(msg));
+      return c.json({ ok: false, error: msg }, 500);
+    }
   }
 
   async receiveEvents(c: Context): Promise<Response> {

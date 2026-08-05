@@ -97,6 +97,7 @@ function registerConnectionRoutes(app: Hono, c: Controllers): void {
 function registerInboundRoutes(app: Hono, c: Controllers): void {
   app.options('/api/inbound/events', (ctx) => c.inbound.optionsEvents(ctx));
   app.post('/api/inbound/events', (ctx) => c.inbound.receiveEvents(ctx));
+  app.get('/api/inbound/status', (ctx) => c.inbound.getStatus(ctx));
 }
 
 /** 创建 Hono 路由并挂载所有 Controller 端点 */

@@ -63,6 +63,7 @@ import { HealthController } from "@interface-adapters/http/controllers/health-co
 import { InboundController } from "@interface-adapters/http/controllers/inbound-controller";
 import type { Context } from "hono";
 import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
+import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
@@ -384,6 +385,8 @@ interface ControllerDeps {
   /** F20260804rbrg: 招聘桥接 inbound 用例（undefined 时不启用） */
   processInboundRecruit?: ProcessInboundRecruit;
   inboundApiKey?: string;
+  /** F20260804rbrg: 桥接状态查询（undefined 时不启用） */
+  getBridgeStatus?: GetBridgeStatus;
 }
 
 function initControllers(deps: ControllerDeps) {
@@ -401,11 +404,13 @@ function initControllers(deps: ControllerDeps) {
       ? new InboundController(
           deps.inboundApiKey,
           deps.processInboundRecruit,
+          deps.getBridgeStatus,
           logger,
         )
       : ({
           optionsEvents: (c: Context) => c.body(null, 204),
           receiveEvents: (c: Context) => c.json({ ok: false, error: 'inbound not configured' }, 503),
+          getStatus: (c: Context) => c.json({ ok: false, error: 'inbound not configured' }, 503),
         } as unknown as InboundController),
   };
 }
@@ -644,6 +649,7 @@ async function main(): Promise<void> {
   // F20260804rbrg：招聘桥接初始化（仅当 config.inbound.recruiting.apiKey 配置时启用）
   let processInboundRecruit: ProcessInboundRecruit | undefined;
   let inboundApiKey: string | undefined;
+  let getBridgeStatus: GetBridgeStatus | undefined;
   if (appConfig.inbound?.recruiting?.apiKey) {
     inboundApiKey = appConfig.inbound.recruiting.apiKey;
     processInboundRecruit = new ProcessInboundRecruit(
@@ -654,6 +660,7 @@ async function main(): Promise<void> {
       agentInvoker,  // AgentInvoker 实现 AgentInvokePort
       logger,
     );
+    getBridgeStatus = new GetBridgeStatus(repos.settings);
     ensureRecruitingConversation({
       convRepo: repos.conversation,
       otterRepo: repos.otter,
@@ -680,7 +687,7 @@ async function main(): Promise<void> {
     embeddingDim: appConfig.embedding.dimensions,
   };
 
-  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster, featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService, fs: new NodeFileSystem(), rootDir: process.cwd(), processInboundRecruit, inboundApiKey });
+  const controllers = initControllers({ uc, agentInvoker, settings, settingsRepo: repos.settings, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster, featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService, fs: new NodeFileSystem(), rootDir: process.cwd(), processInboundRecruit, inboundApiKey, getBridgeStatus });
   startServer(controllers, uc, agentInvoker, appConfig.server.port, feishu);
 
   schedulerService.start().catch((err) => {
