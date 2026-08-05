@@ -157,6 +157,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
         INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
       `).run(entry.id, entry.content);
       this.db.prepare(`
+        INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
+      `).run(entry.id, tokenizeWithJieba(entry.content));
+      this.db.prepare(`
         INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
         VALUES (?, 0, NULL, 0)
       `).run(entry.id);
@@ -223,6 +226,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare(`
           INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
         `).run(entry.id, entry.content);
+        this.db.prepare(`
+          INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
+        `).run(entry.id, tokenizeWithJieba(entry.content));
         this.db.prepare(`
           INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
           VALUES (?, 0, NULL, 0)

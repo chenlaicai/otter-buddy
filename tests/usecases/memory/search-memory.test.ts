@@ -7,6 +7,7 @@ import { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
+import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 
 /** 创建 noop Logger mock */
 function mockLogger(): Logger {
@@ -46,6 +47,10 @@ function createTestDb(): Database.Database {
       content,
       tokenize = 'trigram'
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
+      memory_entry_id UNINDEXED,
+      content
+    );
   `);
   return db;
 }
@@ -73,6 +78,8 @@ function storeEntry(db: Database.Database, entry: MemoryEntry): void {
   );
   db.prepare(`INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)`)
     .run(entry.id, entry.content);
+  db.prepare(`INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)`)
+    .run(entry.id, tokenizeWithJieba(entry.content));
   db.prepare(`INSERT INTO memory_weights (memory_entry_id) VALUES (?)`)
     .run(entry.id);
 }
