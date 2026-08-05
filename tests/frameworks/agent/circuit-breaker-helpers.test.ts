@@ -196,7 +196,7 @@ describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
   });
 });
 
-describe("attachCircuitBreaker - per-event 超时", () => {
+describe("attachCircuitBreaker - per-event 超时（基础）", () => {
   it("per-event 超时：单次工具调用超时触发 abort(event_timeout)", () => {
     vi.useFakeTimers();
     try {
@@ -285,7 +285,9 @@ describe("attachCircuitBreaker - per-event 超时", () => {
       vi.useRealTimers();
     }
   });
+});
 
+describe("attachCircuitBreaker - per-event 超时（清理）", () => {
   it("per-event 超时：unregisterToolCall 后 timer 不再触发", () => {
     vi.useFakeTimers();
     try {
@@ -335,7 +337,9 @@ describe("attachCircuitBreaker - per-event 超时", () => {
       vi.useRealTimers();
     }
   });
+});
 
+describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () => {
   it("per-event 超时：并行工具调用各自独立计时（issue #140）", () => {
     vi.useFakeTimers();
     try {
@@ -397,6 +401,124 @@ describe("attachCircuitBreaker - per-event 超时", () => {
       vi.advanceTimersByTime(3001);
       expect(abortOverride).toHaveBeenCalledOnce();
       expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：同一 toolCallId 重复 start 覆盖计时器（防御性）", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 第一次 start
+      session.emit(sdkToolStart("tool_1"));
+      // 推进 3秒
+      vi.advanceTimersByTime(3000);
+      // 同一 toolCallId 重复 start（覆盖计时器）
+      session.emit(sdkToolStart("tool_1"));
+      // 再推进 3秒（总计 6秒，但第二次 start 后只过了 3秒）
+      vi.advanceTimersByTime(3000);
+      expect(abortOverride).not.toHaveBeenCalled();
+
+      // 再推进 3秒（第二次 start 后共 6秒，超过阈值）
+      vi.advanceTimersByTime(2001);
+      expect(abortOverride).toHaveBeenCalledOnce();
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：事件乱序（end 先于 start）不崩溃", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 先发 end（toolCallId="tc-tool_1"）
+      session.emit(sdkToolEnd("tool_1"));
+      // 再发 start
+      session.emit(sdkToolStart("tool_1"));
+      // 推进超过阈值
+      vi.advanceTimersByTime(5001);
+      expect(abortOverride).toHaveBeenCalledOnce();
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:event_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：terminate 清除所有并行计时器", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 2, maxRepeatAfterWarning: 100, maxConsecutiveIdentical: 100 }),
+        mockLogger(),
+        abortOverride,
+      );
+
+      // 并行启动两个工具
+      session.emit(sdkToolStart("tool_A"));
+      session.emit(sdkToolStart("tool_B"));
+      // 超过 maxToolCalls + 3 触发 terminate
+      session.emit(sdkToolStart("tool_C"));
+      session.emit(sdkToolStart("tool_D"));
+      session.emit(sdkToolStart("tool_E"));
+      session.emit(sdkToolStart("tool_F"));
+      expect(abortOverride).toHaveBeenCalledOnce();
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
+
+      // 推进超过阈值，验证没有二次 abort
+      abortOverride.mockClear();
+      vi.advanceTimersByTime(10000);
+      expect(abortOverride).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("per-event 超时：toolCallId 缺失时记录警告并跳过计时器", () => {
+    vi.useFakeTimers();
+    try {
+      const session = mockSession();
+      const abortOverride = vi.fn();
+      const logger = mockLogger();
+      const warnSpy = vi.spyOn(logger, "warn");
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        logger,
+        abortOverride,
+      );
+
+      // 发送缺少 toolCallId 的事件
+      session.emit({ type: "tool_execution_start", toolName: "tool_1" });
+      expect(warnSpy).toHaveBeenCalled();
+
+      // 推进超过阈值，验证没有超时 abort
+      vi.advanceTimersByTime(10000);
+      expect(abortOverride).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

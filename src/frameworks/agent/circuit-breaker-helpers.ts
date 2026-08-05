@@ -16,7 +16,7 @@ export function attachCircuitBreaker(
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
   abortOverride?: (reason?: string) => void,
-): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: () => void } {
+): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
   const doAbort = abortOverride ?? (() => { session.abort(); });
 
@@ -39,18 +39,23 @@ export function attachCircuitBreaker(
   const unregisterToolCall = session.subscribe((event: unknown) => {
     const e = event as { type?: string; toolCallId?: string; toolName?: string; name?: string; args?: unknown };
     if (e.type === "tool_execution_start") {
-      const toolCallId = e.toolCallId ?? "unknown";
-      // 启动 per-event 计时器（按 toolCallId 独立跟踪，支持并行工具调用）
-      clearEventTimer(toolCallId);
-      const timer = setTimeout(() => {
-        logger.warn(`[circuit-breaker] PER_EVENT_TIMEOUT: otter=${otterId} toolCallId=${toolCallId} elapsed=${maxPerEventMs}ms`);
-        doAbort("circuit_break:event_timeout");
-      }, maxPerEventMs);
-      eventTimers.set(toolCallId, timer);
+      const toolCallId = e.toolCallId;
+      if (!toolCallId) {
+        logger.warn(`[circuit-breaker] tool_execution_start missing toolCallId, skipping per-event timer`);
+      } else {
+        // 启动 per-event 计时器（按 toolCallId 独立跟踪，支持并行工具调用）
+        clearEventTimer(toolCallId);
+        const timer = setTimeout(() => {
+          logger.warn(`[circuit-breaker] PER_EVENT_TIMEOUT: otter=${otterId} toolCallId=${toolCallId} elapsed=${maxPerEventMs}ms`);
+          doAbort("circuit_break:event_timeout");
+        }, maxPerEventMs);
+        eventTimers.set(toolCallId, timer);
+      }
 
       const result = circuitBreaker.check(e.toolName ?? e.name ?? "unknown", e.args);
       if (result.action === "terminate") {
-        clearEventTimer(toolCallId);
+        // terminate 时清除所有计时器（避免其他并行工具的计时器在 abort 后继续运行）
+        clearEventTimer();
         doAbort(`circuit_break:${result.trigger ?? "unknown"}`);
         return;
       }
@@ -61,7 +66,11 @@ export function attachCircuitBreaker(
     }
     if (e.type === "tool_execution_end") {
       // 工具执行完成，只清除该工具的计时器（LLM 思考时间不计入 per-event 超时）
-      clearEventTimer(e.toolCallId);
+      if (!e.toolCallId) {
+        logger.warn(`[circuit-breaker] tool_execution_end missing toolCallId, skipping timer cleanup`);
+      } else {
+        clearEventTimer(e.toolCallId);
+      }
     }
   });
 
