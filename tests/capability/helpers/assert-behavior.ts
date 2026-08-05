@@ -50,21 +50,40 @@ export async function listMessages(ctx: CapabilityContext, convId: string): Prom
   return body.messages;
 }
 
-/** 轮询直到獭的消息到达终态（completed/failed/aborted） */
+/** 轮询直到獭的回合产出最终结果（优先 completed；无重试迹象时才接受 failed/aborted） */
 export async function waitForOtterMessage(
   ctx: CapabilityContext,
   convId: string,
   opts: { timeoutMs?: number; afterSeq?: number } = {},
 ): Promise<MessageDto> {
   const deadline = Date.now() + (opts.timeoutMs ?? 150_000);
+  let lastTerminalId: string | undefined;
+  let stablePolls = 0;
+
   while (Date.now() < deadline) {
     const messages = await listMessages(ctx, convId);
-    const otterMsg = messages.find(
-      (m) => m.st === "otter"
-        && (opts.afterSeq === undefined || m.seq > opts.afterSeq)
-        && ["completed", "failed", "aborted"].includes(m.status),
+    const otterMsgs = messages.filter(
+      (m) => m.st === "otter" && (opts.afterSeq === undefined || m.seq > opts.afterSeq),
     );
-    if (otterMsg) return otterMsg;
+
+    /** 优先 completed：speak 未收尾的失败会触发系统自动重试（F20260730sbrt），
+     *  第一个 failed 不是回合终局，重试常成功 */
+    const completed = otterMsgs.find((m) => m.status === "completed");
+    if (completed) return completed;
+
+    const inFlight = otterMsgs.some((m) => m.status === "streaming" || m.status === "speaking");
+    const terminals = otterMsgs.filter((m) => m.status === "failed" || m.status === "aborted");
+    const newestTerminal = terminals[terminals.length - 1];
+
+    if (newestTerminal && !inFlight) {
+      if (lastTerminalId === newestTerminal.id) {
+        stablePolls++;
+        if (stablePolls >= 3) return newestTerminal;
+      } else {
+        lastTerminalId = newestTerminal.id;
+        stablePolls = 0;
+      }
+    }
     await new Promise((r) => setTimeout(r, 2000));
   }
   throw new Error(`等待獭消息终态超时（${opts.timeoutMs ?? 150_000}ms）`);
