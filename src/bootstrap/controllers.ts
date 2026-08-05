@@ -27,6 +27,14 @@ import { SettingsController } from "@interface-adapters/http/controllers/setting
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 
+
+/** 未配置 inbound 时的空实现，避免 as unknown as 双重断言 */
+class NoopInboundController {
+  optionsEvents(c: Context) { return c.body(null, 204); }
+  receiveEvents(c: Context) { return c.json({ ok: false, error: "inbound not configured" }, 503); }
+  getStatus(c: Context) { return c.json({ ok: false, error: "inbound not configured" }, 503); }
+}
+
 export interface ControllerDeps {
   uc: UseCases;
   agentInvoker: AgentInvoker;
@@ -78,10 +86,6 @@ export function initControllers(deps: ControllerDeps, logger: PinoLogger) {
           getBridgeStatus,
           logger,
         )
-      : ({
-          optionsEvents: (c: Context) => c.body(null, 204),
-          receiveEvents: (c: Context) => c.json({ ok: false, error: "inbound not configured" }, 503),
-          getStatus: (c: Context) => c.json({ ok: false, error: "inbound not configured" }, 503),
-        } as unknown as InboundController),
+      : new NoopInboundController(),
   };
 }

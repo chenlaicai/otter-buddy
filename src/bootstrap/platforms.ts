@@ -14,6 +14,7 @@ import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import type { FeishuConfig } from "@frameworks/feishu/types";
 import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 import { FeishuClient } from "@frameworks/feishu/client";
 import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
@@ -49,7 +50,7 @@ export async function createAgentGateway(options: {
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
-    otterToolClient: {} as OtterToolClient,
+    otterToolClient: null,
     identityPromptDir: "./prompts/identity",
     createTools: (ctx, repo, log) => {
       const tools = createTools(ctx, repo, log);
@@ -102,9 +103,9 @@ export async function initAgentAndScheduler(repos: Repositories, uc: UseCases, a
   return { agentInvoker, cronParser, schedulerService };
 }
 
-export function createFeishuBundle(appConfig: AppConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: PinoLogger): FeishuBundle {
-  const tokenManager = new FeishuAccessTokenManager(appConfig.feishu!, logger);
-  const client = new FeishuClient(appConfig.feishu!, logger, tokenManager);
+export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: PinoLogger): FeishuBundle {
+  const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
+  const client = new FeishuClient(feishuConfig, logger, tokenManager);
   const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
   return { broadcaster, client, tokenManager, dispatchChainEngine };
 }

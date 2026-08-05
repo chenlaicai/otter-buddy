@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   // ── 调度引擎 + 平台集成 ──
   const dispatchChainEngine = createDispatchChainEngine(repos, uc, appConfig, logger);
   const feishu: FeishuBundle | undefined = appConfig.feishu
-    ? createFeishuBundle(appConfig, uc, dispatchChainEngine, logger)
+    ? createFeishuBundle(appConfig.feishu!, uc, dispatchChainEngine, logger)
     : undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, feishu?.broadcaster, logger);

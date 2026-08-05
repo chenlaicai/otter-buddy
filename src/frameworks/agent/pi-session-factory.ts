@@ -75,7 +75,7 @@ export interface InvokeOptions {
 export interface AgentSessionFactoryConfig {
   db: Database.Database;
   sessionDir?: string;
-  otterToolClient: OtterToolClient;
+  otterToolClient: OtterToolClient | null;
   /** pi-ai Model 对象（由 models-factory 创建，单模型模式时使用） */
   model: unknown;
   /** ModelPool（多模型路由，可选） */
@@ -156,13 +156,13 @@ export class PiSessionFactory implements AgentGateway {
     setRuntimeApiKey(provider: string, key: string): Promise<void>;
     registerProvider(providerId: string, config: Record<string, unknown>): void;
   } | null = null;
-  private otterToolClient: OtterToolClient;
+  private otterToolClient: OtterToolClient | null;
 
   constructor(
     private readonly cfg: {
       db: Database.Database;
       sessionDir: string;
-      otterToolClient: OtterToolClient;
+      otterToolClient: OtterToolClient | null;
       model: unknown;
       modelPool?: ModelPool;
       identityPromptDir?: string;
@@ -441,7 +441,7 @@ export class PiSessionFactory implements AgentGateway {
     options: InvokeOptions | undefined,
   ): Promise<AgentRunResult> {
     // 前置校验
-    if (!this.otterToolClient) {
+    if (this.otterToolClient == null) {
       throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
     }
 
@@ -774,7 +774,7 @@ export class PiSessionFactory implements AgentGateway {
     execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>;
   }> {
     const otterTools = this.cfg.createTools({
-      client: this.otterToolClient,
+      client: this.otterToolClient!,
       otterId,
       conversationId,
       currentMessageId: messageId ?? "",

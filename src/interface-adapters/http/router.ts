@@ -1,3 +1,4 @@
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { randomUUID } from "crypto";
 import type { Logger } from "@usecases/ports/logger";
@@ -10,7 +11,7 @@ import type { SettingsController } from "./controllers/settings-controller";
 import type { ScheduledTaskController } from "./controllers/scheduled-task-controller";
 import type { ConnectionController } from "./controllers/connection-controller";
 import type { HealthController } from "./controllers/health-controller";
-import type { InboundController } from "./controllers/inbound-controller";
+
 
 export interface Controllers {
   conversation: ConversationController;
@@ -22,7 +23,7 @@ export interface Controllers {
   scheduledTask: ScheduledTaskController;
   connection: ConnectionController;
   health: HealthController;
-  inbound: InboundController;
+  inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
