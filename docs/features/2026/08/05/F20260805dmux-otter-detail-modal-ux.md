@@ -102,3 +102,17 @@ F20260805rsto 已决定**文案中性化**：重启不一定因为前世失败�
 | P2 D2 | 文档「badge」措辞混淆新旧组件（旧 UI 是表格「反面」列） | 修：文档措辞订正 |
 
 确认无问题的核查项（agent 已验证）：hooks 顺序合法；拉链逻辑逐字节不变；「已加载能力」为恒空 mock 删除无误伤；`isNegativeCase` 无任何生产路径置 true；中性化全仓扫净（剩余命中均为历史决策文档/静态原型/测试夹具）；syncSeed 按 term 匹配更新存量库属实；tsc 与 80 个 web 测试通过。
+
+### 二轮对抗检视（2026-08-05，独立 agent）
+
+**无 P0、无 P1**；一轮修复经独立重验（实跑 tsc + 测试 + 全仓 grep）全部修对。新增 P2 按用户拍板处理：
+
+| 条目 | 处理 |
+|------|------|
+| `sortSessionChain` 对 previousSessionId undefined 化无防御（首世静默丢失） | 修：`?? null` 归一化 + 单测锁定 |
+| seed-011 定义/JSDoc 未说明残留项按拉取序（时间倒序）附链尾、位置不代表代际 | 修：定义与 JSDoc 各补一句 |
+| `sortSessionChain` 无单测，承载被术语库引用的世数口径契约 | 修：补 7 个用例（拉链序/残留/同 prev 分支/空数组/首世缺失/undefined 归一化/引用相等） |
+| 非安全上下文复制按钮静默无反馈 | 修：降级 `execCommand('copy')`，成功才打勾；双失败仍静默（title 含全量 id 可手动复制） |
+| RightPanel 每渲染 O(n²) 排序 | 不修：每獭 session 数个位，备注备查 |
+
+二轮独立重验确认：sortSessionChain 与旧 IIFE 逻辑等价、复用原对象引用（indexOf 不可能 -1，「第0世」不可达）；previousSessionId 全链路 `string | null` 无 undefined 路径；F 文档一轮「确认无问题」声明逐条属实。

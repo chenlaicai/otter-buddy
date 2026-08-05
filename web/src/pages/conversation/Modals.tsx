@@ -259,6 +259,20 @@ function RestartModal(props: ModalsProps) {
   )
 }
 
+/** 非安全上下文（局域网 IP 访问 dev server 等）无 clipboard API 时的降级复制 */
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { /* 降级也失败则静默，title 仍展示全量 id */ }
+  document.body.removeChild(ta)
+  return ok
+}
+
 function OtterDetailModal(props: ModalsProps) {
   const { modal } = props
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -269,12 +283,16 @@ function OtterDetailModal(props: ModalsProps) {
   const chain: OtterSession[] = sortSessionChain(sessions)
 
   const copySessionId = (id: string) => {
-    if (!navigator.clipboard) return
-    // 打勾反馈挂在 resolve 之后，避免复制实际失败也显示成功
-    navigator.clipboard.writeText(id).then(() => {
+    const done = () => {
       setCopiedId(id)
       setTimeout(() => setCopiedId(cur => (cur === id ? null : cur)), 1500)
-    }).catch(() => {})
+    }
+    // 打勾反馈挂在复制成功之后，避免复制实际失败也显示成功
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(id).then(done).catch(() => { if (legacyCopy(id)) done() })
+    } else if (legacyCopy(id)) {
+      done()
+    }
   }
 
   return (

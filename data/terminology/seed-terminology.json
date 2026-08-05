@@ -93,7 +93,7 @@
     "id": "seed-011",
     "term": "世",
     "aliases": ["第N世", "前世", "Session #N"],
-    "definition": "Otter 一段 session 生命周期的计数单位。重启獭生封存前世、开启新一世；各世记录可在 Otter 详情的 Session Chain 中查看。计数口径：按 previousSessionId 拉链排序后的位置（首世为第 1 世）。",
+    "definition": "Otter 一段 session 生命周期的计数单位。重启獭生封存前世、开启新一世；各世记录可在 Otter 详情的 Session Chain 中查看。计数口径：按 previousSessionId 拉链排序后的位置（首世为第 1 世）；链外残留（竞态双头/多分支）按拉取序附于链尾，其位置不代表代际早晚。",
     "context": "2026-08-05 由 F20260805rsto 引入，对齐右栏卡片原「Session #N」表述；F20260805dmux 统一计数口径为拉链位置",
     "examples": null,
     "category": "概念"
