@@ -25,6 +25,9 @@ description: >-
    `git checkout -- <file>`、`git clean -f` 等会丢弃工作的操作，一律先征得搭档同意。
 5. **commit message 一次写对**：提交前先读仓库的提交模板（`.githooks/commit-msg`，
    或 code-implementation 的 references/commit-convention.md），不靠反复试错碰格式。
+6. **写前检查门（Hard Gate）**：对任何 git 追踪文件执行 `edit`/`write` 前，先判断该文件
+   是否在版本控制中（`git ls-files --error-unmatch <file>`）。如果是，必须先进入 worktree
+   流程。没有 worktree 就不动笔。
 
 ## 最小流程（小改动同样适用）
 
@@ -38,3 +41,5 @@ description: >-
 
 - 任务是**按方案做功能开发**（写实现、写测试）→ 同时加载 `code-implementation`
 - 任务是**排查问题**且结论需要提交修复 → 从 `core-workflow` 转到本 skill 再动手
+- 子任务性质从只读变为写入（如排查中发现需要修改文件、配置任务中需要修正追踪文件）
+  → 立即加载本 skill，不沿用主任务的心理框架
