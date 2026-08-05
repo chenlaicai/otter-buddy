@@ -69,7 +69,20 @@ After committing:
 
 1. Push the worktree branch to remote: `git push -u origin <branch-name>`
 2. Create a PR using `gh pr create`
-3. Wait for review and approval from another person
+
+### 8. PR 对抗审视
+
+PR 创建（或 push 更新）后，交付不算完成——必须经独立审视：
+
+1. 召唤检视獭（见 `otter-summon` skill）。小獭只有 read 权限、拿不到 PR 内容，systemPrompt 中必须：
+   - 要求其先 read `adversarial-review` skill 再动手
+   - 附上审视对象：`gh pr diff` 全文，或变更文件清单 + 关键文件的完整内容
+   - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
+2. 结论"需要修改" → 修复问题、更新 PR，更新后重新走审视
+3. 同一 PR 审视不超过 2 轮；第 2 轮仍有未决问题 → 呈搭档裁决
+4. 审视通过 → 呈搭档终审，交付才算完成
+
+审视者必须独立于实现者——自己写自己审等于没审。搭档明确表示"跳过审视/不用审"时，记录该决策后放行。
 
 ## Behavioral Rules
 
