@@ -59,7 +59,7 @@ Output a structured technical plan using the template in `references/output-temp
 
 方案/设计文档落盘不等于完成——必须经独立审视：
 
-1. 召唤检视獭（见 `otter-summon` skill），在其 systemPrompt 中要求先 read `adversarial-review` skill，再对方案做对抗审视
+1. 召唤检视獭（见 `otter-summon` skill），其 systemPrompt 中必须：要求先 read `adversarial-review` skill 再动手；附上方案全文，或方案文件在 worktree 内的绝对路径（小獭 cwd 是主仓，相对路径读不到 worktree 文件）
 2. 审视发现的问题逐条处置：纯技术取舍你自行拍板并记录理由；涉及产品方向、资源投入或对外承诺的，呈搭档拍板（修复 / 接受 / 搁置）
 3. 按结论修订方案并复审，审视不超过 2 轮；仍有未决问题 → 呈搭档裁决
 4. 决策史回写文档——每道题的结论和理由留痕

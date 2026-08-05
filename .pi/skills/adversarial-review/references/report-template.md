@@ -38,3 +38,10 @@ Use this format for adversarial review output.
 - Each issue MUST cite `file:line` — no impression-based findings
 - "无发现" is valid for a dimension — explicitly note it to confirm the dimension was checked, do NOT skip silently
 - Do NOT reuse previous review comments for re-inspection — publish new ones
+
+## 文档审视适配
+
+审视对象是方案/设计文档（非代码）时：
+
+- 结论选项"需要修改 / 可以合入"读作"需要修改 / 可以定稿"
+- 变更完整性检查单中："测试覆盖了核心行为"→"方案含可验证的验收标准"；"构建通过"→"方案中的事实性断言已对照代码/既有文档亲验"

@@ -4,7 +4,7 @@ title: proactive-workflow-triggers
 doc_type: feature
 
 summary: |
-  让 otter 具备"某类任务自动走对应流程"的主动性：特性开发自动建 worktree、方案/PR 完成后自动对抗审视、架构师技术问题自行拍板。
+  让 otter 具备"某类任务自动走对应流程"的主动性：方案/PR 完成后自动对抗审视、架构师技术问题自行拍板（worktree 隔离为既有 repo-safety 能力，本特性不改动）。
   核心动机：这些行为此前依赖搭档每次主动提醒，缺的是"何时必须做"的触发，而非"怎么做"的 know-how。
   主机制：SYSTEM.md 只加一条元原则（流程纪律）做委托，职权进身份层，触发与流程步骤全部内置进 skill——消灭"事后触发"，改写成"流程内置步骤"。
 
@@ -18,6 +18,9 @@ modules:
   - .pi/skills/code-implementation/references/commit-convention.md
   - .pi/skills/requirement-analysis/SKILL.md
   - .pi/skills/adversarial-review/SKILL.md
+  - .pi/skills/adversarial-review/references/report-template.md
+  - .pi/skills/otter-summon/references/collaboration-patterns.md
+  - .pi/skills/repo-safety/SKILL.md
 ---
 
 # F20260805wfsd: 主动行为触发——元原则委托 + 流程内置步骤
@@ -73,8 +76,10 @@ modules:
 2. `prompts/identity/BIG_OTTER.md`：新增"技术决策权"章节
 3. `.pi/skills/code-implementation/SKILL.md`：新增 step 8「PR 对抗审视」
 4. `.pi/skills/requirement-analysis/SKILL.md`：新增 step 6「对抗审视」
-5. `.pi/skills/adversarial-review/SKILL.md`：description 加文档审视触发词；新增"审视对象是方案/设计文档时"维度适配小节；step 3 补无执行权限审视者的降级核实标准
+5. `.pi/skills/adversarial-review/SKILL.md`：description 加文档审视触发词；新增"审视对象是方案/设计文档时"维度适配小节；step 3 补无执行权限审视者的降级核实标准；report-template.md 补文档审视适配
 6. `.pi/skills/code-implementation/references/commit-convention.md`：PR Workflow 同步新审视流程
+7. `.pi/skills/otter-summon/references/collaboration-patterns.md`：循环模式补轮次上限
+8. `.pi/skills/repo-safety/SKILL.md`：划界——非方案驱动小改动不强制审视
 
 ## 对抗审视记录
 
@@ -104,6 +109,23 @@ modules:
 | 2.2 | 建议 | commit-convention.md 的 PR Workflow 残留旧流程（"another person reviews"），稀释审视步骤存在感 | 已修：PR Workflow 插入"召唤检视獭对抗审视"步骤，终审改为搭档 |
 | 2.3 | 建议 | 降级核实是检视獭常态，Test Coverage 维度的独立核实名存实亡 | 已修：step 8.1 要求附上测试/构建运行结果（标注实现者自报）供静态核验 |
 | 3.1 | 商榷 | 第 1 轮记录计数不符（7 项 vs 实为 8 项） | 已修：改为"8 项发现（7 项处置 + 1 项不处理）" |
+
+### 第 3 轮（2026-08-05，独立审视 agent，PR 级整体检视）
+
+结论"可以合入"。8 项发现无阻断，全部采纳（架构师拍板）。本轮关键价值是抓到一个根因：**小獭 session 的 cwd 是主仓**（`pi-session-factory.ts:372` `SessionManagerClass.create(process.cwd(), ...)`），read 相对路径拿不到 worktree 文件——第 1 轮"附 diff"只修了这个根因的一半。
+
+| # | 级别 | 发现 | 处置 |
+|---|---|---|---|
+| 1 | 建议 | requirement-analysis step 6 没把"方案在哪"交给检视獭（与第 1 轮阻断项同型漏洞修了一半） | 已修：step 6.1 明确附方案全文或 worktree 内绝对路径 |
+| 2 | 建议 | 检视獭静态核验会读到主仓旧代码，基于错误对象得出"已核实"结论 | 已修：step 8.1 要求附 worktree 绝对路径，静态核验以 worktree 内文件为准 |
+| 3 | 建议 | otter-summon reference 残留"循环直到检视通过"，与 2 轮封顶冲突 | 已修：改为"直到通过或达轮次上限，超限呈搭档裁决" |
+| 4 | 商榷 | 身份层"技术决策权"与 SYSTEM.md"拿不准先确认"接缝未处理，且必达层注意力权重压过首注层 | 已修：技术决策权补"拿不准的技术问题先自行调研论证，仍无结论再呈搭档，优先于一般确认原则" |
+| 5 | 商榷 | diff 塞 systemPrompt 每次 invoke 重发计费且不可更新 | 已修：step 8.1 允许 diff 落盘给路径（大 PR 推荐）；step 8.2 补第 2 轮操作方式（消息带新 diff 或 dissolve 重建） |
+| 6 | 商榷 | F 文档 summary 把"自动建 worktree"列为本特性交付，diff 无对应行 | 已修：summary 注明 worktree 为既有能力、本特性不改动 |
+| 7 | 建议 | report-template 未适配文档审视（"可以合入一个方案"语义错位） | 已修：模板补文档审视适配（合入→定稿，测试/构建检查项替换） |
+| 8 | 商榷 | repo-safety 最小流程无检视獭环节，小改动 PR 是否过审视无制度答案 | 已修：repo-safety 划界——非方案驱动小改动不强制审视，直接呈搭档终审 |
+
+根因观察：小獭 cwd=主仓 这一事实对"召唤小獭处理 worktree 产出"的所有场景都有影响，不仅审视。若后续同类问题再现，可考虑工程层解决（小獭 session cwd 指向 worktree 或注入 worktree 路径上下文），本次以 prompt 层传递绝对路径为准。
 
 ## 验证
 

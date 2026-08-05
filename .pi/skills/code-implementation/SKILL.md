@@ -74,11 +74,12 @@ After committing:
 
 PR 创建（或 push 更新）后，交付不算完成——必须经独立审视：
 
-1. 召唤检视獭（见 `otter-summon` skill）。小獭只有 read 权限、拿不到 PR 内容，systemPrompt 中必须：
+1. 召唤检视獭（见 `otter-summon` skill）。小獭只有 read 权限、且 cwd 是主仓（相对路径读不到 worktree 文件），systemPrompt 中必须：
    - 要求其先 read `adversarial-review` skill 再动手
-   - 附上审视对象：`gh pr diff` 全文，或变更文件清单 + 关键文件的完整内容
+   - 附上审视对象：`gh pr diff` 全文（大 PR 可落盘成文件后给绝对路径）
+   - 附上 worktree 的绝对路径——静态核验（对照测试文件、周边代码）必须以 worktree 内文件为准；主仓是 PR 合入前的旧代码
    - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
-2. 结论"需要修改" → 修复问题、更新 PR，更新后重新走审视
+2. 结论"需要修改" → 修复问题、更新 PR，更新后重新走审视（systemPrompt 不可更新：在消息中把新 diff 发给检视獭，或 dissolve 后重建）
 3. 同一 PR 审视不超过 2 轮；第 2 轮仍有未决问题 → 呈搭档裁决
 4. 审视通过 → 呈搭档终审，交付才算完成
 
