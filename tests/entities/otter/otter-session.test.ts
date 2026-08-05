@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   canArchiveSession,
   archiveReasonToSessionStatus,
+  buildNewSession,
 } from "../../../src/entities/otter/otter-session";
 
 describe("canArchiveSession", () => {
@@ -33,5 +34,27 @@ describe("archiveReasonToSessionStatus", () => {
 
   it("empty reason maps to archived status", () => {
     expect(archiveReasonToSessionStatus("")).toBe("archived");
+  });
+});
+
+describe("buildNewSession (F20260805rsto)", () => {
+  it("构造 active 首世 session：无前序、无摘要", () => {
+    const s = buildNewSession("otter-1", null);
+    expect(s.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(s.otterId).toBe("otter-1");
+    expect(s.status).toBe("active");
+    expect(s.previousSessionId).toBeNull();
+    expect(s.summary).toBeNull();
+    expect(s.archivedAt).toBeNull();
+    expect(s.archiveReason).toBeNull();
+    expect(s.isNegativeCase).toBe(false);
+    expect(s.handoffSummary).toBeNull();
+    expect(new Date(s.startedAt).getTime()).not.toBeNaN();
+  });
+
+  it("携带前序指针与摘要（restart 建链 + 前情注入新行）", () => {
+    const s = buildNewSession("otter-1", "prev-session", "前情摘要");
+    expect(s.previousSessionId).toBe("prev-session");
+    expect(s.summary).toBe("前情摘要");
   });
 });

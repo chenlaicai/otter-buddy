@@ -2,6 +2,7 @@ import type { OtterSession, SessionHandoffSummary } from "@entities/otter/otter-
 import {
   canArchiveSession,
   archiveReasonToSessionStatus,
+  buildNewSession,
 } from "@entities/otter/otter-session";
 import type { MemoryLayer } from "@entities/memory/memory-entry";
 import { DomainError } from "@entities/errors";
@@ -48,8 +49,13 @@ export class ManageSession {
    * 创建新 Session。
    * 前置条件：该 otter 无 active session。
    * previousSessionId 指向前一个 session（链式关系，B14）。
+   * summary（F20260805rsto）：写入新行，供下一轮 invoke 注入新獭生上下文
+   * （restart 的「前情摘要」原本只写旧行，新 session 永远读不到）。
    */
-  async createSession(otterId: string): Promise<OtterSession> {
+  async createSession(
+    otterId: string,
+    params?: { summary?: string },
+  ): Promise<OtterSession> {
     /** 前置条件检查：不允许同时存在两个 active session */
     const activeSession = await this.repo.getActiveSession(otterId);
     if (activeSession) {
@@ -63,18 +69,7 @@ export class ManageSession {
     const history = await this.repo.getSessionHistory(otterId);
     const previousSessionId = history.length > 0 ? history[0].id : null;
 
-    const session: OtterSession = {
-      id: crypto.randomUUID(),
-      otterId,
-      status: "active",
-      previousSessionId,
-      startedAt: new Date().toISOString(),
-      archivedAt: null,
-      archiveReason: null,
-      isNegativeCase: false,
-      summary: null,
-      handoffSummary: null,
-    };
+    const session = buildNewSession(otterId, previousSessionId, params?.summary ?? null);
 
     await this.repo.createSession(session);
 

@@ -151,6 +151,54 @@ describe("ManageSession", () => {
     });
   });
 
+  /**
+   * F20260805rsto：重启全链路回归守护。
+   * 生产事故：archive 被控制器跳过导致 reset 永不执行（重启空操作）。
+   * 此处锁定 archiveSession 的完整副作用，保证链路的后半段不再退化。
+   */
+  describe("restart 链路（archiveSession + createSession）", () => {
+    it("archiveSession 封存旧行 + 记忆 working→historical + agentGateway.reset", async () => {
+      const repo = mockRepo(mockSession());
+      const gateway = mockAgentGateway();
+      const memory = mockMemoryLayer();
+      const ms = new ManageSession(repo, gateway, mockConversationQuery(["conv-1"]), memory, mockLogger());
+
+      await ms.archiveSession("sess-1", { reason: "restart", isNegativeCase: false, summary: "前情" });
+
+      const old = repo._sessions.get("sess-1")!;
+      expect(old.status).toBe("restarted");
+      expect(old.archiveReason).toBe("restart");
+      expect(old.summary).toBe("前情");
+      expect(memory._transitions).toEqual([{ conversationId: "conv-1", from: "working", to: "historical" }]);
+      expect(gateway._resetCalls).toEqual([{ otterId: "otter-1", context: undefined }]);
+    });
+
+    it("createSession 携带 summary 写入新行（前情摘要注入新獭生）", async () => {
+      const repo = mockRepo();
+      const ms = new ManageSession(
+        repo, mockAgentGateway(), mockConversationQuery(), mockMemoryLayer(), mockLogger(),
+      );
+
+      const session = await ms.createSession("otter-1", { summary: "前情" });
+
+      expect(session.summary).toBe("前情");
+      expect(repo._sessions.get(session.id)!.summary).toBe("前情");
+    });
+
+    it("restart 两步走完：旧行 restarted、新行 previousSessionId 指向旧行", async () => {
+      const repo = mockRepo(mockSession());
+      const gateway = mockAgentGateway();
+      const ms = new ManageSession(repo, gateway, mockConversationQuery(), mockMemoryLayer(), mockLogger());
+
+      await ms.archiveSession("sess-1", { reason: "restart", isNegativeCase: false });
+      // archive 后 getActiveSession 返回 null（mock repo 的 getActiveSession 只在 active 时返回）
+      const next = await ms.createSession("otter-1");
+
+      expect(next.previousSessionId).toBe("sess-1");
+      expect(gateway._resetCalls).toHaveLength(1);
+    });
+  });
+
   describe("handoffSession", () => {
     it("archives current session and creates new one (B-CS-1, B-CS-2)", async () => {
       const activeSession = mockSession();

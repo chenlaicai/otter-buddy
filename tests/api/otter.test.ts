@@ -178,35 +178,6 @@ describe("Otter API", () => {
     });
   });
 
-  // ─── POST /api/otters/:id/sessions ───
-
-  describe("POST /api/otters/:id/sessions", () => {
-    it("creates a new session", async () => {
-      const session = makeSession({ id: "new-session" });
-      deps.manageSession.createSession.mockResolvedValue(session);
-
-      const res = await app.request("/api/otters/otter-1/sessions", {
-        method: "POST",
-      });
-
-      expect(res.status).toBe(201);
-      const body = await json(res);
-      expect(body.id).toBe("new-session");
-    });
-
-    it("returns 409 when active session already exists", async () => {
-      deps.manageSession.createSession.mockRejectedValue(
-        new DomainError("Otter otter-1 already has an active session: s1", "conflict"),
-      );
-
-      const res = await app.request("/api/otters/otter-1/sessions", {
-        method: "POST",
-      });
-
-      expect(res.status).toBe(409);
-    });
-  });
-
   // ─── POST /api/otters/:id/restart ───
 
   describe("POST /api/otters/:id/restart", () => {
@@ -231,9 +202,14 @@ describe("Otter API", () => {
         isNegativeCase: false,
         summary: "Restarting",
       });
-      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1", { summary: "Restarting" });
     });
 
+    /**
+     * 防御路径：无 active session 时跳过 archive 直接建新 session。
+     * F20260805rsto 后正常獭恒有 active session（CreateOtter 建账 + 启动迁移 + invoke 兜底），
+     * 此路径在生产应不可达，保留仅为控制器防御分支的回归守护。
+     */
     it("creates new session when no active session exists", async () => {
       const newSession = makeSession({ id: "fresh-session" });
       deps.manageSession.getActiveSession.mockResolvedValue(null);
@@ -245,7 +221,7 @@ describe("Otter API", () => {
 
       expect(res.status).toBe(201);
       expect(deps.manageSession.archiveSession).not.toHaveBeenCalled();
-      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1");
+      expect(deps.manageSession.createSession).toHaveBeenCalledWith("otter-1", { summary: undefined });
     });
   });
 });

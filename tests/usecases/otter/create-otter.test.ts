@@ -2,15 +2,28 @@ import { describe, it, expect, vi } from "vitest";
 import { CreateOtter } from "@usecases/otter/create-otter";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { AgentGateway } from "@usecases/otter/agent-gateway";
+import type { OtterSession } from "@entities/otter/otter-session";
+import type { Logger } from "@usecases/ports/logger";
 
-/** 带状态追踪的 mock repo：记录 createOtter 和 deleteOtter 的调用状态 */
-function mockRepo() {
+function mockLogger(): Logger {
+  return {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  } as unknown as Logger;
+}
+
+/** 带状态追踪的 mock repo：记录 createOtter / deleteOtter / createSession 的调用状态 */
+function mockRepo(options?: { failCreateSession?: boolean }) {
   const createdOtters: Array<{ id: string; name: string }> = [];
   const deletedOtterIds: string[] = [];
+  const createdSessions: OtterSession[] = [];
 
   return {
     _createdOtters: createdOtters,
     _deletedOtterIds: deletedOtterIds,
+    _createdSessions: createdSessions,
     createOtter: vi.fn(async (otter: { id: string; name: string }) => {
       createdOtters.push({ id: otter.id, name: otter.name });
     }),
@@ -19,28 +32,41 @@ function mockRepo() {
     deleteOtter: vi.fn(async (id: string) => {
       deletedOtterIds.push(id);
     }),
+    createSession: vi.fn(async (session: OtterSession) => {
+      if (options?.failCreateSession) {
+        throw new Error("session 建行失败");
+      }
+      createdSessions.push(session);
+    }),
+    deleteSession: vi.fn(async () => {}),
   } as unknown as OtterRepository & {
     _createdOtters: Array<{ id: string; name: string }>;
     _deletedOtterIds: string[];
+    _createdSessions: OtterSession[];
   };
 }
 
 /** 带状态追踪的 mock AgentGateway */
 function mockAgentGateway(shouldFail = false) {
   const createdAgentIds: string[] = [];
+  const destroyedAgentIds: string[] = [];
 
   return {
     _createdAgentIds: createdAgentIds,
+    _destroyedAgentIds: destroyedAgentIds,
     create: vi.fn(async (otterId: string) => {
       createdAgentIds.push(otterId);
       if (shouldFail) {
         throw new Error("Agent 创建失败");
       }
     }),
-    destroy: vi.fn(async () => {}),
+    destroy: vi.fn(async (otterId: string) => {
+      destroyedAgentIds.push(otterId);
+    }),
     reset: vi.fn(async () => {}),
   } as unknown as AgentGateway & {
     _createdAgentIds: string[];
+    _destroyedAgentIds: string[];
   };
 }
 
@@ -49,7 +75,7 @@ describe("CreateOtter", () => {
     it("创建 otter 到 repo + 通过 gateway 创建 agent，返回 status='active' 的 otter", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway);
+      const useCase = new CreateOtter(repo, gateway, mockLogger());
 
       const result = await useCase.execute({
         name: "测试水獭",
@@ -71,10 +97,24 @@ describe("CreateOtter", () => {
       expect(gateway._createdAgentIds[0]).toBe(result.id);
     });
 
+    it("F20260805rsto：獭出生即建首世 domain session（active、无前序）", async () => {
+      const repo = mockRepo();
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, mockLogger());
+
+      const result = await useCase.execute({ name: "首世水獭", type: "big" });
+
+      expect(repo._createdSessions).toHaveLength(1);
+      const session = repo._createdSessions[0];
+      expect(session.otterId).toBe(result.id);
+      expect(session.status).toBe("active");
+      expect(session.previousSessionId).toBeNull();
+    });
+
     it("agent 创建失败时回滚 DB（B1 回归守护）", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway(true); // agent 创建会失败
-      const useCase = new CreateOtter(repo, gateway);
+      const useCase = new CreateOtter(repo, gateway, mockLogger());
 
       await expect(
         useCase.execute({ name: "失败水獭", type: "small" }),
@@ -86,12 +126,32 @@ describe("CreateOtter", () => {
       /** 验证 repo 中先创建了 otter，然后被删除 */
       expect(repo._createdOtters).toHaveLength(1);
       expect(repo._deletedOtterIds[0]).toBe(repo._createdOtters[0].id);
+
+      /** agent 未建成，不建 session、不需 destroy */
+      expect(repo._createdSessions).toHaveLength(0);
+      expect(gateway._destroyedAgentIds).toHaveLength(0);
+    });
+
+    it("F20260805rsto：session 建行失败时按序回滚 destroy agent + deleteOtter", async () => {
+      const repo = mockRepo({ failCreateSession: true });
+      const gateway = mockAgentGateway();
+      const useCase = new CreateOtter(repo, gateway, mockLogger());
+
+      await expect(
+        useCase.execute({ name: "回滚水獭", type: "big" }),
+      ).rejects.toThrow("session 建行失败");
+
+      /** agent 已建成但必须销毁，否则留下孤立 agent_sessions/config 行 */
+      expect(gateway._destroyedAgentIds).toHaveLength(1);
+      /** otter 行必须删除（session 单条 INSERT 原子，失败无行，无 FK 阻碍） */
+      expect(repo._deletedOtterIds).toHaveLength(1);
+      expect(repo._deletedOtterIds[0]).toBe(gateway._createdAgentIds[0]);
     });
 
     it("传入 role 和 parentOtterId 时保留在返回的 otter 中", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway);
+      const useCase = new CreateOtter(repo, gateway, mockLogger());
 
       const role = { name: "助手", responsibilities: ["回答问题"] };
       const result = await useCase.execute({
@@ -108,7 +168,7 @@ describe("CreateOtter", () => {
     it("未传 role 和 parentOtterId 时默认为 null", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway);
+      const useCase = new CreateOtter(repo, gateway, mockLogger());
 
       const result = await useCase.execute({
         name: "默认水獭",

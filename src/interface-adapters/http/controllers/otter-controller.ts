@@ -71,16 +71,6 @@ export class OtterController {
     }
   }
 
-  async createSession(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      const session = await this.manageSession.createSession(id);
-      return c.json(toOtterSessionDTO(session), 201);
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
   async restart(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
@@ -93,7 +83,9 @@ export class OtterController {
           summary: body.summary,
         });
       }
-      const session = await this.manageSession.createSession(id);
+      /** F20260805rsto：前情摘要同时写入新行——buildDynamicContext 只读新 active 行，
+       *  只写旧行的话新獭生永远读不到用户填的前情 */
+      const session = await this.manageSession.createSession(id, { summary: body.summary });
       return c.json(toOtterSessionDTO(session), 201);
     } catch (err) {
       return handleError(c, err, this.logger);

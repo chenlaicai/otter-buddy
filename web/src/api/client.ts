@@ -145,10 +145,6 @@ export function getSessionHistory(otterId: string): Promise<OtterSessionDTO[]> {
   return request(`/otters/${otterId}/sessions`)
 }
 
-export function createSession(otterId: string): Promise<OtterSessionDTO> {
-  return request(`/otters/${otterId}/sessions`, { method: 'POST' })
-}
-
 export function restartOtter(otterId: string, summary?: string): Promise<OtterSessionDTO> {
   return request(`/otters/${otterId}/restart`, { method: 'POST', body: summary ? JSON.stringify({ summary }) : undefined })
 }

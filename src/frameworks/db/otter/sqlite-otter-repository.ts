@@ -53,14 +53,15 @@ export class SqliteOtterRepository implements OtterRepository {
 
   async createSession(session: OtterSession): Promise<void> {
     this.db.prepare(`
-      INSERT INTO otter_sessions (id, otter_id, status, previous_session_id, started_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO otter_sessions (id, otter_id, status, previous_session_id, started_at, summary)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       session.id,
       session.otterId,
       session.status,
       session.previousSessionId,
       session.startedAt,
+      session.summary,
     );
   }
 

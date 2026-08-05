@@ -40,6 +40,30 @@ export function canArchiveSession(status: SessionStatus): boolean {
 }
 
 /**
+ * 构造新 active Session 的纯工厂（F20260805rsto）。
+ * CreateOtter（首世建账）与 ManageSession.createSession（重启/交接建链）共用，
+ * 避免两处各自拼装 session 对象导致字段漂移。
+ */
+export function buildNewSession(
+  otterId: string,
+  previousSessionId: string | null,
+  summary: string | null = null,
+): OtterSession {
+  return {
+    id: crypto.randomUUID(),
+    otterId,
+    status: "active",
+    previousSessionId,
+    startedAt: new Date().toISOString(),
+    archivedAt: null,
+    archiveReason: null,
+    isNegativeCase: false,
+    summary,
+    handoffSummary: null,
+  };
+}
+
+/**
  * 归档原因到 Session 状态的映射。
  * 'restart' -> 'restarted'，其余 -> 'archived'
  * 来源：D36 示例 + 旧 repo archiveSession() 逻辑提取（旧 adapter 本身不做映射，映射在 repo 中）
