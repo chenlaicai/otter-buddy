@@ -34,12 +34,16 @@ let totalFiles = 0;
 for (const f of files) {
   const fp = path.join(sessionDir, f);
   if (!apply) {
-    /** dry-run：复制到临时文件清洗，看结果后丢弃 */
+    /** dry-run：复制到临时文件清洗，看结果后丢弃（异常也保证清理临时文件） */
     const tmp = fp + ".dryrun-tmp";
     fs.copyFileSync(fp, tmp);
-    const r = sanitizeSessionFile(tmp);
-    fs.unlinkSync(tmp);
-    fs.rmSync(tmp + ".bak", { force: true });
+    let r;
+    try {
+      r = sanitizeSessionFile(tmp);
+    } finally {
+      fs.rmSync(tmp, { force: true });
+      fs.rmSync(tmp + ".bak", { force: true });
+    }
     if (r.replacedBlocks > 0) {
       totalFiles++;
       totalHits += r.replacedBlocks;

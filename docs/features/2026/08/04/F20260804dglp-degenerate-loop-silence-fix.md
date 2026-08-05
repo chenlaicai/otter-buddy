@@ -210,6 +210,11 @@ messages/messages_fts 无退化文本（dc2f9481 的 body 仅 32 字节）；mes
 - 不动熔断器 per-event 超时的职责边界（工具执行 vs 生成静默的分工维持现状，生成静默由修复 1/2 覆盖）；
 - 不排查 mimo 模型侧参数调优（repetition_penalty 等）——自愈机制先行，模型调优作为后续独立议题。
 
+### 已知边界（第三轮检视记录）
+
+- **maxTrackedLength 超限后的理论盲区**：单块累积超过 1M 字符（~250K tokens）时 detector 停止 tracking，但 onDelta 仍按每个 delta 重置滑动计时器——若退化在 1M 之后才开始，streaming_timeout 也不会 fire。真实数据最大单块 625KB 未触及；运行时另有 max_tokens（SDK 默认 16384）作为硬顶。不为本低概率高影响场景增加复杂度，记录在此。
+- **resume 最后原因语义**：compaction 与 tool pause 叠加时，最终 arm 类型由"最后释放的原因"决定——SDK 正常流程下 compaction 在 message 间、工具在 message 内，两者不叠加，当前不可达。
+
 ## 验证
 
 1. **guard 单测**：构造嵌套 `message_update` 事件（text_delta/thinking_delta/toolcall_delta），断言 delta 被累积、退化触发 abort、120s 无 delta 触发 streaming_timeout、toolcall_delta 只重置计时器不进重复检测、text_start/thinking_start 重置块边界；
@@ -255,11 +260,16 @@ messages/messages_fts 无退化文本（dc2f9481 的 body 仅 32 字节）；mes
 - 【严重 S3】compaction/auto_retry re-arm 未刷新 firstByteArmedAt：首字节埋点把"原始 arm→delta"记成 TTFT 并覆盖真值（300s 调参依据被污染）→ armTimer 在 first_byte 时同步刷新基准；
 - 【建议采纳】pause 期间收 delta 重置冻结剩余为全额（SDK 行为变化防御）、destroy 置终态防复活、cfg 构造过滤 undefined 暗雷、分支回溯加 visited 防环、abort promise catch 防 unhandledRejection；
 - 【如实记录】检测器"滚动哈希"实为每字符全量重算（O(n·w)），叠加每次 invoke 全量重扫活跃分支，大 session 下每次 invoke 尾部有确定性成本（1.88MB 约 10⁷-10⁸ 次 charCodeAt），功能正确、成本已知；工具结束后下一轮请求同为冷 prefill 但用滑动窗口（120s）而非首字节窗口（300s）——已知不对称，当前余量够，靠埋点观测后再调；sanitizer hits 计数含已被 compaction 摘要不进上下文的块（无害幂等，报告口径知悉）；
-- 【配置兼容】outputGuard 的旧字段（segmentLength/maxRepeatedSegments/checkInterval）被 detector.* 替代，老 yaml 里的自定义阈值静默忽略——现行部署未配 outputGuard 段（吃默认值），无实际损失；新旧映射以 config.yaml.example 注释为准。
+### 第六轮（2026-08-04，PR 第三轮端到端对抗检视）：1 严重 + 1 边界 + 2 建议，全部处理
+
+- 【严重 S1】buildAbortBody 漏 first_byte_timeout 分支：首字节超时（大上下文 prefill 超过 300s，最可能触发的超时路径）落到通用兜底文案"[系统保护] 输出异常" → 补专属文案"[系统保护] 模型响应超时，已自动中断"+ 测试；
+- 【建议 I1】dry-run 脚本异常退出残留 .dryrun-tmp → try/finally 包裹；
+- 【边界记录】maxTrackedLength 超限后的理论盲区、resume 最后原因语义 → 写入"已知边界"，不为当前不可达场景增加复杂度；
+- 【端到端确认】触发时延按真实退化周期估算 14-30s（vs 用户报告"几十分钟"，改善 50-100 倍）；abort→SSE 链路完整；真实 session 文件清洗后 SDK SessionManager.open() 加载无报错；dry-run 29 文件 24 块命中与前两轮一致。
 
 ## 实施验证结果（2026-08-04）
 
-- `npx tsc --noEmit` 通过；`npx vitest run` 全量 975 通过（含新增 detector 11 + guard 27 + sanitizer 8，guard 含 S1/S2/S3 回归用例）；
+- `npx tsc --noEmit` 通过；`npx vitest run` 全量 976 通过（含新增 detector 11 + guard 27 + sanitizer 8 + invoker abort 文案用例，guard 含 S1/S2/S3 回归用例）；
 - 阳性：8 条真实退化 entry 全检出（机制 A），含周期 67 盲区条目与 153KB 近似重复 thinking；
 - 阴性：全部 session 文件 64 个 ≥5KB 块扫描，良性块（复述两遍/ASCII 表格/正常分析）零误伤；
 - 离线脚本 `scripts/sanitize-sessions.mjs` dry-run：6 个文件 24 块命中，与人工核对一致；
