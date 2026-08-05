@@ -372,7 +372,6 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
 
     // e3 应该被 vecSimilarityThreshold 过滤掉
-    console.log("Result entries:", result.entries.map(e => ({ id: e.id, score: e.score, source: e.source })));
     expect(result.entries.length).toBe(2);
     expect(result.entries[0].id).toBe("e1");
     expect(result.entries[1].id).toBe("e2");

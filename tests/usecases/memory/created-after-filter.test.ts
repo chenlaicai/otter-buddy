@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { initSchema } from '@frameworks/db/schema';
 import { SqliteMemoryRepository } from '@frameworks/db/memory/sqlite-memory-repository';
 import type { SearchFilters } from '@usecases/memory/memory-repository';
+import { tokenizeWithJieba } from '@frameworks/db/jieba-tokenizer';
 
 describe('SqliteMemoryRepository.createdAfter 时间过滤', () => {
   let db: Database.Database;
@@ -24,7 +25,7 @@ describe('SqliteMemoryRepository.createdAfter 时间过滤', () => {
     db.prepare("DELETE FROM memory_fts_jieba").run();
     for (const row of db.prepare("SELECT id, content FROM memory_entries").all() as Array<{ id: string; content: string }>) {
       db.prepare("INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)").run(row.id, row.content);
-      db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)").run(row.id, row.content);
+      db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)").run(row.id, tokenizeWithJieba(row.content));
     }
   });
 
