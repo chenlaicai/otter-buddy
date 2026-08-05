@@ -33,11 +33,16 @@ export async function createConversation(ctx: CapabilityContext, name: string): 
 }
 
 /** 发用户消息。响应是 SSE 流（agent 异步跑），取消流后走轮询断言终态。 */
-export async function sendUserMessage(ctx: CapabilityContext, convId: string, text: string): Promise<void> {
+export async function sendUserMessage(
+  ctx: CapabilityContext,
+  convId: string,
+  text: string,
+  opts: { talkingStonePassedTo?: string[] } = {},
+): Promise<void> {
   const res = await ctx.built.app.request(`/api/conversations/${convId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ senderId: "capability-tester", body: text }),
+    body: JSON.stringify({ senderId: "capability-tester", body: text, talkingStonePassedTo: opts.talkingStonePassedTo ?? [] }),
   });
   expect(res.status).toBe(200);
   await res.body?.cancel();
@@ -136,4 +141,30 @@ export async function expectEventually(
     await new Promise((r) => setTimeout(r, opts.intervalMs ?? 2000));
   }
   throw new Error(`expectEventually 超时：${opts.message ?? "条件未成立"}${lastError ? `（最后错误：${lastError}）` : ""}`);
+}
+
+export interface SampleResult {
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * LLM 行为统计采样（F20260805mspk：mimo 行为不稳定，单次断言会把套件打成长红）。
+ * 跑 samples 次，打印全部明细，断言至少 minSuccess 次成功。
+ */
+export async function expectSampledBehavior(
+  label: string,
+  samples: number,
+  minSuccess: number,
+  sample: (index: number) => Promise<SampleResult>,
+): Promise<void> {
+  let successes = 0;
+  const outcomes: string[] = [];
+  for (let i = 0; i < samples; i++) {
+    const result = await sample(i);
+    if (result.ok) successes++;
+    outcomes.push(`#${i + 1}: ${result.ok ? "OK" : "FAIL"} ${result.detail}`);
+  }
+  console.log(`[capability] ${label} 采样结果（${successes}/${samples} 成功）:\n${outcomes.join("\n")}`);
+  expect(successes, `${label}：${samples} 次采样至少 ${minSuccess} 次成功\n${outcomes.join("\n")}`).toBeGreaterThanOrEqual(minSuccess);
 }

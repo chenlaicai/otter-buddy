@@ -21,6 +21,11 @@ llm:
       provider: openai
       model: "__placeholder__"
       contextWindow: 128000
+    - alias: "test-secondary"
+      # 多模型路由测试用第二别名（可指向同一端点）
+      provider: openai
+      model: "__placeholder__"
+      contextWindow: 128000
 circuitBreaker:
   # 能力测试应短平快：收紧工具调用上限与链深，防失控烧钱
   maxToolCalls: 25
