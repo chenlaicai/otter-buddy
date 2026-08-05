@@ -371,6 +371,7 @@ export interface TestDeps {
   manageConversation: any;
   manageParticipant: any;
   sendMessageUseCase: any;
+  conversationRepo: any;
   queryMessage: any;
   agentInvoker: any;
   manageReadState: any;
@@ -399,7 +400,7 @@ export function createTestApp(deps: TestDeps): Hono {
   );
 
   const dispatchChainEngine = new DispatchChainEngine({
-    sendMessage: deps.sendMessageUseCase,
+    conversationRepo: deps.conversationRepo,
     queryMessage: deps.queryMessage,
     queryOtter: deps.queryOtter,
     logger,
@@ -504,6 +505,15 @@ export function createMockDeps(): TestDeps {
         updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
         getActiveParticipants: vi.fn().mockResolvedValue([]),
       },
+    },
+    conversationRepo: {
+      getUnreadMessages: vi.fn().mockResolvedValue([]),
+      getTurnById: vi.fn().mockResolvedValue(null),
+      markParticipantLeft: vi.fn().mockResolvedValue(undefined),
+      getLastMessageBySender: vi.fn().mockResolvedValue(null),
+      getActiveTurn: vi.fn().mockResolvedValue(null),
+      updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
+      getActiveParticipants: vi.fn().mockResolvedValue([]),
     },
     queryMessage: mockMethods(["getMessageById", "getMessages", "getMessageEvents", "searchMessages", "getTurnHistory", "expandMessage"]),
     agentInvoker: mockMethods(["invokeConversation", "abort"]),

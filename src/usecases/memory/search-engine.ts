@@ -3,6 +3,12 @@ import type { RetrievalSource, FTSHit, VecHit } from "./memory-repository";
 
 export interface SearchEngineConfig {
   rrfK: number;
+  /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
+  alpha: number;
+  /** Vec 相似度阈值，低于此值的结果被过滤，默认 0.3 */
+  vecSimilarityThreshold: number;
+  /** 两路命中（source=both）的加成系数，默认 1.2 */
+  bothBoost: number;
   weightHalfLifeDays: number;
   userFlagMultiplier: number;
   frequencyBoostFactor: number;
@@ -38,49 +44,84 @@ export interface ScoredHit {
 export class SearchEngine {
   constructor(private readonly config: SearchEngineConfig) {}
 
-  /** RRF 融合：FTS + Vec 两路结果合并 */
+  /**
+   * RRF 融合：FTS + Vec 两路结果合并（三阶段策略）
+   *
+   * 阶段 1：Vec 质量门控 - 过滤掉 similarity < vecSimilarityThreshold 的结果
+   * 阶段 2：加权 RRF - 用 alpha 控制 FTS 和 Vec 的权重
+   * 阶段 3：一致性加权 - 两路命中的结果给予 bothBoost 加成
+   */
   rrfFusion(ftsHits: FTSHit[], vecHits: VecHit[]): Map<string, RrfHit> {
     const k = this.config.rrfK;
-    const scores = new Map<
-      string,
-      { score: number; entry: MemoryEntry; source: RetrievalSource }
-    >();
+    const ftsWeight = 1 - this.config.alpha;
+    const vecWeight = this.config.alpha;
+
+    // 阶段 1：Vec 质量门控
+    const filteredVecHits = this.filterVecHitsByThreshold(vecHits);
+
+    // 阶段 2：加权 RRF 融合
+    const scores = this.mergeWeightedScores(ftsHits, filteredVecHits, k, ftsWeight, vecWeight);
+
+    // 阶段 3：一致性加权
+    return this.applyBothBoost(scores);
+  }
+
+  /** 阶段 1：过滤低相似度的 Vec 结果 */
+  private filterVecHitsByThreshold(vecHits: VecHit[]): VecHit[] {
+    const threshold = this.config.vecSimilarityThreshold;
+    return vecHits.filter(hit => (1 - hit.distance) >= threshold);
+  }
+
+  /** 阶段 2：加权 RRF 融合 FTS 和 Vec 结果 */
+  private mergeWeightedScores(
+    ftsHits: FTSHit[],
+    vecHits: VecHit[],
+    k: number,
+    ftsWeight: number,
+    vecWeight: number,
+  ): Map<string, { score: number; entry: MemoryEntry; source: RetrievalSource }> {
+    const scores = new Map<string, { score: number; entry: MemoryEntry; source: RetrievalSource }>();
 
     for (const [rank, hit] of ftsHits.entries()) {
-      const rrfScore = 1 / (k + rank + 1);
-      const existing = scores.get(hit.entryId);
-      if (existing) {
-        existing.score += rrfScore;
-        existing.source = "both";
-      } else {
-        scores.set(hit.entryId, {
-          score: rrfScore,
-          entry: hit.entry,
-          source: "fts",
-        });
-      }
+      this.addWeightedScore(scores, hit.entryId, hit.entry, ftsWeight * (1 / (k + rank + 1)), "fts");
     }
 
     for (const [rank, hit] of vecHits.entries()) {
-      const rrfScore = 1 / (k + rank + 1);
-      const existing = scores.get(hit.entryId);
-      if (existing) {
-        existing.score += rrfScore;
-        existing.source = "both";
-      } else {
-        scores.set(hit.entryId, {
-          score: rrfScore,
-          entry: hit.entry,
-          source: "vec",
-        });
-      }
+      this.addWeightedScore(scores, hit.entryId, hit.entry, vecWeight * (1 / (k + rank + 1)), "vec");
     }
 
+    return scores;
+  }
+
+  /** 添加加权分数到 scores Map */
+  private addWeightedScore(
+    scores: Map<string, { score: number; entry: MemoryEntry; source: RetrievalSource }>,
+    entryId: string,
+    entry: MemoryEntry,
+    rrfScore: number,
+    source: RetrievalSource,
+  ): void {
+    const existing = scores.get(entryId);
+    if (existing) {
+      existing.score += rrfScore;
+      existing.source = "both";
+    } else {
+      scores.set(entryId, { score: rrfScore, entry, source });
+    }
+  }
+
+  /** 阶段 3：对两路命中的结果应用 bothBoost 加成 */
+  private applyBothBoost(
+    scores: Map<string, { score: number; entry: MemoryEntry; source: RetrievalSource }>,
+  ): Map<string, RrfHit> {
     const result = new Map<string, RrfHit>();
     for (const [id, val] of scores) {
+      const finalRrfScore = val.source === "both"
+        ? val.score * this.config.bothBoost
+        : val.score;
       result.set(id, {
         entryId: id,
-        rrfScore: val.score,
+        rrfScore: finalRrfScore,
         entry: val.entry,
         source: val.source,
       });

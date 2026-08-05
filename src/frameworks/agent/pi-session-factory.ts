@@ -75,7 +75,7 @@ export interface InvokeOptions {
 export interface AgentSessionFactoryConfig {
   db: Database.Database;
   sessionDir?: string;
-  otterToolClient: OtterToolClient;
+  otterToolClient: OtterToolClient | null;
   /** pi-ai Model 对象（由 models-factory 创建，单模型模式时使用） */
   model: unknown;
   /** ModelPool（多模型路由，可选） */
@@ -156,13 +156,13 @@ export class PiSessionFactory implements AgentGateway {
     setRuntimeApiKey(provider: string, key: string): Promise<void>;
     registerProvider(providerId: string, config: Record<string, unknown>): void;
   } | null = null;
-  private otterToolClient: OtterToolClient;
+  private otterToolClient: OtterToolClient | null;
 
   constructor(
     private readonly cfg: {
       db: Database.Database;
       sessionDir: string;
-      otterToolClient: OtterToolClient;
+      otterToolClient: OtterToolClient | null;
       model: unknown;
       modelPool?: ModelPool;
       identityPromptDir?: string;
@@ -441,7 +441,7 @@ export class PiSessionFactory implements AgentGateway {
     options: InvokeOptions | undefined,
   ): Promise<AgentRunResult> {
     // 前置校验
-    if (!this.otterToolClient) {
+    if (this.otterToolClient == null) {
       throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
     }
 
@@ -577,6 +577,7 @@ export class PiSessionFactory implements AgentGateway {
       /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
       armFirstByte();
       await session.prompt(fullMessage);
+      this._checkSessionError(session, otterId);
       return this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
     } catch (err) {
       const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
@@ -589,6 +590,15 @@ export class PiSessionFactory implements AgentGateway {
       session.dispose();
       /** F20260804dglp 修复 3：dispose 后清洗 session 文件，斩断退化内容污染飞轮 */
       this.sanitizeSessionSafely(otterId, sessionManager);
+    }
+  }
+
+  /** 检查 session 是否记录了 LLM API 错误（SDK 自动重试后可能返回空响应而不抛异常） */
+  private _checkSessionError(session: { state: { errorMessage?: string } }, otterId: string): void {
+    const errorMessage = session.state.errorMessage;
+    if (errorMessage) {
+      this.logger.error('LLM API error detected after prompt', undefined, { otterId, errorMessage });
+      throw new Error(`LLM API error: ${errorMessage}`);
     }
   }
 
@@ -764,7 +774,7 @@ export class PiSessionFactory implements AgentGateway {
     execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>;
   }> {
     const otterTools = this.cfg.createTools({
-      client: this.otterToolClient,
+      client: this.otterToolClient!,
       otterId,
       conversationId,
       currentMessageId: messageId ?? "",

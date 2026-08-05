@@ -316,6 +316,7 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
       const rows = db.prepare("SELECT id FROM memory_entries WHERE content_type = ?").all(ct) as Array<{ id: string }>;
       for (const row of rows) {
         db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         // S10：vec 删除 try-catch 加 log warn（vec0 表可能不存在，D22 降级）
         try {
           db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);

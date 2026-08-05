@@ -29,7 +29,7 @@ function makeMocks() {
   const getLastMessageBySender = vi.fn().mockResolvedValue(makeMsg());
   const getActiveTurn = vi.fn().mockResolvedValue(null);
 
-  const repo = {
+  const conversationRepo = {
     getActiveParticipants: vi.fn().mockResolvedValue([]),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
     getTurnById, updateLastReadTurnNumber, getLastMessageBySender,
@@ -37,12 +37,12 @@ function makeMocks() {
     getParticipant: vi.fn().mockResolvedValue(null),
   } as unknown as ConversationRepository;
 
-  const sendMessage = { repo } as unknown as SendMessage;
+  const sendMessage = {} as unknown as SendMessage;
   const queryMessage = { getMessageById, getLastMessageBySender } as unknown as QueryMessage;
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
-  return { sendMessage, queryMessage, queryOtter, logger, updateLastReadTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn };
+  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, updateLastReadTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn };
 }
 
 /** 提取 mock 首次调用的参数（避免 toHaveBeenCalledWith 绑定实现细节的 lint 规则） */
@@ -53,7 +53,7 @@ function firstCallArgs(fn: ReturnType<typeof vi.fn>): unknown[] {
 describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", () => {
   it("fulfilled 结果：turn 已关闭时仍用 turnId 反查推进 last_read", async () => {
     const m = makeMocks();
-    const engine = new DispatchChainEngine({ sendMessage: m.sendMessage, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
@@ -71,7 +71,7 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
 
   it("rejected 结果：用 getLastMessageBySender 反查仍推进 last_read", async () => {
     const m = makeMocks();
-    const engine = new DispatchChainEngine({ sendMessage: m.sendMessage, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
@@ -88,7 +88,7 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
   it("getTurnById 返回 null 时不推进（防御性）", async () => {
     const m = makeMocks();
     m.getTurnById.mockResolvedValue(null);
-    const engine = new DispatchChainEngine({ sendMessage: m.sendMessage, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
@@ -111,7 +111,7 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
       if (turnId === "turn-2") return makeTurn({ id: "turn-2", turnNumber: 7 });
       return null;
     });
-    const engine = new DispatchChainEngine({ sendMessage: m.sendMessage, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
