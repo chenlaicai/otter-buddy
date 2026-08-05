@@ -116,6 +116,19 @@ export class OutputGuard {
         this.firstByteLatencyMs = Date.now() - this.firstByteArmedAt;
       }
       this.armTimer("streaming", this.config.streamingTimeoutMs, abort);
+    } else if (this.onlyAutoRetryPaused()) {
+      /**
+       * auto_retry 特例（PR 检视第四轮 S1）：SDK 的 auto_retry_end 在成功路径上
+       * 要等到重试生成完整跑完才发（agent-session.js:377-384），pause 会贯穿整个
+       * 重试请求（冷 prefill + 流式）。若等 end 事件，重试 prefill 挂死（零 delta）
+       * 时两道超时全部失效。首个 delta 到达即证明重试 prefill 已结束：
+       * 释放 auto_retry pause 并 arm 滑动计时器。
+       */
+      this.pauseCounts.delete("auto_retry");
+      this.pauseTotal = 0;
+      this.pausedRemainingMs = null;
+      this.pausedKind = null;
+      this.armTimer("streaming", this.config.streamingTimeoutMs, abort);
     } else {
       /** pause 期间到达的 delta：生成实际在恢复，把冻结剩余重置为全额滑动预算
        *  （防 SDK 行为变化后 resume 用陈旧小额剩余重建、恢复即误杀） */
@@ -188,6 +201,13 @@ export class OutputGuard {
 
   get isPaused(): boolean {
     return this.pauseTotal > 0;
+  }
+
+  /** 剩余 pause 原因是否仅剩 auto_retry（重试生成期间的 delta 据此判定 prefill 已结束） */
+  private onlyAutoRetryPaused(): boolean {
+    return this.pauseTotal > 0
+      && this.pauseCounts.size === 1
+      && this.pauseCounts.has("auto_retry");
   }
 
   /** 清理资源，必须在 invoke 生命周期的 finally 块中调用；终态，不可复活 */

@@ -149,7 +149,7 @@ case "message_update": {
 - 专抓换措辞的近似重复（4e8c3ff3 ratio 0.198，触发累积 ~100KB）；
 - 阴性安全距离实测：110 个 ≥5KB 合法块全量扫描，最低 ratio 0.838，无假阳性；中文信息密度高，distinct 更接近 1.0，只会更安全。
 
-**8 条真实 entry 的覆盖映射**：全部 8 条实测均由机制 A 抓获（含周期 67 的 be2c597d；4e8c3ff3 虽整体是近似重复，但其内部仍含逐字相同的长跨度窗口，单窗口计数 ≥50 命中）。机制 B 作为近似重复的兜底保留。离线清洗器同机制、参数放宽（无运行时误杀代价）。
+**8 条真实 entry 的覆盖映射**：全部 8 条实测均由机制 A 抓获（含周期 67 的 be2c597d；4e8c3ff3 虽整体是近似重复，但其内部仍含逐字相同的长跨度窗口，单窗口计数 ≥50 命中）。机制 B 作为近似重复的兜底保留。离线清洗器与运行时同一套参数（默认值已被真实数据验证覆盖全部命中条目，无需放宽）。
 
 **如实写明触发点**：精确重复在块长 100+50×L 处触发（机制 A，秒级）；纯近似重复（不含逐字相同窗口）由机制 B 在 ~100KB 累积触发（增量场景存在重复前导期）。能兜住 552KB 级失控。常数最终用真实夹具调定（见验证 3）。
 
@@ -177,7 +177,7 @@ case "message_update": {
 `_executeWithSession` 的 finally 里 `session.dispose()` 之后（dispose 已验证无任何文件写，agent-session.js:556-571），对 session jsonl 做幂等清洗：
 
 - **扫描范围**：当前活跃分支路径（从叶节点沿 parentId 回溯，同 buildSessionPath 语义，session-manager.js:124-145）上的全部 assistant entry——不是物理尾部（关键污染 entry 4e8c3ff3 距文件尾 25 行）。非活跃分支不进上下文（buildContextEntries 只走叶路径，已验证），不洗；
-- 对 text/thinking 块跑修复 1 的共享检测器（离线参数放宽）；
+- 对 text/thinking 块跑修复 1 的共享检测器（与运行时同参数）；
 - 命中则**原位替换**为占位符（如 `[输出异常重复，已截断。原始长度 552KB]`），entry id/parentId 不动，append-only 树结构与 compaction 的 firstKeptEntryId 引用不受破坏（已核实 SessionManager 稳态写入是 appendFileSync 按路径追加、open() 全量重解析，无缓存 fd/offset）；
 - **thinkingSignature 规则**：命中的 thinking 块若带 `thinkingSignature`，连同 signature 字段一起清除——只换内容留 signature 会导致真 Anthropic 端点签名校验 400，该 otter 此后每次 invoke 必挂（当前 mimo 数据全部无 signature，但规则必须防未来 provider 变更）；
 - 写盘策略：**临时文件 + 原子 rename + .bak 备份（同名覆盖，只留最近一份，避免每 invoke 积一份多 MB 备份）**；
@@ -267,9 +267,17 @@ messages/messages_fts 无退化文本（dc2f9481 的 body 仅 32 字节）；mes
 - 【边界记录】maxTrackedLength 超限后的理论盲区、resume 最后原因语义 → 写入"已知边界"，不为当前不可达场景增加复杂度；
 - 【端到端确认】触发时延按真实退化周期估算 14-30s（vs 用户报告"几十分钟"，改善 50-100 倍）；abort→SSE 链路完整；真实 session 文件清洗后 SDK SessionManager.open() 加载无报错；dry-run 29 文件 24 块命中与前两轮一致。
 
+### 第七轮（2026-08-04，PR 第四轮对抗检视）：1 严重实证 bug + 4 建议，已修复/采纳
+
+- 【严重 S1】**auto_retry 事件时序前提错误**：设计假设 auto_retry_start/end 配对覆盖退避 sleep，但 SDK 成功路径的 auto_retry_end 要等到重试生成完整跑完才发（agent-session.js:377-384，已核实源码）——pause 贯穿整个重试请求（冷 prefill + 流式），期间零 delta 挂死时两道超时全部失效，本 PR 要修的症状在重试路径上原样复发（且不订阅 auto_retry 反而更好）。修法：onDelta 在 pause 期间收到 delta 且剩余原因仅剩 auto_retry 时，视为 resume 并 arm 滑动计时器（首个 delta 即证明重试 prefill 结束）；补 3 条回归测试（释放后挂死触发超时、迟到的 end 无副作用、混合 pause 走保守路径）；
+- 【建议 I1】sanitizer 运行时成本实测补录：1.88MB 大獭 session，稳态无命中 70ms/次 invoke，含 8 块命中+备份 168ms，量级可接受；
+- 【建议 I2】"离线参数放宽"文案与实现不符（实际全用默认参数）→ 文案对齐实现；
+- 【建议 I3】AgentRunResult/agent-invoke-port 的 outputGuardMetadata 类型补 firstByteLatencyMs 字段；
+- 【建议 I4】（存量，非本 PR）熔断器 per-event 计时器存在与 S1 同构的并行工具击穿（tool_execution_start×2 重 arm、第一个 end 即 clear，慢工具失去超时保护，circuit-breaker-helpers.ts:31-53）→ 另立 task 处理。
+
 ## 实施验证结果（2026-08-04）
 
-- `npx tsc --noEmit` 通过；`npx vitest run` 全量 976 通过（含新增 detector 11 + guard 27 + sanitizer 8 + invoker abort 文案用例，guard 含 S1/S2/S3 回归用例）；
+- `npx tsc --noEmit` 通过；`npx vitest run` 全量 979 通过（含新增 detector 11 + guard 30 + sanitizer 8 + invoker abort 文案用例，guard 含 S1 并行/S2 停表/S3 埋点/第四轮 retry 回归用例）；
 - 阳性：8 条真实退化 entry 全检出（机制 A），含周期 67 盲区条目与 153KB 近似重复 thinking；
 - 阴性：全部 session 文件 64 个 ≥5KB 块扫描，良性块（复述两遍/ASCII 表格/正常分析）零误伤；
 - 离线脚本 `scripts/sanitize-sessions.mjs` dry-run：6 个文件 24 块命中，与人工核对一致；

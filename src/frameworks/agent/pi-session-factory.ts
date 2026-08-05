@@ -57,7 +57,7 @@ export interface AgentRunResult {
   tokenUsage?: { input: number; output: number };
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
-  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
 }
 
 /** invoke() 选项 */

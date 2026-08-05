@@ -310,6 +310,48 @@ describe("OutputGuard pause/resume（冻结语义 + ref-count，F20260804dglp �
     vi.advanceTimersByTime(10_000);
     expect(abort).not.toHaveBeenCalled();
   });
+
+  it("auto_retry 窗口内的 delta 视为 resume：重试生成挂死时滑动超时生效（第四轮 S1 回归）", () => {
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const abort = vi.fn();
+
+    guard.onDelta(randomText(50, 17), "text_delta", abort);
+    guard.pause("auto_retry"); // SDK：auto_retry_start 在退避 sleep 前发
+    vi.advanceTimersByTime(14_000); // 退避期（无 delta）
+    expect(abort).not.toHaveBeenCalled();
+
+    // 重试请求开始流式输出——SDK 此刻不发 auto_retry_end（成功路径要等生成跑完）
+    guard.onDelta(randomText(50, 18), "text_delta", abort);
+    // pause 必须已被释放且滑动计时器已 arm：否则重试生成中途挂死无人管
+    vi.advanceTimersByTime(3001);
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("streaming_timeout");
+  });
+
+  it("auto_retry 释放后迟到的 auto_retry_end resume 无副作用", () => {
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const abort = vi.fn();
+
+    guard.onDelta(randomText(50, 19), "text_delta", abort);
+    guard.pause("auto_retry");
+    guard.onDelta(randomText(50, 20), "text_delta", abort); // 释放 auto_retry pause
+    guard.resume("auto_retry", abort); // 生成完成后 SDK 才发的 end——计数已归零，不得重建首字节窗口
+    vi.advanceTimersByTime(3001);
+    expect(abort).toHaveBeenCalled();
+    expect(guard.getMetadata().reason).toBe("streaming_timeout");
+  });
+
+  it("auto_retry + tool 混合 pause 时 delta 不释放（保守路径）", () => {
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const abort = vi.fn();
+
+    guard.onDelta(randomText(50, 21), "text_delta", abort);
+    guard.pause("tool");
+    guard.pause("auto_retry");
+    guard.onDelta(randomText(50, 22), "text_delta", abort); // 混合 pause：走防御分支，不释放
+    vi.advanceTimersByTime(10_000);
+    expect(abort).not.toHaveBeenCalled();
+  });
 });
 
 describe("OutputGuard trip 语义（PR 检视 S2/S3 回归）", () => {
