@@ -395,7 +395,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const conversationCtrl = new ConversationController(
     deps.manageConversation,
     deps.manageParticipant,
-    { get: vi.fn().mockResolvedValue(null) } as any,
+    deps.settingsRepo,
     logger,
   );
 
@@ -492,7 +492,7 @@ export function createTestApp(deps: TestDeps): Hono {
 /** 创建类型安全的 mock deps，各测试按需覆盖 */
 export function createMockDeps(): TestDeps {
   return {
-    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta"]),
+    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta", "pin", "unpin"]),
     manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
     sendMessageUseCase: {
       ...mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),

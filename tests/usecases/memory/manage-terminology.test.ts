@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
+import { createTestDb } from "../../helpers/db";
+import { createTestLogger } from "../../helpers/logger";
 import { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-terminology-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -7,78 +9,6 @@ import { SearchMemory } from "@usecases/memory/search-memory";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import type { TerminologyEntry } from "@entities/memory/terminology-entry";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
-import type { Logger } from "@usecases/ports/logger";
-
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
-
-/** 创建内存 SQLite 数据库 + 初始化 terminology schema */
-function createTestDb(): Database.Database {
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS terminology_entries (
-      id TEXT PRIMARY KEY,
-      term TEXT NOT NULL,
-      aliases TEXT NOT NULL DEFAULT '[]',
-      aliases_flat TEXT NOT NULL DEFAULT '',
-      definition TEXT NOT NULL,
-      context TEXT,
-      examples TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'deprecated')),
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      version INTEGER NOT NULL DEFAULT 1
-    );
-    CREATE INDEX IF NOT EXISTS idx_terminology_status ON terminology_entries(status);
-    CREATE INDEX IF NOT EXISTS idx_terminology_category ON terminology_entries(category);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_terminology_term_active ON terminology_entries(term) WHERE status = 'active';
-    CREATE VIRTUAL TABLE IF NOT EXISTS terminology_fts USING fts5(
-      terminology_entry_id UNINDEXED,
-      term,
-      aliases_flat,
-      definition,
-      context,
-      tokenize = 'trigram'
-    );
-    CREATE TABLE IF NOT EXISTS memory_entries (
-      id TEXT PRIMARY KEY,
-      layer TEXT NOT NULL,
-      content_type TEXT NOT NULL,
-      source_id TEXT NOT NULL,
-      source_table TEXT NOT NULL,
-      conversation_id TEXT,
-      granularity TEXT NOT NULL DEFAULT 'fine',
-      content TEXT NOT NULL,
-      metadata TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS memory_weights (
-      memory_entry_id TEXT PRIMARY KEY,
-      retrieval_count INTEGER NOT NULL DEFAULT 0,
-      last_retrieved_at TEXT,
-      user_flagged INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      memory_entry_id UNINDEXED,
-      content,
-      tokenize = 'trigram'
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
-      memory_entry_id UNINDEXED,
-      content
-    );
-  `);
-  return db;
-}
 
 function mockEmbeddingGateway(): EmbeddingGateway {
   return {
@@ -366,7 +296,7 @@ describe("SearchMemory - library 路由", () => {
     termRepo = new SqliteTerminologyRepository(db);
     const memoryRepo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(memoryRepo, mockEmbeddingGateway(), searchEngine, mockLogger(), termRepo);
+    searchMemory = new SearchMemory(memoryRepo, mockEmbeddingGateway(), searchEngine, createTestLogger(), termRepo);
 
     await termRepo.add(SAMPLE_ENTRY);
   });

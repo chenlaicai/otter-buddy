@@ -1,136 +1,82 @@
-import { describe, it, expect, vi } from "vitest";
+/**
+ * tryCloseTurn 单元测试（真 sqlite）。
+ * 从手写 65 方法 mock 转换为真仓库：mock 手写镜像曾导致 fake green
+ * （F20260805rsto 教训），真仓库的种子/断言走同一 SQL 路径。
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import type Database from "better-sqlite3";
 import { tryCloseTurn } from "@usecases/conversation/turn-utils";
-import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
+import type { Conversation, Turn } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
+import { createTestDb } from "../../helpers/db";
 
-/** 构造消息实体 */
-function mockMessage(overrides: Partial<Message> = {}): Message {
+function conversationFixture(): Conversation {
   return {
-    id: "msg-1",
-    conversationId: "conv-1",
-    turnId: "turn-1",
-    senderType: "user",
-    senderId: "user-1",
-    talkingStonePassedTo: ["otter-1"],
-    status: "completed",
-    body: "消息",
-    sequenceNum: 1,
-    contextTokens: null,
-    contextTokensMax: null,
-    source: "web",
-    createdAt: "2026-01-01T00:00:00Z",
-    completedAt: "2026-01-01T00:00:00Z",
+    id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false,
+    createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+    completedAt: null, archivedAt: null,
+  };
+}
+
+function turnFixture(): Turn {
+  return {
+    id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
+    createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+  };
+}
+
+function messageFixture(overrides: Partial<Message> = {}): Message {
+  return {
+    id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
+    senderType: "user", senderId: "user-1", talkingStonePassedTo: ["otter-1"],
+    status: "completed", body: "消息", sequenceNum: 1,
+    contextTokens: null, contextTokensMax: null, source: "web",
+    createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
     ...overrides,
   };
 }
 
-/** 创建带状态追踪的 ConversationRepository mock */
-function mockRepo(opts: {
-  messagesByTurnId?: Message[];
-} = {}): ConversationRepository & {
-  _closedTurns: string[];
-} {
-  const closedTurns: string[] = [];
+describe("tryCloseTurn（真 sqlite）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
 
-  return {
-    _closedTurns: closedTurns,
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+  });
 
-    create: vi.fn(),
-    getById: vi.fn(),
-    updateStatus: vi.fn(),
-    getIdsByOtterId: vi.fn(async () => []),
-    getAllIds: vi.fn(async () => []),
-    updatePinned: vi.fn().mockResolvedValue(undefined),
-    getOtterIds: vi.fn(async () => []),
-    createTurn: vi.fn(),
-    getActiveTurn: vi.fn(async () => null),
-    closeTurn: vi.fn(async (turnId: string) => {
-      closedTurns.push(turnId);
-    }),
-    getMaxTurnNumber: vi.fn(async () => 0),
-    getMessagesByTurnId: vi.fn(async () => opts.messagesByTurnId ?? []),
-    createCompletedMessage: vi.fn(),
-    createStreamingMessage: vi.fn(),
-    startSpeaking: vi.fn(async () => {}),
-    completeMessage: vi.fn(),
-    failMessage: vi.fn(),
-    failInFlightMessages: vi.fn(async () => 0),
-    closeOrphanedTurns: vi.fn(async () => 0),
-    abortMessage: vi.fn(),
-    getMaxSequenceNum: vi.fn(async () => 0),
-    getMessageById: vi.fn(async () => null),
-    getMessages: vi.fn(async () => []),
-    getMessagesBefore: vi.fn(async () => []),
-    getMessagesAfter: vi.fn(async () => []),
-    appendEvent: vi.fn(),
-    getMessageEvents: vi.fn(async () => []),
-    getMessageEventsByMessageIds: vi.fn(async () => []),
-    getMaxEventSequenceNum: vi.fn(async () => 0),
-    searchMessages: vi.fn(async () => []),
-    findByExternalId: vi.fn(async () => null),
-    getTurnHistory: vi.fn(async () => []),
-    linkResource: vi.fn(),
-    getLinkedResources: vi.fn(async () => []),
-    getLinkedResourceById: vi.fn(async () => null),
-    getLinkedResourcesByGroup: vi.fn(async () => []),
-    updateResourceStatus: vi.fn(),
-    supersedeLinkedResource: vi.fn(),
-    deleteLinkedResource: vi.fn(),
-    flagResource: vi.fn(),
-    createParticipant: vi.fn(),
-    createParticipants: vi.fn(),
-    getParticipant: vi.fn(async () => null),
-    getActiveParticipants: vi.fn(async () => []),
-    updateParticipantLeave: vi.fn(),
-    updateTokenUsage: vi.fn(async () => {}),
-    updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
-    getUnreadMessages: vi.fn().mockResolvedValue([]),
-    getTurnById: vi.fn().mockResolvedValue(null),
-    markParticipantLeft: vi.fn().mockResolvedValue(undefined),
-    getLastMessageBySender: vi.fn().mockResolvedValue(null),
-    getUserReadState: vi.fn().mockResolvedValue(null),
-    upsertUserReadState: vi.fn().mockResolvedValue(undefined),
-    getFirstUnreadMessage: vi.fn().mockResolvedValue(null),
-    getUnreadCount: vi.fn().mockResolvedValue(0),
-    getLastMessage: vi.fn().mockResolvedValue(null),
-    listConversationsWithMeta: vi.fn().mockResolvedValue([]),
-  };
-}
+  afterEach(() => {
+    db.close();
+  });
 
-describe("tryCloseTurn", () => {
   it("所有消息到达终态时关闭 Turn", async () => {
-    const messages = [
-      mockMessage({ id: "msg-1", status: "completed" }),
-      mockMessage({ id: "msg-2", status: "failed" }),
-      mockMessage({ id: "msg-3", status: "aborted" }),
-    ];
-    const repo = mockRepo({ messagesByTurnId: messages });
+    await repo.createCompletedMessage(messageFixture({ id: "msg-1", status: "completed" }));
+    await repo.createCompletedMessage(messageFixture({ id: "msg-2", status: "failed", sequenceNum: 2 }));
+    await repo.createCompletedMessage(messageFixture({ id: "msg-3", status: "aborted", sequenceNum: 3 }));
 
     await tryCloseTurn(repo, "turn-1");
 
-    /** 验证 Turn 已关闭 */
-    expect(repo._closedTurns).toContain("turn-1");
+    const turn = await repo.getTurnById("turn-1");
+    expect(turn!.closedAt).not.toBeNull();
   });
 
   it("存在 streaming 消息时不关闭 Turn", async () => {
-    const messages = [
-      mockMessage({ id: "msg-1", status: "completed" }),
-      mockMessage({ id: "msg-2", status: "streaming" }),
-    ];
-    const repo = mockRepo({ messagesByTurnId: messages });
+    await repo.createCompletedMessage(messageFixture({ id: "msg-1", status: "completed" }));
+    await repo.createStreamingMessage(messageFixture({ id: "msg-2", status: "streaming", sequenceNum: 2, completedAt: null }));
 
     await tryCloseTurn(repo, "turn-1");
 
-    /** 验证 Turn 未被关闭 */
-    expect(repo._closedTurns).toHaveLength(0);
+    const turn = await repo.getTurnById("turn-1");
+    expect(turn!.closedAt).toBeNull();
   });
 
   it("无消息时关闭 Turn（空数组 every 为 true 的空真逻辑）", async () => {
-    const repo = mockRepo({ messagesByTurnId: [] });
-
     await tryCloseTurn(repo, "turn-1");
 
-    /** 验证空真逻辑：无消息 = 所有消息终态 = 可关闭 */
-    expect(repo._closedTurns).toContain("turn-1");
+    const turn = await repo.getTurnById("turn-1");
+    expect(turn!.closedAt).not.toBeNull();
   });
 });
