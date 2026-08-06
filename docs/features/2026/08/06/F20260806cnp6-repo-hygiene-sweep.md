@@ -15,6 +15,7 @@ causal_links:
 
 status: development
 change_type: refactor
+capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 tags: [cleanup, dead-code, compatibility-shim, single-source, config, incompatible, settings]
 modules:
   - src/frameworks/agent/system-prompt-config.ts

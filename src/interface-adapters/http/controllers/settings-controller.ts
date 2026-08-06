@@ -27,15 +27,7 @@ export class SettingsController {
   private buildDTO(): SettingsDTO {
     return {
       ...this.settings,
-      models: this.modelPool.getAllEntries().map(e => ({
-        alias: e.alias,
-        provider: e.config.provider,
-        model: e.config.model,
-        description: e.config.description,
-        strengths: e.config.strengths,
-        weaknesses: e.config.weaknesses,
-        contextWindow: e.config.contextWindow,
-      })),
+      models: this.modelPool.getModelInfos(),
       defaultModelAlias: this.modelPool.getDefaultAlias(),
     };
   }

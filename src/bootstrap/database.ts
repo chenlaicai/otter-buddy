@@ -33,12 +33,8 @@ export interface DatabaseBootstrapResult {
 
 /** 测试注入预构建模型（如 initFauxModels）时，未带 pool 则按 llm 配置的全部别名合成池（共享同一模型对象） */
 function synthesizePool(model: unknown, llm: AppConfig["llm"]): ModelPool {
-  const alias = llm.default ?? "default";
-  const configs = llm.models?.length
-    ? llm.models
-    : [{ alias, provider: llm.provider, model: llm.model }];
-  return new ModelPool(alias, new Map(
-    configs.map((mc) => [mc.alias, { config: mc, model }]),
+  return new ModelPool(llm.default, new Map(
+    llm.models.map((mc) => [mc.alias, { config: mc, model }]),
   ));
 }
 

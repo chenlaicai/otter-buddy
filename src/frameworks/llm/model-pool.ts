@@ -33,7 +33,9 @@ interface ModelEntry {
  * ModelPool 同时实现 ModelPoolLike（usecases/ports），用于 settings-controller 等
  * interface-adapters 组件通过端口接口访问模型数据，避免 interface-adapters → frameworks 的层级违规。
  */
-export class ModelPool {
+import type { ModelPoolLike, ModelInfo } from "@usecases/ports/model-pool-like";
+
+export class ModelPool implements ModelPoolLike {
   private readonly entries: Map<string, ModelEntry>;
   private defaultAlias: string;
   private defaultModel: unknown;
@@ -113,6 +115,23 @@ export class ModelPool {
     const result: Array<{ alias: string; config: ModelConfig; model: unknown }> = [];
     for (const [alias, entry] of this.entries) {
       result.push({ alias, config: entry.config, model: entry.model });
+    }
+    return result;
+  }
+
+  /** 返回所有模型信息（不含 pi-ai model 对象），用于 settings DTO 等场景 */
+  getModelInfos(): ModelInfo[] {
+    const result: ModelInfo[] = [];
+    for (const [alias, entry] of this.entries) {
+      result.push({
+        alias,
+        provider: entry.config.provider,
+        model: entry.config.model,
+        description: entry.config.description,
+        strengths: entry.config.strengths,
+        weaknesses: entry.config.weaknesses,
+        contextWindow: entry.config.contextWindow,
+      });
     }
     return result;
   }

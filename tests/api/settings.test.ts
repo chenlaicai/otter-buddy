@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
-
-function mockLogger() {
-  return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => mockLogger() };
-}
+import { createTestLogger } from "../helpers/logger";
 
 describe("Settings API", () => {
   let deps: TestDeps;
@@ -57,7 +54,7 @@ describe("Settings API", () => {
         { port: 3000, dbPath: "/tmp/db", embeddingModelPath: "bge-m3", embeddingDim: 1024 },
         deps.settingsRepo,
         pool,
-        mockLogger(),
+        createTestLogger(),
       );
       multiPoolApp.put("/api/settings", (c) => ctrl.updateSettings(c));
 

@@ -34,8 +34,10 @@ describe("buildApp 组装根启动", () => {
     const configPath = path.join(tmpDir, "config.yaml");
     fs.writeFileSync(configPath, [
       "llm:",
-      "  provider: openai",
-      "  model: faux-model",
+      "  models:",
+      "    - alias: faux",
+      "      provider: openai",
+      "      model: faux-model",
       `database:`,
       `  path: ${path.join(tmpDir, "test.db")}`,
       "server:",
