@@ -40,6 +40,7 @@ Same format as commit message. PR number is appended by GitHub automatically.
 1. **PR-only delivery**: All code changes must be delivered via PR, never direct push
 2. **No direct push to protected branches**: `main`, `develop`, `production` are protected
 3. **Separation of duties**: Developer cannot merge their own PR
+4. **PR description 署名**：PR description 末尾署名行必须填写实际海獭名号（替换 `[海獭名号]`），未署名的 PR 不得创建（完整署名约定见 repo-safety/SKILL.md）
 
 ### PR Workflow
 
@@ -80,5 +81,5 @@ Same format as commit message. PR number is appended by GitHub automatically.
 ## Test plan
 - [ ] Verification steps
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [Otter Buddy](https://github.com/orca-ai/otter-buddy) by [海獭名号]
 ```

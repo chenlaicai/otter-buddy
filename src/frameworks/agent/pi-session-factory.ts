@@ -507,7 +507,7 @@ export class PiSessionFactory implements AgentGateway {
     const modelGuidance = isBig ? this.buildModelSelectionGuidance() : '';
 
     return [
-      `## 你的身份\n- 名称：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
+      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
       identityBody,
       modelGuidance,
     ].filter(Boolean).join("\n\n");
