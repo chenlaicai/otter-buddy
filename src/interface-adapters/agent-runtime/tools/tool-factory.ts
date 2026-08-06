@@ -6,6 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import { interceptHealingReport } from "./healing-tools";
 
@@ -292,8 +293,8 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
           return textResponse("[错误] resourceType 为 'fact' 时，content 不能为空。请提供事实文本内容。");
         }
         const content = params.content as string;
-        if (content.length > 500) {
-          return textResponse("[错误] fact 类型资源的 content 不能超过 500 字符。长内容（方案、设计文档等）请先用 write 工具写入文件，再创建 resourceType='file' 的资源指向文件路径。");
+        if (content.length > FACT_CONTENT_MAX_LENGTH) {
+          return textResponse(`[错误] ${FACT_CONTENT_TOO_LONG_MESSAGE}`);
         }
       } else {
         if (!params.url || (params.url as string).trim().length === 0) {
