@@ -57,7 +57,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, agentInvoker, appConfig, modelPool, settingsRepo, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus } = deps;
 
   const settings: SettingsConfig = {
-    provider: appConfig.llm.default ?? appConfig.llm.provider,
+    provider: appConfig.llm.default,
     model: modelPool.getDefaultAlias(),
     port: appConfig.server.port,
     dbPath: appConfig.db.path,

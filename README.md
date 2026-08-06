@@ -54,9 +54,11 @@ cp config/config.yaml.example config/config.yaml
 
 ```yaml
 llm:
-  provider: openai          # openai / anthropic
-  model: gpt-4o
-  apiKey: sk-...            # LLM API Key
+  models:
+    - alias: default
+      provider: openai      # openai / anthropic / kimi-coding
+      model: gpt-4o
+      apiKey: sk-...        # LLM API Key
 ```
 
 > `config/config.yaml` 已加入 `.gitignore`，不会被提交到代码仓库。
@@ -67,9 +69,9 @@ llm:
 
 | 环境变量 | config.yaml 字段 |
 |----------|------------------|
-| `OTTER_BUDDY_LLM_PROVIDER` | `llm.provider` |
-| `OTTER_BUDDY_LLM_MODEL` | `llm.model` |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | `llm.apiKey` |
+| `OTTER_BUDDY_LLM_PROVIDER` | `llm.models[].provider` |
+| `OTTER_BUDDY_LLM_MODEL` | `llm.models[].model` |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | `llm.models[].apiKey` |
 | `OTTER_BUDDY_PORT` | `server.port` |
 | `OTTER_BUDDY_DB_PATH` | `database.path` |
 

@@ -1,18 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
-// Mock config module — must be declared before dynamic import
-const mockConfig = {
-  llm: {
-    provider: "openai",
-    model: "gpt-4o",
-    apiKey: undefined as string | undefined,
-    apiBaseUrl: undefined as string | undefined,
-  },
-};
-
-vi.mock("../../../src/frameworks/config", () => ({
-  config: mockConfig,
-}));
+import type { AppConfig } from "../../../src/frameworks/config";
 
 // Sentinel objects to distinguish default vs custom provider paths
 const DEFAULT_PROVIDER = { id: "openai-default" };
@@ -53,9 +40,23 @@ vi.mock("@earendil-works/pi-ai/providers/anthropic", () => ({
 
 let initModels: typeof import("../../../src/frameworks/llm/models-factory").initModels;
 
+/** 构造单条目 llm 配置（单模型 = 一条 models[] 条目） */
+function makeLlm(entry: Partial<{ alias: string; provider: string; model: string; apiKey: string; apiBaseUrl: string }> = {}): AppConfig["llm"] {
+  const alias = entry.alias ?? "main";
+  return {
+    default: alias,
+    models: [{
+      alias,
+      provider: entry.provider ?? "openai",
+      model: entry.model ?? "gpt-4o",
+      apiKey: entry.apiKey,
+      apiBaseUrl: entry.apiBaseUrl,
+    }],
+  };
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
-  mockConfig.llm = { provider: "openai", model: "gpt-4o", apiKey: undefined, apiBaseUrl: undefined };
   mockGetModel.mockReturnValue({ id: "gpt-4o" });
   mockCreateProvider.mockReturnValue(CUSTOM_PROVIDER);
 
@@ -65,16 +66,14 @@ beforeEach(async () => {
 
 describe("initModels — custom provider routing", () => {
   it("uses default provider when no apiBaseUrl or apiKey is set", async () => {
-    const result = await initModels({ provider: "openai", model: "gpt-4o" });
+    const result = await initModels(makeLlm());
     // Default provider sentinel is passed to setProvider
     expect(mockSetProvider.mock.calls[0][0]).toBe(DEFAULT_PROVIDER);
     expect(result.model).toEqual({ id: "gpt-4o" });
   });
 
   it("uses custom provider when apiKey is set", async () => {
-    mockConfig.llm.apiKey = "sk-custom";
-
-    const result = await initModels(mockConfig.llm);
+    const result = await initModels(makeLlm({ apiKey: "sk-custom" }));
 
     // Custom provider sentinel is passed to setProvider (not default)
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_PROVIDER);
@@ -82,39 +81,28 @@ describe("initModels — custom provider routing", () => {
   });
 
   it("uses custom provider when apiBaseUrl is set", async () => {
-    mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
-
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ apiBaseUrl: "https://proxy.example.com" }));
 
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_PROVIDER);
   });
 
   it("uses custom provider when both apiBaseUrl and apiKey are set", async () => {
-    mockConfig.llm.apiKey = "sk-test";
-    mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
-
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ apiKey: "sk-test", apiBaseUrl: "https://proxy.example.com" }));
 
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_PROVIDER);
   });
 
   it("loads anthropic custom provider for anthropic config", async () => {
-    mockConfig.llm.provider = "anthropic";
-    mockConfig.llm.model = "claude-sonnet-4-20250514";
-    mockConfig.llm.apiKey = "sk-ant";
     mockCreateProvider.mockReturnValue(CUSTOM_ANTHROPIC_PROVIDER);
     mockGetModel.mockReturnValue({ id: "claude-sonnet-4-20250514" });
 
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ alias: "ant", provider: "anthropic", model: "claude-sonnet-4-20250514", apiKey: "sk-ant" }));
 
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_ANTHROPIC_PROVIDER);
   });
 
   it("throws for unsupported provider in custom path", async () => {
-    mockConfig.llm.provider = "unknown";
-    mockConfig.llm.apiKey = "sk-test";
-
-    await expect(initModels(mockConfig.llm)).rejects.toThrow("Unsupported LLM provider type: unknown");
+    await expect(initModels(makeLlm({ provider: "unknown", apiKey: "sk-test" }))).rejects.toThrow("Unsupported LLM provider type: unknown");
   });
 });
 
@@ -125,9 +113,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   }
 
   it("resolves apiKey from config when provided", async () => {
-    mockConfig.llm.apiKey = "sk-from-config";
-
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ apiKey: "sk-from-config" }));
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => undefined },
@@ -138,9 +124,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   });
 
   it("resolves apiKey from env when config key is absent", async () => {
-    mockConfig.llm.apiBaseUrl = "https://proxy.example.com"; // trigger custom provider
-
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ apiBaseUrl: "https://proxy.example.com" })); // apiBaseUrl triggers custom provider
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async (name: string) => (name === "OPENAI_API_KEY" ? "sk-from-env" : undefined) },
@@ -151,9 +135,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   });
 
   it("resolves apiKey from credential when config and env are absent", async () => {
-    mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
-
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ apiBaseUrl: "https://proxy.example.com" }));
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => undefined },
@@ -164,9 +146,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   });
 
   it("returns undefined when all sources are missing", async () => {
-    mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
-
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ apiBaseUrl: "https://proxy.example.com" }));
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => undefined },
@@ -177,13 +157,10 @@ describe("initModels — createCustomApiKeyAuth", () => {
   });
 
   it("uses ANTHROPIC_API_KEY env var for anthropic provider", async () => {
-    mockConfig.llm.provider = "anthropic";
-    mockConfig.llm.model = "claude-sonnet-4-20250514";
-    mockConfig.llm.apiBaseUrl = "https://proxy.example.com";
     mockCreateProvider.mockReturnValue(CUSTOM_ANTHROPIC_PROVIDER);
     mockGetModel.mockReturnValue({ id: "claude-sonnet-4-20250514" });
 
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ alias: "ant", provider: "anthropic", model: "claude-sonnet-4-20250514", apiBaseUrl: "https://proxy.example.com" }));
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async (name: string) => (name === "ANTHROPIC_API_KEY" ? "sk-ant-env" : undefined) },
@@ -194,9 +171,7 @@ describe("initModels — createCustomApiKeyAuth", () => {
   });
 
   it("config apiKey takes priority over env and credential", async () => {
-    mockConfig.llm.apiKey = "sk-config-wins";
-
-    await initModels(mockConfig.llm);
+    await initModels(makeLlm({ apiKey: "sk-config-wins" }));
     const resolver = getAuthResolver();
     const result = await resolver.resolve({
       ctx: { env: async () => "sk-from-env" },
@@ -207,19 +182,15 @@ describe("initModels — createCustomApiKeyAuth", () => {
   });
 });
 
-describe("initModels — multi-model mode", () => {
-  it("returns ModelPool when models[] is configured", async () => {
-    mockConfig.llm = {
-      provider: "openai",
-      model: "gpt-4o",
-      apiKey: undefined,
-      apiBaseUrl: undefined,
+describe("initModels — model pool", () => {
+  it("returns ModelPool covering all models[] entries", async () => {
+    const llm: AppConfig["llm"] = {
       default: "fast",
       models: [
         { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast" },
         { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful" },
       ],
-    } as any;
+    };
 
     // Mock getModel to return different models based on call
     let getModelCallCount = 0;
@@ -230,7 +201,7 @@ describe("initModels — multi-model mode", () => {
         : { id: "gpt-4o" };
     });
 
-    const result = await initModels(mockConfig.llm);
+    const result = await initModels(llm);
 
     expect(result.modelPool).toBeDefined();
     expect(result.modelPool.getDefaultAlias()).toBe("fast");
@@ -238,33 +209,27 @@ describe("initModels — multi-model mode", () => {
     expect(result.modelPool.hasModel("powerful")).toBe(true);
   });
 
-  it("single-model mode returns ModelPool with one entry", async () => {
-    mockConfig.llm = { provider: "openai", model: "gpt-4o", apiKey: undefined, apiBaseUrl: undefined };
-
-    const result = await initModels(mockConfig.llm);
+  it("single-entry models[] returns ModelPool with one entry", async () => {
+    const result = await initModels(makeLlm());
 
     expect(result.modelPool).toBeDefined();
-    expect(result.modelPool.getDefaultAlias()).toBe("openai");
-    expect(result.modelPool.hasModel("openai")).toBe(true);
+    expect(result.modelPool.getDefaultAlias()).toBe("main");
+    expect(result.modelPool.hasModel("main")).toBe(true);
   });
 
-  it("multi-model mode registers each model with alias as provider ID", async () => {
-    mockConfig.llm = {
-      provider: "openai",
-      model: "gpt-4o",
-      apiKey: "sk-default",
-      apiBaseUrl: undefined,
+  it("registers each model with alias as provider ID", async () => {
+    const llm: AppConfig["llm"] = {
       default: "fast",
       models: [
         { alias: "fast", provider: "openai", model: "gpt-4o-mini", apiKey: "sk-fast" },
         { alias: "powerful", provider: "openai", model: "gpt-4o", apiKey: "sk-powerful" },
       ],
-    } as any;
+    };
 
     mockGetModel.mockReturnValue({ id: "model" });
     mockCreateProvider.mockReturnValue({ id: "custom" });
 
-    await initModels(mockConfig.llm);
+    await initModels(llm);
 
     // Each model should call createProvider with alias as ID
     const createProviderCalls = mockCreateProvider.mock.calls;
