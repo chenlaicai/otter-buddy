@@ -100,8 +100,8 @@ export class ManageConversation {
     }
     await this.repo.updateStatus(id, "archived", new Date().toISOString());
 
-    /** 清理对话工作区目录 */
-    if (this.workspaceGateway && conv.workspaceDir) {
+    /** 清理对话工作区目录（removeWorkspace 幂等，目录不存在时无副作用） */
+    if (this.workspaceGateway) {
       try {
         await this.workspaceGateway.removeWorkspace(id);
       } catch {

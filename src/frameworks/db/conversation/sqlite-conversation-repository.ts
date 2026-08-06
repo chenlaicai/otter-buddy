@@ -49,11 +49,12 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`
-        INSERT INTO conversations (id, title, status, summary, pinned, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO conversations (id, title, status, summary, pinned, workspace_dir, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         conversation.id, conversation.title, conversation.status,
         conversation.summary, conversation.pinned ? 1 : 0,
+        conversation.workspaceDir,
         conversation.createdAt, conversation.updatedAt,
       );
 
