@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ensureRecruitingConversation } from '@usecases/recruiting/ensure-recruiting-conversation';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
+import type { ManageConversation } from '@usecases/conversation/manage-conversation';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
@@ -27,6 +28,7 @@ describe('ensureRecruitingConversation', () => {
   let convRepo: ConversationRepository;
   let otterRepo: OtterRepository;
   let createOtter: CreateOtter;
+  let manageConversation: ManageConversation;
   let settings: SettingsRepository;
   let sendMessage: SendMessage;
   let logger: Logger;
@@ -46,6 +48,10 @@ describe('ensureRecruitingConversation', () => {
     createOtter = {
       execute: vi.fn(async () => mockBigOtter()),
     } as unknown as CreateOtter;
+
+    manageConversation = {
+      pin: vi.fn(),
+    } as unknown as ManageConversation;
 
     settings = {
       get: vi.fn(async () => null),
@@ -88,6 +94,7 @@ describe('ensureRecruitingConversation', () => {
     });
 
     const result = await ensureRecruitingConversation({
+      manageConversation,
       convRepo,
       otterRepo,
       createOtter,
@@ -101,6 +108,7 @@ describe('ensureRecruitingConversation', () => {
     expect(result.bigOtterId).toBe(otter.id);
     expect(result.created).toBe(false);
     expect(createOtter.execute).not.toHaveBeenCalled();
+    expect(manageConversation.pin).toHaveBeenCalledWith('conv-existing');
   });
 
   it('锁获取失败后 recheck 成功', async () => {
@@ -131,6 +139,7 @@ describe('ensureRecruitingConversation', () => {
     });
 
     const result = await ensureRecruitingConversation({
+      manageConversation,
       convRepo,
       otterRepo,
       createOtter,
@@ -142,5 +151,6 @@ describe('ensureRecruitingConversation', () => {
     // recheck 应该返回已有的对话
     expect(result.created).toBe(false);
     expect(result.bigOtterId).toBe(otter.id);
+    expect(manageConversation.pin).toHaveBeenCalledWith('conv-existing');
   });
 });

@@ -185,6 +185,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
     );
     getBridgeStatus = new GetBridgeStatus(repos.settings);
     recruitingInit = ensureRecruitingConversation({
+      manageConversation: uc.manageConversation,
       convRepo: repos.conversation,
       otterRepo: repos.otter,
       createOtter: uc.createOtter,
