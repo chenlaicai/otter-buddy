@@ -1,13 +1,13 @@
 import type { Context } from "hono";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Logger } from "@usecases/ports/logger";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
+import { DEFAULT_MODEL_ALIAS_KEY } from "@usecases/settings/settings-keys";
 import { handleError } from "../http-error";
-import type { UpdateSettingsRequestDTO } from "@contract/api/settings";
+import type { SettingsDTO, UpdateSettingsRequestDTO } from "@contract/api/settings";
 
-/** Settings 配置值（由 main.ts 注入，只读基线） */
+/** Settings 系统信息（由 main.ts 注入，只读基线） */
 export interface SettingsConfig {
-  provider: string;
-  model: string;
   port: number;
   dbPath: string;
   embeddingModelPath: string;
@@ -18,20 +18,31 @@ export interface SettingsConfig {
 
 export class SettingsController {
   constructor(
-
     private readonly settings: SettingsConfig,
     private readonly settingsRepo: SettingsRepository,
-      private readonly logger: Logger,
+    private readonly modelPool: ModelPoolLike,
+    private readonly logger: Logger,
   ) {}
+
+  private buildDTO(): SettingsDTO {
+    return {
+      ...this.settings,
+      models: this.modelPool.getAllEntries().map(e => ({
+        alias: e.alias,
+        provider: e.config.provider,
+        model: e.config.model,
+        description: e.config.description,
+        strengths: e.config.strengths,
+        weaknesses: e.config.weaknesses,
+        contextWindow: e.config.contextWindow,
+      })),
+      defaultModelAlias: this.modelPool.getDefaultAlias(),
+    };
+  }
 
   async getSettings(c: Context): Promise<Response> {
     try {
-      const stored = await this.settingsRepo.getAll();
-      return c.json({
-        ...this.settings,
-        provider: stored.provider ?? this.settings.provider,
-        model: stored.model ?? this.settings.model,
-      });
+      return c.json(this.buildDTO());
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -40,18 +51,15 @@ export class SettingsController {
   async updateSettings(c: Context): Promise<Response> {
     try {
       const body = await c.req.json<UpdateSettingsRequestDTO>();
-      if (body.provider) {
-        await this.settingsRepo.update("provider", body.provider);
+      if (body.defaultModelAlias) {
+        if (!this.modelPool.hasModel(body.defaultModelAlias)) {
+          return c.json({ error: `未知模型 alias: ${body.defaultModelAlias}` }, 400);
+        }
+        await this.settingsRepo.update(DEFAULT_MODEL_ALIAS_KEY, body.defaultModelAlias);
+        this.modelPool.setDefaultAlias(body.defaultModelAlias);
+        this.logger.info("Default model switched via settings", { defaultModelAlias: body.defaultModelAlias });
       }
-      if (body.model) {
-        await this.settingsRepo.update("model", body.model);
-      }
-      const stored = await this.settingsRepo.getAll();
-      return c.json({
-        ...this.settings,
-        provider: stored.provider ?? this.settings.provider,
-        model: stored.model ?? this.settings.model,
-      });
+      return c.json(this.buildDTO());
     } catch (err) {
       return handleError(c, err, this.logger);
     }

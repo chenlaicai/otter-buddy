@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
 
+function mockLogger() {
+  return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => mockLogger() };
+}
+
 describe("Settings API", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;
@@ -14,101 +18,75 @@ describe("Settings API", () => {
   // ─── GET /api/settings ───
 
   describe("GET /api/settings", () => {
-    it("returns settings with stored overrides", async () => {
-      deps.settingsRepo.getAll.mockResolvedValue({
-        provider: "anthropic",
-        model: "claude-sonnet-4-20250514",
-      });
-
-      const res = await app.request("/api/settings");
-      expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body.provider).toBe("anthropic");
-      expect(body.model).toBe("claude-sonnet-4-20250514");
-      expect(body.port).toBe(3000);
-      expect(body.dbPath).toBe("./otter-buddy.db");
-    });
-
-    it("falls back to config defaults when no stored values", async () => {
+    it("returns models list and default alias from ModelPool", async () => {
       deps.settingsRepo.getAll.mockResolvedValue({});
 
       const res = await app.request("/api/settings");
       expect(res.status).toBe(200);
       const body = await json(res);
-      expect(body.provider).toBe("openai");
-      expect(body.model).toBe("gpt-4o");
+      expect(body.models).toHaveLength(1);
+      expect(body.models[0]).toMatchObject({ alias: "main", provider: "openai", model: "gpt-4o" });
+      expect(body.defaultModelAlias).toBe("main");
+      expect(body.port).toBe(3000);
+      expect(body.dbPath).toBe("./otter-buddy.db");
     });
 
-    it("merges partial stored values with defaults", async () => {
-      deps.settingsRepo.getAll.mockResolvedValue({
-        provider: "anthropic",
-      });
-
+    it("does not expose apiKey/apiBaseUrl in models", async () => {
       const res = await app.request("/api/settings");
       const body = await json(res);
-      expect(body.provider).toBe("anthropic");
-      expect(body.model).toBe("gpt-4o"); // fallback
+      expect(body.models[0]).not.toHaveProperty("apiKey");
+      expect(body.models[0]).not.toHaveProperty("apiBaseUrl");
     });
   });
 
   // ─── PUT /api/settings ───
 
   describe("PUT /api/settings", () => {
-    it("updates provider", async () => {
-      deps.settingsRepo.update.mockResolvedValue(undefined);
-      deps.settingsRepo.getAll.mockResolvedValue({
-        provider: "anthropic",
-        model: "gpt-4o",
-      });
+    it("switches default model alias and persists override", async () => {
+      // deps.modelPool has only "main" — create a multi-model pool for this test
+      const { buildModelPool } = await import("../../src/frameworks/llm/model-pool");
+      const pool = buildModelPool("fast", [
+        { config: { alias: "fast", provider: "openai", model: "gpt-4o-mini" }, model: { id: "mini" } },
+        { config: { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514" }, model: { id: "claude" } },
+      ]);
+      // Swap the mock deps' modelPool — use a new test app instance with the multi-model pool
+      const { SettingsController } = await import("../../src/interface-adapters/http/controllers/settings-controller");
+      const { Hono } = await import("hono");
+      const multiPoolApp = new Hono();
+      const ctrl = new SettingsController(
+        { port: 3000, dbPath: "/tmp/db", embeddingModelPath: "bge-m3", embeddingDim: 1024 },
+        deps.settingsRepo,
+        pool,
+        mockLogger(),
+      );
+      multiPoolApp.put("/api/settings", (c) => ctrl.updateSettings(c));
 
-      const res = await app.request("/api/settings", {
+      deps.settingsRepo.update.mockResolvedValue(undefined);
+
+      const res = await multiPoolApp.request("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "anthropic" }),
+        body: JSON.stringify({ defaultModelAlias: "powerful" }),
       });
 
       expect(res.status).toBe(200);
       const body = await json(res);
-      expect(body.provider).toBe("anthropic");
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("provider", "anthropic");
+      expect(body.defaultModelAlias).toBe("powerful");
+      expect(pool.getDefaultAlias()).toBe("powerful");
+      expect(deps.settingsRepo.update).toHaveBeenCalledWith("llm.defaultModelAlias", "powerful");
     });
 
-    it("updates model", async () => {
-      deps.settingsRepo.update.mockResolvedValue(undefined);
-      deps.settingsRepo.getAll.mockResolvedValue({
-        provider: "openai",
-        model: "gpt-4o-mini",
-      });
-
+    it("rejects unknown alias with 400", async () => {
       const res = await app.request("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-4o-mini" }),
+        body: JSON.stringify({ defaultModelAlias: "nonexistent" }),
       });
 
-      expect(res.status).toBe(200);
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("model", "gpt-4o-mini");
+      expect(res.status).toBe(400);
     });
 
-    it("updates both provider and model", async () => {
-      deps.settingsRepo.update.mockResolvedValue(undefined);
-      deps.settingsRepo.getAll.mockResolvedValue({
-        provider: "anthropic",
-        model: "claude-sonnet-4-20250514",
-      });
-
-      const res = await app.request("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "anthropic", model: "claude-sonnet-4-20250514" }),
-      });
-
-      expect(res.status).toBe(200);
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("provider", "anthropic");
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("model", "claude-sonnet-4-20250514");
-    });
-
-    it("does not update when fields are falsy", async () => {
+    it("does not update when no fields provided", async () => {
       deps.settingsRepo.getAll.mockResolvedValue({});
 
       const res = await app.request("/api/settings", {

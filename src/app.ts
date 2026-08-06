@@ -23,7 +23,7 @@ import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
-  postInitDatabase, postSyncMigrations, validateModelAliases, shutdownDatabase,
+  postInitDatabase, postSyncMigrations, validateModelAliases, applyDefaultModelOverride, shutdownDatabase,
 } from "./bootstrap/database";
 import { createMemoryIndex, syncDocuments } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
@@ -122,6 +122,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   postSyncMigrations(db, logger, syncResult);
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
+  await applyDefaultModelOverride(repos.settings, modelPool, logger);
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
   const { agentGateway, resolveOtterToolClient } = await createAgentGateway({

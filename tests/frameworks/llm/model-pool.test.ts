@@ -159,6 +159,26 @@ describe('ModelPool', () => {
     });
   });
 
+  describe('setDefaultAlias', () => {
+    it('switches default alias and model', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default'), model: makeModel('default') },
+        { config: makeConfig('fast'), model: makeModel('fast') },
+      ]);
+      pool.setDefaultAlias('fast');
+      expect(pool.getDefaultAlias()).toBe('fast');
+      expect(pool.getDefaultModel()).toEqual(makeModel('fast'));
+    });
+
+    it('throws for unknown alias', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default'), model: makeModel('default') },
+      ]);
+      expect(() => pool.setDefaultAlias('nonexistent')).toThrow('unknown alias "nonexistent"');
+      expect(pool.getDefaultAlias()).toBe('default');
+    });
+  });
+
   describe('buildModelPool', () => {
     it('throws when default alias not in entries', () => {
       expect(() => {
