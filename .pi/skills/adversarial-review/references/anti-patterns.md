@@ -22,7 +22,7 @@
 
 **Problem**: Review never converges — escalation to the decision-maker becomes the only exit, burning their attention on arbitration. (This symptom itself is the 移动靶 escalation signal in the convergence criteria — if you notice it happening, stop and escalate.)
 
-**Fix**: Round 1 is the full fresh-eyes review. Round 2+ is delta review: verify round-1 fixes and check them for regressions. New issues outside the delta must be flagged as "第 1 轮漏报" and default to 次要观察 unless they alone would block the delivery.
+**Fix**: Round 1 is the full fresh-eyes review. Round 2+ is delta review: verify previous rounds' fixes and check them for regressions. New issues outside the delta must be flagged as "此前轮次漏报" and default to 次要观察 unless they alone would block the delivery.
 
 ## Blind Compliance / Empty Rebuttal
 
