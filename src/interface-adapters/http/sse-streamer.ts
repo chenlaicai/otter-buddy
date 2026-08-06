@@ -1,12 +1,9 @@
 import { streamSSE } from "hono/streaming";
 import type { Context } from "hono";
 import type { Logger } from "@usecases/ports/logger";
+import type { SSEEvent } from "@contract/sse/events";
 
-/** SSE 事件 */
-export interface SSEEvent {
-  event: string;
-  data: Record<string, unknown>;
-}
+export type { SSEEvent };
 
 /** 终端事件：发出后关闭 SSE 流（仅 stream.end，per-message 事件不再关闭流） */
 const TERMINAL_EVENTS = new Set(["stream.end"]);
