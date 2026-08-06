@@ -63,7 +63,7 @@ export function attachCircuitBreaker(
         return;
       }
       if (result.action === "steer") {
-        if (toolName !== "speak") session.steer?.(result.reason ?? "Stop calling tools. Call speak now."); // F20260806cbsl: speak 是回合出口，对其 steer 有害无益
+        if (toolName !== "speak") session.steer?.(result.reason ?? "Stop calling tools. Call speak now."); // F20260806cbsx: speak 是回合出口，对其 steer 有害无益
         return;
       }
     }

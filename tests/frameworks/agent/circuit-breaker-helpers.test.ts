@@ -537,7 +537,7 @@ describe("attachCircuitBreaker - steer 行为纠正", () => {
   });
 });
 
-describe("attachCircuitBreaker - F20260806cbsl speak 豁免 steer 注入", () => {
+describe("attachCircuitBreaker - F20260806cbsx speak 豁免 steer 注入", () => {
   it("speak 超限时不注入 steer（但计数照走、terminate 保留）", () => {
     const session = mockSession();
     const abortOverride = vi.fn();
@@ -545,7 +545,7 @@ describe("attachCircuitBreaker - F20260806cbsl speak 豁免 steer 注入", () =>
       session,
       "otter-1",
       makeConfig({ maxToolCalls: 2, warningThreshold: 100, maxRepeatAfterWarning: 100 }),
-      mockLogger(),
+      createTestLogger(),
       abortOverride,
     );
 
@@ -577,7 +577,7 @@ describe("attachCircuitBreaker - F20260806cbsl speak 豁免 steer 注入", () =>
       session,
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 3, maxRepeatAfterWarning: 2, maxToolCalls: 100 }),
-      mockLogger(),
+      createTestLogger(),
       abortOverride,
     );
 

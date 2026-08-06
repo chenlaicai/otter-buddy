@@ -1,5 +1,5 @@
 ---
-id: F20260806cbsl
+id: F20260806cbsx
 title: circuit-breaker-speak-steer-loop
 doc_type: feature
 
@@ -27,7 +27,7 @@ modules:
   - src/usecases/conversation/send-message.ts
 ---
 
-# F20260806cbsl: 熔断器 steer 复活 speak 已终结回合导致误杀
+# F20260806cbsx: 熔断器 steer 复活 speak 已终结回合导致误杀
 
 ## 问题背景
 

@@ -341,7 +341,7 @@ export class AgentInvoker {
   }
 
   /**
-   * F20260806cbsl: 若消息已 speaking（speak 已提交 body），走 complete 收尾。
+   * F20260806cbsx: 若消息已 speaking（speak 已提交 body），走 complete 收尾。
    * 返回 true 表示已处理（调用方应跳过 abort 路径）。
    */
   // eslint-disable-next-line max-params
@@ -389,7 +389,7 @@ export class AgentInvoker {
    * abort 路径：构造合成 body → sendMessage.abort() → SSE message.aborted
    * error 路径：sendMessage.fail() → SSE error
    *
-   * F20260806cbsl: 若消息已 speaking（speak 已提交 body），内容交付优先于中断语义——
+   * F20260806cbsx: 若消息已 speaking（speak 已提交 body），内容交付优先于中断语义——
    * 改走 complete 收尾，不覆盖已交付内容。
    */
   private async handleInvokeError(p: {
@@ -405,7 +405,7 @@ export class AgentInvoker {
     const errMsg = err instanceof Error ? err.message : String(err);
     this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedMessages.has(messageId) });
     if (this.abortedMessages.delete(messageId)) {
-      // F20260806cbsl: speaking 守卫——发言已提交时内容交付优先
+      // F20260806cbsx: speaking 守卫——发言已提交时内容交付优先
       const completedIfSpeaking = await this.completeSpeakingMessage(messageId, otterId, emitEvent, senderId, conversationId, startTime);
       if (completedIfSpeaking) return;
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */

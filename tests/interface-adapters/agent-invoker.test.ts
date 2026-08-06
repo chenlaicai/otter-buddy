@@ -1021,8 +1021,8 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     expect(eventTypes2).not.toContain("message.aborted");
   });
 
-  // F20260806cbsl: abort 路径 speaking 守卫——消息已 speaking 时改走 complete
-  it("abort with speaking message: completes instead of aborting (F20260806cbsl)", async () => {
+  // F20260806cbsx: abort 路径 speaking 守卫——消息已 speaking 时改走 complete
+  it("abort with speaking message: completes instead of aborting (F20260806cbsx)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
     const invoker = new AgentInvoker(
@@ -1031,7 +1031,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       mockQueryMessage(),  // returns speakingMsg with status "speaking"
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");

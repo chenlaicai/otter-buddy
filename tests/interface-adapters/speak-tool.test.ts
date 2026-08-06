@@ -104,7 +104,7 @@ describe("speak 工具发言石目标校验", () => {
     expect(speakingCalls).toHaveLength(0);
   });
 
-  // F20260806cbsl: CAS 冲突（已 speaking/completed）→ 幂等终结
+  // F20260806cbsx: CAS 冲突（已 speaking/completed）→ 幂等终结
   it("startSpeaking CAS 冲突（DomainError kind=conflict）时返回终态信号 + terminate:true", async () => {
     const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
       startSpeakingError: new DomainError("Cannot start speaking for message with status: speaking", "conflict"),
