@@ -63,7 +63,7 @@ Use this format for adversarial review output.
 - If ANY 阻断性 issue is unresolved, conclusion MUST be "需要修改"
 - Each issue MUST cite `file:line` — no impression-based findings
 - "无发现" is valid for a dimension — explicitly note it in 维度扫视结论, do NOT skip silently
-- 复审轮（第 2 轮起）的报告结构：第 1 轮发现逐条验证结论 + 修复回归检查；delta 之外的新发现必须标注"第 1 轮漏报"并说明为何够/不够阻断门槛
+- 复审轮（第 2 轮起）的报告结构：上轮发现逐条验证结论 + 修复回归检查；delta 之外的新发现必须标注"此前轮次漏报"并说明为何够/不够阻断门槛
 - Do NOT reuse previous review comments for re-inspection — publish new ones
 
 ## 文档审视适配

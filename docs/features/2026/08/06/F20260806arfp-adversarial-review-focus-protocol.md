@@ -62,6 +62,7 @@ modules:
 
 - 2026-08-06 搭档提出两个观察（检视要聚焦、作者批判性接纳），Claude 给出根因分析 + 三机制方案，搭档拍板"全部实施"（检视者侧 A+B、作者侧 C 一次落地，单 PR 单 F 档）。
 - 2026-08-06 三轮审视实战后，搭档挑战"审视不超过 2 轮"的固定轮数上限，判定该规则错误。Claude 认同并给出根因：上限数的是轮次不是状态——delta 审视引入后每轮成本低、职责清晰，第 3 轮干净闭环却被硬上限误判为"超限"；但直接删除也不对，僵尸循环与对立僵局是真实失效模式。拍板结论：**固定轮数上限改为收敛判据**——不设轮数上限，自然终止于"修复验证全部通过 + 无阻断回归"，出现对立僵局/移动靶/僵尸循环任一信号才呈搭档；搭档作为决策者随时可加开检视轮或直接拍板。判据定义收敛在 adversarial-review SKILL.md 单一真相源，其余引用处（code-implementation step 8、requirement-analysis step 6、commit-convention、collaboration-patterns、author-response-protocol）全部同步。
+- 2026-08-06 搭档进一步指出收敛判据改动散布 7 个文件是"霰弹修改"，要求分析。诊断结论：① 结构病因——循环协议是跨角色概念但无一等公民文件，规则按角色文件边界涂抹，任何循环级改动必然扇出；且真相源误放在检视者 skill（循环调度不是检视者职责），造成作者文件引用检视者文件的跨角色别扭；② 信道分层的刻意内联（保留）；③ commit-convention 等纯回声行（赘肉）。实锤：两轮审视各抓到一处同步失败（门禁漏装文档路径、step 编号悬垂引用），散布面大 = 实测易错。拍板结论：**循环协议独立成文**——新建 `adversarial-review/references/review-loop.md` 作为循环规则（轮次结构、收敛判据、轮次记账、报告门禁）单一真相源；adversarial-review SKILL 回归纯检视者行为；角色文件只留一行信号名 + 指针；纯回声行剪成裸指针。
 
 ## 改动清单
 
@@ -71,6 +72,7 @@ modules:
 | references/report-template.md | 模板加"本轮焦点"段、发现分区（阻断性/次要观察）、作者回应栏、维度扫视结论表；复审轮报告结构 |
 | references/anti-patterns.md | 修正 Rubber Stamp 自相矛盾；新增 Scattergun Review / Moving Target / Blind Compliance & Empty Rebuttal 三个反模式；Let It Slide 兼容次要观察的"记录"去向 |
 | references/author-response-protocol.md | 新增：四分类处置、证据交换规则、与"立即修复"规则的适用范围划分、次要观察处置 |
+| references/review-loop.md | 新增（重构后）：循环协议单一真相源——轮次结构（全量→delta）、收敛判据、轮次记账、报告合规门禁 |
 | code-implementation/SKILL.md step 8 | 新增作者处置协议步骤；第 2 轮改 delta 审视（附第 1 轮发现 + 处置 + 修复 diff）；"立即修复"规则明确限定自发现问题 |
 | requirement-analysis/SKILL.md step 6 | 审视处置改引作者处置协议；复审 delta 化 |
 | otter-summon/references/collaboration-patterns.md | 开发↔检视循环注意事项补焦点声明、delta 审视与作者处置协议指向 |

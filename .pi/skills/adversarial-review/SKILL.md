@@ -104,22 +104,9 @@ Produce a structured review report using the template in `references/report-temp
 
 ### 复审（第 2 轮起）：delta 审视
 
-第 1 轮是全量 fresh-eyes 审视。第 2 轮起**不是**新一轮全量审视，而是：
+第 1 轮是全量 fresh-eyes 审视。第 2 轮起你的职责变为：① 逐条验证上轮发现的修复（改对了吗？改全了吗？）② 检查修复引入的回归（fix-regression）——**不是**新一轮全量审视。delta 之外的新发现必须标注"此前轮次漏报"，默认次要观察，除非过阻断门槛。
 
-1. 逐条验证第 1 轮发现的修复：改对了吗？改全了吗？
-2. 检查修复本身是否引入新问题（fix-regression）
-
-delta 之外新发现的问题：可以报，但必须标注"第 1 轮漏报"，且默认归入次要观察，除非过阻断门槛。每轮都冒出新的阻断问题 = 移动靶（见 anti-patterns），作者永远追不上，审视无法收敛。
-
-### 收敛判据（不设固定轮数上限）
-
-审视循环不按轮数硬切。自然终止于：**修复验证全部通过 + 无阻断回归**。出现以下任一信号则停止循环、呈搭档裁决：
-
-- **对立僵局**：同一问题经一轮证据交换仍对立（见 `references/author-response-protocol.md`）
-- **移动靶**：delta 轮冒出 delta 之外的新阻断问题——改动可能太大该拆 PR，或该回设计阶段
-- **僵尸循环**：连续 2 轮修复验证不通过——同一批问题修不对，继续循环无意义
-
-搭档作为决策者不受此限：随时可加开检视轮，或直接拍板合入/打回。
+循环的轮次结构、收敛判据与升级路径见 `references/review-loop.md`——那是调度规则，由作者/调度者执行；你只负责按上述职责产出每轮报告。
 
 ### 审查者 vs 决策者
 
@@ -139,3 +126,4 @@ delta 之外新发现的问题：可以报，但必须标注"第 1 轮漏报"，
 - **`references/report-template.md`** — Structured review report format
 - **`references/anti-patterns.md`** — Common review anti-patterns and how to avoid them
 - **`references/author-response-protocol.md`** — 作者对检视发现的处置协议（四分类 + 证据要求），检视者评估反驳时同样适用
+- **`references/review-loop.md`** — 对抗审视循环协议（轮次结构、收敛判据、升级路径），三方共用的调度规则单一真相源
