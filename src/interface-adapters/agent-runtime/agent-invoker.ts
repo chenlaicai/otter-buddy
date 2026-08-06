@@ -174,7 +174,12 @@ export class AgentInvoker {
     const msg = await this.queryMessage.getMessageById(p.messageId);
     this.logger.info('Agent invocation finished', { messageId: p.messageId, otterId: p.otterId, messageStatus: msg?.status, tokenUsage: p.result.tokenUsage });
     if (msg?.status === "speaking") {
-      const cr = await this.sendMessage.complete(p.messageId);
+      /** token 用量随 complete 落库（口径与 SSE 实时事件一致：input+output），刷新后历史消息仍能展示上下文使用率 */
+      const totalTokens = p.result.tokenUsage ? p.result.tokenUsage.input + p.result.tokenUsage.output : undefined;
+      const cr = await this.sendMessage.complete(p.messageId, {
+        contextTokens: totalTokens,
+        contextTokensMax: p.result.ctxMax,
+      });
       return this.completeAgentInvocation({ otterId: p.otterId, conversationId: p.conversationId ?? "", messageId: p.messageId, senderId: p.senderId, result: p.result, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose.aggregatedTargets });
     }
     if (this.abortedMessages.has(p.messageId)) {

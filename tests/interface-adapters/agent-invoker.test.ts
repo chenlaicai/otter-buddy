@@ -43,9 +43,13 @@ function mockSendMessage() {
   };
   const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
   const sendSystemBodies: string[] = [];
+  const completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> = [];
   return {
     start: async () => streamingMsg,
-    complete: async () => ({ message: completedMsg, turnClose: { closed: true, aggregatedTargets: ["user-1"] } }),
+    complete: async (id: string, input?: { contextTokens?: number; contextTokensMax?: number }) => {
+      completeCalls.push({ id, input });
+      return { message: completedMsg, turnClose: { closed: true, aggregatedTargets: ["user-1"] } };
+    },
     fail: async (id: string) => { calls.fail!.push(id); },
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
@@ -53,7 +57,8 @@ function mockSendMessage() {
     updateTokenUsage: async () => ({}),
     _calls: calls,
     _sendSystemBodies: sendSystemBodies,
-  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[] };
+    _completeCalls: completeCalls,
+  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[]; _completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> };
 }
 
 function mockQueryMessage(): QueryMessage {
@@ -102,7 +107,7 @@ function mockLogger(): Logger {
 /** 创建 AgentInvokePort mock，可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
-  result?: { text: string; tokenUsage?: { input: number; output: number } };
+  result?: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
   throwOnInvoke?: Error;
   toolCallCount?: number;
   internalAbortReason?: string;
@@ -130,6 +135,7 @@ function mockAgentInvoke(options: {
 describe("AgentInvoker", () => {
   it("completes normal flow: start -> complete (B7-B9)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
+    const sendMessage = mockSendMessage();
     const invoker = new AgentInvoker(
       mockAgentInvoke({
         events: [
@@ -137,9 +143,9 @@ describe("AgentInvoker", () => {
           { type: "message_update", delta: " world" },
           { type: "turn_end" },
         ],
-        result: { text: "Hello world", tokenUsage: { input: 10, output: 5 } },
+        result: { text: "Hello world", tokenUsage: { input: 10, output: 5 }, ctxMax: 200000 },
       }),
-      mockSendMessage(),
+      sendMessage,
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
@@ -168,6 +174,10 @@ describe("AgentInvoker", () => {
     const completeIdx = eventTypes.indexOf("message.complete");
     const turnIdx = eventTypes.indexOf("turn.complete");
     expect(turnIdx).toBeGreaterThan(completeIdx);
+
+    /** token 用量随 complete 落库（口径：input+output），保证刷新后历史消息仍能展示上下文使用率 */
+    expect(sendMessage._completeCalls).toHaveLength(1);
+    expect(sendMessage._completeCalls[0].input).toEqual({ contextTokens: 15, contextTokensMax: 200000 });
   });
 
   it("calls sendMessage.abort() with synthetic body on abort (B-Abort-1, B-Abort-2)", async () => {
