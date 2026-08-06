@@ -1,5 +1,5 @@
 import type { AppConfig } from "@frameworks/config";
-import type { PinoLogger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
@@ -28,7 +28,7 @@ export interface UseCaseDeps {
   embeddingService: EmbeddingGateway;
   memoryIndex: MemoryIndexGateway;
   appConfig: AppConfig;
-  logger: PinoLogger;
+  logger: Logger;
 }
 
 export function initUseCases(deps: UseCaseDeps): UseCases {

@@ -28,6 +28,21 @@ ID `R20260716x2k9` → 必须 `docs/research/2026/07/16/R20260716x2k9-*.md`。
 
 `status`、`change_type`、`exploration_type` 的未知值不阻断，但会被校验器记入 warnings。已知值见 `src/entities/document/known-values.ts`。
 
+### 能力测试约定（F20260806tstr Part 5，lint-capability-docs.mjs 校验）
+
+`change_type` 为 `feature` 或 `prompt` 的 F 文档，frontmatter 应声明 `capability_test`：
+
+```yaml
+change_type: feature
+capability_test: tests/capability/xxx.capability.test.ts   # 指向能力测试用例
+# 或
+capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
+```
+
+判别标准：**改动是否涉及 LLM 参与的行为**（prompt/skill/工具选择/协议遵从等 B 类行为）。
+涉及就必须有能力测试（真系统 + 真 LLM 验证）；纯软件边界内的代码逻辑（A 类）声明 n/a 即可。
+缺字段警告（过渡期）、路径不存在报错。
+
 ### supersedes 前缀
 
 `supersedes` 数组里每个 ID 前缀必须与本文档类型一致（F 文档只能 supersede F，R 文档只能 supersede R）。

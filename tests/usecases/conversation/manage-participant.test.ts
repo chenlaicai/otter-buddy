@@ -1,298 +1,171 @@
-import { describe, it, expect, vi } from "vitest";
+/**
+ * ManageParticipant 单元测试（真 sqlite）。
+ * join/leave 状态机 + 错误分支 + 名称回退，全部对真 DB 断言。
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import type Database from "better-sqlite3";
 import { ManageParticipant } from "@usecases/conversation/manage-participant";
-import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
-import type { OtterRepository } from "@usecases/otter/otter-repository";
-import type { Turn, ConversationParticipant } from "@entities/conversation/conversation";
-import type { Message } from "@entities/conversation/message";
+import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
+import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+import type { Conversation, Turn } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { DomainError } from "@entities/errors";
+import { createTestDb } from "../../helpers/db";
 
-/** 创建活跃 Turn */
-function mockTurn(overrides: Partial<Turn> = {}): Turn {
+function otterFixture(id: string, name: string): Otter {
   return {
-    id: "turn-1",
-    conversationId: "conv-1",
-    turnNumber: 1,
-    status: "open",
-    createdAt: "2026-01-01T00:00:00Z",
-    closedAt: null,
-    ...overrides,
+    id, name, type: "small", status: "active",
+    role: null, parentOtterId: null,
+    createdAt: "2026-01-01T00:00:00Z", dissolvedAt: null,
   };
 }
 
-/** 创建参与者实体 */
-function mockParticipant(overrides: Partial<ConversationParticipant> = {}): ConversationParticipant {
-  return {
-    id: "participant-1",
-    conversationId: "conv-1",
-    otterId: "otter-1",
-    joinedAtTurnId: "turn-1",
-    joinedAtTurnNumber: 1,
-    leftAtTurnId: null,
-    leftAtTurnNumber: null,
-    status: "active",
-    createdAt: "2026-01-01T00:00:00Z",
-    leftAt: null,
-    lastReadTurnNumber: 0,
-    ...overrides,
-  };
-}
+describe("ManageParticipant（真 sqlite）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+  let otterRepo: SqliteOtterRepository;
+  let mp: ManageParticipant;
 
-/** 创建 Otter 实体 */
-function mockOtter(overrides: Partial<Otter> = {}): Otter {
-  return {
-    id: "otter-1",
-    name: "小獭",
-    type: "small",
-    status: "active",
-    role: null,
-    parentOtterId: null,
-    createdAt: "2026-01-01T00:00:00Z",
-    dissolvedAt: null,
-    ...overrides,
-  };
-}
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    otterRepo = new SqliteOtterRepository(db);
+    mp = new ManageParticipant(repo, otterRepo);
 
-/** 创建带状态追踪的 ConversationRepository mock */
-function mockRepo(opts: {
-  activeTurn?: Turn | null;
-  existingParticipant?: ConversationParticipant | null;
-  activeParticipants?: ConversationParticipant[];
-} = {}): ConversationRepository & {
-  _participants: ConversationParticipant[];
-  _messages: Message[];
-  _leftParticipants: Array<{ participantId: string; leftAtTurnId: string; leftAtTurnNumber: number; leftAt: string }>;
-  _closedTurns: string[];
-} {
-  const participants: ConversationParticipant[] = [];
-  const messages: Message[] = [];
-  const leftParticipants: Array<{ participantId: string; leftAtTurnId: string; leftAtTurnNumber: number; leftAt: string }> = [];
-  const closedTurns: string[] = [];
+    const conv: Conversation = {
+      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      completedAt: null, archivedAt: null,
+    };
+    const turn: Turn = {
+      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
+      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+    };
+    await repo.create(conv);
+    await repo.createTurn(turn);
+    /** conversation_participants.otter_id 有 FK：参与者必须先有 otter 行 */
+    await otterRepo.createOtter(otterFixture("otter-1", "小獭"));
+    await otterRepo.createOtter(otterFixture("otter-2", "小獭B"));
+    await otterRepo.createOtter(otterFixture("otter-missing-abc12345", "幽灵"));
+  });
 
-  return {
-    _participants: participants,
-    _messages: messages,
-    _leftParticipants: leftParticipants,
-    _closedTurns: closedTurns,
+  afterEach(() => {
+    db.close();
+  });
 
-    create: vi.fn(),
-    getById: vi.fn(),
-    updateStatus: vi.fn(),
-    getIdsByOtterId: vi.fn(async () => []),
-    getAllIds: vi.fn(async () => []),
-    updatePinned: vi.fn().mockResolvedValue(undefined),
-    getOtterIds: vi.fn(async () => []),
-    createTurn: vi.fn(),
-    getActiveTurn: vi.fn(async () => (opts.activeTurn !== undefined ? opts.activeTurn : mockTurn())),
-    closeTurn: vi.fn(async (turnId: string) => {
-      closedTurns.push(turnId);
-    }),
-    getMaxTurnNumber: vi.fn(async () => 1),
-    getMessagesByTurnId: vi.fn(async () => []),
-    createCompletedMessage: vi.fn(async (msg: Message) => {
-      messages.push(msg);
-    }),
-    createStreamingMessage: vi.fn(),
-    startSpeaking: vi.fn(async () => {}),
-    completeMessage: vi.fn(),
-    failMessage: vi.fn(),
-    failInFlightMessages: vi.fn(async () => 0),
-    closeOrphanedTurns: vi.fn(async () => 0),
-    abortMessage: vi.fn(),
-    getMaxSequenceNum: vi.fn(async () => 0),
-    getMessageById: vi.fn(async () => null),
-    getMessages: vi.fn(async () => []),
-    getMessagesBefore: vi.fn(async () => []),
-    getMessagesAfter: vi.fn(async () => []),
-    appendEvent: vi.fn(),
-    getMessageEvents: vi.fn(async () => []),
-    getMessageEventsByMessageIds: vi.fn(async () => []),
-    getMaxEventSequenceNum: vi.fn(async () => 0),
-    searchMessages: vi.fn(async () => []),
-    findByExternalId: vi.fn(async () => null),
-    getTurnHistory: vi.fn(async () => []),
-    linkResource: vi.fn(),
-    getLinkedResources: vi.fn(async () => []),
-    getLinkedResourceById: vi.fn(async () => null),
-    getLinkedResourcesByGroup: vi.fn(async () => []),
-    updateResourceStatus: vi.fn(),
-    supersedeLinkedResource: vi.fn(),
-    deleteLinkedResource: vi.fn(),
-    flagResource: vi.fn(),
-    createParticipant: vi.fn(async (p: ConversationParticipant) => {
-      participants.push(p);
-    }),
-    createParticipants: vi.fn(),
-    getParticipant: vi.fn(async () => opts.existingParticipant ?? null),
-    getActiveParticipants: vi.fn(async () => opts.activeParticipants ?? []),
-    updateParticipantLeave: vi.fn(async (participantId: string, leftAtTurnId: string, leftAtTurnNumber: number, leftAt: string) => {
-      leftParticipants.push({ participantId, leftAtTurnId, leftAtTurnNumber, leftAt });
-    }),
-    updateTokenUsage: vi.fn(async () => {}),
-    updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
-    getUnreadMessages: vi.fn().mockResolvedValue([]),
-    getTurnById: vi.fn().mockResolvedValue(null),
-    markParticipantLeft: vi.fn().mockResolvedValue(undefined),
-    getLastMessageBySender: vi.fn().mockResolvedValue(null),
-    getUserReadState: vi.fn().mockResolvedValue(null),
-    upsertUserReadState: vi.fn().mockResolvedValue(undefined),
-    getFirstUnreadMessage: vi.fn().mockResolvedValue(null),
-    getUnreadCount: vi.fn().mockResolvedValue(0),
-    getLastMessage: vi.fn().mockResolvedValue(null),
-    listConversationsWithMeta: vi.fn().mockResolvedValue([]),
-  };
-}
+  /** join/leave 的系统消息到达终态会触发 tryCloseTurn 关闭当前回合，
+   *  连续操作前必须开新回合（真实系统中参与者进出发生在 agent 回合进行中） */
+  let turnSeq = 0;
+  async function newTurn(): Promise<string> {
+    turnSeq += 1;
+    const id = `turn-x${turnSeq}`;
+    await repo.createTurn({
+      id, conversationId: "conv-1", turnNumber: 100 + turnSeq, status: "open",
+      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+    });
+    return id;
+  }
 
-/** 创建 OtterRepository mock */
-function mockOtterRepo(otters: Map<string, Otter> = new Map()): OtterRepository {
-  return {
-    createOtter: vi.fn(),
-    getById: vi.fn(async (id: string) => otters.get(id) ?? null),
-    dissolve: vi.fn(),
-    deleteOtter: vi.fn(),
-    createSession: vi.fn(),
-    getActiveSession: vi.fn(async () => null),
-    archiveSession: vi.fn(),
-    getSessionHistory: vi.fn(async () => []),
-    getSessionById: vi.fn(async () => null),
-    setSessionSummary: vi.fn(),
-  };
-}
-
-describe("ManageParticipant", () => {
   describe("join", () => {
     it("创建参与者记录 + 系统消息，返回两者", async () => {
-      const repo = mockRepo();
-      const otterRepo = mockOtterRepo();
-      const mp = new ManageParticipant(repo, otterRepo);
-
       const result = await mp.join("conv-1", "otter-1", "小獭进场了");
 
       expect(result.participant.otterId).toBe("otter-1");
       expect(result.participant.status).toBe("active");
       expect(result.participant.conversationId).toBe("conv-1");
 
-      /** 验证系统消息 */
       expect(result.systemMessage.senderType).toBe("system");
       expect(result.systemMessage.body).toBe("小獭进场了");
       expect(result.systemMessage.status).toBe("completed");
       expect(result.systemMessage.talkingStonePassedTo).toEqual([]);
 
-      /** 验证 repo 状态：参与者已创建，系统消息已存储 */
-      expect(repo._participants).toHaveLength(1);
-      expect(repo._messages).toHaveLength(1);
+      /** 真 DB 断言 */
+      const stored = await repo.getParticipant("conv-1", "otter-1");
+      expect(stored).not.toBeNull();
+      const messages = await repo.getMessages("conv-1", {});
+      expect(messages).toHaveLength(1);
+      expect(messages[0].senderType).toBe("system");
     });
 
     it("已进场的 Otter 再次进场抛出 conflict 错误", async () => {
-      const existing = mockParticipant();
-      const repo = mockRepo({ existingParticipant: existing });
-      const otterRepo = mockOtterRepo();
-      const mp = new ManageParticipant(repo, otterRepo);
+      await mp.join("conv-1", "otter-1", "小獭进场");
+      await newTurn();
 
-      await expect(
-        mp.join("conv-1", "otter-1", "小獭又来了"),
-      ).rejects.toThrow(DomainError);
-
-      await expect(
-        mp.join("conv-1", "otter-1", "小獭又来了"),
-      ).rejects.toSatisfy((err: DomainError) => err.kind === "conflict");
+      await expect(mp.join("conv-1", "otter-1", "小獭又来了")).rejects.toThrow(DomainError);
+      await expect(mp.join("conv-1", "otter-1", "小獭又来了")).rejects.toSatisfy(
+        (err: DomainError) => err.kind === "conflict",
+      );
     });
 
     it("无活跃 Turn 时抛出 validation 错误", async () => {
-      const repo = mockRepo({ activeTurn: null });
-      const otterRepo = mockOtterRepo();
-      const mp = new ManageParticipant(repo, otterRepo);
+      await repo.closeTurn("turn-1", "2026-01-01T01:00:00Z");
 
-      await expect(
-        mp.join("conv-1", "otter-1", "小獭进场"),
-      ).rejects.toThrow(DomainError);
-
-      await expect(
-        mp.join("conv-1", "otter-1", "小獭进场"),
-      ).rejects.toSatisfy((err: DomainError) => err.kind === "validation");
+      await expect(mp.join("conv-1", "otter-1", "小獭进场")).rejects.toThrow(DomainError);
+      await expect(mp.join("conv-1", "otter-1", "小獭进场")).rejects.toSatisfy(
+        (err: DomainError) => err.kind === "validation",
+      );
     });
   });
 
   describe("leave", () => {
     it("更新参与者状态为 left + 创建系统消息", async () => {
-      const participant = mockParticipant();
-      const repo = mockRepo({ existingParticipant: participant });
-      const otterRepo = mockOtterRepo();
-      const mp = new ManageParticipant(repo, otterRepo);
+      const { participant } = await mp.join("conv-1", "otter-1", "小獭进场了");
+      const leaveTurnId = await newTurn();
 
       const result = await mp.leave("conv-1", "otter-1", "小獭退场了");
 
       expect(result.participant.status).toBe("left");
-      expect(result.participant.leftAtTurnId).toBe("turn-1");
-      expect(result.participant.leftAtTurnNumber).toBe(1);
+      expect(result.participant.leftAtTurnId).toBe(leaveTurnId);
       expect(result.participant.leftAt).toBeTruthy();
-
-      /** 验证 repo 状态：退场记录已更新 */
-      expect(repo._leftParticipants).toHaveLength(1);
-      expect(repo._leftParticipants[0].participantId).toBe(participant.id);
-
-      /** 验证系统消息 */
       expect(result.systemMessage.body).toBe("小獭退场了");
       expect(result.systemMessage.senderType).toBe("system");
+
+      /** 真 DB 断言：参与者已 left，系统消息落库 */
+      const stored = await repo.getParticipant("conv-1", "otter-1");
+      expect(stored!.status).toBe("left");
+      expect(stored!.id).toBe(participant.id);
+      const messages = await repo.getMessages("conv-1", {});
+      expect(messages).toHaveLength(2);
     });
 
     it("非活跃参与者退场抛出 validation 错误", async () => {
-      /** 已退场的参与者 */
-      const leftParticipant = mockParticipant({ status: "left" });
-      const repo = mockRepo({ existingParticipant: leftParticipant });
-      const otterRepo = mockOtterRepo();
-      const mp = new ManageParticipant(repo, otterRepo);
+      await mp.join("conv-1", "otter-1", "小獭进场");
+      await newTurn();
+      await mp.leave("conv-1", "otter-1", "小獭退场");
+      await newTurn();
 
-      await expect(
-        mp.leave("conv-1", "otter-1", "小獭退场"),
-      ).rejects.toThrow(DomainError);
-
-      await expect(
-        mp.leave("conv-1", "otter-1", "小獭退场"),
-      ).rejects.toSatisfy((err: DomainError) => err.kind === "validation");
+      await expect(mp.leave("conv-1", "otter-1", "再次退场")).rejects.toThrow(DomainError);
+      await expect(mp.leave("conv-1", "otter-1", "再次退场")).rejects.toSatisfy(
+        (err: DomainError) => err.kind === "validation",
+      );
     });
 
     it("不存在的参与者退场抛出 validation 错误", async () => {
-      /** getParticipant 返回 null */
-      const repo = mockRepo({ existingParticipant: null });
-      const otterRepo = mockOtterRepo();
-      const mp = new ManageParticipant(repo, otterRepo);
-
-      await expect(
-        mp.leave("conv-1", "otter-unknown", "未知獭退场"),
-      ).rejects.toThrow(DomainError);
+      await expect(mp.leave("conv-1", "otter-unknown", "未知獭退场")).rejects.toThrow(DomainError);
     });
   });
 
   describe("getActiveParticipants", () => {
     it("返回带 Otter 名称的参与者列表", async () => {
-      const participants = [
-        mockParticipant({ id: "p1", otterId: "otter-1" }),
-        mockParticipant({ id: "p2", otterId: "otter-2" }),
-      ];
-      const otters = new Map([
-        ["otter-1", mockOtter({ id: "otter-1", name: "小獭A" })],
-        ["otter-2", mockOtter({ id: "otter-2", name: "小獭B" })],
-      ]);
-      const repo = mockRepo({ activeParticipants: participants });
-      const otterRepo = mockOtterRepo(otters);
-      const mp = new ManageParticipant(repo, otterRepo);
+      await mp.join("conv-1", "otter-1", "A 进场");
+      await newTurn();
+      await mp.join("conv-1", "otter-2", "B 进场");
 
       const result = await mp.getActiveParticipants("conv-1");
 
       expect(result).toHaveLength(2);
-      expect(result[0].otterName).toBe("小獭A");
-      expect(result[1].otterName).toBe("小獭B");
-      expect(result[0].participant.otterId).toBe("otter-1");
+      const byOtter = new Map(result.map((r) => [r.participant.otterId, r.otterName]));
+      expect(byOtter.get("otter-1")).toBe("小獭");
+      expect(byOtter.get("otter-2")).toBe("小獭B");
     });
 
-    it("Otter 不存在时使用回退名称", async () => {
-      const participants = [
-        mockParticipant({ id: "p1", otterId: "otter-missing-abc12345" }),
-      ];
-      const repo = mockRepo({ activeParticipants: participants });
-      const otterRepo = mockOtterRepo(new Map()); // 空 otter 存储
-      const mp = new ManageParticipant(repo, otterRepo);
+    it("Otter 行被删除后使用回退名称", async () => {
+      await mp.join("conv-1", "otter-missing-abc12345", "幽灵进场");
+      /** 生产 foreignKeys 由配置决定（可 OFF）：孤儿参与者真实存在（如 otter 被硬删）。
+       *  此处关 FK 复现该场景 */
+      db.pragma("foreign_keys = OFF");
+      await otterRepo.deleteOtter("otter-missing-abc12345");
+      db.pragma("foreign_keys = ON");
 
       const result = await mp.getActiveParticipants("conv-1");
 

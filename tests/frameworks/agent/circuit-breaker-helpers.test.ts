@@ -2,17 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { attachCircuitBreaker } from "@frameworks/agent/circuit-breaker-helpers";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "@frameworks/agent/tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "@frameworks/agent/tool-call-circuit-breaker";
-import type { Logger } from "@usecases/ports/logger";
-
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
+import { createTestLogger } from "../../helpers/logger";
 
 /** 构造最小可用的 session mock：记录 subscribe 回调以便手动派发事件 */
 function mockSession() {
@@ -54,7 +44,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
       session,
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
-      mockLogger(),
+      createTestLogger(),
     );
 
     // 模拟真实工作负载：bash / read / edit 交替，远超 maxConsecutiveIdentical
@@ -76,7 +66,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
       session,
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const commands = [
@@ -102,7 +92,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
       session,
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
-      mockLogger(),
+      createTestLogger(),
     );
 
     for (let i = 0; i < 3; i++) session.emit(sdkToolStart("search_memory"));
@@ -119,7 +109,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
       session,
       "otter-1",
       makeConfig(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     session.emit({ type: "tool_execution_start", name: "legacy_tool" });
@@ -132,7 +122,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
       session,
       "otter-1",
       makeConfig(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     session.emit({ type: "tool_execution_start" });
@@ -147,7 +137,7 @@ describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
       session,
       "otter-1",
       makeConfig({ maxToolCalls: 2, warningThreshold: 1 }),
-      mockLogger(),
+      createTestLogger(),
     );
 
     // maxToolCalls + 3 次内是 steer，第 maxToolCalls + 4 次 terminate
@@ -165,7 +155,7 @@ describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
       session,
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 1, maxToolCalls: 100 }),
-      mockLogger(),
+      createTestLogger(),
       abortOverride,
     );
 
@@ -185,7 +175,7 @@ describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
       session,
       "otter-1",
       makeConfig({ maxToolCalls: 2, warningThreshold: 100, maxRepeatAfterWarning: 100 }),
-      mockLogger(),
+      createTestLogger(),
       abortOverride,
     );
 
@@ -206,7 +196,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -232,7 +222,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -264,7 +254,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -297,7 +287,7 @@ describe("attachCircuitBreaker - per-event 超时（清理）", () => {
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -322,7 +312,7 @@ describe("attachCircuitBreaker - per-event 超时（清理）", () => {
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -349,7 +339,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -383,7 +373,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -415,7 +405,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -447,7 +437,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -473,7 +463,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         session,
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 2, maxRepeatAfterWarning: 100, maxConsecutiveIdentical: 100 }),
-        mockLogger(),
+        createTestLogger(),
         abortOverride,
       );
 
@@ -502,7 +492,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
     try {
       const session = mockSession();
       const abortOverride = vi.fn();
-      const logger = mockLogger();
+      const logger = createTestLogger();
       const warnSpy = vi.spyOn(logger, "warn");
       attachCircuitBreaker(
         session,
@@ -532,7 +522,7 @@ describe("attachCircuitBreaker - steer 行为纠正", () => {
       session,
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 1, maxToolCalls: 100 }),
-      mockLogger(),
+      createTestLogger(),
     );
 
     session.emit(sdkToolStart("bash", { command: "git commit -m x" }));

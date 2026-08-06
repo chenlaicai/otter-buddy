@@ -6,7 +6,7 @@ import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
-import { vi } from "vitest";
+import { createTestLogger } from "../helpers/logger";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -22,10 +22,6 @@ function seedConversation(db: Database.Database, id: string, title: string): voi
   `).run(id, title);
 }
 
-function mockLogger() {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
-}
-
 describe("Connection API", () => {
   let db: Database.Database;
   let connRepo: SqliteConnectionRepository;
@@ -37,11 +33,11 @@ describe("Connection API", () => {
     db = createTestDb();
     connRepo = new SqliteConnectionRepository(db);
     convRepo = new SqliteConversationRepository(db);
-    manageConnection = new ManageConnection(connRepo, convRepo, mockLogger() as any);
+    manageConnection = new ManageConnection(connRepo, convRepo, createTestLogger() as any);
 
     // 创建一个简单的测试 app，只注册 connection 路由
     app = new Hono();
-    const connectionCtrl = new ConnectionController(manageConnection, mockLogger() as any);
+    const connectionCtrl = new ConnectionController(manageConnection, createTestLogger() as any);
     app.get("/api/connections", (ctx) => connectionCtrl.list(ctx));
     app.post("/api/connections", (ctx) => connectionCtrl.create(ctx));
     app.get("/api/connections/:id", (ctx) => connectionCtrl.getById(ctx));

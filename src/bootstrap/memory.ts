@@ -1,4 +1,4 @@
-import type { PinoLogger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { MemoryEntryInput } from "@usecases/memory/store-memory";
 import { StoreMemory } from "@usecases/memory/store-memory";
@@ -111,11 +111,11 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 }
 
-export function createMemoryIndex(repos: Repositories, embeddingService: EmbeddingGateway, logger: PinoLogger): MemoryIndexGateway {
+export function createMemoryIndex(repos: Repositories, embeddingService: EmbeddingGateway, logger: Logger): MemoryIndexGateway {
   return new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
 }
 
-export async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway, logger: PinoLogger, cwd: string): Promise<SyncResult> {
+export async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway, logger: Logger, cwd: string): Promise<SyncResult> {
   const fileSystem = new NodeFileSystem();
   const syncDocs = new SyncDocuments(
     fileSystem,

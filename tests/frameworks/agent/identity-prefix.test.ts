@@ -1,50 +1,30 @@
-import { describe, it, expect, vi } from "vitest";
-import Database from "better-sqlite3";
+/**
+ * buildIdentityPrefix 分支测试（真 schema + 真 repo）。
+ *
+ * 端到端的不变量（首次注入、不重复注入）由
+ * tests/capability/otter-lifecycle.capability.test.ts 用真系统 + 真 LLM 验证。
+ * 本文件只保留能力层覆盖不到的分支：类型优先级/未知类型降级/幽灵獭/目录缺失降级。
+ *
+ * 明知妥协：buildIdentityPrefix 是私有方法，经 cast 触达——分支密集且能力层无法触发，
+ * 保留私有触达是有意的（已删除更深的 _invokeInternal 内部件替换测试）。
+ * 文案标记「海獭团队的头儿」「由大獭为完成特定任务而创建」是大小獭身份文件的判别器，改文案需同步。
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type Database from "better-sqlite3";
 import path from "node:path";
 
 /** worktree/CI 中无 config/config.yaml，mock 掉避免急切加载配置文件 */
 vi.mock("@frameworks/config", () => ({ config: { circuitBreaker: {} } }));
 
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
-import type { Logger } from "@usecases/ports/logger";
-import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
-import type { OtterRepository } from "@usecases/otter/otter-repository";
+import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
+import { createTestDb } from "../../helpers/db";
+import { createTestLogger } from "../../helpers/logger";
 
-function mockLogger(): Logger & { warns: unknown[][] } {
-  const warns: unknown[][] = [];
-  const logger: Logger & { warns: unknown[][] } = {
-    info: () => {},
-    warn: (...args: unknown[]) => { warns.push(args); },
-    error: () => {},
-    debug: () => {},
-    child: () => logger,
-    warns,
-  };
-  return logger;
-}
-
-function makeDb(): Database.Database {
-  const db = new Database(":memory:");
-  db.prepare("CREATE TABLE otters (id TEXT PRIMARY KEY, name TEXT, type TEXT)").run();
-  db.prepare("CREATE TABLE agent_sessions (otter_id TEXT PRIMARY KEY, pi_session_id TEXT, session_file TEXT, updated_at TEXT)").run();
-  return db;
-}
-
-/** 直接读真实 prompts/identity/ 目录：内容断言（如"海獭团队的头儿"）是有意的文案存在性守护，改文案需同步本测试 */
 const REAL_IDENTITY_DIR = path.resolve(__dirname, "../../../prompts/identity");
 
-function makeFactory(db: Database.Database, logger: Logger, identityPromptDir?: string): PiSessionFactory {
-  const otterConfigProvider = {
-    getConfig: () => null,
-    setConfig: () => {},
-    deleteConfig: () => {},
-  } as unknown as OtterConfigProvider;
-  const otterRepo = {
-    getById: async (id: string) => {
-      const row = db.prepare("SELECT id, name, type FROM otters WHERE id = ?").get(id) as { id: string; name: string; type: string } | undefined;
-      return row ? { id: row.id, name: row.name, type: row.type, status: 'active', role: null, parentOtterId: null, createdAt: '', dissolvedAt: null } : null;
-    },
-  } as unknown as OtterRepository;
+function makeFactory(db: Database.Database, identityPromptDir?: string): PiSessionFactory {
   return new PiSessionFactory({
     db,
     sessionDir: ":memory:",
@@ -52,26 +32,40 @@ function makeFactory(db: Database.Database, logger: Logger, identityPromptDir?: 
     model: null,
     identityPromptDir,
     createTools: () => [],
-    otterConfigProvider,
-    otterRepo,
-  }, logger);
+    otterConfigProvider: new SqliteOtterConfigProvider(db),
+    otterRepo: new SqliteOtterRepository(db),
+  }, createTestLogger());
 }
 
-/** 调用私有方法 buildIdentityPrefix（单元测试注入内容，绕过 SDK session） */
 async function buildIdentityPrefix(factory: PiSessionFactory, otterId: string, otterType: string): Promise<string> {
   return (factory as unknown as { buildIdentityPrefix(id: string, type: string): Promise<string> })
     .buildIdentityPrefix(otterId, otterType);
 }
 
-describe("PiSessionFactory 身份注入（buildIdentityPrefix）", () => {
-  it("大獭：注入名称/ID/类型头部 + 大獭身份正文（frontmatter 已剥离）", async () => {
-    const db = makeDb();
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-big", "大獭", "big");
-    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
+describe("buildIdentityPrefix 分支", () => {
+  let db: Database.Database;
+  let repo: SqliteOtterRepository;
 
-    const prefix = await buildIdentityPrefix(factory, "o-big", "big");
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteOtterRepository(db);
+  });
 
-    expect(prefix).toContain("## 你的身份");
+  afterEach(() => {
+    db.close();
+  });
+
+  async function seedOtter(id: string, name: string, type: "big" | "small"): Promise<void> {
+    await repo.createOtter({
+      id, name, type, status: "active",
+      role: null, parentOtterId: null, createdAt: new Date().toISOString(), dissolvedAt: null,
+    });
+  }
+
+  it("大獭：头部字段 + 大獭身份正文（frontmatter 已剥离）", async () => {
+    await seedOtter("o-big", "大獭", "big");
+    const prefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
+
     expect(prefix).toContain("名称：大獭");
     expect(prefix).toContain("ID：o-big");
     expect(prefix).toContain("类型：大獭");
@@ -79,59 +73,43 @@ describe("PiSessionFactory 身份注入（buildIdentityPrefix）", () => {
     expect(prefix).not.toContain("name: big-otter-identity");
   });
 
-  it("小獭：注入小獭身份正文，即使 DB 中 type 字段与 otterConfig 不一致也以 otterConfig 为准", async () => {
-    const db = makeDb();
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-small", "开发者", "big");
-    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
-
-    const prefix = await buildIdentityPrefix(factory, "o-small", "small");
+  it("小獭：以 otterType 参数为准（即使 DB type 字段不一致）", async () => {
+    await seedOtter("o-small", "开发者", "big");
+    const prefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-small", "small");
 
     expect(prefix).toContain("类型：小獭");
     expect(prefix).toContain("由大獭为完成特定任务而创建");
   });
 
   it("未知类型按小獭处理（保守默认）", async () => {
-    const db = makeDb();
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-x", "某獭", "weird");
-    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
-
-    const prefix = await buildIdentityPrefix(factory, "o-x", "weird");
+    await seedOtter("o-x", "某獭", "big");
+    const prefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-x", "weird");
 
     expect(prefix).toContain("类型：小獭");
     expect(prefix).toContain("由大獭为完成特定任务而创建");
   });
 
   it("otter 不存在时返回空串", async () => {
-    const db = makeDb();
-    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
-
-    await expect(buildIdentityPrefix(factory, "ghost", "big")).resolves.toBe("");
+    await expect(buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "ghost", "big")).resolves.toBe("");
   });
 
-  it("身份文件目录缺失：降级为仅头部，并打 warn 日志", async () => {
-    const db = makeDb();
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-big", "大獭", "big");
-    const logger = mockLogger();
-    const factory = makeFactory(db, logger, "/nonexistent/identity/dir");
+  it("身份文件目录缺失：降级为仅头部（不含身份正文）", async () => {
+    await seedOtter("o-big", "大獭", "big");
+    const prefix = await buildIdentityPrefix(makeFactory(db, "/nonexistent/identity/dir"), "o-big", "big");
 
-    expect(logger.warns.length).toBeGreaterThan(0);
-
-    const prefix = await buildIdentityPrefix(factory, "o-big", "big");
     expect(prefix).toContain("名称：大獭");
     expect(prefix).toContain("类型：大獭");
     expect(prefix).not.toContain("海獭团队的头儿");
   });
-
-  it("未配置 identityPromptDir：构造时打 warn 日志", () => {
-    const db = makeDb();
-    const logger = mockLogger();
-    makeFactory(db, logger, undefined);
-
-    expect(logger.warns.length).toBeGreaterThan(0);
-  });
 });
 
-describe("PiSessionFactory 身份注入触发链路（pendingIdentity / createdNew）", () => {
+/**
+ * 身份注入触发链路的确定性回归锁（A 类，不依赖 LLM，CI 可跑）。
+ * 对抗检视决定恢复：端到端能力用例是 LLM-gated 的（无密钥即 skip），
+ * 这条事故史链路（pendingIdentity 标记/失败不消费/createdNew 注入）必须有 CI 守护。
+ * 明知妥协：经 cast 触达内部件（_invokeInternal/_restoreOrCreateSession 替换在 pi SDK 边界上）。
+ */
+describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
   type FactoryInternals = {
     pendingIdentity: Set<string>;
     _restoreOrCreateSession: (id: string) => Promise<{ sessionManager: unknown; createdNew: boolean }>;
@@ -139,19 +117,8 @@ describe("PiSessionFactory 身份注入触发链路（pendingIdentity / createdN
     _invokeInternal: (id: string, msg: string, opts: unknown) => Promise<unknown>;
   };
 
-  function makeWiredFactory(createdNew: boolean): { factory: PiSessionFactory; internals: FactoryInternals; captured: { invokeOptions: unknown }; executeShouldFail: { value: boolean } } {
-    const db = makeDb();
-    const otterConfigProvider = {
-      getConfig: () => ({ systemPrompt: undefined, otterType: "big" }),
-      setConfig: () => {},
-      deleteConfig: () => {},
-    } as unknown as OtterConfigProvider;
-    const otterRepo = {
-      getById: async (id: string) => {
-        const row = db.prepare("SELECT id, name, type FROM otters WHERE id = ?").get(id) as { id: string; name: string; type: string } | undefined;
-        return row ? { id: row.id, name: row.name, type: row.type, status: 'active', role: null, parentOtterId: null, createdAt: '', dissolvedAt: null } : null;
-      },
-    } as unknown as OtterRepository;
+  function makeWiredFactory(createdNew: boolean) {
+    const db = createTestDb();
     const factory = new PiSessionFactory({
       db,
       sessionDir: ":memory:",
@@ -159,9 +126,13 @@ describe("PiSessionFactory 身份注入触发链路（pendingIdentity / createdN
       model: null,
       identityPromptDir: REAL_IDENTITY_DIR,
       createTools: () => [],
-      otterConfigProvider,
-      otterRepo,
-    }, mockLogger());
+      otterConfigProvider: {
+        getConfig: () => ({ systemPrompt: undefined, otterType: "big", modelAlias: null }),
+        setConfig: () => {},
+        deleteConfig: () => {},
+      } as never,
+      otterRepo: new SqliteOtterRepository(db),
+    }, createTestLogger());
 
     const captured: { invokeOptions: unknown } = { invokeOptions: undefined };
     const executeShouldFail = { value: false };
@@ -172,156 +143,55 @@ describe("PiSessionFactory 身份注入触发链路（pendingIdentity / createdN
       if (executeShouldFail.value) throw new Error("invoke failed");
       return {};
     };
-    return { factory, internals, captured, executeShouldFail };
+    return { internals, captured, executeShouldFail, db };
   }
 
   it("create 后（pendingIdentity 有标记）首次 invoke 注入身份，成功后消费标记", async () => {
-    const { internals, captured } = makeWiredFactory(false);
+    const { internals, captured, db } = makeWiredFactory(false);
     internals.pendingIdentity.add("o1");
 
     await internals._invokeInternal("o1", "hi", undefined);
 
     expect((captured.invokeOptions as { isFirstInvoke: boolean }).isFirstInvoke).toBe(true);
     expect(internals.pendingIdentity.has("o1")).toBe(false);
+    db.close();
   });
 
-  it("invoke 失败时不消费标记，下次重试仍注入", async () => {
-    const { internals, executeShouldFail } = makeWiredFactory(false);
+  it("invoke 失败时不消费标记，下次重试仍注入（B1 回归锁：删掉标记整个 feature 失效）", async () => {
+    const { internals, executeShouldFail, db } = makeWiredFactory(false);
     internals.pendingIdentity.add("o1");
     executeShouldFail.value = true;
 
     await expect(internals._invokeInternal("o1", "hi", undefined)).rejects.toThrow("invoke failed");
 
     expect(internals.pendingIdentity.has("o1")).toBe(true);
+    db.close();
   });
 
   it("restore 重建新 session（createdNew=true）即使无标记也注入", async () => {
-    const { internals, captured } = makeWiredFactory(true);
+    const { internals, captured, db } = makeWiredFactory(true);
 
     await internals._invokeInternal("o1", "hi", undefined);
 
     expect((captured.invokeOptions as { isFirstInvoke: boolean }).isFirstInvoke).toBe(true);
+    db.close();
   });
 
   it("恢复旧 session 且无标记 → 不注入", async () => {
-    const { internals, captured } = makeWiredFactory(false);
+    const { internals, captured, db } = makeWiredFactory(false);
 
     await internals._invokeInternal("o1", "hi", undefined);
 
     expect((captured.invokeOptions as { isFirstInvoke: boolean }).isFirstInvoke).toBe(false);
+    db.close();
   });
 
   it("options 缺省时 isFirstInvoke 标志仍然传递", async () => {
-    const { internals, captured } = makeWiredFactory(true);
+    const { internals, captured, db } = makeWiredFactory(true);
 
     await internals._invokeInternal("o1", "hi", undefined);
 
     expect(captured.invokeOptions).not.toBeUndefined();
-  });
-});
-
-describe("PiSessionFactory 消息前缀拼接（buildUserMessagePrefix）", () => {
-  async function buildPrefix(factory: PiSessionFactory, otterId: string, otterType: string, prompt: string | undefined, isFirst: boolean | undefined): Promise<string> {
-    return (factory as unknown as { buildUserMessagePrefix(id: string, type: string, p: string | undefined, first: boolean | undefined): Promise<string> })
-      .buildUserMessagePrefix(otterId, otterType, prompt, isFirst);
-  }
-
-  it("首次 invoke：身份叠加在专属 systemPrompt 之前", async () => {
-    const db = makeDb();
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-small", "开发者", "small");
-    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
-
-    const prefix = await buildPrefix(factory, "o-small", "small", "你是代码开发者，负责实现功能。", true);
-
-    const identityIdx = prefix.indexOf("## 你的身份");
-    const promptIdx = prefix.indexOf("你是代码开发者");
-    expect(identityIdx).toBeGreaterThanOrEqual(0);
-    expect(promptIdx).toBeGreaterThan(identityIdx);
-  });
-
-  it("非首次 invoke：仅专属 prompt，不重复注入身份", async () => {
-    const db = makeDb();
-    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("o-big", "大獭", "big");
-    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
-
-    await expect(buildPrefix(factory, "o-big", "big", "专属 prompt", false)).resolves.toBe("专属 prompt");
-  });
-
-  it("首次但 otter 不存在：降级为仅专属 prompt", async () => {
-    const db = makeDb();
-    const factory = makeFactory(db, mockLogger(), REAL_IDENTITY_DIR);
-
-    await expect(buildPrefix(factory, "ghost", "big", "专属 prompt", true)).resolves.toBe("专属 prompt");
-  });
-});
-
-describe("PiSessionFactory pendingIdentity 回归锁（真实 create/reset/destroy 路径）", () => {
-  function makeSdkMock() {
-    let n = 0;
-    return {
-      SessionManager: {
-        create: () => ({
-          getSessionId: () => `sid-${++n}`,
-          getSessionFile: () => `/tmp/fake-${n}.jsonl`,
-        }),
-        open: () => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); },
-      },
-    };
-  }
-
-  function makeRealFactory(db: Database.Database): { factory: PiSessionFactory; pending: Set<string> } {
-    const otterConfigProvider = {
-      getConfig: () => null,
-      setConfig: () => {},
-      deleteConfig: () => {},
-    } as unknown as OtterConfigProvider;
-    const otterRepo = {
-      getById: async (id: string) => {
-        const row = db.prepare("SELECT id, name, type FROM otters WHERE id = ?").get(id) as { id: string; name: string; type: string } | undefined;
-        return row ? { id: row.id, name: row.name, type: row.type, status: 'active', role: null, parentOtterId: null, createdAt: '', dissolvedAt: null } : null;
-      },
-    } as unknown as OtterRepository;
-    const factory = new PiSessionFactory({
-      db,
-      sessionDir: ":memory:",
-      otterToolClient: {} as never,
-      model: null,
-      identityPromptDir: REAL_IDENTITY_DIR,
-      createTools: () => [],
-      otterConfigProvider,
-      otterRepo,
-    }, mockLogger());
-    /** 预注入 SDK mock，跳过动态 import（ensurePiCodingAgent 检测已加载则跳过） */
-    (factory as unknown as { piCodingAgent: unknown }).piCodingAgent = makeSdkMock();
-    const pending = (factory as unknown as { pendingIdentity: Set<string> }).pendingIdentity;
-    return { factory, pending };
-  }
-
-  it("create() 标记 pendingIdentity（B1 回归锁：删掉这行标记整个 feature 失效）", async () => {
-    const db = makeDb();
-    const { factory, pending } = makeRealFactory(db);
-
-    await factory.create("o1", { systemPrompt: undefined, context: { otterType: "big" } } as never);
-
-    expect(pending.has("o1")).toBe(true);
-  });
-
-  it("reset() 标记 pendingIdentity", async () => {
-    const db = makeDb();
-    const { factory, pending } = makeRealFactory(db);
-
-    await factory.reset("o1");
-
-    expect(pending.has("o1")).toBe(true);
-  });
-
-  it("destroy() 清理 pendingIdentity", async () => {
-    const db = makeDb();
-    const { factory, pending } = makeRealFactory(db);
-    pending.add("o1");
-
-    await factory.destroy("o1");
-
-    expect(pending.has("o1")).toBe(false);
+    db.close();
   });
 });

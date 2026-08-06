@@ -7,17 +7,7 @@ import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
 import { backfillSessionLedger } from "@frameworks/db/otter/backfill-session-ledger";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
-import type { Logger } from "@usecases/ports/logger";
-
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  } as unknown as Logger;
-}
+import { createTestLogger } from "../../../helpers/logger";
 
 function seedOtter(db: Database.Database, id: string, status = "active"): void {
   db.prepare(
@@ -50,7 +40,7 @@ describe("backfillSessionLedger (F20260805rsto)", () => {
     seedOtter(db, "o1");
     seedAgentSession(db, "o1");
 
-    await backfillSessionLedger(db, repo, mockLogger());
+    await backfillSessionLedger(db, repo, createTestLogger());
 
     const session = await repo.getActiveSession("o1");
     expect(session).not.toBeNull();
@@ -64,9 +54,9 @@ describe("backfillSessionLedger (F20260805rsto)", () => {
     seedOtter(db, "o1");
     seedAgentSession(db, "o1");
 
-    await backfillSessionLedger(db, repo, mockLogger());
+    await backfillSessionLedger(db, repo, createTestLogger());
     const first = await repo.getActiveSession("o1");
-    await backfillSessionLedger(db, repo, mockLogger());
+    await backfillSessionLedger(db, repo, createTestLogger());
 
     const history = await repo.getSessionHistory("o1");
     expect(history).toHaveLength(1);
@@ -77,7 +67,7 @@ describe("backfillSessionLedger (F20260805rsto)", () => {
     seedOtter(db, "o1", "dissolved");
     seedAgentSession(db, "o1");
 
-    await backfillSessionLedger(db, repo, mockLogger());
+    await backfillSessionLedger(db, repo, createTestLogger());
 
     expect(await repo.getActiveSession("o1")).toBeNull();
   });
@@ -90,7 +80,7 @@ describe("backfillSessionLedger (F20260805rsto)", () => {
     seedAgentSession(db, "ghost");
     db.pragma("foreign_keys = ON");
 
-    await backfillSessionLedger(db, repo, mockLogger());
+    await backfillSessionLedger(db, repo, createTestLogger());
 
     expect(await repo.getActiveSession("good")).not.toBeNull();
   });

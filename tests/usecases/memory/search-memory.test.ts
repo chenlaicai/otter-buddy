@@ -1,59 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
+import { createTestDb } from "../../helpers/db";
+import { createTestLogger } from "../../helpers/logger";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { SearchMemory } from "@usecases/memory/search-memory";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
-import type { Logger } from "@usecases/ports/logger";
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
-
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
-
-/** 创建内存 SQLite 数据库 + 初始化 schema */
-function createTestDb(): Database.Database {
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memory_entries (
-      id TEXT PRIMARY KEY,
-      layer TEXT NOT NULL,
-      content_type TEXT NOT NULL,
-      source_id TEXT NOT NULL,
-      source_table TEXT NOT NULL,
-      conversation_id TEXT,
-      granularity TEXT NOT NULL DEFAULT 'fine',
-      content TEXT NOT NULL,
-      metadata TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS memory_weights (
-      memory_entry_id TEXT PRIMARY KEY,
-      retrieval_count INTEGER NOT NULL DEFAULT 0,
-      last_retrieved_at TEXT,
-      user_flagged INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      memory_entry_id UNINDEXED,
-      content,
-      tokenize = 'trigram'
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
-      memory_entry_id UNINDEXED,
-      content
-    );
-  `);
-  return db;
-}
 
 /** 测试用 EmbeddingGateway mock（vec0 不可用时降级） */
 function mockEmbeddingGateway(): EmbeddingGateway {
@@ -105,7 +60,7 @@ describe("SearchMemory - progressive disclosure", () => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
+    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
     manageMemory = new ManageMemory(repo);
 
     /** 存入测试数据 */
@@ -191,7 +146,7 @@ describe("SearchMemory - progressive disclosure", () => {
     };
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+    const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
     expect(result.entries.length).toBe(1);
@@ -245,7 +200,7 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
+    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
 
     /** 构造同文档的 summary entry + body entry，同 sourceId="F123" */
     const docBase = { layer: "document" as const, sourceId: "F123", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
@@ -367,7 +322,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
-    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
 
@@ -428,7 +383,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
-    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
 
