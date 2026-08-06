@@ -176,7 +176,7 @@ interface RawConfig {
 
 const CONFIG_PATH = path.resolve(process.cwd(), "config/config.yaml");
 
-const VALID_PROVIDERS = ["openai", "anthropic"];
+const VALID_PROVIDERS = ["openai", "anthropic", "kimi-coding"];
 
 /** 取值或默认值 */
 function d<T>(value: T | undefined, fallback: T): T {
