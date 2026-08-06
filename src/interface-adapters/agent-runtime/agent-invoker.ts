@@ -356,15 +356,20 @@ export class AgentInvoker {
     if (!conversationId || startTime === undefined) return false;
     const msg = await this.queryMessage.getMessageById(messageId);
     if (msg?.status !== "speaking") return false;
-    const cr = await this.sendMessage.complete(messageId);
-    await this.completeAgentInvocation({
-      otterId, conversationId, messageId,
-      senderId: senderId ?? '',
-      result: { text: "" },
-      startTime, emitEvent,
-      aggregatedTargets: cr.turnClose?.aggregatedTargets,
-    });
-    return true;
+    try {
+      const cr = await this.sendMessage.complete(messageId);
+      await this.completeAgentInvocation({
+        otterId, conversationId, messageId,
+        senderId: senderId ?? '',
+        result: { text: "" },
+        startTime, emitEvent,
+        aggregatedTargets: cr.turnClose?.aggregatedTargets,
+      });
+      return true;
+    } catch {
+      /** TOCTOU 竞态：complete 前状态已变，降级走 abort 路径 */
+      return false;
+    }
   }
 
   /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
