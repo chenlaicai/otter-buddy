@@ -286,4 +286,50 @@ describe("ensureHealingConversation - pin 行为", () => {
     expect(result.bigOtterId).toBe(bigOtterId);
     expect(manageConversation.create).not.toHaveBeenCalled();
   });
+
+  it("CAS 模式：创建失败时清理 pending 值", async () => {
+    const otter = mockBigOtter();
+
+    const manageConversation = {
+      create: vi.fn(async () => {
+        throw new Error('Database error');
+      }),
+      getById: vi.fn(),
+      pin: vi.fn(async () => {}),
+    } as unknown as ManageConversation;
+
+    const convRepo = {
+      getActiveParticipants: vi.fn(),
+    } as unknown as ConversationRepository;
+
+    const otterRepo = {
+      getById: vi.fn(async () => otter),
+    } as unknown as OtterRepository;
+
+    const settings = {
+      get: vi.fn(async () => 'pending:1234567890'),
+      update: vi.fn(),
+      getAll: vi.fn(async () => ({})),
+      tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
+    } as unknown as SettingsRepository;
+
+    const sendMessage = {
+      sendSystem: vi.fn(),
+    } as unknown as SendMessage;
+
+    const logger = mockLogger();
+
+    await expect(ensureHealingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      settings,
+      sendMessage,
+      logger,
+    })).rejects.toThrow('Database error');
+
+    // 应该清理 pending 值
+    expect(vi.mocked(settings.tryDeleteIfValueMatches).mock.calls.length).toBeGreaterThan(0);
+  });
 });

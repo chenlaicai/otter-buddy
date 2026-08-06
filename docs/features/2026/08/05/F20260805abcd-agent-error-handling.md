@@ -1,3 +1,13 @@
+---
+id: F20260805abcd
+title: agent-error-handling
+doc_type: feature
+
+summary: |
+  Agent 错误处理与 Kimi Provider 支持：修复 LLM API 错误时错误触发 speak 重试、
+  添加 kimi-coding provider 支持、修复 Self-Healing 对话重复创建（CAS 模式）。
+---
+
 # F20260805abcd: Agent 错误处理与 Kimi Provider 支持
 
 ## 问题描述
