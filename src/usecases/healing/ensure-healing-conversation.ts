@@ -38,6 +38,24 @@ async function tryReuseExisting(
   return { conversationId: existingId, bigOtterId };
 }
 
+/** 等待另一个进程完成创建（轮询模式） */
+async function waitForOtherProcess(
+  manageConversation: ManageConversation,
+  settings: SettingsRepository,
+  logger: Logger,
+): Promise<HealingConversationResult | null> {
+  for (let i = 0; i < 20; i++) {
+    const recheck = await tryReuseExisting(manageConversation, settings, logger);
+    if (recheck) return recheck;
+    const currentValue = await settings.get(HEALING_CONVERSATION_KEY);
+    if (!currentValue?.startsWith('pending:')) {
+      return tryReuseExisting(manageConversation, settings, logger);
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return null;
+}
+
 export async function ensureHealingConversation(deps: {
   manageConversation: ManageConversation;
   convRepo: ConversationRepository;
@@ -46,25 +64,25 @@ export async function ensureHealingConversation(deps: {
   sendMessage: SendMessage;
   logger: Logger;
 }): Promise<HealingConversationResult> {
-  // 1. 检查已有（使用 CAS 模式：先读再写，利用 settings 的 upsert 原子性）
+  // 1. 检查已有
   const existing = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
   if (existing) return existing;
 
-  // 2. CAS 模式：先写入临时值占位，再二次确认
-  //    如果并发进程抢先写入，当前进程会读到对方的值，从而放弃创建
+  // 2. 真正的 CAS：使用 INSERT ... ON CONFLICT DO NOTHING 原子占位
   const lockValue = `pending:${Date.now()}`;
-  await deps.settings.update(HEALING_CONVERSATION_KEY, lockValue);
+  const acquired = await deps.settings.tryInsertIfAbsent(HEALING_CONVERSATION_KEY, lockValue);
 
-  // 3. 二次确认：如果值不是自己写入的，说明另一个进程抢先了
-  const currentValue = await deps.settings.get(HEALING_CONVERSATION_KEY);
-  if (currentValue !== lockValue) {
-    // 另一个进程抢先了，等待其完成后读取结果
-    const recheck = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
-    if (recheck) return recheck;
-    // 如果仍然无效（对方创建失败），继续尝试创建
+  if (!acquired) {
+    // 另一个进程已抢先，等待其完成后读取结果
+    const result = await waitForOtherProcess(deps.manageConversation, deps.settings, deps.logger);
+    if (result) return result;
+    // 对方可能失败了，尝试重新获取锁
+    if (!await deps.settings.tryInsertIfAbsent(HEALING_CONVERSATION_KEY, lockValue)) {
+      throw new Error('Failed to acquire lock for Self-Healing conversation creation');
+    }
   }
 
-  // 4. 创建新对话
+  // 3. 创建新对话
   const conversation = await deps.manageConversation.create({ title: HEALING_CONVERSATION_TITLE });
   await pinHealing(deps.manageConversation, conversation.id, deps.logger);
 

@@ -26,4 +26,17 @@ export class SqliteSettingsRepository implements SettingsRepository {
     }
     return result;
   }
+
+  /**
+   * 原子插入：仅当 key 不存在时写入 value。
+   * 使用 INSERT ... ON CONFLICT DO NOTHING + changes() 实现真正的 CAS。
+   * @returns true 如果成功插入（当前进程获得锁），false 如果 key 已存在（另一个进程已抢先）
+   */
+  async tryInsertIfAbsent(key: string, value: string): Promise<boolean> {
+    const result = this.db.prepare(`
+      INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+      ON CONFLICT(key) DO NOTHING
+    `).run(key, value);
+    return result.changes > 0;
+  }
 }

@@ -113,6 +113,8 @@ async function loadCustomProvider(
   if (!hasModel) {
     const template = modelsArray[0] as Record<string, unknown> | undefined;
     if (template) {
+      // eslint-disable-next-line no-console
+      console.warn(`[models-factory] Model "${modelId}" not found in ${providerType} models dict, using template from "${template.id}". Available models: ${modelsArray.map(m => (m as Record<string, unknown>).id).join(', ')}`);
       modelsArray.push({
         id: modelId,
         name: modelId,

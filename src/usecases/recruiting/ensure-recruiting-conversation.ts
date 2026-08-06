@@ -36,6 +36,23 @@ async function tryReuseExisting(
   return { conversationId: existingId, bigOtterId, created: false };
 }
 
+/** 等待另一个进程完成创建（轮询模式） */
+async function waitForOtherProcess(
+  settings: SettingsRepository,
+  convRepo: ConversationRepository,
+): Promise<RecruitingConversationResult | null> {
+  for (let i = 0; i < 20; i++) {
+    const recheck = await tryReuseExisting(settings, convRepo);
+    if (recheck) return recheck;
+    const currentValue = await settings.get(RECRUITING_CONVERSATION_KEY);
+    if (!currentValue?.startsWith('pending:')) {
+      return tryReuseExisting(settings, convRepo);
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return null;
+}
+
 /** 读取 systemPrompt 文件 */
 function readSystemPrompt(promptPathOverride: string | undefined): string {
   const promptPath = promptPathOverride
@@ -164,35 +181,38 @@ export async function ensureRecruitingConversation(deps: {
   const existing = await tryReuseExisting(deps.settings, deps.convRepo);
   if (existing) return existing;
 
-  // 2. CAS 模式：先写入临时值占位，再二次确认
+  // 2. 真正的 CAS：使用 INSERT ... ON CONFLICT DO NOTHING 原子占位
   const lockValue = `pending:${Date.now()}`;
-  await deps.settings.update(RECRUITING_CONVERSATION_KEY, lockValue);
+  const acquired = await deps.settings.tryInsertIfAbsent(RECRUITING_CONVERSATION_KEY, lockValue);
 
-  // 3. 二次确认：如果值不是自己写入的，说明另一个进程抢先了
-  const currentValue = await deps.settings.get(RECRUITING_CONVERSATION_KEY);
-  if (currentValue !== lockValue) {
-    const recheck = await tryReuseExisting(deps.settings, deps.convRepo);
-    if (recheck) return recheck;
+  if (!acquired) {
+    // 另一个进程已抢先，等待其完成后读取结果
+    const result = await waitForOtherProcess(deps.settings, deps.convRepo);
+    if (result) return result;
+    // 对方可能失败了，尝试重新获取锁
+    if (!await deps.settings.tryInsertIfAbsent(RECRUITING_CONVERSATION_KEY, lockValue)) {
+      throw new Error('Failed to acquire lock for Recruiting conversation creation');
+    }
   }
 
-  // 4. 读 systemPrompt
+  // 3. 读 systemPrompt
   const systemPrompt = readSystemPrompt(deps.promptPathOverride);
 
-  // 3. 创建带角色 prompt 的大獭
+  // 4. 创建带角色 prompt 的大獭
   const bigOtter = await deps.createOtter.execute({
     name: '大獭',
     type: 'big',
     systemPrompt,
   });
 
-  // 4. 建 conversation + participant
+  // 5. 建 conversation + participant
   const conversationId = await createConversationAndParticipant(deps.convRepo, bigOtter.id);
 
-  // 5. 持久化到 settings
+  // 6. 持久化到 settings
   await deps.settings.update(RECRUITING_CONVERSATION_KEY, conversationId);
   await deps.settings.update(RECRUITING_BIG_OTTER_ID_KEY, bigOtter.id);
 
-  // 6. 发欢迎消息
+  // 7. 发欢迎消息
   await sendWelcomeMessage(deps.sendMessage, conversationId);
 
   deps.logger.info('Recruiting conversation created', { conversationId, bigOtterId: bigOtter.id });
