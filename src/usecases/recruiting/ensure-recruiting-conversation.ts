@@ -36,10 +36,14 @@ async function tryReuseExisting(
   return { conversationId: existingId, bigOtterId, created: false };
 }
 
+/** stale lock 阈值（毫秒） */
+const STALE_LOCK_THRESHOLD_MS = 30_000;
+
 /** 等待另一个进程完成创建（轮询模式） */
 async function waitForOtherProcess(
   settings: SettingsRepository,
   convRepo: ConversationRepository,
+  logger: Logger,
 ): Promise<RecruitingConversationResult | null> {
   for (let i = 0; i < 20; i++) {
     const recheck = await tryReuseExisting(settings, convRepo);
@@ -47,6 +51,16 @@ async function waitForOtherProcess(
     const currentValue = await settings.get(RECRUITING_CONVERSATION_KEY);
     if (!currentValue?.startsWith('pending:')) {
       return tryReuseExisting(settings, convRepo);
+    }
+    // 检测 stale lock：如果 pending 值超过阈值，尝试清理
+    const pendingTimestamp = parseInt(currentValue.replace('pending:', ''), 10);
+    if (!isNaN(pendingTimestamp) && Date.now() - pendingTimestamp > STALE_LOCK_THRESHOLD_MS) {
+      logger.warn('Detected stale lock, attempting to clean', { key: RECRUITING_CONVERSATION_KEY, value: currentValue });
+      const deleted = await settings.tryDeleteIfValueMatches(RECRUITING_CONVERSATION_KEY, currentValue);
+      if (deleted) {
+        logger.info('Stale lock cleaned successfully', { key: RECRUITING_CONVERSATION_KEY });
+        return null; // 返回 null，让调用方重新竞争锁
+      }
     }
     await new Promise(resolve => setTimeout(resolve, 500));
   }
@@ -182,15 +196,20 @@ export async function ensureRecruitingConversation(deps: {
   if (existing) return existing;
 
   // 2. 真正的 CAS：使用 INSERT ... ON CONFLICT DO NOTHING 原子占位
-  const lockValue = `pending:${Date.now()}`;
-  const acquired = await deps.settings.tryInsertIfAbsent(RECRUITING_CONVERSATION_KEY, lockValue);
+  let lockValue = `pending:${Date.now()}`;
+  let acquired = await deps.settings.tryInsertIfAbsent(RECRUITING_CONVERSATION_KEY, lockValue);
 
   if (!acquired) {
     // 另一个进程已抢先，等待其完成后读取结果
-    const result = await waitForOtherProcess(deps.settings, deps.convRepo);
+    const result = await waitForOtherProcess(deps.settings, deps.convRepo, deps.logger);
     if (result) return result;
-    // 对方可能失败了，尝试重新获取锁
-    if (!await deps.settings.tryInsertIfAbsent(RECRUITING_CONVERSATION_KEY, lockValue)) {
+    // waitForOtherProcess 可能清理了 stale lock，重新尝试获取锁
+    lockValue = `pending:${Date.now()}`;
+    acquired = await deps.settings.tryInsertIfAbsent(RECRUITING_CONVERSATION_KEY, lockValue);
+    if (!acquired) {
+      // 仍然无法获取锁，最后一次检查已有
+      const finalCheck = await tryReuseExisting(deps.settings, deps.convRepo);
+      if (finalCheck) return finalCheck;
       throw new Error('Failed to acquire lock for Recruiting conversation creation');
     }
   }

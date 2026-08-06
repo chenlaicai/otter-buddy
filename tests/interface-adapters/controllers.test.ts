@@ -329,6 +329,7 @@ describe("SettingsController", () => {
     update: async () => {},
     getAll: async () => ({}),
     tryInsertIfAbsent: async () => true,
+    tryDeleteIfValueMatches: async () => true,
   };
 
   it("returns config values", async () => {

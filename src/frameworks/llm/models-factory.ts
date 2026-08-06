@@ -114,7 +114,7 @@ async function loadCustomProvider(
     const template = modelsArray[0] as Record<string, unknown> | undefined;
     if (template) {
       // eslint-disable-next-line no-console
-      console.warn(`[models-factory] Model "${modelId}" not found in ${providerType} models dict, using template from "${template.id}". Available models: ${modelsArray.map(m => (m as Record<string, unknown>).id).join(', ')}`);
+      console.warn(`[models-factory] Model "${modelId}" not found in ${providerType} models dict, using template from "${template.id}" but with empty compat/thinkingLevelMap. Available models: ${modelsArray.map(m => (m as Record<string, unknown>).id).join(', ')}`);
       modelsArray.push({
         id: modelId,
         name: modelId,
@@ -122,8 +122,9 @@ async function loadCustomProvider(
         provider: alias, // 用 alias 作为 provider 字段，确保 SDK auth 解析正确
         baseUrl: options.apiBaseUrl ?? template.baseUrl,
         reasoning: template.reasoning,
-        compat: template.compat,
-        thinkingLevelMap: template.thinkingLevelMap,
+        // 不继承 compat 和 thinkingLevelMap，避免意外行为
+        compat: {},
+        thinkingLevelMap: {},
         input: template.input,
         cost: (template as Record<string, unknown>).cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       });

@@ -110,6 +110,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       update: vi.fn(),
       getAll: vi.fn(async () => ({})),
       tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
     const sendMessage = {
@@ -156,6 +157,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       update: vi.fn(),
       getAll: vi.fn(async () => ({})),
       tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
     const sendMessage = {
@@ -210,6 +212,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       update: vi.fn(),
       getAll: vi.fn(async () => ({})),
       tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
     const sendMessage = {

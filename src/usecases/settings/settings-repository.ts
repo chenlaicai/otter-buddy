@@ -8,4 +8,10 @@ export interface SettingsRepository {
    * @returns true 如果成功插入（当前进程获得锁），false 如果 key 已存在（另一个进程已抢先）
    */
   tryInsertIfAbsent(key: string, value: string): Promise<boolean>;
+  /**
+   * 原子删除：仅当 key 存在且 value 匹配时删除。
+   * 用于清理 stale lock。
+   * @returns true 如果成功删除（当前进程获得了锁的所有权），false 如果 value 不匹配（锁已被其他人获取或释放）
+   */
+  tryDeleteIfValueMatches(key: string, expectedValue: string): Promise<boolean>;
 }

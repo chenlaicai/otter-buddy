@@ -397,17 +397,21 @@ export class SqliteMemoryRepository implements MemoryRepository {
     // 注意：先转义 HTML 特殊字符，再做高亮替换，避免 XSS 风险
     return rows.map(row => {
       const content = row.content || '';
-      // 转义 HTML 特殊字符
+      // 转义所有 5 个 HTML 特殊字符
       let highlighted = content
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
       for (const token of tokenizedQuery) {
         // 对 token 也进行转义，避免 token 中包含 HTML 特殊字符
         const escapedToken = token
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
         highlighted = highlighted.replaceAll(escapedToken, `<b>${escapedToken}</b>`);
       }
       return {
