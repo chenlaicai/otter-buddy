@@ -65,7 +65,16 @@ for (const file of walk(path.join(root, "docs/features"))) {
   }
 }
 
-if (warnings > 0) console.log(`[lint:capability] ${warnings} 个警告（过渡期不阻断）`);
+/** Ratchet（第二轮对抗检视）：警告数只许减不许增——否则警告疲劳后约束力归零。
+ *  新增 feature/prompt 文档缺 capability_test 会推高警告数并在此报错；
+ *  存量文档补声明后可下调本数值。 */
+const MAX_WARNINGS = 62;
+
+if (warnings > MAX_WARNINGS) {
+  errors++;
+  console.error(`✗ [lint:capability] 警告数 ${warnings} 超过上限 ${MAX_WARNINGS}（ratchet：新增 feature/prompt 文档必须声明 capability_test）`);
+}
+if (warnings > 0) console.log(`[lint:capability] ${warnings} 个警告（存量过渡期，上限 ${MAX_WARNINGS}）`);
 if (errors > 0) {
   console.error(`[lint:capability] ${errors} 个错误`);
   process.exit(1);

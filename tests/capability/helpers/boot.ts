@@ -157,21 +157,20 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
 
   /** agent 工具（read/bash/write）的 cwd 沙箱：fork 的 process.cwd() 默认是真仓库根，
    *  獭的编码工具可在真仓写文件（实测：曾自发建 worktree 完整实现功能）。
-   *  沙箱只软链只读资产（.pi/skills、prompts、models），bash/write 的默认落点在沙箱内。
-   *  注意必须在 buildApp 前 chdir（pi ResourceLoader 与 identity 目录按 cwd 解析）。 */
+   *  小资产（.pi/prompts/种子数据）复制进沙箱——软链会被 write 穿透到真仓（第二轮检视发现）。
+   *  models 是 4.2G 大模型无法复制，仍用软链：写穿透风险存在但獭没有对模型文件的合法写场景。 */
   const sandbox = path.join(tmpDir, "sandbox");
-  fs.mkdirSync(sandbox, { recursive: true });
-  const root = repoRoot();
-  for (const asset of [".pi", "prompts", "models"]) {
-    fs.symlinkSync(path.join(root, asset), path.join(sandbox, asset));
-  }
-  /** seed-terminology 读 cwd 下的 data/terminology（启动种子资产） */
   fs.mkdirSync(path.join(sandbox, "data"), { recursive: true });
-  fs.symlinkSync(path.join(root, "data/terminology"), path.join(sandbox, "data/terminology"));
+  const root = repoRoot();
+  fs.cpSync(path.join(root, ".pi"), path.join(sandbox, ".pi"), { recursive: true });
+  fs.cpSync(path.join(root, "prompts"), path.join(sandbox, "prompts"), { recursive: true });
+  fs.cpSync(path.join(root, "data/terminology"), path.join(sandbox, "data/terminology"), { recursive: true });
+  fs.symlinkSync(path.join(root, "models"), path.join(sandbox, "models"));
   const prevCwd = process.cwd();
+  /** 必须在 buildApp 前 chdir：pi ResourceLoader、identity 目录、ensure-model 均按 cwd 解析 */
   process.chdir(sandbox);
 
-  let built: BuiltApp;
+  let built: BuiltApp | undefined;
   try {
     built = await buildApp({
       config,
@@ -185,25 +184,27 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
       enableFeishu: false,
       startScheduler: false,
     });
+    await waitEmbeddingReady(built, options.embeddingTimeoutMs ?? 240_000);
   } catch (err) {
+    /** 失败路径同样恢复 cwd + dispose：否则同 fork 后续文件以诡异 ENOENT 失败（chdir 泄漏） */
+    built?.dispose();
     process.chdir(prevCwd);
     throw err;
   }
-
-  await waitEmbeddingReady(built, options.embeddingTimeoutMs ?? 240_000);
 
   if (!llm.available) {
     // 供 skip-reporter 打印显式原因（forks 池下经环境变量传递到主进程不可行，reporter 直接探测配置）
     process.env.OTTER_CAPABILITY_SKIP_REASON = llm.reason;
   }
 
+  const ready = built;
   return {
-    built,
+    built: ready,
     tmpDir,
     llmAvailable: llm.available,
     skipReason: llm.reason,
     cleanup: () => {
-      built.dispose();
+      ready.dispose();
       process.chdir(prevCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     },

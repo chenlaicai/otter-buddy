@@ -74,7 +74,7 @@ describe("獭的主动行为：术语捕获 + skill 触发（真系统 + 真 LLM
         convId,
         "我打算加一个返回当前时间戳的工具脚本。请按你的工作流程先做需求分析，只给分析结论，不要写任何代码。",
       );
-      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000 });
+      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
 
       const tools = toolCallNames(answer);
       const argsText = toolCallArgsText(answer);

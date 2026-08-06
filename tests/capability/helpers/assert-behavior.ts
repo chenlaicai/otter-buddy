@@ -15,6 +15,7 @@ export interface MessageDto {
   seq: number;
   tsp?: string[];         // talkingStonePassedTo（名字）
   sn?: string;            // senderName
+  turnId?: string;        // 所属回合（turn-per-hop：一跳一个 turn）
   events?: Array<{
     eventType: string;
     payload?: { content?: Array<{ type: string; name?: string; arguments?: unknown }> };
@@ -106,6 +107,26 @@ export function toolCallNames(message: MessageDto): string[] {
   return names;
 }
 
+/**
+ * 交换级工具轨迹（跨消息、跨 turn 聚合）。
+ * speak 未收尾触发自动重试时（F20260730sbrt），首试的工具调用落在 failed 消息上，
+ * 且重试是**新的一跳（不同 turnId）**——只看最终 completed 消息或单 turn 都会漏测
+ * （第二轮对抗检视实证：首试 search_memory 拿到事实，重试直接 speak）。
+ * 断言"獭是否查过记忆"这类行为必须用本函数：聚合用户消息（afterSeq）之后的全部獭消息。
+ */
+export function toolCallNamesForExchange(messages: MessageDto[], afterSeq: number): string[] {
+  const otterMessages = messages
+    .filter((m) => m.st === "otter" && m.seq > afterSeq)
+    .sort((a, b) => a.seq - b.seq);
+  return otterMessages.flatMap((m) => toolCallNames(m));
+}
+
+/** 取对话中最新用户消息的 seq（作为交换级聚合的 afterSeq 基准） */
+export function latestUserSeq(messages: MessageDto[]): number {
+  const userSeqs = messages.filter((m) => m.st === "user").map((m) => m.seq);
+  return userSeqs.length > 0 ? Math.max(...userSeqs) : 0;
+}
+
 /** 断言工具被调用过；withOrder 可断言相对顺序（如 search_memory 先于 speak） */
 export function expectToolUsed(message: MessageDto, toolName: string, opts?: { before?: string }): void {
   const names = toolCallNames(message);
@@ -161,9 +182,15 @@ export async function expectSampledBehavior(
   let successes = 0;
   const outcomes: string[] = [];
   for (let i = 0; i < samples; i++) {
-    const result = await sample(i);
-    if (result.ok) successes++;
-    outcomes.push(`#${i + 1}: ${result.ok ? "OK" : "FAIL"} ${result.detail}`);
+    /** 单次采样异常（如等待超时）记为失败样本而非炸掉整个采样——
+     *  否则后续采样不执行，且残留回合对着已 dispose 的 app 跑 */
+    try {
+      const result = await sample(i);
+      if (result.ok) successes++;
+      outcomes.push(`#${i + 1}: ${result.ok ? "OK" : "FAIL"} ${result.detail}`);
+    } catch (err) {
+      outcomes.push(`#${i + 1}: FAIL 异常 ${err instanceof Error ? err.message.slice(0, 150) : String(err)}`);
+    }
   }
   console.log(`[capability] ${label} 采样结果（${successes}/${samples} 成功）:\n${outcomes.join("\n")}`);
   expect(successes, `${label}：${samples} 次采样至少 ${minSuccess} 次成功\n${outcomes.join("\n")}`).toBeGreaterThanOrEqual(minSuccess);

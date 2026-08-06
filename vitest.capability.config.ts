@@ -22,12 +22,6 @@ export default defineConfig({
     include: ["tests/capability/**/*.capability.test.ts"],
     globals: false,
     pool: "forks",
-    poolOptions: {
-      forks: {
-        /** 排查：清空继承的 execArgv（父进程 --inspect 等会干扰 worker_threads 里的 onnxruntime） */
-        execArgv: [],
-      },
-    },
     isolate: true,
     fileParallelism: false,
     maxWorkers: 1,

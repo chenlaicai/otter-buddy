@@ -48,7 +48,8 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     const convId = await createConversation(ctx, "重启验证");
     const otterId = await getConversationOtterId(ctx, convId);
     await sendUserMessage(ctx, convId, "你好，随便说点什么");
-    await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+    /** afterSeq 必须基于本轮终态，否则下一轮 wait 命中本轮的 completed 旧消息（空转断言） */
+    const firstRound = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
 
     const firstSession = await ctx.built.repos.otter.getActiveSession(otterId);
     expect(firstSession, "F20260805rsto 不变量：有对话即有 active domain session").not.toBeNull();
@@ -86,7 +87,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
 
     // 5. 新獭生可用：再发消息能走到终态（真 LLM invoke 链路完好）
     await sendUserMessage(ctx, convId, "你还在吗？回复一下");
-    const after = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+    const after = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000, afterSeq: firstRound.seq });
     expect(after.status).toBe("completed");
   }, 600_000);
 
@@ -97,7 +98,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     const otterId = await getConversationOtterId(ctx, convId);
 
     await sendUserMessage(ctx, convId, "你好");
-    await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+    const round1 = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
 
     const sessionFile = getSessionFile(ctx.built.db, otterId);
     expect(sessionFile, "agent_sessions 应有 session_file").toBeTruthy();
@@ -107,13 +108,17 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     expect(firstUser, "session 中应有用户消息").toBeTruthy();
     expect(firstUser!.text, "首条用户消息应携带身份前缀（BIG_OTTER.md 注入）").toContain(IDENTITY_MARKER);
 
-    // 第二轮：不应重复注入
+    // 第二轮：不应重复注入（afterSeq 确保等到第二轮真实终态再读 session 文件，
+    // 否则读到的是第一轮内容，identityCount===1 恒真空转——第二轮对抗检视实证）
     await sendUserMessage(ctx, convId, "再说一句");
-    await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+    await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000, afterSeq: round1.seq });
 
     const secondRound = readSessionMessages(sessionFile!);
     const identityCount = secondRound.filter((e) => e.isUser && e.text.includes(IDENTITY_MARKER)).length;
     expect(identityCount, "身份前缀只应注入一次").toBe(1);
+    /** 第二轮的用户消息确实已进入 session（证明第二轮 invoke 真实发生） */
+    const userMsgCount = secondRound.filter((e) => e.isUser).length;
+    expect(userMsgCount, "session 中应有至少两轮用户消息").toBeGreaterThanOrEqual(2);
   }, 600_000);
 
   it("speak 协议合规：3 次采样 ≥1 次合规（统计断言，F20260805mspk）", async (t) => {

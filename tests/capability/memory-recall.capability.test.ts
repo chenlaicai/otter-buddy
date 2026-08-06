@@ -13,7 +13,9 @@ import {
   createConversation,
   sendUserMessage,
   waitForOtterMessage,
-  toolCallNames,
+  listMessages,
+  toolCallNamesForExchange,
+  latestUserSeq,
   expectEventually,
 } from "./helpers/assert-behavior";
 import { StoreMemory } from "@usecases/memory/store-memory";
@@ -62,10 +64,13 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
   });
 
   /**
-   * 统计断言：mimo 模型 speak 协议遵从不稳定（3 轮观测：1 次全链路成功、
-   * 1 次未搜索直接答、2 次搜索后未 speak 收尾），发现已记录 F20260805mspk。
+   * 统计断言：mimo 模型 speak 协议遵从不稳定（发现已记录 F20260805mspk）。
    * 采样 3 次、断言 ≥1 次全链路成功——既防止套件因模型抖动长红，又不掩盖问题：
    * 每次采样结果都打印，成功率掉到 0 时测试失败。
+   *
+   * 工具轨迹用回合级聚合（toolCallNamesForTurn）：speak 未收尾触发自动重试时，
+   * 首试的 search_memory 落在 failed 消息上，只看最终 completed 消息会漏测
+   * （第二轮对抗检视实证：系统健康但重试时此断言确定性红）。
    */
   it("新对话的獭通过 search_memory 召回事实并回答（3 次采样 ≥1 次全链路）", async (vitestCtx) => {
     if (!ctx.llmAvailable) {
@@ -81,10 +86,12 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
       await sendUserMessage(ctx, convId, "幻影灯塔计划的门禁验证码是什么？");
       const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
 
-      const tools = toolCallNames(answer);
+      const allMessages = await listMessages(ctx, convId);
+      /** 交换级聚合：首试（failed）与 speak-retry 重试（新 turn）的工具轨迹都要算 */
+      const tools = toolCallNamesForExchange(allMessages, latestUserSeq(allMessages));
       const searched = tools.includes("search_memory");
       const searchedBeforeSpeak = searched && tools.includes("speak")
-        && tools.indexOf("search_memory") < tools.indexOf("speak");
+        && tools.indexOf("search_memory") < tools.lastIndexOf("speak");
       const spoke = tools.includes("speak") && answer.status === "completed";
       const correct = answer.content.includes(FACT_TOKEN);
       const ok = searchedBeforeSpeak && spoke && correct;

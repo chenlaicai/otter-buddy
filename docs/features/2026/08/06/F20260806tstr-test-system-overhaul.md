@@ -84,7 +84,7 @@ main.ts 收缩为 ~20 行薄入口。生产冒烟验证：全新 DB + 真 mimo +
 ## Part 2：能力测试层（B 类）
 
 - `vitest.capability.config.ts`：forks 池（每文件独立进程隔离 config 单例与 pi SDK 缓存）、
-  串行、retry 1、自定义 skip-reporter（无 LLM 时显式打印 SKIP REPORT，exit 0 不静默）。
+  串行、无 retry（采样内化抖动）、自定义 skip-reporter（无 LLM 时显式打印 SKIP REPORT，exit 0 不静默）。
 - `config/config.test.yaml`（入库零机密）← `config.test.local.yaml`（gitignored 整段替换顶层键）
   ← `OTTER_TEST_LLM_*` 环境变量。无密钥时自动注入 initFauxModels，非 LLM 用例照常真跑。
 - `tests/capability/helpers/`：boot（每文件临时目录 + buildApp 真装配 + embedding 就绪强等待）、
@@ -179,3 +179,23 @@ controllers.test.ts 删除（pin/unpin 独有用例迁入 tests/api 走真路由
 
 检视同时证伪的嫌疑（"检查过没问题"）：倒序/turn-per-hop 两处断言改动是发现真相而非迁就实现
 （生产 SQL 实证）；旗舰测试无上下文泄漏；删除会计算平；buildApp 与上游初始化逐步无差异。
+
+## 对抗审视记录（第二轮，修复后复审）
+
+第一轮修复完成后又做一轮独立检视（实跑 A/B 两层 + 无 LLM 对照），本轮抓到两个 P1 且正中要害——
+**能力测试自身的假绿**：
+
+| 级别 | 发现 | 处置 |
+|---|---|---|
+| P1 | restart「新獭生可用」与身份「不重复注入」断言命中第一轮的陈旧 completed 消息（waitForOtterMessage 未传 afterSeq），核心回归锁空转 | 修：afterSeq 锚定上一轮终态；身份用例加 userMsgCount≥2 证明第二轮 invoke 真实发生。修复后等待时间从 4s/2s 变 20s/12s——证明此前在空转 |
+| P1 | memory-recall 工具轨迹只看最终 completed 消息；speak-retry 首试的 search_memory 落在 failed 消息且**重试是新的一跳（不同 turnId）**，系统健康但重试时确定性红 | 修：toolCallNamesForExchange 交换级聚合（跨消息跨 turn） |
+| P2 | skill 用例 150s 超时 < 熔断预算（120s/事件 + 重试翻倍）；采样异常炸掉整个采样 | 修：超时 300s + 采样内 try/catch 记失败样本 |
+| P2 | 沙箱软链可被 write 穿透，「只读资产」宣称不实 | 修：小资产（.pi/prompts/种子）改复制；models 4.2G 保留软链并诚实标注残余风险 |
+| P2 | createTestDb 只有 initSchema，缺 migrateDatabase 补的列（session_file/model_alias）——A 类库落后于生产 | 修：createTestDb 补 migrateDatabase（幂等） |
+| P3 | 废弃的 forks.execArgv 死配置、F 档 retry 文案、boot 失败路径 chdir 泄漏、capability_test 警告无收敛机制 | 全修；lint 加 ratchet（警告数只减不增，上限 62） |
+
+本轮同时实证：交换级聚合后的旗舰采样轨迹完整（search_memory→speak 3/3 全链路）、
+otter-summon 委派率存在真实波动（0/3 ~ 3/3 跨运行）——mimo 行为不稳定（F20260805mspk）的又一数据点。
+
+**两轮检视的元教训**：第一轮"检查过没问题"的旗舰无泄漏结论漏掉了空转断言——
+对抗检视的价值与测试相同：只有真实执行（含对照实验）才算数。
