@@ -7,6 +7,7 @@ import type { SendMessage } from '@usecases/conversation/send-message';
 import type { CreateOtter } from '@usecases/otter/create-otter';
 import type { Logger } from '@usecases/ports/logger';
 import type { Otter } from '@entities/otter/otter';
+import { createTestLogger } from "../../helpers/logger";
 
 /** 大獭 mock */
 function mockBigOtter(): Otter {
@@ -20,17 +21,6 @@ function mockBigOtter(): Otter {
     createdAt: '2026-01-01T00:00:00Z',
     dissolvedAt: null,
   };
-}
-
-/** Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn(() => mockLogger()),
-  } as unknown as Logger;
 }
 
 describe('ensureRecruitingConversation', () => {
@@ -69,7 +59,7 @@ describe('ensureRecruitingConversation', () => {
       sendSystem: vi.fn(),
     } as unknown as SendMessage;
 
-    logger = mockLogger();
+    logger = createTestLogger();
   });
 
   it('CAS 模式：对方已抢先创建，复用已有对话', async () => {

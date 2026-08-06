@@ -17,3 +17,5 @@ npm run check
 npm run lint:docs
 # F20260806tstr Part 5: 能力测试约定校验（缺字段警告不阻断，路径不存在报错）
 node scripts/lint-capability-docs.mjs
+# F20260806tstr Part 5: 测试反模式机械拦截（手写 DDL / logger 副本）
+node scripts/lint-tests.mjs

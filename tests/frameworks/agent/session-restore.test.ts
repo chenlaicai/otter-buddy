@@ -1,20 +1,10 @@
+// lint-tests:allow-ddl —— 迁移/恢复测试需要手工建旧 schema 的表（模拟存量库形态）
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { SessionRestore } from "@frameworks/agent/session-restore";
 import { createAgentSessionStore, type AgentSessionStore } from "@frameworks/agent/agent-session-store";
-import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
-
-function mockLogger(): Logger {
-  const logger: Logger = {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => logger,
-  };
-  return logger;
-}
+import { createTestLogger } from "../../helpers/logger";
 
 function makeDb(): Database.Database {
   const db = new Database(":memory:");
@@ -61,7 +51,7 @@ describe("SessionRestore.createdNew 信号", () => {
     db = makeDb();
     store = createAgentSessionStore(db);
     provider = makeConfigProvider();
-    restore = new SessionRestore(store, provider, mockLogger(), db);
+    restore = new SessionRestore(store, provider, createTestLogger(), db);
   });
 
   it("无 session 记录且有配置 → 创建新 session，createdNew=true", async () => {
@@ -127,7 +117,7 @@ describe("SessionRestore modelAlias 持久化", () => {
     db = makeDb();
     store = createAgentSessionStore(db);
     provider = makeConfigProvider();
-    restore = new SessionRestore(store, provider, mockLogger(), db);
+    restore = new SessionRestore(store, provider, createTestLogger(), db);
   });
 
   it("createSessionAndPersist 保存 modelAlias 到配置", () => {

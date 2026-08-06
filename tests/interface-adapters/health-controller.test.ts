@@ -9,11 +9,7 @@ import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { FileSystemGateway } from "@usecases/ports/file-system-gateway";
-import type { Logger } from "@usecases/ports/logger";
-
-function mockLogger(): Logger {
-  return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => mockLogger() };
-}
+import { createTestLogger } from "../helpers/logger";
 
 function makeRepos(opts: { dbFeatureIds?: string[]; diskIds?: string[] }) {
   const dbFeatureIds = opts.dbFeatureIds ?? [];
@@ -62,7 +58,7 @@ function makeApp(ctrl: HealthController): Hono {
 describe("HealthController - F20260803mval", () => {
   it("磁盘=DB + embedding 可用 -> healthy=true", async () => {
     const { featureRepo, researchRepo, fs } = makeRepos({ dbFeatureIds: ["F1"], diskIds: ["F1"] });
-    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", mockLogger());
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", createTestLogger());
     const res = await makeApp(ctrl).request("/api/health/memory");
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
@@ -73,7 +69,7 @@ describe("HealthController - F20260803mval", () => {
 
   it("磁盘有 DB 无 -> reconcileGaps + healthy=false", async () => {
     const { featureRepo, researchRepo, fs } = makeRepos({ dbFeatureIds: [], diskIds: ["Forphan"] });
-    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", mockLogger());
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", createTestLogger());
     const res = await makeApp(ctrl).request("/api/health/memory");
     const body = await res.json() as Record<string, unknown>;
     expect(body.healthy).toBe(false);
@@ -102,7 +98,7 @@ describe("HealthController - F20260803mval", () => {
       }),
       exists: vi.fn(async () => true),
     };
-    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", mockLogger());
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", createTestLogger());
     const res = await makeApp(ctrl).request("/api/health/memory");
     const body = await res.json() as Record<string, unknown>;
     expect(body.healthy).toBe(false);
@@ -132,7 +128,7 @@ describe("HealthController - F20260803mval", () => {
       }),
       exists: vi.fn(async () => true),
     };
-    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", mockLogger());
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", createTestLogger());
     const res = await makeApp(ctrl).request("/api/health/memory");
     const body = await res.json() as Record<string, unknown>;
     // 文件名兜底提 ID -> F20260804nometa 进 diskIds，但 DB 没有 -> gap
@@ -145,7 +141,7 @@ describe("HealthController - F20260803mval", () => {
 
   it("embedding 不可用 -> healthy=false", async () => {
     const { featureRepo, researchRepo, fs } = makeRepos({ dbFeatureIds: ["F1"], diskIds: ["F1"] });
-    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(false), fs, "/root", mockLogger());
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(false), fs, "/root", createTestLogger());
     const res = await makeApp(ctrl).request("/api/health/memory");
     const body = await res.json() as Record<string, unknown>;
     expect(body.healthy).toBe(false);
@@ -162,7 +158,7 @@ describe("HealthController - F20260803mval", () => {
       findById: vi.fn(), findAll: vi.fn(async () => []),
       insert: vi.fn(), updateStatus: vi.fn(), updateContent: vi.fn(),
     } as unknown as ResearchRepository;
-    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", mockLogger());
+    const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", createTestLogger());
     const res = await makeApp(ctrl).request("/api/health/memory");
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;

@@ -8,7 +8,7 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
 import type { OtterSession } from "@entities/otter/otter-session";
 import { DomainError } from "@entities/errors";
-import type { Logger } from "@usecases/ports/logger";
+import { createTestLogger } from "../helpers/logger";
 
 const speakingMsg: Message = {
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
@@ -88,17 +88,6 @@ function mockQueryOtter(): QueryOtter {
   return { getById: async () => null } as unknown as QueryOtter;
 }
 
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
-
 /** 创建 AgentInvokePort mock，可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
@@ -143,7 +132,7 @@ describe("AgentInvoker", () => {
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -179,7 +168,7 @@ describe("AgentInvoker", () => {
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     /** 模拟 abort 被调用 */
@@ -222,7 +211,7 @@ describe("AgentInvoker", () => {
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -249,7 +238,7 @@ describe("AgentInvoker", () => {
     const streamingQm: QueryMessage = { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage;
     const invoker = new AgentInvoker(
       mockAgentInvoke({ result: Object.assign({ text: "" }, { _guardAbortReason: "streaming_timeout" }) }),
-      msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
     const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
     expect(result.messageId).toBe("msg-streaming");
@@ -274,7 +263,7 @@ describe("AgentInvoker", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -310,7 +299,7 @@ describe("AgentInvoker", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     /** invokeConversation 通过 speak 重试机制处理系统故障 */
@@ -346,7 +335,7 @@ describe("AgentInvoker", () => {
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     /** 模拟 abort 被调用（但 invoke 不会抛异常） */
@@ -381,7 +370,7 @@ describe("AgentInvoker", () => {
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -412,7 +401,7 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -442,7 +431,7 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -472,7 +461,7 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -522,7 +511,7 @@ describe("AgentInvoker speak retry", () => {
       qm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -552,7 +541,7 @@ describe("AgentInvoker speak retry", () => {
       qm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -586,7 +575,7 @@ describe("AgentInvoker speak retry", () => {
       qm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -614,7 +603,7 @@ describe("AgentInvoker speak retry", () => {
     /** 不传 tool_execution_start 事件 → toolCallCount=0 */
     const invoker = new AgentInvoker(
       mockAgentInvoke({ result: { text: "Response" } }),
-      msg, qm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -636,7 +625,7 @@ describe("AgentInvoker speak retry", () => {
         events: [{ type: "tool_execution_start", toolCallId: "tc-1", name: "read" } as AgentStreamEvent],
         result: { text: "Response" },
       }),
-      msg, qm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -653,7 +642,7 @@ describe("AgentInvoker speak retry", () => {
     const msg = mockSendMessage();
     const qm = mockQueryMessageSequence(["streaming", "speaking"]);
     const agent = mockAgentInvoke({ result: { text: "Response" } });
-    const invoker = new AgentInvoker(agent, msg, qm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(agent, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
 
     await invoker.invokeConversation({
       otterId: "otter-1", conversationId: "conv-1",
@@ -690,7 +679,7 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
       { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -726,7 +715,7 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
       { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -750,7 +739,7 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
     function buildInvoker(manageSession: ManageSession) {
       const agentInvoke = mockAgentInvoke({ events: [{ type: "turn_end" }] });
       const invoker = new AgentInvoker(
-        agentInvoke, mockSendMessage(), mockQueryMessage(), manageSession, mockQueryOtter(), mockLogger(),
+        agentInvoke, mockSendMessage(), mockQueryMessage(), manageSession, mockQueryOtter(), createTestLogger(),
       );
       return { invoker, agentInvoke };
     }
@@ -867,7 +856,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
           : speakingMsg;
       },
     } as unknown as QueryMessage;
-    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
@@ -894,7 +883,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       getInternalAbortReason: () => "degenerate_output",
       _invokeMessages: [],
     };
-    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
@@ -915,7 +904,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     } as unknown as QueryMessage;
     const invoker = new AgentInvoker(
       mockAgentInvoke({ result: { text: "" }, internalAbortReason: "streaming_timeout" }),
-      msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
@@ -944,7 +933,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       getInternalAbortReason: () => "degenerate_output",
       _invokeMessages: [],
     };
-    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     /** fail 已执行，sendSystem 失败后降级为 abort */
@@ -974,7 +963,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       getInternalAbortReason: () => invokeCount <= 1 ? "degenerate_output" : undefined,
       _invokeMessages: [],
     };
-    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     /** 第一次：fail + sendSystem 成功 */
@@ -1004,7 +993,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
           : speakingMsg;
       },
     } as unknown as QueryMessage;
-    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
 
     /** 第一次调用：degenerate_output 重试成功 */
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });

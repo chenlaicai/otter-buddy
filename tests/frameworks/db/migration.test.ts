@@ -1,3 +1,4 @@
+// lint-tests:allow-ddl —— 迁移/恢复测试需要手工建旧 schema 的表（模拟存量库形态）
 /**
  * F20260728htar 一次性补丁测试：
  * (a) messages_fts_stripped_rebuild：存量 FTS 重建为剥离投影（settings 幂等键）
@@ -8,17 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
 import { migrateDatabase } from "@frameworks/db/migration";
-import type { Logger } from "@usecases/ports/logger";
-
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
+import { createTestLogger } from "../../helpers/logger";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -52,7 +43,7 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
       /** 模拟触发器时代的存量：FTS 里是未剥离的原文 */
       db.prepare("INSERT INTO messages_fts (message_id, body) VALUES ('msg-1', ?)").run(body);
 
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
 
       const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-1'").get() as { body: string };
       expect(fts.body).toBe("前言\n[html-card: 旧卡]\n后记");
@@ -66,11 +57,11 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
 
     it("幂等：二次启动不重复 rebuild", () => {
       seedMessage(db, "msg-1", "普通消息");
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
 
       /** rebuild 后人为改一行，第二次迁移不应触碰（证明幂等跳过） */
       db.prepare("UPDATE messages_fts SET body = '手动标记' WHERE message_id = 'msg-1'").run();
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
 
       const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-1'").get() as { body: string };
       expect(fts.body).toBe("手动标记");
@@ -82,7 +73,7 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
       db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body, sequence_num, turn_id, created_at)
         VALUES ('msg-null', 'conv-1', 'otter', 'otter-1', 'streaming', NULL, 1, 'turn-1', '2026-07-28T00:01:00Z')`).run();
 
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
 
       const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-null'").get() as { body: string };
       expect(fts.body).toBe("");
@@ -94,15 +85,15 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
       /** 模拟旧库：initSchema 建的表已无该列，手动加回 */
       db.prepare("ALTER TABLE messages ADD COLUMN attachments TEXT").run();
 
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
 
       const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
       expect(columns.some(c => c.name === "attachments")).toBe(false);
     });
 
     it("列不存在时跳过（天然幂等），二次执行不报错", () => {
-      migrateDatabase(db, mockLogger());
-      expect(() => migrateDatabase(db, mockLogger())).not.toThrow();
+      migrateDatabase(db, createTestLogger());
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
 
       const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
       expect(columns.some(c => c.name === "attachments")).toBe(false);
@@ -117,7 +108,7 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
       const beforeColumns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
       expect(beforeColumns.some(c => c.name === "pinned")).toBe(false);
 
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
 
       const afterColumns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string; dflt_value: string | null; notnull: number }>;
       const pinnedCol = afterColumns.find(c => c.name === "pinned");
@@ -133,7 +124,7 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
 
     it("幂等：已有 pinned 列的库，migrateDatabase 不报错", () => {
       /** initSchema 已创建 pinned 列，直接 migrate 不应抛错 */
-      expect(() => migrateDatabase(db, mockLogger())).not.toThrow();
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
 
       const columns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
       expect(columns.some(c => c.name === "pinned")).toBe(true);
@@ -178,7 +169,7 @@ describe("migrateDatabase - F20260803mval 补丁: rebuildDocumentTablesDropCheck
   it("移除 CHECK 约束，新枚举值（prompt/final）可入库，旧数据完整保留", () => {
     const db = createOldSchemaDb();
     try {
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
 
       // CHECK 移除：旧约束拒收的值现在可入
       expect(() =>
@@ -203,8 +194,8 @@ describe("migrateDatabase - F20260803mval 补丁: rebuildDocumentTablesDropCheck
   it("幂等：二次迁移不报错不重复重建", () => {
     const db = createOldSchemaDb();
     try {
-      migrateDatabase(db, mockLogger());
-      expect(() => migrateDatabase(db, mockLogger())).not.toThrow();
+      migrateDatabase(db, createTestLogger());
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
     } finally {
       db.close();
     }
@@ -214,7 +205,7 @@ describe("migrateDatabase - F20260803mval 补丁: rebuildDocumentTablesDropCheck
     const db = new Database(":memory:");
     try {
       initSchema(db); // 新 schema 无 CHECK
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
       const key = db.prepare("SELECT value FROM settings WHERE key = 'doc_check_constraints_dropped'").get() as { value: string };
       expect(key.value).toBe("done");
     } finally {
@@ -228,9 +219,9 @@ describe("migrateDatabase - F20260803fbit body_hash 列", () => {
     const db = new Database(":memory:");
     try {
       initSchema(db);
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
       // 跑第二次验证幂等
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
       const cols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
       expect(cols.some(c => c.name === "body_hash")).toBe(true);
     } finally {
@@ -248,13 +239,13 @@ describe("migrateDatabase - F20260803fbit body_hash 列", () => {
       const beforeF = (db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>);
       expect(beforeF.some(c => c.name === "body_hash")).toBe(false);
 
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
       const fCols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
       expect(fCols.some(c => c.name === "body_hash")).toBe(true);
       const rCols = db.prepare("PRAGMA table_info(research)").all() as Array<{ name: string }>;
       expect(rCols.some(c => c.name === "body_hash")).toBe(true);
       // 第二次不报错（幂等）
-      migrateDatabase(db, mockLogger());
+      migrateDatabase(db, createTestLogger());
     } finally {
       db.close();
     }

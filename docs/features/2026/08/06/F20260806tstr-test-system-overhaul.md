@@ -148,11 +148,26 @@ recruiting 分类 / healing 上报留后续批次。
 controllers.test.ts 删除（pin/unpin 独有用例迁入 tests/api 走真路由）；models-factory 保留
 （auth 解析序有价值，custom-provider 路由由能力层真覆盖）；3 个错位文件归层。
 
-## Part 5：制度机制
+## Part 5：制度机制（防退化）
+
+准则要活着，必须进入獭们的必达信道 + 机械拦截兜底，三层：
+
+1. **獭信道（prompt 层，主手段）**：A/B 分层硬规则写入
+   `.pi/skills/code-implementation/references/testing-rules.md`（"写代码/写测试"必触达的 skill），
+   判别表、禁止清单、判别口诀（"断言失败时用户能感知吗"）都在其中
+2. **CC 信道**：仓库约定 CLAUDE.md 为本地文件（gitignore「Local agent config, managed by user」），
+   不强制入库；准则单一真相源是被追踪的 CONTRIBUTING.md + docs/user-guide/testing.md + skill，
+   本地 CLAUDE.md 只需指向它们
+3. **机械拦截（兜底）**：
+   - `lint-capability-docs.mjs`：capability_test 约定（缺字段警告、路径不存在报错、警告数 ratchet 只减不增）
+   - `lint-tests.mjs`（新）：手写 CREATE TABLE / mockLogger 副本，commit 即拦
+   - 均接入 pre-commit
+
+执行记录：lint-tests 上线即抓到 20 个残留 mockLogger 副本与 2 处手写 DDL
+（迁移测试的旧 schema 建表是合法形态，用 lint-tests:allow-ddl 标记豁免），已全部收敛。
 
 - F 文档（change_type=feature/prompt）frontmatter 声明 `capability_test`（路径或 n/a 理由），
   写入 docs/README.md 与 CONTRIBUTING.md
-- `scripts/lint-capability-docs.mjs`：缺字段警告、路径不存在报错，接入 pre-commit
 - 运行方式：`npm test`（A 类 CI）/ `npm run test:capability`（B 类本地）/ `npm run test:all`
 
 ## 验证

@@ -13,15 +13,7 @@ import * as path from "node:path";
 import { buildApp, type BuiltApp } from "../../src/app";
 import { loadConfig, resetConfigForTests } from "../../src/frameworks/config";
 import { initFauxModels } from "../../src/frameworks/llm/models-factory";
-import type { Logger } from "../../src/usecases/ports/logger";
-
-function noopLogger(): Logger {
-  const logger: Logger = {
-    info: () => {}, warn: () => {}, error: () => {}, debug: () => {},
-    child: () => logger,
-  };
-  return logger;
-}
+import { createTestLogger } from "../helpers/logger";
 
 /** 立即上报 load error 的 stub embedding worker（CJS：tmp 目录无 package.json type:module） */
 const STUB_WORKER = `
@@ -50,7 +42,7 @@ describe("buildApp 组装根启动", () => {
       "  port: 0",
     ].join("\n"));
 
-    const logger = noopLogger();
+    const logger = createTestLogger();
     const config = loadConfig(logger, configPath);
     config.embedding.workerPath = path.join(tmpDir, "stub-worker.cjs");
 

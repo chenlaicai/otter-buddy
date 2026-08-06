@@ -17,18 +17,7 @@ import { KeyInfoController } from "../../src/interface-adapters/http/controllers
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
 import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-chain-engine";
-import type { Logger } from "../../src/usecases/ports/logger";
-
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
+import { createTestLogger } from "../helpers/logger";
 
 /** 解析 Response JSON（避免 strict 模式下 unknown 报错） */
 export async function json(res: Response): Promise<any> {
@@ -480,7 +469,7 @@ export function createTestApp(deps: TestDeps): Hono {
     } as any,
   };
 
-  const app = createRouter(controllers, mockLogger());
+  const app = createRouter(controllers, createTestLogger());
 
   // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
   (app as any).__broadcastEventCalls = broadcastEventCalls;

@@ -3,19 +3,8 @@ import { StoreMemory } from "@usecases/memory/store-memory";
 import type { MemoryEntryInput } from "@usecases/memory/store-memory";
 import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
-import type { Logger } from "@usecases/ports/logger";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
-
-/** 创建 noop Logger（不记录调用，只提供接口） */
-function noopLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => noopLogger(),
-  };
-}
+import { createTestLogger } from "../../helpers/logger";
 
 /** 创建带状态捕获的 MemoryRepository mock */
 function statefulRepo(): MemoryRepository & {
@@ -70,7 +59,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
 
     const id = await store.execute(SAMPLE_INPUT);
 
@@ -88,7 +77,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
 
     const id = await store.execute(SAMPLE_INPUT);
 
@@ -111,7 +100,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
 
     const inputWithoutConv = { ...SAMPLE_INPUT };
     delete inputWithoutConv.conversationId;
@@ -127,7 +116,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
 
     const inputWithoutMeta = { ...SAMPLE_INPUT };
     delete inputWithoutMeta.metadata;
@@ -153,7 +142,7 @@ describe("StoreMemory.execute()", () => {
       },
     };
 
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
 
     const id = await store.execute(SAMPLE_INPUT);
 
@@ -182,7 +171,7 @@ describe("StoreMemory.execute()", () => {
       },
     };
 
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
 
     // 即使嵌入失败，execute 也应正常返回
     const id = await store.execute(SAMPLE_INPUT);
@@ -208,7 +197,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("短文本不截断，embed 收到原文", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
     const shortContent = "短文本";
     await store.execute({ ...SAMPLE_INPUT, content: shortContent });
     // fire-and-forget，等微任务
@@ -219,7 +208,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("超长文本截断到 6000 字符，embed 收到截断版", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
     const longContent = "x".repeat(10000);
     await store.execute({ ...SAMPLE_INPUT, content: longContent });
     await new Promise(r => setTimeout(r, 10));
@@ -229,7 +218,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("replaceBySource 路径也截断", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
     const longContent = "y".repeat(10000);
     await store.replaceBySource({ ...SAMPLE_INPUT, content: longContent });
     await new Promise(r => setTimeout(r, 10));
@@ -239,7 +228,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("空字符串不截断不抛异常", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, noopLogger());
+    const store = new StoreMemory(repo, embedding, createTestLogger());
     await store.execute({ ...SAMPLE_INPUT, content: "" });
     await new Promise(r => setTimeout(r, 10));
     expect(embedding.receivedContents[0]).toBe("");

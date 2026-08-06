@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { scanDiskIds } from "@usecases/document/disk-id-scanner";
 import type { FileSystemGateway, DirEntry } from "@usecases/ports/file-system-gateway";
-import type { Logger } from "@usecases/ports/logger";
+import { createCapturingLogger } from "../../helpers/logger";
 
 function mkFile(name: string): DirEntry {
   return { name, isDirectory: () => false, isFile: () => true };
@@ -16,15 +16,6 @@ function mkDir(name: string): DirEntry {
   return { name, isDirectory: () => true, isFile: () => false };
 }
 
-function mockLogger(): Logger & { warns: string[] } {
-  const warns: string[] = [];
-  return {
-    info: () => {}, debug: () => {}, error: () => {},
-    warn: (msg: string) => { warns.push(msg); },
-    child: () => mockLogger(),
-    warns,
-  };
-}
 
 function makeFs(files: Record<string, string>): FileSystemGateway {
   return {
@@ -133,7 +124,7 @@ describe("disk-id-scanner - F20260804dcnv", () => {
   });
 
   it("同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）走 logger.warn，后者覆盖", async () => {
-    const logger = mockLogger();
+    const logger = createCapturingLogger();
     const fs: FileSystemGateway = {
       readFile: vi.fn(async () => "no frontmatter"),
       readDir: vi.fn(async (dir: string) => {
@@ -150,7 +141,7 @@ describe("disk-id-scanner - F20260804dcnv", () => {
     const map = await scanDiskIds(fs, "docs/features", logger);
     expect(map.size).toBe(1);
     // 断言 warn 的内容（不绑定调用次数--避免绑定实现细节）
-    expect(logger.warns.some(w => /ID 冲突/.test(w))).toBe(true);
+    expect(logger.captured.warns.some(w => /ID 冲突/.test(w))).toBe(true);
   });
 
   it("不传 logger 时静默处理冲突，不抛错", async () => {
