@@ -812,40 +812,40 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
   });
 });
 
-describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
-  /** 创建带递增 message id 的 mock，避免 abortedMessages 跨消息串扰 */
-  function mockSendMessageWithIncrementalId() {
-    let msgIdCounter = 0;
-    const calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] } = { fail: [], abort: [], sendSystem: [] };
-    const sendSystemBodies: string[] = [];
-    return {
-      start: async () => {
-        msgIdCounter++;
-        return {
-          id: `msg-${msgIdCounter}`, conversationId: "conv-1", turnId: "turn-1",
-          senderType: "otter", senderId: "otter-1",
-          talkingStonePassedTo: null, status: "streaming",
-          body: null, sequenceNum: msgIdCounter + 1, contextTokens: null, contextTokensMax: null,
-          source: "web", createdAt: "2026-07-16T00:00:00Z", completedAt: null,
-        };
-      },
-      complete: async () => ({
-        message: { ...speakingMsg, id: `msg-${msgIdCounter}` },
-        turnClose: { closed: true, aggregatedTargets: ["user-1"] },
-      }),
-      fail: async (id: string) => { calls.fail.push(id); },
-      abort: async (id: string, input: { body: string }) => { calls.abort.push({ id, body: input.body }); },
-      appendEvent: async () => ({}),
-      sendSystem: async (_conversationId: string, body: string) => {
-        sendSystemBodies.push(body);
-        return { id: "msg-system", conversationId: "conv-1", turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: null, status: "completed" as const, body, sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: "system" as const, createdAt: "2026-07-16T00:00:00Z", completedAt: null };
-      },
-      updateTokenUsage: async () => ({}),
-      _calls: calls,
-      _sendSystemBodies: sendSystemBodies,
-    } as unknown as SendMessage & { _calls: typeof calls; _sendSystemBodies: string[] };
-  }
+/** 创建带递增 message id 的 mock，避免 abortedMessages 跨消息串扰 */
+function mockSendMessageWithIncrementalId() {
+  let msgIdCounter = 0;
+  const calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] } = { fail: [], abort: [], sendSystem: [] };
+  const sendSystemBodies: string[] = [];
+  return {
+    start: async () => {
+      msgIdCounter++;
+      return {
+        id: `msg-${msgIdCounter}`, conversationId: "conv-1", turnId: "turn-1",
+        senderType: "otter", senderId: "otter-1",
+        talkingStonePassedTo: null, status: "streaming",
+        body: null, sequenceNum: msgIdCounter + 1, contextTokens: null, contextTokensMax: null,
+        source: "web", createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+      };
+    },
+    complete: async () => ({
+      message: { ...speakingMsg, id: `msg-${msgIdCounter}` },
+      turnClose: { closed: true, aggregatedTargets: ["user-1"] },
+    }),
+    fail: async (id: string) => { calls.fail.push(id); },
+    abort: async (id: string, input: { body: string }) => { calls.abort.push({ id, body: input.body }); },
+    appendEvent: async () => ({}),
+    sendSystem: async (_conversationId: string, body: string) => {
+      sendSystemBodies.push(body);
+      return { id: "msg-system", conversationId: "conv-1", turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: null, status: "completed" as const, body, sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: "system" as const, createdAt: "2026-07-16T00:00:00Z", completedAt: null };
+    },
+    updateTokenUsage: async () => ({}),
+    _calls: calls,
+    _sendSystemBodies: sendSystemBodies,
+  } as unknown as SendMessage & { _calls: typeof calls; _sendSystemBodies: string[] };
+}
 
+describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
   it("第一次触发：fail + sendSystem 提醒 + 重试成功", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessageWithIncrementalId();
@@ -1019,6 +1019,48 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const eventTypes2 = events2.map((e) => e.event);
     expect(eventTypes2).toContain("message.complete");
     expect(eventTypes2).not.toContain("message.aborted");
+  });
+
+  it("catch 路径 degenerate_output：session.abort() 抛异常后走重试而非终态", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessageWithIncrementalId();
+    let invokeCount = 0;
+    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+      invoke: async () => {
+        invokeCount++;
+        if (invokeCount === 1) {
+          // 模拟 OutputGuard 触发 session.abort() → session.prompt() 抛异常
+          const err = Object.assign(new Error("[output-guard] degenerate_output"), {
+            _guardAbortReason: "degenerate_output",
+            _toolCallCount: 5,
+          });
+          throw err;
+        }
+        return { text: "重试成功" };
+      },
+      abort: () => {},
+      getToolCallCount: () => 0,
+      getInternalAbortReason: () => undefined,
+      _invokeMessages: [],
+    };
+    /** 重试创建新消息（msg-2），其 getMessageById 返回 speaking 状态以触发 complete */
+    const qm: QueryMessage = {
+      getMessageById: async (id: string) => id === "msg-1"
+        ? { ...speakingMsg, id: "msg-1", status: "streaming", body: null, talkingStonePassedTo: null }
+        : { ...speakingMsg, id, status: "speaking", body: "重试成功", talkingStonePassedTo: null },
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
+    await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
+
+    /** 走重试路径：fail + sendSystem + 重试成功，不走 abort 终态 */
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(1);
+    expect(msg._sendSystemBodies[0]).toContain("重复循环");
+    expect(msg._calls.abort).toHaveLength(0);
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.failed");
+    expect(eventTypes).toContain("message.complete");
+    expect(eventTypes).not.toContain("message.aborted");
   });
 
   // F20260806cbsx: abort 路径 speaking 守卫——消息已 speaking 时改走 complete

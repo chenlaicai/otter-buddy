@@ -19,7 +19,38 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MODEL_DIR = process.env.BGE_M3_DIR || path.join(process.cwd(), "models", "bge-m3");
+
+/**
+ * 定位模型目录：worktree 中复用主仓已下载的模型，避免重复下载。
+ * git rev-parse --git-common-dir 在 worktree 中返回主仓 .git 路径，
+ * 在主仓中返回 .git（即自身）。
+ */
+function resolveModelDir() {
+  if (process.env.BGE_M3_DIR) return process.env.BGE_M3_DIR;
+
+  const cwdModelDir = path.join(process.cwd(), "models", "bge-m3");
+
+  // 尝试找主仓的 models 目录（worktree 复用场景）
+  try {
+    const commonDir = spawnSync("git", ["rev-parse", "--git-common-dir"], {
+      encoding: "utf8", cwd: process.cwd(),
+    }).stdout?.trim();
+    if (commonDir) {
+      // commonDir 是 .git 目录路径，其父目录是主仓根目录
+      const mainRepoRoot = path.resolve(process.cwd(), commonDir, "..");
+      const mainModelDir = path.join(mainRepoRoot, "models", "bge-m3");
+      // 主仓有完整模型 → 直接用主仓路径（worktree 场景）
+      if (mainModelDir !== cwdModelDir && existsSync(mainModelDir)) {
+        console.log(`[bge-m3] 检测到 worktree 环境，复用主仓模型: ${mainModelDir}`);
+        return mainModelDir;
+      }
+    }
+  } catch { /* git 不可用时降级到 cwd */ }
+
+  return cwdModelDir;
+}
+
+const MODEL_DIR = resolveModelDir();
 const MIRROR = process.env.HF_ENDPOINT || "https://hf-mirror.com";
 const REPO = "Xenova/bge-m3";
 
