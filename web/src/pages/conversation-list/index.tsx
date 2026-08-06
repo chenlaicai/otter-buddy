@@ -8,6 +8,7 @@ import { showToast } from '../../components/Toast'
 import { AppLayout } from '../../components/AppLayout'
 import { Modal, ModalButton } from '../../components/Modal'
 import { LeftPanel } from '../conversation/LeftPanel'
+import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
 import * as api from '../../api/client'
 import { ApiError } from '../../api/client'
 
@@ -31,6 +32,9 @@ export default function ConversationListPage() {
         setLoading(false)
       })
   }, [])
+
+  // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
+  useConversationListPolling(!loading, setConversations)
 
   const handleSelect = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新

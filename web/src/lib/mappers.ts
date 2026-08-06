@@ -23,6 +23,8 @@ export interface LocalConversation {
   lastMessagePreview?: string | null
   /** 最后一条消息时间戳 */
   lastMessageTs?: string | null
+  /** 实时活动状态（派生字段） */
+  activityStatus?: 'processing' | 'awaiting_user' | 'idle'
 }
 
 /** 前端本地消息事件 */
@@ -104,6 +106,7 @@ export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDT
     ...('unreadCount' in dto && { unreadCount: dto.unreadCount }),
     ...('lastMessagePreview' in dto && { lastMessagePreview: dto.lastMessagePreview }),
     ...('lastMessageTs' in dto && { lastMessageTs: dto.lastMessageTs }),
+    ...('activityStatus' in dto && { activityStatus: dto.activityStatus as LocalConversation['activityStatus'] }),
   }
 }
 

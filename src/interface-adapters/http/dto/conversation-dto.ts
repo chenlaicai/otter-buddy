@@ -24,7 +24,7 @@ export function toConversationDTO(conv: Conversation): ConversationDTO {
 export function toConversationListItemDTO(
   conv: Conversation,
   otterIds: string[],
-  extra?: { unreadCount?: number; lastMessagePreview?: string | null; lastMessageTs?: string | null },
+  extra?: { unreadCount?: number; lastMessagePreview?: string | null; lastMessageTs?: string | null; activityStatus?: 'processing' | 'awaiting_user' | 'idle' },
 ): ConversationListItemDTO {
   return {
     ...toConversationDTO(conv),
@@ -32,6 +32,7 @@ export function toConversationListItemDTO(
     ...(extra?.unreadCount !== undefined && { unreadCount: extra.unreadCount }),
     ...(extra?.lastMessagePreview !== undefined && { lastMessagePreview: extra.lastMessagePreview }),
     ...(extra?.lastMessageTs !== undefined && { lastMessageTs: extra.lastMessageTs }),
+    ...(extra?.activityStatus !== undefined && { activityStatus: extra.activityStatus }),
   };
 }
 
