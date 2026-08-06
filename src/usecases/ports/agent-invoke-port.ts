@@ -41,6 +41,7 @@ export class AgentInvokePortAdapter implements AgentInvokePort {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    onSSEEvent?: (event: unknown) => void;
   }): Promise<AgentInvokeResult> {
     return this.agentInvoker.invokeConversation(params);
   }

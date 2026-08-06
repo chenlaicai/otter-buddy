@@ -76,7 +76,7 @@ export interface AgentSessionFactoryConfig {
   db: Database.Database;
   sessionDir?: string;
   otterToolClient: OtterToolClient | null;
-  /** pi-ai Model 对象（由 models-factory 创建，单模型模式时使用） */
+  /** pi-ai Model 对象（由 models-factory 创建，为 modelPool 的默认模型） */
   model: unknown;
   /** ModelPool（多模型路由，可选） */
   modelPool?: ModelPool;
@@ -241,7 +241,7 @@ export class PiSessionFactory implements AgentGateway {
         registerProvider(providerId: string, config: Record<string, unknown>): void;
       };
 
-      // initModels 单/多模型两条路径都产出 ModelPool（models-factory.ts），bootstrap 必装配下传
+      // initModels 恒产出 ModelPool（models-factory.ts），bootstrap 必装配下传
       if (this.cfg.modelPool) {
         for (const entry of this.cfg.modelPool.getAllEntries()) {
           await this._registerRuntimeModel(entry.alias, entry.config, entry.model);

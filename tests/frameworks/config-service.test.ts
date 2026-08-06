@@ -41,6 +41,13 @@ describe("validate", () => {
     expect(() => validate({})).toThrow("llm.models[]");
   });
 
+  it("rejects legacy single-model format (llm.provider + llm.model)", () => {
+    // F20260806cnp6 [Incompatible]：旧格式启动即报错并提示迁移
+    expect(() =>
+      validate({ llm: { provider: "openai", model: "gpt-4o" } as never }),
+    ).toThrow("llm.models[] 为必填字段");
+  });
+
   it("throws when server.port is not a number", () => {
     expect(() =>
       validate({
@@ -156,7 +163,7 @@ describe("loadConfig", () => {
   });
 });
 
-describe("validate — multi-model", () => {
+describe("validate — models[] 条目校验", () => {
   it("passes with valid multi-model config", () => {
     const raw = {
       llm: {

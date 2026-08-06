@@ -21,6 +21,10 @@ modules:
   - web/src/api/index.ts
   - src/frameworks/agent/pi-session-factory.ts
   - src/usecases/ports/agent-invoke-port.ts
+  - src/usecases/scheduler/agent-invoke-port.ts
+  - src/usecases/scheduler/scheduler-service.ts
+  - src/usecases/recruiting/process-inbound-recruit.ts
+  - src/bootstrap/platforms.ts
   - api-contract/sse/events.ts
   - src/interface-adapters/http/sse-streamer.ts
   - src/usecases/im/message-broadcaster.ts
@@ -59,7 +63,7 @@ created_at: 2026-08-06
 
 ### 1.4 SSEEvent 信封单一来源
 
-`{event, data}` 信封曾有三份"结构兼容"拷贝：sse-streamer（自认真定义）、agent-invoker 的 `AgentSSEEvent`、message-broadcaster 的私有 `SSEEvent`，靠注释维持同步。收编到 `api-contract/sse/events.ts`（跨层共享，不违反分层：usecases 不能 import interface-adapters）。sse-streamer re-export 保持原 import 路径可用；`AgentSSEEvent` 别名不保留，agent-invoker 内全量替换为 `SSEEvent`。
+`{event, data}` 信封曾有三份"结构兼容"拷贝：sse-streamer（自认真定义）、agent-invoker 的 `AgentSSEEvent`、message-broadcaster 的私有 `SSEEvent`，靠注释维持同步。收编到 `api-contract/sse/events.ts`（跨层共享，不违反分层：usecases 不能 import interface-adapters）。`AgentSSEEvent` 别名不保留，agent-invoker 内全量替换为 `SSEEvent`；sse-streamer 一度加的 re-export 经评审核实零消费者，已删（不留兼容桥）。
 
 ### 1.5 config 兼容导出 Proxy 移除
 
@@ -118,6 +122,14 @@ Part 1 已删 pi-session-factory 的单模型 else 分支（`appConfig.llm` 顶�
 - `db/otter/backfill-session-ledger.ts` 一次性回填每次启动执行：需加幂等守卫。
 - `tests/api/helpers.ts:475-476` 两处 TODO mock stub。
 - embedding 模型名默认值两处漂移（ensure-model.ts "bge-m3" vs config-service "Xenova/bge-m3"）。
+- settings 页 provider 展示语义（评审发现）：`SettingsConfig.provider` 在多模型时代即返回 default alias 而非真实 provider 名（F20260731 引入的历史遗留，本次只是随单模型删除扩大影响面），前端 provider 下拉写死 openai/anthropic/google，alias 查不到时模型下拉为空；该页 LLM 区块本身半 mock，仅展示错乱。
+
+## 评审记录
+
+两个独立 agent 对抗检视（正确性/回归 + 清理彻底性），结论均为"可以合并"。处置：
+- 采纳并修复：pi-session-factory 两处 stale 注释（:79 "单模型模式"、:244 "两条路径"在同 PR 内过时）、F 文档 modules 漏列 4 文件、config-service.test 补旧格式报错用例（rejects legacy single-model format）、describe 更名、AgentInvokePortAdapter 补 onSSEEvent 透传。
+- 评审分歧裁决：评审 2 称 sse-streamer 的 `export type { SSEEvent }` 是"必要的兼容 re-export"，评审 1 称零消费者——grep 核实仅 message-controller 引 `streamEvents`，re-export 确无消费者，删除（评审 1 正确）。
+- 历史遗留登记：settings provider 语义问题非本 PR 引入，列入上方遗留待议。
 
 ## 验证
 
