@@ -79,3 +79,5 @@
 **Problem**: Shifts responsibility to the user. Creates decision fatigue. Issues accumulate because "later" never comes.
 
 **Fix**: If you found an issue, fix it. Do not ask permission. Do not categorize severity to justify deferral. The only valid reason to not fix is if the issue is outside the plan scope — in which case, record it and communicate back, not ask whether to fix.
+
+边界注明：本反模式针对**作者侧**（自己发现的问题想拖着不修）。检视者不适用——检视者只报告不动手（"Do not modify code"）；且检视者必须给发现分级（阻断性/次要观察），那是强制报告要求，此处禁止的是"用分级来论证拖延"，不是分级本身。

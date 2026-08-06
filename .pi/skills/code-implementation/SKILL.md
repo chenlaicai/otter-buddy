@@ -79,7 +79,7 @@ PR 创建（或 push 更新）后，交付不算完成——必须经独立审�
    - 附上审视对象：`gh pr diff` 全文（大 PR 可落盘成文件后给绝对路径；落盘到仓库外如 /tmp，勿写入 worktree 污染 git status）
    - 附上 worktree 的绝对路径——静态核验（对照测试文件、周边代码）必须以 worktree 内文件为准；主仓是 PR 合入前的旧代码
    - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
-2. 收到审视报告后，按 `adversarial-review/references/author-response-protocol.md` 的**作者处置协议**逐条回应：接受并修复 / 反驳（必须附证据，空驳回等同未处置）/ 部分接受 / 呈搭档裁决。不照单全收，也不空口驳回。
+2. 收到审视报告后，先校验报告合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规直接打回重做，不合规报告不进入处置流程。然后按 `adversarial-review/references/author-response-protocol.md` 的**作者处置协议**逐条回应：接受并修复 / 反驳（必须附证据，空驳回等同未处置）/ 部分接受 / 呈搭档裁决。不照单全收，也不空口驳回。反驳在对话内直接发给原检视獭，证据交换不消耗审视轮次。
 3. 修复后更新 PR，重新走审视（systemPrompt 不可更新：在消息中把新 diff 发给检视獭，或 dissolve 后重建）。第 2 轮起是 **delta 审视**，不是全量重审——重建时除 8.1 全部材料外，必须附上第 1 轮发现清单 + 你的逐条处置 + 修复 diff，检视獭据此验证修复并检查修复回归；fresh eyes 全量审视只发生在第 1 轮。
 4. 同一 PR 审视不超过 2 轮；第 2 轮仍有未决问题 → 呈搭档裁决
 5. 审视通过 → 呈搭档终审，交付才算完成
@@ -91,7 +91,7 @@ PR 创建（或 push 更新）后，交付不算完成——必须经独立审�
 - Features not in the plan are not implemented — confirm with the requester first
 - Discover gaps in the plan → record them and communicate back, do not improvise
 - Finding a flaw in the design → report to the plan author, do not redesign in place
-- **Fix all self-discovered issues within plan scope immediately** — do not ask "should I fix this?" or leave issues with "can optimize later"。检视獭报上来的发现不适用本条——走 step 8 的作者处置协议，带证据的反驳是合法处置
+- **Fix all self-discovered issues within plan scope immediately** — do not ask "should I fix this?" or leave issues with "can optimize later". 检视獭报上来的发现不适用本条——走 step 8 的作者处置协议，带证据的反驳是合法处置
 - Every discovered issue needs a disposition: fixed immediately, or recorded (PR description + linked issue). Labeling an issue as minor or low-risk is not a disposition
 
 ### 问题处理决策树
