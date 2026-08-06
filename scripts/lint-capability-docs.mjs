@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20260805p8ci: 能力测试约定校验（commit-time gate）。
+ * F20260806tstr Part 5: 能力测试约定校验（commit-time gate）。
  *
  * 规则（docs/README.md「能力测试约定」）：
  * - change_type 为 feature / prompt 的 F 文档，应声明 capability_test 字段：

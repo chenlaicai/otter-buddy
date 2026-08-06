@@ -1,5 +1,5 @@
 /**
- * buildApp：可测试的系统装配入口（F20260805bapp，基于 F20260805codx bootstrap 模块）。
+ * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
  *
  * 与 main.ts 的关系：main.ts 是生产薄入口（本模块的调用方），全部编排在这里。
  * 与 bootstrap/* 的关系：bootstrap 模块是零件，本模块是按序组装 + 提供测试接缝。

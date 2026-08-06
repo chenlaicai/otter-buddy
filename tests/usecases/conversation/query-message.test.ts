@@ -1,6 +1,6 @@
 /**
  * QueryMessage.expandMessage 单元测试（真 sqlite）。
- * getMessageById/getMessages 是纯委托（pass-through），按 F20260805p6dl 标准删除；
+ * getMessageById/getMessages 是纯委托（pass-through），按 F20260806tstr Part 4 标准删除；
  * 本文件只保留有真实逻辑的 expandMessage（方向路由 + both 合并排序 + not_found 分支）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

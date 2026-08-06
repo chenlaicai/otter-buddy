@@ -1,6 +1,6 @@
 /**
  * ManageConversation 单元测试（真 sqlite）。
- * getById 是纯委托，按 F20260805p6dl 标准删除。
+ * getById 是纯委托，按 F20260806tstr Part 4 标准删除。
  * CreateOtter 保留 stub（其真实行为由 create-otter.test.ts 与能力层覆盖），
  * 但 stub 会真实写 otters 行以满足参与者 FK。
  */

@@ -12,7 +12,7 @@ summary: |
 
 causal_links:
   from:
-    - F20260805rsto   # 测试体系重构缘起（mock 体系无法发现此类行为缺陷）
+    - F20260806tstr   # 测试体系重构（能力测试层捕获本问题）
   to: []
 
 status: proposed

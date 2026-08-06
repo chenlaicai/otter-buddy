@@ -28,7 +28,7 @@ ID `R20260716x2k9` → 必须 `docs/research/2026/07/16/R20260716x2k9-*.md`。
 
 `status`、`change_type`、`exploration_type` 的未知值不阻断，但会被校验器记入 warnings。已知值见 `src/entities/document/known-values.ts`。
 
-### 能力测试约定（F20260805p8ci，lint-capability-docs.mjs 校验）
+### 能力测试约定（F20260806tstr Part 5，lint-capability-docs.mjs 校验）
 
 `change_type` 为 `feature` 或 `prompt` 的 F 文档，frontmatter 应声明 `capability_test`：
 

@@ -7,13 +7,13 @@ summary: |
   修复全新数据库无法启动的回归：F20260805codx 把 initSchema 与 migrateDatabase 做成互斥分支
   （新库只跑 initSchema），但 initSchema 不含历史补丁列（如 agent_sessions.session_file），
   随后 migrateExistingData 读 session_file 直接抛 SqliteError，新装机/全新数据目录必崩。
-  由 F20260805bapp 的 build-app 测试（首个真实启动全新 DB 的测试）捕获。
+  由 F20260806tstr 的 build-app 测试（首个真实启动全新 DB 的测试）捕获。
   修法：migrateDatabase（本身幂等）在新库路径也执行，恢复 codx 之前的无条件迁移语义。
 
 causal_links:
   from:
     - F20260805codx   # 引入回归的提交（互斥分支）
-    - F20260805bapp   # 捕获本 bug 的测试
+    - F20260806tstr   # 测试体系重构（其 build-app 测试捕获本 bug）
   to: []
 
 status: implemented
