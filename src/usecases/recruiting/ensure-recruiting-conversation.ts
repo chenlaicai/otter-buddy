@@ -66,6 +66,7 @@ async function createConversationAndParticipant(
     status: 'active',
     summary: null,
     pinned: false,
+    workspaceDir: null,
     createdAt: now,
     updatedAt: now,
     completedAt: null,

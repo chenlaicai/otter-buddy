@@ -58,6 +58,7 @@ function conversationFixture(overrides: Partial<Conversation> = {}): Conversatio
     status: "active",
     summary: null,
     pinned: false,
+    workspaceDir: null,
     createdAt: "2026-07-29T00:00:00Z",
     updatedAt: "2026-07-29T00:00:00Z",
     completedAt: null,

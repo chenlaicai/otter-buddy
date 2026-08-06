@@ -24,6 +24,7 @@ export interface ConversationRow {
   status: string;
   summary: string | null;
   pinned: number;
+  workspace_dir: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -108,6 +109,7 @@ export function rowToConversation(row: ConversationRow): Conversation {
     status: row.status as ConversationStatus,
     summary: row.summary,
     pinned: row.pinned === 1,
+    workspaceDir: row.workspace_dir ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at,

@@ -3,6 +3,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
+import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
@@ -29,10 +30,11 @@ export interface UseCaseDeps {
   memoryIndex: MemoryIndexGateway;
   appConfig: AppConfig;
   logger: Logger;
+  workspaceGateway?: WorkspaceGateway;
 }
 
 export function initUseCases(deps: UseCaseDeps): UseCases {
-  const { repos, agentGateway, embeddingService, memoryIndex, appConfig, logger } = deps;
+  const { repos, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway } = deps;
   const searchEngine = new SearchEngine(appConfig.memory);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
@@ -44,7 +46,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
   const createOtter = new CreateOtter(repos.otter, agentGateway, logger);
-  const manageConversation = new ManageConversation(repos.conversation, createOtter);
+  const manageConversation = new ManageConversation(repos.conversation, createOtter, workspaceGateway);
   const manageSession = new ManageSession(
     repos.otter, agentGateway, manageConversation, manageMemory, logger,
   );

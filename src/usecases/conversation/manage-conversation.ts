@@ -6,6 +6,7 @@ import {
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { CreateOtter } from "@usecases/otter/create-otter";
+import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 
 export interface CreateConversationInput {
   title: string;
@@ -15,6 +16,7 @@ export class ManageConversation {
   constructor(
     private readonly repo: ConversationRepository,
     private readonly createOtter: CreateOtter,
+    private readonly workspaceGateway?: WorkspaceGateway,
   ) {}
 
   async create(params: CreateConversationInput): Promise<Conversation> {
@@ -28,12 +30,15 @@ export class ManageConversation {
     });
     const otterIds = [bigOtter.id];
 
+    const workspaceDir = this.workspaceGateway ? `workspaces/${id}` : null;
+
     const conversation: Conversation = {
       id,
       title: params.title,
       status: "active",
       summary: null,
       pinned: false,
+      workspaceDir,
       createdAt: now,
       updatedAt: now,
       completedAt: null,
@@ -42,6 +47,11 @@ export class ManageConversation {
 
     /** 单事务：conversations + conversation_otters（C5 修复） */
     await this.repo.create(conversation, otterIds);
+
+    /** 创建对话工作区目录 */
+    if (this.workspaceGateway) {
+      await this.workspaceGateway.ensureWorkspace(id);
+    }
 
     /** A6: 为每个 otterId 创建 ConversationParticipant 记录
      *  joinedAtTurnId=null, joinedAtTurnNumber=0 表示对话开始前已在场
@@ -89,6 +99,15 @@ export class ManageConversation {
       throw new DomainError(`Cannot archive conversation with status: ${conv.status}`, "validation");
     }
     await this.repo.updateStatus(id, "archived", new Date().toISOString());
+
+    /** 清理对话工作区目录 */
+    if (this.workspaceGateway && conv.workspaceDir) {
+      try {
+        await this.workspaceGateway.removeWorkspace(id);
+      } catch {
+        /** 清理失败不阻断 archive 操作（workspace 目录可手动清理） */
+      }
+    }
   }
 
   /** 获取 otter 参与的所有对话 ID（供 ManageSession.archiveSession 使用，C3 修复） */

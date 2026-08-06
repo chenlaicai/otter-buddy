@@ -22,6 +22,8 @@ export interface AgentRunResult {
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */
 export interface DynamicContext {
   sessionSummary?: string;
+  /** 对话工作区绝对路径 */
+  workspacePath?: string;
 }
 
 /** invoke() 选项 */

@@ -7,8 +7,10 @@ import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool,
 import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { Logger } from "@usecases/ports/logger";
+import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport } from "./healing-tools";
 import { DomainError } from "@entities/errors";
+import { createWorkspaceTools } from "./workspace-tools";
 
 
 export interface AgentTool {
@@ -485,8 +487,8 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool[] {
-  return [
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway): AgentTool[] {
+  const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createInviteParticipantTool(ctx),
     createSearchMemoryTool(ctx),
@@ -508,4 +510,8 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetActiveParticipantsTool(ctx),
     createGetHtmlCardContractTool(),
   ];
+  if (workspaceGateway) {
+    tools.push(...createWorkspaceTools(ctx, workspaceGateway));
+  }
+  return tools;
 }

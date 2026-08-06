@@ -8,6 +8,8 @@ export interface Conversation {
   status: ConversationStatus;
   summary: string | null;
   pinned: boolean;
+  /** 工作区相对路径（相对于 dataDir），null 表示无工作区（旧数据） */
+  workspaceDir: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;

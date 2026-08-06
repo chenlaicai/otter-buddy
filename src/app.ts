@@ -20,6 +20,7 @@ import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
@@ -124,13 +125,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (modelPool) validateModelAliases(db, modelPool, logger);
   await applyDefaultModelOverride(repos.settings, modelPool, logger);
 
+  // ── 对话工作区 ──
+  const workspaceGateway = new NodeWorkspaceGateway(dataDir);
+
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
   const { agentGateway, resolveOtterToolClient } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
+    workspaceGateway,
   });
-  const uc = initUseCases({ repos, agentGateway, embeddingService, memoryIndex, appConfig: config, logger });
+  const uc = initUseCases({ repos, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway });
   resolveOtterToolClient(buildOtterToolClient(uc));
 
   // ── 调度引擎 + 平台集成 ──
@@ -140,7 +145,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     ? createFeishuBundle(config.feishu, uc, dispatchChainEngine, logger)
     : undefined;
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler(repos, uc, agentGateway, feishu?.broadcaster, logger);
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster: feishu?.broadcaster, logger, workspaceGateway });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger });
 

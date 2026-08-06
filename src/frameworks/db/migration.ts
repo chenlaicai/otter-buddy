@@ -72,6 +72,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260805rbrg：messages 表添加 metadata 列（招聘桥接查重用） */
   addMessagesMetadataColumn(db, logger);
+
+  /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
+  addWorkspaceDirColumn(db, logger);
 }
 
 /**
@@ -107,6 +110,15 @@ function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void 
   if (!indexes.some(idx => idx.name === 'idx_messages_external_id')) {
     db.prepare("CREATE INDEX idx_messages_external_id ON messages((JSON_EXTRACT(metadata, '$.externalId')))").run();
     logger.info('Created expression index on messages.metadata.externalId');
+  }
+}
+
+/** conversations 表添加 workspace_dir 列（对话工作区目录）。PRAGMA 探测幂等。 */
+function addWorkspaceDirColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'workspace_dir')) {
+    db.prepare("ALTER TABLE conversations ADD COLUMN workspace_dir TEXT").run();
+    logger.info('Added workspace_dir column to conversations table');
   }
 }
 

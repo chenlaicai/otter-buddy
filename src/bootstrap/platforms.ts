@@ -5,6 +5,7 @@ import type { ModelPool } from "@frameworks/llm/model-pool";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
@@ -49,6 +50,8 @@ export async function createAgentGateway(options: {
   sessionDir?: string;
   /** Otter 身份文案目录（默认 ./prompts/identity） */
   identityPromptDir?: string;
+  /** 对话工作区网关 */
+  workspaceGateway?: WorkspaceGateway;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
@@ -58,7 +61,7 @@ export async function createAgentGateway(options: {
     sessionDir: options.sessionDir,
     identityPromptDir: options.identityPromptDir ?? "./prompts/identity",
     createTools: (ctx, repo, log) => {
-      const tools = createTools(ctx, repo, log);
+      const tools = createTools(ctx, repo, log, options.workspaceGateway);
       if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
       return tools;
     },
@@ -83,13 +86,14 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
   });
 }
 
-export async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory, messageBroadcaster: MessageBroadcaster | undefined, logger: Logger) {
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway } = options;
   await agentGateway.warmup();
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
-    messageBroadcaster,
+    messageBroadcaster, workspaceGateway,
   );
 
   const cronParser = new SimpleCronParser();
