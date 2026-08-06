@@ -12,7 +12,8 @@ causal_links:
   from:
     - F20260805rsto   # Session Chain 链式化与文案中性化决定的上游
     - F20260724glas   # 玻璃材质 4 层级体系的上游（本 PR 改写其 L3「最透」假设，见对抗审视 A1）
-  to: []
+  to:
+    - F20260806ovgl   # L3 弹层「近实底」实现被本特性改写为磨砂玻璃+色染（对比度目标保留）
 
 status: development
 change_type: fix

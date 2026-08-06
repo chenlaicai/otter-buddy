@@ -36,7 +36,7 @@
    层级靠【透明度梯度 + 投影高度】区分；嵌套激活态(.conv-active/
    .nav-pill-active)退化为半透纯色，不叠玻璃。
    性能预算：L2 blur 16px 且无 saturate（第二个 filter 函数开销近
-   翻倍、肉眼无感）；弹层才用 40px；背景静止（动画色团=全屏repaint）；
+   翻倍、肉眼无感）；弹层才用 48px；背景静止（动画色团=全屏repaint）；
    气泡配 content-visibility 视口外剔除；禁 will-change。
    无障碍红线：prefers-reduced-transparency 全退化实色，层级靠
    深色接触线+加强投影维持。
@@ -210,7 +210,7 @@ body {
   box-shadow: var(--overlay-shadow), var(--edge-hi);
 }
 
-/* 弹层遮罩：变暗 + 6px 柔化下层内容 */
+/* 弹层遮罩：变暗 + 8px 柔化下层内容 */
 .scrim {
   background: var(--scrim);
   backdrop-filter: var(--scrim-blur);
