@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import { DomainError } from "@entities/errors";
 
 function makeSpeakTool(
   participants: Array<{ otterId: string; otterName: string }>,
@@ -99,6 +100,30 @@ describe("speak 工具发言石目标校验", () => {
     const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, { startSpeakingError: new Error("db locked") });
     const res = await speak.execute("c1", { body: "内容", talkingStonePassedTo: ["大獭"] });
     expect(res.content[0].text).toContain("[错误] 发言声明失败");
+    expect(res.terminate).toBeUndefined();
+    expect(speakingCalls).toHaveLength(0);
+  });
+
+  // F20260806cbsl: CAS 冲突（已 speaking/completed）→ 幂等终结
+  it("startSpeaking CAS 冲突（DomainError kind=conflict）时返回终态信号 + terminate:true", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
+      startSpeakingError: new DomainError("Cannot start speaking for message with status: speaking", "conflict"),
+    });
+    const res = await speak.execute("c1", { body: "内容", talkingStonePassedTo: ["大獭"] });
+    expect(res.content[0].text).toContain("本回合发言已提交，无需重复调用 speak");
+    expect(res.content[0].text).toContain("请停止调用任何工具");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(0);
+  });
+
+  // 非 conflict 的 DomainError（如 validation）仍走原来的错误+重试路径
+  it("startSpeaking validation 错误仍返回错误+重试，不终止", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(PARTICIPANTS, {
+      startSpeakingError: new DomainError("talkingStonePassedTo must be non-empty", "validation"),
+    });
+    const res = await speak.execute("c1", { body: "内容", talkingStonePassedTo: ["大獭"] });
+    expect(res.content[0].text).toContain("[错误] 发言声明失败");
+    expect(res.content[0].text).toContain("请重试");
     expect(res.terminate).toBeUndefined();
     expect(speakingCalls).toHaveLength(0);
   });

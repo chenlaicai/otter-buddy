@@ -10,6 +10,7 @@ import type { Logger } from "@usecases/ports/logger";
 export const TOKEN_WARNING_THRESHOLD = 100_000;
 
 /** 熔断器 tool_execution_start 钩子 */
+// eslint-disable-next-line max-lines-per-function
 export function attachCircuitBreaker(
   session: { subscribe: (fn: (event: unknown) => void) => () => void; steer?: (text: string) => Promise<void>; abort: () => Promise<void> },
   otterId: string,
@@ -36,6 +37,7 @@ export function attachCircuitBreaker(
   };
 
   /** 通过 subscribe 拦截 tool_execution_start / tool_execution_end 事件实现熔断 */
+  // eslint-disable-next-line complexity
   const unregisterToolCall = session.subscribe((event: unknown) => {
     const e = event as { type?: string; toolCallId?: string; toolName?: string; name?: string; args?: unknown };
     if (e.type === "tool_execution_start") {
@@ -52,7 +54,8 @@ export function attachCircuitBreaker(
         eventTimers.set(toolCallId, timer);
       }
 
-      const result = circuitBreaker.check(e.toolName ?? e.name ?? "unknown", e.args);
+      const toolName = e.toolName ?? e.name ?? "unknown";
+      const result = circuitBreaker.check(toolName, e.args);
       if (result.action === "terminate") {
         // terminate 时清除所有计时器（避免其他并行工具的计时器在 abort 后继续运行）
         clearEventTimer();
@@ -60,7 +63,7 @@ export function attachCircuitBreaker(
         return;
       }
       if (result.action === "steer") {
-        session.steer?.(result.reason ?? "Stop calling tools. Call speak now.");
+        if (toolName !== "speak") session.steer?.(result.reason ?? "Stop calling tools. Call speak now."); // F20260806cbsl: speak 是回合出口，对其 steer 有害无益
         return;
       }
     }
