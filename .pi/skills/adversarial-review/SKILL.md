@@ -39,6 +39,16 @@ Find real problems in the review target — code changes (PR) or design document
 - **Verify independently**: Run tests and builds directly. Do not just check the developer's results.
 - **Do not modify code**: Only report findings. The developer fixes, the reviewer identifies.
 
+## 输入契约
+
+本 skill 需要以下输入才能开始工作：
+
+| 输入 | 必选/可选 | 来源 | 缺失时处理 |
+|------|----------|------|-----------|
+| 审视对象 | 必选 | PR diff / 方案文档 | 停下来要求提供。禁止凭空审视 |
+| 设计文档（代码审视时） | 可选 | 方案文档 | 无则跳过正确性对照，但在报告中声明"无设计文档对照" |
+| worktree 绝对路径 | 必选（代码审视时） | 召唤者提供 | 停下来要求提供。小獭 cwd 是主仓，相对路径解析错误 |
+
 ## Workflow
 
 ### 1. Understand the Change Scope
@@ -102,16 +112,6 @@ Execute verification commands directly:
 Do not rely on the developer's reported results.
 
 If you have no execution permission (e.g., a review-only otter with read-only tools): independent verification means reading the changed code line by line and statically checking it against the test files. You must explicitly state in the report that tests/builds could not be run — never claim verification you did not perform.
-
-### 输入契约
-
-本 skill 需要以下输入才能开始工作：
-
-| 输入 | 必选/可选 | 来源 | 缺失时处理 |
-|------|----------|------|-----------|
-| 审视对象 | 必选 | PR diff / 方案文档 | 停下来要求提供。禁止凭空审视 |
-| 设计文档（代码审视时） | 可选 | 方案文档 | 无则跳过正确性对照，但在报告中声明"无设计文档对照" |
-| worktree 绝对路径 | 必选（代码审视时） | 召唤者提供 | 停下来要求提供。小獭 cwd 是主仓，相对路径解析错误 |
 
 ### 5. Output Report
 
@@ -186,6 +186,15 @@ Produce a structured review report using the template below.
 - "无发现" is valid for a dimension — explicitly note it in 维度扫视结论, do NOT skip silently
 - 复审轮（第 2 轮起）的报告结构：上轮发现逐条验证结论 + 修复回归检查；delta 之外的新发现必须标注"此前轮次漏报"并说明为何够/不够阻断门槛
 - 审视对象是方案/设计文档（非代码）时：结论选项"需要修改 / 可以合入"读作"需要修改 / 可以定稿"
+- Do NOT reuse previous review comments for re-inspection — publish new ones
+
+### 文档审视适配
+
+审视对象是方案/设计文档（非代码）时，"变更完整性"检查单适配为：
+- "所有设计文档中列出的改动范围都已覆盖" → "方案声称覆盖的需求点都已覆盖"
+- "无遗漏的文件修改" → "无遗漏的需求点"
+- "测试覆盖了核心行为" → "方案含可验证的验收标准"
+- "构建通过" → "方案中的事实性断言已对照代码/既有文档亲验"
 
 ## 后续动作声明
 
