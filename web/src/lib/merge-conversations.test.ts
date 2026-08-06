@@ -32,6 +32,12 @@ describe('mergeConversations（F20260805actv 轮询合并）', () => {
     expect(mergeConversations(prev, next)[0].unreadCount).toBe(2)
   })
 
+  it('unreadCount: 0 是有效值，不触发 fallback（?? 区分 0 与 undefined）', () => {
+    const prev = [conv({ unreadCount: 5 })]
+    const next = [conv({ unreadCount: 0 })]
+    expect(mergeConversations(prev, next)[0].unreadCount).toBe(0)
+  })
+
   it('实时字段以服务端为准（activityStatus / lastMessagePreview）', () => {
     const prev = [conv({ activityStatus: 'awaiting_user', lastMessagePreview: '旧' })]
     const next = [conv({ activityStatus: 'processing', lastMessagePreview: '新' })]

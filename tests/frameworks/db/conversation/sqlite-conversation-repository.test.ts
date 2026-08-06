@@ -801,6 +801,26 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     expect(item.activityStatus).toBe("idle");
   });
 
+  it("active 对话 + 仅有 failed 消息 → awaiting_user（failed 不误判为 processing）", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
+    await repo.failMessage("msg-1", "2026-07-22T00:02:00Z", "失败内容");
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("awaiting_user");
+  });
+
+  it("active 对话 + 有 aborted 消息 → awaiting_user（aborted 不干扰）", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
+    await repo.abortMessage("msg-1", "已中止", ["user"], "2026-07-22T00:02:00Z");
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("awaiting_user");
+  });
+
   it("多对话并发时各自独立派生状态", async () => {
     await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-22T00:00:00Z" }));
     await repo.createTurn(turnFixture({ id: "turn-a", conversationId: "conv-a" }));

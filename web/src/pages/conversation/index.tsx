@@ -888,10 +888,11 @@ function ConversationPage() {
     if (!activeId) return
     try {
       await api.archiveConversation(activeId)
-      setModal({ type: 'none' }); showToast('对话已归档', 'success')
+      setModal({ type: 'none' })
       // 归档后当前对话从列表消失（服务端列表排除 archived），
       // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
-      window.location.href = '/conversation'
+      // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
+      window.location.href = '/conversation?archived=1'
     } catch { showToast('操作失败', 'error') }
   }
 
