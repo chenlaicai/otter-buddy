@@ -19,6 +19,12 @@ export interface ConversationListItemDTO extends ConversationDTO {
   lastMessagePreview?: string | null;
   /** 最后一条消息时间戳 */
   lastMessageTs?: string | null;
+  /** 实时活动状态（派生字段，非持久化）
+   *  - processing: 存在 streaming/speaking 消息，海獭正在生成
+   *  - awaiting_user: 活跃对话 + 无进行中消息 + 至少一条消息，等待用户发话
+   *  - idle: 已完成/归档，或活跃但尚无消息
+   */
+  activityStatus?: 'processing' | 'awaiting_user' | 'idle';
 }
 
 /** 创建对话请求 DTO */

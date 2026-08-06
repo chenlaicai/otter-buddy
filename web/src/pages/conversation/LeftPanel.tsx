@@ -103,11 +103,25 @@ function ConversationItem({
         <div className="text-[10px] text-stone-400 truncate mt-0.5">{c.lastMessagePreview}</div>
       )}
       <div className="flex items-center gap-1 mt-0.5">
-        <div
-          className={`w-1 h-1 rounded-full ${
-            c.status === 'active' ? 'bg-teal-400' : c.status === 'completed' ? 'bg-otter-400' : 'bg-stone-400'
-          }`}
-        />
+        <div className="flex items-center gap-0.5">
+          <div
+            className={`w-1 h-1 rounded-full ${
+              c.status === 'active' ? 'bg-teal-400' : c.status === 'completed' ? 'bg-otter-400' : 'bg-stone-400'
+            }`}
+          />
+          {c.activityStatus === 'processing' && (
+            <span className="flex items-center gap-0.5">
+              <div className="w-1 h-1 rounded-full bg-teal-400 animate-pulse" />
+              <span className="text-[9px] text-teal-500">处理中</span>
+            </span>
+          )}
+          {c.activityStatus === 'awaiting_user' && (
+            <span className="flex items-center gap-0.5">
+              <div className="w-1 h-1 rounded-full bg-amber-400" />
+              <span className="text-[9px] text-amber-500">等待中</span>
+            </span>
+          )}
+        </div>
         <div className="flex ml-auto">
           {convOtters.map(o => {
             const color = getOtterColor(o.id)
