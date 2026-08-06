@@ -80,5 +80,5 @@ Same format as commit message. PR number is appended by GitHub automatically.
 ## Test plan
 - [ ] Verification steps
 
-🤖 Generated with [Otter Buddy](https://github.com/orca-ai/otter-buddy) by [当前海獭名，如 大獭 / 检视獭 / 开发獭]
+🤖 Generated with [Otter Buddy](https://github.com/orca-ai/otter-buddy) by [海獭名号]
 ```

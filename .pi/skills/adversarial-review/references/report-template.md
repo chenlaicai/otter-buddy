@@ -5,7 +5,7 @@ Use this format for adversarial review output.
 ```markdown
 ## 审查者
 
-[审查獭名称，如 检视獭 / 大獭]
+[海獭名号]
 
 ## 本轮焦点
 
@@ -62,6 +62,7 @@ Use this format for adversarial review output.
 
 ## Rules
 
+- 报告必须填写审查者署名，未署名的报告无效
 - 报告必须先声明本轮焦点（1–3 个维度 + 理由），无焦点的报告无效
 - Every issue MUST have a disposition
 - If ANY 阻断性 issue is unresolved, conclusion MUST be "需要修改"

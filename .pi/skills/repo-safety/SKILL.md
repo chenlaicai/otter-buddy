@@ -41,8 +41,8 @@ description: >-
 1. **Commit author**：用 `--author` 参数指定当前海獭身份，格式 `名号 <otter-buddy>`
    - 大獭：`git commit --author="大獭 <otter-buddy>"`
    - 开发獭：按召唤时的 name 署名，如 `开发獭-需求名 <otter-buddy>`
-2. **PR description**：末尾署名行使用 `commit-convention.md` 的 PR Description 模板，`[当前海獭名]` 替换为实际名号
-3. **Review report**：使用 `adversarial-review/references/report-template.md` 模板，`[审查獭名称]` 替换为实际名号
+2. **PR description**：末尾署名行使用 `commit-convention.md` 的 PR Description 模板，`[海獭名号]` 替换为实际名号
+3. **Review report**：使用 `adversarial-review/references/report-template.md` 模板，`[海獭名号]` 替换为实际名号
 
 ## 与其他 skill 的关系
 
