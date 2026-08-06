@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import type { AgentInvokePort, AgentStreamEvent, DynamicContext } from "./agent-invoke-port";
 import type { SendMessage, MessageEventInput } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
@@ -156,7 +157,7 @@ export class AgentInvoker {
       });
     } catch (err) {
       const finalErr = this.wrapInternalAbort(message.id, err);
-      await this.handleInvokeError(message.id, otterId, finalErr, emitEvent, senderId);
+      await this.handleInvokeError({ messageId: message.id, otterId, err: finalErr, emitEvent, senderId, conversationId, startTime });
       return { messageId: message.id, duration: Date.now() - startTime };
     }
   }
@@ -183,7 +184,7 @@ export class AgentInvoker {
       return this.completeAgentInvocation({ otterId: p.otterId, conversationId: p.conversationId ?? "", messageId: p.messageId, senderId: p.senderId, result: p.result, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose.aggregatedTargets });
     }
     if (this.abortedMessages.has(p.messageId)) {
-      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), p.emitEvent, p.senderId);
+      await this.handleInvokeError({ messageId: p.messageId, otterId: p.otterId, err: Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), emitEvent: p.emitEvent, senderId: p.senderId, conversationId: p.conversationId, startTime: p.startTime });
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
     return this._handleGuardAbortOrSpeakRetry(p);
@@ -207,7 +208,7 @@ export class AgentInvoker {
       }
       this.abortedMessages.add(p.messageId);
       const prefix = ir.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
-      await this.handleInvokeError(p.messageId, p.otterId, Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), p.emitEvent, p.senderId);
+      await this.handleInvokeError({ messageId: p.messageId, otterId: p.otterId, err: Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), emitEvent: p.emitEvent, senderId: p.senderId, conversationId: p.conversationId, startTime: p.startTime });
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
     return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, emitEvent: p.emitEvent, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage, toolCallCount: p.toolCallCount });
@@ -339,6 +340,38 @@ export class AgentInvoker {
     });
   }
 
+  /**
+   * F20260806cbsx: 若消息已 speaking（speak 已提交 body），走 complete 收尾。
+   * 返回 true 表示已处理（调用方应跳过 abort 路径）。
+   */
+  // eslint-disable-next-line max-params
+  private async completeSpeakingMessage(
+    messageId: string,
+    otterId: string,
+    emitEvent: (event: AgentSSEEvent) => void,
+    senderId?: string,
+    conversationId?: string,
+    startTime?: number,
+  ): Promise<boolean> {
+    if (!conversationId || startTime === undefined) return false;
+    const msg = await this.queryMessage.getMessageById(messageId);
+    if (msg?.status !== "speaking") return false;
+    try {
+      const cr = await this.sendMessage.complete(messageId);
+      await this.completeAgentInvocation({
+        otterId, conversationId, messageId,
+        senderId: senderId ?? '',
+        result: { text: "" },
+        startTime, emitEvent,
+        aggregatedTargets: cr.turnClose?.aggregatedTargets,
+      });
+      return true;
+    } catch {
+      /** TOCTOU 竞态：complete 前状态已变，降级走 abort 路径 */
+      return false;
+    }
+  }
+
   /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
   private buildAbortBody(err: unknown, otterId: string, messageId: string): string {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -360,17 +393,26 @@ export class AgentInvoker {
    * 处理 invoke 异常：区分 abort/error 路径。
    * abort 路径：构造合成 body → sendMessage.abort() → SSE message.aborted
    * error 路径：sendMessage.fail() → SSE error
+   *
+   * F20260806cbsx: 若消息已 speaking（speak 已提交 body），内容交付优先于中断语义——
+   * 改走 complete 收尾，不覆盖已交付内容。
    */
-  private async handleInvokeError(
-    messageId: string,
-    otterId: string,
-    err: unknown,
-    emitEvent: (event: AgentSSEEvent) => void,
-    senderId?: string,
-  ): Promise<void> {
+  private async handleInvokeError(p: {
+    messageId: string;
+    otterId: string;
+    err: unknown;
+    emitEvent: (event: AgentSSEEvent) => void;
+    senderId?: string;
+    conversationId?: string;
+    startTime?: number;
+  }): Promise<void> {
+    const { messageId, otterId, err, emitEvent, senderId, conversationId, startTime } = p;
     const errMsg = err instanceof Error ? err.message : String(err);
     this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedMessages.has(messageId) });
     if (this.abortedMessages.delete(messageId)) {
+      // F20260806cbsx: speaking 守卫——发言已提交时内容交付优先
+      const completedIfSpeaking = await this.completeSpeakingMessage(messageId, otterId, emitEvent, senderId, conversationId, startTime);
+      if (completedIfSpeaking) return;
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
       const body = this.buildAbortBody(err, otterId, messageId);
       try {

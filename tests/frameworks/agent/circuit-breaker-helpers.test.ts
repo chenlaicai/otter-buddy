@@ -536,3 +536,57 @@ describe("attachCircuitBreaker - steer 行为纠正", () => {
     expect(session.abort).not.toHaveBeenCalled();
   });
 });
+
+describe("attachCircuitBreaker - F20260806cbsx speak 豁免 steer 注入", () => {
+  it("speak 超限时不注入 steer（但计数照走、terminate 保留）", () => {
+    const session = mockSession();
+    const abortOverride = vi.fn();
+    const { circuitBreaker } = attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxToolCalls: 2, warningThreshold: 100, maxRepeatAfterWarning: 100 }),
+      createTestLogger(),
+      abortOverride,
+    );
+
+    // 3 个正常工具用掉 maxToolCalls=2
+    session.emit(sdkToolStart("bash", { command: "git status" }));
+    session.emit(sdkToolStart("read", { path: "/a.ts" }));
+    // 第 3 个工具 → steer（非 speak，应注入）
+    session.emit(sdkToolStart("edit", { path: "/a.ts" }));
+    expect(session.steer).toHaveBeenCalledOnce();
+
+    session.steer.mockClear();
+    // speak 超限 → 不注入 steer，但 callCount 照计
+    session.emit(sdkToolStart("speak", { body: "test" }));
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(circuitBreaker.getCallHistory()).toContain("speak");
+
+    // speak 继续超限直到 terminate（maxToolCalls+3=5，call 6 触发）
+    session.emit(sdkToolStart("speak", { body: "test2" }));
+    session.emit(sdkToolStart("speak", { body: "test3" }));
+    expect(session.steer).not.toHaveBeenCalled();
+    expect(abortOverride).toHaveBeenCalledOnce();
+    expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
+  });
+
+  it("speak consecutive 检测仍生效（刷屏保护不变）", () => {
+    const session = mockSession();
+    const abortOverride = vi.fn();
+    attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxConsecutiveIdentical: 3, maxRepeatAfterWarning: 2, maxToolCalls: 100 }),
+      createTestLogger(),
+      abortOverride,
+    );
+
+    // speak 连续 6 次：前 3 次 allow，4-6 触发 consecutive steer（但 speak 不注入），
+    // steerStrikes 从 1 累到 3 > maxRepeatAfterWarning(2) → terminate
+    for (let i = 0; i < 6; i++) session.emit(sdkToolStart("speak"));
+
+    expect(session.steer).not.toHaveBeenCalled(); // 全被 speak 豁免
+    expect(abortOverride).toHaveBeenCalledOnce();
+    expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:ignored_steer");
+  });
+});

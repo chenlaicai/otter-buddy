@@ -175,7 +175,7 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("Aborted"), toolCallCount: 3 }),
       msg,
-      mockQueryMessage(),
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
       createTestLogger(),
@@ -218,7 +218,7 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: abortError, toolCallCount: 0 }),
       msg,
-      mockQueryMessage(),
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
       createTestLogger(),
@@ -1019,5 +1019,35 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const eventTypes2 = events2.map((e) => e.event);
     expect(eventTypes2).toContain("message.complete");
     expect(eventTypes2).not.toContain("message.aborted");
+  });
+
+  // F20260806cbsx: abort 路径 speaking 守卫——消息已 speaking 时改走 complete
+  it("abort with speaking message: completes instead of aborting (F20260806cbsx)", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ throwOnInvoke: new Error("Aborted"), toolCallCount: 3 }),
+      msg,
+      mockQueryMessage(),  // returns speakingMsg with status "speaking"
+      mockManageSession(),
+      mockQueryOtter(),
+      createTestLogger(),
+    );
+
+    invoker.abort("otter-1", "msg-streaming");
+    await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    // abort 不应被调用（speaking 守卫拦截，走 complete 收尾）
+    expect(msg._calls.abort).toHaveLength(0);
+    // 事件应包含 message.complete（非 message.aborted）
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.complete");
+    expect(eventTypes).not.toContain("message.aborted");
   });
 });

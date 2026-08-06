@@ -8,6 +8,7 @@ import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpe
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { interceptHealingReport } from "./healing-tools";
+import { DomainError } from "@entities/errors";
 
 
 export interface AgentTool {
@@ -120,6 +121,9 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       try {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
       } catch (err) {
+        if (err instanceof DomainError && err.kind === "conflict") {
+          return { ...textResponse("[系统控制信号] 本回合发言已提交，无需重复调用 speak。请停止调用任何工具。"), terminate: true };
+        }
         return textResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
       return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。系统将自动调度下一位发言者。"), terminate: true };
