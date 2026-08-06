@@ -3,6 +3,10 @@
 Use this format for adversarial review output.
 
 ```markdown
+## 审查者
+
+[审查獭名称，如 检视獭 / 大獭]
+
 ## 本轮焦点
 
 - 焦点维度：[1–3 个维度]，理由：[一句话，基于改动性质与 blast radius]

@@ -34,6 +34,16 @@ description: >-
 4. `git push -u origin <branch>` + `gh pr create`，把 PR 链接交给搭档审查
 5. 收尾记录：worktree 名、分支名、PR 号
 
+## 海獭署名约定
+
+无论大獭还是小獭，在以下三处署名以标识责任主体：
+
+1. **Commit author**：用 `--author` 参数指定当前海獭身份，格式 `名号 <otter-buddy>`
+   - 大獭：`git commit --author="大獭 <otter-buddy>"`
+   - 开发獭：按召唤时的 name 署名，如 `开发獭-需求名 <otter-buddy>`
+2. **PR description**：末尾署名行使用 `commit-convention.md` 的 PR Description 模板，`[当前海獭名]` 替换为实际名号
+3. **Review report**：使用 `adversarial-review/references/report-template.md` 模板，`[审查獭名称]` 替换为实际名号
+
 ## 与其他 skill 的关系
 
 - 任务是**按方案做功能开发**（写实现、写测试）→ 同时加载 `code-implementation`（其 step 8 的对抗审视是强制环节）
