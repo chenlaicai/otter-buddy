@@ -289,8 +289,12 @@ export class PiSessionFactory implements AgentGateway {
       this.logger.info(`Registered runtime provider for alias=${alias}`);
     }
     if (config.apiKey) {
+      // 设置 API key 到 alias 和 provider 两个名称上（SDK 可能用任一名称查找）
       await this.modelRuntime.setRuntimeApiKey(alias, config.apiKey);
-      this.logger.info(`Set runtime API key for alias=${alias}`);
+      if (alias !== config.provider) {
+        await this.modelRuntime.setRuntimeApiKey(config.provider, config.apiKey);
+      }
+      this.logger.info(`Set runtime API key for alias=${alias} (also for provider=${config.provider})`);
     }
   }
 

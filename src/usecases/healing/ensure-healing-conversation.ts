@@ -5,6 +5,7 @@ import type { SendMessage } from '@usecases/conversation/send-message';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { Logger } from '@usecases/ports/logger';
 import { HEALING_CONVERSATION_KEY, HEALING_BIG_OTTER_ID_KEY } from '@usecases/healing/constants';
+import { acquireDistributedLock } from '@usecases/common/distributed-lock';
 
 const HEALING_CONVERSATION_TITLE = '🩺 Self-Healing';
 
@@ -22,26 +23,17 @@ export interface HealingConversationResult {
   bigOtterId: string;
 }
 
-export async function ensureHealingConversation(deps: {
-  manageConversation: ManageConversation;
-  convRepo: ConversationRepository;
-  otterRepo: OtterRepository;
-  settings: SettingsRepository;
-  sendMessage: SendMessage;
-  logger: Logger;
-}): Promise<HealingConversationResult> {
-  const existingId = await deps.settings.get(HEALING_CONVERSATION_KEY);
-  if (existingId) {
-    const conv = await deps.manageConversation.getById(existingId);
-    if (conv && conv.status === 'active') {
-      const bigOtterId = await deps.settings.get(HEALING_BIG_OTTER_ID_KEY);
-      if (bigOtterId) {
-        await pinHealing(deps.manageConversation, existingId, deps.logger);
-        return { conversationId: existingId, bigOtterId };
-      }
-    }
-  }
-
+/** 创建 healing 对话并返回结果 */
+async function createHealingConversation(
+  deps: {
+    manageConversation: ManageConversation;
+    convRepo: ConversationRepository;
+    otterRepo: OtterRepository;
+    settings: SettingsRepository;
+    sendMessage: SendMessage;
+    logger: Logger;
+  },
+): Promise<HealingConversationResult> {
   const conversation = await deps.manageConversation.create({ title: HEALING_CONVERSATION_TITLE });
   await pinHealing(deps.manageConversation, conversation.id, deps.logger);
 
@@ -72,4 +64,55 @@ export async function ensureHealingConversation(deps: {
   );
 
   return { conversationId: conversation.id, bigOtterId };
+}
+
+/** 尝试复用已有的 healing 对话 */
+async function tryReuseExisting(
+  manageConversation: ManageConversation,
+  settings: SettingsRepository,
+  logger: Logger,
+): Promise<HealingConversationResult | null> {
+  const existingId = await settings.get(HEALING_CONVERSATION_KEY);
+  if (!existingId) return null;
+  const conv = await manageConversation.getById(existingId);
+  if (!conv || conv.status !== 'active') return null;
+  const bigOtterId = await settings.get(HEALING_BIG_OTTER_ID_KEY);
+  if (!bigOtterId) return null;
+  await pinHealing(manageConversation, existingId, logger);
+  return { conversationId: existingId, bigOtterId };
+}
+
+export async function ensureHealingConversation(deps: {
+  manageConversation: ManageConversation;
+  convRepo: ConversationRepository;
+  otterRepo: OtterRepository;
+  settings: SettingsRepository;
+  sendMessage: SendMessage;
+  logger: Logger;
+}): Promise<HealingConversationResult> {
+  // 1. 检查已有
+  const existing = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
+  if (existing) return existing;
+
+  // 2. 获取分布式锁
+  const lockResult = await acquireDistributedLock(deps.settings, HEALING_CONVERSATION_KEY, deps.logger);
+  if (!lockResult.acquired) {
+    // 另一个进程已完成，重新检查已有
+    const recheck = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
+    if (recheck) return recheck;
+    throw new Error('Failed to acquire lock for Self-Healing conversation creation');
+  }
+
+  // 3. 创建新对话（失败时清理 pending 值，避免阻塞其他进程）
+  try {
+    return await createHealingConversation(deps);
+  } catch (err) {
+    // 创建失败，清理 pending 值，让其他进程可以立即重试
+    const currentValue = await deps.settings.get(HEALING_CONVERSATION_KEY);
+    if (currentValue?.startsWith('pending:')) {
+      await deps.settings.tryDeleteIfValueMatches(HEALING_CONVERSATION_KEY, currentValue);
+      deps.logger.info('Cleaned pending lock after creation failure', { key: HEALING_CONVERSATION_KEY });
+    }
+    throw err;
+  }
 }

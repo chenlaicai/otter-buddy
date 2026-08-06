@@ -41,7 +41,19 @@ function needsCustomProvider(llmConfig: AppConfig["llm"]): boolean {
  * 解析优先级：configApiKey → credential.key → 标准环境变量。
  */
 function createCustomApiKeyAuth(configApiKey?: string, provider?: string) {
-  const envVarName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+  // 根据 provider 类型选择环境变量
+  let envVarName: string;
+  switch (provider) {
+    case "anthropic":
+      envVarName = "ANTHROPIC_API_KEY";
+      break;
+    case "kimi-coding":
+      envVarName = "KIMI_API_KEY";
+      break;
+    default:
+      envVarName = "OPENAI_API_KEY";
+      break;
+  }
   return {
     name: `${provider} API key`,
     resolve: async ({ ctx, credential }: { ctx: { env: (name: string) => Promise<string | undefined> }; credential?: { key?: string } }) => {
@@ -86,6 +98,11 @@ async function loadCustomProvider(
     modelsDict = modelsMod.ANTHROPIC_MODELS;
     const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
     api = apiMod.anthropicMessagesApi();
+  } else if (providerType === "kimi-coding") {
+    const modelsMod = await import("@earendil-works/pi-ai/providers/kimi-coding.models");
+    modelsDict = modelsMod.KIMI_CODING_MODELS;
+    const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
+    api = apiMod.anthropicMessagesApi();
   } else {
     throw new Error(`Unsupported LLM provider type: ${providerType}`);
   }
@@ -96,6 +113,8 @@ async function loadCustomProvider(
   if (!hasModel) {
     const template = modelsArray[0] as Record<string, unknown> | undefined;
     if (template) {
+      // eslint-disable-next-line no-console
+      console.warn(`[models-factory] Model "${modelId}" not found in ${providerType} models dict, using template from "${template.id}" but with empty compat/thinkingLevelMap. Available models: ${modelsArray.map(m => (m as Record<string, unknown>).id).join(', ')}`);
       modelsArray.push({
         id: modelId,
         name: modelId,
@@ -103,8 +122,9 @@ async function loadCustomProvider(
         provider: alias, // 用 alias 作为 provider 字段，确保 SDK auth 解析正确
         baseUrl: options.apiBaseUrl ?? template.baseUrl,
         reasoning: template.reasoning,
-        compat: template.compat,
-        thinkingLevelMap: template.thinkingLevelMap,
+        // 不继承 compat 和 thinkingLevelMap，避免意外行为
+        compat: {},
+        thinkingLevelMap: {},
         input: template.input,
         cost: (template as Record<string, unknown>).cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       });
@@ -143,6 +163,10 @@ async function loadProvider(providerType: string, modelId: string, alias: string
     case "anthropic": {
       const mod = await import("@earendil-works/pi-ai/providers/anthropic");
       return mod.anthropicProvider();
+    }
+    case "kimi-coding": {
+      const mod = await import("@earendil-works/pi-ai/providers/kimi-coding");
+      return mod.kimiCodingProvider();
     }
     default:
       throw new Error(`Unsupported LLM provider type: ${providerType}`);

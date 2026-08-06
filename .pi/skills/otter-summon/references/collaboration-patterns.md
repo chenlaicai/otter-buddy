@@ -9,7 +9,7 @@
 1. 你创建开发獭，通过 systemPrompt 交给任务
 2. 开发獭完成阶段性产出后，发言石传给检视獭（你需要先创建检视獭加入对话）
 3. 检视獭审查后，发言石传回开发獭
-4. 循环直到检视通过或达到轮次上限（PR/方案审视上限见 code-implementation step 8、requirement-analysis step 6，超限呈搭档裁决）
+4. 循环的继续与终止按收敛判据运转（定义见 adversarial-review/references/review-loop.md）：不设轮数上限，自然终止于"修复验证全部通过 + 无阻断回归"；对立僵局/移动靶/僵尸循环任一信号 → 呈搭档裁决
 5. 最终结论整合后，你向搭档汇报
 
 ### 发言石路由
@@ -28,7 +28,8 @@
 
 ### 注意事项
 
-- 检视獭的 systemPrompt 应明确检视范围和标准（参考 adversarial-review skill）
+- 检视獭的 systemPrompt 应明确检视范围和标准（参考 adversarial-review skill：第 1 轮全量 fresh-eyes + 焦点声明；第 2 轮起 delta 审视，需附上一轮发现清单与修复 diff）
+- 开发獭回应检视发现时遵循作者处置协议（adversarial-review/references/author-response-protocol.md）：接受/带证据反驳/部分接受/呈搭档，不照单全收
 - 开发獭的 systemPrompt 应包含方案编号，检视獭可据此查阅方案
 
 ## 并行调研

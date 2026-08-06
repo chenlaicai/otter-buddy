@@ -8,6 +8,7 @@ import type { SendMessage } from '@usecases/conversation/send-message';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { CreateOtter } from '@usecases/otter/create-otter';
 import type { Logger } from '@usecases/ports/logger';
+import { acquireDistributedLock } from '@usecases/common/distributed-lock';
 import {
   RECRUITING_CONVERSATION_KEY,
   RECRUITING_BIG_OTTER_ID_KEY,
@@ -164,27 +165,47 @@ export async function ensureRecruitingConversation(deps: {
   const existing = await tryReuseExisting(deps.settings, deps.convRepo);
   if (existing) return existing;
 
-  // 2. 读 systemPrompt
-  const systemPrompt = readSystemPrompt(deps.promptPathOverride);
+  // 2. 获取分布式锁
+  const lockResult = await acquireDistributedLock(deps.settings, RECRUITING_CONVERSATION_KEY, deps.logger);
+  if (!lockResult.acquired) {
+    // 另一个进程已完成，重新检查已有
+    const recheck = await tryReuseExisting(deps.settings, deps.convRepo);
+    if (recheck) return recheck;
+    throw new Error('Failed to acquire lock for Recruiting conversation creation');
+  }
 
-  // 3. 创建带角色 prompt 的大獭
-  const bigOtter = await deps.createOtter.execute({
-    name: '大獭',
-    type: 'big',
-    systemPrompt,
-  });
+  // 3. 创建对话（失败时清理 pending 值，避免阻塞其他进程）
+  try {
+    // 3.1 读 systemPrompt
+    const systemPrompt = readSystemPrompt(deps.promptPathOverride);
 
-  // 4. 建 conversation + participant
-  const conversationId = await createConversationAndParticipant(deps.convRepo, bigOtter.id);
+    // 3.2 创建带角色 prompt 的大獭
+    const bigOtter = await deps.createOtter.execute({
+      name: '大獭',
+      type: 'big',
+      systemPrompt,
+    });
 
-  // 5. 持久化到 settings
-  await deps.settings.update(RECRUITING_CONVERSATION_KEY, conversationId);
-  await deps.settings.update(RECRUITING_BIG_OTTER_ID_KEY, bigOtter.id);
+    // 3.3 建 conversation + participant
+    const conversationId = await createConversationAndParticipant(deps.convRepo, bigOtter.id);
 
-  // 6. 发欢迎消息
-  await sendWelcomeMessage(deps.sendMessage, conversationId);
+    // 3.4 持久化到 settings
+    await deps.settings.update(RECRUITING_CONVERSATION_KEY, conversationId);
+    await deps.settings.update(RECRUITING_BIG_OTTER_ID_KEY, bigOtter.id);
 
-  deps.logger.info('Recruiting conversation created', { conversationId, bigOtterId: bigOtter.id });
+    // 3.5 发欢迎消息
+    await sendWelcomeMessage(deps.sendMessage, conversationId);
 
-  return { conversationId, bigOtterId: bigOtter.id, created: true };
+    deps.logger.info('Recruiting conversation created', { conversationId, bigOtterId: bigOtter.id });
+
+    return { conversationId, bigOtterId: bigOtter.id, created: true };
+  } catch (err) {
+    // 创建失败，清理 pending 值，让其他进程可以立即重试
+    const currentValue = await deps.settings.get(RECRUITING_CONVERSATION_KEY);
+    if (currentValue?.startsWith('pending:')) {
+      await deps.settings.tryDeleteIfValueMatches(RECRUITING_CONVERSATION_KEY, currentValue);
+      deps.logger.info('Cleaned pending lock after creation failure', { key: RECRUITING_CONVERSATION_KEY });
+    }
+    throw err;
+  }
 }
