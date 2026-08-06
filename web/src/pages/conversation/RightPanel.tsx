@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
+import { sortSessionChain } from '../../lib/session-chain'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
 
@@ -172,6 +173,8 @@ function OtterParticipantCard({
 }) {
   const isBig = o.type === 'big'
   const activeS = sessions.find(s => s.status === 'active')
+  /** F20260805dmux：世数与详情弹窗同口径（拉链位置），不用 sessions.length */
+  const activeGen = activeS ? sortSessionChain(sessions).indexOf(activeS) + 1 : 0
 
   return (
     <div
@@ -184,7 +187,7 @@ function OtterParticipantCard({
         <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
         {activeS && (
           <div className="text-[9px] text-stone-400">
-            Session #{sessions.length} · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
+            第{activeGen}世 · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
           </div>
         )}
       </div>
@@ -198,13 +201,16 @@ function OtterParticipantCard({
           <MoreHorizontal className="w-3.5 h-3.5" />
         </span>
       )}
-      <button
-        onClick={e => { e.stopPropagation(); onRestart(o.id) }}
-        className="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"
-      >
-        <RotateCcw className="w-2.5 h-2.5" />
-        重启
-      </button>
+      {/* F20260805rsto：重启是大獭专属（小獭用解散），与详情弹窗 footer 对齐 */}
+      {isBig && (
+        <button
+          onClick={e => { e.stopPropagation(); onRestart(o.id) }}
+          className="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"
+        >
+          <RotateCcw className="w-2.5 h-2.5" />
+          重启
+        </button>
+      )}
     </div>
   )
 }

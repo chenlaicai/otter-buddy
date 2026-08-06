@@ -109,6 +109,7 @@ function mockRepo(opts: {
     getMessageEventsByMessageIds: vi.fn(async () => []),
     getMaxEventSequenceNum: vi.fn(async () => 0),
     searchMessages: vi.fn(async () => []),
+    findByExternalId: vi.fn(async () => null),
     getTurnHistory: vi.fn(async () => []),
     linkResource: vi.fn(),
     getLinkedResources: vi.fn(async () => []),
@@ -154,9 +155,7 @@ function mockOtterRepo(otters: Map<string, Otter> = new Map()): OtterRepository 
     archiveSession: vi.fn(),
     getSessionHistory: vi.fn(async () => []),
     getSessionById: vi.fn(async () => null),
-    setHandoffSummary: vi.fn(),
-    restoreSessionStatus: vi.fn(),
-    deleteSession: vi.fn(),
+    setSessionSummary: vi.fn(),
   };
 }
 

@@ -29,6 +29,7 @@ import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-inv
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig, ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import { config as appConfig } from "@frameworks/config";
+import type { ModelConfig } from "@frameworks/config";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { loadPromptFile } from "./prompt-loader";
@@ -38,6 +39,8 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
+import type { OutputGuardConfig } from "./output-guard";
+import { sanitizeSessionFile } from "./session-sanitizer";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 
@@ -54,7 +57,7 @@ export interface AgentRunResult {
   tokenUsage?: { input: number; output: number };
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
-  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
 }
 
 /** invoke() 选项 */
@@ -72,7 +75,7 @@ export interface InvokeOptions {
 export interface AgentSessionFactoryConfig {
   db: Database.Database;
   sessionDir?: string;
-  otterToolClient: OtterToolClient;
+  otterToolClient: OtterToolClient | null;
   /** pi-ai Model 对象（由 models-factory 创建，单模型模式时使用） */
   model: unknown;
   /** ModelPool（多模型路由，可选） */
@@ -149,14 +152,17 @@ export class PiSessionFactory implements AgentGateway {
   /** 待注入身份的 otter（create/reset 后标记，注入成功才消费；进程重启丢失由 createdNew 兜底。已知边界：首次注入被 abort 时重试会重复注入一次，罕见无害，有意不处理） */
   private readonly pendingIdentity = new Set<string>();
   /** pi-coding-agent ModelRuntime 最小接口（SDK ESM-only，无法直接导入类型） */
-  private modelRuntime: { setRuntimeApiKey(provider: string, key: string): Promise<void> } | null = null;
-  private otterToolClient: OtterToolClient;
+  private modelRuntime: {
+    setRuntimeApiKey(provider: string, key: string): Promise<void>;
+    registerProvider(providerId: string, config: Record<string, unknown>): void;
+  } | null = null;
+  private otterToolClient: OtterToolClient | null;
 
   constructor(
     private readonly cfg: {
       db: Database.Database;
       sessionDir: string;
-      otterToolClient: OtterToolClient;
+      otterToolClient: OtterToolClient | null;
       model: unknown;
       modelPool?: ModelPool;
       identityPromptDir?: string;
@@ -205,11 +211,13 @@ export class PiSessionFactory implements AgentGateway {
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     if (!this.piCodingAgent) {
-      this.piCodingAgent = await loadPiCodingAgent();
+      /** 先走完全部初始化再缓存：中途抛错（如 registerProvider 失败）不得留下
+       *  半初始化的缓存态，否则后续调用直接命中缓存、provider 注册永久缺失直到重启 */
+      const piCodingAgent = await loadPiCodingAgent();
 
       /** 创建 ResourceLoader：通过 SDK 原生协议注入 skills（替代手动拼接） */
       if (!this.resourceLoader) {
-        const { DefaultResourceLoader, getAgentDir } = this.piCodingAgent as unknown as {
+        const { DefaultResourceLoader, getAgentDir } = piCodingAgent as unknown as {
           DefaultResourceLoader: new (options: unknown) => ResourceLoader;
           getAgentDir: () => string;
         };
@@ -227,17 +235,16 @@ export class PiSessionFactory implements AgentGateway {
       }
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
-      const ModelRuntimeClass = (this.piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
-      this.modelRuntime = await ModelRuntimeClass.create() as { setRuntimeApiKey(provider: string, key: string): Promise<void> };
+      const ModelRuntimeClass = (piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
+      this.modelRuntime = await ModelRuntimeClass.create() as {
+        setRuntimeApiKey(provider: string, key: string): Promise<void>;
+        registerProvider(providerId: string, config: Record<string, unknown>): void;
+      };
 
-      // 多模型模式：遍历所有模型设置 API key
+      // 多模型模式：遍历所有模型注册 provider + 设置 API key
       if (this.cfg.modelPool) {
-        const entries = this.cfg.modelPool.getAllEntries();
-        for (const entry of entries) {
-          if (entry.config.apiKey && this.modelRuntime) {
-            await this.modelRuntime.setRuntimeApiKey(entry.alias, entry.config.apiKey);
-            this.logger.info(`Set runtime API key for alias=${entry.alias}`);
-          }
+        for (const entry of this.cfg.modelPool.getAllEntries()) {
+          await this._registerRuntimeModel(entry.alias, entry.config, entry.model);
         }
       } else {
         // 单模型模式：兼容旧逻辑
@@ -247,8 +254,55 @@ export class PiSessionFactory implements AgentGateway {
           this.logger.info(`Set runtime API key for ${llmConfig.provider}`);
         }
       }
+
+      this.piCodingAgent = piCodingAgent;
     }
     return this.piCodingAgent;
+  }
+
+  /**
+   * 把一个模型条目注册进 ModelRuntime。
+   * 自定义 alias 必须注册进 ModelRuntime 的 provider 注册表：
+   * AgentSession 鉴权走 modelRuntime.getAuth()，对未知 provider 直接返回 undefined
+   * （报 "No API key found for <alias>"），即使已 setRuntimeApiKey 也查不到。
+   * alias 与内置 provider 同名时跳过注册（内置 provider 天然在注册表中）。
+   */
+  private async _registerRuntimeModel(alias: string, config: ModelConfig, model: unknown): Promise<void> {
+    if (!this.modelRuntime) return;
+    if (alias !== config.provider) {
+      const m = model as {
+        id: string; name?: string; reasoning?: boolean; input?: string[]; baseUrl?: string;
+        cost?: unknown; contextWindow?: number; maxTokens?: number;
+        thinkingLevelMap?: unknown; compat?: unknown;
+      };
+      this.modelRuntime.registerProvider(alias, {
+        // config 只配 apiKey 不配 apiBaseUrl 时回退到 pool model 的 baseUrl（template 兜底，总有值），
+        // 否则 SDK 对"注册了 models 但无 baseUrl"的 provider 同步抛错
+        baseUrl: config.apiBaseUrl ?? m.baseUrl,
+        apiKey: config.apiKey,
+        api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
+        models: [{
+          id: m.id,
+          name: m.name ?? m.id,
+          reasoning: m.reasoning ?? false,
+          thinkingLevelMap: m.thinkingLevelMap,
+          input: m.input ?? ["text"],
+          cost: m.cost,
+          contextWindow: m.contextWindow,
+          maxTokens: m.maxTokens,
+          compat: m.compat,
+        }],
+      });
+      this.logger.info(`Registered runtime provider for alias=${alias}`);
+    }
+    if (config.apiKey) {
+      // 设置 API key 到 alias 和 provider 两个名称上（SDK 可能用任一名称查找）
+      await this.modelRuntime.setRuntimeApiKey(alias, config.apiKey);
+      if (alias !== config.provider) {
+        await this.modelRuntime.setRuntimeApiKey(config.provider, config.apiKey);
+      }
+      this.logger.info(`Set runtime API key for alias=${alias} (also for provider=${config.provider})`);
+    }
   }
 
   /** create() 外部版本（带锁） */
@@ -359,14 +413,11 @@ export class PiSessionFactory implements AgentGateway {
       throw err;
     }
 
-    // 6. 清理旧 session 文件（安全检查：避免删除刚创建的文件）
+    // 6. 保留旧 session 文件（F20260805rsto：与 destroy() 的审计策略统一）。
+    // domain 账本行说「封存」，证据文件就不能删——且新 session header 的 parentSession
+    // 血缘指针指向旧文件，删了就是悬空指针。旧文件不再被引用，仅作审计留档。
     if (oldSessionFile && oldSessionFile !== sessionFile) {
-      try {
-        fs.unlinkSync(oldSessionFile);
-        this.logger.debug(`Deleted old session file: ${oldSessionFile}`);
-      } catch (err) {
-        this.logger.warn(`Failed to delete old session file: ${oldSessionFile}`, { error: err });
-      }
+      this.logger.debug(`Previous session file retained for audit: ${oldSessionFile}`);
     }
 
     // 7. 标记下次 invoke 重新注入身份（新 session 上下文中没有身份内容）
@@ -394,7 +445,7 @@ export class PiSessionFactory implements AgentGateway {
     options: InvokeOptions | undefined,
   ): Promise<AgentRunResult> {
     // 前置校验
-    if (!this.otterToolClient) {
+    if (this.otterToolClient == null) {
       throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
     }
 
@@ -519,7 +570,7 @@ export class PiSessionFactory implements AgentGateway {
     this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
     // 2. 熔断器 + 输出退化检测
-    const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard } = this._attachGuards(session, sessionKey, otterId);
+    const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = this._attachGuards(session, sessionKey, otterId);
 
     // 3. 构建完整消息并记录日志
     const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
@@ -527,11 +578,11 @@ export class PiSessionFactory implements AgentGateway {
 
     const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent, turnText));
     try {
+      /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
+      armFirstByte();
       await session.prompt(fullMessage);
-      const result = this._buildInvokeResult(otterId, session, circuitBreaker);
-      result.outputGuardMetadata = outputGuard.getMetadata();
-      if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
-      return result;
+      this._checkSessionError(session, otterId);
+      return this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
     } catch (err) {
       const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
       e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
@@ -541,6 +592,49 @@ export class PiSessionFactory implements AgentGateway {
       unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
+      /** F20260804dglp 修复 3：dispose 后清洗 session 文件，斩断退化内容污染飞轮 */
+      this.sanitizeSessionSafely(otterId, sessionManager);
+    }
+  }
+
+  /** 检查 session 是否记录了 LLM API 错误（SDK 自动重试后可能返回空响应而不抛异常） */
+  private _checkSessionError(session: { state: { errorMessage?: string } }, otterId: string): void {
+    const errorMessage = session.state.errorMessage;
+    if (errorMessage) {
+      this.logger.error('LLM API error detected after prompt', undefined, { otterId, errorMessage });
+      throw new Error(`LLM API error: ${errorMessage}`);
+    }
+  }
+
+  /** prompt 成功后的结果组装 + 首字节延迟埋点日志（F20260804dglp） */
+  private _buildPromptResult(
+    otterId: string,
+    session: { getSessionStats: () => { tokens: { input: number; output: number } } },
+    circuitBreaker: ToolCallCircuitBreaker,
+    outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number } },
+    activeEntry: { guardAbortReason?: string } | undefined,
+  ): AgentRunResult {
+    const result = this._buildInvokeResult(otterId, session, circuitBreaker);
+    const guardMeta = outputGuard.getMetadata();
+    result.outputGuardMetadata = guardMeta;
+    if (guardMeta.firstByteLatencyMs !== undefined) {
+      this.logger.info('LLM first-byte latency', { otterId, firstByteLatencyMs: guardMeta.firstByteLatencyMs });
+    }
+    if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
+    return result;
+  }
+
+  /** session 文件清洗（幂等；失败只告警，绝不影响 invoke 主路径） */
+  private sanitizeSessionSafely(otterId: string, sessionManager: SessionManager): void {
+    try {
+      const file = sessionManager.getSessionFile();
+      if (!file) return;
+      const result = sanitizeSessionFile(file);
+      if (result.replacedBlocks > 0) {
+        this.logger.warn(`[session-sanitizer] 清洗退化块: otter=${otterId} blocks=${result.replacedBlocks}`, { hits: result.hits });
+      }
+    } catch (err) {
+      this.logger.warn(`[session-sanitizer] 清洗失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -609,12 +703,26 @@ export class PiSessionFactory implements AgentGateway {
   }
   private _attachGuards(session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> }, sessionKey: string, otterId: string) {
     const activeEntry = this.activeSessions.get(sessionKey);
-    const timerRef: { clear: () => void } = { clear: () => {} };
+    const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
     const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
     const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
     timerRef.clear = clearEventTimer;
-    const cfg = { ...appConfig.circuitBreaker?.outputGuard, streamingTimeoutMs: appConfig.circuitBreaker?.streamingTimeoutMs }; const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, () => wrappedAbort(outputGuard.getMetadata().reason));
-    return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard };
+    /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
+    const cb = appConfig.circuitBreaker;
+    const cfg: Partial<OutputGuardConfig> = {
+      ...cb?.outputGuard,
+      ...(cb?.streamingTimeoutMs !== undefined && { streamingTimeoutMs: cb.streamingTimeoutMs }),
+      ...(cb?.firstByteTimeoutMs !== undefined && { firstByteTimeoutMs: cb.firstByteTimeoutMs }),
+    };
+    /** abort 返回 Promise：fire 路径无人 await，catch 防 unhandledRejection */
+    const guardAbort = () => {
+      void wrappedAbort(outputGuard.getMetadata().reason).catch((err: unknown) => {
+        this.logger.warn(`[output-guard] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    };
+    const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, this.logger, guardAbort);
+    const armFirstByte = () => outputGuard.armFirstByteTimer(guardAbort);
+    return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte };
   }
   /** 中断指定 Otter 的 Agent 生成 */
   abort(otterId: string, messageId?: string): void {
@@ -670,7 +778,7 @@ export class PiSessionFactory implements AgentGateway {
     execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>;
   }> {
     const otterTools = this.cfg.createTools({
-      client: this.otterToolClient,
+      client: this.otterToolClient!,
       otterId,
       conversationId,
       currentMessageId: messageId ?? "",

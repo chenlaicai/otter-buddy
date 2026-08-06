@@ -3,6 +3,7 @@ import type {
   Message,
   MessageEvent,
   MessageEventType,
+  MessageMetadata,
   MessageSource,
 } from "@entities/conversation/message";
 import {
@@ -32,6 +33,8 @@ export interface SendMessageInput {
   body: string;
   /** 用户消息来源（"web" | "feishu"），默认 "web"。agent/系统消息不需要此字段 */
   source?: MessageSource;
+  /** F20260805rbrg：外部元数据（招聘桥接查重用，外部消息才填） */
+  metadata?: MessageMetadata | null;
 }
 
 /** Otter 开始流式消息输入 */
@@ -82,9 +85,6 @@ export class SendMessage {
     private readonly logger: Logger,
   ) {}
 
-  /** 暴露 repo 给需要读取消息的场景（如发言链的未读消息查询） */
-  get repo(): ConversationRepository { return this._repo; }
-
   /** 用户发送消息（立即 completed） */
   async send(input: SendMessageInput): Promise<Message> {
     const senderType = input.senderType ?? "user";
@@ -122,6 +122,7 @@ export class SendMessage {
       contextTokens: null,
       contextTokensMax: null,
       source,
+      metadata: input.metadata ?? null,
       createdAt: now,
       completedAt: now,
     };
@@ -132,7 +133,7 @@ export class SendMessage {
     await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(input.body));
 
     /** 尝试关闭 Turn */
-    await tryCloseTurn(this.repo, turn.id);
+    await tryCloseTurn(this._repo, turn.id);
 
     // 记录消息发送日志
     this.logger.info('Message sent', {
@@ -249,7 +250,7 @@ export class SendMessage {
     });
     /** 索引记忆用剥离投影（html-card 源码不入索引，与 FTS 一致） */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(body));
-    const turnClose = await tryCloseTurn(this.repo, message.turnId);
+    const turnClose = await tryCloseTurn(this._repo, message.turnId);
 
     return {
       message: { ...message, status: "completed", body, talkingStonePassedTo, completedAt: now },
@@ -287,7 +288,7 @@ export class SendMessage {
     await this._repo.failMessage(messageId, now, body, talkingStonePassedTo);
 
     /** 尝试关闭 Turn */
-    await tryCloseTurn(this.repo, message.turnId);
+    await tryCloseTurn(this._repo, message.turnId);
   }
 
   /**
@@ -316,7 +317,7 @@ export class SendMessage {
     await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(input.body));
 
     /** 尝试关闭 Turn */
-    await tryCloseTurn(this.repo, message.turnId);
+    await tryCloseTurn(this._repo, message.turnId);
 
     return {
       ...message,

@@ -1,4 +1,5 @@
 import type { LocalMessage } from './mappers'
+import { nowTs } from './utils'
 
 /**
  * 消息流纯函数（F20260724cwgn：统一渲染通道 + 轮询续看）。
@@ -40,6 +41,41 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
   const pos = list.findIndex(m => m.seq != null && m.seq > msg.seq!)
   if (pos === -1) return [...list, msg]
   return [...list.slice(0, pos), msg, ...list.slice(pos)]
+}
+
+/**
+ * 终态消息 upsert（F20260805abpp 第四轮检视 S4-1）：与已有投影合并保留字段。
+ * MPA 新页面的 live 状态为空，终态事件（complete/failed/aborted）构造的消息缺
+ * events/seq/ts 等字段，整体替换会抹掉 DTO 快照已加载的投影（工具调用链、消息时间、
+ * 时序锚点）。调用方把能确定的字段放进 msg（ts 传空串表示未知），已有投影回退补齐。
+ */
+export function upsertTerminalMessage(list: LocalMessage[], msg: LocalMessage): LocalMessage[] {
+  const existing = list.find(m => m.id === msg.id)
+  if (!existing) return upsertMessage(list, { ...msg, ts: msg.ts || nowTs() })
+  const merged: LocalMessage = {
+    ...msg,
+    si: msg.si || existing.si,
+    sn: msg.sn ?? existing.sn,
+    ts: msg.ts || existing.ts,
+    seq: msg.seq ?? existing.seq,
+    events: msg.events ?? existing.events,
+    ctx: msg.ctx ?? existing.ctx,
+    ctxMax: msg.ctxMax ?? existing.ctxMax,
+    turnId: msg.turnId ?? existing.turnId,
+    src: msg.src ?? existing.src,
+  }
+  return upsertMessage(list, merged)
+}
+
+/**
+ * 需要向服务器定点拉取终态的进行中消息（F20260805abpp）。
+ * /after 增量游标是本地最后一条消息，结果严格在其之后——
+ * 游标消息自身的 streaming→aborted/completed 状态迁移永远不在增量里，
+ * 尤其 in-flight 恰好是最新消息时增量恒为空，定点拉取是唯一收敛路径。
+ */
+export function findStaleInFlight(list: LocalMessage[], newerIds: Set<string>): LocalMessage[] {
+  return list.filter(m =>
+    isInFlight(m) && !newerIds.has(m.id) && !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
 }
 
 /**

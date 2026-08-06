@@ -94,11 +94,11 @@ export class ModelPool {
     return result;
   }
 
-  /** 返回所有条目，供 ensurePiCodingAgent 遍历设 key */
-  getAllEntries(): Array<{ alias: string; config: ModelConfig }> {
-    const result: Array<{ alias: string; config: ModelConfig }> = [];
+  /** 返回所有条目（含 model 对象），供 ensurePiCodingAgent 注册 provider + 设 key */
+  getAllEntries(): Array<{ alias: string; config: ModelConfig; model: unknown }> {
+    const result: Array<{ alias: string; config: ModelConfig; model: unknown }> = [];
     for (const [alias, entry] of this.entries) {
-      result.push({ alias, config: entry.config });
+      result.push({ alias, config: entry.config, model: entry.model });
     }
     return result;
   }

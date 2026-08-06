@@ -142,18 +142,20 @@ describe('ModelPool', () => {
   });
 
   describe('getAllEntries', () => {
-    it('returns all entries with alias and config', () => {
+    it('returns all entries with alias, config and model', () => {
       const config1 = makeConfig('default');
       const config2 = makeConfig('fast');
+      const model1 = makeModel('default');
+      const model2 = makeModel('fast');
       const pool = buildModelPool('default', [
-        { config: config1, model: makeModel('default') },
-        { config: config2, model: makeModel('fast') },
+        { config: config1, model: model1 },
+        { config: config2, model: model2 },
       ]);
 
       const entries = pool.getAllEntries();
       expect(entries).toHaveLength(2);
-      expect(entries[0]).toEqual({ alias: 'default', config: config1 });
-      expect(entries[1]).toEqual({ alias: 'fast', config: config2 });
+      expect(entries[0]).toEqual({ alias: 'default', config: config1, model: model1 });
+      expect(entries[1]).toEqual({ alias: 'fast', config: config2, model: model2 });
     });
   });
 

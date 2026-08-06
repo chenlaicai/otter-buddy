@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { Check, Copy } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import type { LocalOtter as Otter, LocalOtterSession as OtterSession } from '../../lib/mappers'
+import { sortSessionChain } from '../../lib/session-chain'
 
 interface Skill { id: string; name: string; desc: string; type: string; assignedTo: string[] }
 const mockSkills: Skill[] = [
@@ -243,7 +245,7 @@ function RestartModal(props: ModalsProps) {
       }
     >
       <p className="text-sm text-stone-600">
-        重启 <strong className="text-otter-500">{otter?.name}</strong> 的獭生将封存当前 Session 为反面案例，并开新 Session 换角度重来。
+        重启 <strong className="text-otter-500">{otter?.name}</strong> 的獭生将封存当前 Session（前世），以全新上下文开启新一世。前世记录可在详情的 Session Chain 中查看。
       </p>
       <div className="mt-3">
         <label className="block text-xs font-medium text-stone-600 mb-1.5">前情摘要（可编辑）</label>
@@ -257,13 +259,41 @@ function RestartModal(props: ModalsProps) {
   )
 }
 
+/** 非安全上下文（局域网 IP 访问 dev server 等）无 clipboard API 时的降级复制 */
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { /* 降级也失败则静默，title 仍展示全量 id */ }
+  document.body.removeChild(ta)
+  return ok
+}
+
 function OtterDetailModal(props: ModalsProps) {
   const { modal } = props
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const otter = modal.type === 'otter-detail' ? props.otters.find(o => o.id === modal.otterId) : null
   if (!otter) return null
 
   const sessions: OtterSession[] = props.sessions[otter.id] || []
-  const otterSkills: Skill[] = mockSkills.filter(s => s.assignedTo.includes(otter.id))
+  const chain: OtterSession[] = sortSessionChain(sessions)
+
+  const copySessionId = (id: string) => {
+    const done = () => {
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(cur => (cur === id ? null : cur)), 1500)
+    }
+    // 打勾反馈挂在复制成功之后，避免复制实际失败也显示成功
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(id).then(done).catch(() => { if (legacyCopy(id)) done() })
+    } else if (legacyCopy(id)) {
+      done()
+    }
+  }
 
   return (
     <Modal
@@ -290,68 +320,82 @@ function OtterDetailModal(props: ModalsProps) {
         <div className="flex-1 space-y-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">名称</div>
-            <div className="text-sm mt-0.5 text-stone-700">{otter.name}</div>
+            <div className="text-sm mt-0.5 text-stone-800">{otter.name}</div>
           </div>
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">类型</div>
-            <div className="text-sm mt-0.5 text-stone-700">{otter.type === 'big' ? '大獭' : '小獭'}</div>
+            <div className="text-sm mt-0.5 text-stone-800">{otter.type === 'big' ? '大獭' : '小獭'}</div>
           </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">角色</div>
-            <div className="text-sm mt-0.5 text-stone-700">{otter.role?.name || '-'}</div>
-          </div>
+          {otter.role?.name && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">角色</div>
+              <div className="text-sm mt-0.5 text-stone-800">{otter.role.name}</div>
+            </div>
+          )}
         </div>
         <div className="flex-1 space-y-3">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">职责列表</div>
-            <ul className="text-sm mt-0.5 list-disc pl-4 text-stone-700">
-              {otter.role?.resp?.length ? otter.role.resp.map((r, i) => <li key={i}>{r}</li>) : <li>-</li>}
-            </ul>
-          </div>
+          {!!otter.role?.resp?.length && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">职责列表</div>
+              <ul className="text-sm mt-0.5 list-disc pl-4 text-stone-800">
+                {otter.role.resp.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </div>
+          )}
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">创建时间</div>
-            <div className="text-sm mt-0.5 text-stone-700">{otter.createdAt}</div>
+            <div className="text-sm mt-0.5 text-stone-800">{otter.createdAt}</div>
           </div>
         </div>
-      </div>
-
-      <div className="mb-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5">Session Chain</div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-stone-500 border-b border-white/30">
-              <th className="py-1.5 px-2 text-left">状态</th>
-              <th className="py-1.5 px-2 text-left">开始</th>
-              <th className="py-1.5 px-2 text-left">归档</th>
-              <th className="py-1.5 px-2 text-left">原因</th>
-              <th className="py-1.5 px-2 text-left">反面</th>
-              <th className="py-1.5 px-2 text-left">摘要</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map(s => (
-              <tr key={s.id} className="border-b border-white/20">
-                <td className="py-1.5 px-2 text-xs text-stone-600">
-                  {s.status === 'active' ? '✓ 活跃' : '归档'}
-                </td>
-                <td className="py-1.5 px-2 text-xs text-stone-600">{s.startedAt}</td>
-                <td className="py-1.5 px-2 text-xs text-stone-600">{s.archivedAt || '-'}</td>
-                <td className="py-1.5 px-2 text-xs text-stone-600">{s.archiveReason || '-'}</td>
-                <td className="py-1.5 px-2 text-xs text-stone-600">{s.isNegativeCase ? '是' : '-'}</td>
-                <td className="py-1.5 px-2 text-xs text-stone-600">{s.summary || '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
 
       <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5">已加载能力</div>
-        <div className="flex gap-1.5 flex-wrap">
-          {otterSkills.length ? otterSkills.map(s => (
-            <span key={s.id} className="text-xs font-medium px-2 py-0.5 rounded-full bg-white/40 text-stone-600">{s.name}</span>
-          )) : <span className="text-xs text-stone-500">无已加载能力</span>}
-        </div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5">Session Chain</div>
+        {chain.length === 0 ? (
+          <div className="text-xs text-stone-500">暂无 session 记录</div>
+        ) : (
+          <div className="space-y-2">
+            {chain.map((s, i) => (
+              <div
+                key={s.id}
+                className={`rounded-xl border px-3 py-2 ${
+                  s.status === 'active'
+                    ? 'border-otter-400/50 bg-otter-400/10'
+                    : 'border-stone-300/50 bg-white/40'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-stone-800">第{i + 1}世</span>
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                    s.status === 'active' ? 'bg-otter-400/20 text-otter-500' : 'bg-stone-400/15 text-stone-500'
+                  }`}>
+                    {s.status === 'active' ? '当前' : s.status === 'restarted' ? '已重启' : '已归档'}
+                  </span>
+                  <button
+                    onClick={() => copySessionId(s.id)}
+                    title={`${s.id}\n点击复制`}
+                    className="ml-auto flex items-center gap-1 text-[11px] font-mono text-stone-500 hover:text-stone-700 transition"
+                  >
+                    {copiedId === s.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    {s.id.length > 12 ? `${s.id.slice(0, 8)}…` : s.id}
+                  </button>
+                </div>
+                <div className="text-[11px] text-stone-500 mt-1">
+                  开始 {s.startedAt}{s.archivedAt ? ` · 归档 ${s.archivedAt}` : ''}
+                </div>
+                {s.archiveReason && (
+                  <div className="text-xs text-stone-600 mt-1">归档原因：{s.archiveReason}</div>
+                )}
+                {/* F20260805rsto：active 行的 summary 是注入新獭生的「前情」，不是封存摘要，标注区分 */}
+                {s.summary && (
+                  <div className="text-xs text-stone-700 mt-1.5 leading-relaxed">
+                    {s.status === 'active' ? `前情：${s.summary}` : s.summary}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </Modal>
   )

@@ -100,6 +100,8 @@ function createMessageTables(db: Database.Database): void {
       talking_stone_passed_to TEXT,
       context_tokens INTEGER,
       context_tokens_max INTEGER,
+      source TEXT,
+      metadata TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
@@ -168,6 +170,14 @@ function createMemoryTables(db: Database.Database): void {
       memory_entry_id UNINDEXED,
       content,
       tokenize = 'trigram'
+    );
+  `);
+
+  // F20260805hybrid: jieba 分词表，支持中文短查询
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
+      memory_entry_id UNINDEXED,
+      content
     );
   `);
 
@@ -289,7 +299,6 @@ function createOtterTables(db: Database.Database): void {
       archive_reason TEXT,
       is_negative_case INTEGER NOT NULL DEFAULT 0,
       summary TEXT,
-      handoff_summary TEXT,
       previous_session_id TEXT,
       FOREIGN KEY (otter_id) REFERENCES otters(id),
       FOREIGN KEY (previous_session_id) REFERENCES otter_sessions(id)

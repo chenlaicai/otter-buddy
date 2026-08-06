@@ -34,6 +34,12 @@ export interface AppConfig {
   };
   memory: {
     rrfK: number;
+    /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
+    alpha: number;
+    /** Vec 相似度阈值，低于此值的结果被过滤，默认 0.3 */
+    vecSimilarityThreshold: number;
+    /** 两路命中（source=both）的加成系数，默认 1.2 */
+    bothBoost: number;
     weightHalfLifeDays: number;
     userFlagMultiplier: number;
     frequencyBoostFactor: number;
@@ -66,16 +72,27 @@ export interface AppConfig {
     maxChainDepth: number;
     outputGuard: {
       enabled: boolean;
-      segmentLength: number;
-      maxRepeatedSegments: number;
-      checkInterval: number;
+      /** 退化检测器参数（F20260804dglp 双机制） */
+      detector: {
+        windowLength: number;
+        maxWindowRepeats: number;
+        minBlockLength: number;
+        distinctRatioThreshold: number;
+      };
     };
     streamingTimeoutMs: number;
+    /** 首字节超时（F20260804dglp）：prompt 后无 delta 的挂死保护 */
+    firstByteTimeoutMs: number;
   };
   feishu?: {
     appId: string;
     appSecret: string;
     encryptKey?: string;
+  };
+  inbound?: {
+    recruiting?: {
+      apiKey: string;
+    };
   };
 }
 
@@ -107,6 +124,9 @@ interface RawConfig {
   };
   memory?: {
     rrfK?: number;
+    alpha?: number;
+    vecSimilarityThreshold?: number;
+    bothBoost?: number;
     weightHalfLifeDays?: number;
     userFlagMultiplier?: number;
     frequencyBoostFactor?: number;
@@ -128,22 +148,31 @@ interface RawConfig {
     maxChainDepth?: number;
     outputGuard?: {
       enabled?: boolean;
-      segmentLength?: number;
-      maxRepeatedSegments?: number;
-      checkInterval?: number;
+      detector?: {
+        windowLength?: number;
+        maxWindowRepeats?: number;
+        minBlockLength?: number;
+        distinctRatioThreshold?: number;
+      };
     };
     streamingTimeoutMs?: number;
+    firstByteTimeoutMs?: number;
   };
   feishu?: {
     appId?: string;
     appSecret?: string;
     encryptKey?: string;
   };
+  inbound?: {
+    recruiting?: {
+      apiKey?: string;
+    };
+  };
 }
 
 const CONFIG_PATH = path.resolve(process.cwd(), "config/config.yaml");
 
-const VALID_PROVIDERS = ["openai", "anthropic"];
+const VALID_PROVIDERS = ["openai", "anthropic", "kimi-coding"];
 
 /** 取值或默认值 */
 function d<T>(value: T | undefined, fallback: T): T {
@@ -222,6 +251,9 @@ function buildDbConfig(raw: RawConfig): AppConfig["db"] {
 function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
   return {
     rrfK: d(raw.memory?.rrfK, 60),
+    alpha: d(raw.memory?.alpha, 0.4),
+    vecSimilarityThreshold: d(raw.memory?.vecSimilarityThreshold, 0.3),
+    bothBoost: d(raw.memory?.bothBoost, 1.2),
     weightHalfLifeDays: d(raw.memory?.weightHalfLifeDays, 7),
     userFlagMultiplier: d(raw.memory?.userFlagMultiplier, 2.0),
     frequencyBoostFactor: d(raw.memory?.frequencyBoostFactor, 0.1),
@@ -229,11 +261,15 @@ function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
 }
 
 function buildOutputGuardConfig(raw: RawConfig): AppConfig["circuitBreaker"]["outputGuard"] {
+  const rawDetector = raw.circuitBreaker?.outputGuard?.detector;
   return {
     enabled: d(raw.circuitBreaker?.outputGuard?.enabled, true),
-    segmentLength: d(raw.circuitBreaker?.outputGuard?.segmentLength, 100),
-    maxRepeatedSegments: d(raw.circuitBreaker?.outputGuard?.maxRepeatedSegments, 50),
-    checkInterval: d(raw.circuitBreaker?.outputGuard?.checkInterval, 20),
+    detector: {
+      windowLength: d(rawDetector?.windowLength, 100),
+      maxWindowRepeats: d(rawDetector?.maxWindowRepeats, 50),
+      minBlockLength: d(rawDetector?.minBlockLength, 5000),
+      distinctRatioThreshold: d(rawDetector?.distinctRatioThreshold, 0.3),
+    },
   };
 }
 
@@ -250,6 +286,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 100),
     outputGuard: buildOutputGuardConfig(raw),
     streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
+    firstByteTimeoutMs: d(raw.circuitBreaker?.firstByteTimeoutMs, 300000),
   };
 }
 
@@ -261,6 +298,17 @@ function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
     appId: raw.feishu.appId,
     appSecret: raw.feishu.appSecret,
     encryptKey: raw.feishu.encryptKey ?? undefined,
+  };
+}
+
+function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
+  if (!raw.inbound?.recruiting?.apiKey) {
+    return undefined;
+  }
+  return {
+    recruiting: {
+      apiKey: raw.inbound.recruiting.apiKey,
+    },
   };
 }
 
@@ -297,6 +345,7 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
+    inbound: buildInboundConfig(raw),
   };
 }
 

@@ -1,5 +1,5 @@
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
-import type { SendMessage } from "./send-message";
+import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
@@ -35,7 +35,7 @@ export type InvokeFn = (params: InvokeFnParams) => Promise<InvokeFnResult>;
 export class DispatchChainEngine {
   constructor(
     private readonly deps: {
-      sendMessage: SendMessage;
+      conversationRepo: ConversationRepository;
       queryMessage: QueryMessage;
       queryOtter: QueryOtter;
       logger: Logger;
@@ -153,7 +153,7 @@ export class DispatchChainEngine {
 
   /** 在场成员名册：name 映射注入，speak 决策时免费在场（F20260803trrf: 去 otterId，speak 改用名字） */
   async buildRoster(conversationId: string): Promise<string> {
-    const participants = await this.deps.sendMessage.repo.getActiveParticipants(conversationId);
+    const participants = await this.deps.conversationRepo.getActiveParticipants(conversationId);
     const lines = await Promise.all(participants.map(async p => {
       const otter = await this.deps.queryOtter.getById(p.otterId);
       return `- ${otter?.name ?? p.otterId}`;
@@ -170,7 +170,7 @@ export class DispatchChainEngine {
     senderId: string,
     roster: string,
   ): Promise<string> {
-    const unreadMessages = await this.deps.sendMessage.repo.getUnreadMessages(conversationId, otterId);
+    const unreadMessages = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
     if (unreadMessages.length === 0) {
       return `${roster}\n\n## 当前任务\n${userMessageContent}`;
     }
@@ -215,9 +215,9 @@ export class DispatchChainEngine {
       if (!messageId) continue;
       const msg = await this.deps.queryMessage.getMessageById(messageId);
       if (!msg) continue;
-      const turn = await this.deps.sendMessage.repo.getTurnById(msg.turnId);
+      const turn = await this.deps.conversationRepo.getTurnById(msg.turnId);
       if (!turn) continue;
-      await this.deps.sendMessage.repo.updateLastReadTurnNumber(conversationId, msg.senderId, turn.turnNumber);
+      await this.deps.conversationRepo.updateLastReadTurnNumber(conversationId, msg.senderId, turn.turnNumber);
     }
   }
 }

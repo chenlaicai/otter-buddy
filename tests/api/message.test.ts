@@ -375,7 +375,7 @@ describe("Message API - 未读注入剥离投影（F20260728htar）", () => {
     const app = createTestApp(deps);
     const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
     deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
-    deps.sendMessageUseCase.repo.getUnreadMessages.mockResolvedValue([
+    deps.conversationRepo.getUnreadMessages.mockResolvedValue([
       makeMessage({
         id: "otter-msg-1", senderType: "otter", senderId: "otter-1",
         body: '看卡片\n```html-card title="方案对比"\n<table><tr><td>噪声</td></tr></table>\n```\n完',

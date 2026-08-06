@@ -74,7 +74,7 @@ export interface OtterToolClient {
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
-    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, contentType?: MemoryContentType[]): Promise<MemorySearchEntry[]>;
+search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[]): Promise<MemorySearchEntry[]>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
   };

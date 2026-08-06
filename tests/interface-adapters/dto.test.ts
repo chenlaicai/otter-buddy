@@ -134,7 +134,7 @@ describe("OtterDTO", () => {
     const session: OtterSession = {
       id: "sess-1", otterId: "otter-1", status: "active",
       previousSessionId: null, startedAt: "2026-07-16T00:00:00Z",
-      archivedAt: null, archiveReason: null, isNegativeCase: false, summary: null, handoffSummary: null,
+      archivedAt: null, archiveReason: null, isNegativeCase: false, summary: null,
     };
     const dto = toOtterSessionDTO(session);
     expect(dto.id).toBe("sess-1");

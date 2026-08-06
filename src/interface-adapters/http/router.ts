@@ -1,3 +1,4 @@
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { randomUUID } from "crypto";
 import type { Logger } from "@usecases/ports/logger";
@@ -11,6 +12,7 @@ import type { ScheduledTaskController } from "./controllers/scheduled-task-contr
 import type { ConnectionController } from "./controllers/connection-controller";
 import type { HealthController } from "./controllers/health-controller";
 
+
 export interface Controllers {
   conversation: ConversationController;
   otter: OtterController;
@@ -21,6 +23,7 @@ export interface Controllers {
   scheduledTask: ScheduledTaskController;
   connection: ConnectionController;
   health: HealthController;
+  inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
@@ -52,7 +55,6 @@ function registerOtterRoutes(app: Hono, c: Controllers): void {
   app.post("/api/otters", (ctx) => c.otter.create(ctx));
   app.delete("/api/otters/:id", (ctx) => c.otter.dissolve(ctx));
   app.get("/api/otters/:id/sessions", (ctx) => c.otter.getSessionHistory(ctx));
-  app.post("/api/otters/:id/sessions", (ctx) => c.otter.createSession(ctx));
   app.post("/api/otters/:id/restart", (ctx) => c.otter.restart(ctx));
 }
 
@@ -91,6 +93,13 @@ function registerConnectionRoutes(app: Hono, c: Controllers): void {
   app.get("/api/connections/:id/conversations", (ctx) => c.connection.listActiveConversations(ctx));
 }
 
+/** F20260805rbrg：通用 inbound 端点（按 source 分发到 use case，路由名不焊死领域） */
+function registerInboundRoutes(app: Hono, c: Controllers): void {
+  app.options('/api/inbound/events', (ctx) => c.inbound.optionsEvents(ctx));
+  app.post('/api/inbound/events', (ctx) => c.inbound.receiveEvents(ctx));
+  app.get('/api/inbound/status', (ctx) => c.inbound.getStatus(ctx));
+}
+
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
 export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   const app = new Hono();
@@ -122,6 +131,7 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   registerDataRoutes(app, ctrl);
   registerScheduledTaskRoutes(app, ctrl);
   registerConnectionRoutes(app, ctrl);
+  registerInboundRoutes(app, ctrl);
 
   return app;
 }

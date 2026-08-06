@@ -1,0 +1,196 @@
+import type { AppConfig } from "@frameworks/config";
+import type { PinoLogger } from "@frameworks/logger";
+import type Database from "better-sqlite3";
+import type { ModelPool } from "@frameworks/llm/model-pool";
+import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
+import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { Repositories, UseCases } from "./types";
+import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
+import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
+import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
+import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
+import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import type { FeishuConfig } from "@frameworks/feishu/types";
+import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
+import { FeishuClient } from "@frameworks/feishu/client";
+import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
+import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
+import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
+import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
+import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
+import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
+import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
+import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
+import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
+import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
+
+export interface FeishuBundle {
+  broadcaster: MessageBroadcaster;
+  client: FeishuClient;
+  tokenManager: FeishuAccessTokenManager;
+  dispatchChainEngine: DispatchChainEngine;
+}
+
+/** 创建 AgentGateway（PiSessionFactory），解决 OtterToolClient 循环依赖 */
+export async function createAgentGateway(options: {
+  repos: Repositories;
+  otterConfigProvider: OtterConfigProvider;
+  model: unknown;
+  modelPool: ModelPool;
+  db: Database.Database;
+  logger: PinoLogger;
+}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void }> {
+  const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
+  // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
+  const agentGateway = await initAgentSessionFactory({
+    model, modelPool, db,
+    otterToolClient: null,
+    identityPromptDir: "./prompts/identity",
+    createTools: (ctx, repo, log) => {
+      const tools = createTools(ctx, repo, log);
+      if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
+      return tools;
+    },
+    healingRepo: repos.healingEvent,
+    otterConfigProvider,
+    otterRepo: repos.otter,
+  }, logger);
+
+  return {
+    agentGateway,
+    resolveOtterToolClient: (client: OtterToolClient) => agentGateway.setOtterToolClient(client),
+  };
+}
+
+export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: PinoLogger): DispatchChainEngine {
+  return new DispatchChainEngine({
+    conversationRepo: repos.conversation,
+    queryMessage: uc.queryMessage,
+    queryOtter: uc.queryOtter,
+    logger,
+    maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
+  });
+}
+
+export async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory, messageBroadcaster: MessageBroadcaster | undefined, logger: PinoLogger) {
+  await agentGateway.warmup();
+
+  const agentInvoker = new AgentInvoker(
+    agentGateway, uc.sendMessage,
+    uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
+    messageBroadcaster,
+  );
+
+  const cronParser = new SimpleCronParser();
+  const agentInvokePort = new AgentInvokePortAdapter(agentInvoker);
+  const schedulerService = new SchedulerService({
+    taskRepo: repos.scheduledTask,
+    convRepo: repos.conversation,
+    sendMessage: uc.sendMessage,
+    agentInvokePort,
+    cronParser,
+    logger,
+    manageScheduledTask: uc.manageScheduledTask,
+    healingRepo: repos.healingEvent,
+  });
+
+  return { agentInvoker, cronParser, schedulerService };
+}
+
+export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: PinoLogger): FeishuBundle {
+  const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
+  const client = new FeishuClient(feishuConfig, logger, tokenManager);
+  const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
+  return { broadcaster, client, tokenManager, dispatchChainEngine };
+}
+
+export function setupFeishu(appConfig: AppConfig, uc: UseCases, agentInvoker: AgentInvoker, feishu: FeishuBundle, logger: PinoLogger): void {
+  if (!appConfig.feishu) return;
+
+  const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
+  const agentDispatchService = new AgentDispatchService({
+    dispatchChainEngine: feishu.dispatchChainEngine,
+    queryMessage: uc.queryMessage,
+    agentInvokePort: agentInvoker,
+    logger,
+  });
+
+  const messageProcessor = new FeishuMessageProcessor({
+    manageConnection: uc.manageConnection,
+    sendMessage: uc.sendMessage,
+    commandDispatcher,
+    feishuGateway: feishu.client,
+    agentDispatchService,
+    messageBroadcaster: feishu.broadcaster,
+    logger,
+  });
+
+  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, feishu.tokenManager);
+  const longConnectionHandler = new FeishuLongConnectionHandler({
+    longConnectionGateway: longConnectionClient,
+    messageProcessor,
+    logger,
+  });
+
+  longConnectionHandler.start().then(() => {
+    logger.info("Feishu long connection started");
+  }).catch((err) => {
+    logger.error("Failed to start Feishu long connection", err instanceof Error ? err : undefined);
+  });
+}
+
+export interface PlatformBootstrapResult {
+  processInboundRecruit?: ProcessInboundRecruit;
+  inboundApiKey?: string;
+  getBridgeStatus?: GetBridgeStatus;
+  healingInit: Promise<void>;
+  recruitingInit: Promise<void>;
+}
+
+export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; logger: PinoLogger }): Promise<PlatformBootstrapResult> {
+  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger } = options;
+  const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
+    .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
+    .then(() => undefined)
+    .catch(err => logger.warn("Self-Healing init failed", { error: err instanceof Error ? err.message : String(err) }));
+
+  let processInboundRecruit: ProcessInboundRecruit | undefined;
+  let inboundApiKey: string | undefined;
+  let getBridgeStatus: GetBridgeStatus | undefined;
+  let recruitingInit: Promise<void> = Promise.resolve();
+  if (appConfig.inbound?.recruiting?.apiKey) {
+    inboundApiKey = appConfig.inbound.recruiting.apiKey;
+    processInboundRecruit = new ProcessInboundRecruit(
+      repos.settings,
+      uc.queryMessage,
+      uc.sendMessage,
+      dispatchChainEngine,
+      agentInvoker,
+      logger,
+    );
+    getBridgeStatus = new GetBridgeStatus(repos.settings);
+    recruitingInit = ensureRecruitingConversation({
+      convRepo: repos.conversation,
+      otterRepo: repos.otter,
+      createOtter: uc.createOtter,
+      settings: repos.settings,
+      sendMessage: uc.sendMessage,
+      logger,
+    })
+      .then(({ conversationId, bigOtterId }) => ensureRecruitingScheduler({
+        manageScheduledTask: uc.manageScheduledTask,
+        scheduledTaskRepo: repos.scheduledTask,
+        recruitingConversationId: conversationId,
+        bigOtterId,
+      }))
+      .catch(err => logger.warn("Recruiting init failed", { error: err instanceof Error ? err.message : String(err) }));
+  }
+
+  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit };
+}

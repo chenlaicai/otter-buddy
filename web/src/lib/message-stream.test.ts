@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { LocalMessage } from './mappers'
-import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages } from './message-stream'
+import { isInFlight, isTerminal, upsertMessage, insertBySeq, mergeMessages, findStaleInFlight, upsertTerminalMessage } from './message-stream'
 
 function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
   return {
@@ -125,5 +125,69 @@ describe('mergeMessages', () => {
     const current = [msg({ id: 'err-abc', status: 'failed', content: '[错误] x' })]
     const snapshot = [msg({ id: 'a', seq: 1 })]
     expect(mergeMessages(current, snapshot).map(m => m.id)).toEqual(['a', 'err-abc'])
+  })
+})
+
+describe('findStaleInFlight（F20260805abpp：/after 增量不含游标消息自身的状态迁移）', () => {
+  it('in-flight 恰好是最新消息（增量恒为空）时必须被挑出定点拉取', () => {
+    const list = [msg({ id: 'a', seq: 1 }), msg({ id: 'b', seq: 2, status: 'streaming' })]
+    const stale = findStaleInFlight(list, new Set())
+    expect(stale.map(m => m.id)).toEqual(['b'])
+  })
+
+  it('终态消息、tmp/err 本地消息、已在增量中的消息都被排除', () => {
+    const list = [
+      msg({ id: 'done', status: 'completed' }),
+      msg({ id: 'aborted', status: 'aborted' }),
+      /** tmp/err 前缀即使状态像 in-flight 也必须排除（本地乐观消息无服务器对应物） */
+      msg({ id: 'tmp-x', status: 'streaming', content: '' }),
+      msg({ id: 'err-x', status: 'streaming', content: '' }),
+      msg({ id: 'fresh', status: 'streaming' }),
+    ]
+    const stale = findStaleInFlight(list, new Set(['fresh']))
+    expect(stale).toEqual([])
+  })
+
+  it('speaking 状态同样视为 in-flight 需定点拉取', () => {
+    const list = [msg({ id: 's', status: 'speaking' })]
+    expect(findStaleInFlight(list, new Set()).map(m => m.id)).toEqual(['s'])
+  })
+
+  it('user 消息不视为 in-flight，即使 status 异常', () => {
+    const list = [msg({ id: 'u', st: 'user', si: 'user', status: 'streaming' })]
+    expect(findStaleInFlight(list, new Set())).toEqual([])
+  })
+})
+
+describe('upsertTerminalMessage（F20260805abpp 第四轮检视 S4-1：终态事件不得降级已有投影）', () => {
+  const evts = (n: number) => Array.from({ length: n }, (_, i) => ({ ts: '2026-08-05T00:00:00Z', eventType: 'assistant_toolcall', payload: { i } }))
+
+  it('incoming 缺 events/seq/ts 时保留已有投影字段（MPA 新页面 live 状态为空）', () => {
+    const existing = msg({ id: 'a', status: 'streaming', seq: 7, ts: '2026-08-05T01:00:00Z', events: evts(3), ctx: 100, turnId: 't1' })
+    const incoming = msg({ id: 'a', status: 'aborted', ts: '', seq: undefined, events: undefined, ctx: undefined, ctxMax: undefined, turnId: undefined })
+    const next = upsertTerminalMessage([existing], incoming)
+    expect(next[0].status).toBe('aborted')
+    expect(next[0].events).toHaveLength(3)
+    expect(next[0].seq).toBe(7)
+    expect(next[0].ts).toBe('2026-08-05T01:00:00Z')
+    expect(next[0].ctx).toBe(100)
+    expect(next[0].turnId).toBe('t1')
+  })
+
+  it('incoming 携带的字段优先（complete 事件的 ctx/turnId 不被旧占位覆盖）', () => {
+    const existing = msg({ id: 'a', status: 'streaming', seq: 7, ts: '2026-08-05T01:00:00Z', events: evts(1) })
+    const incoming = msg({ id: 'a', status: 'completed', ts: '', events: evts(5), ctx: 999, ctxMax: 1000, turnId: 't2' })
+    const next = upsertTerminalMessage([existing], incoming)
+    expect(next[0].events).toHaveLength(5)
+    expect(next[0].ctx).toBe(999)
+    expect(next[0].turnId).toBe('t2')
+    expect(next[0].seq).toBe(7)
+    expect(next[0].ts).toBe('2026-08-05T01:00:00Z')
+  })
+
+  it('消息不存在时直接插入并补 ts', () => {
+    const next = upsertTerminalMessage([], msg({ id: 'x', status: 'completed', ts: '' }))
+    expect(next).toHaveLength(1)
+    expect(next[0].ts).not.toBe('')
   })
 })

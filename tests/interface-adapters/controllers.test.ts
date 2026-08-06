@@ -17,6 +17,7 @@ import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { SendMessage } from "@usecases/conversation/send-message";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -201,7 +202,7 @@ describe("MessageController", () => {
     const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
     const queryOtter = { getById: async () => null } as unknown as QueryOtter;
     const dispatchChainEngine = new DispatchChainEngine({
-      sendMessage: {} as SendMessage,
+      conversationRepo: { getActiveParticipants: async () => [], getUnreadMessages: async () => [], getTurnById: async () => null, updateLastReadTurnNumber: async () => {} } as unknown as ConversationRepository,
       queryMessage,
       queryOtter,
       logger: mockLogger,
@@ -266,8 +267,9 @@ describe("MessageController sendMessage validation", () => {
   it("returns 400 when senderId is missing", async () => {
     const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
     const queryOtter = { getById: async () => null } as unknown as QueryOtter;
+    const conversationRepoStub = { getActiveParticipants: async () => [], getUnreadMessages: async () => [], getTurnById: async () => null, updateLastReadTurnNumber: async () => {} } as unknown as ConversationRepository;
     const dispatchChainEngine = new DispatchChainEngine({
-      sendMessage: {} as SendMessage,
+      conversationRepo: conversationRepoStub,
       queryMessage: {} as QueryMessage,
       queryOtter,
       logger: mockLogger,
@@ -294,8 +296,9 @@ describe("MessageController sendMessage validation", () => {
   it("returns 400 when body is missing", async () => {
     const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
     const queryOtter = { getById: async () => null } as unknown as QueryOtter;
+    const conversationRepoStub = { getActiveParticipants: async () => [], getUnreadMessages: async () => [], getTurnById: async () => null, updateLastReadTurnNumber: async () => {} } as unknown as ConversationRepository;
     const dispatchChainEngine = new DispatchChainEngine({
-      sendMessage: {} as SendMessage,
+      conversationRepo: conversationRepoStub,
       queryMessage: {} as QueryMessage,
       queryOtter,
       logger: mockLogger,
@@ -325,6 +328,8 @@ describe("SettingsController", () => {
     get: async () => null,
     update: async () => {},
     getAll: async () => ({}),
+    tryInsertIfAbsent: async () => true,
+    tryDeleteIfValueMatches: async () => true,
   };
 
   it("returns config values", async () => {

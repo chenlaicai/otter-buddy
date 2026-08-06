@@ -48,8 +48,8 @@ Same format as commit message. PR number is appended by GitHub automatically.
 2. Make changes and commit
 3. Push branch: git push -u origin <branch>
 4. Create PR: gh pr create
-5. Wait for review
-6. Another person reviews and merges
+5. 召唤检视獭对抗审视（流程见 SKILL.md step 8）
+6. 审视通过 → 搭档终审并合入
 7. Clean up worktree
 ```
 
