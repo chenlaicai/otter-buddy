@@ -16,3 +16,9 @@ export type SSEEventMap = {
 
 export type SSEEventType = keyof SSEEventMap;
 export type SSEEventPayload<T extends SSEEventType> = SSEEventMap[T];
+
+/** SSE 事件信封：服务端推送/订阅流转的通用结构（event 名 + 负载） */
+export interface SSEEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
