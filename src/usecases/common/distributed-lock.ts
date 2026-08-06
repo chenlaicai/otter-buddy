@@ -17,8 +17,6 @@ const MAX_POLL_ATTEMPTS = 20;
 
 export interface LockResult {
   acquired: boolean;
-  /** 如果锁被其他进程持有，等待后可能获得的结果 */
-  existingValue?: string | null;
 }
 
 /**
@@ -42,11 +40,7 @@ export async function acquireDistributedLock(
 
   // 2. 锁被其他进程持有，等待对方完成
   logger.info('Lock held by another process, waiting', { key });
-  const existingValue = await waitForLockRelease(settings, key, logger);
-  if (existingValue !== null) {
-    // 对方已完成，返回已有值
-    return { acquired: false, existingValue };
-  }
+  await waitForLockRelease(settings, key, logger);
 
   // 3. waitForLockRelease 可能清理了 stale lock，重新尝试获取锁
   const retryLockValue = `pending:${Date.now()}`;

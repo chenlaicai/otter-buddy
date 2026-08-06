@@ -174,27 +174,38 @@ export async function ensureRecruitingConversation(deps: {
     throw new Error('Failed to acquire lock for Recruiting conversation creation');
   }
 
-  // 3. 读 systemPrompt
-  const systemPrompt = readSystemPrompt(deps.promptPathOverride);
+  // 3. 创建对话（失败时清理 pending 值，避免阻塞其他进程）
+  try {
+    // 3.1 读 systemPrompt
+    const systemPrompt = readSystemPrompt(deps.promptPathOverride);
 
-  // 4. 创建带角色 prompt 的大獭
-  const bigOtter = await deps.createOtter.execute({
-    name: '大獭',
-    type: 'big',
-    systemPrompt,
-  });
+    // 3.2 创建带角色 prompt 的大獭
+    const bigOtter = await deps.createOtter.execute({
+      name: '大獭',
+      type: 'big',
+      systemPrompt,
+    });
 
-  // 5. 建 conversation + participant
-  const conversationId = await createConversationAndParticipant(deps.convRepo, bigOtter.id);
+    // 3.3 建 conversation + participant
+    const conversationId = await createConversationAndParticipant(deps.convRepo, bigOtter.id);
 
-  // 6. 持久化到 settings
-  await deps.settings.update(RECRUITING_CONVERSATION_KEY, conversationId);
-  await deps.settings.update(RECRUITING_BIG_OTTER_ID_KEY, bigOtter.id);
+    // 3.4 持久化到 settings
+    await deps.settings.update(RECRUITING_CONVERSATION_KEY, conversationId);
+    await deps.settings.update(RECRUITING_BIG_OTTER_ID_KEY, bigOtter.id);
 
-  // 7. 发欢迎消息
-  await sendWelcomeMessage(deps.sendMessage, conversationId);
+    // 3.5 发欢迎消息
+    await sendWelcomeMessage(deps.sendMessage, conversationId);
 
-  deps.logger.info('Recruiting conversation created', { conversationId, bigOtterId: bigOtter.id });
+    deps.logger.info('Recruiting conversation created', { conversationId, bigOtterId: bigOtter.id });
 
-  return { conversationId, bigOtterId: bigOtter.id, created: true };
+    return { conversationId, bigOtterId: bigOtter.id, created: true };
+  } catch (err) {
+    // 创建失败，清理 pending 值，让其他进程可以立即重试
+    const currentValue = await deps.settings.get(RECRUITING_CONVERSATION_KEY);
+    if (currentValue?.startsWith('pending:')) {
+      await deps.settings.tryDeleteIfValueMatches(RECRUITING_CONVERSATION_KEY, currentValue);
+      deps.logger.info('Cleaned pending lock after creation failure', { key: RECRUITING_CONVERSATION_KEY });
+    }
+    throw err;
+  }
 }
