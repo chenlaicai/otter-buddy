@@ -7,6 +7,8 @@ function createMockSettings(): SettingsRepository {
     get: vi.fn(),
     update: vi.fn(),
     getAll: vi.fn(),
+    tryInsertIfAbsent: vi.fn(),
+    tryDeleteIfValueMatches: vi.fn(),
   };
 }
 

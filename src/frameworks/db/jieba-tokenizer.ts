@@ -2,11 +2,20 @@
  * jieba 中文分词工具
  *
  * 使用 @node-rs/jieba 对中文内容进行分词，支持任意长度中文查询。
+ * Lazy initialization：避免模块 import 时因 native addon 加载失败而 crash 整个应用。
  */
 
 import { Jieba } from "@node-rs/jieba";
 
-const jieba = new Jieba();
+/** Lazy 初始化 jieba 实例 */
+let jiebaInstance: Jieba | null = null;
+
+function getJieba(): Jieba {
+  if (!jiebaInstance) {
+    jiebaInstance = new Jieba();
+  }
+  return jiebaInstance;
+}
 
 /** 中文停用词列表 */
 const STOP_WORDS = new Set([
@@ -27,7 +36,7 @@ const STOP_WORDS = new Set([
  */
 export function tokenizeWithJieba(text: string): string {
   if (!text) return "";
-  const words = jieba.cut(text, false);
+  const words = getJieba().cut(text, false);
   return words.join(" ");
 }
 
@@ -35,9 +44,12 @@ export function tokenizeWithJieba(text: string): string {
  * 对查询词进行 jieba 分词
  * @param query 查询词
  * @returns 分词结果数组（已过滤停用词）
+ * 注意：如果所有 token 都是停用词，返回原始查询词（避免空结果）
  */
 export function tokenizeQuery(query: string): string[] {
   if (!query) return [];
-  const words = jieba.cut(query, false);
-  return words.filter(word => !STOP_WORDS.has(word));
+  const words = getJieba().cut(query, false);
+  const filtered = words.filter(word => !STOP_WORDS.has(word));
+  // 如果过滤后为空，返回原始分词结果（避免查询无结果）
+  return filtered.length > 0 ? filtered : words;
 }

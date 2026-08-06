@@ -109,6 +109,8 @@ describe("ensureHealingConversation - pin 行为", () => {
       }),
       update: vi.fn(),
       getAll: vi.fn(async () => ({})),
+      tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
     const sendMessage = {
@@ -154,6 +156,8 @@ describe("ensureHealingConversation - pin 行为", () => {
       get: vi.fn(async () => null),
       update: vi.fn(),
       getAll: vi.fn(async () => ({})),
+      tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
     const sendMessage = {
@@ -207,6 +211,8 @@ describe("ensureHealingConversation - pin 行为", () => {
       }),
       update: vi.fn(),
       getAll: vi.fn(async () => ({})),
+      tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
     } as unknown as SettingsRepository;
 
     const sendMessage = {
@@ -227,5 +233,103 @@ describe("ensureHealingConversation - pin 行为", () => {
     expect(result.conversationId).toBe(conv.id);
     expect(result.bigOtterId).toBe(bigOtterId);
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("CAS 模式：并发创建时，第二个进程检测到锁值变化后复用已有对话", async () => {
+    const conv = existingConversation();
+    const bigOtterId = "otter-big-001";
+
+    const manageConversation = {
+      create: vi.fn(),
+      getById: vi.fn(async () => conv),
+      pin: vi.fn(async () => {}),
+    } as unknown as ManageConversation;
+
+    const convRepo = {
+      getActiveParticipants: vi.fn(),
+    } as unknown as ConversationRepository;
+
+    const otterRepo = {
+      getById: vi.fn(),
+    } as unknown as OtterRepository;
+
+    const settings = {
+      get: vi.fn(async (key: string) => {
+        // 模拟另一个进程已抢先创建了对话
+        if (key === HEALING_CONVERSATION_KEY) return conv.id;
+        if (key === HEALING_BIG_OTTER_ID_KEY) return bigOtterId;
+        return null;
+      }),
+      update: vi.fn(),
+      getAll: vi.fn(async () => ({})),
+      // tryInsertIfAbsent 返回 false，表示另一个进程已抢先
+      tryInsertIfAbsent: vi.fn(async () => false),
+    } as unknown as SettingsRepository;
+
+    const sendMessage = {
+      sendSystem: vi.fn(),
+    } as unknown as SendMessage;
+
+    const logger = mockLogger();
+
+    const result = await ensureHealingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      settings,
+      sendMessage,
+      logger,
+    });
+
+    // 应该复用已有对话，而不是创建新对话
+    expect(result.conversationId).toBe(conv.id);
+    expect(result.bigOtterId).toBe(bigOtterId);
+    expect(manageConversation.create).not.toHaveBeenCalled();
+  });
+
+  it("CAS 模式：创建失败时清理 pending 值", async () => {
+    const otter = mockBigOtter();
+
+    const manageConversation = {
+      create: vi.fn(async () => {
+        throw new Error('Database error');
+      }),
+      getById: vi.fn(),
+      pin: vi.fn(async () => {}),
+    } as unknown as ManageConversation;
+
+    const convRepo = {
+      getActiveParticipants: vi.fn(),
+    } as unknown as ConversationRepository;
+
+    const otterRepo = {
+      getById: vi.fn(async () => otter),
+    } as unknown as OtterRepository;
+
+    const settings = {
+      get: vi.fn(async () => 'pending:1234567890'),
+      update: vi.fn(),
+      getAll: vi.fn(async () => ({})),
+      tryInsertIfAbsent: vi.fn(async () => true),
+      tryDeleteIfValueMatches: vi.fn(async () => true),
+    } as unknown as SettingsRepository;
+
+    const sendMessage = {
+      sendSystem: vi.fn(),
+    } as unknown as SendMessage;
+
+    const logger = mockLogger();
+
+    await expect(ensureHealingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      settings,
+      sendMessage,
+      logger,
+    })).rejects.toThrow('Database error');
+
+    // 应该清理 pending 值
+    expect(vi.mocked(settings.tryDeleteIfValueMatches).mock.calls.length).toBeGreaterThan(0);
   });
 });
