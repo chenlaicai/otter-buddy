@@ -6,7 +6,31 @@
 
 **Problem**: No actual review happened. Issues pass through undetected.
 
-**Fix**: Every review must produce at least one specific finding per dimension checked. "无发现" must be explicitly stated, not implied.
+**Fix**: Every dimension must be explicitly addressed in the report — findings, or an explicit "无发现". "无发现" must be stated, not implied. But a finding manufactured just to fill a dimension is not a finding — see Scattergun Review.
+
+## Scattergun Review
+
+**Symptom**: All 6 dimensions checked at equal depth regardless of what the change is; a 3-line config fix gets the same sweep as an architecture rewrite. Finding list is long but has no center of gravity.
+
+**Problem**: Attention is a finite resource. Uniform coverage means the highest-risk area got the same shallow pass as everything else, and the report doesn't converge — author can't tell what actually matters.
+
+**Fix**: Declare 1–3 focus dimensions before checking (what breaks worst if this is wrong?), go deep there, sweep the rest. Classify findings: 阻断性 vs 次要观察. Focus-outside findings default to 次要观察 unless they clear the blocking bar.
+
+## Moving Target
+
+**Symptom**: Every review round surfaces brand-new blocking issues unrelated to previous rounds' fixes. The author fixes round N's list only to receive round N+1's fresh list.
+
+**Problem**: Review never converges. The round cap becomes the only termination mechanism, burning the decision-maker's attention on arbitration.
+
+**Fix**: Round 1 is the full fresh-eyes review. Round 2+ is delta review: verify round-1 fixes and check them for regressions. New issues outside the delta must be flagged as "第 1 轮漏报" and default to 次要观察 unless they alone would block the delivery.
+
+## Blind Compliance / Empty Rebuttal
+
+**Symptom** (author side, two directions): applying every review finding verbatim without evaluation — including wrong ones; or dismissing findings with "我觉得没问题" / "过度设计" and no evidence.
+
+**Problem**: Blind compliance wastes the adversarial structure — the reviewer has fresh eyes but shallow context; uncritical acceptance imports the reviewer's misreadings. Empty rebuttals are Let It Slide in disguise.
+
+**Fix**: Every finding gets a classified response: 接受并修复 / 反驳（必须附 file:line、测试或文档原文证据）/ 部分接受 / 呈搭档裁决. No-evidence rebuttal = no disposition at all. See `author-response-protocol.md`.
 
 ## Nitpicking
 
@@ -30,7 +54,7 @@
 
 **Problem**: Issues accumulate. "Later" never comes.
 
-**Fix**: Every issue needs a disposition: "在当前 PR 修复" or "开发者回应（审查者认可）". No third option.
+**Fix**: Every issue needs a disposition: "在当前 PR 修复" or "开发者回应（审查者认可）". 次要观察允许第三种去向"记录（issue/PR 描述）"——但记录是分流不是拖延，"后续优化"本身仍然禁用。
 
 ## Solo Review
 

@@ -28,7 +28,8 @@
 
 ### 注意事项
 
-- 检视獭的 systemPrompt 应明确检视范围和标准（参考 adversarial-review skill）
+- 检视獭的 systemPrompt 应明确检视范围和标准（参考 adversarial-review skill：第 1 轮全量 fresh-eyes + 焦点声明；第 2 轮起 delta 审视，需附上一轮发现清单与修复 diff）
+- 开发獭回应检视发现时遵循作者处置协议（adversarial-review/references/author-response-protocol.md）：接受/带证据反驳/部分接受/呈搭档，不照单全收
 - 开发獭的 systemPrompt 应包含方案编号，检视獭可据此查阅方案
 
 ## 并行调研

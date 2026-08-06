@@ -3,13 +3,18 @@
 Use this format for adversarial review output.
 
 ```markdown
+## 本轮焦点
+
+- 焦点维度：[1–3 个维度]，理由：[一句话，基于改动性质与 blast radius]
+- 其余维度：快速扫过（仍逐维度显式结论）
+
 ## 审查结论
 
 [需要修改 / 可以合入（附条件）]
 
-结论必须是二元的。"基本没问题"不是有效结论。
+结论必须是二元的。"基本没问题"不是有效结论。存在未处置的阻断性问题 → 必须"需要修改"。
 
-## 发现清单
+## 阻断性问题
 
 ### 问题 1：[简要描述]
 
@@ -17,10 +22,29 @@ Use this format for adversarial review output.
 - **位置**：`文件名:行号`
 - **描述**：具体问题说明，引用代码片段
 - **处置**：在当前 PR 修复 / 开发者回应（审查者认可）
+- **作者回应**：[作者填：接受并修复 / 反驳（附证据）/ 部分接受 / 呈搭档裁决]
 
-### 问题 2：[简要描述]
+## 次要观察
 
-...
+不阻断结论，但每条必须有着落，禁止"以后再说"。
+
+### 观察 1：[简要描述]
+
+- **维度**：…
+- **位置**：`文件名:行号`
+- **描述**：…
+- **处置**：在当前 PR 修复 / 开发者回应（审查者认可）/ 记录（issue 编号或 PR 描述）
+
+## 维度扫视结论
+
+| 维度 | 结论 |
+|------|------|
+| 正确性 | 有发现（见上）/ 无发现 |
+| 边界条件 | … |
+| 安全性 | … |
+| 架构合规 | … |
+| 测试覆盖 | … |
+| 可维护性 | … |
 
 ## 变更完整性
 
@@ -33,10 +57,12 @@ Use this format for adversarial review output.
 
 ## Rules
 
+- 报告必须先声明本轮焦点（1–3 个维度 + 理由），无焦点的报告无效
 - Every issue MUST have a disposition
-- If ANY issue is unresolved, conclusion MUST be "需要修改"
+- If ANY 阻断性 issue is unresolved, conclusion MUST be "需要修改"
 - Each issue MUST cite `file:line` — no impression-based findings
-- "无发现" is valid for a dimension — explicitly note it to confirm the dimension was checked, do NOT skip silently
+- "无发现" is valid for a dimension — explicitly note it in 维度扫视结论, do NOT skip silently
+- 复审轮（第 2 轮起）的报告结构：第 1 轮发现逐条验证结论 + 修复回归检查；delta 之外的新发现必须标注"第 1 轮漏报"并说明为何够/不够阻断门槛
 - Do NOT reuse previous review comments for re-inspection — publish new ones
 
 ## 文档审视适配
@@ -44,4 +70,5 @@ Use this format for adversarial review output.
 审视对象是方案/设计文档（非代码）时：
 
 - 结论选项"需要修改 / 可以合入"读作"需要修改 / 可以定稿"
+- "本轮焦点"同样必填（例：本方案风险集中在边界条件与事实性断言，则焦点 = Edge Cases + Correctness）
 - 变更完整性检查单适配："所有设计文档中列出的改动范围都已覆盖"→"方案声称覆盖的需求点都已覆盖"；"无遗漏的文件修改"→"无遗漏的需求点"；"测试覆盖了核心行为"→"方案含可验证的验收标准"；"构建通过"→"方案中的事实性断言已对照代码/既有文档亲验"
