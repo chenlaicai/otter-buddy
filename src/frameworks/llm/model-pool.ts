@@ -27,12 +27,18 @@ interface ModelEntry {
 
 /**
  * ModelPool：模型连接池。
- * 启动时构建，运行时不可变。
+ * 启动时构建，条目集不可变；默认 alias 可在运行时切换（settings 页，F20260806cnp6），
+ * 切换只影响之后新建的 session，既有 session 保持原模型。
+ *
+ * ModelPool 同时实现 ModelPoolLike（usecases/ports），用于 settings-controller 等
+ * interface-adapters 组件通过端口接口访问模型数据，避免 interface-adapters → frameworks 的层级违规。
  */
-export class ModelPool {
+import type { ModelPoolLike, ModelInfo } from "@usecases/ports/model-pool-like";
+
+export class ModelPool implements ModelPoolLike {
   private readonly entries: Map<string, ModelEntry>;
-  private readonly defaultAlias: string;
-  private readonly defaultModel: unknown;
+  private defaultAlias: string;
+  private defaultModel: unknown;
 
   constructor(
     defaultAlias: string,
@@ -46,6 +52,16 @@ export class ModelPool {
       throw new Error(`ModelPool: default alias "${defaultAlias}" not found in entries`);
     }
     this.defaultModel = defaultEntry.model;
+  }
+
+  /** 运行时切换默认模型；alias 不存在时抛错 */
+  setDefaultAlias(alias: string): void {
+    const entry = this.entries.get(alias);
+    if (!entry) {
+      throw new Error(`ModelPool: cannot set default to unknown alias "${alias}"`);
+    }
+    this.defaultAlias = alias;
+    this.defaultModel = entry.model;
   }
 
   /**
@@ -99,6 +115,23 @@ export class ModelPool {
     const result: Array<{ alias: string; config: ModelConfig; model: unknown }> = [];
     for (const [alias, entry] of this.entries) {
       result.push({ alias, config: entry.config, model: entry.model });
+    }
+    return result;
+  }
+
+  /** 返回所有模型信息（不含 pi-ai model 对象），用于 settings DTO 等场景 */
+  getModelInfos(): ModelInfo[] {
+    const result: ModelInfo[] = [];
+    for (const [alias, entry] of this.entries) {
+      result.push({
+        alias,
+        provider: entry.config.provider,
+        model: entry.config.model,
+        description: entry.config.description,
+        strengths: entry.config.strengths,
+        weaknesses: entry.config.weaknesses,
+        contextWindow: entry.config.contextWindow,
+      });
     }
     return result;
   }

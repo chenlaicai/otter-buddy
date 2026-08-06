@@ -8,7 +8,7 @@ import type { SettingsRepository } from '@usecases/settings/settings-repository'
 import type { QueryMessage } from '@usecases/conversation/query-message';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { DispatchChainEngine, InvokeFn } from '@usecases/conversation/dispatch-chain-engine';
-import type { AgentInvokePort } from '@usecases/scheduler/agent-invoke-port';
+import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
 import type { Logger } from '@usecases/ports/logger';
 
 /** 扩展推送的招聘消息元素 */

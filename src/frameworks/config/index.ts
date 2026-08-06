@@ -1,14 +1,10 @@
 /**
- * Barrel export：保持 `import { config } from "@frameworks/config"` 路径不变。
+ * 配置入口：loadConfig 从文件加载，initConfig/getConfig 管理进程级单例。
  * 实际实现见同级 config-service.ts。
  */
 export { loadConfig, type AppConfig, type ModelConfig } from "../config-service";
 import type { AppConfig } from "../config-service";
 
-/**
- * 延迟初始化的配置对象。
- * 在 main.ts 中调用 initConfig(logger) 初始化。
- */
 let _config: AppConfig | null = null;
 
 /**
@@ -38,13 +34,3 @@ export function getConfig(): AppConfig {
   }
   return _config;
 }
-
-/**
- * 兼容旧代码的 config 导出。
- * 使用 getter 延迟获取配置。
- */
-export const config: AppConfig = new Proxy({} as AppConfig, {
-  get(_target, prop) {
-    return getConfig()[prop as keyof AppConfig];
-  },
-});

@@ -6,15 +6,10 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { SSEEvent } from "@contract/sse/events";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
 type ErrorWithToolCallCount = Error & { _toolCallCount?: number };
-
-/** SSE 事件（与 sse-streamer 的 SSEEvent 结构兼容） */
-export interface AgentSSEEvent {
-  event: string;
-  data: Record<string, unknown>;
-}
 
 /** Agent 对话调用结果 */
 export interface ConversationInvokeResult {
@@ -39,7 +34,7 @@ function extractAssistantContent(e: AgentStreamEvent): { type: "toolcall" | "tex
   return textBlocks.length > 0 ? { type: "text", blocks: textBlocks } : null;
 }
 
-function mapToSSEEvent(e: AgentStreamEvent): AgentSSEEvent | null {
+function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
   switch (e.type) {
     case "tool_execution_end":
       return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
@@ -111,14 +106,14 @@ export class AgentInvoker {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
   }): Promise<ConversationInvokeResult> {
     const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0 } = params;
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
-    const emitEvent = onSSEEvent ?? ((event: AgentSSEEvent): void => {
+    const emitEvent = onSSEEvent ?? ((event: SSEEvent): void => {
       if (this.messageBroadcaster) {
         this.messageBroadcaster.broadcastEvent(conversationId, event);
       }
@@ -167,8 +162,8 @@ export class AgentInvoker {
     messageId: string; otterId: string; senderId: string;
     result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
     toolCallCount: number; startTime: number;
-    emitEvent: (event: AgentSSEEvent) => void;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
@@ -195,8 +190,8 @@ export class AgentInvoker {
     messageId: string; otterId: string; senderId: string;
     result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
     toolCallCount: number; startTime: number;
-    emitEvent: (event: AgentSSEEvent) => void;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
@@ -224,7 +219,7 @@ export class AgentInvoker {
     dynamicContext: DynamicContext;
     conversationId: string;
     messageId: string;
-    emitEvent: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
   }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; toolCallCount: number }> {
     let toolCallCount = 0;
     this.logger.debug('Calling agentInvoke.invoke', { otterId: params.otterId, messageId: params.messageId });
@@ -265,7 +260,7 @@ export class AgentInvoker {
     senderId: string;
     result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
     startTime: number;
-    emitEvent: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
     aggregatedTargets?: string[];
   }): Promise<ConversationInvokeResult> {
     const { otterId, conversationId, messageId, result, startTime, emitEvent, aggregatedTargets } = params;
@@ -348,7 +343,7 @@ export class AgentInvoker {
   private async completeSpeakingMessage(
     messageId: string,
     otterId: string,
-    emitEvent: (event: AgentSSEEvent) => void,
+    emitEvent: (event: SSEEvent) => void,
     senderId?: string,
     conversationId?: string,
     startTime?: number,
@@ -401,7 +396,7 @@ export class AgentInvoker {
     messageId: string;
     otterId: string;
     err: unknown;
-    emitEvent: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
     senderId?: string;
     conversationId?: string;
     startTime?: number;
@@ -445,8 +440,8 @@ export class AgentInvoker {
   private async executeRetryWithSystemReminder(params: {
     messageId: string; otterId: string; conversationId: string;
     senderId: string; failBody: string; retryMsg: string;
-    emitEvent: (event: AgentSSEEvent) => void;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
     tokenUsage?: { input: number; output: number };
   }): Promise<ConversationInvokeResult> {
     const { messageId, otterId, conversationId, senderId, failBody, retryMsg, emitEvent, tokenUsage } = params;
@@ -492,8 +487,8 @@ export class AgentInvoker {
     messageId: string; otterId: string; senderId: string;
     result: { text: string; tokenUsage?: { input: number; output: number } };
     toolCallCount: number; startTime: number;
-    emitEvent: (event: AgentSSEEvent) => void;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
@@ -517,8 +512,8 @@ export class AgentInvoker {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
-    emitEvent: (event: AgentSSEEvent) => void;
-    onSSEEvent?: (event: AgentSSEEvent) => void;
+    emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
     retryCount: number;
     startTime: number;
     tokenUsage?: { input: number; output: number };

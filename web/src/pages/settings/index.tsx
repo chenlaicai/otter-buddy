@@ -6,19 +6,12 @@ import '../../styles/globals.css'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
-
-const modelsByProvider: Record<string, string[]> = {
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5'],
-  google: ['gemini-2.0-flash', 'gemini-2.5-pro'],
-}
+import type { ModelInfoDTO } from '@contract/api'
 
 function SettingsPage() {
-  const [provider, setProvider] = useState('openai')
-  const [model, setModel] = useState('gpt-4o')
-  const [apiKey, setApiKey] = useState('')
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [models, setModels] = useState<ModelInfoDTO[]>([])
+  const [defaultAlias, setDefaultAlias] = useState('')
+  const [savedAlias, setSavedAlias] = useState('')
   const [saving, setSaving] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
   const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number } | null>(null)
@@ -36,8 +29,9 @@ function SettingsPage() {
   useEffect(() => {
     api.getSettings()
       .then(s => {
-        setProvider(s.provider)
-        setModel(s.model)
+        setModels(s.models)
+        setDefaultAlias(s.defaultModelAlias)
+        setSavedAlias(s.defaultModelAlias)
         setSettingsInfo({ port: s.port, dbPath: s.dbPath, embeddingModelPath: s.embeddingModelPath, embeddingLocalModelPath: s.embeddingLocalModelPath, embeddingDim: s.embeddingDim })
       })
       .catch(() => showToast('加载设置失败', 'error'))
@@ -45,29 +39,12 @@ function SettingsPage() {
 
   function markUnsaved() { setHasUnsaved(true) }
 
-  function updateModels(p: string) {
-    setProvider(p)
-    setModel(modelsByProvider[p]?.[0] || '')
-    markUnsaved()
-  }
-
-  function testConnection() {
-    setTesting(true)
-    setTestResult(null)
-    setTimeout(() => {
-      setTesting(false)
-      if (apiKey && apiKey.length > 5) {
-        setTestResult({ ok: true, msg: '✓ 连接成功' })
-      } else {
-        setTestResult({ ok: false, msg: '✗ 连接失败：API Key 无效' })
-      }
-    }, 1200)
-  }
-
   async function saveSettings() {
     setSaving(true)
     try {
-      await api.updateSettings({ provider, model })
+      const s = await api.updateSettings({ defaultModelAlias: defaultAlias })
+      setSavedAlias(s.defaultModelAlias)
+      setDefaultAlias(s.defaultModelAlias)
       setHasUnsaved(false)
       showToast('设置已保存', 'success')
     } catch (err) {
@@ -114,50 +91,48 @@ function SettingsPage() {
               </div>
             </section>
 
-            {/* LLM Config */}
+            {/* LLM Models */}
             <section className="mb-8">
-              <h2 className="text-sm font-semibold text-stone-600 mb-4">LLM 配置</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-stone-500 mb-1.5">Provider</label>
-                  <select value={provider} onChange={e => updateModels(e.target.value)} className="form-input w-full">
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="google">Google</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-500 mb-1.5">Model</label>
-                  <select value={model} onChange={e => { setModel(e.target.value); markUnsaved() }} className="form-input w-full">
-                    {(modelsByProvider[provider] || []).map(m => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-500 mb-1.5">API Key</label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={e => { setApiKey(e.target.value); markUnsaved() }}
-                    className="form-input w-full"
-                    placeholder="sk-..."
-                  />
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={testConnection}
-                    disabled={testing}
-                    className="px-4 py-2 text-sm glass-card text-stone-600 rounded-xl hover:bg-white/50 transition disabled:opacity-50"
-                  >
-                    {testing ? '测试中...' : '测试连接'}
-                  </button>
-                  {testResult && (
-                    <span className={`text-sm ${testResult.ok ? 'text-teal-500' : 'text-red-400'}`}>
-                      {testResult.msg}
-                    </span>
-                  )}
-                </div>
+              <h2 className="text-sm font-semibold text-stone-600 mb-4">模型</h2>
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-stone-500 mb-1.5">默认模型</label>
+                <select
+                  value={defaultAlias}
+                  onChange={e => { setDefaultAlias(e.target.value); markUnsaved() }}
+                  className="form-input w-full"
+                >
+                  {models.map(m => (
+                    <option key={m.alias} value={m.alias}>{m.alias}（{m.provider}/{m.model}）</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-stone-400 mt-1">切换后仅影响新会话；模型与 API Key 在 config.yaml 的 llm.models[] 中维护</p>
+              </div>
+              <div className="space-y-2">
+                {models.map(m => (
+                  <div key={m.alias} className="py-2 border-b border-white/30">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-stone-600 font-medium">
+                        {m.alias}
+                        {m.alias === savedAlias && (
+                          <span className="ml-2 text-[10px] text-teal-500 border border-teal-400/50 rounded px-1 py-0.5">默认</span>
+                        )}
+                      </span>
+                      <span className="text-xs text-stone-400">{m.provider}/{m.model}</span>
+                    </div>
+                    {m.description && <p className="text-xs text-stone-400 mt-0.5">{m.description}</p>}
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {(m.strengths ?? []).map(s => (
+                        <span key={s} className="text-[10px] text-teal-600 bg-teal-400/10 rounded px-1 py-0.5">{s}</span>
+                      ))}
+                      {(m.weaknesses ?? []).map(w => (
+                        <span key={w} className="text-[10px] text-amber-600 bg-amber-400/10 rounded px-1 py-0.5">{w}</span>
+                      ))}
+                      {m.contextWindow && (
+                        <span className="text-[10px] text-stone-400 bg-stone-400/10 rounded px-1 py-0.5">ctx {Math.round(m.contextWindow / 1000)}k</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
 

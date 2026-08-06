@@ -5,7 +5,7 @@ import type { Logger } from '@usecases/ports/logger';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { QueryMessage } from '@usecases/conversation/query-message';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
-import type { AgentInvokePort } from '@usecases/scheduler/agent-invoke-port';
+import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
 import type { Message } from '@entities/conversation/message';
 

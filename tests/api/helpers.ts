@@ -16,6 +16,7 @@ import { MemoryController } from "../../src/interface-adapters/http/controllers/
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
+import { buildModelPool } from "../../src/frameworks/llm/model-pool";
 import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-chain-engine";
 import { createTestLogger } from "../helpers/logger";
 
@@ -373,6 +374,7 @@ export interface TestDeps {
   manageKeyInfo: any;
   settingsConfig: SettingsConfig;
   settingsRepo: any;
+  modelPool: any;
   manageScheduledTask: any;
   schedulerService: any;
   cronParser: any;
@@ -445,6 +447,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const settingsCtrl = new SettingsController(
     deps.settingsConfig,
     deps.settingsRepo,
+    deps.modelPool,
     logger,
   );
 
@@ -515,14 +518,13 @@ export function createMockDeps(): TestDeps {
     manageMemory: mockMethods(["getById", "getDetails", "flagMemory", "updateLayer"]),
     manageKeyInfo: mockMethods(["getLinkedResources", "linkResource", "flagResource", "deleteLinkedResource", "supersedeResource", "archiveResource", "updateResourceStatus", "getArtifactIndex", "getLinkedResourcesByGroup"]),
     settingsConfig: {
-      provider: "openai",
-      model: "gpt-4o",
       port: 3000,
       dbPath: "./otter-buddy.db",
       embeddingModelPath: "./embedding.bin",
       embeddingDim: 1024,
     },
     settingsRepo: mockMethods(["get", "update", "getAll"]),
+    modelPool: buildModelPool("main", [{ config: { alias: "main", provider: "openai", model: "gpt-4o" }, model: { id: "gpt-4o" } }]),
     manageScheduledTask: mockMethods(["create", "getById", "getByConversationId", "update", "delete", "getExecutions"]),
     schedulerService: mockMethods(["trigger", "start", "stop"]),
     cronParser: { getNextTime: vi.fn() },

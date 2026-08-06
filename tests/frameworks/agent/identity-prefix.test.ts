@@ -14,7 +14,7 @@ import type Database from "better-sqlite3";
 import path from "node:path";
 
 /** worktree/CI 中无 config/config.yaml，mock 掉避免急切加载配置文件 */
-vi.mock("@frameworks/config", () => ({ config: { circuitBreaker: {} } }));
+vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} }) }));
 
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";

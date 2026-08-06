@@ -10,6 +10,7 @@ summary: |
 
 status: development
 change_type: prompt
+capability_test: "n/a: prompt 技能文档，行为验证通过 .pi/skills 内的 SKILL.md 执行"
 tags: [adversarial-review, collaboration-protocol, skills]
 modules:
   - .pi/skills/adversarial-review/SKILL.md

@@ -11,7 +11,7 @@ import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factor
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
+import { AgentInvokePortAdapter } from "@usecases/ports/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import type { FeishuConfig } from "@frameworks/feishu/types";

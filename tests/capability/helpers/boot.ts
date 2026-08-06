@@ -99,9 +99,9 @@ function resolveTestConfig(tmpDir: string): AppConfig {
 }
 
 function detectLlm(config: AppConfig): { available: boolean; reason?: string } {
-  const first = config.llm.models?.[0];
-  const apiKey = first?.apiKey ?? config.llm.apiKey;
-  const model = first?.model ?? config.llm.model;
+  const first = config.llm.models[0];
+  const apiKey = first?.apiKey;
+  const model = first?.model;
   if (!apiKey || model === "__placeholder__") {
     return {
       available: false,
@@ -127,10 +127,8 @@ async function waitEmbeddingReady(built: BuiltApp, timeoutMs: number): Promise<v
 
 /** 无 LLM 时的 faux 模型池：每个别名独立实例，保证 ModelPool 解析语义可测 */
 async function buildFauxModels(config: AppConfig): Promise<{ model: unknown; modelPool: ModelPool }> {
-  const alias = config.llm.default ?? "default";
-  const configs = config.llm.models?.length
-    ? config.llm.models
-    : [{ alias, provider: config.llm.provider, model: config.llm.model }];
+  const alias = config.llm.default;
+  const configs = config.llm.models;
   const entries = new Map<string, { config: (typeof configs)[number]; model: unknown }>();
   let firstModel: unknown;
   for (const mc of configs) {

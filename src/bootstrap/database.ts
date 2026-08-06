@@ -8,6 +8,7 @@ import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import { ModelPool } from "@frameworks/llm/model-pool";
+import { DEFAULT_MODEL_ALIAS_KEY } from "@usecases/settings/settings-keys";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
@@ -32,12 +33,8 @@ export interface DatabaseBootstrapResult {
 
 /** 测试注入预构建模型（如 initFauxModels）时，未带 pool 则按 llm 配置的全部别名合成池（共享同一模型对象） */
 function synthesizePool(model: unknown, llm: AppConfig["llm"]): ModelPool {
-  const alias = llm.default ?? "default";
-  const configs = llm.models?.length
-    ? llm.models
-    : [{ alias, provider: llm.provider, model: llm.model }];
-  return new ModelPool(alias, new Map(
-    configs.map((mc) => [mc.alias, { config: mc, model }]),
+  return new ModelPool(llm.default, new Map(
+    llm.models.map((mc) => [mc.alias, { config: mc, model }]),
   ));
 }
 
@@ -99,6 +96,25 @@ export function validateModelAliases(db: Database.Database, modelPool: { hasMode
   }
 }
 
+/**
+ * 应用 settings 页保存的默认模型覆盖（settingsRepo「llm.defaultModelAlias」）。
+ * 覆盖值指向已不存在的 alias 时忽略并告警（用户可能改了 config.yaml）。
+ */
+export async function applyDefaultModelOverride(
+  settingsRepo: { get(key: string): Promise<string | null> },
+  modelPool: ModelPool,
+  logger: Logger,
+): Promise<void> {
+  const override = await settingsRepo.get(DEFAULT_MODEL_ALIAS_KEY);
+  if (!override) return;
+  if (!modelPool.hasModel(override)) {
+    logger.warn(`settings 中保存的默认模型「${override}」不在 config.yaml models[] 中，忽略该覆盖`);
+    return;
+  }
+  modelPool.setDefaultAlias(override);
+  logger.info(`应用 settings 默认模型覆盖: ${override}`);
+}
+
 export function shutdownDatabase(db: Database.Database, logger: Logger): void {
   closeDatabase(db, logger);
 }
@@ -116,18 +132,11 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logge
 
   let changed = false;
 
-  if (llmConfig.models && llmConfig.models.length > 0) {
-    for (const mc of llmConfig.models) {
-      if (!mc.apiKey) continue;
-      const key = mc.alias;
-      if (auth[key] !== mc.apiKey) {
-        auth[key] = mc.apiKey;
-        changed = true;
-      }
-    }
-  } else if (llmConfig.apiKey) {
-    if (auth[llmConfig.provider] !== llmConfig.apiKey) {
-      auth[llmConfig.provider] = llmConfig.apiKey;
+  for (const mc of llmConfig.models) {
+    if (!mc.apiKey) continue;
+    const key = mc.alias;
+    if (auth[key] !== mc.apiKey) {
+      auth[key] = mc.apiKey;
       changed = true;
     }
   }

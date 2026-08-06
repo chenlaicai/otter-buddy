@@ -1,7 +1,20 @@
-/** Settings 响应 DTO */
-export interface SettingsDTO {
+/** 模型信息 DTO（对应 config.yaml llm.models[] 条目，apiKey/apiBaseUrl 不下发） */
+export interface ModelInfoDTO {
+  alias: string;
   provider: string;
   model: string;
+  description?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  contextWindow?: number;
+}
+
+/** Settings 响应 DTO */
+export interface SettingsDTO {
+  /** 模型列表（唯一真相源 config.yaml models[]） */
+  models: ModelInfoDTO[];
+  /** 当前默认模型 alias（settingsRepo 覆盖值优先于 config default） */
+  defaultModelAlias: string;
   port: number;
   dbPath: string;
   embeddingModelPath: string;
@@ -12,6 +25,6 @@ export interface SettingsDTO {
 
 /** 更新 Settings 请求 DTO */
 export interface UpdateSettingsRequestDTO {
-  provider?: string;
-  model?: string;
+  /** 切换默认模型 alias（必须是 models[] 中的合法 alias） */
+  defaultModelAlias?: string;
 }
