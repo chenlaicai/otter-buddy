@@ -69,9 +69,13 @@ if (abortReason === "degenerate_output" && retryCount === 0) {
 
 `download-bge-m3.mjs` 新增 `resolveModelDir()`：通过 `git rev-parse --git-common-dir` 找到主仓 `.git` 路径，推导主仓根目录。主仓 models 目录存在时直接复用，跳过下载。
 
+### Part 3：移除 session-sanitizer
+
+session-sanitizer 在 `session.dispose()` 后改写 session JSONL 文件，破坏 SDK 的 KV cache（下次 invoke 需重新 prefill 整个上下文，浪费 token）。完整移除 sanitizer 及其依赖的 `analyzeText` 离线分析函数。
+
 ## 验证
 
 - 新增 1 个测试：catch 路径 degenerate_output 走重试而非终态
-- 全量 960 测试通过
+- 全量 952 测试通过（移除 sanitizer 的 8 个测试）
 - `npx tsc --noEmit` 编译通过
 - worktree 中 `node scripts/download-bge-m3.mjs` 输出"复用主仓模型"
