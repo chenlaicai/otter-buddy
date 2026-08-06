@@ -5,6 +5,7 @@ import type { SendMessage } from '@usecases/conversation/send-message';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { Logger } from '@usecases/ports/logger';
 import { HEALING_CONVERSATION_KEY, HEALING_BIG_OTTER_ID_KEY } from '@usecases/healing/constants';
+import { acquireDistributedLock } from '@usecases/common/distributed-lock';
 
 const HEALING_CONVERSATION_TITLE = '🩺 Self-Healing';
 
@@ -38,62 +39,6 @@ async function tryReuseExisting(
   return { conversationId: existingId, bigOtterId };
 }
 
-/** stale lock 阈值（毫秒） */
-const STALE_LOCK_THRESHOLD_MS = 30_000;
-
-/** 等待另一个进程完成创建（轮询模式） */
-async function waitForOtherProcess(
-  manageConversation: ManageConversation,
-  settings: SettingsRepository,
-  logger: Logger,
-): Promise<HealingConversationResult | null> {
-  for (let i = 0; i < 20; i++) {
-    const recheck = await tryReuseExisting(manageConversation, settings, logger);
-    if (recheck) return recheck;
-    const currentValue = await settings.get(HEALING_CONVERSATION_KEY);
-    if (!currentValue?.startsWith('pending:')) {
-      return tryReuseExisting(manageConversation, settings, logger);
-    }
-    // 检测 stale lock：如果 pending 值超过阈值，尝试清理
-    const pendingTimestamp = parseInt(currentValue.replace('pending:', ''), 10);
-    if (!isNaN(pendingTimestamp) && Date.now() - pendingTimestamp > STALE_LOCK_THRESHOLD_MS) {
-      logger.warn('Detected stale lock, attempting to clean', { key: HEALING_CONVERSATION_KEY, value: currentValue });
-      const deleted = await settings.tryDeleteIfValueMatches(HEALING_CONVERSATION_KEY, currentValue);
-      if (deleted) {
-        logger.info('Stale lock cleaned successfully', { key: HEALING_CONVERSATION_KEY });
-        return null; // 返回 null，让调用方重新竞争锁
-      }
-    }
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-  return null;
-}
-
-/** 尝试获取锁（含 stale lock 清理） */
-async function acquireLock(
-  manageConversation: ManageConversation,
-  settings: SettingsRepository,
-  logger: Logger,
-): Promise<boolean> {
-  let lockValue = `pending:${Date.now()}`;
-  let acquired = await settings.tryInsertIfAbsent(HEALING_CONVERSATION_KEY, lockValue);
-  if (acquired) return true;
-
-  // 另一个进程已抢先，等待其完成后读取结果
-  const result = await waitForOtherProcess(manageConversation, settings, logger);
-  if (result) return false; // 对方已完成，调用方应检查已有
-
-  // waitForOtherProcess 可能清理了 stale lock，重新尝试获取锁
-  lockValue = `pending:${Date.now()}`;
-  acquired = await settings.tryInsertIfAbsent(HEALING_CONVERSATION_KEY, lockValue);
-  if (acquired) return true;
-
-  // 仍然无法获取锁，最后一次检查已有
-  const finalCheck = await tryReuseExisting(manageConversation, settings, logger);
-  if (finalCheck) return false; // 调用方应检查已有
-  throw new Error('Failed to acquire lock for Self-Healing conversation creation');
-}
-
 export async function ensureHealingConversation(deps: {
   manageConversation: ManageConversation;
   convRepo: ConversationRepository;
@@ -106,9 +51,9 @@ export async function ensureHealingConversation(deps: {
   const existing = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
   if (existing) return existing;
 
-  // 2. 获取锁
-  const lockAcquired = await acquireLock(deps.manageConversation, deps.settings, deps.logger);
-  if (!lockAcquired) {
+  // 2. 获取分布式锁
+  const lockResult = await acquireDistributedLock(deps.settings, HEALING_CONVERSATION_KEY, deps.logger);
+  if (!lockResult.acquired) {
     // 另一个进程已完成，重新检查已有
     const recheck = await tryReuseExisting(deps.manageConversation, deps.settings, deps.logger);
     if (recheck) return recheck;
