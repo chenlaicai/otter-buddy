@@ -104,6 +104,28 @@ Q1-Q6 全部通过。EXISTS 布尔语义适合列表场景；reconcileOrphans �
 - messages 表 `(conversation_id, status)` 复合索引不存在——当前数据量 `idx_messages_conversation_id` 够用，索引变更是 schema 改动不混入本 PR
 - 升级到实时指示器需 ~150-200 行改动，当前架构分层提供良好接缝
 
+### 第 4 轮：最终全面审查（检视 Agent #4）
+
+**总体评级：PASS（无阻塞）**
+
+| 审查项 | 结论 | 备注 |
+|--------|------|------|
+| SQL 派生逻辑 | PASS | CASE 顺序正确，EXISTS 布尔语义适合列表场景 |
+| API 契约 | PASS | 可选字段向后兼容，DTO 链路完整 |
+| 前端轮询机制 | PASS | useEffect 清理正确，防重入 guard 有效 |
+| 合并策略 | PASS | `??` 区分 0 与 undefined，测试覆盖 |
+| 归档流程 | PASS | URL 参数 + replaceState 清理，toast 可见 |
+| 测试覆盖 | WARN | 混合状态（completed + failed + aborted 共存）未显式测试，但 EXISTS 逻辑正确 |
+| 类型安全 | PASS | `as` 断言安全，Repository 接口变更无破坏性 |
+
+**WARN-1：混合状态测试缺口**
+- 问题：无测试覆盖同时存在 completed + failed + aborted 消息的对话
+- 处置：不阻塞。单消息变体已覆盖 critical path；EXISTS 对 streaming/speaking 的检查与消息总数无关
+
+**WARN-2：复合索引建议**
+- 问题：messages 表无 `(conversation_id, status)` 复合索引
+- 处置：不纳入本 PR。`idx_messages_conversation_id` 单列索引当前够用；索引变更是 schema 改动，应独立 PR
+
 ## 测试
 
 - 后端：8 个行为测试覆盖派生逻辑（streaming/speaking → processing、completed → awaiting_user、failed → awaiting_user、aborted → awaiting_user、无消息 → idle、completed 对话 → idle、多对话独立派生）
