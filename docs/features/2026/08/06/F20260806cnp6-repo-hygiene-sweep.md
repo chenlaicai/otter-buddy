@@ -36,6 +36,7 @@ modules:
   - src/frameworks/llm/model-pool.ts
   - src/bootstrap/database.ts
   - src/bootstrap/controllers.ts
+  - src/app.ts
   - src/interface-adapters/http/controllers/settings-controller.ts
   - src/usecases/settings/settings-keys.ts
   - src/usecases/ports/model-pool-like.ts
