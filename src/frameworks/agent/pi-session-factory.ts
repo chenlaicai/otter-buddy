@@ -40,7 +40,6 @@ import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
 import type { OutputGuardConfig } from "./output-guard";
-import { sanitizeSessionFile } from "./session-sanitizer";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 
@@ -585,8 +584,6 @@ export class PiSessionFactory implements AgentGateway {
       unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
-      /** F20260804dglp 修复 3：dispose 后清洗 session 文件，斩断退化内容污染飞轮 */
-      this.sanitizeSessionSafely(otterId, sessionManager);
     }
   }
 
@@ -615,20 +612,6 @@ export class PiSessionFactory implements AgentGateway {
     }
     if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
     return result;
-  }
-
-  /** session 文件清洗（幂等；失败只告警，绝不影响 invoke 主路径） */
-  private sanitizeSessionSafely(otterId: string, sessionManager: SessionManager): void {
-    try {
-      const file = sessionManager.getSessionFile();
-      if (!file) return;
-      const result = sanitizeSessionFile(file);
-      if (result.replacedBlocks > 0) {
-        this.logger.warn(`[session-sanitizer] 清洗退化块: otter=${otterId} blocks=${result.replacedBlocks}`, { hits: result.hits });
-      }
-    } catch (err) {
-      this.logger.warn(`[session-sanitizer] 清洗失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   /** 创建带工具配置的 AgentSession */

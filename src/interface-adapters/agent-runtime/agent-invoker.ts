@@ -151,6 +151,22 @@ export class AgentInvoker {
         messageId: message.id, otterId, senderId, result, toolCallCount, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
       });
     } catch (err) {
+      /** F146 修复：degenerate_output 梯度介入在 catch 路径中拦截，
+       *  走 handleDegenerateRetry 重试而非直接 abort 终态。
+       *  wrapInternalAbort 会消费 guardAbortReason 并加入 abortedMessages，
+       *  故必须在调用前判断。 */
+      const abortReason = (err as { _guardAbortReason?: string })._guardAbortReason
+        ?? this.agentInvoke.getInternalAbortReason(message.id);
+      if (abortReason === "degenerate_output" && retryCount === 0) {
+        this.logger.info('Degenerate output detected in catch path, attempting retry', { messageId: message.id, otterId });
+        return this.handleDegenerateRetry({
+          messageId: message.id, otterId, senderId,
+          result: { text: "", tokenUsage: undefined },
+          toolCallCount: (err as ErrorWithToolCallCount)._toolCallCount ?? 0,
+          startTime, emitEvent, onSSEEvent,
+          retryCount: 0, userMessageContent, conversationId,
+        });
+      }
       const finalErr = this.wrapInternalAbort(message.id, err);
       await this.handleInvokeError({ messageId: message.id, otterId, err: finalErr, emitEvent, senderId, conversationId, startTime });
       return { messageId: message.id, duration: Date.now() - startTime };

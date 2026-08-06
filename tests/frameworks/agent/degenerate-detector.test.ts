@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   DegenerateDetector,
-  analyzeText,
   DEFAULT_DEGENERATE_CONFIG,
 } from "@frameworks/agent/degenerate-detector";
+
+/** 离线整段分析：与流式路径同一实现 */
+function analyzeText(text: string, config?: Partial<import("@frameworks/agent/degenerate-detector").DegenerateConfig>) {
+  return new DegenerateDetector(config).add(text);
+}
 
 /** mulberry32 伪随机（确定性夹具） */
 function mulberry32(seed: number): () => number {
