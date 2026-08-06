@@ -12,6 +12,7 @@ import { LeftPanel } from './LeftPanel'
 import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { ConversationModals, type ModalState } from './Modals'
+import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
@@ -132,6 +133,9 @@ function ConversationPage() {
       })
       .catch(() => setPageState('error'))
   }, [])
+
+  // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
+  useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations)
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
@@ -884,8 +888,11 @@ function ConversationPage() {
     if (!activeId) return
     try {
       await api.archiveConversation(activeId)
-      setConversations(prev => prev.map(c => c.id === activeId ? { ...c, status: 'archived' as const } : c))
-      setModal({ type: 'none' }); showToast('对话已归档', 'success')
+      setModal({ type: 'none' })
+      // 归档后当前对话从列表消失（服务端列表排除 archived），
+      // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
+      // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
+      window.location.href = '/conversation?archived=1'
     } catch { showToast('操作失败', 'error') }
   }
 

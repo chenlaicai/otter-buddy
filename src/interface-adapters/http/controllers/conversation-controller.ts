@@ -40,6 +40,7 @@ export class ConversationController {
           unreadCount: item.unreadCount,
           lastMessagePreview: item.lastMessagePreview,
           lastMessageTs: item.lastMessageTs,
+          activityStatus: item.activityStatus,
         },
       )));
     } catch (err) {

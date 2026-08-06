@@ -8,6 +8,7 @@ import { showToast } from '../../components/Toast'
 import { AppLayout } from '../../components/AppLayout'
 import { Modal, ModalButton } from '../../components/Modal'
 import { LeftPanel } from '../conversation/LeftPanel'
+import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
 import * as api from '../../api/client'
 import { ApiError } from '../../api/client'
 
@@ -30,7 +31,16 @@ export default function ConversationListPage() {
         showToast('加载对话列表失败', 'error')
         setLoading(false)
       })
+    // 归档成功后通过 URL 参数接收 toast
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('archived') === '1') {
+      showToast('对话已归档', 'success')
+      window.history.replaceState(null, '', '/conversation')
+    }
   }, [])
+
+  // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
+  useConversationListPolling(!loading, setConversations)
 
   const handleSelect = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新

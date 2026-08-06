@@ -184,5 +184,7 @@ export interface ConversationRepository {
     unreadCount: number;
     lastMessagePreview: string | null;
     lastMessageTs: string | null;
+    /** 实时活动状态（派生字段） */
+    activityStatus: 'processing' | 'awaiting_user' | 'idle';
   }>>;
 }

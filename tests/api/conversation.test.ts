@@ -28,6 +28,20 @@ describe("Conversation API", () => {
       expect(body[0].otterIds).toEqual(["otter-1"]);
     });
 
+    it("activityStatus 在 HTTP 响应中正确透传（F20260805actv：防字段在边界脱落）", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue([
+        { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 2, lastMessagePreview: "预览", lastMessageTs: "2026-07-16T00:01:00Z", activityStatus: "processing" },
+      ]);
+
+      const res = await app.request("/api/conversations");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body).toHaveLength(1);
+      expect(body[0].activityStatus).toBe("processing");
+      expect(body[0].unreadCount).toBe(2);
+      expect(body[0].lastMessagePreview).toBe("预览");
+    });
+
     it("returns empty list when listWithMeta returns empty", async () => {
       deps.manageConversation.listWithMeta.mockResolvedValue([]);
 

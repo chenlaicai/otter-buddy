@@ -743,3 +743,99 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
     });
   });
 });
+
+describe("SqliteConversationRepository - listConversationsWithMeta 活动状态派生（F20260805actv）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("存在 streaming 消息时派生为 processing", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("processing");
+  });
+
+  it("存在 speaking 消息时派生为 processing", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
+    await repo.startSpeaking("msg-1", "正在回复", ["user"]);
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("processing");
+  });
+
+  it("active 对话 + 仅有 completed 消息 → awaiting_user", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createCompletedMessage(messageFixture());
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("awaiting_user");
+  });
+
+  it("active 对话 + 无任何消息 → idle", async () => {
+    await repo.create(conversationFixture());
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("idle");
+  });
+
+  it("completed 对话即使有消息也派生为 idle", async () => {
+    await repo.create(conversationFixture({ status: "completed", completedAt: "2026-07-22T01:00:00Z" }));
+    await repo.createTurn(turnFixture());
+    await repo.createCompletedMessage(messageFixture());
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("idle");
+  });
+
+  it("active 对话 + 仅有 failed 消息 → awaiting_user（failed 不误判为 processing）", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
+    await repo.failMessage("msg-1", "2026-07-22T00:02:00Z", "失败内容");
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("awaiting_user");
+  });
+
+  it("active 对话 + 有 aborted 消息 → awaiting_user（aborted 不干扰）", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
+    await repo.abortMessage("msg-1", "已中止", ["user"], "2026-07-22T00:02:00Z");
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("awaiting_user");
+  });
+
+  it("多对话并发时各自独立派生状态", async () => {
+    await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-22T00:00:00Z" }));
+    await repo.createTurn(turnFixture({ id: "turn-a", conversationId: "conv-a" }));
+    await repo.createStreamingMessage(messageFixture({ id: "msg-a", conversationId: "conv-a", turnId: "turn-a", status: "streaming", body: null }));
+
+    await repo.create(conversationFixture({ id: "conv-b", createdAt: "2026-07-22T00:01:00Z" }));
+    await repo.createTurn(turnFixture({ id: "turn-b", conversationId: "conv-b" }));
+    await repo.createCompletedMessage(messageFixture({ id: "msg-b", conversationId: "conv-b", turnId: "turn-b" }));
+
+    await repo.create(conversationFixture({ id: "conv-c", createdAt: "2026-07-22T00:02:00Z" }));
+
+    const items = await repo.listConversationsWithMeta("user-1");
+    const byId = Object.fromEntries(items.map(i => [i.id, i.activityStatus]));
+    expect(byId["conv-a"]).toBe("processing");
+    expect(byId["conv-b"]).toBe("awaiting_user");
+    expect(byId["conv-c"]).toBe("idle");
+  });
+});
