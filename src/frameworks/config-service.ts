@@ -51,14 +51,10 @@ export interface AppConfig {
     localModelPath?: string;
   };
   llm: {
-    provider: string;
-    model: string;
-    apiKey?: string;
-    apiBaseUrl?: string;
-    /** 多模型配置：默认模型 alias */
-    default?: string;
-    /** 多模型配置：模型列表 */
-    models?: ModelConfig[];
+    /** 默认模型 alias（必须在 models[] 中） */
+    default: string;
+    /** 模型列表（唯一真相源，至少一条） */
+    models: ModelConfig[];
   };
   circuitBreaker: {
     maxToolCalls: number;
@@ -105,10 +101,6 @@ interface RawConfig {
     foreignKeys?: boolean;
   };
   llm?: {
-    provider?: string;
-    model?: string;
-    apiKey?: string;
-    apiBaseUrl?: string;
     default?: string;
     models?: Array<{
       alias?: string;
@@ -180,10 +172,10 @@ function d<T>(value: T | undefined, fallback: T): T {
 }
 
 /**
- * 校验多模型配置（llm.models[]）。
- * 填充 default 值，为单模型兼容填充 provider/model。
+ * 校验模型配置（llm.models[]）。
+ * 填充 default 值（缺省时取第一个模型）。
  */
-function validateMultiModel(raw: RawConfig): void {
+function validateModels(raw: RawConfig): void {
   const models = raw.llm!.models!;
 
   // 校验每个 model 条目
@@ -212,28 +204,14 @@ function validateMultiModel(raw: RawConfig): void {
   if (!raw.llm!.default) {
     raw.llm!.default = models[0].alias;
   }
-
-  // 为单模型兼容填充 provider/model（使用 default 模型）
-  const defaultModel = models.find(m => m.alias === raw.llm!.default)!;
-  raw.llm!.provider = defaultModel.provider!;
-  raw.llm!.model = defaultModel.model!;
-  raw.llm!.apiKey = defaultModel.apiKey;
-  raw.llm!.apiBaseUrl = defaultModel.apiBaseUrl;
 }
 
 /** 校验必填字段和类型，失败直接抛异常（导出供测试） */
-export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { provider: string; model: string } } {
-  // 多模型模式
-  if (raw.llm?.models && raw.llm.models.length > 0) {
-    validateMultiModel(raw);
-  } else {
-    // 单模型模式：传统校验
-    if (!raw.llm?.provider) throw new Error("配置校验失败: llm.provider 为必填字段");
-    if (!raw.llm?.model) throw new Error("配置校验失败: llm.model 为必填字段");
-    if (!VALID_PROVIDERS.includes(raw.llm.provider)) {
-      throw new Error(`配置校验失败: llm.provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${raw.llm.provider}`);
-    }
+export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { default: string; models: ModelConfig[] } } {
+  if (!raw.llm?.models || raw.llm.models.length === 0) {
+    throw new Error("配置校验失败: llm.models[] 为必填字段（至少一个模型条目，单模型配置也请写为一条 models[] 条目）");
   }
+  validateModels(raw);
 
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
@@ -313,7 +291,7 @@ function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
 }
 
 /** 将 RawConfig 补全默认值，构建 AppConfig */
-function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string } }): AppConfig {
+function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }): AppConfig {
   return {
     db: buildDbConfig(raw),
     server: { port: d(raw.server?.port, 3000) },
@@ -326,12 +304,9 @@ function applyDefaults(raw: RawConfig & { llm: { provider: string; model: string
       localModelPath: raw.embedding?.localModelPath ?? undefined,
     },
     llm: {
-      provider: raw.llm.provider,
-      model: raw.llm.model,
-      apiKey: raw.llm.apiKey ?? undefined,
-      apiBaseUrl: raw.llm.apiBaseUrl ?? undefined,
       default: raw.llm.default,
-      models: raw.llm.models?.map(m => ({
+      // alias/provider/model 已由 validateModels 校验非空
+      models: raw.llm.models.map(m => ({
         alias: m.alias!,
         provider: m.provider!,
         model: m.model!,
@@ -380,8 +355,8 @@ export function loadConfig(logger?: Logger): AppConfig {
   if (logger) {
     logger.info('Configuration loaded', {
       configPath: CONFIG_PATH,
-      provider: config.llm.provider,
-      model: config.llm.model,
+      defaultModel: config.llm.default,
+      modelCount: config.llm.models.length,
       port: config.server.port,
     });
   }

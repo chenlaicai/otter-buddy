@@ -18,9 +18,9 @@ database:
 
 # === LLM 配置（必填）===
 llm:
-  # 默认模型的 alias（多模型模式必填）
+  # 默认模型的 alias（缺省时取 models[] 第一条）
   default: "default"
-  # 模型列表（多模型模式）
+  # 模型列表（唯一配置方式；单模型即一条 models[] 条目）
   # 每个模型有唯一 alias，大獭创建小獭时可通过 modelAlias 选择
   models:
     - alias: "default"
@@ -45,12 +45,6 @@ llm:
     #   strengths: ["极快", "便宜"]
     #   weaknesses: ["复杂推理有限"]
     #   contextWindow: 200000
-
-  # === 单模型模式（兼容旧格式，与 models[] 二选一）===
-  # provider: openai
-  # model: gpt-4o
-  # apiKey: "sk-your-actual-key"
-  # apiBaseUrl: "https://your-proxy.com/v1"
 
 # === 记忆系统配置 ===
 memory:

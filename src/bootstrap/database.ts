@@ -96,18 +96,11 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: PinoL
 
   let changed = false;
 
-  if (llmConfig.models && llmConfig.models.length > 0) {
-    for (const mc of llmConfig.models) {
-      if (!mc.apiKey) continue;
-      const key = mc.alias;
-      if (auth[key] !== mc.apiKey) {
-        auth[key] = mc.apiKey;
-        changed = true;
-      }
-    }
-  } else if (llmConfig.apiKey) {
-    if (auth[llmConfig.provider] !== llmConfig.apiKey) {
-      auth[llmConfig.provider] = llmConfig.apiKey;
+  for (const mc of llmConfig.models) {
+    if (!mc.apiKey) continue;
+    const key = mc.alias;
+    if (auth[key] !== mc.apiKey) {
+      auth[key] = mc.apiKey;
       changed = true;
     }
   }
