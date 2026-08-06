@@ -24,7 +24,10 @@ interface TestModuleLike {
 function llmConfigured(): boolean {
   if (process.env.OTTER_TEST_LLM_API_KEY) return true;
   const localPath = path.join(process.cwd(), "config/config.test.local.yaml");
-  return fs.existsSync(localPath);
+  if (!fs.existsSync(localPath)) return false;
+  /** 文件存在但 apiKey 为空也算未配置（否则 skip 原因文案误导） */
+  const content = fs.readFileSync(localPath, "utf8");
+  return /apiKey:\s*["']?\S/.test(content);
 }
 
 export default class CapabilitySkipReporter {

@@ -3,8 +3,8 @@
  * 真 embedding（bge-m3，禁止 mock）、真 LLM（local overlay / 环境变量提供端点）。
  *
  * 隔离策略：每个测试文件一个临时目录（DB/sessions/logs），forks 池保证进程级隔离；
- * syncAuth=false（不碰 ~/.pi/agent/auth.json）；rootDir 默认指真仓库
- * （.pi/skills 与 docs 是能力的一部分，故意用真的，只读）。
+ * syncAuth=false（不碰 ~/.pi/agent/auth.json）；rootDir 默认空目录（真仓库 docs 同步会
+ * 挤爆 embedding 队列）；cwd 沙箱（软链 .pi/prompts/models）防 agent 工具写真仓。
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -14,6 +14,7 @@ import { buildApp, type BuiltApp } from "../../../src/app";
 import { loadConfig } from "../../../src/frameworks/config";
 import type { AppConfig } from "../../../src/frameworks/config";
 import { initFauxModels } from "../../../src/frameworks/llm/models-factory";
+import { ModelPool } from "../../../src/frameworks/llm/model-pool";
 import { createTestLogger } from "../../helpers/logger";
 
 export interface CapabilityContext {
@@ -74,7 +75,11 @@ function resolveTestConfig(tmpDir: string): AppConfig {
     JSON.stringify(baseRaw).replaceAll("__TMPDIR__", tmpDir),
   ) as Record<string, unknown>;
   const mergedPath = path.join(tmpDir, "config.merged.yaml");
-  fs.writeFileSync(mergedPath, yaml.dump(substituted));
+  /** 含 apiKey：0o600 权限 + 进程退出兜底清理（中断残留防泄漏） */
+  fs.writeFileSync(mergedPath, yaml.dump(substituted), { mode: 0o600 });
+  process.once("exit", () => {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* 兜底清理失败无害 */ }
+  });
 
   const config = loadConfig(createTestLogger(), mergedPath);
 
@@ -120,6 +125,22 @@ async function waitEmbeddingReady(built: BuiltApp, timeoutMs: number): Promise<v
   );
 }
 
+/** 无 LLM 时的 faux 模型池：每个别名独立实例，保证 ModelPool 解析语义可测 */
+async function buildFauxModels(config: AppConfig): Promise<{ model: unknown; modelPool: ModelPool }> {
+  const alias = config.llm.default ?? "default";
+  const configs = config.llm.models?.length
+    ? config.llm.models
+    : [{ alias, provider: config.llm.provider, model: config.llm.model }];
+  const entries = new Map<string, { config: (typeof configs)[number]; model: unknown }>();
+  let firstModel: unknown;
+  for (const mc of configs) {
+    const { model } = await initFauxModels([]);
+    if (firstModel === undefined) firstModel = model;
+    entries.set(mc.alias, { config: mc, model });
+  }
+  return { model: firstModel, modelPool: new ModelPool(alias, entries) };
+}
+
 export async function bootCapabilityApp(options: BootOptions = {}): Promise<CapabilityContext> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "otter-capability-"));
   const config = resolveTestConfig(tmpDir);
@@ -130,21 +151,44 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
   const rootDir = options.rootDir ?? emptyDocsDir;
 
   /** LLM 未配置时注入 faux models：initModels 对占位模型无密钥会直接抛错，
-   *  而 embedding/检索类用例不依赖 LLM，必须照常真跑 */
-  const models = llm.available ? undefined : { model: (await initFauxModels([])).model };
+   *  而 embedding/检索类用例不依赖 LLM，必须照常真跑。
+   *  每个别名独立 faux 实例（ModelPool 解析"非回退"断言依赖对象区分） */
+  const models = llm.available ? undefined : await buildFauxModels(config);
 
-  const built = await buildApp({
-    config,
-    logger: createTestLogger(),
-    dataDir: path.join(tmpDir, "data"),
-    sessionDir: path.join(tmpDir, "sessions"),
-    rootDir,
-    models,
-    staticRoot: false,
-    syncAuth: false,
-    enableFeishu: false,
-    startScheduler: false,
-  });
+  /** agent 工具（read/bash/write）的 cwd 沙箱：fork 的 process.cwd() 默认是真仓库根，
+   *  獭的编码工具可在真仓写文件（实测：曾自发建 worktree 完整实现功能）。
+   *  沙箱只软链只读资产（.pi/skills、prompts、models），bash/write 的默认落点在沙箱内。
+   *  注意必须在 buildApp 前 chdir（pi ResourceLoader 与 identity 目录按 cwd 解析）。 */
+  const sandbox = path.join(tmpDir, "sandbox");
+  fs.mkdirSync(sandbox, { recursive: true });
+  const root = repoRoot();
+  for (const asset of [".pi", "prompts", "models"]) {
+    fs.symlinkSync(path.join(root, asset), path.join(sandbox, asset));
+  }
+  /** seed-terminology 读 cwd 下的 data/terminology（启动种子资产） */
+  fs.mkdirSync(path.join(sandbox, "data"), { recursive: true });
+  fs.symlinkSync(path.join(root, "data/terminology"), path.join(sandbox, "data/terminology"));
+  const prevCwd = process.cwd();
+  process.chdir(sandbox);
+
+  let built: BuiltApp;
+  try {
+    built = await buildApp({
+      config,
+      logger: createTestLogger(),
+      dataDir: path.join(tmpDir, "data"),
+      sessionDir: path.join(tmpDir, "sessions"),
+      rootDir,
+      models,
+      staticRoot: false,
+      syncAuth: false,
+      enableFeishu: false,
+      startScheduler: false,
+    });
+  } catch (err) {
+    process.chdir(prevCwd);
+    throw err;
+  }
 
   await waitEmbeddingReady(built, options.embeddingTimeoutMs ?? 240_000);
 
@@ -160,6 +204,7 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
     skipReason: llm.reason,
     cleanup: () => {
       built.dispose();
+      process.chdir(prevCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     },
   };

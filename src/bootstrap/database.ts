@@ -30,13 +30,15 @@ export interface DatabaseBootstrapResult {
   dispose: () => void;
 }
 
-/** 测试注入预构建模型（如 initFauxModels）时，未带 pool 则用 llm 配置合成单条目池 */
+/** 测试注入预构建模型（如 initFauxModels）时，未带 pool 则按 llm 配置的全部别名合成池（共享同一模型对象） */
 function synthesizePool(model: unknown, llm: AppConfig["llm"]): ModelPool {
   const alias = llm.default ?? "default";
-  return new ModelPool(alias, new Map([[alias, {
-    config: { alias, provider: llm.provider, model: llm.model },
-    model,
-  }]]));
+  const configs = llm.models?.length
+    ? llm.models
+    : [{ alias, provider: llm.provider, model: llm.model }];
+  return new ModelPool(alias, new Map(
+    configs.map((mc) => [mc.alias, { config: mc, model }]),
+  ));
 }
 
 export async function initDatabaseAndModels(

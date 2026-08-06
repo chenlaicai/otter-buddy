@@ -112,6 +112,8 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
     /** worker 线程退出（onnxruntime 原生崩溃等场景 error 事件可能不触发）：
      *  必须拒绝所有 waiters/pending，否则 embed 永久挂起且无任何日志 */
     this.worker.on("exit", (code) => {
+      /** 正常 dispose → terminate 也会触发 exit：守卫掉，否则每次正常关停都打一条误导性 ERROR */
+      if (this.disposed) return;
       this.logger.error(`Embedding worker exited unexpectedly, code=${code}`);
       this.readyState.ready = false;
       const err = new Error(`Worker exited with code ${code}`);

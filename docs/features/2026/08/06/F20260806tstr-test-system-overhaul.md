@@ -77,6 +77,10 @@ embedding `workerPath`/`workerExecArgv` 覆盖（vitest 下 dist 产物 + fork e
 EmbeddingServiceImpl 补 worker exit 监听（onnxruntime 原生崩溃时 embed 曾永久挂起）。
 main.ts 收缩为 ~20 行薄入口。生产冒烟验证：全新 DB + 真 mimo + 飞书启动，对话全链路正常。
 
+**与上游的时序差异（明示）**：buildApp 会 await healing/recruiting 两个 ensure 再返回
+（上游是 fire-and-forget 后立即 listen）。ensure 无 LLM 调用、耗时极小；
+影响是生产 listen 略晚于上游，换取装配确定性（测试可依赖"返回即就绪"）。
+
 ## Part 2：能力测试层（B 类）
 
 - `vitest.capability.config.ts`：forks 池（每文件独立进程隔离 config 单例与 pi SDK 缓存）、
@@ -156,3 +160,22 @@ controllers.test.ts 删除（pin/unpin 独有用例迁入 tests/api 走真路由
 - A 类：78 文件 / 936 用例全绿（原 85 文件 / 1045 用例，数字下降是收益）
 - B 类：5 文件 / 11 用例全绿（真 mimo + 真 bge-m3）；无 LLM 配置时 2 真跑 + 显式 skip 报告
 - 生产冒烟：全新 DB 启动 + 真 LLM 对话全链路
+
+## 对抗审视记录（合并前独立 agent 检视）
+
+独立 agent 对 PR #159 做对抗检视（实跑 A/B 两层 + 无 LLM 对照 + 生产 diff 逐行比对），
+结论"可合并但先修 P1"。用户拍板全修含机制改动：
+
+| 级别 | 发现 | 处置 |
+|---|---|---|
+| P1 | multi-model 用例在无 LLM 环境红色失败（synthesizePool 只合成单别名池），与"无 LLM 照常真跑"宣称矛盾 | 修：faux 池按全部别名构建且每别名独立实例（保 ModelPool 非回退断言） |
+| P2 | 身份注入触发链确定性回归锁被删，CI 零守护（与分层原则自相矛盾） | 恢复 5 个 A 类触发链用例（pendingIdentity 标记/失败不消费/createdNew 注入） |
+| P2 | apiKey 明文落 /tmp 无权限位、中断残留 | 修：0o600 + 进程退出兜底清理 |
+| P2 | sn/dur DTO 字段 A 类覆盖归零（前端依赖 sn） | 补 tests/api/message.test.ts 断言 |
+| P2 | agent 工具可在能力测试中写真实仓库 | 机制：cwd 沙箱（软链只读资产，bash/write 落点沙箱内） |
+| P3 | retry 与采样叠加（3≥1 × retry1 = 实际 6 采 1，成功率退化无信号） | 机制：retry: 0，抖动全部由采样内化 |
+| P3 | worker exit 监听缺 disposed 守卫（正常关停误报 ERROR） | 修 |
+| P3 | lint 脚本引号/CRLF 解析脆弱、skip-reporter apiKey 空判、boot 注释过时、turnNumber 断言丢失 | 全修 |
+
+检视同时证伪的嫌疑（"检查过没问题"）：倒序/turn-per-hop 两处断言改动是发现真相而非迁就实现
+（生产 SQL 实证）；旗舰测试无上下文泄漏；删除会计算平；buildApp 与上游初始化逐步无差异。

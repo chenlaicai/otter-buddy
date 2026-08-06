@@ -33,7 +33,8 @@ export default defineConfig({
     maxWorkers: 1,
     testTimeout: 180_000,
     hookTimeout: 600_000, // bge-m3 加载 + 文档同步（真 embedding 索引全库文档）
-    retry: 1,
+    /** 不打 retry：统计采样已内化模型抖动，retry 会与采样叠加掩盖成功率退化（3≥1 × retry1 = 实际 6 采 1） */
+    retry: 0,
     reporters: ["default", "./tests/capability/helpers/skip-reporter.ts"],
   },
 });

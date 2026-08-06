@@ -45,6 +45,9 @@ npm run test:all               # 两层全跑
 - **embedding 禁止静默降级**：boot 强等待 available，缺失直接失败（本层降级等于撒谎）
 - 每文件独立进程（forks 池）、串行执行；boot 默认 rootDir=空目录
   （真实 docs 同步的 fire-and-forget embedding 会挤爆 worker 串行队列）
+- **cwd 沙箱**：boot 把进程 cwd 切到临时沙箱（只软链 .pi/prompts/models）——
+  獭的 read/bash/write 工具默认落点在沙箱内，防能力测试的真獭误写仓库
+  （实测：獭曾自发建 worktree 完整实现被要求的"功能"）
 - `waitForOtterMessage` 等的是**回合终局**（优先 completed；speak 未收尾的失败会触发自动重试）
 - session jsonl 解析集中在 `tests/capability/helpers/session-file.ts`（SDK 格式变化只改这里）
 

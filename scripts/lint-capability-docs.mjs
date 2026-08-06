@@ -31,12 +31,13 @@ function walk(dir) {
 
 /** 轻量 frontmatter 提取（不依赖 dist，只读 capability_test 与 change_type 两个字段） */
 function readFields(txt) {
-  const m = txt.match(/^---\n([\s\S]*?)\n---/);
+  const m = txt.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return {};
   const fields = {};
   for (const line of m[1].split("\n")) {
     const kv = line.match(/^([a-zA-Z_]+):\s*(.*)$/);
-    if (kv) fields[kv[1]] = kv[2].trim();
+    /** 剥引号：change_type: "feature" 与 capability_test: "n/a: ..." 与不带引号等价 */
+    if (kv) fields[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, "");
   }
   return fields;
 }

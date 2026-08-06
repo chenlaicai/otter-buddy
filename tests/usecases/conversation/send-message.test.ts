@@ -292,6 +292,8 @@ describe("SendMessage（真 sqlite）", () => {
       const msgTurn = await repo.getTurnById(msg.turnId);
       expect(msgTurn).not.toBeNull();
       expect(msgTurn!.closedAt).not.toBeNull();
+      /** 新 Turn 序号 = maxTurnNumber + 1（对抗检视 P3：转换时丢失的序号断言） */
+      expect(msgTurn!.turnNumber).toBe(2);
     });
   });
 

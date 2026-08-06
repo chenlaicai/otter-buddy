@@ -102,3 +102,96 @@ describe("buildIdentityPrefix 分支", () => {
     expect(prefix).not.toContain("海獭团队的头儿");
   });
 });
+
+/**
+ * 身份注入触发链路的确定性回归锁（A 类，不依赖 LLM，CI 可跑）。
+ * 对抗检视决定恢复：端到端能力用例是 LLM-gated 的（无密钥即 skip），
+ * 这条事故史链路（pendingIdentity 标记/失败不消费/createdNew 注入）必须有 CI 守护。
+ * 明知妥协：经 cast 触达内部件（_invokeInternal/_restoreOrCreateSession 替换在 pi SDK 边界上）。
+ */
+describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
+  type FactoryInternals = {
+    pendingIdentity: Set<string>;
+    _restoreOrCreateSession: (id: string) => Promise<{ sessionManager: unknown; createdNew: boolean }>;
+    _executeWithSession: (...args: unknown[]) => Promise<unknown>;
+    _invokeInternal: (id: string, msg: string, opts: unknown) => Promise<unknown>;
+  };
+
+  function makeWiredFactory(createdNew: boolean) {
+    const db = createTestDb();
+    const factory = new PiSessionFactory({
+      db,
+      sessionDir: ":memory:",
+      otterToolClient: {} as never,
+      model: null,
+      identityPromptDir: REAL_IDENTITY_DIR,
+      createTools: () => [],
+      otterConfigProvider: {
+        getConfig: () => ({ systemPrompt: undefined, otterType: "big", modelAlias: null }),
+        setConfig: () => {},
+        deleteConfig: () => {},
+      } as never,
+      otterRepo: new SqliteOtterRepository(db),
+    }, createTestLogger());
+
+    const captured: { invokeOptions: unknown } = { invokeOptions: undefined };
+    const executeShouldFail = { value: false };
+    const internals = factory as unknown as FactoryInternals;
+    internals._restoreOrCreateSession = async () => ({ sessionManager: {}, createdNew });
+    internals._executeWithSession = async (...args: unknown[]) => {
+      captured.invokeOptions = args[2];
+      if (executeShouldFail.value) throw new Error("invoke failed");
+      return {};
+    };
+    return { internals, captured, executeShouldFail, db };
+  }
+
+  it("create 后（pendingIdentity 有标记）首次 invoke 注入身份，成功后消费标记", async () => {
+    const { internals, captured, db } = makeWiredFactory(false);
+    internals.pendingIdentity.add("o1");
+
+    await internals._invokeInternal("o1", "hi", undefined);
+
+    expect((captured.invokeOptions as { isFirstInvoke: boolean }).isFirstInvoke).toBe(true);
+    expect(internals.pendingIdentity.has("o1")).toBe(false);
+    db.close();
+  });
+
+  it("invoke 失败时不消费标记，下次重试仍注入（B1 回归锁：删掉标记整个 feature 失效）", async () => {
+    const { internals, executeShouldFail, db } = makeWiredFactory(false);
+    internals.pendingIdentity.add("o1");
+    executeShouldFail.value = true;
+
+    await expect(internals._invokeInternal("o1", "hi", undefined)).rejects.toThrow("invoke failed");
+
+    expect(internals.pendingIdentity.has("o1")).toBe(true);
+    db.close();
+  });
+
+  it("restore 重建新 session（createdNew=true）即使无标记也注入", async () => {
+    const { internals, captured, db } = makeWiredFactory(true);
+
+    await internals._invokeInternal("o1", "hi", undefined);
+
+    expect((captured.invokeOptions as { isFirstInvoke: boolean }).isFirstInvoke).toBe(true);
+    db.close();
+  });
+
+  it("恢复旧 session 且无标记 → 不注入", async () => {
+    const { internals, captured, db } = makeWiredFactory(false);
+
+    await internals._invokeInternal("o1", "hi", undefined);
+
+    expect((captured.invokeOptions as { isFirstInvoke: boolean }).isFirstInvoke).toBe(false);
+    db.close();
+  });
+
+  it("options 缺省时 isFirstInvoke 标志仍然传递", async () => {
+    const { internals, captured, db } = makeWiredFactory(true);
+
+    await internals._invokeInternal("o1", "hi", undefined);
+
+    expect(captured.invokeOptions).not.toBeUndefined();
+    db.close();
+  });
+});
