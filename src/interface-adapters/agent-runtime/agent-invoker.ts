@@ -171,7 +171,7 @@ export class AgentInvoker {
         });
       }
       const finalErr = this.wrapInternalAbort(message.id, err);
-      await this.handleInvokeError({ messageId: message.id, otterId, err: finalErr, emitEvent, senderId, conversationId, startTime });
+      await this.handleInvokeError({ messageId: message.id, otterId, err: finalErr, emitEvent, senderId, conversationId, startTime, userMessageContent, onSSEEvent, retryCount });
       return { messageId: message.id, duration: Date.now() - startTime };
     }
   }
@@ -222,7 +222,7 @@ export class AgentInvoker {
       }
       this.abortedMessages.add(p.messageId);
       const prefix = ir.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
-      await this.handleInvokeError({ messageId: p.messageId, otterId: p.otterId, err: Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), emitEvent: p.emitEvent, senderId: p.senderId, conversationId: p.conversationId, startTime: p.startTime });
+      await this.handleInvokeError({ messageId: p.messageId, otterId: p.otterId, err: Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), emitEvent: p.emitEvent, senderId: p.senderId, conversationId: p.conversationId, startTime: p.startTime, userMessageContent: p.userMessageContent, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount });
       return { messageId: p.messageId, duration: Date.now() - p.startTime };
     }
     return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, emitEvent: p.emitEvent, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage, toolCallCount: p.toolCallCount });
@@ -386,6 +386,97 @@ export class AgentInvoker {
     }
   }
 
+  /** 自动重试拦截：判断是否可重试并执行，返回 true 表示已处理 */
+  private async _tryAutoRetry(p: {
+    messageId: string; otterId: string; err: unknown;
+    emitEvent: (event: SSEEvent) => void; senderId?: string;
+    conversationId?: string; startTime?: number;
+    userMessageContent?: string; autoRetryCount?: number;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number;
+  }): Promise<boolean> {
+    const autoRetryCount = p.autoRetryCount ?? 0;
+    const retryCount = p.retryCount ?? 0;
+    if (autoRetryCount !== 0 || retryCount > 0 || !p.conversationId || !p.userMessageContent) return false;
+
+    const abortReason = this._extractAbortReason(p.messageId, p.err);
+
+    // abort 路径：可重试的 guard abort
+    if (abortReason && this._isRetryableAbortReason(abortReason)) {
+      this.logger.info('Auto-retry on abort reason', { messageId: p.messageId, otterId: p.otterId, reason: abortReason });
+      await this._executeAutoRetry(p as Parameters<typeof this._executeAutoRetry>[0], abortReason);
+      return true;
+    }
+
+    // error 路径：API error
+    if (!abortReason && this._isRetryableApiError(p.err)) {
+      this.logger.info('Auto-retry on API error', { messageId: p.messageId, otterId: p.otterId });
+      await this._executeAutoRetry(p as Parameters<typeof this._executeAutoRetry>[0], 'api_error');
+      return true;
+    }
+
+    return false;
+  }
+
+  /** 从 error 中提取 abort reason（不修改 abortedMessages） */
+  private _extractAbortReason(messageId: string, err: unknown): string | undefined {
+    return (err as { _guardAbortReason?: string })._guardAbortReason
+      ?? this.agentInvoke.getInternalAbortReason(messageId);
+  }
+
+  /** 判断 abort reason 是否值得自动重试（degenerate_output 已有专门逻辑，不重复） */
+  private _isRetryableAbortReason(reason: string): boolean {
+    if (reason === "degenerate_output") return false;
+    if (reason === "streaming_timeout") return true;
+    if (reason === "first_byte_timeout") return true;
+    if (reason.startsWith("circuit_break:")) return true;
+    return false;
+  }
+
+  /** 判断 API error 是否值得自动重试（SDK auto-retry 耗尽后 _checkSessionError 抛出） */
+  private _isRetryableApiError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith("LLM API error:")) return true;
+    return false;
+  }
+
+  /** 执行自动重试：不注入系统消息，直接 fail + re-invoke（session 上下文已完整） */
+  private async _executeAutoRetry(
+    p: { messageId: string; otterId: string; senderId?: string; conversationId: string;
+         userMessageContent: string; emitEvent: (e: SSEEvent) => void; onSSEEvent?: (e: SSEEvent) => void;
+         startTime?: number; },
+    reason: string,
+  ): Promise<void> {
+    const failBody = `[系统] ${this._buildRetryFailBody(reason)}, 正在自动重试`;
+
+    /** 1. fail 当前消息（前端展示过渡态） */
+    try { await this.sendMessage.fail(p.messageId, failBody); } catch { /* ignore */ }
+    const otter = await this.queryOtter.getById(p.otterId);
+    const otterName = otter?.name ?? p.otterId;
+    p.emitEvent({ event: "message.failed", data: { messageId: p.messageId, otterId: p.otterId, otterName, body: failBody } });
+
+    /** 2. 清理 abortedMessages（不走终态 abort 路径，需要手动清理） */
+    this.abortedMessages.delete(p.messageId);
+
+    /** 3. 直接 re-invoke，不注入系统消息——session 上下文已完整保留 */
+    await this.invokeConversation({
+      otterId: p.otterId, conversationId: p.conversationId,
+      userMessageContent: p.userMessageContent,
+      senderId: p.senderId ?? p.otterId,
+      retryCount: 1,
+      onSSEEvent: p.onSSEEvent,
+    });
+  }
+
+  /** 构造自动重试的过渡态消息 */
+  private _buildRetryFailBody(reason: string): string {
+    if (reason === "streaming_timeout") return "生成过程超时";
+    if (reason === "first_byte_timeout") return "模型响应超时";
+    if (reason.startsWith("circuit_break:")) return "工具调用异常";
+    if (reason === "api_error") return "模型服务异常";
+    return "执行异常";
+  }
+
   /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
   private buildAbortBody(err: unknown, otterId: string, messageId: string): string {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -410,6 +501,9 @@ export class AgentInvoker {
    *
    * F20260806cbsx: 若消息已 speaking（speak 已提交 body），内容交付优先于中断语义——
    * 改走 complete 收尾，不覆盖已交付内容。
+   *
+   * 自动重试：在到达终态前，拦截可重试异常（timeout、circuit breaker、API error），
+   * 自动注入系统提醒并重新触发 agent 执行，用户无需手动干预。
    */
   private async handleInvokeError(p: {
     messageId: string;
@@ -419,7 +513,14 @@ export class AgentInvoker {
     senderId?: string;
     conversationId?: string;
     startTime?: number;
+    userMessageContent?: string;
+    autoRetryCount?: number;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number;
   }): Promise<void> {
+    // --- 自动重试拦截（终态之前） ---
+    if (await this._tryAutoRetry(p)) return;
+
     const { messageId, otterId, err, emitEvent, senderId, conversationId, startTime } = p;
     const errMsg = err instanceof Error ? err.message : String(err);
     this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedMessages.has(messageId) });

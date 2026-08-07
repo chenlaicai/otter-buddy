@@ -12,6 +12,7 @@ interface ChatViewProps {
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
   onSend: (text: string, mentionOtterId?: string) => void
   onStopStream: (messageId: string) => void
+  onRetryMessage: (messageId: string) => void
   onRetry: () => void
   onGoToSettings: () => void
   onArchive: () => void
@@ -77,6 +78,7 @@ export function ChatView(props: ChatViewProps) {
         messages={props.messages}
         state={props.state}
         onStopStream={props.onStopStream}
+        onRetryMessage={props.onRetryMessage}
         onRetry={props.onRetry}
         onGoToSettings={props.onGoToSettings}
         otters={props.otters}

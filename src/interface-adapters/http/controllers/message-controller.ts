@@ -331,6 +331,70 @@ export class MessageController {
     }
   }
 
+  /** 手动重试：对 failed/aborted 的 otter 消息重新触发 agent 执行 */
+  async retry(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const msg = await this.queryMessage.getMessageById(id);
+      if (!msg) {
+        return c.json({ error: "Message not found" }, 404);
+      }
+      if (msg.senderType !== "otter") {
+        return c.json({ error: "Can only retry otter messages" }, 400);
+      }
+      if (msg.status !== "failed" && msg.status !== "aborted") {
+        return c.json({ error: `Message is not in a retryable status: ${msg.status}` }, 409);
+      }
+
+      const conversationId = msg.conversationId;
+      const otterId = msg.senderId;
+
+      // 原始用户消息内容：从同 turn 的 user 消息中取
+      // turn 关系由 turnId 关联，但 QueryMessage 无 getMessagesByTurnId；
+      // 用 body 中保留的原始 prompt 或兜底空串（session 上下文已完整）
+      const userMessageContent = msg.body ?? "";
+
+      // 获取原始 user senderId（发言石应传回给用户，不能用 otterId）
+      const turnUserMsgs = await this.queryMessage.getMessages(conversationId, { turnId: msg.turnId, senderType: "user", limit: 1 });
+      const senderId = turnUserMsgs[0]?.senderId ?? "user";
+
+      // 创建 SSE 流
+      const { response, push, close } = streamEvents(c);
+
+      // 订阅 broadcaster 接收 streaming 事件
+      let unsubscribe: (() => void) | undefined;
+      if (this.messageBroadcaster) {
+        unsubscribe = this.messageBroadcaster.subscribe(
+          conversationId,
+          () => {},
+          (event) => { push(event); },
+        );
+      }
+
+      // 直接 re-invoke，不注入系统消息；retryCount=1 防止叠加自动重试
+      this.agentInvoker.invokeConversation({
+        otterId,
+        conversationId,
+        userMessageContent,
+        senderId,
+        retryCount: 1,
+      })
+        .catch((err: unknown) => {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.logger.error('重试调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId: id });
+          push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId: id, otterId } });
+        })
+        .finally(() => {
+          unsubscribe?.();
+          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+        });
+
+      return response;
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
   /** 未读状态（消息级，基于 last_read_message_seq） */
   async getUnreadState(c: Context): Promise<Response> {
     try {
