@@ -79,6 +79,8 @@ describe("SearchMemory - progressive disclosure", () => {
     /** snippet 应是纯文本，不包含 HTML 标签（高亮渲染在 Web 后端处理） */
     expect(first.snippet).not.toContain("<b>");
     expect(first.snippet).not.toContain("</b>");
+    /** content 应被裁剪为 snippet，不应包含完整原文 */
+    expect(first.content).toBe(first.snippet);
   });
 
   it("detail_level=summary 返回首句", async () => {
@@ -87,10 +89,14 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(result.entries.length).toBeGreaterThan(0);
     const first = result.entries[0];
     expect(first.snippet).toBeDefined();
+    /** content 应被裁剪为首句，与 snippet 一致 */
+    expect(first.content).toBe(first.snippet);
     /** summary 应比 snippet 更短 */
     const snippetResult = await searchMemory.search({ query: "FTS5", limit: 5, detailLevel: "snippet" });
     if (snippetResult.entries.length > 0) {
       expect(first.snippet!.length).toBeLessThanOrEqual(snippetResult.entries[0].snippet!.length);
+      /** summary 的 content 也应比 snippet 的 content 更短 */
+      expect(first.content.length).toBeLessThanOrEqual(snippetResult.entries[0].content.length);
     }
   });
 
@@ -113,11 +119,8 @@ describe("SearchMemory - progressive disclosure", () => {
     const first = result.entries[0];
     expect(first.snippet).not.toContain("<b>");
     expect(first.snippet).not.toContain("</b>");
-    /** snippet 模式 content 为空（渐进式披露：snippet 定位 → get_memory_detail 深入） */
-    expect(first.content).toBe("");
-    /** snippet 非空且包含匹配关键词（渐进式披露的有效性） */
-    expect(first.snippet!.length).toBeGreaterThan(0);
-    expect(first.snippet).toContain("渐进式");
+    /** content 应被裁剪为 snippet，不应返回全文 */
+    expect(first.content).toBe(first.snippet);
   });
 
   it("FTS highlight 超长时截断到 200 字符", async () => {
@@ -131,6 +134,8 @@ describe("SearchMemory - progressive disclosure", () => {
       /** FTS highlight snippet 应被截断到 200 字符 */
       expect(longEntry.snippet!.length).toBeLessThanOrEqual(200);
       expect(longEntry.snippet!.length).toBeGreaterThan(0);
+      /** content 也应被裁剪 */
+      expect(longEntry.content).toBe(longEntry.snippet);
     }
   });
 
@@ -176,6 +181,9 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(first.snippet).toBeDefined();
     expect(first.snippet!.length).toBeLessThanOrEqual(200);
     expect(first.snippet).not.toContain("<b>");
+    /** content 也应被裁剪，不应返回 500 字全文 */
+    expect(first.content).toBe(first.snippet);
+    expect(first.content.length).toBeLessThanOrEqual(200);
   });
 
   it("向后兼容：不传 detail_level 时默认使用 snippet", async () => {
@@ -184,6 +192,48 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(result.entries.length).toBeGreaterThan(0);
     /** 默认行为应返回 snippet */
     expect(result.entries[0].snippet).toBeDefined();
+    /** content 也应被裁剪（默认 detail_level=snippet） */
+    expect(result.entries[0].content).toBe(result.entries[0].snippet);
+  });
+
+  it("渐进式披露核心：snippet/summary 的 content 等于 snippet，full 保持全文", async () => {
+    /** 存入一条长文本条目 */
+    const longContent = "记忆系统的渐进式披露设计原则是一个重要的架构决策。".repeat(30);
+    storeEntry(db, { ...BASE_ENTRY, id: "e-long", content: longContent });
+
+    /** snippet 模式：content 必须等于 snippet（渐进式披露核心不变量） */
+    const snippetResult = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "snippet" });
+    const snippetEntry = snippetResult.entries.find(e => e.id === "e-long");
+    expect(snippetEntry).toBeDefined();
+    expect(snippetEntry!.content).toBe(snippetEntry!.snippet);
+
+    /** summary 模式：content 必须等于 snippet（首句） */
+    const summaryResult = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "summary" });
+    const summaryEntry = summaryResult.entries.find(e => e.id === "e-long");
+    expect(summaryEntry).toBeDefined();
+    expect(summaryEntry!.content).toBe(summaryEntry!.snippet);
+    /** summary 的 content（首句）应比 snippet 模式更短 */
+    expect(summaryEntry!.content.length).toBeLessThanOrEqual(snippetEntry!.content.length);
+
+    /** full 模式：content 保持完整原文，无 snippet 字段 */
+    const fullResult = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "full" });
+    const fullEntry = fullResult.entries.find(e => e.id === "e-long");
+    expect(fullEntry).toBeDefined();
+    expect(fullEntry!.content).toBe(longContent);
+    expect(fullEntry!.snippet).toBeUndefined();
+  });
+
+  it("detail_level 未传时 content 也不应返回全文（默认 snippet 行为）", async () => {
+    /** 存入一条超长条目（>200 字，触发 vec-only 降级截取） */
+    const longContent = "关键词".repeat(300);
+    storeEntry(db, { ...BASE_ENTRY, id: "e-long2", content: longContent });
+
+    const result = await searchMemory.search({ query: "关键词", limit: 5 });
+    const entry = result.entries.find(e => e.id === "e-long2");
+    if (entry) {
+      /** content 应等于 snippet，不应返回 600 字全文 */
+      expect(entry.content).toBe(entry.snippet);
+    }
   });
 
   it("ManageMemory.getDetails 返回指定条目的完整内容", async () => {

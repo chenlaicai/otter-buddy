@@ -86,7 +86,7 @@ export class SearchMemory {
       return { entries: [], total: 0 };
     }
     const results = await this.terminologyRepo.search(query.query, query.limit);
-    const detailLevel = query.detailLevel ?? "snippet";
+    const detailLevel = query.detailLevel ?? "summary";
     const entries: RetrievalResultEntry[] = results.map((entry, rank) => {
       const fullContent = `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`;
       let content: string;
@@ -171,7 +171,7 @@ export class SearchMemory {
   private async searchTerminologyEntries(query: SearchQuery): Promise<(RetrievalResultEntry & { normalizedScore: number; library: string; libraryPriority: number })[]> {
     if (!this.terminologyRepo) return [];
     const results = await this.terminologyRepo.search(query.query, query.limit);
-    const detailLevel = query.detailLevel ?? "snippet";
+    const detailLevel = query.detailLevel ?? "summary";
     return results.map((entry, rank) => {
       const fullContent = `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`;
       let content: string;
@@ -209,7 +209,7 @@ export class SearchMemory {
   }
 
   private async searchConversationInternal(query: SearchQuery): Promise<RetrievalResult> {
-    const detailLevel = query.detailLevel ?? "snippet";
+    const detailLevel = query.detailLevel ?? "summary";
     const filters: SearchFilters = {
       layer: query.layer,
       granularity: query.granularity,

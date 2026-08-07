@@ -55,6 +55,52 @@ describe("Memory API", () => {
       });
     });
 
+    it("detail_level=summary 时 content 被裁剪为 snippet", async () => {
+      const entry = makeMemoryEntry({
+        content: "这是一条很长的记忆内容。包含了很多细节信息。需要被裁剪。",
+      });
+      deps.searchMemory.search.mockResolvedValue({
+        entries: [{ ...entry, score: 0.9, source: "fts", snippet: "这是一条很长的记忆内容。" }],
+        total: 1,
+      });
+
+      const res = await app.request("/api/memory/search?query=test&detail_level=summary");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.entries[0].content).toBe("这是一条很长的记忆内容。");
+      expect(body.entries[0].snippet).toBeDefined();
+    });
+
+    it("detail_level=snippet 时 content 被裁剪为 snippet", async () => {
+      const entry = makeMemoryEntry({
+        content: "这是一条很长的记忆内容。包含了很多细节信息。需要被裁剪。",
+      });
+      deps.searchMemory.search.mockResolvedValue({
+        entries: [{ ...entry, score: 0.9, source: "fts", snippet: "包含了很多细节信息" }],
+        total: 1,
+      });
+
+      const res = await app.request("/api/memory/search?query=test&detail_level=snippet");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.entries[0].content).toBe("包含了很多细节信息");
+    });
+
+    it("detail_level=full 时 content 保留全文", async () => {
+      const fullContent = "这是一条很长的记忆内容。包含了很多细节信息。需要被裁剪。";
+      const entry = makeMemoryEntry({ content: fullContent });
+      deps.searchMemory.search.mockResolvedValue({
+        entries: [{ ...entry, score: 0.9, source: "fts" }],
+        total: 1,
+      });
+
+      const res = await app.request("/api/memory/search?query=test&detail_level=full");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.entries[0].content).toBe(fullContent);
+      expect(body.entries[0].snippet).toBeUndefined();
+    });
+
     it("F20260803fbit: passes content_type filter to search", async () => {
       deps.searchMemory.search.mockResolvedValue({ entries: [], total: 0 });
 

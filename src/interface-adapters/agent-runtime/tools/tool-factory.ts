@@ -159,7 +159,15 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: "检索记忆。有明确历史信号时才检索（搭档提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。渐进式披露：先 summary/snippet 定位相关条目，再用 get_memory_detail 深入。可指定 library 路由到特定库；可指定 created_after 过滤时间范围（如定时摘要查今日新增）。记忆与当前上下文冲突时以当前上下文为准。",
+    description: `检索记忆。有明确历史信号时才检索（搭档提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。
+
+渐进式披露工作流（默认策略）：
+1. 首次搜索用 detail_level="summary"，快速扫描哪些条目相关
+2. 看中特定条目后，用 get_memory_detail 传入 ID 获取完整内容
+3. 只在需要匹配上下文片段时用 detail_level="snippet"
+4. detail_level="full" 仅用于明确需要一次性获取全文的场景（如批量导出）
+
+记忆与当前上下文冲突时以当前上下文为准。可指定 library 路由到特定库；可指定 created_after 过滤时间范围（如定时摘要查今日新增）。`,
     parameters: {
       type: "object",
       properties: {
@@ -168,7 +176,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         detail_level: {
           type: "string",
           enum: ["summary", "snippet", "full"],
-          description: "返回内容的详细程度：summary（ID+首句+分数）、snippet（ID+匹配片段+分数+元数据，默认）、full（完整内容+元数据）",
+          description: "渐进式披露：summary=ID+首句+分数（快速扫描，推荐首选）、snippet=ID+匹配片段+分数+元数据（看上下文）、full=完整内容+元数据（仅需全文时用）。默认 summary。",
         },
         library: {
           type: "string",
@@ -190,7 +198,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "snippet";
+      const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "summary";
       const contentType = params.content_type as MemoryContentType[] | undefined;
       const entries = await ctx.client.memory.search(
         params.query as string,
@@ -322,11 +330,11 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** get_memory_detail: 获取指定记忆条目的完整内容（渐进式披露，支持批量） */
+/** get_memory_detail: 获取指定记忆条目的完整内容（渐进式披露第二阶段，支持批量） */
 function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_memory_detail",
-    description: "获取指定记忆条目的完整内容。用于在 search_memory 后深入查看特定条目。支持批量查询。",
+    description: "渐进式披露第二阶段：获取指定记忆条目的完整内容。在 search_memory（summary 模式）扫到相关条目后，用此工具传入 ID 获取全文。支持批量查询。不要跳过 search_memory 直接用此工具。",
     parameters: {
       type: "object",
       properties: {
