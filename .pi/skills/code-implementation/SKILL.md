@@ -7,11 +7,27 @@ description: >-
   Covers the plan-driven development workflow: coding principles, testing strategy, and
   commit conventions. For ANY repository mutation (even one-line fixes), the red lines
   in the repo-safety skill always apply — load it too.
+triggers:
+  phrases:
+    - "写代码"
+    - "实现这个功能"
+    - "开始开发"
+    - "编码实现"
+    - "提交代码"
+    - "写测试"
+    - "按方案开发"
+    - "开干"
+    - "开始写"
+co_loads:
+  - repo-safety
 ---
 
 # Code Implementation
 
 Turn a technical plan into runnable, verifiable code changes.
+
+> **触发短语**：写代码 | 实现这个功能 | 开始开发 | 编码实现 | 提交代码 | 写测试
+> **共加载**：repo-safety（仓库变更时必加载）
 
 ## Core Principles
 
@@ -19,6 +35,16 @@ Turn a technical plan into runnable, verifiable code changes.
 - **Faithful to the plan**: Implement what the plan specifies. Do not expand scope or add unrequested features.
 - **Test behavior, not internals**: Assert observable outputs and side effects. Do not assert how functions call each other.
 - **No compatibility bridges**: The new design IS the current design. Do not preserve old code paths alongside new ones.
+
+## 输入契约
+
+本 skill 需要以下输入才能开始工作：
+
+| 输入 | 必选/可选 | 来源 | 缺失时处理 |
+|------|----------|------|-----------|
+| 技术方案 | 必选 | 搭档确认后的方案文档 | 停下来问搭档。即使是自己产出的方案，也需搭档确认后方可进入实现。禁止自行编造方案 |
+| 方案编号 | 必选 | 方案文档的 ID | 从方案文档 frontmatter 读取 |
+| 工作分支 | 必选 | repo-safety 流程产出 | 先走 repo-safety 创建 worktree |
 
 ## Workflow
 
@@ -115,6 +141,19 @@ PR 创建（或 push 更新）后，交付不算完成——必须经独立审�
 **顺手修复（Opportunistic Fix）**：与当前变更有上下文关联（同一模块/文件/函数）的问题，可以直接修复，但必须在 PR 描述中记录。
 
 **不静默丢失**：发现的问题必须有去处。PR 描述必须包含"发现的其他问题"章节，没有就写"无"。每个未修复的问题必须有对应 issue。
+
+## 后续动作声明
+
+| 产出类型 | 下一步动作 | 执行者 | 触发条件 | 不满足时处理 |
+|----------|-----------|--------|----------|-------------|
+| 代码 PR | 对抗审视 | 检视獭（异体） | PR 创建后 | 搭档不在场 → 记录 PR 链接到 memory，搭档回来后决定是否审视 |
+| 排查结论（需提交修复） | repo-safety 流程 | 当前獭 | 结论确认后 | 正常终止，结论记录到 memory |
+
+### 异体执行原则
+
+PR 审视在多 agent 场景下由架构保证异体（大獭召唤检视獭）。
+单 agent 场下降级：大獭自己写的 PR，至少等待搭档确认后才能合入。
+搭档明确说"跳过审视"时，记录决策后放行。
 
 ## Additional Resources
 

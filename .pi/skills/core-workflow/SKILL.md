@@ -6,9 +6,34 @@ description: >-
   or any task that requires querying conversation history, searching memory,
   troubleshooting issues, or recording outputs and decisions.
   Covers information retrieval, troubleshooting workflow, and artifact recording.
+triggers:
+  phrases:
+    - "查一下"
+    - "帮我查"
+    - "看看之前的"
+    - "搜索"
+    - "排查"
+    - "分析问题"
+    - "记录一下"
+    - "看看日志"
+    - "查数据库"
+co_loads:
+  - repo-safety
 ---
 
 # Core Workflow
+
+> **触发短语**：查一下 | 帮我查 | 排查 | 分析问题 | 记录一下
+> **共加载**：repo-safety（排查结论需提交时）
+
+## 输入契约
+
+本 skill 需要以下输入才能开始工作：
+
+| 输入 | 必选/可选 | 来源 | 缺失时处理 |
+|------|----------|------|-----------|
+| 查询目标 | 必选 | 搭档 | 停下来问搭档要查什么 |
+| 查询范围 | 可选 | 搭档 | 默认查当前对话，无结果再查记忆 |
 
 ## 信息查询
 
@@ -28,3 +53,14 @@ description: >-
 ## 产出记录
 
 重要产出和决策必须用 `create_linked_resource` 记录，资源只走状态流转，不删除。
+
+## 后续动作声明
+
+| 产出类型 | 下一步动作 | 执行者 | 触发条件 | 不满足时处理 |
+|----------|-----------|--------|----------|-------------|
+| 排查结论（需提交修复） | repo-safety 流程 | 当前獭 | 结论涉及仓库改动时 | 正常终止，结论记录到 memory |
+| 查询结果 | 记录（如需） | 当前獭 | 搭档明确要求记录，或涉及决策/结论的查询结果 | 正常终止，记录后不再链式触发 |
+
+### 异体执行原则
+
+core-workflow 不涉及审视类动作，无异体执行要求。

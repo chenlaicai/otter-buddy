@@ -9,11 +9,34 @@ description: >-
   dedicated agents working together.
   Covers summon decision framework, systemPrompt template, multi-round
   collaboration orchestration, and output integration.
+triggers:
+  phrases:
+    - "帮我分析一下这个需求"
+    - "做个技术方案"
+    - "审查这个 PR"
+    - "写代码并 review"
+    - "调研几个方向"
+    - "模拟多角色讨论"
+    - "排查一下这个问题"
+co_loads: []
 ---
 
 # Otter Summon Protocol
 
 大獭召唤小獭的决策框架和协作编排指南。
+
+> **触发短语**：帮我分析一下这个需求 | 做个技术方案 | 审查这个 PR | 写代码并 review
+> **共加载**：无
+
+## 输入契约
+
+本 skill 需要以下输入才能开始工作：
+
+| 输入 | 必选/可选 | 来源 | 缺失时处理 |
+|------|----------|------|-----------|
+| 任务描述 | 必选 | 当前上下文或搭档 | 停下来明确任务 |
+| 任务类型 | 可选 | 从任务描述自动推断 | 推断失败时参考"何时召唤"表，仍不确定则问搭档 |
+| 背景信息 | 可选 | 当前对话和记忆 | 尽量收集，但不阻塞 |
 
 ## 何时召唤
 
@@ -85,6 +108,16 @@ description: >-
 - 向搭档汇报进展（如果搭档在等结果）
 
 小獭的产出是你的输入，不是最终交付物。你负责把关。
+
+## 后续动作声明
+
+本 skill 是编排层，不直接产出交付物。后续动作由被召唤的小獭的 skill 决定。
+
+召唤完成后，大獭的职责：
+1. 审视小獭产出质量
+2. 整合有价值的产出
+3. 决定是否需要追加召唤
+4. 向搭档汇报进展
 
 ## Additional Resources
 
