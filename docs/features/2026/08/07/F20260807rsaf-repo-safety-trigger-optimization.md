@@ -1,11 +1,11 @@
 ---
 id: F20260807rsaf
-title: repo-safety-trigger-optimization
+title: worktree-isolation-trigger-optimization
 doc_type: feature
 
 # 记忆索引
 summary: |
-  repo-safety skill 触发时机优化。
+  worktree-isolation skill 触发时机优化。
   核心问题：海獭们在主目录直接修改文件，不遵循 worktree 隔离原则。
   优化方向：触发时机从"提交前"前移到"文件操作前"，强化触发描述，
   排除非 git 追踪文件，覆盖排查中途变写入场景。
@@ -13,12 +13,12 @@ summary: |
 # 因果链路（正向依赖）
 causal_links:
   from:
-    - F20260728skrp   # repo-safety skill 初始设计
+    - F20260728skrp   # worktree-isolation skill 初始设计
 
 # 元数据
 status: design
 change_type: feature_update
-tags: [skills, repo-safety, worktree, prompt-engineering]
+tags: [skills, worktree-isolation, worktree, prompt-engineering]
 modules: [.pi/skills/]
 
 # 时间
@@ -29,11 +29,11 @@ created_at: 2026-08-07
 
 ### 现象
 
-海獭们（AI 代理）在主目录直接修改文件、切换分支，而不是先创建 worktree。repo-safety skill 明确写了"主目录零改动"的红线，但 LLM 在实际执行时经常跳过这个步骤。
+海獭们（AI 代理）在主目录直接修改文件、切换分支，而不是先创建 worktree。worktree-isolation skill 明确写了"主目录零改动"的红线，但 LLM 在实际执行时经常跳过这个步骤。
 
 ### 根因分析
 
-repo-safety skill 的触发设计存在两个问题：
+worktree-isolation skill 的触发设计存在两个问题：
 
 1. **"should"措辞过弱**：当前 description 写的是"should be used for ANY task that mutates a git repository"，这是建议而非强制。LLM 可以合理地认为"我的场景不典型，不需要触发"。虽然描述已包含"editing or creating tracked files"，但"should"的强度不足以让 LLM 在每次文件修改前都触发。
 
@@ -72,8 +72,8 @@ repo-safety skill 的触发设计存在两个问题：
 
 **与"搭档优先"的关系**：
 - SYSTEM.md 的"搭档优先"原则明确搭档可以喊停流程，这是正确的——搭档优先级最高
-- repo-safety 的 "MUST" 是 skill 层面的强制，当搭档显式要求跳过时（"别建 worktree 了，直接改"），按 SYSTEM.md "搭档优先"原则执行，记录决策后放行
-- 当前 repo-safety 的弹性规则已覆盖此场景："搭档说'不用建 worktree 了' → 不可以"是 skill 内部的硬规则，但搭档显式喊停时仍可放行
+- worktree-isolation 的 "MUST" 是 skill 层面的强制，当搭档显式要求跳过时（"别建 worktree 了，直接改"），按 SYSTEM.md "搭档优先"原则执行，记录决策后放行
+- 当前 worktree-isolation 的弹性规则已覆盖此场景："搭档说'不用建 worktree 了' → 不可以"是 skill 内部的硬规则，但搭档显式喊停时仍可放行
 - 两者不冲突：skill 在搭档不干预时强制执行，搭档干预时可放行
 
 ### D3: 明确排除非 git 追踪文件
@@ -87,16 +87,16 @@ repo-safety skill 的触发设计存在两个问题：
 
 ### D4: 覆盖"排查中途变写入"场景
 
-**决策**：在 core-workflow skill 中增加转换节点，排查中需要修改文件时立即转入 repo-safety 流程。
+**决策**：在 core-workflow skill 中增加转换节点，排查中需要修改文件时立即转入 worktree-isolation 流程。
 
 **理由**：
 - 常见场景：排查问题时发现需要加 log 或改配置来验证假设
-- 当前 core-workflow 的 co_loads 包含 repo-safety，但那是"排查结论需提交时"才触发
+- 当前 core-workflow 的 co_loads 包含 worktree-isolation，但那是"排查结论需提交时"才触发
 - 排查过程中的临时修改不在"提交"范畴内，但如果不在 worktree 里做，会污染主目录
 
 ### D5: 增加 cwd 验证步骤
 
-**决策**：在 repo-safety 最小流程中增加 cwd 验证，确认操作在 worktree 内进行。
+**决策**：在 worktree-isolation 最小流程中增加 cwd 验证，确认操作在 worktree 内进行。
 
 **理由**：
 - memory 中有记录：小獭的 cwd 是主仓，相对路径会解析到主仓旧代码
@@ -112,22 +112,22 @@ repo-safety skill 的触发设计存在两个问题：
 - 统一执行路径，减少出错概率
 - 与现有工具集成
 
-### D7: repo-safety 为 worktree 创建的单一事实源
+### D7: worktree-isolation 为 worktree 创建的单一事实源
 
-**决策**：repo-safety skill 保持为 worktree 创建步骤的唯一事实源，code-implementation 和 core-workflow 通过引用 repo-safety 获取步骤，而非直接复制。
+**决策**：worktree-isolation skill 保持为 worktree 创建步骤的唯一事实源，code-implementation 和 core-workflow 通过引用 worktree-isolation 获取步骤，而非直接复制。
 
 **理由**：
 - 维护三份相同的步骤是漂移隐患，任何一处修改都需要同步其他两处
-- repo-safety 已经定义了完整的 worktree 创建流程，其他 skill 引用即可
+- worktree-isolation 已经定义了完整的 worktree 创建流程，其他 skill 引用即可
 - 保持单一事实源，减少维护负担
-- code-implementation step 1 改为"执行 repo-safety 最小流程"，而非直接写步骤
-- core-workflow 转换节点也引用 repo-safety 最小流程
+- code-implementation step 1 改为"执行 worktree-isolation 最小流程"，而非直接写步骤
+- core-workflow 转换节点也引用 worktree-isolation 最小流程
 
 ## 实现方案
 
-### S1: 优化 repo-safety SKILL.md 触发描述
+### S1: 优化 worktree-isolation SKILL.md 触发描述
 
-**文件**：`.pi/skills/repo-safety/SKILL.md`
+**文件**：`.pi/skills/worktree-isolation/SKILL.md`
 
 **改动**：
 
@@ -148,11 +148,11 @@ description: >-
 > **搭档喊停**：搭档显式要求跳过 worktree 时，记录决策后放行
 ```
 
-注意：触发短语移除了与 code-implementation 重叠的"写代码"、"实现功能"。功能开发场景应由 code-implementation 入口，通过 co_loads 自动加载 repo-safety。
+注意：触发短语移除了与 code-implementation 重叠的"写代码"、"实现功能"。功能开发场景应由 code-implementation 入口，通过 co_loads 自动加载 worktree-isolation。
 
-### S2: 优化 repo-safety 最小流程
+### S2: 优化 worktree-isolation 最小流程
 
-**文件**：`.pi/skills/repo-safety/SKILL.md`
+**文件**：`.pi/skills/worktree-isolation/SKILL.md`
 
 **改动**：优化最小流程，增加条件验证、已在 worktree 内的处理、失败降级
 
@@ -183,14 +183,14 @@ description: >-
 ```markdown
 ### 1. Prepare Environment
 
-第一步：执行 repo-safety 最小流程创建 worktree 隔离环境。
+第一步：执行 worktree-isolation 最小流程创建 worktree 隔离环境。
 
-- 读取 `repo-safety` skill，执行其最小流程
+- 读取 `worktree-isolation` skill，执行其最小流程
 - 记录上下文：worktree 名、分支名、特性编号
 - 后续所有文件修改必须在 worktree 内进行，主目录只允许只读操作
 ```
 
-注意：不再直接写 worktree 创建步骤，而是引用 repo-safety 的最小流程，保持单一事实源。
+注意：不再直接写 worktree 创建步骤，而是引用 worktree-isolation 的最小流程，保持单一事实源。
 
 ### S4: core-workflow 增加转换节点
 
@@ -201,22 +201,22 @@ description: >-
 ```markdown
 ### 排查中需要修改文件时
 
-如果排查过程中需要修改文件来验证假设（如加 log、改配置），立即转入 repo-safety 流程：
+如果排查过程中需要修改文件来验证假设（如加 log、改配置），立即转入 worktree-isolation 流程：
 
 1. 停止当前排查步骤
-2. 读取 `repo-safety` skill，执行其最小流程创建 worktree
+2. 读取 `worktree-isolation` skill，执行其最小流程创建 worktree
 3. 在 worktree 内进行临时修改和验证
 4. 验证完成后，决定是否提交修改：
-   - 如果修改有价值 → 走 repo-safety 完整流程提交 PR
+   - 如果修改有价值 → 走 worktree-isolation 完整流程提交 PR
    - 如果修改是临时的 → 在 worktree 内 revert，不影响主目录
 5. 继续排查流程
 ```
 
-注意：转换节点引用 repo-safety 最小流程，而非直接写 worktree 创建步骤，保持单一事实源。
+注意：转换节点引用 worktree-isolation 最小流程，而非直接写 worktree 创建步骤，保持单一事实源。
 
-### S5: 修改 repo-safety 输入契约
+### S5: 修改 worktree-isolation 输入契约
 
-**文件**：`.pi/skills/repo-safety/SKILL.md`
+**文件**：`.pi/skills/worktree-isolation/SKILL.md`
 
 **改动**：修改输入契约，从"要提交的改动"改为"要执行的任务"
 
@@ -241,7 +241,7 @@ description: >-
 
 **预期行为**：
 1. LLM 识别到"改一下"是触发短语
-2. LLM read repo-safety skill
+2. LLM read worktree-isolation skill
 3. LLM 执行最小流程，创建 worktree
 4. LLM 在 worktree 内修改文件
 
@@ -253,7 +253,7 @@ description: >-
 
 **预期行为**：
 1. LLM 识别到 memory 文件不在 git 追踪范围内
-2. LLM 不触发 repo-safety
+2. LLM 不触发 worktree-isolation
 3. LLM 直接更新 memory 文件
 
 **验证方法**：检查是否创建了不必要的 worktree
@@ -265,7 +265,7 @@ description: >-
 **预期行为**：
 1. LLM 进入 core-workflow 走排查流程
 2. 排查中发现需要加 log
-3. LLM 停止排查，转入 repo-safety 流程
+3. LLM 停止排查，转入 worktree-isolation 流程
 4. LLM 创建 worktree，在 worktree 内加 log
 5. 验证完成后，LLM 决定是否提交
 
@@ -284,7 +284,7 @@ description: >-
 
 ## 实现计划
 
-### Phase 1: repo-safety 触发描述优化（纯文本）
+### Phase 1: worktree-isolation 触发描述优化（纯文本）
 
 - [ ] 优化 SKILL.md frontmatter description
 - [ ] 优化 SKILL.md body 开头的触发说明
@@ -311,21 +311,21 @@ description: >-
 
 ### R1: 触发范围扩大导致过度触发
 
-**风险**：优化后的触发描述可能让 LLM 在不需要 worktree 的场景也触发 repo-safety
+**风险**：优化后的触发描述可能让 LLM 在不需要 worktree 的场景也触发 worktree-isolation
 
 **缓解**：触发描述明确排除非 git 追踪文件，减少误判
 
 ### R2: LLM 仍然跳过触发
 
-**风险**：即使优化了触发描述，LLM 仍可能跳过 repo-safety
+**风险**：即使优化了触发描述，LLM 仍可能跳过 worktree-isolation
 
-**缓解**：这是 skill 层面能做的极限。如果仍不够，需要考虑机制层面的 Hard Gate（如 `repo-safety-hard-gate` worktree 的方案），但那是另一个决策点。
+**缓解**：这是 skill 层面能做的极限。如果仍不够，需要考虑机制层面的 Hard Gate（如 `worktree-isolation-hard-gate` worktree 的方案），但那是另一个决策点。
 
 ### R3: code-implementation step 1 过于具体
 
 **风险**：直接写步骤可能让 skill 耦合到具体工具实现
 
-**缓解**：改为引用 repo-safety 最小流程，保持单一事实源，避免耦合。
+**缓解**：改为引用 worktree-isolation 最小流程，保持单一事实源，避免耦合。
 
 ## 对抗审视记录
 
@@ -341,7 +341,7 @@ description: >-
 |---|------|------|------|
 | 1 | D1 根因分析不精确——真正的问题是"should"措辞过弱和输入契约隐含"改动已存在"假设 | 接受并修复 | 拆分为两个子问题，分别处理 |
 | 2 | D2 "MUST"与 SYSTEM.md "搭档优先"原则存在张力 | 接受并修复 | 显式声明：搭档可喊停，记录决策后放行 |
-| 3 | 三处重复写入 worktree 创建步骤，缺乏优先级与去重机制 | 接受并修复 | repo-safety 为单一事实源，其他 skill 引用 |
+| 3 | 三处重复写入 worktree 创建步骤，缺乏优先级与去重机制 | 接受并修复 | worktree-isolation 为单一事实源，其他 skill 引用 |
 
 **次要问题**：
 
@@ -351,6 +351,6 @@ description: >-
 | 5 | 缺少"已在 worktree 内"的场景处理 | 接受并修复 | 增加分支逻辑：已在 worktree 内则跳过创建 |
 | 6 | D4 转换节点依赖 LLM 主动中断当前推理链 | 呈搭档裁决 | 需要测试验证，先按当前方案实现 |
 | 7 | 缺少 worktree 创建失败的降级处理 | 接受并修复 | 增加失败处理：报告搭档，由搭档决定 |
-| 8 | S1 触发短语与 code-implementation 重叠 | 接受并修复 | 移除"写代码"、"实现功能"，聚焦 repo-safety 独特场景 |
+| 8 | S1 触发短语与 code-implementation 重叠 | 接受并修复 | 移除"写代码"、"实现功能"，聚焦 worktree-isolation 独特场景 |
 
 **结论**：方案方向正确，三个重要问题已修复，可以进入实现阶段。

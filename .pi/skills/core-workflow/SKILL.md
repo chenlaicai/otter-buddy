@@ -18,13 +18,13 @@ triggers:
     - "看看日志"
     - "查数据库"
 co_loads:
-  - repo-safety
+  - worktree-isolation
 ---
 
 # Core Workflow
 
 > **触发短语**：查一下 | 帮我查 | 排查 | 分析问题 | 记录一下
-> **共加载**：repo-safety（排查结论需提交时）
+> **共加载**：worktree-isolation（排查结论需提交时）
 
 ## 输入契约
 
@@ -51,17 +51,17 @@ co_loads:
 ## 排查问题
 
 排查问题时：先用工具读取相关文件/数据，再基于读取内容分析。
-排查结论若需要改动仓库（提交修复、提 PR，无论多小）→ 先加载 `repo-safety` skill，再动手。
+排查结论若需要改动仓库（提交修复、提 PR，无论多小）→ 先加载 `worktree-isolation` skill，再动手。
 
 ### 排查中需要修改文件时
 
-如果排查过程中需要修改文件来验证假设（如加 log、改配置），立即转入 repo-safety 流程：
+如果排查过程中需要修改文件来验证假设（如加 log、改配置），立即转入 worktree-isolation 流程：
 
 1. 停止当前排查步骤
-2. 读取 `repo-safety` skill，执行其最小流程创建 worktree
+2. 读取 `worktree-isolation` skill，执行其最小流程创建 worktree
 3. 在 worktree 内进行临时修改和验证
 4. 验证完成后，决定是否提交修改：
-   - 如果修改有价值 → 走 repo-safety 完整流程提交 PR
+   - 如果修改有价值 → 走 worktree-isolation 完整流程提交 PR
    - 如果修改是临时的 → 在 worktree 内 revert，不影响主目录
 5. 继续排查流程
 
@@ -98,7 +98,7 @@ co_loads:
 
 | 产出类型 | 下一步动作 | 执行者 | 触发条件 | 不满足时处理 |
 |----------|-----------|--------|----------|-------------|
-| 排查结论（需提交修复） | repo-safety 流程 | 当前獭 | 结论涉及仓库改动时 | 正常终止，结论记录到 memory |
+| 排查结论（需提交修复） | worktree-isolation 流程 | 当前獭 | 结论涉及仓库改动时 | 正常终止，结论记录到 memory |
 | 查询结果 | 记录（如需） | 当前獭 | 搭档明确要求记录，或涉及决策/结论的查询结果 | 正常终止，记录后不再链式触发 |
 
 ### 异体执行原则

@@ -6,7 +6,7 @@ description: >-
   or needs to implement a technical plan, write code, create tests, or submit changes.
   Covers the plan-driven development workflow: coding principles, testing strategy, and
   commit conventions. For ANY repository mutation (even one-line fixes), the red lines
-  in the repo-safety skill always apply — load it too.
+  in the worktree-isolation skill always apply — load it too.
 triggers:
   phrases:
     - "写代码"
@@ -19,7 +19,7 @@ triggers:
     - "开干"
     - "开始写"
 co_loads:
-  - repo-safety
+  - worktree-isolation
 ---
 
 # Code Implementation
@@ -27,11 +27,11 @@ co_loads:
 Turn a technical plan into runnable, verifiable code changes.
 
 > **触发短语**：写代码 | 实现这个功能 | 开始开发 | 编码实现 | 提交代码 | 写测试
-> **共加载**：repo-safety（仓库变更时必加载）
+> **共加载**：worktree-isolation（仓库变更时必加载）
 
 ## Core Principles
 
-- **Repo safety first**: Follow all red lines in the `repo-safety` skill — worktree isolation, no direct commits to protected branches, PR-only delivery, no destructive git operations.
+- **Repo safety first**: Follow all red lines in the `worktree-isolation` skill — worktree isolation, no direct commits to protected branches, PR-only delivery, no destructive git operations.
 - **Faithful to the plan**: Implement what the plan specifies. Do not expand scope or add unrequested features.
 - **Test behavior, not internals**: Assert observable outputs and side effects. Do not assert how functions call each other.
 - **No compatibility bridges**: The new design IS the current design. Do not preserve old code paths alongside new ones.
@@ -44,15 +44,15 @@ Turn a technical plan into runnable, verifiable code changes.
 |------|----------|------|-----------|
 | 技术方案 | 必选 | 搭档确认后的方案文档 | 停下来问搭档。即使是自己产出的方案，也需搭档确认后方可进入实现。禁止自行编造方案 |
 | 方案编号 | 必选 | 方案文档的 ID | 从方案文档 frontmatter 读取 |
-| 工作分支 | 必选 | repo-safety 流程产出 | 先走 repo-safety 创建 worktree |
+| 工作分支 | 必选 | worktree-isolation 流程产出 | 先走 worktree-isolation 创建 worktree |
 
 ## Workflow
 
 ### 1. Prepare Environment
 
-第一步：执行 repo-safety 最小流程创建 worktree 隔离环境。
+第一步：执行 worktree-isolation 最小流程创建 worktree 隔离环境。
 
-- 读取 `repo-safety` skill，执行其最小流程
+- 读取 `worktree-isolation` skill，执行其最小流程
 - 记录上下文：worktree 名、分支名、特性编号
 - 后续所有文件修改必须在 worktree 内进行，主目录只允许只读操作
 
@@ -151,7 +151,7 @@ PR 创建（或 push 更新）后，交付不算完成——必须经独立审�
 | 产出类型 | 下一步动作 | 执行者 | 触发条件 | 不满足时处理 |
 |----------|-----------|--------|----------|-------------|
 | 代码 PR | 对抗审视 | 检视獭（异体） | PR 创建后 | 搭档不在场 → 记录 PR 链接到 memory，搭档回来后决定是否审视 |
-| 排查结论（需提交修复） | repo-safety 流程 | 当前獭 | 结论确认后 | 正常终止，结论记录到 memory |
+| 排查结论（需提交修复） | worktree-isolation 流程 | 当前獭 | 结论确认后 | 正常终止，结论记录到 memory |
 
 ### 异体执行原则
 

@@ -1,5 +1,5 @@
 ---
-name: repo-safety
+name: worktree-isolation
 description: >-
   MUST trigger BEFORE modifying any git-tracked file (code, docs, config, lockfile).
   This skill creates worktree isolation — the FIRST step before writing any file.
@@ -22,7 +22,7 @@ co_loads:
   - code-implementation
 ---
 
-# Repo Safety
+# Worktree Isolation
 
 适用于**一切会改动 git 追踪文件的任务，无论大小**——一行 lockfile、一个配置项、一篇文档的提交都算。
 本 skill 只有红线与最小流程；按方案做功能开发时，在此之上加载 code-implementation 走完整流程。
@@ -110,7 +110,7 @@ PR 审视在多 agent 场景下由架构保证异体（大獭召唤检视獭）�
 
 ### 弹性完成规则
 
-repo-safety 的红线（worktree 隔离、禁止直接提交 main 等）不可弹性——这些是安全底线。
+worktree-isolation 的红线（worktree 隔离、禁止直接提交 main 等）不可弹性——这些是安全底线。
 
 但小改动的流程可以弹性：
 - 搭档说"直接提交吧" → 可以跳过 PR 流程，直接在 worktree 里 commit + push（但仍需搭档确认）
