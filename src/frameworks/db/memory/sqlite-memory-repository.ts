@@ -393,32 +393,15 @@ export class SqliteMemoryRepository implements MemoryRepository {
       DEFAULT_FTS_LIMIT,
     ) as FtsHighlightRow[];
 
-    // 应用层高亮：在原始 content 上做简单替换
-    // 注意：先转义 HTML 特殊字符，再做高亮替换，避免 XSS 风险
+    // 返回纯文本 snippet（不做 HTML 高亮）
+    // 高亮渲染职责在 Web 后端（memory-controller.ts），不在记忆模块
     return rows.map(row => {
       const content = row.content || '';
-      // 转义所有 5 个 HTML 特殊字符
-      let highlighted = content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-      for (const token of tokenizedQuery) {
-        // 对 token 也进行转义，避免 token 中包含 HTML 特殊字符
-        const escapedToken = token
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
-        highlighted = highlighted.replaceAll(escapedToken, `<b>${escapedToken}</b>`);
-      }
       return {
         entryId: row.id,
         ftsRank: row.bm25_score,
         entry: rowToMemoryEntry(row),
-        snippet: highlighted,
+        snippet: content,
       };
     });
   }
