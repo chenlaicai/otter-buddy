@@ -2,7 +2,7 @@ import type { AgentTool, ToolContext } from "./tool-factory";
 import { textResponse } from "./tool-helpers";
 
 /**
- * F20260804factlim: content 预览截断。按 code point（而非 UTF-16 code unit）切片，
+ * F20260807factlim: content 预览截断。按 code point（而非 UTF-16 code unit）切片，
  * 避免 slice() 切断 emoji 等代理对产生乱码。
  */
 function truncateContentPreview(content: string | null, maxCodePoints = 200): string | null {

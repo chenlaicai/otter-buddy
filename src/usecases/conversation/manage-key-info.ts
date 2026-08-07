@@ -22,7 +22,7 @@ export interface LinkedResourceInput {
 }
 
 /**
- * F20260804factlim: fact content 长度上限（JS UTF-16 code unit 计：中文 1:1，emoji 1:2）。
+ * F20260807factlim: fact content 长度上限（JS UTF-16 code unit 计：中文 1:1，emoji 1:2）。
  * 工具层（tool-factory）与业务层共用同一常量，保证双层校验口径与消息一致（设计决策 D2）。
  */
 export const FACT_CONTENT_MAX_LENGTH = 500;
