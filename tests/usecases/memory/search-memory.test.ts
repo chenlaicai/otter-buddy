@@ -76,8 +76,9 @@ describe("SearchMemory - progressive disclosure", () => {
     /** snippet 模式应返回 snippet 字段 */
     const first = result.entries[0];
     expect(first.snippet).toBeDefined();
-    /** snippet 应包含高亮标记 */
-    expect(first.snippet).toContain("<b>");
+    /** snippet 应是纯文本，不包含 HTML 标签（高亮渲染在 Web 后端处理） */
+    expect(first.snippet).not.toContain("<b>");
+    expect(first.snippet).not.toContain("</b>");
   });
 
   it("detail_level=summary 返回首句", async () => {
@@ -104,14 +105,16 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(first.content).toContain("记忆系统");
   });
 
-  it("FTS5 highlight 在 snippet 模式下生成匹配标记", async () => {
+  it("FTS5 snippet 模式返回纯文本（高亮在 Web 后端处理）", async () => {
     const result = await searchMemory.search({ query: "渐进式", limit: 5, detailLevel: "snippet" });
 
     expect(result.entries.length).toBeGreaterThan(0);
-    /** highlight 应该用 <b> 标记匹配的关键词 */
+    /** snippet 应是纯文本，不包含 HTML 标签 */
     const first = result.entries[0];
-    expect(first.snippet).toContain("<b>");
-    expect(first.snippet).toContain("</b>");
+    expect(first.snippet).not.toContain("<b>");
+    expect(first.snippet).not.toContain("</b>");
+    /** 应包含原始内容 */
+    expect(first.content).toBeDefined();
   });
 
   it("snippet 降级：vec-only 结果截取前 200 字符", async () => {
@@ -287,8 +290,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     const mockRepo = {
       hasVecTable: () => true,
       searchFTSWithHighlight: async () => [
-        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" }, snippet: "<b>梁山伯</b>与祝英台" },
-        { entryId: "e2", ftsRank: -8, entry: { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁山伯在草桥亭遇见祝英台" }, snippet: "<b>梁山伯</b>在草桥亭" },
+        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" }, snippet: "梁山伯与祝英台" },
+        { entryId: "e2", ftsRank: -8, entry: { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁山伯在草桥亭遇见祝英台" }, snippet: "梁山伯在草桥亭" },
       ],
       searchFTS: async () => [],
       // Vec 返回低质量结果（distance 很大，similarity 很低）
@@ -348,7 +351,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     const mockRepo = {
       hasVecTable: () => true,
       searchFTSWithHighlight: async () => [
-        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" }, snippet: "<b>梁山伯</b>与祝英台" },
+        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" }, snippet: "梁山伯与祝英台" },
       ],
       searchFTS: async () => [],
       // Vec 返回高质量结果（distance 小，similarity 高）
