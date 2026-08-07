@@ -14,6 +14,7 @@ function SettingsPage() {
   const [savedAlias, setSavedAlias] = useState('')
   const [saving, setSaving] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
+  const [userName, setUserName] = useState('')
   const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number } | null>(null)
   const [glassT, setGlassT] = useState(() => {
     const v = parseFloat(localStorage.getItem('otter-glass-t') || '0.85')
@@ -32,6 +33,7 @@ function SettingsPage() {
         setModels(s.models)
         setDefaultAlias(s.defaultModelAlias)
         setSavedAlias(s.defaultModelAlias)
+        setUserName(s.userName)
         setSettingsInfo({ port: s.port, dbPath: s.dbPath, embeddingModelPath: s.embeddingModelPath, embeddingLocalModelPath: s.embeddingLocalModelPath, embeddingDim: s.embeddingDim })
       })
       .catch(() => showToast('加载设置失败', 'error'))
@@ -42,9 +44,10 @@ function SettingsPage() {
   async function saveSettings() {
     setSaving(true)
     try {
-      const s = await api.updateSettings({ defaultModelAlias: defaultAlias })
+      const s = await api.updateSettings({ defaultModelAlias: defaultAlias, userName })
       setSavedAlias(s.defaultModelAlias)
       setDefaultAlias(s.defaultModelAlias)
+      setUserName(s.userName)
       setHasUnsaved(false)
       showToast('设置已保存', 'success')
     } catch (err) {
@@ -69,6 +72,23 @@ function SettingsPage() {
         <main className="flex-1 glass rounded-3xl overflow-y-auto p-8">
           <div className="max-w-[600px] mx-auto">
             <h1 className="text-lg font-semibold text-stone-700 mb-6">设置</h1>
+
+            {/* Profile */}
+            <section className="mb-8">
+              <h2 className="text-sm font-semibold text-stone-600 mb-4">身份</h2>
+              <div>
+                <label className="block text-xs font-medium text-stone-500 mb-1.5">你的名字</label>
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={e => { setUserName(e.target.value); markUnsaved() }}
+                  placeholder="海獭会用这个名字称呼你"
+                  className="form-input w-full"
+                  maxLength={32}
+                />
+                <p className="text-[11px] text-stone-400 mt-1">留空则使用默认称呼"搭档"；设置后海獭会在对话中用你的名字称呼你</p>
+              </div>
+            </section>
 
             {/* Appearance */}
             <section className="mb-8">

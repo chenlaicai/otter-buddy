@@ -507,7 +507,7 @@ function ConversationPage() {
         /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
         const abortedMsg: LocalMessage = {
           id: messageId, st: 'otter', si: otterId, sn: otterName,
-          content: (data.body as string) ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
+          content: (data.body as string) ?? '[中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
         setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], abortedMsg) }))
@@ -751,7 +751,7 @@ function ConversationPage() {
           }
           const abortedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: otterName,
-            content: data.body ?? '[搭档中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
+            content: data.body ?? '[中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
           /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
@@ -824,7 +824,7 @@ function ConversationPage() {
       return {
         ...prev,
         [activeId]: list.map(m => m.id === messageId && isInFlight(m)
-          ? { ...m, status: 'aborted' as const, content: m.content || '[搭档中断]' }
+          ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
           : m),
       }
     })
@@ -937,7 +937,7 @@ function ConversationPage() {
           setAllMessages(prev => {
             const list = prev[activeId]
             if (!list) return prev
-            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[搭档中断]' } : m) }
+            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]' } : m) }
           })
         },
         'error': (data) => {

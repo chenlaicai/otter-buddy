@@ -68,6 +68,7 @@ export async function createAgentGateway(options: {
     healingRepo: repos.healingEvent,
     otterConfigProvider,
     otterRepo: repos.otter,
+    settingsRepo: repos.settings,
   }, logger);
 
   return {
@@ -83,6 +84,7 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     queryOtter: uc.queryOtter,
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
+    settingsRepo: repos.settings,
   });
 }
 
@@ -93,7 +95,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
-    messageBroadcaster, workspaceGateway,
+    messageBroadcaster, workspaceGateway, repos.settings,
   );
 
   const cronParser = new SimpleCronParser();

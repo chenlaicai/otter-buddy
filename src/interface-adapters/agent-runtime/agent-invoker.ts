@@ -7,6 +7,8 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { SSEEvent } from "@contract/sse/events";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
@@ -94,6 +96,7 @@ export class AgentInvoker {
     private readonly logger: Logger,
     private readonly messageBroadcaster?: MessageBroadcaster,
     private readonly workspaceGateway?: WorkspaceGateway,
+    private readonly settingsRepo?: SettingsRepository,
   ) {}
 
   /**
@@ -478,7 +481,7 @@ export class AgentInvoker {
   }
 
   /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
-  private buildAbortBody(err: unknown, otterId: string, messageId: string): string {
+  private async buildAbortBody(err: unknown, otterId: string, messageId: string): Promise<string> {
     const errMsg = err instanceof Error ? err.message : String(err);
     if (errMsg.startsWith("[circuit-breaker]")) {
       if (errMsg.includes("event_timeout")) return "[系统保护] 单次工具调用超时，已自动中断。";
@@ -490,8 +493,9 @@ export class AgentInvoker {
       if (errMsg.includes("first_byte_timeout")) return "[系统保护] 模型响应超时，已自动中断。";
       return "[系统保护] 输出异常，已自动中断。";
     }
+    const partnerLabel = this.settingsRepo ? ((await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? this.agentInvoke.getToolCallCount(otterId, messageId);
-    return `[搭档中断] 经过 ${toolCallCount} 次工具调用后，搭档强制中断了当前发言。`;
+    return `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
   }
 
   /**
@@ -529,7 +533,7 @@ export class AgentInvoker {
       const completedIfSpeaking = await this.completeSpeakingMessage(messageId, otterId, emitEvent, senderId, conversationId, startTime);
       if (completedIfSpeaking) return;
       /** abort 路径：构造合成 body，调用 sendMessage.abort() */
-      const body = this.buildAbortBody(err, otterId, messageId);
+      const body = await this.buildAbortBody(err, otterId, messageId);
       try {
         await this.sendMessage.abort(messageId, {
           body,
