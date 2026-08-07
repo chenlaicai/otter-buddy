@@ -25,7 +25,7 @@ export function truncateToolResult(result: ToolResponse): ToolResponse {
       const truncated = smartTruncate(c.text, MAX_TOOL_RESULT_CHARS);
       return {
         type: "text" as const,
-        text: `${truncated}\n\n[结果已截断：原始 ${c.text.length} 字符。请缩小查询范围或使用分段参数获取完整内容。]`,
+        text: `${truncated}\n\n[结果已截断，请缩小查询范围或使用分段参数获取完整内容。]`,
       };
     }),
   };
@@ -33,17 +33,19 @@ export function truncateToolResult(result: ToolResponse): ToolResponse {
 
 /**
  * 智能截断：JSON 数组在条目边界截断，其他文本在字符边界截断。
+ * 支持顶级数组 `[...]` 和嵌套结构 `{"data": [...]}`
  */
 function smartTruncate(text: string, maxChars: number): string {
   const trimmed = text.slice(0, maxChars);
-  // JSON 数组模式：找到最后一个完整条目的边界（},\n 或 }\n]）
-  if (trimmed.startsWith("[")) {
+  // 找到 JSON 数组起始位置（顶级或嵌套）
+  const arrStart = trimmed.indexOf("[");
+  if (arrStart >= 0 && arrStart < 100) {
     const lastEntryEnd = trimmed.lastIndexOf("},");
-    if (lastEntryEnd > maxChars * 0.5) {
+    if (lastEntryEnd > arrStart) {
       return trimmed.slice(0, lastEntryEnd + 1) + "\n]";
     }
     const lastClose = trimmed.lastIndexOf("}");
-    if (lastClose > maxChars * 0.5) {
+    if (lastClose > arrStart) {
       return trimmed.slice(0, lastClose + 1) + "\n]";
     }
   }

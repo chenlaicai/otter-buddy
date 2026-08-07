@@ -20,7 +20,7 @@ describe("truncateToolResult", () => {
     const result = textResponse(longText);
     const truncated = truncateToolResult(result);
     expect(truncated.content[0].text).toContain("[结果已截断");
-    expect(truncated.content[0].text).toContain("20000 字符");
+    expect(truncated.content[0].text).toContain("请缩小查询范围");
   });
 
   // 质疑 1 修复：JSON 截断必须走到条目边界分支，不能假通过
@@ -35,9 +35,9 @@ describe("truncateToolResult", () => {
     const truncated = truncateToolResult(result);
     const text = truncated.content[0].text;
 
-    // 截断提示存在
+    // 截断提示存在（不泄露长度信息）
     expect(text).toContain("[结果已截断");
-    expect(text).toContain("20751 字符");
+    expect(text).not.toMatch(/\d+ 字符/);
 
     // \n] 之前的部分必须是合法 JSON（条目边界截断）
     const bracketIdx = text.indexOf("\n]");
@@ -100,8 +100,33 @@ describe("truncateToolResult", () => {
     const entries = [{ id: "e1", content: "x".repeat(16_000) }];
     const jsonText = JSON.stringify(entries);
     const result = textResponse(jsonText);
-    // 不应抛异常，且结果被截断
     const truncated = truncateToolResult(result);
-    expect(truncated.content[0].text.length).toBeLessThan(jsonText.length);
+    expect(truncated.content[0].text).toContain("[结果已截断");
+  });
+
+  // 观察 1 补充：嵌套 JSON 结构支持
+  it("嵌套 JSON 结构（wrapper + array）在条目边界截断", () => {
+    const entries = Array.from({ length: 20 }, (_, i) => ({
+      id: `e${i}`,
+      content: "x".repeat(1000),
+    }));
+    const jsonText = JSON.stringify({ data: entries, total: 20 });
+    const result = textResponse(jsonText);
+    const truncated = truncateToolResult(result);
+    const text = truncated.content[0].text;
+
+    expect(text).toContain("[结果已截断");
+    // 应在数组内条目边界截断
+    const arrStart = text.indexOf("[");
+    expect(arrStart).toBeGreaterThanOrEqual(0);
+    const bracketIdx = text.indexOf("\n]");
+    expect(bracketIdx).toBeGreaterThan(arrStart);
+  });
+
+  // 观察 3 补充：空 JSON 数组
+  it("空 JSON 数组不被截断", () => {
+    const result = textResponse("[]");
+    const truncated = truncateToolResult(result);
+    expect(truncated.content[0].text).toBe("[]");
   });
 });
