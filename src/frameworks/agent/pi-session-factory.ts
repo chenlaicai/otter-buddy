@@ -23,7 +23,7 @@ import type {
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { truncateToolResult } from "@interface-adapters/agent-runtime/tools/tool-helpers";
-import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
+import type { ResourceLoader, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
@@ -258,8 +258,8 @@ export class PiSessionFactory implements AgentGateway {
           extensionFactories: [{
             name: "thinking-strip",
             hidden: true,
-            factory: (pi: any) => {
-              pi.on("context", (event: { messages: any[] }) => {
+            factory: (pi: ExtensionAPI) => {
+              pi.on("context", (event) => {
                 return { messages: stripHistoricalThinking(event.messages) };
               });
             },
