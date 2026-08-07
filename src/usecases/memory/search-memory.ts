@@ -441,8 +441,8 @@ export class SearchMemory {
       : rawSnippet;
 
     if (detailLevel === "summary") {
-      /** summary：取 snippet 的第一句（截取到首个句号/换行） */
-      const firstSentence = snippet.match(/^[^\n。.！!？?]*[。.！!？?\n]?/)?.[0] ?? snippet;
+      /** summary：取 snippet 的第一句（Unicode Sentence_Terminal 覆盖中英日韩泰阿拉伯等所有语言的句末标点） */
+      const firstSentence = new RegExp('^[^\\n\\p{Sentence_Terminal}]*[\\p{Sentence_Terminal}\\n]?', 'u').exec(snippet)?.[0] ?? snippet;
       return { content: firstSentence, snippet: firstSentence };
     }
 
