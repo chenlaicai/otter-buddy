@@ -54,8 +54,12 @@ export class SettingsController {
         this.logger.info("Default model switched via settings", { defaultModelAlias: body.defaultModelAlias });
       }
       if (body.userName !== undefined) {
-        await this.settingsRepo.update(USER_DISPLAY_NAME_KEY, body.userName.trim());
-        this.logger.info("User display name updated", { userName: body.userName.trim() });
+        const cleaned = body.userName.replace(/[\r\n]/g, '').trim();
+        if (cleaned.length > 32) {
+          return c.json({ error: "名字不能超过 32 个字符" }, 400);
+        }
+        await this.settingsRepo.update(USER_DISPLAY_NAME_KEY, cleaned);
+        this.logger.info("User display name updated", { userName: cleaned });
       }
       const userName = (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY)) ?? '';
       return c.json(this.buildDTO(userName));

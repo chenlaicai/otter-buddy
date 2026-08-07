@@ -513,7 +513,8 @@ export class PiSessionFactory implements AgentGateway {
     const modelGuidance = isBig ? this.buildModelSelectionGuidance() : '';
 
     // 用户身份段：告诉海獭搭档叫什么名字
-    const userName = this.cfg.settingsRepo ? ((await this.cfg.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || undefined) : undefined;
+    const rawName = this.cfg.settingsRepo ? ((await this.cfg.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || undefined) : undefined;
+    const userName = rawName?.replace(/[\r\n]/g, '');
     const userIdentity = userName ? `## 你的搭档\n- 名字：${userName}\n- 称呼：搭档（你可以用名字称呼 ta）` : '';
 
     return [
