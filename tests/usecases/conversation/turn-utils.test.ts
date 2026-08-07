@@ -13,7 +13,7 @@ import { createTestDb } from "../../helpers/db";
 
 function conversationFixture(): Conversation {
   return {
-    id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false,
+    id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
     completedAt: null, archivedAt: null,
   };

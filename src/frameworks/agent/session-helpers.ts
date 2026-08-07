@@ -32,13 +32,14 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
     "manage_healing_events",
+    "workspace_info", "workspace_list", "workspace_read", "workspace_write",
   ];
 
   if (!otterType || otterType === "big") {
     return allToolNames;
   }
 
-  /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询，不含管理类工具 */
+  /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区，不含管理类工具 */
   return [
     "speak", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
@@ -46,6 +47,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "search_terminology", "add_terminology",
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
+    "workspace_info", "workspace_list", "workspace_read", "workspace_write",
   ];
 }
 
@@ -154,6 +156,10 @@ export function buildMessageWithContext(
 
   if (dynamicContext?.sessionSummary) {
     parts.push(`## 会话摘要\n${dynamicContext.sessionSummary}`);
+  }
+
+  if (dynamicContext?.workspacePath) {
+    parts.push(`## 对话工作区\n你的对话工作区路径：${dynamicContext.workspacePath}\n使用 workspace_* 工具操作工作区文件。研究报告、临时文件等持久化内容请写入工作区。`);
   }
 
   parts.push(message);

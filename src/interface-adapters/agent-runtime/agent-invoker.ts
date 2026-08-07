@@ -6,6 +6,7 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { SSEEvent } from "@contract/sse/events";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
@@ -92,6 +93,7 @@ export class AgentInvoker {
     private readonly queryOtter: QueryOtter,
     private readonly logger: Logger,
     private readonly messageBroadcaster?: MessageBroadcaster,
+    private readonly workspaceGateway?: WorkspaceGateway,
   ) {}
 
   /**
@@ -129,7 +131,8 @@ export class AgentInvoker {
 
     this.logger.debug('Building dynamic context', { otterId });
     const dynamicContext = await this.buildDynamicContext(otterId);
-    this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary });
+    await this.injectWorkspacePath(dynamicContext, conversationId);
+    this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary, hasWorkspace: !!dynamicContext.workspacePath });
 
     this.logger.debug('Creating streaming message', { otterId, conversationId });
     const message = await this.sendMessage.start({
@@ -616,5 +619,14 @@ export class AgentInvoker {
     }
 
     return ctx;
+  }
+
+  /** 注入对话工作区路径到 DynamicContext */
+  private async injectWorkspacePath(ctx: DynamicContext, conversationId: string): Promise<void> {
+    if (!this.workspaceGateway) return;
+    const ok = await this.workspaceGateway.exists(conversationId);
+    if (ok) {
+      ctx.workspacePath = this.workspaceGateway.getWorkspacePath(conversationId);
+    }
   }
 }

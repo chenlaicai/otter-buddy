@@ -60,6 +60,7 @@ function createConversationTables(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'active',
       summary TEXT,
       pinned INTEGER NOT NULL DEFAULT 0,
+      workspace_dir TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
