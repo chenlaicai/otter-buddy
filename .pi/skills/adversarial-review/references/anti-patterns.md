@@ -7,6 +7,7 @@
 **Problem**: No actual review happened. Issues pass through undetected.
 
 **Fix**: Every dimension must be explicitly addressed in the report — findings, or an explicit "无发现". "无发现" must be stated, not implied. But a finding manufactured just to fill a dimension is not a finding — see Scattergun Review.
+  - **审查者不能输出"可以合入"**：审查者的结论只有"需要修改"或"存在以下问题（决策者判断）"。"可以合入"是决策者的判断，不是审查者的。
 
 ## Scattergun Review
 
@@ -55,6 +56,7 @@
 **Problem**: Issues accumulate. "Later" never comes.
 
 **Fix**: Every issue needs a disposition: "在当前 PR 修复" or "开发者回应（审查者认可）". 次要观察允许第三种去向"记录（issue/PR 描述）"——但记录是分流不是拖延，"后续优化"本身仍然禁用。
+  - **处置的真实性**：如果你说"记录为 issue"，你应该真的打算创建这个 issue。如果你不确定会不会创建，那这个问题要么现在修，要么跟搭档说清楚。"以后再说"不是处置。
 
 ## Solo Review
 
