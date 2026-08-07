@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
-import { DEFAULT_MODEL_ALIAS_KEY } from "@usecases/settings/settings-keys";
+import { DEFAULT_MODEL_ALIAS_KEY, USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { handleError } from "../http-error";
 import type { SettingsDTO, UpdateSettingsRequestDTO } from "@contract/api/settings";
 
@@ -24,17 +24,19 @@ export class SettingsController {
     private readonly logger: Logger,
   ) {}
 
-  private buildDTO(): SettingsDTO {
+  private buildDTO(userName: string): SettingsDTO {
     return {
       ...this.settings,
       models: this.modelPool.getModelInfos(),
       defaultModelAlias: this.modelPool.getDefaultAlias(),
+      userName,
     };
   }
 
   async getSettings(c: Context): Promise<Response> {
     try {
-      return c.json(this.buildDTO());
+      const userName = (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY)) ?? '';
+      return c.json(this.buildDTO(userName));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -51,7 +53,16 @@ export class SettingsController {
         this.modelPool.setDefaultAlias(body.defaultModelAlias);
         this.logger.info("Default model switched via settings", { defaultModelAlias: body.defaultModelAlias });
       }
-      return c.json(this.buildDTO());
+      if (body.userName !== undefined) {
+        const cleaned = body.userName.replace(/[\r\n]/g, '').trim();
+        if (cleaned.length > 32) {
+          return c.json({ error: "名字不能超过 32 个字符" }, 400);
+        }
+        await this.settingsRepo.update(USER_DISPLAY_NAME_KEY, cleaned);
+        this.logger.info("User display name updated", { userName: cleaned });
+      }
+      const userName = (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY)) ?? '';
+      return c.json(this.buildDTO(userName));
     } catch (err) {
       return handleError(c, err, this.logger);
     }

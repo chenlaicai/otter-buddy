@@ -3,6 +3,8 @@ import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 
 export interface ChainHopResult {
   otterReply?: string;
@@ -40,6 +42,7 @@ export class DispatchChainEngine {
       queryOtter: QueryOtter;
       logger: Logger;
       maxChainDepth?: number;
+      settingsRepo?: SettingsRepository;
     },
   ) {}
 
@@ -158,7 +161,8 @@ export class DispatchChainEngine {
       const otter = await this.deps.queryOtter.getById(p.otterId);
       return `- ${otter?.name ?? p.otterId}`;
     }));
-    lines.push(`- 搭档（传 'user' 即交还发言权）`);
+    const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
+    lines.push(`- ${partnerLabel}（传 'user' 即交还发言权）`);
     return `## 在场成员\n${lines.join('\n')}`;
   }
 
@@ -175,8 +179,9 @@ export class DispatchChainEngine {
       return `${roster}\n\n## 当前任务\n${userMessageContent}`;
     }
     const names = await this.resolveSenderNames(unreadMessages);
+    const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     const formatted = unreadMessages
-      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? '搭档' : (names.get(m.senderId) ?? m.senderId)}] ${m.body ? stripHtmlCardsOnly(m.body) : ''}`)
+      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? partnerLabel : (names.get(m.senderId) ?? m.senderId)}] ${m.body ? stripHtmlCardsOnly(m.body) : ''}`)
       .join('\n');
     return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
   }

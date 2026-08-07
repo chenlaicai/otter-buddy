@@ -37,6 +37,8 @@ import { loadPromptFile } from "./prompt-loader";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildOtterPrompt, buildMessageWithContext } from "./session-helpers";
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
@@ -90,6 +92,8 @@ export interface AgentSessionFactoryConfig {
   otterConfigProvider: OtterConfigProvider;
   /** Otter Repository（由 Composition Root 注入，替代直接 DB 查询） */
   otterRepo: OtterRepository;
+  /** Settings 仓库（读取用户显示名，可选） */
+  settingsRepo?: SettingsRepository;
 }
 
 /** pi-coding-agent 模块类型（动态加载） */
@@ -171,6 +175,7 @@ export class PiSessionFactory implements AgentGateway {
       resourceLoader?: ResourceLoader;
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
+      settingsRepo?: SettingsRepository;
     },
     private readonly logger: Logger,
   ) {
@@ -507,8 +512,14 @@ export class PiSessionFactory implements AgentGateway {
     // 大獭且多模型时注入模型选择指南
     const modelGuidance = isBig ? this.buildModelSelectionGuidance() : '';
 
+    // 用户身份段：告诉海獭搭档叫什么名字
+    const rawName = this.cfg.settingsRepo ? ((await this.cfg.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || undefined) : undefined;
+    const userName = rawName?.replace(/[\r\n]/g, '');
+    const userIdentity = userName ? `## 你的搭档\n- 名字：${userName}\n- 称呼：搭档（你可以用名字称呼 ta）` : '';
+
     return [
       `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
+      userIdentity,
       identityBody,
       modelGuidance,
     ].filter(Boolean).join("\n\n");
@@ -797,5 +808,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     healingRepo: config.healingRepo,
     otterConfigProvider: config.otterConfigProvider,
     otterRepo: config.otterRepo,
+    settingsRepo: config.settingsRepo,
   }, logger);
 }
