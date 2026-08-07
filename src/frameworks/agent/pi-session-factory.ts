@@ -229,6 +229,32 @@ export class PiSessionFactory implements AgentGateway {
         this.resourceLoader = this.cfg.resourceLoader ?? new DefaultResourceLoader({
           cwd: process.cwd(),
           agentDir: getAgentDir(),
+          extensionFactories: [{
+            name: "thinking-strip",
+            hidden: true,
+            factory: (pi: any) => {
+              pi.on("context", (event: { messages: any[] }) => {
+                const messages = event.messages;
+                let lastAssistantIdx = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].role === "assistant") {
+                    lastAssistantIdx = i;
+                    break;
+                  }
+                }
+                const filtered = messages.map((msg: any, idx: number) => {
+                  if (msg.role !== "assistant") return msg;
+                  if (idx === lastAssistantIdx) return msg;
+                  const hasThinking = msg.content.some((c: any) => c.type === "thinking");
+                  if (!hasThinking) return msg;
+                  const nonThinking = msg.content.filter((c: any) => c.type !== "thinking");
+                  if (nonThinking.length === 0) return msg;
+                  return { ...msg, content: nonThinking };
+                });
+                return { messages: filtered };
+              });
+            },
+          }],
         });
         await this.resourceLoader.reload();
         const { skills } = this.resourceLoader.getSkills();
