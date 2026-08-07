@@ -153,6 +153,8 @@ Codex goal 模式的 Completion Audit：
 | 文件 | 改动 |
 |------|------|
 | `docs/README.md` | 模板增加 ## Acceptance Test 章节 + 编写指南 + 关系说明 |
+| `docs/user-guide/testing.md` | 增加 Acceptance Test 与能力测试关系说明，指向 skill |
+| `.pi/skills/code-implementation/references/testing-rules.md` | 增加 Acceptance Test 执行流程：从验收场景推导能力测试、验收执行、证据判定 |
 
 ## 测试
 
