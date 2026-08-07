@@ -79,6 +79,7 @@ function ConversationPage() {
   const [firstItemIndex, setFirstItemIndex] = useState(100000)
   const [initialTopMostItemIndex, setInitialTopMostItemIndex] = useState<number | { index: 'LAST' }>({ index: 'LAST' })
   const isAtBottomRef = useRef(true)
+  const atBottomDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
@@ -94,7 +95,10 @@ function ConversationPage() {
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
   const abortNotifiedRef = useRef<Set<string>>(new Set())
-  useEffect(() => () => { if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current) }, [])
+  useEffect(() => () => {
+    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
+    if (atBottomDebounceRef.current) clearTimeout(atBottomDebounceRef.current)
+  }, [])
 
   // 从 URL 路径获取对话 ID（格式：/conversation/:id）
   const pathParts = window.location.pathname.split('/')
@@ -239,10 +243,25 @@ function ConversationPage() {
     }
   }, [allMessages])
 
-  /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用） */
+  /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用）。
+   *  false 信号加 150ms debounce：Virtuoso 在流式消息内容高度重算时会产生瞬态
+   *  atBottomStateChange(false)，导致 isAtBottomRef 误清、newMessagesCount 误累加。 */
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    isAtBottomRef.current = atBottom
-    if (atBottom) setNewMessagesCount(0)
+    if (atBottom) {
+      if (atBottomDebounceRef.current) {
+        clearTimeout(atBottomDebounceRef.current)
+        atBottomDebounceRef.current = null
+      }
+      isAtBottomRef.current = true
+      setNewMessagesCount(0)
+    } else {
+      if (!atBottomDebounceRef.current) {
+        atBottomDebounceRef.current = setTimeout(() => {
+          atBottomDebounceRef.current = null
+          isAtBottomRef.current = false
+        }, 150)
+      }
+    }
   }, [])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
@@ -377,12 +396,6 @@ function ConversationPage() {
     const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
     const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
 
-    const maybeScrollToBottom = () => {
-      if (isAtBottomRef.current) {
-        requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' }))
-      }
-    }
-
     const syncLiveEvents = (messageId: string) => {
       const liveEvents = liveEventsMap.get(messageId)
       if (!liveEvents) return
@@ -391,7 +404,6 @@ function ConversationPage() {
         if (!list?.some(m => m.id === messageId)) return prev
         return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
       })
-      maybeScrollToBottom()
     }
 
     // 事件分发器
@@ -411,7 +423,6 @@ function ConversationPage() {
           return { ...prev, [activeId]: [...current, message] }
         })
         if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
-        maybeScrollToBottom()
       },
       'message.start': (data) => {
         const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
@@ -430,7 +441,6 @@ function ConversationPage() {
           })
         }
         if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
-        maybeScrollToBottom()
       },
       'assistant_text': (data) => {
         const liveEvents = liveEventsMap.get(data.messageId as string)
@@ -463,7 +473,6 @@ function ConversationPage() {
         setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], finalMsg) }))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
-        maybeScrollToBottom()
       },
       'message.failed': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
@@ -508,7 +517,6 @@ function ConversationPage() {
         }
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
-        maybeScrollToBottom()
       },
       'error': (data) => {
         const messageId = data.messageId as string | undefined
@@ -658,7 +666,6 @@ function ConversationPage() {
             })
           }
           if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
-          if (isAtBottomRef.current) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' }))
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data
