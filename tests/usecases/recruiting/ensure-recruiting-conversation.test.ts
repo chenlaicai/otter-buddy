@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ensureRecruitingConversation } from '@usecases/recruiting/ensure-recruiting-conversation';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
+import type { ManageConversation } from '@usecases/conversation/manage-conversation';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { CreateOtter } from '@usecases/otter/create-otter';
 import type { Logger } from '@usecases/ports/logger';
 import type { Otter } from '@entities/otter/otter';
-import { createTestLogger } from "../../helpers/logger";
+import { createTestLogger, createCapturingLogger } from "../../helpers/logger";
 
 /** 大獭 mock */
 function mockBigOtter(): Otter {
@@ -27,6 +28,7 @@ describe('ensureRecruitingConversation', () => {
   let convRepo: ConversationRepository;
   let otterRepo: OtterRepository;
   let createOtter: CreateOtter;
+  let manageConversation: ManageConversation;
   let settings: SettingsRepository;
   let sendMessage: SendMessage;
   let logger: Logger;
@@ -46,6 +48,10 @@ describe('ensureRecruitingConversation', () => {
     createOtter = {
       execute: vi.fn(async () => mockBigOtter()),
     } as unknown as CreateOtter;
+
+    manageConversation = {
+      pin: vi.fn(),
+    } as unknown as ManageConversation;
 
     settings = {
       get: vi.fn(async () => null),
@@ -88,6 +94,7 @@ describe('ensureRecruitingConversation', () => {
     });
 
     const result = await ensureRecruitingConversation({
+      manageConversation,
       convRepo,
       otterRepo,
       createOtter,
@@ -101,6 +108,7 @@ describe('ensureRecruitingConversation', () => {
     expect(result.bigOtterId).toBe(otter.id);
     expect(result.created).toBe(false);
     expect(createOtter.execute).not.toHaveBeenCalled();
+    expect(manageConversation.pin).toHaveBeenCalled();
   });
 
   it('锁获取失败后 recheck 成功', async () => {
@@ -131,6 +139,7 @@ describe('ensureRecruitingConversation', () => {
     });
 
     const result = await ensureRecruitingConversation({
+      manageConversation,
       convRepo,
       otterRepo,
       createOtter,
@@ -142,5 +151,85 @@ describe('ensureRecruitingConversation', () => {
     // recheck 应该返回已有的对话
     expect(result.created).toBe(false);
     expect(result.bigOtterId).toBe(otter.id);
+    expect(manageConversation.pin).toHaveBeenCalled();
+  });
+
+  it('新建路径：无已有对话时创建后调用 pin', async () => {
+    // settings.get 返回 null（无已有对话），tryInsertIfAbsent 返回 true（拿到锁）
+    vi.mocked(settings.get).mockResolvedValue(null);
+    vi.mocked(settings.tryInsertIfAbsent).mockResolvedValue(true);
+
+    const result = await ensureRecruitingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      createOtter,
+      settings,
+      sendMessage,
+      logger,
+    });
+
+    expect(result.created).toBe(true);
+    expect(manageConversation.pin).toHaveBeenCalled();
+    expect(sendMessage.sendSystem).toHaveBeenCalled();
+  });
+
+  it('pin 失败不中断 ensure：pin 抛错时主流程仍正常返回', async () => {
+    const capturingLogger = createCapturingLogger();
+
+    // pin 抛异常
+    vi.mocked(manageConversation.pin).mockRejectedValue(new Error('pin failed'));
+    // 复用路径
+    vi.mocked(settings.get)
+      .mockResolvedValueOnce('conv-existing')
+      .mockResolvedValueOnce('otter-big-001');
+    vi.mocked(convRepo.getById).mockResolvedValue({
+      id: 'conv-existing',
+      title: '💼 求职助手',
+      status: 'active',
+      summary: null,
+      pinned: false,
+      workspaceDir: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      completedAt: null,
+      archivedAt: null,
+    });
+
+    const result = await ensureRecruitingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      createOtter,
+      settings,
+      sendMessage,
+      logger: capturingLogger,
+    });
+
+    expect(result.conversationId).toBe('conv-existing');
+    expect(result.created).toBe(false);
+    expect(capturingLogger.captured.warns.length).toBeGreaterThan(0);
+  });
+
+  it('创建失败时清理 pending 值', async () => {
+    // createOtter 抛异常
+    vi.mocked(createOtter.execute).mockRejectedValue(new Error('Database error'));
+
+    // settings.get 返回 pending 锁值（模拟拿到锁后的状态）
+    vi.mocked(settings.get).mockResolvedValue('pending:1234567890');
+    vi.mocked(settings.tryInsertIfAbsent).mockResolvedValue(true);
+
+    await expect(ensureRecruitingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      createOtter,
+      settings,
+      sendMessage,
+      logger,
+    })).rejects.toThrow('Database error');
+
+    // 应该清理 pending 值
+    expect(vi.mocked(settings.tryDeleteIfValueMatches).mock.calls.length).toBeGreaterThan(0);
   });
 });
