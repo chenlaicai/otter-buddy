@@ -38,6 +38,21 @@ describe("ManageKeyInfo.linkResource validation", () => {
     ).rejects.toThrow("fact 类型资源必须提供 content");
   });
 
+  it("throws when fact content is pure whitespace", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(
+      uc.linkResource({
+        conversationId: "conv-1",
+        resourceType: "fact",
+        content: "   \t\n ",
+        linkedBy: "user-1",
+        autoLinked: false,
+      }),
+    ).rejects.toThrow("fact 类型资源必须提供 content");
+  });
+
   it("throws when non-fact type has no url", async () => {
     const { repo, memoryIndex } = createMocks();
     const uc = new ManageKeyInfo(repo, memoryIndex);
@@ -69,6 +84,39 @@ describe("ManageKeyInfo.linkResource validation", () => {
     expect(result.url).toBeNull();
     expect(repo.linkResource).toHaveBeenCalledOnce();
     expect(memoryIndex.indexLinkedResource).toHaveBeenCalledOnce();
+  });
+
+  it("throws when fact content exceeds 500 characters", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    const longContent = "x".repeat(501);
+    await expect(
+      uc.linkResource({
+        conversationId: "conv-1",
+        resourceType: "fact",
+        content: longContent,
+        linkedBy: "user-1",
+        autoLinked: false,
+      }),
+    ).rejects.toThrow("fact 类型资源的 content 不能超过 500 字符");
+  });
+
+  it("creates fact resource with content at exactly 500 characters", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    const exactContent = "x".repeat(500);
+    const result = await uc.linkResource({
+      conversationId: "conv-1",
+      resourceType: "fact",
+      content: exactContent,
+      linkedBy: "user-1",
+      autoLinked: false,
+    });
+
+    expect(result.resourceType).toBe("fact");
+    expect(result.content).toBe(exactContent);
   });
 
   it("creates url resource with url", async () => {

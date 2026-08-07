@@ -1,6 +1,16 @@
 import type { AgentTool, ToolContext } from "./tool-factory";
 import { textResponse } from "./tool-helpers";
 
+/**
+ * F20260807factlim: content 预览截断。按 code point（而非 UTF-16 code unit）切片，
+ * 避免 slice() 切断 emoji 等代理对产生乱码。
+ */
+function truncateContentPreview(content: string | null, maxCodePoints = 200): string | null {
+  if (!content) return content;
+  const chars = Array.from(content);
+  return chars.length > maxCodePoints ? chars.slice(0, maxCodePoints).join("") + "…(已截断)" : content;
+}
+
 export function createListArtifactsTool(ctx: ToolContext): AgentTool {
   return {
     name: "list_artifacts",
@@ -40,7 +50,8 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
 
       return textResponse(JSON.stringify(resources.map(r => ({
         id: r.id, resourceType: r.resourceType, url: r.url, title: r.title,
-        content: r.content, category: r.category, userFlagged: r.userFlagged,
+        content: truncateContentPreview(r.content),
+        category: r.category, userFlagged: r.userFlagged,
         status: r.status, groupId: r.groupId, linkedAtTurnNumber: r.linkedAtTurnNumber,
         statusChangedAtTurnNumber: r.statusChangedAtTurnNumber, supersededBy: r.supersededBy,
       }))));

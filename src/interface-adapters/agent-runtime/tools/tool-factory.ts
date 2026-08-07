@@ -6,6 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport } from "./healing-tools";
@@ -277,13 +278,13 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源（统一产物模型）。conversationId 和 linkedBy 由系统注入。",
+    description: "创建链接资源（统一产物模型）。conversationId 和 linkedBy 由系统注入。fact 用于简短摘要/关键决策（≤500 字符）。长内容（方案、设计文档等）必须先用 write 写入文件，再创建 file 类型资源指向文件路径。",
     parameters: {
       type: "object",
       properties: {
         resourceType: { type: "string", description: "资源类型：fact（文本事实）, pr, worktree, branch, file, url" },
         url: { type: "string", description: "资源 URL 或路径（非 fact 类型必填）" },
-        content: { type: "string", description: "事实文本内容（fact 类型必填）" },
+        content: { type: "string", description: "事实文本内容（fact 必填，≤500 字符的简短摘要）" },
         title: { type: "string", description: "资源标题" },
         category: { type: "string", description: "分类标签（fact 类型可选）" },
         groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）" },
@@ -295,6 +296,10 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       if (resourceType === "fact") {
         if (!params.content || (params.content as string).trim().length === 0) {
           return textResponse("[错误] resourceType 为 'fact' 时，content 不能为空。请提供事实文本内容。");
+        }
+        const content = params.content as string;
+        if (content.length > FACT_CONTENT_MAX_LENGTH) {
+          return textResponse(`[错误] ${FACT_CONTENT_TOO_LONG_MESSAGE}`);
         }
       } else {
         if (!params.url || (params.url as string).trim().length === 0) {
