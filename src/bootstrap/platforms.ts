@@ -1,17 +1,18 @@
 import type { AppConfig } from "@frameworks/config";
-import type { PinoLogger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import { AgentInvokePortAdapter } from "@usecases/scheduler/agent-invoke-port";
+import { AgentInvokePortAdapter } from "@usecases/ports/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import type { FeishuConfig } from "@frameworks/feishu/types";
@@ -44,16 +45,23 @@ export async function createAgentGateway(options: {
   model: unknown;
   modelPool: ModelPool;
   db: Database.Database;
-  logger: PinoLogger;
+  logger: Logger;
+  /** pi session 文件目录（默认 ./data/sessions，测试指向临时目录） */
+  sessionDir?: string;
+  /** Otter 身份文案目录（默认 ./prompts/identity） */
+  identityPromptDir?: string;
+  /** 对话工作区网关 */
+  workspaceGateway?: WorkspaceGateway;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
     otterToolClient: null,
-    identityPromptDir: "./prompts/identity",
+    sessionDir: options.sessionDir,
+    identityPromptDir: options.identityPromptDir ?? "./prompts/identity",
     createTools: (ctx, repo, log) => {
-      const tools = createTools(ctx, repo, log);
+      const tools = createTools(ctx, repo, log, options.workspaceGateway);
       if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
       return tools;
     },
@@ -68,7 +76,7 @@ export async function createAgentGateway(options: {
   };
 }
 
-export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: PinoLogger): DispatchChainEngine {
+export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger): DispatchChainEngine {
   return new DispatchChainEngine({
     conversationRepo: repos.conversation,
     queryMessage: uc.queryMessage,
@@ -78,13 +86,14 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
   });
 }
 
-export async function initAgentAndScheduler(repos: Repositories, uc: UseCases, agentGateway: PiSessionFactory, messageBroadcaster: MessageBroadcaster | undefined, logger: PinoLogger) {
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway } = options;
   await agentGateway.warmup();
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
-    messageBroadcaster,
+    messageBroadcaster, workspaceGateway,
   );
 
   const cronParser = new SimpleCronParser();
@@ -103,14 +112,14 @@ export async function initAgentAndScheduler(repos: Repositories, uc: UseCases, a
   return { agentInvoker, cronParser, schedulerService };
 }
 
-export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: PinoLogger): FeishuBundle {
+export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: Logger): FeishuBundle {
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
   const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
   return { broadcaster, client, tokenManager, dispatchChainEngine };
 }
 
-export function setupFeishu(appConfig: AppConfig, uc: UseCases, agentInvoker: AgentInvoker, feishu: FeishuBundle, logger: PinoLogger): void {
+export function setupFeishu(appConfig: AppConfig, uc: UseCases, agentInvoker: AgentInvoker, feishu: FeishuBundle, logger: Logger): void {
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
@@ -153,7 +162,7 @@ export interface PlatformBootstrapResult {
   recruitingInit: Promise<void>;
 }
 
-export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; logger: PinoLogger }): Promise<PlatformBootstrapResult> {
+export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; logger: Logger }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger } = options;
   const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
@@ -176,6 +185,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
     );
     getBridgeStatus = new GetBridgeStatus(repos.settings);
     recruitingInit = ensureRecruitingConversation({
+      manageConversation: uc.manageConversation,
       convRepo: repos.conversation,
       otterRepo: repos.otter,
       createOtter: uc.createOtter,

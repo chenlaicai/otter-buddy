@@ -5,20 +5,10 @@ import {
   attachOutputGuard,
 } from "@frameworks/agent/output-guard";
 import type { OutputGuardConfig } from "@frameworks/agent/output-guard";
-import type { Logger } from "@usecases/ports/logger";
+import { createTestLogger } from "../../helpers/logger";
 
 function makeConfig(overrides?: Partial<OutputGuardConfig>): OutputGuardConfig {
   return { ...DEFAULT_OUTPUT_GUARD_CONFIG, ...overrides };
-}
-
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
 }
 
 /** mulberry32 伪随机：生成每个 100 字符窗口都唯一的文本（阴性喂入） */
@@ -46,7 +36,7 @@ describe("OutputGuard 退化检测", () => {
   afterEach(() => { vi.useRealTimers(); });
 
   it("text_delta 精确重复触发 abort（机制 A）", () => {
-    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig(), "otter-1", createTestLogger());
     const abort = vi.fn();
     const unit = "Good, the first commit is done. Now let me speak to the user with the progress update. ";
 
@@ -60,7 +50,7 @@ describe("OutputGuard 退化检测", () => {
   });
 
   it("thinking_delta 同样进重复检测（4e8c3ff3 型防护）", () => {
-    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig(), "otter-1", createTestLogger());
     const abort = vi.fn();
     const unit = "Let me reconsider the approach again and rethink the whole plan once more. ";
 
@@ -73,7 +63,7 @@ describe("OutputGuard 退化检测", () => {
   });
 
   it("toolcall_delta 只作活跃信号，不进重复检测（合法大文件写入防误伤）", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
     // 大量重复的 toolcall 参数流（合法写文件场景）：不应判退化
     const repeatedArgs = `{"content":"${"x".repeat(500)}"}`;
@@ -85,14 +75,14 @@ describe("OutputGuard 退化检测", () => {
   });
 
   it("正常文本不触发", () => {
-    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig(), "otter-1", createTestLogger());
     const abort = vi.fn();
     expect(guard.onDelta(randomText(50_000), "text_delta", abort)).toBe(false);
     expect(abort).not.toHaveBeenCalled();
   });
 
   it("text_start/thinking_start 重置检测器块边界", () => {
-    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig(), "otter-1", createTestLogger());
     const abort = vi.fn();
     guard.onDelta("q".repeat(500), "text_delta", abort);
     expect(guard.getMetadata().totalLength).toBe(500);
@@ -101,7 +91,7 @@ describe("OutputGuard 退化检测", () => {
   });
 
   it("disabled 时不检测", () => {
-    const guard = new OutputGuard(makeConfig({ enabled: false }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ enabled: false }), "otter-1", createTestLogger());
     const abort = vi.fn();
     const unit = "F".repeat(100);
     for (let i = 0; i < 100; i++) {
@@ -111,7 +101,7 @@ describe("OutputGuard 退化检测", () => {
   });
 
   it("trip 后后续 onDelta 恒返回 true", () => {
-    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig(), "otter-1", createTestLogger());
     const abort = vi.fn();
     const unit = "H".repeat(100);
     let tripped = false;
@@ -126,7 +116,7 @@ describe("OutputGuard 超时体系", () => {
   afterEach(() => { vi.useRealTimers(); });
 
   it("首字节超时：prompt 后无 delta 触发 first_byte_timeout", () => {
-    const guard = new OutputGuard(makeConfig({ firstByteTimeoutMs: 10_000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ firstByteTimeoutMs: 10_000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.armFirstByteTimer(abort);
@@ -138,7 +128,7 @@ describe("OutputGuard 超时体系", () => {
   it("首个 delta 到达后切换为滑动超时，并记录首字节延迟埋点", () => {
     const guard = new OutputGuard(
       makeConfig({ firstByteTimeoutMs: 10_000, streamingTimeoutMs: 2000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -154,7 +144,7 @@ describe("OutputGuard 超时体系", () => {
   });
 
   it("delta 持续到达重置滑动计时器", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 1), "text_delta", abort);
@@ -167,7 +157,7 @@ describe("OutputGuard 超时体系", () => {
   });
 
   it("destroy() 清理计时器", () => {
-    const guard = new OutputGuard(makeConfig({ firstByteTimeoutMs: 5000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ firstByteTimeoutMs: 5000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
     guard.armFirstByteTimer(abort);
     guard.destroy();
@@ -176,7 +166,7 @@ describe("OutputGuard 超时体系", () => {
   });
 
   it("isCompacting 兜底：fire 时 compaction 进行中则抑制并重新 arm", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 2000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 2000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
     let compacting = true;
     guard.setIsCompacting(() => compacting);
@@ -198,7 +188,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("工具结束 resume re-arm 首字节窗口：post-tool 冷 prefill 超滑动预算不误切（F20260805abpp 事故回归）", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 5000, firstByteTimeoutMs: 30_000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -217,7 +207,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   });
 
   it("ref-count：两个不同 pause 源，只 resume 一个不重建计时器", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 5), "text_delta", abort);
@@ -235,7 +225,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("并行工具：同原因两次 pause，第一个 end 不重建计时器（PR 检视 S1 回归）", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 3000, firstByteTimeoutMs: 4000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -258,7 +248,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("compaction_end 后 re-arm 首字节窗口（冷 prefill）", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -278,7 +268,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("auto_retry_end 后同样 re-arm 首字节窗口", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -297,7 +287,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("pause 期间到达 delta：resume 仍 arm 首字节窗口，不受陈旧剩余影响（F20260805abpp）", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 5000, firstByteTimeoutMs: 8000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -315,7 +305,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   });
 
   it("destroy 终态：destroy 后 resume 不复活计时器", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 14), "text_delta", abort);
@@ -327,7 +317,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   });
 
   it("auto_retry 窗口内的 delta 视为 resume：重试生成挂死时滑动超时生效（第四轮 S1 回归）", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 17), "text_delta", abort);
@@ -344,7 +334,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   });
 
   it("auto_retry 释放后迟到的 auto_retry_end resume 无副作用", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 19), "text_delta", abort);
@@ -357,7 +347,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   });
 
   it("auto_retry + tool 混合 pause 时 delta 不释放（保守路径）", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 3000 }), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.onDelta(randomText(50, 21), "text_delta", abort);
@@ -371,7 +361,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("工具 resume re-arm 首字节窗口后，首个 delta 到达即切回滑动窗口（300s 暴露面只覆盖首 delta 之前）", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 3000, firstByteTimeoutMs: 300_000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -390,7 +380,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("混合 pause 反向释放：compaction 先放不 arm，tool 后放 arm 首字节窗口", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -412,7 +402,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   it("isCompacting 兜底在首字节 kind 下同样抑制并重新 arm", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
     let compacting = true;
@@ -431,7 +421,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
   });
 
   it("工具 resume re-arm 刷新首字节埋点基准：上报 post-tool prefill 耗时", () => {
-    const guard = new OutputGuard(makeConfig(), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig(), "otter-1", createTestLogger());
     const abort = vi.fn();
 
     guard.armFirstByteTimer(abort);
@@ -455,7 +445,7 @@ describe("OutputGuard trip 语义（PR 检视 S2/S3 回归）", () => {
   afterEach(() => { vi.useRealTimers(); });
 
   it("退化 trip 后停表：归因不被覆写、abort 不二次调用", () => {
-    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", mockLogger());
+    const guard = new OutputGuard(makeConfig({ streamingTimeoutMs: 5000 }), "otter-1", createTestLogger());
     let abortCalls = 0;
     const abort = vi.fn(() => { abortCalls++; });
     const unit = "Good, the first commit is done. Now let me speak to the user with the progress update. ";
@@ -474,7 +464,7 @@ describe("OutputGuard trip 语义（PR 检视 S2/S3 回归）", () => {
   it("compaction re-arm 后首字节埋点按新窗口计时（不覆盖为含 compaction 的长值）", () => {
     const guard = new OutputGuard(
       makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
-      "otter-1", mockLogger(),
+      "otter-1", createTestLogger(),
     );
     const abort = vi.fn();
 
@@ -508,7 +498,7 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
 
   it("disabled 时不订阅", () => {
     const { session } = makeSession();
-    const { cleanup } = attachOutputGuard(session, "otter-1", makeConfig({ enabled: false }), mockLogger(), vi.fn());
+    const { cleanup } = attachOutputGuard(session, "otter-1", makeConfig({ enabled: false }), createTestLogger(), vi.fn());
     expect(() => cleanup()).not.toThrow();
     expect(session.subscribe).not.toHaveBeenCalled();
   });
@@ -516,7 +506,7 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
   it("从 assistantMessageEvent 内层取 delta（嵌套形状触发检测）", () => {
     const { session, fire } = makeSession();
     const onAbort = vi.fn();
-    attachOutputGuard(session, "otter-1", makeConfig(), mockLogger(), onAbort);
+    attachOutputGuard(session, "otter-1", makeConfig(), createTestLogger(), onAbort);
 
     const unit = "I".repeat(100);
     for (let i = 0; i < 300 && !onAbort.mock.calls.length; i++) {
@@ -528,7 +518,7 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
   it("回归：外层 event.delta 形状不触发（初版字段 bug 的反向断言）", () => {
     const { session, fire } = makeSession();
     const onAbort = vi.fn();
-    attachOutputGuard(session, "otter-1", makeConfig({ streamingTimeoutMs: 1000 }), mockLogger(), onAbort);
+    attachOutputGuard(session, "otter-1", makeConfig({ streamingTimeoutMs: 1000 }), createTestLogger(), onAbort);
 
     // 初版 bug 的形状：delta 挂在外层——新实现应读不到它（不启动计时器、不检测）
     fire({ type: "message_update", delta: "J".repeat(100) });
@@ -542,7 +532,7 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
     attachOutputGuard(
       session, "otter-1",
       makeConfig({ streamingTimeoutMs: 3000, firstByteTimeoutMs: 4000 }),
-      mockLogger(), onAbort,
+      createTestLogger(), onAbort,
     );
 
     fire(updateEvent("text_delta", randomText(50, 8)));
@@ -563,7 +553,7 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
     attachOutputGuard(
       session, "otter-1",
       makeConfig({ streamingTimeoutMs: 2000, firstByteTimeoutMs: 8000 }),
-      mockLogger(), onAbort,
+      createTestLogger(), onAbort,
     );
 
     fire(updateEvent("text_delta", randomText(50, 9)));
@@ -585,7 +575,7 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
       isCompacting: true,
     };
     const onAbort = vi.fn();
-    attachOutputGuard(session, "otter-1", makeConfig({ streamingTimeoutMs: 1000 }), mockLogger(), onAbort);
+    attachOutputGuard(session, "otter-1", makeConfig({ streamingTimeoutMs: 1000 }), createTestLogger(), onAbort);
 
     handler(updateEvent("text_delta", randomText(50, 10)));
     vi.advanceTimersByTime(5000);

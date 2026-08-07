@@ -5,10 +5,10 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { SendMessage } from "@usecases/conversation/send-message";
-import type { Logger } from "@usecases/ports/logger";
 import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { HEALING_CONVERSATION_KEY, HEALING_BIG_OTTER_ID_KEY } from "@usecases/healing/constants";
+import { createTestLogger, createCapturingLogger } from "../../helpers/logger";
 
 /** 大獭 mock */
 function mockBigOtter(): Otter {
@@ -32,6 +32,7 @@ function existingConversation(): Conversation {
     status: "active",
     summary: null,
     pinned: false,
+    workspaceDir: null,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     completedAt: null,
@@ -47,6 +48,7 @@ function newConversation(): Conversation {
     status: "active",
     summary: null,
     pinned: false,
+    workspaceDir: null,
     createdAt: "2026-08-03T00:00:00Z",
     updatedAt: "2026-08-03T00:00:00Z",
     completedAt: null,
@@ -69,17 +71,6 @@ function mockParticipant(otterId: string, conversationId: string): ConversationP
     leftAt: null,
     lastReadTurnNumber: 0,
   };
-}
-
-/** Logger mock（带 spy） */
-function mockLogger(): Logger {
-  return {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn(() => mockLogger()),
-  } as unknown as Logger;
 }
 
 describe("ensureHealingConversation - pin 行为", () => {
@@ -117,7 +108,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       sendSystem: vi.fn(),
     } as unknown as SendMessage;
 
-    const logger = mockLogger();
+    const logger = createTestLogger();
 
     const result = await ensureHealingConversation({
       manageConversation,
@@ -164,7 +155,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       sendSystem: vi.fn(),
     } as unknown as SendMessage;
 
-    const logger = mockLogger();
+    const logger = createTestLogger();
 
     const result = await ensureHealingConversation({
       manageConversation,
@@ -219,7 +210,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       sendSystem: vi.fn(),
     } as unknown as SendMessage;
 
-    const logger = mockLogger();
+    const logger = createCapturingLogger();
 
     const result = await ensureHealingConversation({
       manageConversation,
@@ -232,7 +223,7 @@ describe("ensureHealingConversation - pin 行为", () => {
 
     expect(result.conversationId).toBe(conv.id);
     expect(result.bigOtterId).toBe(bigOtterId);
-    expect(logger.warn).toHaveBeenCalled();
+    expect(logger.captured.warns.length).toBeGreaterThan(0);
   });
 
   it("CAS 模式：并发创建时，第二个进程检测到锁值变化后复用已有对话", async () => {
@@ -270,7 +261,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       sendSystem: vi.fn(),
     } as unknown as SendMessage;
 
-    const logger = mockLogger();
+    const logger = createTestLogger();
 
     const result = await ensureHealingConversation({
       manageConversation,
@@ -318,7 +309,7 @@ describe("ensureHealingConversation - pin 行为", () => {
       sendSystem: vi.fn(),
     } as unknown as SendMessage;
 
-    const logger = mockLogger();
+    const logger = createTestLogger();
 
     await expect(ensureHealingConversation({
       manageConversation,

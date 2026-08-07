@@ -14,7 +14,7 @@ async function pinHealing(manageConversation: ManageConversation, id: string, lo
   try {
     await manageConversation.pin(id);
   } catch (err) {
-    logger.warn('Failed to pin healing conversation', { error: err instanceof Error ? err.message : String(err) });
+    logger.warn('Failed to pin healing conversation', { conversationId: id, error: err instanceof Error ? err.message : String(err) });
   }
 }
 

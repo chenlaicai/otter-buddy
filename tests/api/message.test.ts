@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createTestApp, json, readSSEEvents, createMockDeps, makeMessage } from "./helpers";
+import { createTestApp, json, readSSEEvents, createMockDeps, makeMessage, makeOtter } from "./helpers";
 import type { TestDeps } from "./helpers";
 
+// eslint-disable-next-line max-lines-per-function -- HTTP 契约用例集，单 describe 聚合
 describe("Message API", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;
@@ -284,6 +285,25 @@ describe("Message API", () => {
       expect(body.tsp).toEqual(["user-1"]);
       expect(body.ctx).toBe(1500);
       expect(body.ctxMax).toBe(4096);
+    });
+
+    it("maps sn（发送者名称）与 dur（耗时）字段", async () => {
+      /** 对抗检视发现：sn/dur 在 dto.test.ts 删除后 A 类覆盖归零，前端展示依赖 sn */
+      const msg = makeMessage({
+        id: "msg-sn",
+        senderType: "otter",
+        senderId: "otter-1",
+        status: "completed",
+        createdAt: "2026-07-22T00:00:00.000Z",
+        completedAt: "2026-07-22T00:00:02.500Z",
+      });
+      deps.queryMessage.getMessageById.mockResolvedValue(msg);
+      deps.queryOtter.getById.mockResolvedValue(makeOtter({ id: "otter-1", name: "大獭" }));
+
+      const res = await app.request("/api/messages/msg-sn");
+      const body = await json(res);
+      expect(body.sn).toBe("大獭");
+      expect(body.dur).toBe("2.5s");
     });
   });
 

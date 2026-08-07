@@ -9,6 +9,39 @@ import { handleError, param } from "../http-error";
 import { toMemoryEntryDTO } from "../dto/memory-dto";
 import type { SearchSimilarRequestDTO, FlagMemoryRequestDTO } from "../dto/memory-dto";
 
+/**
+ * 在纯文本 snippet 中高亮搜索词（Web 后端职责，不在记忆模块）
+ * 使用 <b> 标签包裹匹配的搜索词，供前端 HighlightedSnippet 组件渲染
+ */
+function highlightSnippet(snippet: string, query: string): string {
+  if (!snippet || !query) return snippet;
+
+  // 对搜索词进行分词（空格分隔）
+  const tokens = query.split(/\s+/).filter(t => t.length > 0);
+  if (tokens.length === 0) return snippet;
+
+  // 转义 HTML 特殊字符（XSS 防护）
+  let highlighted = snippet
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  // 对每个搜索词进行高亮
+  for (const token of tokens) {
+    const escapedToken = token
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    highlighted = highlighted.replaceAll(escapedToken, `<b>${escapedToken}</b>`);
+  }
+
+  return highlighted;
+}
+
 export class MemoryController {
   constructor(
 
@@ -61,7 +94,11 @@ export class MemoryController {
       /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */
       const degraded = result.total === 0 && !this.embeddingGateway.available;
       return c.json({
-        entries: result.entries.map((e) => toMemoryEntryDTO(e, e.score, e.source, e.snippet)),
+        entries: result.entries.map((e) => {
+          // Web 后端负责高亮渲染，记忆模块返回纯文本
+          const snippet = e.snippet ? highlightSnippet(e.snippet, query) : e.snippet;
+          return toMemoryEntryDTO(e, e.score, e.source, snippet);
+        }),
         total: result.total,
         ...(degraded ? { degraded: true, degradedReason: "embedding 不可用，语义检索降级，结果可能不完整" } : {}),
       });

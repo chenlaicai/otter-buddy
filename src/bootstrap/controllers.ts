@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import type { AppConfig } from "@frameworks/config";
-import type { PinoLogger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SettingsConfig } from "@interface-adapters/http/controllers/settings-controller";
@@ -53,12 +53,10 @@ export interface ControllerDeps {
   getBridgeStatus?: GetBridgeStatus;
 }
 
-export function initControllers(deps: ControllerDeps, logger: PinoLogger) {
+export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, agentInvoker, appConfig, modelPool, settingsRepo, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus } = deps;
 
   const settings: SettingsConfig = {
-    provider: appConfig.llm.default ?? appConfig.llm.provider,
-    model: modelPool.getDefaultAlias(),
     port: appConfig.server.port,
     dbPath: appConfig.db.path,
     embeddingModelPath: appConfig.embedding.modelPath,
@@ -75,7 +73,7 @@ export function initControllers(deps: ControllerDeps, logger: PinoLogger) {
     message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
-    settings: new SettingsController(settings, settingsRepo, logger),
+    settings: new SettingsController(settings, settingsRepo, modelPool, logger),
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
     connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),

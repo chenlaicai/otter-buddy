@@ -28,7 +28,7 @@ import type { AgentSessionStore } from "./agent-session-store";
 import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig, ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
-import { config as appConfig } from "@frameworks/config";
+import { getConfig } from "@frameworks/config";
 import type { ModelConfig } from "@frameworks/config";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterPromptConfig } from "@contract/api/otter";
@@ -40,7 +40,6 @@ import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager
 import { attachCircuitBreaker, checkTokenWarning, buildResult } from "./circuit-breaker-helpers";
 import { attachOutputGuard } from "./output-guard";
 import type { OutputGuardConfig } from "./output-guard";
-import { sanitizeSessionFile } from "./session-sanitizer";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 
@@ -76,7 +75,7 @@ export interface AgentSessionFactoryConfig {
   db: Database.Database;
   sessionDir?: string;
   otterToolClient: OtterToolClient | null;
-  /** pi-ai Model 对象（由 models-factory 创建，单模型模式时使用） */
+  /** pi-ai Model 对象（由 models-factory 创建，为 modelPool 的默认模型） */
   model: unknown;
   /** ModelPool（多模型路由，可选） */
   modelPool?: ModelPool;
@@ -192,7 +191,7 @@ export class PiSessionFactory implements AgentGateway {
     }
     this.circuitBreakerConfig = {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
-      ...appConfig.circuitBreaker,
+      ...getConfig().circuitBreaker,
     };
     this.lockManager = new SimpleLockManager();
   }
@@ -241,17 +240,10 @@ export class PiSessionFactory implements AgentGateway {
         registerProvider(providerId: string, config: Record<string, unknown>): void;
       };
 
-      // 多模型模式：遍历所有模型注册 provider + 设置 API key
+      // initModels 恒产出 ModelPool（models-factory.ts），bootstrap 必装配下传
       if (this.cfg.modelPool) {
         for (const entry of this.cfg.modelPool.getAllEntries()) {
           await this._registerRuntimeModel(entry.alias, entry.config, entry.model);
-        }
-      } else {
-        // 单模型模式：兼容旧逻辑
-        const llmConfig = appConfig.llm;
-        if (llmConfig.apiKey && this.modelRuntime) {
-          await this.modelRuntime.setRuntimeApiKey(llmConfig.provider, llmConfig.apiKey);
-          this.logger.info(`Set runtime API key for ${llmConfig.provider}`);
         }
       }
 
@@ -515,7 +507,7 @@ export class PiSessionFactory implements AgentGateway {
     const modelGuidance = isBig ? this.buildModelSelectionGuidance() : '';
 
     return [
-      `## 你的身份\n- 名称：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
+      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
       identityBody,
       modelGuidance,
     ].filter(Boolean).join("\n\n");
@@ -592,8 +584,6 @@ export class PiSessionFactory implements AgentGateway {
       unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
       this.activeSessions.delete(sessionKey);
       session.dispose();
-      /** F20260804dglp 修复 3：dispose 后清洗 session 文件，斩断退化内容污染飞轮 */
-      this.sanitizeSessionSafely(otterId, sessionManager);
     }
   }
 
@@ -622,20 +612,6 @@ export class PiSessionFactory implements AgentGateway {
     }
     if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
     return result;
-  }
-
-  /** session 文件清洗（幂等；失败只告警，绝不影响 invoke 主路径） */
-  private sanitizeSessionSafely(otterId: string, sessionManager: SessionManager): void {
-    try {
-      const file = sessionManager.getSessionFile();
-      if (!file) return;
-      const result = sanitizeSessionFile(file);
-      if (result.replacedBlocks > 0) {
-        this.logger.warn(`[session-sanitizer] 清洗退化块: otter=${otterId} blocks=${result.replacedBlocks}`, { hits: result.hits });
-      }
-    } catch (err) {
-      this.logger.warn(`[session-sanitizer] 清洗失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   /** 创建带工具配置的 AgentSession */
@@ -708,7 +684,7 @@ export class PiSessionFactory implements AgentGateway {
     const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, this.circuitBreakerConfig, this.logger, wrappedAbort);
     timerRef.clear = clearEventTimer;
     /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
-    const cb = appConfig.circuitBreaker;
+    const cb = getConfig().circuitBreaker;
     const cfg: Partial<OutputGuardConfig> = {
       ...cb?.outputGuard,
       ...(cb?.streamingTimeoutMs !== undefined && { streamingTimeoutMs: cb.streamingTimeoutMs }),

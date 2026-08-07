@@ -3,12 +3,7 @@ import type { ManageConnection } from "./manage-connection";
 import type { FeishuGateway } from "./feishu-gateway";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
-
-/** SSE 事件（与 sse-streamer.ts 中的 SSEEvent 兼容） */
-interface SSEEvent {
-  event: string;
-  data: Record<string, unknown>;
-}
+import type { SSEEvent } from "@contract/sse/events";
 
 /**
  * 消息广播服务

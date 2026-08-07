@@ -214,7 +214,7 @@ export class SendMessage {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
     }
     if (!canStartSpeaking(message.status)) {
-      throw new DomainError(`Cannot start speaking for message with status: ${message.status}`, "validation");
+      throw new DomainError(`Cannot start speaking for message with status: ${message.status}`, "conflict");
     }
     if (!isValidCompletedMessageBody(input.body)) {
       throw new DomainError("body must be non-empty string", "validation");

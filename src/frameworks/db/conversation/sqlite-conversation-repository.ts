@@ -49,11 +49,12 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`
-        INSERT INTO conversations (id, title, status, summary, pinned, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO conversations (id, title, status, summary, pinned, workspace_dir, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         conversation.id, conversation.title, conversation.status,
         conversation.summary, conversation.pinned ? 1 : 0,
+        conversation.workspaceDir,
         conversation.createdAt, conversation.updatedAt,
       );
 
@@ -461,7 +462,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   async listConversationsWithMeta(
     userId: string,
     options?: { limit?: number; offset?: number },
-  ): Promise<Array<Conversation & { otterIds: string[]; unreadCount: number; lastMessagePreview: string | null; lastMessageTs: string | null }>> {
+  ): Promise<Array<Conversation & { otterIds: string[]; unreadCount: number; lastMessagePreview: string | null; lastMessageTs: string | null; activityStatus: 'processing' | 'awaiting_user' | 'idle' }>> {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
     const rows = this.db.prepare(`
@@ -472,7 +473,14 @@ export class SqliteConversationRepository implements ConversationRepository {
           AND m.status NOT IN ('streaming', 'speaking')) AS unread_count,
         lm.body AS last_message_body,
         lm.created_at AS last_message_ts,
-        (SELECT GROUP_CONCAT(otter_id, ',') FROM conversation_otters WHERE conversation_id = c.id) AS otter_ids_flat
+        (SELECT GROUP_CONCAT(otter_id, ',') FROM conversation_otters WHERE conversation_id = c.id) AS otter_ids_flat,
+        CASE
+          WHEN EXISTS (SELECT 1 FROM messages WHERE conversation_id = c.id AND status IN ('streaming', 'speaking'))
+            THEN 'processing'
+          WHEN c.status = 'active' AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = c.id)
+            THEN 'awaiting_user'
+          ELSE 'idle'
+        END AS activity_status
       FROM conversations c
       LEFT JOIN conversation_user_read_state u ON u.conversation_id = c.id AND u.user_id = ?
       LEFT JOIN messages lm ON lm.id = (
@@ -480,11 +488,12 @@ export class SqliteConversationRepository implements ConversationRepository {
         ORDER BY sequence_num DESC LIMIT 1
       )
       WHERE c.status != 'archived'
-      ORDER BY c.pinned DESC, c.created_at DESC LIMIT ? OFFSET ?
+      ORDER BY c.pinned DESC, COALESCE(lm.created_at, c.created_at) DESC LIMIT ? OFFSET ?
     `).all(userId, limit, offset) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
       last_message_body: string | null; last_message_ts: string | null;
       otter_ids_flat: string | null;
+      activity_status: 'processing' | 'awaiting_user' | 'idle';
     }>;
     return rows.map(row => {
       const conv = rowToConversation(row);
@@ -497,6 +506,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         unreadCount: row.unread_count,
         lastMessagePreview: preview,
         lastMessageTs: row.last_message_ts,
+        activityStatus: row.activity_status,
       };
     });
   }

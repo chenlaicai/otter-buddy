@@ -3,16 +3,7 @@ import { CreateOtter } from "@usecases/otter/create-otter";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { AgentGateway } from "@usecases/otter/agent-gateway";
 import type { OtterSession } from "@entities/otter/otter-session";
-import type { Logger } from "@usecases/ports/logger";
-
-function mockLogger(): Logger {
-  return {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  } as unknown as Logger;
-}
+import { createTestLogger } from "../../helpers/logger";
 
 /** 带状态追踪的 mock repo：记录 createOtter / deleteOtter / createSession 的调用状态 */
 function mockRepo(options?: { failCreateSession?: boolean }) {
@@ -74,7 +65,7 @@ describe("CreateOtter", () => {
     it("创建 otter 到 repo + 通过 gateway 创建 agent，返回 status='active' 的 otter", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway, mockLogger());
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
 
       const result = await useCase.execute({
         name: "测试水獭",
@@ -99,7 +90,7 @@ describe("CreateOtter", () => {
     it("F20260805rsto：獭出生即建首世 domain session（active、无前序）", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway, mockLogger());
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
 
       const result = await useCase.execute({ name: "首世水獭", type: "big" });
 
@@ -113,7 +104,7 @@ describe("CreateOtter", () => {
     it("agent 创建失败时回滚 DB（B1 回归守护）", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway(true); // agent 创建会失败
-      const useCase = new CreateOtter(repo, gateway, mockLogger());
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
 
       await expect(
         useCase.execute({ name: "失败水獭", type: "small" }),
@@ -134,7 +125,7 @@ describe("CreateOtter", () => {
     it("F20260805rsto：session 建行失败时按序回滚 destroy agent + deleteOtter", async () => {
       const repo = mockRepo({ failCreateSession: true });
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway, mockLogger());
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
 
       await expect(
         useCase.execute({ name: "回滚水獭", type: "big" }),
@@ -157,7 +148,7 @@ describe("CreateOtter", () => {
     it("传入 role 和 parentOtterId 时保留在返回的 otter 中", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway, mockLogger());
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
 
       const role = { name: "助手", responsibilities: ["回答问题"] };
       const result = await useCase.execute({
@@ -174,7 +165,7 @@ describe("CreateOtter", () => {
     it("未传 role 和 parentOtterId 时默认为 null", async () => {
       const repo = mockRepo();
       const gateway = mockAgentGateway();
-      const useCase = new CreateOtter(repo, gateway, mockLogger());
+      const useCase = new CreateOtter(repo, gateway, createTestLogger());
 
       const result = await useCase.execute({
         name: "默认水獭",

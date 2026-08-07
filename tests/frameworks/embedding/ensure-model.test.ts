@@ -7,6 +7,11 @@ const mockStatSync = vi.fn();
 vi.mock("node:child_process", () => ({ spawnSync: mockSpawnSync }));
 vi.mock("node:fs", () => ({ existsSync: mockExistsSync, statSync: mockStatSync }));
 
+import FILES from "../../../src/frameworks/embedding/bge-m3-files.json" with { type: "json" };
+
+/** 尺寸取自单一真相源 bge-m3-files.json（改模型只改数据文件，测试不自抄魔法数字） */
+const REAL_SIZES = FILES.map((f) => f.size);
+
 const logger = {
   info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(),
   child: function () { return this; },
@@ -28,7 +33,7 @@ beforeEach(async () => {
 describe("isModelPresent", () => {
   it("all files present with correct sizes -> true", () => {
     mockExistsSync.mockReturnValue(true);
-    const sizes = [770, 17082821, 1173, 964, 607298, 2266820608];
+    const sizes = [...REAL_SIZES];
     mockStatSync.mockImplementation(() => ({ size: sizes.shift() }));
     expect(isModelPresent("/models/bge-m3")).toBe(true);
   });
@@ -53,7 +58,7 @@ describe("ensureBgeM3Model", () => {
   });
 
   it("local mode + files present -> logs present, no download", () => {
-    const sizes = [770, 17082821, 1173, 964, 607298, 2266820608];
+    const sizes = [...REAL_SIZES];
     mockExistsSync.mockReturnValue(true);
     mockStatSync.mockImplementation(() => ({ size: sizes.shift() }));
     ensureBgeM3Model({ localModelPath: "./models", modelPath: "bge-m3" }, logger);

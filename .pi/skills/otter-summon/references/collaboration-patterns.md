@@ -66,3 +66,14 @@
 
 - 角色立场要明确，避免各小獭观点趋同
 - 你的角色是主持人和整合者，不是参与者
+
+## Skill Chain
+
+各 skill 通过"后续动作声明"章节定义完成后的建议下一步。编排时参考各 skill 的后续动作声明决定发言石路由目标。
+
+- **方案设计完成** → 按 requirement-analysis 的后续动作声明，召唤检视獭对抗审视
+- **代码 PR 创建** → 按 code-implementation 的后续动作声明，召唤检视獭 PR 审视
+- **审视通过** → 按 adversarial-review 的后续动作声明，呈搭档终审
+- **审视需修改** → 按 author-response-protocol 处置后重新审视
+
+终止条件：审视循环的收敛判据见 adversarial-review/references/review-loop.md。搭档不在场时，记录状态到 memory 后不阻塞。

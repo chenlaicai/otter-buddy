@@ -16,19 +16,9 @@ import { MemoryController } from "../../src/interface-adapters/http/controllers/
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
+import { buildModelPool } from "../../src/frameworks/llm/model-pool";
 import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-chain-engine";
-import type { Logger } from "../../src/usecases/ports/logger";
-
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
+import { createTestLogger } from "../helpers/logger";
 
 /** 解析 Response JSON（避免 strict 模式下 unknown 报错） */
 export async function json(res: Response): Promise<any> {
@@ -384,6 +374,7 @@ export interface TestDeps {
   manageKeyInfo: any;
   settingsConfig: SettingsConfig;
   settingsRepo: any;
+  modelPool: any;
   manageScheduledTask: any;
   schedulerService: any;
   cronParser: any;
@@ -395,7 +386,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const conversationCtrl = new ConversationController(
     deps.manageConversation,
     deps.manageParticipant,
-    { get: vi.fn().mockResolvedValue(null) } as any,
+    deps.settingsRepo,
     logger,
   );
 
@@ -456,6 +447,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const settingsCtrl = new SettingsController(
     deps.settingsConfig,
     deps.settingsRepo,
+    deps.modelPool,
     logger,
   );
 
@@ -480,7 +472,7 @@ export function createTestApp(deps: TestDeps): Hono {
     } as any,
   };
 
-  const app = createRouter(controllers, mockLogger());
+  const app = createRouter(controllers, createTestLogger());
 
   // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
   (app as any).__broadcastEventCalls = broadcastEventCalls;
@@ -492,7 +484,7 @@ export function createTestApp(deps: TestDeps): Hono {
 /** 创建类型安全的 mock deps，各测试按需覆盖 */
 export function createMockDeps(): TestDeps {
   return {
-    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta"]),
+    manageConversation: mockMethods(["create", "getById", "complete", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta", "pin", "unpin"]),
     manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
     sendMessageUseCase: {
       ...mockMethods(["send", "start", "appendEvent", "complete", "fail", "abort"]),
@@ -526,14 +518,13 @@ export function createMockDeps(): TestDeps {
     manageMemory: mockMethods(["getById", "getDetails", "flagMemory", "updateLayer"]),
     manageKeyInfo: mockMethods(["getLinkedResources", "linkResource", "flagResource", "deleteLinkedResource", "supersedeResource", "archiveResource", "updateResourceStatus", "getArtifactIndex", "getLinkedResourcesByGroup"]),
     settingsConfig: {
-      provider: "openai",
-      model: "gpt-4o",
       port: 3000,
       dbPath: "./otter-buddy.db",
       embeddingModelPath: "./embedding.bin",
       embeddingDim: 1024,
     },
     settingsRepo: mockMethods(["get", "update", "getAll"]),
+    modelPool: buildModelPool("main", [{ config: { alias: "main", provider: "openai", model: "gpt-4o" }, model: { id: "gpt-4o" } }]),
     manageScheduledTask: mockMethods(["create", "getById", "getByConversationId", "update", "delete", "getExecutions"]),
     schedulerService: mockMethods(["trigger", "start", "stop"]),
     cronParser: { getNextTime: vi.fn() },

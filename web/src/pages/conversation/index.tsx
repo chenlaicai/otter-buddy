@@ -12,6 +12,7 @@ import { LeftPanel } from './LeftPanel'
 import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { ConversationModals, type ModalState } from './Modals'
+import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
@@ -78,6 +79,7 @@ function ConversationPage() {
   const [firstItemIndex, setFirstItemIndex] = useState(100000)
   const [initialTopMostItemIndex, setInitialTopMostItemIndex] = useState<number | { index: 'LAST' }>({ index: 'LAST' })
   const isAtBottomRef = useRef(true)
+  const atBottomDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
@@ -93,7 +95,10 @@ function ConversationPage() {
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
   const abortNotifiedRef = useRef<Set<string>>(new Set())
-  useEffect(() => () => { if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current) }, [])
+  useEffect(() => () => {
+    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
+    if (atBottomDebounceRef.current) clearTimeout(atBottomDebounceRef.current)
+  }, [])
 
   // 从 URL 路径获取对话 ID（格式：/conversation/:id）
   const pathParts = window.location.pathname.split('/')
@@ -132,6 +137,9 @@ function ConversationPage() {
       })
       .catch(() => setPageState('error'))
   }, [])
+
+  // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
+  useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations)
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
@@ -235,10 +243,25 @@ function ConversationPage() {
     }
   }, [allMessages])
 
-  /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用） */
+  /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用）。
+   *  false 信号加 150ms debounce：Virtuoso 在流式消息内容高度重算时会产生瞬态
+   *  atBottomStateChange(false)，导致 isAtBottomRef 误清、newMessagesCount 误累加。 */
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    isAtBottomRef.current = atBottom
-    if (atBottom) setNewMessagesCount(0)
+    if (atBottom) {
+      if (atBottomDebounceRef.current) {
+        clearTimeout(atBottomDebounceRef.current)
+        atBottomDebounceRef.current = null
+      }
+      isAtBottomRef.current = true
+      setNewMessagesCount(0)
+    } else {
+      if (!atBottomDebounceRef.current) {
+        atBottomDebounceRef.current = setTimeout(() => {
+          atBottomDebounceRef.current = null
+          isAtBottomRef.current = false
+        }, 150)
+      }
+    }
   }, [])
 
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
@@ -373,12 +396,6 @@ function ConversationPage() {
     const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
     const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
 
-    const maybeScrollToBottom = () => {
-      if (isAtBottomRef.current) {
-        requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' }))
-      }
-    }
-
     const syncLiveEvents = (messageId: string) => {
       const liveEvents = liveEventsMap.get(messageId)
       if (!liveEvents) return
@@ -387,7 +404,6 @@ function ConversationPage() {
         if (!list?.some(m => m.id === messageId)) return prev
         return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
       })
-      maybeScrollToBottom()
     }
 
     // 事件分发器
@@ -407,7 +423,6 @@ function ConversationPage() {
           return { ...prev, [activeId]: [...current, message] }
         })
         if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
-        maybeScrollToBottom()
       },
       'message.start': (data) => {
         const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
@@ -426,7 +441,6 @@ function ConversationPage() {
           })
         }
         if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
-        maybeScrollToBottom()
       },
       'assistant_text': (data) => {
         const liveEvents = liveEventsMap.get(data.messageId as string)
@@ -459,7 +473,6 @@ function ConversationPage() {
         setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], finalMsg) }))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
-        maybeScrollToBottom()
       },
       'message.failed': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
@@ -504,7 +517,6 @@ function ConversationPage() {
         }
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
-        maybeScrollToBottom()
       },
       'error': (data) => {
         const messageId = data.messageId as string | undefined
@@ -654,7 +666,6 @@ function ConversationPage() {
             })
           }
           if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
-          if (isAtBottomRef.current) requestAnimationFrame(() => virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' }))
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data
@@ -840,6 +851,104 @@ function ConversationPage() {
       })
   }, [activeId])
 
+  /** 手动重试：对 failed/aborted 的 otter 消息重新触发 agent */
+  const handleRetryMessage = useCallback(async (messageId: string) => {
+    if (!activeId) return
+    try {
+      const response = await api.retryMessage(messageId)
+      if (!response.ok) { showToast('重试失败', 'error'); return }
+
+      const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
+      const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
+
+      const syncLiveEvents = (msgId: string) => {
+        const liveEvents = liveEventsMap.get(msgId)
+        if (!liveEvents) return
+        setAllMessages(prev => {
+          const list = prev[activeId]
+          if (!list?.some(m => m.id === msgId)) return prev
+          return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, events: [...liveEvents] } : m) }
+        })
+      }
+
+      consumeSSE(response, {
+        'message.start': (data) => {
+          const { messageId: newMsgId, otterId, otterName } = data
+          liveEventsMap.set(newMsgId, [])
+          liveMeta.set(newMsgId, { otterId, otterName, createdAt: data.createdAt || nowTs() })
+          const placeholder: LocalMessage = {
+            id: newMsgId, st: 'otter', si: otterId, sn: otterName,
+            content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
+        },
+        'assistant_toolcall': (data) => {
+          const { messageId: msgId } = data
+          const liveEvents = liveEventsMap.get(msgId)
+          if (!liveEvents) return
+          liveEvents.push({ ts: nowTs(), eventType: 'assistant_toolcall', payload: { content: data.content } })
+          syncLiveEvents(msgId)
+        },
+        'tool.result': (data) => {
+          const { messageId: msgId } = data
+          const liveEvents = liveEventsMap.get(msgId)
+          if (!liveEvents) return
+          liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
+          syncLiveEvents(msgId)
+        },
+        'assistant_text': (data) => {
+          const { messageId: msgId, content } = data
+          const meta = liveMeta.get(msgId)
+          if (!meta) return
+          const textContent = Array.isArray(content) ? (content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
+          if (!textContent) return
+          liveEventsMap.get(msgId)?.push({ ts: nowTs(), eventType: 'text', payload: { text: textContent } })
+          syncLiveEvents(msgId)
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list) return prev
+            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, content: (m.content || '') + textContent } : m) }
+          })
+        },
+        'message.complete': (data) => {
+          const { messageId: msgId } = data
+          const liveEvents = liveEventsMap.get(msgId) || []
+          const meta = liveMeta.get(msgId)
+          const otterId = meta?.otterId || data.otterId || ''
+          const finalMsg: LocalMessage = {
+            id: msgId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
+            content: data.body ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration,
+            events: liveEvents.length > 0 ? liveEvents : undefined,
+            ctx: data.ctx, ctxMax: data.ctxMax,
+            turnId: data.turnId || undefined,
+          }
+          setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], finalMsg) }))
+        },
+        'message.failed': (data) => {
+          const { messageId: msgId } = data
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list) return prev
+            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]' } : m) }
+          })
+        },
+        'message.aborted': (data) => {
+          const { messageId: msgId } = data
+          setAllMessages(prev => {
+            const list = prev[activeId]
+            if (!list) return prev
+            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[搭档中断]' } : m) }
+          })
+        },
+        'error': (data) => {
+          showToast(data.message || '重试出错', 'error')
+        },
+      })
+    } catch {
+      showToast('重试请求失败', 'error')
+    }
+  }, [activeId])
+
   const handleSelectConv = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新
     window.location.href = `/conversation/${id}`
@@ -884,8 +993,11 @@ function ConversationPage() {
     if (!activeId) return
     try {
       await api.archiveConversation(activeId)
-      setConversations(prev => prev.map(c => c.id === activeId ? { ...c, status: 'archived' as const } : c))
-      setModal({ type: 'none' }); showToast('对话已归档', 'success')
+      setModal({ type: 'none' })
+      // 归档后当前对话从列表消失（服务端列表排除 archived），
+      // 轮询合并会将其移除导致 activeConv 为 null、RightPanel 串到其他对话——与 pin/unpin 一致整页跳转
+      // toast 通过 URL 参数传递到目标页，避免跳转后来不及渲染
+      window.location.href = '/conversation?archived=1'
     } catch { showToast('操作失败', 'error') }
   }
 
@@ -1034,7 +1146,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}

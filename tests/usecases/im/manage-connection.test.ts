@@ -5,16 +5,7 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { Logger } from "@usecases/ports/logger";
 import type { Connection, ConnectionSession } from "@entities/im/connection";
 import type { Conversation } from "@entities/conversation/conversation";
-
-function mockLogger(): Logger {
-  return {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  };
-}
+import { createTestLogger } from "../../helpers/logger";
 
 function mockConnectionRepo(overrides: Partial<ConnectionRepository> = {}): ConnectionRepository {
   return {
@@ -67,6 +58,7 @@ function conversationFixture(overrides: Partial<Conversation> = {}): Conversatio
     status: "active",
     summary: null,
     pinned: false,
+    workspaceDir: null,
     createdAt: "2026-07-29T00:00:00Z",
     updatedAt: "2026-07-29T00:00:00Z",
     completedAt: null,
@@ -96,7 +88,7 @@ describe("ManageConnection", () => {
   beforeEach(() => {
     connRepo = mockConnectionRepo();
     convRepo = mockConversationRepo();
-    logger = mockLogger();
+    logger = createTestLogger();
     manageConnection = new ManageConnection(connRepo, convRepo, logger);
   });
 

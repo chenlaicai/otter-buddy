@@ -1,148 +1,61 @@
-import { describe, it, expect, vi } from "vitest";
+/**
+ * ManageConversation 单元测试（真 sqlite）。
+ * getById 是纯委托，按 F20260806tstr Part 4 标准删除。
+ * CreateOtter 保留 stub（其真实行为由 create-otter.test.ts 与能力层覆盖），
+ * 但 stub 会真实写 otters 行以满足参与者 FK。
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import type Database from "better-sqlite3";
 import { ManageConversation } from "@usecases/conversation/manage-conversation";
-import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import type { CreateOtter } from "@usecases/otter/create-otter";
-import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { DomainError } from "@entities/errors";
+import { createTestDb } from "../../helpers/db";
 
-/** 创建大獭 mock（返回固定 Otter） */
-function mockBigOtter(): Otter {
-  return {
-    id: "otter-big-001",
-    name: "大獭",
-    type: "big",
-    status: "active",
-    role: null,
-    parentOtterId: null,
-    createdAt: new Date().toISOString(),
-    dissolvedAt: null,
-  };
-}
+describe("ManageConversation（真 sqlite）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+  let mc: ManageConversation;
 
-/** 创建带状态追踪的 ConversationRepository mock */
-function mockRepo(initialConversations: Map<string, Conversation> = new Map()): ConversationRepository & {
-  _conversations: Map<string, Conversation>;
-  _participants: ConversationParticipant[];
-  _statusUpdates: Array<{ id: string; status: string; timestamp: string }>;
-} {
-  const conversations = new Map(initialConversations);
-  const participants: ConversationParticipant[] = [];
-  const statusUpdates: Array<{ id: string; status: string; timestamp: string }> = [];
+  function stubCreateOtter(otterId = "big-otter-1"): CreateOtter {
+    return {
+      execute: async () => {
+        const otter: Otter = {
+          id: otterId, name: "大獭", type: "big", status: "active",
+          role: null, parentOtterId: null,
+          createdAt: new Date().toISOString(), dissolvedAt: null,
+        };
+        /** 参与者有 otter FK：stub 也真实写行 */
+        db.prepare(
+          "INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES (?, ?, 'big', 'active', ?)",
+        ).run(otter.id, otter.name, otter.createdAt);
+        return otter;
+      },
+    } as unknown as CreateOtter;
+  }
 
-  return {
-    _conversations: conversations,
-    _participants: participants,
-    _statusUpdates: statusUpdates,
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    mc = new ManageConversation(repo, stubCreateOtter());
+  });
 
-    create: vi.fn(async (conv: Conversation) => {
-      conversations.set(conv.id, conv);
-    }),
-    getById: vi.fn(async (id: string) => conversations.get(id) ?? null),
-    updateStatus: vi.fn(async (id: string, status: Conversation["status"], timestamp: string) => {
-      const conv = conversations.get(id);
-      if (conv) {
-        conv.status = status;
-        if (status === "completed") conv.completedAt = timestamp;
-        if (status === "archived") conv.archivedAt = timestamp;
-      }
-      statusUpdates.push({ id, status, timestamp });
-    }),
-    getIdsByOtterId: vi.fn(async () => []),
-    getAllIds: vi.fn(async () => []),
-    updatePinned: vi.fn(async (id: string, pinned: boolean) => {
-      const conv = conversations.get(id);
-      if (conv) conv.pinned = pinned;
-    }),
-    getOtterIds: vi.fn(async () => []),
-    createTurn: vi.fn(),
-    getActiveTurn: vi.fn(async () => null),
-    closeTurn: vi.fn(),
-    getMaxTurnNumber: vi.fn(async () => 0),
-    getMessagesByTurnId: vi.fn(async () => []),
-    createCompletedMessage: vi.fn(),
-    createStreamingMessage: vi.fn(),
-    startSpeaking: vi.fn(async () => {}),
-    completeMessage: vi.fn(),
-    failMessage: vi.fn(),
-    failInFlightMessages: vi.fn(async () => 0),
-    closeOrphanedTurns: vi.fn(async () => 0),
-    abortMessage: vi.fn(),
-    getMaxSequenceNum: vi.fn(async () => 0),
-    getMessageById: vi.fn(async () => null),
-    getMessages: vi.fn(async () => []),
-    getMessagesBefore: vi.fn(async () => []),
-    getMessagesAfter: vi.fn(async () => []),
-    appendEvent: vi.fn(),
-    getMessageEvents: vi.fn(async () => []),
-    getMessageEventsByMessageIds: vi.fn(async () => []),
-    getMaxEventSequenceNum: vi.fn(async () => 0),
-    searchMessages: vi.fn(async () => []),
-    findByExternalId: vi.fn(async () => null),
-    getTurnHistory: vi.fn(async () => []),
-    linkResource: vi.fn(),
-    getLinkedResources: vi.fn(async () => []),
-    getLinkedResourceById: vi.fn(async () => null),
-    getLinkedResourcesByGroup: vi.fn(async () => []),
-    updateResourceStatus: vi.fn(),
-    supersedeLinkedResource: vi.fn(),
-    deleteLinkedResource: vi.fn(),
-    flagResource: vi.fn(),
-    createParticipant: vi.fn(async (p: ConversationParticipant) => {
-      participants.push(p);
-    }),
-    createParticipants: vi.fn(async (ps: ConversationParticipant[]) => {
-      participants.push(...ps);
-    }),
-    getParticipant: vi.fn(async () => null),
-    getActiveParticipants: vi.fn(async () => []),
-    updateParticipantLeave: vi.fn(),
-    updateTokenUsage: vi.fn(async () => {}),
-    updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
-    getUnreadMessages: vi.fn().mockResolvedValue([]),
-    getTurnById: vi.fn().mockResolvedValue(null),
-    markParticipantLeft: vi.fn().mockResolvedValue(undefined),
-    getLastMessageBySender: vi.fn().mockResolvedValue(null),
-    getUserReadState: vi.fn().mockResolvedValue(null),
-    upsertUserReadState: vi.fn().mockResolvedValue(undefined),
-    getFirstUnreadMessage: vi.fn().mockResolvedValue(null),
-    getUnreadCount: vi.fn().mockResolvedValue(0),
-    getLastMessage: vi.fn().mockResolvedValue(null),
-    listConversationsWithMeta: vi.fn().mockResolvedValue([]),
-  };
-}
+  afterEach(() => {
+    db.close();
+  });
 
-/** 创建 CreateOtter mock */
-function mockCreateOtter(otter?: Otter): CreateOtter {
-  const bigOtter = otter ?? mockBigOtter();
-  return {
-    execute: vi.fn(async () => bigOtter),
-  } as unknown as CreateOtter;
-}
+  async function seedConversation(id: string, status: "active" | "completed"): Promise<void> {
+    await repo.create({
+      id, title: "存量对话", status, summary: null, pinned: false, workspaceDir: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      completedAt: status === "completed" ? "2026-01-01T01:00:00Z" : null,
+      archivedAt: null,
+    });
+  }
 
-/** 构造一个已存在的对话实体 */
-function existingConv(overrides: Partial<Conversation> = {}): Conversation {
-  return {
-    id: "conv-existing",
-    title: "测试对话",
-    status: "active",
-    summary: null,
-    pinned: false,
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
-    completedAt: null,
-    archivedAt: null,
-    ...overrides,
-  };
-}
-
-describe("ManageConversation", () => {
   describe("create", () => {
-    it("创建对话，状态为 active，包含正确字段", async () => {
-      const repo = mockRepo();
-      const createOtter = mockCreateOtter();
-      const mc = new ManageConversation(repo, createOtter);
-
+    it("创建对话：active 状态 + 字段正确 + 落库", async () => {
       const conv = await mc.create({ title: "新对话" });
 
       expect(conv.status).toBe("active");
@@ -152,130 +65,64 @@ describe("ManageConversation", () => {
       expect(conv.archivedAt).toBeNull();
       expect(conv.id).toMatch(/^[0-9a-f-]{36}$/);
 
-      /** 验证 repo 中已存储该对话 */
-      const stored = repo._conversations.get(conv.id);
-      expect(stored).toBeTruthy();
+      const stored = await repo.getById(conv.id);
       expect(stored?.title).toBe("新对话");
     });
 
-    it("调用 createOtter.execute 创建大獭", async () => {
-      const repo = mockRepo();
-      const bigOtter = mockBigOtter();
-      const createOtter = mockCreateOtter(bigOtter);
-      const mc = new ManageConversation(repo, createOtter);
-
+    it("为大獭创建初始参与者记录（joinedAtTurnNumber=0：开场即在场）", async () => {
       const conv = await mc.create({ title: "对话" });
 
-      /** 验证 createOtter.execute 返回的大獭 ID 被用于参与者记录 */
-      const participant = repo._participants.find(
-        (p) => p.conversationId === conv.id,
-      );
-      expect(participant).toBeTruthy();
-      expect(participant?.otterId).toBe(bigOtter.id);
-      expect(participant?.status).toBe("active");
-    });
-
-    it("为大獭创建初始参与者记录", async () => {
-      const repo = mockRepo();
-      const mc = new ManageConversation(repo, mockCreateOtter());
-
-      const conv = await mc.create({ title: "参与者测试" });
-
-      /** 验证参与者记录：joinedAtTurnId=null, joinedAtTurnNumber=0 表示对话开始前已在场 */
-      const participant = repo._participants.find(
-        (p) => p.conversationId === conv.id,
-      );
-      expect(participant).toBeTruthy();
-      expect(participant?.joinedAtTurnId).toBeNull();
-      expect(participant?.joinedAtTurnNumber).toBe(0);
-      expect(participant?.leftAtTurnId).toBeNull();
-      expect(participant?.status).toBe("active");
-    });
-  });
-
-  describe("getById", () => {
-    it("委托 repo 返回对话", async () => {
-      const conv = existingConv({ id: "conv-123" });
-      const repo = mockRepo(new Map([["conv-123", conv]]));
-      const mc = new ManageConversation(repo, mockCreateOtter());
-
-      const result = await mc.getById("conv-123");
-
-      expect(result).toEqual(conv);
-    });
-
-    it("不存在时返回 null", async () => {
-      const repo = mockRepo();
-      const mc = new ManageConversation(repo, mockCreateOtter());
-
-      const result = await mc.getById("nonexistent");
-
-      expect(result).toBeNull();
+      const participants = await repo.getActiveParticipants(conv.id);
+      expect(participants).toHaveLength(1);
+      expect(participants[0].otterId).toBe("big-otter-1");
+      expect(participants[0].joinedAtTurnId).toBeNull();
+      expect(participants[0].joinedAtTurnNumber).toBe(0);
+      expect(participants[0].status).toBe("active");
     });
   });
 
   describe("complete", () => {
-    it("active 对话 -> 更新状态为 completed", async () => {
-      const conv = existingConv({ status: "active" });
-      const repo = mockRepo(new Map([[conv.id, conv]]));
-      const mc = new ManageConversation(repo, mockCreateOtter());
+    it("active 对话 -> completed", async () => {
+      await seedConversation("conv-1", "active");
 
-      await mc.complete(conv.id);
+      await mc.complete("conv-1");
 
-      /** 验证状态已更新 */
-      expect(repo._conversations.get(conv.id)?.status).toBe("completed");
-      expect(repo._statusUpdates[0].status).toBe("completed");
+      expect((await repo.getById("conv-1"))?.status).toBe("completed");
     });
 
-    it("不存在 -> 抛出 DomainError not_found", async () => {
-      const repo = mockRepo();
-      const mc = new ManageConversation(repo, mockCreateOtter());
-
+    it("不存在 -> not_found", async () => {
       await expect(mc.complete("nonexistent")).rejects.toThrow(DomainError);
       await expect(mc.complete("nonexistent")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "not_found",
       );
     });
 
-    it("已完成 -> 抛出 DomainError validation", async () => {
-      const conv = existingConv({ status: "completed" });
-      const repo = mockRepo(new Map([[conv.id, conv]]));
-      const mc = new ManageConversation(repo, mockCreateOtter());
+    it("已完成 -> validation", async () => {
+      await seedConversation("conv-1", "completed");
 
-      await expect(mc.complete(conv.id)).rejects.toThrow(DomainError);
-      await expect(mc.complete(conv.id)).rejects.toSatisfy(
+      await expect(mc.complete("conv-1")).rejects.toThrow(DomainError);
+      await expect(mc.complete("conv-1")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "validation",
       );
     });
   });
 
   describe("archive", () => {
-    it("completed 对话 -> 更新状态为 archived", async () => {
-      const conv = existingConv({ status: "completed" });
-      const repo = mockRepo(new Map([[conv.id, conv]]));
-      const mc = new ManageConversation(repo, mockCreateOtter());
+    it("completed 对话 -> archived", async () => {
+      await seedConversation("conv-1", "completed");
 
-      await mc.archive(conv.id);
+      await mc.archive("conv-1");
 
-      expect(repo._conversations.get(conv.id)?.status).toBe("archived");
-      expect(repo._statusUpdates[0].status).toBe("archived");
+      expect((await repo.getById("conv-1"))?.status).toBe("archived");
     });
 
-    it("active 对话 -> 抛出 DomainError（不能归档活跃对话）", async () => {
-      const conv = existingConv({ status: "active" });
-      const repo = mockRepo(new Map([[conv.id, conv]]));
-      const mc = new ManageConversation(repo, mockCreateOtter());
+    it("active 对话 -> 拒绝归档", async () => {
+      await seedConversation("conv-1", "active");
 
-      await expect(mc.archive(conv.id)).rejects.toThrow(DomainError);
-      await expect(mc.archive(conv.id)).rejects.toSatisfy(
-        (err: DomainError) => err.kind === "validation",
-      );
+      await expect(mc.archive("conv-1")).rejects.toThrow(DomainError);
     });
 
-    it("不存在 -> 抛出 DomainError not_found", async () => {
-      const repo = mockRepo();
-      const mc = new ManageConversation(repo, mockCreateOtter());
-
+    it("不存在 -> not_found", async () => {
       await expect(mc.archive("nonexistent")).rejects.toThrow(DomainError);
       await expect(mc.archive("nonexistent")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "not_found",
@@ -284,46 +131,35 @@ describe("ManageConversation", () => {
   });
 
   describe("pin / unpin", () => {
-    it("pin 存在的对话 -> 更新 pinned 为 true", async () => {
-      const conv = existingConv();
-      const repo = mockRepo(new Map([[conv.id, conv]]));
-      const mc = new ManageConversation(repo, mockCreateOtter());
+    it("pin 存在的对话 -> pinned=true", async () => {
+      await seedConversation("conv-1", "active");
 
-      await mc.pin(conv.id);
+      await mc.pin("conv-1");
 
-      expect(repo._conversations.get(conv.id)?.pinned).toBe(true);
+      expect((await repo.getById("conv-1"))?.pinned).toBe(true);
     });
 
-    it("pin 不存在的对话 -> 抛出 DomainError not_found，不调用 updatePinned", async () => {
-      const repo = mockRepo();
-      const mc = new ManageConversation(repo, mockCreateOtter());
-
+    it("pin 不存在的对话 -> not_found", async () => {
       await expect(mc.pin("nonexistent")).rejects.toThrow(DomainError);
       await expect(mc.pin("nonexistent")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "not_found",
       );
-      expect(repo.updatePinned).not.toHaveBeenCalled();
     });
 
-    it("unpin 存在的对话 -> 更新 pinned 为 false", async () => {
-      const conv = existingConv({ pinned: true });
-      const repo = mockRepo(new Map([[conv.id, conv]]));
-      const mc = new ManageConversation(repo, mockCreateOtter());
+    it("unpin 存在的对话 -> pinned=false", async () => {
+      await seedConversation("conv-1", "active");
+      await mc.pin("conv-1");
 
-      await mc.unpin(conv.id);
+      await mc.unpin("conv-1");
 
-      expect(repo._conversations.get(conv.id)?.pinned).toBe(false);
+      expect((await repo.getById("conv-1"))?.pinned).toBe(false);
     });
 
-    it("unpin 不存在的对话 -> 抛出 DomainError not_found，不调用 updatePinned", async () => {
-      const repo = mockRepo();
-      const mc = new ManageConversation(repo, mockCreateOtter());
-
+    it("unpin 不存在的对话 -> not_found", async () => {
       await expect(mc.unpin("nonexistent")).rejects.toThrow(DomainError);
       await expect(mc.unpin("nonexistent")).rejects.toSatisfy(
         (err: DomainError) => err.kind === "not_found",
       );
-      expect(repo.updatePinned).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,59 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
+import { createTestDb } from "../../helpers/db";
+import { createTestLogger } from "../../helpers/logger";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { SearchMemory } from "@usecases/memory/search-memory";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
-import type { Logger } from "@usecases/ports/logger";
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
-
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
-
-/** 创建内存 SQLite 数据库 + 初始化 schema */
-function createTestDb(): Database.Database {
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memory_entries (
-      id TEXT PRIMARY KEY,
-      layer TEXT NOT NULL,
-      content_type TEXT NOT NULL,
-      source_id TEXT NOT NULL,
-      source_table TEXT NOT NULL,
-      conversation_id TEXT,
-      granularity TEXT NOT NULL DEFAULT 'fine',
-      content TEXT NOT NULL,
-      metadata TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS memory_weights (
-      memory_entry_id TEXT PRIMARY KEY,
-      retrieval_count INTEGER NOT NULL DEFAULT 0,
-      last_retrieved_at TEXT,
-      user_flagged INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      memory_entry_id UNINDEXED,
-      content,
-      tokenize = 'trigram'
-    );
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
-      memory_entry_id UNINDEXED,
-      content
-    );
-  `);
-  return db;
-}
 
 /** 测试用 EmbeddingGateway mock（vec0 不可用时降级） */
 function mockEmbeddingGateway(): EmbeddingGateway {
@@ -105,7 +60,7 @@ describe("SearchMemory - progressive disclosure", () => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
+    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
     manageMemory = new ManageMemory(repo);
 
     /** 存入测试数据 */
@@ -121,8 +76,9 @@ describe("SearchMemory - progressive disclosure", () => {
     /** snippet 模式应返回 snippet 字段 */
     const first = result.entries[0];
     expect(first.snippet).toBeDefined();
-    /** snippet 应包含高亮标记 */
-    expect(first.snippet).toContain("<b>");
+    /** snippet 应是纯文本，不包含 HTML 标签（高亮渲染在 Web 后端处理） */
+    expect(first.snippet).not.toContain("<b>");
+    expect(first.snippet).not.toContain("</b>");
   });
 
   it("detail_level=summary 返回首句", async () => {
@@ -149,14 +105,16 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(first.content).toContain("记忆系统");
   });
 
-  it("FTS5 highlight 在 snippet 模式下生成匹配标记", async () => {
+  it("FTS5 snippet 模式返回纯文本（高亮在 Web 后端处理）", async () => {
     const result = await searchMemory.search({ query: "渐进式", limit: 5, detailLevel: "snippet" });
 
     expect(result.entries.length).toBeGreaterThan(0);
-    /** highlight 应该用 <b> 标记匹配的关键词 */
+    /** snippet 应是纯文本，不包含 HTML 标签 */
     const first = result.entries[0];
-    expect(first.snippet).toContain("<b>");
-    expect(first.snippet).toContain("</b>");
+    expect(first.snippet).not.toContain("<b>");
+    expect(first.snippet).not.toContain("</b>");
+    /** 应包含原始内容 */
+    expect(first.content).toBeDefined();
   });
 
   it("snippet 降级：vec-only 结果截取前 200 字符", async () => {
@@ -191,7 +149,7 @@ describe("SearchMemory - progressive disclosure", () => {
     };
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+    const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
     expect(result.entries.length).toBe(1);
@@ -245,7 +203,7 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, mockLogger());
+    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
 
     /** 构造同文档的 summary entry + body entry，同 sourceId="F123" */
     const docBase = { layer: "document" as const, sourceId: "F123", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
@@ -332,8 +290,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     const mockRepo = {
       hasVecTable: () => true,
       searchFTSWithHighlight: async () => [
-        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" }, snippet: "<b>梁山伯</b>与祝英台" },
-        { entryId: "e2", ftsRank: -8, entry: { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁山伯在草桥亭遇见祝英台" }, snippet: "<b>梁山伯</b>在草桥亭" },
+        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" }, snippet: "梁山伯与祝英台" },
+        { entryId: "e2", ftsRank: -8, entry: { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁山伯在草桥亭遇见祝英台" }, snippet: "梁山伯在草桥亭" },
       ],
       searchFTS: async () => [],
       // Vec 返回低质量结果（distance 很大，similarity 很低）
@@ -367,7 +325,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
-    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
 
@@ -393,7 +351,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     const mockRepo = {
       hasVecTable: () => true,
       searchFTSWithHighlight: async () => [
-        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" }, snippet: "<b>梁山伯</b>与祝英台" },
+        { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" }, snippet: "梁山伯与祝英台" },
       ],
       searchFTS: async () => [],
       // Vec 返回高质量结果（distance 小，similarity 高）
@@ -428,7 +386,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
-    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, mockLogger());
+    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
 

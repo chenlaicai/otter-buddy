@@ -1,44 +1,34 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import type { AppConfig } from "@frameworks/config";
-import type { PinoLogger } from "@frameworks/logger";
+import type { Logger } from "@usecases/ports/logger";
 import { createRouter } from "@interface-adapters/http/router";
-import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import type { FeishuBundle } from "./platforms";
-import { setupFeishu } from "./platforms";
 import type { initControllers } from "./controllers";
-import type { UseCases } from "./types";
 
 type Controllers = ReturnType<typeof initControllers>;
 
-export interface ServerDeps {
-  controllers: Controllers;
-  agentInvoker: AgentInvoker;
-  appConfig: AppConfig;
-  uc: UseCases;
-  feishu?: FeishuBundle;
-  logger: PinoLogger;
-}
-
-export function startServer(deps: ServerDeps): void {
-  const { controllers, agentInvoker, appConfig, uc, feishu, logger } = deps;
+/** 组装 Hono app（路由 + 可选静态页面），不监听端口——测试可直接 app.request */
+export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoot: string | false): Hono {
   const app = new Hono();
-  if (feishu) {
-    setupFeishu(appConfig, uc, agentInvoker, feishu, logger);
-  }
   app.route("/", createRouter(controllers, logger));
 
-  app.get("/", serveStatic({ root: "./web/dist", path: "index.html" }));
-  app.get("/conversation/:id", serveStatic({ root: "./web/dist", path: "conversation.html" }));
-  app.get("/memory", serveStatic({ root: "./web/dist", path: "memory.html" }));
-  app.get("/skills", serveStatic({ root: "./web/dist", path: "skills.html" }));
-  app.get("/connections", serveStatic({ root: "./web/dist", path: "connections.html" }));
-  app.get("/settings", serveStatic({ root: "./web/dist", path: "settings.html" }));
+  if (staticRoot !== false) {
+    app.get("/", serveStatic({ root: staticRoot, path: "index.html" }));
+    app.get("/conversation/:id", serveStatic({ root: staticRoot, path: "conversation.html" }));
+    app.get("/memory", serveStatic({ root: staticRoot, path: "memory.html" }));
+    app.get("/skills", serveStatic({ root: staticRoot, path: "skills.html" }));
+    app.get("/connections", serveStatic({ root: staticRoot, path: "connections.html" }));
+    app.get("/settings", serveStatic({ root: staticRoot, path: "settings.html" }));
 
-  app.use("/*", serveStatic({ root: "./web/dist" }));
+    app.use("/*", serveStatic({ root: staticRoot }));
+  }
 
-  serve({ fetch: app.fetch, port: appConfig.server.port }, (info) => {
+  return app;
+}
+
+/** 监听端口（生产路径；测试用 app.request 不需要） */
+export function listen(app: Hono, port: number, logger: Logger): void {
+  serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
   });
 }

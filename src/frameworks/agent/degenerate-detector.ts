@@ -1,7 +1,7 @@
 /**
  * DegenerateDetector：退化重复输出检测器（F20260804dglp）。
  *
- * 双机制，运行时 OutputGuard（流式增量）与 session-sanitizer（离线整段）共用：
+ * 双机制，运行时 OutputGuard（流式增量）使用：
  *
  * 机制 A——非对齐精确重复检测（任意周期、相位免疫）：
  *   对累积文本做 stride-1 的 windowLength 字符滑窗，滚动哈希计数；
@@ -150,10 +150,4 @@ export class DegenerateDetector {
     }
     return NOT_DEGENERATE;
   }
-}
-
-/** 离线整段分析（session-sanitizer 用）：与流式路径同一实现 */
-export function analyzeText(text: string, config?: Partial<DegenerateConfig>): DegenerateVerdict {
-  const detector = new DegenerateDetector(config);
-  return detector.add(text);
 }

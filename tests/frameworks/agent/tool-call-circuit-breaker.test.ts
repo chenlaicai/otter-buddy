@@ -5,21 +5,10 @@ import {
   buildToolSignature,
 } from "@frameworks/agent/tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "@frameworks/agent/tool-call-circuit-breaker";
-import type { Logger } from "@usecases/ports/logger";
+import { createTestLogger } from "../../helpers/logger";
 
 function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerConfig {
   return { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...overrides };
-}
-
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
 }
 
 describe("buildToolSignature", () => {
@@ -92,7 +81,7 @@ describe("ToolCallCircuitBreaker", () => {
   });
 
   it("allows tool calls under threshold (AC-7: normal execution unaffected)", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", createTestLogger());
     for (let i = 0; i < 19; i++) {
       const result = cb.check(`tool_${i}`);
       expect(result.action).toBe("allow");
@@ -104,7 +93,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // Under limit: allow
@@ -123,7 +112,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // Fill up to maxToolCalls
@@ -148,7 +137,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // First 3 calls: allow
@@ -168,7 +157,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // 模拟排查现场：bash 连击但每条命令不同
@@ -190,7 +179,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     const retry = () => cb.check("bash", { command: "git commit -m '重试'" });
@@ -207,7 +196,7 @@ describe("ToolCallCircuitBreaker", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     expect(cb.check("tool_a").action).toBe("allow");
@@ -235,7 +224,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 2, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // 3 次相同 → 第 3 次 steer（strike 1）
@@ -256,7 +245,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 3, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     const stuck = () => cb.check("bash", { command: "git commit -m x" });
@@ -278,7 +267,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     for (let i = 0; i < 7; i++) {
@@ -291,7 +280,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     const retry = () => cb.check("edit", { path: "/a.ts", edits: [{ oldText: "x", newText: "y" }] });
@@ -314,7 +303,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
         warningThreshold: 100,
       }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // A-B-C 交替 18 次触发滑窗 steer（strike 1），继续无视 → strike 2、3
@@ -330,7 +319,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 3, maxToolCalls: 4, warningThreshold: 100 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     const stuck = () => cb.check("bash", { command: "git commit -m x" });
@@ -354,7 +343,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
         warningThreshold: 100,
       }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // Pattern A-B-C repeated 3 times (18 calls, window=6, repeat=3)
@@ -384,7 +373,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
         warningThreshold: 100,
       }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     // Different tools each time: no repeating pattern
@@ -395,7 +384,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
   });
 
   it("records call history as signatures (B-6)", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", createTestLogger());
 
     cb.check("bash", { command: "git status" });
     cb.check("read", { path: "/a.ts" });
@@ -408,7 +397,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({ maxToolCalls: 3, warningThreshold: 2 }),
       "otter-1",
-      mockLogger(),
+      createTestLogger(),
     );
 
     cb.check("tool_1");
@@ -424,7 +413,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
   });
 
   it("metadata has no circuitReason when under limit", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", createTestLogger());
 
     cb.check("tool_1");
 
@@ -434,7 +423,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
   });
 
   it("getCallHistory returns a copy, not a reference", () => {
-    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", mockLogger());
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "otter-1", createTestLogger());
     cb.check("tool_a");
 
     const history = cb.getCallHistory();

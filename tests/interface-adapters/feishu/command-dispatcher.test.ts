@@ -4,16 +4,7 @@ import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { Logger } from "@usecases/ports/logger";
-
-function mockLogger(): Logger {
-  return {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  };
-}
+import { createTestLogger } from "../../helpers/logger";
 
 describe("CommandDispatcher", () => {
   let dispatcher: CommandDispatcher;
@@ -36,7 +27,7 @@ describe("CommandDispatcher", () => {
     feishuGateway = {
       replyText: replyTextMock as any,
     };
-    logger = mockLogger();
+    logger = createTestLogger();
     dispatcher = new CommandDispatcher(manageConnection, queryMessage, feishuGateway, logger);
   });
 

@@ -8,7 +8,7 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
 import type { OtterSession } from "@entities/otter/otter-session";
 import { DomainError } from "@entities/errors";
-import type { Logger } from "@usecases/ports/logger";
+import { createTestLogger } from "../helpers/logger";
 
 const speakingMsg: Message = {
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
@@ -43,9 +43,13 @@ function mockSendMessage() {
   };
   const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
   const sendSystemBodies: string[] = [];
+  const completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> = [];
   return {
     start: async () => streamingMsg,
-    complete: async () => ({ message: completedMsg, turnClose: { closed: true, aggregatedTargets: ["user-1"] } }),
+    complete: async (id: string, input?: { contextTokens?: number; contextTokensMax?: number }) => {
+      completeCalls.push({ id, input });
+      return { message: completedMsg, turnClose: { closed: true, aggregatedTargets: ["user-1"] } };
+    },
     fail: async (id: string) => { calls.fail!.push(id); },
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
@@ -53,7 +57,8 @@ function mockSendMessage() {
     updateTokenUsage: async () => ({}),
     _calls: calls,
     _sendSystemBodies: sendSystemBodies,
-  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[] };
+    _completeCalls: completeCalls,
+  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[]; _completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> };
 }
 
 function mockQueryMessage(): QueryMessage {
@@ -88,21 +93,10 @@ function mockQueryOtter(): QueryOtter {
   return { getById: async () => null } as unknown as QueryOtter;
 }
 
-/** 创建 noop Logger mock */
-function mockLogger(): Logger {
-  return {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => mockLogger(),
-  };
-}
-
 /** 创建 AgentInvokePort mock，可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
-  result?: { text: string; tokenUsage?: { input: number; output: number } };
+  result?: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
   throwOnInvoke?: Error;
   toolCallCount?: number;
   internalAbortReason?: string;
@@ -130,6 +124,7 @@ function mockAgentInvoke(options: {
 describe("AgentInvoker", () => {
   it("completes normal flow: start -> complete (B7-B9)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
+    const sendMessage = mockSendMessage();
     const invoker = new AgentInvoker(
       mockAgentInvoke({
         events: [
@@ -137,13 +132,13 @@ describe("AgentInvoker", () => {
           { type: "message_update", delta: " world" },
           { type: "turn_end" },
         ],
-        result: { text: "Hello world", tokenUsage: { input: 10, output: 5 } },
+        result: { text: "Hello world", tokenUsage: { input: 10, output: 5 }, ctxMax: 200000 },
       }),
-      mockSendMessage(),
+      sendMessage,
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -168,6 +163,10 @@ describe("AgentInvoker", () => {
     const completeIdx = eventTypes.indexOf("message.complete");
     const turnIdx = eventTypes.indexOf("turn.complete");
     expect(turnIdx).toBeGreaterThan(completeIdx);
+
+    /** token 用量随 complete 落库（口径：input+output），保证刷新后历史消息仍能展示上下文使用率 */
+    expect(sendMessage._completeCalls).toHaveLength(1);
+    expect(sendMessage._completeCalls[0].input).toEqual({ contextTokens: 15, contextTokensMax: 200000 });
   });
 
   it("calls sendMessage.abort() with synthetic body on abort (B-Abort-1, B-Abort-2)", async () => {
@@ -176,10 +175,10 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error("Aborted"), toolCallCount: 3 }),
       msg,
-      mockQueryMessage(),
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     /** 模拟 abort 被调用 */
@@ -219,10 +218,10 @@ describe("AgentInvoker", () => {
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: abortError, toolCallCount: 0 }),
       msg,
-      mockQueryMessage(),
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -249,7 +248,7 @@ describe("AgentInvoker", () => {
     const streamingQm: QueryMessage = { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }) } as unknown as QueryMessage;
     const invoker = new AgentInvoker(
       mockAgentInvoke({ result: Object.assign({ text: "" }, { _guardAbortReason: "streaming_timeout" }) }),
-      msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
     const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
     expect(result.messageId).toBe("msg-streaming");
@@ -274,7 +273,7 @@ describe("AgentInvoker", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -310,7 +309,7 @@ describe("AgentInvoker", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     /** invokeConversation 通过 speak 重试机制处理系统故障 */
@@ -346,7 +345,7 @@ describe("AgentInvoker", () => {
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     /** 模拟 abort 被调用（但 invoke 不会抛异常） */
@@ -381,7 +380,7 @@ describe("AgentInvoker", () => {
       mockQueryMessage(),
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -398,9 +397,9 @@ describe("AgentInvoker", () => {
 });
 
 describe("AgentInvoker — circuit_break abort 归因", () => {
-  it("circuit_break abort 呈现熔断专属文案，不再伪装成输出异常", async () => {
+  it("circuit_break abort 呈现熔断专属文案，自动重试后再犯走终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({
         ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
@@ -412,7 +411,7 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -423,14 +422,17 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       onSSEEvent: (e) => events.push(e),
     });
 
-    expect(result.messageId).toBe("msg-streaming");
+    expect(result.messageId).toMatch(/^msg-\d+$/);
+    // 自动重试：fail + re-invoke（不注入系统消息），重试后 abort
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toBe("[系统保护] 检测到工具调用异常循环，已自动中断。");
   });
 
-  it("circuit_break:event_timeout 呈现超时专属文案", async () => {
+  it("circuit_break:event_timeout 呈现超时专属文案，自动重试后再犯走终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({
         ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
@@ -442,7 +444,7 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -453,14 +455,16 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       onSSEEvent: (e) => events.push(e),
     });
 
-    expect(result.messageId).toBe("msg-streaming");
+    expect(result.messageId).toMatch(/^msg-\d+$/);
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toBe("[系统保护] 单次工具调用超时，已自动中断。");
   });
 
-  it("output-guard first_byte_timeout 呈现模型响应超时专属文案", async () => {
+  it("output-guard first_byte_timeout 呈现模型响应超时专属文案，自动重试后再犯走终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({
         ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
@@ -472,7 +476,7 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       streamingQm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -483,6 +487,9 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       onSSEEvent: (e) => events.push(e),
     });
 
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
+    expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toBe("[系统保护] 模型响应超时，已自动中断。");
   });
 });
@@ -522,7 +529,7 @@ describe("AgentInvoker speak retry", () => {
       qm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -552,7 +559,7 @@ describe("AgentInvoker speak retry", () => {
       qm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     const result = await invoker.invokeConversation({
@@ -586,7 +593,7 @@ describe("AgentInvoker speak retry", () => {
       qm,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -614,7 +621,7 @@ describe("AgentInvoker speak retry", () => {
     /** 不传 tool_execution_start 事件 → toolCallCount=0 */
     const invoker = new AgentInvoker(
       mockAgentInvoke({ result: { text: "Response" } }),
-      msg, qm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -636,7 +643,7 @@ describe("AgentInvoker speak retry", () => {
         events: [{ type: "tool_execution_start", toolCallId: "tc-1", name: "read" } as AgentStreamEvent],
         result: { text: "Response" },
       }),
-      msg, qm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
 
     await invoker.invokeConversation({
@@ -653,7 +660,7 @@ describe("AgentInvoker speak retry", () => {
     const msg = mockSendMessage();
     const qm = mockQueryMessageSequence(["streaming", "speaking"]);
     const agent = mockAgentInvoke({ result: { text: "Response" } });
-    const invoker = new AgentInvoker(agent, msg, qm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(agent, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
 
     await invoker.invokeConversation({
       otterId: "otter-1", conversationId: "conv-1",
@@ -690,7 +697,7 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
       { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -726,7 +733,7 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
       { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
       mockManageSession(),
       mockQueryOtter(),
-      mockLogger(),
+      createTestLogger(),
     );
 
     invoker.abort("otter-1", "msg-streaming");
@@ -750,7 +757,7 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
     function buildInvoker(manageSession: ManageSession) {
       const agentInvoke = mockAgentInvoke({ events: [{ type: "turn_end" }] });
       const invoker = new AgentInvoker(
-        agentInvoke, mockSendMessage(), mockQueryMessage(), manageSession, mockQueryOtter(), mockLogger(),
+        agentInvoke, mockSendMessage(), mockQueryMessage(), manageSession, mockQueryOtter(), createTestLogger(),
       );
       return { invoker, agentInvoke };
     }
@@ -813,40 +820,40 @@ describe("AgentInvoker abort toolCallCount (Path B: SDK swallows abort)", () => 
   });
 });
 
-describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
-  /** 创建带递增 message id 的 mock，避免 abortedMessages 跨消息串扰 */
-  function mockSendMessageWithIncrementalId() {
-    let msgIdCounter = 0;
-    const calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] } = { fail: [], abort: [], sendSystem: [] };
-    const sendSystemBodies: string[] = [];
-    return {
-      start: async () => {
-        msgIdCounter++;
-        return {
-          id: `msg-${msgIdCounter}`, conversationId: "conv-1", turnId: "turn-1",
-          senderType: "otter", senderId: "otter-1",
-          talkingStonePassedTo: null, status: "streaming",
-          body: null, sequenceNum: msgIdCounter + 1, contextTokens: null, contextTokensMax: null,
-          source: "web", createdAt: "2026-07-16T00:00:00Z", completedAt: null,
-        };
-      },
-      complete: async () => ({
-        message: { ...speakingMsg, id: `msg-${msgIdCounter}` },
-        turnClose: { closed: true, aggregatedTargets: ["user-1"] },
-      }),
-      fail: async (id: string) => { calls.fail.push(id); },
-      abort: async (id: string, input: { body: string }) => { calls.abort.push({ id, body: input.body }); },
-      appendEvent: async () => ({}),
-      sendSystem: async (_conversationId: string, body: string) => {
-        sendSystemBodies.push(body);
-        return { id: "msg-system", conversationId: "conv-1", turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: null, status: "completed" as const, body, sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: "system" as const, createdAt: "2026-07-16T00:00:00Z", completedAt: null };
-      },
-      updateTokenUsage: async () => ({}),
-      _calls: calls,
-      _sendSystemBodies: sendSystemBodies,
-    } as unknown as SendMessage & { _calls: typeof calls; _sendSystemBodies: string[] };
-  }
+/** 创建带递增 message id 的 mock，避免 abortedMessages 跨消息串扰 */
+function mockSendMessageWithIncrementalId() {
+  let msgIdCounter = 0;
+  const calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] } = { fail: [], abort: [], sendSystem: [] };
+  const sendSystemBodies: string[] = [];
+  return {
+    start: async () => {
+      msgIdCounter++;
+      return {
+        id: `msg-${msgIdCounter}`, conversationId: "conv-1", turnId: "turn-1",
+        senderType: "otter", senderId: "otter-1",
+        talkingStonePassedTo: null, status: "streaming",
+        body: null, sequenceNum: msgIdCounter + 1, contextTokens: null, contextTokensMax: null,
+        source: "web", createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+      };
+    },
+    complete: async () => ({
+      message: { ...speakingMsg, id: `msg-${msgIdCounter}` },
+      turnClose: { closed: true, aggregatedTargets: ["user-1"] },
+    }),
+    fail: async (id: string) => { calls.fail.push(id); },
+    abort: async (id: string, input: { body: string }) => { calls.abort.push({ id, body: input.body }); },
+    appendEvent: async () => ({}),
+    sendSystem: async (_conversationId: string, body: string) => {
+      sendSystemBodies.push(body);
+      return { id: "msg-system", conversationId: "conv-1", turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: null, status: "completed" as const, body, sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: "system" as const, createdAt: "2026-07-16T00:00:00Z", completedAt: null };
+    },
+    updateTokenUsage: async () => ({}),
+    _calls: calls,
+    _sendSystemBodies: sendSystemBodies,
+  } as unknown as SendMessage & { _calls: typeof calls; _sendSystemBodies: string[] };
+}
 
+describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
   it("第一次触发：fail + sendSystem 提醒 + 重试成功", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessageWithIncrementalId();
@@ -867,7 +874,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
           : speakingMsg;
       },
     } as unknown as QueryMessage;
-    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
@@ -894,7 +901,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       getInternalAbortReason: () => "degenerate_output",
       _invokeMessages: [],
     };
-    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
@@ -907,26 +914,27 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     expect(eventTypes).toContain("message.aborted");
   });
 
-  it("其他 trip 原因（streaming_timeout）直接走 abort 终态", async () => {
+  it("其他 trip 原因（streaming_timeout）自动重试后再犯走 abort 终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }),
     } as unknown as QueryMessage;
     const invoker = new AgentInvoker(
       mockAgentInvoke({ result: { text: "" }, internalAbortReason: "streaming_timeout" }),
-      msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger(),
+      msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
+    // 自动重试：fail + re-invoke（不注入系统消息），重试后 abort
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain("[系统保护]");
     expect(msg._calls.abort[0].body).toContain("超时");
-    expect(msg._calls.fail).toHaveLength(0);
-    expect(msg._sendSystemBodies).toHaveLength(0);
     const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.failed");
     expect(eventTypes).toContain("message.aborted");
-    expect(eventTypes).not.toContain("message.failed");
   });
 
   it("sendSystem 失败：降级为直接 abort", async () => {
@@ -944,7 +952,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       getInternalAbortReason: () => "degenerate_output",
       _invokeMessages: [],
     };
-    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     /** fail 已执行，sendSystem 失败后降级为 abort */
@@ -974,7 +982,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       getInternalAbortReason: () => invokeCount <= 1 ? "degenerate_output" : undefined,
       _invokeMessages: [],
     };
-    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     /** 第一次：fail + sendSystem 成功 */
@@ -1004,7 +1012,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
           : speakingMsg;
       },
     } as unknown as QueryMessage;
-    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), mockLogger());
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
 
     /** 第一次调用：degenerate_output 重试成功 */
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
@@ -1020,5 +1028,77 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const eventTypes2 = events2.map((e) => e.event);
     expect(eventTypes2).toContain("message.complete");
     expect(eventTypes2).not.toContain("message.aborted");
+  });
+
+  it("catch 路径 degenerate_output：session.abort() 抛异常后走重试而非终态", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessageWithIncrementalId();
+    let invokeCount = 0;
+    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+      invoke: async () => {
+        invokeCount++;
+        if (invokeCount === 1) {
+          // 模拟 OutputGuard 触发 session.abort() → session.prompt() 抛异常
+          const err = Object.assign(new Error("[output-guard] degenerate_output"), {
+            _guardAbortReason: "degenerate_output",
+            _toolCallCount: 5,
+          });
+          throw err;
+        }
+        return { text: "重试成功" };
+      },
+      abort: () => {},
+      getToolCallCount: () => 0,
+      getInternalAbortReason: () => undefined,
+      _invokeMessages: [],
+    };
+    /** 重试创建新消息（msg-2），其 getMessageById 返回 speaking 状态以触发 complete */
+    const qm: QueryMessage = {
+      getMessageById: async (id: string) => id === "msg-1"
+        ? { ...speakingMsg, id: "msg-1", status: "streaming", body: null, talkingStonePassedTo: null }
+        : { ...speakingMsg, id, status: "speaking", body: "重试成功", talkingStonePassedTo: null },
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
+    await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
+
+    /** 走重试路径：fail + sendSystem + 重试成功，不走 abort 终态 */
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(1);
+    expect(msg._sendSystemBodies[0]).toContain("重复循环");
+    expect(msg._calls.abort).toHaveLength(0);
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.failed");
+    expect(eventTypes).toContain("message.complete");
+    expect(eventTypes).not.toContain("message.aborted");
+  });
+
+  // F20260806cbsx: abort 路径 speaking 守卫——消息已 speaking 时改走 complete
+  it("abort with speaking message: completes instead of aborting (F20260806cbsx)", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ throwOnInvoke: new Error("Aborted"), toolCallCount: 3 }),
+      msg,
+      mockQueryMessage(),  // returns speakingMsg with status "speaking"
+      mockManageSession(),
+      mockQueryOtter(),
+      createTestLogger(),
+    );
+
+    invoker.abort("otter-1", "msg-streaming");
+    await invoker.invokeConversation({
+      otterId: "otter-1",
+      conversationId: "conv-1",
+      userMessageContent: "Hi",
+      senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+
+    // abort 不应被调用（speaking 守卫拦截，走 complete 收尾）
+    expect(msg._calls.abort).toHaveLength(0);
+    // 事件应包含 message.complete（非 message.aborted）
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.complete");
+    expect(eventTypes).not.toContain("message.aborted");
   });
 });

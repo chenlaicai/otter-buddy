@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { Conversation, ConversationParticipant } from '@entities/conversation/conversation';
 import { DomainError } from '@entities/errors';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
+import type { ManageConversation } from '@usecases/conversation/manage-conversation';
 import type { SettingsRepository } from '@usecases/settings/settings-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { OtterRepository } from '@usecases/otter/otter-repository';
@@ -16,6 +17,15 @@ import {
   RECRUITING_SYSTEM_PROMPT_PATH,
 } from './constants';
 
+/** 置顶求职助手对话（失败不中断，记录日志，下次启动恢复） */
+async function pinRecruiting(manageConversation: ManageConversation, id: string, logger: Logger): Promise<void> {
+  try {
+    await manageConversation.pin(id);
+  } catch (err) {
+    logger.warn('Failed to pin recruiting conversation', { conversationId: id, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 export interface RecruitingConversationResult {
   conversationId: string;
   bigOtterId: string;
@@ -25,8 +35,10 @@ export interface RecruitingConversationResult {
 
 /** 已存在的对话是否仍可用（status=active + 有 bigOtterId） */
 async function tryReuseExisting(
+  manageConversation: ManageConversation,
   settings: SettingsRepository,
   convRepo: ConversationRepository,
+  logger: Logger,
 ): Promise<RecruitingConversationResult | null> {
   const existingId = await settings.get(RECRUITING_CONVERSATION_KEY);
   if (!existingId) return null;
@@ -34,6 +46,7 @@ async function tryReuseExisting(
   if (!conv || conv.status !== 'active') return null;
   const bigOtterId = await settings.get(RECRUITING_BIG_OTTER_ID_KEY);
   if (!bigOtterId) return null;
+  await pinRecruiting(manageConversation, existingId, logger);
   return { conversationId: existingId, bigOtterId, created: false };
 }
 
@@ -66,6 +79,7 @@ async function createConversationAndParticipant(
     status: 'active',
     summary: null,
     pinned: false,
+    workspaceDir: null,
     createdAt: now,
     updatedAt: now,
     completedAt: null,
@@ -152,6 +166,7 @@ async function sendWelcomeMessage(
  * 实现者只需调 createOtter 一行，不需要直接操作 otterConfigProvider。
  */
 export async function ensureRecruitingConversation(deps: {
+  manageConversation: ManageConversation;
   convRepo: ConversationRepository;
   otterRepo: OtterRepository;
   createOtter: CreateOtter;
@@ -162,14 +177,14 @@ export async function ensureRecruitingConversation(deps: {
   promptPathOverride?: string;
 }): Promise<RecruitingConversationResult> {
   // 1. 检查已有
-  const existing = await tryReuseExisting(deps.settings, deps.convRepo);
+  const existing = await tryReuseExisting(deps.manageConversation, deps.settings, deps.convRepo, deps.logger);
   if (existing) return existing;
 
   // 2. 获取分布式锁
   const lockResult = await acquireDistributedLock(deps.settings, RECRUITING_CONVERSATION_KEY, deps.logger);
   if (!lockResult.acquired) {
     // 另一个进程已完成，重新检查已有
-    const recheck = await tryReuseExisting(deps.settings, deps.convRepo);
+    const recheck = await tryReuseExisting(deps.manageConversation, deps.settings, deps.convRepo, deps.logger);
     if (recheck) return recheck;
     throw new Error('Failed to acquire lock for Recruiting conversation creation');
   }
@@ -188,6 +203,9 @@ export async function ensureRecruitingConversation(deps: {
 
     // 3.3 建 conversation + participant
     const conversationId = await createConversationAndParticipant(deps.convRepo, bigOtter.id);
+
+    // 3.3.1 置顶对话
+    await pinRecruiting(deps.manageConversation, conversationId, deps.logger);
 
     // 3.4 持久化到 settings
     await deps.settings.update(RECRUITING_CONVERSATION_KEY, conversationId);

@@ -8,7 +8,10 @@ import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpe
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
+import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport } from "./healing-tools";
+import { DomainError } from "@entities/errors";
+import { createWorkspaceTools } from "./workspace-tools";
 
 
 export interface AgentTool {
@@ -121,6 +124,9 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       try {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
       } catch (err) {
+        if (err instanceof DomainError && err.kind === "conflict") {
+          return { ...textResponse("[系统控制信号] 本回合发言已提交，无需重复调用 speak。请停止调用任何工具。"), terminate: true };
+        }
         return textResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
       return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。系统将自动调度下一位发言者。"), terminate: true };
@@ -207,11 +213,10 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       type: "object",
       properties: {
         name: { type: "string", description: "Otter 名称" },
-        type: { type: "string", enum: ["big", "small"], description: "Otter 类型" },
         systemPrompt: { type: "string", description: "系统提示词" },
         modelAlias: { type: "string", description: "模型别名（可选，不传使用默认模型）。可选值见身份提示中的模型列表。" },
       },
-      required: ["name", "type", "systemPrompt"],
+      required: ["name", "systemPrompt"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 校验 modelAlias
@@ -229,7 +234,7 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       }
       const otter = await ctx.client.otter.create({
         name: params.name as string,
-        type: params.type as "big" | "small",
+        type: "small" as const,
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
         modelAlias: modelAlias?.trim() || undefined,
@@ -486,8 +491,8 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool[] {
-  return [
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway): AgentTool[] {
+  const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createInviteParticipantTool(ctx),
     createSearchMemoryTool(ctx),
@@ -509,4 +514,8 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetActiveParticipantsTool(ctx),
     createGetHtmlCardContractTool(),
   ];
+  if (workspaceGateway) {
+    tools.push(...createWorkspaceTools(ctx, workspaceGateway));
+  }
+  return tools;
 }

@@ -28,6 +28,20 @@ describe("Conversation API", () => {
       expect(body[0].otterIds).toEqual(["otter-1"]);
     });
 
+    it("activityStatus 在 HTTP 响应中正确透传（F20260805actv：防字段在边界脱落）", async () => {
+      deps.manageConversation.listWithMeta.mockResolvedValue([
+        { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 2, lastMessagePreview: "预览", lastMessageTs: "2026-07-16T00:01:00Z", activityStatus: "processing" },
+      ]);
+
+      const res = await app.request("/api/conversations");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body).toHaveLength(1);
+      expect(body[0].activityStatus).toBe("processing");
+      expect(body[0].unreadCount).toBe(2);
+      expect(body[0].lastMessagePreview).toBe("预览");
+    });
+
     it("returns empty list when listWithMeta returns empty", async () => {
       deps.manageConversation.listWithMeta.mockResolvedValue([]);
 
@@ -35,15 +49,6 @@ describe("Conversation API", () => {
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body).toHaveLength(0);
-    });
-
-    it("returns empty array when no conversations", async () => {
-      deps.manageConversation.listWithMeta.mockResolvedValue([]);
-
-      const res = await app.request("/api/conversations");
-      expect(res.status).toBe(200);
-      const body = await json(res);
-      expect(body).toEqual([]);
     });
 
     it("returns 400 for invalid pagination parameters", async () => {
@@ -218,6 +223,54 @@ describe("Conversation API", () => {
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body).toEqual([]);
+    });
+  });
+
+  // ─── PATCH /api/conversations/:id/pin|unpin（自 controllers.test.ts 迁入，走真路由） ───
+  describe("PATCH pin/unpin", () => {
+    it("pin 成功返回 200 和 status=pinned", async () => {
+      deps.manageConversation.pin.mockResolvedValue(undefined);
+
+      const res = await app.request("/api/conversations/conv-1/pin", { method: "PATCH" });
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.status).toBe("pinned");
+    });
+
+    it("pin 不存在返回 404", async () => {
+      deps.manageConversation.pin.mockRejectedValue(new DomainError("Conversation not found", "not_found"));
+
+      const res = await app.request("/api/conversations/nonexistent/pin", { method: "PATCH" });
+      expect(res.status).toBe(404);
+    });
+
+    it("unpin 成功返回 200 和 status=unpinned", async () => {
+      deps.manageConversation.unpin.mockResolvedValue(undefined);
+
+      const res = await app.request("/api/conversations/conv-1/unpin", { method: "PATCH" });
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.status).toBe("unpinned");
+    });
+
+    it("unpin healing 对话被拒绝返回 403（不调用 usecase）", async () => {
+      const healingId = "healing-conv-id";
+      deps.settingsRepo.get.mockResolvedValue(healingId);
+      deps.manageConversation.unpin.mockResolvedValue(undefined);
+
+      const res = await app.request(`/api/conversations/${healingId}/unpin`, { method: "PATCH" });
+      expect(res.status).toBe(403);
+      const body = await json(res);
+      expect(body.error).toBe("系统对话不可取消置顶");
+      expect(deps.manageConversation.unpin).not.toHaveBeenCalled();
+    });
+
+    it("unpin 不存在返回 404", async () => {
+      deps.settingsRepo.get.mockResolvedValue(null);
+      deps.manageConversation.unpin.mockRejectedValue(new DomainError("Conversation not found", "not_found"));
+
+      const res = await app.request("/api/conversations/nonexistent/unpin", { method: "PATCH" });
+      expect(res.status).toBe(404);
     });
   });
 });

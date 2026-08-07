@@ -18,14 +18,7 @@ import type { AgentGateway } from "@usecases/otter/agent-gateway";
 import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
-import type { Logger } from "@usecases/ports/logger";
-
-function mockLogger(): Logger {
-  return {
-    info: () => {}, warn: () => {}, error: () => {}, debug: () => {},
-    child: () => mockLogger(),
-  } as unknown as Logger;
-}
+import { createTestLogger } from "../../helpers/logger";
 
 /** 假 AgentGateway：记录 create/reset/destroy 调用，不碰 pi 文件层 */
 function fakeAgentGateway() {
@@ -62,15 +55,15 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
       }),
     };
 
-    const manageSession = new ManageSession(repo, gateway, conversationQuery, memoryLayer, mockLogger());
-    const createOtter = new CreateOtter(repo, gateway, mockLogger());
+    const manageSession = new ManageSession(repo, gateway, conversationQuery, memoryLayer, createTestLogger());
+    const createOtter = new CreateOtter(repo, gateway, createTestLogger());
     const controller = new OtterController(
       createOtter,
       {} as DissolveOtter,
       manageSession,
       /** restart 控制器会查 otter 类型（小獭拒重启，F20260805rsto），stub 为大獭 */
       { getById: async () => ({ type: "big" }) } as unknown as QueryOtter,
-      mockLogger(),
+      createTestLogger(),
     );
     app = new Hono();
     app.post("/api/otters/:id/restart", (c) => controller.restart(c));
@@ -145,7 +138,7 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
       `INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES ('legacy-otter', 'pi-legacy')`,
     ).run();
 
-    await backfillSessionLedger(db, repo, mockLogger());
+    await backfillSessionLedger(db, repo, createTestLogger());
     const backfilled = await repo.getActiveSession("legacy-otter");
     expect(backfilled).not.toBeNull();
 

@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square, Copy, Check, Clock } from 'lucide-react'
+import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
@@ -161,6 +161,7 @@ interface MessageListProps {
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
   onStopStream: (messageId: string) => void
+  onRetryMessage: (messageId: string) => void
   onRetry: () => void
   onGoToSettings: () => void
   otters: Otter[]
@@ -181,7 +182,7 @@ interface MessageListProps {
 }
 
 export function MessageList({
-  messages, state, onStopStream, onRetry, onGoToSettings, otters,
+  messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
   conversationId, virtuosoRef, firstItemIndex, initialTopMostItemIndex,
   onAtBottomChange, newMessagesCount = 0, onJumpToBottom, onLoadMore,
   loadingMore, onLoadMoreAfter,
@@ -253,7 +254,7 @@ export function MessageList({
                   <div className="flex-1 h-px bg-teal-400/40" />
                 </div>
               )}
-              <MessageItem message={m} otters={otters} onStopStream={onStopStream} highlighted={highlightMessageId === m.id} />
+              <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} />
             </div>
           )
         }}
@@ -289,7 +290,7 @@ export function MessageList({
   )
 }
 
-function MessageItem({ message: m, otters, onStopStream, highlighted }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; highlighted?: boolean }) {
+function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean }) {
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
     return (
@@ -375,6 +376,17 @@ function MessageItem({ message: m, otters, onStopStream, highlighted }: { messag
               >
                 <Square className="w-2.5 h-2.5 fill-current text-red-400" />
                 停止生成
+              </button>
+            </div>
+          )}
+          {(m.status === 'failed' || m.status === 'aborted') && !isUser && (
+            <div className="mt-1.5">
+              <button
+                onClick={() => onRetryMessage(m.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs glass-card text-stone-500 rounded-full transition hover:bg-white/50"
+              >
+                <RotateCcw className="w-2.5 h-2.5" />
+                重试
               </button>
             </div>
           )}

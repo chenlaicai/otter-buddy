@@ -8,9 +8,11 @@ vi.mock("node:fs", () => ({
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
 }));
 
+const MINIMAL_YAML = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n";
+
 // Provide a default config so loadConfig tests work
 mockExistsSync.mockReturnValue(true);
-mockReadFileSync.mockReturnValue("llm:\n  provider: openai\n  model: gpt-4o\n");
+mockReadFileSync.mockReturnValue(MINIMAL_YAML);
 
 let validate: typeof import("../../src/frameworks/config-service").validate;
 let loadConfig: typeof import("../../src/frameworks/config-service").loadConfig;
@@ -27,30 +29,40 @@ beforeEach(() => {
 });
 
 describe("validate", () => {
-  it("throws when llm.provider is missing", () => {
-    expect(() => validate({ llm: { model: "gpt-4o" } })).toThrow("llm.provider");
+  it("throws when llm.models is missing", () => {
+    expect(() => validate({ llm: {} })).toThrow("llm.models[]");
   });
 
-  it("throws when llm.model is missing", () => {
-    expect(() => validate({ llm: { provider: "openai" } })).toThrow("llm.model");
+  it("throws when llm.models is empty", () => {
+    expect(() => validate({ llm: { models: [] } })).toThrow("llm.models[]");
   });
 
-  it("throws when llm.provider is invalid", () => {
-    expect(() => validate({ llm: { provider: "unknown", model: "x" } })).toThrow("openai / anthropic");
+  it("throws when llm section is missing entirely", () => {
+    expect(() => validate({})).toThrow("llm.models[]");
+  });
+
+  it("rejects legacy single-model format (llm.provider + llm.model)", () => {
+    // F20260806cnp6 [Incompatible]：旧格式启动即报错并提示迁移
+    expect(() =>
+      validate({ llm: { provider: "openai", model: "gpt-4o" } as never }),
+    ).toThrow("llm.models[] 为必填字段");
   });
 
   it("throws when server.port is not a number", () => {
     expect(() =>
-      validate({ llm: { provider: "openai", model: "gpt-4o" }, server: { port: "abc" as unknown as number } }),
+      validate({
+        llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o" }] },
+        server: { port: "abc" as unknown as number },
+      }),
     ).toThrow("server.port");
   });
 
-  it("passes with valid minimal config", () => {
-    expect(() => validate({ llm: { provider: "openai", model: "gpt-4o" } })).not.toThrow();
+  it("passes with valid single-entry models[]", () => {
+    expect(() => validate({ llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o" }] } })).not.toThrow();
   });
 
   it("passes with anthropic provider", () => {
-    expect(() => validate({ llm: { provider: "anthropic", model: "claude-sonnet-4-20250514" } })).not.toThrow();
+    expect(() => validate({ llm: { models: [{ alias: "ant", provider: "anthropic", model: "claude-sonnet-4-20250514" }] } })).not.toThrow();
   });
 });
 
@@ -62,11 +74,13 @@ describe("loadConfig", () => {
 
   it("loads valid config with defaults", () => {
     mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue("llm:\n  provider: openai\n  model: gpt-4o\n");
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML);
 
     const cfg = loadConfig();
-    expect(cfg.llm.provider).toBe("openai");
-    expect(cfg.llm.model).toBe("gpt-4o");
+    expect(cfg.llm.default).toBe("main");
+    expect(cfg.llm.models).toHaveLength(1);
+    expect(cfg.llm.models[0].provider).toBe("openai");
+    expect(cfg.llm.models[0].model).toBe("gpt-4o");
     expect(cfg.server.port).toBe(3000);
     expect(cfg.db.path).toBe("./otter-buddy.db");
     expect(cfg.memory.rrfK).toBe(60);
@@ -79,9 +93,7 @@ describe("loadConfig", () => {
 
   it("overrides maxChainDepth from yaml", () => {
     mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(
-      "llm:\n  provider: openai\n  model: gpt-4o\ncircuitBreaker:\n  maxChainDepth: 3\n",
-    );
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "circuitBreaker:\n  maxChainDepth: 3\n");
 
     const cfg = loadConfig();
     expect(cfg.circuitBreaker.maxChainDepth).toBe(3);
@@ -90,33 +102,34 @@ describe("loadConfig", () => {
   it("loads config with custom values", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
-      "llm:\n  provider: anthropic\n  model: claude-sonnet-4-20250514\n  apiKey: sk-test\n  apiBaseUrl: https://proxy.example.com\nserver:\n  port: 8080\n",
+      "llm:\n  models:\n    - alias: ant\n      provider: anthropic\n      model: claude-sonnet-4-20250514\n      apiKey: sk-test\n      apiBaseUrl: https://proxy.example.com\nserver:\n  port: 8080\n",
     );
 
     const cfg = loadConfig();
-    expect(cfg.llm.provider).toBe("anthropic");
-    expect(cfg.llm.model).toBe("claude-sonnet-4-20250514");
-    expect(cfg.llm.apiKey).toBe("sk-test");
-    expect(cfg.llm.apiBaseUrl).toBe("https://proxy.example.com");
+    expect(cfg.llm.default).toBe("ant");
+    expect(cfg.llm.models[0].provider).toBe("anthropic");
+    expect(cfg.llm.models[0].model).toBe("claude-sonnet-4-20250514");
+    expect(cfg.llm.models[0].apiKey).toBe("sk-test");
+    expect(cfg.llm.models[0].apiBaseUrl).toBe("https://proxy.example.com");
     expect(cfg.server.port).toBe(8080);
   });
 
-  it("converts YAML null values for optional llm fields to undefined", () => {
+  it("converts YAML null values for optional model fields to undefined", () => {
     mockExistsSync.mockReturnValue(true);
     // js-yaml parses `apiKey:` (no value) as null
     mockReadFileSync.mockReturnValue(
-      "llm:\n  provider: openai\n  model: gpt-4o\n  apiKey:\n  apiBaseUrl:\n",
+      "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      apiKey:\n      apiBaseUrl:\n",
     );
 
     const cfg = loadConfig();
-    expect(cfg.llm.apiKey).toBeUndefined();
-    expect(cfg.llm.apiBaseUrl).toBeUndefined();
+    expect(cfg.llm.models[0].apiKey).toBeUndefined();
+    expect(cfg.llm.models[0].apiBaseUrl).toBeUndefined();
   });
 
   it("preserves all config sections", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
-      "llm:\n  provider: openai\n  model: gpt-4o\ndatabase:\n  path: /tmp/test.db\nmemory:\n  rrfK: 100\nembedding:\n  dimensions: 512\ncircuitBreaker:\n  maxToolCalls: 10\n",
+      MINIMAL_YAML + "database:\n  path: /tmp/test.db\nmemory:\n  rrfK: 100\nembedding:\n  dimensions: 512\ncircuitBreaker:\n  maxToolCalls: 10\n",
     );
 
     const cfg = loadConfig();
@@ -129,7 +142,7 @@ describe("loadConfig", () => {
   it("parses embedding.localModelPath when set", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
-      "llm:\n  provider: openai\n  model: gpt-4o\nembedding:\n  dimensions: 1024\n  modelPath: bge-m3\n  localModelPath: ./models\n",
+      MINIMAL_YAML + "embedding:\n  dimensions: 1024\n  modelPath: bge-m3\n  localModelPath: ./models\n",
     );
 
     const cfg = loadConfig();
@@ -140,7 +153,7 @@ describe("loadConfig", () => {
   it("defaults modelPath to bge-m3 when localModelPath set but modelPath omitted", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
-      "llm:\n  provider: openai\n  model: gpt-4o\nembedding:\n  localModelPath: ./models\n",
+      MINIMAL_YAML + "embedding:\n  localModelPath: ./models\n",
     );
 
     const cfg = loadConfig();
@@ -150,7 +163,7 @@ describe("loadConfig", () => {
   });
 });
 
-describe("validate — multi-model", () => {
+describe("validate — models[] 条目校验", () => {
   it("passes with valid multi-model config", () => {
     const raw = {
       llm: {
@@ -231,4 +244,3 @@ describe("validate — multi-model", () => {
     })).toThrow("不在 models[] 中");
   });
 });
-

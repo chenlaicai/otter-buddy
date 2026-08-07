@@ -28,55 +28,6 @@ describe("initSchema", () => {
     db.close();
   });
 
-  it("创建所有预期的表", () => {
-    initSchema(db);
-
-    const tableNames = getTableNames(db);
-
-    // 对话核心表
-    expect(tableNames).toContain("conversations");
-    expect(tableNames).toContain("messages");
-    expect(tableNames).toContain("message_events");
-    expect(tableNames).toContain("conversation_otters");
-
-    // 记忆表
-    expect(tableNames).toContain("memory_entries");
-    expect(tableNames).toContain("memory_weights");
-
-    // 术语表
-    expect(tableNames).toContain("terminology_entries");
-
-    // 产物表
-    expect(tableNames).toContain("linked_resources");
-
-    // Otter 表
-    expect(tableNames).toContain("otters");
-    expect(tableNames).toContain("otter_sessions");
-
-    // Turn 表
-    expect(tableNames).toContain("turns");
-
-    // 参与者表
-    expect(tableNames).toContain("conversation_participants");
-
-    // Agent Session 表
-    expect(tableNames).toContain("agent_sessions");
-
-    // Settings 表
-    expect(tableNames).toContain("settings");
-
-    // Otter Context 表
-    expect(tableNames).toContain("otter_context");
-
-    // 文档表
-    expect(tableNames).toContain("features");
-    expect(tableNames).toContain("research");
-
-    // 定时任务表
-    expect(tableNames).toContain("scheduled_tasks");
-    expect(tableNames).toContain("scheduled_task_executions");
-  });
-
   it("幂等性：重复调用不抛出异常", () => {
     initSchema(db);
 

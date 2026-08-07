@@ -159,6 +159,45 @@ describe('ModelPool', () => {
     });
   });
 
+  describe('getModelInfos', () => {
+    it('returns model info without pi-ai model object', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default', { description: 'Default', strengths: ['fast'], apiKey: 'sk-secret' }), model: makeModel('default') },
+        { config: makeConfig('fast', { contextWindow: 128000 }), model: makeModel('fast') },
+      ]);
+
+      const infos = pool.getModelInfos();
+      expect(infos).toHaveLength(2);
+      expect(infos[0]).toEqual({
+        alias: 'default', provider: 'openai', model: 'gpt-4o',
+        description: 'Default', strengths: ['fast'], weaknesses: undefined, contextWindow: undefined,
+      });
+      // apiKey/apiBaseUrl/pi-ai model 对象不暴露
+      expect(infos[0]).not.toHaveProperty('apiKey');
+      expect(infos[1]).toMatchObject({ alias: 'fast', contextWindow: 128000 });
+    });
+  });
+
+  describe('setDefaultAlias', () => {
+    it('switches default alias and model', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default'), model: makeModel('default') },
+        { config: makeConfig('fast'), model: makeModel('fast') },
+      ]);
+      pool.setDefaultAlias('fast');
+      expect(pool.getDefaultAlias()).toBe('fast');
+      expect(pool.getDefaultModel()).toEqual(makeModel('fast'));
+    });
+
+    it('throws for unknown alias', () => {
+      const pool = buildModelPool('default', [
+        { config: makeConfig('default'), model: makeModel('default') },
+      ]);
+      expect(() => pool.setDefaultAlias('nonexistent')).toThrow('unknown alias "nonexistent"');
+      expect(pool.getDefaultAlias()).toBe('default');
+    });
+  });
+
   describe('buildModelPool', () => {
     it('throws when default alias not in entries', () => {
       expect(() => {

@@ -127,6 +127,13 @@ export function abortMessage(messageId: string): Promise<{ status: string }> {
   return request(`/messages/${messageId}/abort`, { method: 'POST' })
 }
 
+export function retryMessage(messageId: string): Promise<Response> {
+  return fetch(`${BASE}/messages/${messageId}/retry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 // ── Otters ──
 
 export function getOtter(id: string): Promise<OtterDTO> {
