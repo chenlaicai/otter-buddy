@@ -10,7 +10,9 @@ summary: |
   加上 followOutput 和手动 scrollToIndex 两套滚动机制竞争。
 
 causal_links:
-  from: []
+  from:
+    - F20260803vmsg   # 消息展示机制：引入 Virtuoso + followOutput + maybeScrollToBottom 两套滚动机制
+    - F20260805abpp   # 中断可见性：扩展 maybeScrollToBottom 到 message.aborted handler
   to: []
 
 status: development
@@ -95,6 +97,33 @@ if (atBottom) {
 | 文件 | 改动 |
 |------|------|
 | `web/src/pages/conversation/index.tsx` | +23 -16：debounce 逻辑、移除 maybeScrollToBottom、移除重复 scrollToIndex |
+
+## 因果溯源
+
+### 引入点：F20260803vmsg（消息展示机制，feefd88）
+
+该特性完整重建了对话消息展示机制，引入 react-virtuoso 虚拟滚动。在初始实现中同时引入了两套滚动机制：
+
+1. Virtuoso 内置 `followOutput='smooth'`（MessageList.tsx）
+2. 自定义 `maybeScrollToBottom()` 手动 `scrollToIndex`（index.tsx）
+
+在对抗审视阶段，检视獭指出「流式消息新消息提示：message.start handler 加 newMessagesCount + autoscroll，原仅 message 事件计数，流式回复被遗漏」。修复方案是在 subscribe SSE 和 handleSend 两处的 `message.start` handler 中都加了 `maybeScrollToBottom()` 调用。
+
+这个修复解决了「流式回复不跟随」的问题，但引入了新的隐患：`followOutput` 和手动 `scrollToIndex` 在新消息到达时同时触发，两套滚动指令交叉执行。
+
+同时，`handleAtBottomChange` 直接同步设置 `isAtBottomRef.current = atBottom`，没有考虑 Virtuoso 在内容高度重算时会产生瞬态 `atBottomStateChange(false)` 信号。
+
+### 扩展点：F20260805abpp（中断可见性，d43dae1）
+
+该特性修复 abort 终态投影丢失，新增了常驻 `/subscribe` 通道的 `message.aborted` 处理器。为了保持与 `message.complete` 一致的行为，在 `message.aborted` handler 中也加了 `maybeScrollToBottom()` 调用，进一步扩大了两套滚动机制的竞争范围。
+
+### 根因总结
+
+| 因素 | 来源 | 影响 |
+|------|------|------|
+| `followOutput='smooth'` + `maybeScrollToBottom()` 双滚动机制 | F20260803vmsg | 两套滚动指令交叉执行，页面抖动 |
+| `atBottomStateChange(false)` 无 debounce | F20260803vmsg | 瞬态信号污染 isAtBottomRef，计数误增长 |
+| `maybeScrollToBottom` 扩展到更多 handler | F20260805abpp | 扩大了竞争范围 |
 
 ## 验证
 
