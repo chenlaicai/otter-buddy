@@ -31,6 +31,68 @@ Tests verify what the system DOES, not how it does it internally.
   session-file（session jsonl 解析）
 - 完整约定见 `docs/user-guide/testing.md`
 
+## Acceptance Test 执行流程
+
+当 F 文档包含 `## Acceptance Test` 章节时，按以下流程执行：
+
+### 从验收场景推导能力测试
+
+F 文档的 `### 验收场景` 表格定义了"什么算解决了"，能力测试是"怎么验证"。
+
+**映射规则**：
+- 每个验收场景（AT-1, AT-2...）对应一个 `it()` 测试用例
+- 验收场景的"复现步骤"转化为测试的 setup + action
+- 验收场景的"预期结果"转化为断言（行为不变量，不断言措辞）
+
+**示例**（F 文档验收场景 → 能力测试）：
+
+```markdown
+# F 文档验收场景
+| AT-1 | 需求1 | 发送包含术语定义的消息 | 獭调用 add_terminology 工具 |
+```
+
+```typescript
+// 能力测试
+it("AT-1: 术语定义触发 add_terminology", async (t) => {
+  if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
+
+  await expectSampledBehavior("terminology-capture", 3, 1, async (i) => {
+    const convId = await createConversation(ctx, `术语采样${i + 1}`);
+    await sendUserMessage(ctx, convId, "我们约定一个术语：「测试词」...");
+    const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000 });
+
+    const tools = toolCallNames(answer);
+    return {
+      ok: tools.includes("add_terminology"),
+      detail: `tools=${JSON.stringify(tools)}`,
+    };
+  });
+}, 600_000);
+```
+
+### 验收执行
+
+```bash
+npm run test:capability
+```
+
+- 先 build（embedding worker 需要 dist 产物）再跑
+- LLM 未配置时，非 LLM 用例照常真跑，LLM 用例显式 skip
+
+### 证据判定
+
+执行完成后，将结果写入 F 文档的 `### 证据判定` 表格：
+
+| 证据状态 | 含义 | 判定 |
+|---------|------|------|
+| 证明完成 | 测试通过 + 行为符合预期 | ✅ |
+| 矛盾 | 测试通过但行为不符合预期 | ❌ |
+| 未完成 | 测试失败 | ❌ |
+| 证据不足 | 测试存在但覆盖不全 | ❓ |
+| 缺失 | 测试不存在 | ❌ |
+
+**原则**：不确定的证据 = 未达成。
+
 ## Core Principle
 
 Assert observable behavior (outputs, side effects, state changes). Do not assert internal implementation details (which functions were called, in what order, with what arguments).
