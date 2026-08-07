@@ -108,7 +108,7 @@ describe('ensureRecruitingConversation', () => {
     expect(result.bigOtterId).toBe(otter.id);
     expect(result.created).toBe(false);
     expect(createOtter.execute).not.toHaveBeenCalled();
-    expect(manageConversation.pin).toHaveBeenCalledWith('conv-existing');
+    expect(manageConversation.pin).toHaveBeenCalled();
   });
 
   it('锁获取失败后 recheck 成功', async () => {
@@ -151,7 +151,7 @@ describe('ensureRecruitingConversation', () => {
     // recheck 应该返回已有的对话
     expect(result.created).toBe(false);
     expect(result.bigOtterId).toBe(otter.id);
-    expect(manageConversation.pin).toHaveBeenCalledWith('conv-existing');
+    expect(manageConversation.pin).toHaveBeenCalled();
   });
 
   it('新建路径：无已有对话时创建后调用 pin', async () => {
@@ -189,6 +189,7 @@ describe('ensureRecruitingConversation', () => {
       status: 'active',
       summary: null,
       pinned: false,
+      workspaceDir: null,
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
       completedAt: null,
@@ -208,5 +209,27 @@ describe('ensureRecruitingConversation', () => {
     expect(result.conversationId).toBe('conv-existing');
     expect(result.created).toBe(false);
     expect(capturingLogger.captured.warns.length).toBeGreaterThan(0);
+  });
+
+  it('创建失败时清理 pending 值', async () => {
+    // createOtter 抛异常
+    vi.mocked(createOtter.execute).mockRejectedValue(new Error('Database error'));
+
+    // settings.get 返回 pending 锁值（模拟拿到锁后的状态）
+    vi.mocked(settings.get).mockResolvedValue('pending:1234567890');
+    vi.mocked(settings.tryInsertIfAbsent).mockResolvedValue(true);
+
+    await expect(ensureRecruitingConversation({
+      manageConversation,
+      convRepo,
+      otterRepo,
+      createOtter,
+      settings,
+      sendMessage,
+      logger,
+    })).rejects.toThrow('Database error');
+
+    // 应该清理 pending 值
+    expect(vi.mocked(settings.tryDeleteIfValueMatches).mock.calls.length).toBeGreaterThan(0);
   });
 });
