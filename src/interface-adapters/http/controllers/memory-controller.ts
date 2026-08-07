@@ -97,7 +97,7 @@ export class MemoryController {
         entries: result.entries.map((e) => {
           // Web 后端负责高亮渲染，记忆模块返回纯文本
           const snippet = e.snippet ? highlightSnippet(e.snippet, query) : e.snippet;
-          return toMemoryEntryDTO(e, e.score, e.source, snippet);
+          return toMemoryEntryDTO(e, e.score, e.source, snippet, detailLevel);
         }),
         total: result.total,
         ...(degraded ? { degraded: true, degradedReason: "embedding 不可用，语义检索降级，结果可能不完整" } : {}),

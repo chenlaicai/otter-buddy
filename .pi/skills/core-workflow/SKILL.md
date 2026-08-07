@@ -40,7 +40,10 @@ co_loads:
 需要引用或核实时，先查原文。
 
 - **当前对话**（"刚才"、"这轮"、某条具体发言、工具调用回溯）→ 用 `search_messages` / `list_messages` / `get_message` / `get_turn_history` 查询
-- **跨会话记忆**（"上次"、历史决策原因、未完成待办）→ 用 `search_memory`
+- **跨会话记忆**（"上次"、历史决策原因、未完成待办）→ 用 `search_memory`，渐进式披露：
+  1. 先 `search_memory(detail_level="summary")` 快速扫描相关条目
+  2. 看中特定条目 → `get_memory_detail(ids=[...])` 获取全文
+  3. 不要跳过步骤 1 直接用 full 模式灌入全文
 - **"之前"有歧义时** → 先查当前对话，无结果再查记忆
 - 术语不明 → `search_terminology`
 - 查询结果用自然语言呈现给搭档（引号标注原文关键句 + 简要解读），不要把原始 JSON 直接展示

@@ -86,7 +86,7 @@ export class SearchMemory {
       return { entries: [], total: 0 };
     }
     const results = await this.terminologyRepo.search(query.query, query.limit);
-    const detailLevel = query.detailLevel ?? "snippet";
+    const detailLevel = query.detailLevel ?? "summary";
     const entries: RetrievalResultEntry[] = results.map((entry, rank) => {
       const fullContent = `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`;
       let content: string;
@@ -171,7 +171,7 @@ export class SearchMemory {
   private async searchTerminologyEntries(query: SearchQuery): Promise<(RetrievalResultEntry & { normalizedScore: number; library: string; libraryPriority: number })[]> {
     if (!this.terminologyRepo) return [];
     const results = await this.terminologyRepo.search(query.query, query.limit);
-    const detailLevel = query.detailLevel ?? "snippet";
+    const detailLevel = query.detailLevel ?? "summary";
     return results.map((entry, rank) => {
       const fullContent = `[${entry.term}] ${entry.definition}${entry.context ? ` (${entry.context})` : ""}`;
       let content: string;
@@ -209,7 +209,7 @@ export class SearchMemory {
   }
 
   private async searchConversationInternal(query: SearchQuery): Promise<RetrievalResult> {
-    const detailLevel = query.detailLevel ?? "snippet";
+    const detailLevel = query.detailLevel ?? "summary";
     const filters: SearchFilters = {
       layer: query.layer,
       granularity: query.granularity,
@@ -417,13 +417,19 @@ export class SearchMemory {
     return result;
   }
 
-  /** 根据 detail_level 构建返回内容 */
+  /**
+   * 根据 detail_level 构建返回内容。
+   * 返回 { content } 用于覆盖 entry.content（渐进式披露核心：非 full 时裁剪），
+   * 返回 { snippet } 用于 HTTP 端点高亮渲染。
+   */
   private buildSnippet(
     entry: MemoryEntry,
     detailLevel?: DetailLevel,
     snippetMap?: Map<string, string | undefined>,
-  ): { snippet?: string } {
-    if (!detailLevel || detailLevel === "full") return {};
+  ): { content: string; snippet?: string } {
+    if (!detailLevel || detailLevel === "full") {
+      return { content: entry.content };
+    }
 
     /** 获取 FTS highlight 片段（vec-only 结果为 undefined） */
     const ftsSnippet = snippetMap?.get(entry.id);
@@ -435,11 +441,11 @@ export class SearchMemory {
       : rawSnippet;
 
     if (detailLevel === "summary") {
-      /** summary：取 snippet 的第一句（截取到首个句号/换行） */
-      const firstSentence = snippet.match(/^[^\n。.！!？?]*[。.！!？?\n]?/)?.[0] ?? snippet;
-      return { snippet: firstSentence };
+      /** summary：取 snippet 的第一句（Unicode Sentence_Terminal 覆盖中英日韩泰阿拉伯等所有语言的句末标点） */
+      const firstSentence = new RegExp('^[^\\n\\p{Sentence_Terminal}]*[\\p{Sentence_Terminal}\\n]?', 'u').exec(snippet)?.[0] ?? snippet;
+      return { content: firstSentence, snippet: firstSentence };
     }
 
-    return { snippet };
+    return { content: snippet, snippet };
   }
 }
