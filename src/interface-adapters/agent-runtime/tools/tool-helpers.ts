@@ -10,6 +10,27 @@ export function textResponse(text: string): ToolResponse {
   return { content: [{ type: "text", text }], details: {} };
 }
 
+/** 单个 tool result 最大字符数（~4K tokens，防止巨量结果污染上下文导致模型退化） */
+const MAX_TOOL_RESULT_CHARS = 15_000;
+
+/**
+ * 截断过大的 tool result，防止上下文膨胀导致模型退化。
+ * 策略：超过阈值时截取前 MAX_TOOL_RESULT_CHARS 字符并附加截断提示。
+ */
+export function truncateToolResult(result: ToolResponse): ToolResponse {
+  return {
+    ...result,
+    content: result.content.map(c => {
+      if (c.type !== "text" || c.text.length <= MAX_TOOL_RESULT_CHARS) return c;
+      const truncated = c.text.slice(0, MAX_TOOL_RESULT_CHARS);
+      return {
+        type: "text" as const,
+        text: `${truncated}\n\n[结果已截断：原始 ${c.text.length} 字符，仅显示前 ${MAX_TOOL_RESULT_CHARS} 字符。如需完整内容，请用 offset/limit 分段读取。]`,
+      };
+    }),
+  };
+}
+
 /** F20260804hcob: html-card 围栏匹配（``` 与 ~~~ 两种合法围栏，与渲染侧对齐），排除 html-card-reply（回执围栏，不算卡片） */
 const HTML_CARD_FENCE = /(?:```|~~~)html-card(?!-reply)/;
 
