@@ -11,7 +11,7 @@ export function textResponse(text: string): ToolResponse {
 }
 
 /** 单个 tool result 最大字符数（~4K tokens，防止巨量结果污染上下文导致模型退化） */
-const MAX_TOOL_RESULT_CHARS = 15_000;
+export const MAX_TOOL_RESULT_CHARS = 15_000;
 
 /**
  * 截断过大的 tool result，防止上下文膨胀导致模型退化。
