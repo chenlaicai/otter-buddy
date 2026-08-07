@@ -417,13 +417,19 @@ export class SearchMemory {
     return result;
   }
 
-  /** 根据 detail_level 构建返回内容 */
+  /**
+   * 根据 detail_level 构建返回内容。
+   * 返回 { content } 用于覆盖 entry.content（渐进式披露核心：非 full 时裁剪），
+   * 返回 { snippet } 用于 HTTP 端点高亮渲染。
+   */
   private buildSnippet(
     entry: MemoryEntry,
     detailLevel?: DetailLevel,
     snippetMap?: Map<string, string | undefined>,
-  ): { snippet?: string } {
-    if (!detailLevel || detailLevel === "full") return {};
+  ): { content: string; snippet?: string } {
+    if (!detailLevel || detailLevel === "full") {
+      return { content: entry.content };
+    }
 
     /** 获取 FTS highlight 片段（vec-only 结果为 undefined） */
     const ftsSnippet = snippetMap?.get(entry.id);
@@ -437,9 +443,9 @@ export class SearchMemory {
     if (detailLevel === "summary") {
       /** summary：取 snippet 的第一句（截取到首个句号/换行） */
       const firstSentence = snippet.match(/^[^\n。.！!？?]*[。.！!？?\n]?/)?.[0] ?? snippet;
-      return { snippet: firstSentence };
+      return { content: firstSentence, snippet: firstSentence };
     }
 
-    return { snippet };
+    return { content: snippet, snippet };
   }
 }

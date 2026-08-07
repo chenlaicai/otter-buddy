@@ -1,8 +1,9 @@
 import type { MemoryEntry } from "@entities/memory/memory-entry";
-import type { RetrievalSource } from "@contract/api/memory";
 import type {
+  RetrievalSource,
   MemoryEntryDTO,
   SearchResultDTO,
+  DetailLevel,
 } from "@contract/api/memory";
 
 export type { MemoryEntryDTO, SearchResultDTO, RetrievalSource };
@@ -13,7 +14,12 @@ export function toMemoryEntryDTO(
   score?: number,
   source?: RetrievalSource,
   snippet?: string,
+  /** 渐进式披露：非 full 时裁剪 content 避免上下文暴涨 */
+  detailLevel?: DetailLevel,
 ): MemoryEntryDTO {
+  const content = detailLevel && detailLevel !== "full" && snippet
+    ? snippet
+    : entry.content;
   return {
     id: entry.id,
     layer: entry.layer,
@@ -22,7 +28,7 @@ export function toMemoryEntryDTO(
     sourceTable: entry.sourceTable,
     conversationId: entry.conversationId,
     granularity: entry.granularity,
-    content: entry.content,
+    content,
     metadata: entry.metadata,
     createdAt: entry.createdAt,
     score,
