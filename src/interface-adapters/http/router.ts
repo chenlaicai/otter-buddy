@@ -48,6 +48,7 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.get("/api/messages/:id/events", (ctx) => c.message.getEvents(ctx));
   app.get("/api/messages/:id/expand", (ctx) => c.message.expand(ctx));
   app.post("/api/messages/:id/abort", (ctx) => c.message.abort(ctx));
+  app.post("/api/messages/:id/retry", (ctx) => c.message.retry(ctx));
 }
 
 function registerOtterRoutes(app: Hono, c: Controllers): void {

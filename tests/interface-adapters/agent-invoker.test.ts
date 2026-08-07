@@ -397,9 +397,9 @@ describe("AgentInvoker", () => {
 });
 
 describe("AgentInvoker — circuit_break abort 归因", () => {
-  it("circuit_break abort 呈现熔断专属文案，不再伪装成输出异常", async () => {
+  it("circuit_break abort 呈现熔断专属文案，自动重试后再犯走终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({
         ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
@@ -422,14 +422,17 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       onSSEEvent: (e) => events.push(e),
     });
 
-    expect(result.messageId).toBe("msg-streaming");
+    expect(result.messageId).toMatch(/^msg-\d+$/);
+    // 自动重试：fail + re-invoke（不注入系统消息），重试后 abort
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toBe("[系统保护] 检测到工具调用异常循环，已自动中断。");
   });
 
-  it("circuit_break:event_timeout 呈现超时专属文案", async () => {
+  it("circuit_break:event_timeout 呈现超时专属文案，自动重试后再犯走终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({
         ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
@@ -452,14 +455,16 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       onSSEEvent: (e) => events.push(e),
     });
 
-    expect(result.messageId).toBe("msg-streaming");
+    expect(result.messageId).toMatch(/^msg-\d+$/);
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toBe("[系统保护] 单次工具调用超时，已自动中断。");
   });
 
-  it("output-guard first_byte_timeout 呈现模型响应超时专属文案", async () => {
+  it("output-guard first_byte_timeout 呈现模型响应超时专属文案，自动重试后再犯走终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({
         ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
@@ -482,6 +487,9 @@ describe("AgentInvoker — circuit_break abort 归因", () => {
       onSSEEvent: (e) => events.push(e),
     });
 
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
+    expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toBe("[系统保护] 模型响应超时，已自动中断。");
   });
 });
@@ -906,9 +914,9 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     expect(eventTypes).toContain("message.aborted");
   });
 
-  it("其他 trip 原因（streaming_timeout）直接走 abort 终态", async () => {
+  it("其他 trip 原因（streaming_timeout）自动重试后再犯走 abort 终态", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
-    const msg = mockSendMessage();
+    const msg = mockSendMessageWithIncrementalId();
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }),
     } as unknown as QueryMessage;
@@ -918,14 +926,15 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     );
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
+    // 自动重试：fail + re-invoke（不注入系统消息），重试后 abort
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._sendSystemBodies).toHaveLength(0);
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain("[系统保护]");
     expect(msg._calls.abort[0].body).toContain("超时");
-    expect(msg._calls.fail).toHaveLength(0);
-    expect(msg._sendSystemBodies).toHaveLength(0);
     const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.failed");
     expect(eventTypes).toContain("message.aborted");
-    expect(eventTypes).not.toContain("message.failed");
   });
 
   it("sendSystem 失败：降级为直接 abort", async () => {
