@@ -22,7 +22,7 @@ async function pinRecruiting(manageConversation: ManageConversation, id: string,
   try {
     await manageConversation.pin(id);
   } catch (err) {
-    logger.warn('Failed to pin recruiting conversation', { error: err instanceof Error ? err.message : String(err) });
+    logger.warn('Failed to pin recruiting conversation', { conversationId: id, error: err instanceof Error ? err.message : String(err) });
   }
 }
 
