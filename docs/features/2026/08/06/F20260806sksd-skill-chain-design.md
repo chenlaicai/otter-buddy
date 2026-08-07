@@ -492,27 +492,27 @@ graph LR
 
 ### Phase 1：Skill Chain 声明（纯文本，不改代码）
 
-- [ ] 在每个 SKILL.md 末尾增加"后续动作声明"章节
-- [ ] 在 SYSTEM.md 增加 Skill Chain 硬规则
-- [ ] 更新 collaboration-patterns.md，补充 skill chain 的引用
+- [x] 在每个 SKILL.md 末尾增加"后续动作声明"章节
+- [x] 在 SYSTEM.md 增加 Skill Chain 硬规则
+- [x] 更新 collaboration-patterns.md，补充 skill chain 的引用
 
 ### Phase 2：产出模板内联（纯文本，不改代码）
 
-- [ ] 将 report-template.md 内联到 adversarial-review/SKILL.md
-- [ ] 将 output-template.md 内联到 requirement-analysis/SKILL.md
-- [ ] 删除 references/ 中的同名文件（report-template.md、output-template.md）
-- [ ] 排查**所有** skill 中对被删除 references/ 文件的跨文件引用（如 repo-safety 引用 adversarial-review/references/report-template.md），逐一更新指向内联章节
-- [ ] 更新 SKILL.md body 中对已删除 references/ 文件的引用，指向内联章节
+- [x] 将 report-template.md 内联到 adversarial-review/SKILL.md
+- [x] 将 output-template.md 内联到 requirement-analysis/SKILL.md
+- [x] 删除 references/ 中的同名文件（report-template.md、output-template.md）
+- [x] 排查**所有** skill 中对被删除 references/ 文件的跨文件引用（如 repo-safety 引用 adversarial-review/references/report-template.md），逐一更新指向内联章节
+- [x] 更新 SKILL.md body 中对已删除 references/ 文件的引用，指向内联章节
 
 ### Phase 3：输入契约（纯文本，不改代码）
 
-- [ ] 在每个 SKILL.md 增加"输入契约"章节
-- [ ] 验证各 skill 的输入契约与实际使用一致
+- [x] 在每个 SKILL.md 增加"输入契约"章节
+- [x] 验证各 skill 的输入契约与实际使用一致
 
 ### Phase 4：触发描述结构化（纯文本 + 可选 SDK 增强）
 
-- [ ] 更新各 SKILL.md 的 frontmatter，增加 triggers/co_loads 字段
-- [ ] 在 SKILL.md body 开头增加结构化摘要
+- [x] 更新各 SKILL.md 的 frontmatter，增加 triggers/co_loads 字段
+- [x] 在 SKILL.md body 开头增加结构化摘要
 - [ ] （可选）SDK 增强：解析新字段，支持自动共加载提示
 
 ### 验证方式
