@@ -488,7 +488,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         ORDER BY sequence_num DESC LIMIT 1
       )
       WHERE c.status != 'archived'
-      ORDER BY c.pinned DESC, c.created_at DESC LIMIT ? OFFSET ?
+      ORDER BY c.pinned DESC, COALESCE(lm.created_at, c.created_at) DESC LIMIT ? OFFSET ?
     `).all(userId, limit, offset) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
       last_message_body: string | null; last_message_ts: string | null;
