@@ -1,21 +1,22 @@
 ---
 name: repo-safety
 description: >-
-  This skill should be used for ANY task that mutates a git repository — committing,
-  branching, pushing, opening a PR, editing or creating tracked files — no matter how
-  small the change is. Typical triggers: "提交", "提个 PR", "commit", "push", "merge",
-  "改一下", "修这个 bug", "把这个改动提交了", lockfile/配置/文档提交, 新建分支, git 操作.
-  Also load it when a 排查/分析 task concludes that a fix needs to be committed.
-  Covers worktree isolation, branch protection, PR-only delivery, and safe git hygiene.
+  MUST trigger BEFORE modifying any git-tracked file (code, docs, config, lockfile).
+  This skill creates worktree isolation — the FIRST step before writing any file.
+  If you are about to edit, create, or delete any file tracked by git, load this skill FIRST.
+  Does NOT apply to non-git files (memory, .env, local config).
+  Typical triggers: "改一下", "修这个 bug", "改配置", "更新文档", "提交", "commit", "push", "merge".
 triggers:
   phrases:
+    - "改一下"
+    - "修这个 bug"
+    - "改配置"
+    - "更新文档"
     - "提交"
     - "提个 PR"
     - "commit"
     - "push"
     - "merge"
-    - "改一下"
-    - "修这个 bug"
     - "把这个改动提交了"
 co_loads:
   - code-implementation
@@ -23,10 +24,13 @@ co_loads:
 
 # Repo Safety
 
-适用于**一切会改动 git 仓库的任务，无论大小**——一行 lockfile、一个配置项、一篇文档的提交都算。
+适用于**一切会改动 git 追踪文件的任务，无论大小**——一行 lockfile、一个配置项、一篇文档的提交都算。
 本 skill 只有红线与最小流程；按方案做功能开发时，在此之上加载 code-implementation 走完整流程。
 
-> **触发短语**：提交 | 提个 PR | commit | push | merge | 改一下
+> **触发时机**：准备修改任何 git 追踪文件之前（不是提交时）
+> **触发短语**：改一下 | 修这个 bug | 改配置 | 更新文档 | 提交 | commit | push | merge
+> **排除**：非 git 追踪文件（memory、.env、local config）不需要此 skill
+> **搭档喊停**：搭档显式要求跳过 worktree 时，记录决策后放行
 > **共加载**：code-implementation（功能开发时共加载）
 
 ## 输入契约
@@ -35,8 +39,8 @@ co_loads:
 
 | 输入 | 必选/可选 | 来源 | 缺失时处理 |
 |------|----------|------|-----------|
-| 要提交的改动 | 必选 | 当前工作区 | 检查 git status，无改动则不执行 |
-| 改动类型 | 必选 | 当前 skill 上下文 | 判断是小改动还是功能开发，决定是否加载 code-implementation |
+| 任务描述 | 必选 | 搭档或当前上下文 | 停下来问搭档 |
+| 涉及的文件类型 | 可选 | 从任务描述推断 | 判断是否为 git 追踪文件，非 git 追踪文件不需要此 skill |
 
 ## 红线
 
@@ -52,7 +56,15 @@ co_loads:
 
 ## 最小流程（小改动同样适用）
 
-1. 基于最新 `origin/main` 在 `.claude/worktrees/` 下创建 worktree，建 feature 分支
+0. **验证环境**（条件步骤）：如果不确定当前是否在 worktree 内，执行以下验证：
+   - 执行 `git rev-parse --show-toplevel` 获取 git 根目录
+   - 执行 `pwd` 获取当前目录
+   - 如果当前目录就是 git 根目录，说明在主目录，需要先创建 worktree
+   - 如果当前目录在 `.claude/worktrees/` 下，说明已在 worktree 内，跳过 step 1
+1. 基于最新 `origin/main` 在 `.claude/worktrees/` 下创建 worktree，建 feature 分支：
+   - 使用 `EnterWorktree` 工具（Claude Code 环境）
+   - 或使用 `git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`（Pi SDK 环境）
+   - **失败处理**：如果 worktree 创建失败，向搭档报告失败原因，由搭档决定是否在主目录继续（记录决策后放行）或中止任务
 2. 后续所有改动与验证都在 worktree 内进行，主目录保持原样
 3. 按提交模板 commit
 4. `git push -u origin <branch>` + `gh pr create`，把 PR 链接交给搭档审查
@@ -102,6 +114,6 @@ repo-safety 的红线（worktree 隔离、禁止直接提交 main 等）不可�
 
 但小改动的流程可以弹性：
 - 搭档说"直接提交吧" → 可以跳过 PR 流程，直接在 worktree 里 commit + push（但仍需搭档确认）
-- 搭档说"不用建 worktree 了" → 不可以。worktree 隔离是红线，不弹性
+- 搭档说"不用建 worktree 了" → **搭档显式喊停时，记录决策后放行**。这是 SYSTEM.md "搭档优先"原则的体现——搭档优先级最高。
 
-区分：流程步骤可以弹性，安全红线不可以。
+区分：流程步骤可以弹性，安全红线不可以。但搭档可以喊停任何流程（包括安全红线），记录决策后放行。

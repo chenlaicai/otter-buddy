@@ -50,7 +50,11 @@ Turn a technical plan into runnable, verifiable code changes.
 
 ### 1. Prepare Environment
 
-Follow the `repo-safety` skill: create a worktree under `.claude/worktrees/` based on latest `origin/main`, verify all subsequent operations happen inside it, and record context (worktree name, branch name, feature number).
+第一步：执行 repo-safety 最小流程创建 worktree 隔离环境。
+
+- 读取 `repo-safety` skill，执行其最小流程
+- 记录上下文：worktree 名、分支名、特性编号
+- 后续所有文件修改必须在 worktree 内进行，主目录只允许只读操作
 
 ### 2. Confirm Understanding
 
