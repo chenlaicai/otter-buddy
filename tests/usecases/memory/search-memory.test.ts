@@ -113,8 +113,10 @@ describe("SearchMemory - progressive disclosure", () => {
     const first = result.entries[0];
     expect(first.snippet).not.toContain("<b>");
     expect(first.snippet).not.toContain("</b>");
-    /** 应包含原始内容 */
-    expect(first.content).toBeDefined();
+    /** snippet 模式不返回 content（渐进式披露：snippet 定位 → get_memory_detail 深入） */
+    expect(first.content).toBeUndefined();
+    /** 应有 snippet 作为替代 */
+    expect(first.snippet).toBeDefined();
   });
 
   it("snippet 降级：vec-only 结果截取前 200 字符", async () => {

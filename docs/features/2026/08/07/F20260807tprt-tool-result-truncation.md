@@ -6,7 +6,7 @@ doc_type: feature
 summary: |
   工具返回结果增加大小上限，防止巨量 tool result 污染上下文导致 mimo 退化。
   根因是 search_memory 返回 70K+ 字符、read 返回 48K 字符，上下文被撑爆后模型陷入重复循环。
-  在 tool-helpers 层统一截断（15K 字符），search_memory snippet 统一截断到 200 字符。
+  三重修复：tool result 统一截断（15K）、snippet 模式不返回 content 字段、FTS snippet 截断到 200 字符。
 
 causal_links:
   from:
@@ -58,23 +58,36 @@ F20260807snip 修的是 `<b>` HTML 标签污染 memory snippet。本次是 tool 
 
 ### 修点 1：tool result 统一截断（tool-helpers.ts）
 
-新增 `truncateToolResult()` 函数，单个 text block 超过 15000 字符时截断，附加截断提示。
+新增 `truncateToolResult()` 函数，单个 text block 超过 15000 字符时智能截断（JSON 在条目边界截断），附加截断提示。
 
 在 `pi-session-factory.ts` 的 `buildCustomTools()` 中包裹所有自定义工具的 execute 调用。
 
-### 修点 2：search_memory snippet 截断（search-memory.ts）
+### 修点 2：snippet 模式不返回 content 字段（search-memory.ts）
+
+`rerankAndReturn()` 中 `detailLevel !== "full"` 时剥离 content 字段。
+这是渐进式披露设计的本意：snippet 定位 → get_memory_detail 深入。
+此前 snippet 模式仍返回完整 content（每条 2000+ chars），10 条结果 = 20K+ chars 的 payload 炸弹。
+
+### 修点 3：FTS snippet 截断（search-memory.ts）
 
 `buildSnippet()` 中 FTS highlight snippet 统一截断到 `SNIPPET_FALLBACK_LENGTH`（200 字符），
 此前仅 vec-only 降级路径截断，FTS 路径返回完整 highlight。
 
-## 已知边界
+## 对抗审视记录
 
-- SDK 内置工具（read/write/edit/bash）的返回值不在 otter 层拦截，需 SDK 侧支持
-- 截断后的提示引导模型用 offset/limit 分段读取，但模型不一定遵从
+P0 问题已全部修复：
+- search_memory content 字段在 snippet 模式下仍返回 → 已剥离
+- JSON 中间截断产生畸形输出 → 智能截断（条目边界）
+- 截断提示误导（offset/limit）→ 改为通用措辞
+
+P0 遗留（SDK 不可控）：
+- SDK 内置工具（read/write/edit/bash）的返回值不在 otter 层拦截
+
+P2 遗留：
 - 退化内容落盘问题（session file streaming write）需要更深层的 session 管理改造
 
 ## 验证
 
-- 全量测试通过（982 tests）
-- search-memory 测试通过（17 tests）
+- 全量测试通过（989 tests，含 7 个新增 truncateToolResult 测试）
+- search-memory 测试通过（17 tests，含更新的 snippet content 断言）
 - TypeScript 编译无错误
