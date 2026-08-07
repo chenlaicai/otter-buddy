@@ -1,5 +1,5 @@
 ---
-id: F20260804factlim
+id: F20260807factlim
 title: fact-content-length-limit
 doc_type: feature
 
@@ -21,7 +21,7 @@ tags: [linked-resource, fact, content-limit, context-window]
 modules: [src/interface-adapters/agent-runtime/tools/, src/usecases/conversation/]
 
 # 时间
-created_at: 2026-08-04
+created_at: 2026-08-07
 ---
 
 ## 问题背景

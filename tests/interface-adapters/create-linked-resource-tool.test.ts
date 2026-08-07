@@ -53,4 +53,32 @@ describe("create_linked_resource 工具层 fact content 长度校验", () => {
     expect(res.content[0].text).toContain("Linked resource created: res-1");
     expect(linkCalls).toHaveLength(1);
   });
+
+  it("纯空白 content 时返回错误，且不调用 resource.link", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", {
+      resourceType: "fact",
+      title: "空白 fact",
+      content: "   \t\n ",
+    });
+
+    const text = res.content[0].text;
+    expect(text).toContain("[错误]");
+    expect(text).toContain("content 不能为空");
+    expect(linkCalls).toHaveLength(0);
+  });
+
+  it("file 类型资源不受长度限制影响", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", {
+      resourceType: "file",
+      url: "/path/to/file.txt",
+      title: "文件资源",
+    });
+
+    expect(res.content[0].text).toContain("Linked resource created: res-1");
+    expect(linkCalls).toHaveLength(1);
+  });
 });

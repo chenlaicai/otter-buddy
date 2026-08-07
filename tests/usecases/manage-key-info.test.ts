@@ -38,6 +38,21 @@ describe("ManageKeyInfo.linkResource validation", () => {
     ).rejects.toThrow("fact 类型资源必须提供 content");
   });
 
+  it("throws when fact content is pure whitespace", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(
+      uc.linkResource({
+        conversationId: "conv-1",
+        resourceType: "fact",
+        content: "   \t\n ",
+        linkedBy: "user-1",
+        autoLinked: false,
+      }),
+    ).rejects.toThrow("fact 类型资源必须提供 content");
+  });
+
   it("throws when non-fact type has no url", async () => {
     const { repo, memoryIndex } = createMocks();
     const uc = new ManageKeyInfo(repo, memoryIndex);
