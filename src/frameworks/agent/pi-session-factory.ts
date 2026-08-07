@@ -142,6 +142,32 @@ export function updateTurnText(turnText: { text: string }, e: AgentEvent): void 
   }
 }
 
+/**
+ * Strip 历史 assistant 消息的 thinking 块，保留最新 assistant 消息的 thinking 不动。
+ *
+ * - 当前轮 thinking 保留：多步工具调用场景下模型依赖自己的推理过程
+ * - abort 保护：只有 thinking 无 text/toolCall 的 assistant 消息保留原样，防止 API 400
+ * - JSONL 不受影响：此函数只影响发给 LLM 的 context，原始数据完整保留
+ */
+export function stripHistoricalThinking(messages: Array<{ role: string; content: Array<{ type: string }> }>) {
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+  return messages.map((msg, idx) => {
+    if (msg.role !== "assistant") return msg;
+    if (idx === lastAssistantIdx) return msg;
+    const hasThinking = msg.content.some(c => c.type === "thinking");
+    if (!hasThinking) return msg;
+    const nonThinking = msg.content.filter(c => c.type !== "thinking");
+    if (nonThinking.length === 0) return msg;
+    return { ...msg, content: nonThinking };
+  });
+}
+
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
@@ -234,24 +260,7 @@ export class PiSessionFactory implements AgentGateway {
             hidden: true,
             factory: (pi: any) => {
               pi.on("context", (event: { messages: any[] }) => {
-                const messages = event.messages;
-                let lastAssistantIdx = -1;
-                for (let i = messages.length - 1; i >= 0; i--) {
-                  if (messages[i].role === "assistant") {
-                    lastAssistantIdx = i;
-                    break;
-                  }
-                }
-                const filtered = messages.map((msg: any, idx: number) => {
-                  if (msg.role !== "assistant") return msg;
-                  if (idx === lastAssistantIdx) return msg;
-                  const hasThinking = msg.content.some((c: any) => c.type === "thinking");
-                  if (!hasThinking) return msg;
-                  const nonThinking = msg.content.filter((c: any) => c.type !== "thinking");
-                  if (nonThinking.length === 0) return msg;
-                  return { ...msg, content: nonThinking };
-                });
-                return { messages: filtered };
+                return { messages: stripHistoricalThinking(event.messages) };
               });
             },
           }],
