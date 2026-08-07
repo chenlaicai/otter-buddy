@@ -316,8 +316,12 @@ export class SearchMemory {
         const meta = h.multiHitCount && h.multiHitCount > 1
           ? { ...(h.entry.metadata ?? {}), multi_hit_count: h.multiHitCount }
           : h.entry.metadata;
+        // snippet/summary 模式 content 置空（渐进式披露：snippet 定位 → get_memory_detail 深入）
+        const base = detailLevel === "full"
+          ? h.entry
+          : { ...h.entry, content: "" };
         return {
-          ...h.entry,
+          ...base,
           metadata: meta,
           score: h.finalScore,
           source: h.source,
@@ -424,8 +428,11 @@ export class SearchMemory {
     /** 获取 FTS highlight 片段（vec-only 结果为 undefined） */
     const ftsSnippet = snippetMap?.get(entry.id);
 
-    /** 降级：vec-only 结果截取 content 前 200 字符 */
-    const snippet = ftsSnippet ?? entry.content.slice(0, SNIPPET_FALLBACK_LENGTH);
+    /** 截取到 SNIPPET_FALLBACK_LENGTH：FTS highlight 可能很长，统一截断防止上下文膨胀 */
+    const rawSnippet = ftsSnippet ?? entry.content;
+    const snippet = rawSnippet.length > SNIPPET_FALLBACK_LENGTH
+      ? rawSnippet.slice(0, SNIPPET_FALLBACK_LENGTH)
+      : rawSnippet;
 
     if (detailLevel === "summary") {
       /** summary：取 snippet 的第一句（截取到首个句号/换行） */

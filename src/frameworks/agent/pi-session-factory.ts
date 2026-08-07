@@ -22,6 +22,7 @@ import type {
 } from "@usecases/otter/agent-gateway";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { truncateToolResult } from "@interface-adapters/agent-runtime/tools/tool-helpers";
 import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
@@ -771,7 +772,8 @@ export class PiSessionFactory implements AgentGateway {
         parameters: t.parameters,
         /** ToolDefinition.execute 有额外参数（signal/onUpdate/ctx），Otter 工具不需要，忽略 */
         execute: async (toolCallId: string, params: Record<string, unknown>) => {
-          return t.execute(toolCallId, params);
+          const result = await t.execute(toolCallId, params);
+          return truncateToolResult(result);
         },
       }));
   }

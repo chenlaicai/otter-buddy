@@ -113,8 +113,25 @@ describe("SearchMemory - progressive disclosure", () => {
     const first = result.entries[0];
     expect(first.snippet).not.toContain("<b>");
     expect(first.snippet).not.toContain("</b>");
-    /** 应包含原始内容 */
-    expect(first.content).toBeDefined();
+    /** snippet 模式 content 为空（渐进式披露：snippet 定位 → get_memory_detail 深入） */
+    expect(first.content).toBe("");
+    /** snippet 非空且包含匹配关键词（渐进式披露的有效性） */
+    expect(first.snippet!.length).toBeGreaterThan(0);
+    expect(first.snippet).toContain("渐进式");
+  });
+
+  it("FTS highlight 超长时截断到 200 字符", async () => {
+    /** 存入一条 > 200 字符的长内容，确保 FTS highlight 也会很长 */
+    const longContent = "关于记忆系统的渐进式披露设计，这是一个非常重要的架构决策。".repeat(10);
+    storeEntry(db, { ...BASE_ENTRY, id: "e-long", content: longContent });
+
+    const result = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "snippet" });
+    const longEntry = result.entries.find(e => e.id === "e-long");
+    if (longEntry) {
+      /** FTS highlight snippet 应被截断到 200 字符 */
+      expect(longEntry.snippet!.length).toBeLessThanOrEqual(200);
+      expect(longEntry.snippet!.length).toBeGreaterThan(0);
+    }
   });
 
   it("snippet 降级：vec-only 结果截取前 200 字符", async () => {
