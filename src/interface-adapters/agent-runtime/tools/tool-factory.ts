@@ -212,11 +212,10 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       type: "object",
       properties: {
         name: { type: "string", description: "Otter 名称" },
-        type: { type: "string", enum: ["big", "small"], description: "Otter 类型" },
         systemPrompt: { type: "string", description: "系统提示词" },
         modelAlias: { type: "string", description: "模型别名（可选，不传使用默认模型）。可选值见身份提示中的模型列表。" },
       },
-      required: ["name", "type", "systemPrompt"],
+      required: ["name", "systemPrompt"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 校验 modelAlias
@@ -234,7 +233,7 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       }
       const otter = await ctx.client.otter.create({
         name: params.name as string,
-        type: params.type as "big" | "small",
+        type: "small" as const,
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
         modelAlias: modelAlias?.trim() || undefined,
