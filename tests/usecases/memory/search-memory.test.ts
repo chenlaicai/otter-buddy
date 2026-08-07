@@ -113,8 +113,8 @@ describe("SearchMemory - progressive disclosure", () => {
     const first = result.entries[0];
     expect(first.snippet).not.toContain("<b>");
     expect(first.snippet).not.toContain("</b>");
-    /** snippet 模式不返回 content（渐进式披露：snippet 定位 → get_memory_detail 深入） */
-    expect(first.content).toBeUndefined();
+    /** snippet 模式 content 为空（渐进式披露：snippet 定位 → get_memory_detail 深入） */
+    expect(first.content).toBe("");
     /** 应有 snippet 作为替代 */
     expect(first.snippet).toBeDefined();
   });

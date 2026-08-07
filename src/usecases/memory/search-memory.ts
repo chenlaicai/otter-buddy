@@ -316,9 +316,10 @@ export class SearchMemory {
         const meta = h.multiHitCount && h.multiHitCount > 1
           ? { ...(h.entry.metadata ?? {}), multi_hit_count: h.multiHitCount }
           : h.entry.metadata;
-        // snippet/summary 模式不返回 content（渐进式披露：snippet 定位 → get_memory_detail 深入）
-        const { content: _content, ...entryWithoutContent } = h.entry;
-        const base = detailLevel === "full" ? h.entry : entryWithoutContent;
+        // snippet/summary 模式 content 置空（渐进式披露：snippet 定位 → get_memory_detail 深入）
+        const base = detailLevel === "full"
+          ? h.entry
+          : { ...h.entry, content: "" };
         return {
           ...base,
           metadata: meta,
