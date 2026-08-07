@@ -140,6 +140,22 @@ export function toMemoryEntryDTO(
 return toMemoryEntryDTO(e, e.score, e.source, snippet, detailLevel);
 ```
 
+### 4. `tool-factory.ts`：工具描述加入渐进式披露操作规则
+
+原有描述只说了"渐进式披露"这个概念，没告诉 LLM 具体怎么做。修改后：
+
+- `search_memory` 描述：明确四步工作流（summary 扫描 → get_memory_detail 深入 → snippet 看上下文 → full 全文）
+- `detail_level` 参数描述：每个值标注使用场景（"推荐首选"、"看上下文"、"仅需全文时用"）
+- 默认值从 `"snippet"` 改为 `"summary"`（渐进式披露的第一步应该是最轻量的）
+- `get_memory_detail` 描述：明确标注为"渐进式披露第二阶段"，不要跳过 search_memory 直接使用
+
+### 5. `SKILL.md`：补充记忆检索渐进式披露工作流
+
+原有指引只写了"用 `search_memory`"，补充为三步操作：
+1. `search_memory(detail_level="summary")` 快速扫描
+2. `get_memory_detail(ids=[...])` 获取全文
+3. 不要跳过步骤 1 直接用 full 模式灌入全文
+
 ## 修复后行为
 
 | detail_level | content 返回 | snippet 返回 |
