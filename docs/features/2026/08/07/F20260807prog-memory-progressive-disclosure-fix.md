@@ -148,8 +148,24 @@ return toMemoryEntryDTO(e, e.score, e.source, snippet, detailLevel);
 | `"snippet"` | FTS 高亮片段 / 200 字降级 | 同左（高亮） |
 | `"full"` | 全文 | 无 |
 
+## 测试覆盖补充
+
+原有测试的漏洞：只断言 `snippet` 字段，从未检查 `content` 是否被裁剪。
+
+| 测试文件 | 补充内容 |
+|---|---|
+| `search-memory.test.ts` | 6 个现有测试增加 `content == snippet` 断言；新增 2 个针对性测试 |
+| `memory.test.ts` | 新增 3 个 HTTP API 测试：summary/snippet/full 模式下 content 裁剪行为 |
+
+新增测试用例：
+- `渐进式披露核心：snippet/summary 的 content 等于 snippet，full 保持全文`
+- `detail_level 未传时 content 也不应返回全文（默认 snippet 行为）`
+- `detail_level=summary 时 content 被裁剪为 snippet`（API）
+- `detail_level=snippet 时 content 被裁剪为 snippet`（API）
+- `detail_level=full 时 content 保留全文`（API）
+
 ## 验证
 
 1. **编译**：`npm run build` 通过
-2. **单元测试**：982 个测试全部通过
+2. **单元测试**：998 个测试全部通过（新增 16 个断言）
 3. **CI**：PR #186 通过
