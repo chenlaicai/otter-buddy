@@ -35,7 +35,7 @@ Find real problems in the review target — code changes (PR) or design document
 - **Focus before coverage**: Declare a review focus (1–3 dimensions) based on blast radius before checking anything. Go deep on the focus, sweep the rest. Uniform attention across all dimensions is scatter, not rigor.
 - **Reference actual code**: Every judgment must cite a specific file and line number. No impression-based reviews.
 - **Every issue needs a disposition**: "Not blocking" and "optimize later" are not valid dispositions.
-- **No vague conclusions**: "Looks fine" and "can merge" without specifics are forbidden.
+- **No vague conclusions**: "Looks fine" and "can approve" without specifics are forbidden. Reviewers cannot output "can merge" — that is the decision-maker's judgment.
 - **Verify independently**: Run tests and builds directly. Do not just check the developer's results.
 - **Do not modify code**: Only report findings. The developer fixes, the reviewer identifies.
 
