@@ -35,7 +35,7 @@ Find real problems in the review target — code changes (PR) or design document
 - **Focus before coverage**: Declare a review focus (1–3 dimensions) based on blast radius before checking anything. Go deep on the focus, sweep the rest. Uniform attention across all dimensions is scatter, not rigor.
 - **Reference actual code**: Every judgment must cite a specific file and line number. No impression-based reviews.
 - **Every issue needs a disposition**: "Not blocking" and "optimize later" are not valid dispositions.
-- **No vague conclusions**: "Looks fine" and "can merge" without specifics are forbidden.
+- **No vague conclusions**: "Looks fine" and "can approve" without specifics are forbidden. Reviewers cannot output "can merge" — that is the decision-maker's judgment.
 - **Verify independently**: Run tests and builds directly. Do not just check the developer's results.
 - **Do not modify code**: Only report findings. The developer fixes, the reviewer identifies.
 
@@ -129,11 +129,21 @@ Produce a structured review report using the template below.
 - 焦点维度：[1–3 个维度]，理由：[一句话，基于改动性质与 blast radius]
 - 其余维度：快速扫过（仍逐维度显式结论）
 
+## 审查者自省
+
+在给出结论前，想想这些问题：
+
+- 我是否把问题降级了？如果一个问题是真实的，为什么它是"次要观察"而不是"阻断性"？
+- 我是否在替搭档做决定？我是不是在帮搭档省事？
+- 我是否用了淡化问题的话？"小问题"、"影响不大"——这些话是在描述问题，还是在为不修复找理由？
+
+这些问题没有标准答案。但如果你发现自己在合理化，停下来想想：你是在如实报告，还是在回避判断？
+
 ## 审查结论
 
-[需要修改 / 可以合入（附条件）]
+[需要修改 / 存在以下问题（决策者判断）]
 
-结论必须是二元的。"基本没问题"不是有效结论。存在未处置的阻断性问题 → 必须"需要修改"。
+结论必须是二元的。"基本没问题"不是有效结论。存在未处置的阻断性问题 → 必须"需要修改"。存在问题但不够阻断 → "存在以下问题（决策者判断）"，由搭档决定是否合入。
 
 ## 阻断性问题
 
@@ -181,17 +191,17 @@ Produce a structured review report using the template below.
 - 报告必须填写审查者署名（替换模板中的 `[海獭名号]`），未署名的报告无效
 - 报告必须先声明本轮焦点（1–3 个维度 + 理由），无焦点的报告无效
 - Every issue MUST have a disposition
-- If ANY 阻断性 issue is unresolved, conclusion MUST be "需要修改"
+- If ANY 阻断性 issue is unresolved, conclusion MUST be "需要修改". If issues exist but none are blocking, conclusion MUST be "存在以下问题（决策者判断）"
 - Each issue MUST cite `file:line` — no impression-based findings
 - "无发现" is valid for a dimension — explicitly note it in 维度扫视结论, do NOT skip silently
 - 复审轮（第 2 轮起）的报告结构：上轮发现逐条验证结论 + 修复回归检查；delta 之外的新发现必须标注"此前轮次漏报"并说明为何够/不够阻断门槛
-- 审视对象是方案/设计文档（非代码）时：结论选项"需要修改 / 可以合入"读作"需要修改 / 可以定稿"
+- 审视对象是方案/设计文档（非代码）时：结论选项"需要修改 / 存在以下问题（决策者判断）"读作"需要修改 / 存在以下问题（决策者判断）"
 - Do NOT reuse previous review comments for re-inspection — publish new ones
 
 ### 文档审视适配
 
 审视对象是方案/设计文档（非代码）时：
-- 结论选项"需要修改 / 可以合入"读作"需要修改 / 可以定稿"
+- 结论选项"需要修改 / 存在以下问题（决策者判断）"读作"需要修改 / 存在以下问题（决策者判断）"
 - "本轮焦点"同样必填（例：本方案风险集中在边界条件与事实性断言，则焦点 = Edge Cases + Correctness）
 - "变更完整性"检查单适配为：
   - "所有设计文档中列出的改动范围都已覆盖" → "方案声称覆盖的需求点都已覆盖"
@@ -204,7 +214,7 @@ Produce a structured review report using the template below.
 | 产出类型 | 下一步动作 | 执行者 | 触发条件 | 不满足时处理 |
 |----------|-----------|--------|----------|-------------|
 | 审视报告（需修改） | 作者处置 | 实现者（异体） | 报告交付后 | 正常终止，报告交付搭档 |
-| 审视报告（可合入/可定稿） | 搭档终审 | 搭档 | 结论为通过时 | 搭档不在场 → 记录结论到 memory，搭档回来后终审 |
+| 审视报告（存在以下问题） | 搭档决策 | 搭档 | 报告交付后 | 搭档不在场 → 记录问题清单到 memory，搭档回来后决策 |
 | 审视报告（对立僵局） | 搭档裁决 | 搭档 | 触发升级信号时 | 搭档不在场 → 记录僵局状态到 memory，搭档回来后裁决 |
 
 ### 异体执行原则
@@ -225,9 +235,11 @@ Produce a structured review report using the template below.
 
 - Every finding is classified at report time:
   - **阻断性**：单凭这一条就足以否决本次交付。门槛问题："仅凭这一条，我会否决吗？"答不上来就不是阻断。
+    - **后果视角**：当你准备把一个问题归为"次要观察"时，换个角度想想：如果这个问题流入生产，用户会怎样？系统会怎样？搭档会怎样？你不需要给出一个"正确答案"。但这个视角可以帮助你判断：你是在如实评估问题，还是在回避判断。
   - **次要观察**：不阻断结论，但必须有着落——在当前 PR 修复，或记录（issue / PR 描述）。"以后再说"仍然禁用——次要观察是分流，不是拖延。
 - 焦点维度之外的发现默认归入次要观察，除非过得了阻断门槛。
 - Dispositions: 阻断性问题 → "在当前 PR 修复" or "开发者回应（审查者认可）"；次要观察 → 额外允许 "记录（issue/PR 描述）"。
+  - **处置的真实性**："记录为 issue"是一种处置，但它必须是真实的。如果你说"记录为 issue"，你应该真的打算创建这个 issue。如果你不确定会不会创建，那这个问题要么现在修，要么跟搭档说清楚："这个问题我看到了，但我不确定要不要修，你怎么看？""以后再说"不是处置。
 - Any unresolved 阻断性 issue → conclusion MUST be "需要修改"。次要观察未处置 → 报告必须列出其去处，但不否决结论。
 - Developer gives a reasonable explanation → can acknowledge, but must record the reasoning
 - 作者反驳是合法处置（见 `references/author-response-protocol.md`）。评估反驳只看证据（file:line、测试、方案原文），不靠权威压人；一轮证据交换后仍对立 → 呈搭档裁决，不许多轮拉扯。
@@ -241,11 +253,10 @@ Produce a structured review report using the template below.
 
 ### 审查者 vs 决策者
 
-审查者和决策者是不同角色。当两者冲突时：
+审查者和决策者是不同角色。
 
-- **审查者的责任**：诚实报告问题，结论保持"需要修改"
-- **决策者的权力**：可以决定合入未修复的问题
-- **处理方式**：当决策者要求合入未修复的问题时，记录"决策者选择合入"作为处置，审查者不改为"可以合入"
+- **审查者的责任**：如实报告问题。结论只有两种："需要修改"（有阻断性问题）或"存在以下问题（决策者判断）"（有问题但不够阻断）。审查者不能输出"可以合入"——那是决策者的判断。
+- **决策者的权力**：看到问题清单后，决定是否合入。决策者可以决定合入未修复的问题，但必须记录决策。
 
 审查者的结论反映问题的存在，不反映决策者的选择。
 
