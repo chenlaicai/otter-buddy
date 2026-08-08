@@ -1,5 +1,5 @@
 import { Search, Plus, Pin } from 'lucide-react'
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect } from 'react'
 import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor } from '../../lib/otter-colors'
 
@@ -36,13 +36,16 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
     }
   }, [])
 
-  const handleSelect = useCallback((id: string) => {
-    // 保存当前滚动位置，整页刷新后恢复
-    if (scrollRef.current) {
-      sessionStorage.setItem(SCROLL_POS_KEY, String(scrollRef.current.scrollTop))
+  // 页面卸载前保存滚动位置（覆盖所有 MPA 导航路径：href、reload、anchor 等）
+  useEffect(() => {
+    function saveScrollPosition() {
+      if (scrollRef.current) {
+        sessionStorage.setItem(SCROLL_POS_KEY, String(scrollRef.current.scrollTop))
+      }
     }
-    onSelect(id)
-  }, [onSelect])
+    window.addEventListener('beforeunload', saveScrollPosition)
+    return () => window.removeEventListener('beforeunload', saveScrollPosition)
+  }, [])
 
   return (
     <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
@@ -69,7 +72,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
             key={c.id}
             conversation={c}
             isActive={c.id === activeId}
-            onSelect={handleSelect}
+            onSelect={onSelect}
             onContextMenu={onContextMenu}
             otters={otters}
           />
@@ -82,7 +85,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
             key={c.id}
             conversation={c}
             isActive={c.id === activeId}
-            onSelect={handleSelect}
+            onSelect={onSelect}
             onContextMenu={onContextMenu}
             otters={otters}
           />
