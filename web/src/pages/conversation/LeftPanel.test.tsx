@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * LeftPanel sessionStorage 滚动位置保持测试
- * - onSelect 触发后 sessionStorage 被写入
+ * - beforeunload 触发后 sessionStorage 被写入
  * - mount 后 scrollTop 被恢复
  * - 恢复后 sessionStorage 被清除
  * - 无效值不做恢复
@@ -63,18 +63,41 @@ function renderLeftPanel(onSelect: (id: string) => void = () => {}) {
 }
 
 describe('LeftPanel sessionStorage 滚动位置保持', () => {
-  it('onSelect 触发后 sessionStorage 写入当前 scrollTop', () => {
-    const onSelect = vi.fn()
-    renderLeftPanel(onSelect)
-
+  it('beforeunload 触发后 sessionStorage 写入当前 scrollTop', () => {
+    renderLeftPanel()
     const scrollContainer = getScrollContainer()
     Object.defineProperty(scrollContainer, 'scrollTop', { value: 150, configurable: true })
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+    expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBe('150')
+  })
 
+  it('beforeunload 覆盖非 onSelect 导航路径（如 reload、href）', () => {
+    renderLeftPanel()
+    const scrollContainer = getScrollContainer()
+    Object.defineProperty(scrollContainer, 'scrollTop', { value: 320, configurable: true })
+    act(() => {
+      window.dispatchEvent(new Event('beforeunload'))
+    })
+    expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBe('320')
+  })
+
+  it('onSelect 回调正常触发，不被 beforeunload 逻辑影响', () => {
+    const onSelect = vi.fn()
+    renderLeftPanel(onSelect)
     const item = container.querySelector('[class*="cursor-pointer"]') as HTMLElement
     act(() => { item.click() })
-
-    expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBe('150')
     expect(onSelect).toHaveBeenCalledWith('c1')
+    expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBeNull()
+  })
+
+  it('组件卸载时移除 beforeunload 监听器', () => {
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+    renderLeftPanel()
+    act(() => { root.unmount() })
+    expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+    removeSpy.mockRestore()
   })
 
   it('mount 后从 sessionStorage 恢复滚动位置', async () => {
