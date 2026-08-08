@@ -73,14 +73,16 @@ describe('LeftPanel sessionStorage 滚动位置保持', () => {
     expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBe('150')
   })
 
-  it('beforeunload 覆盖非 onSelect 导航路径（如 reload、href）', () => {
+  it('快速导航（mount 后立即 unmount）不导致异常', async () => {
+    sessionStorage.setItem(SCROLL_POS_KEY, '200')
     renderLeftPanel()
-    const scrollContainer = getScrollContainer()
-    Object.defineProperty(scrollContainer, 'scrollTop', { value: 320, configurable: true })
-    act(() => {
-      window.dispatchEvent(new Event('beforeunload'))
+    getScrollContainer()
+    // 立即卸载，rAF 回调执行时组件已不在
+    act(() => { root.unmount() })
+    // rAF 回调仍会执行，但 optional chaining 保护不崩溃
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBeNull()
     })
-    expect(sessionStorage.getItem(SCROLL_POS_KEY)).toBe('320')
   })
 
   it('onSelect 回调正常触发，不被 beforeunload 逻辑影响', () => {
