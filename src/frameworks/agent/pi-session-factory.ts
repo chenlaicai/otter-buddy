@@ -23,8 +23,8 @@ import type {
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { truncateToolResult } from "@interface-adapters/agent-runtime/tools/tool-helpers";
-import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
-import { calculateContextTokens, getLastAssistantUsage } from "@earendil-works/pi-coding-agent";
+import type { ResourceLoader, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { getContextWindowTokens } from "./context-tokens";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
@@ -69,7 +69,7 @@ export interface AgentRunResult {
 /** _buildInvokeResult 所需的 session 结构子集（统计 + 分支条目读取） */
 type SessionStatsSource = {
   getSessionStats: () => { tokens: { input: number; output: number } };
-  sessionManager: { getBranch: () => Parameters<typeof getLastAssistantUsage>[0] };
+  sessionManager: { getBranch: () => SessionEntry[] };
 };
 
 /** invoke() 选项 */
@@ -729,10 +729,9 @@ export class PiSessionFactory implements AgentGateway {
     const stats = session.getSessionStats();
     const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
 
-    /** F20260808ctxw：上下文窗口占用 = 末次 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
-     * 与 SDK compaction 判定同公式；session 重建/compaction 后自然回落，不会虚增 */
-    const lastUsage = getLastAssistantUsage(session.sessionManager.getBranch());
-    const ctxTokens = lastUsage ? calculateContextTokens(lastUsage) : undefined;
+    /** F20260808ctxw：上下文窗口占用 = 末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
+     * 与 SDK compaction 判定同公式、同 compaction 边界语义；session 重建/compaction 后自然回落，不会虚增 */
+    const ctxTokens = getContextWindowTokens(session.sessionManager.getBranch());
     checkTokenWarning(otterId, ctxTokens, this.logger);
 
     // per-otter contextWindow

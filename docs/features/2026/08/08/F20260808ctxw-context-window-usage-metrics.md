@@ -55,20 +55,22 @@ F20260806btk7（context_tokens 落库 PR）已将此口径问题记录在案："
 
 ## 变更
 
-1. **口径来源**（pi-session-factory.ts `_buildInvokeResult`）：新增 `ctxTokens` = `calculateContextTokens(getLastAssistantUsage(session.sessionManager.getBranch()))`，即末次 assistant 消息的 usage（input+output+cacheRead+cacheWrite）。两函数均为 pi-coding-agent SDK 公开导出，与 SDK 自身 compaction 判定同一公式。
+1. **口径来源**（pi-session-factory.ts `_buildInvokeResult` → context-tokens.ts `getContextWindowTokens`）：`ctxTokens` = 末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），复用 SDK 公开导出的 `getLastAssistantUsage`/`getLatestCompactionEntry`/`calculateContextTokens`，与 SDK compaction 判定同公式。**compaction 边界与 SDK `getContextUsage()` 同语义**：压缩点后无有效 assistant usage 时返回 undefined（该轮不落 ctx），不显示压缩前峰值。
 2. **结果载体**：`AgentRunResult`（agent-invoke-port.ts / pi-session-factory.ts）新增 `ctxTokens?: number`；`tokenUsage` 保留 session 累计口径，仅用于成本日志。
 3. **落库**（agent-invoker.ts `_handlePostInvocation`）：`contextTokens` 改取 `result.ctxTokens`。
 4. **SSE**（agent-invoker.ts `completeAgentInvocation`）：`message.complete` 的 `ctx` 改取 `result.ctxTokens`，与落库同源。
 5. **告警**（circuit-breaker-helpers.ts `checkTokenWarning`）：参数从累计 tokens 改为 `ctxTokens`，同一阈值（100k）在窗口占用口径下恢复本来语义。
-6. **测试**（agent-invoker.test.ts）：mock 结果带 `ctxTokens: 42000`，断言落库值 = ctxTokens（不再断言 input+output=15）。
+6. **contextWindow 接入 SDK model**（models-factory.ts，对抗检视 L1 发现）：自定义模型（不在 provider 字典，如 mimo-v2.5-pro）注入时把 config 的 `contextWindow` 带入 SDK model。此前 SDK 看到 `contextWindow=undefined→0`，`shouldCompact` 判定恒真——**35-45k 上下文的 session 每轮都触发 auto-compaction 摘要调用**（生产 session jsonl 实锤：3-4 轮对话 5 次 compaction），白跑摘要成本还无谓压缩上下文。kimi k3 在 SDK 字典自带 1M 不受影响。生产 config.yaml 已为 mimo/kimi 补 `contextWindow: 1048576`（mimo 官方文档 1M；kimi k3 经 `GET /coding/v1/models` 实测 context_length=1048576）。
+7. **测试**：新增 context-tokens.test.ts（口径公式 8 用例 + checkTokenWarning 3 用例）；models-factory.test.ts 补注入断言 2 用例；agent-invoker.test.ts 断言落库值 = ctxTokens（不再断言 input+output=15）。
 
 ## 设计决策
 
-- **为什么不用 SDK 的 `getContextUsage()`**：它要求 `model.contextWindow > 0` 才返回有效值，而 mimo 是自定义模型、config.yaml 未配 contextWindow（models-factory 自定义模型只继承连接属性），运行时必返回 undefined。直接取末次 usage 不依赖配置，且在 invoke 完成时点末次 assistant 消息即最终响应，trailing 估算增量为零，结果等价。
+- **为什么不用 SDK 的 `getContextUsage()`**：它要求 `model.contextWindow > 0` 才返回有效值，而本 PR 修复前自定义模型拿不到 contextWindow，运行时必返回 undefined。`getContextWindowTokens` 复用其全部语义（同公式、同 compaction 边界、同 usage 有效性规则），但不依赖配置即可返回值；ctxMax 展示仍走 modelPool 配置。
+- **compaction 当轮不落 ctx（M1 拍板）**：threshold compaction 触发的那一轮，branch 末条 usage 是压缩前的，真实窗口已被压到 keepRecentTokens+摘要量级。此时落 undefined（前端该轮不渲染条），下一轮 LLM 响应后恢复准确值。搭档 2026-08-08 拍板按 SDK 语义修。
 - **为什么公式含 output**：与 SDK compaction 的 `calculateContextTokens` 保持同公式（totalTokens || input+output+cacheRead+cacheWrite），口径一致性优先；output 通常仅数百 token，不构成误差。
 - **tokenUsage 保留累计口径**：它是本轮真实成本（计费口径），日志排障仍需要；只是不再用于"上下文占用"展示。
 - **session 重建/compaction 后数值自然回落**：窗口占用口径下这是正确行为（上下文确实变小了），不再是旧口径的"诡异回落"。
-- **ctxMax 未配时前端兜底 200000**：存量行为不变；在 config.yaml 为模型补 `contextWindow` 后百分比条即准确，属配置项不在本 PR。
+- **contextWindow 缺省不注入**：models-factory 仅在 config 显式配置时带入（条件展开），未配置时行为与此前一致，避免对未配置用户引入行为突变。
 
 ## Acceptance Test（验收测试）
 
@@ -104,11 +106,25 @@ A 类纯代码逻辑改动，无 LLM 参与行为，不需要能力测试。验�
 |------|---------|------|
 | 需求1 | 待验收（合入后真实对话验证） | ❓ |
 | 需求2 | 待验收（合入后真实对话验证） | ❓ |
-| 需求3 | 证明完成：`npm test` 84 文件 1020 用例全绿（2026-08-08） | ✅ |
+| 需求3 | 证明完成：`npm test` 85 文件 1033 用例全绿（2026-08-08，含口径公式 13 新用例） | ✅ |
+
+## 对抗审视记录
+
+独立 agent 对抗检视（2026-08-08，57 次工具调用逐项核验 SDK 源码与调用路径）：
+
+| 编号 | 发现 | 严重度 | 处置 |
+|------|------|--------|------|
+| M1 | compaction 边界：直接取末次 usage 缺少 SDK 的 post-compaction 检查，threshold compaction 当轮会落库压缩前旧值且永久留 DB | Medium | **已修**：`getContextWindowTokens` 照搬 SDK 边界语义，压缩点后无有效 usage 返回 undefined。语义取舍呈搭档拍板：按 SDK 语义修（2026-08-08） |
+| M2 | 口径公式零测试覆盖，改回累计值测试仍全绿，AT-3 回归防线名不副实 | Medium | **已修**：新增 context-tokens.test.ts 11 用例 + models-factory 注入断言 2 用例 |
+| L1 | mimo 自定义模型 contextWindow=0 → SDK `shouldCompact` 恒真，35-45k 上下文每轮白跑摘要 compaction（生产 jsonl 实锤 3-4 轮 5 次）；kimi k3 字典自带 1M 不受影响 | Low（实际影响大） | **已修**：models-factory 注入时带入 config contextWindow；生产 config.yaml 补齐 1048576。搭档拍板"本次完整修复" |
+| L2 | alias 未知时 `getContextWindow` 返回 undefined 而实跑回退默认模型，百分比失真 | Low | 存量，不修，记录在案 |
+
+审视确认无问题的维度：getLastAssistantUsage 输入结构与 branch entry 匹配；abort/error/熔断路径无过期值落库；三条重试路径 ctxTokens 不串值；SSE 与落库同源；前端对小值与 1M ctxMax 渲染正常。
 
 ## 影响面
 
-- **展示语义变化**：历史消息已落库的累计值（含 600k 级）不回填、不迁移，新旧消息口径不同——老消息显示的是累计消耗，新消息显示窗口占用。搭档已知情（本 PR 即搭档排查后立项）。
-- **前端**：无代码变化（字段名/结构未动，仅值口径变化）。
+- **展示语义变化**：历史消息已落库的累计值（含 600k 级）不回填、不迁移（搭档拍板"不要管"），新旧消息口径不同——老消息显示的是累计消耗，新消息显示窗口占用。
+- **前端**：无代码变化（字段名/结构未动，仅值口径变化）；compaction 当轮不渲染 ctx 条（ctx undefined，前端 `m.ctx != null` 守卫）。
 - **告警**：`[token-warning]` 日志触发条件从"session 累计 >100k"变为"窗口占用 >100k"，误告警消除。
+- **compaction 行为变化（L1 修复的副作用，实为修复本体）**：mimo session 不再每轮触发 auto-compaction——摘要 LLM 调用成本/延迟消除，长上下文不再被无谓压缩。这是本 PR 除指标外的实质收益。
 - **handoff**：仓内无基于 tokenUsage 的自动 handoff 实现（F20260722ta2k 文档中的 handoff 阈值代码示例未落地），无影响。
