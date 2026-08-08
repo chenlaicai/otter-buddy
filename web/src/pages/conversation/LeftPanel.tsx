@@ -28,9 +28,11 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
       if (!isNaN(top)) {
         requestAnimationFrame(() => {
           scrollRef.current?.scrollTo({ top })
+          sessionStorage.removeItem(SCROLL_POS_KEY)
         })
+      } else {
+        sessionStorage.removeItem(SCROLL_POS_KEY)
       }
-      sessionStorage.removeItem(SCROLL_POS_KEY)
     }
   }, [])
 
