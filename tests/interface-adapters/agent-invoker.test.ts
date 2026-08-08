@@ -96,7 +96,7 @@ function mockQueryOtter(): QueryOtter {
 /** 创建 AgentInvokePort mock，可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
-  result?: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
+  result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
   throwOnInvoke?: Error;
   toolCallCount?: number;
   internalAbortReason?: string;
@@ -132,7 +132,7 @@ describe("AgentInvoker", () => {
           { type: "message_update", delta: " world" },
           { type: "turn_end" },
         ],
-        result: { text: "Hello world", tokenUsage: { input: 10, output: 5 }, ctxMax: 200000 },
+        result: { text: "Hello world", tokenUsage: { input: 10, output: 5 }, ctxTokens: 42000, ctxMax: 200000 },
       }),
       sendMessage,
       mockQueryMessage(),
@@ -164,9 +164,9 @@ describe("AgentInvoker", () => {
     const turnIdx = eventTypes.indexOf("turn.complete");
     expect(turnIdx).toBeGreaterThan(completeIdx);
 
-    /** token 用量随 complete 落库（口径：input+output），保证刷新后历史消息仍能展示上下文使用率 */
+    /** 上下文窗口占用随 complete 落库（口径：末次 LLM 调用窗口占用 ctxTokens，F20260808ctxw），保证刷新后历史消息仍能展示上下文使用率 */
     expect(sendMessage._completeCalls).toHaveLength(1);
-    expect(sendMessage._completeCalls[0].input).toEqual({ contextTokens: 15, contextTokensMax: 200000 });
+    expect(sendMessage._completeCalls[0].input).toEqual({ contextTokens: 42000, contextTokensMax: 200000 });
   });
 
   it("calls sendMessage.abort() with synthetic body on abort (B-Abort-1, B-Abort-2)", async () => {

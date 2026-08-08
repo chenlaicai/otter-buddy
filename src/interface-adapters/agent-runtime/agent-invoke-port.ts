@@ -13,7 +13,10 @@ export interface AgentStreamEvent {
 /** Agent 执行结果（与 Pi 的 AgentRunResult 结构匹配） */
 export interface AgentRunResult {
   text: string;
+  /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
   tokenUsage?: { input: number; output: number };
+  /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite（F20260808ctxw） */
+  ctxTokens?: number;
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };

@@ -41,7 +41,7 @@ vi.mock("@earendil-works/pi-ai/providers/anthropic", () => ({
 let initModels: typeof import("../../../src/frameworks/llm/models-factory").initModels;
 
 /** 构造单条目 llm 配置（单模型 = 一条 models[] 条目） */
-function makeLlm(entry: Partial<{ alias: string; provider: string; model: string; apiKey: string; apiBaseUrl: string }> = {}): AppConfig["llm"] {
+function makeLlm(entry: Partial<{ alias: string; provider: string; model: string; apiKey: string; apiBaseUrl: string; contextWindow: number; maxTokens: number }> = {}): AppConfig["llm"] {
   const alias = entry.alias ?? "main";
   return {
     default: alias,
@@ -51,6 +51,8 @@ function makeLlm(entry: Partial<{ alias: string; provider: string; model: string
       model: entry.model ?? "gpt-4o",
       apiKey: entry.apiKey,
       apiBaseUrl: entry.apiBaseUrl,
+      contextWindow: entry.contextWindow,
+      maxTokens: entry.maxTokens,
     }],
   };
 }
@@ -103,6 +105,33 @@ describe("initModels — custom provider routing", () => {
 
   it("throws for unsupported provider in custom path", async () => {
     await expect(initModels(makeLlm({ provider: "unknown", apiKey: "sk-test" }))).rejects.toThrow("Unsupported LLM provider type: unknown");
+  });
+
+  /** F20260808ctxw：自定义模型（不在 provider 字典）注入时携带 config 的 contextWindow，否则 SDK 视为 0 → shouldCompact 恒真 */
+  it("injects config contextWindow into SDK model when model not in provider dict", async () => {
+    await initModels(makeLlm({ alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro", apiKey: "sk-x", contextWindow: 1048576 }));
+
+    const models = mockCreateProvider.mock.calls[0][0].models as Array<Record<string, unknown>>;
+    const injected = models.find((m) => m.id === "mimo-v2.5-pro");
+    expect(injected?.contextWindow).toBe(1048576);
+  });
+
+  it("omits contextWindow key when not configured", async () => {
+    await initModels(makeLlm({ alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro", apiKey: "sk-x" }));
+
+    const models = mockCreateProvider.mock.calls[0][0].models as Array<Record<string, unknown>>;
+    const injected = models.find((m) => m.id === "mimo-v2.5-pro");
+    expect(injected).toBeDefined();
+    expect(injected).not.toHaveProperty("contextWindow");
+  });
+
+  /** F20260808ctxw：maxTokens 为 SDK Model 必填，config 优先、缺省回退模板值（否则请求负载 max_tokens=null） */
+  it("injects config maxTokens when provided", async () => {
+    await initModels(makeLlm({ alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro", apiKey: "sk-x", maxTokens: 131072 }));
+
+    const models = mockCreateProvider.mock.calls[0][0].models as Array<Record<string, unknown>>;
+    const injected = models.find((m) => m.id === "mimo-v2.5-pro");
+    expect(injected?.maxTokens).toBe(131072);
   });
 });
 

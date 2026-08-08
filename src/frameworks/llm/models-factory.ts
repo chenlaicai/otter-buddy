@@ -17,6 +17,10 @@ export type { ModelPool } from "./model-pool";
 interface CustomProviderOptions {
   apiBaseUrl?: string;
   apiKey?: string;
+  /** 模型上下文窗口（自定义模型注入时带入，SDK compaction/溢出检测依赖它，F20260808ctxw） */
+  contextWindow?: number;
+  /** 最大输出 tokens（缺省回退 provider 模板值；SDK Model 接口必填，缺了请求负载 max_tokens 为 null） */
+  maxTokens?: number;
 }
 
 /** pi-ai 动态加载后的模块句柄（单例，避免重复 import） */
@@ -87,7 +91,7 @@ async function loadCustomProvider(
   providerType: string,
   modelId: string,
   alias: string,
-  options: { apiBaseUrl?: string; apiKey?: string },
+  options: CustomProviderOptions,
 ): Promise<unknown> {
   let modelsDict: Record<string, unknown>;
   let api: unknown;
@@ -111,7 +115,7 @@ async function loadCustomProvider(
     throw new Error(`Unsupported LLM provider type: ${providerType}`);
   }
 
-  // 转为数组并注入自定义模型（只继承连接属性，不继承 contextWindow/maxTokens/cost 等模型属性）
+  // 转为数组并注入自定义模型（连接属性继承模板；contextWindow 从 config 带入，缺省不带）
   const modelsArray = Object.values(modelsDict) as Record<string, unknown>[];
   const hasModel = modelsArray.some(m => (m as Record<string, unknown>).id === modelId);
   if (!hasModel) {
@@ -131,6 +135,10 @@ async function loadCustomProvider(
         thinkingLevelMap: {},
         input: template.input,
         cost: (template as Record<string, unknown>).cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        /** F20260808ctxw：contextWindow 缺省时 SDK 视为 0，shouldCompact 恒真（每轮白跑摘要调用） */
+        ...(options.contextWindow !== undefined && { contextWindow: options.contextWindow }),
+        /** maxTokens 为 SDK Model 必填：缺省时请求负载 max_tokens=null（严格端点 400）。config 优先，回退模板值 */
+        maxTokens: options.maxTokens ?? template.maxTokens,
       });
     }
   }
@@ -196,6 +204,8 @@ async function initModelPool(
     const providerModule = await loadProvider(mc.provider, mc.model, mc.alias, {
       apiKey: mc.apiKey,
       apiBaseUrl: mc.apiBaseUrl,
+      contextWindow: mc.contextWindow,
+      maxTokens: mc.maxTokens,
     });
     models.setProvider(providerModule as never);
 
