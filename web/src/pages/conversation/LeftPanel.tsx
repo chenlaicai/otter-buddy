@@ -1,4 +1,5 @@
 import { Search, Plus, Pin } from 'lucide-react'
+import { useRef, useEffect, useCallback } from 'react'
 import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor } from '../../lib/otter-colors'
 
@@ -11,9 +12,35 @@ interface LeftPanelProps {
   otters: Otter[]
 }
 
+/** sessionStorage key for persisting scroll position across MPA page transitions */
+const SCROLL_POS_KEY = 'leftPanel:scrollTop'
+
 export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters }: LeftPanelProps) {
   const pinnedConvs = conversations.filter(c => c.pinned)
   const normalConvs = conversations.filter(c => !c.pinned)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // 恢复上次保存的滚动位置（整页刷新后）
+  useEffect(() => {
+    const saved = sessionStorage.getItem(SCROLL_POS_KEY)
+    if (saved && scrollRef.current) {
+      const top = parseInt(saved, 10)
+      if (!isNaN(top)) {
+        requestAnimationFrame(() => {
+          scrollRef.current?.scrollTo({ top })
+        })
+      }
+      sessionStorage.removeItem(SCROLL_POS_KEY)
+    }
+  }, [])
+
+  const handleSelect = useCallback((id: string) => {
+    // 保存当前滚动位置，整页刷新后恢复
+    if (scrollRef.current) {
+      sessionStorage.setItem(SCROLL_POS_KEY, String(scrollRef.current.scrollTop))
+    }
+    onSelect(id)
+  }, [onSelect])
 
   return (
     <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
@@ -31,7 +58,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
           <Plus className="w-3.5 h-3.5" /> 新建对话
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-2">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
         {pinnedConvs.length > 0 && (
           <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-medium text-stone-400 uppercase tracking-wide">置顶</div>
         )}
@@ -40,7 +67,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
             key={c.id}
             conversation={c}
             isActive={c.id === activeId}
-            onSelect={onSelect}
+            onSelect={handleSelect}
             onContextMenu={onContextMenu}
             otters={otters}
           />
@@ -53,7 +80,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
             key={c.id}
             conversation={c}
             isActive={c.id === activeId}
-            onSelect={onSelect}
+            onSelect={handleSelect}
             onContextMenu={onContextMenu}
             otters={otters}
           />
