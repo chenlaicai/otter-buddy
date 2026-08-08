@@ -6,7 +6,7 @@ import { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import type { Logger } from "@usecases/ports/logger";
 
-/** Token 阈值（超过则记录警告，与旧实现一致） */
+/** 上下文窗口占用警告阈值（超过则记录警告） */
 export const TOKEN_WARNING_THRESHOLD = 100_000;
 
 /** 熔断器 tool_execution_start 钩子 */
@@ -85,11 +85,10 @@ export function attachCircuitBreaker(
   };
 }
 
-/** token 超阈值警告 */
-export function checkTokenWarning(otterId: string, tokens: { input: number; output: number }, logger: Logger): void {
-  const total = tokens.input + tokens.output;
-  if (total > TOKEN_WARNING_THRESHOLD) {
-    logger.warn(`[token-warning] otter=${otterId} total=${total} threshold=${TOKEN_WARNING_THRESHOLD}`);
+/** token 超阈值警告（F20260808ctxw：口径为上下文窗口占用，非 session 累计消耗） */
+export function checkTokenWarning(otterId: string, ctxTokens: number | undefined, logger: Logger): void {
+  if (ctxTokens !== undefined && ctxTokens > TOKEN_WARNING_THRESHOLD) {
+    logger.warn(`[token-warning] otter=${otterId} ctxTokens=${ctxTokens} threshold=${TOKEN_WARNING_THRESHOLD}`);
   }
 }
 
@@ -99,12 +98,14 @@ export function buildResult(
   tokenUsage?: { input: number; output: number },
   circuitBreaker?: ToolCallCircuitBreaker,
   ctxMax?: number,
+  ctxTokens?: number,
 ) {
   return {
     text,
     tokenUsage: tokenUsage
       ? { input: tokenUsage.input, output: tokenUsage.output }
       : undefined,
+    ctxTokens,
     ctxMax,
     circuitBreakerMetadata: circuitBreaker?.getMetadata(),
   };

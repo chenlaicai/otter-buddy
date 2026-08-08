@@ -24,6 +24,7 @@ import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-to
 import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { truncateToolResult } from "@interface-adapters/agent-runtime/tools/tool-helpers";
 import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
+import { calculateContextTokens, getLastAssistantUsage } from "@earendil-works/pi-coding-agent";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
 import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
@@ -56,11 +57,20 @@ export interface AgentEvent {
 /** Agent 执行结果 */
 export interface AgentRunResult {
   text: string;
+  /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
   tokenUsage?: { input: number; output: number };
+  /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite（F20260808ctxw） */
+  ctxTokens?: number;
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
 }
+
+/** _buildInvokeResult 所需的 session 结构子集（统计 + 分支条目读取） */
+type SessionStatsSource = {
+  getSessionStats: () => { tokens: { input: number; output: number } };
+  sessionManager: { getBranch: () => Parameters<typeof getLastAssistantUsage>[0] };
+};
 
 /** invoke() 选项 */
 export interface InvokeOptions {
@@ -652,7 +662,7 @@ export class PiSessionFactory implements AgentGateway {
   /** prompt 成功后的结果组装 + 首字节延迟埋点日志（F20260804dglp） */
   private _buildPromptResult(
     otterId: string,
-    session: { getSessionStats: () => { tokens: { input: number; output: number } } },
+    session: SessionStatsSource,
     circuitBreaker: ToolCallCircuitBreaker,
     outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number } },
     activeEntry: { guardAbortReason?: string } | undefined,
@@ -713,12 +723,17 @@ export class PiSessionFactory implements AgentGateway {
   /** 构建 invoke 结果 */
   private _buildInvokeResult(
     otterId: string,
-    session: { getSessionStats: () => { tokens: { input: number; output: number } } },
+    session: SessionStatsSource,
     circuitBreaker: ToolCallCircuitBreaker,
   ): AgentRunResult {
     const stats = session.getSessionStats();
     const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
-    checkTokenWarning(otterId, stats.tokens, this.logger);
+
+    /** F20260808ctxw：上下文窗口占用 = 末次 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
+     * 与 SDK compaction 判定同公式；session 重建/compaction 后自然回落，不会虚增 */
+    const lastUsage = getLastAssistantUsage(session.sessionManager.getBranch());
+    const ctxTokens = lastUsage ? calculateContextTokens(lastUsage) : undefined;
+    checkTokenWarning(otterId, ctxTokens, this.logger);
 
     // per-otter contextWindow
     let ctxMax: number | undefined;
@@ -728,7 +743,7 @@ export class PiSessionFactory implements AgentGateway {
     } else {
       ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
     }
-    return buildResult("", tokenUsage, circuitBreaker, ctxMax);
+    return buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
   }
   private _attachGuards(session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> }, sessionKey: string, otterId: string) {
     const activeEntry = this.activeSessions.get(sessionKey);
