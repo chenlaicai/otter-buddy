@@ -23,16 +23,13 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   // 恢复上次保存的滚动位置（整页刷新后）
   useEffect(() => {
     const saved = sessionStorage.getItem(SCROLL_POS_KEY)
-    if (saved && scrollRef.current) {
-      const top = parseInt(saved, 10)
-      if (!isNaN(top)) {
-        requestAnimationFrame(() => {
-          scrollRef.current?.scrollTo({ top })
-          sessionStorage.removeItem(SCROLL_POS_KEY)
-        })
-      } else {
-        sessionStorage.removeItem(SCROLL_POS_KEY)
-      }
+    if (!saved || !scrollRef.current) return
+    const top = parseInt(saved, 10)
+    sessionStorage.removeItem(SCROLL_POS_KEY)
+    if (!isNaN(top)) {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top })
+      })
     }
   }, [])
 
