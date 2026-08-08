@@ -20,7 +20,7 @@ function userEntry(): SessionEntry {
 }
 
 function compactionEntry(): SessionEntry {
-  return { type: "compaction", summary: "...", firstKeptEntryIndex: 0 } as unknown as SessionEntry;
+  return { type: "compaction", summary: "...", firstKeptEntryId: "e1" } as unknown as SessionEntry;
 }
 
 describe("getContextWindowTokens", () => {

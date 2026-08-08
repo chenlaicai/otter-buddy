@@ -60,12 +60,12 @@ F20260806btk7（context_tokens 落库 PR）已将此口径问题记录在案："
 3. **落库**（agent-invoker.ts `_handlePostInvocation`）：`contextTokens` 改取 `result.ctxTokens`。
 4. **SSE**（agent-invoker.ts `completeAgentInvocation`）：`message.complete` 的 `ctx` 改取 `result.ctxTokens`，与落库同源。
 5. **告警**（circuit-breaker-helpers.ts `checkTokenWarning`）：参数从累计 tokens 改为 `ctxTokens`，同一阈值（100k）在窗口占用口径下恢复本来语义。
-6. **contextWindow 接入 SDK model**（models-factory.ts，对抗检视 L1 发现）：自定义模型（不在 provider 字典，如 mimo-v2.5-pro）注入时把 config 的 `contextWindow` 带入 SDK model。此前 SDK 看到 `contextWindow=undefined→0`，`shouldCompact` 判定恒真——**35-45k 上下文的 session 每轮都触发 auto-compaction 摘要调用**（生产 session jsonl 实锤：3-4 轮对话 5 次 compaction），白跑摘要成本还无谓压缩上下文。kimi k3 在 SDK 字典自带 1M 不受影响。生产 config.yaml 已为 mimo/kimi 补 `contextWindow: 1048576`（mimo 官方文档 1M；kimi k3 经 `GET /coding/v1/models` 实测 context_length=1048576）。
+6. **contextWindow/maxTokens 接入 SDK model**（models-factory.ts，对抗检视 L1/L3 发现）：自定义模型（不在 provider 字典，如 mimo-v2.5-pro）注入时把 config 的 `contextWindow`、`maxTokens` 带入 SDK model（maxTokens 缺省回退 provider 模板值）。此前 SDK 看到 `contextWindow=undefined→0`，`shouldCompact` 判定恒真——**35-45k 上下文的 session 每轮都触发 auto-compaction 摘要调用**（生产 session jsonl 实锤：3-4 轮对话 5 次 compaction），白跑摘要成本还无谓压缩上下文；`maxTokens` 缺失则请求负载 `max_tokens: null`（mimo 容忍，严格端点会 400）。kimi k3 在 SDK 字典自带 1M 不受影响。生产 config.yaml 已为 mimo/kimi 补 `contextWindow: 1048576`（mimo 官方文档 1M；kimi k3 经 `GET /coding/v1/models` 实测 context_length=1048576），mimo 补 `maxTokens: 131072`（官方最大输出 128K）。附带收益：`isContextOverflow` 的 mimo 截断式溢出检测因 contextWindow 生效而激活。
 7. **测试**：新增 context-tokens.test.ts（口径公式 8 用例 + checkTokenWarning 3 用例）；models-factory.test.ts 补注入断言 2 用例；agent-invoker.test.ts 断言落库值 = ctxTokens（不再断言 input+output=15）。
 
 ## 设计决策
 
-- **为什么不用 SDK 的 `getContextUsage()`**：它要求 `model.contextWindow > 0` 才返回有效值，而本 PR 修复前自定义模型拿不到 contextWindow，运行时必返回 undefined。`getContextWindowTokens` 复用其全部语义（同公式、同 compaction 边界、同 usage 有效性规则），但不依赖配置即可返回值；ctxMax 展示仍走 modelPool 配置。
+- **为什么不用 SDK 的 `getContextUsage()`**：它要求 `model.contextWindow > 0` 才返回有效值，而本 PR 修复前自定义模型拿不到 contextWindow，运行时必返回 undefined。`getContextWindowTokens` 复用其核心语义（同公式、同 compaction 边界、同 usage 有效性规则），但只做纯 usage 求和、不做尾随消息的 chars/4 估算，且不依赖配置即可返回值；ctxMax 展示仍走 modelPool 配置。
 - **compaction 当轮不落 ctx（M1 拍板）**：threshold compaction 触发的那一轮，branch 末条 usage 是压缩前的，真实窗口已被压到 keepRecentTokens+摘要量级。此时落 undefined（前端该轮不渲染条），下一轮 LLM 响应后恢复准确值。搭档 2026-08-08 拍板按 SDK 语义修。
 - **为什么公式含 output**：与 SDK compaction 的 `calculateContextTokens` 保持同公式（totalTokens || input+output+cacheRead+cacheWrite），口径一致性优先；output 通常仅数百 token，不构成误差。
 - **tokenUsage 保留累计口径**：它是本轮真实成本（计费口径），日志排障仍需要；只是不再用于"上下文占用"展示。
@@ -94,7 +94,7 @@ F20260806btk7（context_tokens 落库 PR）已将此口径问题记录在案："
 |------|------|---------|---------|
 | AT-1 | 需求1 | 新开对话与大獭进行 3-4 轮含工具调用的对话，查 `SELECT context_tokens FROM messages ORDER BY sequence_num` | 各消息 context_tokens 在真实窗口量级（数万），且与 session jsonl 中末次调用的 input+cacheRead 量级一致；不出现 600k 级数值 |
 | AT-2 | 需求2 | 对话触发 session 重建后继续发言 | 新 session 首条消息 context_tokens 回落到首轮真实占用 |
-| AT-3 | 需求3 | `npm test` | 全部通过（1020 用例） |
+| AT-3 | 需求3 | `npm test` | 全部通过（1033 用例） |
 
 ### 能力测试映射
 
@@ -118,6 +118,16 @@ A 类纯代码逻辑改动，无 LLM 参与行为，不需要能力测试。验�
 | M2 | 口径公式零测试覆盖，改回累计值测试仍全绿，AT-3 回归防线名不副实 | Medium | **已修**：新增 context-tokens.test.ts 11 用例 + models-factory 注入断言 2 用例 |
 | L1 | mimo 自定义模型 contextWindow=0 → SDK `shouldCompact` 恒真，35-45k 上下文每轮白跑摘要 compaction（生产 jsonl 实锤 3-4 轮 5 次）；kimi k3 字典自带 1M 不受影响 | Low（实际影响大） | **已修**：models-factory 注入时带入 config contextWindow；生产 config.yaml 补齐 1048576。搭档拍板"本次完整修复" |
 | L2 | alias 未知时 `getContextWindow` 返回 undefined 而实跑回退默认模型，百分比失真 | Low | 存量，不修，记录在案 |
+
+**第二轮对抗检视**（2026-08-08，独立 agent 核验三项修复 + 找新问题，总评 Approve）：
+
+| 编号 | 发现 | 严重度 | 处置 |
+|------|------|--------|------|
+| L3 | 注入 model 仍缺 `maxTokens`（SDK Model 接口必填）→ 请求负载 `max_tokens: null`，mimo 容忍但严格 Anthropic 兼容端点会 400 | Low（存量） | **已修**：ModelConfig/config 新增 `maxTokens`，注入时 config 优先、缺省回退模板值；生产 config.yaml mimo 配 131072（官方最大输出 128K） |
+| L4 | 模型在 SDK 字典内（如 k3）且 config 另配 contextWindow 时，SDK 行为用字典值、ctxMax 展示用 config 值，静默分叉 | Low | 记录在案：字典权威；如需代理限速调小窗口，需改代码而非仅配置 |
+| nit | 测试 mock 字段名（firstKeptEntryIndex→firstKeptEntryId）、AT-3 用例数、文档措辞、单模型模式 ctxMax 良性副作用 | Nit | 已随手修正 |
+
+二轮检视确认：M1/M2/L1 修复与 SDK 源码逐行核对正确；speak retry 不串 ctxTokens；undefined 落库链（`?? null` + 前端守卫）与设计一致；`isContextOverflow` 的 mimo 截断检测因 L1 修复附带激活。
 
 审视确认无问题的维度：getLastAssistantUsage 输入结构与 branch entry 匹配；abort/error/熔断路径无过期值落库；三条重试路径 ctxTokens 不串值；SSE 与落库同源；前端对小值与 1M ctxMax 渲染正常。
 
