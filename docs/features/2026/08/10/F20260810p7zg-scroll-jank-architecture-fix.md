@@ -1,5 +1,5 @@
 ---
-id: F202608105870
+id: F20260810p7zg
 title: scroll-jank-architecture-fix
 doc_type: feature
 
@@ -24,7 +24,7 @@ modules: [web]
 created_at: 2026-08-10
 ---
 
-# F202608105870 - 彻底根治页面滚动抖动问题
+# F20260810p7zg - 彻底根治页面滚动抖动问题
 
 ## 1. 需求背景
 
