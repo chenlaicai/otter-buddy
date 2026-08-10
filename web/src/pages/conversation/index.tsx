@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
@@ -97,9 +97,51 @@ function ConversationPage() {
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
   const abortNotifiedRef = useRef<Set<string>>(new Set())
+  const allMessagesRef = useRef<Record<string, LocalMessage[]>>({})
+  // 同步 allMessages 到 ref，供回调函数读取（解除闭包依赖）
+  useEffect(() => {
+    allMessagesRef.current = allMessages
+  }, [allMessages])
   useEffect(() => () => {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
     if (atBottomDebounceRef.current) clearTimeout(atBottomDebounceRef.current)
+  }, [])
+
+  // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少 Virtuoso 重渲染
+  // 选择依据：≥16ms 保证至少一帧合并，≤100ms 保证流式体感（人类感知延迟阈值约 100ms）
+  // 50ms 是平衡点：既减少 Virtuoso 重渲染频率，又不明显影响流式文本的实时感
+  const BATCH_WINDOW_MS = 50
+  const pendingUpdatesRef = useRef<Map<string, LocalMessage[]>>(new Map())
+  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushBatchUpdates = useCallback(() => {
+    if (pendingUpdatesRef.current.size === 0) return
+    const updates = new Map(pendingUpdatesRef.current)
+    pendingUpdatesRef.current.clear()
+    setAllMessages(prev => {
+      const next = { ...prev }
+      for (const [convId, msgs] of updates) {
+        next[convId] = msgs
+      }
+      return next
+    })
+  }, [])
+  const batchUpdateMessages = useCallback((convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) => {
+    setAllMessages(prev => {
+      const current = prev[convId] || []
+      const updated = updater(current)
+      if (updated === current) return prev
+      pendingUpdatesRef.current.set(convId, updated)
+      if (!batchTimerRef.current) {
+        batchTimerRef.current = setTimeout(() => {
+          batchTimerRef.current = null
+          flushBatchUpdates()
+        }, BATCH_WINDOW_MS)
+      }
+      return prev
+    })
+  }, [flushBatchUpdates])
+  useEffect(() => () => {
+    if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
   }, [])
 
   // 从 URL 路径获取对话 ID（格式：/conversation/:id）
@@ -212,7 +254,7 @@ function ConversationPage() {
   /** 增量刷新：只拉比当前最新消息更新的消息（after 游标），不触碰 prepend 的历史 */
   const refreshMessages = useCallback(async (convId: string) => {
     try {
-      const list = allMessages[convId] || []
+      const list = allMessagesRef.current[convId] || []
       const realMsgs = list.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
       const newest = realMsgs[realMsgs.length - 1]
       if (!newest?.id) return
@@ -248,10 +290,10 @@ function ConversationPage() {
     } catch (err) {
       console.error('Failed to refresh messages:', err)
     }
-  }, [allMessages])
+  }, []) // 依赖为空，通过 allMessagesRef 读取最新值
 
   /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用）。
-   *  false 信号加 150ms debounce：Virtuoso 在流式消息内容高度重算时会产生瞬态
+   *  false 信号加 300ms debounce：Virtuoso 在流式消息内容高度重算时会产生瞬态
    *  atBottomStateChange(false)，导致 isAtBottomRef 误清、newMessagesCount 误累加。 */
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     if (atBottom) {
@@ -266,7 +308,7 @@ function ConversationPage() {
         atBottomDebounceRef.current = setTimeout(() => {
           atBottomDebounceRef.current = null
           isAtBottomRef.current = false
-        }, 150)
+        }, 300)
       }
     }
   }, [])
@@ -280,7 +322,7 @@ function ConversationPage() {
   /** 向上加载更旧的历史消息（startReached 触发，before 游标） */
   const loadMoreBefore = useCallback(async () => {
     if (!activeId || loadingMoreRef.current || !hasMoreBefore) return
-    const list = allMessages[activeId] || []
+    const list = allMessagesRef.current[activeId] || []
     const oldest = list[0]
     if (!oldest?.id) return
     loadingMoreRef.current = true
@@ -301,12 +343,12 @@ function ConversationPage() {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [activeId, hasMoreBefore, allMessages])
+  }, [activeId, hasMoreBefore]) // 依赖为空，通过 allMessagesRef 读取最新值
 
   /** 向下加载更新的历史消息（endReached 触发，after 游标） */
   const loadMoreAfter = useCallback(async () => {
     if (!activeId || loadingMoreRef.current || !hasMoreAfter) return
-    const list = allMessages[activeId] || []
+    const list = allMessagesRef.current[activeId] || []
     const newest = list[list.length - 1]
     if (!newest?.id) return
     loadingMoreRef.current = true
@@ -326,7 +368,7 @@ function ConversationPage() {
       loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [activeId, hasMoreAfter, allMessages])
+  }, [activeId, hasMoreAfter]) // 依赖为空，通过 allMessagesRef 读取最新值
 
   /** rangeChanged：检测视口内最大 seq，debounce 标记已读 */
   const handleRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
@@ -406,10 +448,9 @@ function ConversationPage() {
     const syncLiveEvents = (messageId: string) => {
       const liveEvents = liveEventsMap.get(messageId)
       if (!liveEvents) return
-      setAllMessages(prev => {
-        const list = prev[activeId]
-        if (!list?.some(m => m.id === messageId)) return prev
-        return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
+      batchUpdateMessages(activeId!, (list) => {
+        if (!list.some(m => m.id === messageId)) return list
+        return list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m)
       })
     }
 
@@ -419,18 +460,17 @@ function ConversationPage() {
         const message = mapMessageDTO(data as unknown as Parameters<typeof mapMessageDTO>[0])
         // React 18 createRoot 保证 state updater 同步执行，added 在回调内设置、回调外读取是可靠的
         let added = false
-        setAllMessages(prev => {
-          const current = prev[activeId] || []
-          if (current.some(m => m.id === message.id)) return prev
+        batchUpdateMessages(activeId!, (current) => {
+          if (current.some(m => m.id === message.id)) return current
           // tmp 去重：乐观消息（tmp-）按 st|si|content 匹配后替换为真实消息
           const tmpIdx = current.findIndex(m => m.id.startsWith('tmp-') && m.st === message.st && m.si === message.si && m.content === message.content)
           if (tmpIdx >= 0) {
             const next = [...current]
             next[tmpIdx] = message
-            return { ...prev, [activeId]: next }
+            return next
           }
           added = true
-          return { ...prev, [activeId]: [...current, message] }
+          return [...current, message]
         })
         // BUG-FIX: 仅在消息确实新增（非重复/去重替换）时计数，防止重复广播事件虚增
         if (added && !isAtBottomRef.current) setNewMessagesCount(c => c + 1)
@@ -445,11 +485,10 @@ function ConversationPage() {
         }
         // React 18 createRoot 保证 state updater 同步执行（同 message handler 的 added 模式）
         let added = false
-        setAllMessages(prev => {
-          const current = prev[activeId] || []
-          if (current.some(m => m.id === messageId)) return prev
+        batchUpdateMessages(activeId!, (current) => {
+          if (current.some(m => m.id === messageId)) return current
           added = true
-          return { ...prev, [activeId]: insertBySeq(current, placeholder) }
+          return insertBySeq(current, placeholder)
         })
         if (otterId && activeId) {
           setAllOtters(prev => {
@@ -488,7 +527,7 @@ function ConversationPage() {
           events: liveEvents.length > 0 ? liveEvents : undefined,
           ctx: data.ctx as number, ctxMax: data.ctxMax as number, turnId: (data.turnId as string) || undefined,
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], finalMsg) }))
+        batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, finalMsg))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
       },
@@ -501,7 +540,7 @@ function ConversationPage() {
           content: (data.body as string) ?? '[未完成]', status: 'failed', ts: meta?.createdAt || '', dur: null,
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], failedMsg) }))
+        batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
       },
@@ -528,7 +567,7 @@ function ConversationPage() {
           content: (data.body as string) ?? '[中断]', status: 'aborted', ts: meta?.createdAt || '', dur: null,
           events: liveEvents.length > 0 ? liveEvents : undefined,
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], abortedMsg) }))
+        batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, abortedMsg))
         if (!abortNotifiedRef.current.has(messageId)) {
           abortNotifiedRef.current.add(messageId)
           showToast('回复已中断', 'info')
@@ -543,7 +582,7 @@ function ConversationPage() {
           content: `[错误] ${data.message}`, status: 'failed', ts: nowTs(), dur: null,
         }
         /** messageId 存在时走 upsertTerminalMessage 保留投影字段（F20260805abpp S4-1 同类） */
-        setAllMessages(prev => ({ ...prev, [activeId]: messageId ? upsertTerminalMessage(prev[activeId] || [], errMsg) : upsertMessage(prev[activeId] || [], errMsg) }))
+        batchUpdateMessages(activeId!, (list) => messageId ? upsertTerminalMessage(list, errMsg) : upsertMessage(list, errMsg))
         showToast(`Agent 错误: ${data.message}`, 'error')
       },
     }
@@ -621,9 +660,9 @@ function ConversationPage() {
   }, [allOtters, sessions])
 
   const activeConv = conversations.find(c => c.id === activeId) || null
-  const activeMessages = activeId ? (allMessages[activeId] || []) : []
-  const activeLinkedRes = activeId ? (allLinkedRes[activeId] || []) : []
-  const activeOtters: LocalOtter[] = activeId ? (allOtters[activeId] || []) : []
+  const activeMessages = useMemo(() => activeId ? (allMessages[activeId] || []) : [], [activeId, allMessages])
+  const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
+  const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
 
   const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
     if (!activeId) return
@@ -674,7 +713,7 @@ function ConversationPage() {
             id: messageId, st: 'otter', si: otterId, sn: otterName,
             content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
+          batchUpdateMessages(activeId!, (list) => insertBySeq(list, placeholder))
           /** 确保发言者在参与者列表中（流中途 create_otter 的新獭）；fill-only，不覆盖已有条目 */
           if (otterId && activeId) {
             setAllOtters(prev => {
@@ -722,16 +761,13 @@ function ConversationPage() {
           /** upsertTerminalMessage 原位替换 message.start 插入的占位消息并保留投影字段；
            *  M6：恰好一条未戳 tmp 时补戳 turnId（分隔线立即正确）；
            *  多条并发 tmp 时不戳（到达顺序未必等于发送顺序），留给轮询快照纠正 */
-          setAllMessages(prev => {
-            const list = upsertTerminalMessage(prev[activeId] || [], finalMsg)
-            if (!data.turnId) return { ...prev, [activeId]: list }
-            const unstamped = list.filter(m => m.id.startsWith('tmp-') && !m.turnId)
-            if (unstamped.length !== 1) return { ...prev, [activeId]: list }
+          batchUpdateMessages(activeId!, (list) => {
+            const updated = upsertTerminalMessage(list, finalMsg)
+            if (!data.turnId) return updated
+            const unstamped = updated.filter(m => m.id.startsWith('tmp-') && !m.turnId)
+            if (unstamped.length !== 1) return updated
             const tmpId = unstamped[0].id
-            return {
-              ...prev,
-              [activeId]: list.map(m => m.id === tmpId ? { ...m, turnId: data.turnId } : m),
-            }
+            return updated.map(m => m.id === tmpId ? { ...m, turnId: data.turnId } : m)
           })
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
@@ -744,7 +780,7 @@ function ConversationPage() {
             content: `[错误] ${data.message}`, status: 'failed', ts: meta?.createdAt || nowTs(), dur: null,
           }
           /** messageId 存在时走 upsertTerminalMessage 保留投影字段（F20260805abpp S4-1 同类） */
-          setAllMessages(prev => ({ ...prev, [activeId]: messageId ? upsertTerminalMessage(prev[activeId] || [], errMsg) : upsertMessage(prev[activeId] || [], errMsg) }))
+          batchUpdateMessages(activeId!, (list) => messageId ? upsertTerminalMessage(list, errMsg) : upsertMessage(list, errMsg))
           showToast(`Agent 错误: ${data.message}`, 'error')
           if (messageId) {
             liveEventsMap.delete(messageId)
@@ -773,7 +809,7 @@ function ConversationPage() {
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
           /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], abortedMsg) }))
+          batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, abortedMsg))
           if (!abortNotifiedRef.current.has(messageId)) {
             abortNotifiedRef.current.add(messageId)
             showToast('回复已中断', 'info')
@@ -792,7 +828,7 @@ function ConversationPage() {
             content: data.body ?? '[未完成]', status: 'failed', ts: meta?.createdAt || '', dur: null,
             events: liveEvents.length > 0 ? liveEvents : undefined,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], failedMsg) }))
+          batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
         },
@@ -801,7 +837,7 @@ function ConversationPage() {
             id: data.messageId, st: 'system', si: 'system',
             content: data.content, seq: data.seq as number, ts: nowTs(), dur: null,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], sysMsg) }))
+          batchUpdateMessages(activeId!, (list) => insertBySeq(list, sysMsg))
         },
         'agent.idle': () => { /* 信息性事件，不做处理 */ },
       }, { onError: () => {
@@ -882,10 +918,9 @@ function ConversationPage() {
       const syncLiveEvents = (msgId: string) => {
         const liveEvents = liveEventsMap.get(msgId)
         if (!liveEvents) return
-        setAllMessages(prev => {
-          const list = prev[activeId]
-          if (!list?.some(m => m.id === msgId)) return prev
-          return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, events: [...liveEvents] } : m) }
+        batchUpdateMessages(activeId, (list) => {
+          if (!list.some(m => m.id === msgId)) return list
+          return list.map(m => m.id === msgId ? { ...m, events: [...liveEvents] } : m)
         })
       }
 
@@ -898,7 +933,7 @@ function ConversationPage() {
             id: newMsgId, st: 'otter', si: otterId, sn: otterName,
             content: '', status: 'streaming', seq: data.seq, ts: data.createdAt || nowTs(), dur: null, events: [],
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
+          batchUpdateMessages(activeId, (list) => insertBySeq(list, placeholder))
         },
         'assistant_toolcall': (data) => {
           const { messageId: msgId } = data
@@ -922,10 +957,9 @@ function ConversationPage() {
           if (!textContent) return
           liveEventsMap.get(msgId)?.push({ ts: nowTs(), eventType: 'text', payload: { text: textContent } })
           syncLiveEvents(msgId)
-          setAllMessages(prev => {
-            const list = prev[activeId]
-            if (!list) return prev
-            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, content: (m.content || '') + textContent } : m) }
+          batchUpdateMessages(activeId, (list) => {
+            if (!list) return list
+            return list.map(m => m.id === msgId ? { ...m, content: (m.content || '') + textContent } : m)
           })
         },
         'message.complete': (data) => {
@@ -940,22 +974,20 @@ function ConversationPage() {
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
           }
-          setAllMessages(prev => ({ ...prev, [activeId]: upsertTerminalMessage(prev[activeId] || [], finalMsg) }))
+          batchUpdateMessages(activeId, (list) => upsertTerminalMessage(list, finalMsg))
         },
         'message.failed': (data) => {
           const { messageId: msgId } = data
-          setAllMessages(prev => {
-            const list = prev[activeId]
-            if (!list) return prev
-            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]' } : m) }
+          batchUpdateMessages(activeId, (list) => {
+            if (!list) return list
+            return list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]' } : m)
           })
         },
         'message.aborted': (data) => {
           const { messageId: msgId } = data
-          setAllMessages(prev => {
-            const list = prev[activeId]
-            if (!list) return prev
-            return { ...prev, [activeId]: list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]' } : m) }
+          batchUpdateMessages(activeId, (list) => {
+            if (!list) return list
+            return list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]' } : m)
           })
         },
         'error': (data) => {
