@@ -15,24 +15,20 @@
 import type { Logger } from "@usecases/ports/logger";
 
 export interface CircuitBreakerConfig {
-  maxToolCalls: number;
   maxConsecutiveIdentical: number;
   /** 首次 steer 警告后，容忍的继续触发次数；超过则 terminate */
   maxRepeatAfterWarning: number;
   /** 单次工具调用最大执行时间（ms），超过则 abort */
   maxPerEventTimeMs: number;
-  warningThreshold: number;
   slidingWindowSize: number;
   slidingWindowRepeat: number;
   tokenWarningThreshold: number;
 }
 
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
-  maxToolCalls: 40,
   maxConsecutiveIdentical: 5,
   maxRepeatAfterWarning: 5,
   maxPerEventTimeMs: 600_000,
-  warningThreshold: 20,
   slidingWindowSize: 6,
   slidingWindowRepeat: 3,
   tokenWarningThreshold: 50_000,
@@ -222,8 +218,7 @@ export class ToolCallCircuitBreaker {
 
   /** 按优先级评估规则；steer 触发满 maxRepeatAfterWarning 次升级为 terminate */
   private evaluate(signature: string): CheckResult {
-    const result = this.checkToolCallLimit()
-      ?? this.checkConsecutive(signature)
+    const result = this.checkConsecutive(signature)
       ?? this.checkSlidingWindow()
       ?? { blocked: false, action: "allow" as const };
 
@@ -244,19 +239,6 @@ export class ToolCallCircuitBreaker {
       }
     }
     return result;
-  }
-
-  /** B-1/B-2/B-5: 工具调用次数检查（到限 steer，超硬顶 terminate） */
-  private checkToolCallLimit(): CheckResult | null {
-    if (this.callCount === this.config.warningThreshold) {
-      this.logger.warn(`[circuit-breaker] Warning: otter=${this.otterId} tool_calls=${this.callCount}`);
-    }
-    if (this.callCount <= this.config.maxToolCalls) return null;
-    if (this.callCount > this.config.maxToolCalls + 3) {
-      this.logCircuitBreak("tool_call_limit");
-      return { blocked: true, reason: `Force terminated: ${this.callCount} tool calls exceed hard limit`, action: "terminate", trigger: "tool_call_limit" };
-    }
-    return { blocked: true, reason: `Tool call limit reached (${this.callCount}/${this.config.maxToolCalls}). Call speak immediately.`, action: "steer" };
   }
 
   /** B-3: 连续相同行为检查（按签名，同名工具不同行为不计） */
