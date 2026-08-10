@@ -361,7 +361,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           } ${!isUser && inFlight ? 'bubble-live' : ''} ${highlighted ? 'highlight-message' : ''}`}
           style={sideBar}
         >
-          {!isUser && m.events && m.events.length > 0 && <StreamingProcess key={inFlight ? 'live' : 'done'} events={m.events} duration={m.dur || ''} status={m.status} />}
+          {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
           <div className="relative group">
             {m.content
               ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{m.content}</MarkdownContent>
@@ -404,6 +404,12 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
   const inFlight = status === 'streaming' || status === 'speaking'
   /** 进行中的流式过程默认展开（实时可见），终态默认折叠 */
   const [collapsed, setCollapsed] = useState(!inFlight)
+  /** 同步折叠状态：终态时自动折叠，避免 key 切换导致组件卸载/挂载产生高度突变 */
+  useEffect(() => {
+    if (!inFlight && !collapsed) {
+      setCollapsed(true)
+    }
+  }, [inFlight, collapsed])
   /** 流式进行中：实时计时 */
   const [elapsed, setElapsed] = useState<string | null>(null)
   useEffect(() => {
