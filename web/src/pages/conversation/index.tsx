@@ -108,6 +108,9 @@ function ConversationPage() {
   }, [])
 
   // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少 Virtuoso 重渲染
+  // 选择依据：≥16ms 保证至少一帧合并，≤100ms 保证流式体感（人类感知延迟阈值约 100ms）
+  // 50ms 是平衡点：既减少 Virtuoso 重渲染频率，又不明显影响流式文本的实时感
+  const BATCH_WINDOW_MS = 50
   const pendingUpdatesRef = useRef<Map<string, LocalMessage[]>>(new Map())
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const flushBatchUpdates = useCallback(() => {
@@ -132,7 +135,7 @@ function ConversationPage() {
         batchTimerRef.current = setTimeout(() => {
           batchTimerRef.current = null
           flushBatchUpdates()
-        }, 50)
+        }, BATCH_WINDOW_MS)
       }
       return prev
     })
