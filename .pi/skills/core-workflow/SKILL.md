@@ -2,29 +2,26 @@
 name: core-workflow
 description: >-
   This skill should be used when the user asks to "查一下", "帮我查", "看看之前的",
-  "搜索", "排查", "分析问题", "记录一下", "看看日志", "查数据库",
+  "搜索", "记录一下",
   or any task that requires querying conversation history, searching memory,
-  troubleshooting issues, or recording outputs and decisions.
-  Covers information retrieval, troubleshooting workflow, and artifact recording.
+  or recording outputs and decisions.
+  Covers information retrieval and artifact recording.
+  For problem troubleshooting and debugging, use the troubleshooting skill instead.
 triggers:
   phrases:
     - "查一下"
     - "帮我查"
     - "看看之前的"
     - "搜索"
-    - "排查"
-    - "分析问题"
     - "记录一下"
-    - "看看日志"
-    - "查数据库"
-co_loads:
-  - worktree-isolation
+co_loads: []
 ---
 
 # Core Workflow
 
-> **触发短语**：查一下 | 帮我查 | 排查 | 分析问题 | 记录一下
-> **共加载**：worktree-isolation（排查结论需提交时）
+> **触发短语**：查一下 | 帮我查 | 看看之前的 | 搜索 | 记录一下
+> **共加载**：无
+> **排除**：问题排查和调试 → 使用 `troubleshooting` skill
 
 ## 输入契约
 
@@ -47,23 +44,6 @@ co_loads:
 - **"之前"有歧义时** → 先查当前对话，无结果再查记忆
 - 术语不明 → `search_terminology`
 - 查询结果用自然语言呈现给搭档（引号标注原文关键句 + 简要解读），不要把原始 JSON 直接展示
-
-## 排查问题
-
-排查问题时：先用工具读取相关文件/数据，再基于读取内容分析。
-排查结论若需要改动仓库（提交修复、提 PR，无论多小）→ 先加载 `worktree-isolation` skill，再动手。
-
-### 排查中需要修改文件时
-
-如果排查过程中需要修改文件来验证假设（如加 log、改配置），立即转入 worktree-isolation 流程：
-
-1. 停止当前排查步骤
-2. 读取 `worktree-isolation` skill，执行其最小流程创建 worktree
-3. 在 worktree 内进行临时修改和验证
-4. 验证完成后，决定是否提交修改：
-   - 如果修改有价值 → 走 worktree-isolation 完整流程提交 PR
-   - 如果修改是临时的 → 在 worktree 内 revert，不影响主目录
-5. 继续排查流程
 
 ## 产出记录
 
@@ -98,7 +78,6 @@ co_loads:
 
 | 产出类型 | 下一步动作 | 执行者 | 触发条件 | 不满足时处理 |
 |----------|-----------|--------|----------|-------------|
-| 排查结论（需提交修复） | worktree-isolation 流程 | 当前獭 | 结论涉及仓库改动时 | 正常终止，结论记录到 memory |
 | 查询结果 | 记录（如需） | 当前獭 | 搭档明确要求记录，或涉及决策/结论的查询结果 | 正常终止，记录后不再链式触发 |
 
 ### 异体执行原则

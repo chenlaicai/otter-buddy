@@ -2,36 +2,33 @@
 name: code-implementation
 description: >-
   This skill should be used when the user asks to "写代码", "实现这个功能", "开始开发",
-  "编码实现", "提交代码", "写测试", "按方案开发", "开干", "开始写",
+  "编码实现", "写测试", "按方案开发", "开干", "开始写",
   or needs to implement a technical plan, write code, create tests, or submit changes.
   Covers the plan-driven development workflow: coding principles, testing strategy, and
-  commit conventions. For ANY repository mutation (even one-line fixes), the red lines
-  in the worktree-isolation skill always apply — load it too.
+  commit conventions. Red lines for repository safety are defined in SYSTEM.md.
 triggers:
   phrases:
     - "写代码"
     - "实现这个功能"
     - "开始开发"
     - "编码实现"
-    - "提交代码"
     - "写测试"
     - "按方案开发"
     - "开干"
     - "开始写"
-co_loads:
-  - worktree-isolation
+co_loads: []
 ---
 
 # Code Implementation
 
 Turn a technical plan into runnable, verifiable code changes.
 
-> **触发短语**：写代码 | 实现这个功能 | 开始开发 | 编码实现 | 提交代码 | 写测试
-> **共加载**：worktree-isolation（仓库变更时必加载）
+> **触发短语**：写代码 | 实现这个功能 | 开始开发 | 编码实现 | 写测试
+> **共加载**：无（安全红线已在 SYSTEM.md 中全局生效）
 
 ## Core Principles
 
-- **Repo safety first**: Follow all red lines in the `worktree-isolation` skill — worktree isolation, no direct commits to protected branches, PR-only delivery, no destructive git operations.
+- **Repo safety first**: Follow all red lines in SYSTEM.md "仓库安全红线" — worktree isolation, no direct commits to protected branches, PR-only delivery, no destructive git operations.
 - **Faithful to the plan**: Implement what the plan specifies. Do not expand scope or add unrequested features.
 - **Test behavior, not internals**: Assert observable outputs and side effects. Do not assert how functions call each other.
 - **No compatibility bridges**: The new design IS the current design. Do not preserve old code paths alongside new ones.
@@ -91,7 +88,7 @@ Before committing:
 
 ### 6. Commit
 
-Follow the commit message convention in `references/commit-convention.md`.
+Follow the commit message convention in `references/commit-convention.md`。署名约定见 `_shared/signature-convention.md`。
 
 ### 7. Submit via PR
 
@@ -102,26 +99,14 @@ After committing:
 
 ### 8. PR 对抗审视
 
-PR 创建（或 push 更新）后，交付不算完成——必须经独立审视：
-
-1. 召唤检视獭（见 `otter-summon` skill）。小獭只有 read 权限、且 cwd 是主仓（相对路径会解析到主仓旧代码），systemPrompt 中必须：
-   - 要求其先 read `adversarial-review` skill 再动手
-   - 附上审视对象：`gh pr diff` 全文（大 PR 可落盘成文件后给绝对路径；落盘到仓库外如 /tmp，勿写入 worktree 污染 git status）
-   - 附上 worktree 的绝对路径——静态核验（对照测试文件、周边代码）必须以 worktree 内文件为准；主仓是 PR 合入前的旧代码
-   - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
-2. 收到审视报告后，先校验报告合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规直接打回重做，不合规报告不进入处置流程。然后按 `adversarial-review/references/author-response-protocol.md` 的**作者处置协议**逐条回应：接受并修复 / 反驳（必须附证据，空驳回等同未处置）/ 部分接受 / 呈搭档裁决。不照单全收，也不空口驳回。反驳在对话内直接发给原检视獭，证据交换不消耗审视轮次。
-3. 修复后更新 PR，重新走审视（systemPrompt 不可更新：在消息中把新 diff 发给检视獭，或 dissolve 后重建）。第 2 轮起是 **delta 审视**——重建材料：8.1 全部材料 + 上轮发现清单 + 你的逐条处置 + 修复 diff（轮次结构与检视者职责定义见 `adversarial-review/references/review-loop.md`）
-4. 审视循环按收敛判据运转（`adversarial-review/references/review-loop.md`）：不设轮数上限，自然终止于"修复验证全部通过 + 无阻断回归"；对立僵局 / 移动靶 / 僵尸循环任一信号 → 停止循环，呈搭档裁决。搭档作为决策者随时可加开检视轮或直接拍板
-5. 审视通过 → 呈搭档终审，交付才算完成
-
-审视者必须独立于实现者——自己写自己审等于没审。搭档明确表示"跳过审视/不用审"时，记录该决策后放行。
+按 `_shared/review-protocol.md` 中的"代码 PR 审视协议"执行。
 
 ## Behavioral Rules
 
 - Features not in the plan are not implemented — confirm with the requester first
 - Discover gaps in the plan → record them and communicate back, do not improvise
 - Finding a flaw in the design → report to the plan author, do not redesign in place
-- **Fix all self-discovered issues within plan scope immediately** — do not ask "should I fix this?" or leave issues with "can optimize later". 检视獭报上来的发现不适用本条——走 step 8 的作者处置协议，带证据的反驳是合法处置
+- **Fix all self-discovered issues within plan scope immediately** — do not ask "should I fix this?" or leave issues with "can optimize later". 检视獭报上来的发现不适用本条——走 review-protocol 的作者处置协议，带证据的反驳是合法处置
 - Every discovered issue needs a disposition: fixed immediately, or recorded (PR description + linked issue). Labeling an issue as minor or low-risk is not a disposition
 
 ### 问题处理决策树
@@ -174,3 +159,5 @@ PR 审视在多 agent 场景下由架构保证异体（大獭召唤检视獭）�
 - **`references/testing-rules.md`** — Behavioral contract testing paradigm and anti-patterns
 - **`references/coding-principles.md`** — Architecture constraints, naming, and code quality rules
 - **`references/commit-convention.md`** — Commit message format and PR conventions
+- **`_shared/signature-convention.md`** — 海獭署名约定
+- **`_shared/review-protocol.md`** — 对抗审视协议（代码 PR 审视）

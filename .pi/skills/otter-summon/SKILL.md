@@ -2,22 +2,20 @@
 name: otter-summon
 description: >-
   This skill should be used when the task requires multiple specialized agents
-  to collaborate — e.g., "帮我分析一下这个需求", "做个技术方案", "审查这个 PR",
-  "写代码并 review", "调研几个方向", "模拟多角色讨论", "排查一下这个问题",
-  or any task involving requirement analysis, code implementation + review,
-  parallel research, multi-role discussion, or debugging that benefits from
-  dedicated agents working together.
+  to collaborate — e.g., "召唤检视獭", "让小獭帮忙", "并行调研几个方向",
+  "模拟多角色讨论",
+  or any task involving independent review, parallel research, multi-role discussion,
+  or workload delegation to sub-agents.
   Covers summon decision framework, systemPrompt template, multi-round
   collaboration orchestration, and output integration.
+  For single-agent requirement analysis or code implementation, use the
+  corresponding skill directly.
 triggers:
   phrases:
-    - "帮我分析一下这个需求"
-    - "做个技术方案"
-    - "审查这个 PR"
-    - "写代码并 review"
-    - "调研几个方向"
+    - "召唤检视獭"
+    - "让小獭帮忙"
+    - "并行调研几个方向"
     - "模拟多角色讨论"
-    - "排查一下这个问题"
 co_loads: []
 ---
 
@@ -25,8 +23,9 @@ co_loads: []
 
 大獭召唤小獭的决策框架和协作编排指南。
 
-> **触发短语**：帮我分析一下这个需求 | 做个技术方案 | 审查这个 PR | 写代码并 review
+> **触发短语**：召唤检视獭 | 让小獭帮忙 | 并行调研几个方向 | 模拟多角色讨论
 > **共加载**：无
+> **排除**：单 agent 可完成的需求分析、代码实现、问题排查 → 使用对应 skill，不召唤
 
 ## 输入契约
 
@@ -58,9 +57,8 @@ co_loads: []
 
 | 场景 | 小獭名字 | systemPrompt 要点 |
 |------|---------|-------------------|
-| 需求分析/方案设计（且需要独立审视） | 分析獭 | 指定要分析的需求，说明约束和背景，期望输出结构化方案 |
-| 代码实现（且任务量大） | 开发獭 | 指定方案编号和实现范围，说明仓库和分支，期望代码实现方案和关键代码片段（小獭只读，实际写入由大獭执行） |
 | 代码/方案检视 | 检视獭 | 指定要检视的产出（PR/方案/文件），期望结构化检视报告 |
+| 代码实现（且任务量大） | 开发獭 | 指定方案编号和实现范围，说明仓库和分支，期望代码实现方案和关键代码片段（小獭只读，实际写入由大獭执行） |
 | 模拟多角色讨论 | 按立场命名 | 指定角色立场和关注点，期望该视角的独立观点 |
 | 并行调研多个方向 | 按方向命名 | 指定调研方向和范围，期望调研结论 |
 | 调试/排查（且问题复杂） | 排查獭 | 指定问题现象、已有线索、排查范围，期望根因分析和修复建议 |

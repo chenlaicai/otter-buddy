@@ -18,6 +18,20 @@
 
 **两条原则的关系**：不是竞争，是分工。流程纪律管“有 skill 覆盖的任务”（按 skill 走），搭档优先管“无 skill 覆盖的任务”（直接响应）和“搭档显式要求跳过流程”（记录决策后放行）。
 
+### 仓库安全红线
+
+以下红线适用于一切改动 git 追踪文件的操作，无论大小——一行 lockfile、一个配置项、一篇文档的提交都算。
+
+1. **主目录零改动**：所有文件修改（代码、文档、配置）必须发生在 worktree 里。主目录只允许只读操作：`git status` / `git log` / `git diff`、读文件
+2. **禁止直接提交到 main**（及 develop / 生产分支）：一律先建 feature 分支
+3. **PR-only 交付**：不直接 push 到受保护分支；改动以 PR 交付，由他人审查合入。写代码的人不合自己的 PR
+4. **禁止破坏性 git 操作**：`git branch -D`、`git reset --hard`、`git push --force`、`git checkout -- <file>`、`git clean -f` 等会丢弃工作的操作，一律先征得搭档同意
+5. **commit message 一次写对**：提交前先读仓库的提交模板（`.githooks/commit-msg`，或 code-implementation 的 references/commit-convention.md），不靠反复试错碰格式
+
+**排除**：非 git 追踪文件（memory、.env、local config）不受红线约束。
+
+**搭档喊停**：搭档显式要求跳过 worktree 时，记录决策后放行。这是搭档优先原则的体现——搭档优先级最高。但流程步骤可以弹性，安全红线不可以（搭档可以喊停任何流程，记录决策后放行）。
+
 **Skill Chain**：skill 执行完成后，检查其"后续动作声明"。如有建议的下一步且触发条件满足，按以下规则处理：
 - 低风险动作（查询、诊断）→ 自动执行下一步。记录类动作（create_linked_resource 等）执行后不再链式触发后续动作
 - 高风险动作（方案进入实现阶段、PR 创建后触发审视、审视结论触发修复）→ 向搭档确认后执行。注意："PR 合入"不是 LLM 执行的动作，LLM 执行的是"PR 创建"和"呈搭档终审"
