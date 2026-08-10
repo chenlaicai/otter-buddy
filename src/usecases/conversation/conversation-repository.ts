@@ -70,6 +70,8 @@ export interface ConversationRepository {
   failInFlightMessages(failedAt: string, body: string): Promise<number>;
   /** 服务重启兜底：关闭不再有进行中消息的 open turn（配合 failInFlightMessages），返回关闭条数 */
   closeOrphanedTurns(closedAt: string): Promise<number>;
+  /** 重置 failed 消息为 streaming（speak 重试专用）。status 非 failed 时抛 DomainError。 */
+  resetForStreaming(messageId: string, turnId: string): Promise<void>;
   /** 更新消息的 token 使用量（speak complete 后补充写入） */
   updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
   /** 中止消息：streaming -> aborted（body 必须非空，talkingStonePassedTo 必须非空） */

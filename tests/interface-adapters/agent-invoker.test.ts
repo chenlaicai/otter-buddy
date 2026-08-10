@@ -41,7 +41,7 @@ function mockSendMessage() {
     source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
-  const calls: { fail?: Array<{ id: string; body: string }>; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
+  const calls: { fail?: Array<{ id: string; body: string }>; abort?: Array<{ id: string; body: string }>; sendSystem?: string[]; prepareForRetry?: string[] } = { fail: [], abort: [], sendSystem: [], prepareForRetry: [] };
   const sendSystemBodies: string[] = [];
   const completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> = [];
   return {
@@ -55,10 +55,11 @@ function mockSendMessage() {
     appendEvent: async () => ({}),
     sendSystem: async (_conversationId: string, body: string) => { sendSystemBodies.push(body); return { ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const }; },
     updateTokenUsage: async () => ({}),
+    prepareForRetry: async (id: string) => { calls.prepareForRetry!.push(id); return { ...streamingMsg, status: "streaming" as const, body: null, talkingStonePassedTo: null }; },
     _calls: calls,
     _sendSystemBodies: sendSystemBodies,
     _completeCalls: completeCalls,
-  } as unknown as SendMessage & { _calls: { fail: Array<{ id: string; body: string }>; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[]; _completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> };
+  } as unknown as SendMessage & { _calls: { fail: Array<{ id: string; body: string }>; abort: Array<{ id: string; body: string }>; sendSystem: string[]; prepareForRetry: string[] }; _sendSystemBodies: string[]; _completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> };
 }
 
 function mockQueryMessage(): QueryMessage {
@@ -601,12 +602,18 @@ describe("AgentInvoker speak retry", () => {
     /** 第二次失败后应返回结果（不抛异常） */
     expect(result.messageId).toBeDefined();
 
-    /** fail 应被调用两次：第一次无 talkingStonePassedTo，第二次含 senderId */
+    /** fail 应被调用两次：第一次内部标记失败，第二次重试耗尽时发 message.failed */
     expect(msg._calls.fail).toHaveLength(2);
+    /** prepareForRetry 应被调用一次（seamless retry 路径） */
+    expect(msg._calls.prepareForRetry).toHaveLength(1);
+    /** sendSystem 不应被调用（seamless retry 不注入系统消息到对话历史） */
+    expect(msg._sendSystemBodies).toHaveLength(0);
 
     const eventTypes = events.map((e) => e.event);
     /** 第二次重试失败后发送 message.failed（不是 message.complete） */
     expect(eventTypes).toContain("message.failed");
+    /** seamless retry 不发 system.message 和第一次 message.failed */
+    expect(eventTypes).not.toContain("system.message");
   });
 
   it("abort 后 SDK 正常返回（未调 speak）：走 abort 路径，不触发 speak 重试", async () => {
@@ -647,8 +654,9 @@ describe("AgentInvoker speak retry", () => {
     const msg = mockSendMessage();
     const qm = mockQueryMessageSequence(["streaming", "speaking"]);
     /** 不传 tool_execution_start 事件 → toolCallCount=0 */
+    const agent = mockAgentInvoke({ result: { text: "Response" } });
     const invoker = new AgentInvoker(
-      mockAgentInvoke({ result: { text: "Response" } }),
+      agent,
       msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
 
@@ -657,20 +665,25 @@ describe("AgentInvoker speak retry", () => {
       userMessageContent: "Hi", senderId: "user-1",
     });
 
-    expect(msg._sendSystemBodies).toHaveLength(1);
-    expect(msg._sendSystemBodies[0]).toContain("没有调用任何工具");
-    expect(msg._sendSystemBodies[0]).toContain("困境");
+    /** seamless retry: 不注入系统消息到对话历史，通过 userMessageContent 传递给 LLM */
+    expect(msg._sendSystemBodies).toHaveLength(0);
+    expect(msg._calls.prepareForRetry).toHaveLength(1);
+    /** 第二次 invoke 的 userMessageContent 应包含重试提示 */
+    expect(agent._invokeMessages).toHaveLength(2);
+    expect(agent._invokeMessages[1]).toContain("没有调用任何工具");
+    expect(agent._invokeMessages[1]).toContain("困境");
   });
 
   it("有工具调用但漏 speak（toolCallCount>0）重试提示不包含'没有调用任何工具'", async () => {
     const msg = mockSendMessage();
     const qm = mockQueryMessageSequence(["streaming", "speaking"]);
     /** 传 tool_execution_start 事件 → toolCallCount>0 */
+    const agent = mockAgentInvoke({
+      events: [{ type: "tool_execution_start", toolCallId: "tc-1", name: "read" } as AgentStreamEvent],
+      result: { text: "Response" },
+    });
     const invoker = new AgentInvoker(
-      mockAgentInvoke({
-        events: [{ type: "tool_execution_start", toolCallId: "tc-1", name: "read" } as AgentStreamEvent],
-        result: { text: "Response" },
-      }),
+      agent,
       msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
     );
 
@@ -679,12 +692,16 @@ describe("AgentInvoker speak retry", () => {
       userMessageContent: "Hi", senderId: "user-1",
     });
 
-    expect(msg._sendSystemBodies).toHaveLength(1);
-    expect(msg._sendSystemBodies[0]).not.toContain("没有调用任何工具");
-    expect(msg._sendSystemBodies[0]).toContain("speak");
+    /** seamless retry: 不注入系统消息到对话历史 */
+    expect(msg._sendSystemBodies).toHaveLength(0);
+    expect(msg._calls.prepareForRetry).toHaveLength(1);
+    /** 第二次 invoke 的 userMessageContent 应包含重试提示（不含'没有调用任何工具'） */
+    expect(agent._invokeMessages).toHaveLength(2);
+    expect(agent._invokeMessages[1]).not.toContain("没有调用任何工具");
+    expect(agent._invokeMessages[1]).toContain("speak");
   });
 
-  it("sendSystem 与 userMessageContent 使用相同的重试文本", async () => {
+  it("重试通过 userMessageContent 传递系统提醒给 LLM", async () => {
     const msg = mockSendMessage();
     const qm = mockQueryMessageSequence(["streaming", "speaking"]);
     const agent = mockAgentInvoke({ result: { text: "Response" } });
@@ -695,10 +712,12 @@ describe("AgentInvoker speak retry", () => {
       userMessageContent: "Hi", senderId: "user-1",
     });
 
-    /** sendSystem body（DB/前端）与第二次 invoke 的 userMessageContent（LLM）应一致 */
-    expect(msg._sendSystemBodies).toHaveLength(1);
+    /** seamless retry: 系统提醒通过 userMessageContent 传递给 LLM，不通过 sendSystem 注入 DB */
+    expect(msg._sendSystemBodies).toHaveLength(0);
+    expect(msg._calls.prepareForRetry).toHaveLength(1);
     expect(agent._invokeMessages).toHaveLength(2);
-    expect(msg._sendSystemBodies[0]).toBe(agent._invokeMessages[1]);
+    /** 第二次 invoke 的 userMessageContent 应包含 speak 重试提示 */
+    expect(agent._invokeMessages[1]).toContain("speak");
   });
 });
 

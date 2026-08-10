@@ -9,6 +9,7 @@ import type {
   Turn,
 } from "@entities/conversation/conversation";
 import type { Message, MessageEvent } from "@entities/conversation/message";
+import { DomainError } from "@entities/errors";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import type {
   ConversationRepository,
@@ -279,6 +280,26 @@ export class SqliteConversationRepository implements ConversationRepository {
       )
     `).run(closedAt);
     return result.changes;
+  }
+
+  /**
+   * 重置 failed 消息为 streaming（speak 重试专用）。
+   * Why: SQL 层面做状态守卫（AND status = 'failed'），防止并发 abort 将终态消息重置回 streaming。
+   * Why: 清空 FTS 索引，避免重试期间搜索命中旧 fail body（与 createStreamingMessage 对 null body 的处理一致）。
+   */
+  async resetForStreaming(messageId: string, turnId: string): Promise<void> {
+    this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE messages
+        SET status = 'streaming', body = NULL, turn_id = ?, completed_at = NULL,
+            talking_stone_passed_to = NULL
+        WHERE id = ? AND status = 'failed'
+      `).run(turnId, messageId);
+      if (result.changes === 0) {
+        throw new DomainError(`resetForStreaming failed: message ${messageId} is not in failed status`, 'conflict');
+      }
+      this.upsertMessageFts(messageId, '');
+    })();
   }
 
   async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {

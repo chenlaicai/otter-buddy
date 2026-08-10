@@ -12,6 +12,7 @@ import {
   canFailMessage,
   canAbortMessage,
   canStartSpeaking,
+  canPrepareForRetry,
   isValidCompletedMessageBody,
   isValidTalkingStonePass,
 } from "@entities/conversation/message";
@@ -325,6 +326,38 @@ export class SendMessage {
       body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
       completedAt: now,
+    };
+  }
+
+  /**
+   * 重置 failed 消息为 streaming（speak 重试专用）。
+   * Why: 重试时复用同一消息 ID，避免创建新消息导致用户看到 3 条消息（失败 + 系统提醒 + 新消息）。
+   * 操作：清空 body、创建新 Turn 并关联消息、更新 FTS 索引。
+   *
+   * 设计决策：失败期间的 message_events 保留不删——包含两次尝试的完整
+   * 工具调用链，有调试价值。FTS 索引清空以避免搜索命中旧 fail body。
+   */
+  async prepareForRetry(messageId: string): Promise<Message> {
+    const message = await this._repo.getMessageById(messageId);
+    if (!message) {
+      throw new DomainError(`Message not found: ${messageId}`, "not_found");
+    }
+    if (!canPrepareForRetry(message.status)) {
+      throw new DomainError(`Cannot prepare for retry: status=${message.status}`, "conflict");
+    }
+
+    // 创建新 Turn（旧 Turn 已被 fail() 关闭）
+    const turn = await this.ensureActiveTurn(message.conversationId);
+
+    // 重置消息状态（含状态守卫 + FTS 清空）
+    await this._repo.resetForStreaming(messageId, turn.id);
+
+    return {
+      ...message,
+      status: "streaming",
+      body: null,
+      turnId: turn.id,
+      talkingStonePassedTo: null,
     };
   }
 
