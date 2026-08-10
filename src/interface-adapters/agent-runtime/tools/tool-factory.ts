@@ -104,7 +104,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。规则：(1) 仅当任务完成、需要搭档接管时传 'user'；(2) 需要某个 Otter 继续发言时，传该 Otter 的名字（不是 otterId）；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
+          description: "发言权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
