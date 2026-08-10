@@ -124,6 +124,7 @@ export function buildOtterToolClient(uc: UseCases): OtterToolClient {
       create: (params) => uc.createOtter.execute(params),
       dissolve: (id) => uc.dissolveOtter.execute(id),
       getById: (id) => uc.queryOtter.getById(id),
+      restart: (otterId, summary) => uc.manageSession.restartSession(otterId, summary),
     },
     context: {
       get: (otterId, key) => uc.manageContext.get(otterId, key),

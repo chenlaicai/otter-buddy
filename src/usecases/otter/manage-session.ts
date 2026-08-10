@@ -171,4 +171,55 @@ export class ManageSession {
   async getSessionHistory(otterId: string): Promise<OtterSession[]> {
     return this.repo.getSessionHistory(otterId);
   }
+
+  /**
+   * 重启獭生：归档当前 session + 创建新 session（含前情摘要）。
+   * archiveSession 失败直接上抛，不做竞态认领——
+   * 竞态窗口仅存在于 archive 成功后、create 之前的极短间隔。
+   *
+   * 竞态认领：archive 需等 pi 锁（in-flight invoke 可达数分钟），
+   * 窗口内新 invoke 的兜底可能已建新行。此时 archive+reset 已真实执行，
+   * 撞 conflict 不是用户错误——认领既有新行、补写 summary，按成功处理。
+   *
+   * F20260810rstart: 从 controller 提取，供 agent tool 和 HTTP API 共用。
+   */
+  async restartSession(otterId: string, summary?: string): Promise<OtterSession> {
+    // 1. 归档当前 active session（含 agent session reset，确保旧 agent 会话被清理）
+    const active = await this.repo.getActiveSession(otterId);
+    if (active) {
+      await this.archiveSession(active.id, {
+        reason: "restart",
+        isNegativeCase: false,
+        summary,
+      });
+    }
+
+    // 2. 创建新 session（写入前情摘要）
+    try {
+      const session = await this.createSession(otterId, { summary });
+      this.logger.info("Session restarted", {
+        otterId,
+        sessionId: session.id,
+        action: "restart",
+      });
+      return session;
+    } catch (err) {
+      // 3. 竞态认领
+      if (err instanceof DomainError && err.kind === "conflict") {
+        const adopted = await this.repo.getActiveSession(otterId);
+        if (adopted) {
+          if (summary) {
+            await this.repo.setSessionSummary(adopted.id, summary);
+          }
+          this.logger.info("Restart adopted backfilled session", {
+            otterId,
+            sessionId: adopted.id,
+            action: "restart_adopt",
+          });
+          return summary ? { ...adopted, summary } : adopted;
+        }
+      }
+      throw err;
+    }
+  }
 }

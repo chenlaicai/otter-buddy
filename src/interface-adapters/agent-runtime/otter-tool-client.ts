@@ -1,6 +1,7 @@
 import type { Message } from "@entities/conversation/message";
 import type { ArtifactStatus, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
+import type { OtterSession } from "@entities/otter/otter-session";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { TurnHistoryEntry } from "@usecases/conversation/conversation-repository";
 import type { DetailLevel, MemoryContentType } from "@entities/memory/memory-entry";
@@ -86,6 +87,8 @@ search(query: string, limit?: number, detailLevel?: DetailLevel, library?: strin
     create(params: CreateOtterInput): Promise<Otter>;
     dissolve(otterId: string): Promise<void>;
     getById(id: string): Promise<Otter | null>;
+    /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。F20260810rstart */
+    restart(otterId: string, summary?: string): Promise<OtterSession>;
   };
   context: {
     get(otterId: string, key?: string): Promise<Record<string, string>>;
