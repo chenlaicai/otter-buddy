@@ -404,6 +404,9 @@ export class AgentInvoker {
 
     const abortReason = this._extractAbortReason(p.messageId, p.err);
 
+    // 用户显式中断优先于自动重试（guard abort 有 abortReason，用户中断没有）
+    if (this._isUserExplicitAbort(p.messageId, abortReason)) return false;
+
     // abort 路径：可重试的 guard abort
     if (abortReason && this._isRetryableAbortReason(abortReason)) {
       this.logger.info('Auto-retry on abort reason', { messageId: p.messageId, otterId: p.otterId, reason: abortReason });
@@ -425,6 +428,11 @@ export class AgentInvoker {
   private _extractAbortReason(messageId: string, err: unknown): string | undefined {
     return (err as { _guardAbortReason?: string })._guardAbortReason
       ?? this.agentInvoke.getInternalAbortReason(messageId);
+  }
+
+  /** 用户显式中断（无 guard abort reason）时跳过自动重试 */
+  private _isUserExplicitAbort(messageId: string, abortReason: string | undefined): boolean {
+    return this.abortedMessages.has(messageId) && !abortReason;
   }
 
   /** 判断 abort reason 是否值得自动重试（degenerate_output 已有专门逻辑，不重复） */
