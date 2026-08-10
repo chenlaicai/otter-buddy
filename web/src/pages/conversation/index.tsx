@@ -142,7 +142,7 @@ function ConversationPage() {
     // 获取用户设置（用于消息气泡旁的名称显示）
     api.getSettings()
       .then(s => setUserName(s.userName ?? ''))
-      .catch(() => {})
+      .catch(() => console.warn('[ConversationPage] Failed to load userName setting'))
   }, [])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
