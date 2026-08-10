@@ -175,10 +175,6 @@ export class AgentInvoker {
     }
   }
 
-
-
-
-
   /**
    * 执行 Agent 调用。
    * 返回 result + 事件流中跟踪的 toolCallCount（供 abort body 使用）。
@@ -289,9 +285,6 @@ export class AgentInvoker {
     return { messageId, duration, tokenUsage: result.tokenUsage, aggregatedTargets };
   }
 
-
-
-
   /** Post-invocation: classify exit reason and route to appropriate handler */
   private async classifyAndRoute(p: {
     messageId: string; otterId: string; senderId: string;
@@ -337,7 +330,10 @@ export class AgentInvoker {
         otterId: p.otterId, conversationId: p.conversationId ?? '', messageId: p.messageId, senderId: p.senderId,
         result: { text: '' }, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose?.aggregatedTargets,
       });
-    } catch { return undefined; }
+    } catch (err) {
+      this.logger.warn('tryCompleteSpeaking: sendMessage.complete failed, falling through to classify', { messageId: p.messageId, error: err instanceof Error ? err.message : String(err) });
+      return undefined;
+    }
   }
 
   /** Route by classified exit reason */
@@ -518,7 +514,7 @@ export class AgentInvoker {
     const { messageId, otterId, senderId, startTime, emitEvent, onSSEEvent, userMessageContent, conversationId } = p;
     if (!conversationId || !userMessageContent) {
       this.logger.warn('Auto-retry skipped: missing conversationId or userMessageContent', { messageId, otterId });
-      return this.failTerminal(p, reason);
+      return this.failTerminal(p, this.buildRetryFailBody(reason));
     }
 
     const failBody = `[系统] ${this.buildRetryFailBody(reason)}, 正在自动重试`;
@@ -611,8 +607,6 @@ export class AgentInvoker {
     const partnerLabel = this.settingsRepo ? ((await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     return `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
   }
-
-
 
   /**
    * 重试通用逻辑：fail（过渡态）+ sendSystem（提醒）+ invokeConversation（重试）。

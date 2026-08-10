@@ -294,6 +294,34 @@ describe("AgentInvoker", () => {
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.aborted");
   });
+  it("first_byte_timeout guard abort triggers auto-retry", async () => {
+    const msg = mockSendMessage();
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: Object.assign({ text: "" }, { _guardAbortReason: "first_byte_timeout" }) }),
+      msg,
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
+      mockManageSession(), mockQueryOtter(), createTestLogger(),
+    );
+    const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1" });
+    expect(result.messageId).toBe("msg-streaming");
+    expect(msg._calls.fail).toHaveLength(1);
+    expect(msg._calls.fail[0].body).toContain('正在自动重试');
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain('模型响应超时');
+  });
+  it("LLM API error triggers auto-retry on first attempt", async () => {
+    const msg = mockSendMessage();
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ throwOnInvoke: new Error('LLM API error: rate limit exceeded') }),
+      msg,
+      { getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null }) } as unknown as QueryMessage,
+      mockManageSession(), mockQueryOtter(), createTestLogger(),
+    );
+    const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1" });
+    expect(result.messageId).toBe("msg-streaming");
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._calls.fail[0].body).toContain('正在自动重试');
+  });
   it("calls sendMessage.fail() through speak retry on system failure (B10)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
