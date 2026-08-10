@@ -189,13 +189,34 @@ export function stripHistoricalThinking(messages: any[]) {
  * store 读到当前 otter 的 prompt config + 身份前缀，注入到 system role。
  * AsyncLocalStorage 按 async 调用链隔离，多 otter 并发 invoke 无竞态。
  */
-interface OtterInvokeContext {
+export interface OtterInvokeContext {
   /** otterConfig.systemPrompt（string 或 OtterPromptConfig 含 reminders） */
   otterPromptConfig: string | OtterPromptConfig | undefined;
   /** 首次 invoke 的身份前缀（名称/ID/类型/身份文案/模型指南/搭档名）；非首次为空串 */
   identityPrefix: string;
 }
-const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
+export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
+
+/**
+ * S1（R20260810piab）：before_agent_start handler 的纯函数实现。
+ * 提取为独立导出函数以便测试——不需要走完整 SDK 调用链即可验证 system prompt 注入逻辑。
+ *
+ * 在 SDK base systemPrompt 基础上追加 otterPrompt + identityPrefix，返回新 systemPrompt。
+ * SDK runner.js 的链式覆盖语义：返回的 systemPrompt 替换当前值。
+ */
+export function buildBeforeAgentStartResult(
+  event: { systemPrompt: string },
+  ctx: OtterInvokeContext | undefined,
+): { systemPrompt: string } | undefined {
+  if (!ctx) return undefined;
+  const parts: string[] = [];
+  if (event.systemPrompt) parts.push(event.systemPrompt);
+  const otterPrompt = buildOtterPrompt(ctx.otterPromptConfig);
+  if (otterPrompt) parts.push(otterPrompt);
+  if (ctx.identityPrefix) parts.push(ctx.identityPrefix);
+  if (parts.length <= 1) return undefined; // 只有 base，无需覆盖
+  return { systemPrompt: parts.join("\n\n") };
+}
 
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
@@ -293,18 +314,13 @@ export class PiSessionFactory implements AgentGateway {
               // S1（R20260810piab）：otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
               // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
+              // S1（R20260810piab）：otter system prompt 注入 system role。
+              // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
+              // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
               // 返回的 systemPrompt 会替换 SDK base（runner.js 链式覆盖语义），
               // 因此在 event.systemPrompt（SDK base 含工具描述）基础上追加 otter 专属内容。
               pi.on("before_agent_start", (event: { systemPrompt: string }) => {
-                const ctx = otterInvokeStorage.getStore();
-                if (!ctx) return;
-                const parts: string[] = [];
-                if (event.systemPrompt) parts.push(event.systemPrompt);
-                const otterPrompt = buildOtterPrompt(ctx.otterPromptConfig);
-                if (otterPrompt) parts.push(otterPrompt);
-                if (ctx.identityPrefix) parts.push(ctx.identityPrefix);
-                if (parts.length <= 1) return; // 只有 base，无需覆盖
-                return { systemPrompt: parts.join("\n\n") };
+                return buildBeforeAgentStartResult(event, otterInvokeStorage.getStore());
               });
             },
           }],
