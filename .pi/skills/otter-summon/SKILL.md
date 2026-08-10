@@ -4,12 +4,6 @@ description: >-
   Summon specialized sub-agents for independent review, parallel research,
   multi-role discussion, or workload delegation.
   For single-agent tasks, use the corresponding skill directly.
-triggers:
-  phrases:
-    - "召唤检视獭"
-    - "让小獭帮忙"
-    - "并行调研几个方向"
-    - "模拟多角色讨论"
 co_loads: []
 ---
 

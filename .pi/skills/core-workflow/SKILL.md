@@ -2,13 +2,6 @@
 name: core-workflow
 description: >-
   Information retrieval and artifact recording. For troubleshooting/debugging, use the troubleshooting skill instead.
-triggers:
-  phrases:
-    - "查一下"
-    - "帮我查"
-    - "看看之前的"
-    - "搜索"
-    - "记录一下"
 co_loads: []
 ---
 

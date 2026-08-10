@@ -4,19 +4,6 @@ description: >-
   Find real problems in code changes (PR) or design documents.
   Not a rubber stamp. Covers multi-dimensional checking, independent verification,
   and structured problem reporting.
-triggers:
-  phrases:
-    - "审查代码"
-    - "review PR"
-    - "代码检视"
-    - "帮我看看这个 PR"
-    - "做 code review"
-    - "审查一下"
-    - "检查代码质量"
-    - "审查方案"
-    - "审视文档"
-    - "评审设计"
-    - "挑挑毛病"
 co_loads: []
 ---
 

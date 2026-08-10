@@ -3,16 +3,6 @@ name: code-implementation
 description: >-
   Turn a technical plan into runnable, verifiable code changes.
   For ANY repository mutation, SYSTEM.md red lines always apply.
-triggers:
-  phrases:
-    - "写代码"
-    - "实现这个功能"
-    - "开始开发"
-    - "编码实现"
-    - "写测试"
-    - "按方案开发"
-    - "开干"
-    - "开始写"
 co_loads: []
 ---
 

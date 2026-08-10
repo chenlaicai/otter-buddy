@@ -2,16 +2,6 @@
 name: requirement-analysis
 description: >-
   Transform vague user intent into a clear, executable technical plan.
-triggers:
-  phrases:
-    - "分析需求"
-    - "设计方案"
-    - "做技术方案"
-    - "需求分析"
-    - "这个需求怎么做"
-    - "帮我看看这个需求"
-    - "出个方案"
-    - "技术设计"
 co_loads: []
 ---
 
