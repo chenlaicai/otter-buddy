@@ -18,7 +18,12 @@ export interface AgentTool {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  execute: (toolCallId: string, params: Record<string, unknown>) => Promise<ToolResponse>;
+  /**
+   * 执行工具。
+   * M1（R20260810piab）：signal 透传 SDK 的 AbortSignal——用户中断时工具可检查 signal.aborted 提前返回。
+   * 大多数工具不需要中断（执行快），signal 参数可选；长耗时工具（如 workspace_* 操作大文件）应定期检查。
+   */
+  execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResponse>;
   [key: string]: unknown;
 }
 

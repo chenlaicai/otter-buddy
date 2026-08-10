@@ -524,7 +524,7 @@ export function createMockDeps(): TestDeps {
       embeddingDim: 1024,
     },
     settingsRepo: mockMethods(["get", "update", "getAll"]),
-    modelPool: buildModelPool("main", [{ config: { alias: "main", provider: "openai", model: "gpt-4o" }, model: { id: "gpt-4o" } }]),
+    modelPool: buildModelPool("main", [{ config: { alias: "main", provider: "openai", model: "gpt-4o" }, model: { id: "gpt-4o" } as never }]),
     manageScheduledTask: mockMethods(["create", "getById", "getByConversationId", "update", "delete", "getExecutions"]),
     schedulerService: mockMethods(["trigger", "start", "stop"]),
     cronParser: { getNextTime: vi.fn() },

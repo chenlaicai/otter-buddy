@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import type Database from "better-sqlite3";
 import type { AppConfig } from "@frameworks/config";
+import type { Model, Api } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
 import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
@@ -25,14 +26,14 @@ import { initRepositories } from "./repositories";
 export interface DatabaseBootstrapResult {
   db: Database.Database;
   otterConfigProvider: OtterConfigProvider;
-  model: unknown;
+  model: Model<Api>;
   modelPool: ModelPool;
   embeddingService: EmbeddingGateway;
   dispose: () => void;
 }
 
 /** 测试注入预构建模型（如 initFauxModels）时，未带 pool 则按 llm 配置的全部别名合成池（共享同一模型对象） */
-function synthesizePool(model: unknown, llm: AppConfig["llm"]): ModelPool {
+function synthesizePool(model: Model<Api>, llm: AppConfig["llm"]): ModelPool {
   return new ModelPool(llm.default, new Map(
     llm.models.map((mc) => [mc.alias, { config: mc, model }]),
   ));
@@ -42,7 +43,7 @@ export async function initDatabaseAndModels(
   appConfig: AppConfig,
   logger: Logger,
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels（无密钥环境下 initModels 会抛错） */
-  modelsOverride?: { model: unknown; modelPool?: ModelPool },
+  modelsOverride?: { model: Model<Api>; modelPool?: ModelPool },
 ): Promise<DatabaseBootstrapResult> {
   const dbPath = appConfig.db.path;
   const isNewDb = !fs.existsSync(dbPath);

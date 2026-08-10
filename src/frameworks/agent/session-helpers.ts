@@ -139,9 +139,10 @@ export function buildOtterPrompt(config: string | OtterPromptConfig | undefined)
 }
 
 /**
- * 构建包含系统提示和动态上下文的消息。
- * 系统提示作为用户消息前缀注入（SDK 的 systemPrompt 由 ResourceLoader 内部管理，
- * 无公开 API 覆盖；冷启动模型下 session 无持久 system prompt）。
+ * 构建包含动态上下文的用户消息。
+ * S1（R20260810piab）：system prompt（otterPrompt + identity）已改由 extension
+ * before_agent_start handler 注入 system role，不再拼在 user message 里。
+ * staticPrompt 参数保留但调用方传空串（向后兼容签名，后续可清理）。
  */
 export function buildMessageWithContext(
   staticPrompt: string,

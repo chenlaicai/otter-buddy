@@ -44,7 +44,35 @@ function extractAssistantContent(e: AgentStreamEvent): { type: "toolcall" | "tex
   return textBlocks.length > 0 ? { type: "text", blocks: textBlocks } : null;
 }
 
+/** R20260810piab 遗漏 1：SDK 结构化事件 → SSE 事件映射（auto_retry / compaction，之前被丢弃） */
+const SDK_EVENT_SSE_MAP: Record<string, string> = {
+  auto_retry_start: "agent.retry_start",
+  auto_retry_end: "agent.retry_end",
+  compaction_start: "agent.compaction_start",
+  compaction_end: "agent.compaction_end",
+};
+
+/** 从 SDK 事件提取结构化字段（透传到 SSE data） */
+function extractSdkEventFields(e: AgentStreamEvent): Record<string, unknown> {
+  switch (e.type) {
+    case "auto_retry_start":
+      return { attempt: e.attempt, maxAttempts: e.maxAttempts, delayMs: e.delayMs, errorMessage: e.errorMessage };
+    case "auto_retry_end":
+      return { success: e.success, attempt: e.attempt, finalError: e.finalError };
+    case "compaction_start":
+      return { reason: e.reason };
+    case "compaction_end":
+      return { reason: e.reason, aborted: e.aborted, willRetry: e.willRetry, errorMessage: e.errorMessage };
+    default:
+      return {};
+  }
+}
+
 function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
+  const sseEventName = SDK_EVENT_SSE_MAP[e.type];
+  if (sseEventName) {
+    return { event: sseEventName, data: extractSdkEventFields(e) };
+  }
   switch (e.type) {
     case "tool_execution_end":
       return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
@@ -351,7 +379,7 @@ export class AgentInvoker {
       case 'guard_abort':
         return this.routeGuardAbort({ messageId, otterId, senderId, reason, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId, result });
       case 'api_error':
-        return this.routeApiError({ messageId, otterId, senderId, reason, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId });
+        return this.routeApiError({ messageId, otterId, reason, startTime, emitEvent });
       case 'no_speak':
         return this.handleSpeakRetry({ messageId, otterId, conversationId: conversationId ?? '', userMessageContent: userMessageContent ?? '', senderId, emitEvent, onSSEEvent, retryCount: retryCount ?? 0, startTime, tokenUsage: result?.tokenUsage, toolCallCount: reason.toolCallCount });
       default:
@@ -440,22 +468,13 @@ export class AgentInvoker {
     return this.abortTerminal({ ...p, toolCallCount: p.reason.toolCallCount }, 'guard', guardReason);
   }
 
-  /** Route API error: auto-retry → fail terminal */
+  /** Route API error: SDK 已内置 auto-retry（maxRetries=4，见 pi-session-factory settingsManager），耗尽后直接 fail terminal */
   private async routeApiError(p: {
-    messageId: string; otterId: string; senderId: string;
+    messageId: string; otterId: string;
     reason: ExitReason & { kind: 'api_error' };
     startTime: number; emitEvent: (event: SSEEvent) => void;
-    onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number;
-    userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
     const { errorMessage } = p.reason;
-    const retryCount = p.retryCount ?? 0;
-
-    if (retryCount === 0 && this.isRetryableApiError(errorMessage)) {
-      return this.handleAutoRetry(p, 'api_error');
-    }
-
     return this.failTerminal(p, errorMessage);
   }
 
@@ -542,11 +561,6 @@ export class AgentInvoker {
     if (reason === 'first_byte_timeout') return true;
     if (reason.startsWith('circuit_break:')) return true;
     return false;
-  }
-
-  /** Check if API error is retryable */
-  private isRetryableApiError(message: string): boolean {
-    return message.startsWith('LLM API error:');
   }
 
   /**

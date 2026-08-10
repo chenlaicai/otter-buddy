@@ -1,4 +1,5 @@
 import type { AppConfig } from "@frameworks/config";
+import type { Model, Api } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";
 import type { ModelPool } from "@frameworks/llm/model-pool";
@@ -42,7 +43,7 @@ export interface FeishuBundle {
 export async function createAgentGateway(options: {
   repos: Repositories;
   otterConfigProvider: OtterConfigProvider;
-  model: unknown;
+  model: Model<Api>;
   modelPool: ModelPool;
   db: Database.Database;
   logger: Logger;
