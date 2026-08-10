@@ -410,6 +410,8 @@ function ConversationPage() {
     const handlers: Record<string, (data: Record<string, unknown>) => void> = {
       'message': (data) => {
         const message = mapMessageDTO(data as unknown as Parameters<typeof mapMessageDTO>[0])
+        // React 18 createRoot 保证 state updater 同步执行，added 在回调内设置、回调外读取是可靠的
+        let added = false
         setAllMessages(prev => {
           const current = prev[activeId] || []
           if (current.some(m => m.id === message.id)) return prev
@@ -420,9 +422,11 @@ function ConversationPage() {
             next[tmpIdx] = message
             return { ...prev, [activeId]: next }
           }
+          added = true
           return { ...prev, [activeId]: [...current, message] }
         })
-        if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+        // BUG-FIX: 仅在消息确实新增（非重复/去重替换）时计数，防止重复广播事件虚增
+        if (added && !isAtBottomRef.current) setNewMessagesCount(c => c + 1)
       },
       'message.start': (data) => {
         const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
@@ -432,7 +436,14 @@ function ConversationPage() {
           id: messageId, st: 'otter', si: otterId, sn: otterName,
           content: '', status: 'streaming', seq: data.seq as number, ts: (data.createdAt as string) || nowTs(), dur: null, events: [],
         }
-        setAllMessages(prev => ({ ...prev, [activeId]: insertBySeq(prev[activeId] || [], placeholder) }))
+        // React 18 createRoot 保证 state updater 同步执行（同 message handler 的 added 模式）
+        let added = false
+        setAllMessages(prev => {
+          const current = prev[activeId] || []
+          if (current.some(m => m.id === messageId)) return prev
+          added = true
+          return { ...prev, [activeId]: insertBySeq(current, placeholder) }
+        })
         if (otterId && activeId) {
           setAllOtters(prev => {
             const convOtters = prev[activeId] || []
@@ -440,7 +451,7 @@ function ConversationPage() {
             return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
           })
         }
-        if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+        if (added && !isAtBottomRef.current) setNewMessagesCount(c => c + 1)
       },
       'assistant_text': (data) => {
         const liveEvents = liveEventsMap.get(data.messageId as string)
@@ -665,7 +676,7 @@ function ConversationPage() {
               return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
             })
           }
-          if (!isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+          // message.start 计数由 GET 订阅统一处理，POST 流不重复计数
         },
         'assistant_toolcall': (data) => {
           const { messageId } = data
