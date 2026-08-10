@@ -31,6 +31,8 @@ interface ChatViewProps {
   onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
+  /** 用户在设置中配置的称呼 */
+  userName?: string
   /** 卡片提交待确认预览（输入框上方单槽位） */
   cardPreview?: CardPreview | null
   onConfirmCard?: () => void
@@ -95,6 +97,7 @@ export function ChatView(props: ChatViewProps) {
         onRangeChanged={props.onRangeChanged}
         unreadSeparatorSeq={props.unreadSeparatorSeq}
         highlightMessageId={props.highlightMessageId}
+        userName={props.userName}
       />
 
       {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}
