@@ -703,7 +703,8 @@ export class AgentInvoker {
     if (retryCount === 0) {
       // 1. 内部标记消息失败（不发 SSE 事件，用户不可见）
       const failBody = "[系统] 未调用 speak 工具结束发言";
-      try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
+      /** 为什么 catch 吞掉异常：消息可能已被用户 abort 标记为终态（aborted），此时 fail() 被 canFailMessage 拒绝。吞掉是安全的——后续 prepareForRetry 会检查状态并按需降级。 */
+      try { await this.sendMessage.fail(messageId, failBody); } catch { /* 幂等：终态消息跳过 fail */ }
 
       // 2. 重置消息为可重试状态（failed → streaming）
       try {
@@ -741,7 +742,7 @@ export class AgentInvoker {
     const failBody = "[系统] 重试后仍未调用 speak 工具";
     try {
       await this.sendMessage.fail(messageId, failBody, [senderId]);
-    } catch { /* ignore */ }
+    } catch { /* 幂等：降级路径中消息可能仍处于 failed 状态（prepareForRetry 失败），二次 fail 被拒绝是正常的 */ }
 
     const duration = Date.now() - startTime;
     emitEvent({ event: "message.failed", data: { messageId, otterId, otterName, body: failBody } });

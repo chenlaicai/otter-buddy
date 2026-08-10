@@ -391,4 +391,36 @@ describe("SendMessage（真 sqlite）", () => {
       expect((await repo.getMessageById(msg.id))!.body).toBe("系统广播");
     });
   });
+
+  describe("prepareForRetry", () => {
+    it("成功：failed 消息重置为 streaming，创建新 Turn", async () => {
+      const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
+      await sm.fail(msg.id, "[系统] 未调用 speak");
+
+      const failedMsg = await repo.getMessageById(msg.id);
+      expect(failedMsg!.status).toBe("failed");
+
+      const result = await sm.prepareForRetry(msg.id);
+
+      expect(result.status).toBe("streaming");
+      expect(result.body).toBeNull();
+      expect(result.talkingStonePassedTo).toBeNull();
+      expect(result.turnId).not.toBe(msg.turnId); // 新 Turn
+
+      const stored = await repo.getMessageById(msg.id);
+      expect(stored!.status).toBe("streaming");
+      expect(stored!.body).toBeNull();
+    });
+
+    it("拒绝：status 不是 failed 时抛 DomainError", async () => {
+      const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
+      // msg.status === 'streaming'
+
+      await expect(sm.prepareForRetry(msg.id)).rejects.toThrow(DomainError);
+    });
+
+    it("拒绝：消息不存在时抛 DomainError", async () => {
+      await expect(sm.prepareForRetry("non-existent")).rejects.toThrow(DomainError);
+    });
+  });
 });

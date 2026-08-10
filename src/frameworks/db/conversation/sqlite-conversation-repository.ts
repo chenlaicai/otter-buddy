@@ -9,6 +9,7 @@ import type {
   Turn,
 } from "@entities/conversation/conversation";
 import type { Message, MessageEvent } from "@entities/conversation/message";
+import { DomainError } from "@entities/errors";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import type {
   ConversationRepository,
@@ -295,7 +296,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         WHERE id = ? AND status = 'failed'
       `).run(turnId, messageId);
       if (result.changes === 0) {
-        throw new Error(`resetForStreaming failed: message ${messageId} is not in failed status`);
+        throw new DomainError(`resetForStreaming failed: message ${messageId} is not in failed status`, 'conflict');
       }
       this.upsertMessageFts(messageId, '');
     })();
