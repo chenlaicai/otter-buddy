@@ -196,7 +196,7 @@ function CreateOtterModal(props: ModalsProps) {
 function DissolveModal(props: ModalsProps) {
   const { modal } = props
   const otter = modal.type === 'dissolve' ? props.otters.find(o => o.id === modal.otterId) : null
-  const [summary, setSummary] = useState('小獭已完成分析任务，关键结论已记录。')
+  const [summary, setSummary] = useState('')
 
   return (
     <Modal
@@ -207,7 +207,7 @@ function DissolveModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="danger" onClick={() => props.onConfirmDissolve(summary)}>确认解散</ModalButton>
+          <ModalButton variant="danger" onClick={() => { if (summary.trim()) { props.onConfirmDissolve(summary); setSummary('') } }}>确认解散</ModalButton>
         </>
       }
     >
@@ -219,6 +219,7 @@ function DissolveModal(props: ModalsProps) {
         <textarea
           value={summary}
           onChange={e => setSummary(e.target.value)}
+          placeholder="简要记录小獭的工作成果和关键结论"
           className="form-input w-full resize-none min-h-[60px]"
         />
       </div>
@@ -229,7 +230,7 @@ function DissolveModal(props: ModalsProps) {
 function RestartModal(props: ModalsProps) {
   const { modal } = props
   const otter = modal.type === 'restart' ? props.otters.find(o => o.id === modal.otterId) : null
-  const [summary, setSummary] = useState('之前讨论了 UI 布局方案，但方向有偏差，需要换角度重新分析。')
+  const [summary, setSummary] = useState('')
 
   return (
     <Modal
@@ -240,7 +241,7 @@ function RestartModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="danger" onClick={() => props.onConfirmRestart(summary)}>确认重启</ModalButton>
+          <ModalButton variant="danger" onClick={() => { if (summary.trim()) { props.onConfirmRestart(summary); setSummary('') } }}>确认重启</ModalButton>
         </>
       }
     >
@@ -252,6 +253,7 @@ function RestartModal(props: ModalsProps) {
         <textarea
           value={summary}
           onChange={e => setSummary(e.target.value)}
+          placeholder="简要说明重启原因，将作为新一世的前情摘要"
           className="form-input w-full resize-none min-h-[60px]"
         />
       </div>
