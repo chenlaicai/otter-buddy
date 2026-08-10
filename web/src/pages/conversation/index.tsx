@@ -90,6 +90,8 @@ function ConversationPage() {
   const [unreadState, setUnreadState] = useState<{ lastReadSeq: number; unreadCount: number; firstUnreadMessageId: string | null; firstUnreadSeq: number | null } | null>(null)
   const [unreadSeparatorSeq, setUnreadSeparatorSeq] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
+  /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
+  const [userName, setUserName] = useState('')
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** abort toast 同步去重（F20260805abpp 第三轮检视 S-1）：发送流与常驻通道共享广播总线，
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
@@ -136,6 +138,11 @@ function ConversationPage() {
         }
       })
       .catch(() => setPageState('error'))
+
+    // 获取用户设置（用于消息气泡旁的名称显示）
+    api.getSettings()
+      .then(s => setUserName(s.userName ?? ''))
+      .catch(() => console.warn('[ConversationPage] Failed to load userName setting'))
   }, [])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
@@ -1157,7 +1164,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}

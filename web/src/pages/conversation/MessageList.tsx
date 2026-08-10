@@ -179,6 +179,8 @@ interface MessageListProps {
   onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
+  /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
+  userName?: string
 }
 
 export function MessageList({
@@ -188,6 +190,7 @@ export function MessageList({
   loadingMore, onLoadMoreAfter,
   onRangeChanged,
   unreadSeparatorSeq, highlightMessageId,
+  userName,
 }: MessageListProps) {
   if (state === 'no-llm') {
     return (
@@ -254,7 +257,7 @@ export function MessageList({
                   <div className="flex-1 h-px bg-teal-400/40" />
                 </div>
               )}
-              <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} />
+              <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} />
             </div>
           )
         }}
@@ -290,7 +293,7 @@ export function MessageList({
   )
 }
 
-function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean }) {
+function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
     return (
@@ -311,7 +314,8 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const isUser = m.st === 'user'
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const otter = isUser ? null : otters.find(o => o.id === m.si)
-  const name = isUser ? '我' : (m.sn || otter?.name || 'Otter')
+  const userDisplayName = userName?.trim() || '我'
+  const name = isUser ? userDisplayName : (m.sn || otter?.name || 'Otter')
   const color = isUser ? null : getOtterColor(m.si)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
@@ -327,7 +331,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: bgGrad }}
       >
-        {isUser ? '我' : name.charAt(0)}
+        {name.charAt(0)}
       </div>
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
