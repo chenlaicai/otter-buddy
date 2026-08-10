@@ -161,7 +161,6 @@ export function updateTurnText(turnText: { text: string }, e: AgentEvent): void 
  * @param messages AgentMessage[] — 包含 user/assistant/toolResult 等消息
  * @returns 新数组，历史 assistant 的 thinking 被 strip
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function stripHistoricalThinking(messages: any[]) {
   let lastAssistantIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -305,7 +304,6 @@ export class PiSessionFactory implements AgentGateway {
             name: "otter-hooks",
             hidden: true,
             // ExtensionAPI.on 的 overload 不包含 "context"/"before_agent_start"，需要 any 绕过
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             factory: (pi: any) => {
               // strip 历史 assistant 消息的 thinking 块（保留最新一条）
               pi.on("context", (event: { messages: any[] }) => {
@@ -361,38 +359,47 @@ export class PiSessionFactory implements AgentGateway {
   private async _registerRuntimeModel(alias: string, config: ModelConfig, model: Model<Api>): Promise<void> {
     if (!this.modelRuntime) return;
     if (alias !== config.provider) {
-      // S3（R20260810piab）：model 现在是 Model<Api>，字段类型由 SDK 精确声明，无需 inline cast 弱化。
-      // contextWindow/maxTokens 在 Model 上可能 undefined，但 ProviderConfigInput 期望 number——
-      // 回退到 config 的值（config 是 otter 自己的 ModelConfig，这些字段是 number | undefined），
-      // 双重 undefined 时回退 0（SDK 视 0 contextWindow 为"总是需要 compaction"，但此处只在 alias !== provider 时触发）。
-      this.modelRuntime.registerProvider(alias, {
-        // config 只配 apiKey 不配 apiBaseUrl 时回退到 pool model 的 baseUrl（template 兜底，总有值），
-        // 否则 SDK 对"注册了 models 但无 baseUrl"的 provider 同步抛错
-        baseUrl: config.apiBaseUrl ?? model.baseUrl,
-        apiKey: config.apiKey,
-        api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
-        models: [{
-          id: model.id,
-          name: model.name ?? model.id,
-          reasoning: model.reasoning ?? false,
-          thinkingLevelMap: model.thinkingLevelMap,
-          input: model.input ?? ["text" as "text"],
-          cost: model.cost,
-          contextWindow: model.contextWindow ?? config.contextWindow ?? 0,
-          maxTokens: model.maxTokens ?? config.maxTokens ?? 0,
-          compat: model.compat,
-        }],
-      });
-      this.logger.info(`Registered runtime provider for alias=${alias}`);
+      this._registerCustomProvider(alias, config, model);
     }
     if (config.apiKey) {
-      // 设置 API key 到 alias 和 provider 两个名称上（SDK 可能用任一名称查找）
-      await this.modelRuntime.setRuntimeApiKey(alias, config.apiKey);
-      if (alias !== config.provider) {
-        await this.modelRuntime.setRuntimeApiKey(config.provider, config.apiKey);
-      }
-      this.logger.info(`Set runtime API key for alias=${alias} (also for provider=${config.provider})`);
+      await this._setRuntimeApiKeys(alias, config);
     }
+  }
+
+  /** 注册自定义 provider（alias !== config.provider 时） */
+  private _registerCustomProvider(alias: string, config: ModelConfig, model: Model<Api>): void {
+    // S3（R20260810piab）：model 现在是 Model<Api>，字段类型由 SDK 精确声明，无需 inline cast 弱化。
+    // contextWindow/maxTokens 在 Model 上可能 undefined，但 ProviderConfigInput 期望 number——
+    // 回退到 config 的值（config 是 otter 自己的 ModelConfig，这些字段是 number | undefined），
+    // 双重 undefined 时回退 0（SDK 视 0 contextWindow 为"总是需要 compaction"，但此处只在 alias !== provider 时触发）。
+    this.modelRuntime!.registerProvider(alias, {
+      // config 只配 apiKey 不配 apiBaseUrl 时回退到 pool model 的 baseUrl（template 兜底，总有值），
+      // 否则 SDK 对"注册了 models 但无 baseUrl"的 provider 同步抛错
+      baseUrl: config.apiBaseUrl ?? model.baseUrl,
+      apiKey: config.apiKey,
+      api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
+      models: [{
+        id: model.id,
+        name: model.name ?? model.id,
+        reasoning: model.reasoning ?? false,
+        thinkingLevelMap: model.thinkingLevelMap,
+        input: model.input ?? ["text" as const],
+        cost: model.cost,
+        contextWindow: model.contextWindow ?? config.contextWindow ?? 0,
+        maxTokens: model.maxTokens ?? config.maxTokens ?? 0,
+        compat: model.compat,
+      }],
+    });
+    this.logger.info(`Registered runtime provider for alias=${alias}`);
+  }
+
+  /** 设置 API key 到 alias 和 provider 两个名称上（SDK 可能用任一名称查找） */
+  private async _setRuntimeApiKeys(alias: string, config: ModelConfig): Promise<void> {
+    await this.modelRuntime!.setRuntimeApiKey(alias, config.apiKey!);
+    if (alias !== config.provider) {
+      await this.modelRuntime!.setRuntimeApiKey(config.provider, config.apiKey!);
+    }
+    this.logger.info(`Set runtime API key for alias=${alias} (also for provider=${config.provider})`);
   }
 
   /** create() 外部版本（带锁） */
