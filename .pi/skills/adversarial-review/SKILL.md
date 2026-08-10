@@ -68,7 +68,7 @@ co_loads: []
    ```
 
    **注意**：
-   - PR review comment 只放结论和问题清单，不放审视者自省、维度扫视等内部细节
+   - PR review comment 放审查者名号、审查结论、阻断性问题清单和次要观察，不放审视者自省、维度扫视等内部细节
    - 如果检视獭没有 `gh` 工具或 PR 信息缺失，跳过此步骤，在报告中声明“未留痕到 PR”
    - 文档审视不需要 PR 留痕
 
@@ -137,5 +137,5 @@ co_loads: []
 
 - `references/review-dimensions.md` — 步骤 3 使用
 - `references/anti-patterns.md` — 步骤 3 使用
-- `references/review-loop.md` — 多轮审视收敛判据
+- `references/review-loop.md` — 多轮审视收敛判据（跨多步骤使用：步骤 5 报告、步骤 6 留痕、作者处置后重审）
 - `references/author-response-protocol.md` — 作者处置协议
