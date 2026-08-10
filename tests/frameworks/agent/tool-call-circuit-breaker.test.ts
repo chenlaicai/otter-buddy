@@ -89,53 +89,9 @@ describe("ToolCallCircuitBreaker", () => {
     }
   });
 
-  it("triggers steer when exceeding maxToolCalls (AC-1: B-2)", () => {
-    const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
-      "otter-1",
-      createTestLogger(),
-    );
-
-    // Under limit: allow
-    for (let i = 0; i < 5; i++) {
-      expect(cb.check(`tool_${i}`).action).toBe("allow");
-    }
-
-    // Exceed limit: steer
-    const result = cb.check("tool_5");
-    expect(result.action).toBe("steer");
-    expect(result.blocked).toBe(true);
-    expect(result.reason).toContain("6/5");
-  });
-
-  it("force terminates after maxToolCalls + 3 (AC-2: B-5)", () => {
-    const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxToolCalls: 5, warningThreshold: 3 }),
-      "otter-1",
-      createTestLogger(),
-    );
-
-    // Fill up to maxToolCalls
-    for (let i = 0; i < 5; i++) {
-      cb.check(`tool_${i}`);
-    }
-
-    // 3 more calls after limit: still steer
-    for (let i = 0; i < 3; i++) {
-      expect(cb.check("extra_tool").action).toBe("steer");
-    }
-
-    // maxToolCalls + 4: force terminate
-    const result = cb.check("extra_tool");
-    expect(result.action).toBe("terminate");
-    expect(result.blocked).toBe(true);
-    expect(result.reason).toContain("Force terminated");
-    expect(result.trigger).toBe("tool_call_limit");
-  });
-
   it("triggers steer on consecutive identical signatures (AC-4: B-3)", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       "otter-1",
       createTestLogger(),
     );
@@ -155,7 +111,7 @@ describe("ToolCallCircuitBreaker", () => {
 
   it("bash 连续调用不同命令不算重复（正常工作序列不误报）", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       "otter-1",
       createTestLogger(),
     );
@@ -177,7 +133,7 @@ describe("ToolCallCircuitBreaker", () => {
 
   it("bash 同一命令反复执行才累计（真卡壳抓得住）", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       "otter-1",
       createTestLogger(),
     );
@@ -194,7 +150,7 @@ describe("ToolCallCircuitBreaker", () => {
 
   it("resets consecutive count when tool changes", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       "otter-1",
       createTestLogger(),
     );
@@ -222,7 +178,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
 
   it("steer 后行为纠正（出现 allow）即解除警告状态，不升级 terminate", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 2, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 2 }),
       "otter-1",
       createTestLogger(),
     );
@@ -243,7 +199,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
 
   it("steer 警告后继续触发满 maxRepeatAfterWarning 次则 terminate（两档制）", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 3 }),
       "otter-1",
       createTestLogger(),
     );
@@ -265,7 +221,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
 
   it("同一文件的不同编辑连续执行不算重复（重构场景不误杀）", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       "otter-1",
       createTestLogger(),
     );
@@ -278,7 +234,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
 
   it("同一编辑反复重试才累计（edit 卡壳抓得住）", () => {
     const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       "otter-1",
       createTestLogger(),
     );
@@ -315,32 +271,11 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     expect(lastAction).toBe("terminate");
   });
 
-  it("strike 跨规则累计：连续规则 steer 后接调用上限 steer，满额 terminate", () => {
-    const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 3, maxToolCalls: 4, warningThreshold: 100 }),
-      "otter-1",
-      createTestLogger(),
-    );
-
-    const stuck = () => cb.check("bash", { command: "git commit -m x" });
-    stuck(); // allow（call 1）
-    expect(stuck().action).toBe("steer"); // strike 1
-    expect(stuck().action).toBe("steer"); // strike 2
-    expect(stuck().action).toBe("steer"); // strike 3
-
-    // 换命令避开连续规则，但撞 maxToolCalls=4 的 limit-steer → strike 4 > 3
-    const result = cb.check("bash", { command: "git status" });
-    expect(result.action).toBe("terminate");
-    expect(result.trigger).toBe("ignored_steer");
-  });
-
   it("detects sliding window cross-tool alternating loop (AC-8: B-3b)", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({
         slidingWindowSize: 6,
         slidingWindowRepeat: 3,
-        maxToolCalls: 100,
-        warningThreshold: 100,
       }),
       "otter-1",
       createTestLogger(),
@@ -391,25 +326,6 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     cb.check("tool_a");
 
     expect(cb.getCallHistory()).toEqual(["bash: git status", "read: /a.ts", "tool_a"]);
-  });
-
-  it("returns metadata with circuit reason (B-7)", () => {
-    const cb = new ToolCallCircuitBreaker(
-      makeConfig({ maxToolCalls: 3, warningThreshold: 2 }),
-      "otter-1",
-      createTestLogger(),
-    );
-
-    cb.check("tool_1");
-    cb.check("tool_2");
-    cb.check("tool_3");
-
-    // Exceed limit
-    cb.check("tool_4");
-
-    const meta = cb.getMetadata();
-    expect(meta.totalCalls).toBe(4);
-    expect(meta.circuitReason).toContain("4/3");
   });
 
   it("metadata has no circuitReason when under limit", () => {

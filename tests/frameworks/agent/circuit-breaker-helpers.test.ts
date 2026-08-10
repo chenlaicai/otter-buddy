@@ -131,30 +131,13 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
 });
 
 describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
-  it("terminate 动作调用 abort", () => {
-    const session = mockSession();
-    attachCircuitBreaker(
-      session,
-      "otter-1",
-      makeConfig({ maxToolCalls: 2, warningThreshold: 1 }),
-      createTestLogger(),
-    );
-
-    // maxToolCalls + 3 次内是 steer，第 maxToolCalls + 4 次 terminate
-    for (let i = 0; i < 5; i++) session.emit(sdkToolStart(`tool_${i}`));
-    expect(session.abort).not.toHaveBeenCalled();
-
-    session.emit(sdkToolStart("tool_5"));
-    expect(session.abort).toHaveBeenCalledOnce();
-  });
-
   it("abortOverride 收到 circuit_break:<trigger> 作为 abort 原因", () => {
     const session = mockSession();
     const abortOverride = vi.fn();
     attachCircuitBreaker(
       session,
       "otter-1",
-      makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 1, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 1 }),
       createTestLogger(),
       abortOverride,
     );
@@ -166,23 +149,6 @@ describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
 
     expect(abortOverride).toHaveBeenCalledOnce();
     expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:ignored_steer");
-  });
-
-  it("tool_call_limit 硬顶 terminate 的原因为 circuit_break:tool_call_limit", () => {
-    const session = mockSession();
-    const abortOverride = vi.fn();
-    attachCircuitBreaker(
-      session,
-      "otter-1",
-      makeConfig({ maxToolCalls: 2, warningThreshold: 100, maxRepeatAfterWarning: 100 }),
-      createTestLogger(),
-      abortOverride,
-    );
-
-    for (let i = 0; i < 6; i++) session.emit(sdkToolStart(`tool_${i}`));
-
-    expect(abortOverride).toHaveBeenCalledOnce();
-    expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
   });
 });
 
@@ -462,7 +428,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 2, maxRepeatAfterWarning: 100, maxConsecutiveIdentical: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000, maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 1 }),
         createTestLogger(),
         abortOverride,
       );
@@ -470,13 +436,12 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
       // 并行启动两个工具
       session.emit(sdkToolStart("tool_A"));
       session.emit(sdkToolStart("tool_B"));
-      // 超过 maxToolCalls + 3 触发 terminate
-      session.emit(sdkToolStart("tool_C"));
-      session.emit(sdkToolStart("tool_D"));
-      session.emit(sdkToolStart("tool_E"));
-      session.emit(sdkToolStart("tool_F"));
+      // 触发连续相同规则：tool_A 连续第2次触发 steer，第3次 terminate
+      session.emit(sdkToolStart("tool_A"));
+      session.emit(sdkToolStart("tool_A"));
+      session.emit(sdkToolStart("tool_A"));
       expect(abortOverride).toHaveBeenCalledOnce();
-      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
+      expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:ignored_steer");
 
       // 推进超过阈值，验证没有二次 abort
       abortOverride.mockClear();
@@ -538,45 +503,13 @@ describe("attachCircuitBreaker - steer 行为纠正", () => {
 });
 
 describe("attachCircuitBreaker - F20260806cbsx speak 豁免 steer 注入", () => {
-  it("speak 超限时不注入 steer（但计数照走、terminate 保留）", () => {
-    const session = mockSession();
-    const abortOverride = vi.fn();
-    const { circuitBreaker } = attachCircuitBreaker(
-      session,
-      "otter-1",
-      makeConfig({ maxToolCalls: 2, warningThreshold: 100, maxRepeatAfterWarning: 100 }),
-      createTestLogger(),
-      abortOverride,
-    );
-
-    // 3 个正常工具用掉 maxToolCalls=2
-    session.emit(sdkToolStart("bash", { command: "git status" }));
-    session.emit(sdkToolStart("read", { path: "/a.ts" }));
-    // 第 3 个工具 → steer（非 speak，应注入）
-    session.emit(sdkToolStart("edit", { path: "/a.ts" }));
-    expect(session.steer).toHaveBeenCalledOnce();
-
-    session.steer.mockClear();
-    // speak 超限 → 不注入 steer，但 callCount 照计
-    session.emit(sdkToolStart("speak", { body: "test" }));
-    expect(session.steer).not.toHaveBeenCalled();
-    expect(circuitBreaker.getCallHistory()).toContain("speak");
-
-    // speak 继续超限直到 terminate（maxToolCalls+3=5，call 6 触发）
-    session.emit(sdkToolStart("speak", { body: "test2" }));
-    session.emit(sdkToolStart("speak", { body: "test3" }));
-    expect(session.steer).not.toHaveBeenCalled();
-    expect(abortOverride).toHaveBeenCalledOnce();
-    expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:tool_call_limit");
-  });
-
   it("speak consecutive 检测仍生效（刷屏保护不变）", () => {
     const session = mockSession();
     const abortOverride = vi.fn();
     attachCircuitBreaker(
       session,
       "otter-1",
-      makeConfig({ maxConsecutiveIdentical: 3, maxRepeatAfterWarning: 2, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3, maxRepeatAfterWarning: 2 }),
       createTestLogger(),
       abortOverride,
     );
