@@ -42,9 +42,25 @@ co_loads: []
 5. **自检**：测试通过、符合项目规范、无方案外变更、无兼容桥代码、视觉变更有截图证据、发现的问题全部修复。
 6. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 7. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
-8. **对抗审视**：按 `_shared/review-protocol.md` 中的"代码 PR 审视协议"执行。
+8. **对抗审视**：
+   - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
+   - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
+   - 按 `adversarial-review/references/author-response-protocol.md` 逐条处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决
+   - 修复后更新 PR，重新审视。第 2 轮起是 delta 审视（附上轮发现清单 + 处置 + 修复 diff）
+   - 收敛判据：修复验证全部通过 + 无阻断回归 → 通过；对立僵局 / 移动靶 / 僵尸循环 → 呈搭档裁决
+   - 审视通过 → 呈搭档终审
 
-> **问题处理**：方案范围内的问题 → 立即修复，不问"要不要修"。相关模块的顺手修复（≤5 个）→ 修复并在 PR 描述记录。无关问题 → 必须记录（创建 issue + PR 描述），不能静默丢失。检视獭报上来的发现 → 走 review-protocol 作者处置协议，带证据的反驳是合法处置。
+### 问题处理
+
+发现问题后，按以下流程处理：
+
+1. 问题在方案范围内？ → 立即修复，不问"要不要修"
+2. 问题与当前变更相关（同一模块/文件/函数）？
+   - 相关 + 数量 ≤ 5 → 顺手修复，PR 描述中记录
+   - 相关 + 数量 > 5 → 记录到 PR 描述，审查者决定是否拆分 PR
+3. 问题与当前变更无关？ → 必须记录，不能静默丢失：创建 issue（带标签：tech-debt / bug），PR 描述中记录发现的问题和对应 issue 编号
+
+检视獭报上来的发现不适用上述规则 → 走 review-protocol 作者处置协议，带证据的反驳是合法处置。
 
 ## 产出
 

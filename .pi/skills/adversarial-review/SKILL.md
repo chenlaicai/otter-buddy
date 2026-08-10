@@ -104,7 +104,14 @@ co_loads: []
 🤖 Generated with [Otter Buddy](https://github.com/orca-ai/otter-buddy) by [海獭名号]
 ```
 
-> **禁用语**：审查者不能输出"可以合入"——这是决策者的判断，不是审查者的。"LGTM"、"Looks fine"、"Not blocking" 都是禁用语。每个问题需要真实处置，"后续优化"不是处置。
+### 禁用语
+
+审查者不能输出以下内容——这些是决策者的判断，不是审查者的：
+
+- "可以合入"、"LGTM"、"Looks good"、"Looks fine"
+- "Not blocking"、"Low risk"、"Can optimize later"
+
+每个问题需要真实处置："在当前 PR 修复" 或 "记录（issue/PR 描述）"。"后续优化"不是处置——如果你说"记录为 issue"，你应该真的打算创建这个 issue。
 
 ## 产出
 
