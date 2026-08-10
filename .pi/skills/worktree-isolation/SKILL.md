@@ -1,9 +1,8 @@
 ---
 name: worktree-isolation
 description: >-
-  MUST trigger BEFORE modifying any git-tracked file (code, docs, config, lockfile).
-  This skill creates worktree isolation — the FIRST step before writing any file.
-  If you are about to edit, create, or delete any file tracked by git, load this skill FIRST.
+  This skill manages worktree creation and git commit workflow for git-tracked files.
+  MUST trigger BEFORE committing any git-tracked file (code, docs, config, lockfile).
   Does NOT apply to non-git files (memory, .env, local config).
   Typical triggers: "提交", "commit", "push", "merge", "提个 PR".
 triggers:
