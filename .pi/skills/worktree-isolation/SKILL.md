@@ -3,16 +3,6 @@ name: worktree-isolation
 description: >-
   This skill manages worktree creation and git commit workflow for git-tracked files.
   MUST trigger BEFORE modifying or committing any git-tracked file.
-triggers:
-  phrases:
-    - "改配置"
-    - "更新文档"
-    - "提交"
-    - "提个 PR"
-    - "commit"
-    - "push"
-    - "merge"
-    - "把这个改动提交了"
 co_loads: []
 ---
 
@@ -51,6 +41,6 @@ co_loads: []
 
 **小改动** = 不改变运行时行为的改动（lockfile、配置、文档订正）。归属模糊时走 `code-implementation` 对抗审视，默认从严。
 
-## 参考
+## 参考（索引）
 
-- `_shared/signature-convention.md` — 海獭署名约定
+- `_shared/signature-convention.md` — 步骤 3 使用
