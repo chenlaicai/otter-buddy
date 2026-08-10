@@ -23,6 +23,13 @@ export interface ConversationInvokeResult {
   aggregatedTargets?: string[];
 }
 
+/** Agent invocation exit reason classification */
+type ExitReason =
+  | { kind: 'user_abort'; toolCallCount: number }
+  | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
+  | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
+  | { kind: 'no_speak'; toolCallCount: number };
+
 /** Pi 事件 -> SSE 事件映射 */
 /** 从 message_end 事件提取 assistant 内容块（过滤 user/toolResult） */
 function extractAssistantContent(e: AgentStreamEvent): { type: "toolcall" | "text"; blocks: Array<Record<string, unknown>> } | null {
@@ -83,8 +90,10 @@ function mapToMessageEventInput(
 }
 
 export class AgentInvoker {
-  /** abort 标记按 messageId 键控（同一 otter 可并发多个 invoke，按 otterId 键控会跨消息串扰） */
-  private readonly abortedMessages = new Set<string>();
+  /** Messages explicitly aborted by the user (written only by abort()) */
+  private readonly userAbortedMessages = new Set<string>();
+  /** Messages already sent to a terminal state (abort/fail), prevents double-terminal */
+  private readonly terminalMessages = new Set<string>();
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -153,81 +162,17 @@ export class AgentInvoker {
       const { result, toolCallCount } = await this.executeAgentInvocation({
         otterId, userMessageContent, dynamicContext, conversationId, messageId: message.id, emitEvent,
       });
-      return await this._handlePostInvocation({
-        messageId: message.id, otterId, senderId, result, toolCallCount, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
+      return await this.classifyAndRoute({
+        messageId: message.id, otterId, senderId, result, toolCallCount,
+        startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
       });
     } catch (err) {
-      /** F146 修复：degenerate_output 梯度介入在 catch 路径中拦截，
-       *  走 handleDegenerateRetry 重试而非直接 abort 终态。
-       *  wrapInternalAbort 会消费 guardAbortReason 并加入 abortedMessages，
-       *  故必须在调用前判断。 */
-      const abortReason = (err as { _guardAbortReason?: string })._guardAbortReason
-        ?? this.agentInvoke.getInternalAbortReason(message.id);
-      if (abortReason === "degenerate_output" && retryCount === 0) {
-        this.logger.info('Degenerate output detected in catch path, attempting retry', { messageId: message.id, otterId });
-        return this.handleDegenerateRetry({
-          messageId: message.id, otterId, senderId,
-          result: { text: "", tokenUsage: undefined },
-          toolCallCount: (err as ErrorWithToolCallCount)._toolCallCount ?? 0,
-          startTime, emitEvent, onSSEEvent,
-          retryCount: 0, userMessageContent, conversationId,
-        });
-      }
-      const finalErr = this.wrapInternalAbort(message.id, err);
-      await this.handleInvokeError({ messageId: message.id, otterId, err: finalErr, emitEvent, senderId, conversationId, startTime, userMessageContent, onSSEEvent, retryCount });
-      return { messageId: message.id, duration: Date.now() - startTime };
-    }
-  }
-
-  /** invoke 后处理：检查 speaking/abort/retry 状态 */
-  private async _handlePostInvocation(p: {
-    messageId: string; otterId: string; senderId: string;
-    result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
-    toolCallCount: number; startTime: number;
-    emitEvent: (event: SSEEvent) => void;
-    onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number;
-    userMessageContent?: string; conversationId?: string;
-  }): Promise<ConversationInvokeResult> {
-    const msg = await this.queryMessage.getMessageById(p.messageId);
-    this.logger.info('Agent invocation finished', { messageId: p.messageId, otterId: p.otterId, messageStatus: msg?.status, tokenUsage: p.result.tokenUsage });
-    if (msg?.status === "speaking") {
-      /** 上下文窗口占用随 complete 落库（口径与 SSE 实时事件一致：末次 LLM 调用的窗口占用，F20260808ctxw），刷新后历史消息仍能展示上下文使用率 */
-      const cr = await this.sendMessage.complete(p.messageId, {
-        contextTokens: p.result.ctxTokens,
-        contextTokensMax: p.result.ctxMax,
+      const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? 0;
+      return await this.classifyAndRoute({
+        messageId: message.id, otterId, senderId, err, toolCallCount,
+        startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
       });
-      return this.completeAgentInvocation({ otterId: p.otterId, conversationId: p.conversationId ?? "", messageId: p.messageId, senderId: p.senderId, result: p.result, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose.aggregatedTargets });
     }
-    if (this.abortedMessages.has(p.messageId)) {
-      await this.handleInvokeError({ messageId: p.messageId, otterId: p.otterId, err: Object.assign(new Error("Invocation aborted by user"), { _toolCallCount: p.toolCallCount }), emitEvent: p.emitEvent, senderId: p.senderId, conversationId: p.conversationId, startTime: p.startTime });
-      return { messageId: p.messageId, duration: Date.now() - p.startTime };
-    }
-    return this._handleGuardAbortOrSpeakRetry(p);
-  }
-
-  /** guard abort / 重试判断：提取以降低 _handlePostInvocation 圈复杂度 */
-  private async _handleGuardAbortOrSpeakRetry(p: {
-    messageId: string; otterId: string; senderId: string;
-    result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
-    toolCallCount: number; startTime: number;
-    emitEvent: (event: SSEEvent) => void;
-    onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number;
-    userMessageContent?: string; conversationId?: string;
-  }): Promise<ConversationInvokeResult> {
-    const ir = (p.result as Record<string, unknown>)._guardAbortReason as string | undefined ?? this.agentInvoke.getInternalAbortReason(p.messageId);
-    if (ir) {
-      /** F146: degenerate_output 梯度介入：重试一次，再犯才落终态 */
-      if (ir === "degenerate_output" && (p.retryCount ?? 0) === 0) {
-        return this.handleDegenerateRetry(p);
-      }
-      this.abortedMessages.add(p.messageId);
-      const prefix = ir.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
-      await this.handleInvokeError({ messageId: p.messageId, otterId: p.otterId, err: Object.assign(new Error(`${prefix} ${ir}`), { _toolCallCount: p.toolCallCount }), emitEvent: p.emitEvent, senderId: p.senderId, conversationId: p.conversationId, startTime: p.startTime, userMessageContent: p.userMessageContent, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount });
-      return { messageId: p.messageId, duration: Date.now() - p.startTime };
-    }
-    return this.handleSpeakRetry({ messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "", userMessageContent: p.userMessageContent ?? "", senderId: p.senderId, emitEvent: p.emitEvent, onSSEEvent: p.onSSEEvent, retryCount: p.retryCount ?? 0, startTime: p.startTime, tokenUsage: p.result.tokenUsage, toolCallCount: p.toolCallCount });
   }
 
   /**
@@ -289,7 +234,8 @@ export class AgentInvoker {
     /** 消息已在 invokeConversation 中通过 sendMessage.complete() 完成，此处发 SSE 事件和清理状态 */
 
     /** D2-fix: 清理 stale abort 标记（竞态：abort 被调用但 invoke 成功完成） */
-    this.abortedMessages.delete(messageId);
+    this.userAbortedMessages.delete(messageId);
+    this.terminalMessages.delete(messageId);
 
     const duration = Date.now() - startTime;
 
@@ -339,22 +285,268 @@ export class AgentInvoker {
     return { messageId, duration, tokenUsage: result.tokenUsage, aggregatedTargets };
   }
 
-  /**
-   * 内部 abort 包装：检查是否有 OutputGuard 等内部机制触发的 abort。
-   * 优先从 error 对象读取 _guardAbortReason（finally 前预捕获），
-   * 回退到 getInternalAbortReason（activeSessions 查找）。
-   * 竞态防护：用户已 abort 时不覆盖（High-1）。
-   */
-  private wrapInternalAbort(messageId: string, err: unknown): unknown {
-    if (this.abortedMessages.has(messageId)) return err;
-    const reason = (err as { _guardAbortReason?: string })._guardAbortReason ?? this.agentInvoke.getInternalAbortReason(messageId);
-    if (!reason) return err;
-    this.abortedMessages.add(messageId);
-    /** 按归因打前缀：熔断器 abort 不再伪装成 OutputGuard */
-    const prefix = reason.startsWith("circuit_break:") ? "[circuit-breaker]" : "[output-guard]";
-    return Object.assign(new Error(`${prefix} ${reason}`), {
-      _toolCallCount: (err as ErrorWithToolCallCount)._toolCallCount ?? 0,
+  /** Post-invocation: classify exit reason and route to appropriate handler */
+  private async classifyAndRoute(p: {
+    messageId: string; otterId: string; senderId: string;
+    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    err?: unknown;
+    toolCallCount: number; startTime: number;
+    emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number;
+    userMessageContent?: string; conversationId?: string;
+  }): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, senderId, result, err, toolCallCount, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId } = p;
+
+    // 1. Speaking guard: content delivery takes priority over everything
+    const speakingHandled = await this.tryCompleteSpeaking({ messageId, otterId, senderId, conversationId, result, startTime, emitEvent });
+    if (speakingHandled) return speakingHandled;
+
+    // 2. Classify exit reason and route
+    const reason = this.classifyExit({ messageId, result, err, toolCallCount });
+    return this.routeByReason(reason, { messageId, otterId, senderId, result, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId });
+  }
+
+  /** Try to complete a speaking message; returns result if handled, undefined otherwise */
+  private async tryCompleteSpeaking(p: {
+    messageId: string; otterId: string; senderId: string; conversationId?: string;
+    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+  }): Promise<ConversationInvokeResult | undefined> {
+    const msg = await this.queryMessage.getMessageById(p.messageId);
+    if (msg?.status !== 'speaking') return undefined;
+    if (p.result) {
+      const cr = await this.sendMessage.complete(p.messageId, {
+        contextTokens: p.result.ctxTokens, contextTokensMax: p.result.ctxMax,
+      });
+      return this.completeAgentInvocation({
+        otterId: p.otterId, conversationId: p.conversationId ?? '', messageId: p.messageId, senderId: p.senderId,
+        result: p.result, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose.aggregatedTargets,
+      });
+    }
+    try {
+      const cr = await this.sendMessage.complete(p.messageId);
+      return this.completeAgentInvocation({
+        otterId: p.otterId, conversationId: p.conversationId ?? '', messageId: p.messageId, senderId: p.senderId,
+        result: { text: '' }, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose?.aggregatedTargets,
+      });
+    } catch (err) {
+      this.logger.warn('tryCompleteSpeaking: sendMessage.complete failed, falling through to classify', { messageId: p.messageId, error: err instanceof Error ? err.message : String(err) });
+      return undefined;
+    }
+  }
+
+  /** Route by classified exit reason */
+  private routeByReason(reason: ExitReason, p: {
+    messageId: string; otterId: string; senderId: string;
+    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number; userMessageContent?: string; conversationId?: string;
+  }): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, senderId, result, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId } = p;
+    switch (reason.kind) {
+      case 'user_abort':
+        return this.handleUserAbort({ messageId, otterId, senderId, reason, startTime, emitEvent, conversationId });
+      case 'guard_abort':
+        return this.routeGuardAbort({ messageId, otterId, senderId, reason, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId, result });
+      case 'api_error':
+        return this.routeApiError({ messageId, otterId, senderId, reason, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId });
+      case 'no_speak':
+        return this.handleSpeakRetry({ messageId, otterId, conversationId: conversationId ?? '', userMessageContent: userMessageContent ?? '', senderId, emitEvent, onSSEEvent, retryCount: retryCount ?? 0, startTime, tokenUsage: result?.tokenUsage, toolCallCount: reason.toolCallCount });
+      default:
+        return Promise.resolve({ messageId, duration: Date.now() - startTime });
+    }
+  }
+
+  /** Classify the exit reason from invocation result or error */
+  private classifyExit(p: {
+    messageId: string;
+    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    err?: unknown;
+    toolCallCount: number;
+  }): ExitReason {
+    if (this.userAbortedMessages.has(p.messageId)) {
+      return { kind: 'user_abort', toolCallCount: p.toolCallCount };
+    }
+
+    const guardReason = this.extractGuardReason(p.messageId, p.result, p.err);
+    if (guardReason) {
+      return { kind: 'guard_abort', guardReason, toolCallCount: p.toolCallCount };
+    }
+
+    if (p.err) {
+      const msg = p.err instanceof Error ? p.err.message : String(p.err);
+      return { kind: 'api_error', errorMessage: msg, toolCallCount: p.toolCallCount };
+    }
+
+    return { kind: 'no_speak', toolCallCount: p.toolCallCount };
+  }
+
+  /** Extract guard abort reason from result or error (single source of truth) */
+  private extractGuardReason(messageId: string, result?: unknown, err?: unknown): string | undefined {
+    const fromResult = (result as Record<string, unknown>)?._guardAbortReason as string | undefined;
+    if (fromResult) return fromResult;
+    const fromErr = (err as { _guardAbortReason?: string })?._guardAbortReason;
+    if (fromErr) return fromErr;
+    return this.agentInvoke.getInternalAbortReason(messageId);
+  }
+
+  /** Handle user abort: speaking guard → abort terminal */
+  private async handleUserAbort(p: {
+    messageId: string; otterId: string; senderId: string;
+    reason: ExitReason & { kind: 'user_abort' };
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+    conversationId?: string;
+  }): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, senderId, startTime, emitEvent, conversationId } = p;
+
+    const completedIfSpeaking = await this.completeSpeakingMessage(
+      messageId, otterId, emitEvent, senderId, conversationId, startTime,
+    );
+    if (completedIfSpeaking) return { messageId, duration: Date.now() - startTime };
+
+    return this.abortTerminal({ messageId, otterId, senderId, startTime, emitEvent, conversationId, toolCallCount: p.reason.toolCallCount }, 'user');
+  }
+
+  /** Route guard abort: degenerate retry → auto-retry → abort terminal */
+  private async routeGuardAbort(p: {
+    messageId: string; otterId: string; senderId: string;
+    reason: ExitReason & { kind: 'guard_abort' };
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number;
+    userMessageContent?: string; conversationId?: string;
+    result?: { text: string; tokenUsage?: { input: number; output: number } };
+  }): Promise<ConversationInvokeResult> {
+    const { guardReason, toolCallCount } = p.reason;
+    const retryCount = p.retryCount ?? 0;
+
+    if (guardReason === 'degenerate_output' && retryCount === 0) {
+      return this.handleDegenerateRetry({
+        messageId: p.messageId, otterId: p.otterId, senderId: p.senderId,
+        result: p.result ?? { text: '' }, toolCallCount,
+        startTime: p.startTime, emitEvent: p.emitEvent,
+        onSSEEvent: p.onSSEEvent, retryCount,
+        userMessageContent: p.userMessageContent, conversationId: p.conversationId,
+      });
+    }
+
+    if (retryCount === 0 && this.isRetryableGuardAbort(guardReason)) {
+      this.logger.info('Auto-retry on guard abort', { messageId: p.messageId, otterId: p.otterId, guardReason });
+      return this.handleAutoRetry(p, guardReason);
+    }
+
+    return this.abortTerminal({ ...p, toolCallCount: p.reason.toolCallCount }, 'guard', guardReason);
+  }
+
+  /** Route API error: auto-retry → fail terminal */
+  private async routeApiError(p: {
+    messageId: string; otterId: string; senderId: string;
+    reason: ExitReason & { kind: 'api_error' };
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number;
+    userMessageContent?: string; conversationId?: string;
+  }): Promise<ConversationInvokeResult> {
+    const { errorMessage } = p.reason;
+    const retryCount = p.retryCount ?? 0;
+
+    if (retryCount === 0 && this.isRetryableApiError(errorMessage)) {
+      return this.handleAutoRetry(p, 'api_error');
+    }
+
+    return this.failTerminal(p, errorMessage);
+  }
+
+  /** Abort terminal: build body → sendMessage.abort → emit message.aborted */
+  private async abortTerminal(p: {
+    messageId: string; otterId: string; senderId: string;
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+    conversationId?: string;
+    toolCallCount?: number;
+  }, kind: 'user' | 'guard', guardReason?: string): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, senderId, startTime, emitEvent } = p;
+    if (this.terminalMessages.has(messageId)) return { messageId, duration: Date.now() - startTime };
+
+    this.terminalMessages.add(messageId);
+    this.userAbortedMessages.delete(messageId);
+
+    const toolCallCount = p.toolCallCount || this.agentInvoke.getToolCallCount(otterId, messageId);
+    const body = await this.buildAbortBody(kind, guardReason, toolCallCount, otterId);
+    try {
+      await this.sendMessage.abort(messageId, { body, talkingStonePassedTo: senderId ? [senderId] : [] });
+    } catch { /* ignore */ }
+
+    const otter = await this.queryOtter.getById(otterId);
+    emitEvent({ event: 'message.aborted', data: { messageId, body, otterId, otterName: otter?.name } });
+
+    return { messageId, duration: Date.now() - startTime };
+  }
+
+  /** Fail terminal: sendMessage.fail → emit error */
+  private async failTerminal(p: {
+    messageId: string; otterId: string;
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+  }, errorMessage: string): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, startTime, emitEvent } = p;
+    if (this.terminalMessages.has(messageId)) return { messageId, duration: Date.now() - startTime };
+
+    this.terminalMessages.add(messageId);
+
+    try {
+      await this.sendMessage.fail(messageId, `[错误] ${errorMessage}`);
+    } catch { /* ignore */ }
+
+    emitEvent({ event: 'error', data: { message: errorMessage, messageId, otterId } });
+
+    return { messageId, duration: Date.now() - startTime };
+  }
+
+  /** Auto-retry: fail current message → re-invoke */
+  private async handleAutoRetry(p: {
+    messageId: string; otterId: string; senderId: string;
+    startTime: number; emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number;
+    userMessageContent?: string; conversationId?: string;
+  }, reason: string): Promise<ConversationInvokeResult> {
+    const { messageId, otterId, senderId, startTime, emitEvent, onSSEEvent, userMessageContent, conversationId } = p;
+    if (!conversationId || !userMessageContent) {
+      this.logger.warn('Auto-retry skipped: missing conversationId or userMessageContent', { messageId, otterId });
+      return this.failTerminal(p, this.buildRetryFailBody(reason));
+    }
+
+    const failBody = `[系统] ${this.buildRetryFailBody(reason)}, 正在自动重试`;
+
+    try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
+    const otter = await this.queryOtter.getById(otterId);
+    emitEvent({ event: 'message.failed', data: { messageId, otterId, otterName: otter?.name ?? otterId, body: failBody } });
+
+    this.userAbortedMessages.delete(messageId);
+
+    await this.invokeConversation({
+      otterId, conversationId,
+      userMessageContent,
+      senderId, retryCount: 1,
+      onSSEEvent,
     });
+
+    return { messageId, duration: Date.now() - startTime };
+  }
+
+  /** Check if guard abort reason is retryable */
+  private isRetryableGuardAbort(reason: string): boolean {
+    if (reason === 'degenerate_output') return false;
+    if (reason === 'streaming_timeout') return true;
+    if (reason === 'first_byte_timeout') return true;
+    if (reason.startsWith('circuit_break:')) return true;
+    return false;
+  }
+
+  /** Check if API error is retryable */
+  private isRetryableApiError(message: string): boolean {
+    return message.startsWith('LLM API error:');
   }
 
   /**
@@ -389,90 +581,8 @@ export class AgentInvoker {
     }
   }
 
-  /** 自动重试拦截：判断是否可重试并执行，返回 true 表示已处理 */
-  private async _tryAutoRetry(p: {
-    messageId: string; otterId: string; err: unknown;
-    emitEvent: (event: SSEEvent) => void; senderId?: string;
-    conversationId?: string; startTime?: number;
-    userMessageContent?: string; autoRetryCount?: number;
-    onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number;
-  }): Promise<boolean> {
-    const autoRetryCount = p.autoRetryCount ?? 0;
-    const retryCount = p.retryCount ?? 0;
-    if (autoRetryCount !== 0 || retryCount > 0 || !p.conversationId || !p.userMessageContent) return false;
-
-    const abortReason = this._extractAbortReason(p.messageId, p.err);
-
-    // abort 路径：可重试的 guard abort
-    if (abortReason && this._isRetryableAbortReason(abortReason)) {
-      this.logger.info('Auto-retry on abort reason', { messageId: p.messageId, otterId: p.otterId, reason: abortReason });
-      await this._executeAutoRetry(p as Parameters<typeof this._executeAutoRetry>[0], abortReason);
-      return true;
-    }
-
-    // error 路径：API error
-    if (!abortReason && this._isRetryableApiError(p.err)) {
-      this.logger.info('Auto-retry on API error', { messageId: p.messageId, otterId: p.otterId });
-      await this._executeAutoRetry(p as Parameters<typeof this._executeAutoRetry>[0], 'api_error');
-      return true;
-    }
-
-    return false;
-  }
-
-  /** 从 error 中提取 abort reason（不修改 abortedMessages） */
-  private _extractAbortReason(messageId: string, err: unknown): string | undefined {
-    return (err as { _guardAbortReason?: string })._guardAbortReason
-      ?? this.agentInvoke.getInternalAbortReason(messageId);
-  }
-
-  /** 判断 abort reason 是否值得自动重试（degenerate_output 已有专门逻辑，不重复） */
-  private _isRetryableAbortReason(reason: string): boolean {
-    if (reason === "degenerate_output") return false;
-    if (reason === "streaming_timeout") return true;
-    if (reason === "first_byte_timeout") return true;
-    if (reason.startsWith("circuit_break:")) return true;
-    return false;
-  }
-
-  /** 判断 API error 是否值得自动重试（SDK auto-retry 耗尽后 _checkSessionError 抛出） */
-  private _isRetryableApiError(err: unknown): boolean {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.startsWith("LLM API error:")) return true;
-    return false;
-  }
-
-  /** 执行自动重试：不注入系统消息，直接 fail + re-invoke（session 上下文已完整） */
-  private async _executeAutoRetry(
-    p: { messageId: string; otterId: string; senderId?: string; conversationId: string;
-         userMessageContent: string; emitEvent: (e: SSEEvent) => void; onSSEEvent?: (e: SSEEvent) => void;
-         startTime?: number; },
-    reason: string,
-  ): Promise<void> {
-    const failBody = `[系统] ${this._buildRetryFailBody(reason)}, 正在自动重试`;
-
-    /** 1. fail 当前消息（前端展示过渡态） */
-    try { await this.sendMessage.fail(p.messageId, failBody); } catch { /* ignore */ }
-    const otter = await this.queryOtter.getById(p.otterId);
-    const otterName = otter?.name ?? p.otterId;
-    p.emitEvent({ event: "message.failed", data: { messageId: p.messageId, otterId: p.otterId, otterName, body: failBody } });
-
-    /** 2. 清理 abortedMessages（不走终态 abort 路径，需要手动清理） */
-    this.abortedMessages.delete(p.messageId);
-
-    /** 3. 直接 re-invoke，不注入系统消息——session 上下文已完整保留 */
-    await this.invokeConversation({
-      otterId: p.otterId, conversationId: p.conversationId,
-      userMessageContent: p.userMessageContent,
-      senderId: p.senderId ?? p.otterId,
-      retryCount: 1,
-      onSSEEvent: p.onSSEEvent,
-    });
-  }
-
   /** 构造自动重试的过渡态消息 */
-  private _buildRetryFailBody(reason: string): string {
+  private buildRetryFailBody(reason: string): string {
     if (reason === "streaming_timeout") return "生成过程超时";
     if (reason === "first_byte_timeout") return "模型响应超时";
     if (reason.startsWith("circuit_break:")) return "工具调用异常";
@@ -480,81 +590,22 @@ export class AgentInvoker {
     return "执行异常";
   }
 
-  /** 构造 abort body：区分用户手动中断、内部机制中断（Medium-2 友好消息） */
-  private async buildAbortBody(err: unknown, otterId: string, messageId: string): Promise<string> {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    if (errMsg.startsWith("[circuit-breaker]")) {
-      if (errMsg.includes("event_timeout")) return "[系统保护] 单次工具调用超时，已自动中断。";
-      return "[系统保护] 检测到工具调用异常循环，已自动中断。";
+  /** Build abort body: user abort vs guard abort */
+  private async buildAbortBody(kind: 'user' | 'guard', guardReason: string | undefined, toolCallCount: number, _otterId: string): Promise<string> {
+    if (kind === 'guard') {
+      if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';
+      if (guardReason === 'streaming_timeout') return '[系统保护] 生成过程超时，已自动中断。';
+      if (guardReason === 'first_byte_timeout') return '[系统保护] 模型响应超时，已自动中断。';
+      if (guardReason?.startsWith('circuit_break:')) {
+        if (guardReason.includes('event_timeout')) return '[系统保护] 单次工具调用超时，已自动中断。';
+        return '[系统保护] 检测到工具调用异常循环，已自动中断。';
+      }
+      return '[系统保护] 输出异常，已自动中断。';
     }
-    if (errMsg.startsWith("[output-guard]")) {
-      if (errMsg.includes("degenerate_output")) return "[系统保护] 检测到输出内容异常重复，已自动中断。";
-      if (errMsg.includes("streaming_timeout")) return "[系统保护] 生成过程超时，已自动中断。";
-      if (errMsg.includes("first_byte_timeout")) return "[系统保护] 模型响应超时，已自动中断。";
-      return "[系统保护] 输出异常，已自动中断。";
-    }
+
+    // User abort
     const partnerLabel = this.settingsRepo ? ((await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
-    const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? this.agentInvoke.getToolCallCount(otterId, messageId);
     return `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
-  }
-
-  /**
-   * 处理 invoke 异常：区分 abort/error 路径。
-   * abort 路径：构造合成 body → sendMessage.abort() → SSE message.aborted
-   * error 路径：sendMessage.fail() → SSE error
-   *
-   * F20260806cbsx: 若消息已 speaking（speak 已提交 body），内容交付优先于中断语义——
-   * 改走 complete 收尾，不覆盖已交付内容。
-   *
-   * 自动重试：在到达终态前，拦截可重试异常（timeout、circuit breaker、API error），
-   * 自动注入系统提醒并重新触发 agent 执行，用户无需手动干预。
-   */
-  private async handleInvokeError(p: {
-    messageId: string;
-    otterId: string;
-    err: unknown;
-    emitEvent: (event: SSEEvent) => void;
-    senderId?: string;
-    conversationId?: string;
-    startTime?: number;
-    userMessageContent?: string;
-    autoRetryCount?: number;
-    onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number;
-  }): Promise<void> {
-    // --- 自动重试拦截（终态之前） ---
-    if (await this._tryAutoRetry(p)) return;
-
-    const { messageId, otterId, err, emitEvent, senderId, conversationId, startTime } = p;
-    const errMsg = err instanceof Error ? err.message : String(err);
-    this.logger.warn('Agent invocation error', { messageId, otterId, error: errMsg, isAbort: this.abortedMessages.has(messageId) });
-    if (this.abortedMessages.delete(messageId)) {
-      // F20260806cbsx: speaking 守卫——发言已提交时内容交付优先
-      const completedIfSpeaking = await this.completeSpeakingMessage(messageId, otterId, emitEvent, senderId, conversationId, startTime);
-      if (completedIfSpeaking) return;
-      /** abort 路径：构造合成 body，调用 sendMessage.abort() */
-      const body = await this.buildAbortBody(err, otterId, messageId);
-      try {
-        await this.sendMessage.abort(messageId, {
-          body,
-          talkingStonePassedTo: senderId ? [senderId] : [],
-        });
-      } catch {
-        /** abort() 出错时不覆盖原始错误 */
-      }
-      /** 携带 otter 身份：前端可能在 abort 前已乐观清除 streaming entry，无法本地解析名称 */
-      const otter = await this.queryOtter.getById(otterId);
-      emitEvent({ event: "message.aborted", data: { messageId, body, otterId, otterName: otter?.name } });
-    } else {
-      /** error 路径：标记失败，发送 error SSE 事件 */
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      try {
-        await this.sendMessage.fail(messageId, `[错误] ${msg}`);
-      } catch {
-        /** fail() 出错时不覆盖原始错误 */
-      }
-      emitEvent({ event: "error", data: { message: msg, messageId, otterId } });
-    }
   }
 
   /**
@@ -585,7 +636,7 @@ export class AgentInvoker {
     } catch (err) {
       /** sendSystem 失败：降级为直接 abort，避免 double-terminal 事件 */
       this.logger.warn('sendSystem failed during retry, falling back to abort', { messageId, otterId, error: err instanceof Error ? err.message : String(err) });
-      this.abortedMessages.add(messageId);
+      this.terminalMessages.add(messageId);
       const body = "[系统保护] 检测到输出异常重复，已自动中断。";
       try { await this.sendMessage.abort(messageId, { body, talkingStonePassedTo: [senderId] }); } catch { /* ignore */ }
       emitEvent({ event: "message.aborted", data: { messageId, body, otterId, otterName } });
@@ -680,7 +731,7 @@ export class AgentInvoker {
 
   /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()）；标记按 messageId 键控 */
   abort(otterId: string, messageId: string): void {
-    this.abortedMessages.add(messageId);
+    this.userAbortedMessages.add(messageId);
     this.agentInvoke.abort(otterId, messageId);
   }
 
