@@ -314,9 +314,6 @@ export class PiSessionFactory implements AgentGateway {
               // S1（R20260810piab）：otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
               // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
-              // S1（R20260810piab）：otter system prompt 注入 system role。
-              // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
-              // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
               // 返回的 systemPrompt 会替换 SDK base（runner.js 链式覆盖语义），
               // 因此在 event.systemPrompt（SDK base 含工具描述）基础上追加 otter 专属内容。
               pi.on("before_agent_start", (event: { systemPrompt: string }) => {
