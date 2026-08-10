@@ -260,7 +260,7 @@ function buildOutputGuardConfig(raw: RawConfig): AppConfig["circuitBreaker"]["ou
 
 function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] {
   return {
-    maxToolCalls: d(raw.circuitBreaker?.maxToolCalls, 40),
+    maxToolCalls: d(raw.circuitBreaker?.maxToolCalls, 200),
     maxConsecutiveIdentical: d(raw.circuitBreaker?.maxConsecutiveIdentical, 5),
     maxPerEventTimeMs: d(raw.circuitBreaker?.maxPerEventTimeMs, 600000),
     warningThreshold: d(raw.circuitBreaker?.warningThreshold, 20),

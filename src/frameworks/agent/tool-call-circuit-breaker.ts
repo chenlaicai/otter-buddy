@@ -28,7 +28,7 @@ export interface CircuitBreakerConfig {
 }
 
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
-  maxToolCalls: 40,
+  maxToolCalls: 200,
   maxConsecutiveIdentical: 5,
   maxRepeatAfterWarning: 5,
   maxPerEventTimeMs: 600_000,

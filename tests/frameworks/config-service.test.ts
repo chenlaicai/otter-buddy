@@ -87,7 +87,7 @@ describe("loadConfig", () => {
     expect(cfg.embedding.dimensions).toBe(1024);
     expect(cfg.embedding.modelPath).toBe("Xenova/bge-m3");
     expect(cfg.embedding.localModelPath).toBeUndefined();
-    expect(cfg.circuitBreaker.maxToolCalls).toBe(40);
+    expect(cfg.circuitBreaker.maxToolCalls).toBe(200);
     expect(cfg.circuitBreaker.maxChainDepth).toBe(100);
   });
 
