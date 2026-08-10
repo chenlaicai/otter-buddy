@@ -4,12 +4,6 @@ description: >-
   Summon specialized sub-agents for independent review, parallel research,
   multi-role discussion, or workload delegation.
   For single-agent tasks, use the corresponding skill directly.
-triggers:
-  phrases:
-    - "召唤检视獭"
-    - "让小獭帮忙"
-    - "并行调研几个方向"
-    - "模拟多角色讨论"
 co_loads: []
 ---
 
@@ -58,6 +52,6 @@ co_loads: []
 
 本 skill 是编排层，后续动作由被召唤的小獭的 skill 决定。
 
-## 参考
+## 参考（索引）
 
-- `references/collaboration-patterns.md` — 多轮协作编排模式
+- `references/collaboration-patterns.md` — 步骤 3 使用

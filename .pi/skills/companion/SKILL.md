@@ -3,8 +3,6 @@ name: companion
 description: >-
   Default mode when no other skill matches. Unstructured collaboration: discussion,
   brainstorming, thinking through ideas. Not a process — a conversation.
-triggers:
-  phrases: []
 ---
 
 # Companion Mode

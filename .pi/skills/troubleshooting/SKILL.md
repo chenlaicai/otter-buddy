@@ -3,12 +3,6 @@ name: troubleshooting
 description: >-
   Structured troubleshooting: from symptoms to root cause, from analysis to fix.
   For simple information retrieval, use core-workflow instead.
-triggers:
-  phrases:
-    - "排查"
-    - "分析问题"
-    - "看看日志"
-    - "查数据库"
 co_loads: []
 ---
 

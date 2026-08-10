@@ -5,17 +5,27 @@
 一个 skill 只回答 5 个问题：何时触发、需要什么输入、如何做、产出什么、之后交给谁。
 其余内容（过程纪律、弹性规则、异体执行）是全局约定，在 SYSTEM.md 中定义，不在 skill 中重复。
 
+## 触发机制说明
+
+Skill 的触发由 pi-coding-agent SDK 驱动：
+1. SDK 扫描 `.pi/skills/` 目录，找到所有 SKILL.md
+2. 提取 frontmatter 中的 `name` 和 `description`
+3. 格式化为 XML 注入 system prompt（LLM 只看到 name + description）
+4. LLM 读 description，自行判断任务是否匹配
+5. 匹配时用 `read` 工具加载 SKILL.md 全文
+
+description 是触发的唯一控制字段。写好 description = 写好触发条件。
+不需要额外的 triggers 字段。
+
 ## 模板
 
 ```markdown
 ---
 name: skill-name
 description: >-
-  一句话说明这个 skill 做什么。
-triggers:
-  phrases:
-    - "触发短语1"
-    - "触发短语2"
+  一句话说明这个 skill 做什么，以及什么场景下使用。
+  这个字段是 LLM 决定是否使用 skill 的唯一依据——pi SDK 将它注入 system prompt，
+  LLM 读 description 自行判断任务是否匹配。
 co_loads: []
 ---
 
