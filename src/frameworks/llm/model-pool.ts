@@ -9,6 +9,7 @@
  */
 
 import type { ModelConfig } from "@frameworks/config";
+import type { Model, Api } from "@earendil-works/pi-ai";
 
 /** 模型描述（供 prompt 注入） */
 export interface ModelDescriptor {
@@ -22,7 +23,7 @@ export interface ModelDescriptor {
 /** ModelPool 内部条目 */
 interface ModelEntry {
   config: ModelConfig;
-  model: unknown; // pi-ai Model 对象
+  model: Model<Api>;
 }
 
 /**
@@ -38,7 +39,7 @@ import type { ModelPoolLike, ModelInfo } from "@usecases/ports/model-pool-like";
 export class ModelPool implements ModelPoolLike {
   private readonly entries: Map<string, ModelEntry>;
   private defaultAlias: string;
-  private defaultModel: unknown;
+  private defaultModel: Model<Api>;
 
   constructor(
     defaultAlias: string,
@@ -68,14 +69,14 @@ export class ModelPool implements ModelPoolLike {
    * 按 alias 获取 pi-ai Model。
    * 不存在时回退到默认模型。
    */
-  getModel(alias: string | null | undefined): unknown {
+  getModel(alias: string | null | undefined): Model<Api> {
     if (!alias) return this.defaultModel;
     const entry = this.entries.get(alias);
     return entry ? entry.model : this.defaultModel;
   }
 
   /** 获取默认模型 */
-  getDefaultModel(): unknown {
+  getDefaultModel(): Model<Api> {
     return this.defaultModel;
   }
 
@@ -111,8 +112,8 @@ export class ModelPool implements ModelPoolLike {
   }
 
   /** 返回所有条目（含 model 对象），供 ensurePiCodingAgent 注册 provider + 设 key */
-  getAllEntries(): Array<{ alias: string; config: ModelConfig; model: unknown }> {
-    const result: Array<{ alias: string; config: ModelConfig; model: unknown }> = [];
+  getAllEntries(): Array<{ alias: string; config: ModelConfig; model: Model<Api> }> {
+    const result: Array<{ alias: string; config: ModelConfig; model: Model<Api> }> = [];
     for (const [alias, entry] of this.entries) {
       result.push({ alias, config: entry.config, model: entry.model });
     }
@@ -143,7 +144,7 @@ export class ModelPool implements ModelPoolLike {
  */
 export function buildModelPool(
   defaultAlias: string,
-  models: Array<{ config: ModelConfig; model: unknown }>,
+  models: Array<{ config: ModelConfig; model: Model<Api> }>,
 ): ModelPool {
   const entries = new Map<string, ModelEntry>();
   for (const m of models) {

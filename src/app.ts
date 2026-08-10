@@ -16,6 +16,7 @@ import { loadConfig, initConfig, type AppConfig } from "@frameworks/config";
 import { PinoLogger } from "@frameworks/logger";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "@frameworks/llm/model-pool";
+import type { Model, Api } from "@earendil-works/pi-ai";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
@@ -77,7 +78,7 @@ export interface BuildAppOptions {
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
-  models?: { model: unknown; modelPool?: ModelPool };
+  models?: { model: Model<Api>; modelPool?: ModelPool };
 }
 
 /** buildApp 的返回：完整装配好的系统 + dispose 清理 */

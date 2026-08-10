@@ -15,6 +15,7 @@ import { loadConfig } from "../../../src/frameworks/config";
 import type { AppConfig } from "../../../src/frameworks/config";
 import { initFauxModels } from "../../../src/frameworks/llm/models-factory";
 import { ModelPool } from "../../../src/frameworks/llm/model-pool";
+import type { Model, Api } from "@earendil-works/pi-ai";
 import { createTestLogger } from "../../helpers/logger";
 
 export interface CapabilityContext {
@@ -126,17 +127,17 @@ async function waitEmbeddingReady(built: BuiltApp, timeoutMs: number): Promise<v
 }
 
 /** 无 LLM 时的 faux 模型池：每个别名独立实例，保证 ModelPool 解析语义可测 */
-async function buildFauxModels(config: AppConfig): Promise<{ model: unknown; modelPool: ModelPool }> {
+async function buildFauxModels(config: AppConfig): Promise<{ model: Model<Api>; modelPool: ModelPool }> {
   const alias = config.llm.default;
   const configs = config.llm.models;
-  const entries = new Map<string, { config: (typeof configs)[number]; model: unknown }>();
-  let firstModel: unknown;
+  const entries = new Map<string, { config: (typeof configs)[number]; model: Model<Api> }>();
+  let firstModel: Model<Api> | undefined;
   for (const mc of configs) {
     const { model } = await initFauxModels([]);
     if (firstModel === undefined) firstModel = model;
     entries.set(mc.alias, { config: mc, model });
   }
-  return { model: firstModel, modelPool: new ModelPool(alias, entries) };
+  return { model: firstModel!, modelPool: new ModelPool(alias, entries) };
 }
 
 export async function bootCapabilityApp(options: BootOptions = {}): Promise<CapabilityContext> {

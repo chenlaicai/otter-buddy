@@ -6,7 +6,7 @@
  * - Session 复用机制：首次 invoke 创建 session 并持久化，后续 invoke 恢复已有 session
  * - 只有在 reset/create 时才创建新 session，构建 session 链
  * - tools 配置控制编码工具启用，customTools 注入 Otter 工具
- * - 系统提示作为消息前缀注入（SDK 的 _systemPromptOverride 为 private，无公开 setter）
+ * - 系统提示通过 extension before_agent_start 事件注入 system role（R20260810piab S1）
  * - 熔断器通过 session.subscribe 拦截 tool_execution_start 事件
  * - 并发安全：外部方法获取锁，内部方法不获取锁，避免死锁
  *
@@ -14,6 +14,7 @@
  */
 
 import fs from 'fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type Database from "better-sqlite3";
 import type {
   AgentConfig,
@@ -23,11 +24,13 @@ import type {
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
 import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { truncateToolResult } from "@interface-adapters/agent-runtime/tools/tool-helpers";
-import type { ResourceLoader, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ToolResponse } from "@interface-adapters/agent-runtime/tools/tool-helpers";
+import type { ResourceLoader, SessionEntry, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import type { Model, Api } from "@earendil-works/pi-ai";
 import { getContextWindowTokens } from "./context-tokens";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
-import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
+import type { DynamicContext, AgentStreamEvent } from "@interface-adapters/agent-runtime/agent-invoke-port";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig, ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import { getConfig } from "@frameworks/config";
@@ -47,12 +50,8 @@ import type { OutputGuardConfig } from "./output-guard";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 
-/** Agent 事件（流式推送，与 AgentStreamEvent 兼容） */
-export interface AgentEvent {
-  type: string;
-  delta?: string;
-  [key: string]: unknown;
-}
+/** Agent 事件（流式推送，对齐 SDK AgentSessionEvent + 索引签名兼容弱类型访问） */
+export type AgentEvent = AgentStreamEvent;
 
 /** Agent 执行结果 */
 export interface AgentRunResult {
@@ -89,7 +88,7 @@ export interface AgentSessionFactoryConfig {
   sessionDir?: string;
   otterToolClient: OtterToolClient | null;
   /** pi-ai Model 对象（由 models-factory 创建，为 modelPool 的默认模型） */
-  model: unknown;
+  model: Model<Api>;
   /** ModelPool（多模型路由，可选） */
   modelPool?: ModelPool;
   /** Otter 身份文案目录（含 BIG_OTTER.md / SMALL_OTTER.md，首次 invoke 时按类型注入） */
@@ -182,6 +181,22 @@ export function stripHistoricalThinking(messages: any[]) {
   });
 }
 
+/**
+ * S1（R20260810piab）：per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。
+ *
+ * extension factory 在 reload 时注册 handler（闭包固定），handler 在 prompt() 时执行。
+ * 把 createAgentSession + prompt 全程包在 otterInvokeStorage.run() 内，handler 即可从
+ * store 读到当前 otter 的 prompt config + 身份前缀，注入到 system role。
+ * AsyncLocalStorage 按 async 调用链隔离，多 otter 并发 invoke 无竞态。
+ */
+interface OtterInvokeContext {
+  /** otterConfig.systemPrompt（string 或 OtterPromptConfig 含 reminders） */
+  otterPromptConfig: string | OtterPromptConfig | undefined;
+  /** 首次 invoke 的身份前缀（名称/ID/类型/身份文案/模型指南/搭档名）；非首次为空串 */
+  identityPrefix: string;
+}
+const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
+
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
@@ -193,13 +208,12 @@ export class PiSessionFactory implements AgentGateway {
   private smallOtterIdentity = "";
   private piCodingAgent: PiCodingAgentModule | null = null;
   private resourceLoader: ResourceLoader | null = null;
+  /** SDK SettingsManager（M2: retry maxRetries=4 取代 otter 层 API error 重试） */
+  private settingsManager: SettingsManager | null = null;
   /** 待注入身份的 otter（create/reset 后标记，注入成功才消费；进程重启丢失由 createdNew 兜底。已知边界：首次注入被 abort 时重试会重复注入一次，罕见无害，有意不处理） */
   private readonly pendingIdentity = new Set<string>();
-  /** pi-coding-agent ModelRuntime 最小接口（SDK ESM-only，无法直接导入类型） */
-  private modelRuntime: {
-    setRuntimeApiKey(provider: string, key: string): Promise<void>;
-    registerProvider(providerId: string, config: Record<string, unknown>): void;
-  } | null = null;
+  /** pi-coding-agent ModelRuntime（S3: 用 SDK 完整类型替代最小接口） */
+  private modelRuntime: ModelRuntime | null = null;
   private otterToolClient: OtterToolClient | null;
 
   constructor(
@@ -207,7 +221,7 @@ export class PiSessionFactory implements AgentGateway {
       db: Database.Database;
       sessionDir: string;
       otterToolClient: OtterToolClient | null;
-      model: unknown;
+      model: Model<Api>;
       modelPool?: ModelPool;
       identityPromptDir?: string;
       createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
@@ -262,21 +276,35 @@ export class PiSessionFactory implements AgentGateway {
 
       /** 创建 ResourceLoader：通过 SDK 原生协议注入 skills（替代手动拼接） */
       if (!this.resourceLoader) {
-        const { DefaultResourceLoader, getAgentDir } = piCodingAgent as unknown as {
-          DefaultResourceLoader: new (options: unknown) => ResourceLoader;
-          getAgentDir: () => string;
-        };
+        const { DefaultResourceLoader, getAgentDir } = piCodingAgent;
         this.resourceLoader = this.cfg.resourceLoader ?? new DefaultResourceLoader({
           cwd: process.cwd(),
           agentDir: getAgentDir(),
           extensionFactories: [{
-            name: "thinking-strip",
+            name: "otter-hooks",
             hidden: true,
-            // ExtensionAPI.on 的 overload 不包含 "context"，需要 any 绕过
+            // ExtensionAPI.on 的 overload 不包含 "context"/"before_agent_start"，需要 any 绕过
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             factory: (pi: any) => {
+              // strip 历史 assistant 消息的 thinking 块（保留最新一条）
               pi.on("context", (event: { messages: any[] }) => {
                 return { messages: stripHistoricalThinking(event.messages) };
+              });
+              // S1（R20260810piab）：otter system prompt 注入 system role。
+              // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
+              // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
+              // 返回的 systemPrompt 会替换 SDK base（runner.js 链式覆盖语义），
+              // 因此在 event.systemPrompt（SDK base 含工具描述）基础上追加 otter 专属内容。
+              pi.on("before_agent_start", (event: { systemPrompt: string }) => {
+                const ctx = otterInvokeStorage.getStore();
+                if (!ctx) return;
+                const parts: string[] = [];
+                if (event.systemPrompt) parts.push(event.systemPrompt);
+                const otterPrompt = buildOtterPrompt(ctx.otterPromptConfig);
+                if (otterPrompt) parts.push(otterPrompt);
+                if (ctx.identityPrefix) parts.push(ctx.identityPrefix);
+                if (parts.length <= 1) return; // 只有 base，无需覆盖
+                return { systemPrompt: parts.join("\n\n") };
               });
             },
           }],
@@ -291,11 +319,12 @@ export class PiSessionFactory implements AgentGateway {
       }
 
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
-      const ModelRuntimeClass = (piCodingAgent as unknown as { ModelRuntime: { create: (options?: unknown) => Promise<unknown> } }).ModelRuntime;
-      this.modelRuntime = await ModelRuntimeClass.create() as {
-        setRuntimeApiKey(provider: string, key: string): Promise<void>;
-        registerProvider(providerId: string, config: Record<string, unknown>): void;
-      };
+      this.modelRuntime = await piCodingAgent.ModelRuntime.create();
+
+      // M2（R20260810piab）：创建 SettingsManager，retry maxRetries=4 取代 otter 层 API error 重试。
+      // SDK 默认 maxRetries=3；调到 4 后移除了 otter AgentInvoker 的 API error 重试（原最坏 4 次 = SDK 3 + otter 1）。
+      this.settingsManager = piCodingAgent.SettingsManager.create(process.cwd());
+      this.settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 4 } });
 
       // initModels 恒产出 ModelPool（models-factory.ts），bootstrap 必装配下传
       if (this.cfg.modelPool) {
@@ -316,30 +345,29 @@ export class PiSessionFactory implements AgentGateway {
    * （报 "No API key found for <alias>"），即使已 setRuntimeApiKey 也查不到。
    * alias 与内置 provider 同名时跳过注册（内置 provider 天然在注册表中）。
    */
-  private async _registerRuntimeModel(alias: string, config: ModelConfig, model: unknown): Promise<void> {
+  private async _registerRuntimeModel(alias: string, config: ModelConfig, model: Model<Api>): Promise<void> {
     if (!this.modelRuntime) return;
     if (alias !== config.provider) {
-      const m = model as {
-        id: string; name?: string; reasoning?: boolean; input?: string[]; baseUrl?: string;
-        cost?: unknown; contextWindow?: number; maxTokens?: number;
-        thinkingLevelMap?: unknown; compat?: unknown;
-      };
+      // S3（R20260810piab）：model 现在是 Model<Api>，字段类型由 SDK 精确声明，无需 inline cast 弱化。
+      // contextWindow/maxTokens 在 Model 上可能 undefined，但 ProviderConfigInput 期望 number——
+      // 回退到 config 的值（config 是 otter 自己的 ModelConfig，这些字段是 number | undefined），
+      // 双重 undefined 时回退 0（SDK 视 0 contextWindow 为"总是需要 compaction"，但此处只在 alias !== provider 时触发）。
       this.modelRuntime.registerProvider(alias, {
         // config 只配 apiKey 不配 apiBaseUrl 时回退到 pool model 的 baseUrl（template 兜底，总有值），
         // 否则 SDK 对"注册了 models 但无 baseUrl"的 provider 同步抛错
-        baseUrl: config.apiBaseUrl ?? m.baseUrl,
+        baseUrl: config.apiBaseUrl ?? model.baseUrl,
         apiKey: config.apiKey,
         api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
         models: [{
-          id: m.id,
-          name: m.name ?? m.id,
-          reasoning: m.reasoning ?? false,
-          thinkingLevelMap: m.thinkingLevelMap,
-          input: m.input ?? ["text"],
-          cost: m.cost,
-          contextWindow: m.contextWindow,
-          maxTokens: m.maxTokens,
-          compat: m.compat,
+          id: model.id,
+          name: model.name ?? model.id,
+          reasoning: model.reasoning ?? false,
+          thinkingLevelMap: model.thinkingLevelMap,
+          input: model.input ?? ["text" as "text"],
+          cost: model.cost,
+          contextWindow: model.contextWindow ?? config.contextWindow ?? 0,
+          maxTokens: model.maxTokens ?? config.maxTokens ?? 0,
+          compat: model.compat,
         }],
       });
       this.logger.info(`Registered runtime provider for alias=${alias}`);
@@ -535,21 +563,7 @@ export class PiSessionFactory implements AgentGateway {
     return { sessionManager: result.sessionManager, createdNew: result.createdNew };
   }
 
-  /** 组装用户消息前缀：首次 invoke 时身份叠加在 otter 专属 prompt 之前（后续 invoke 从 session 历史恢复，不重复注入） */
-  private async buildUserMessagePrefix(
-    otterId: string,
-    otterType: string,
-    otterPromptConfig: string | OtterPromptConfig | undefined,
-    isFirstInvoke: boolean | undefined,
-  ): Promise<string> {
-    const otterPrompt = buildOtterPrompt(otterPromptConfig);
-    if (!isFirstInvoke) return otterPrompt;
-    const identityPrefix = await this.buildIdentityPrefix(otterId, otterType);
-    if (!identityPrefix) return otterPrompt;
-    return [identityPrefix, otterPrompt].filter(Boolean).join("\n\n");
-  }
-
-  /** 构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源） */
+  /** S1（R20260810piab）：构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源） */
   private async buildIdentityPrefix(otterId: string, otterType: string): Promise<string> {
     const otter = await this.cfg.otterRepo.getById(otterId);
     if (!otter) {
@@ -617,37 +631,51 @@ export class PiSessionFactory implements AgentGateway {
   ): Promise<AgentRunResult> {
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
-    // 1. 构建工具配置并创建 AgentSession
-    this.logger.debug('[execute] Creating session with tools', { otterId });
-    /** F20260804hcob: 当前 assistant 消息的文本缓冲（按消息清零/累积），speak 检测"卡片写在 speak 外"用 */
-    const turnText = { text: "" };
-    const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
-    this.logger.debug('[execute] Session created', { otterId, sessionKey });
+    // S1（R20260810piab）：身份前缀在 ALS scope 外构建（含 DB 查询），
+    // 结果字符串通过 otterInvokeStorage 传给 extension handler 注入 system role。
+    // 非首次 invoke identityPrefix 为空串——身份已在首次 invoke 写入 session 历史。
+    const identityPrefix = options?.isFirstInvoke
+      ? await this.buildIdentityPrefix(otterId, otterType)
+      : "";
 
-    // 2. 熔断器 + 输出退化检测
-    const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = this._attachGuards(session, sessionKey, otterId);
+    // S1：整个 createAgentSession + prompt 包在 ALS scope 内，
+    // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
+    return await otterInvokeStorage.run(
+      { otterPromptConfig, identityPrefix },
+      async () => {
+        // 1. 构建工具配置并创建 AgentSession
+        this.logger.debug('[execute] Creating session with tools', { otterId });
+        /** F20260804hcob: 当前 assistant 消息的文本缓冲（按消息清零/累积），speak 检测"卡片写在 speak 外"用 */
+        const turnText = { text: "" };
+        const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
+        this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
-    // 3. 构建完整消息并记录日志
-    const fullMessage = buildMessageWithContext(await this.buildUserMessagePrefix(otterId, otterType, otterPromptConfig, options?.isFirstInvoke), message, options?.dynamicContext);
-    this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
+        // 2. 熔断器 + 输出退化检测
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = this._attachGuards(session, sessionKey, otterId);
 
-    const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent, turnText));
-    try {
-      /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
-      armFirstByte();
-      await session.prompt(fullMessage);
-      this._checkSessionError(session, otterId);
-      return this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
-    } catch (err) {
-      const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
-      e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
-      e._guardAbortReason = activeEntry?.guardAbortReason;
-      throw err;
-    } finally {
-      unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
-      this.activeSessions.delete(sessionKey);
-      session.dispose();
-    }
+        // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
+        const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
+        this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
+
+        const unsubscribe = session.subscribe(this.createEventHandler(activeEntry, options?.onEvent, turnText));
+        try {
+          /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
+          armFirstByte();
+          await session.prompt(fullMessage);
+          this._checkSessionError(session, otterId);
+          return this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
+        } catch (err) {
+          const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
+          e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
+          e._guardAbortReason = activeEntry?.guardAbortReason;
+          throw err;
+        } finally {
+          unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
+          this.activeSessions.delete(sessionKey);
+          session.dispose();
+        }
+      },
+    );
   }
 
   /** 检查 session 是否记录了 LLM API 错误（SDK 自动重试后可能返回空响应而不抛异常） */
@@ -705,12 +733,13 @@ export class PiSessionFactory implements AgentGateway {
     const piCodingAgent = this.piCodingAgent!;
     this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
     const { session } = await piCodingAgent.createAgentSession({
-      model: resolvedModel as never,
+      model: resolvedModel,
       sessionManager,
       tools: [...codingTools, ...customTools.map(t => t.name)],
-      customTools: customTools as never,
+      customTools,
       resourceLoader: this.resourceLoader ?? undefined,
-      modelRuntime: this.modelRuntime as any,
+      modelRuntime: this.modelRuntime ?? undefined,
+      settingsManager: this.settingsManager ?? undefined,
     });
     this.logger.debug('[createSession] createAgentSession returned', { otterId });
 
@@ -740,7 +769,7 @@ export class PiSessionFactory implements AgentGateway {
       const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
       ctxMax = this.cfg.modelPool.getContextWindow(otterConfig?.modelAlias);
     } else {
-      ctxMax = (this.cfg.model as Record<string, unknown>)?.contextWindow as number | undefined;
+      ctxMax = this.cfg.model.contextWindow;
     }
     return buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
   }
@@ -805,7 +834,8 @@ export class PiSessionFactory implements AgentGateway {
 
   /**
    * 将 Otter 工具适配为 pi-coding-agent ToolDefinition 格式。
-   * 适配点：label 字段 + execute 签名扩展（signal/onUpdate/ctx）。
+   * 适配点：label 字段 + execute 透传 signal（M1: 用户中断时工具可检查 signal.aborted 提前返回）。
+   * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
    */
   private buildCustomTools(
     otterId: string,
@@ -818,7 +848,7 @@ export class PiSessionFactory implements AgentGateway {
     label: string;
     description: string;
     parameters: Record<string, unknown>;
-    execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>;
+    execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResponse>;
   }> {
     const otterTools = this.cfg.createTools({
       client: this.otterToolClient!,
@@ -836,9 +866,8 @@ export class PiSessionFactory implements AgentGateway {
         label: t.name,
         description: t.description,
         parameters: t.parameters,
-        /** ToolDefinition.execute 有额外参数（signal/onUpdate/ctx），Otter 工具不需要，忽略 */
-        execute: async (toolCallId: string, params: Record<string, unknown>) => {
-          const result = await t.execute(toolCallId, params);
+        execute: async (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => {
+          const result = await t.execute(toolCallId, params, signal);
           return truncateToolResult(result);
         },
       }));

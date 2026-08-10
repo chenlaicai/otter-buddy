@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildModelPool } from '@frameworks/llm/model-pool';
 import type { ModelConfig } from '@frameworks/config';
+import type { Model, Api } from '@earendil-works/pi-ai';
 
 function makeConfig(alias: string, overrides?: Partial<ModelConfig>): ModelConfig {
   return {
@@ -14,8 +15,9 @@ function makeConfig(alias: string, overrides?: Partial<ModelConfig>): ModelConfi
   };
 }
 
-function makeModel(alias: string) {
-  return { id: `model-${alias}`, provider: alias };
+/** 测试 mock model：简化对象，通过 cast 满足 Model<Api> 类型（测试不需要完整字段） */
+function makeModel(alias: string): Model<Api> {
+  return { id: `model-${alias}`, provider: alias } as unknown as Model<Api>;
 }
 
 describe('ModelPool', () => {

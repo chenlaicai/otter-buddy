@@ -310,7 +310,7 @@ describe("AgentInvoker", () => {
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain('模型响应超时');
   });
-  it("LLM API error triggers auto-retry on first attempt", async () => {
+  it("LLM API error fails directly (M2: SDK 内置 maxRetries=4 取代 otter 层重试)", async () => {
     const msg = mockSendMessage();
     const invoker = new AgentInvoker(
       mockAgentInvoke({ throwOnInvoke: new Error('LLM API error: rate limit exceeded') }),
@@ -321,7 +321,9 @@ describe("AgentInvoker", () => {
     const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1" });
     expect(result.messageId).toBe("msg-streaming");
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
-    expect(msg._calls.fail[0].body).toContain('正在自动重试');
+    // M2: API error 直接 fail（SDK 内置重试已耗尽），不再走 otter 层 auto-retry
+    expect(msg._calls.fail[0].body).toContain('rate limit exceeded');
+    expect(msg._calls.fail[0].body).not.toContain('正在自动重试');
   });
   it("calls sendMessage.fail() through speak retry on system failure (B10)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];

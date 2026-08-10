@@ -43,8 +43,8 @@ describe("Settings API", () => {
       // deps.modelPool has only "main" — create a multi-model pool for this test
       const { buildModelPool } = await import("../../src/frameworks/llm/model-pool");
       const pool = buildModelPool("fast", [
-        { config: { alias: "fast", provider: "openai", model: "gpt-4o-mini" }, model: { id: "mini" } },
-        { config: { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514" }, model: { id: "claude" } },
+        { config: { alias: "fast", provider: "openai", model: "gpt-4o-mini" }, model: { id: "mini" } as never },
+        { config: { alias: "powerful", provider: "anthropic", model: "claude-sonnet-4-20250514" }, model: { id: "claude" } as never },
       ]);
       // Swap the mock deps' modelPool — use a new test app instance with the multi-model pool
       const { SettingsController } = await import("../../src/interface-adapters/http/controllers/settings-controller");

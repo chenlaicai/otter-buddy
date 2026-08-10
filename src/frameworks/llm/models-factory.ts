@@ -8,6 +8,7 @@
  */
 
 import type { AppConfig, ModelConfig } from "@frameworks/config";
+import type { Model, Api, Provider } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "./model-pool";
 import { buildModelPool } from "./model-pool";
@@ -92,7 +93,7 @@ async function loadCustomProvider(
   modelId: string,
   alias: string,
   options: CustomProviderOptions,
-): Promise<unknown> {
+): Promise<Provider> {
   let modelsDict: Record<string, unknown>;
   let api: unknown;
 
@@ -149,7 +150,7 @@ async function loadCustomProvider(
     auth: { apiKey: createCustomApiKeyAuth(options.apiKey, providerType) },
     models: modelsArray as unknown as Parameters<typeof piAi.createProvider>[0]["models"],
     api: api as Parameters<typeof piAi.createProvider>[0]["api"],
-  });
+  }) as Provider;
 }
 
 /**
@@ -159,7 +160,7 @@ async function loadCustomProvider(
  * @param alias provider ID，用于注册
  * @param options 可选的连接配置（apiKey/apiBaseUrl）
  */
-async function loadProvider(providerType: string, modelId: string, alias: string, options?: CustomProviderOptions): Promise<unknown> {
+async function loadProvider(providerType: string, modelId: string, alias: string, options?: CustomProviderOptions): Promise<Provider> {
   const piAi = await loadPiAi();
 
   if (options && needsCustomProvider(options)) {
@@ -196,9 +197,9 @@ async function initModelPool(
   models: Models,
   modelConfig: AppConfig["llm"],
   logger?: Logger,
-): Promise<{ model: unknown; modelPool: ModelPool }> {
+): Promise<{ model: Model<Api>; modelPool: ModelPool }> {
   const startTime = Date.now();
-  const modelEntries: Array<{ config: ModelConfig; model: unknown }> = [];
+  const modelEntries: Array<{ config: ModelConfig; model: Model<Api> }> = [];
 
   for (const mc of modelConfig.models) {
     const providerModule = await loadProvider(mc.provider, mc.model, mc.alias, {
@@ -207,7 +208,7 @@ async function initModelPool(
       contextWindow: mc.contextWindow,
       maxTokens: mc.maxTokens,
     });
-    models.setProvider(providerModule as never);
+    models.setProvider(providerModule);
 
     const resolvedModel = models.getModel(mc.alias, mc.model);
     if (!resolvedModel) {
@@ -236,7 +237,7 @@ async function initModelPool(
 export async function initModels(
   modelConfig: AppConfig["llm"],
   logger?: Logger,
-): Promise<{ models: Models; model: unknown; modelPool: ModelPool }> {
+): Promise<{ models: Models; model: Model<Api>; modelPool: ModelPool }> {
   if (logger) {
     logger.info('LLM model initialization started', { defaultAlias: modelConfig.default, modelCount: modelConfig.models.length, action: 'model_init_start' });
   }
@@ -252,7 +253,7 @@ export async function initModels(
 /** 测试用 Faux Provider 工厂 */
 export async function initFauxModels(
   responses: unknown[],
-): Promise<{ models: Models; model: unknown; faux: unknown }> {
+): Promise<{ models: Models; model: Model<Api>; faux: unknown }> {
   const piAi = await loadPiAi();
   const faux = piAi.fauxProvider({});
   const models = piAi.createModels();

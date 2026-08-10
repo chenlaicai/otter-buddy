@@ -58,6 +58,21 @@ function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
       return null;
     case "agent_end":
       return { event: "agent.idle", data: {} };
+    // R20260810piab 遗漏 1：透传 SDK 结构化事件到前端 SSE（之前被 default 丢弃）
+    case "auto_retry_start":
+      return { event: "agent.retry_start", data: {
+        attempt: e.attempt, maxAttempts: e.maxAttempts, delayMs: e.delayMs, errorMessage: e.errorMessage,
+      } };
+    case "auto_retry_end":
+      return { event: "agent.retry_end", data: {
+        success: e.success, attempt: e.attempt, finalError: e.finalError,
+      } };
+    case "compaction_start":
+      return { event: "agent.compaction_start", data: { reason: e.reason } };
+    case "compaction_end":
+      return { event: "agent.compaction_end", data: {
+        reason: e.reason, aborted: e.aborted, willRetry: e.willRetry, errorMessage: e.errorMessage,
+      } };
     default:
       return null;
   }
@@ -440,7 +455,7 @@ export class AgentInvoker {
     return this.abortTerminal({ ...p, toolCallCount: p.reason.toolCallCount }, 'guard', guardReason);
   }
 
-  /** Route API error: auto-retry → fail terminal */
+  /** Route API error: SDK 已内置 auto-retry（maxRetries=4，见 pi-session-factory settingsManager），耗尽后直接 fail terminal */
   private async routeApiError(p: {
     messageId: string; otterId: string; senderId: string;
     reason: ExitReason & { kind: 'api_error' };
@@ -450,12 +465,6 @@ export class AgentInvoker {
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
     const { errorMessage } = p.reason;
-    const retryCount = p.retryCount ?? 0;
-
-    if (retryCount === 0 && this.isRetryableApiError(errorMessage)) {
-      return this.handleAutoRetry(p, 'api_error');
-    }
-
     return this.failTerminal(p, errorMessage);
   }
 
@@ -542,11 +551,6 @@ export class AgentInvoker {
     if (reason === 'first_byte_timeout') return true;
     if (reason.startsWith('circuit_break:')) return true;
     return false;
-  }
-
-  /** Check if API error is retryable */
-  private isRetryableApiError(message: string): boolean {
-    return message.startsWith('LLM API error:');
   }
 
   /**

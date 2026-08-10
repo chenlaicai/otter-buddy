@@ -3,12 +3,24 @@
  * PiSessionFactory (frameworks 层) 的 invoke() 方法结构匹配此接口。
  */
 
-/** Agent 流式事件（与 Pi 的 AgentEvent 结构匹配） */
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+
+/**
+ * Agent 流式事件。
+ *
+ * 保持弱类型 + 索引签名（兼容现有消费方 + 测试 mock）。需要 discriminated union 精确 narrowing
+ * 时用 re-export 的 `AgentSessionEvent`（SDK 联合类型，要求 AgentMessage 完整字段，适合生产路径）。
+ *
+ * R20260810piab 遗漏 1：移除了死字段 `delta`——message_update 被 createEventHandler 过滤，
+ * onEvent 永远收不到；delta 实际在 assistantMessageEvent 内层（output-guard.ts 直连 subscribe 提取）。
+ */
 export interface AgentStreamEvent {
   type: string;
-  delta?: string;
   [key: string]: unknown;
 }
+
+/** Re-export SDK 精确类型，供需要 discriminated union narrowing 的消费方使用 */
+export type { AgentSessionEvent };
 
 /** Agent 执行结果（与 Pi 的 AgentRunResult 结构匹配） */
 export interface AgentRunResult {

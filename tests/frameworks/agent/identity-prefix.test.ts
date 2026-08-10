@@ -29,7 +29,7 @@ function makeFactory(db: Database.Database, identityPromptDir?: string): PiSessi
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,
-    model: null,
+    model: null as never,
     identityPromptDir,
     createTools: () => [],
     otterConfigProvider: new SqliteOtterConfigProvider(db),
@@ -123,7 +123,7 @@ describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
-      model: null,
+      model: null as never,
       identityPromptDir: REAL_IDENTITY_DIR,
       createTools: () => [],
       otterConfigProvider: {
