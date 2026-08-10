@@ -43,7 +43,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
     const { circuitBreaker } = attachCircuitBreaker(
       session,
       "otter-1",
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       createTestLogger(),
     );
 
@@ -65,7 +65,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
     attachCircuitBreaker(
       session,
       "otter-1",
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       createTestLogger(),
     );
 
@@ -91,7 +91,7 @@ describe("attachCircuitBreaker - 工具名识别与兼容", () => {
     attachCircuitBreaker(
       session,
       "otter-1",
-      makeConfig({ maxConsecutiveIdentical: 3, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 3 }),
       createTestLogger(),
     );
 
@@ -161,7 +161,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -187,7 +187,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -219,7 +219,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -252,7 +252,7 @@ describe("attachCircuitBreaker - per-event 超时（清理）", () => {
       const { unregisterToolCall } = attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -277,7 +277,7 @@ describe("attachCircuitBreaker - per-event 超时（清理）", () => {
       const { clearEventTimer } = attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -304,7 +304,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -338,7 +338,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -370,7 +370,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -402,7 +402,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
         abortOverride,
       );
@@ -462,7 +462,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
       attachCircuitBreaker(
         session,
         "otter-1",
-        makeConfig({ maxPerEventTimeMs: 5000, maxToolCalls: 100, maxRepeatAfterWarning: 100 }),
+        makeConfig({ maxPerEventTimeMs: 5000 }),
         logger,
         abortOverride,
       );
@@ -486,7 +486,7 @@ describe("attachCircuitBreaker - steer 行为纠正", () => {
     attachCircuitBreaker(
       session,
       "otter-1",
-      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 1, maxToolCalls: 100 }),
+      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 1 }),
       createTestLogger(),
     );
 

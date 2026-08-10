@@ -10,24 +10,33 @@
 
 ## 解决方案
 
-1. **提高限制**：将 `maxToolCalls` 默认值从 40 提高到 200
-2. **保留重复检测**：继续保留连续相同调用检测（`maxConsecutiveIdentical=5`）和滑动窗口检测
-3. **调整配置**：更新配置文件和默认值
+**完全移除 maxToolCalls 限制**，完全依赖重复检测机制：
+
+1. **保留**：连续相同调用检测（`maxConsecutiveIdentical=5`）
+2. **保留**：滑动窗口检测（跨工具交替循环检测）
+3. **移除**：`maxToolCalls` 和 `warningThreshold` 配置
+
+### 为什么移除而不是提高
+
+- 真正的"重复"（同一命令反复失败、同一编辑反复重试）会被连续相同检测捕获
+- 真正的"循环"（A-B-C-A-B-C）会被滑动窗口检测捕获
+- `maxToolCalls` 限制是"误杀"的根源，应该移除
 
 ## 修改文件
 
-- `src/frameworks/agent/tool-call-circuit-breaker.ts`：更新默认配置
-- `src/frameworks/config-service.ts`：更新配置加载默认值
+- `src/frameworks/agent/tool-call-circuit-breaker.ts`：移除 maxToolCalls 和 warningThreshold 配置
+- `src/frameworks/config-service.ts`：移除配置加载逻辑
 - `config/config.yaml.example`：更新配置示例和注释
+- `tests/frameworks/agent/tool-call-circuit-breaker.test.ts`：移除相关测试
+- `tests/frameworks/agent/circuit-breaker-helpers.test.ts`：移除相关测试
 - `tests/frameworks/config-service.test.ts`：更新测试期望值
+- `docs/features/F20260810cb01-remove-maxtoolcalls-limit.md`：特性文档
 
 ## 测试
 
-所有相关测试已通过（143 个测试）。
+所有相关测试已通过（136 个测试）。
 
 ## 注意事项
 
-- `maxToolCalls` 限制作为最后安全网保留，防止真正的无限循环
 - 真正的重复调用由连续相同检测和滑动窗口检测处理
 - 复杂任务现在可以正常执行，不会被误杀
-- warningThreshold=20 仅触发日志，steer 从 maxToolCalls+1（201）才开始，call 21-200 之间的 180 次调用由 consecutive/sliding-window 规则保护

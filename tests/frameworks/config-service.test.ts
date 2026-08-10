@@ -135,7 +135,8 @@ describe("loadConfig", () => {
     expect(cfg.db.path).toBe("/tmp/test.db");
     expect(cfg.memory.rrfK).toBe(100);
     expect(cfg.embedding.dimensions).toBe(512);
-    expect(cfg.circuitBreaker.maxToolCalls).toBe(10);
+    // maxToolCalls 已移除，验证该 YAML 配置项被静默忽略
+    expect("maxToolCalls" in cfg.circuitBreaker).toBe(false);
   });
 
   it("parses embedding.localModelPath when set", () => {

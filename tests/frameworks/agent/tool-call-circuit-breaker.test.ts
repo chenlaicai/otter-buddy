@@ -255,8 +255,6 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
         slidingWindowSize: 6,
         slidingWindowRepeat: 3,
         maxRepeatAfterWarning: 2,
-        maxToolCalls: 100,
-        warningThreshold: 100,
       }),
       "otter-1",
       createTestLogger(),
@@ -304,8 +302,6 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
       makeConfig({
         slidingWindowSize: 6,
         slidingWindowRepeat: 3,
-        maxToolCalls: 100,
-        warningThreshold: 100,
       }),
       "otter-1",
       createTestLogger(),
