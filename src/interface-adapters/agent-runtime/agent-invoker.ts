@@ -25,7 +25,6 @@ export interface ConversationInvokeResult {
 
 /** Agent invocation exit reason classification */
 type ExitReason =
-  | { kind: 'success' }
   | { kind: 'user_abort'; toolCallCount: number }
   | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
@@ -438,6 +437,7 @@ export class AgentInvoker {
     }
 
     if (retryCount === 0 && this.isRetryableGuardAbort(guardReason)) {
+      this.logger.info('Auto-retry on guard abort', { messageId: p.messageId, otterId: p.otterId, guardReason });
       return this.handleAutoRetry(p, guardReason);
     }
 
@@ -471,6 +471,7 @@ export class AgentInvoker {
     toolCallCount?: number;
   }, kind: 'user' | 'guard', guardReason?: string): Promise<ConversationInvokeResult> {
     const { messageId, otterId, senderId, startTime, emitEvent } = p;
+    if (this.terminalMessages.has(messageId)) return { messageId, duration: Date.now() - startTime };
 
     this.terminalMessages.add(messageId);
     this.userAbortedMessages.delete(messageId);
@@ -493,6 +494,7 @@ export class AgentInvoker {
     startTime: number; emitEvent: (event: SSEEvent) => void;
   }, errorMessage: string): Promise<ConversationInvokeResult> {
     const { messageId, otterId, startTime, emitEvent } = p;
+    if (this.terminalMessages.has(messageId)) return { messageId, duration: Date.now() - startTime };
 
     this.terminalMessages.add(messageId);
 
@@ -514,6 +516,10 @@ export class AgentInvoker {
     userMessageContent?: string; conversationId?: string;
   }, reason: string): Promise<ConversationInvokeResult> {
     const { messageId, otterId, senderId, startTime, emitEvent, onSSEEvent, userMessageContent, conversationId } = p;
+    if (!conversationId || !userMessageContent) {
+      this.logger.warn('Auto-retry skipped: missing conversationId or userMessageContent', { messageId, otterId });
+      return this.failTerminal(p, reason);
+    }
 
     const failBody = `[系统] ${this.buildRetryFailBody(reason)}, 正在自动重试`;
 
@@ -524,8 +530,8 @@ export class AgentInvoker {
     this.userAbortedMessages.delete(messageId);
 
     await this.invokeConversation({
-      otterId, conversationId: conversationId!,
-      userMessageContent: userMessageContent!,
+      otterId, conversationId,
+      userMessageContent,
       senderId, retryCount: 1,
       onSSEEvent,
     });
