@@ -41,7 +41,7 @@ function mockSendMessage() {
     source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
-  const calls: { fail?: string[]; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
+  const calls: { fail?: Array<{ id: string; body: string }>; abort?: Array<{ id: string; body: string }>; sendSystem?: string[] } = { fail: [], abort: [], sendSystem: [] };
   const sendSystemBodies: string[] = [];
   const completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> = [];
   return {
@@ -50,7 +50,7 @@ function mockSendMessage() {
       completeCalls.push({ id, input });
       return { message: completedMsg, turnClose: { closed: true, aggregatedTargets: ["user-1"] } };
     },
-    fail: async (id: string) => { calls.fail!.push(id); },
+    fail: async (id: string, body?: string) => { calls.fail!.push({ id, body: body ?? '' }); },
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
     sendSystem: async (_conversationId: string, body: string) => { sendSystemBodies.push(body); return { ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const }; },
@@ -58,7 +58,7 @@ function mockSendMessage() {
     _calls: calls,
     _sendSystemBodies: sendSystemBodies,
     _completeCalls: completeCalls,
-  } as unknown as SendMessage & { _calls: { fail: string[]; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[]; _completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> };
+  } as unknown as SendMessage & { _calls: { fail: Array<{ id: string; body: string }>; abort: Array<{ id: string; body: string }>; sendSystem: string[] }; _sendSystemBodies: string[]; _completeCalls: Array<{ id: string; input?: { contextTokens?: number; contextTokensMax?: number } }> };
 }
 
 function mockQueryMessage(): QueryMessage {
@@ -121,6 +121,7 @@ function mockAgentInvoke(options: {
   };
 }
 
+// eslint-disable-next-line max-lines-per-function
 describe("AgentInvoker", () => {
   it("completes normal flow: start -> complete (B7-B9)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
@@ -255,9 +256,9 @@ describe("AgentInvoker", () => {
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain("[系统保护]");
     expect(msg._calls.abort[0].body).toContain("超时");
-    expect(msg._calls.fail).toHaveLength(0);
+    expect(msg._calls.fail).toHaveLength(1); // streaming_timeout auto-retries: fail + re-invoke, then abort
+    expect(msg._calls.fail[0].body).toContain('正在自动重试');
   });
-
   it("handles OutputGuard internal abort via getInternalAbortReason (SDK swallows abort)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
@@ -293,7 +294,6 @@ describe("AgentInvoker", () => {
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.aborted");
   });
-
   it("calls sendMessage.fail() through speak retry on system failure (B10)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
