@@ -182,7 +182,7 @@ export class AgentInvoker {
   /** invoke 后处理：检查 speaking/abort/retry 状态 */
   private async _handlePostInvocation(p: {
     messageId: string; otterId: string; senderId: string;
-    result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
+    result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
     toolCallCount: number; startTime: number;
     emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
@@ -192,10 +192,9 @@ export class AgentInvoker {
     const msg = await this.queryMessage.getMessageById(p.messageId);
     this.logger.info('Agent invocation finished', { messageId: p.messageId, otterId: p.otterId, messageStatus: msg?.status, tokenUsage: p.result.tokenUsage });
     if (msg?.status === "speaking") {
-      /** token 用量随 complete 落库（口径与 SSE 实时事件一致：input+output），刷新后历史消息仍能展示上下文使用率 */
-      const totalTokens = p.result.tokenUsage ? p.result.tokenUsage.input + p.result.tokenUsage.output : undefined;
+      /** 上下文窗口占用随 complete 落库（口径与 SSE 实时事件一致：末次 LLM 调用的窗口占用，F20260808ctxw），刷新后历史消息仍能展示上下文使用率 */
       const cr = await this.sendMessage.complete(p.messageId, {
-        contextTokens: totalTokens,
+        contextTokens: p.result.ctxTokens,
         contextTokensMax: p.result.ctxMax,
       });
       return this.completeAgentInvocation({ otterId: p.otterId, conversationId: p.conversationId ?? "", messageId: p.messageId, senderId: p.senderId, result: p.result, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose.aggregatedTargets });
@@ -210,7 +209,7 @@ export class AgentInvoker {
   /** guard abort / 重试判断：提取以降低 _handlePostInvocation 圈复杂度 */
   private async _handleGuardAbortOrSpeakRetry(p: {
     messageId: string; otterId: string; senderId: string;
-    result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
+    result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
     toolCallCount: number; startTime: number;
     emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
@@ -242,7 +241,7 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     emitEvent: (event: SSEEvent) => void;
-  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number }; toolCallCount: number }> {
+  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number }; toolCallCount: number }> {
     let toolCallCount = 0;
     this.logger.debug('Calling agentInvoke.invoke', { otterId: params.otterId, messageId: params.messageId });
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
@@ -280,7 +279,7 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     senderId: string;
-    result: { text: string; tokenUsage?: { input: number; output: number }; ctxMax?: number };
+    result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
     startTime: number;
     emitEvent: (event: SSEEvent) => void;
     aggregatedTargets?: string[];
@@ -304,7 +303,8 @@ export class AgentInvoker {
       status: 'success',
     });
 
-    const totalTokens = result.tokenUsage ? result.tokenUsage.input + result.tokenUsage.output : undefined;
+    /** F20260808ctxw：SSE ctx 口径 = 上下文窗口占用（末次 LLM 调用），与落库值同源 */
+    const ctxTokens = result.ctxTokens;
     /** 从 DB 获取 speak 存储的 body，通过 SSE 直接带给前端（避免前端额外 API 调用） */
     const msg = await this.queryMessage.getMessageById(messageId);
     /** 获取 otter 名称（与 message.start 一致，防止 liveMeta 丢失时前端回退到 "Otter"） */
@@ -318,7 +318,7 @@ export class AgentInvoker {
         body: msg?.body ?? '',
         turnId: msg?.turnId ?? '',
         duration: `${(duration / 1000).toFixed(1)}s`,
-        ctx: totalTokens,
+        ctx: ctxTokens,
         ctxMax: result.ctxMax,
       },
     });

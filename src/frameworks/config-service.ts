@@ -20,6 +20,8 @@ export interface ModelConfig {
   strengths?: string[];
   weaknesses?: string[];
   contextWindow?: number;
+  /** 最大输出 tokens（自定义模型注入 SDK 时携带，缺省回退 provider 模板值，F20260808ctxw） */
+  maxTokens?: number;
 }
 
 /** 应用配置结构（与原 config.ts 同构） */
@@ -116,6 +118,7 @@ interface RawConfig {
       strengths?: string[];
       weaknesses?: string[];
       contextWindow?: number;
+      maxTokens?: number;
     }>;
   };
   memory?: {
@@ -320,6 +323,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
         strengths: m.strengths ?? undefined,
         weaknesses: m.weaknesses ?? undefined,
         contextWindow: m.contextWindow ?? undefined,
+        maxTokens: m.maxTokens ?? undefined,
       })),
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
