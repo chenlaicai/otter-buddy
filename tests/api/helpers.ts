@@ -512,7 +512,7 @@ export function createMockDeps(): TestDeps {
     manageReadState: { markRead: vi.fn().mockResolvedValue({ lastReadSeq: 0, unreadCount: 0 }) },
     createOtterUseCase: mockMethods(["execute"]),
     dissolveOtterUseCase: mockMethods(["execute"]),
-    manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory", "setSessionSummary"]),
+    manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory", "setSessionSummary", "restartSession"]),
     queryOtter: mockMethods(["getById", "getBigOtter"]),
     searchMemory: mockMethods(["search", "searchSimilar"]),
     manageMemory: mockMethods(["getById", "getDetails", "flagMemory", "updateLayer"]),

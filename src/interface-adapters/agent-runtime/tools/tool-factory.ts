@@ -283,6 +283,50 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   };
 }
 
+/** F20260810rstart: restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
+function createRestartOtterTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "restart_otter",
+    description: "重启指定 Otter 的獭生。封存当前 Session（前世），以全新上下文开启新一世。小獭只能重启自己，大獭可重启任意 Otter。",
+    parameters: {
+      type: "object",
+      properties: {
+        otterId: {
+          type: "string",
+          description: "要重启的 Otter ID。省略或为空则重启自己。大獭可传入任意 Otter ID。",
+        },
+        summary: {
+          type: "string",
+          description: "前情摘要，将作为新一世的上下文注入。简要说明重启原因。",
+        },
+      },
+      required: [],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const targetOtterId = (params.otterId as string) || ctx.otterId;
+      const summary = params.summary as string | undefined;
+
+      // 访问控制：获取调用者类型
+      const self = await ctx.client.otter.getById(ctx.otterId);
+      const isSmallOtter = self?.type === "small";
+
+      // 小獭只能重启自己
+      if (isSmallOtter && targetOtterId !== ctx.otterId) {
+        return textResponse("[错误] 小獭只能重启自己的獭生，不能重启其他 Otter。");
+      }
+
+      // 校验目标 otter 存在性（避免孤儿 session 或 FK violation）
+      const target = await ctx.client.otter.getById(targetOtterId);
+      if (!target) {
+        return textResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
+      }
+
+      const session = await ctx.client.otter.restart(targetOtterId, summary);
+      return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}`);
+    },
+  };
+}
+
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
@@ -506,6 +550,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
+    createRestartOtterTool(ctx),
     createLinkedResourceTool(ctx),
     createGetMemoryDetailTool(ctx),
     createGetMessageTool(ctx),
