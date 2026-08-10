@@ -106,6 +106,15 @@ export function canAbortMessage(status: MessageStatus): boolean {
 }
 
 /**
+ * 是否可以准备重试（speak 重试专用）。
+ * 仅 failed 状态的消息可被重置为 streaming。
+ * Why: failed 是终态，正常流程不可逆；speak 重试是唯一的合法重置路径。
+ */
+export function canPrepareForRetry(status: MessageStatus): boolean {
+  return status === "failed";
+}
+
+/**
  * 完成消息时 body 是否合法。
  * completed 状态的 Message 必须有非空 body——这是实体状态不变量，
  * 任何 use case 调用 completeMessage 时都必须遵守。

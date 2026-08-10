@@ -680,6 +680,9 @@ export class AgentInvoker {
   /**
    * speak 重试：agent 未调 speak 就结束时，注入系统提醒并触发重试。
    * 最多重试 1 次。第二次失败时发言石额外包含 user。
+   *
+   * Why: 重试时复用同一消息 ID（单消息重试），用户只看到一条连续消息。
+   * 旧行为（3 条消息：失败 + 系统提醒 + 新消息）作为降级路径保留。
    */
   private async handleSpeakRetry(params: {
     messageId: string;
@@ -696,37 +699,104 @@ export class AgentInvoker {
   }): Promise<ConversationInvokeResult> {
     const { messageId, otterId, conversationId, senderId, emitEvent, retryCount, startTime, tokenUsage, toolCallCount } = params;
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
-    const otter = await this.queryOtter.getById(otterId);
-    const otterName = otter?.name ?? otterId;
 
     if (retryCount === 0) {
-      /** toolCallCount=0 表示 LLM 本轮没有调用任何工具（thinking-only 空响应）；>0 表示有工具调用但漏了 speak */
-      const isThinkingOnly = (toolCallCount ?? 0) === 0;
-      const retryMsg = isThinkingOnly
-        ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
-        : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
+      // 1. 内部标记消息失败（不发 SSE 事件，用户不可见）
+      const failBody = "[系统] 未调用 speak 工具结束发言";
+      try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
 
-      return this.executeRetryWithSystemReminder({
-        messageId, otterId, conversationId, senderId, emitEvent,
-        onSSEEvent: params.onSSEEvent,
-        failBody: "[系统] 未调用 speak 工具结束发言",
-        retryMsg,
-        tokenUsage,
+      // 2. 重置消息为可重试状态（failed → streaming）
+      try {
+        await this.sendMessage.prepareForRetry(messageId);
+      } catch (err) {
+        // prepareForRetry 失败：降级为原有行为（发 message.failed + 系统提醒 + 新消息）
+        this.logger.warn('prepareForRetry failed, falling back to legacy retry', {
+          messageId, error: err instanceof Error ? err.message : String(err),
+        });
+        return this.executeRetryWithSystemReminder({
+          messageId, otterId, conversationId, senderId, emitEvent,
+          onSSEEvent: params.onSSEEvent,
+          failBody,
+          retryMsg: this.buildSpeakRetryMsg(toolCallCount),
+          tokenUsage,
+        });
+      }
+
+      // 3. 重试（复用同一 messageId，classifyAndRoute 处理所有退出路径）
+      const retryMsg = this.buildSpeakRetryMsg(toolCallCount);
+      const retryResult = await this.retryInvokeOnSameMessage({
+        otterId, conversationId, userMessageContent: retryMsg,
+        senderId, messageId, emitEvent, onSSEEvent: params.onSSEEvent,
+        retryCount: 1, startTime,
       });
+
+      this.logger.info('Speak retry completed (seamless)', { messageId, otterId });
+      return { ...retryResult, tokenUsage: retryResult.tokenUsage ?? tokenUsage };
     }
 
-    /** 第二次仍失败：fail + 发言石额外包含 user */
+    // 第二次仍失败：发 message.failed（用户可见）
     this.logger.warn('Speak retry exhausted, failing message', { messageId, otterId, conversationId });
+    const otter = await this.queryOtter.getById(otterId);
+    const otterName = otter?.name ?? otterId;
     const failBody = "[系统] 重试后仍未调用 speak 工具";
     try {
       await this.sendMessage.fail(messageId, failBody, [senderId]);
     } catch { /* ignore */ }
 
     const duration = Date.now() - startTime;
-    /** msg2 终结：发送 message.failed（不是 complete），关闭消息生命周期 */
     emitEvent({ event: "message.failed", data: { messageId, otterId, otterName, body: failBody } });
 
     return { messageId, duration, tokenUsage };
+  }
+
+  /**
+   * 复用同一 messageId 重试 Agent 调用。
+   * 与 invokeConversation 的区别：不创建新消息，不发 message.start 事件。
+   * 退出分类复用 classifyAndRoute，保证 user abort / guard abort / api error 路径一致。
+   */
+  private async retryInvokeOnSameMessage(params: {
+    otterId: string;
+    conversationId: string;
+    userMessageContent: string;
+    senderId: string;
+    messageId: string;
+    emitEvent: (event: SSEEvent) => void;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount: number;
+    startTime: number;
+  }): Promise<ConversationInvokeResult> {
+    const { otterId, conversationId, userMessageContent, senderId, messageId, emitEvent, onSSEEvent, retryCount, startTime } = params;
+
+    const dynamicContext = await this.buildDynamicContext(otterId);
+    await this.injectWorkspacePath(dynamicContext, conversationId);
+
+    try {
+      const { result, toolCallCount } = await this.executeAgentInvocation({
+        otterId, userMessageContent, dynamicContext, conversationId, messageId, emitEvent,
+      });
+
+      // Why: 复用 classifyAndRoute 做退出分类，覆盖 user abort / guard abort / no_speak / api error
+      return this.classifyAndRoute({
+        messageId, otterId, senderId, result, toolCallCount,
+        startTime, emitEvent, onSSEEvent, retryCount,
+        userMessageContent, conversationId,
+      });
+    } catch (err) {
+      const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? 0;
+      return this.classifyAndRoute({
+        messageId, otterId, senderId, err, toolCallCount,
+        startTime, emitEvent, onSSEEvent, retryCount,
+        userMessageContent, conversationId,
+      });
+    }
+  }
+
+  /** 构建 speak 重试的系统提醒消息 */
+  private buildSpeakRetryMsg(toolCallCount?: number): string {
+    const isThinkingOnly = (toolCallCount ?? 0) === 0;
+    return isThinkingOnly
+      ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
+      : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
   }
 
   /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()）；标记按 messageId 键控 */
