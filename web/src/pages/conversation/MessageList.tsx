@@ -331,7 +331,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
         style={{ background: bgGrad }}
       >
-        {isUser ? userDisplayName.charAt(0) : name.charAt(0)}
+        {name.charAt(0)}
       </div>
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
