@@ -27,7 +27,7 @@ co_loads: []
 
 1. **准备环境**：执行 `worktree-isolation` 最小流程创建 worktree。记录 worktree 名、分支名、特性编号。
 2. **确认理解**：通读方案，确认涉及的文件和模块、核心逻辑、是否有破坏性变更。用 `search_terminology` 确认术语。不清楚就问，不猜。不在方案内的功能不实现。
-3. **实现**：按方案逐步实现。遵守项目架构约束。匹配项目术语。非显而易见的设计意图加注释。
+3. **实现**：按方案逐步实现。遵守 `references/coding-principles.md` 中的架构约束和命名规范。匹配项目术语。非显而易见的设计意图加注释。
 4. **写测试**：为新增或修改的行为写测试。见 `references/testing-rules.md`。测试失败时先诊断：是测试错还是实现错？不自动回退业务代码。
 5. **自检**：测试通过、符合项目规范、无方案外变更、无兼容桥代码、视觉变更有截图证据、发现的问题全部修复。
 6. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
@@ -35,7 +35,11 @@ co_loads: []
 8. **对抗审视**：
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
+   - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；四类处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置
    - 按 `adversarial-review/references/author-response-protocol.md` 逐条处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决
+   - 处置完成后，更新 PR review comment，追加处置结果（接受/反驳/部分接受/呈搭档裁决）
+   - 更新命令：`gh pr comment <PR_NUMBER> --body "## 处置结果
+[逐条处置]"`
    - 修复后更新 PR，重新审视。第 2 轮起是 delta 审视（附上轮发现清单 + 处置 + 修复 diff）
    - 收敛判据：修复验证全部通过 + 无阻断回归 → 通过；对立僵局 / 移动靶 / 僵尸循环 → 呈搭档裁决
    - 审视通过 → 呈搭档终审
@@ -59,10 +63,11 @@ co_loads: []
 | 代码 PR | 对抗审视 | 检视獭 |
 | 排查结论（需修复） | worktree-isolation | 当前獭 |
 
-## 参考
+## 参考（索引）
 
-- `references/testing-rules.md` — 行为契约测试
-- `references/coding-principles.md` — 架构约束和命名规范
-- `references/commit-convention.md` — 提交格式
-- `_shared/signature-convention.md` — 署名约定
-- `_shared/review-protocol.md` — 对抗审视协议
+- `references/testing-rules.md` — 步骤 4 使用
+- `references/coding-principles.md` — 步骤 3 使用
+- `references/commit-convention.md` — 步骤 6 使用
+- `_shared/signature-convention.md` — 步骤 6 使用
+- `_shared/review-protocol.md` — 步骤 8 使用
+- `adversarial-review/references/author-response-protocol.md` — 步骤 8 使用

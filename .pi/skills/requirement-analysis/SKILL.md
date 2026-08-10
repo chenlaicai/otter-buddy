@@ -31,7 +31,8 @@ co_loads: []
 5. **产出方案**：按下方模板输出结构化技术方案。
 6. **对抗审视**：
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上方案全文或 worktree 内绝对路径。要求其先 read `adversarial-review` skill
-   - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
+   - 收到报告后校验合规性（含“本轮焦点”声明、发现分级、file:line 引用）——不合规打回重做
+   - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；四类处置：接受并修订 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（“我觉得没问题”、“过度设计”）等同未处置
    - 按 `adversarial-review/references/author-response-protocol.md` 逐条处置：接受并修订 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决
    - 按结论修订方案并复审。第 2 轮起是 delta 审视（附上轮发现清单 + 处置 + 修订 diff）
    - 收敛判据同代码审视。决策史回写文档——每道题的结论和理由留痕
@@ -80,7 +81,8 @@ T2: ...
 | 技术方案 | 对抗审视 | 检视獭 |
 | 需求澄清问题 | 等待搭档回答 | 搭档 |
 
-## 参考
+## 参考（索引）
 
-- `references/intent-anchor-guide.md` — 意图锚提取与溯源
-- `_shared/review-protocol.md` — 对抗审视协议
+- `references/intent-anchor-guide.md` — 步骤 1 使用
+- `_shared/review-protocol.md` — 步骤 6 使用
+- `adversarial-review/references/author-response-protocol.md` — 步骤 6 使用

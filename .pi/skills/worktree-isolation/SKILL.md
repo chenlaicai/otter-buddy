@@ -41,6 +41,6 @@ co_loads: []
 
 **小改动** = 不改变运行时行为的改动（lockfile、配置、文档订正）。归属模糊时走 `code-implementation` 对抗审视，默认从严。
 
-## 参考
+## 参考（索引）
 
-- `_shared/signature-convention.md` — 海獭署名约定
+- `_shared/signature-convention.md` — 步骤 3 使用

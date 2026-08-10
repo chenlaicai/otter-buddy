@@ -52,6 +52,6 @@ co_loads: []
 
 本 skill 是编排层，后续动作由被召唤的小獭的 skill 决定。
 
-## 参考
+## 参考（索引）
 
-- `references/collaboration-patterns.md` — 多轮协作编排模式
+- `references/collaboration-patterns.md` — 步骤 3 使用
