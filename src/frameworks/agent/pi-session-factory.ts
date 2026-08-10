@@ -631,12 +631,11 @@ export class PiSessionFactory implements AgentGateway {
   ): Promise<AgentRunResult> {
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
-    // S1（R20260810piab）：身份前缀在 ALS scope 外构建（含 DB 查询），
-    // 结果字符串通过 otterInvokeStorage 传给 extension handler 注入 system role。
-    // 非首次 invoke identityPrefix 为空串——身份已在首次 invoke 写入 session 历史。
-    const identityPrefix = options?.isFirstInvoke
-      ? await this.buildIdentityPrefix(otterId, otterType)
-      : "";
+    // S1（R20260810piab）：身份前缀在 ALS scope 外构建（含 DB 查询）。
+    // 对抗检视修正：system prompt 不被 session history 持久化，每次 invoke 重建 session 时
+    // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
+    // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
+    const identityPrefix = await this.buildIdentityPrefix(otterId, otterType);
 
     // S1：整个 createAgentSession + prompt 包在 ALS scope 内，
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
