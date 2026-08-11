@@ -126,7 +126,7 @@ export class ManageScheduledTask {
       throw new DomainError(`ScheduledTask not found: ${id}`, 'not_found');
     }
 
-    this.validateUpdateInput(task.status, input);
+    this.validateUpdateInput(task, input);
 
     const now = new Date().toISOString();
     const updated: ScheduledTask = {
@@ -147,11 +147,17 @@ export class ManageScheduledTask {
     return updated;
   }
 
-  private validateUpdateInput(currentStatus: ScheduledTaskStatus, input: UpdateScheduledTaskInput): void {
-    if (input.status && input.status !== currentStatus) {
-      if (!canTransitionTaskStatus(currentStatus, input.status)) {
+  private validateUpdateInput(task: ScheduledTask, input: UpdateScheduledTaskInput): void {
+    this.validateUpdateFields(task, input);
+    this.validateUpdateCrossFields(task, input);
+  }
+
+  /** 单字段格式校验 */
+  private validateUpdateFields(task: ScheduledTask, input: UpdateScheduledTaskInput): void {
+    if (input.status && input.status !== task.status) {
+      if (!canTransitionTaskStatus(task.status, input.status)) {
         throw new DomainError(
-          `Invalid status transition: ${currentStatus} -> ${input.status}`,
+          `Invalid status transition: ${task.status} -> ${input.status}`,
           'validation',
         );
       }
@@ -171,6 +177,25 @@ export class ManageScheduledTask {
 
     if (input.body && input.body.length > 10000) {
       throw new DomainError('body must be 10000 characters or less', 'validation');
+    }
+  }
+
+  /** scheduleType 与 cron/triggerAt 交叉校验 */
+  private validateUpdateCrossFields(task: ScheduledTask, input: UpdateScheduledTaskInput): void {
+    const effectiveScheduleType = input.scheduleType ?? task.scheduleType;
+
+    if (effectiveScheduleType === 'once') {
+      const effectiveTriggerAt = input.triggerAt !== undefined ? input.triggerAt : task.triggerAt;
+      if (!effectiveTriggerAt) {
+        throw new DomainError('triggerAt is required for scheduleType=once', 'validation');
+      }
+    }
+
+    if (effectiveScheduleType === 'cron') {
+      const effectiveCron = input.cron ?? task.cron;
+      if (!effectiveCron) {
+        throw new DomainError('cron is required for scheduleType=cron', 'validation');
+      }
     }
   }
 

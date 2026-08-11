@@ -948,5 +948,94 @@ describe('SchedulerService - onChange', () => {
       expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(true);
       expect(taskRepo._executions.size).toBe(0);
     });
+
+    it("once 任务触发失败 -> 重试成功 -> disabled", async () => {
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: '2025-06-15T09:00:00.000Z',
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 第一次 invoke 失败，第二次成功
+      let invokeCount = 0;
+      agentInvoke.invokeConversation = vi.fn(async () => {
+        invokeCount++;
+        if (invokeCount === 1) throw new Error('agent invoke failed');
+      });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      await service.start();
+
+      // 推进到触发时间
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      // 推进重试延迟（65s）
+      await vi.advanceTimersByTimeAsync(65_000);
+
+      // 验证：invoke 被调用 2 次（首次 + 1 次重试），任务 disabled
+      expect(invokeCount).toBe(2);
+      expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(true);
+    });
+
+    it("once 任务重试全部失败 -> 标记 error", async () => {
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: '2025-06-15T09:00:00.000Z',
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 所有 invoke 都失败
+      agentInvoke.invokeConversation = vi.fn(async () => {
+        throw new Error('agent invoke failed');
+      });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      await service.start();
+
+      // 推进到触发时间
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+      // 推进 3 次重试延迟（65s × 3）
+      await vi.advanceTimersByTimeAsync(65_000 * 3);
+      // flush 微任务
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 验证：invoke 被调用多次，任务标记 error（而非 disabled）
+      expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
+      expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(false);
+    });
   });
 });
