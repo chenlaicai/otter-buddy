@@ -64,7 +64,7 @@ co_loads: []
    ## 非阻断发现
    [发现清单，每条含 file:line 和处置（本 PR 修复 / 建 issue #N）]
 
-   🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy)"
+   🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]"
    ```
 
    **注意**：
