@@ -36,7 +36,7 @@ Verification depends on PR type:
 
 ## Focus Dimensions (Choose 1-3)
 
-Nine dimensions (3 baseline + 6 focus) for adversarial code review. Check every dimension for every PR — but depth follows the declared review focus (see SKILL.md step 2): focus dimensions get the full checklist treatment below, non-focus dimensions get a quick sweep with an explicit "无发现".
+Check every dimension for every PR — but depth follows the declared review focus (see SKILL.md step 2): focus dimensions get the full checklist treatment below, non-focus dimensions get a quick sweep with an explicit "无发现".
 
 ## 1. Correctness
 
