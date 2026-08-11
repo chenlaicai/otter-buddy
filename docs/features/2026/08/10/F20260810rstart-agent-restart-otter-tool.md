@@ -22,7 +22,7 @@ modules:
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
   - src/bootstrap/clients.ts
   - src/interface-adapters/http/controllers/otter-controller.ts
-capability_test: "n/a: 纯 agent 工具协议改动，行为验证依赖真实 LLM 场景，非自动化测试可覆盖（参见 F20260811mrop Part 2 能力测试约定）"
+capability_test: "n/a: 纯 agent 工具协议改动，行为验证依赖真实 LLM 场景，非自动化测试可覆盖（参见 F20260811mrpy Part 2 能力测试约定）"
 ---
 
 # F20260810rstart: Agent 层 restart_otter 工具

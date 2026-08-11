@@ -34,7 +34,7 @@ interface EmbedRequest {
 }
 
 /**
- * F20260811mrop Part 3：ready 消息携带 meta（modelId/modelRev/dim）。
+ * F20260811mrpy Part 3：ready 消息携带 meta（modelId/modelRev/dim）。
  * worker 加载完模型 + dummy embed 拿到 dims 后发送。
  */
 type EmbedResponse =
@@ -57,7 +57,7 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
-  /** F20260811mrop Part 3：worker ready 时缓存的模型元信息 */
+  /** F20260811mrpy Part 3：worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
   private requestId = 0;
 
@@ -76,7 +76,7 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
     this.worker.on("message", (msg: EmbedResponse) => {
       if (msg.type === "ready") {
         this.readyState.ready = true;
-        this.cachedMeta = msg.meta;  // F20260811mrop Part 3：缓存 meta
+        this.cachedMeta = msg.meta;  // F20260811mrpy Part 3：缓存 meta
         this.readyState.waiters.forEach(w => w.resolve());
         this.readyState.waiters.length = 0;
         this.logger.info(`Embedding model loaded: ${msg.meta.modelId} rev=${msg.meta.modelRev} dim=${msg.meta.dim}`);
@@ -106,6 +106,8 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
       this.logger.error("Worker Thread error", err);
       // F20260803mval: worker 崩溃后重置 ready + 设 loadError + 拒绝 waiters，
       // 避免 waitForReady 永久挂起导致 waiters 数组无限增长（内存泄漏）
+      // F20260811mrpy Part 3: 清除 cachedMeta 防止 worker 重启后读到旧 meta
+      this.cachedMeta = null;
       this.readyState.ready = false;
       this.readyState.loadError = new Error(`Worker error: ${err.message}`);
       this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
@@ -122,6 +124,7 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
       /** 正常 dispose → terminate 也会触发 exit：守卫掉，否则每次正常关停都打一条误导性 ERROR */
       if (this.disposed) return;
       this.logger.error(`Embedding worker exited unexpectedly, code=${code}`);
+      this.cachedMeta = null;  // F20260811mrpy Part 3
       this.readyState.ready = false;
       const err = new Error(`Worker exited with code ${code}`);
       this.readyState.loadError = err;
@@ -151,7 +154,7 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
     });
   }
 
-  /** F20260811mrop Part 3：返回 worker 加载的模型元信息 */
+  /** F20260811mrpy Part 3：返回 worker 加载的模型元信息 */
   async getMeta(): Promise<EmbedModelMeta> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     await this.waitForReady();

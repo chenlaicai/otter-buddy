@@ -1,6 +1,6 @@
 /**
  * 检索来源（纯字符串联合，不依赖 usecases 层）。
- * F20260811mrop Part 1：扩展契约，预留 anchor/context-expand 等新路径值（当前实际产生的仅 fts/vec/both）。
+ * F20260811mrpy Part 1：扩展契约，预留 anchor/context-expand 等新路径值（当前实际产生的仅 fts/vec/both）。
  */
 export type RetrievalSource =
   | "fts"
@@ -14,14 +14,14 @@ export type RetrievalSource =
 /** 详细程度 */
 export type DetailLevel = "summary" | "snippet" | "full";
 
-/** F20260811mrop Part 1：vec 路径覆盖率（默认返回） */
+/** F20260811mrpy Part 1：vec 路径覆盖率（默认返回） */
 export interface VecCoverageDTO {
   total: number;
   withVec: number;
   ratio: number;
 }
 
-/** F20260811mrop Part 1：debug 模式注入的中间分值 */
+/** F20260811mrpy Part 1：debug 模式注入的中间分值 */
 export interface RetrievalDebugInfoDTO {
   rrfScore: number;
   finalScore: number;

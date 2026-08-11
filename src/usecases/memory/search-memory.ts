@@ -36,13 +36,13 @@ export interface SearchQuery {
   /** F20260803fbit: 按 contentType 过滤（多选），支持"只搜 body"或"只搜 summary" */
   contentType?: MemoryContentType[];
   /**
-   * F20260811mrop Part 1：开启时注入中间分值（rrfScore/timeDecay/frequencyBoost/multiHitCount）。
+   * F20260811mrpy Part 1：开启时注入中间分值（rrfScore/timeDecay/frequencyBoost/multiHitCount）。
    * 默认关闭避免 token 膨胀。
    */
   debug?: boolean;
 }
 
-/** F20260811mrop Part 1：debug=true 时注入的中间分值（召回诊断用） */
+/** F20260811mrpy Part 1：debug=true 时注入的中间分值（召回诊断用） */
 export interface RetrievalDebugInfo {
   rrfScore: number;
   finalScore: number;
@@ -58,17 +58,17 @@ export interface RetrievalResultEntry extends MemoryEntry {
   snippet?: string;
   /** 用户标记（检索路径从 MemoryWeight 带出） */
   userFlagged?: boolean;
-  /** F20260811mrop Part 1：debug=true 时注入的中间分值 */
+  /** F20260811mrpy Part 1：debug=true 时注入的中间分值 */
   debug?: RetrievalDebugInfo;
   /**
-   * F20260811mrop Part 2：detail_level != "full" 时填充，告知调用方用什么工具拿全文。
+   * F20260811mrpy Part 2：detail_level != "full" 时填充，告知调用方用什么工具拿全文。
    * 形如 { tool: "get_memory_detail", params: { id } }
    */
   drillDown?: { tool: string; params: Record<string, unknown> };
 }
 
 /**
- * F20260811mrop Part 1：vec 路径覆盖率（默认返回）。
+ * F20260811mrpy Part 1：vec 路径覆盖率（默认返回）。
  * ratio<1.0 说明有暗化条目（fire-and-forget 失败导致无 vec）。
  */
 export interface VecCoverage {
@@ -80,7 +80,7 @@ export interface VecCoverage {
 export interface RetrievalResult {
   entries: RetrievalResultEntry[];
   total: number;
-  /** F20260811mrop Part 1：默认返回（不加 debug 参数也有） */
+  /** F20260811mrpy Part 1：默认返回（不加 debug 参数也有） */
   vecCoverage: VecCoverage;
 }
 
@@ -154,7 +154,7 @@ export class SearchMemory {
         snippet,
       };
     });
-    // F20260811mrop Part 1：术语库不索引 vec，withVec 恒为 0
+    // F20260811mrpy Part 1：术语库不索引 vec，withVec 恒为 0
     return { entries, total: entries.length, vecCoverage: { total: entries.length, withVec: 0, ratio: 0 } };
   }
 
@@ -198,8 +198,7 @@ export class SearchMemory {
       return e;
     });
 
-    // F20260811mrop Part 1：合并对话库 vecCoverage + 术语库（术语库不索引 vec）
-    const convTotal = convResult.vecCoverage.total;
+    // F20260811mrpy Part 1：合并对话库 vecCoverage + 术语库（术语库不索引 vec）
     const convWithVec = convResult.vecCoverage.withVec;
     const mergedTotal = entries.length;
     const mergedVecCoverage: VecCoverage = {
@@ -207,8 +206,6 @@ export class SearchMemory {
       withVec: convWithVec,
       ratio: mergedTotal > 0 ? convWithVec / mergedTotal : 0,
     };
-    // convTotal 未在 mergedTotal 中（对话库可能因混排被挤掉），用 convResult 仍可被读取
-    void convTotal;
 
     return { entries, total: entries.length, vecCoverage: mergedVecCoverage };
   }
@@ -332,9 +329,9 @@ export class SearchMemory {
 
   /**
    * RRF 融合后的结果重排 + 批量递增计数 + 组装返回值。
-   * F20260811mrop：扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
+   * F20260811mrpy：扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
    */
-  // eslint-disable-next-line max-lines-per-function, max-params -- F20260811mrop 三 Part 扩展必要
+  // eslint-disable-next-line max-lines-per-function, max-params -- F20260811mrpy 三 Part 扩展必要
   private async rerankAndReturn(
     rrfHits: Map<string, RrfHit>,
     limit: number,
@@ -342,7 +339,7 @@ export class SearchMemory {
     snippetMap?: Map<string, string | undefined>,
     /** F20260803fbit: searchSimilar 路径不需要按 sourceId 去重（语义是"找相似条目"，同源多 entry 是合法结果） */
     dedup = true,
-    /** F20260811mrop Part 1：debug=true 时注入中间分值 */
+    /** F20260811mrpy Part 1：debug=true 时注入中间分值 */
     debug = false,
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
@@ -362,7 +359,7 @@ export class SearchMemory {
     /** S15: 批量递增检索计数 */
     await this.repo.incrementRetrievalCounts(top.map((h) => h.entryId));
 
-    /** F20260811mrop Part 1：计算 vecCoverage（默认返回） */
+    /** F20260811mrpy Part 1：计算 vecCoverage（默认返回） */
     const topIds = top.map(h => h.entryId);
     const hasVecMap = await this.repo.hasEmbeddings(topIds);
     const withVecCount = Array.from(hasVecMap.values()).filter(Boolean).length;
@@ -373,7 +370,7 @@ export class SearchMemory {
     };
 
     return {
-      // eslint-disable-next-line complexity -- F20260811mrop debug/drillDown 注入增加分支
+      // eslint-disable-next-line complexity -- F20260811mrpy debug/drillDown 注入增加分支
       entries: top.map((h) => {
         // M12: multi_hit_count 仅 >1 时注入 metadata（searchSimilar 路径无此字段不变）
         const meta = h.multiHitCount && h.multiHitCount > 1
@@ -383,11 +380,11 @@ export class SearchMemory {
         const base = detailLevel === "full"
           ? h.entry
           : { ...h.entry, content: "" };
-        /** F20260811mrop Part 2：detail_level != "full" 时填充 drillDown hint */
+        /** F20260811mrpy Part 2：detail_level != "full" 时填充 drillDown hint */
         const drillDown = detailLevel && detailLevel !== "full"
           ? { tool: "get_memory_detail", params: { id: h.entryId } }
           : undefined;
-        /** F20260811mrop Part 1：debug=true 时注入中间分值 */
+        /** F20260811mrpy Part 1：debug=true 时注入中间分值 */
         const debugInfo = debug ? {
           rrfScore: h.rrfScore,
           finalScore: h.finalScore,

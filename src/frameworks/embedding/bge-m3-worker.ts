@@ -1,7 +1,7 @@
 /**
  * bge-m3 Embedding Worker Thread。
  *
- * 通信协议（F20260811mrop Part 3：ready 携带 meta）：
+ * 通信协议（F20260811mrpy Part 3：ready 携带 meta）：
  * 主线程 -> Worker: { type: 'embed', text: string, id: number }
  * Worker -> 主线程:
  *   - { type: 'ready', meta: { modelId, modelRev, dim } }
@@ -24,7 +24,7 @@ interface EmbedRequest {
   id: number;
 }
 
-/** F20260811mrop Part 3：ready 携带的模型元信息 */
+/** F20260811mrpy Part 3：ready 携带的模型元信息 */
 interface EmbedModelMeta {
   modelId: string;
   modelRev: string;
@@ -72,7 +72,7 @@ function getExtractor(): Promise<Extractor> {
   return extractorPromise;
 }
 
-// 预加载模型 + dummy embed 拿 dims（F20260811mrop Part 3）
+// 预加载模型 + dummy embed 拿 dims（F20260811mrpy Part 3）
 getExtractor()
   .then(async (fn) => {
     // dummy embed 拿实际维度（transformers.js pipeline 无公开 .config.dim）

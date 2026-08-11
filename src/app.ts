@@ -119,7 +119,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const repos = initRepositoriesWithDb(db);
   await postInitDatabase(db, repos, logger);
 
-  // F20260811mrop Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
+  // F20260811mrpy Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
   // 模型/维度不一致时禁用 vec 路径 + 写入 otter_context('system', 'embedding_degraded')
   const embeddingVersionCheck = await verifyEmbeddingVersion(embeddingService, repos, logger);
   if (!embeddingVersionCheck.vecEnabled) {

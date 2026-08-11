@@ -121,7 +121,7 @@ export function shutdownDatabase(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260811mrop Part 3：Embedding 版本锚校验。
+ * F20260811mrpy Part 3：Embedding 版本锚校验。
  *
  * bootstrap 时比对 worker 实际加载的模型元信息（modelId/modelRev/dim）与 embedding_meta 表存储的基线。
  * 不一致则禁用 vec 路径 + 写入 otter_context('system', 'embedding_degraded') 让 agent 感知。

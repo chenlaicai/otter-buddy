@@ -190,7 +190,7 @@ export class SearchEngine {
   }
 
   /**
-   * F20260811mrop Part 1：public 暴露 time_decay 计算（debug 信息注入用）。
+   * F20260811mrpy Part 1：public 暴露 time_decay 计算（debug 信息注入用）。
    * 与内部 computeTimeDecay 等价。
    */
   computeTimeDecayPublic(createdAt: string): number {
@@ -198,7 +198,7 @@ export class SearchEngine {
   }
 
   /**
-   * F20260811mrop Part 1：public 暴露 frequency_boost 计算（debug 信息注入用）。
+   * F20260811mrpy Part 1：public 暴露 frequency_boost 计算（debug 信息注入用）。
    * 与内部 computeFrequencyBoost 等价。
    */
   computeFrequencyBoostPublic(retrievalCount: number): number {

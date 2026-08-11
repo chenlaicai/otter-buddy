@@ -133,7 +133,7 @@ function createMessageTables(db: Database.Database): void {
 }
 
 /** 记忆上下文：memory_entries + memory_weights + FTS5 + vec0 */
-/* eslint-disable max-lines-per-function -- F20260811mrop 加入 embedding_meta 后表增多 */
+/* eslint-disable max-lines-per-function -- F20260811mrpy 加入 embedding_meta 后表增多 */
 function createMemoryTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory_entries (
@@ -196,7 +196,7 @@ function createMemoryTables(db: Database.Database): void {
     console.warn("sqlite-vec extension not available, falling back to FTS5-only search");
   }
 
-  // F20260811mrop Part 3：Embedding 版本锚（key-value 结构）
+  // F20260811mrpy Part 3：Embedding 版本锚（key-value 结构）
   // 记录当前 memory_vec 中向量是用哪个 modelId/modelRev/dim 生成的，
   // bootstrap 时校验，不一致则降级为纯 FTS（避免新查询与旧向量混跑导致召回静默变差）。
   db.exec(`

@@ -165,7 +165,7 @@ describe("SearchMemory - progressive disclosure", () => {
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
       setEmbeddingMeta: async () => {},
-      scanDarkEntries: async () => ({ entries: [], total: 0 }),
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
@@ -387,7 +387,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
       setEmbeddingMeta: async () => {},
-      scanDarkEntries: async () => ({ entries: [], total: 0 }),
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
@@ -452,7 +452,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
       setEmbeddingMeta: async () => {},
-      scanDarkEntries: async () => ({ entries: [], total: 0 }),
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 

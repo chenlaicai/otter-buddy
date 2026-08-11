@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
+import type { ScanDarkEntries } from "@usecases/memory/scan-dark-entries";
 import type { MemoryLayer, MemoryContentType, RetrievalGranularity, DetailLevel } from "@entities/memory/memory-entry";
 import { isMemoryContentType } from "@entities/memory/memory-entry";
 import type { Logger } from "@usecases/ports/logger";
@@ -47,6 +48,7 @@ export class MemoryController {
 
     private readonly searchMemory: SearchMemory,
     private readonly manageMemory: ManageMemory,
+    private readonly scanDarkEntries: ScanDarkEntries,
     private readonly embeddingGateway: EmbeddingGateway,
       private readonly logger: Logger,
   ) {}
@@ -120,6 +122,16 @@ export class MemoryController {
         total: result.total,
         vecCoverage: result.vecCoverage,
       });
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** F20260811mrpy Part 1：扫描无 vec 索引的暗化条目 */
+  async getDarkEntries(c: Context): Promise<Response> {
+    try {
+      const result = await this.scanDarkEntries.execute();
+      return c.json(result);
     } catch (err) {
       return handleError(c, err, this.logger);
     }

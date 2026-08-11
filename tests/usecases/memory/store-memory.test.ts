@@ -39,7 +39,7 @@ function statefulRepo(): MemoryRepository & {
     deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
       setEmbeddingMeta: async () => {},
-      scanDarkEntries: async () => ({ entries: [], total: 0 }),
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
   };
 }

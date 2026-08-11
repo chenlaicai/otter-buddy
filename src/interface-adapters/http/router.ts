@@ -64,6 +64,7 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
   app.post("/api/memory/search/similar", (ctx) => c.memory.searchSimilar(ctx));
   app.get("/api/memory/batch", (ctx) => c.memory.getDetails(ctx));
+  app.get("/api/memory/dark-entries", (ctx) => c.memory.getDarkEntries(ctx));
   app.get("/api/memory/:id", (ctx) => c.memory.getById(ctx));
   app.patch("/api/memory/:id/flag", (ctx) => c.memory.flag(ctx));
   app.get("/api/conversations/:id/key-resources", (ctx) => c.keyInfo.getKeyResources(ctx));

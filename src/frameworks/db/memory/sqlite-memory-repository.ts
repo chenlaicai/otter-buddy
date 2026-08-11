@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- F20260811mrop 加入 embedding_meta/dark-entries/hasEmbeddings 后续接近 600 行 */
+/* eslint-disable max-lines -- F20260811mrpy 加入 embedding_meta/dark-entries/hasEmbeddings 后续接近 600 行 */
 
 import type Database from "better-sqlite3";
 import type { MemoryEntry, MemoryWeight, MemoryLayer } from "@entities/memory/memory-entry";
@@ -30,7 +30,7 @@ const MAX_GET_DETAILS_BATCH = 100;
 
 export class SqliteMemoryRepository implements MemoryRepository {
   private readonly db: Database.Database;
-  /** 构造时缓存，可被 disableVec() 关闭（F20260811mrop Part 3 版本锚降级） */
+  /** 构造时缓存，可被 disableVec() 关闭（F20260811mrpy Part 3 版本锚降级） */
   private hasVec: boolean;
 
   constructor(db: Database.Database) {
@@ -53,7 +53,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   /**
-   * F20260811mrop Part 3：bootstrap 校验 embedding 版本不一致时调用，禁用 vec 路径。
+   * F20260811mrpy Part 3：bootstrap 校验 embedding 版本不一致时调用，禁用 vec 路径。
    * 之后 searchVec 直接返回空数组（已有守卫），召回降级为纯 FTS。
    */
   disableVec(): void {
@@ -405,7 +405,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       DEFAULT_FTS_LIMIT,
     ) as FtsHighlightRow[];
 
-    // F20260811mrop Part 2: 应用层 extractSnippet
+    // F20260811mrpy Part 2: 应用层 extractSnippet
     return rows.map(row => {
       const content = row.content || '';
       const snippet = this.extractSnippet(content, tokenizedQuery);
@@ -419,7 +419,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   /**
-   * F20260811mrop Part 2: 应用层后处理高亮。
+   * F20260811mrpy Part 2: 应用层后处理高亮。
    * 拿 jieba 分词结果在 content 里 indexOf 定位匹配 token,截窗口（前后各 100 字符）。
    * 性能保护：tokens.slice(0, 10) 限制扫描 token 数防 O(n*m) 爆炸。
    * fallback：全部 token 未匹配上时,返回前 200 字符。
@@ -518,7 +518,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     `).run(to, conversationId, from);
   }
 
-  /** F20260811mrop Part 3：读取存储的 embedding 元信息（key-value 表） */
+  /** F20260811mrpy Part 3：读取存储的 embedding 元信息（key-value 表） */
   async getEmbeddingMeta(): Promise<Partial<EmbedModelMeta>> {
     const rows = this.db.prepare(
       "SELECT key, value FROM embedding_meta",
@@ -532,7 +532,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return meta;
   }
 
-  /** F20260811mrop Part 3：写入/更新 embedding 元信息（事务内全量覆盖） */
+  /** F20260811mrpy Part 3：写入/更新 embedding 元信息（事务内全量覆盖） */
   async setEmbeddingMeta(meta: EmbedModelMeta): Promise<void> {
     const now = new Date().toISOString();
     this.db.exec("BEGIN");
@@ -551,12 +551,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   /**
-   * F20260811mrop Part 1：扫描无 vec 索引的暗化条目。
+   * F20260811mrpy Part 1：扫描无 vec 索引的暗化条目。
    * 用 NOT EXISTS 子查询规避 vec0 虚拟表 anti-join 限制。
    * 若 vec 表不可用（disableVec 或扩展缺失），返回空列表。
    */
-  async scanDarkEntries(): Promise<{ entries: DarkEntry[]; total: number }> {
-    if (!this.hasVec) return { entries: [], total: 0 };
+  async scanDarkEntries(): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }> {
+    // vecDisabled=true 表示 vec 路径被运行时禁用（如 F20260811mrpy Part 3 disableVec），
+    // 此时返回空列表但语义非"无暗化条目"——调用方应感知 vecDisabled 标志
+    if (!this.hasVec) return { entries: [], total: 0, vecDisabled: true };
     try {
       const rows = this.db.prepare(`
         SELECT me.id, me.content_type, me.source_id, me.created_at
@@ -573,14 +575,14 @@ export class SqliteMemoryRepository implements MemoryRepository {
         sourceId: r.source_id,
         createdAt: r.created_at,
       }));
-      return { entries, total: entries.length };
+      return { entries, total: entries.length, vecDisabled: false };
     } catch {
-      return { entries: [], total: 0 };
+      return { entries: [], total: 0, vecDisabled: false };
     }
   }
 
   /**
-   * F20260811mrop Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
+   * F20260811mrpy Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
    * 返回 Map<entryId, hasVec>。vec 表不可用时所有 entry 返回 false。
    */
   async hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>> {

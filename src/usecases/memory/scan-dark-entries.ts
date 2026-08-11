@@ -1,5 +1,5 @@
 /**
- * F20260811mrop Part 1：扫描无 vec 索引的暗化条目。
+ * F20260811mrpy Part 1：扫描无 vec 索引的暗化条目。
  *
  * store-memory.ts 的 embedding 存储是 fire-and-forget，失败后无补偿。
  * 失败条目永久"FTS 可搜 / Vec 不可搜"，本用例暴露这些条目供运维或后续修复链路消费。
@@ -12,6 +12,7 @@ import type { Logger } from "@usecases/ports/logger";
 export interface ScanDarkEntriesResult {
   entries: DarkEntry[];
   total: number;
+  vecDisabled: boolean;
 }
 
 export class ScanDarkEntries {

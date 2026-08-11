@@ -370,6 +370,7 @@ export interface TestDeps {
   manageSession: any;
   queryOtter: any;
   searchMemory: any;
+  scanDarkEntries: any;
   manageMemory: any;
   manageKeyInfo: any;
   settingsConfig: SettingsConfig;
@@ -437,6 +438,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const memoryCtrl = new MemoryController(
     deps.searchMemory,
     deps.manageMemory,
+    deps.scanDarkEntries ?? { execute: async () => ({ entries: [], total: 0, vecDisabled: false }) },
     { available: true, embed: async () => new Float32Array(1024) },
     logger,
   );
@@ -515,6 +517,7 @@ export function createMockDeps(): TestDeps {
     manageSession: mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory", "setSessionSummary", "restartSession"]),
     queryOtter: mockMethods(["getById", "getBigOtter"]),
     searchMemory: mockMethods(["search", "searchSimilar"]),
+    scanDarkEntries: mockMethods(["execute"]),
     manageMemory: mockMethods(["getById", "getDetails", "flagMemory", "updateLayer"]),
     manageKeyInfo: mockMethods(["getLinkedResources", "linkResource", "flagResource", "deleteLinkedResource", "supersedeResource", "archiveResource", "updateResourceStatus", "getArtifactIndex", "getLinkedResourcesByGroup"]),
     settingsConfig: {

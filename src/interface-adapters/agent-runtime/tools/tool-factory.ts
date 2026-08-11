@@ -168,9 +168,14 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 
 渐进式披露工作流（默认策略）：
 1. 首次搜索用 detail_level="summary"，快速扫描哪些条目相关
-2. 看中特定条目后，用 get_memory_detail 传入 ID 获取完整内容
+2. 看中特定条目后，用 get_memory_detail 传入 ID 获取完整内容（结果里的 drillDown 字段会给出工具名和参数）
 3. 只在需要匹配上下文片段时用 detail_level="snippet"
 4. detail_level="full" 仅用于明确需要一次性获取全文的场景（如批量导出）
+
+F20260811mrpy Part 1/2 新字段：
+- vecCoverage：vec 索引覆盖率（ratio<1.0 说明有暗化条目，召回可能不完整）
+- drillDown：detail_level != "full" 时填充，告知调用方用什么工具拿全文
+- debug=true 时返回 rrfScore/timeDecay/frequencyBoost 中间分值，用于诊断召回排序
 
 记忆与当前上下文冲突时以当前上下文为准。可指定 library 路由到特定库；可指定 created_after 过滤时间范围（如定时摘要查今日新增）。`,
     parameters: {

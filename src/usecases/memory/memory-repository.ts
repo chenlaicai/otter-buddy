@@ -19,7 +19,7 @@ export interface SearchFilters {
 
 /**
  * 检索来源标识。
- * F20260811mrop Part 1：扩展契约——为 anchor lookup / context expand 等新路径预留。
+ * F20260811mrpy Part 1：扩展契约——为 anchor lookup / context expand 等新路径预留。
  * 当前实际产生的值仅 fts/vec/both，其余值由后续 P1 优化点（Anchor Lookup / Passage Context / Edges）填充。
  */
 export type RetrievalSource =
@@ -54,7 +54,7 @@ export interface VecHit {
   entry: MemoryEntry;
 }
 
-/** F20260811mrop Part 1：暗化条目（无 vec 索引的 memory entry） */
+/** F20260811mrpy Part 1：暗化条目（无 vec 索引的 memory entry） */
 export interface DarkEntry {
   entryId: string;
   contentType: string;
@@ -94,17 +94,18 @@ export interface MemoryRepository {
   incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void>;
   flagMemory(memoryEntryId: string, flagged: boolean): Promise<void>;
   updateLayerByConversation(conversationId: string, from: MemoryLayer, to: MemoryLayer): Promise<void>;
-  /** F20260811mrop Part 3：读取存储的 embedding 元信息 */
+  /** F20260811mrpy Part 3：读取存储的 embedding 元信息 */
   getEmbeddingMeta(): Promise<Partial<EmbedModelMeta>>;
-  /** F20260811mrop Part 3：写入/更新 embedding 元信息 */
+  /** F20260811mrpy Part 3：写入/更新 embedding 元信息 */
   setEmbeddingMeta(meta: EmbedModelMeta): Promise<void>;
   /**
-   * F20260811mrop Part 1：扫描无 vec 索引的暗化条目（fire-and-forget 失败导致）。
+   * F20260811mrpy Part 1：扫描无 vec 索引的暗化条目（fire-and-forget 失败导致）。
    * 用 NOT EXISTS 子查询规避 vec0 虚拟表 anti-join 限制。
+   * 返回 vecDisabled=true 表示 vec 路径被运行时禁用（如版本锚降级），此时返回空列表但语义非"无暗化条目"。
    */
-  scanDarkEntries(): Promise<{ entries: DarkEntry[]; total: number }>;
+  scanDarkEntries(): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }>;
   /**
-   * F20260811mrop Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
+   * F20260811mrpy Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
    * 返回 Map<entryId, hasVec>。vec 表不可用时所有 entry 返回 false。
    */
   hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>>;
