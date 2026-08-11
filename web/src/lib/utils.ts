@@ -44,6 +44,9 @@ export function fmtRelativeTime(ts: string): string {
   yesterday.setDate(yesterday.getDate() - 1)
   if (d.toDateString() === yesterday.toDateString()) return `昨天 ${hhmm}`
 
-  // 更早：显示日期
+  // 更早：显示日期（跨年显示年份）
+  if (d.getFullYear() !== now.getFullYear()) {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm}`
+  }
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm}`
 }
