@@ -122,7 +122,7 @@ rtrd 治标——靠消灭"已记录"黑洞约束处置真实性。但分级框�
 | `adversarial-review/references/author-response-protocol.md` | 全面重写：决策树正文 + 分级反驳门槛 + 四分类映射决策树 + 不允许处置铁律 + 方案路径双适配表 |
 | `adversarial-review/references/anti-patterns.md` | Let It Slide symptom 扩展（非阻断/建议作为降级许可证）+ 新增 Inaction 反模式 + Blind Compliance 补"未走决策树=未处置" |
 | `adversarial-review/references/review-loop.md` | delta 审视验收项重写：决策树产物核对 + 严重不可延后 + 术语替换 |
-| `_shared/review-protocol.md` | 方案路径 delta 描述同步（更好/更差判断 + 建议发现）|
+| `_shared/review-protocol.md` | 代码 PR 路径 + 方案路径双同步：Step 2 补决策树框架、Step 3 delta 描述补"含更好/更差判断"、收敛判据补"无严重发现未处置"、方案路径术语替换 |
 | `code-implementation/SKILL.md` | 对抗审视原则补决策树；delta 审视描述同步；收敛判据同步 |
 | `otter-summon/references/collaboration-patterns.md` | 收敛判据同步；作者处置描述补决策树 |
 | `requirement-analysis/SKILL.md` | 对抗审视原则补决策树（更好→修订/写待办、更差→反驳）；delta 审视描述同步（含更好/更差判断 + 非阻断→建议）；不作为不允许 |
@@ -185,7 +185,7 @@ PR 模板（`.github/pull_request_template.md`）与 `commit-convention.md` 的 
 | 8 | `SKILL.md:138` 和 `anti-patterns.md:59` 严重反驳门槛缺"/误解"——权威源是"事实错误/看错/误解" | 建议 | 更好→本 PR 修复 |
 | 9 | F 文档改动范围表 requirement-analysis 描述不完整（实际改动比描述大） | 建议 | 更好→本 PR 修复 |
 
-**严重 1 反驳证据**：ad9f038 是 PR #218（F20260811safen）已合入 origin/main 的提交。worktree 分支从 HEAD=origin/main=ad9f038 切出，本地 main ref 滞后于 origin/main（5b30aa7 vs ad9f038）。GitHub PR base 跟踪 origin/main，实际 PR diff 仅含本工作 9 个文件。检视者用 `git diff main`（指向本地滞后 ref）误诊。
+**严重 1 反驳证据**：ad9f038 是 PR #218（F20260811safen）已合入 origin/main 的提交。worktree 分支从 HEAD=origin/main=ad9f038 切出，本地 main ref 滞后于 origin/main（5b30aa7 vs ad9f038）。GitHub PR base 跟踪 origin/main，实际 PR diff 仅含本工作 9 个文件。检视者用 `git diff main`（指向本地滞后 ref）误诊。验证命令：`gh pr diff 222 --name-only`（应仅显示 9 个文件）、`git diff origin/main --stat`（同上）。
 
 建议 6-9 全部修复。
 
