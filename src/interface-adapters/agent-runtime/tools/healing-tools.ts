@@ -7,7 +7,7 @@ import type { HealingResolutionAction } from "@entities/healing/healing-event";
 import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
 import type { Logger } from "@usecases/ports/logger";
 import type { ToolContext, AgentTool } from "./tool-factory";
-import { type ToolResponse, textResponse } from "./tool-helpers";
+import { type ToolResponse, textResponse, errorResponse } from "./tool-helpers";
 
 /** 解析并剥离 healing report，返回清理后的 body */
 export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {
@@ -41,7 +41,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
       return textResponse(JSON.stringify(events, null, 2));
     }
     const ids = params.eventIds as string[];
-    if (!ids?.length) return textResponse("[错误] eventIds 不能为空");
+    if (!ids?.length) return errorResponse("[错误] eventIds 不能为空");
     if (action === 'resolve' || action === 'dismiss') {
       const fn = action === 'resolve'
         ? (id: string) => healingRepo.resolve(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' })

@@ -2,12 +2,28 @@
 export interface ToolResponse {
   content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
+  /**
+   * F20260811sktp: 错误标志。
+   * SDK 的 AgentToolResult 不直接消费此字段——otter-hooks 的 tool_result extension handler
+   * 把它复制到 details.__isError，再由 handler 返回 { isError: true } 覆盖 SDK 的 isError 标志，
+   * 从而透传到 Anthropic API 的 tool_result.is_error。
+   */
+  isError?: boolean;
   /** 置 true 时 agent loop 在本批次工具执行后终止，不再发起下一轮 LLM 调用（Pi 原生能力） */
   terminate?: boolean;
 }
 
 export function textResponse(text: string): ToolResponse {
   return { content: [{ type: "text", text }], details: {} };
+}
+
+/**
+ * F20260811sktp: 错误返回工厂。
+ * 文案保留 `[错误]` 前缀（人类可读），同时设 isError=true（机器可识别）。
+ * 经 otter-hooks tool_result handler 透传到 Anthropic API 的 is_error 字段。
+ */
+export function errorResponse(text: string): ToolResponse {
+  return { content: [{ type: "text", text }], details: {}, isError: true };
 }
 
 /** 单个 tool result 最大字符数（~4K tokens，防止巨量结果污染上下文导致模型退化） */

@@ -1,6 +1,6 @@
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { AgentTool, ToolContext } from "./tool-factory";
-import { textResponse } from "./tool-helpers";
+import { textResponse, errorResponse } from "./tool-helpers";
 
 function createWorkspaceInfoTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
   return {
@@ -9,7 +9,7 @@ function createWorkspaceInfoTool(ctx: ToolContext, workspaceGateway: WorkspaceGa
     parameters: { type: "object", properties: {} },
     execute: async () => {
       const ok = await workspaceGateway.exists(ctx.conversationId);
-      if (!ok) return textResponse("[错误] 工作区不存在。");
+      if (!ok) return errorResponse("[错误] 工作区不存在。");
       const entries = await workspaceGateway.listDir(ctx.conversationId);
       const wsPath = workspaceGateway.getWorkspacePath(ctx.conversationId);
       return textResponse(JSON.stringify({ path: wsPath, entries }));

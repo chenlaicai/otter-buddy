@@ -1,5 +1,5 @@
 import type { AgentTool, ToolContext } from "./tool-factory";
-import { textResponse } from "./tool-helpers";
+import { textResponse, errorResponse } from "./tool-helpers";
 
 /**
  * F20260807factlim: content 预览截断。按 code point（而非 UTF-16 code unit）切片，
@@ -78,11 +78,11 @@ export function createUpdateArtifactStatusTool(ctx: ToolContext): AgentTool {
       const supersededBy = params.supersededBy as string | undefined;
 
       if (targetStatus !== "superseded" && targetStatus !== "archived") {
-        return textResponse("Error: status must be 'superseded' or 'archived'");
+        return errorResponse("[错误] status 必须是 'superseded' 或 'archived'");
       }
 
       if (targetStatus === "superseded" && !supersededBy) {
-        return textResponse("Error: supersededBy is required when status is 'superseded'");
+        return errorResponse("[错误] status 为 'superseded' 时必须提供 supersededBy");
       }
 
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
