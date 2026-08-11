@@ -98,6 +98,8 @@ capability_test: "tests/capability/system-prompt-behavior.capability.test.ts"
 
 **Schema（轻量起步）**：
 
+> ⚠️ **本段已被 D7 取代**——manifest 最终不写 `description` 和 `triggers`（双源同步不可机器判定）。本段保留作为决策史；最终方案见 D7。下方 YAML 示例仅展示结构化字段应填什么，不要照抄 description/triggers 部分。
+
 ```yaml
 version: 1
 skills:

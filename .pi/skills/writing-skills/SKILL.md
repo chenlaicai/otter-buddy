@@ -49,8 +49,9 @@ category: technique
 
 6. **同步 manifest**：
    - frontmatter 是真相源（SDK 直接消费 name + description）
-   - `prompts/skills/manifest.yaml` 由 `scripts/gen-manifest.mjs` 自动生成主体
-   - 在 manifest 手写部分（`next / not_for / category / notes`）补充结构化字段——next 指向的 skill 必须存在，not_for 提到的 skill 必须存在
+   - manifest（`prompts/skills/manifest.yaml`）**不写 description 镜像**（D7 决策：双源同步负担不可机器判定）
+   - manifest 手写只有结构化字段：`name / category / next / not_for / notes`
+   - lint（`scripts/lint-skills.mjs`）校验三项一致性：name 集合 = `.pi/skills/` 目录集合；next/not_for 指针有效；manifest.category 与 SKILL.md frontmatter.category 一致（防漂移）
 
 7. **跑 lint**：`npm run lint:skills`，0 error 才算完成。lint 规则见 `references/lint-rules.md`。
 
