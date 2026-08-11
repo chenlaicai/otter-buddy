@@ -9,7 +9,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
-import { interceptHealingReport } from "./healing-tools";
+import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
@@ -566,6 +566,11 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetActiveParticipantsTool(ctx),
     createGetHtmlCardContractTool(),
   ];
+  /** F20260811sktp 第五轮审视：manage_healing_events 此前未注册（pre-existing bug），
+   *  但本 PR SYSTEM.md R5 显式引用了它，必须确保运行时可用。 */
+  if (healingRepo) {
+    tools.push(createManageHealingEventsTool(ctx, healingRepo));
+  }
   if (workspaceGateway) {
     tools.push(...createWorkspaceTools(ctx, workspaceGateway));
   }
