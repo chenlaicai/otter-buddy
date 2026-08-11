@@ -31,6 +31,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
     "manage_healing_events",
+    "create_scheduled_task",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
     /** F20260811sktp 第五轮审视：补 create_scheduled_task 白名单（merge main 引入但 PR #226 漏注册） */
     "create_scheduled_task",
