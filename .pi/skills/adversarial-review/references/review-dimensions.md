@@ -1,5 +1,39 @@
 # Review Dimensions
 
+Baseline dimensions are checked for every PR — they are the floor, not the ceiling. Focus dimensions are chosen based on the PR's risk profile and get deeper scrutiny.
+
+## Baseline Dimensions (Always Checked)
+
+These dimensions are checked for every PR, regardless of size or complexity. They do not count toward the 1-3 focus dimensions.
+
+### 0. CI Status
+
+Is the PR's CI passing?
+
+- Check CI status: `gh run list --limit 1` or review CI status in PR
+- If CI fails, identify which tests/jobs failed
+- CI failure is a blocking issue — cannot proceed until fixed
+
+### 0. Documentation Completeness
+
+Does relevant feature documentation exist and match the implementation?
+
+- Check if feature documentation exists for the changes
+- Verify documentation matches actual implementation
+- Missing or inconsistent documentation is a blocking issue
+
+### 0. End-to-End Verification
+
+Is the feature functional end-to-end, not just unit tests passing?
+
+- Verify the feature works in the actual environment
+- Check if integration points are working
+- End-to-end failures are blocking issues
+
+---
+
+## Focus Dimensions (Choose 1-3)
+
 Six dimensions for adversarial code review. Check every dimension for every PR — but depth follows the declared review focus (see SKILL.md step 2): focus dimensions get the full checklist treatment below, non-focus dimensions get a quick sweep with an explicit "无发现".
 
 ## 1. Correctness

@@ -30,6 +30,12 @@ co_loads: []
 3. **实现**：按方案逐步实现。遵守 `references/coding-principles.md` 中的架构约束和命名规范。匹配项目术语。非显而易见的设计意图加注释。
 4. **写测试**：为新增或修改的行为写测试。见 `references/testing-rules.md`。测试失败时先诊断：是测试错还是实现错？不自动回退业务代码。
 5. **自检**：测试通过、符合项目规范、无方案外变更、无兼容桥代码、视觉变更有截图证据、发现的问题全部修复。
+
+   **CI 验证（必须）**：
+   - 推送 PR 后，等待 CI 运行完成：`gh run watch`
+   - CI 失败时立即诊断修复，不允许 CI 失败的 PR 进入检视
+   - CI 状态是检视的前置条件，不是检视内容
+
 6. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 7. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 8. **对抗审视**：
