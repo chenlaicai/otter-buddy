@@ -44,13 +44,13 @@ capability_test: "n/a: 纯契约/数据/启动校验层改动（A 类），无 L
 
 ### 为什么合并为一个 F
 
-| Part | 单独做的后果 |
+| Part | 单独做的体验后果 |
 |------|-------------|
-| Part 1（可观测性） | 没 Part 3 的暗化条目检测，可观测性看不到 vec 索引缺失这个最大盲点 |
-| Part 2（Snippet+下钻） | 没 Part 1 的路径标记，agent 拿到 snippet 后不知道走了什么召回路径 |
-| Part 3（版本锚） | 没 Part 1 的 vecCoverage 默认返回，降级状态无法被 agent 在召回响应中直接感知 |
+| Part 1（可观测性） | 有了诊断能力,但 snippet 仍是全文(Part 2 未做),debug 时看不到匹配证据 |
+| Part 2（Snippet+下钻） | snippet 改善 + drillDown 可用,但无法感知 vec 降级或暗化比例(Part 1/3 未做) |
+| Part 3（版本锚） | 降级安全了,但 agent 在召回响应中无法直接感知降级状态(无 vecCoverage) |
 
-三者构成"诊断→展示→安全"的完整链路。分三个 F 等于把一次升级拆成三个互不完整的碎片。
+**说明**: 三 Part 之间没有强技术依赖(各自可独立实施且独立有价值),合并是**项目管理选择**——这三件事合起来构成"记忆模型 v2"的完整体验,分开交付会出现"某项能力可用但配套不完整"的体验断层。技术上完全可以分三个 PR 实施。
 
 ### 共识前提
 
@@ -64,7 +64,7 @@ capability_test: "n/a: 纯契约/数据/启动校验层改动（A 类），无 L
 
 ### 1.1 痛点
 
-1. **路径不透明**：`RetrievalSource`（`search-engine.ts:21`）只有 `fts/vec/both` 三态，无法体现"这条结果走了什么路径"。未来加 anchor lookup、context expand 等新路径后三态不够用。
+1. **路径不透明**：`RetrievalSource`（定义于 `memory-repository.ts:20`，被 `search-engine.ts:21` 的 RrfHit.source 引用）只有 `fts/vec/both` 三态，无法体现"这条结果走了什么路径"。未来加 anchor lookup、context expand 等新路径后三态不够用。
 2. **暗化条目静默累积**：`store-memory.ts:60-69` 的 embedding 存储是 fire-and-forget，失败后无补偿。失败条目永久"FTS 可搜 / Vec 不可搜"，随时间累积。同一查询有时 `source: both`、有时 `source: fts`，agent 以为搜全了实际没搜全。
 3. **诊断信息零暴露**：`ScoredHit`（`search-engine.ts:24-32`）的中间计算结果（`rrfScore/timeDecay/frequencyBoost/multiHitCount`）在 `rerankAndReturn`（`search-memory.ts:313-333`）组装返回值时被丢弃。
 
@@ -72,7 +72,7 @@ capability_test: "n/a: 纯契约/数据/启动校验层改动（A 类），无 L
 
 #### A. 扩展 RetrievalSource 路径标记
 
-`search-engine.ts:21` 类型扩展（本 F 只打开契约，anchor/context-expand 等值留给后续 P1 PR 用）：
+`memory-repository.ts:20` 的 `RetrievalSource` 类型扩展（本 F 只打开契约，anchor/context-expand 等值留给后续 P1 PR 用）：
 
 ```typescript
 export type RetrievalSource =
@@ -96,6 +96,15 @@ export interface RetrievalResult {
 ```
 
 **默认返回**（不加任何 debug 参数）。值很小但让 agent 能自动感知"这次召回可能不完整"——`ratio < 1.0` 说明有暗化条目。
+
+**计算依赖（新增接口）**: vecCoverage 需要批量查询 top-K 结果中哪些 entry 有 vec 索引。当前 `MemoryRepository` 接口（`memory-repository.ts`）没有此方法,**必须新增**:
+
+```typescript
+/** 批量查询 entry 是否有 vec 索引（vecCoverage 计算用） */
+hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>>;
+```
+
+实现:`SELECT memory_entry_id FROM memory_vec WHERE memory_entry_id IN (...)`,转 Map。如果 `hasVecTable()=false`,直接返回全 false Map。
 
 #### C. debug 中间分值（按需开启）
 
@@ -146,12 +155,12 @@ LIMIT 1000;
 |------|------|------|
 | `src/usecases/memory/search-engine.ts` | 修改 | 扩展 `RetrievalSource` 类型 |
 | `src/usecases/memory/search-memory.ts` | 修改 | `RetrievalResult` 加 `vecCoverage`；`SearchQuery` 加 `debug?`；`rerankAndReturn` 计算覆盖率 + 注入 debug |
-| `src/usecases/memory/memory-repository.ts` | 修改 | 新增 `scanDarkEntries()` 接口 |
-| `src/frameworks/db/memory/sqlite-memory-repository.ts` | 修改 | 实现 `scanDarkEntries()`（NOT EXISTS 子查询） |
+| `src/usecases/memory/memory-repository.ts` | 修改 | 新增 `scanDarkEntries()` + `hasEmbeddings(entryIds)` 接口 |
+| `src/frameworks/db/memory/sqlite-memory-repository.ts` | 修改 | 实现 `scanDarkEntries()`（NOT EXISTS 子查询）+ `hasEmbeddings()`（IN 查询转 Map） |
 | `src/usecases/memory/scan-dark-entries.ts` | 新增 | 独立用例 |
 | `src/bootstrap/memory.ts` + `src/bootstrap/usecases.ts` | 修改 | DI 装配 |
 | `src/interface-adapters/http/controllers/memory-controller.ts` | 修改 | 透传 `debug`/`vecCoverage`；新增 `getDarkEntries` handler |
-| `src/interface-adapters/http/routes/memory-routes.ts` | 修改 | 新增 `GET /api/memory/dark-entries` |
+| `src/interface-adapters/http/router.ts` | 修改 | 在 `registerDataRoutes` 内新增 `GET /api/memory/dark-entries` 路由 |
 | `api-contract/api/memory.ts` | 修改 | 扩展契约类型 |
 | `tests/usecases/memory/scan-dark-entries.test.ts` | 新增 | 用例测试 |
 | `tests/frameworks/db/memory/sqlite-memory-repository.test.ts` | 修改 | scanDarkEntries SQL 测试 |
@@ -222,7 +231,7 @@ const drillDown = detailLevel !== "full" ? {
 |------|------|---------|----------|
 | P2-AT-1 | snippet 含匹配 | 索引文本搜其中一个词 | snippet 包含该词，~200 字符，前后有 `...` |
 | P2-AT-2 | fallback 行为 | 搜 jieba 分不出的词 | 返回前 200 字符，不报错 |
-| P2-AT-3 | 性能保护 | 100 个 token 的查询 | 只扫前 10 个，响应 < 100ms |
+| P2-AT-3 | 性能保护 | 构造 20 个 token 的复杂查询（长中文短语或多个关键词 OR） | 只扫前 10 个 token，响应 < 100ms，不触发全表字符扫描 |
 | P2-AT-4 | drillDown 填充 | detail_level=snippet 调 search | 每个 entry 含 `drillDown: { tool, params }` |
 | P2-AT-5 | full 模式不填 | detail_level=full | entries 不含 drillDown |
 | P2-AT-6 | 向后兼容 | 用旧客户端调 search | 旧客户端正常忽略 drillDown |
@@ -316,18 +325,32 @@ async getMeta(): Promise<EmbedModelMeta> {
 
 #### D. worker 端发送 meta
 
-`bge-m3-worker.ts` 加载完模型后 postMessage 时附带 meta。**dim 必须从实际加载的 ONNX session 读取**（不能从配置硬编码），否则校验没意义：
+`bge-m3-worker.ts` 加载完模型后 postMessage 时附带 meta。**dim 必须从实际加载的模型读取**（不能从配置硬编码），否则校验没意义。
+
+**API 验证（审视员补充）**:`@huggingface/transformers` 的 pipeline 对象**没有公开的 `.config.dim` 属性**。可行的方案是从 worker 的 `output.dims[0]` 获取维度——`bge-m3-worker.ts:29` 的 `Extractor` 类型定义已含 `dims: number[]`,且 `:85` 的 `output = await fn(msg.text)` 返回值就有 dims。
+
+**实现方案**:worker 加载完模型后做一次 dummy embed 拿 dims,随 ready 消息一起发送:
 
 ```javascript
-parentPort.postMessage({
-  type: "ready",
-  meta: {
-    modelId: ...,           // 从 workerData 或 model.config
-    modelRev: ...,          // revision
-    dim: model.config.dim,  // 从实际加载的模型读取
-  },
-});
+// bge-m3-worker.ts (getExtractor 后,发送 ready 前)
+getExtractor()
+  .then(async (fn) => {
+    // dummy embed 拿 dims
+    const dummy = await fn("ping");
+    const response: EmbedResponse = {
+      type: "ready",
+      meta: {
+        modelId: settings.modelId,        // 从 workerData 配置拿
+        modelRev: settings.modelRev ?? "unknown",
+        dim: dummy.dims[0],                // 从实际加载模型输出拿
+      },
+    };
+    port.postMessage(response);
+  })
+  .catch(...);
 ```
+
+**代价**:启动时多一次 dummy embed（~100ms 级别,远小于模型加载本身）。可接受。
 
 #### E. bootstrap 校验
 
@@ -346,7 +369,9 @@ async function verifyEmbeddingVersion(...): Promise<boolean> {
       stored.modelRev !== meta.modelRev ||
       stored.dim !== meta.dim) {
     logger.error("Embedding version mismatch, degrading", { stored, current: meta });
-    await otterContextRepo.set("embedding_degraded", JSON.stringify({
+    // otter_context 表是 (otter_id, key, value) 结构,set 需要 otterId 参数
+    // embedding 降级是系统级状态,用约定 otterId = "system"
+    await otterContextRepo.set("system", "embedding_degraded", JSON.stringify({
       reason: "version_mismatch", stored, current: meta,
       detectedAt: new Date().toISOString(),
     }));
@@ -368,7 +393,7 @@ async function verifyEmbeddingVersion(...): Promise<boolean> {
 | P3-AT-2 | getMeta 可用 | worker ready 后调 getMeta | 返回 `{ modelId, modelRev, dim }`，dim=1024 |
 | P3-AT-3 | worker 协议 | 看 worker postMessage | ready 消息附带 meta |
 | P3-AT-4 | 初次基线 | 全新 DB 启动 | embedding_meta 写入 3 个 key |
-| P3-AT-5 | 不一致降级 | 改 schema 维度重启 | 日志 error；`otter_context.embedding_degraded` 写入；召回变 FTS-only |
+| P3-AT-5 | 不一致降级 | 改 worker 的 modelId 配置(如换 `Xenova/bge-small-zh`)重启,触发 meta 不一致 | 日志 error；`otter_context` 表 `otter_id='system', key='embedding_degraded'` 写入；召回变 FTS-only |
 | P3-AT-6 | 降级召回可用 | 降级状态调 search | 正常（FTS-only），`vecCoverage.withVec: 0` |
 | P3-AT-7 | 一致不降级 | 不改配置重启 | 正常启动 |
 
@@ -413,7 +438,7 @@ Part 2 (Snippet+下钻)             → 召回响应里 snippet 含匹配词 + d
                                   → 让 agent 能基于 vecCoverage + drillDown 做决策
 ```
 
-**实施顺序**：Part 3 → Part 1 → Part 2（依赖关系最自然）。但三者必须一起进，否则会出现"诊断打开了但没有可诊断的内容"或"vecCoverage 返回了但 agent 不知道怎么用"的中间态。
+**实施顺序**：Part 3 → Part 1 → Part 2（按代码层面最自然的顺序：先解决 hasVec 状态决策,再扩展可观测性,最后改 snippet+契约）。三 Part **没有强技术依赖**,各自独立可实施且独立有价值,合并为同一 PR 是项目管理选择(避免"某项能力可用但配套不完整"的体验断层)。
 
 ### 不在本 F 范围
 
@@ -469,6 +494,8 @@ Part 2 (Snippet+下钻)             → 召回响应里 snippet 含匹配词 + d
 
 ## 对抗审视记录
 
+### 前四轮(针对 R 文档源头)
+
 本 F 的方案设计经过四轮独立对抗审视，完整记录见 R20260811rclo "对抗审视记录"章节。关键决策链：
 
 | 轮次 | 关键发现 | 对本 F 的影响 |
@@ -478,6 +505,26 @@ Part 2 (Snippet+下钻)             → 召回响应里 snippet 含匹配词 + d
 | 第三轮 | 暗化条目问题；P0-2+P0-3 强耦合 | Part 1 扩展含暗化扫描；Part 2 合并 highlight + drillDown |
 | 第四轮 | SemanticReranker 是死代码；方案 A 协议扩展；vec0 anti-join | Part 3 明确 ready 消息必须扩展携带 meta；Part 1 用 NOT EXISTS 子查询 |
 
+### 第五轮(针对本 F 合并文档)
+
+合并为单一 F 后做独立审视,发现 5 个必修项(已全部修正):
+
+| 必修项 | 问题 | 修正 |
+|--------|------|------|
+| 1 | `RetrievalSource` 行号引用错误:写 `search-engine.ts:21`,实际定义在 `memory-repository.ts:20` | 改为正确位置 |
+| 2 | `MemoryRepository` 缺 `hasEmbeddings` 批量查询接口,vecCoverage 无法计算 | Part 1.2.B 明确新增接口声明 |
+| 3 | Part 1.4 改动范围列了不存在的 `memory-routes.ts` 文件 | 改为 `src/interface-adapters/http/router.ts`(`registerDataRoutes` 内) |
+| 4 | Part 3 `OtterContextRepository.set` 调用缺 `otterId` 参数 | 补 `otterId="system"` 约定 |
+| 5 | Part 3 worker 端 `model.config.dim` API 未验证(transformers.js 无此公开属性) | 改为从 dummy embed 的 `output.dims[0]` 获取 |
+
+并修正一处过度论证:Part 间"必须一起进同一 PR"是项目管理选择不是技术强依赖,改为"建议合并,分开在功能上不会出错但体验断层"。
+
+### 待实现后验证的事项
+
+- **capability_test 类别**:Part 2 的 drillDown hint 在 MCP 工具描述里加了行为指令文字,声明 A 类(n/a)有争议。建议实现后观察 agent 是否真利用 drillDown 字段——若普遍使用,说明字段提示足以驱动行为,保持 A 类合理;若 agent 不感知,可能需要 prompt 强化(转 B 类)。
+- **vec0 anti-join 真实兼容性**:Part 1 的 `scanDarkEntries` 用 NOT EXISTS 子查询,需在真实 sqlite-vec 环境验证(P1-AT-6)。
+- **dummy embed 启动开销**:Part 3 的 worker ready 前多一次 dummy embed,实测启动延迟影响(~100ms 级,理论可接受)。
+
 ## 实施顺序
 
 按依赖关系：
@@ -486,4 +533,4 @@ Part 2 (Snippet+下钻)             → 召回响应里 snippet 含匹配词 + d
 2. **Part 1 (可观测性)** ——契约先打开,scanDarkEntries 检测暗化条目（含 Part 3 降级场景）
 3. **Part 2 (Snippet+下钻)** —— 在 Part 1 的契约基础上加 drillDown,snippet 改造独立可并行
 
-但三个 Part **必须一起进同一 PR**——分开会出现中间态(诊断打开但无内容可诊断、vecCoverage 返回但 agent 不知道用)。
+三个 Part **合并到同一 PR** 是项目管理选择,不是技术强依赖。分开实施在功能上不会出错,但会出现"某项能力可用但配套不完整"的体验断层(诊断打开了但 snippet 仍全文、vecCoverage 返回但 agent 不知道用)。本次选择合并交付,保证"记忆模型 v2"作为完整体验一次上线。
