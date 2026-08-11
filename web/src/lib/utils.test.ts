@@ -3,9 +3,9 @@ import { fmtRelativeTime } from './utils'
 
 describe('fmtRelativeTime', () => {
   beforeEach(() => {
-    // 固定当前时间为 2026-08-11 15:00:00
+    // 固定当前时间为 2026-08-11 15:00:00（使用 ISO 字符串确保时区一致）
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-08-11T15:00:00'))
+    vi.setSystemTime(new Date('2026-08-11T15:00:00+08:00'))
   })
 
   afterEach(() => {
