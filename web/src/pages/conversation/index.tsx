@@ -504,6 +504,13 @@ function ConversationPage() {
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
         syncLiveEvents(data.messageId as string)
+        /** 累积文本到消息正文：让用户实时看到发言内容逐步出现（不仅在流式过程面板） */
+        const text = Array.isArray(data.content) ? (data.content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
+        if (!text) return
+        batchUpdateMessages(activeId!, (list) => {
+          if (!list.some(m => m.id === data.messageId)) return list
+          return list.map(m => m.id === data.messageId ? { ...m, content: (m.content || '') + text } : m)
+        })
       },
       'assistant_toolcall': (data) => {
         const liveEvents = liveEventsMap.get(data.messageId as string)
@@ -744,6 +751,14 @@ function ConversationPage() {
           if (!liveEvents) return
           liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
           syncLiveEvents(messageId)
+          /** 累积文本到消息正文：让用户实时看到发言内容逐步出现 */
+          const text = Array.isArray(data.content) ? (data.content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
+          if (!text) return
+          setAllMessages(prev => {
+            const list = prev[activeId!]
+            if (!list?.some(m => m.id === messageId)) return prev
+            return { ...prev, [activeId!]: list.map(m => m.id === messageId ? { ...m, content: (m.content || '') + text } : m) }
+          })
         },
         'message.complete': (data) => {
           const { messageId } = data
