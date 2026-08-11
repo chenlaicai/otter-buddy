@@ -19,7 +19,7 @@ modules:
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 ---
 
-# F20260811safen: 进程级安全网
+# F20260811safe: 进程级安全网
 
 ## 背景与需求
 

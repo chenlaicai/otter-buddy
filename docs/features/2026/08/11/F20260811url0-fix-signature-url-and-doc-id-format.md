@@ -33,11 +33,14 @@ PR 署名行中的仓库链接指向错误地址（`orca-ai/otter-buddy`），�
 
 ## 影响范围
 
-- 文件名和内部引用中的旧 ID 未更新（lint 不检查这些），后续可单独开任务统一
+- 14 个文件重命名（文件名中的旧 ID 更新为新 ID）
+- 所有正文引用中的旧 ID 已更新
+- F20260805hybrid 的 `doc_type` 字段已修正
+- F20260811safen 的 ID 格式已修正（5位→4位）
 - 不影响运行时行为，纯文档修复
 
 ## 验证
 
-- [x] `npm run lint:docs` — 153 docs OK（7 warnings 不阻断）
+- [x] `npm run lint:docs` — 155 docs OK（7 warnings 不阻断）
 - [x] `npm run lint:capability` — OK（62 warnings 存量过渡期）
 - [x] `npm run build` — 通过
