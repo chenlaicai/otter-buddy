@@ -28,6 +28,11 @@ Explain the motivation for this change.
 - [ ] `npm run test`
 - [ ] Manual verification completed
 
+## Discovered Issues
+
+Issues found but not fixed in this PR. Each must have a GitHub issue link (`#NNN`) — created via `gh issue create`. Verbal "已记录" without a link is not acceptable.
+If none, write "无".
+
 ## Notes
 
 Anything reviewers should pay special attention to.

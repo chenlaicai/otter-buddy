@@ -15,7 +15,7 @@
 
 **Problem**: Attention is a finite resource. Uniform coverage means the highest-risk area got the same shallow pass as everything else, and the report doesn't converge — author can't tell what actually matters.
 
-**Fix**: Declare 1–3 focus dimensions before checking (what breaks worst if this is wrong?), go deep there, sweep the rest. Classify findings: 阻断性 vs 次要观察. Focus-outside findings default to 次要观察 unless they clear the blocking bar.
+**Fix**: Declare 1–3 focus dimensions before checking (what breaks worst if this is wrong?), go deep there, sweep the rest. Classify findings: 阻断性 vs 非阻断发现. Focus-outside findings default to 非阻断发现 unless they clear the blocking bar.
 
 ## Moving Target
 
@@ -23,7 +23,7 @@
 
 **Problem**: Review never converges — escalation to the decision-maker becomes the only exit, burning their attention on arbitration. (This symptom itself is the 移动靶 escalation signal in the convergence criteria — if you notice it happening, stop and escalate.)
 
-**Fix**: Round 1 is the full fresh-eyes review. Round 2+ is delta review: verify previous rounds' fixes and check them for regressions. New issues outside the delta must be flagged as "此前轮次漏报" and default to 次要观察 unless they alone would block the delivery.
+**Fix**: Round 1 is the full fresh-eyes review. Round 2+ is delta review: verify previous rounds' fixes and check them for regressions. New issues outside the delta must be flagged as "此前轮次漏报" and default to 非阻断发现 unless they alone would block the delivery.
 
 ## Blind Compliance / Empty Rebuttal
 
@@ -51,12 +51,12 @@
 
 ## Let It Slide
 
-**Symptom**: "Not blocking", "Can optimize later", "Low risk".
+**Symptom**: "Not blocking", "Can optimize later", "Low risk", "已记录"（无 issue 链接）.
 
-**Problem**: Issues accumulate. "Later" never comes.
+**Problem**: Issues accumulate. "Later" never comes. "已记录" without an issue link is the same as "later" — the issue goes into a black hole.
 
-**Fix**: Every issue needs a disposition: "在当前 PR 修复" or "开发者回应（审查者认可）". 次要观察允许第三种去向"记录（issue/PR 描述）"——但记录是分流不是拖延，"后续优化"本身仍然禁用。
-  - **处置的真实性**：如果你说"记录为 issue"，你应该真的打算创建这个 issue。如果你不确定会不会创建，那这个问题要么现在修，要么跟搭档说清楚。"以后再说"不是处置。
+**Fix**: Every finding needs a verifiable disposition: "本 PR 修复"（diff 可见）or "建 issue #N"（链接可见）. 非阻断发现的处置必须有可验证产物——口头"已记录"不构成处置。
+  - **处置的真实性**：如果你说"建 issue"，你应该真的执行 `gh issue create` 并贴出链接。没有 issue 链接的"已记录"等于静默丢失——这就是本反模式的变体。
 
 ## Solo Review
 
@@ -80,6 +80,6 @@
 
 **Problem**: Shifts responsibility to the user. Creates decision fatigue. Issues accumulate because "later" never comes.
 
-**Fix**: If you found an issue, fix it. Do not ask permission. Do not categorize severity to justify deferral. The only valid reason to not fix is if the issue is outside the plan scope — in which case, record it and communicate back, not ask whether to fix.
+**Fix**: If you found an issue, fix it. Do not ask permission. Do not categorize severity to justify deferral. The only valid reason to not fix is if the issue is outside the plan scope — in which case, create a GitHub issue (with link) or fix it in the current PR, and communicate back, not ask whether to fix.
 
-边界注明：本反模式针对**作者侧**（自己发现的问题想拖着不修）。检视者不适用——检视者只报告不动手（"Do not modify code"）；且检视者必须给发现分级（阻断性/次要观察），那是强制报告要求，此处禁止的是"用分级来论证拖延"，不是分级本身。
+边界注明：本反模式针对**作者侧**（自己发现的问题想拖着不修）。检视者不适用——检视者只报告不动手（"Do not modify code"）；且检视者必须给发现分级（阻断性/非阻断发现），那是强制报告要求，此处禁止的是"用分级来论证拖延"，不是分级本身。
