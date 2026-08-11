@@ -63,6 +63,8 @@ Same format as commit message. PR number is appended by GitHub automatically.
 
 ### PR Description Template
 
+> 以 `.github/pull_request_template.md` 为权威模板（GitHub 自动加载），此处仅为格式参考。两版结构差异：`.github` 版面向创建者（含 Why / Risks / Verification 等填空），此处版面面向检视者（突出 Discovered Issues 的 issue 链接要求）。
+
 ```markdown
 ## Summary
 - What changed and why

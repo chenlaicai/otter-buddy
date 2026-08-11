@@ -14,7 +14,7 @@ PR 创建（或方案落盘）后，交付不算完成——必须经独立审�
 - 附上审视对象：`gh pr diff` 全文（大 PR 可落盘成文件后给绝对路径；落盘到仓库外如 /tmp，勿写入 worktree 污染 git status）
 - 附上 worktree 的绝对路径——静态核验（对照测试文件、周边代码）必须以 worktree 内文件为准；主仓是 PR 合入前的旧代码
 - 附上本次测试与构建的运行结果（标注为实现者自报），供其静态核验
-- 附上 PR 描述全文（`gh pr view --json body` 输出）——delta 审视时需核对 Discovered Issues 节的 issue 链接落实情况
+- 附上 PR 描述全文（`gh pr view --json body` 输出）——供检视者了解变更上下文；delta 审视时另需更新后的 PR 描述核对 Discovered Issues 节 issue 落实
 
 ### 2. 处置审视报告
 
