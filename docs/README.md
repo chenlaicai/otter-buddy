@@ -10,7 +10,7 @@
 
 | 字段 | 约束 |
 |------|------|
-| `id` | 格式 `F\d{8}[a-z0-9]{3,8}`（feature）/ `R\d{8}[a-z0-9]{3,8}`（research）。8 位日期 = 创建日期（YYYYMMDD）。后缀 3-8 位小写字母数字。 |
+| `id` | 格式 `F\d{8}[a-z0-9]{4}`（feature）/ `R\d{8}[a-z0-9]{4}`（research）。8 位日期 = 创建日期（YYYYMMDD）。后缀固定 4 位小写字母数字。 |
 | `title` | 非空、非纯空格。建议 kebab-case，与文件名后半段对齐 |
 | `summary` | **1-500 字符**。投影用途：卡片渲染、检索摘要、token 效率。详细内容写进 body，不要塞 summary |
 
@@ -136,45 +136,46 @@ summary: |
 
 causal_links:
   from:
-    - F20260803xxxx   # 因果上游（sync 读取，存入 DB metadata）
-  to:
-    - F20260805xxxx   # 文档约定，系统不自动维护反向引用；可空
+    - F20260803m9q2   # 因果上游（sync 读取，存入 DB metadata）
 
 status: development      # draft / proposed / design / development / locked / final / implemented / archived
 change_type: feature     # feature / refactor / fix / prompt / feature-update
 tags: [area, concept]
 modules:
   - src/path/to/file.ts
-capability_test: tests/capability/xxx.capability.test.ts   # 指向能力测试用例（见下方 Acceptance Test 章节）
+capability_test: tests/capability/xxx.capability.test.ts   # 指向能力测试用例（见下方验收标准章节）
 ---
 
-# F20260804xxxx: 标题
+# F20260804x7k3: 标题
 
-## 背景
-问题描述、根因分析、数据实锤...
+## 背景与需求
 
-## 变更
-具体改动点...
+### 问题描述
+[需求分析阶段填写]
 
-## 设计决策
-关键选择的 rationale...
+### 根因分析
+[需求分析阶段填写]
 
-## Acceptance Test（验收测试）
+### 数据实锤
+[需求分析阶段填写]
 
-### 需求推导
-从问题描述推导出的具体可验证需求：
-1. [需求1]：[一句话描述]
-2. [需求2]：[一句话描述]
+## 方案设计
 
-### 权威证据
-| 需求 | 权威证据来源 | 证据类型 |
-|------|-------------|---------|
-| [需求1] | [什么能证明它被满足了] | 文件内容 / 命令输出 / 运行时状态 / 测试结果 |
-| [需求2] | [什么能证明它被满足了] | 文件内容 / 命令输出 / 运行时状态 / 测试结果 |
+### 技术方案
+[方案设计阶段填写]
+
+### 目标
+- T1: ...
+- T2: ...
+
+### 成功标准
+[方案设计阶段填写]
+
+## 验收标准
 
 ### 验收场景
 | 编号 | 需求 | 复现步骤 | 预期结果 |
-|------|------|---------|---------|
+|------|------|---------|----------|
 | AT-1 | [需求1] | [具体步骤] | [可验证的结果] |
 | AT-2 | [需求2] | [具体步骤] | [可验证的结果] |
 
@@ -183,14 +184,32 @@ capability_test: tests/capability/xxx.capability.test.ts   # 指向能力测试�
 |---------|-------------|
 | AT-1 | tests/capability/xxx.capability.test.ts |
 
-### 证据判定（验收执行后填写）
+## 实现细节
+
+### 代码修改
+[实现阶段填写]
+
+### 逻辑变更
+[实现阶段填写]
+
+### 改动范围
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| src/xxx.ts | 修改 | xxx |
+
+## 验收结果
+
+### 测试结果
+[验收阶段填写]
+
+### 证据判定
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
 | [需求1] | 证明完成 / 矛盾 / 未完成 / 证据不足 / 缺失 | ✅ / ❓ / ❌ |
 
 ## 对抗审视记录
-独立 agent 审视发现...
+[审视阶段填写]
 
-## 实施验证结果
-实际测试运行结果...
-```
+## 设计决策
+[可选，记录关键选择的 rationale]
+
