@@ -516,6 +516,15 @@ function ConversationPage() {
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
         syncLiveEvents(data.messageId as string)
+        /** dissolve_otter 工具执行完成后，立即刷新参与者列表（实时更新右侧栏） */
+        if (data.toolName === 'dissolve_otter' && activeId) {
+          api.getParticipants(activeId).then(participants => {
+            setAllOtters(prev => ({
+              ...prev,
+              [activeId]: participants.map(p => mapParticipantDTO(p)),
+            }))
+          }).catch(() => {})
+        }
       },
       'message.complete': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
@@ -737,6 +746,15 @@ function ConversationPage() {
           if (!liveEvents) return
           liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
           syncLiveEvents(messageId)
+          /** dissolve_otter 工具执行完成后，立即刷新参与者列表（实时更新右侧栏） */
+          if (data.toolName === 'dissolve_otter' && activeId) {
+            api.getParticipants(activeId).then(participants => {
+              setAllOtters(prev => ({
+                ...prev,
+                [activeId]: participants.map(p => mapParticipantDTO(p)),
+              }))
+            }).catch(() => {})
+          }
         },
         'assistant_text': (data) => {
           const { messageId } = data
@@ -948,6 +966,15 @@ function ConversationPage() {
           if (!liveEvents) return
           liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
           syncLiveEvents(msgId)
+          /** dissolve_otter 工具执行完成后，立即刷新参与者列表（实时更新右侧栏） */
+          if (data.toolName === 'dissolve_otter' && activeId) {
+            api.getParticipants(activeId).then(participants => {
+              setAllOtters(prev => ({
+                ...prev,
+                [activeId]: participants.map(p => mapParticipantDTO(p)),
+              }))
+            }).catch(() => {})
+          }
         },
         'assistant_text': (data) => {
           const { messageId: msgId, content } = data
