@@ -1,9 +1,11 @@
 ---
 name: code-implementation
 description: >-
-  Turn a technical plan into runnable, verifiable code changes.
-  For ANY repository mutation, SYSTEM.md red lines always apply.
+  Use when: 搭档要求按方案实现功能/写代码/写测试.
+  Not for: 无方案的需求分析 → requirement-analysis. 小改动（lockfile、配置、文档订正）→ worktree-isolation.
+  Output: 代码 PR（含测试、自检通过、对抗审视通过），呈搭档终审.
 co_loads: []
+category: technique
 ---
 
 # Code Implementation

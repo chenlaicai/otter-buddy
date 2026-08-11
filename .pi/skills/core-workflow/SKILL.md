@@ -1,8 +1,11 @@
 ---
 name: core-workflow
 description: >-
-  Information retrieval and artifact recording. For troubleshooting/debugging, use the troubleshooting skill instead.
+  Use when: 搭档需要查询对话历史、搜索记忆、或记录决策和产出.
+  Not for: 问题排查和调试 → troubleshooting. 闲聊和讨论 → companion.
+  Output: 自然语言呈现的查询结果 + 必要时用 create_linked_resource 记录产出.
 co_loads: []
+category: technique
 ---
 
 # Core Workflow

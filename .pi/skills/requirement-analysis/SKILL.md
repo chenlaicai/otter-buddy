@@ -1,8 +1,11 @@
 ---
 name: requirement-analysis
 description: >-
-  Transform vague user intent into a clear, executable technical plan.
+  Use when: 搭档要求分析需求/设计方案/做技术方案.
+  Not for: 已有方案要求写代码 → code-implementation. 闲聊讨论 → companion.
+  Output: 结构化技术方案文档（按产出模板，含目标/非目标/方案设计/影响范围/取舍/验证）.
 co_loads: []
+category: technique
 ---
 
 # Requirement Analysis

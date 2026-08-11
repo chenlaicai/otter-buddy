@@ -17,26 +17,67 @@ Skill 的触发由 pi-coding-agent SDK 驱动：
 description 是触发的唯一控制字段。写好 description = 写好触发条件。
 不需要额外的 triggers 字段。
 
+## description 铁律（F20260811sktp）
+
+> **铁律：description 只描述触发条件，绝不总结流程内容。**
+
+**原因**：description 进入 system prompt，LLM 只看到 name + description 决定是否 read SKILL.md。若 description 含流程摘要，LLM 会按摘要行动而跳过读 SKILL.md，工作流细节失效。
+
+**例外 1（安全前置）**：可使用 `Precondition:` 段或 `MUST ... BEFORE` 强制语序约束——这属于触发条件，不属于流程总结。
+- 例：worktree-isolation 的 description 可写 `Precondition: MUST trigger BEFORE modifying or committing any git-tracked file.`
+
+**例外 2（能力摘要）**：可包含一句能力摘要（skill 提供什么价值），禁具体步骤。
+- 例：writing-skills 的 description 可写"创建或修改 otter skill 的元技能（含铁律、三段式、模板）"——这是能力摘要
+- 反例：禁写"通过 8 步流程产出 SKILL.md + manifest + lint 校验"——这是流程总结
+
+## 三段式契约
+
+description 必须按三段式结构：
+
+```
+Use when: <具体触发条件>
+Not for: <应转到哪个其他 skill>
+Output: <交付物契约>
+```
+
+**反例（禁止）**：
+
+```
+❌ "Transform vague user intent into a clear technical plan."
+   # 偏内容描述，LLM 看不到触发条件
+```
+
+**正例**：
+
+```
+✅ Use when: 搭档要求分析需求/设计方案/做技术方案.
+   Not for: 已有方案要求写代码 → code-implementation. 闲聊讨论 → companion.
+   Output: 结构化技术方案文档（按产出模板）.
+```
+
+**fallback skill 豁免**：companion 作为默认 fallback，其 `Use when: 不匹配任何其他 skill` 与 `Not for: 所有其他 skill` 是同义反复。lint 对 companion 豁免三段式 marker 校验。
+
 ## 模板
 
 ```markdown
 ---
 name: skill-name
 description: >-
-  一句话说明这个 skill 做什么，以及什么场景下使用。
-  这个字段是 LLM 决定是否使用 skill 的唯一依据——pi SDK 将它注入 system prompt，
-  LLM 读 description 自行判断任务是否匹配。
+  Use when: <触发条件>.
+  Not for: <转到其他 skill>.
+  Output: <交付物>.
 co_loads: []
+category: technique   # technique（方法步骤）/ pattern（思维原则）/ reference（查表文档）
 ---
 
 # Skill 标题
 
-一句话定位。
+一句话定位（含一句能力摘要——见铁律例外 2）。
 
-## 触发
+## 触发（可选，仅当 description 三段式不够清晰时展开）
 
 **触发条件**：什么场景下使用这个 skill。
-
+**Precondition**：如有安全前置约束（MUST/BEFORE），写在这里。
 **排除**：哪些场景不该用这个 skill（应转到其他 skill 或 companion）。
 
 **输入**：
@@ -63,9 +104,21 @@ co_loads: []
 - `path/to/file.md` — 说明
 ```
 
+## category 字段（F20260811sktp）
+
+frontmatter 必填字段：`name / description / co_loads / category`。
+
+| category 值 | 含义 | 例 |
+|---|---|---|
+| `technique` | 具体方法步骤，按工作流执行 | troubleshooting / code-implementation |
+| `pattern` | 思维模型原则，无固定步骤 | companion |
+| `reference` | 查表文档，给 LLM 在工作中查阅 | （暂无，未来如术语库 skill） |
+
+`category` 由 lint 读取，自动同步到 manifest.yaml；SDK 不消费此字段（[key: string]: unknown 容忍）。
+
 ## 模板约定（全局，不在各 skill 中重复）
 
-以下约定适用于所有 skill，写在 SYSTEM.md 中：
+> 这些约定同时写入 `.pi/SYSTEM.md`（companion 模式下 LLM 也看得到）。本段是双源校验源——若 SYSTEM.md 改动，这里同步。
 
 ### 输入约定
 
