@@ -75,7 +75,8 @@ Same format as commit message. PR number is appended by GitHub automatically.
 - If none, write "无"
 
 ## Discovered Issues
-- List any issues found but not fixed in this PR, with issue numbers
+- Issues found but not fixed in this PR. Each must include a GitHub issue link (`#NNN`) — created via `gh issue create`
+- 口头"已记录"不合规——必须有 issue 链接
 - If none, write "无"
 
 ## Test plan
