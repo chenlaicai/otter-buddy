@@ -1,13 +1,38 @@
-/** 检索来源（纯字符串联合，不依赖 usecases 层） */
-export type RetrievalSource = "fts" | "vec" | "both";
+/**
+ * 检索来源（纯字符串联合，不依赖 usecases 层）。
+ * F20260811mrop Part 1：扩展契约，预留 anchor/context-expand 等新路径值（当前实际产生的仅 fts/vec/both）。
+ */
+export type RetrievalSource =
+  | "fts"
+  | "vec"
+  | "both"
+  | "anchor"
+  | "keyword-fallback"
+  | "context-expand"
+  | "related-expand";
 
 /** 详细程度 */
 export type DetailLevel = "summary" | "snippet" | "full";
 
+/** F20260811mrop Part 1：vec 路径覆盖率（默认返回） */
+export interface VecCoverageDTO {
+  total: number;
+  withVec: number;
+  ratio: number;
+}
+
+/** F20260811mrop Part 1：debug 模式注入的中间分值 */
+export interface RetrievalDebugInfoDTO {
+  rrfScore: number;
+  finalScore: number;
+  timeDecay: number;
+  frequencyBoost: number;
+  multiHitCount?: number;
+}
+
 /** 记忆条目 DTO */
 export interface MemoryEntryDTO {
   id: string;
-  /** 记忆层（working/historical） */
   layer: string;
   contentType: string;
   sourceId: string;
@@ -19,30 +44,29 @@ export interface MemoryEntryDTO {
   createdAt: string;
   score?: number;
   source?: RetrievalSource;
-  /** detail_level=snippet/summary 时的匹配片段 */
   snippet?: string;
-  /** 用户标记（检索路径返回；详情接口可能缺省） */
   userFlagged?: boolean;
+  debug?: RetrievalDebugInfoDTO;
+  drillDown?: { tool: string; params: Record<string, unknown> };
 }
 
 /** 检索结果 DTO */
 export interface SearchResultDTO {
   entries: MemoryEntryDTO[];
   total: number;
+  vecCoverage: VecCoverageDTO;
 }
 
 /** 记忆检索请求 query 参数 */
 export interface SearchQueryDTO {
   query: string;
   limit?: number;
-  /** 按记忆层过滤（working/historical） */
   layer?: string;
   granularity?: string;
   conversationId?: string;
-  /** 渐进式披露：控制返回内容的详细程度 */
   detail_level?: DetailLevel;
-  /** 指定库 key，不传则全库搜索 */
   library?: string;
+  debug?: boolean;
 }
 
 /** 相似检索请求 DTO */

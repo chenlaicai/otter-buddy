@@ -31,10 +31,24 @@ export interface SearchQuery {
   library?: string;
   /** 按记忆层过滤（working/historical/document） */
   layer?: MemoryLayer;
-/** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+  /** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
   createdAfter?: string;
   /** F20260803fbit: 按 contentType 过滤（多选），支持"只搜 body"或"只搜 summary" */
   contentType?: MemoryContentType[];
+  /**
+   * F20260811mrop Part 1：开启时注入中间分值（rrfScore/timeDecay/frequencyBoost/multiHitCount）。
+   * 默认关闭避免 token 膨胀。
+   */
+  debug?: boolean;
+}
+
+/** F20260811mrop Part 1：debug=true 时注入的中间分值（召回诊断用） */
+export interface RetrievalDebugInfo {
+  rrfScore: number;
+  finalScore: number;
+  timeDecay: number;
+  frequencyBoost: number;
+  multiHitCount?: number;
 }
 
 export interface RetrievalResultEntry extends MemoryEntry {
@@ -44,11 +58,30 @@ export interface RetrievalResultEntry extends MemoryEntry {
   snippet?: string;
   /** 用户标记（检索路径从 MemoryWeight 带出） */
   userFlagged?: boolean;
+  /** F20260811mrop Part 1：debug=true 时注入的中间分值 */
+  debug?: RetrievalDebugInfo;
+  /**
+   * F20260811mrop Part 2：detail_level != "full" 时填充，告知调用方用什么工具拿全文。
+   * 形如 { tool: "get_memory_detail", params: { id } }
+   */
+  drillDown?: { tool: string; params: Record<string, unknown> };
+}
+
+/**
+ * F20260811mrop Part 1：vec 路径覆盖率（默认返回）。
+ * ratio<1.0 说明有暗化条目（fire-and-forget 失败导致无 vec）。
+ */
+export interface VecCoverage {
+  total: number;
+  withVec: number;
+  ratio: number;
 }
 
 export interface RetrievalResult {
   entries: RetrievalResultEntry[];
   total: number;
+  /** F20260811mrop Part 1：默认返回（不加 debug 参数也有） */
+  vecCoverage: VecCoverage;
 }
 
 export class SearchMemory {
@@ -83,7 +116,7 @@ export class SearchMemory {
   /** 术语库检索 */
   private async searchTerminologyLibrary(query: SearchQuery): Promise<RetrievalResult> {
     if (!this.terminologyRepo) {
-      return { entries: [], total: 0 };
+      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
     }
     const results = await this.terminologyRepo.search(query.query, query.limit);
     const detailLevel = query.detailLevel ?? "summary";
@@ -121,7 +154,8 @@ export class SearchMemory {
         snippet,
       };
     });
-    return { entries, total: entries.length };
+    // F20260811mrop Part 1：术语库不索引 vec，withVec 恒为 0
+    return { entries, total: entries.length, vecCoverage: { total: entries.length, withVec: 0, ratio: 0 } };
   }
 
   /** 全库搜索：排名位置归一化混排 */
@@ -164,7 +198,19 @@ export class SearchMemory {
       return e;
     });
 
-    return { entries, total: entries.length };
+    // F20260811mrop Part 1：合并对话库 vecCoverage + 术语库（术语库不索引 vec）
+    const convTotal = convResult.vecCoverage.total;
+    const convWithVec = convResult.vecCoverage.withVec;
+    const mergedTotal = entries.length;
+    const mergedVecCoverage: VecCoverage = {
+      total: mergedTotal,
+      withVec: convWithVec,
+      ratio: mergedTotal > 0 ? convWithVec / mergedTotal : 0,
+    };
+    // convTotal 未在 mergedTotal 中（对话库可能因混排被挤掉），用 convResult 仍可被读取
+    void convTotal;
+
+    return { entries, total: entries.length, vecCoverage: mergedVecCoverage };
   }
 
   /** 术语库搜索辅助方法（用于全库搜索混排） */
@@ -246,7 +292,7 @@ export class SearchMemory {
     }
 
     /** 2. 重排 + 返回（传递 snippet 信息用于降级） */
-    return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap);
+    return this.rerankAndReturn(rrfHits, query.limit, detailLevel, snippetMap, true, query.debug ?? false);
   }
 
   async searchSimilar(
@@ -256,7 +302,7 @@ export class SearchMemory {
     /** 1. 获取 embedding */
     const embedding = await this.repo.getEmbedding(memoryEntryId);
     if (!embedding) {
-      return { entries: [], total: 0 };
+      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
     }
 
     /** 2. vec 搜索（limit+1 补偿自身匹配过滤） */
@@ -284,7 +330,11 @@ export class SearchMemory {
     }
   }
 
-  /** RRF 融合后的结果重排 + 批量递增计数 + 组装返回值 */
+  /**
+   * RRF 融合后的结果重排 + 批量递增计数 + 组装返回值。
+   * F20260811mrop：扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
+   */
+  // eslint-disable-next-line max-lines-per-function, max-params -- F20260811mrop 三 Part 扩展必要
   private async rerankAndReturn(
     rrfHits: Map<string, RrfHit>,
     limit: number,
@@ -292,10 +342,12 @@ export class SearchMemory {
     snippetMap?: Map<string, string | undefined>,
     /** F20260803fbit: searchSimilar 路径不需要按 sourceId 去重（语义是"找相似条目"，同源多 entry 是合法结果） */
     dedup = true,
+    /** F20260811mrop Part 1：debug=true 时注入中间分值 */
+    debug = false,
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
     if (hitIds.length === 0) {
-      return { entries: [], total: 0 };
+      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
     }
 
     const weights = await this.repo.getWeights(hitIds);
@@ -310,7 +362,18 @@ export class SearchMemory {
     /** S15: 批量递增检索计数 */
     await this.repo.incrementRetrievalCounts(top.map((h) => h.entryId));
 
+    /** F20260811mrop Part 1：计算 vecCoverage（默认返回） */
+    const topIds = top.map(h => h.entryId);
+    const hasVecMap = await this.repo.hasEmbeddings(topIds);
+    const withVecCount = Array.from(hasVecMap.values()).filter(Boolean).length;
+    const vecCoverage: VecCoverage = {
+      total: top.length,
+      withVec: withVecCount,
+      ratio: top.length > 0 ? withVecCount / top.length : 0,
+    };
+
     return {
+      // eslint-disable-next-line complexity -- F20260811mrop debug/drillDown 注入增加分支
       entries: top.map((h) => {
         // M12: multi_hit_count 仅 >1 时注入 metadata（searchSimilar 路径无此字段不变）
         const meta = h.multiHitCount && h.multiHitCount > 1
@@ -320,16 +383,33 @@ export class SearchMemory {
         const base = detailLevel === "full"
           ? h.entry
           : { ...h.entry, content: "" };
+        /** F20260811mrop Part 2：detail_level != "full" 时填充 drillDown hint */
+        const drillDown = detailLevel && detailLevel !== "full"
+          ? { tool: "get_memory_detail", params: { id: h.entryId } }
+          : undefined;
+        /** F20260811mrop Part 1：debug=true 时注入中间分值 */
+        const debugInfo = debug ? {
+          rrfScore: h.rrfScore,
+          finalScore: h.finalScore,
+          timeDecay: this.searchEngine.computeTimeDecayPublic(h.entry.createdAt),
+          frequencyBoost: this.searchEngine.computeFrequencyBoostPublic(
+            weightMap.get(h.entryId)?.retrievalCount ?? 0,
+          ),
+          multiHitCount: h.multiHitCount,
+        } : undefined;
         return {
           ...base,
           metadata: meta,
           score: h.finalScore,
           source: h.source,
           userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
+          ...(debugInfo ? { debug: debugInfo } : {}),
+          ...(drillDown ? { drillDown } : {}),
           ...this.buildSnippet(h.entry, detailLevel, snippetMap),
         };
       }),
       total: top.length,
+      vecCoverage,
     };
   }
 

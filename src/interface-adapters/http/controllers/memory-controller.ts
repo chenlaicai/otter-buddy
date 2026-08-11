@@ -78,6 +78,7 @@ export class MemoryController {
 
       /** F20260805rbrg: 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
       const createdAfter = c.req.query("created_after") || undefined;
+      const debug = c.req.query("debug") === "true";
 
       const result = await this.searchMemory.search({
         query,
@@ -89,6 +90,7 @@ export class MemoryController {
         layer,
         contentType,
         createdAfter,
+        debug,
       });
 
       /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */
@@ -100,6 +102,7 @@ export class MemoryController {
           return toMemoryEntryDTO(e, e.score, e.source, snippet, detailLevel);
         }),
         total: result.total,
+        vecCoverage: result.vecCoverage,
         ...(degraded ? { degraded: true, degradedReason: "embedding 不可用，语义检索降级，结果可能不完整" } : {}),
       });
     } catch (err) {
@@ -115,6 +118,7 @@ export class MemoryController {
       return c.json({
         entries: result.entries.map((e) => toMemoryEntryDTO(e, e.score, e.source)),
         total: result.total,
+        vecCoverage: result.vecCoverage,
       });
     } catch (err) {
       return handleError(c, err, this.logger);

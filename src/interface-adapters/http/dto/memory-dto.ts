@@ -4,13 +4,21 @@ import type {
   MemoryEntryDTO,
   SearchResultDTO,
   DetailLevel,
+  RetrievalDebugInfoDTO,
 } from "@contract/api/memory";
 
 export type { MemoryEntryDTO, SearchResultDTO, RetrievalSource };
-export type { SearchQueryDTO, SearchSimilarRequestDTO, FlagMemoryRequestDTO, DetailLevel } from "@contract/api/memory";
+export type {
+  SearchQueryDTO, SearchSimilarRequestDTO, FlagMemoryRequestDTO,
+  DetailLevel, VecCoverageDTO, RetrievalDebugInfoDTO,
+} from "@contract/api/memory";
 
 export function toMemoryEntryDTO(
-  entry: MemoryEntry & { userFlagged?: boolean },
+  entry: MemoryEntry & {
+    userFlagged?: boolean;
+    debug?: RetrievalDebugInfoDTO;
+    drillDown?: { tool: string; params: Record<string, unknown> };
+  },
   score?: number,
   source?: RetrievalSource,
   snippet?: string,
@@ -35,5 +43,7 @@ export function toMemoryEntryDTO(
     source,
     snippet,
     ...(entry.userFlagged !== undefined && { userFlagged: entry.userFlagged }),
+    ...(entry.debug !== undefined && { debug: entry.debug }),
+    ...(entry.drillDown !== undefined && { drillDown: entry.drillDown }),
   };
 }

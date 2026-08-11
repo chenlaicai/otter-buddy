@@ -120,6 +120,76 @@ export function shutdownDatabase(db: Database.Database, logger: Logger): void {
   closeDatabase(db, logger);
 }
 
+/**
+ * F20260811mrop Part 3：Embedding 版本锚校验。
+ *
+ * bootstrap 时比对 worker 实际加载的模型元信息（modelId/modelRev/dim）与 embedding_meta 表存储的基线。
+ * 不一致则禁用 vec 路径 + 写入 otter_context('system', 'embedding_degraded') 让 agent 感知。
+ * 初次启动（表为空）写入基线。
+ *
+ * 失败模式：embeddingGateway 不 available 或无 getMeta 方法时跳过校验（兼容老接口与测试 mock）。
+ */
+export async function verifyEmbeddingVersion(
+  embeddingGateway: EmbeddingGateway,
+  repos: Repositories,
+  logger: Logger,
+): Promise<{ vecEnabled: boolean; reason?: string }> {
+  // 兼容老接口（无 getMeta）：跳过校验，保持原有行为
+  if (!embeddingGateway.available || typeof embeddingGateway.getMeta !== "function") {
+    return { vecEnabled: true };
+  }
+
+  let currentMeta;
+  try {
+    currentMeta = await embeddingGateway.getMeta();
+  } catch (err) {
+    logger.warn(`Failed to read embedding meta from worker, skipping version check: ${err}`);
+    return { vecEnabled: true };
+  }
+
+  const stored = await repos.memory.getEmbeddingMeta();
+
+  // 初次启动：表为空，写入基线
+  if (!stored.modelId) {
+    await repos.memory.setEmbeddingMeta(currentMeta);
+    logger.info(`Embedding meta baseline recorded: ${currentMeta.modelId} rev=${currentMeta.modelRev} dim=${currentMeta.dim}`);
+    return { vecEnabled: true };
+  }
+
+  // 一致性校验
+  const consistent =
+    stored.modelId === currentMeta.modelId &&
+    stored.modelRev === currentMeta.modelRev &&
+    stored.dim === currentMeta.dim;
+
+  if (consistent) {
+    return { vecEnabled: true };
+  }
+
+  // 不一致 → 降级
+  logger.error(`Embedding version mismatch, degrading to FTS-only: stored=${JSON.stringify(stored)} current=${JSON.stringify(currentMeta)}`);
+  const degradeInfo = JSON.stringify({
+    reason: "version_mismatch",
+    stored,
+    current: currentMeta,
+    detectedAt: new Date().toISOString(),
+  });
+  try {
+    // otter_context 表是 (otter_id, key, value) 结构，embedding 降级是系统级状态用 otterId="system"
+    await repos.otterContext.set("system", "embedding_degraded", degradeInfo);
+  } catch (err) {
+    logger.warn(`Failed to write embedding_degraded to otter_context: ${err}`);
+  }
+
+  // 禁用 vec 路径（SqliteMemoryRepository 特有方法）
+  const sqliteMemoryRepo = repos.memory as { disableVec?: () => void };
+  if (typeof sqliteMemoryRepo.disableVec === "function") {
+    sqliteMemoryRepo.disableVec();
+  }
+
+  return { vecEnabled: false, reason: "version_mismatch" };
+}
+
 export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logger): void {
   const homeDir = os.homedir();
   const agentDir = path.join(homeDir, ".pi", "agent");

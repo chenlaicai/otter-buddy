@@ -52,6 +52,7 @@ describe("Memory API", () => {
         conversationId: "conv-1",
         detailLevel: "summary",
         library: "conversation",
+        debug: false,
       });
     });
 
@@ -112,6 +113,7 @@ describe("Memory API", () => {
         query: "hello",
         limit: 10,
         contentType: ["feature_chunk", "feature"],
+        debug: false,
       });
     });
 

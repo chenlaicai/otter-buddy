@@ -26,6 +26,7 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
   postInitDatabase, postSyncMigrations, validateModelAliases, applyDefaultModelOverride, shutdownDatabase,
+  verifyEmbeddingVersion,
 } from "./bootstrap/database";
 import { createMemoryIndex, syncDocuments } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
@@ -117,6 +118,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     await initDatabaseAndModels(config, logger, options.models);
   const repos = initRepositoriesWithDb(db);
   await postInitDatabase(db, repos, logger);
+
+  // F20260811mrop Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
+  // 模型/维度不一致时禁用 vec 路径 + 写入 otter_context('system', 'embedding_degraded')
+  const embeddingVersionCheck = await verifyEmbeddingVersion(embeddingService, repos, logger);
+  if (!embeddingVersionCheck.vecEnabled) {
+    logger.warn(`Embedding vec path disabled due to ${embeddingVersionCheck.reason}`);
+  }
 
   // ── 记忆索引 + 文档同步 ──
   const memoryIndex = createMemoryIndex(repos, embeddingService, logger);

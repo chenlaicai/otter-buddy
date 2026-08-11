@@ -1,5 +1,5 @@
 ---
-id: F20260811mrop
+id: F20260811mrpy
 title: memory-recall-optimization
 doc_type: feature
 summary: |
@@ -34,7 +34,7 @@ modules:
 capability_test: "n/a: 纯契约/数据/启动校验层改动（A 类），无 LLM 参与行为。drillDown hint 是字段提示，agent 是否调用工具不强制——属于信息驱动而非 prompt 驱动"
 ---
 
-# F20260811mrop: 记忆召回链路三项核心优化
+# F20260811mrpy: 记忆召回链路三项核心优化
 
 ## 背景
 

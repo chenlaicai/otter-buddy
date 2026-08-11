@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { EmbeddingGateway, EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
 interface EmbeddingConfig {
@@ -33,8 +33,12 @@ interface EmbedRequest {
   id: number;
 }
 
+/**
+ * F20260811mrop Part 3：ready 消息携带 meta（modelId/modelRev/dim）。
+ * worker 加载完模型 + dummy embed 拿到 dims 后发送。
+ */
 type EmbedResponse =
-  | { type: "ready" }
+  | { type: "ready"; meta: EmbedModelMeta }
   | { type: "result"; embedding: Float32Array; id: number }
   | { type: "error"; error: string; id: number };
 
@@ -53,6 +57,8 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
+  /** F20260811mrop Part 3：worker ready 时缓存的模型元信息 */
+  private cachedMeta: EmbedModelMeta | null = null;
   private requestId = 0;
 
   get available(): boolean {
@@ -70,9 +76,10 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
     this.worker.on("message", (msg: EmbedResponse) => {
       if (msg.type === "ready") {
         this.readyState.ready = true;
+        this.cachedMeta = msg.meta;  // F20260811mrop Part 3：缓存 meta
         this.readyState.waiters.forEach(w => w.resolve());
         this.readyState.waiters.length = 0;
-        this.logger.info("Embedding model loaded successfully");
+        this.logger.info(`Embedding model loaded: ${msg.meta.modelId} rev=${msg.meta.modelRev} dim=${msg.meta.dim}`);
         return;
       }
       if (msg.type === "error" && msg.id === -1) {
@@ -142,6 +149,16 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
       const request: EmbedRequest = { type: "embed", text, id };
       this.worker.postMessage(request);
     });
+  }
+
+  /** F20260811mrop Part 3：返回 worker 加载的模型元信息 */
+  async getMeta(): Promise<EmbedModelMeta> {
+    if (this.disposed) throw new Error("EmbeddingService has been disposed");
+    await this.waitForReady();
+    if (!this.cachedMeta) {
+      throw new Error("Embedding worker ready but meta missing (worker protocol mismatch)");
+    }
+    return this.cachedMeta;
   }
 
   dispose(): void {
