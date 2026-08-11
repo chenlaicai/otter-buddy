@@ -166,6 +166,17 @@ function ConversationPage() {
     trigger: triggerScheduledTask,
   } = useScheduledTasks(activeId)
 
+  /** dissolve_otter 工具执行完成后刷新参与者列表（DRY 提取，检视獭 review F1） */
+  const refreshParticipantsAfterDissolve = useCallback((toolName: string) => {
+    if (toolName !== 'dissolve_otter' || !activeId) return
+    api.getParticipants(activeId).then(participants => {
+      setAllOtters(prev => ({
+        ...prev,
+        [activeId]: participants.map(p => mapParticipantDTO(p)),
+      }))
+    }).catch(err => console.error('Failed to refresh participants after dissolve:', err))
+  }, [activeId])
+
   useEffect(() => {
     loadInitialData()
       .then(({ conversations: convs }) => {
@@ -523,6 +534,7 @@ function ConversationPage() {
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
         syncLiveEvents(data.messageId as string)
+        refreshParticipantsAfterDissolve(data.toolName as string)
       },
       'message.complete': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
@@ -744,6 +756,7 @@ function ConversationPage() {
           if (!liveEvents) return
           liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
           syncLiveEvents(messageId)
+          refreshParticipantsAfterDissolve(data.toolName as string)
         },
         'assistant_text': (data) => {
           const { messageId } = data
@@ -963,6 +976,7 @@ function ConversationPage() {
           if (!liveEvents) return
           liveEvents.push({ ts: nowTs(), eventType: 'tool_result', payload: { name: data.toolName, result: data.result } })
           syncLiveEvents(msgId)
+          refreshParticipantsAfterDissolve(data.toolName as string)
         },
         'assistant_text': (data) => {
           const { messageId: msgId, content } = data
