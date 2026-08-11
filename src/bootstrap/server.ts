@@ -12,8 +12,9 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
   const app = new Hono();
 
   app.onError((err, c) => {
-    logger.error(`Unhandled HTTP error: ${c.req.method} ${c.req.path}`, err instanceof Error ? err : new Error(String(err)));
-    return c.json({ error: "Internal server error" }, 500);
+    const requestId = c.get('requestId' as never) as string | undefined;
+    logger.error(`Unhandled HTTP error: ${c.req.method} ${c.req.path}`, err instanceof Error ? err : new Error(String(err)), { requestId });
+    return c.json({ error: "Internal server error", ...(requestId ? { requestId } : {}) }, 500);
   });
 
   app.route("/", createRouter(controllers, logger));

@@ -111,15 +111,17 @@ circuit breaker 触发 → session.abort() → LLM API abort → 错误传播链
 
 ### 测试结果
 
-[验收阶段填写]
+- `npx tsc --noEmit` 编译通过
+- `npm test` 全部通过（88 文件，1053 用例）
+- 进程级 handler 为 A 类代码逻辑，现有测试覆盖了正常路径；异常路径需生产环境验证
 
 ### 证据判定
 
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
-| T1: uncaughtException/unhandledRejection 被捕获 | [待验收] | [待判定] |
-| T2: SIGTERM 触发优雅关闭 | [待验收] | [待判定] |
-| T3: HTTP 异常返回 500 | [待验收] | [待判定] |
+| T1: uncaughtException/unhandledRejection 被捕获 | 证据不足 — 编译+测试通过，但未在运行时触发验证 | ❓ |
+| T2: SIGTERM 触发优雅关闭 | 证据不足 — 编译+测试通过，但未在运行时触发验证 | ❓ |
+| T3: HTTP 异常返回 500 | 证据不足 — 编译+测试通过，但未在运行时触发验证 | ❓ |
 
 ## 对抗审视记录
 
@@ -129,8 +131,8 @@ circuit breaker 触发 → session.abort() → LLM API abort → 错误传播链
 
 **非阻断发现**：
 1. dispose() 抛异常时 uncaughtException handler 递归 → 已修复：try-catch dispose
-2. 特性文档验收结果未填写 → 待验收
-3. app.onError 返回 500 无 requestId → 建 issue 后续优化
+2. 特性文档验收结果未填写 → 已补充（编译+测试通过，运行时验证待生产环境）
+3. app.onError 返回 500 无 requestId → 已修复：从 context 读取 requestId 注入响应
 
 ## 设计决策
 
