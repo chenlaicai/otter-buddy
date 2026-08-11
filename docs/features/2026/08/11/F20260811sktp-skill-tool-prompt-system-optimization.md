@@ -474,12 +474,12 @@ P 层前缀改 **A**（Axioms）避免与 clowder-ai P1-P5 SOP 哲学冲突（C-
 ### Part A（Skill 系统契约化）
 - [x] A1. 改 `_shared/SKILL-TEMPLATE.md`：加 description 铁律（含 D8 两个例外）+ 三段式契约段落
 - [x] A2. （取消，D7 简化方案不需要 gen-manifest）
-- [ ] A3. 新建 `prompts/skills/manifest.yaml`（纯手写结构化字段：next/not_for/category/notes）
+- [x] A3. 新建 `prompts/skills/manifest.yaml`（纯手写结构化字段：next/not_for/category/notes）
 - [x] A4. 新建 `.pi/skills/writing-skills/SKILL.md` + `references/`
-- [ ] A5. 新建 `scripts/lint-skills.mjs`（7 项 error + 4 项 warning）+ 接入 `package.json`
+- [x] A5. 新建 `scripts/lint-skills.mjs`（7 项 error + 4 项 warning）+ 接入 `package.json`
 - [x] A6. SKILL.md frontmatter 加 `category` 字段（8 个 skill 全部已加）
 - [x] A7. 重写 8 个 SKILL.md 的 description（companion 豁免，requirement-analysis / code-implementation / adversarial-review 重写；worktree-isolation 加 Precondition）
-- [ ] A8. 跑 lint，确保 0 error
+- [x] A8. 跑 lint，确保 0 error
 
 ### Part B（Tool 系统标准化）
 - [x] B1. 改 `tool-helpers.ts`：加 `isError` 字段 + `errorResponse` 工厂

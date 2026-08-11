@@ -383,7 +383,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
 function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_memory_detail",
-    description: "渐进式披露第二阶段：获取指定记忆条目的完整内容。在 search_memory（summary 模式）扫到相关条目后，用此工具传入 ID 获取全文。支持批量查询。不要跳过 search_memory 直接用此工具。",
+    description: "渐进式披露第二阶段：按 ID 获取记忆条目完整内容. When: search_memory(summary) 扫到相关条目后取全文. Not for: 跳过 search_memory 直接用（ID 无来源）. Output: 记忆条目全文（批量支持）. TIP: 默认走 search_memory → get_memory_detail 两步，不要跳过首步.",
     parameters: {
       type: "object",
       properties: {
@@ -406,7 +406,7 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
 function createGetContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_context",
-    description: "获取当前 Otter 的上下文。otterId 由系统注入。",
+    description: "获取当前 Otter 的上下文（key-value 存储）. When: 需要读取自己之前存的上下文（如任务进度、临时变量）. Output: 全部上下文或指定 key 的值. BOUNDARY: otterId 由系统注入，只读自己的上下文. TIP: 不传 key 返回全部.",
     parameters: {
       type: "object",
       properties: {
@@ -426,7 +426,7 @@ function createGetContextTool(ctx: ToolContext): AgentTool {
 function createSetContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "set_context",
-    description: "设置当前 Otter 的上下文。otterId 由系统注入。",
+    description: "设置当前 Otter 的上下文键值对. When: 需要持久化任务进度/临时变量，供后续轮次读取. Not for: 长期记忆 → search_memory/create_linked_resource. Output: 设置成功确认. BOUNDARY: otterId 由系统注入. TIP: 适合存下轮要用的中间状态.",
     parameters: {
       type: "object",
       properties: {
@@ -452,7 +452,7 @@ function createSetContextTool(ctx: ToolContext): AgentTool {
 function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_terminology",
-    description: "在术语库中查找项目域内术语的定义。当搭档询问某个词的含义时使用。",
+    description: "在术语库中查找项目域内术语的定义. When: 搭档询问某词含义 / 需确认术语对齐时. Not for: 一般知识问答. Output: 术语定义 + 别名 + 分类 + 上下文. TIP: 频繁出现的不明词先查这里再问搭档.",
     parameters: {
       type: "object",
       properties: {
@@ -485,7 +485,7 @@ function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
 function createAddTerminologyTool(ctx: ToolContext): AgentTool {
   return {
     name: "add_terminology",
-    description: "在术语库中记录新的项目域术语。仅在搭档显式定义术语时使用。",
+    description: "在术语库中记录新的项目域术语. When: 搭档显式定义新术语（如「我们约定 X 表示 Y」）. Not for: 自己揣测术语 → 不入库. Output: 术语入库确认（含 ID）. GOTCHA: 必须搭档显式定义——自己揣测的术语会污染术语库.",
     parameters: {
       type: "object",
       properties: {
@@ -513,7 +513,7 @@ function createAddTerminologyTool(ctx: ToolContext): AgentTool {
 function createDeleteContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "delete_context",
-    description: "删除当前 Otter 的上下文条目。otterId 由系统注入。",
+    description: "删除当前 Otter 的指定上下文 key. When: 上下文过期 / 任务结束清理中间状态. Output: 删除确认. BOUNDARY: otterId 由系统注入. GOTCHA: 删除不可逆，确认 key 无用再删.",
     parameters: {
       type: "object",
       properties: {

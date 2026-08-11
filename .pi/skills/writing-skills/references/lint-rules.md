@@ -29,7 +29,7 @@
 |---|---|
 | ~~description 必须含三段式 marker（error）~~ | 无法做语义判断，降为 warning |
 | ~~description 长度 30-500（error）~~ | 下限不合理，clowder-ai 也无字符约束 |
-| ~~manifest 与 frontmatter description 等价（error）~~ | "等价"无法机器判定，改为自动生成保证一致 |
+| ~~manifest 与 frontmatter description 等价（error）~~ | D7 砍掉：manifest 不写 description 镜像，lint 不校验 description 等价 |
 
 ## 通过判据
 

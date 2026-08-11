@@ -5,7 +5,7 @@ import { textResponse, errorResponse } from "./tool-helpers";
 export function createGetMessageTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_message",
-    description: "按 ID 获取消息详情。参数：messageId",
+    description: "按 ID 获取消息详情. When: 需要查看某条消息的完整内容/状态/元数据. Not for: 搜索消息 → search_messages. 列表浏览 → list_messages. Output: 消息详情（sender/body/status/turnId/seq/timestamps）. GOTCHA: 消息不存在时返回 isError.",
     parameters: {
       type: "object",
       properties: {
@@ -28,7 +28,7 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
 export function createListMessagesTool(ctx: ToolContext): AgentTool {
   return {
     name: "list_messages",
-    description: "分页查询当前对话的消息列表。建议先用小 limit（如 10）快速定位，需要更多时用 before 分页，不要一次拉取大量消息。参数：limit（最大条数，默认50），before（消息ID，查询此消息之前的消息）。conversationId 由系统注入。",
+    description: "分页查询当前对话的消息列表. When: 浏览历史消息 / 看对话脉络. Not for: 关键词搜索 → search_messages. Output: 分页消息列表（默认 50 条，倒序）. TIP: 先用小 limit（如 10）快速定位，需要更多用 before 分页，不要一次拉大量. BOUNDARY: conversationId 由系统注入; HTML 卡片在列表视图剥离为占位符（看卡片全文用 get_message）.",
     parameters: {
       type: "object",
       properties: {
@@ -54,7 +54,7 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
 export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_messages",
-    description: "在当前对话中关键词搜索消息（FTS5 全文检索，支持中文）。需要引用或核实当前对话中的具体发言时优先用本工具定位。搜索无结果时可拆分关键词重试。参数：query（搜索关键词），limit（最大结果数，默认10）。conversationId 由系统注入。",
+    description: "在当前对话中关键词搜索消息（FTS5 全文检索，支持中文）. When: 需要引用或核实搭档/自己之前的具体发言. Not for: 跨会话搜索 → search_memory. 浏览 → list_messages. Output: 匹配消息列表（含高亮片段）. TIP: 无结果时拆分关键词重试. BOUNDARY: 仅当前对话，conversationId 由系统注入.",
     parameters: {
       type: "object",
       properties: {
@@ -80,7 +80,7 @@ export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
 export function createGetTurnHistoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_turn_history",
-    description: "获取当前对话的 Turn 历史链。参数：includeMessages（是否包含每个 Turn 的消息，默认 false）。conversationId 由系统注入。",
+    description: "获取当前对话的 Turn 历史链. When: 理解对话回合结构 / 谁在哪个 turn 说了什么. Output: Turn 链（可选含每 turn 的消息）. TIP: includeMessages=true 看完整轨迹，false 只看骨架. BOUNDARY: conversationId 由系统注入.",
     parameters: {
       type: "object",
       properties: {
