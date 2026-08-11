@@ -1,5 +1,5 @@
 ---
-id: F20260722tools
+id: F20260722tool
 title: agent-tools-audit-fix
 doc_type: feature
 

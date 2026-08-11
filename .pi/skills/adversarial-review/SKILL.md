@@ -64,7 +64,7 @@ co_loads: []
    ## 非阻断发现
    [发现清单，每条含 file:line 和处置（本 PR 修复 / 建 issue #N）]
 
-   🤖 Generated with [Otter Buddy](https://github.com/orca-ai/otter-buddy)"
+   🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy)"
    ```
 
    **注意**：
@@ -114,7 +114,7 @@ co_loads: []
 - [ ] 验收标准 1
 - [ ] 验收标准 2
 
-🤖 Generated with [Otter Buddy](https://github.com/orca-ai/otter-buddy) by [海獭名号]
+🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]
 ```
 
 ### 禁用语

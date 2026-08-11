@@ -1,5 +1,5 @@
 ---
-id: F20260721cap
+id: F20260721cap0
 title: capability-oriented-skills
 doc_type: feature
 

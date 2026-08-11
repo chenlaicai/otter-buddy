@@ -1,5 +1,5 @@
 ---
-id: F20260810rstart
+id: F20260810rsta
 title: agent-restart-otter-tool
 doc_type: feature
 
@@ -22,7 +22,7 @@ modules:
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
   - src/bootstrap/clients.ts
   - src/interface-adapters/http/controllers/otter-controller.ts
-capability_test: "tests/capability/restart-otter-tool.capability.test.ts（新增）"
+capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 ---
 
 # F20260810rstart: Agent 层 restart_otter 工具

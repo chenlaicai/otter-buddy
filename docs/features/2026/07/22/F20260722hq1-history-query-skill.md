@@ -1,5 +1,5 @@
 ---
-id: F20260722hq1
+id: F20260722hq10
 title: history-query-skill
 doc_type: feature
 

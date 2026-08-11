@@ -1,5 +1,5 @@
 ---
-id: F20260721speak
+id: F20260721spea
 title: speak-skill
 doc_type: feature
 

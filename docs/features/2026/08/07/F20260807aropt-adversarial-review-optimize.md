@@ -1,5 +1,5 @@
 ---
-id: F20260807aropt
+id: F20260807arop
 title: adversarial-review-anti-sycophancy
 doc_type: feature
 

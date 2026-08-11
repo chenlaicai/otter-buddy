@@ -1,5 +1,5 @@
 ---
-id: F20260810tools
+id: F20260810tool
 title: small-otter-coding-tools
 doc_type: feature
 

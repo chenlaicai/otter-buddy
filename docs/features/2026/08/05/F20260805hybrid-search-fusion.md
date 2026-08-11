@@ -1,5 +1,5 @@
 ---
-id: F20260805hybrid
+id: F20260805hybr
 title: 混合搜索融合策略升级
 type: feature
 status: review
