@@ -1,16 +1,9 @@
 ---
 id: F20260810cb01
-title: remove-maxtoolcalls-limit
+title: 移除熔断器最大工具调用限制
 doc_type: feature
 summary: |
-  移除熔断器的 maxToolCalls 限制。根因：speak 重复调用幂等终结等根因修复已到位，
-  maxToolCalls 限制不再需要——完全依赖重复检测机制。
-status: implemented
-change_type: fix
-tags: [agent, circuit-breaker]
-modules:
-  - src/frameworks/agent/circuit-breaker.ts
-capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
+  完全移除 maxToolCalls 限制，完全依赖重复检测机制防止无限循环。
 ---
 
 # F20260810cb01 移除熔断器最大工具调用限制

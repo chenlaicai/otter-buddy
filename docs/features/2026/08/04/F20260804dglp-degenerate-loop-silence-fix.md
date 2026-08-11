@@ -8,7 +8,7 @@ summary: |
 
 causal_links:
   from:
-    - F20260727guard   # degenerate-output-guard：delta 字段 bug + resumeTimer 数学错误使其从未生效
+    - F20260727guar   # degenerate-output-guard：delta 字段 bug + resumeTimer 数学错误使其从未生效
     - F20260728cbwt    # circuit-breaker-event-driven：per-event 超时只覆盖工具执行，生成静默无兜底
   to: []
 

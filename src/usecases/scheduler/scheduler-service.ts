@@ -8,6 +8,10 @@ import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import { DomainError } from '@entities/errors';
 
+/** once 任务重试参数 */
+const ONCE_MAX_RETRIES = 3;
+const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
+
 /** Cron 解析接口（由 frameworks 层实现） */
 export interface CronParser {
   getNextTime(cron: string, timezone: string): Date;
@@ -118,6 +122,12 @@ export class SchedulerService {
       clearTimeout(existing);
     }
 
+    // Why: once 类型任务走独立分支，不经过 CronParser
+    if (task.scheduleType === 'once') {
+      this.scheduleOnce(task);
+      return;
+    }
+
     const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
     const delay = nextTrigger.getTime() - Date.now();
 
@@ -139,6 +149,65 @@ export class SchedulerService {
     }, actualDelay);
 
     this.timers.set(task.id, timer);
+  }
+
+  /** once 任务调度：计算 delay，过期则 disabled，否则 setTimeout */
+  private scheduleOnce(task: ScheduledTask): void {
+    const triggerTime = new Date(task.triggerAt!).getTime();
+    const delay = triggerTime - Date.now();
+
+    if (delay <= 0) {
+      // Why: 已过期的任务直接 disabled，不走 setTimeout
+      // 使用 .catch() 避免 unhandled rejection（由 onChange 回调链调用）
+      this.taskRepo.updateStatus(task.id, 'disabled', new Date().toISOString())
+        .then(() => {
+          this.logger.info(`Once task ${task.id} expired, disabled`);
+        })
+        .catch(err => {
+          this.logger.error(`Failed to disable expired once task ${task.id}`, err as Error);
+        });
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        await this.triggerTask(task);
+        // once 任务触发成功后直接 disabled
+        await this.taskRepo.updateStatus(task.id, 'disabled', new Date().toISOString());
+      } catch (error) {
+        this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
+        // 触发失败，走 once 专用重试
+        await this.triggerOnceWithRetry(task, ONCE_MAX_RETRIES);
+      }
+    }, delay);
+
+    this.timers.set(task.id, timer);
+  }
+
+  /** once 任务专用重试：失败后延迟重试，最多 maxRetries 次 */
+  private async triggerOnceWithRetry(task: ScheduledTask, retriesLeft: number): Promise<void> {
+    if (retriesLeft <= 0) {
+      this.logger.error(`Once task ${task.id} exhausted all retries, marking as error`);
+      await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
+      return;
+    }
+
+    await new Promise(r => setTimeout(r, ONCE_RETRY_DELAY_MS));
+
+    // 二次检查：任务是否仍为 active（可能已被用户手动禁用）
+    const current = await this.taskRepo.getById(task.id);
+    if (!current || current.status !== 'active') {
+      this.logger.info(`Once task ${task.id} no longer active (status=${current?.status}), aborting retry`);
+      return;
+    }
+
+    try {
+      await this.triggerTask(task);
+      await this.taskRepo.updateStatus(task.id, 'disabled', new Date().toISOString());
+    } catch (error) {
+      this.logger.error(`Once task ${task.id} retry failed (${retriesLeft - 1} left)`, error as Error);
+      await this.triggerOnceWithRetry(task, retriesLeft - 1);
+    }
   }
 
   /** 触发单个任务 */

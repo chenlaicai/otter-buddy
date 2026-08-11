@@ -1,5 +1,5 @@
 ---
-id: F20260722tools
+id: F20260722tool
 title: agent-tools-audit-fix
 doc_type: feature
 
@@ -15,7 +15,7 @@ causal_links:
   from:
     - F20260716t2ab   # tool-skill-mechanism
     - F20260720k3m7   # artifact-lifecycle-management
-    - F20260721speak   # speak-skill
+    - F20260721spea   # speak-skill
 
 # 元数据
 status: development
@@ -28,7 +28,7 @@ created_at: 2026-07-22
 ---
 
 
-# F20260722tools Agent 工具审计修复 + 新增 Skill
+# F20260722tool Agent 工具审计修复 + 新增 Skill
 
 ## 背景
 

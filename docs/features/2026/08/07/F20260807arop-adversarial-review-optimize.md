@@ -1,5 +1,5 @@
 ---
-id: F20260807aropt
+id: F20260807arop
 title: adversarial-review-anti-sycophancy
 doc_type: feature
 
@@ -16,7 +16,7 @@ modules:
   - .pi/skills/adversarial-review/references/anti-patterns.md
 ---
 
-# F20260807aropt: 对抗审视反讨好优化
+# F20260807arop: 对抗审视反讨好优化
 
 ## 问题现象
 

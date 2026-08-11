@@ -12,7 +12,7 @@ causal_links:
   from:
     - F20260724skch
     - F20260728skrp
-    - F20260721cap
+    - F20260721cap0
 
 status: design
 change_type: prompt

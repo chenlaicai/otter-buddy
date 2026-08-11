@@ -1,5 +1,5 @@
 ---
-id: F20260727guard
+id: F20260727guar
 title: 文本生成退化检测与流式超时
 doc_type: feature
 

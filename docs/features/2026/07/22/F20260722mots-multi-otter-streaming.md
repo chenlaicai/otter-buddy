@@ -11,7 +11,7 @@ causal_links:
   from:
     - F20260721de6j   # 可观测性与日志基础设施（pino 引入）
     - F20260721x8k9   # 对话定时任务（scheduler 引入）
-    - F20260721speak   # speak Skill
+    - F20260721spea   # speak Skill
     - F20260722mk74   # startup-reliability-fixes：同日先发的启动修复，本 F 在其基础上继续
 
 status: implemented

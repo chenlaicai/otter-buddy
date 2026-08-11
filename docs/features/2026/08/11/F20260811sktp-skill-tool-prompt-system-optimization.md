@@ -376,21 +376,23 @@ export function errorResponse(text: string): ToolResponse {
 - Q-C1：SYSTEM.md 重组会改变 LLM 行为，是否需要灰度（先在小獭上跑）？
 - Q-C2：根因锚引用 memory，session 重启后 memory 不一定可重建——是否应内联而非引？
 
-### D6. isError 走 afterToolCall extension（SDK 官方扩展点）
+### D6. isError 走 `tool_result` extension handler（SDK 官方扩展点）
+
+> 术语澄清：设计初稿用 "afterToolCall"——SDK 文档中 `afterToolCall` 是覆盖 isError 的语义概念；实际 SDK 事件名是 `tool_result`，handler 注册为 `pi.on("tool_result", ...)`。两者指同一机制。
 
 审视 B-R1 实锤：`AgentToolResult` 接口无 `isError` 字段，工具返回值里加的会被丢弃。SDK 的 `isError` 标志由两条路径控制：
 1. catch 分支（工具抛异常时 SDK 自动设 isError=true）
-2. `afterToolCall` extension handler 的返回值覆盖（SDK types.d.ts:50-51）
+2. `tool_result` extension handler 的返回值覆盖（SDK types.d.ts:50-51）
 
 选 path 2。理由：
 - 抛异常路径改变所有错误处理的编程模型，触发 SDK 异常处理链路
-- afterToolCall 是 SDK 设计的官方扩展点，已有钩子机制（otter-hooks extension）
-- 工具返回 `errorResponse("...")` 带 `isError: true` 标志位 → otter-hooks 的 `afterToolCall` handler 检测到 result 上的 isError，返回 `{ isError: true }` 覆盖
+- `tool_result` 是 SDK 设计的官方扩展点，已有钩子机制（otter-hooks extension）
+- 工具返回 `errorResponse("...")` 带 `isError: true` 标志位 → otter-hooks 的 `tool_result` handler 检测到 `result.details.__isError`，返回 `{ isError: true }` 覆盖
 
 实施细节：
 - `ToolResponse` 加 `isError?: boolean` 字段
 - `errorResponse(text)` 工厂设置 `isError: true`
-- 在 `pi-session-factory.ts` 已有的 otter-hooks extension 中加 `afterToolCall` handler
+- 在 `pi-session-factory.ts` 已有的 otter-hooks extension 中加 `pi.on("tool_result", ...)` handler
 
 ### D7. manifest 不写 description 镜像（消除双源）
 
@@ -461,7 +463,7 @@ P 层前缀改 **A**（Axioms）避免与 clowder-ai P1-P5 SOP 哲学冲突（C-
 ### D13. 砍掉的清单（综合审视建议）
 
 - 砍 manifest `triggers` 字段（A-R2）
-- 砍 manifest `description` 手写（D7 改为自动生成）
+- 砍 manifest `description` 手写（D7 决策：manifest 不写 description 镜像，只留结构化字段）
 - 砍 lint 项 3（三段式 marker）、项 4（长度 30-500）、项 6（双源等价）—— A-R4/R8
 - 砍 W 层的 W2/W3/W4 复述内容 —— D10
 - 砍 `_shared/references/html-card-rules.md` 和 `healing-tag.md` 方案（B-R3）—— speak description 用指针指向已有的 `get_html_card_contract` 工具，自愈规则留 SYSTEM.md
@@ -490,7 +492,7 @@ P 层前缀改 **A**（Axioms）避免与 clowder-ai P1-P5 SOP 哲学冲突（C-
 - [x] B6. create/dissolve/restart_otter 的 GOTCHA 已写入 tool-description-standard.md 附录
 
 ### Part C（Prompt 第一性原理重组）
-- [x] C1. 重组 `.pi/SYSTEM.md` 为 A（Axioms A1-A5）/ W（W1-W2）/ R（R1-R4）三层
+- [x] C1. 重组 `.pi/SYSTEM.md` 为 A（Axioms A1-A5）/ W（W1-W2）/ R（R1-R5）三层（R5 第三轮重构加的系统自愈 tag 格式）
 - [x] C2. W 层只留 W1（实体身份）+ W2（AI 独立思考者）；原 W2/W3/W4 复述内容已砍
 - [x] C3. 每条 A/W 内联根因锚（伪用户原话已删除——A5 改为逻辑根因避免伪造；A4 保留真实原话"流程服务搭档不是反过来"来自原 SYSTEM.md）
 - [x] C4. 反向去重：SYSTEM.md R3 保留产出/弹性约定，_shared/SKILL-TEMPLATE.md 中"模板约定（全局）"标为镜像并加注释指向 SYSTEM.md 真相源
@@ -578,7 +580,7 @@ clowder-ai 双轨动机：441 行 shared-rules 完整版给维护者读，digest
 
 | 编号 | 需求 | 复现步骤 | 预期结果 |
 |---|---|---|---|
-| AT-1 | A-需求1 | 跑 `npm run lint:skills` | 0 error；输出 8 个 skill 全部合规 |
+| AT-1 | A-需求1 | 跑 `npm run lint:skills` | 0 error；输出 9 个 skill 全部合规 |
 | AT-2 | A-需求2 | 临时把某 SKILL.md description 改为内容描述（如"transform X into Y"） | lint 报错：description 不符合三段式契约 |
 | AT-3 | A-需求2 | 在 manifest 中把 next 指向不存在的 skill | lint 报错：broken next pointer |
 | AT-4 | B-需求1 | grep `errorResponse` in tool-factory.ts | 高频错误路径全部使用 errorResponse |
@@ -676,7 +678,7 @@ clowder-ai 双轨动机：441 行 shared-rules 完整版给维护者读，digest
 
 **真系统验证结果（2026-08-11，mimo-v2.5-pro）**：
 
-`tests/capability/system-prompt-behavior.capability.test.ts` 全部通过（4/4）：
+`tests/capability/system-prompt-behavior.capability.test.ts`：7 passed + 1 skipped（严肃点 mimo 已知不稳定，模型层限制）：
 
 | 测试 | 通过率 | 关键观察 |
 |---|---|---|

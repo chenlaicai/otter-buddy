@@ -12,6 +12,8 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport } from "./healing-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
+import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
+import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 
 
 export interface AgentTool {
@@ -164,15 +166,7 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆。有明确历史信号时才检索（搭档提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。
-
-渐进式披露工作流（默认策略）：
-1. 首次搜索用 detail_level="summary"，快速扫描哪些条目相关
-2. 看中特定条目后，用 get_memory_detail 传入 ID 获取完整内容
-3. 只在需要匹配上下文片段时用 detail_level="snippet"
-4. detail_level="full" 仅用于明确需要一次性获取全文的场景（如批量导出）
-
-记忆与当前上下文冲突时以当前上下文为准。可指定 library 路由到特定库；可指定 created_after 过滤时间范围（如定时摘要查今日新增）。`,
+    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）.`,
     parameters: {
       type: "object",
       properties: {
@@ -548,7 +542,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway): AgentTool[] {
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createInviteParticipantTool(ctx),
@@ -574,6 +568,9 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   ];
   if (workspaceGateway) {
     tools.push(...createWorkspaceTools(ctx, workspaceGateway));
+  }
+  if (manageScheduledTask) {
+    tools.push(createCreateScheduledTaskTool(ctx, manageScheduledTask));
   }
   return tools;
 }

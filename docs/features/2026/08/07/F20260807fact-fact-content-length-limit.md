@@ -1,5 +1,5 @@
 ---
-id: F20260807factlim
+id: F20260807fact
 title: fact-content-length-limit
 doc_type: feature
 
