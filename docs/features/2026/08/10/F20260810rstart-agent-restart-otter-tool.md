@@ -22,7 +22,7 @@ modules:
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
   - src/bootstrap/clients.ts
   - src/interface-adapters/http/controllers/otter-controller.ts
-capability_test: "tests/capability/restart-otter-tool.capability.test.ts（新增）"
+capability_test: "n/a: 工具访问控制由代码层校验（小獭 self-only / 大獭 any），未涉及 LLM 参与的行为选择；otter-lifecycle.capability.test.ts 已覆盖生命周期"
 ---
 
 # F20260810rstart: Agent 层 restart_otter 工具
