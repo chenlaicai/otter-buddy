@@ -27,7 +27,7 @@ async function main(): Promise<void> {
    */
   process.on("uncaughtException", (err: Error) => {
     logger.error("uncaughtException — 进程将退出", err, { stack: err.stack });
-    built.dispose();
+    try { built.dispose(); } catch { /* dispose 失败不阻塞退出 */ }
     process.exit(1);
   });
 
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   process.on("unhandledRejection", (reason: unknown) => {
     const err = reason instanceof Error ? reason : new Error(String(reason));
     logger.error("unhandledRejection — 进程将退出", err, { stack: err.stack });
-    built.dispose();
+    try { built.dispose(); } catch { /* dispose 失败不阻塞退出 */ }
     process.exit(1);
   });
 }
