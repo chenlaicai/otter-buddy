@@ -45,4 +45,9 @@ describe('fmtRelativeTime', () => {
   it('跨年消息显示 YYYY-MM-DD HH:mm', () => {
     expect(fmtRelativeTime('2025-12-25T09:00:00')).toBe('2025-12-25 09:00')
   })
+
+  it('UTC 时间带 Z 后缀正确处理', () => {
+    // UTC 06:00 = 本地 14:00（+8 时区下），距 fake time 15:00 = 1小时
+    expect(fmtRelativeTime('2026-08-11T06:00:00Z')).toBe('1小时前')
+  })
 })
