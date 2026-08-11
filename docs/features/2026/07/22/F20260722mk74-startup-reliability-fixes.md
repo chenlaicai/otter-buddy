@@ -13,7 +13,7 @@ summary: |
 causal_links:
   from:
     - F20260721de6j   # 可观测性与日志基础设施（pino 引入）
-    - F20260721speak   # speak Skill（assistant_text 事件模型）
+    - F20260721spea   # speak Skill（assistant_text 事件模型）
 
 status: implemented
 change_type: fix

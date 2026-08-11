@@ -22,7 +22,7 @@ modules: [skills/]
 created_at: 2026-07-21
 ---
 
-# F20260721cap 能力导向 Skill 重构
+# F20260721cap0 能力导向 Skill 重构
 
 ## 背景 [required]
 

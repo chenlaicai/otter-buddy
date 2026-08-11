@@ -20,7 +20,7 @@ modules: [prompts/platform, skills/code-implementation, skills/adversarial-revie
 created_at: 2026-07-22
 ---
 
-# F20260722ctx AI 独立个体身份 + Why 注释规范
+# F20260722ctx0 AI 独立个体身份 + Why 注释规范
 
 ## 背景
 
@@ -239,4 +239,4 @@ for (const item of items) {
 ## 关联
 
 - **AI 行为模式强化**：[F20260722d3k7](F20260722d3k7-agent-behavior-pattern.md) — 禁止"询问是否修复"行为，本特性提供上层身份框架
-- **Skill 能力导向重构**：[F20260721cap](../21/F20260721cap-capability-oriented-skills.md) — 保持能力导向设计，不引入 persona
+- **Skill 能力导向重构**：[F20260721cap0](../21/F20260721cap0-capability-oriented-skills.md) — 保持能力导向设计，不引入 persona

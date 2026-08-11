@@ -25,7 +25,7 @@ modules:
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 ---
 
-# F20260810rstart: Agent 层 restart_otter 工具
+# F20260810rsta: Agent 层 restart_otter 工具
 
 ## 背景
 

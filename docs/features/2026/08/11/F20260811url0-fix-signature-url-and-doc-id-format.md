@@ -28,7 +28,7 @@ PR 署名行中的仓库链接指向错误地址（`orca-ai/otter-buddy`），�
    - 添加 frontmatter
    - 移至正确目录 `docs/features/2026/08/10/`
 
-4. **F20260810rstart 修复**
+4. **F20260810rsta 修复**
    - capability_test 从指向不存在的文件改为 `n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为`
 
 ## 影响范围

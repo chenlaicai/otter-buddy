@@ -16,7 +16,7 @@ modules:
   - .pi/skills/adversarial-review/references/anti-patterns.md
 ---
 
-# F20260807aropt: 对抗审视反讨好优化
+# F20260807arop: 对抗审视反讨好优化
 
 ## 问题现象
 

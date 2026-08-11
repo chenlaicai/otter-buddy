@@ -19,7 +19,7 @@ causal_links:
   from:
     - F20260716bte2   # agent-circuit-breaker（初版设计，steer 死线 B-5b 来源）
     - F20260728cbtf   # 工具名字段修复（同一起事故的第一次修复，遗留死线语义缺陷）
-    - F20260727guard  # OutputGuard（接管时间维度的挂死保护）
+    - F20260727guar  # OutputGuard（接管时间维度的挂死保护）
 
 status: final
 change_type: fix
@@ -99,7 +99,7 @@ strike > maxRepeatAfterWarning（默认 5）→ terminate，当场中断流
 
 - **恢复自动生效**：agent 换了命令/工具，下一次 check 返回 allow，strike 清零。不存在「需要有人取消倒计时却没人取消」的状态，误杀在结构上不可能发生。
 - **杀的依据是行为事实**：「观察到警告后第 N 次重复」而非「时间到了」。快循环时 30s 能烧几十次调用，计数制反而更省 token。
-- **时间维度保护不缺位**：agent 不调工具也不输出的干挂，由 OutputGuard 的 `streamingTimeoutMs`（F20260727guard）负责。分工干净：熔断器管行为模式，OutputGuard 管时间。
+- **时间维度保护不缺位**：agent 不调工具也不输出的干挂，由 OutputGuard 的 `streamingTimeoutMs`（F20260727guar）负责。分工干净：熔断器管行为模式，OutputGuard 管时间。
 - **模式跳跃公平性**：agent 被警告后换一个新循环，新循环的前几次调用是 allow（strike 已清零），重新享受「先警告」待遇；A-B-A-B 交替循环仍由滑动窗口检测兜底。
 
 ### 签名判据（`buildToolSignature`）

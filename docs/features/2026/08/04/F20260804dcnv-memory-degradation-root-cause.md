@@ -40,7 +40,7 @@ modules:
 `/api/health/memory` 返回：
 ```json
 {"healthy":false,"documentsOnDisk":93,"documentsInDb":85,
- "reconcileGaps":["F20260725otid","F20260727ui6x","F20260803chunk",
+ "reconcileGaps":["F20260725otid","F20260727ui6x","F20260803chun",
                   "F20260803emlo","F20260803fbit","R20260716x2k9",
                   "R20260717y3k8","R20260728c5xt"],
  "embeddingAvailable":false,"embeddingModel":"Xenova/bge-m3"}
@@ -62,7 +62,7 @@ modules:
 |------|------|----------|
 | F20260725otid | summary 超长 | 598 / ≤500 |
 | F20260727ui6x | summary 超长 | 551 / ≤500 |
-| F20260803chunk | summary 超长 | 796 / ≤500 |
+| F20260803chun | summary 超长 | 796 / ≤500 |
 | F20260803emlo | summary 超长 | 646 / ≤500 |
 | F20260803fbit | summary 超长 | 1004 / ≤500 |
 | F20260803vmsg | 完全没写 YAML frontmatter | — |
@@ -127,7 +127,7 @@ if (result.warnings.length > 0) {
 
 ### 修复 5：整改 9 份违规文档
 
-- **5 份 F 文档 summary 蒸馏**（F20260725otid / F20260727ui6x / F20260803chunk / F20260803emlo / F20260803fbit）：summary 压到 ≤500 字符，详细根因/方案/验证保留在 body（蒸馏前确认 body 已有对应章节，未丢信息）。
+- **5 份 F 文档 summary 蒸馏**（F20260725otid / F20260727ui6x / F20260803chun / F20260803emlo / F20260803fbit）：summary 压到 ≤500 字符，详细根因/方案/验证保留在 body（蒸馏前确认 body 已有对应章节，未丢信息）。
 - **3 份 R 文档路径统一**（R20260716x2k9 / R20260717y3k8 / R20260728c5xt）：`git mv` 到 `docs/research/YYYY/MM/DD/`，与 features 路径同构。
 - **F20260803vmsg 补 frontmatter**：从原有"概述"章节蒸馏 summary，补齐 id/title/causal_links/status/change_type/tags/modules。
 
@@ -173,7 +173,7 @@ Follow-up（原计划留给后续 PR，本次一并清掉）：
 ```
 455 F20260725otid
 141 F20260727ui6x
-396 F20260803chunk
+396 F20260803chun
 394 F20260803emlo
 357 F20260803fbit
 ```
