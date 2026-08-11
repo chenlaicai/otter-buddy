@@ -75,6 +75,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
+
+  /** schedule_type + trigger_at 列：支持一次性定时任务 */
+  addScheduleTypeColumns(db, logger);
 }
 
 /**
@@ -119,6 +122,19 @@ function addWorkspaceDirColumn(db: Database.Database, logger: Logger): void {
   if (!columns.some(col => col.name === 'workspace_dir')) {
     db.prepare("ALTER TABLE conversations ADD COLUMN workspace_dir TEXT").run();
     logger.info('Added workspace_dir column to conversations table');
+  }
+}
+
+/** schedule_type + trigger_at 列：支持一次性定时任务。PRAGMA 探测幂等。 */
+function addScheduleTypeColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'schedule_type')) {
+    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'cron'").run();
+    logger.info('Added schedule_type column to scheduled_tasks table');
+  }
+  if (!columns.some(col => col.name === 'trigger_at')) {
+    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN trigger_at TEXT").run();
+    logger.info('Added trigger_at column to scheduled_tasks table');
   }
 }
 

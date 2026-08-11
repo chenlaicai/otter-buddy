@@ -1,6 +1,9 @@
 /** 定时任务状态 */
 export type ScheduledTaskStatus = 'active' | 'disabled' | 'error';
 
+/** 调度类型：cron=周期性，once=一次性 */
+export type ScheduleType = 'cron' | 'once';
+
 /** 执行记录状态 */
 export type ExecutionStatus = 'running' | 'completed' | 'failed';
 
@@ -9,7 +12,11 @@ export interface ScheduledTask {
   id: string;
   conversationId: string;
   name: string;
+  /** 调度类型：cron=周期性，once=一次性 */
+  scheduleType: ScheduleType;
   cron: string;
+  /** 一次性触发的精确 ISO 时间（scheduleType=once 时必填） */
+  triggerAt: string | null;
   timezone: string;
   body: string;
   talkingStonePassedTo: string[];
@@ -58,6 +65,14 @@ export function isValidCronExpression(cron: string): boolean {
   // 基本格式校验：每个字段只允许数字、*、/、-、,
   const basicPattern = /^[\d\s*/\-,]+$/;
   return parts.every(part => basicPattern.test(part));
+}
+
+/** ISO 8601 时间格式校验（scheduleType=once 时使用）
+ *  校验规则：必须是合法 Date 且包含 'T' 分隔符（区分日期和时间）
+ */
+export function isValidTriggerAt(value: string): boolean {
+  const date = new Date(value);
+  return !isNaN(date.getTime()) && value.includes('T');
 }
 
 /** IANA 时区格式校验 */

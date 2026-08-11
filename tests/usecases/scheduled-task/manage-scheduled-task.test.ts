@@ -190,6 +190,45 @@ describe("ManageScheduledTask", () => {
       expect(notifications[0].taskId).toBe(task.id);
       expect(notifications[0].action).toBe("created");
     });
+
+    describe("once 类型任务", () => {
+      it("scheduleType='once' + 有效 triggerAt -> 创建 once 任务", async () => {
+        const repo = mockRepo();
+        const manager = new ManageScheduledTask(repo);
+
+        const task = await manager.create(validInput({
+          scheduleType: "once",
+          triggerAt: "2026-08-11T17:00:00+08:00",
+          cron: undefined,
+        }));
+
+        expect(task.scheduleType).toBe("once");
+        expect(task.triggerAt).toBe("2026-08-11T17:00:00+08:00");
+        expect(task.cron).toBe("");
+      });
+
+      it("scheduleType='once' 但无 triggerAt -> 抛出 DomainError", async () => {
+        const repo = mockRepo();
+        const manager = new ManageScheduledTask(repo);
+
+        const err = await manager
+          .create(validInput({ scheduleType: "once", cron: undefined }))
+          .catch((e) => e);
+
+        expect(err).toBeInstanceOf(DomainError);
+        expect(err.kind).toBe("validation");
+      });
+
+      it("默认 scheduleType='cron'（向后兼容）", async () => {
+        const repo = mockRepo();
+        const manager = new ManageScheduledTask(repo);
+
+        const task = await manager.create(validInput());
+
+        expect(task.scheduleType).toBe("cron");
+        expect(task.triggerAt).toBeNull();
+      });
+    });
   });
 
   describe("update()", () => {
