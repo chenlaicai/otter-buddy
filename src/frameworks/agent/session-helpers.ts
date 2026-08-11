@@ -8,14 +8,13 @@ import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-inv
 
 /**
  * 按 otterType 获取编码工具列表。
- * big otter 启用全部编码工具；small otter 只读（可加载 skill 全文、读代码执行实质性工作），无写权限。
+ * big otter 和 small otter 均启用全部编码工具（read/write/edit/bash）。
+ * Why: small otter 需要写代码（开发獭）、评论 PR（检视獭）、执行构建命令等实际工作，
+ * 只给 read 会导致它们无法完成任务。管理类工具的隔离在 getOtterToolNamesForType 中控制。
  */
-export function getCodingToolsForOtterType(otterType: string | undefined): string[] {
-  if (!otterType || otterType === "big") {
-    return ["read", "write", "edit", "bash"];
-  }
-  /** small otter：只读。write/edit/bash 不开放（权限最小化） */
-  return ["read"];
+export function getCodingToolsForOtterType(_otterType: string | undefined): string[] {
+  // big 和 small otter 均启用全部编码工具
+  return ["read", "write", "edit", "bash"];
 }
 
 /**
