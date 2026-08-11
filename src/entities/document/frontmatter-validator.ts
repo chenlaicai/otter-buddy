@@ -71,14 +71,14 @@ function validateCommonFields(fm: Record<string, unknown>, errors: string[]): vo
 }
 
 function validateFeatureId(id: unknown, errors: string[]): void {
-  // F20260803mval: 后缀长度 3-8（数据支撑：实际范围 3-5）
-  if (id && !/^F\d{8}[a-z0-9]{3,8}$/.test(id as string)) {
+  // 后缀固定 4 位小写字母数字
+  if (id && !/^F\d{8}[a-z0-9]{4}$/.test(id as string)) {
     errors.push(`Invalid feature ID format: ${id}`);
   }
 }
 
 function validateResearchId(id: unknown, errors: string[]): void {
-  if (id && !/^R\d{8}[a-z0-9]{3,8}$/.test(id as string)) {
+  if (id && !/^R\d{8}[a-z0-9]{4}$/.test(id as string)) {
     errors.push(`Invalid research ID format: ${id}`);
   }
 }
