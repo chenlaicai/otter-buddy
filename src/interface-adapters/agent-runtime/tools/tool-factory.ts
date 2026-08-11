@@ -12,6 +12,8 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport } from "./healing-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
+import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
+import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 
 
 export interface AgentTool {
@@ -548,7 +550,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway): AgentTool[] {
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createInviteParticipantTool(ctx),
@@ -574,6 +576,9 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   ];
   if (workspaceGateway) {
     tools.push(...createWorkspaceTools(ctx, workspaceGateway));
+  }
+  if (manageScheduledTask) {
+    tools.push(createCreateScheduledTaskTool(ctx, manageScheduledTask));
   }
   return tools;
 }

@@ -8,16 +8,44 @@ import {
   canTransitionTaskStatus,
   isValidCronExpression,
   isValidTimezone,
+  isValidTriggerAt,
 } from '@entities/scheduled-task/scheduled-task';
 import type {
   ScheduledTaskRepository,
   ListExecutionsOptions,
 } from './scheduled-task-repository';
 
+/** 校验 CreateScheduledTaskInput，返回错误消息或 null */
+function validateCreateInput(input: CreateScheduledTaskInput): string | null {
+  const scheduleType = input.scheduleType ?? 'cron';
+
+  if (scheduleType === 'once') {
+    if (!input.triggerAt) return 'triggerAt is required for scheduleType=once';
+    if (!isValidTriggerAt(input.triggerAt)) return `Invalid triggerAt: ${input.triggerAt}`;
+  } else {
+    if (!input.cron) return 'cron is required for scheduleType=cron';
+    if (!isValidCronExpression(input.cron)) return `Invalid cron expression: ${input.cron}`;
+  }
+
+  const timezone = input.timezone ?? 'Asia/Shanghai';
+  if (!isValidTimezone(timezone)) return `Invalid timezone: ${timezone}`;
+  if (input.body.length > 10000) return 'body must be 10000 characters or less';
+  if (!input.talkingStonePassedTo || input.talkingStonePassedTo.length === 0) {
+    return 'talkingStonePassedTo must be non-empty';
+  }
+
+  return null;
+}
+
 export interface CreateScheduledTaskInput {
   conversationId: string;
   name: string;
-  cron: string;
+  /** 调度类型：cron=周期性，once=一次性。默认 'cron' */
+  scheduleType?: 'cron' | 'once';
+  /** scheduleType='cron' 时必填 */
+  cron?: string;
+  /** scheduleType='once' 时必填，ISO 8601 时间 */
+  triggerAt?: string;
   timezone?: string;
   body: string;
   talkingStonePassedTo: string[];
@@ -26,7 +54,9 @@ export interface CreateScheduledTaskInput {
 
 export interface UpdateScheduledTaskInput {
   name?: string;
+  scheduleType?: 'cron' | 'once';
   cron?: string;
+  triggerAt?: string | null;
   timezone?: string;
   body?: string;
   talkingStonePassedTo?: string[];
@@ -52,34 +82,21 @@ export class ManageScheduledTask {
   }
 
   async create(input: CreateScheduledTaskInput): Promise<ScheduledTask> {
-    // 校验 cron 表达式
-    if (!isValidCronExpression(input.cron)) {
-      throw new DomainError(`Invalid cron expression: ${input.cron}`, 'validation');
+    const validationError = validateCreateInput(input);
+    if (validationError) {
+      throw new DomainError(validationError, 'validation');
     }
 
-    // 校验时区
-    const timezone = input.timezone ?? 'Asia/Shanghai';
-    if (!isValidTimezone(timezone)) {
-      throw new DomainError(`Invalid timezone: ${timezone}`, 'validation');
-    }
-
-    // 校验 body 长度
-    if (input.body.length > 10000) {
-      throw new DomainError('body must be 10000 characters or less', 'validation');
-    }
-
-    // 校验 talkingStonePassedTo
-    if (!input.talkingStonePassedTo || input.talkingStonePassedTo.length === 0) {
-      throw new DomainError('talkingStonePassedTo must be non-empty', 'validation');
-    }
-
+    const scheduleType = input.scheduleType ?? 'cron';
     const now = new Date().toISOString();
     const task: ScheduledTask = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
       name: input.name,
-      cron: input.cron,
-      timezone,
+      scheduleType,
+      cron: scheduleType === 'once' ? '' : input.cron!,
+      triggerAt: scheduleType === 'once' ? input.triggerAt! : null,
+      timezone: input.timezone ?? 'Asia/Shanghai',
       body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
       senderId: input.senderId ?? input.talkingStonePassedTo[0],
@@ -115,7 +132,9 @@ export class ManageScheduledTask {
     const updated: ScheduledTask = {
       ...task,
       name: input.name ?? task.name,
+      scheduleType: input.scheduleType ?? task.scheduleType,
       cron: input.cron ?? task.cron,
+      triggerAt: input.triggerAt !== undefined ? input.triggerAt : task.triggerAt,
       timezone: input.timezone ?? task.timezone,
       body: input.body ?? task.body,
       talkingStonePassedTo: input.talkingStonePassedTo ?? task.talkingStonePassedTo,
@@ -140,6 +159,10 @@ export class ManageScheduledTask {
 
     if (input.cron && !isValidCronExpression(input.cron)) {
       throw new DomainError(`Invalid cron expression: ${input.cron}`, 'validation');
+    }
+
+    if (input.triggerAt && !isValidTriggerAt(input.triggerAt)) {
+      throw new DomainError(`Invalid triggerAt: ${input.triggerAt}`, 'validation');
     }
 
     if (input.timezone && !isValidTimezone(input.timezone)) {

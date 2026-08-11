@@ -3,6 +3,7 @@ import type {
   ScheduledTaskExecution,
   ScheduledTaskStatus,
   ExecutionStatus,
+  ScheduleType,
 } from '@entities/scheduled-task/scheduled-task';
 
 /** SQLite 行类型 */
@@ -10,7 +11,9 @@ export interface ScheduledTaskRow {
   id: string;
   conversation_id: string;
   name: string;
+  schedule_type: string;
   cron: string;
+  trigger_at: string | null;
   timezone: string;
   body: string;
   talking_stone_passed_to: string;  // JSON array
@@ -49,7 +52,9 @@ export function rowToScheduledTask(row: ScheduledTaskRow): ScheduledTask {
     id: row.id,
     conversationId: row.conversation_id,
     name: row.name,
+    scheduleType: (row.schedule_type ?? 'cron') as ScheduleType,
     cron: row.cron,
+    triggerAt: row.trigger_at,
     timezone: row.timezone,
     body: row.body,
     talkingStonePassedTo,
@@ -81,7 +86,9 @@ export function taskToRow(task: ScheduledTask): ScheduledTaskRow {
     id: task.id,
     conversation_id: task.conversationId,
     name: task.name,
+    schedule_type: task.scheduleType,
     cron: task.cron,
+    trigger_at: task.triggerAt,
     timezone: task.timezone,
     body: task.body,
     talking_stone_passed_to: JSON.stringify(task.talkingStonePassedTo),

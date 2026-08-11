@@ -872,4 +872,81 @@ describe('SchedulerService - onChange', () => {
       expect(taskRepo._executions.size).toBe(1);
     });
   });
+
+  describe("once 任务调度", () => {
+    it("once 任务 triggerAt 在未来 -> setTimeout 调度", async () => {
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: '2025-06-15T09:00:00.000Z',
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      // 启动调度器，触发 start() -> scheduleNext() -> scheduleOnce()
+      await service.start();
+
+      // 推进 1 小时到触发时间
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+
+      // 验证任务被触发并 disabled
+      expect(taskRepo._executions.size).toBe(1);
+      expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(true);
+    });
+
+    it("once 任务 triggerAt 已过期 -> 立即 disabled，不触发", async () => {
+      const now = new Date('2025-06-15T10:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+
+      // triggerAt 在过去
+      taskRepo._store.set('task-1', makeTask({
+        scheduleType: 'once',
+        triggerAt: '2025-06-15T09:00:00.000Z',
+        cron: '',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      // 启动调度器，触发 start() -> scheduleNext() -> scheduleOnce()
+      await service.start();
+
+      // scheduleOnce 中的 updateStatus 是 .then()/.catch() 调用（fire-and-forget）
+      // flush 微任务队列让 Promise resolve
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // 验证：disabled 但未产生执行记录
+      expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(true);
+      expect(taskRepo._executions.size).toBe(0);
+    });
+  });
 });

@@ -3,6 +3,7 @@ import {
   canTransitionTaskStatus,
   isValidCronExpression,
   isValidTimezone,
+  isValidTriggerAt,
 } from "../../../src/entities/scheduled-task/scheduled-task";
 
 describe("canTransitionTaskStatus", () => {
@@ -74,6 +75,36 @@ describe("isValidCronExpression", () => {
 
   it("invalid characters are rejected", () => {
     expect(isValidCronExpression("0 9 * * abc")).toBe(false);
+  });
+});
+
+describe("isValidTriggerAt", () => {
+  it("valid ISO 8601 datetime is accepted", () => {
+    expect(isValidTriggerAt("2026-08-11T17:00:00+08:00")).toBe(true);
+  });
+
+  it("valid ISO 8601 UTC is accepted", () => {
+    expect(isValidTriggerAt("2026-08-11T09:00:00Z")).toBe(true);
+  });
+
+  it("date-only string is rejected (no T separator)", () => {
+    expect(isValidTriggerAt("2026-08-11")).toBe(false);
+  });
+
+  it("non-date string is rejected", () => {
+    expect(isValidTriggerAt("not-a-date")).toBe(false);
+  });
+
+  it("empty string is rejected", () => {
+    expect(isValidTriggerAt("")).toBe(false);
+  });
+
+  it("human-readable string is rejected", () => {
+    expect(isValidTriggerAt("tomorrow at 5pm")).toBe(false);
+  });
+
+  it("only time without date is rejected", () => {
+    expect(isValidTriggerAt("T17:00:00")).toBe(false);
   });
 });
 
