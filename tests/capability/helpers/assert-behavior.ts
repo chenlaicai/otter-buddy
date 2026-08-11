@@ -13,7 +13,7 @@ export interface MessageDto {
   content: string;
   status: "streaming" | "speaking" | "completed" | "failed" | "aborted";
   seq: number;
-  tsp?: string[];         // talkingStonePassedTo（名字）
+  tsp?: string[];         // talkingStonePassedTo（resolved otterId，非名字；'user' 透传）
   sn?: string;            // senderName
   turnId?: string;        // 所属回合（turn-per-hop：一跳一个 turn）
   events?: Array<{
