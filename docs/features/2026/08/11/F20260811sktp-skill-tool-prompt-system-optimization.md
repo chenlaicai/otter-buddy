@@ -7,7 +7,7 @@ summary: |
   向 clowder-ai 学习——重构 otter 三层 agent 基础设施。
   Part A：Skill 系统契约化（manifest 路由表 + description 三段式铁律 + writing-skills 元 skill + 双向 lint）。
   Part B：Tool 系统标准化（description 5 元素简化版 + GOTCHA 模式 + errorResponse/isError 统一错误返回）。
-  Part C：SYSTEM.md 重组为 P 原则-W 世界观-R 规则三层。
+  Part C：SYSTEM.md 重组为 A 公理-W 世界观-R 规则三层（用 A 前缀避免与 clowder-ai P1-P5 SOP 哲学冲突，D10）。
   动机：skill 会持续扩展，不提前固化契约必然退化；speak 工具描述 1500+ 字塞三件事已是反例；错误返回靠 `[错误]` 文案 pattern match 不可靠。
 
 causal_links:
@@ -544,9 +544,11 @@ clowder-ai 双轨动机：441 行 shared-rules 完整版给维护者读，digest
 
 ### D5. 为什么 manifest 与 SKILL.md frontmatter 双源
 
+> ⚠️ **本段已被 D7 部分取代**——D5 的"双源"指 description + 结构化字段两层维护；D7 砍掉了 description 双源（manifest 不写 description 镜像）。本段保留作为决策史，描述结构化字段（next/not_for/category）的双源同步。
+
 为何不只在 manifest 维护：SKILL.md frontmatter 是 SDK 原生消费的（注入 prompt 的唯一字段），不可省略。
 为何不只在 frontmatter 维护：frontmatter 只能描述自身，不能构图（`next` / `not_for` 指向其他 skill）。
-双源同步靠 lint 脚本强制（A4 校验项 6）。
+当前同步靠 lint 脚本：校验 name 集合一致 + next/not_for 指针有效 + category 一致（防漂移）。
 
 ---
 

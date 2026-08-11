@@ -1,6 +1,6 @@
 import type { AgentTool, ToolContext } from "./tool-factory";
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
-import { textResponse } from "./tool-helpers";
+import { textResponse, errorResponse } from "./tool-helpers";
 
 export function createGetMessageTool(ctx: ToolContext): AgentTool {
   return {
@@ -15,7 +15,7 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       const msg = await ctx.client.conversation.message.getById(params.messageId as string);
-      if (!msg) return textResponse(`Message ${params.messageId} not found`);
+      if (!msg) return errorResponse(`[错误] 消息 ${params.messageId} 不存在`);
       return textResponse(JSON.stringify({
         id: msg.id, senderType: msg.senderType, senderId: msg.senderId,
         body: msg.body, status: msg.status, turnId: msg.turnId,

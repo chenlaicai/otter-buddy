@@ -49,7 +49,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
       const res = await Promise.allSettled(ids.map(fn));
       return textResponse(`完成: ${res.filter(r => r.status === 'fulfilled').length}/${ids.length} 成功`);
     }
-    return textResponse(`未知操作: ${action}`);
+    return errorResponse(`[错误] 未知操作: ${action}。支持的操作：query / resolve / dismiss。`);
   };
   return {
     name: "manage_healing_events",
