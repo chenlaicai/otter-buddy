@@ -9,6 +9,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
@@ -53,8 +54,10 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** 对话工作区网关 */
   workspaceGateway?: WorkspaceGateway;
-}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void }> {
+}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
+  // Why: manageScheduledTask 在 initUseCases 之后才可用，用 mutable ref 延迟注入
+  let manageScheduledTaskRef: ManageScheduledTask | null = null;
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
@@ -62,7 +65,7 @@ export async function createAgentGateway(options: {
     sessionDir: options.sessionDir,
     identityPromptDir: options.identityPromptDir ?? "./prompts/identity",
     createTools: (ctx, repo, log) => {
-      const tools = createTools(ctx, repo, log, options.workspaceGateway);
+      const tools = createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined);
       if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
       return tools;
     },
@@ -74,7 +77,8 @@ export async function createAgentGateway(options: {
 
   return {
     agentGateway,
-    resolveOtterToolClient: (client: OtterToolClient) => agentGateway.setOtterToolClient(client),
+    resolveOtterToolClient: (client) => agentGateway.setOtterToolClient(client),
+    resolveManageScheduledTask: (mst) => { manageScheduledTaskRef = mst; },
   };
 }
 
