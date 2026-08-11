@@ -11,7 +11,7 @@
  * LLM 行为断言采用统计采样（3 次至少 1 次成功，吸收 mimo 抖动）。
  * 测试断言行为不变量（工具轨迹、关键 token），非精确文本。
  */
-import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import { bootCapabilityApp, type CapabilityContext } from "./helpers/boot";
 import {
   createConversation,
