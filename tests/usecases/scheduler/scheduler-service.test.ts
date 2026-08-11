@@ -25,7 +25,9 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     id: 'task-1',
     conversationId: 'conv-1',
     name: '每日问候',
+    scheduleType: 'cron',
     cron: '0 9 * * *',
+    triggerAt: null,
     timezone: 'Asia/Shanghai',
     body: '早上好！',
     talkingStonePassedTo: ['otter-1'],
@@ -970,6 +972,7 @@ describe('SchedulerService - onChange', () => {
       agentInvoke.invokeConversation = vi.fn(async () => {
         invokeCount++;
         if (invokeCount === 1) throw new Error('agent invoke failed');
+        return { messageId: 'msg-1' };
       });
 
       const service = new SchedulerService({
