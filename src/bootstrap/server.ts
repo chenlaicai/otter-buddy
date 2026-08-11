@@ -10,6 +10,13 @@ type Controllers = ReturnType<typeof initControllers>;
 /** 组装 Hono app（路由 + 可选静态页面），不监听端口——测试可直接 app.request */
 export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoot: string | false): Hono {
   const app = new Hono();
+
+  app.onError((err, c) => {
+    const requestId = c.get('requestId' as never) as string | undefined;
+    logger.error(`Unhandled HTTP error: ${c.req.method} ${c.req.path}`, err instanceof Error ? err : new Error(String(err)), { requestId });
+    return c.json({ error: "Internal server error", ...(requestId ? { requestId } : {}) }, 500);
+  });
+
   app.route("/", createRouter(controllers, logger));
 
   if (staticRoot !== false) {
