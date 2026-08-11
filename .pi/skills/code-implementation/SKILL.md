@@ -33,8 +33,7 @@ co_loads: []
 
    **CI 验证（必须）**：
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
-   - CI 失败时立即诊断修复，不允许 CI 失败的 PR 进入检视
-   - CI 状态是检视的前置条件，不是检视内容
+   - CI 失败时立即诊断修复——检视也会将 CI 失败标记为阻断性问题
 
 6. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 7. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。

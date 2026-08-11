@@ -6,7 +6,7 @@ Baseline dimensions are checked for every PR — they are the floor, not the cei
 
 These dimensions are checked for every PR, regardless of size or complexity. They do not count toward the 1-3 focus dimensions.
 
-### 0. CI Status
+### B1. CI Status
 
 Is the PR's CI passing?
 
@@ -14,7 +14,7 @@ Is the PR's CI passing?
 - If CI fails, identify which tests/jobs failed
 - CI failure is a blocking issue — cannot proceed until fixed
 
-### 0. Documentation Completeness
+### B2. Documentation Completeness
 
 Does relevant feature documentation exist and match the implementation?
 
@@ -22,19 +22,21 @@ Does relevant feature documentation exist and match the implementation?
 - Verify documentation matches actual implementation
 - Missing or inconsistent documentation is a blocking issue
 
-### 0. End-to-End Verification
+### B3. End-to-End Verification
 
 Is the feature functional end-to-end, not just unit tests passing?
 
-- Verify the feature works in the actual environment
-- Check if integration points are working
-- End-to-end failures are blocking issues
+Verification depends on PR type:
+- **Prompt changes**: Run the workflow with the new prompt to verify it works
+- **Code changes**: Execute key paths in the actual environment
+- **Config changes**: Verify the config takes effect
+- **Documentation changes**: Verify docs match implementation
 
 ---
 
 ## Focus Dimensions (Choose 1-3)
 
-Six dimensions for adversarial code review. Check every dimension for every PR — but depth follows the declared review focus (see SKILL.md step 2): focus dimensions get the full checklist treatment below, non-focus dimensions get a quick sweep with an explicit "无发现".
+Nine dimensions (3 baseline + 6 focus) for adversarial code review. Check every dimension for every PR — but depth follows the declared review focus (see SKILL.md step 2): focus dimensions get the full checklist treatment below, non-focus dimensions get a quick sweep with an explicit "无发现".
 
 ## 1. Correctness
 
