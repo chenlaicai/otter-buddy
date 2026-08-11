@@ -25,7 +25,7 @@ modules:
   - .pi/skills/
   - src/interface-adapters/agent-runtime/tools/
   - prompts/
-capability_test: "n/a: 设计文档，实施阶段各子项单独建能力测试（B 类 LLM 行为变更）"
+capability_test: "tests/capability/system-prompt-behavior.capability.test.ts"
 ---
 
 # F20260811sktp: Skill / Tool / Prompt 系统优化
@@ -587,7 +587,7 @@ clowder-ai 双轨动机：441 行 shared-rules 完整版给维护者读，digest
 |---|---|
 | AT-1~AT-3 | n/a（lint 是确定性脚本，单元测试覆盖） |
 | AT-4~AT-5 | n/a（静态扫描，单元测试覆盖） |
-| AT-6 | `tests/capability/system-prompt-behavior.capability.test.ts`（新建，按 F20260811sktp 子项落地） |
+| AT-6 | `tests/capability/system-prompt-behavior.capability.test.ts`（覆盖 A2 诚实优于服从 / R4 召唤前先搜 / Magic Words 停下 三项核心行为不变量） |
 
 ### 证据判定（验收执行后填写）
 
