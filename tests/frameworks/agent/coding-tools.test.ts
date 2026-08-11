@@ -7,6 +7,8 @@ import { describe, it, expect } from "vitest";
 import { getCodingToolsForOtterType, getOtterToolNamesForType } from "@frameworks/agent/session-helpers";
 
 describe("getCodingToolsForOtterType", () => {
+  // Why: 函数现在返回常量数组，但测试多个输入确保没有隐藏的分支逻辑
+  // 如果未来有人恢复了 otterType 分支，这些测试会捕获回归
   it("big otter 应包含全部编码工具", () => {
     const tools = getCodingToolsForOtterType("big");
     expect(tools).toContain("read");
