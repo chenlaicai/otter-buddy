@@ -192,7 +192,7 @@ Output: <交付物契约>
 
 ### 现状（otter）
 
-26 个工具，描述风格极乱。两个极端反例：
+27 个工具，描述风格极乱。两个极端反例：
 
 ```typescript
 // tool-factory.ts:99 — speak 描述 1500+ 字符
@@ -263,7 +263,7 @@ export function errorResponse(text: string): ToolResponse {
 ```
 
 **迁移策略**：
-- 渐进迁移——不一次性改 26 个工具
+- 渐进迁移——不一次性改 27 个工具
 - 高频错误返回的工具优先（speak、create_otter、create_linked_resource 等已有 `[错误]` 前缀的）
 - 文案保留 `[错误]` 前缀（人类可读），同时设 `isError: true`（机器可识别）
 - 上游消费方（agent loop、self-healing）按需切换为读 `isError`
@@ -272,7 +272,7 @@ export function errorResponse(text: string): ToolResponse {
 - Q-B1：isError 字段 SDK 是否原生支持？若不支持，Pi 透传是否丢失？
 - Q-B2：是否要加 error code（如 `INVALID_PARAM / NOT_FOUND / CONFLICT`）？还是 isError + 文案足够？
 
-#### B3. 重写 26 个工具的 description
+#### B3. 重写 27 个工具的 description
 
 按 B1 标准重写。重点：
 - `speak` 拆分——卡片规则移到 references，description 只留"发言+发言石+卡片围栏入口指针"
@@ -561,7 +561,7 @@ clowder-ai 双轨动机：441 行 shared-rules 完整版给维护者读，digest
 1. **A-需求1**：8 个 skill 的 description 都符合三段式契约，新增 skill 时强制如此
 2. **A-需求2**：lint 脚本能识别"违反 description 铁律"、"manifest 与 frontmatter 不一致"、"broken next 指针"
 3. **B-需求1**：所有工具错误返回带 `isError: true`，agent loop 能结构化识别
-4. **B-需求2**：26 个工具 description 都含 What/When/GOTCHA，无超长（>800 字符）或过短（<50 字符）
+4. **B-需求2**：27 个工具 description 都含 What/When/GOTCHA，无超长（>800 字符）或过短（<50 字符）
 5. **C-需求1**：SYSTEM.md 三层结构清晰，每条 P/W 引根因锚
 6. **C-需求2**：重组后 LLM 行为不退化（事实优先、安全底线、流程纪律仍生效）
 
@@ -572,7 +572,7 @@ clowder-ai 双轨动机：441 行 shared-rules 完整版给维护者读，digest
 | A-需求1 | lint 输出 0 error；目视 8 个 SKILL.md description | 命令输出 / 文件内容 |
 | A-需求2 | 故意写错 description 的样本 skill，lint 报错 | 命令输出 |
 | B-需求1 | tool-helpers.ts 含 isError 字段；tool-factory.ts 中 errorResponse 调用 | 文件内容 |
-| B-需求2 | 26 个工具 description 字符数扫描 | 命令输出 |
+| B-需求2 | 27 个工具 description 字符数扫描 | 命令输出 |
 | C-需求1 | SYSTEM.md 三层 markdown 结构；每条 P/W 含根因锚引用 | 文件内容 |
 | C-需求2 | 能力测试：现有 skill（companion / requirement-analysis / adversarial-review）行为样本对比 | 测试结果 |
 
@@ -584,7 +584,7 @@ clowder-ai 双轨动机：441 行 shared-rules 完整版给维护者读，digest
 | AT-2 | A-需求2 | 临时把某 SKILL.md description 改为内容描述（如"transform X into Y"） | lint 报错：description 不符合三段式契约 |
 | AT-3 | A-需求2 | 在 manifest 中把 next 指向不存在的 skill | lint 报错：broken next pointer |
 | AT-4 | B-需求1 | grep `errorResponse` in tool-factory.ts | 高频错误路径全部使用 errorResponse |
-| AT-5 | B-需求2 | 扫描 26 个工具 description 长度 | 全部 ∈ [50, 800] |
+| AT-5 | B-需求2 | 扫描 27 个工具 description 长度 | 全部 ∈ [50, 800] |
 | AT-6 | C-需求2 | 启用隔离实例（独立端口+DB），让 LLM 处理"事实 vs 搭档判断"冲突场景 | 行为不退化：基于事实提出建议 |
 
 ### 能力测试映射

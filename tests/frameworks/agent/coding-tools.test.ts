@@ -106,6 +106,8 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
     expect(tools).not.toContain("manage_healing_events");
+    /** F20260811sktp 第六轮审视：小獭不应能创建定时任务（big-only 管理工具） */
+    expect(tools).not.toContain("create_scheduled_task");
   });
 
   it("undefined otterType 应按 big otter 处理", () => {

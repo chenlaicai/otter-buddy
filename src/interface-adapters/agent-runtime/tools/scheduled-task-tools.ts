@@ -1,6 +1,6 @@
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import type { AgentTool, ToolContext } from "./tool-factory";
-import { textResponse, type ToolResponse } from "./tool-helpers";
+import { textResponse, errorResponse, type ToolResponse } from "./tool-helpers";
 
 /** 校验参数，返回错误消息或 null */
 function validateScheduledTaskParams(
@@ -44,7 +44,7 @@ export function createCreateScheduledTaskTool(
     },
     execute: async (_id: string, params: Record<string, unknown>): Promise<ToolResponse> => {
       const validationError = validateScheduledTaskParams(params);
-      if (validationError) return textResponse(validationError);
+      if (validationError) return errorResponse(validationError);
 
       const scheduleType = (params.scheduleType as string) ?? "cron";
       try {
@@ -66,7 +66,7 @@ export function createCreateScheduledTaskTool(
         return textResponse(`定时任务已创建：${task.id}（${task.name}，${scheduleDesc}，时区: ${task.timezone}）`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        return textResponse(`[错误] 创建定时任务失败：${msg}`);
+        return errorResponse(`[错误] 创建定时任务失败：${msg}`);
       }
     },
   };

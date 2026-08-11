@@ -461,7 +461,7 @@ function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
         (params.limit as number) ?? 10,
       );
       if (results.length === 0) {
-        return textResponse("未找到相关术语");
+        return textResponse("未找到相关术语（搜索成功，零匹配——搭档可换关键词重试或 add_terminology 入库新术语）");
       }
       const entries = results.map((e) => ({
         term: e.term,
