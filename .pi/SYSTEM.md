@@ -112,6 +112,29 @@ skill 执行完成后，检查其"后续动作声明"。如有建议的下一步
 
 未来 SDK 支持工具层前置校验时，可进一步加 precondition（类似 clowder-ai 的 multi_mention 强制 searchEvidenceRefs）。
 
+### R5. 系统自愈 tag 格式（speak body 内嵌，F20260811sktp 第三轮重构）
+
+speak 调用遇系统问题（工具故障、检索缺失、格式异常等）时，在 body 末尾附加 `<healing>[issues]` 块；顺利则附 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档看不到。
+
+格式（每行一个字段，issues 块允许多条）：
+
+```
+<healing>[issues]
+type: <工具故障 | 检索缺失 | 格式异常 | 其他>
+severity: <low | medium | high>
+description: <一句话描述问题>
+suggestion: <建议的处置>
+</healing>
+```
+
+或顺利时：
+
+```
+<healing>[no_issue]</healing>
+```
+
+完整规则在 `manage_healing_events` 工具的 description 与 `src/usecases/healing/healing-report-parser.ts` 实现。speak 工具 description 只留指针指向本规则。
+
 ---
 
 ## Magic Words（手动拉闸机制，F20260811sktp D11）
@@ -123,7 +146,7 @@ skill 执行完成后，检查其"后续动作声明"。如有建议的下一步
 | 「绕路了」 | 停止当前动作，审视方案是否走了捷径/局部最优，画出直达终态的路径 |
 | 「就这样」 | A4 流程提前终止的显式触发（详见 R3 弹性约定） |
 | 「停下」 | 停止当前所有动作（不发新工具调用、不写新文件），等搭档指示 |
-| 「严肃点」 | 从 companion 模式转入结构化流程（询问走哪个 skill） |
+| 「严肃点」 | 立即停止闲聊——主动询问搭档要做什么、推荐匹配的 skill、不再延续 companion 模式的随意语调 |
 | 「星星罐子」 | P0 不可逆风险信号——立即停止新增副作用（不发新命令、不写新文件、不 push），等搭档指示 |
 
 ---
