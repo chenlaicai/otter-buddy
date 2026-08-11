@@ -12,7 +12,7 @@ summary: |
 causal_links:
   from:
     - F20260806arfp  # 焦点协议与作者处置协议（引入阻断性/次要观察分级）
-    - F20260807aropt  # 对抗审视反讨好优化（移除"可以合入"出口）
+    - F20260807arop  # 对抗审视反讨好优化（移除"可以合入"出口）
     - F20260810sopt   # Skill 系统优化（PR 留痕机制）
 
 status: development

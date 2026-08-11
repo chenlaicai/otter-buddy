@@ -11,7 +11,7 @@ summary: |
 
 causal_links:
   from:
-    - F20260721cap    # capability-oriented-skills：能力导向 skill 为小獭提供了能力基础
+    - F20260721cap0    # capability-oriented-skills：能力导向 skill 为小獭提供了能力基础
     - F20260720qs9y   # per-conversation-otter：每对话独立大獭是召唤的前提
     - F20260724skch   # skill-tool-channel-consolidation：信道分层原则（本特性的设计依据）
 

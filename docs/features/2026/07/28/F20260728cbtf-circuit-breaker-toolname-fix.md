@@ -15,7 +15,7 @@ summary: |
 causal_links:
   from:
     - F20260716bte2   # agent-circuit-breaker（熔断器引入，bug 源头）
-    - F20260727guard  # OutputGuard（误杀的对外呈现路径）
+    - F20260727guar  # OutputGuard（误杀的对外呈现路径）
 
 status: final
 change_type: fix

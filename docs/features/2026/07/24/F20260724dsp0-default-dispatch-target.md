@@ -1,5 +1,5 @@
 ---
-id: F20260724dsp
+id: F20260724dsp0
 title: default-dispatch-target
 doc_type: feature
 
@@ -25,7 +25,7 @@ modules:
 created_at: 2026-07-24
 ---
 
-# F20260724dsp 无 @ 发言默认派发：回复最后发言者，兜底大獭
+# F20260724dsp0 无 @ 发言默认派发：回复最后发言者，兜底大獭
 
 ## 术语定义
 
