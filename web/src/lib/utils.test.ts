@@ -1,11 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fmtRelativeTime } from './utils'
 
+const pad = (n: number) => String(n).padStart(2, '0')
+function localDisplay(ts: string): { hhmm: string; date: string; yearDate: string } {
+  const d = new Date(ts)
+  const hhmm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return {
+    hhmm,
+    date: `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm}`,
+    yearDate: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm}`,
+  }
+}
+
 describe('fmtRelativeTime', () => {
+  // 固定为 UTC 2026-08-11 07:00:00（各时区本地时间不同，但 diff 计算一致）
+  const NOW = '2026-08-11T07:00:00Z'
+
   beforeEach(() => {
-    // 固定当前时间为 2026-08-11 15:00:00+08:00（UTC 07:00）
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-08-11T07:00:00Z'))
+    vi.setSystemTime(new Date(NOW))
   })
 
   afterEach(() => {
@@ -35,15 +48,20 @@ describe('fmtRelativeTime', () => {
   })
 
   it('昨天 HH:mm', () => {
-    // 2026-08-10 14:30+08:00 = 2026-08-10 06:30Z
-    expect(fmtRelativeTime('2026-08-10T06:30:00Z')).toBe('昨天 14:30')
+    const ts = '2026-08-10T06:30:00Z' // 无论哪个时区，距 NOW 超 24h 但还是"昨天"
+    const { hhmm } = localDisplay(ts)
+    expect(fmtRelativeTime(ts)).toBe(`昨天 ${hhmm}`)
   })
 
   it('更早日期（同年内）显示 MM-DD HH:mm', () => {
-    expect(fmtRelativeTime('2026-01-15T02:00:00Z')).toBe('01-15 10:00')
+    const ts = '2026-01-15T02:00:00Z'
+    const { date } = localDisplay(ts)
+    expect(fmtRelativeTime(ts)).toBe(date)
   })
 
   it('跨年消息显示 YYYY-MM-DD HH:mm', () => {
-    expect(fmtRelativeTime('2025-12-25T01:00:00Z')).toBe('2025-12-25 09:00')
+    const ts = '2025-12-25T01:00:00Z'
+    const { yearDate } = localDisplay(ts)
+    expect(fmtRelativeTime(ts)).toBe(yearDate)
   })
 })
