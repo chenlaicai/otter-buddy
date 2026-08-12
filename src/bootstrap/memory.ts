@@ -8,6 +8,8 @@ import { cleanMarkdownForFts } from "@usecases/document/markdown-noise-cleaner";
 import { SyncDocuments } from "@usecases/document/sync-documents";
 import type { SyncResult } from "@usecases/document/sync-documents";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
+import { EmbeddingRetryWorker } from "@usecases/memory/embedding-retry-worker";
+import type { EmbeddingRetryWorker as EmbeddingRetryWorkerType } from "@usecases/memory/embedding-retry-worker";
 import type { Repositories } from "./types";
 
 export class MemoryIndexAdapter implements MemoryIndexGateway {
@@ -125,4 +127,43 @@ export async function syncDocuments(repos: Repositories, memoryIndex: MemoryInde
     logger,
   );
   return syncDocs.execute(cwd);
+}
+
+/**
+ * F20260812mrcq Part 1：创建并启动 embedding 重试 worker。
+ *
+ * 启动前做存量迁移：扫描已存在的暗化条目（本 F 上线前累积），
+ * 批量 enqueueRetry 入队，让 retry worker tick 后逐步修复。
+ *
+ * 仅在 vec 路径启用时启动 worker——disableVec 状态下 worker tick 会空转，
+ * 浪费 timer。重新启用 vec 后（如配置回退重启）会重新走 bootstrap 启动 worker。
+ */
+export async function createAndStartRetryWorker(
+  repos: Repositories,
+  embeddingService: EmbeddingGateway,
+  logger: Logger,
+): Promise<EmbeddingRetryWorkerType | null> {
+  // vec 未启用：不启动 worker（tick 会空转）
+  if (!repos.memory.isVecEnabled()) {
+    logger.info("EmbeddingRetryWorker not started: vec path disabled");
+    return null;
+  }
+
+  // F20260812mrcq Part 1 审视 M8：存量暗化条目迁移
+  // 扫描已存在的暗化条目，批量 enqueueRetry 入队
+  const existing = await repos.memory.scanDarkEntries(true);  // includeDead=true：之前若曾有 dead 也尝试重新 embed
+  if (existing.total > 0) {
+    logger.info(`Migrating ${existing.total} existing dark entries to retry queue`);
+    for (const entry of existing.entries) {
+      await repos.memory.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"));
+    }
+  }
+
+  const worker = new EmbeddingRetryWorker(repos.memory, embeddingService, logger);
+  worker.start();
+  logger.info("EmbeddingRetryWorker started", {
+    intervalMs: 30_000,
+    migratedExisting: existing.total,
+  });
+  return worker;
 }

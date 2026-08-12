@@ -145,11 +145,11 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）.`,
+    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", description: "检索关键词" },
+        query: { type: "string", description: "检索关键词（F/R 文档 ID 会自动短路定位）" },
         limit: { type: "number", description: "最大结果数" },
         detail_level: {
           type: "string",
@@ -172,6 +172,10 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
           },
           description: "按内容类型过滤（多选）。feature=文档概要、feature_chunk=文档分段片段、research=研究概要、research_chunk=研究分段片段、message=对话消息、fact=事实、linked_resource=链接资源。如只搜文档正文片段传 [\"feature_chunk\"]",
         },
+        expand_context: {
+          type: "boolean",
+          description: "开启邻域扩展：命中 chunk 时返回前后 chunk（chunk_index ±1），命中 message 时返回前后消息。结果在 contextEntries 字段（不混入 entries）。适用于需要理解命中条目上下文的场景（F20260812mrcq）。",
+        },
       },
       required: ["query"],
     },
@@ -185,6 +189,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         params.library as string | undefined,
         params.created_after as string | undefined,
         contentType,
+        params.expand_context as boolean | undefined,
       );
       return textResponse(JSON.stringify(entries));
     },

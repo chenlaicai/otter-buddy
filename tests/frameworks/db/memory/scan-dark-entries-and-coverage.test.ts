@@ -54,12 +54,25 @@ describe("SqliteMemoryRepository - F20260811mrpy Part 1 暗化/覆盖率", () =>
     expect(result.vecDisabled).toBe(false);
   });
 
-  it("scanDarkEntries 在 disableVec 后返回 vecDisabled=true", async () => {
+  it("scanDarkEntries 在 disableVec 后清表并返回全表暗化 vecDisabled=true", async () => {
+    // F20260812mrcq Part 0：disableVec 同步清 memory_vec 表；
+    // scanDarkEntries 用 vecTableExists 守卫（不受 hasVec 影响），仍能检测全表暗化。
     repo.disableVec();
     const result = await repo.scanDarkEntries();
-    expect(result.entries).toHaveLength(0);
-    expect(result.total).toBe(0);
+    // 清表后 e1 也失去 vec，加上原本无 vec 的 e2，共 2 条暗化
+    expect(result.entries).toHaveLength(2);
+    expect(result.total).toBe(2);
     expect(result.vecDisabled).toBe(true);
+  });
+
+  it("F20260812mrcq Part 0: disableVec 后 vecTableExists 不变（物理表还在）", async () => {
+    // disableVec 前已清表，再次调用验证 vecTableExists 不变
+    const before = repo.hasVecTable();
+    repo.disableVec();
+    const after = repo.hasVecTable();
+    expect(before).toBe(true);
+    expect(after).toBe(true);  // 物理表存在不受 disableVec 影响
+    expect(repo.isVecEnabled()).toBe(false);  // 但运行时禁用
   });
 
   it("hasEmbeddings 在 disableVec 后所有 entry 返回 false", async () => {
