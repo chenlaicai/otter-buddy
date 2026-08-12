@@ -173,8 +173,10 @@ export class SearchMemory {
     const match = queryString.match(ANCHOR_PATTERN);
     if (!match) return null;
 
-    const anchorId = match[0];
-    const isFeature = anchorId[0].toUpperCase() === "F";
+    // 审视二轮 M3: anchorId 归一化为文档命名约定的小写后缀（DB source_id 大小写敏感）
+    const rawId = match[0];
+    const anchorId = rawId[0].toUpperCase() + rawId.slice(1).toLowerCase();
+    const isFeature = rawId[0].toUpperCase() === "F";
     const preferredContentType = isFeature ? "feature" : "research";
     // 优先 summary（coarse 粒度信息密度高），fallback 到任意 contentType
     const anchorEntry =
@@ -182,8 +184,8 @@ export class SearchMemory {
       ?? (await this.repo.getBySourceId(anchorId));
     if (!anchorEntry) return null;
 
-    // 剩余 query（去除 anchor ID + trim）走 RRF
-    const remaining = queryString.replace(anchorId, "").trim();
+    // 剩余 query（去除原始大小写的 ID + trim）走 RRF
+    const remaining = queryString.replace(rawId, "").trim();
     const detailLevel = query.detailLevel ?? "summary";
 
     let rrfResult: RetrievalResult;
@@ -494,7 +496,7 @@ export class SearchMemory {
    * RRF 融合后的结果重排 + 批量递增计数 + 组装返回值。
    * F20260811mrpy：扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
    */
-  // eslint-disable-next-line max-lines-per-function, max-params -- F20260811mrpy 三 Part 扩展必要
+  // eslint-disable-next-line max-params -- F20260811mrpy 三 Part 扩展必要
   private async rerankAndReturn(
     rrfHits: Map<string, RrfHit>,
     limit: number,

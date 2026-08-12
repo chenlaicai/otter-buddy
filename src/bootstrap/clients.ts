@@ -29,8 +29,16 @@ export function buildMemoryClient(uc: UseCases) {
     },
     // eslint-disable-next-line max-params -- 合并 main 分支 contentType + recruiting createdAfter + F20260812mrcq expandContext 参数
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean) => {
-      const { entries } = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType, expandContext });
-      return entries.map(e => ({ id: e.id, content: e.content, score: e.score, layer: e.layer, snippet: e.snippet, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
+      const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType, expandContext });
+      const mapEntry = (e: { id: string; content: string; score: number; layer: string; snippet?: string; contentType: string; metadata: Record<string, unknown> | null; createdAt: string }) => ({
+        id: e.id, content: e.content, score: e.score, layer: e.layer, snippet: e.snippet,
+        contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt,
+      });
+      return {
+        entries: result.entries.map(mapEntry),
+        // F20260812mrcq Part 2 审视二轮 B1: agent 路径透传 contextEntries
+        ...(result.contextEntries ? { contextEntries: result.contextEntries.map(mapEntry) } : {}),
+      };
     },
     getDetails: async (ids: string[]) => {
       const entries = await uc.manageMemory.getDetails(ids);

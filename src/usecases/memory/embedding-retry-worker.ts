@@ -38,6 +38,8 @@ export class EmbeddingRetryWorker {
     if (!this.stopped) return;
     this.stopped = false;
     this.timer = setInterval(() => {
+      // 审视二轮 M6: setInterval 触发前检查 stopped，避免 stop 后还跑 tick
+      if (this.stopped) return;
       this.inflightTick = this.tick().catch(e =>
         this.logger.error(`EmbeddingRetryWorker tick failed: ${e}`),
       );

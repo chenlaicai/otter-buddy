@@ -182,7 +182,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
     execute: async (_id: string, params: Record<string, unknown>) => {
       const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "summary";
       const contentType = params.content_type as MemoryContentType[] | undefined;
-      const entries = await ctx.client.memory.search(
+      const { entries, contextEntries } = await ctx.client.memory.search(
         params.query as string,
         (params.limit as number) ?? 10,
         detailLevel,
@@ -191,7 +191,10 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         contentType,
         params.expand_context as boolean | undefined,
       );
-      return textResponse(JSON.stringify(entries));
+      // F20260812mrcq Part 2: 透传 contextEntries 给 agent（不混入 entries，避免评分断层）
+      return textResponse(JSON.stringify(
+        contextEntries && contextEntries.length > 0 ? { entries, contextEntries } : entries,
+      ));
     },
   };
 }

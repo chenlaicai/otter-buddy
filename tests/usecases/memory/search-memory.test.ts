@@ -508,14 +508,15 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    // 灌一条 F 文档 summary
-    repo.storeEntry({
+    // 灌一条 F 文档 summary（审视二轮 M1: await 防 fire-and-forget 竞态）
+    await repo.storeEntry({
       id: "anchor-1", layer: "document", contentType: "feature",
       sourceId: "F20260812mrcq", sourceTable: "features",
       conversationId: null, granularity: "coarse",
       content: "F20260812mrcq summary content about memory recall quality",
       metadata: null, createdAt: "2026-08-12T00:00:00Z",
-    }).then(() => repo.storeEmbedding("anchor-1", new Float32Array([0.1, 0.2, 0.3])));
+    });
+    await repo.storeEmbedding("anchor-1", new Float32Array([0.1, 0.2, 0.3]));
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
