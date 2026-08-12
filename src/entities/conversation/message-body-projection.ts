@@ -157,13 +157,15 @@ function utf8SafeSlice(str: string, maxBytes: number): string {
   return buf.subarray(0, end).toString("utf8");
 }
 
-/** 按 UTF-8 字节阈值截断，尽量对齐到段落边界（`\n\n`）。若单段超阈，硬切到字符边界 */
+/** 按 UTF-8 字节阈值截断,尽量对齐到段落边界(`\n\n`)。若单段超阈,硬切到字符边界 */
 function truncateByBytes(text: string, maxBytes: number, hint: string): string {
   if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
 
+  // 归一化 Windows 换行: `\r\n` → `\n`, 避免段落分割正则失配(IPR 审视发现)
+  const normalized = text.replace(/\r\n/g, "\n");
   // 预留 hint 字节 + 2 字节("\n\n" 分隔符),保证 truncated + separator + hint 总长 ≤ maxBytes
   const budgetForText = Math.max(0, maxBytes - Buffer.byteLength(hint, "utf8") - 2);
-  const paragraphs = text.split(/(\n\n+)/); // 保留分隔符以便重组
+  const paragraphs = normalized.split(/(\n\n+)/); // 保留分隔符以便重组
   const kept: string[] = [];
   let used = 0;
 
@@ -202,7 +204,10 @@ export function projectForChannel(body: string, options: ProjectForChannelOption
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const truncationHint = options.truncationHint ?? DEFAULT_TRUNCATION_HINT;
 
-  const stripped = stripHtmlCardFences(body);
+  // stripHtmlCardFences 仅在含 "html-card" 时剥 BOM(短路路径保留 BOM);
+  // 飞书侧输出对终端用户可见,BOM 会渲染为怪字符,这里统一主动剥
+  const bomStripped = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
+  const stripped = stripHtmlCardFences(bomStripped);
   const humanized = humanizePlaceholders(stripped, options);
   return truncateByBytes(humanized, maxBytes, truncationHint);
 }

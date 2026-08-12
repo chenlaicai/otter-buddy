@@ -148,4 +148,27 @@ describe("projectForChannel（信道投影出口：飞书 post + md）", () => {
     expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(5000);
     expect(out).toContain("…(已截断");
   });
+
+  it("\\r\\n 换行归一化后按段落截断(审视发现)", () => {
+    // Windows 换行:不应被当作单个巨型段落硬切
+    const para1 = "A".repeat(100);
+    const para2 = "B".repeat(100);
+    const para3 = "C".repeat(100);
+    const body = `${para1}\r\n\r\n${para2}\r\n\r\n${para3}`;
+    const out = projectForChannel(body, { maxBytes: 250 });
+    expect(out).toContain("AA");
+    expect(out).toContain("BB");
+    expect(out).not.toContain("CC");
+    expect(out).toContain("…(已截断");
+  });
+
+  it("BOM + 截断:stripHtmlCardFences 剥 BOM 后截断不串位", () => {
+    // stripHtmlCardFences 会剥 BOM, projectForChannel 流水线下游截断应基于剥 BOM 后的文本
+    const bom = "\uFEFF";
+    const body = `${bom}${"字".repeat(5000)}`;
+    const out = projectForChannel(body, { maxBytes: 1000 });
+    expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(1000);
+    expect(out).not.toContain("\uFEFF");
+    expect(out).toContain("…(已截断");
+  });
 });
