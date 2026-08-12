@@ -23,7 +23,7 @@ export function getCodingToolsForOtterType(_otterType: string | undefined): stri
  */
 export function getOtterToolNamesForType(otterType: string | undefined): string[] {
   const allToolNames = [
-    "speak", "invite_participant", "search_memory",
+    "speak", "search_memory",
     "create_otter", "dissolve_otter", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
     "get_context", "set_context", "delete_context",

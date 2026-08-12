@@ -141,27 +141,6 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
-function createInviteParticipantTool(ctx: ToolContext): AgentTool {
-  return {
-    name: "invite_participant",
-    description: "邀请指定 Otter 加入当前对话. When: 需要拉入不在场的 Otter 加入协作时. Not for: 创建新 Otter → create_otter. 解散 → dissolve_otter. Output: 参与者加入成功的确认. GOTCHA: 被邀请的 Otter 必须已存在（用 create_otter 创建过），否则加入失败.",
-    parameters: {
-      type: "object",
-      properties: {
-        otterId: { type: "string", description: "被邀请的 Otter ID" },
-      },
-      required: ["otterId"],
-    },
-    execute: async (_id: string, params: Record<string, unknown>) => {
-      const participant = await ctx.client.conversation.participant.join(
-        ctx.conversationId,
-        params.otterId as string,
-      );
-      return textResponse(`Otter ${params.otterId} joined conversation. Participant ID: ${participant.id}`);
-    },
-  };
-}
-
 /** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由 + 时间过滤） */
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
@@ -545,7 +524,6 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
-    createInviteParticipantTool(ctx),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
