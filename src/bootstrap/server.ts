@@ -3,6 +3,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Logger } from "@usecases/ports/logger";
 import { createRouter } from "@interface-adapters/http/router";
+import { getMetricsRegistry } from "@frameworks/metrics/registry";
 import type { initControllers } from "./controllers";
 
 type Controllers = ReturnType<typeof initControllers>;
@@ -15,6 +16,14 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
     const requestId = c.get('requestId' as never) as string | undefined;
     logger.error(`Unhandled HTTP error: ${c.req.method} ${c.req.path}`, err instanceof Error ? err : new Error(String(err)), { requestId });
     return c.json({ error: "Internal server error", ...(requestId ? { requestId } : {}) }, 500);
+  });
+
+  // Prometheus metric 端点（Prometheus 文本格式）
+  app.get("/metrics", async (c) => {
+    const registry = getMetricsRegistry();
+    if (!registry) return c.text("metrics not initialized", 503);
+    const text = await registry.metricsText();
+    return c.text(text, 200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" });
   });
 
   app.route("/", createRouter(controllers, logger));
