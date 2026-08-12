@@ -75,7 +75,7 @@ otterCard.submit({
 export function createGetHtmlCardContractTool(): AgentTool {
   return {
     name: "get_html_card_contract",
-    description: "获取 HTML 卡片的完整写作契约（样式变量、交互 API、禁用清单）。每次准备写卡片前调用——会话冷启动后需重新调用。",
+    description: "获取 HTML 卡片的完整写作契约（样式变量/交互 API/禁用清单）. When: 准备写 ```html-card``` 卡片前必须调用（speak description 只含最小契约，完整规则在本工具返回值里）. Output: 卡片契约全文. GOTCHA: 会话冷启动后需重新调用（结果不持久化进上下文）.",
     parameters: {
       type: "object",
       properties: {},

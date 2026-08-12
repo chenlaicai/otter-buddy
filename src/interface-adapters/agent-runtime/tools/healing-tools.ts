@@ -7,7 +7,7 @@ import type { HealingResolutionAction } from "@entities/healing/healing-event";
 import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
 import type { Logger } from "@usecases/ports/logger";
 import type { ToolContext, AgentTool } from "./tool-factory";
-import { type ToolResponse, textResponse } from "./tool-helpers";
+import { type ToolResponse, textResponse, errorResponse } from "./tool-helpers";
 
 /** 解析并剥离 healing report，返回清理后的 body */
 export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {
@@ -41,19 +41,28 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
       return textResponse(JSON.stringify(events, null, 2));
     }
     const ids = params.eventIds as string[];
-    if (!ids?.length) return textResponse("[错误] eventIds 不能为空");
+    if (!ids?.length) return errorResponse("[错误] eventIds 不能为空");
     if (action === 'resolve' || action === 'dismiss') {
       const fn = action === 'resolve'
         ? (id: string) => healingRepo.resolve(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' })
         : (id: string) => healingRepo.updateStatus(id, 'dismissed');
       const res = await Promise.allSettled(ids.map(fn));
-      return textResponse(`完成: ${res.filter(r => r.status === 'fulfilled').length}/${ids.length} 成功`);
+      const succeeded = res.filter(r => r.status === 'fulfilled').length;
+      /** F20260811sktp 第三轮审视：部分失败时设 isError=true，让 LLM 结构化识别重试失败的那些 */
+      if (succeeded < ids.length) {
+        const failedReasons = res
+          .map((r, i) => r.status === 'rejected' ? `${ids[i]}: ${(r as PromiseRejectedResult).reason?.message ?? String((r as PromiseRejectedResult).reason)}` : null)
+          .filter(Boolean)
+          .join('; ');
+        return errorResponse(`[错误] 部分失败：${succeeded}/${ids.length} 成功。失败原因：${failedReasons}`);
+      }
+      return textResponse(`完成: ${succeeded}/${ids.length} 成功`);
     }
-    return textResponse(`未知操作: ${action}`);
+    return errorResponse(`[错误] 未知操作: ${action}。支持的操作：query / resolve / dismiss。`);
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）。查看待处理问题、标记已解决/忽略。",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss）. GOTCHA: 批量 resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {

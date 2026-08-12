@@ -1,10 +1,12 @@
 ---
 name: adversarial-review
 description: >-
-  Find real problems in code changes (PR) or design documents.
-  Not a rubber stamp. Covers multi-dimensional checking, independent verification,
-  and structured problem reporting.
+  Precondition: 实现者不得自行执行审视（异体执行原则——自己审自己等于没审；单 agent 场景下降级为搭档确认）.
+  Use when: 搭档或父 agent 要求对代码变更（PR）或设计文档进行对抗审视.
+  Not for: 闲聊评审 → companion.
+  Output: 结构化审视报告（本轮焦点 + 6 维度检查 + 阻断性问题附 file:line + 次要观察），代码审视留痕到 PR review comment.
 co_loads: []
+category: technique
 ---
 
 # Adversarial Review

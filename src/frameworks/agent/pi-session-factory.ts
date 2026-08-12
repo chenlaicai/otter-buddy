@@ -317,6 +317,20 @@ export class PiSessionFactory implements AgentGateway {
               pi.on("before_agent_start", (event: { systemPrompt: string }) => {
                 return buildBeforeAgentStartResult(event, otterInvokeStorage.getStore());
               });
+              /**
+               * F20260811sktp: isError 透传。
+               * SDK 的 AgentToolResult 不消费工具返回值顶层 isError 字段（成功路径硬编码 isError=false）。
+               * buildCustomTools mapping 时把 otter ToolResponse.isError 复制到 details.__isError，
+               * 此 handler 读 details.__isError 返回 { isError: true } 覆盖 SDK 标志，
+               * 透传到 Anthropic API 的 tool_result.is_error，让 LLM 结构化识别错误。
+               */
+              pi.on("tool_result", (event: { details?: unknown }) => {
+                const details = event.details as { __isError?: boolean } | undefined;
+                if (details?.__isError === true) {
+                  return { isError: true };
+                }
+                return undefined;
+              });
             },
           }],
         });
@@ -904,7 +918,16 @@ export class PiSessionFactory implements AgentGateway {
         parameters: t.parameters,
         execute: async (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => {
           const result = await t.execute(toolCallId, params, signal);
-          return truncateToolResult(result);
+          const truncated = truncateToolResult(result);
+          /**
+           * F20260811sktp: otter ToolResponse.isError → SDK details.__isError 透传。
+           * SDK 的 AgentToolResult 不消费顶层 isError 字段；otter-hooks 的 tool_result handler
+           * 读 details.__isError 返回 { isError: true } 覆盖 SDK 标志，透传到 Anthropic API。
+           */
+          if (result.isError) {
+            truncated.details = { ...truncated.details, __isError: true };
+          }
+          return truncated;
         },
       }));
   }

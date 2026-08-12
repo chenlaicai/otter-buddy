@@ -1,6 +1,6 @@
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import type { AgentTool, ToolContext } from "./tool-factory";
-import { textResponse, type ToolResponse } from "./tool-helpers";
+import { textResponse, errorResponse, type ToolResponse } from "./tool-helpers";
 
 /** 校验参数，返回错误消息或 null */
 function validateScheduledTaskParams(
@@ -25,7 +25,7 @@ export function createCreateScheduledTaskTool(
 ): AgentTool {
   return {
     name: "create_scheduled_task",
-    description: "创建定时任务。支持 cron（周期性）和 once（一次性）两种调度类型。创建后立即生效。",
+    description: "创建定时任务. When: 需要周期性或定时触发海獭执行（如每日摘要、定时提醒）. Not for: 即时通知 → 直接 speak. Output: 任务 ID + 调度信息确认. GOTCHA: scheduleType=cron 时 cron 必须是 5 字段；scheduleType=once 时 triggerAt 必须是 ISO 8601. BOUNDARY: 创建后立即生效，只能删不能暂停；大獭可创建，小獭不可.",
     parameters: {
       type: "object",
       properties: {
@@ -44,7 +44,7 @@ export function createCreateScheduledTaskTool(
     },
     execute: async (_id: string, params: Record<string, unknown>): Promise<ToolResponse> => {
       const validationError = validateScheduledTaskParams(params);
-      if (validationError) return textResponse(validationError);
+      if (validationError) return errorResponse(validationError);
 
       const scheduleType = (params.scheduleType as string) ?? "cron";
       try {
@@ -66,7 +66,7 @@ export function createCreateScheduledTaskTool(
         return textResponse(`定时任务已创建：${task.id}（${task.name}，${scheduleDesc}，时区: ${task.timezone}）`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        return textResponse(`[错误] 创建定时任务失败：${msg}`);
+        return errorResponse(`[错误] 创建定时任务失败：${msg}`);
       }
     },
   };

@@ -4,12 +4,12 @@ import type { MemoryContentType } from "@entities/memory/memory-entry";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
-import { type ToolResponse, textResponse, validateSpeakBody } from "./tool-helpers";
+import { type ToolResponse, textResponse, errorResponse, validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
-import { interceptHealingReport } from "./healing-tools";
+import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
@@ -98,7 +98,7 @@ function validateAndResolve(
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里；speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（结果带 terminate，loop 不再发起后续生成），系统调度下一位发言者。speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。【HTML 卡片】仅当内容满足以下标准时用 ```html-card title=\"标题\" 围栏嵌入自包含 HTML 卡片：可独立交付物（方案、对比、报告、可视化）、结构化表达明显增益、搭档可能迭代导出。反例（不要用）：短回答、代码片段、简单列表。卡片围栏必须完整写在 body 参数内——写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。一条消息最多 2 张，单卡 ≤4KB（超限会被截断导致发言损坏）；卡片禁止导航与外链。卡片可携带表单/按钮收集搭档输入——写交互卡片前必须调 get_html_card_contract。搭档消息中的 ```html-card-reply 围栏是卡片回执：内嵌 JSON 可解析，解析失败时以摘要文字为准并复述确认。【系统自愈】如果本次调用遇到系统问题（工具故障、检索缺失、格式异常等），在 body 末尾附加 `<healing>[issues]` 块（type/severity/description/suggestion 各一行）；顺利则输出 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档不会看到。",
+    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里——speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（terminate=true），系统调度下位发言者。GOTCHA: speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
     parameters: {
       type: "object",
       properties: {
@@ -112,7 +112,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       required: ["body", "talkingStonePassedTo"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      if (!ctx.currentMessageId) return textResponse("[错误] 系统错误：当前消息 ID 未设置，无法声明发言。");
+      if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法声明发言。");
 
       const rawBody = params.body as string;
       const recipients = params.talkingStonePassedTo as string[];
@@ -122,11 +122,11 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 
       /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
       const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
-      if (bodyError) return textResponse(bodyError);
+      if (bodyError) return errorResponse(bodyError);
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
-      if (error) return textResponse(error);
+      if (error) return errorResponse(error);
 
       try {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
@@ -134,7 +134,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合发言已提交，无需重复调用 speak。请停止调用任何工具。"), terminate: true };
         }
-        return textResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
+        return errorResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
       return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。系统将自动调度下一位发言者。"), terminate: true };
     },
@@ -144,7 +144,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 function createInviteParticipantTool(ctx: ToolContext): AgentTool {
   return {
     name: "invite_participant",
-    description: "邀请指定 Otter 加入当前对话。",
+    description: "邀请指定 Otter 加入当前对话. When: 需要拉入不在场的 Otter 加入协作时. Not for: 创建新 Otter → create_otter. 解散 → dissolve_otter. Output: 参与者加入成功的确认. GOTCHA: 被邀请的 Otter 必须已存在（用 create_otter 创建过），否则加入失败.",
     parameters: {
       type: "object",
       properties: {
@@ -166,15 +166,7 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆。有明确历史信号时才检索（搭档提到'上次'、问历史决策原因、跨会话续接、术语不明），不要每次回复前都搜索。
-
-渐进式披露工作流（默认策略）：
-1. 首次搜索用 detail_level="summary"，快速扫描哪些条目相关
-2. 看中特定条目后，用 get_memory_detail 传入 ID 获取完整内容
-3. 只在需要匹配上下文片段时用 detail_level="snippet"
-4. detail_level="full" 仅用于明确需要一次性获取全文的场景（如批量导出）
-
-记忆与当前上下文冲突时以当前上下文为准。可指定 library 路由到特定库；可指定 created_after 过滤时间范围（如定时摘要查今日新增）。`,
+    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）.`,
     parameters: {
       type: "object",
       properties: {
@@ -223,7 +215,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
-    description: "创建子 Otter。parentOtterId 由系统注入。",
+    description: "创建子 Otter. When: 需要召唤专门执行特定任务的小獭（独立审视/并行工作/角色讨论/任务分担）. Not for: 邀请已存在的 Otter 加入 → invite_participant. 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
     parameters: {
       type: "object",
       properties: {
@@ -238,14 +230,14 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       const modelAlias = params.modelAlias as string | undefined;
       if (modelAlias && modelAlias.trim().length > 0 && ctx.modelPool && !ctx.modelPool.hasModel(modelAlias)) {
         const available = ctx.modelPool.describeModels().map(m => m.alias).join(", ");
-        return textResponse(`[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`);
+        return errorResponse(`[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`);
       }
 
       /** 检查是否已有同名参与者 */
       const existing = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const duplicate = existing.find(p => p.otterName === params.name);
       if (duplicate) {
-        return textResponse(`[错误] 在场已有同名参与者「${params.name}」（ID: ${duplicate.otterId}）。请直接使用已有的参与者，不要重复创建。`);
+        return errorResponse(`[错误] 在场已有同名参与者「${params.name}」（ID: ${duplicate.otterId}）。请直接使用已有的参与者，不要重复创建。`);
       }
       const otter = await ctx.client.otter.create({
         name: params.name as string,
@@ -264,7 +256,7 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
 function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "dissolve_otter",
-    description: "解散指定 Otter。",
+    description: "解散指定 Otter. When: 小獭任务完成不再需要 / 需要清理临时召唤的 Otter. Not for: 重启 Otter（保留身份换 session）→ restart_otter. 创建 → create_otter. Output: 解散成功的确认（含 participant 记录更新警告）. GOTCHA: **解散不可逆**——session 和上下文永久丢失，无法恢复. GOTCHA: 不能解散自己（Otter 无法自我溶解，会留下孤儿 session）. dissolve 后 participant 记录若未更新仅留警告（不阻断，otter 已销毁）.",
     parameters: {
       type: "object",
       properties: {
@@ -275,7 +267,7 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
     execute: async (_id: string, params: Record<string, unknown>) => {
       const targetOtterId = params.otterId as string;
       if (targetOtterId === ctx.otterId) {
-        return textResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
+        return errorResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
       }
       await ctx.client.otter.dissolve(targetOtterId);
       /** F20260803trrf: 顺带更新 participant status。leave 失败不阻断 dissolve（otter 已销毁不可逆），仅附警告。 */
@@ -294,7 +286,7 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
 function createRestartOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "restart_otter",
-    description: "重启指定 Otter 的獭生。封存当前 Session（前世），以全新上下文开启新一世。小獭只能重启自己，大獭可重启任意 Otter。",
+    description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——新世上下文为空，靠 summary 注入；不传 summary 则新世从零开始. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
     parameters: {
       type: "object",
       properties: {
@@ -319,13 +311,13 @@ function createRestartOtterTool(ctx: ToolContext): AgentTool {
 
       // 小獭只能重启自己
       if (isSmallOtter && targetOtterId !== ctx.otterId) {
-        return textResponse("[错误] 小獭只能重启自己的獭生，不能重启其他 Otter。");
+        return errorResponse("[错误] 小獭只能重启自己的獭生，不能重启其他 Otter。");
       }
 
       // 校验目标 otter 存在性（避免孤儿 session 或 FK violation）
       const target = await ctx.client.otter.getById(targetOtterId);
       if (!target) {
-        return textResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
+        return errorResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
       }
 
       const session = await ctx.client.otter.restart(targetOtterId, summary);
@@ -337,7 +329,7 @@ function createRestartOtterTool(ctx: ToolContext): AgentTool {
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源（统一产物模型）。conversationId 和 linkedBy 由系统注入。fact 用于简短摘要/关键决策（≤500 字符）。长内容（方案、设计文档等）必须先用 write 写入文件，再创建 file 类型资源指向文件路径。",
+    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
     parameters: {
       type: "object",
       properties: {
@@ -354,15 +346,15 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       const resourceType = (params.resourceType as string | undefined) ?? "url";
       if (resourceType === "fact") {
         if (!params.content || (params.content as string).trim().length === 0) {
-          return textResponse("[错误] resourceType 为 'fact' 时，content 不能为空。请提供事实文本内容。");
+          return errorResponse("[错误] resourceType 为 'fact' 时，content 不能为空。请提供事实文本内容。");
         }
         const content = params.content as string;
         if (content.length > FACT_CONTENT_MAX_LENGTH) {
-          return textResponse(`[错误] ${FACT_CONTENT_TOO_LONG_MESSAGE}`);
+          return errorResponse(`[错误] ${FACT_CONTENT_TOO_LONG_MESSAGE}`);
         }
       } else {
         if (!params.url || (params.url as string).trim().length === 0) {
-          return textResponse(`[错误] resourceType 为 '${resourceType}' 时，url 不能为空。请提供资源 URL 或路径。`);
+          return errorResponse(`[错误] resourceType 为 '${resourceType}' 时，url 不能为空。请提供资源 URL 或路径。`);
         }
       }
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
@@ -385,7 +377,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
 function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_memory_detail",
-    description: "渐进式披露第二阶段：获取指定记忆条目的完整内容。在 search_memory（summary 模式）扫到相关条目后，用此工具传入 ID 获取全文。支持批量查询。不要跳过 search_memory 直接用此工具。",
+    description: "渐进式披露第二阶段：按 ID 获取记忆条目完整内容. When: search_memory(summary) 扫到相关条目后取全文. Not for: 跳过 search_memory 直接用（ID 无来源）. Output: 记忆条目全文（批量支持）. TIP: 默认走 search_memory → get_memory_detail 两步，不要跳过首步.",
     parameters: {
       type: "object",
       properties: {
@@ -408,7 +400,7 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
 function createGetContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_context",
-    description: "获取当前 Otter 的上下文。otterId 由系统注入。",
+    description: "获取当前 Otter 的上下文（key-value 存储）. When: 需要读取自己之前存的上下文（如任务进度、临时变量）. Output: 全部上下文或指定 key 的值. BOUNDARY: otterId 由系统注入，只读自己的上下文. TIP: 不传 key 返回全部.",
     parameters: {
       type: "object",
       properties: {
@@ -428,7 +420,7 @@ function createGetContextTool(ctx: ToolContext): AgentTool {
 function createSetContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "set_context",
-    description: "设置当前 Otter 的上下文。otterId 由系统注入。",
+    description: "设置当前 Otter 的上下文键值对. When: 需要持久化任务进度/临时变量，供后续轮次读取. Not for: 长期记忆 → search_memory/create_linked_resource. Output: 设置成功确认. BOUNDARY: otterId 由系统注入. TIP: 适合存下轮要用的中间状态.",
     parameters: {
       type: "object",
       properties: {
@@ -454,7 +446,7 @@ function createSetContextTool(ctx: ToolContext): AgentTool {
 function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_terminology",
-    description: "在术语库中查找项目域内术语的定义。当搭档询问某个词的含义时使用。",
+    description: "在术语库中查找项目域内术语的定义. When: 搭档询问某词含义 / 需确认术语对齐时. Not for: 一般知识问答. Output: 术语定义 + 别名 + 分类 + 上下文. TIP: 频繁出现的不明词先查这里再问搭档.",
     parameters: {
       type: "object",
       properties: {
@@ -469,7 +461,7 @@ function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
         (params.limit as number) ?? 10,
       );
       if (results.length === 0) {
-        return textResponse("未找到相关术语");
+        return textResponse("未找到相关术语（搜索成功，零匹配——搭档可换关键词重试或 add_terminology 入库新术语）");
       }
       const entries = results.map((e) => ({
         term: e.term,
@@ -487,7 +479,7 @@ function createSearchTerminologyTool(ctx: ToolContext): AgentTool {
 function createAddTerminologyTool(ctx: ToolContext): AgentTool {
   return {
     name: "add_terminology",
-    description: "在术语库中记录新的项目域术语。仅在搭档显式定义术语时使用。",
+    description: "在术语库中记录新的项目域术语. When: 搭档显式定义新术语（如「我们约定 X 表示 Y」）. Not for: 自己揣测术语 → 不入库. Output: 术语入库确认（含 ID）. GOTCHA: 必须搭档显式定义——自己揣测的术语会污染术语库.",
     parameters: {
       type: "object",
       properties: {
@@ -515,7 +507,7 @@ function createAddTerminologyTool(ctx: ToolContext): AgentTool {
 function createDeleteContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "delete_context",
-    description: "删除当前 Otter 的上下文条目。otterId 由系统注入。",
+    description: "删除当前 Otter 的指定上下文 key. When: 上下文过期 / 任务结束清理中间状态. Output: 删除确认. BOUNDARY: otterId 由系统注入. GOTCHA: 删除不可逆，确认 key 无用再删.",
     parameters: {
       type: "object",
       properties: {
@@ -533,7 +525,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话中所有活跃参与者（otterId、otterName、status、joinedAtTurnNumber）。conversationId 由系统注入。speak 的 talkingStonePassedTo 用 otterName；invite/dissolve 用 otterId。",
+    description: "获取当前对话所有活跃参与者. When: 需要知道场上有谁、可用什么名字传发言石. Output: otterId / otterName / status / joinedAtTurnNumber 列表. BOUNDARY: 只读不修改状态. conversationId 由系统注入. TIP: speak 的 talkingStonePassedTo 用 otterName; invite/dissolve 用 otterId.",
     parameters: {
       type: "object",
       properties: {},
@@ -574,6 +566,11 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetActiveParticipantsTool(ctx),
     createGetHtmlCardContractTool(),
   ];
+  /** F20260811sktp 第五轮审视：manage_healing_events 此前未注册（pre-existing bug），
+   *  但本 PR SYSTEM.md R5 显式引用了它，必须确保运行时可用。 */
+  if (healingRepo) {
+    tools.push(createManageHealingEventsTool(ctx, healingRepo));
+  }
   if (workspaceGateway) {
     tools.push(...createWorkspaceTools(ctx, workspaceGateway));
   }
