@@ -23,7 +23,7 @@ export function getCodingToolsForOtterType(_otterType: string | undefined): stri
  */
 export function getOtterToolNamesForType(otterType: string | undefined): string[] {
   const allToolNames = [
-    "speak", "invite_participant", "search_memory",
+    "speak", "search_memory",
     "create_otter", "dissolve_otter", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
     "get_context", "set_context", "delete_context",
@@ -31,16 +31,15 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
     "manage_healing_events",
-    "workspace_info", "workspace_list", "workspace_read", "workspace_write",
-    /** F20260811sktp 第五轮审视：补 create_scheduled_task 白名单（merge main 引入但 PR #226 漏注册） */
     "create_scheduled_task",
+    "workspace_info", "workspace_list", "workspace_read", "workspace_write",
   ];
 
   if (!otterType || otterType === "big") {
     return allToolNames;
   }
 
-  /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区，不含管理类工具 */
+  /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理，不含 Otter 管理类工具（create_otter/dissolve_otter） */
   return [
     "speak", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
@@ -48,6 +47,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "search_terminology", "add_terminology",
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
+    "create_scheduled_task", "manage_healing_events",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
   ];
 }
