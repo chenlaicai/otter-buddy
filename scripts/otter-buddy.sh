@@ -73,7 +73,8 @@ cmd_start() {
 
   echo "[4/5] Starting on port $PORT ..."
   : > "$LOG_FILE"
-  PORT="$PORT" node dist/src/main.js >> "$LOG_FILE" 2>&1 &
+  # nohup + stdin /dev/null：解耦终端生命周期，关终端/IDE 不会带崩服务
+  nohup env PORT="$PORT" node dist/src/main.js >> "$LOG_FILE" 2>&1 < /dev/null &
   local pid=$!
   echo "$pid" > "$PID_FILE"
 
