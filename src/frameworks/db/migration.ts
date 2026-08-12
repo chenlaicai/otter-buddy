@@ -78,6 +78,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** schedule_type + trigger_at 列：支持一次性定时任务 */
   addScheduleTypeColumns(db, logger);
+
+  /** F20260812mrcq：embedding_tasks 表（embedding 重试队列） */
+  ensureEmbeddingTasksTable(db, logger);
 }
 
 /**
@@ -136,6 +139,24 @@ function addScheduleTypeColumns(db: Database.Database, logger: Logger): void {
     db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN trigger_at TEXT").run();
     logger.info('Added trigger_at column to scheduled_tasks table');
   }
+}
+
+/** F20260812mrcq：embedding_tasks 表（embedding 重试队列）。CREATE IF NOT EXISTS 幂等。 */
+function ensureEmbeddingTasksTable(db: Database.Database, logger: Logger): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS embedding_tasks (
+      entry_id TEXT PRIMARY KEY,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      last_attempt_at TEXT,
+      next_retry_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dead')),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry
+      ON embedding_tasks (status, next_retry_at);
+  `);
+  logger.info('Ensured embedding_tasks table exists');
 }
 
 /**
