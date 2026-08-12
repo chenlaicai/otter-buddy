@@ -70,14 +70,15 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("get_html_card_contract");
     expect(tools).toContain("manage_healing_events");
     expect(tools).toContain("create_scheduled_task");
+    expect(tools).toContain("restart_otter");
     expect(tools).toContain("workspace_info");
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toHaveLength(25);
+    expect(tools).toHaveLength(26);
   });
 
-  it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理工具，不含管理类工具", () => {
+  it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
     const tools = getOtterToolNamesForType("small");
     expect(tools).toContain("speak");
     expect(tools).toContain("search_memory");
@@ -98,11 +99,12 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("get_html_card_contract");
     expect(tools).toContain("create_scheduled_task");
     expect(tools).toContain("manage_healing_events");
+    expect(tools).toContain("restart_otter");
     expect(tools).toContain("workspace_info");
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toHaveLength(23);
+    expect(tools).toHaveLength(24);
     // 管理类工具不包含
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
@@ -112,6 +114,7 @@ describe("getOtterToolNamesForType", () => {
     const tools = getOtterToolNamesForType(undefined);
     expect(tools).toContain("create_otter");
     expect(tools).toContain("dissolve_otter");
-    expect(tools).toHaveLength(25);
+    expect(tools).toContain("restart_otter");
+    expect(tools).toHaveLength(26);
   });
 });
