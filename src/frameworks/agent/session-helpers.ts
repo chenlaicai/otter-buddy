@@ -39,7 +39,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     return allToolNames;
   }
 
-  /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理，不含管理类工具 */
+  /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理，不含 Otter 管理类工具（create_otter/dissolve_otter） */
   return [
     "speak", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",

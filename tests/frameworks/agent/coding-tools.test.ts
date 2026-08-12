@@ -74,7 +74,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toHaveLength(26);
+    expect(tools).toHaveLength(25);
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理工具，不含管理类工具", () => {
@@ -112,6 +112,6 @@ describe("getOtterToolNamesForType", () => {
     const tools = getOtterToolNamesForType(undefined);
     expect(tools).toContain("create_otter");
     expect(tools).toContain("dissolve_otter");
-    expect(tools).toHaveLength(26);
+    expect(tools).toHaveLength(25);
   });
 });

@@ -194,7 +194,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
-    description: "创建子 Otter. When: 需要召唤专门执行特定任务的小獭（独立审视/并行工作/角色讨论/任务分担）. Not for: 邀请已存在的 Otter 加入 → invite_participant. 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
+    description: "创建子 Otter. When: 需要召唤专门执行特定任务的小獭（独立审视/并行工作/角色讨论/任务分担）. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
     parameters: {
       type: "object",
       properties: {

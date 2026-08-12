@@ -38,8 +38,9 @@ created_at: 2026-08-11
 - **遗漏**：未将 `create_scheduled_task` 加入 `session-helpers.ts` 的 `getOtterToolNamesForType` 函数返回的 `allToolNames` 列表
 
 ### 影响范围
-- 只影响 `big` 类型的 otter（`small` otter 不含管理类工具）
-- 不影响现有功能，纯新增工具暴露
+- 影响 `big` 和 `small` 类型的 otter
+- 移除 `invite_participant` 工具（历史遗留，无使用场景）
+- 开放 `create_scheduled_task` 和 `manage_healing_events` 给小獭
 
 ## 修复方案
 
@@ -50,7 +51,7 @@ created_at: 2026-08-11
 
 ```typescript
 const allToolNames = [
-  "speak", "invite_participant", "search_memory",
+  "speak", "search_memory",
   // ... 其他工具
   "manage_healing_events",
   "create_scheduled_task",  // 新增
