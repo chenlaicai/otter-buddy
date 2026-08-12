@@ -118,6 +118,7 @@ export class SearchMemory {
     private readonly terminologyRepo?: TerminologyRepository,
   ) {}
 
+  // eslint-disable-next-line complexity -- F20260812mrcq 加 anchor 短路 + expandContext 分支后超 12
   async search(query: SearchQuery): Promise<RetrievalResult> {
     /**
      * F20260812mrcq Part 3: anchor 短路（仅 conversation / 全库，terminology 库跳过）。
