@@ -35,20 +35,20 @@ category: technique
 
    **CI 验证（必须）**：
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
-   - CI 失败时立即诊断修复——检视也会将 CI 失败标记为阻断性问题
+   - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
 6. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 7. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 8. **对抗审视**：
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
-   - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；四类处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置
-   - 按 `adversarial-review/references/author-response-protocol.md` 逐条处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决
-   - 处置完成后，更新 PR review comment，追加处置结果（接受/反驳/部分接受/呈搭档裁决）
+   - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；**每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修复/建 issue，更差→带证据反驳**；四类处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置；不作为不允许
+   - 按 `adversarial-review/references/author-response-protocol.md` 逐条处置：决策树判断 + 四分类响应（接受并修复 / 反驳 / 部分接受 / 呈搭档裁决）
+   - 处置完成后，更新 PR review comment，追加处置结果（含更好/更差判断 + 四分类响应）
    - 更新命令：`gh pr comment <PR_NUMBER> --body "## 处置结果
-[逐条处置]"`
-   - 修复后更新 PR，重新审视。第 2 轮起是 delta 审视（附上轮发现清单 + 处置 + 修复 diff + 更新后的 PR 描述，核对 Discovered Issues 节 issue 落实）
-   - 收敛判据：修复验证全部通过 + 无阻断回归 → 通过；对立僵局 / 移动靶 / 僵尸循环 → 呈搭档裁决
+[逐条处置，含更好/更差判断]"`
+   - 修复后更新 PR，重新审视。第 2 轮起是 delta 审视（附上轮发现清单 + 处置（含更好/更差判断）+ 修复 diff + 更新后的 PR 描述，核对 Discovered Issues 节 issue 落实）
+   - 收敛判据：修复验证全部通过 + 无严重发现未处置 + 无阻断回归 → 通过；对立僵局 / 移动靶 / 僵尸循环 → 呈搭档裁决
    - 审视通过 → 呈搭档终审
 
 ### 问题处理
