@@ -77,7 +77,7 @@ async function readSSEEvents(res: Response, timeoutMs = 500): Promise<Array<{ ev
 describe("Subscribe SSE streaming events", () => {
   it("broadcastEvent 推送的事件以正确的 event type 到达 SSE 流", async () => {
     const manageConnection = { getSessionByConversation: vi.fn(), getConnection: vi.fn() } as any;
-    const feishuGateway = { replyText: vi.fn() } as any;
+    const feishuGateway = { replyText: vi.fn(), replyMarkdown: vi.fn() } as any;
     const queryOtter = { getById: vi.fn() } as any;
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
     const broadcaster = new MessageBroadcaster(manageConnection, feishuGateway, queryOtter, logger);
@@ -110,7 +110,7 @@ describe("Subscribe SSE streaming events", () => {
 
   it("broadcast 推送的 message 事件以 event:message 到达 SSE 流", async () => {
     const manageConnection = { getSessionByConversation: vi.fn(), getConnection: vi.fn() } as any;
-    const feishuGateway = { replyText: vi.fn() } as any;
+    const feishuGateway = { replyText: vi.fn(), replyMarkdown: vi.fn() } as any;
     const queryOtter = { getById: vi.fn() } as any;
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
     const broadcaster = new MessageBroadcaster(manageConnection, feishuGateway, queryOtter, logger);

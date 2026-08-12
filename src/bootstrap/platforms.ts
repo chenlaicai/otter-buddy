@@ -119,10 +119,13 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   return { agentInvoker, cronParser, schedulerService };
 }
 
-export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: Logger): FeishuBundle {
+export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: Logger, webBaseUrl?: string): FeishuBundle {
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger);
+  const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl);
+  if (!webBaseUrl) {
+    logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
+  }
   return { broadcaster, client, tokenManager, dispatchChainEngine };
 }
 

@@ -94,6 +94,10 @@ export interface AppConfig {
       apiKey: string;
     };
   };
+  /** Web 端 base URL,用于 IM 信道 html-card 占位符拼接跳转链接(F20260812fmdr) */
+  web?: {
+    baseUrl?: string;
+  };
 }
 
 /** config.yaml 的原始 YAML 结构 */
@@ -164,6 +168,9 @@ interface RawConfig {
     recruiting?: {
       apiKey?: string;
     };
+  };
+  web?: {
+    baseUrl?: string;
   };
 }
 
@@ -293,6 +300,18 @@ function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
   };
 }
 
+function buildWebConfig(raw: RawConfig): AppConfig["web"] {
+  if (!raw.web?.baseUrl) return undefined;
+  // 协议白名单(审视 F20260812fmdr R5):防止 javascript:/data: 等危险协议被注入到
+  // 飞书侧 html-card 占位符的跳转链接里。配置异常时抛错阻止启动(快失败)
+  if (!/^https?:\/\//i.test(raw.web.baseUrl)) {
+    throw new Error(
+      `配置校验失败: web.baseUrl 必须以 http:// 或 https:// 开头,当前值: ${raw.web.baseUrl}`,
+    );
+  }
+  return { baseUrl: raw.web.baseUrl };
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }): AppConfig {
   return {
@@ -325,6 +344,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
     inbound: buildInboundConfig(raw),
+    web: buildWebConfig(raw),
   };
 }
 

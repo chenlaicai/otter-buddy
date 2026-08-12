@@ -161,6 +161,26 @@ describe("loadConfig", () => {
     expect(cfg.embedding.modelPath).toBe("bge-m3");
     expect(cfg.embedding.localModelPath).toBe("./models");
   });
+
+  it("web.baseUrl 接受 https://", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + 'web:\n  baseUrl: "https://otter.app"\n');
+    const cfg = loadConfig();
+    expect(cfg.web?.baseUrl).toBe("https://otter.app");
+  });
+
+  it("web.baseUrl 拒绝 javascript: 协议(审视 F20260812fmdr R5)", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + 'web:\n  baseUrl: "javascript:alert(1)"\n');
+    expect(() => loadConfig()).toThrow(/web\.baseUrl 必须以 http/);
+  });
+
+  it("web.baseUrl 缺省时 cfg.web 为 undefined", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML);
+    const cfg = loadConfig();
+    expect(cfg.web).toBeUndefined();
+  });
 });
 
 describe("validate — models[] 条目校验", () => {

@@ -26,6 +26,7 @@ describe("CommandDispatcher", () => {
     } as any;
     feishuGateway = {
       replyText: replyTextMock as any,
+      replyMarkdown: vi.fn(),
     };
     logger = createTestLogger();
     dispatcher = new CommandDispatcher(manageConnection, queryMessage, feishuGateway, logger);
