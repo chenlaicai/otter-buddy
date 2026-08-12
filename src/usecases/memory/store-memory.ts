@@ -56,19 +56,35 @@ export class StoreMemory {
 
     /** 异步 fire-and-forget embedding（D27: 不阻塞返回）
      *  D22 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞
-     *  F20260803fbit: 截断防超长 body OOM worker */
+     *  F20260803fbit: 截断防超长 body OOM worker
+     *  F20260812mrcq Part 1：失败入 embedding_tasks 队列，retry worker 兜底 */
+    this.fireAndForgetEmbed(id, input.content);
+
+    return id;
+  }
+
+  /**
+   * F20260812mrcq Part 1：fire-and-forget embedding 的统一封装。
+   * embed 成功 → storeEmbedding；任一失败 → enqueueRetry 入队（ON CONFLICT 保留 attempts）。
+   * 三处调用点（execute / replaceBySource / replaceChunksBySource）共用，避免重复。
+   */
+  private fireAndForgetEmbed(entryId: string, content: string): void {
     this.embeddingGateway
-      .embed(this.truncateForEmbed(input.content))
+      .embed(this.truncateForEmbed(content))
       .then((emb) => {
-        this.repo.storeEmbedding(id, emb).catch((err) => {
-          this.logger.warn(`Failed to store embedding for ${id}: ${err}`);
+        this.repo.storeEmbedding(entryId, emb).catch((err) => {
+          this.logger.warn(`Failed to store embedding for ${entryId}: ${err}`);
+          this.repo.enqueueRetry(entryId, err).catch(e =>
+            this.logger.error(`enqueueRetry failed for ${entryId}: ${e}`),
+          );
         });
       })
       .catch((err) => {
-        this.logger.debug(`Embedding generation failed for ${id}: ${err}`);
+        this.logger.debug(`Embedding generation failed for ${entryId}: ${err}`);
+        this.repo.enqueueRetry(entryId, err).catch(e =>
+          this.logger.error(`enqueueRetry failed for ${entryId}: ${e}`),
+        );
       });
-
-    return id;
   }
 
   /**
@@ -92,17 +108,8 @@ export class StoreMemory {
 
     await this.repo.replaceEntryBySource(entry);
 
-    // F20260803fbit: 截断防超长 body OOM worker（与 execute 路径对称）
-    this.embeddingGateway
-      .embed(this.truncateForEmbed(input.content))
-      .then((emb) => {
-        this.repo.storeEmbedding(id, emb).catch((err) => {
-          this.logger.warn(`Failed to store embedding for ${id}: ${err}`);
-        });
-      })
-      .catch((err) => {
-        this.logger.debug(`Embedding generation failed for ${id}: ${err}`);
-      });
+    // F20260803fbit + F20260812mrcq Part 1：截断防超长 body OOM worker；失败入队
+    this.fireAndForgetEmbed(id, input.content);
 
     return id;
   }
@@ -133,16 +140,7 @@ export class StoreMemory {
 
     // 异步 fire-and-forget embedding（每 chunk 独立，chunk 长度可控 truncateForEmbed 几乎不触发）
     for (const entry of entries) {
-      this.embeddingGateway
-        .embed(this.truncateForEmbed(entry.content))
-        .then((emb) => {
-          this.repo.storeEmbedding(entry.id, emb).catch((err) => {
-            this.logger.warn(`Failed to store embedding for ${entry.id}: ${err}`);
-          });
-        })
-        .catch((err) => {
-          this.logger.debug(`Embedding generation failed for ${entry.id}: ${err}`);
-        });
+      this.fireAndForgetEmbed(entry.id, entry.content);
     }
 
     return entries.map((e) => e.id);

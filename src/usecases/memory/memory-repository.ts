@@ -19,17 +19,16 @@ export interface SearchFilters {
 
 /**
  * 检索来源标识。
- * F20260811mrpy Part 1：扩展契约——为 anchor lookup / context expand 等新路径预留。
- * 当前实际产生的值仅 fts/vec/both，其余值由后续 P1 优化点（Anchor Lookup / Passage Context / Edges）填充。
+ * F20260811mrpy Part 1：扩展契约为多种检索路径预留。
+ * F20260812mrcq Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
+ *   related-expand（重工程收益不明）。保留 anchor + context-expand 由 F20260812mrcq 实施。
  */
 export type RetrievalSource =
   | "fts"
   | "vec"
   | "both"
-  | "anchor"            // P1-1 Anchor Lookup 短路注入
-  | "keyword-fallback"  // P2-5 候选
-  | "context-expand"    // P1-2 Passage Context Window 邻域补充
-  | "related-expand";   // P1-3 Edges 1-hop 图扩展
+  | "anchor"            // F20260812mrcq Part 3：F/R ID 子串提取 + 主键直查短路注入
+  | "context-expand";   // F20260812mrcq Part 2：邻域扩展（chunk ±1 / message 前后条）
 
 /** FTS5 全文检索命中 */
 export interface FTSHit {
@@ -76,6 +75,31 @@ export interface MemoryRepository {
   deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
+  /**
+   * F20260812mrcq Part 3：按 source_id + 可选 contentType 主键直查。
+   * 用于 anchor 短路——F/R 文档 ID 形如 "F20260812mrcq" 作为 source_id 索引。
+   * contentType 优先级：F ID 优先 'feature'（summary），R ID 优先 'research'（summary）。
+   */
+  getBySourceId(sourceId: string, contentType?: MemoryContentType): Promise<MemoryEntry | null>;
+  /**
+   * F20260812mrcq Part 2：按 source + chunk_index 查邻域（±1）。
+   * 用于 context-expand——命中 chunk 后扩展前后 chunk。
+   * 返回 0-2 个条目（chunk 0 向前无 / last 向后无）。
+   */
+  findNeighborsByChunkIndex(
+    sourceTable: string,
+    sourceId: string,
+    chunkIndex: number,
+  ): Promise<MemoryEntry[]>;
+  /**
+   * F20260812mrcq Part 2：按 conversation + createdAt 查前后各一条 message。
+   * 用于 context-expand——命中 message 后扩展上下文消息。
+   * 返回 0-2 个条目（首条向前无 / 末条向后无）。
+   */
+  findNeighborsByTime(
+    conversationId: string,
+    createdAt: string,
+  ): Promise<MemoryEntry[]>;
   getEmbedding(memoryEntryId: string): Promise<Float32Array | null>;
   getWeights(memoryEntryIds: string[]): Promise<MemoryWeight[]>;
   // 检索
@@ -88,6 +112,8 @@ export interface MemoryRepository {
     filters: SearchFilters,
   ): Promise<VecHit[]>;
   hasVecTable(): boolean;
+  /** F20260812mrcq Part 0：vec 路径当前是否运行时启用（受 disableVec 影响，区别于 hasVecTable） */
+  isVecEnabled(): boolean;
   /** 按 ID 批量获取记忆条目（渐进式披露 get_memory_detail） */
   getDetails(ids: string[]): Promise<MemoryEntry[]>;
   // 更新
@@ -99,14 +125,40 @@ export interface MemoryRepository {
   /** F20260811mrpy Part 3：写入/更新 embedding 元信息 */
   setEmbeddingMeta(meta: EmbedModelMeta): Promise<void>;
   /**
-   * F20260811mrpy Part 1：扫描无 vec 索引的暗化条目（fire-and-forget 失败导致）。
-   * 用 NOT EXISTS 子查询规避 vec0 虚拟表 anti-join 限制。
-   * 返回 vecDisabled=true 表示 vec 路径被运行时禁用（如版本锚降级），此时返回空列表但语义非"无暗化条目"。
+   * F20260811mrpy Part 1 + F20260812mrcq Part 0/1：扫描无 vec 索引的暗化条目。
+   *
+   * F20260812mrcq Part 0：用 vecTableExists 守卫，disableVec 后仍可检测全表暗化。
+   * F20260812mrcq Part 1：默认排除 status='dead' 的 dead-letter（防报告噪音）。
+   *   传 includeDead=true 可查看全部（运维排查）。
    */
-  scanDarkEntries(): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }>;
+  scanDarkEntries(includeDead?: boolean): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }>;
   /**
    * F20260811mrpy Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
    * 返回 Map<entryId, hasVec>。vec 表不可用时所有 entry 返回 false。
    */
   hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>>;
+  /**
+   * F20260812mrcq Part 1：embedding 失败入队重试。
+   * ON CONFLICT 保留 attempts（避免重置导致无限重试）。
+   * status 强制为 'pending'（即使之前是 dead，重新入队复活）。
+   */
+  enqueueRetry(entryId: string, error: unknown): Promise<void>;
+  /**
+   * F20260812mrcq Part 1：认领 pending 任务（原子 UPDATE + RETURNING）。
+   * attempts 自增 1，next_retry_at 按指数退避自动计算（30/60/120/300/3600s）。
+   * 返回 [{entryId, content, attempts}]，content 从 memory_entries JOIN 获取。
+   * 排除 status='dead'（除非 enqueueRetry 复活）。
+   */
+  claimPendingTasks(limit: number): Promise<Array<{
+    entryId: string;
+    content: string;
+    attempts: number;
+  }>>;
+  /** F20260812mrcq Part 1：task 成功，删除 task 行 */
+  markTaskDone(entryId: string): Promise<void>;
+  /**
+   * F20260812mrcq Part 1：task 失败，更新 last_error。
+   * 若 attempts >= maxAttempts，status 转 'dead'。
+   */
+  markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void>;
 }

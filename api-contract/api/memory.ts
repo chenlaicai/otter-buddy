@@ -1,24 +1,29 @@
 /**
  * 检索来源（纯字符串联合，不依赖 usecases 层）。
- * F20260811mrpy Part 1：扩展契约，预留 anchor/context-expand 等新路径值（当前实际产生的仅 fts/vec/both）。
+ * F20260811mrpy Part 1：扩展契约。
+ * F20260812mrcq Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
+ *   related-expand（重工程收益不明）。anchor + context-expand 由 F20260812mrcq 实施。
  */
 export type RetrievalSource =
   | "fts"
   | "vec"
   | "both"
   | "anchor"
-  | "keyword-fallback"
-  | "context-expand"
-  | "related-expand";
+  | "context-expand";
 
 /** 详细程度 */
 export type DetailLevel = "summary" | "snippet" | "full";
 
-/** F20260811mrpy Part 1：vec 路径覆盖率（默认返回） */
+/**
+ * F20260811mrpy Part 1：vec 路径覆盖率（默认返回）。
+ * F20260812mrcq Part 2 审视 m5：加 vecDisabled，消除 ratio=0 歧义。
+ */
 export interface VecCoverageDTO {
   total: number;
   withVec: number;
   ratio: number;
+  /** F20260812mrcq Part 2: vec 路径运行时禁用（disableVec 清表后） */
+  vecDisabled?: boolean;
 }
 
 /** F20260811mrpy Part 1：debug 模式注入的中间分值 */
@@ -55,6 +60,8 @@ export interface SearchResultDTO {
   entries: MemoryEntryDTO[];
   total: number;
   vecCoverage: VecCoverageDTO;
+  /** F20260812mrcq Part 2: 邻域扩展条目（仅 expand_context=true 时存在） */
+  contextEntries?: MemoryEntryDTO[];
 }
 
 /** 记忆检索请求 query 参数 */
@@ -67,6 +74,8 @@ export interface SearchQueryDTO {
   detail_level?: DetailLevel;
   library?: string;
   debug?: boolean;
+  /** F20260812mrcq Part 2: 开启邻域扩展（chunk ±1 / message 前后条） */
+  expand_context?: boolean;
 }
 
 /** 相似检索请求 DTO */

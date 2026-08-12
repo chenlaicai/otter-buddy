@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20260812mrcq 加 anchor/context-expand 后超 450 行 */
 import type {
   MemoryEntry,
   MemoryLayer,
@@ -20,6 +21,13 @@ import type { Logger } from "@usecases/ports/logger";
 /** snippet 降级截取长度（FTS5 highlight 不可用时） */
 const SNIPPET_FALLBACK_LENGTH = 200;
 
+/**
+ * F20260812mrcq Part 3：F/R 文档 ID anchor 正则。
+ * 子串提取（非全匹配）——支持 "F20260812mrcq 召回优化" 这种 "ID + 限定词" 模式。
+ * \b 词边界防 "F20260812mrcqextra" 误匹配。4-6 位后缀兼容历史（推荐 4 位）。
+ */
+const ANCHOR_PATTERN = /\b([FR])\d{8}[a-z0-9]{4,6}\b/i;
+
 export interface SearchQuery {
   query: string;
   limit: number;
@@ -40,6 +48,12 @@ export interface SearchQuery {
    * 默认关闭避免 token 膨胀。
    */
   debug?: boolean;
+  /**
+   * F20260812mrcq Part 2：开启时对命中条目扩展邻域（chunk ±1 / message 前后条），
+   * 结果放在 contextEntries 字段（不混入 entries，避免评分断层）。
+   * summary / fact 等无邻域结构的 contentType 不扩展。
+   */
+  expandContext?: boolean;
 }
 
 /** F20260811mrpy Part 1：debug=true 时注入的中间分值（召回诊断用） */
@@ -70,11 +84,16 @@ export interface RetrievalResultEntry extends MemoryEntry {
 /**
  * F20260811mrpy Part 1：vec 路径覆盖率（默认返回）。
  * ratio<1.0 说明有暗化条目（fire-and-forget 失败导致无 vec）。
+ *
+ * F20260812mrcq Part 2 审视 m5：加 vecDisabled 字段，消除 ratio=0 歧义
+ * （空结果 vs vec 路径不可用）。
  */
 export interface VecCoverage {
   total: number;
   withVec: number;
   ratio: number;
+  /** F20260812mrcq Part 2: vec 路径运行时禁用（disableVec 清表后），消费方区分"无结果"vs"vec 不可用" */
+  vecDisabled?: boolean;
 }
 
 export interface RetrievalResult {
@@ -82,6 +101,12 @@ export interface RetrievalResult {
   total: number;
   /** F20260811mrpy Part 1：默认返回（不加 debug 参数也有） */
   vecCoverage: VecCoverage;
+  /**
+   * F20260812mrcq Part 2：邻域扩展条目（仅 expandContext=true 时存在）。
+   * 独立于 entries，不参与 RRF 排序，source='context-expand'。
+   * agent 应理解这是命中条目的"上下文补充"而非独立检索结果。
+   */
+  contextEntries?: RetrievalResultEntry[];
 }
 
 export class SearchMemory {
@@ -93,19 +118,121 @@ export class SearchMemory {
     private readonly terminologyRepo?: TerminologyRepository,
   ) {}
 
+  // eslint-disable-next-line complexity -- F20260812mrcq 加 anchor 短路 + expandContext 分支后超 12
   async search(query: SearchQuery): Promise<RetrievalResult> {
+    /**
+     * F20260812mrcq Part 3: anchor 短路（仅 conversation / 全库，terminology 库跳过）。
+     * 命中 F/R ID 时短路注入顶格，剩余 query 走 RRF。
+     * 审视三轮 M3：用白名单式守卫——无效 library 值（如 "foo"）不走 anchor，让后续路由抛 DomainError。
+     */
+    if (!query.library || query.library === "conversation") {
+      const anchorResult = await this.tryAnchorShortCircuit(query);
+      if (anchorResult) {
+        // F20260812mrcq Part 2: anchor 命中后也做邻域扩展（若 anchor 是 chunk）
+        if (query.expandContext && query.detailLevel !== "full") {
+          const ctx = await this.expandContextForEntries(anchorResult.entries);
+          if (ctx.length > 0) anchorResult.contextEntries = ctx;
+        }
+        return anchorResult;
+      }
+    }
+
     /** 路由层：按 library 分发到各库的检索管道 */
+    let result: RetrievalResult;
     if (query.library === "conversation") {
-      return this.searchConversation(query);
-    }
-    if (query.library === "terminology") {
+      result = await this.searchConversation(query);
+    } else if (query.library === "terminology") {
+      // terminology 库无 chunk/message 结构，不扩展
       return this.searchTerminologyLibrary(query);
-    }
-    if (query.library) {
+    } else if (query.library) {
       throw new DomainError(`Unknown library: ${query.library}`, "validation");
+    } else {
+      result = await this.searchAllLibraries(query);
     }
-    /** 全库搜索：分别查各库，排名位置归一化混排 */
-    return this.searchAllLibraries(query);
+
+    // F20260812mrcq Part 2: 邻域扩展（仅 chunk / message，summary/fact no-op）
+    if (query.expandContext && query.detailLevel !== "full") {
+      const ctx = await this.expandContextForEntries(result.entries);
+      if (ctx.length > 0) result.contextEntries = ctx;
+    }
+    return result;
+  }
+
+  /**
+   * F20260812mrcq Part 3: anchor 短路。
+   * - 子串提取 F/R ID（支持 "ID + 其他词" 模式）
+   * - URL 编码兜底（浏览器粘贴场景）
+   * - ID 不存在 → return null（让上层走 RRF，ID 作为 keyword 进 FTS）
+   * - ID 存在 → 顶格注入 + 剩余 query 走 RRF
+   */
+  private async tryAnchorShortCircuit(query: SearchQuery): Promise<RetrievalResult | null> {
+    let queryString = query.query;
+    try {
+      queryString = decodeURIComponent(queryString);  // 审视 m6: URL 编码兜底
+    } catch {
+      // decodeURIComponent 遇到无效 escape 会抛错，原样使用
+    }
+    const match = queryString.match(ANCHOR_PATTERN);
+    if (!match) return null;
+
+    // 审视二轮 M3: anchorId 归一化为文档命名约定的小写后缀（DB source_id 大小写敏感）
+    const rawId = match[0];
+    const anchorId = rawId[0].toUpperCase() + rawId.slice(1).toLowerCase();
+    const isFeature = rawId[0].toUpperCase() === "F";
+    const preferredContentType = isFeature ? "feature" : "research";
+    // 优先 summary（coarse 粒度信息密度高），fallback 到任意 contentType
+    const anchorEntry =
+      (await this.repo.getBySourceId(anchorId, preferredContentType as MemoryContentType))
+      ?? (await this.repo.getBySourceId(anchorId));
+    if (!anchorEntry) return null;
+
+    // 剩余 query（去除原始大小写的 ID + trim）走 RRF
+    const remaining = queryString.replace(rawId, "").trim();
+    const detailLevel = query.detailLevel ?? "summary";
+
+    let rrfResult: RetrievalResult;
+    if (remaining) {
+      const remainingQuery = {
+        ...query,
+        query: remaining,
+        // anchor 命中已顶格，剩余 RRF 结果数量保持原 limit-1（让 anchor + RRF 总和约等于 limit）
+        limit: Math.max(query.limit - 1, 1),
+      };
+      // 审视 B3：按原 library 路由走（全库时含术语库混排，不能只走 conversation）
+      rrfResult = query.library === "conversation"
+        ? await this.searchConversation(remainingQuery)
+        : await this.searchAllLibraries(remainingQuery);
+    } else {
+      rrfResult = { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
+    }
+
+    // 组装 anchor entry 为 RetrievalResultEntry
+    const anchorResultEntry = this.buildAnchorEntry(anchorEntry, detailLevel);
+
+    return {
+      entries: [anchorResultEntry, ...rrfResult.entries],
+      total: rrfResult.total + 1,
+      vecCoverage: rrfResult.vecCoverage,
+    };
+  }
+
+  /** F20260812mrcq Part 3: 把 anchor 命中 entry 组装为 RetrievalResultEntry（source='anchor'） */
+  private buildAnchorEntry(entry: MemoryEntry, detailLevel: DetailLevel): RetrievalResultEntry {
+    const base = detailLevel === "full"
+      ? entry
+      : { ...entry, content: "" };
+    const snippetText = detailLevel === "summary"
+      ? entry.content.slice(0, SNIPPET_FALLBACK_LENGTH)
+      : entry.content;
+    return {
+      ...base,
+      score: 1.0,  // anchor 顶格，score=1.0 不参与 RRF 比较
+      source: "anchor",
+      snippet: snippetText,
+      drillDown: detailLevel !== "full"
+        ? { tool: "get_memory_detail", params: { id: entry.id } }
+        : undefined,
+    };
   }
 
   /** 对话库检索（原有逻辑） */
@@ -113,10 +240,55 @@ export class SearchMemory {
     return this.searchConversationInternal(query);
   }
 
+  /**
+   * F20260812mrcq Part 2: 为 top-K 命中扩展邻域上下文。
+   * - chunk 命中：按 sourceId + chunk_index ±1 扩展
+   * - message 命中：按 conversationId + createdAt 前后各一条扩展
+   * - summary / fact / linked_resource：no-op（无邻域结构）
+   * 已被 entries 命中的条目不重复扩展。
+   * 不参与 RRF，独立放在 contextEntries。
+   */
+  private async expandContextForEntries(entries: RetrievalResultEntry[]): Promise<RetrievalResultEntry[]> {
+    const existingIds = new Set(entries.map(e => e.id));
+    const result: RetrievalResultEntry[] = [];
+    const seen = new Set<string>();  // 跨命中去重（如同源多 chunk 命中扩展到同一邻域）
+
+    for (const entry of entries) {
+      let neighbors: MemoryEntry[];
+      if (entry.contentType === "feature_chunk" || entry.contentType === "research_chunk") {
+        const chunkIndex = Number(entry.metadata?.chunk_index);
+        if (!Number.isFinite(chunkIndex)) continue;
+        neighbors = await this.repo.findNeighborsByChunkIndex(
+          entry.sourceTable, entry.sourceId, chunkIndex,
+        );
+      } else if (entry.contentType === "message" && entry.conversationId) {
+        neighbors = await this.repo.findNeighborsByTime(
+          entry.conversationId, entry.createdAt,
+        );
+      } else {
+        continue;  // summary / fact / linked_resource no-op
+      }
+
+      for (const nb of neighbors) {
+        if (existingIds.has(nb.id) || seen.has(nb.id)) continue;
+        seen.add(nb.id);
+        result.push({
+          ...nb,
+          content: "",  // 渐进式披露：snippet 模式下 content 置空
+          score: 0,  // 不参与 RRF 比较
+          source: "context-expand",
+          drillDown: { tool: "get_memory_detail", params: { id: nb.id } },
+          snippet: nb.content.slice(0, SNIPPET_FALLBACK_LENGTH),
+        });
+      }
+    }
+    return result;
+  }
+
   /** 术语库检索 */
   private async searchTerminologyLibrary(query: SearchQuery): Promise<RetrievalResult> {
     if (!this.terminologyRepo) {
-      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
+      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
     const results = await this.terminologyRepo.search(query.query, query.limit);
     const detailLevel = query.detailLevel ?? "summary";
@@ -155,7 +327,7 @@ export class SearchMemory {
       };
     });
     // F20260811mrpy Part 1：术语库不索引 vec，withVec 恒为 0
-    return { entries, total: entries.length, vecCoverage: { total: entries.length, withVec: 0, ratio: 0 } };
+    return { entries, total: entries.length, vecCoverage: this.buildVecCoverage(entries.length, 0) };
   }
 
   /** 全库搜索：排名位置归一化混排 */
@@ -200,12 +372,7 @@ export class SearchMemory {
 
     // F20260811mrpy Part 1：合并对话库 vecCoverage + 术语库（术语库不索引 vec）
     const convWithVec = convResult.vecCoverage.withVec;
-    const mergedTotal = entries.length;
-    const mergedVecCoverage: VecCoverage = {
-      total: mergedTotal,
-      withVec: convWithVec,
-      ratio: mergedTotal > 0 ? convWithVec / mergedTotal : 0,
-    };
+    const mergedVecCoverage = this.buildVecCoverage(entries.length, convWithVec);
 
     return { entries, total: entries.length, vecCoverage: mergedVecCoverage };
   }
@@ -299,7 +466,7 @@ export class SearchMemory {
     /** 1. 获取 embedding */
     const embedding = await this.repo.getEmbedding(memoryEntryId);
     if (!embedding) {
-      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
+      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
 
     /** 2. vec 搜索（limit+1 补偿自身匹配过滤） */
@@ -331,7 +498,7 @@ export class SearchMemory {
    * RRF 融合后的结果重排 + 批量递增计数 + 组装返回值。
    * F20260811mrpy：扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
    */
-  // eslint-disable-next-line max-lines-per-function, max-params -- F20260811mrpy 三 Part 扩展必要
+  // eslint-disable-next-line max-params -- F20260811mrpy 三 Part 扩展必要
   private async rerankAndReturn(
     rrfHits: Map<string, RrfHit>,
     limit: number,
@@ -344,7 +511,7 @@ export class SearchMemory {
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
     if (hitIds.length === 0) {
-      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
+      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
 
     const weights = await this.repo.getWeights(hitIds);
@@ -363,11 +530,7 @@ export class SearchMemory {
     const topIds = top.map(h => h.entryId);
     const hasVecMap = await this.repo.hasEmbeddings(topIds);
     const withVecCount = Array.from(hasVecMap.values()).filter(Boolean).length;
-    const vecCoverage: VecCoverage = {
-      total: top.length,
-      withVec: withVecCount,
-      ratio: top.length > 0 ? withVecCount / top.length : 0,
-    };
+    const vecCoverage: VecCoverage = this.buildVecCoverage(top.length, withVecCount);
 
     return {
       // eslint-disable-next-line complexity -- F20260811mrpy debug/drillDown 注入增加分支
@@ -492,6 +655,19 @@ export class SearchMemory {
       result.push(...group.slice(0, 3));
     }
     return result;
+  }
+
+  /**
+   * F20260812mrcq Part 2（审视 m5）：统一构造 VecCoverage，自动填充 vecDisabled。
+   * vecDisabled 让消费方区分"无结果"vs"vec 路径运行时禁用"。
+   */
+  private buildVecCoverage(total: number, withVec: number): VecCoverage {
+    return {
+      total,
+      withVec,
+      ratio: total > 0 ? withVec / total : 0,
+      vecDisabled: !this.repo.isVecEnabled(),
+    };
   }
 
   /**
