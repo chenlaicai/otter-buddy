@@ -32,6 +32,8 @@ Verification depends on PR type:
 - **Config changes**: Verify the config takes effect
 - **Documentation changes**: Verify docs match implementation
 
+End-to-end verification failure must be reported as a 严重发现 in the review report.
+
 > **基础维度失败 → 严重发现**：任一基础维度失败（B1 CI 失败 / B2 文档缺失或不一致 / B3 端到端验证失败）必须在审视报告的"严重发现"节建立对应条目（标明 B1/B2/B3 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列。严重发现不可延后——见 `SKILL.md` 严重发现模板和 `author-response-protocol.md` 决策树。
 
 ---
