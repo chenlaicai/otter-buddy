@@ -171,4 +171,29 @@ describe("projectForChannel（信道投影出口：飞书 post + md）", () => {
     expect(out).not.toContain("\uFEFF");
     expect(out).toContain("…(已截断");
   });
+
+  it("LLM 手写字面量 [html-card: xxx] 不被误替换为交互卡片占位符(审视 R5)", () => {
+    // body 原文里 LLM 引用或解释 html-card 语法时打出的字面量,不应被识别为机器占位符
+    const body = "html-card 围栏语法是 `[html-card: title=\"x\"]`(三反引号围栏内)";
+    const out = projectForChannel(body, {
+      webBaseUrl: "https://otter.app",
+      conversationId: "c1",
+    });
+    // 字面量原样保留,不变成【交互卡片】+ 链接
+    expect(out).toContain("[html-card: title=\"x\"]");
+    expect(out).not.toContain("【交互卡片");
+    expect(out).not.toContain("👉");
+  });
+
+  it("真正的围栏产出的机器占位符仍正确替换", () => {
+    // 反向验证:合法的 html-card 围栏 → stripHtmlCardFences 产出机器占位符 → 加零宽标记 → 正确人化
+    const body = '前文\n\n```html-card title="真卡片"\n<div/>\n```\n\n后文';
+    const out = projectForChannel(body, {
+      webBaseUrl: "https://otter.app",
+      conversationId: "c1",
+    });
+    expect(out).toBe(
+      "前文\n\n【交互卡片:真卡片】\n👉 https://otter.app/conversations/c1\n\n后文",
+    );
+  });
 });

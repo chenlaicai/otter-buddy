@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { FeishuClient } from "@frameworks/feishu/client";
 
+/** 构造 mock Response,带齐 ok/status 字段(审视 R5:防未来加 HTTP 错误处理时假阳性) */
+function mockResponse(payload: { code: number; msg: string }): Response {
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    json: async () => payload,
+  } as unknown as Response;
+}
+
 /** 捕获 fetch 调用参数(body 是 JSON 字符串,需解析) */
 function captureFetch() {
   const calls: Array<{
@@ -19,9 +29,7 @@ function captureFetch() {
       body: JSON.parse(rawBody),
       rawBody,
     });
-    return {
-      json: async () => ({ code: 0, msg: "ok" }),
-    } as unknown as Response;
+    return mockResponse({ code: 0, msg: "ok" });
   });
   return { fetchMock, calls };
 }
@@ -63,9 +71,7 @@ describe("FeishuClient", () => {
     });
 
     it("code !== 0 抛错", async () => {
-      globalThis.fetch = vi.fn(async () => ({
-        json: async () => ({ code: 230002, msg: "invalid chat" }),
-      })) as any;
+      globalThis.fetch = vi.fn(async () => mockResponse({ code: 230002, msg: "invalid chat" })) as any;
       const { client } = makeClient();
 
       await expect(client.replyText("bad", "x")).rejects.toThrow(/Failed to send message/);
@@ -99,13 +105,11 @@ describe("FeishuClient", () => {
       let callCount = 0;
       globalThis.fetch = vi.fn(async () => {
         callCount++;
-        // 第一次 post+md 失败,第二次 replyText 成功
-        return {
-          json: async () =>
-            callCount === 1
-              ? { code: 230002, msg: "post rejected" }
-              : { code: 0, msg: "ok" },
-        };
+        return mockResponse(
+          callCount === 1
+            ? { code: 230002, msg: "post rejected" }
+            : { code: 0, msg: "ok" },
+        );
       }) as any;
       const { client } = makeClient();
 
@@ -115,18 +119,24 @@ describe("FeishuClient", () => {
       expect(callCount).toBe(2); // 触发降级:fetch 调用两次
     });
 
-    it("网络错误时降级到 replyText", async () => {
+    it("网络错误时降级到 replyText(msg_type=text)", async () => {
+      const calls: Array<{ body: string }> = [];
       let callCount = 0;
-      globalThis.fetch = vi.fn(async () => {
+      globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
         callCount++;
+        const rawBody = (init?.body as string) ?? "";
+        calls.push({ body: rawBody });
         if (callCount === 1) throw new Error("network timeout");
-        return { json: async () => ({ code: 0, msg: "ok" }) };
+        return mockResponse({ code: 0, msg: "ok" });
       }) as any;
       const { client } = makeClient();
 
       await client.replyMarkdown("c", "大獭", "## H2");
 
       expect(callCount).toBe(2);
+      // 审视 R5:验证第二次降级调用走的是 text 而非 post
+      const second = JSON.parse(calls[1].body);
+      expect(second.msg_type).toBe("text");
     });
 
     it("降级文本带 [纯文本降级] 前缀", async () => {
@@ -137,9 +147,9 @@ describe("FeishuClient", () => {
         const rawBody = (init?.body as string) ?? "";
         calls.push({ body: rawBody });
         if (callCount === 1) {
-          return { json: async () => ({ code: 9001, msg: "fail" }) };
+          return mockResponse({ code: 9001, msg: "fail" });
         }
-        return { json: async () => ({ code: 0, msg: "ok" }) };
+        return mockResponse({ code: 0, msg: "ok" });
       }) as any;
       const { client } = makeClient();
 

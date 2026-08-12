@@ -266,5 +266,56 @@ describe("MessageBroadcaster", () => {
 
       expect(feishuGateway.replyText).not.toHaveBeenCalled();
     });
+
+    it("createdAt 距今 >3s 时跳过(审视 R5 乱序 gate)", async () => {
+      const { broadcaster, feishuGateway } = createBroadcaster();
+      bindFeishu(broadcaster);
+
+      // createdAt 设为 5s 前,超过 THINKING_MESSAGE_MAX_DELAY_MS
+      const staleCreatedAt = new Date(Date.now() - 5000).toISOString();
+      broadcaster.broadcastEvent("conv-1", {
+        event: "message.start",
+        data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: staleCreatedAt },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(feishuGateway.replyText).not.toHaveBeenCalled();
+    });
+
+    it("createdAt 距今 <3s 时正常发送", async () => {
+      const { broadcaster, feishuGateway } = createBroadcaster();
+      bindFeishu(broadcaster);
+      const sent: string[] = [];
+      feishuGateway.replyText.mockImplementation(async (_c: string, text: string) => {
+        sent.push(text);
+      });
+
+      // createdAt 设为 100ms 前,在阈值内
+      const freshCreatedAt = new Date(Date.now() - 100).toISOString();
+      broadcaster.broadcastEvent("conv-1", {
+        event: "message.start",
+        data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: freshCreatedAt },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(sent).toEqual(["[大獭] 正在思考..."]);
+    });
+
+    it("createdAt 缺失时仍发送(向后兼容,旧事件无 createdAt)", async () => {
+      const { broadcaster, feishuGateway } = createBroadcaster();
+      bindFeishu(broadcaster);
+      const sent: string[] = [];
+      feishuGateway.replyText.mockImplementation(async (_c: string, text: string) => {
+        sent.push(text);
+      });
+
+      broadcaster.broadcastEvent("conv-1", {
+        event: "message.start",
+        data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" }, // 无 createdAt
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(sent).toEqual(["[大獭] 正在思考..."]);
+    });
   });
 });

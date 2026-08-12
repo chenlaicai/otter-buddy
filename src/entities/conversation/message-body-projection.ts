@@ -27,9 +27,25 @@ import type { Code, Nodes } from "mdast";
  */
 const parser = () => remark().use(remarkGfm, { singleTilde: false });
 
+/**
+ * 机器占位符前缀(零宽空格 \u200B):用于区分 stripHtmlCardFences 产出的占位符 vs
+ * body 原文里 LLM 手工打出的字面量 `[html-card: xxx]`。审视 F20260812fmdr R5 发现。
+ *
+ * stripHtmlCardFences 的 placeholder 格式是公开契约,不能为单个出口改动(影响 FTS/
+ * 记忆索引/上下文注入)。通过 options.markPlaceholders=true 让 stripHtmlCardFences
+ * 在本次调用产出的占位符前加零宽前缀,humanizePlaceholders 用带前缀的正则匹配,
+ * LLM 字面量(没有前缀)不会被误替换为 `【交互卡片】` + 链接。
+ */
+const PLACEHOLDER_MARK = "\u200B";
+
 /** 剥离选项：stripReplies=false 时只剥 html-card，保留 html-card-reply 原文（注入出口） */
 export interface StripHtmlCardOptions {
   stripReplies?: boolean;
+  /**
+   * 给产出的占位符加零宽前缀(\u200B),用于在下游区分"机器占位符"vs"body 原文字面量"。
+   * 默认 false(检索/记忆索引/注入出口用未标记格式)。projectForChannel 传 true。
+   */
+  markPlaceholders?: boolean;
 }
 
 /** meta 属性提取（title / card）：双引号值，遇到首个引号截断 */
@@ -48,7 +64,12 @@ interface FenceReplacement {
 }
 
 /** walk mdast 收集目标围栏的切片替换（code 节点不嵌套，无需处理区间重叠） */
-function collectFenceReplacements(tree: Nodes, stripReplies: boolean): FenceReplacement[] {
+function collectFenceReplacements(
+  tree: Nodes,
+  stripReplies: boolean,
+  markPlaceholders: boolean,
+): FenceReplacement[] {
+  const prefix = markPlaceholders ? PLACEHOLDER_MARK : "";
   const replacements: FenceReplacement[] = [];
   const visit = (node: Nodes) => {
     if (node.type === "code") {
@@ -60,8 +81,8 @@ function collectFenceReplacements(tree: Nodes, stripReplies: boolean): FenceRepl
           start: code.position!.start.offset!,
           end: code.position!.end.offset!,
           placeholder: isCard
-            ? `[html-card: ${extractMetaAttr(code.meta, "title")}]`
-            : `[html-card-reply: ${extractMetaAttr(code.meta, "card")}]`,
+            ? `${prefix}[html-card: ${extractMetaAttr(code.meta, "title")}]`
+            : `${prefix}[html-card-reply: ${extractMetaAttr(code.meta, "card")}]`,
         });
       }
     }
@@ -80,10 +101,11 @@ function collectFenceReplacements(tree: Nodes, stripReplies: boolean): FenceRepl
  */
 export function stripHtmlCardFences(body: string, options?: StripHtmlCardOptions): string {
   const stripReplies = options?.stripReplies ?? true;
+  const markPlaceholders = options?.markPlaceholders ?? false;
   if (!body.includes("html-card")) return body;
   /** micromark 在剥离 BOM 后的值上计算 offset，切片落在原串会整体偏移一字符（R9）：先剥 BOM（投影文本无需保留） */
   const src = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
-  const replacements = collectFenceReplacements(parser().parse(src), stripReplies);
+  const replacements = collectFenceReplacements(parser().parse(src), stripReplies, markPlaceholders);
   /** 从后往前替换，先替换不影响前面区间的 offset */
   let out = src;
   for (const r of [...replacements].sort((a, b) => b.start - a.start)) {
@@ -104,11 +126,12 @@ export function stripHtmlCardsOnly(body: string): string {
 // 信道投影（F20260812fmdr）：把 body 变换成特定信道可渲染的形式
 //
 // 当前出口：飞书 post + md。流水线：
-//   stripHtmlCardFences → 占位符人化 → 字节级截断
+//   stripHtmlCardFences(markPlaceholders:true) → humanizePlaceholders → truncateByBytes
 //
 // 与 stripHtmlCardFences 的关系：
 // - stripHtmlCardFences 产出机器友好占位符（`[html-card: 标题]`），供检索/记忆索引用
-// - projectForChannel 把占位符翻译成终端用户可读形式（带 Web 链接），供 IM 信道用
+// - projectForChannel 用 markPlaceholders:true 让占位符带零宽前缀,humanizePlaceholders
+//   只匹配带前缀的版本,避免误匹配 body 原文里的 LLM 字面量(审视 R5)
 //
 // 截断常量、提示语都通过 options 传入，entity 层不知道"飞书 30KB 限制"这种信道细节。
 // ──────────────────────────────────────────────────────────────────────────
@@ -128,21 +151,21 @@ export interface ProjectForChannelOptions {
 const DEFAULT_MAX_BYTES = 25000;
 const DEFAULT_TRUNCATION_HINT = "…(已截断,完整内容见 Web 端)";
 
-/** 把 stripHtmlCardFences 输出的机器占位符替换为终端用户可读形式 */
+/** 把带标记的机器占位符替换为终端用户可读形式 */
 function humanizePlaceholders(text: string, options: ProjectForChannelOptions): string {
   const cardUrl =
     options.webBaseUrl && options.conversationId
       ? `${options.webBaseUrl.replace(/\/+$/, "")}/conversations/${options.conversationId}`
       : null;
 
-  // [html-card: 标题] → 【交互卡片:标题】(+ 可选链接)
-  text = text.replace(/\[html-card:\s*([^\]]*)\]/g, (_m, title: string) => {
+  // \u200B[html-card: 标题] → 【交互卡片:标题】(+ 可选链接)
+  text = text.replace(new RegExp(`${PLACEHOLDER_MARK}\\[html-card:\\s*([^\\]]*)\\]`, "g"), (_m, title: string) => {
     const label = `【交互卡片:${title}】`;
     return cardUrl ? `${label}\n👉 ${cardUrl}` : label;
   });
 
-  // [html-card-reply: cardId] → [已提交交互卡片]
-  text = text.replace(/\[html-card-reply:\s*[^\]]*\]/g, "[已提交交互卡片]");
+  // \u200B[html-card-reply: cardId] → [已提交交互卡片]
+  text = text.replace(new RegExp(`${PLACEHOLDER_MARK}\\[html-card-reply:\\s*[^\\]]*\\]`, "g"), "[已提交交互卡片]");
 
   return text;
 }
@@ -207,7 +230,8 @@ export function projectForChannel(body: string, options: ProjectForChannelOption
   // stripHtmlCardFences 仅在含 "html-card" 时剥 BOM(短路路径保留 BOM);
   // 飞书侧输出对终端用户可见,BOM 会渲染为怪字符,这里统一主动剥
   const bomStripped = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
-  const stripped = stripHtmlCardFences(bomStripped);
+  // markPlaceholders:true 让占位符带零宽前缀,避免误匹配 body 原文里 LLM 手写字面量(审视 R5)
+  const stripped = stripHtmlCardFences(bomStripped, { markPlaceholders: true });
   const humanized = humanizePlaceholders(stripped, options);
   return truncateByBytes(humanized, maxBytes, truncationHint);
 }

@@ -7,6 +7,12 @@ import type { SSEEvent } from "@contract/sse/events";
 import { projectForChannel } from "@entities/conversation/message-body-projection";
 
 /**
+ * 思考中消息的最大允许延迟(审视 R5):超过此延迟说明 IO 慢且 agent 可能已完成,
+ * 此时发"正在思考..."会晚于最终消息造成乱序,跳过。
+ */
+const THINKING_MESSAGE_MAX_DELAY_MS = 3000;
+
+/**
  * 消息广播服务
  * 负责将消息同步到所有连接的客户端(Web 和飞书)
  *
@@ -197,16 +203,35 @@ export class MessageBroadcaster {
     }
   }
 
-  /** message.start 触发的飞书"正在思考..."临时消息(消除 IM 静默期) */
+  /**
+   * message.start 触发的飞书"正在思考..."临时消息(消除 IM 静默期)
+   *
+   * 时间戳 gate(审视 R5): 发送前检查距 message.start.createdAt 的延迟,
+   * 超过阈值(3s)说明 IO 慢且 agent 可能已完成、最终消息可能已到达 —— 此时发
+   * "正在思考..." 会晚于最终消息造成乱序,跳过。
+   */
   private async maybeSendFeishuThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
+    const data = event.data as { otterName?: string; createdAt?: string };
+    const otterName = data.otterName;
+    if (!otterName) return;
+
+    // 时间戳 gate:createdAt 是 ISO string,转 ms 比对
+    if (data.createdAt) {
+      const elapsedMs = Date.now() - new Date(data.createdAt).getTime();
+      if (elapsedMs > THINKING_MESSAGE_MAX_DELAY_MS) {
+        this.logger.info("Skip feishu thinking message: too slow, final message likely already sent", {
+          conversationId,
+          otterName,
+          elapsedMs,
+        });
+        return;
+      }
+    }
+
     const session = await this.manageConnection.getSessionByConversation(conversationId);
     if (!session) return;
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
-
-    // message.start data 形如 { messageId, otterId, otterName, seq, createdAt }
-    const otterName = (event.data as { otterName?: string }).otterName;
-    if (!otterName) return;
 
     try {
       await this.feishuGateway.replyText(connection.externalId, `[${otterName}] 正在思考...`);

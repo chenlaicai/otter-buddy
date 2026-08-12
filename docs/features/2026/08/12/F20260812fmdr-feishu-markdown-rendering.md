@@ -173,10 +173,10 @@ body (Markdown, 单一真相源)
 
 | 测试集 | 用例数 | 结果 |
 |--------|--------|------|
-| `tests/entities/conversation/message-body-projection.test.ts` | 46 | ✅ 通过(新增 projectForChannel 10 个用例) |
-| `tests/frameworks/feishu/client.test.ts` | 7 | ✅ 通过(新建,覆盖 replyText/replyMarkdown/降级路径) |
-| `tests/usecases/im/message-broadcaster.test.ts` | 17 | ✅ 通过(重写,覆盖 replyMarkdown 路径 + 思考中消息 4 用例) |
-| 全量回归(`npm test`) | 1114 | ✅ 93 文件全过 |
+| `tests/entities/conversation/message-body-projection.test.ts` | 50 | ✅ 通过(projectForChannel 14 个用例,含字面量误匹配防护 2 个) |
+| `tests/frameworks/feishu/client.test.ts` | 7 | ✅ 通过(覆盖 replyText/replyMarkdown/降级路径,mock Response 补齐 ok/status) |
+| `tests/usecases/im/message-broadcaster.test.ts` | 20 | ✅ 通过(replyMarkdown 路径 + 思考中消息 7 用例,含乱序 gate 3 个) |
+| 全量回归(`npm test`) | 1124 | ✅ 93 文件全过 |
 | TypeScript 编译(`npm run build`) | — | ✅ 类型干净 |
 | `npm run lint:docs` | 167 docs | ✅ 无新增告警 |
 | `npm run lint:capability` | 63 | ✅ 无新增告警 |
@@ -245,20 +245,20 @@ body (Markdown, 单一真相源)
 
 ### 第五轮:对抗性输入 / 运维可观测性 / 幂等性 / 向后兼容
 
-聚焦前四轮没覆盖的盲区。**0 阻塞项**。
+聚焦前四轮没覆盖的盲区。**0 阻塞项**。所有发现项处理完毕,**无遗留**。
 
-**已修(本轮顺手做)**:
-- `buildWebConfig` 加 `http(s)://` 协议白名单:防止 `javascript:`/`data:` 等危险协议被注入到飞书侧占位符跳转链接。配置异常启动即抛错(快失败)
+**已修(本 PR 内完成)**:
+- `buildWebConfig` 加 `http(s)://` 协议白名单:防止 `javascript:`/`data:` 等危险协议被注入到飞书侧占位符跳转链接。配置异常启动即抛错
 - `createFeishuBundle` 在 `webBaseUrl` 缺失时输出 info 日志:运维能从启动日志发现配置遗漏
-- 补 web.baseUrl 协议校验单测(3 用例:合法 https/拒绝 javascript:/缺省)
-
-**记已知限制(后续 PR 评估)**:
-- `humanizePlaceholders` 正则无法区分"stripHtmlCardFences 剥离产出的机器占位"与"body 原文里 LLM 手工打出的字面量 `[html-card: xxx]`"。后者也会被替换为 `【交互卡片】` + 链接,链接指向的会话页根本没此卡片,形成误导。修复路径:stripHtmlCardFences 的 placeholder 加零宽字符前缀作为机器标记。优先级低(LLM 解释 html-card 语法时才会触发)
-- broadcaster.broadcast 无幂等性保证(既有问题,非本 PR 引入)。重复广播会发两条 post md,视觉影响比老的纯文本大。后续在 broadcaster 层加 messageId 去重
-- 失败降级频率无 metric/counter,只能 grep warn 日志统计。后续接 metric 系统
-- mock Response 缺 `ok`/`status` 字段(测试工程化):未来加 HTTP 错误处理时会假阳性。后续 PR 养习惯补全
+- **`humanizePlaceholders` 字面量误匹配**:扩 `stripHtmlCardFences` 加 `markPlaceholders` option,projectForChannel 调用时传 true,占位符产出自带零宽前缀 `\u200B`;`humanizePlaceholders` 正则只匹配带前缀版本。LLM 在 body 原文手写字面量 `[html-card: xxx]` 不会被误替换为 `【交互卡片】` + 链接。零宽标记不影响其他出口(FTS/记忆索引/注入仍用未标记格式)
+- **mock Response 补 ok/status 字段**(测试工程化):抽 `mockResponse()` helper,所有 fetch mock 返回值带 `ok:true, status:200`,防未来加 HTTP 错误处理时假阳性。补网络错误降级 msg_type=text 验证
+- **思考中消息乱序 gate**:扩 `maybeSendFeishuThinkingMessage`,发送前检查 `Date.now() - new Date(createdAt).getTime() > 3000ms` 则跳过。极快 agent 完成时,IO 慢路径下的思考中消息不再晚于最终消息到达。createdAt 缺失时仍发送(向后兼容)
 
 **向后兼容声明**(审视 R5 盲区4a):本变更影响所有经 `broadcastToFeishu` 的消息(含历史消息重发),飞书侧从纯文本变为 post md。这是有意的用户体验提升,不是 regression。
+
+**PR 边界声明(不在本 PR 范围,需独立 F 文档处理)**:
+- **broadcaster 幂等性**:既有问题,老 `replyText` 也存在,非本 PR 引入。修复需要重新设计 webhook event_id 去重 + DB 持久化,涉及飞书 webhook 层 + broadcaster 层联动改造。本 PR 改 post md 不会让它变得更该在这里修。后续独立 F 文档
+- **降级频率 metric**:全仓库没有 metric 框架,引入是基础设施级决策(Prometheus client / 自建 counter / 接入现有告警链路)。需要项目级技术选型,不塞进单 PR。后续做可观测性改造时统一引入
 
 ## 设计决策
 
