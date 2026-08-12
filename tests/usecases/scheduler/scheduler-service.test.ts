@@ -907,9 +907,9 @@ describe('SchedulerService - onChange', () => {
       // 推进 1 小时到触发时间
       await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
 
-      // 验证任务被触发并 disabled
+      // 验证任务被触发并删除（一次性任务触发后不保留）
       expect(taskRepo._executions.size).toBe(1);
-      expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(true);
+      expect(taskRepo._store.has('task-1')).toBe(false);
     });
 
     it("once 任务 triggerAt 已过期 -> 立即 disabled，不触发", async () => {
@@ -946,8 +946,8 @@ describe('SchedulerService - onChange', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      // 验证：disabled 但未产生执行记录
-      expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(true);
+      // 验证：已过期的一次性任务被删除，未产生执行记录
+      expect(taskRepo._store.has('task-1')).toBe(false);
       expect(taskRepo._executions.size).toBe(0);
     });
 
@@ -991,9 +991,9 @@ describe('SchedulerService - onChange', () => {
       // 推进重试延迟（65s）
       await vi.advanceTimersByTimeAsync(65_000);
 
-      // 验证：invoke 被调用 2 次（首次 + 1 次重试），任务 disabled
+      // 验证：invoke 被调用 2 次（首次 + 1 次重试），任务被删除（重试成功后不保留）
       expect(invokeCount).toBe(2);
-      expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(true);
+      expect(taskRepo._store.has('task-1')).toBe(false);
     });
 
     it("once 任务重试全部失败 -> 标记 error", async () => {
