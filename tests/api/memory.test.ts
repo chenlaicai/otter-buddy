@@ -53,6 +53,7 @@ describe("Memory API", () => {
         detailLevel: "summary",
         library: "conversation",
         debug: false,
+        expandContext: false,
       });
     });
 
@@ -114,6 +115,7 @@ describe("Memory API", () => {
         limit: 10,
         contentType: ["feature_chunk", "feature"],
         debug: false,
+        expandContext: false,
       });
     });
 

@@ -147,6 +147,7 @@ describe("SearchMemory - progressive disclosure", () => {
     /** mock repo：FTS 返回空，vec 返回 longEntry */
     const mockRepo = {
       hasVecTable: () => true,
+      isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [],
       searchFTS: async () => [],
       searchVec: async () => [{ entryId: "e-long", distance: 0.1, entry: longEntry }],
@@ -167,6 +168,13 @@ describe("SearchMemory - progressive disclosure", () => {
       setEmbeddingMeta: async () => {},
       scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
+      enqueueRetry: async () => {},
+      claimPendingTasks: async () => [],
+      markTaskDone: async () => {},
+      markTaskAttemptFailed: async () => {},
+      getBySourceId: async () => null,
+      findNeighborsByChunkIndex: async () => [],
+      findNeighborsByTime: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {
@@ -360,6 +368,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     // Mock repo：FTS 返回高质量结果，vec 返回低质量结果
     const mockRepo = {
       hasVecTable: () => true,
+      isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [
         { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" }, snippet: "梁山伯与祝英台" },
         { entryId: "e2", ftsRank: -8, entry: { ...BASE_ENTRY, id: "e2", sourceId: "src-2", content: "梁山伯在草桥亭遇见祝英台" }, snippet: "梁山伯在草桥亭" },
@@ -389,6 +398,13 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       setEmbeddingMeta: async () => {},
       scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
+      enqueueRetry: async () => {},
+      claimPendingTasks: async () => [],
+      markTaskDone: async () => {},
+      markTaskAttemptFailed: async () => {},
+      getBySourceId: async () => null,
+      findNeighborsByChunkIndex: async () => [],
+      findNeighborsByTime: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({
@@ -425,6 +441,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
 
     const mockRepo = {
       hasVecTable: () => true,
+      isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [
         { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" }, snippet: "梁山伯与祝英台" },
       ],
@@ -454,6 +471,13 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       setEmbeddingMeta: async () => {},
       scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
+      enqueueRetry: async () => {},
+      claimPendingTasks: async () => [],
+      markTaskDone: async () => {},
+      markTaskAttemptFailed: async () => {},
+      getBySourceId: async () => null,
+      findNeighborsByChunkIndex: async () => [],
+      findNeighborsByTime: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({
@@ -473,5 +497,383 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     expect(result.entries.length).toBe(2);
     expect(result.entries.find(e => e.id === "e1")).toBeDefined();
     expect(result.entries.find(e => e.id === "e2")).toBeDefined();
+  });
+});
+
+describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
+  it("P3-AT-1: 纯 F ID 短路，命中顶格 source=anchor", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    const embedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1, 0.2, 0.3]),
+    };
+    // 灌一条 F 文档 summary（审视二轮 M1: await 防 fire-and-forget 竞态）
+    await repo.storeEntry({
+      id: "anchor-1", layer: "document", contentType: "feature",
+      sourceId: "F20260812mrcq", sourceTable: "features",
+      conversationId: null, granularity: "coarse",
+      content: "F20260812mrcq summary content about memory recall quality",
+      metadata: null, createdAt: "2026-08-12T00:00:00Z",
+    });
+    await repo.storeEmbedding("anchor-1", new Float32Array([0.1, 0.2, 0.3]));
+
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "F20260812mrcq",
+      limit: 5,
+      detailLevel: "summary",
+    });
+    expect(result.entries.length).toBeGreaterThan(0);
+    expect(result.entries[0].source).toBe("anchor");
+    expect(result.entries[0].sourceId).toBe("F20260812mrcq");
+  });
+
+  it("P3-AT-3: ID + 其他词，anchor 短路 + 剩余走 RRF", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    await repo.storeEntry({
+      id: "anchor-2", layer: "document", contentType: "feature",
+      sourceId: "F20260812mrcq", sourceTable: "features",
+      conversationId: null, granularity: "coarse",
+      content: "F20260812mrcq summary",
+      metadata: null, createdAt: "2026-08-12T00:00:00Z",
+    });
+    // 灌另一条会被 RRF 命中的 message（无 conversation_id 避免 FK 约束）
+    await repo.storeEntry({
+      id: "msg-1", layer: "working", contentType: "message",
+      sourceId: "m1", sourceTable: "messages",
+      conversationId: null, granularity: "fine",
+      content: "讨论召回优化的方案",
+      metadata: null, createdAt: "2026-08-12T00:00:00Z",
+    });
+
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "F20260812mrcq 召回优化",
+      limit: 5,
+      detailLevel: "summary",
+    });
+    // 第一条是 anchor
+    expect(result.entries[0].source).toBe("anchor");
+    expect(result.entries[0].sourceId).toBe("F20260812mrcq");
+    // 应该还有 RRF 命中的"召回优化"结果
+    expect(result.total).toBeGreaterThan(1);
+  });
+
+  it("P3-AT-4: ID 不存在 → anchor 不短路，走 RRF", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "F20999999zzzz",
+      limit: 5,
+      detailLevel: "summary",
+    });
+    // anchor 不命中（ID 不存在），FTS 也找不到 → 空结果
+    expect(result.entries.length).toBe(0);
+    expect(result.total).toBe(0);
+  });
+
+  it("P3-AT-6: 词边界——F20260812mrcqextra 不短路", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await repo.storeEntry({
+      id: "anchor-3", layer: "document", contentType: "feature",
+      sourceId: "F20260812mrcq", sourceTable: "features",
+      conversationId: null, granularity: "coarse",
+      content: "summary",
+      metadata: null, createdAt: "2026-08-12T00:00:00Z",
+    });
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "F20260812mrcqextra",
+      limit: 5,
+      detailLevel: "summary",
+    });
+    // 词边界不匹配，不短路（也不命中 FTS）
+    expect(result.entries.find(e => e.source === "anchor")).toBeUndefined();
+  });
+
+  it("P3-AT-8: library=terminology 跳过 anchor 短路", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await repo.storeEntry({
+      id: "anchor-4", layer: "document", contentType: "feature",
+      sourceId: "F20260812mrcq", sourceTable: "features",
+      conversationId: null, granularity: "coarse",
+      content: "summary",
+      metadata: null, createdAt: "2026-08-12T00:00:00Z",
+    });
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "F20260812mrcq",
+      limit: 5,
+      detailLevel: "summary",
+      library: "terminology",
+    });
+    // terminology 库不短路（术语库无 F/R ID）
+    expect(result.entries.find(e => e.source === "anchor")).toBeUndefined();
+  });
+
+  it("P3-AT-7: URL 编码兜底（%20 空格）", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await repo.storeEntry({
+      id: "anchor-5", layer: "document", contentType: "feature",
+      sourceId: "F20260812mrcq", sourceTable: "features",
+      conversationId: null, granularity: "coarse",
+      content: "summary",
+      metadata: null, createdAt: "2026-08-12T00:00:00Z",
+    });
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    // URL 编码的空格
+    const result = await search.search({
+      query: "F20260812mrcq%20召回",
+      limit: 5,
+      detailLevel: "summary",
+    });
+    expect(result.entries[0].source).toBe("anchor");
+    expect(result.entries[0].sourceId).toBe("F20260812mrcq");
+  });
+});
+
+describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
+  async function insertChunk(repo: SqliteMemoryRepository, id: string, sourceId: string, chunkIndex: number, content: string): Promise<void> {
+    await repo.storeEntry({
+      id, layer: "document", contentType: "feature_chunk",
+      sourceId, sourceTable: "features",
+      conversationId: null, granularity: "fine",
+      content,
+      metadata: { chunk_index: chunkIndex, chunk_total: 5, heading_path: ["test"] },
+      createdAt: `2026-08-12T00:00:0${chunkIndex}Z`,
+    });
+  }
+
+  it("P2-AT-1: chunk 命中后扩展 ±1 邻域", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await insertChunk(repo, "c0", "F1", 0, "intro");
+    await insertChunk(repo, "c1", "F1", 1, "first section about RRF");
+    await insertChunk(repo, "c2", "F1", 2, "weights rerank");
+    await insertChunk(repo, "c3", "F1", 3, "frequency boost");
+    await insertChunk(repo, "c4", "F1", 4, "conclusion");
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "weights rerank",
+      limit: 5,
+      detailLevel: "snippet",
+      expandContext: true,
+      contentType: ["feature_chunk"],
+    });
+    // 命中 c2
+    const hit = result.entries.find(e => e.id === "c2");
+    expect(hit).toBeDefined();
+    // contextEntries 应含 c1 和 c3
+    expect(result.contextEntries).toBeDefined();
+    const ctxIds = result.contextEntries!.map(e => e.id);
+    expect(ctxIds).toContain("c1");
+    expect(ctxIds).toContain("c3");
+    // 不应含 c0 / c4（非邻域）或 c2（命中本身）
+    expect(ctxIds).not.toContain("c0");
+    expect(ctxIds).not.toContain("c4");
+    expect(ctxIds).not.toContain("c2");
+    // 所有 contextEntries source = context-expand
+    for (const ctx of result.contextEntries!) {
+      expect(ctx.source).toBe("context-expand");
+    }
+  });
+
+  it("P2-AT-3: chunk_index=0 边界——只向后扩展", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await insertChunk(repo, "c0", "F2", 0, "intro");
+    await insertChunk(repo, "c1", "F2", 1, "section two");
+    await insertChunk(repo, "c2", "F2", 2, "section three");
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "intro",
+      limit: 5,
+      detailLevel: "snippet",
+      expandContext: true,
+      contentType: ["feature_chunk"],
+    });
+    expect(result.entries.find(e => e.id === "c0")).toBeDefined();
+    const ctxIds = result.contextEntries?.map(e => e.id) ?? [];
+    expect(ctxIds).toContain("c1");  // 向后扩展
+    expect(ctxIds).not.toContain("c-1");  // 不可能存在
+  });
+
+  it("P2-AT-4: summary 命中 no-op", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await repo.storeEntry({
+      id: "s1", layer: "document", contentType: "feature",
+      sourceId: "F3", sourceTable: "features",
+      conversationId: null, granularity: "coarse",
+      content: "F3 summary about anchor and context",
+      metadata: null, createdAt: "2026-08-12T00:00:00Z",
+    });
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "anchor",
+      limit: 5,
+      detailLevel: "snippet",
+      expandContext: true,
+      contentType: ["feature"],
+    });
+    expect(result.entries.length).toBe(1);
+    // summary 无邻域结构，contextEntries 为空或未定义
+    expect(result.contextEntries ?? []).toHaveLength(0);
+  });
+
+  it("P2-AT-5: 默认不扩展（不传 expandContext）", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await insertChunk(repo, "c0", "F4", 0, "intro");
+    await insertChunk(repo, "c1", "F4", 1, "second");
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "intro",
+      limit: 5,
+      detailLevel: "snippet",
+      contentType: ["feature_chunk"],
+      // 不传 expandContext
+    });
+    expect(result.contextEntries).toBeUndefined();
+  });
+
+  it("P2-AT-2: message 命中后扩展前后各一条", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    // 灌同一 conversation 的 5 条 message（无 conversation FK：用 null conv + 手动指定同一 conversationId 不行
+    // 改用直接插 conversations 行 + memory_entries 引用）
+    db.prepare(`
+      INSERT INTO conversations (id, title, status, created_at, updated_at)
+      VALUES ('conv-msg', 'test', 'active', '2026-08-12T00:00:00Z', '2026-08-12T00:00:00Z')
+    `).run();
+    for (let i = 0; i < 5; i++) {
+      await repo.storeEntry({
+        id: `m${i}`, layer: "working", contentType: "message",
+        sourceId: `m${i}`, sourceTable: "messages",
+        conversationId: "conv-msg", granularity: "fine",
+        content: i === 2 ? "weights rerank formula" : `message ${i} content`,
+        metadata: null,
+        createdAt: `2026-08-12T00:00:0${i}Z`,
+      });
+    }
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "weights rerank",
+      limit: 5,
+      detailLevel: "snippet",
+      expandContext: true,
+      contentType: ["message"],
+    });
+    // 命中 m2
+    expect(result.entries.find(e => e.id === "m2")).toBeDefined();
+    // contextEntries 应含 m1 和 m3
+    expect(result.contextEntries).toBeDefined();
+    const ctxIds = result.contextEntries!.map(e => e.id);
+    expect(ctxIds).toContain("m1");
+    expect(ctxIds).toContain("m3");
+    // 不应含 m0 / m4（非邻域）或 m2（命中本身）
+    expect(ctxIds).not.toContain("m0");
+    expect(ctxIds).not.toContain("m4");
+    expect(ctxIds).not.toContain("m2");
+  });
+
+  it("P2-AT-7: full 模式不扩展", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    await insertChunk(repo, "c0", "F5", 0, "intro");
+    await insertChunk(repo, "c1", "F5", 1, "second");
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "intro",
+      limit: 5,
+      detailLevel: "full",
+      expandContext: true,
+      contentType: ["feature_chunk"],
+    });
+    expect(result.contextEntries).toBeUndefined();
   });
 });

@@ -29,6 +29,7 @@ function statefulRepo(): MemoryRepository & {
     searchFTSWithHighlight: async () => [],
     searchVec: async () => [],
     hasVecTable: () => false,
+    isVecEnabled: () => false,
     getDetails: async () => [],
     incrementRetrievalCounts: async () => {},
     flagMemory: async () => {},
@@ -41,6 +42,13 @@ function statefulRepo(): MemoryRepository & {
       setEmbeddingMeta: async () => {},
       scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
       hasEmbeddings: async () => new Map(),
+      enqueueRetry: async () => {},
+      claimPendingTasks: async () => [],
+      markTaskDone: async () => {},
+      markTaskAttemptFailed: async () => {},
+      getBySourceId: async () => null,
+      findNeighborsByChunkIndex: async () => [],
+      findNeighborsByTime: async () => [],
   };
 }
 

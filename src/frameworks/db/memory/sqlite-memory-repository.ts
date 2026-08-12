@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- F20260811mrpy 加入 embedding_meta/dark-entries/hasEmbeddings 后续接近 600 行 */
 
 import type Database from "better-sqlite3";
-import type { MemoryEntry, MemoryWeight, MemoryLayer } from "@entities/memory/memory-entry";
+import type { MemoryEntry, MemoryWeight, MemoryLayer, MemoryContentType } from "@entities/memory/memory-entry";
 import type {
   FTSHit,
   MemoryRepository,
@@ -30,15 +30,25 @@ const MAX_GET_DETAILS_BATCH = 100;
 
 export class SqliteMemoryRepository implements MemoryRepository {
   private readonly db: Database.Database;
-  /** 构造时缓存，可被 disableVec() 关闭（F20260811mrpy Part 3 版本锚降级） */
+  /**
+   * F20260812mrcq Part 0：vec 表物理存在标志，构造时通过 checkVecTable 固化，readonly。
+   * 不受 disableVec() 影响——区分"vec 表从未创建"vs"vec 表存在但运行时禁用"。
+   * 用于 scanDarkEntries / hasEmbeddings / 各 DELETE vec 路径的守卫。
+   */
+  private readonly vecTableExists: boolean;
+  /**
+   * vec 路径运行时启用标志。构造时 = vecTableExists，可被 disableVec() 关闭。
+   * 用于 storeEmbedding（写入）/ searchVec（查询）的运行时守卫。
+   */
   private hasVec: boolean;
 
   constructor(db: Database.Database) {
     this.db = db;
-    this.hasVec = this.checkVecTable();
+    this.vecTableExists = this.checkVecTable();
+    this.hasVec = this.vecTableExists;
   }
 
-  /** 检查 memory_vec 是否可用 */
+  /** 检查 memory_vec 是否可用（表存在且可查询） */
   private checkVecTable(): boolean {
     try {
       this.db.prepare("SELECT 1 FROM memory_vec LIMIT 1").get();
@@ -48,16 +58,34 @@ export class SqliteMemoryRepository implements MemoryRepository {
     }
   }
 
+  /** vec 表物理存在（不受 disableVec 影响） */
   hasVecTable(): boolean {
+    return this.vecTableExists;
+  }
+
+  /** F20260812mrcq Part 0：vec 路径当前是否运行时启用 */
+  isVecEnabled(): boolean {
     return this.hasVec;
   }
 
   /**
-   * F20260811mrpy Part 3：bootstrap 校验 embedding 版本不一致时调用，禁用 vec 路径。
-   * 之后 searchVec 直接返回空数组（已有守卫），召回降级为纯 FTS。
+   * F20260811mrpy Part 3 + F20260812mrcq Part 0：
+   * bootstrap 校验 embedding 版本不一致时调用，禁用 vec 路径。
+   * - hasVec=false：searchVec / storeEmbedding 跳过，召回降级为纯 FTS
+   * - 同步清空 memory_vec 表（vecTableExists 守卫），消除旧向量沉睡导致的混跑风险
+   * - DELETE 包 try-catch：bootstrap 降级路径绝对不能因清表失败阻塞启动
    */
   disableVec(): void {
     this.hasVec = false;
+    if (this.vecTableExists) {
+      try {
+        this.db.exec("DELETE FROM memory_vec");
+      } catch (err) {
+        // 清表失败不阻塞降级流程；下次 disableVec 或重启时再尝试
+        // eslint-disable-next-line no-console -- repo 层无 logger 注入，console.warn 兜底
+        console.warn(`[SqliteMemoryRepository] Failed to clear memory_vec during disableVec: ${err}`);
+      }
+    }
   }
 
   async storeEntry(entry: MemoryEntry): Promise<void> {
@@ -113,10 +141,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
         this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         // F20260803mval: memory_vec 是 vec0 虚拟表，sqlite-vec 扩展不可用时表不存在（D22 降级），删除前检查
-        if (this.hasVec) {
+        if (this.vecTableExists) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         }
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
+        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ?"
@@ -140,10 +170,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
       for (const row of oldRows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
         this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
-        if (this.hasVec) {
+        if (this.vecTableExists) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         }
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
+        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
@@ -189,6 +221,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
    * 用于 chunk 索引：文档 reindex 时删旧全部 chunk + 插新 N 个 chunk。
    * M1：所有 entries 必须同 (sourceTable, sourceId, contentType)，不一致抛异常。
    */
+  // eslint-disable-next-line max-lines-per-function -- F20260812mrcq 联动清理 embedding_tasks 增加几行
   async replaceEntriesBySource(entries: MemoryEntry[]): Promise<void> {
     if (entries.length === 0) return;
     const { sourceTable, sourceId, contentType } = entries[0];
@@ -210,10 +243,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
       for (const row of oldRows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
         this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
-        if (this.hasVec) {
+        if (this.vecTableExists) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         }
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
+        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
@@ -269,10 +304,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
       for (const row of oldRows) {
         this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
         this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
-        if (this.hasVec) {
+        if (this.vecTableExists) {
           this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         }
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
+        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
@@ -307,6 +344,71 @@ export class SqliteMemoryRepository implements MemoryRepository {
       "SELECT * FROM memory_entries WHERE id = ?",
     ).get(id) as MemoryEntryRow | undefined;
     return row ? rowToMemoryEntry(row) : null;
+  }
+
+  /**
+   * F20260812mrcq Part 3：按 source_id + 可选 contentType 主键直查（anchor 短路用）。
+   * 多条命中时取最新（created_at DESC）。
+   */
+  async getBySourceId(sourceId: string, contentType?: MemoryContentType): Promise<MemoryEntry | null> {
+    const sql = contentType
+      ? "SELECT * FROM memory_entries WHERE source_id = ? AND content_type = ? ORDER BY created_at DESC LIMIT 1"
+      : "SELECT * FROM memory_entries WHERE source_id = ? ORDER BY created_at DESC LIMIT 1";
+    const row = (contentType
+      ? this.db.prepare(sql).get(sourceId, contentType)
+      : this.db.prepare(sql).get(sourceId)) as MemoryEntryRow | undefined;
+    return row ? rowToMemoryEntry(row) : null;
+  }
+
+  /**
+   * F20260812mrcq Part 2：按 source + chunk_index 查邻域（±1）。
+   * chunk_index 存在 metadata JSON 中，用 json_extract 查询。
+   * 性能：当前文档总量约 500 条，全表扫可接受（P0 简化方案，性能优化留 follow-up）。
+   */
+  async findNeighborsByChunkIndex(
+    sourceTable: string,
+    sourceId: string,
+    chunkIndex: number,
+  ): Promise<MemoryEntry[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM memory_entries
+      WHERE source_table = ?
+        AND source_id = ?
+        AND content_type IN ('feature_chunk', 'research_chunk')
+        AND json_extract(metadata, '$.chunk_index') IN (?, ?)
+      ORDER BY json_extract(metadata, '$.chunk_index') ASC
+    `).all(sourceTable, sourceId, chunkIndex - 1, chunkIndex + 1) as MemoryEntryRow[];
+    return rows.map(rowToMemoryEntry);
+  }
+
+  /**
+   * F20260812mrcq Part 2：按 conversation + createdAt 查前后各一条 message。
+   * 返回最多 2 条（前一条 + 后一条），按 createdAt ASC 排序。
+   */
+  async findNeighborsByTime(
+    conversationId: string,
+    createdAt: string,
+  ): Promise<MemoryEntry[]> {
+    const before = this.db.prepare(`
+      SELECT * FROM memory_entries
+      WHERE conversation_id = ?
+        AND content_type = 'message'
+        AND created_at < ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(conversationId, createdAt) as MemoryEntryRow | undefined;
+
+    const after = this.db.prepare(`
+      SELECT * FROM memory_entries
+      WHERE conversation_id = ?
+        AND content_type = 'message'
+        AND created_at > ?
+      ORDER BY created_at ASC LIMIT 1
+    `).get(conversationId, createdAt) as MemoryEntryRow | undefined;
+
+    const result: MemoryEntry[] = [];
+    if (before) result.push(rowToMemoryEntry(before));
+    if (after) result.push(rowToMemoryEntry(after));
+    return result;
   }
 
   async getDetails(ids: string[]): Promise<MemoryEntry[]> {
@@ -551,21 +653,36 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   /**
-   * F20260811mrpy Part 1：扫描无 vec 索引的暗化条目。
+   * F20260811mrpy Part 1 + F20260812mrcq Part 0：扫描无 vec 索引的暗化条目。
    * 用 NOT EXISTS 子查询规避 vec0 虚拟表 anti-join 限制。
-   * 若 vec 表不可用（disableVec 或扩展缺失），返回空列表。
+   *
+   * F20260812mrcq Part 0 关键修复：用 vecTableExists 守卫（而非 hasVec），
+   * 使 disableVec 后仍能检测全表暗化（之前因 hasVec=false 直接返回空，检测能力丧失）。
+   *
+   * 返回值语义：
+   * - vecDisabled=true + entries=[]：vec 表从未创建（schema 失败）
+   * - vecDisabled=true + entries=[全表]：disableVec 清表后的全表暗化（可恢复）
+   * - vecDisabled=false + entries=[N]：部分暗化（日常累积）
    */
-  async scanDarkEntries(): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }> {
-    // vecDisabled=true 表示 vec 路径被运行时禁用（如 F20260811mrpy Part 3 disableVec），
-    // 此时返回空列表但语义非"无暗化条目"——调用方应感知 vecDisabled 标志
-    if (!this.hasVec) return { entries: [], total: 0, vecDisabled: true };
+  async scanDarkEntries(includeDead: boolean = false): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }> {
+    if (!this.vecTableExists) {
+      return { entries: [], total: 0, vecDisabled: true };
+    }
     try {
+      // F20260812mrcq Part 1：默认排除 status='dead' 的 dead-letter，防报告噪音
+      const deadFilter = includeDead ? "" : `
+        AND NOT EXISTS (
+          SELECT 1 FROM embedding_tasks et
+          WHERE et.entry_id = me.id AND et.status = 'dead'
+        )
+      `;
       const rows = this.db.prepare(`
         SELECT me.id, me.content_type, me.source_id, me.created_at
         FROM memory_entries me
         WHERE NOT EXISTS (
           SELECT 1 FROM memory_vec mv WHERE mv.memory_entry_id = me.id
         )
+        ${deadFilter}
         ORDER BY me.created_at DESC
         LIMIT 1000
       `).all() as Array<{ id: string; content_type: string; source_id: string; created_at: string }>;
@@ -575,21 +692,24 @@ export class SqliteMemoryRepository implements MemoryRepository {
         sourceId: r.source_id,
         createdAt: r.created_at,
       }));
-      return { entries, total: entries.length, vecDisabled: false };
+      return { entries, total: entries.length, vecDisabled: !this.hasVec };
     } catch {
-      return { entries: [], total: 0, vecDisabled: false };
+      return { entries: [], total: 0, vecDisabled: !this.hasVec };
     }
   }
 
   /**
-   * F20260811mrpy Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
-   * 返回 Map<entryId, hasVec>。vec 表不可用时所有 entry 返回 false。
+   * F20260811mrpy Part 1 + F20260812mrcq Part 0：批量查询 entry 是否有 vec 索引。
+   * 返回 Map<entryId, hasVec>。
+   *
+   * F20260812mrcq Part 0：用 vecTableExists 守卫——表存在但清空（disableVec 后）时
+   * IN 查询返回空，Map 全 false，正确反映"这些 entry 当前没 vec"。
    */
   async hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>> {
     const result = new Map<string, boolean>();
     if (entryIds.length === 0) return result;
     for (const id of entryIds) result.set(id, false);
-    if (!this.hasVec) return result;
+    if (!this.vecTableExists) return result;
     try {
       const placeholders = entryIds.map(() => "?").join(",");
       const rows = this.db.prepare(
@@ -600,5 +720,88 @@ export class SqliteMemoryRepository implements MemoryRepository {
       // vec0 IN 查询异常：保守返回全 false
     }
     return result;
+  }
+
+  /**
+   * F20260812mrcq Part 1：embedding 失败入队重试。
+   * ON CONFLICT(entry_id) DO UPDATE：
+   *   - 不重置 attempts（避免无限重试）
+   *   - status 强制 'pending'（dead 也可被 enqueueRetry 复活）
+   *   - next_retry_at = now（立即可重试）
+   */
+  async enqueueRetry(entryId: string, error: unknown): Promise<void> {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    this.db.prepare(`
+      INSERT INTO embedding_tasks (entry_id, next_retry_at, status, created_at, last_error)
+      VALUES (?, datetime('now'), 'pending', datetime('now'), ?)
+      ON CONFLICT(entry_id) DO UPDATE SET
+        next_retry_at = excluded.next_retry_at,
+        last_error = excluded.last_error,
+        status = 'pending'
+    `).run(entryId, errMsg);
+  }
+
+  /**
+   * F20260812mrcq Part 1：原子认领 pending 任务（SQLite 3.35+ RETURNING）。
+   * attempts 自增 1（claim 即视为已尝试）。
+   * 指数退避：next_retry_at 按 attempts 计算（30s/60s/120s 封顶 1h）。
+   * JOIN memory_entries 获取 content（content 不冗余存储）。
+   * 若 entry 已被删除（JOIN 不到），claim 返回 content=''，tick 会跳过转 dead。
+   */
+  async claimPendingTasks(
+    limit: number,
+  ): Promise<Array<{ entryId: string; content: string; attempts: number }>> {
+    const rows = this.db.prepare(`
+      UPDATE embedding_tasks
+      SET last_attempt_at = datetime('now'),
+          next_retry_at = datetime('now', '+' ||
+            CASE attempts
+              WHEN 0 THEN '30'
+              WHEN 1 THEN '60'
+              WHEN 2 THEN '120'
+              WHEN 3 THEN '300'
+              ELSE '3600'
+            END || ' seconds'),
+          attempts = attempts + 1
+      WHERE entry_id IN (
+        SELECT entry_id FROM embedding_tasks
+        WHERE status = 'pending'
+          AND next_retry_at <= datetime('now')
+        LIMIT ?
+      )
+      RETURNING entry_id, attempts
+    `).all(limit) as Array<{ entry_id: string; attempts: number }>;
+
+    if (rows.length === 0) return [];
+    // 二次查询 JOIN memory_entries 拿 content
+    const placeholders = rows.map(() => "?").join(",");
+    const entryRows = this.db.prepare(`
+      SELECT id, content FROM memory_entries WHERE id IN (${placeholders})
+    `).all(...rows.map(r => r.entry_id)) as Array<{ id: string; content: string }>;
+    const contentMap = new Map(entryRows.map(r => [r.id, r.content]));
+    return rows.map(r => ({
+      entryId: r.entry_id,
+      content: contentMap.get(r.entry_id) ?? "",
+      attempts: r.attempts,
+    }));
+  }
+
+  /** F20260812mrcq Part 1：task 成功，删除 task 行 */
+  async markTaskDone(entryId: string): Promise<void> {
+    this.db.prepare(`DELETE FROM embedding_tasks WHERE entry_id = ?`).run(entryId);
+  }
+
+  /**
+   * F20260812mrcq Part 1：task 失败，更新 last_error。
+   * 若 attempts >= maxAttempts，status 转 'dead'（不再被 claimPendingTasks 选取）。
+   */
+  async markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void> {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    this.db.prepare(`
+      UPDATE embedding_tasks
+      SET last_error = ?,
+          status = CASE WHEN attempts >= ? THEN 'dead' ELSE status END
+      WHERE entry_id = ?
+    `).run(errMsg, maxAttempts, entryId);
   }
 }

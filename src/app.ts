@@ -28,7 +28,7 @@ import {
   postInitDatabase, postSyncMigrations, validateModelAliases, applyDefaultModelOverride, shutdownDatabase,
   verifyEmbeddingVersion,
 } from "./bootstrap/database";
-import { createMemoryIndex, syncDocuments } from "./bootstrap/memory";
+import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
 import { buildOtterToolClient } from "./bootstrap/clients";
 import {
@@ -96,6 +96,8 @@ export interface BuiltApp {
   schedulerService: SchedulerService;
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
+  /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null） */
+  retryWorker: { stopSync(): void; stop(): Promise<void> } | null;
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志。幂等。 */
   dispose(): void;
 }
@@ -130,6 +132,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const memoryIndex = createMemoryIndex(repos, embeddingService, logger);
   const syncResult = await syncDocuments(repos, memoryIndex, logger, options.rootDir ?? process.cwd());
   postSyncMigrations(db, logger, syncResult);
+
+  // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
+  const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
   await applyDefaultModelOverride(repos.settings, modelPool, logger);
@@ -187,11 +192,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   return {
     app, db, config, logger, controllers,
     usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
-    embeddingService, modelPool,
+    embeddingService, modelPool, retryWorker,
     dispose: () => {
       if (disposed) return;
       disposed = true;
       schedulerService.stop();
+      // F20260812mrcq Part 1：先停 retry worker 再关 DB
+      retryWorker?.stopSync();
       disposeEmbedding();
       shutdownDatabase(db, logger);
       if ("flush" in logger && typeof logger.flush === "function") {

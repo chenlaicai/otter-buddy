@@ -206,6 +206,25 @@ function createMemoryTables(db: Database.Database): void {
       updated_at TEXT NOT NULL
     );
   `);
+
+  // F20260812mrcq Part 1：embedding 失败重试队列。
+  // store-memory.ts 的 fire-and-forget embedding 失败后入队，
+  // 由 EmbeddingRetryWorker tick 消费（指数退避），3 次失败转 dead-letter。
+  // content 不冗余存储——retry worker 用 JOIN memory_entries 获取（entry content 不可变）。
+  // 清理走手动 DELETE（在 deleteBySource/replaceEntryBySource 等），不依赖 FK CASCADE。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS embedding_tasks (
+      entry_id TEXT PRIMARY KEY,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      last_attempt_at TEXT,
+      next_retry_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dead')),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry
+      ON embedding_tasks (status, next_retry_at);
+  `);
 }
 
 /** 术语库：terminology_entries + terminology_fts */

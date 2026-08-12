@@ -81,6 +81,8 @@ export class MemoryController {
       /** F20260805rbrg: 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
       const createdAfter = c.req.query("created_after") || undefined;
       const debug = c.req.query("debug") === "true";
+      /** F20260812mrcq Part 2: 邻域扩展（chunk ±1 / message 前后条） */
+      const expandContext = c.req.query("expand_context") === "true";
 
       const result = await this.searchMemory.search({
         query,
@@ -93,6 +95,7 @@ export class MemoryController {
         contentType,
         createdAfter,
         debug,
+        expandContext,
       });
 
       /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */
@@ -105,6 +108,13 @@ export class MemoryController {
         }),
         total: result.total,
         vecCoverage: result.vecCoverage,
+        // F20260812mrcq Part 2: 邻域扩展（独立字段，不混入 entries）+ 审视二轮 M4 snippet 高亮一致
+        ...(result.contextEntries ? {
+          contextEntries: result.contextEntries.map((e) => {
+            const snippet = e.snippet ? highlightSnippet(e.snippet, query) : e.snippet;
+            return toMemoryEntryDTO(e, e.score, e.source, snippet, detailLevel);
+          }),
+        } : {}),
         ...(degraded ? { degraded: true, degradedReason: "embedding 不可用，语义检索降级，结果可能不完整" } : {}),
       });
     } catch (err) {
@@ -127,10 +137,12 @@ export class MemoryController {
     }
   }
 
-  /** F20260811mrpy Part 1：扫描无 vec 索引的暗化条目 */
+  /** F20260811mrpy Part 1 + F20260812mrcq Part 1：扫描无 vec 索引的暗化条目 */
   async getDarkEntries(c: Context): Promise<Response> {
     try {
-      const result = await this.scanDarkEntries.execute();
+      // F20260812mrcq Part 1：include_dead=true 查看全部（含 dead-letter，运维排查）
+      const includeDead = c.req.query("include_dead") === "true";
+      const result = await this.scanDarkEntries.execute(includeDead);
       return c.json(result);
     } catch (err) {
       return handleError(c, err, this.logger);
