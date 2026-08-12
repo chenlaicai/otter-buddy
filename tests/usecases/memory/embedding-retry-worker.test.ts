@@ -7,7 +7,9 @@ import { load as loadSqliteVec } from "sqlite-vec";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { initSchema } from "@frameworks/db/schema";
 import { EmbeddingRetryWorker } from "@usecases/memory/embedding-retry-worker";
+import { createAndStartRetryWorker } from "../../../src/bootstrap/memory";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { Repositories } from "../../../src/bootstrap/types";
 import type DatabaseType from "better-sqlite3";
 import { createTestLogger } from "../../helpers/logger";
 
@@ -226,5 +228,66 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     const finalStatus = getTaskStatus("orphan");
     expect(finalStatus!.status).toBe("dead");
     expect(finalStatus!.attempts).toBe(3);
+  });
+});
+
+describe("F20260812mrcq Part 1 审视 M3 - createAndStartRetryWorker 存量迁移", () => {
+  it("P1-AT-9: 启动时把存量暗化条目批量入队", async () => {
+    // 用独立 db 装配完整 repo
+    const migDb = new Database(":memory:");
+    try { loadSqliteVec(migDb); } catch { /* skip */ }
+    initSchema(migDb);
+    const migRepo = new SqliteMemoryRepository(migDb);
+
+    // 制造 3 条存量暗化条目（有 entries 无 vec 索引）
+    for (let i = 0; i < 3; i++) {
+      migDb.prepare(`
+        INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
+          conversation_id, granularity, content, metadata, created_at)
+        VALUES (?, 'working', 'message', ?, 'messages', NULL, 'fine', ?, NULL, ?)
+      `).run(`mig-${i}`, `mig-${i}`, `content-${i}`, `2026-08-12T00:00:0${i}Z`);
+    }
+    // 验证存量暗化存在
+    const before = await migRepo.scanDarkEntries();
+    expect(before.total).toBe(3);
+
+    // mock Repositories 最小结构
+    const mockRepos = { memory: migRepo } as unknown as Repositories;
+    const mockEmbedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array(1024).fill(0.1),
+    };
+    const logger = createTestLogger();
+
+    const worker = await createAndStartRetryWorker(mockRepos, mockEmbedding, logger);
+    expect(worker).not.toBeNull();
+
+    // 验证 3 条都入队了
+    const tasks = migDb.prepare(`SELECT entry_id FROM embedding_tasks`).all() as Array<{ entry_id: string }>;
+    expect(tasks.length).toBe(3);
+    expect(tasks.map(t => t.entry_id)).toContain("mig-0");
+    expect(tasks.map(t => t.entry_id)).toContain("mig-1");
+    expect(tasks.map(t => t.entry_id)).toContain("mig-2");
+
+    await worker!.stop();
+    migDb.close();
+  });
+
+  it("P1-AT-9 变体: vec 禁用时不启动 worker（返回 null）", async () => {
+    const migDb = new Database(":memory:");
+    try { loadSqliteVec(migDb); } catch { /* skip */ }
+    initSchema(migDb);
+    const migRepo = new SqliteMemoryRepository(migDb);
+    migRepo.disableVec();  // vec 禁用
+
+    const mockRepos = { memory: migRepo } as unknown as Repositories;
+    const mockEmbedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array(1024).fill(0.1),
+    };
+
+    const worker = await createAndStartRetryWorker(mockRepos, mockEmbedding, createTestLogger());
+    expect(worker).toBeNull();  // vec 禁用时不启动
+    migDb.close();
   });
 });

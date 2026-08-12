@@ -108,6 +108,12 @@ export class MemoryController {
         }),
         total: result.total,
         vecCoverage: result.vecCoverage,
+        // F20260812mrcq Part 2: 邻域扩展（独立字段，不混入 entries）
+        ...(result.contextEntries ? {
+          contextEntries: result.contextEntries.map((e) =>
+            toMemoryEntryDTO(e, e.score, e.source, e.snippet, detailLevel),
+          ),
+        } : {}),
         ...(degraded ? { degraded: true, degradedReason: "embedding 不可用，语义检索降级，结果可能不完整" } : {}),
       });
     } catch (err) {

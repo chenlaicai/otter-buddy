@@ -75,6 +75,43 @@ describe("SqliteMemoryRepository - F20260811mrpy Part 1 暗化/覆盖率", () =>
     expect(repo.isVecEnabled()).toBe(false);  // 但运行时禁用
   });
 
+  it("P0-AT-2 审视 M2: 清表失败不阻塞降级（try-catch 吞错）", async () => {
+    // 用独立 db + repo，模拟 DELETE FROM memory_vec 失败
+    const freshDb = new Database(":memory:");
+    try { loadSqliteVec(freshDb); } catch { /* skip */ }
+    initSchema(freshDb);
+    const freshRepo = new SqliteMemoryRepository(freshDb);
+
+    // 先写一条 vec 数据
+    freshDb.prepare(`
+      INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
+        conversation_id, granularity, content, metadata, created_at)
+      VALUES ('clear-test', 'working', 'message', 's', 'messages', NULL, 'fine', 'x', NULL, '2026-08-12T00:00:00Z')
+    `).run();
+    freshDb.prepare(`INSERT INTO memory_vec (memory_entry_id, embedding) VALUES ('clear-test', ?)`).run(Buffer.from(new Float32Array(1024).buffer));
+
+    // mock db.exec 抛错（仅在 DELETE FROM memory_vec 时）
+    const origExec = freshDb.exec.bind(freshDb);
+    let deleteAttempted = false;
+    freshDb.exec = ((sql: string) => {
+      if (sql.includes("DELETE FROM memory_vec")) {
+        deleteAttempted = true;
+        throw new Error("mock DELETE failure");
+      }
+      return origExec(sql);
+    }) as typeof freshDb.exec;
+
+    // disableVec 不应抛错
+    expect(() => freshRepo.disableVec()).not.toThrow();
+    expect(deleteAttempted).toBe(true);
+    // hasVec 仍为 false（降级生效）
+    expect(freshRepo.isVecEnabled()).toBe(false);
+    // vecTableExists 仍为 true（物理表还在）
+    expect(freshRepo.hasVecTable()).toBe(true);
+
+    freshDb.close();
+  });
+
   it("hasEmbeddings 在 disableVec 后所有 entry 返回 false", async () => {
     repo.disableVec();
     const result = await repo.hasEmbeddings(["e1", "e2"]);

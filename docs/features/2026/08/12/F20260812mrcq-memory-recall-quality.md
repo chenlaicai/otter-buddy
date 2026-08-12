@@ -387,15 +387,17 @@ async function bootstrapRetryWorker(...) {
 }
 ```
 
-#### H. tick 触发：定时 + worker ready 事件驱动（审视 m14）
+#### H. tick 触发：定时 + worker ready 事件驱动（审视 m14，**deferred**）
 
-worker 启动期是暗化主要来源之一。worker ready 后立即跑一次 tick（不等 30s）：
+worker 启动期是暗化主要来源之一。原计划 worker ready 后立即跑一次 tick（不等 30s）：
 
 ```typescript
 embeddingGateway.on('ready', () => {
   retryWorker.tickNow().catch(...);  // 事件驱动一次额外 tick
 });
 ```
+
+**实际状态**：`EmbeddingRetryWorker.tickNow()` 方法已暴露，但 `EmbeddingGateway` 接口未加事件机制（`on()` 方法），bootstrap 未 wire up。当前仅靠 30s setInterval 轮询兜底，启动初期恢复延迟最长 60s 可接受。完整实现见 issue #245。
 
 ### 1.3 验收
 
@@ -860,7 +862,7 @@ Part 2 (context-expand)
 | m11 | SQLite 3.53 支持 RETURNING | 改用 UPDATE...RETURNING |
 | m12 | datetime 字符串拼接需验证 | 应用层拼好 |
 | m13 | 实施顺序"Part 3 先于 Part 2"理由不成立 | 修文档（实际可并行）|
-| m14 | AT-1 "5min 内清空"乐观 | worker ready 事件驱动额外 tick |
+| m14 | AT-1 "5min 内清空"乐观 | **deferred**：EmbeddingRetryWorker 暴露了 tickNow 方法，但 EmbeddingGateway 接口未加事件机制，bootstrap 未 wire up。详见 issue #245 |
 
 #### 事实核查关键修正
 

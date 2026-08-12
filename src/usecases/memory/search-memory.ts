@@ -188,14 +188,18 @@ export class SearchMemory {
 
     let rrfResult: RetrievalResult;
     if (remaining) {
-      rrfResult = await this.searchConversationInternal({
+      const remainingQuery = {
         ...query,
         query: remaining,
         // anchor 命中已顶格，剩余 RRF 结果数量保持原 limit-1（让 anchor + RRF 总和约等于 limit）
         limit: Math.max(query.limit - 1, 1),
-      });
+      };
+      // 审视 B3：按原 library 路由走（全库时含术语库混排，不能只走 conversation）
+      rrfResult = query.library === "conversation"
+        ? await this.searchConversation(remainingQuery)
+        : await this.searchAllLibraries(remainingQuery);
     } else {
-      rrfResult = { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
+      rrfResult = { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
 
     // 组装 anchor entry 为 RetrievalResultEntry
@@ -280,7 +284,7 @@ export class SearchMemory {
   /** 术语库检索 */
   private async searchTerminologyLibrary(query: SearchQuery): Promise<RetrievalResult> {
     if (!this.terminologyRepo) {
-      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
+      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
     const results = await this.terminologyRepo.search(query.query, query.limit);
     const detailLevel = query.detailLevel ?? "summary";
@@ -319,7 +323,7 @@ export class SearchMemory {
       };
     });
     // F20260811mrpy Part 1：术语库不索引 vec，withVec 恒为 0
-    return { entries, total: entries.length, vecCoverage: { total: entries.length, withVec: 0, ratio: 0 } };
+    return { entries, total: entries.length, vecCoverage: this.buildVecCoverage(entries.length, 0) };
   }
 
   /** 全库搜索：排名位置归一化混排 */
@@ -364,12 +368,7 @@ export class SearchMemory {
 
     // F20260811mrpy Part 1：合并对话库 vecCoverage + 术语库（术语库不索引 vec）
     const convWithVec = convResult.vecCoverage.withVec;
-    const mergedTotal = entries.length;
-    const mergedVecCoverage: VecCoverage = {
-      total: mergedTotal,
-      withVec: convWithVec,
-      ratio: mergedTotal > 0 ? convWithVec / mergedTotal : 0,
-    };
+    const mergedVecCoverage = this.buildVecCoverage(entries.length, convWithVec);
 
     return { entries, total: entries.length, vecCoverage: mergedVecCoverage };
   }
@@ -463,7 +462,7 @@ export class SearchMemory {
     /** 1. 获取 embedding */
     const embedding = await this.repo.getEmbedding(memoryEntryId);
     if (!embedding) {
-      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
+      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
 
     /** 2. vec 搜索（limit+1 补偿自身匹配过滤） */
@@ -508,7 +507,7 @@ export class SearchMemory {
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
     if (hitIds.length === 0) {
-      return { entries: [], total: 0, vecCoverage: { total: 0, withVec: 0, ratio: 0 } };
+      return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
 
     const weights = await this.repo.getWeights(hitIds);
@@ -527,11 +526,7 @@ export class SearchMemory {
     const topIds = top.map(h => h.entryId);
     const hasVecMap = await this.repo.hasEmbeddings(topIds);
     const withVecCount = Array.from(hasVecMap.values()).filter(Boolean).length;
-    const vecCoverage: VecCoverage = {
-      total: top.length,
-      withVec: withVecCount,
-      ratio: top.length > 0 ? withVecCount / top.length : 0,
-    };
+    const vecCoverage: VecCoverage = this.buildVecCoverage(top.length, withVecCount);
 
     return {
       // eslint-disable-next-line complexity -- F20260811mrpy debug/drillDown 注入增加分支
@@ -656,6 +651,19 @@ export class SearchMemory {
       result.push(...group.slice(0, 3));
     }
     return result;
+  }
+
+  /**
+   * F20260812mrcq Part 2（审视 m5）：统一构造 VecCoverage，自动填充 vecDisabled。
+   * vecDisabled 让消费方区分"无结果"vs"vec 路径运行时禁用"。
+   */
+  private buildVecCoverage(total: number, withVec: number): VecCoverage {
+    return {
+      total,
+      withVec,
+      ratio: total > 0 ? withVec / total : 0,
+      vecDisabled: !this.repo.isVecEnabled(),
+    };
   }
 
   /**

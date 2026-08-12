@@ -806,6 +806,53 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
     expect(result.contextEntries).toBeUndefined();
   });
 
+  it("P2-AT-2: message 命中后扩展前后各一条", async () => {
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    // 灌同一 conversation 的 5 条 message（无 conversation FK：用 null conv + 手动指定同一 conversationId 不行
+    // 改用直接插 conversations 行 + memory_entries 引用）
+    db.prepare(`
+      INSERT INTO conversations (id, title, status, created_at, updated_at)
+      VALUES ('conv-msg', 'test', 'active', '2026-08-12T00:00:00Z', '2026-08-12T00:00:00Z')
+    `).run();
+    for (let i = 0; i < 5; i++) {
+      await repo.storeEntry({
+        id: `m${i}`, layer: "working", contentType: "message",
+        sourceId: `m${i}`, sourceTable: "messages",
+        conversationId: "conv-msg", granularity: "fine",
+        content: i === 2 ? "weights rerank formula" : `message ${i} content`,
+        metadata: null,
+        createdAt: `2026-08-12T00:00:0${i}Z`,
+      });
+    }
+
+    const embedding: EmbeddingGateway = {
+      available: false,
+      embed: async () => { throw new Error("mock"); },
+    };
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+
+    const result = await search.search({
+      query: "weights rerank",
+      limit: 5,
+      detailLevel: "snippet",
+      expandContext: true,
+      contentType: ["message"],
+    });
+    // 命中 m2
+    expect(result.entries.find(e => e.id === "m2")).toBeDefined();
+    // contextEntries 应含 m1 和 m3
+    expect(result.contextEntries).toBeDefined();
+    const ctxIds = result.contextEntries!.map(e => e.id);
+    expect(ctxIds).toContain("m1");
+    expect(ctxIds).toContain("m3");
+    // 不应含 m0 / m4（非邻域）或 m2（命中本身）
+    expect(ctxIds).not.toContain("m0");
+    expect(ctxIds).not.toContain("m4");
+    expect(ctxIds).not.toContain("m2");
+  });
+
   it("P2-AT-7: full 模式不扩展", async () => {
     const db = createTestDb();
     const repo = new SqliteMemoryRepository(db);
