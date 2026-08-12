@@ -138,6 +138,16 @@ frontmatter 必填字段：`name / description / co_loads / category`。
 - 搭档说"跳过审视" → 显式决策，记录后放行
 - 安全红线不可弹性，但搭档可以喊停任何流程（记录决策后放行）
 
+### 特性文档
+
+特性文档（`docs/features/` 下的 markdown 文件）是特性开发的全流程载体，贯穿探索、分析、设计、实现、审视等各阶段。
+
+- **位置**：特性文档在 worktree 中（`<worktree>/docs/features/<yyyy>/<mm>/<dd>/F<date><id>-<title>.md`），随代码一起提交到 PR
+- **协调**：首次写入时用 `create_linked_resource(type: "file")` 注册，所有参与者通过 `list_artifacts` 发现并追加
+- **时机**：当有需要记录的内容时就记录——不强制某个 skill 必须产出特性文档，由参与者判断
+- **角色**：任何参与者（大獭/小獭）都可以创建和更新特性文档，无角色约束
+- **格式**：参考 `docs/features/` 下已有文档的 frontmatter 格式（id、title、doc_type、summary、causal_links、status、change_type、tags、modules、created_at）
+
 ## 当前 skill 到模板的映射
 
 | 当前段落 | 去向 |

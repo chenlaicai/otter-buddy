@@ -22,8 +22,9 @@ category: technique
 | 输入 | 必选 | 缺失时 |
 |------|------|--------|
 | 技术方案（搭档确认后） | 是 | 停下来问搭档。禁止自行编造方案 |
-| 方案编号 | 是 | 从方案文档 frontmatter 读取 |
+| 方案编号 | 是 | 从方案文档或特性文档 frontmatter 读取 |
 | 工作分支 | 是 | 先走 worktree-isolation 创建 worktree |
+| 特性文档 | 否 | 通过 `list_artifacts` 查找；不存在则跳过
 
 ## 工作流
 
@@ -37,9 +38,11 @@ category: technique
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
-6. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
-7. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
-8. **对抗审视**：
+6. **文档**：将实现要点、变更说明追加到特性文档（参见全局约定「特性文档」）。
+
+7. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
+8. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
+9. **对抗审视**：
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
    - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；**每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修复/建 issue，更差→带证据反驳**；四类处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置；不作为不允许

@@ -28,7 +28,7 @@ category: technique
 ## 工作流
 
 1. **验证环境**：`git rev-parse --show-toplevel` + `pwd`，确认是否已在 `.claude/worktrees/` 下。已在则跳到 step 2。
-2. **创建 worktree**：`git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。
+2. **创建 worktree**：`git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。worktree 是特性开发的独立空间，特性文档（`docs/features/`）也在这里。
 3. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。按提交模板 commit，署名见 `_shared/signature-convention.md`。
 4. **推送并创建 PR**：`git push -u origin <branch>` + `gh pr create`，PR 链接交给搭档。
 
