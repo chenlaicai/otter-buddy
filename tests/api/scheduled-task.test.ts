@@ -81,6 +81,16 @@ describe("Scheduled Task API", () => {
       expect(body.nextTriggerAt).toBe("2026-07-23T10:50:00+08:00");
       // cron parser 不应被调用
       expect(deps.cronParser.getNextTime).not.toHaveBeenCalled();
+      // 验证 create 请求字段正确转发到 use case
+      expect(deps.manageScheduledTask.create).toHaveBeenCalledWith({
+        conversationId: "conv-1",
+        name: "One-time Reminder",
+        scheduleType: "once",
+        triggerAt: "2026-07-23T10:50:00+08:00",
+        body: "Drink water",
+        talkingStonePassedTo: ["otter-1"],
+        senderId: undefined,
+      });
     });
 
     it("use case 抛出 DomainError 时返回 400", async () => {

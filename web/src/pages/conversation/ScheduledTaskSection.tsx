@@ -81,8 +81,10 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
             {task.scheduleType === 'once' ? (
               <>
                 <span className="px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">一次性</span>
-                {task.triggerAt && (
+                {task.triggerAt ? (
                   <span>{new Date(task.triggerAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })}</span>
+                ) : (
+                  <span className="text-stone-400">未设置触发时间</span>
                 )}
               </>
             ) : (

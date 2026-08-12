@@ -37,7 +37,9 @@ export class ScheduledTaskController {
       const task = await this.manageScheduledTask.create({
         conversationId,
         name: body.name,
+        scheduleType: body.scheduleType,
         cron: body.cron,
+        triggerAt: body.triggerAt,
         timezone: body.timezone,
         body: body.body,
         talkingStonePassedTo: body.talkingStonePassedTo,
@@ -87,7 +89,9 @@ export class ScheduledTaskController {
 
       const task = await this.manageScheduledTask.update(taskId, {
         name: body.name,
+        scheduleType: body.scheduleType,
         cron: body.cron,
+        triggerAt: body.triggerAt,
         timezone: body.timezone,
         body: body.body,
         talkingStonePassedTo: body.talkingStonePassedTo,

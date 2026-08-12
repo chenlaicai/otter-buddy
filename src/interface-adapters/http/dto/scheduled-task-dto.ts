@@ -6,7 +6,9 @@ import type {
 /** 创建定时任务请求 */
 export interface CreateScheduledTaskRequestDTO {
   name: string;
-  cron: string;
+  scheduleType?: 'cron' | 'once';
+  cron?: string;
+  triggerAt?: string;
   timezone?: string;
   body: string;
   talkingStonePassedTo: string[];
@@ -16,7 +18,9 @@ export interface CreateScheduledTaskRequestDTO {
 /** 更新定时任务请求 */
 export interface UpdateScheduledTaskRequestDTO {
   name?: string;
+  scheduleType?: 'cron' | 'once';
   cron?: string;
+  triggerAt?: string | null;
   timezone?: string;
   body?: string;
   talkingStonePassedTo?: string[];
