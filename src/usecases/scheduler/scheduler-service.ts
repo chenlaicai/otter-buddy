@@ -6,6 +6,8 @@ import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-schedu
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
+import type { SchedulerMetrics } from '@frameworks/metrics/scheduler-metrics';
+import { nowMs } from '@frameworks/metrics/registry';
 import { DomainError } from '@entities/errors';
 
 /** once 任务重试参数 */
@@ -26,6 +28,7 @@ export interface SchedulerServiceOptions {
   logger: Logger;
   manageScheduledTask?: ManageScheduledTask;
   healingRepo?: HealingEventRepository;
+  metrics?: SchedulerMetrics;
 }
 
 export class SchedulerService {
@@ -37,6 +40,7 @@ export class SchedulerService {
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
+  private readonly metrics?: SchedulerMetrics;
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -46,6 +50,7 @@ export class SchedulerService {
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
+    this.metrics = options.metrics;
 
     // 注册任务变更回调
     if (options.manageScheduledTask) {
@@ -69,12 +74,25 @@ export class SchedulerService {
                 this.scheduleNext(task);
               }
             }
+            // 任务规模变化后刷新 gauge（status/type 变更都可能影响分布）
+            await this.refreshActiveTaskGauge();
           } catch (error) {
             this.logger.error(`Failed to handle task change: ${taskId} ${action}`, error as Error);
           }
         });
       });
     }
+  }
+
+  /** 重新统计 active 任务并刷新 scheduler_active_tasks gauge。
+   *  Why：start() 只设一次会让 gauge 长期失效；onChange 后刷新保证数据可信。 */
+  private async refreshActiveTaskGauge(): Promise<void> {
+    if (!this.metrics) return;
+    const tasks = await this.getAllActiveTasks();
+    const counts: Record<'cron' | 'once', number> = { cron: 0, once: 0 };
+    for (const t of tasks) counts[t.scheduleType]++;
+    this.metrics.setActiveTasks('cron', counts.cron);
+    this.metrics.setActiveTasks('once', counts.once);
   }
 
   /** 清理指定任务的 timer */
@@ -89,6 +107,13 @@ export class SchedulerService {
   /** 启动调度器 */
   async start(): Promise<void> {
     const tasks = await this.getAllActiveTasks();
+    if (this.metrics) {
+      const counts: Record<string, number> = { cron: 0, once: 0 };
+      for (const t of tasks) counts[t.scheduleType]++;
+      (Object.keys(counts) as Array<'cron' | 'once'>).forEach(type =>
+        this.metrics!.setActiveTasks(type, counts[type]),
+      );
+    }
     for (const task of tasks) {
       this.scheduleNext(task);
     }
@@ -159,6 +184,7 @@ export class SchedulerService {
     if (delay <= 0) {
       // Why: 已过期的一次性任务直接删除，不保留历史
       // 使用 .catch() 避免 unhandled rejection（由 onChange 回调链调用）
+      this.metrics?.recordExpired();
       this.taskRepo.delete(task.id)
         .then(() => {
           this.logger.info(`Once task ${task.id} expired, deleted`);
@@ -192,6 +218,7 @@ export class SchedulerService {
       return;
     }
 
+    this.metrics?.recordRetry('once');
     await new Promise(r => setTimeout(r, ONCE_RETRY_DELAY_MS));
 
     // 二次检查：任务是否仍为 active（可能已被用户手动禁用）
@@ -214,38 +241,65 @@ export class SchedulerService {
   /** 触发单个任务 */
   private async triggerTask(task: ScheduledTask): Promise<{ executionId: string }> {
     const now = new Date().toISOString();
-
-    await this.claimAndValidateTask(task, now);
-
-    // ── Healing: 动态替换 body ──
-    let effectiveBody: string | null = task.body;
-    if (this.healingRepo && task.body.includes('[self-healing-analysis]')) {
-      try {
-        await this.healingRepo.autoStaleDismiss(30);
-      } catch (err) {
-        this.logger.warn('autoStaleDismiss failed, continuing with analysis', { error: err instanceof Error ? err.message : String(err) });
-      }
-      effectiveBody = await buildHealingAnalysisBody(this.healingRepo);
-      if (effectiveBody === null) {
-        this.logger.info('Healing analysis skipped: no open events');
-        return { executionId: '' };
-      }
-    }
-    // ── end healing ──
-
-    const executionId = crypto.randomUUID();
-    await this.createExecution(executionId, task.id, now);
+    // Why 默认 'failed'：任何路径抛错（resolveEffectiveBody/createExecution DB 错等）
+    //   未显式置 status 时，记 'failed' 比 'completed' 误导更小。
+    //   claim/healing null 才显式置 'skipped'，完整走完才置 'completed'。
+    let status: 'completed' | 'failed' | 'skipped' = 'failed';
+    // execution 阶段开始时间：只测量 sendMessage/invoke/complete/reset 耗时，
+    //   不含 claim/resolve/createExecution 前置操作（更准确反映 agent 执行耗时）。
+    let executionStartMs = 0;
 
     try {
-      const message = await this.createSystemMessage(task, effectiveBody!);
-      await this.invokeAgentWithTimeout(task, effectiveBody!);
-      await this.completeExecution(executionId, task.conversationId, message.id);
-      await this.taskRepo.resetConsecutiveFailures(task.id, now);
-      return { executionId };
-    } catch (error) {
-      await this.handleExecutionFailure(executionId, task.id, error);
-      throw error;
+      await this.claimAndValidateTask(task, now).catch(err => {
+        status = 'skipped';
+        throw err;
+      });
+
+      const effectiveBody = await this.resolveEffectiveBody(task);
+      if (effectiveBody === null) {
+        status = 'skipped';
+        return { executionId: '' };
+      }
+
+      const executionId = crypto.randomUUID();
+      await this.createExecution(executionId, task.id, now);
+      executionStartMs = nowMs();
+      try {
+        const message = await this.createSystemMessage(task, effectiveBody);
+        await this.invokeAgentWithTimeout(task, effectiveBody);
+        await this.completeExecution(executionId, task.conversationId, message.id);
+        await this.taskRepo.resetConsecutiveFailures(task.id, now);
+        status = 'completed';
+        return { executionId };
+      } catch (error) {
+        await this.handleExecutionFailure(executionId, task.id, error);
+        throw error;
+      }
+    } finally {
+      this.metrics?.recordTrigger(task.scheduleType, status);
+      // executionStartMs=0 表示前置阶段就抛错，不计入 histogram（无可观测的执行耗时）
+      if (executionStartMs > 0) {
+        this.metrics?.observeExecutionDuration(task.scheduleType, nowMs() - executionStartMs);
+      }
     }
+  }
+
+  /** 解析任务实际触发的 body：含 [self-healing-analysis] 占位符时动态替换为 healing 分析 prompt。
+   *  返回 null 表示跳过本次触发（无待处理 healing events）。 */
+  private async resolveEffectiveBody(task: ScheduledTask): Promise<string | null> {
+    if (!this.healingRepo || !task.body.includes('[self-healing-analysis]')) {
+      return task.body;
+    }
+    try {
+      await this.healingRepo.autoStaleDismiss(30);
+    } catch (err) {
+      this.logger.warn('autoStaleDismiss failed, continuing with analysis', { error: err instanceof Error ? err.message : String(err) });
+    }
+    const body = await buildHealingAnalysisBody(this.healingRepo);
+    if (body === null) {
+      this.logger.info('Healing analysis skipped: no open events');
+    }
+    return body;
   }
 
   private async claimAndValidateTask(task: ScheduledTask, now: string): Promise<void> {

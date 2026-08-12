@@ -17,6 +17,7 @@ import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { AgentInvokePortAdapter } from "@usecases/ports/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import type { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
 import type { FeishuConfig } from "@frameworks/feishu/types";
 import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 import { FeishuClient } from "@frameworks/feishu/client";
@@ -93,8 +94,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
   });
 }
 
-export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway } = options;
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics } = options;
   await agentGateway.warmup();
 
   const agentInvoker = new AgentInvoker(
@@ -114,6 +115,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     logger,
     manageScheduledTask: uc.manageScheduledTask,
     healingRepo: repos.healingEvent,
+    metrics,
   });
 
   return { agentInvoker, cronParser, schedulerService };
