@@ -1,9 +1,11 @@
 ---
 name: troubleshooting
 description: >-
-  Structured troubleshooting: from symptoms to root cause, from analysis to fix.
-  For simple information retrieval, use core-workflow instead.
+  Use when: 搭档需要排查问题、调试、分析系统行为、找根因.
+  Not for: 简单信息查询（搜记忆、查对话历史）→ core-workflow. 已有方案要写代码 → code-implementation.
+  Output: 结构化排查结论（问题现象 + 根因分析附 file:line + 修复建议 + 影响范围），需要修复时转入 worktree-isolation.
 co_loads: []
+category: technique
 ---
 
 # Troubleshooting

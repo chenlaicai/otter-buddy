@@ -18,7 +18,8 @@
     "test:capability:only": "vitest run --config vitest.capability.config.ts",
     "test:all": "npm test && npm run test:capability",
     "lint:capability": "node scripts/lint-capability-docs.mjs",
-    "lint:tests": "node scripts/lint-tests.mjs"
+    "lint:tests": "node scripts/lint-tests.mjs",
+    "lint:skills": "node scripts/lint-skills.mjs"
   },
   "keywords": [],
   "author": "",

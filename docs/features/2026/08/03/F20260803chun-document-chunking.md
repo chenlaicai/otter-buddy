@@ -1,5 +1,5 @@
 ---
-id: F20260803chunk
+id: F20260803chun
 title: document-chunking
 doc_type: feature
 
@@ -34,7 +34,7 @@ modules:
 created_at: 2026-08-03
 ---
 
-# F20260803chunk 文档分段索引
+# F20260803chun 文档分段索引
 
 ## 背景
 

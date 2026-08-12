@@ -2,6 +2,7 @@ import { Search, Plus, Pin } from 'lucide-react'
 import { useRef, useEffect } from 'react'
 import type { LocalConversation as Conversation, LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor } from '../../lib/otter-colors'
+import { fmtRelativeTime } from '../../lib/utils'
 
 interface LeftPanelProps {
   conversations: Conversation[]
@@ -122,6 +123,11 @@ function ConversationItem({
           {c.pinned && <Pin className="w-3 h-3 text-otter-400 flex-shrink-0" />}
           <span className="truncate">{c.title}</span>
         </div>
+        {c.lastMessageTs && (
+          <span className="text-[10px] text-stone-400 flex-shrink-0">
+            {fmtRelativeTime(c.lastMessageTs)}
+          </span>
+        )}
         {c.unreadCount != null && c.unreadCount > 0 && (
           <span className="min-w-[16px] h-4 px-1 rounded-full bg-red-400 text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">
             {c.unreadCount > 99 ? '99+' : c.unreadCount}

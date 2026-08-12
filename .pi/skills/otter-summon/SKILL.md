@@ -1,10 +1,12 @@
 ---
 name: otter-summon
 description: >-
-  Summon specialized sub-agents for independent review, parallel research,
-  multi-role discussion, or workload delegation.
-  For single-agent tasks, use the corresponding skill directly.
+  Use when: 需要独立审视（异体执行）/ 并行做多件事 / 模拟多角色讨论 / 任务量大需分担.
+  Not for: 搭档在讨论/闲聊/发散 → companion. 需求明确且简单 → 大獭直接做.
+  Output: 召唤出的小獭按其任务 skill 产出，本 skill 是编排层不直接产出.
+  Precondition: MUST 先 search_memory 检查是否已有相关结论/方案/教训——有则用、无则召唤，不重复召唤.
 co_loads: []
+category: technique
 ---
 
 # Otter Summon Protocol

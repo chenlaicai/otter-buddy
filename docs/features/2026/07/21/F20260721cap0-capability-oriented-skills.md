@@ -1,5 +1,5 @@
 ---
-id: F20260721cap
+id: F20260721cap0
 title: capability-oriented-skills
 doc_type: feature
 
@@ -22,7 +22,7 @@ modules: [skills/]
 created_at: 2026-07-21
 ---
 
-# F20260721cap 能力导向 Skill 重构
+# F20260721cap0 能力导向 Skill 重构
 
 ## 背景 [required]
 

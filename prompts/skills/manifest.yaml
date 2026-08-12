@@ -1,0 +1,73 @@
+# Otter Skill Manifest (F20260811sktp)
+#
+# 路由契约源——描述 otter skill 集合的结构化关系。
+#
+# 重要约定：
+# - description / triggers 不在本文件中——真相源是各 SKILL.md frontmatter（SDK 直接消费）
+# - 本文件只手写结构化字段：next / not_for / category / notes
+# - lint（scripts/lint-skills.mjs）校验三项一致性：
+#     (1) manifest skill 集合 = .pi/skills/ 目录集合（防孤立）
+#     (2) next / not_for 指针有效（防 broken pointer）
+#     (3) manifest 中 category 与 SKILL.md frontmatter category 一致（防漂移）
+
+version: 1
+
+skills:
+  # ── 默认 fallback ──
+  - name: companion
+    category: pattern
+    next: [requirement-analysis, troubleshooting, core-workflow]   # 搭档做出结论时建议切流程
+    not_for: []   # fallback 不互斥——它就是"不匹配任何其他 skill"的兜底
+    notes: 默认 fallback，不主动拉入流程。豁免三段式 marker 校验。
+
+  # ── 信息层 ──
+  - name: core-workflow
+    category: technique
+    next: [requirement-analysis, troubleshooting]
+    not_for: [troubleshooting, companion]
+    notes: 信息查询与产出记录。伙伴行为默认启用（联想/建议/上下文连续性）。create_linked_resource 是工具不是 next skill。
+
+  - name: troubleshooting
+    category: technique
+    next: [worktree-isolation]   # 需修复时
+    not_for: [core-workflow, code-implementation]
+    notes: 结构化排查——症状到根因到修复。结论必须附 file:line。
+
+  # ── 开发流程链 ──
+  - name: requirement-analysis
+    category: technique
+    next: [adversarial-review, code-implementation]   # 方案审视通过 → 实现
+    not_for: [code-implementation, companion]
+    notes: 模糊意图 → 结构化技术方案。必须召唤检视獭做对抗审视。
+
+  - name: code-implementation
+    category: technique
+    next: [adversarial-review, worktree-isolation, otter-summon]   # PR 审视 / 内部调 worktree 与 otter-summon
+    not_for: [requirement-analysis, worktree-isolation]
+    notes: 已确认方案 → 代码 PR。步骤 1 调 worktree-isolation，步骤 8 调 otter-summon 召唤检视獭。
+
+  - name: adversarial-review
+    category: technique
+    next: [code-implementation, companion]   # 修复后重审 / 通过后回实现者
+    not_for: []   # 唯一排除是"自我审视"——这是行为约束不是 skill 路由
+    notes: 不是橡皮图章。禁用语："可以合入"/"LGTM"/"Low risk"。每个判断附 file:line。
+
+  - name: worktree-isolation
+    category: technique
+    next: [adversarial-review, code-implementation]   # 小改动 → 搭档终审；功能开发 → 审视
+    not_for: [code-implementation]
+    notes: "Precondition: MUST trigger BEFORE modifying any git-tracked file. 红线在 SYSTEM.md 全局定义。"
+
+  # ── 编排层 ──
+  - name: otter-summon
+    category: technique
+    next: []   # 后续动作由被召唤小獭的 skill 决定
+    not_for: [companion]
+    notes: "编排层。Precondition: MUST 先 search_memory 检查已有结论——有则用、无则召唤，不重复召唤（F20260811sktp D12）。"
+
+  # ── 元规范 ──
+  - name: writing-skills
+    category: technique
+    next: []   # 自包含
+    not_for: []
+    notes: 关于 skill 的 skill。含铁律 + 三段式契约 + 模板 + lint 规则。

@@ -74,7 +74,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toHaveLength(25);
+    expect(tools).toHaveLength(26);
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区工具，不含管理类工具", () => {
@@ -106,6 +106,8 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
     expect(tools).not.toContain("manage_healing_events");
+    /** F20260811sktp 第六轮审视：小獭不应能创建定时任务（big-only 管理工具） */
+    expect(tools).not.toContain("create_scheduled_task");
   });
 
   it("undefined otterType 应按 big otter 处理", () => {
@@ -113,6 +115,6 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("invite_participant");
     expect(tools).toContain("create_otter");
     expect(tools).toContain("dissolve_otter");
-    expect(tools).toHaveLength(25);
+    expect(tools).toHaveLength(26);
   });
 });

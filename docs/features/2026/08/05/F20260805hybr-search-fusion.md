@@ -1,7 +1,7 @@
 ---
-id: F20260805hybrid
+id: F20260805hybr
 title: 混合搜索融合策略升级
-type: feature
+doc_type: feature
 status: review
 created: 2026-08-05
 updated: 2026-08-05
@@ -15,7 +15,7 @@ tags:
 summary: "使用三阶段RRF融合策略和jieba分词，解决Vec低质量结果污染和中文短查询支持问题"
 ---
 
-# F20260805hybrid-search-fusion: 混合搜索融合策略升级
+# F20260805hybr-search-fusion: 混合搜索融合策略升级
 
 ## 问题
 

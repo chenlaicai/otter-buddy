@@ -1,5 +1,5 @@
 import type { AgentTool, ToolContext } from "./tool-factory";
-import { textResponse } from "./tool-helpers";
+import { textResponse, errorResponse } from "./tool-helpers";
 
 /**
  * F20260807factlim: content 预览截断。按 code point（而非 UTF-16 code unit）切片，
@@ -14,7 +14,7 @@ function truncateContentPreview(content: string | null, maxCodePoints = 200): st
 export function createListArtifactsTool(ctx: ToolContext): AgentTool {
   return {
     name: "list_artifacts",
-    description: "查询当前对话的产物清单。可按 status/resourceType/groupId 过滤。不传 status 时返回 active + superseded（排除 archived）。",
+    description: "查询当前对话的产物清单（linked resources）. When: 看本场对话产出过哪些资源（PR/file/fact 等）/ 找之前登记的产物. Output: 产物列表，可按 status/resourceType/groupId 过滤. TIP: 不传 status 返回 active+superseded（排除 archived）.",
     parameters: {
       type: "object",
       properties: {
@@ -62,7 +62,7 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
 export function createUpdateArtifactStatusTool(ctx: ToolContext): AgentTool {
   return {
     name: "update_artifact_status",
-    description: "更新产物生命周期状态。生命周期规则：(1) 创建新版本资源后，将旧版本标记为 superseded 并提供 supersededBy；(2) PR 合入/资源失效后标记为 archived；(3) 不要删除资源，只用状态管理。",
+    description: "更新产物生命周期状态（superseded/archived）. When: 新版本产出后旧版本 superseded / PR 合入或资源失效 archived. Not for: 删除资源 → 不存在删除，只用状态管理. Output: 更新确认. GOTCHA: superseded 必须提供 supersededBy 指向新版本. BOUNDARY: 不可逆——状态变更后不能回退.",
     parameters: {
       type: "object",
       properties: {
@@ -78,11 +78,11 @@ export function createUpdateArtifactStatusTool(ctx: ToolContext): AgentTool {
       const supersededBy = params.supersededBy as string | undefined;
 
       if (targetStatus !== "superseded" && targetStatus !== "archived") {
-        return textResponse("Error: status must be 'superseded' or 'archived'");
+        return errorResponse("[错误] status 必须是 'superseded' 或 'archived'");
       }
 
       if (targetStatus === "superseded" && !supersededBy) {
-        return textResponse("Error: supersededBy is required when status is 'superseded'");
+        return errorResponse("[错误] status 为 'superseded' 时必须提供 supersededBy");
       }
 
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);

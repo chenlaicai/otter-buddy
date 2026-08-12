@@ -1,5 +1,5 @@
 ---
-id: F20260810tools
+id: F20260810tool
 title: small-otter-coding-tools
 doc_type: feature
 
@@ -22,7 +22,7 @@ modules:
 capability_test: "n/a: 纯 A 类改动，工具列表是确定性逻辑，不涉及 LLM 行为"
 ---
 
-# F20260810tools: 小獭编码工具权限开放
+# F20260810tool: 小獭编码工具权限开放
 
 ## 背景
 
@@ -113,4 +113,4 @@ describe("getOtterToolNamesForType", () => {
 |------|------|------|
 | `src/frameworks/agent/session-helpers.ts` | 修改 | `getCodingToolsForOtterType` 返回全部编码工具 |
 | `tests/frameworks/agent/coding-tools.test.ts` | 新增 | 验证工具列表正确性 |
-| `docs/features/2026/08/10/F20260810tools-small-otter-coding-tools.md` | 新增 | 特性文档 |
+| `docs/features/2026/08/10/F20260810tool-small-otter-coding-tools.md` | 新增 | 特性文档 |

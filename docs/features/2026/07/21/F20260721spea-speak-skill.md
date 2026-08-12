@@ -1,5 +1,5 @@
 ---
-id: F20260721speak
+id: F20260721spea
 title: speak-skill
 doc_type: feature
 
@@ -26,7 +26,7 @@ created_at: 2026-07-21
 ---
 
 
-# F20260721speak speak Skill：Agent 发言机制
+# F20260721spea speak Skill：Agent 发言机制
 
 ## 背景 [required]
 

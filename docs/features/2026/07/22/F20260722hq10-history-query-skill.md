@@ -1,5 +1,5 @@
 ---
-id: F20260722hq1
+id: F20260722hq10
 title: history-query-skill
 doc_type: feature
 
@@ -13,7 +13,7 @@ summary: |
 causal_links:
   from:
     - F20260721m3r1
-    - F20260721cap
+    - F20260721cap0
 
 # 元数据
 status: locked
@@ -26,7 +26,7 @@ created_at: 2026-07-22
 ---
 
 
-# F20260722hq1 对话历史查询 Skill
+# F20260722hq10 对话历史查询 Skill
 
 ## 背景
 

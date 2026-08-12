@@ -1,9 +1,11 @@
 ---
 name: code-implementation
 description: >-
-  Turn a technical plan into runnable, verifiable code changes.
-  For ANY repository mutation, SYSTEM.md red lines always apply.
+  Use when: 搭档要求按方案实现功能/写代码/写测试.
+  Not for: 无方案的需求分析 → requirement-analysis. 小改动（lockfile、配置、文档订正）→ worktree-isolation.
+  Output: 代码 PR（含测试、自检通过、对抗审视通过），呈搭档终审.
 co_loads: []
+category: technique
 ---
 
 # Code Implementation
@@ -30,6 +32,11 @@ co_loads: []
 3. **实现**：按方案逐步实现。遵守 `references/coding-principles.md` 中的架构约束和命名规范。匹配项目术语。非显而易见的设计意图加注释。
 4. **写测试**：为新增或修改的行为写测试。见 `references/testing-rules.md`。测试失败时先诊断：是测试错还是实现错？不自动回退业务代码。
 5. **自检**：测试通过、符合项目规范、无方案外变更、无兼容桥代码、视觉变更有截图证据、发现的问题全部修复。
+
+   **CI 验证（必须）**：
+   - 推送 PR 后，等待 CI 运行完成：`gh run watch`
+   - CI 失败时立即诊断修复——检视也会将 CI 失败标记为阻断性问题
+
 6. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 7. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 8. **对抗审视**：

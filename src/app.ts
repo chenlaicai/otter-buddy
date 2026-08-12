@@ -138,7 +138,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
-  const { agentGateway, resolveOtterToolClient } = await createAgentGateway({
+  const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
@@ -146,6 +146,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   });
   const uc = initUseCases({ repos, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway });
   resolveOtterToolClient(buildOtterToolClient(uc));
+  resolveManageScheduledTask(uc.manageScheduledTask);
 
   // ── 调度引擎 + 平台集成 ──
   const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger);

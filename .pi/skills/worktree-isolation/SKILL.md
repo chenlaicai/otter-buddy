@@ -1,9 +1,12 @@
 ---
 name: worktree-isolation
 description: >-
-  This skill manages worktree creation and git commit workflow for git-tracked files.
-  MUST trigger BEFORE modifying or committing any git-tracked file.
+  Precondition: MUST trigger BEFORE modifying or committing any git-tracked file.
+  Use when: 准备提交任何 git 追踪文件（代码、文档、配置、lockfile）.
+  Not for: 非 git 追踪文件（memory、.env、local config）. 功能开发 → code-implementation.
+  Output: worktree + commit（按提交模板）+ PR 链接交搭档.
 co_loads: []
+category: technique
 ---
 
 # Worktree Isolation

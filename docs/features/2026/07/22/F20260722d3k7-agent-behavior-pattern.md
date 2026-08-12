@@ -11,7 +11,7 @@ summary: |
 # 因果链路（正向依赖）
 causal_links:
   from:
-    - F20260721cap
+    - F20260721cap0
 
 # 元数据
 status: design
@@ -359,5 +359,5 @@ After committing:
 
 ## 关联 [required]
 
-- **Skill 重构**：[F20260721cap](../21/F20260721cap-skill-refactor.md) — Skill 从角色手册重构为能力导向，本特性补充其行为规则
-- **speak Skill**：[F20260721speak](../21/F20260721speak-speak-skill.md) — 同类 skill 设计参考
+- **Skill 重构**：[F20260721cap0](../21/F20260721cap0-skill-refactor.md) — Skill 从角色手册重构为能力导向，本特性补充其行为规则
+- **speak Skill**：[F20260721spea](../21/F20260721spea-speak-skill.md) — 同类 skill 设计参考
