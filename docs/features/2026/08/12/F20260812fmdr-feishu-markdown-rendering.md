@@ -257,8 +257,25 @@ body (Markdown, 单一真相源)
 **向后兼容声明**(审视 R5 盲区4a):本变更影响所有经 `broadcastToFeishu` 的消息(含历史消息重发),飞书侧从纯文本变为 post md。这是有意的用户体验提升,不是 regression。
 
 **PR 边界声明(不在本 PR 范围,需独立 F 文档处理)**:
-- **broadcaster 幂等性**:既有问题,老 `replyText` 也存在,非本 PR 引入。修复需要重新设计 webhook event_id 去重 + DB 持久化,涉及飞书 webhook 层 + broadcaster 层联动改造。本 PR 改 post md 不会让它变得更该在这里修。后续独立 F 文档
-- **降级频率 metric**:全仓库没有 metric 框架,引入是基础设施级决策(Prometheus client / 自建 counter / 接入现有告警链路)。需要项目级技术选型,不塞进单 PR。后续做可观测性改造时统一引入
+- **broadcaster 幂等性**:既有问题,老 `replyText` 也存在,非本 PR 引入。修复需要重新设计 webhook event_id 去重 + DB 持久化,涉及飞书 webhook 层 + broadcaster 层联动改造。本 PR 改 post md 不会让它变得更该在这里修。已开 #241 跟踪
+- **降级频率 metric**:全仓库没有 metric 框架,引入是基础设施级决策(Prometheus client / 自建 counter / 接入现有告警链路)。需要项目级技术选型,不塞进单 PR。已开 #242 跟踪
+
+### 第六轮:R5 新代码 + 跨模块隐性假设
+
+聚焦 R5 后新加的代码(零宽前缀 / 时间戳 gate / mockResponse 抽取)及其跨模块交互。**0 阻塞,0 重要 bug**。
+
+**已修(polish)**:
+- `buildWebConfig` 代码注释与实现矛盾:注释说"忽略并返回 undefined",实际是 `throw new Error` 阻止启动。修注释对齐实现
+- 思考中消息时间戳 gate 的 NaN 隐式语义:加 `Number.isNaN(elapsedMs)` 显式判断,非法 createdAt 显式当作"无 gate 信息",与缺失 createdAt 同语义
+- 补裸字面量测试(无反引号包裹的 `[html-card: x]`)+ NaN createdAt 测试
+
+**已确认无问题**(关键判断留档):
+- 零宽字符 `\u200B` 在 JSON round-trip / Buffer / RegExp 中行为正确;理论攻击面"LLM 故意输出 `\u200B[html-card:fake]`"在生产不可能(LLM token 层几乎不生成 ZWSP)
+- `markPlaceholders: true` 在 `stripHtmlCardFences` 短路路径(不含 "html-card" 字符串)下不生效 —— 这是正确的(无围栏就无需标记)
+- 时间戳 gate 在 createdAt 合法 ISO string(生产路径)下不会触发 NaN,跨时区计算正确,conversation 绑定时序行为正确
+- mockResponse helper 对当前实现充分(代码不检查 response.ok);未来加 HTTP 错误处理时自然需扩展
+- 所有其他出口(FTS/记忆索引/上下文注入)调用不带 markPlaceholders 的版本,默认 false,行为不变
+- broadcastEvent 不是 per-token 调用,只在离散事件触发,无性能问题
 
 ## 设计决策
 

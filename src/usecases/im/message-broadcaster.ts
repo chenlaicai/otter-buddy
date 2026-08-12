@@ -218,7 +218,8 @@ export class MessageBroadcaster {
     // 时间戳 gate:createdAt 是 ISO string,转 ms 比对
     if (data.createdAt) {
       const elapsedMs = Date.now() - new Date(data.createdAt).getTime();
-      if (elapsedMs > THINKING_MESSAGE_MAX_DELAY_MS) {
+      // 非法 createdAt → NaN:显式当作"无 gate 信息",继续发送(与 createdAt 缺失同语义)
+      if (!Number.isNaN(elapsedMs) && elapsedMs > THINKING_MESSAGE_MAX_DELAY_MS) {
         this.logger.info("Skip feishu thinking message: too slow, final message likely already sent", {
           conversationId,
           otterName,

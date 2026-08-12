@@ -303,7 +303,7 @@ function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
 function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   if (!raw.web?.baseUrl) return undefined;
   // 协议白名单(审视 F20260812fmdr R5):防止 javascript:/data: 等危险协议被注入到
-  // 飞书侧 html-card 占位符的跳转链接里。配置异常时忽略并返回 undefined(占位符不带链接)
+  // 飞书侧 html-card 占位符的跳转链接里。配置异常时抛错阻止启动(快失败)
   if (!/^https?:\/\//i.test(raw.web.baseUrl)) {
     throw new Error(
       `配置校验失败: web.baseUrl 必须以 http:// 或 https:// 开头,当前值: ${raw.web.baseUrl}`,

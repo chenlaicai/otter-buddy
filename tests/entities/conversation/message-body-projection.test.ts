@@ -185,6 +185,18 @@ describe("projectForChannel（信道投影出口：飞书 post + md）", () => {
     expect(out).not.toContain("👉");
   });
 
+  it("裸字面量(无反引号包裹)也不被误替换(审视 R6 补强)", () => {
+    // body 段落里直接出现 [html-card: x] 文本(无反引号包裹),也不应被识别
+    const body = "详见 [html-card: 假卡片] 文档说明";
+    const out = projectForChannel(body, {
+      webBaseUrl: "https://otter.app",
+      conversationId: "c1",
+    });
+    expect(out).toContain("[html-card: 假卡片]");
+    expect(out).not.toContain("【交互卡片");
+    expect(out).not.toContain("👉");
+  });
+
   it("真正的围栏产出的机器占位符仍正确替换", () => {
     // 反向验证:合法的 html-card 围栏 → stripHtmlCardFences 产出机器占位符 → 加零宽标记 → 正确人化
     const body = '前文\n\n```html-card title="真卡片"\n<div/>\n```\n\n后文';

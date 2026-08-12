@@ -311,10 +311,28 @@ describe("MessageBroadcaster", () => {
 
       broadcaster.broadcastEvent("conv-1", {
         event: "message.start",
-        data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" }, // 无 createdAt
+        data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
       });
       await new Promise((r) => setTimeout(r, 10));
 
+      expect(sent).toEqual(["[大獭] 正在思考..."]);
+    });
+
+    it("createdAt 非法字符串(NaN)时仍发送(审视 R6 NaN 语义)", async () => {
+      const { broadcaster, feishuGateway } = createBroadcaster();
+      bindFeishu(broadcaster);
+      const sent: string[] = [];
+      feishuGateway.replyText.mockImplementation(async (_c: string, text: string) => {
+        sent.push(text);
+      });
+
+      broadcaster.broadcastEvent("conv-1", {
+        event: "message.start",
+        data: { messageId: "m1", otterId: "otter-1", otterName: "大獭", createdAt: "not-a-date" },
+      });
+      await new Promise((r) => setTimeout(r, 10));
+
+      // NaN 应被当作"无 gate 信息",继续发送
       expect(sent).toEqual(["[大獭] 正在思考..."]);
     });
   });
