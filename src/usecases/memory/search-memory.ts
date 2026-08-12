@@ -122,8 +122,9 @@ export class SearchMemory {
     /**
      * F20260812mrcq Part 3: anchor 短路（仅 conversation / 全库，terminology 库跳过）。
      * 命中 F/R ID 时短路注入顶格，剩余 query 走 RRF。
+     * 审视三轮 M3：用白名单式守卫——无效 library 值（如 "foo"）不走 anchor，让后续路由抛 DomainError。
      */
-    if (query.library !== "terminology") {
+    if (!query.library || query.library === "conversation") {
       const anchorResult = await this.tryAnchorShortCircuit(query);
       if (anchorResult) {
         // F20260812mrcq Part 2: anchor 命中后也做邻域扩展（若 anchor 是 chunk）

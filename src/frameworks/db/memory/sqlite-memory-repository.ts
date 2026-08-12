@@ -496,6 +496,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         AND (? IS NULL OR me.created_at >= ?)
         ${ct.clause}
       ORDER BY fts.rank
+      LIMIT ?
     `).all(
       ftsQuery,
       filters.layer ?? null, filters.layer ?? null,

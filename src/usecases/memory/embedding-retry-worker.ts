@@ -93,9 +93,9 @@ export class EmbeddingRetryWorker {
     if (claimed.length === 0) return;
 
     for (const task of claimed) {
-      // entry 已被删除（content 为空字符串）：跳过，task 留着等下次 scanDarkEntries 清理
+      // entry 已被删除（content 为空字符串）：调 markTaskAttemptFailed（累计 3 次后转 dead）
       if (!task.content) {
-        this.logger.warn(`EmbeddingRetryWorker: entry ${task.entryId} vanished, marking task dead`);
+        this.logger.warn(`EmbeddingRetryWorker: entry ${task.entryId} vanished, recording failed attempt`);
         await this.repo.markTaskAttemptFailed(task.entryId, new Error("entry deleted"), this.maxAttempts);
         continue;
       }
