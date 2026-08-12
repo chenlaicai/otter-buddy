@@ -123,6 +123,9 @@ export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dis
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
   const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl);
+  if (!webBaseUrl) {
+    logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
+  }
   return { broadcaster, client, tokenManager, dispatchChainEngine };
 }
 
