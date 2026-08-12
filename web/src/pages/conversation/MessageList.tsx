@@ -1,4 +1,4 @@
-import { useEffect, useState, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps, type RefObject } from 'react'
+import { useEffect, useRef, useState, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps, type RefObject } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
@@ -171,6 +171,9 @@ interface MessageListProps {
   firstItemIndex: number
   initialTopMostItemIndex: number | { index: 'LAST' }
   onAtBottomChange: (atBottom: boolean) => void
+  /** Why: followOutput 必须与 newMessagesCount 使用同一套 debounce 状态，
+   *  否则 Virtuoso 即时判断 vs debounce ref 的时序矛盾会导致滚动抖动 */
+  isAtBottomRef: RefObject<boolean>
   newMessagesCount?: number
   onJumpToBottom?: () => void
   onLoadMore?: () => void
@@ -186,7 +189,7 @@ interface MessageListProps {
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
   conversationId, virtuosoRef, firstItemIndex, initialTopMostItemIndex,
-  onAtBottomChange, newMessagesCount = 0, onJumpToBottom, onLoadMore,
+  onAtBottomChange, isAtBottomRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
   loadingMore, onLoadMoreAfter,
   onRangeChanged,
   unreadSeparatorSeq, highlightMessageId,
@@ -239,7 +242,7 @@ export function MessageList({
         computeItemKey={(_, item) => item.id}
         firstItemIndex={firstItemIndex}
         initialTopMostItemIndex={initialTopMostItemIndex}
-        followOutput={(atBottom) => atBottom ? 'smooth' : false}
+        followOutput={() => isAtBottomRef.current ? 'smooth' : false}
         startReached={() => onLoadMore?.()}
         endReached={() => onLoadMoreAfter?.()}
         atBottomStateChange={onAtBottomChange}
@@ -404,12 +407,16 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
   const inFlight = status === 'streaming' || status === 'speaking'
   /** 进行中的流式过程默认展开（实时可见），终态默认折叠 */
   const [collapsed, setCollapsed] = useState(!inFlight)
-  /** 同步折叠状态：终态时自动折叠，避免 key 切换导致组件卸载/挂载产生高度突变 */
+  /** Why: 只在 streaming→completed 的瞬间自动折叠，之后不干预用户展开操作。
+   *  PR#206 的旧实现（if !inFlight && !collapsed → setCollapsed(true)）会
+   *  无条件拦截用户的展开点击，导致终态后流式过程面板永远无法展开。 */
+  const prevInFlightRef = useRef(inFlight)
   useEffect(() => {
-    if (!inFlight && !collapsed) {
+    if (prevInFlightRef.current && !inFlight) {
       setCollapsed(true)
     }
-  }, [inFlight, collapsed])
+    prevInFlightRef.current = inFlight
+  }, [inFlight])
   /** 流式进行中：实时计时 */
   const [elapsed, setElapsed] = useState<string | null>(null)
   useEffect(() => {

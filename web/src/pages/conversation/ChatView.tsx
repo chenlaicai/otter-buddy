@@ -23,6 +23,7 @@ interface ChatViewProps {
   firstItemIndex: number
   initialTopMostItemIndex: number | { index: 'LAST' }
   onAtBottomChange: (atBottom: boolean) => void
+  isAtBottomRef: RefObject<boolean>
   newMessagesCount?: number
   onJumpToBottom?: () => void
   onLoadMore?: () => void
@@ -89,6 +90,7 @@ export function ChatView(props: ChatViewProps) {
         firstItemIndex={props.firstItemIndex}
         initialTopMostItemIndex={props.initialTopMostItemIndex}
         onAtBottomChange={props.onAtBottomChange}
+        isAtBottomRef={props.isAtBottomRef}
         newMessagesCount={props.newMessagesCount}
         onJumpToBottom={props.onJumpToBottom}
         onLoadMore={props.onLoadMore}

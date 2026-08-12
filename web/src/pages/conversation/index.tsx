@@ -304,8 +304,10 @@ function ConversationPage() {
   }, []) // 依赖为空，通过 allMessagesRef 读取最新值
 
   /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用）。
-   *  false 信号加 300ms debounce：Virtuoso 在流式消息内容高度重算时会产生瞬态
-   *  atBottomStateChange(false)，导致 isAtBottomRef 误清、newMessagesCount 误累加。 */
+   *  Why: false 信号用 50ms 短 debounce（检视獭建议）——
+   *  followOutput 已改为使用 isAtBottomRef，Virtuoso 瞬态 false 不再影响跟随行为；
+   *  50ms < 一帧，不影响跟随响应性，但过滤内容高度重算时的瞬态 false
+   *  信号，避免"新消息 N 条"浮窗闪烁。 */
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     if (atBottom) {
       if (atBottomDebounceRef.current) {
@@ -319,7 +321,7 @@ function ConversationPage() {
         atBottomDebounceRef.current = setTimeout(() => {
           atBottomDebounceRef.current = null
           isAtBottomRef.current = false
-        }, 300)
+        }, 50)
       }
     }
   }, [])
@@ -1225,7 +1227,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
