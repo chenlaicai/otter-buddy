@@ -75,11 +75,24 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
             <StatusBadge status={task.status} />
           </div>
 
-          {/* Cron 信息 */}
+          {/* 调度信息 */}
           <div className="flex items-center gap-1.5 text-xs text-stone-500 mb-1">
             <Clock size={12} />
-            <span className="font-mono">{task.cron}</span>
-            <span className="text-stone-400">({task.timezone})</span>
+            {task.scheduleType === 'once' ? (
+              <>
+                <span className="px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">一次性</span>
+                {task.triggerAt ? (
+                  <span>{new Date(task.triggerAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })}</span>
+                ) : (
+                  <span className="text-stone-400">未设置触发时间</span>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="font-mono">{task.cron}</span>
+                <span className="text-stone-400">({task.timezone})</span>
+              </>
+            )}
           </div>
 
           {/* 下次触发时间 */}

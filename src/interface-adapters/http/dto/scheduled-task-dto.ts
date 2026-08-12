@@ -6,7 +6,9 @@ import type {
 /** 创建定时任务请求 */
 export interface CreateScheduledTaskRequestDTO {
   name: string;
-  cron: string;
+  scheduleType?: 'cron' | 'once';
+  cron?: string;
+  triggerAt?: string;
   timezone?: string;
   body: string;
   talkingStonePassedTo: string[];
@@ -16,7 +18,9 @@ export interface CreateScheduledTaskRequestDTO {
 /** 更新定时任务请求 */
 export interface UpdateScheduledTaskRequestDTO {
   name?: string;
+  scheduleType?: 'cron' | 'once';
   cron?: string;
+  triggerAt?: string | null;
   timezone?: string;
   body?: string;
   talkingStonePassedTo?: string[];
@@ -28,7 +32,9 @@ export interface ScheduledTaskDTO {
   id: string;
   conversationId: string;
   name: string;
+  scheduleType: 'cron' | 'once';
   cron: string;
+  triggerAt: string | null;
   timezone: string;
   body: string;
   talkingStonePassedTo: string[];
@@ -62,12 +68,14 @@ export interface ListExecutionsResponseDTO {
 }
 
 /** Entity -> DTO 转换 */
-export function toScheduledTaskDTO(task: ScheduledTask, nextTriggerAt?: string): ScheduledTaskDTO {
+export function toScheduledTaskDTO(task: ScheduledTask, nextTriggerAt?: string | null): ScheduledTaskDTO {
   return {
     id: task.id,
     conversationId: task.conversationId,
     name: task.name,
+    scheduleType: task.scheduleType,
     cron: task.cron,
+    triggerAt: task.triggerAt,
     timezone: task.timezone,
     body: task.body,
     talkingStonePassedTo: task.talkingStonePassedTo,

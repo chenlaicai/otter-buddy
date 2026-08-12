@@ -249,7 +249,9 @@ export function updateSettings(body: UpdateSettingsRequestDTO): Promise<Settings
 
 export interface CreateScheduledTaskRequestDTO {
   name: string
-  cron: string
+  scheduleType?: 'cron' | 'once'
+  cron?: string
+  triggerAt?: string
   timezone?: string
   body: string
   talkingStonePassedTo: string[]
@@ -269,7 +271,9 @@ export interface ScheduledTaskDTO {
   id: string
   conversationId: string
   name: string
+  scheduleType: 'cron' | 'once'
   cron: string
+  triggerAt: string | null
   timezone: string
   body: string
   talkingStonePassedTo: string[]
