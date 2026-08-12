@@ -157,3 +157,9 @@ circuitBreaker:
 # inbound:
 #   recruiting:
 #     apiKey: "生成一个随机长字符串作为共享密钥"
+
+# === Web 端配置（可选）===
+# 用于 IM 信道（如飞书）html-card 占位符拼接跳转链接
+# 不配置时，飞书侧 html-card 占位符只显示标题、不带可点击链接
+# web:
+#   baseUrl: "https://your-otter-instance.example.com"

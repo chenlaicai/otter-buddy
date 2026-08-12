@@ -152,7 +152,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger);
   const feishuEnabled = options.enableFeishu ?? !!config.feishu;
   const feishu: FeishuBundle | undefined = feishuEnabled && config.feishu
-    ? createFeishuBundle(config.feishu, uc, dispatchChainEngine, logger)
+    ? createFeishuBundle(config.feishu, uc, dispatchChainEngine, logger, config.web?.baseUrl)
     : undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster: feishu?.broadcaster, logger, workspaceGateway });

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   stripHtmlCardFences,
   stripHtmlCardsOnly,
+  projectForChannel,
 } from "@entities/conversation/message-body-projection";
 import { HTML_CARD_STRIP_VECTORS } from "@entities/conversation/html-card-test-vectors";
 
@@ -62,5 +63,89 @@ describe("stripHtmlCardsOnly（注入出口：只剥卡片，保留回执 JSON�
     expect(stripHtmlCardsOnly(mixed.input)).toBe(
       '[html-card: 问卷]\n```html-card-reply card="m1:0"\n{"a":1}\n```',
     );
+  });
+});
+
+describe("projectForChannel（信道投影出口：飞书 post + md）", () => {
+  it("html-card 占位符带 Web 链接", () => {
+    const body = '前文\n\n```html-card title="薪资对比"\n<div/>\n```\n\n后文';
+    const out = projectForChannel(body, {
+      webBaseUrl: "https://otter.app",
+      conversationId: "conv-abc",
+    });
+    expect(out).toBe(
+      "前文\n\n【交互卡片:薪资对比】\n👉 https://otter.app/conversations/conv-abc\n\n后文",
+    );
+  });
+
+  it("webBaseUrl 缺省时占位符不带链接", () => {
+    const body = '```html-card title="薪资对比"\n<div/>\n```';
+    const out = projectForChannel(body);
+    expect(out).toBe("【交互卡片:薪资对比】");
+  });
+
+  it("webBaseUrl 末尾斜杠被规整", () => {
+    const body = '```html-card title="卡"\n<x/>\n```';
+    const out = projectForChannel(body, {
+      webBaseUrl: "https://otter.app/",
+      conversationId: "c1",
+    });
+    expect(out).toBe("【交互卡片:卡】\n👉 https://otter.app/conversations/c1");
+  });
+
+  it("html-card-reply 占位符替换为通用文案", () => {
+    const body = '```html-card-reply card="m1:0"\n{"a":1}\n```';
+    expect(projectForChannel(body)).toBe("[已提交交互卡片]");
+  });
+
+  it("普通 Markdown 透传", () => {
+    const body = "# 标题\n\n**加粗**和`代码`";
+    expect(projectForChannel(body)).toBe("# 标题\n\n**加粗**和`代码`");
+  });
+
+  it("按字节阈值截断,中文 UTF-8 3 字节/字", () => {
+    // 构造 5 段,每段 1000 字符 = 3000 字节,设 maxBytes=7500（留 hint 空间）
+    const para = "段".repeat(1000);
+    const body = Array.from({ length: 5 }, () => para).join("\n\n");
+    const out = projectForChannel(body, { maxBytes: 7500 });
+    // 总长 > 7500,触发截断
+    expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(7500);
+    expect(out).toContain("…(已截断,完整内容见 Web 端)");
+  });
+
+  it("截断对齐段落边界,不切断段落", () => {
+    const para1 = "A".repeat(100); // 100 bytes ASCII
+    const para2 = "B".repeat(100);
+    const para3 = "C".repeat(100);
+    const body = `${para1}\n\n${para2}\n\n${para3}`;
+    const out = projectForChannel(body, { maxBytes: 250 });
+    // 250 字节够装 2 段 + hint,但不够 3 段
+    expect(out).toContain("AA");
+    expect(out).toContain("BB");
+    expect(out).not.toContain("CC");
+    expect(out).toContain("…(已截断");
+  });
+
+  it("自定义 truncationHint", () => {
+    const body = "X".repeat(1000);
+    const out = projectForChannel(body, { maxBytes: 100, truncationHint: "[TRUNC]" });
+    expect(out.endsWith("[TRUNC]")).toBe(true);
+    expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(100);
+  });
+
+  it("短消息不触发截断", () => {
+    expect(projectForChannel("短消息", { maxBytes: 25000 })).toBe("短消息");
+  });
+
+  it("卡片 + 截断同时生效:链接占位计入字节预算", () => {
+    // 大段文字 + 卡片,确认占位符替换后再截断
+    const body = `${"字".repeat(10000)}\n\n\`\`\`html-card title="卡片"\n<x/>\n\`\`\``;
+    const out = projectForChannel(body, {
+      webBaseUrl: "https://otter.app",
+      conversationId: "c1",
+      maxBytes: 5000,
+    });
+    expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(5000);
+    expect(out).toContain("…(已截断");
   });
 });

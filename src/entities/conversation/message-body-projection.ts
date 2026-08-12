@@ -99,3 +99,110 @@ export function stripHtmlCardFences(body: string, options?: StripHtmlCardOptions
 export function stripHtmlCardsOnly(body: string): string {
   return stripHtmlCardFences(body, { stripReplies: false });
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// 信道投影（F20260812fmdr）：把 body 变换成特定信道可渲染的形式
+//
+// 当前出口：飞书 post + md。流水线：
+//   stripHtmlCardFences → 占位符人化 → 字节级截断
+//
+// 与 stripHtmlCardFences 的关系：
+// - stripHtmlCardFences 产出机器友好占位符（`[html-card: 标题]`），供检索/记忆索引用
+// - projectForChannel 把占位符翻译成终端用户可读形式（带 Web 链接），供 IM 信道用
+//
+// 截断常量、提示语都通过 options 传入，entity 层不知道"飞书 30KB 限制"这种信道细节。
+// ──────────────────────────────────────────────────────────────────────────
+
+/** 信道投影选项 */
+export interface ProjectForChannelOptions {
+  /** Web 端 base URL，与 conversationId 拼接成卡片跳转链接。缺省时占位符不带链接 */
+  webBaseUrl?: string;
+  /** 当前会话 ID，用于拼接卡片跳转链接 */
+  conversationId?: string;
+  /** 投影文本字节上限（UTF-8）。缺省 25000（飞书 post 请求体 30KB 留 5KB 给 JSON 外壳） */
+  maxBytes?: number;
+  /** 截断时追加的提示文本。缺省 `…(已截断,完整内容见 Web 端)` */
+  truncationHint?: string;
+}
+
+const DEFAULT_MAX_BYTES = 25000;
+const DEFAULT_TRUNCATION_HINT = "…(已截断,完整内容见 Web 端)";
+
+/** 把 stripHtmlCardFences 输出的机器占位符替换为终端用户可读形式 */
+function humanizePlaceholders(text: string, options: ProjectForChannelOptions): string {
+  const cardUrl =
+    options.webBaseUrl && options.conversationId
+      ? `${options.webBaseUrl.replace(/\/+$/, "")}/conversations/${options.conversationId}`
+      : null;
+
+  // [html-card: 标题] → 【交互卡片:标题】(+ 可选链接)
+  text = text.replace(/\[html-card:\s*([^\]]*)\]/g, (_m, title: string) => {
+    const label = `【交互卡片:${title}】`;
+    return cardUrl ? `${label}\n👉 ${cardUrl}` : label;
+  });
+
+  // [html-card-reply: cardId] → [已提交交互卡片]
+  text = text.replace(/\[html-card-reply:\s*[^\]]*\]/g, "[已提交交互卡片]");
+
+  return text;
+}
+
+/** UTF-8 安全字节切片：在 maxBytes 内不切断多字节字符 */
+function utf8SafeSlice(str: string, maxBytes: number): string {
+  const buf = Buffer.from(str, "utf8");
+  if (buf.length <= maxBytes) return str;
+  let end = maxBytes;
+  // continuation byte 形如 10xxxxxx (0x80–0xBF)；回退到字符边界
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
+  return buf.subarray(0, end).toString("utf8");
+}
+
+/** 按 UTF-8 字节阈值截断，尽量对齐到段落边界（`\n\n`）。若单段超阈，硬切到字符边界 */
+function truncateByBytes(text: string, maxBytes: number, hint: string): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+
+  // 预留 hint 字节 + 2 字节("\n\n" 分隔符),保证 truncated + separator + hint 总长 ≤ maxBytes
+  const budgetForText = Math.max(0, maxBytes - Buffer.byteLength(hint, "utf8") - 2);
+  const paragraphs = text.split(/(\n\n+)/); // 保留分隔符以便重组
+  const kept: string[] = [];
+  let used = 0;
+
+  for (const chunk of paragraphs) {
+    const chunkBytes = Buffer.byteLength(chunk, "utf8");
+    if (used + chunkBytes <= budgetForText) {
+      kept.push(chunk);
+      used += chunkBytes;
+      continue;
+    }
+    // 当前段落放不下：若 chunk 是分隔符直接跳过，否则尝试塞部分
+    if (/^\n\n+$/.test(chunk)) continue;
+    const remaining = budgetForText - used;
+    if (remaining > 20) {
+      kept.push(utf8SafeSlice(chunk, remaining));
+    }
+    break;
+  }
+
+  const truncated = kept.join("").trimEnd();
+  return `${truncated}\n\n${hint}`;
+}
+
+/**
+ * 把消息体投影到信道可渲染的 Markdown 文本（飞书 post + md 出口）。
+ *
+ * 流水线：stripHtmlCardFences → 占位符人化（带 Web 链接）→ 字节级截断。
+ *
+ * @param body 消息原文（Markdown + html-card 围栏）
+ * @param options.webBaseUrl Web 端 base URL，缺省时卡片占位符不带链接
+ * @param options.conversationId 当前会话 ID
+ * @param options.maxBytes 投影文本字节上限，缺省 25000
+ * @param options.truncationHint 截断提示，缺省 `…(已截断,完整内容见 Web 端)`
+ */
+export function projectForChannel(body: string, options: ProjectForChannelOptions = {}): string {
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const truncationHint = options.truncationHint ?? DEFAULT_TRUNCATION_HINT;
+
+  const stripped = stripHtmlCardFences(body);
+  const humanized = humanizePlaceholders(stripped, options);
+  return truncateByBytes(humanized, maxBytes, truncationHint);
+}

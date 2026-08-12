@@ -4,15 +4,21 @@ import type { FeishuGateway } from "./feishu-gateway";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
+import { projectForChannel } from "@entities/conversation/message-body-projection";
 
 /**
  * 消息广播服务
- * 负责将消息同步到所有连接的客户端（Web 和飞书）
+ * 负责将消息同步到所有连接的客户端(Web 和飞书)
+ *
+ * 飞书信道适配(F20260812fmdr):
+ * - 最终消息: projectForChannel 投影 → replyMarkdown 走 post + md 富文本
+ * - 思考中消息: message.start 事件触发 → replyText 发 `[otter名] 正在思考...`
+ * - 降级: replyMarkdown 失败时由 client.ts 自动降级到 replyText 带 [纯文本降级] 前缀
  */
 export class MessageBroadcaster {
-  // Web 端的消息订阅者（conversationId -> Set<callback>）
+  // Web 端的消息订阅者(conversationId -> Set<callback>)
   private webSubscribers = new Map<string, Set<(message: Message) => void>>();
-  // Web 端的事件订阅者（conversationId -> Set<callback>），用于转发 agent streaming 事件
+  // Web 端的事件订阅者(conversationId -> Set<callback>),用于转发 agent streaming 事件
   private eventSubscribers = new Map<string, Set<(event: SSEEvent) => void>>();
 
   constructor(
@@ -20,11 +26,13 @@ export class MessageBroadcaster {
     private readonly feishuGateway: FeishuGateway,
     private readonly queryOtter: QueryOtter,
     private readonly logger: Logger,
+    /** Web 端 base URL,用于飞书侧 html-card 占位符拼接跳转链接 */
+    private readonly webBaseUrl?: string,
   ) {}
 
   /**
    * Web 端订阅消息和事件
-   * 返回取消订阅函数（同时清理消息和事件订阅）
+   * 返回取消订阅函数(同时清理消息和事件订阅)
    */
   subscribe(
     conversationId: string,
@@ -37,7 +45,7 @@ export class MessageBroadcaster {
     }
     this.webSubscribers.get(conversationId)!.add(onMessage);
 
-    // 注册事件订阅（可选）
+    // 注册事件订阅(可选)
     if (onEvent) {
       if (!this.eventSubscribers.has(conversationId)) {
         this.eventSubscribers.set(conversationId, new Set());
@@ -76,18 +84,30 @@ export class MessageBroadcaster {
    * 当消息完成时调用
    */
   async broadcast(message: Message): Promise<void> {
-    // 1. 广播到 Web 端（通过 SSE 回调）
+    // 1. 广播到 Web 端(通过 SSE 回调)
     this.broadcastToWeb(message);
 
-    // 2. 广播到飞书端（如果有连接绑定到该对话）
+    // 2. 广播到飞书端(如果有连接绑定到该对话)
     await this.broadcastToFeishu(message);
   }
 
   /**
    * 广播 SSE 事件到 Web 端订阅者
    * 用于飞书路径的 agent streaming 事件转发
+   *
+   * 副作用(F20260812fmdr): 当 event === "message.start" 且会话有飞书绑定时,
+   * 触发"正在思考..."临时消息发送,消除飞书侧 30-60s 静默。
    */
   broadcastEvent(conversationId: string, event: SSEEvent): void {
+    // 飞书侧思考中消息(message.start 触发,fire-and-forget)
+    if (event.event === "message.start") {
+      this.maybeSendFeishuThinkingMessage(conversationId, event).catch((err) => {
+        this.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
+          conversationId,
+        });
+      });
+    }
+
     const subscribers = this.eventSubscribers.get(conversationId);
     if (!subscribers || subscribers.size === 0) {
       this.logger.info("[broadcastEvent] 无事件订阅者", { conversationId, event: event.event });
@@ -108,15 +128,15 @@ export class MessageBroadcaster {
   }
 
   private broadcastToWeb(message: Message): void {
-    // Web 用户消息不推送给 Web 订阅者（发送方已有本地消息，避免重复）
-    // 飞书用户消息需要推送给 Web（跨接入点同步）
+    // Web 用户消息不推送给 Web 订阅者(发送方已有本地消息,避免重复)
+    // 飞书用户消息需要推送给 Web(跨接入点同步)
     if (message.senderType === "user" && message.source === "web") {
       return;
     }
 
     const subscribers = this.webSubscribers.get(message.conversationId);
     if (!subscribers || subscribers.size === 0) {
-      this.logger.info("[broadcastToWeb] 无订阅者，跳过", {
+      this.logger.info("[broadcastToWeb] 无订阅者,跳过", {
         conversationId: message.conversationId,
         messageId: message.id,
         senderType: message.senderType,
@@ -154,21 +174,58 @@ export class MessageBroadcaster {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
-    const text = await this.buildFeishuMessageText(message);
+    const senderLabel = await this.resolveSenderLabel(message);
+    const body = message.body ?? "(空消息)";
+    const markdown = projectForChannel(body, {
+      webBaseUrl: this.webBaseUrl,
+      conversationId: message.conversationId,
+    });
 
     try {
-      await this.feishuGateway.replyText(connection.externalId, text);
-      this.logger.info("Message broadcast to Feishu", {
+      await this.feishuGateway.replyMarkdown(connection.externalId, senderLabel, markdown);
+      this.logger.info("Markdown message broadcast to Feishu", {
         conversationId: message.conversationId,
         messageId: message.id,
         chatId: connection.externalId,
       });
     } catch (err) {
-      this.logger.error("Failed to broadcast to Feishu", err instanceof Error ? err : undefined, {
+      // replyMarkdown 内部已有降级到 replyText 的兜底;只有降级本身失败才会冒泡到这里
+      this.logger.error("Failed to broadcast to Feishu (degradation also failed)", err instanceof Error ? err : undefined, {
         conversationId: message.conversationId,
         messageId: message.id,
       });
     }
+  }
+
+  /** message.start 触发的飞书"正在思考..."临时消息(消除 IM 静默期) */
+  private async maybeSendFeishuThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
+    const session = await this.manageConnection.getSessionByConversation(conversationId);
+    if (!session) return;
+    const connection = await this.manageConnection.getConnection(session.connectionId);
+    if (!connection) return;
+
+    // message.start data 形如 { messageId, otterId, otterName, seq, createdAt }
+    const otterName = (event.data as { otterName?: string }).otterName;
+    if (!otterName) return;
+
+    try {
+      await this.feishuGateway.replyText(connection.externalId, `[${otterName}] 正在思考...`);
+      this.logger.info("Feishu thinking message sent", { conversationId, otterName });
+    } catch (err) {
+      this.logger.error("Failed to send feishu thinking message", err instanceof Error ? err : undefined, {
+        conversationId,
+      });
+    }
+  }
+
+  /** 解析发送者显示标签(用于飞书 post title) */
+  private async resolveSenderLabel(message: Message): Promise<string> {
+    if (message.senderType === "user") return "用户";
+    if (message.senderType === "otter") {
+      const otter = await this.queryOtter.getById(message.senderId);
+      return otter?.name ?? message.senderId;
+    }
+    return "系统";
   }
 
   /** 判断消息是否应该广播到飞书 */
@@ -182,16 +239,5 @@ export class MessageBroadcaster {
       return false;
     }
     return true;
-  }
-
-  /** 构建飞书消息文本（带发送者前缀） */
-  private async buildFeishuMessageText(message: Message): Promise<string> {
-    const body = message.body ?? "(空消息)";
-    if (message.senderType === "user") return `[用户] ${body}`;
-    if (message.senderType === "otter") {
-      const otter = await this.queryOtter.getById(message.senderId);
-      return `[${otter?.name ?? message.senderId}] ${body}`;
-    }
-    return body;
   }
 }

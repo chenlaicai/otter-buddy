@@ -94,6 +94,10 @@ export interface AppConfig {
       apiKey: string;
     };
   };
+  /** Web 端 base URL,用于 IM 信道 html-card 占位符拼接跳转链接(F20260812fmdr) */
+  web?: {
+    baseUrl?: string;
+  };
 }
 
 /** config.yaml 的原始 YAML 结构 */
@@ -164,6 +168,9 @@ interface RawConfig {
     recruiting?: {
       apiKey?: string;
     };
+  };
+  web?: {
+    baseUrl?: string;
   };
 }
 
@@ -293,6 +300,11 @@ function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
   };
 }
 
+function buildWebConfig(raw: RawConfig): AppConfig["web"] {
+  if (!raw.web?.baseUrl) return undefined;
+  return { baseUrl: raw.web.baseUrl };
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }): AppConfig {
   return {
@@ -325,6 +337,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
     inbound: buildInboundConfig(raw),
+    web: buildWebConfig(raw),
   };
 }
 
