@@ -179,13 +179,13 @@ PR 模板（`.github/pull_request_template.md`）与 `commit-convention.md` 的 
 
 | # | 发现 | 级别 | 处置 |
 |---|------|------|------|
-| 5 | PR diff 含 src/main.ts、src/bootstrap/server.ts、F20260811safen 无关变更，违反 PR 范围聚焦 | 严重 | **反驳（事实错误）** |
+| 5 | PR diff 含 src/main.ts、src/bootstrap/server.ts、F20260811safe 无关变更，违反 PR 范围聚焦 | 严重 | **反驳（事实错误）** |
 | 6 | `review-protocol.md:32` 代码 PR 路径 Step 3 delta 材料缺"含更好/更差判断"——同文件方案路径有，代码路径漏 | 建议 | 更好→本 PR 修复 |
 | 7 | `review-protocol.md` 两条路径 Step 2 四分类列表缺决策树框架——下游 code-implementation/requirement-analysis 都补了，编排者入口漏 | 建议 | 更好→本 PR 修复 |
 | 8 | `SKILL.md:138` 和 `anti-patterns.md:59` 严重反驳门槛缺"/误解"——权威源是"事实错误/看错/误解" | 建议 | 更好→本 PR 修复 |
 | 9 | F 文档改动范围表 requirement-analysis 描述不完整（实际改动比描述大） | 建议 | 更好→本 PR 修复 |
 
-**严重 1 反驳证据**：ad9f038 是 PR #218（F20260811safen）已合入 origin/main 的提交。worktree 分支从 HEAD=origin/main=ad9f038 切出，本地 main ref 滞后于 origin/main（5b30aa7 vs ad9f038）。GitHub PR base 跟踪 origin/main，实际 PR diff 仅含本工作 9 个文件。检视者用 `git diff main`（指向本地滞后 ref）误诊。验证命令：`gh pr diff 222 --name-only`（应仅显示 9 个文件）、`git diff origin/main --stat`（同上）。
+**严重 1 反驳证据**：ad9f038 是 PR #218（F20260811safe）已合入 origin/main 的提交。worktree 分支从 HEAD=origin/main=ad9f038 切出，本地 main ref 滞后于 origin/main（5b30aa7 vs ad9f038）。GitHub PR base 跟踪 origin/main，实际 PR diff 仅含本工作 9 个文件。检视者用 `git diff main`（指向本地滞后 ref）误诊。验证命令：`gh pr diff 222 --name-only`（API 级查询，不受本地 ref 漂移影响）。
 
 建议 6-9 全部修复。
 
@@ -195,7 +195,7 @@ PR 模板（`.github/pull_request_template.md`）与 `commit-convention.md` 的 
 
 | 验证项 | 结果 |
 |--------|------|
-| 严重 1 反驳（`git diff origin/main --stat`） | 成立——PR diff 仅含 9 个本工作文件 |
+| 严重 1 反驳（`gh pr diff 222 --name-only`） | 成立——PR diff 仅含本工作文件 |
 | 建议 6 修复（review-protocol.md:32 补"含更好/更差判断"） | 通过 |
 | 建议 7 修复（review-protocol.md:21/59 补决策树框架，路径适配正确） | 通过 |
 | 建议 8 修复（SKILL.md:138 + anti-patterns.md:59 术语统一） | 通过 |
