@@ -151,20 +151,20 @@ export class SchedulerService {
     this.timers.set(task.id, timer);
   }
 
-  /** once 任务调度：计算 delay，过期则 disabled，否则 setTimeout */
+  /** once 任务调度：计算 delay，过期则删除，否则 setTimeout */
   private scheduleOnce(task: ScheduledTask): void {
     const triggerTime = new Date(task.triggerAt!).getTime();
     const delay = triggerTime - Date.now();
 
     if (delay <= 0) {
-      // Why: 已过期的任务直接 disabled，不走 setTimeout
+      // Why: 已过期的一次性任务直接删除，不保留历史
       // 使用 .catch() 避免 unhandled rejection（由 onChange 回调链调用）
-      this.taskRepo.updateStatus(task.id, 'disabled', new Date().toISOString())
+      this.taskRepo.delete(task.id)
         .then(() => {
-          this.logger.info(`Once task ${task.id} expired, disabled`);
+          this.logger.info(`Once task ${task.id} expired, deleted`);
         })
         .catch(err => {
-          this.logger.error(`Failed to disable expired once task ${task.id}`, err as Error);
+          this.logger.error(`Failed to delete expired once task ${task.id}`, err as Error);
         });
       return;
     }
@@ -172,8 +172,8 @@ export class SchedulerService {
     const timer = setTimeout(async () => {
       try {
         await this.triggerTask(task);
-        // once 任务触发成功后直接 disabled
-        await this.taskRepo.updateStatus(task.id, 'disabled', new Date().toISOString());
+        // Why: 一次性任务触发成功后直接删除，不保留历史
+        await this.taskRepo.delete(task.id);
       } catch (error) {
         this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
         // 触发失败，走 once 专用重试
@@ -203,7 +203,8 @@ export class SchedulerService {
 
     try {
       await this.triggerTask(task);
-      await this.taskRepo.updateStatus(task.id, 'disabled', new Date().toISOString());
+      // Why: 一次性任务重试成功后直接删除，不保留历史
+      await this.taskRepo.delete(task.id);
     } catch (error) {
       this.logger.error(`Once task ${task.id} retry failed (${retriesLeft - 1} left)`, error as Error);
       await this.triggerOnceWithRetry(task, retriesLeft - 1);
