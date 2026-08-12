@@ -304,7 +304,9 @@ export function makeScheduledTask(overrides: Partial<{
   id: string;
   conversationId: string;
   name: string;
+  scheduleType: 'cron' | 'once';
   cron: string;
+  triggerAt: string | null;
   timezone: string;
   body: string;
   talkingStonePassedTo: string[];
@@ -320,7 +322,9 @@ export function makeScheduledTask(overrides: Partial<{
     id: overrides.id ?? "task-1",
     conversationId: overrides.conversationId ?? "conv-1",
     name: overrides.name ?? "Daily Reminder",
+    scheduleType: overrides.scheduleType ?? "cron",
     cron: overrides.cron ?? "0 9 * * *",
+    triggerAt: overrides.triggerAt ?? null,
     timezone: overrides.timezone ?? "Asia/Shanghai",
     body: overrides.body ?? "Remember to check in",
     talkingStonePassedTo: overrides.talkingStonePassedTo ?? ["otter-1"],

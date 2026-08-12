@@ -20,6 +20,14 @@ export class ScheduledTaskController {
       private readonly logger: Logger,
   ) {}
 
+  // Why: once 任务用 triggerAt 作为下次触发时间，不走 cron 解析
+  private getNextTriggerAt(task: { scheduleType: string; cron: string; triggerAt: string | null; timezone: string }): string | null {
+    if (task.scheduleType === 'once') {
+      return task.triggerAt;
+    }
+    return this.cronParser.getNextTime(task.cron, task.timezone).toISOString();
+  }
+
   /** 创建定时任务 */
   async create(c: Context): Promise<Response> {
     try {
@@ -36,10 +44,7 @@ export class ScheduledTaskController {
         senderId: body.senderId,
       });
 
-      // 计算下次触发时间
-      const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
-
-      return c.json(toScheduledTaskDTO(task, nextTrigger.toISOString()), 201);
+      return c.json(toScheduledTaskDTO(task, this.getNextTriggerAt(task)), 201);
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -51,10 +56,7 @@ export class ScheduledTaskController {
       const conversationId = param(c, 'id');
       const tasks = await this.manageScheduledTask.getByConversationId(conversationId);
 
-      const dtos = tasks.map(task => {
-        const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
-        return toScheduledTaskDTO(task, nextTrigger.toISOString());
-      });
+      const dtos = tasks.map(task => toScheduledTaskDTO(task, this.getNextTriggerAt(task)));
 
       return c.json(dtos);
     } catch (err) {
@@ -71,8 +73,7 @@ export class ScheduledTaskController {
         return c.json({ error: 'ScheduledTask not found' }, 404);
       }
 
-      const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
-      return c.json(toScheduledTaskDTO(task, nextTrigger.toISOString()));
+      return c.json(toScheduledTaskDTO(task, this.getNextTriggerAt(task)));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -93,8 +94,7 @@ export class ScheduledTaskController {
         status: body.status,
       });
 
-      const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
-      return c.json(toScheduledTaskDTO(task, nextTrigger.toISOString()));
+      return c.json(toScheduledTaskDTO(task, this.getNextTriggerAt(task)));
     } catch (err) {
       return handleError(c, err, this.logger);
     }

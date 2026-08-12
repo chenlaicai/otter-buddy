@@ -49,6 +49,40 @@ describe("Scheduled Task API", () => {
       expect(body.nextTriggerAt).toBe("2026-07-23T09:00:00.000Z");
     });
 
+    it("创建 once 类型任务时使用 triggerAt 作为 nextTriggerAt", async () => {
+      const task = makeScheduledTask({
+        id: "task-once",
+        scheduleType: "once",
+        cron: "",
+        triggerAt: "2026-07-23T10:50:00+08:00",
+      });
+      deps.manageScheduledTask.create.mockResolvedValue(task);
+
+      const res = await app.request(
+        "/api/conversations/conv-1/scheduled-tasks",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "One-time Reminder",
+            scheduleType: "once",
+            triggerAt: "2026-07-23T10:50:00+08:00",
+            body: "Drink water",
+            talkingStonePassedTo: ["otter-1"],
+          }),
+        },
+      );
+
+      expect(res.status).toBe(201);
+      const body = await json(res);
+      expect(body.id).toBe("task-once");
+      expect(body.scheduleType).toBe("once");
+      expect(body.triggerAt).toBe("2026-07-23T10:50:00+08:00");
+      expect(body.nextTriggerAt).toBe("2026-07-23T10:50:00+08:00");
+      // cron parser 不应被调用
+      expect(deps.cronParser.getNextTime).not.toHaveBeenCalled();
+    });
+
     it("use case 抛出 DomainError 时返回 400", async () => {
       deps.manageScheduledTask.create.mockRejectedValue(
         new DomainError("Invalid cron expression", "validation"),
@@ -93,6 +127,33 @@ describe("Scheduled Task API", () => {
       expect(body).toHaveLength(1);
       expect(body[0].id).toBe("task-1");
       expect(body[0].nextTriggerAt).toBe("2026-07-23T09:00:00.000Z");
+    });
+
+    it("列表中包含 once 类型任务时不调用 cronParser", async () => {
+      const cronTask = makeScheduledTask({ id: "task-cron" });
+      const onceTask = makeScheduledTask({
+        id: "task-once",
+        scheduleType: "once",
+        cron: "",
+        triggerAt: "2026-07-23T10:50:00+08:00",
+      });
+      deps.manageScheduledTask.getByConversationId.mockResolvedValue([cronTask, onceTask]);
+      deps.cronParser.getNextTime.mockReturnValue(
+        new Date("2026-07-23T09:00:00Z"),
+      );
+
+      const res = await app.request(
+        "/api/conversations/conv-1/scheduled-tasks",
+      );
+
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body).toHaveLength(2);
+      // cron 任务调用 cronParser，once 任务不调用
+      expect(deps.cronParser.getNextTime).toHaveBeenCalledOnce();
+      expect(body[1].scheduleType).toBe("once");
+      expect(body[1].triggerAt).toBe("2026-07-23T10:50:00+08:00");
+      expect(body[1].nextTriggerAt).toBe("2026-07-23T10:50:00+08:00");
     });
   });
 
