@@ -1,4 +1,5 @@
 import type { AppConfig } from "@frameworks/config";
+import { ScanDarkEntries } from "@usecases/memory/scan-dark-entries";
 import type { Logger } from "@usecases/ports/logger";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
@@ -38,6 +39,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const searchEngine = new SearchEngine(appConfig.memory);
   const manageMemory = new ManageMemory(repos.memory);
   const manageTerminology = new ManageTerminology(repos.terminology);
+  const scanDarkEntries = new ScanDarkEntries(repos.memory, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
@@ -55,7 +57,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   return {
-    manageConversation, manageMemory, manageTerminology, searchMemory,
+    manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,

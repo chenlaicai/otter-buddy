@@ -80,3 +80,12 @@ export interface MemoryWeight {
   lastRetrievedAt: string | null;
   userFlagged: boolean;
 }
+
+/**
+ * F20260811mrpy Part 2：下钻提示，告知调用方用什么工具拿全文。
+ * detail_level != "full" 时填充到 RetrievalResultEntry.drillDown。
+ */
+export interface DrillDownHint {
+  tool: string;
+  params: Record<string, unknown>;
+}

@@ -166,7 +166,7 @@ function createInviteParticipantTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）.`,
+    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）.`,
     parameters: {
       type: "object",
       properties: {

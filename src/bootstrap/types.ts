@@ -12,6 +12,7 @@ import type { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { ManageTerminology } from "@usecases/memory/manage-terminology";
+import type { ScanDarkEntries } from "@usecases/memory/scan-dark-entries";
 import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
@@ -45,6 +46,7 @@ export interface UseCases {
   manageMemory: ManageMemory;
   manageTerminology: ManageTerminology;
   searchMemory: SearchMemory;
+  scanDarkEntries: ScanDarkEntries;
   sendMessage: SendMessage;
   queryMessage: QueryMessage;
   manageReadState: ManageReadState;

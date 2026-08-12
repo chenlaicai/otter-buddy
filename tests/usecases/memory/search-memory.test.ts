@@ -163,6 +163,10 @@ describe("SearchMemory - progressive disclosure", () => {
       replaceEntryBySource: async () => {},
       replaceEntriesBySource: async () => {},
       deleteBySourceAndType: async () => {},
+      getEmbeddingMeta: async () => ({}),
+      setEmbeddingMeta: async () => {},
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
+      hasEmbeddings: async () => new Map(),
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {
@@ -381,6 +385,10 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       replaceEntryBySource: async () => {},
       replaceEntriesBySource: async () => {},
       deleteBySourceAndType: async () => {},
+      getEmbeddingMeta: async () => ({}),
+      setEmbeddingMeta: async () => {},
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
+      hasEmbeddings: async () => new Map(),
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({
@@ -442,6 +450,10 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       replaceEntryBySource: async () => {},
       replaceEntriesBySource: async () => {},
       deleteBySourceAndType: async () => {},
+      getEmbeddingMeta: async () => ({}),
+      setEmbeddingMeta: async () => {},
+      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
+      hasEmbeddings: async () => new Map(),
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({
