@@ -173,7 +173,9 @@ export interface LocalScheduledTask {
   id: string
   conversationId: string
   name: string
+  scheduleType: 'cron' | 'once'
   cron: string
+  triggerAt: string | null
   timezone: string
   body: string
   talkingStonePassedTo: string[]
@@ -202,7 +204,9 @@ export interface ScheduledTaskDTO {
   id: string
   conversationId: string
   name: string
+  scheduleType: 'cron' | 'once'
   cron: string
+  triggerAt: string | null
   timezone: string
   body: string
   talkingStonePassedTo: string[]
@@ -231,7 +235,9 @@ export function mapScheduledTaskDTO(dto: ScheduledTaskDTO): LocalScheduledTask {
     id: dto.id,
     conversationId: dto.conversationId,
     name: dto.name,
+    scheduleType: dto.scheduleType,
     cron: dto.cron,
+    triggerAt: dto.triggerAt,
     timezone: dto.timezone,
     body: dto.body,
     talkingStonePassedTo: dto.talkingStonePassedTo,
