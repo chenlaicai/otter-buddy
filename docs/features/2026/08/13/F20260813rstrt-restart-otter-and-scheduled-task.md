@@ -1,6 +1,6 @@
 ---
 title: 海獭自重启 + 定时任务重启
-id: F20260815rstrt
+id: F20260813rstrt
 status: implemented
 change_type: feature
 tags: [agent, session, restart, scheduled-task]
@@ -8,7 +8,7 @@ modules: [src/interface-adapters/agent-runtime/tools/tool-factory.ts, src/framew
 capability_test: n/a: 纯 A 类改动（确定性逻辑，无 LLM 参与行为）
 ---
 
-# F20260815rstrt: 海獭自重启 + 定时任务重启
+# F20260813rstrt: 海獭自重启 + 定时任务重启
 
 ## 背景与需求
 
