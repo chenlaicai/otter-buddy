@@ -229,6 +229,8 @@ export function MessageList({
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevMessagesLenRef = useRef(messages.length)
+  /** 上翻加载历史时，记录需要恢复的滚动位置差值 */
+  const pendingScrollRestoreRef = useRef<number | null>(null)
 
   /** 滚动到底部 */
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
@@ -237,21 +239,31 @@ export function MessageList({
     el.scrollTo({ top: el.scrollHeight, behavior })
   }, [])
 
-  /** 消息数量变化时：如果之前在底部，自动滚到底部 */
+  /** 消息数量变化时：如果之前在底部，自动滚到底部；如果有待恢复的滚动位置，恢复它 */
   useEffect(() => {
     const prevLen = prevMessagesLenRef.current
     prevMessagesLenRef.current = messages.length
     // 消息没变，不处理
     if (messages.length === prevLen) return
+
+    // 有待恢复的滚动位置（上翻加载历史后）
+    if (pendingScrollRestoreRef.current !== null) {
+      const el = scrollRef.current
+      if (el) {
+        const newScrollHeight = el.scrollHeight
+        el.scrollTop = newScrollHeight - pendingScrollRestoreRef.current
+      }
+      pendingScrollRestoreRef.current = null
+      return
+    }
+
     // 消息减少（切换会话），直接滚到底部
     if (messages.length < prevLen) {
-      // 用 requestAnimationFrame 确保 DOM 渲染完成后再滚动
       requestAnimationFrame(() => scrollToBottom())
       return
     }
     // 消息增加且在底部，滚到底部
     if (isAtBottomRef.current) {
-      // 用 requestAnimationFrame 确保新消息渲染后再滚动
       requestAnimationFrame(() => scrollToBottom())
     }
   }, [messages.length, scrollToBottom, isAtBottomRef])
@@ -267,14 +279,9 @@ export function MessageList({
 
     // 到达顶部，触发加载更多
     if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
-      // 记录当前滚动位置，加载后恢复
-      const prevScrollHeight = el.scrollHeight
+      // 记录当前滚动高度，加载后恢复
+      pendingScrollRestoreRef.current = el.scrollHeight
       onLoadMore()
-      // 加载后保持滚动位置（用 MutationObserver 或 setTimeout）
-      requestAnimationFrame(() => {
-        const newScrollHeight = el.scrollHeight
-        el.scrollTop = newScrollHeight - prevScrollHeight
-      })
     }
   }, [onLoadMore, loadingMore, onAtBottomChange, isAtBottomRef])
 
