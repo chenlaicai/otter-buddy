@@ -72,4 +72,4 @@ category: technique
 
 ## 参考（索引）
 
-- `references/collaboration-patterns.md` — 步骤 3 使用
+- `references/collaboration-patterns.md` — 步骤 3 使用（原步骤 3"派工编排"已删除，speak/talkingStonePassedTo 指导见 create_otter 工具描述与 BIG_OTTER.md）

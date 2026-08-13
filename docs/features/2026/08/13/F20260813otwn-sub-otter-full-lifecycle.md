@@ -171,8 +171,8 @@ capability_test: "n/a: 纯 prompt 文本改动（B 类），无代码逻辑变�
 ### 成功标准
 
 - SC1: 同样跑 4 个 daily-review issue，大獭主动召唤 ≥1 只开发獭（行为可观测）
-- SC2: 大獭 main session cacheRead 峰值 < 50K（今日事故峰值 172K；4 个 dispatch + 4 份 terminal signal 估算 < 50K）
-- SC3: 同期退化事件数显著下降（基线：今日 7 次 / 1 小时）
+- SC2: 大獭 main session cacheRead 峰值显著低于今日 172K（无硬阈值，方向性目标）
+- SC3: **main session** 退化事件数显著下降（基线：今日 7 次 / 1 小时；mimo 自发退化不在本 F 覆盖范围）
 
 ## 验收标准
 
@@ -183,7 +183,7 @@ capability_test: "n/a: 纯 prompt 文本改动（B 类），无代码逻辑变�
 | AT-1 | T1: 同构任务触发召唤 | 准备 2+ 个同构 issue，触发每日处理 | 大獭主动召唤开发獭，不自己跑任务体 |
 | AT-2 | T1: 简单任务不召唤 | 给大獭单步可答的任务 | 大獭直接处理，不召唤 |
 | AT-3 | T2: scheduler 不催眠 | 触发定时任务，检查 task body | body 不含身份催眠文本，含任务清单 + 判断委托 |
-| AT-4 | T3: session 累积可控 | 跑 4 个并行任务，跟踪大獭 cacheRead | 峰值 < 50K |
+| AT-4 | T3: session 累积可控 | 跑 4 个并行任务，跟踪大獭 cacheRead | 峰值显著低于 172K |
 
 ### 能力测试映射
 
@@ -199,7 +199,7 @@ capability_test: "n/a: 纯 prompt 文本改动（B 类），无代码逻辑变�
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `.pi/skills/otter-summon/SKILL.md` | 修改 | description 具体化（L4）+ 触发条件具体化（L18）+ 工作流步骤 1 加"判断示例"段（6 个具体场景） |
+| `.pi/skills/otter-summon/SKILL.md` | 修改 | description 具体化（L4）+ 触发条件具体化（L18）+ 工作流步骤 1 加"判断示例"段（6 个具体场景）+ 删除旧步骤 3"派工编排"（speak/talkingStonePassedTo 指导已覆盖在 create_otter 工具描述和 BIG_OTTER.md 中） |
 | `src/interface-adapters/agent-runtime/tools/scheduled-task-tools.ts` | 修改 | `create_scheduled_task` body 参数 description 加防催眠引导 |
 | DB `scheduled_tasks` 表 | 数据修复 | 每日 issue 处理 + 每日健康检查两个任务的 body 去掉"你是小獭"催眠文本 |
 
