@@ -155,7 +155,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
         {/* 目标 Otter */}
         <div>
           <label className="block text-sm font-medium text-stone-700 mb-1.5">
-            发言石传递给 <span className="text-red-400">*</span>
+            行动权传递给 <span className="text-red-400">*</span>
           </label>
           {otters.length === 0 ? (
             <div className="text-sm text-stone-400">暂无可用的 Otter</div>

@@ -5,7 +5,7 @@ import { DomainError } from "@entities/errors";
 
 function makeSpeakTool(
   participants: Array<{ otterId: string; otterName: string }>,
-  options: { currentMessageId?: string; startSpeakingError?: Error; turnAssistantText?: string } = {},
+  options: { currentMessageId?: string; startSpeakingError?: Error; turnAssistantText?: string; pendingDispatches?: Map<string, string> } = {},
 ) {
   const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
   const client = {
@@ -26,9 +26,13 @@ function makeSpeakTool(
     client, otterId: "otter-self", conversationId: "conv-1",
     currentMessageId: options.currentMessageId ?? "msg-1",
     ...(options.turnAssistantText !== undefined && { getTurnAssistantText: () => options.turnAssistantText! }),
+    ...(options.pendingDispatches !== undefined && {
+      pendingDispatches: options.pendingDispatches,
+      dispatchWarningShown: false,
+    }),
   };
   const speak = createTools(ctx).find(t => t.name === "speak")!;
-  return { speak, speakingCalls };
+  return { speak, speakingCalls, ctx };
 }
 
 const PARTICIPANTS = [
@@ -195,6 +199,108 @@ describe("speak 工具 html-card 位置校验", () => {
     const res = await speak.execute("c1", { body: "普通发言", talkingStonePassedTo: ["user"] });
     expect(res.content[0].text).toContain("发言已提交成功");
     expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+});
+
+/** F20260813actk C9：待派工票据软守卫 */
+describe("speak 工具待派工票据软守卫（C9）", () => {
+  const WITH_SMALL = [...PARTICIPANTS, { otterId: "otter-small", otterName: "报告獭" }];
+  const freshTickets = () => new Map<string, string>([["otter-small", "报告獭"]]);
+
+  it("有未派工票据时 speak 传 user：返回提醒、不提交、不终止，票据保留", async () => {
+    const { speak, speakingCalls, ctx } = makeSpeakTool(WITH_SMALL, { pendingDispatches: freshTickets() });
+
+    const res = await speak.execute("c1", { body: "汇报", talkingStonePassedTo: ["user"] });
+    const text = res.content[0].text;
+    expect(text).toContain("[系统状态]");
+    expect(text).toContain("报告獭");
+    expect(text).toContain("未获得行动权");
+    expect(res.terminate).toBeUndefined();
+    expect(speakingCalls).toHaveLength(0);
+    /** 提醒只展示一次 */
+    expect(ctx.dispatchWarningShown).toBe(true);
+    /** 票据不清除（清除在提交成功后） */
+    expect(ctx.pendingDispatches!.has("otter-small")).toBe(true);
+  });
+
+  it("提醒后再次 speak 原路由：放行提交、terminate=true", async () => {
+    const { speak, speakingCalls, ctx } = makeSpeakTool(WITH_SMALL, { pendingDispatches: freshTickets() });
+
+    await speak.execute("c1", { body: "汇报", talkingStonePassedTo: ["user"] });
+    const res = await speak.execute("c2", { body: "汇报（确认传 user）", talkingStonePassedTo: ["user"] });
+    expect(res.content[0].text).toContain("发言已提交成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+    expect(ctx.pendingDispatches!.has("otter-small")).toBe(true);
+  });
+
+  it("提醒后补派小獭：speak 覆盖票据则直接提交，无需二次提醒", async () => {
+    const { speak, speakingCalls, ctx } = makeSpeakTool(WITH_SMALL, { pendingDispatches: freshTickets() });
+
+    const res = await speak.execute("c1", { body: "派工", talkingStonePassedTo: ["报告獭"] });
+    expect(res.content[0].text).toContain("发言已提交成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+    /** 提交成功后票据被确认清除 */
+    expect(ctx.pendingDispatches!.size).toBe(0);
+  });
+
+  it("startSpeaking 失败时票据保留：重试仍会被提醒（按提交成功清，非按意图清）", async () => {
+    const tickets = freshTickets();
+    const { speak, speakingCalls, ctx } = makeSpeakTool(WITH_SMALL, {
+      pendingDispatches: tickets,
+      startSpeakingError: new Error("db locked"),
+    });
+
+    const res = await speak.execute("c1", { body: "派工", talkingStonePassedTo: ["报告獭"] });
+    expect(res.content[0].text).toContain("[错误] 发言声明失败");
+    expect(res.terminate).toBeUndefined();
+    expect(speakingCalls).toHaveLength(0);
+    /** 失败路径不清除票据——修复前此处会泄漏 */
+    expect(ctx.pendingDispatches!.has("otter-small")).toBe(true);
+  });
+
+  it("未注入 pendingDispatches（scheduler 等其他调用方）：no-op 回归，正常提交", async () => {
+    const { speak, speakingCalls } = makeSpeakTool(WITH_SMALL);
+    const res = await speak.execute("c1", { body: "普通发言", talkingStonePassedTo: ["user"] });
+    expect(res.content[0].text).toContain("发言已提交成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+
+  it("conflict × pending 交互：首次提交成功后重复 speak 走 conflict 幂等终结，票据已在成功时清除", async () => {
+    const tickets = freshTickets();
+    let committed = false;
+    const participants = WITH_SMALL.map(p => ({ otterId: p.otterId, otterName: p.otterName }));
+    const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
+    const client = {
+      conversation: {
+        participant: { getActive: async () => participants },
+        message: {
+          startSpeaking: async (_id: string, input: { body: string; talkingStonePassedTo: string[] }) => {
+            if (committed) throw new DomainError("Cannot start speaking for message with status: speaking", "conflict");
+            committed = true;
+            speakingCalls.push(input);
+          },
+        },
+      },
+    } as unknown as OtterToolClient;
+    const ctx: ToolContext = {
+      client, otterId: "otter-self", conversationId: "conv-1", currentMessageId: "msg-1",
+      pendingDispatches: tickets, dispatchWarningShown: false,
+    };
+    const speak = createTools(ctx).find(t => t.name === "speak")!;
+
+    /** 首次 speak 派工成功 → 票据清除 */
+    const r1 = await speak.execute("c1", { body: "派工", talkingStonePassedTo: ["报告獭"] });
+    expect(r1.terminate).toBe(true);
+    expect(ctx.pendingDispatches!.size).toBe(0);
+
+    /** 重复 speak → conflict 幂等终结，无新增提交 */
+    const r2 = await speak.execute("c2", { body: "重复", talkingStonePassedTo: ["报告獭"] });
+    expect(r2.content[0].text).toContain("本回合发言已提交");
+    expect(r2.terminate).toBe(true);
     expect(speakingCalls).toHaveLength(1);
   });
 });

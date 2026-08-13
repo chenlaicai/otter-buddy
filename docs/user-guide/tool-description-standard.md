@@ -109,7 +109,7 @@ return errorResponse("[错误] 未知的模型别名「${alias}」。可用模�
 **改写**：用 TIP / BOUNDARY 代替：
 ```
 ✅ description: "获取当前对话所有活跃参与者.
-   When: 需要知道场上有谁、可用什么名字传发言石.
+   When: 需要知道场上有谁、可用什么名字传行动权.
    Output: otterId / otterName / status / joinedAtTurnNumber 列表.
    BOUNDARY: 只读，不修改状态. speak 的 talkingStonePassedTo 用 otterName;
    invite/dissolve 用 otterId."
