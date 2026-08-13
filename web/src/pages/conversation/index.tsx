@@ -20,8 +20,7 @@ import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
 import { ApiError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
-import { type VirtuosoHandle } from 'react-virtuoso'
-import type { MessageDTO } from '@contract/api'
+import { type MessageDTO } from '@contract/api'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
@@ -61,7 +60,6 @@ function mapMessagesCore(msgs: MessageDTO[]): LocalMessage[] {
   })
 }
 
-const FIRST_ITEM_INDEX_BASE = 100000
 
 function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
@@ -74,20 +72,15 @@ function ConversationPage() {
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
-  // 虚拟滚动状态（react-virtuoso）
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
-  const [firstItemIndex, setFirstItemIndex] = useState(100000)
-  const [initialTopMostItemIndex, setInitialTopMostItemIndex] = useState<number | { index: 'LAST' }>({ index: 'LAST' })
+  // 滚动状态
   const isAtBottomRef = useRef(true)
-  const atBottomDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
-  const [hasMoreAfter, setHasMoreAfter] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const loadingMoreRef = useRef(false)
   // 未读状态
-  const [unreadState, setUnreadState] = useState<{ lastReadSeq: number; unreadCount: number; firstUnreadMessageId: string | null; firstUnreadSeq: number | null } | null>(null)
+  const [, setUnreadState] = useState<{ lastReadSeq: number; unreadCount: number; firstUnreadMessageId: string | null; firstUnreadSeq: number | null } | null>(null)
   const [unreadSeparatorSeq, setUnreadSeparatorSeq] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
@@ -104,7 +97,6 @@ function ConversationPage() {
   }, [allMessages])
   useEffect(() => () => {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
-    if (atBottomDebounceRef.current) clearTimeout(atBottomDebounceRef.current)
   }, [])
 
   // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少 Virtuoso 重渲染
@@ -213,9 +205,7 @@ function ConversationPage() {
         lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null,
       }))
       let msgs = mapMessageDTOs(listResp.messages)
-      setFirstItemIndex(FIRST_ITEM_INDEX_BASE)
       setHasMoreBefore(listResp.hasMore)
-      setHasMoreAfter(false)
       setUnreadState(unread)
       // 首次访问（无已读记录）：初始化已读到最新，避免下次进入显示全部未读
       if (unread.lastReadSeq === 0 && unread.unreadCount === 0 && msgs.length > 0) {
@@ -227,20 +217,14 @@ function ConversationPage() {
       if (unread.firstUnreadSeq != null && unread.firstUnreadMessageId) {
         const unreadIdx = msgs.findIndex(m => m.seq === unread.firstUnreadSeq)
         if (unreadIdx >= 0) {
-          setInitialTopMostItemIndex(FIRST_ITEM_INDEX_BASE + unreadIdx)
           setUnreadSeparatorSeq(unread.firstUnreadSeq)
         } else {
           // 未读不在窗口（大量未读）：expand 加载未读附近
           const expanded = await api.expandMessage(unread.firstUnreadMessageId, 'both', 25)
           msgs = mapMessagesCore(expanded)
           setHasMoreBefore(true)
-          setHasMoreAfter(true)
-          const expandIdx = msgs.findIndex(m => m.seq === unread.firstUnreadSeq)
-          setInitialTopMostItemIndex(expandIdx >= 0 ? FIRST_ITEM_INDEX_BASE + expandIdx : { index: 'LAST' })
           setUnreadSeparatorSeq(unread.firstUnreadSeq)
         }
-      } else {
-        setInitialTopMostItemIndex({ index: 'LAST' })
       }
       setAllMessages(prev => ({
         ...prev,
@@ -303,32 +287,13 @@ function ConversationPage() {
     }
   }, []) // 依赖为空，通过 allMessagesRef 读取最新值
 
-  /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用）。
-   *  Why: false 信号用 50ms 短 debounce（检视獭建议）——
-   *  followOutput 已改为使用 isAtBottomRef，Virtuoso 瞬态 false 不再影响跟随行为；
-   *  50ms < 一帧，不影响跟随响应性，但过滤内容高度重算时的瞬态 false
-   *  信号，避免"新消息 N 条"浮窗闪烁。 */
-  const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    if (atBottom) {
-      if (atBottomDebounceRef.current) {
-        clearTimeout(atBottomDebounceRef.current)
-        atBottomDebounceRef.current = null
-      }
-      isAtBottomRef.current = true
-      setNewMessagesCount(0)
-    } else {
-      if (!atBottomDebounceRef.current) {
-        atBottomDebounceRef.current = setTimeout(() => {
-          atBottomDebounceRef.current = null
-          isAtBottomRef.current = false
-        }, 50)
-      }
-    }
-  }, [])
-
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' })
+    // 找到滚动容器，滚到底部
+    const scrollEl = document.querySelector('[data-message-list]') as HTMLElement
+    if (scrollEl) {
+      scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' })
+    }
     setNewMessagesCount(0)
   }, [])
 
@@ -345,7 +310,6 @@ function ConversationPage() {
       if (resp.messages.length === 0) { setHasMoreBefore(false); return }
       const olderMsgs = mapMessageDTOs(resp.messages) // DESC -> 升序
       setHasMoreBefore(resp.hasMore)
-      setFirstItemIndex(prev => Math.max(0, prev - olderMsgs.length))
       setAllMessages(prev => ({
         ...prev,
         [activeId]: [...olderMsgs, ...(prev[activeId] || [])],
@@ -358,70 +322,23 @@ function ConversationPage() {
     }
   }, [activeId, hasMoreBefore]) // 依赖为空，通过 allMessagesRef 读取最新值
 
-  /** 向下加载更新的历史消息（endReached 触发，after 游标） */
-  const loadMoreAfter = useCallback(async () => {
-    if (!activeId || loadingMoreRef.current || !hasMoreAfter) return
-    const list = allMessagesRef.current[activeId] || []
-    const newest = list[list.length - 1]
-    if (!newest?.id) return
-    loadingMoreRef.current = true
-    setLoadingMore(true)
-    try {
-      const resp = await api.listMessagesAfter(activeId, newest.id, 50)
-      if (resp.messages.length === 0) { setHasMoreAfter(false); return }
-      const newerMsgs = mapMessagesCore(resp.messages) // ASC，不反转，直接 append
-      setHasMoreAfter(resp.hasMore)
-      setAllMessages(prev => ({
-        ...prev,
-        [activeId]: [...(prev[activeId] || []), ...newerMsgs],
-      }))
-    } catch (err) {
-      console.error('Failed to load more after:', err)
-    } finally {
-      loadingMoreRef.current = false
-      setLoadingMore(false)
-    }
-  }, [activeId, hasMoreAfter]) // 依赖为空，通过 allMessagesRef 读取最新值
 
-  /** rangeChanged：检测视口内最大 seq，debounce 标记已读 */
-  const handleRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
-    if (!activeId) return
-    const list = allMessages[activeId] || []
-    if (list.length === 0) return
-    const startArr = Math.max(0, range.startIndex - firstItemIndex)
-    const endArr = Math.min(list.length - 1, range.endIndex - firstItemIndex)
-    let maxSeq = 0
-    for (let i = startArr; i <= endArr; i++) {
-      const s = list[i]?.seq
-      if (s != null && s > maxSeq) maxSeq = s
-    }
-    if (maxSeq === 0) return
-    const lastRead = unreadState?.lastReadSeq ?? 0
-    if (maxSeq <= lastRead) return
-    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
-    markReadTimerRef.current = setTimeout(async () => {
-      try {
-        const resp = await api.markRead(activeId, maxSeq)
-        setUnreadState(prev => prev ? { ...prev, lastReadSeq: resp.lastReadSeq, unreadCount: resp.unreadCount } : prev)
-        setUnreadSeparatorSeq(prev => prev != null && maxSeq >= prev ? null : prev)
-        setConversations(prev => prev.map(c => c.id === activeId ? { ...c, unreadCount: resp.unreadCount } : c))
-      } catch (err) {
-        console.error('Failed to mark read:', err)
-      }
-    }, 500)
-  }, [activeId, allMessages, firstItemIndex, unreadState])
 
-  /** 跳转到消息：已加载则 scrollToIndex，未加载则 expand 加载后定位；高亮 2s */
+  /** 跳转到消息：已加载则滚动定位，未加载则 expand 加载后定位；高亮 2s */
   const handleJumpToMessage = useCallback((messageId: string) => {
     if (!activeId) return
     const msgs = allMessages[activeId] || []
     const targetIndex = msgs.findIndex(m => m.id === messageId)
     if (targetIndex >= 0) {
-      virtuosoRef.current?.scrollToIndex({ index: firstItemIndex + targetIndex, behavior: 'smooth', align: 'center' })
+      // 找到目标消息的 DOM 元素，滚动到可视区域
+      const msgEl = document.querySelector(`[data-message-id="${messageId}"]`)
+      if (msgEl) {
+        msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
       setHighlightMessageId(messageId)
       setTimeout(() => setHighlightMessageId(null), 2000)
     }
-  }, [activeId, allMessages, firstItemIndex])
+  }, [activeId, allMessages])
 
   useEffect(() => {
     if (activeId && !allMessages[activeId]) {
@@ -1227,7 +1144,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps, type RefObject } from 'react'
+import { useEffect, useRef, useState, useCallback, createContext, useContext, useMemo, isValidElement, type CSSProperties, type ComponentProps, type RefObject } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
@@ -11,7 +11,7 @@ import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+
 
 /** 复制按钮 */
 function CopyButton({ text }: { text: string }) {
@@ -153,9 +153,7 @@ function MarkdownContent({ children, variant = 'otter-body', messageId = '', aut
   )
 }
 
-const LoadingHeader = ({ context }: { context?: { loadingMore: boolean } }) => {
-  return context?.loadingMore ? <div className="text-center py-2 text-xs text-stone-400">加载中...</div> : null
-}
+
 
 interface MessageListProps {
   messages: Message[]
@@ -165,33 +163,29 @@ interface MessageListProps {
   onRetry: () => void
   onGoToSettings: () => void
   otters: Otter[]
-  /** 会话 ID（作为 Virtuoso key，切换会话强制 remount 重新消费 initialTopMostItemIndex） */
+  /** 会话 ID（用于 key，切换会话强制 remount） */
   conversationId: string
-  virtuosoRef: RefObject<VirtuosoHandle | null>
-  firstItemIndex: number
-  initialTopMostItemIndex: number | { index: 'LAST' }
-  onAtBottomChange: (atBottom: boolean) => void
-  /** Why: followOutput 必须与 newMessagesCount 使用同一套 debounce 状态，
-   *  否则 Virtuoso 即时判断 vs debounce ref 的时序矛盾会导致滚动抖动 */
   isAtBottomRef: RefObject<boolean>
   newMessagesCount?: number
   onJumpToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
-  onLoadMoreAfter?: () => void
-  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void
+  onAtBottomChange?: (atBottom: boolean) => void
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   userName?: string
 }
 
+/** 判断是否在底部（阈值 100px） */
+function isNearBottom(el: HTMLElement, threshold = 100): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+}
+
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
-  conversationId, virtuosoRef, firstItemIndex, initialTopMostItemIndex,
-  onAtBottomChange, isAtBottomRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
-  loadingMore, onLoadMoreAfter,
-  onRangeChanged,
+  conversationId, isAtBottomRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
+  loadingMore, onAtBottomChange,
   unreadSeparatorSeq, highlightMessageId,
   userName,
 }: MessageListProps) {
@@ -233,26 +227,94 @@ export function MessageList({
     )
   }
 
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const prevMessagesLenRef = useRef(messages.length)
+  /** 上翻加载历史时，记录需要恢复的滚动位置差值 */
+  const pendingScrollRestoreRef = useRef<number | null>(null)
+
+  /** 滚动到底部 */
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior })
+  }, [])
+
+  /** 消息数量变化时：如果之前在底部，自动滚到底部；如果有待恢复的滚动位置，恢复它 */
+  useEffect(() => {
+    const prevLen = prevMessagesLenRef.current
+    prevMessagesLenRef.current = messages.length
+    // 消息没变，不处理
+    if (messages.length === prevLen) return
+
+    // 有待恢复的滚动位置（上翻加载历史后）
+    if (pendingScrollRestoreRef.current !== null) {
+      const el = scrollRef.current
+      if (el) {
+        const newScrollHeight = el.scrollHeight
+        el.scrollTop = newScrollHeight - pendingScrollRestoreRef.current
+      }
+      pendingScrollRestoreRef.current = null
+      return
+    }
+
+    // 消息减少（切换会话），直接滚到底部
+    if (messages.length < prevLen) {
+      requestAnimationFrame(() => scrollToBottom())
+      return
+    }
+    // 消息增加且在底部，滚到底部
+    if (isAtBottomRef.current) {
+      requestAnimationFrame(() => scrollToBottom())
+    }
+  }, [messages.length, scrollToBottom, isAtBottomRef])
+
+  /** 滚动事件处理：检测是否在底部 + 触发加载更多 */
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+
+    const atBottom = isNearBottom(el)
+    isAtBottomRef.current = atBottom
+    onAtBottomChange?.(atBottom)
+
+    // 到达顶部，触发加载更多
+    if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
+      // 记录当前滚动高度，加载后恢复
+      pendingScrollRestoreRef.current = el.scrollHeight
+      onLoadMore()
+    }
+  }, [onLoadMore, loadingMore, onAtBottomChange, isAtBottomRef])
+
+  /** 首次渲染滚到底部 */
+  useEffect(() => {
+    if (messages.length > 0) {
+      requestAnimationFrame(() => scrollToBottom())
+    }
+  }, [])
+
+  /** 切换会话时重置状态 */
+  useEffect(() => {
+    isAtBottomRef.current = true
+    prevMessagesLenRef.current = 0
+  }, [conversationId, isAtBottomRef])
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
-      <Virtuoso
+      {loadingMore && (
+        <div className="text-center py-2 text-xs text-stone-400">加载中...</div>
+      )}
+      <div
         key={conversationId}
-        ref={virtuosoRef}
-        data={messages}
-        computeItemKey={(_, item) => item.id}
-        firstItemIndex={firstItemIndex}
-        initialTopMostItemIndex={initialTopMostItemIndex}
-        followOutput={() => isAtBottomRef.current ? 'smooth' : false}
-        startReached={() => onLoadMore?.()}
-        endReached={() => onLoadMoreAfter?.()}
-        atBottomStateChange={onAtBottomChange}
-        rangeChanged={onRangeChanged}
-        itemContent={(index, m) => {
-          const arrIdx = index - firstItemIndex
-          const prev = arrIdx > 0 ? messages[arrIdx - 1] : undefined
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto"
+        style={{ overflowAnchor: 'none' }}
+      >
+        {messages.map((m, i) => {
+          const prev = i > 0 ? messages[i - 1] : undefined
           const isNewTurn = m.turnId && m.turnId !== prev?.turnId
           return (
-            <div data-message-id={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
+            <div key={m.id} data-message-id={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
               {unreadSeparatorSeq != null && m.seq === unreadSeparatorSeq && (
                 <div className="flex items-center gap-2 my-2 mx-auto" style={{ maxWidth: '72%' }}>
                   <div className="flex-1 h-px bg-teal-400/40" />
@@ -263,12 +325,8 @@ export function MessageList({
               <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} />
             </div>
           )
-        }}
-        components={{ Header: LoadingHeader, Footer: LoadingHeader }}
-        context={{ loadingMore: loadingMore ?? false }}
-        overscan={200}
-        className="flex-1"
-      />
+        })}
+      </div>
       {newMessagesCount > 0 && onJumpToBottom && (
         <button
           onClick={onJumpToBottom}
