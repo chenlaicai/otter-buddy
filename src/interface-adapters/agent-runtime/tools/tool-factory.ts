@@ -144,7 +144,7 @@ function validateAndResolve(
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的本轮行动（思考、调工具、出结论都在这里），并指定下一位行动者——接到行动权的人会立刻开始干活。发言内容全部放在 body 里——speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（terminate=true）。GOTCHA: speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
+    description: "结束你的本轮行动（思考、调工具、出结论都在这里），并指定下一位行动者——接到行动权的人会被立即唤醒执行。发言内容全部放在 body 里——speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（terminate=true）。GOTCHA: speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
     parameters: {
       type: "object",
       properties: {
@@ -254,7 +254,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
-    description: "创建子 Otter 并让它就位待命. When: 需要召唤小獭分担工作（独立审视/并行工作/角色讨论/任务分担）. **创建不触发执行——新 Otter 只是就位待命，你必须在随后的 speak 里把行动权（talkingStonePassedTo）传给它，它才会被唤醒干活；只创建不派工＝小獭永远不产出**. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话（但未开工）. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
+    description: "创建子 Otter 并让它就位待命. When: 需要召唤小獭分担工作（独立审视/并行工作/角色讨论/任务分担）. **创建不触发执行——新 Otter 只是就位待命，你必须在随后的 speak 里把行动权（talkingStonePassedTo）传给它，它才会被唤醒执行；只创建不派工＝小獭永远不产出**. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话（但未开工）. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
     parameters: {
       type: "object",
       properties: {

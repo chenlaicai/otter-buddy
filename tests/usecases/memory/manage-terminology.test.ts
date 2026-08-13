@@ -229,8 +229,8 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     const oldEntry = await repo.getByTerm("大獭");
     expect(oldEntry).toBeNull();
 
-    /** FTS 可搜到新词 */
-    const ftsResults = await repo.search("大獭-renamed", 10);
+    /** FTS 可搜到新词（用 FTS-only 片段查，避开精确匹配短路——第六轮审视发现 exact 分支会让断言假阳性） */
+    const ftsResults = await repo.search("renamed", 10);
     expect(ftsResults.length).toBe(1);
     expect(ftsResults[0].term).toBe("大獭-renamed");
   });

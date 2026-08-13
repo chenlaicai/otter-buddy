@@ -268,4 +268,39 @@ describe("speak 工具待派工票据软守卫（C9）", () => {
     expect(res.terminate).toBe(true);
     expect(speakingCalls).toHaveLength(1);
   });
+
+  it("conflict × pending 交互：首次提交成功后重复 speak 走 conflict 幂等终结，票据已在成功时清除", async () => {
+    const tickets = freshTickets();
+    let committed = false;
+    const participants = WITH_SMALL.map(p => ({ otterId: p.otterId, otterName: p.otterName }));
+    const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
+    const client = {
+      conversation: {
+        participant: { getActive: async () => participants },
+        message: {
+          startSpeaking: async (_id: string, input: { body: string; talkingStonePassedTo: string[] }) => {
+            if (committed) throw new DomainError("Cannot start speaking for message with status: speaking", "conflict");
+            committed = true;
+            speakingCalls.push(input);
+          },
+        },
+      },
+    } as unknown as OtterToolClient;
+    const ctx: ToolContext = {
+      client, otterId: "otter-self", conversationId: "conv-1", currentMessageId: "msg-1",
+      pendingDispatches: tickets, dispatchWarningShown: false,
+    };
+    const speak = createTools(ctx).find(t => t.name === "speak")!;
+
+    /** 首次 speak 派工成功 → 票据清除 */
+    const r1 = await speak.execute("c1", { body: "派工", talkingStonePassedTo: ["报告獭"] });
+    expect(r1.terminate).toBe(true);
+    expect(ctx.pendingDispatches!.size).toBe(0);
+
+    /** 重复 speak → conflict 幂等终结，无新增提交 */
+    const r2 = await speak.execute("c2", { body: "重复", talkingStonePassedTo: ["报告獭"] });
+    expect(r2.content[0].text).toContain("本回合发言已提交");
+    expect(r2.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
 });

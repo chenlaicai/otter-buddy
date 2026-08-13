@@ -377,18 +377,18 @@ interface ToolContext {
 
 2. **create_otter execute 注册票据**：创建成功后 `ctx.pendingDispatches.set(otter.id, otter.name)`。
 
-3. **speak execute 软守卫**（在 `validateAndResolve` 后、`startSpeaking` 前）：
+3. **speak execute 软守卫**（在 `validateAndResolve` 后、`startSpeaking` 前；检查与清除两步分离）：
 
 ```typescript
-// 清除已被本次 speak 覆盖的票据
-for (const id of resolvedIds) ctx.pendingDispatches.delete(id);
-// 软守卫：未派工票据未清空且本次未提醒过 → 不提交 speak，返回提醒（terminate=false 让 agent 能读到并 reconsider）
-if (ctx.pendingDispatches.size > 0 && !ctx.dispatchWarningShown) {
-  ctx.dispatchWarningShown = true;
-  return textResponse(`[系统状态] 你本轮创建的小獭还有 ${ctx.pendingDispatches.size} 只未获得行动权：${names}。如果是漏派，把 ${names} 加入 talkingStonePassedTo 重新调用 speak；如果确实要传给 [当前目标]，再次调用 speak 即可放行。`);
-}
+// 检查：发现未派工票据且本次未提醒过 → 不提交 speak，返回提醒（terminate=false 让 agent 能读到并 reconsider）
+// 注意：此处不清除票据——若按"意图"提前清除，startSpeaking 失败会泄漏票据（第六轮审视修复）
+const dispatchWarning = checkPendingDispatches(ctx, resolvedIds, recipients);
+if (dispatchWarning) return textResponse(dispatchWarning);
+
 // 二次调用（dispatchWarningShown=true）或已全部派工 → 正常提交
 await startSpeaking(...);
+// 提交成功后才确认清除已派工票据（按"提交成功"清，非按"意图"清）
+confirmDispatchesClear(ctx, resolvedIds);
 return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。"), terminate: true };
 ```
 
@@ -590,6 +590,28 @@ return { ...textResponse("[系统控制信号] 发言已提交成功，回合结
 - F20260810rout status: design→implemented，causal_links.to 补 F20260813actk
 
 **结论**：第五轮通过。术语库 PK 冲突是本轮最有价值的发现——若无此轮，合入即造成所有存量实例启动失败。
+
+### 第六轮：PR 审视（轮间修复代码 + prompt 语义连贯性 + 广谱回归）
+
+**审视范围**：第五轮修复代码本身（轮间新写、零审视）、全部改动 prompt 表面的弱模型视角连贯性、广谱能力测试回归。
+
+**严重发现（已修复）**：
+- **collaboration-patterns.md"接收者用 otterId 标识"是行为级错误**：speak 自 F20260803trrf 起按 otterName resolve，reference 恰是派工时按需加载的文档——弱模型照做必吃"目标不在场"错误。已改为 otterName。
+- **新单测 FTS 断言假阳性**：`search("大獭-renamed")` 在 exact match 分支短路，到不了 FTS——UPDATE 分支漏重建 FTS 也照样绿。已改用 FTS-only 片段查询（`search("renamed")`）。
+- **本文档 §C9 伪代码过期**：仍是旧"先 delete 再 startSpeaking"逻辑，与第五轮叙述矛盾——按伪代码实现会重新引入票据泄漏。已更新为 check/confirm 两步版。
+
+**已修复（次要）**：
+- 并行派工机制矛盾：SKILL.md 主文档说"一次 speak 传多名"，reference 说"分别交互/依次传给下一只"（引导方向相反）——reference 已对齐主文档
+- SKILL.md typo"传给它它才会执行"→ 补标点
+- tool-description-standard.md 的 get_active_participants 范例过期——已同步
+- 措辞收敛到术语库权威定义"被唤醒执行"（speak/create description、BIG_OTTER 的"干活"已改）
+- 补 conflict × pending 单测（首次成功后重复 speak 幂等终结、票据已在成功时清除）
+
+**无问题确认**：create 回包"随后的 speak"与 speak 单独调用 GOTCHA 自洽（同批 create+speak 本就被 prompt 层禁止）；小獭路由信号三处同向；"行动"语义跨表面自洽（speak description 与术语库 definition 括号内容逐字一致）。
+
+**记录在案的观察**（不阻断）：syncSeed applySeedRow 的 prepare-in-loop（亚毫秒级，启动一次性）；seed 改名与用户同名词撞车的孤儿 edge（条件苛刻，注释已标注前提）；`scripts/test-degenerate3.mjs` 保留旧词是故意还原案发现场（该文件含硬编码 API key 为 pre-existing 问题，建议另行吊销外置，不在本 PR）。
+
+**广谱回归**：system-prompt-behavior 7/8（1 skip）、agent-collaboration 2/2、otter-lifecycle 2/3 通过。otter-lifecycle 的"身份注入"用例失败，**main 分支对照测试同样失败（同一断言）——pre-existing 失败，非本 PR 引入**（已用 main 干净 checkout 实证）。该失败是独立的测试/产品问题（session 文件首条用户消息不含 BIG_OTTER 身份前缀），建议另行立项排查，不在本 PR 范围。
 
 ## 过渡期风险（第五轮补充）
 

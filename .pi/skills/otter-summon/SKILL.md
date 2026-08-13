@@ -49,7 +49,7 @@ category: technique
 
    如果存在特性文档（通过 `list_artifacts` 查找），在 systemPrompt 中附上路径。创建小獭并写下任务——注意 create 只是让小獭就位待命，不触发执行（见 create_otter 工具描述与回包）。
 
-3. **派工编排**：create 让小獭就位，speak 把行动权（talkingStonePassedTo）传给它它才会执行。编排选择是经验判断：
+3. **派工编排**：create 让小獭就位，speak 把行动权（talkingStonePassedTo）传给它，它才会执行。编排选择是经验判断：
    - 单只小獭：直接 speak(talkingStonePassedTo=["小獭名"])
    - 多只小獭并行：一次 speak 传多个名字（同时唤醒，各自独立产出）——适合任务相互独立、无依赖
    - 多只小獭串行：按序逐次 speak（前一只产出后再派下一只）——适合后一只需要前一只的产出作输入
