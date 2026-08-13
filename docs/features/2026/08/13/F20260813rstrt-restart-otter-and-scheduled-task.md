@@ -21,7 +21,6 @@ modules:
   - src/usecases/scheduler/scheduler-service.ts
   - src/entities/scheduled-task/scheduled-task.ts
 capability_test: "n/a: 纯 A 类改动（确定性逻辑，无 LLM 参与行为）"
-
 created_at: 2026-08-13
 ---
 

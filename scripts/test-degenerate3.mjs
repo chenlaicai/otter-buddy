@@ -5,12 +5,30 @@
  */
 import { createAgentSession, SessionManager, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { readFileSync, writeFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import yaml from "js-yaml";
 
 const SCENE_SESSION = "/tmp/pi-degenerate-cleaned-memory.jsonl";
 const TIMEOUT_MS = 120_000;
 
-const API_KEY = "tp-cs8vohgx42vzr4h3krfsh2rh5fk0yzhk0ki9dygv5lvjexov";
-const API_BASE_URL = "https://token-plan-cn.xiaomimimo.com/anthropic";
+/** F20260813actk 安全修复：key 不再硬编码（曾泄漏进 git 历史并已轮换），
+ *  改读 gitignored 的本地测试配置 config/config.test.local.yaml */
+const LOCAL_CONFIG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../config/config.test.local.yaml");
+function loadLlmConfig() {
+  let raw;
+  try {
+    raw = yaml.load(readFileSync(LOCAL_CONFIG, "utf-8"));
+  } catch {
+    throw new Error(`缺少本地测试配置 ${LOCAL_CONFIG}（gitignored）。参考 config/config.test.yaml 注释创建，填入 LLM 端点与密钥。`);
+  }
+  const model = raw?.llm?.models?.[0];
+  if (!model?.apiKey || !model?.apiBaseUrl) {
+    throw new Error(`${LOCAL_CONFIG} 缺少 llm.models[0].apiKey / apiBaseUrl`);
+  }
+  return { apiKey: model.apiKey, apiBaseUrl: model.apiBaseUrl };
+}
+const { apiKey: API_KEY, apiBaseUrl: API_BASE_URL } = loadLlmConfig();
 
 // 案发现场退化前的最后一条用户消息
 const TRIGGER_MESSAGE = `## 会话摘要

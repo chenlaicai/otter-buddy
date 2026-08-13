@@ -210,6 +210,31 @@ describe("TerminologyRepository - syncSeed 种子同步", () => {
     expect(entry?.version).toBe(2);
   });
 
+  it("同 id 改名（F20260813actk 第五轮）：seed 改 term 不改 id 时按 id 兜底 UPDATE，不 PK 冲突、不产生重复条目", async () => {
+    const db = createTestDb();
+    const repo = new SqliteTerminologyRepository(db);
+
+    await repo.syncSeed(SEED_ENTRIES);
+
+    /** 模拟"发言石"→"行动权"式改名：id 不变，term 变 */
+    const renamed = SEED_ENTRIES.map(e =>
+      e.term === "大獭" ? { ...e, term: "大獭-renamed" } : e,
+    );
+    await repo.syncSeed(renamed);
+
+    /** 新 term 可查，旧 term 不可查，无重复条目 */
+    const newEntry = await repo.getByTerm("大獭-renamed");
+    expect(newEntry).not.toBeNull();
+    expect(newEntry?.version).toBe(2);
+    const oldEntry = await repo.getByTerm("大獭");
+    expect(oldEntry).toBeNull();
+
+    /** FTS 可搜到新词（用 FTS-only 片段查，避开精确匹配短路——第六轮审视发现 exact 分支会让断言假阳性） */
+    const ftsResults = await repo.search("renamed", 10);
+    expect(ftsResults.length).toBe(1);
+    expect(ftsResults[0].term).toBe("大獭-renamed");
+  });
+
   it("新增种子术语不影响运行时用户添加的术语", async () => {
     const db = createTestDb();
     const repo = new SqliteTerminologyRepository(db);

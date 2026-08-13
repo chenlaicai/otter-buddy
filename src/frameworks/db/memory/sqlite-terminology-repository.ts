@@ -80,60 +80,72 @@ export class SqliteTerminologyRepository implements TerminologyRepository {
     const existingStmt = this.db.prepare(
       "SELECT * FROM terminology_entries WHERE term = ? AND status = 'active'",
     );
-    const insertEntry = this.db.prepare(`
-      INSERT INTO terminology_entries (id, term, aliases, aliases_flat, definition,
-        context, examples, category, status, created_at, updated_at, version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const updateEntry = this.db.prepare(`
-      UPDATE terminology_entries
-      SET aliases = ?, aliases_flat = ?, definition = ?,
-          context = ?, examples = ?, category = ?, updated_at = ?, version = version + 1
-      WHERE id = ?
-    `);
-    const deleteFts = this.db.prepare("DELETE FROM terminology_fts WHERE terminology_entry_id = ?");
-    const insertFts = this.db.prepare(`
-      INSERT INTO terminology_fts (terminology_entry_id, term, aliases_flat, definition, context)
-      VALUES (?, ?, ?, ?, ?)
-    `);
+    /**
+     * F20260813actk 第五轮审视：同 id 改名的兜底匹配。
+     * seed 改 term 不改 id 时（如"发言石"→"行动权"），按 term 查 miss 会走 INSERT 撞 PK。
+     * 按 id 兜底查到存量行，走 UPDATE 分支（含 term 列更新）。
+     */
+    const existingByIdStmt = this.db.prepare(
+      "SELECT * FROM terminology_entries WHERE id = ? AND status = 'active'",
+    );
 
     this.db.exec("BEGIN");
     try {
       for (const entry of entries) {
         const row = entryToRow(entry);
-        const existing = existingStmt.get(row.term) as TerminologyEntryRow | undefined;
-
-        if (existing) {
-          /** 内容相同则跳过 */
-          if (
-            existing.aliases === row.aliases &&
-            existing.definition === row.definition &&
-            existing.context === row.context &&
-            existing.examples === row.examples &&
-            existing.category === row.category
-          ) continue;
-
-          /** 内容不同则更新 */
-          updateEntry.run(
-            row.aliases, row.aliases_flat, row.definition,
-            row.context, row.examples, row.category, now, existing.id,
-          );
-          deleteFts.run(existing.id);
-          insertFts.run(existing.id, row.term, row.aliases_flat, row.definition, row.context ?? "");
-        } else {
-          /** 不存在则新增 */
-          insertEntry.run(
-            row.id, row.term, row.aliases, row.aliases_flat, row.definition,
-            row.context, row.examples, row.category, row.status,
-            row.created_at, row.updated_at, row.version,
-          );
-          insertFts.run(row.id, row.term, row.aliases_flat, row.definition, row.context ?? "");
-        }
+        const existing = (existingStmt.get(row.term) as TerminologyEntryRow | undefined)
+          ?? (existingByIdStmt.get(row.id) as TerminologyEntryRow | undefined);
+        this.applySeedRow(existing, row, now);
       }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  /** 单条种子应用：存量（含同 id 改名）内容相同跳过，不同更新；不存在则新增。FTS 同步重建 */
+  private applySeedRow(existing: TerminologyEntryRow | undefined, row: TerminologyEntryRow, now: string): void {
+    if (existing) {
+      if (
+        existing.term === row.term &&
+        existing.aliases === row.aliases &&
+        existing.definition === row.definition &&
+        existing.context === row.context &&
+        existing.examples === row.examples &&
+        existing.category === row.category
+      ) return;
+
+      this.db.prepare(`
+        UPDATE terminology_entries
+        SET term = ?, aliases = ?, aliases_flat = ?, definition = ?,
+            context = ?, examples = ?, category = ?, updated_at = ?, version = version + 1
+        WHERE id = ?
+      `).run(
+        row.term, row.aliases, row.aliases_flat, row.definition,
+        row.context, row.examples, row.category, now, existing.id,
+      );
+      this.db.prepare("DELETE FROM terminology_fts WHERE terminology_entry_id = ?").run(existing.id);
+      this.rebuildFts(existing.id, row);
+      return;
+    }
+
+    this.db.prepare(`
+      INSERT INTO terminology_entries (id, term, aliases, aliases_flat, definition,
+        context, examples, category, status, created_at, updated_at, version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      row.id, row.term, row.aliases, row.aliases_flat, row.definition,
+      row.context, row.examples, row.category, row.status,
+      row.created_at, row.updated_at, row.version,
+    );
+    this.rebuildFts(row.id, row);
+  }
+
+  private rebuildFts(entryId: string, row: TerminologyEntryRow): void {
+    this.db.prepare(`
+      INSERT INTO terminology_fts (terminology_entry_id, term, aliases_flat, definition, context)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(entryId, row.term, row.aliases_flat, row.definition, row.context ?? "");
   }
 }
