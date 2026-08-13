@@ -206,7 +206,6 @@ function ConversationPage() {
       }))
       let msgs = mapMessageDTOs(listResp.messages)
       setHasMoreBefore(listResp.hasMore)
-      setHasMoreAfter(false)
       setUnreadState(unread)
       // 首次访问（无已读记录）：初始化已读到最新，避免下次进入显示全部未读
       if (unread.lastReadSeq === 0 && unread.unreadCount === 0 && msgs.length > 0) {
@@ -224,7 +223,6 @@ function ConversationPage() {
           const expanded = await api.expandMessage(unread.firstUnreadMessageId, 'both', 25)
           msgs = mapMessagesCore(expanded)
           setHasMoreBefore(true)
-          setHasMoreAfter(true)
           setUnreadSeparatorSeq(unread.firstUnreadSeq)
         }
       }
