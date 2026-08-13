@@ -77,11 +77,10 @@ function ConversationPage() {
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
-  const [hasMoreAfter, setHasMoreAfter] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const loadingMoreRef = useRef(false)
   // 未读状态
-  const [unreadState, setUnreadState] = useState<{ lastReadSeq: number; unreadCount: number; firstUnreadMessageId: string | null; firstUnreadSeq: number | null } | null>(null)
+  const [, setUnreadState] = useState<{ lastReadSeq: number; unreadCount: number; firstUnreadMessageId: string | null; firstUnreadSeq: number | null } | null>(null)
   const [unreadSeparatorSeq, setUnreadSeparatorSeq] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
@@ -325,58 +324,7 @@ function ConversationPage() {
     }
   }, [activeId, hasMoreBefore]) // 依赖为空，通过 allMessagesRef 读取最新值
 
-  /** 向下加载更新的历史消息（endReached 触发，after 游标） */
-  const loadMoreAfter = useCallback(async () => {
-    if (!activeId || loadingMoreRef.current || !hasMoreAfter) return
-    const list = allMessagesRef.current[activeId] || []
-    const newest = list[list.length - 1]
-    if (!newest?.id) return
-    loadingMoreRef.current = true
-    setLoadingMore(true)
-    try {
-      const resp = await api.listMessagesAfter(activeId, newest.id, 50)
-      if (resp.messages.length === 0) { setHasMoreAfter(false); return }
-      const newerMsgs = mapMessagesCore(resp.messages) // ASC，不反转，直接 append
-      setHasMoreAfter(resp.hasMore)
-      setAllMessages(prev => ({
-        ...prev,
-        [activeId]: [...(prev[activeId] || []), ...newerMsgs],
-      }))
-    } catch (err) {
-      console.error('Failed to load more after:', err)
-    } finally {
-      loadingMoreRef.current = false
-      setLoadingMore(false)
-    }
-  }, [activeId, hasMoreAfter]) // 依赖为空，通过 allMessagesRef 读取最新值
 
-  /** rangeChanged：检测视口内最大 seq，debounce 标记已读 */
-  const handleRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
-    if (!activeId) return
-    const list = allMessages[activeId] || []
-    if (list.length === 0) return
-    const startArr = Math.max(0, range.startIndex)
-    const endArr = Math.min(list.length - 1, range.endIndex)
-    let maxSeq = 0
-    for (let i = startArr; i <= endArr; i++) {
-      const s = list[i]?.seq
-      if (s != null && s > maxSeq) maxSeq = s
-    }
-    if (maxSeq === 0) return
-    const lastRead = unreadState?.lastReadSeq ?? 0
-    if (maxSeq <= lastRead) return
-    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
-    markReadTimerRef.current = setTimeout(async () => {
-      try {
-        const resp = await api.markRead(activeId, maxSeq)
-        setUnreadState(prev => prev ? { ...prev, lastReadSeq: resp.lastReadSeq, unreadCount: resp.unreadCount } : prev)
-        setUnreadSeparatorSeq(prev => prev != null && maxSeq >= prev ? null : prev)
-        setConversations(prev => prev.map(c => c.id === activeId ? { ...c, unreadCount: resp.unreadCount } : c))
-      } catch (err) {
-        console.error('Failed to mark read:', err)
-      }
-    }, 500)
-  }, [activeId, allMessages, unreadState])
 
   /** 跳转到消息：已加载则滚动定位，未加载则 expand 加载后定位；高亮 2s */
   const handleJumpToMessage = useCallback((messageId: string) => {
@@ -1198,7 +1146,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}

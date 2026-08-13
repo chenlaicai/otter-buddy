@@ -23,8 +23,6 @@ interface ChatViewProps {
   onJumpToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
-  onLoadMoreAfter?: () => void
-  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼 */
@@ -86,8 +84,6 @@ export function ChatView(props: ChatViewProps) {
         onJumpToBottom={props.onJumpToBottom}
         onLoadMore={props.onLoadMore}
         loadingMore={props.loadingMore}
-        onLoadMoreAfter={props.onLoadMoreAfter}
-        onRangeChanged={props.onRangeChanged}
         unreadSeparatorSeq={props.unreadSeparatorSeq}
         highlightMessageId={props.highlightMessageId}
         userName={props.userName}
