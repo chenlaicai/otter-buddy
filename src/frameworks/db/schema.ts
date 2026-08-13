@@ -225,6 +225,31 @@ function createMemoryTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry
       ON embedding_tasks (status, next_retry_at);
   `);
+
+  // F20260813mrel: 记忆关系层——memory_entries 之间的有向关系边。
+  // 把 flat 数据变成可声明、可遍历的记忆图，让 LLM 拼证据链/因果链/发展链。
+  // D4: 无 direction 字段——relates-to 查询层自动双向（from OR to），其余单向。
+  // D7: 不依赖 FK CASCADE（与 embedding_tasks 一致），清理走 deleteBySource 内手动 DELETE。
+  //      文档 chunk entry（fine 粒度）sync 时 replaceEntriesBySource 删旧建新，
+  //      所以 D3 限制 link_memory 只能对 coarse entry 建边（CreateEdge use case 校验）。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_edges (
+      id TEXT PRIMARY KEY,
+      from_entry_id TEXT NOT NULL,
+      to_entry_id TEXT NOT NULL,
+      edge_type TEXT NOT NULL CHECK (edge_type IN ('produced','references','supersedes','relates-to')),
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by TEXT,
+      CHECK (from_entry_id != to_entry_id),
+      FOREIGN KEY (from_entry_id) REFERENCES memory_entries(id),
+      FOREIGN KEY (to_entry_id) REFERENCES memory_entries(id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_edges_unique
+      ON memory_edges(from_entry_id, to_entry_id, edge_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_entry_id, edge_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge_type);
+  `);
 }
 
 /** 术语库：terminology_entries + terminology_fts */
@@ -465,6 +490,7 @@ function createDocumentTables(db: Database.Database): void {
       supersedes TEXT NOT NULL DEFAULT '[]',
       file_path TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_in_conversation_id TEXT,
       CHECK(id LIKE 'F%')
     );
 
@@ -486,6 +512,7 @@ function createDocumentTables(db: Database.Database): void {
       supersedes TEXT NOT NULL DEFAULT '[]',
       file_path TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_in_conversation_id TEXT,
       CHECK(id LIKE 'R%')
     );
 

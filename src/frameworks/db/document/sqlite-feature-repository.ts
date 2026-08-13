@@ -55,4 +55,16 @@ export class SqliteFeatureRepository implements FeatureRepository {
       row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.id
     );
   }
+
+  /** F20260813mrel: 读取文档的对话 provenance */
+  async getCreatedInConversationId(id: string): Promise<string | null> {
+    const row = this.db.prepare("SELECT created_in_conversation_id FROM features WHERE id = ?")
+      .get(id) as { created_in_conversation_id: string | null } | undefined;
+    return row?.created_in_conversation_id ?? null;
+  }
+
+  /** F20260813mrel: 设置文档的对话 provenance */
+  async setCreatedInConversationId(id: string, conversationId: string): Promise<void> {
+    this.db.prepare("UPDATE features SET created_in_conversation_id = ? WHERE id = ?").run(conversationId, id);
+  }
 }

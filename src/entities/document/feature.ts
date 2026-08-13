@@ -18,4 +18,6 @@ export interface FeatureDocument {
   supersedes: string[];
   filePath: string;
   createdAt: string;
+  /** F20260813mrel: 文档产出自哪段对话（事实级 provenance，非推断） */
+  createdInConversationId?: string | null;
 }

@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- 合并 main 分支 contentType + recruiting createdAfter 后行数增加 */
 import type { OtterToolClient } from "../otter-tool-client";
 import type { MemoryContentType } from "@entities/memory/memory-entry";
+import type { EdgeType } from "@entities/memory/memory-edge";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
@@ -384,6 +385,109 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   };
 }
 
+/** F20260813mrel Part 3: link_memory — LLM 声明两个记忆条目之间的关系 */
+function createLinkMemoryTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "link_memory",
+    description: `声明两个记忆条目之间的关系. When: 你判断两条记忆有产出/引用/取代/相关关系时调用. type: produced(A产出B, 如消息催生文档)/references(A引用B)/supersedes(A取代B)/relates-to(双向相关). BOUNDARY: 只能对 coarse 粒度条目建边（文档 summary / 消息 / fact，不能对文档 chunk）. 幂等：同 from+to+type 重复调用返回已存在 id.`,
+    parameters: {
+      type: "object",
+      properties: {
+        from_id: { type: "string", description: "起点记忆条目 ID" },
+        to_id: { type: "string", description: "终点记忆条目 ID" },
+        type: {
+          type: "string",
+          enum: ["produced", "references", "supersedes", "relates-to"],
+          description: "produced=A产出B | references=A引用B | supersedes=A取代B | relates-to=双向相关",
+        },
+        note: { type: "string", description: "关系备注（可选，如'这段讨论催生了F文档X的实现决策'）" },
+      },
+      required: ["from_id", "to_id", "type"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      try {
+        const result = await ctx.client.memory.linkMemory(
+          {
+            fromId: params.from_id as string,
+            toId: params.to_id as string,
+            edgeType: params.type as "produced" | "references" | "supersedes" | "relates-to",
+            note: params.note as string | undefined,
+          },
+          ctx.otterId,
+        );
+        return textResponse(JSON.stringify({ edgeId: result.edgeId, linked: true }));
+      } catch (err) {
+        return errorResponse(`建边失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  };
+}
+
+/** F20260813mrel Part 3: get_related — BFS 遍历关系图，返回结构化 path */
+function createGetRelatedTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "get_related",
+    description: `从一个记忆条目出发遍历关系图. When: 需要拼证据链/因果链/发展链时，从一个已知条目找关联（如'F文档D是怎么来的'→ 查 produced 入边找催生消息）. Output: [{entry, edgeType, edgeFromEntryId, depth}] 结构化路径（不是平铺列表）——你能看到 A→B→C 的链式关系. direction: out=出边(默认, A→谁), in=入边(谁→A). depth>1 多跳遍历找间接关联.`,
+    parameters: {
+      type: "object",
+      properties: {
+        entry_id: { type: "string", description: "起点记忆条目 ID" },
+        depth: { type: "number", description: "BFS 遍历深度，默认 1（直接邻居），2=两跳" },
+        types: {
+          type: "array",
+          items: { type: "string", enum: ["produced", "references", "supersedes", "relates-to"] },
+          description: "过滤边类型（可选，不传则全部）",
+        },
+        direction: {
+          type: "string",
+          enum: ["out", "in"],
+          description: "out=出边(A→谁,默认), in=入边(谁→A,如查谁催生了本文档)",
+        },
+        limit: { type: "number", description: "最大结果数，默认 20" },
+      },
+      required: ["entry_id"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const results = await ctx.client.memory.getRelated({
+        entryId: params.entry_id as string,
+        depth: params.depth as number | undefined,
+        edgeTypes: params.types as EdgeType[] | undefined,
+        direction: params.direction as "out" | "in" | undefined,
+        limit: params.limit as number | undefined,
+      });
+      // F20260813mrel Part 2: 若起点是 feature/research 文档，附带 provenance（催生它的对话消息）
+      const provenance = await ctx.client.memory.getDocProvenance(params.entry_id as string);
+      const output = provenance.conversationId
+        ? { related: results, provenance }
+        : results;
+      return textResponse(JSON.stringify(output));
+    },
+  };
+}
+
+/** F20260813mrel Part 3: unlink_memory — 删除关系边（纠错用） */
+function createUnlinkEdgeTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "unlink_memory",
+    description: `删除一条关系边. When: 发现之前声明的 link_memory 有误（如类型搞错、方向搞反）. BOUNDARY: 删的是边不是条目本身. 幂等：删不存在的 edge_id 不报错.`,
+    parameters: {
+      type: "object",
+      properties: {
+        edge_id: { type: "string", description: "要删除的边 ID（从 link_memory 返回或 get_related 结果获取）" },
+      },
+      required: ["edge_id"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      try {
+        await ctx.client.memory.unlinkEdge(params.edge_id as string);
+        return textResponse(JSON.stringify({ deleted: true }));
+      } catch (err) {
+        return errorResponse(`删边失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  };
+}
+
 function createGetContextTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_context",
@@ -538,6 +642,9 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createRestartOtterTool(ctx),
     createLinkedResourceTool(ctx),
     createGetMemoryDetailTool(ctx),
+    createLinkMemoryTool(ctx),
+    createGetRelatedTool(ctx),
+    createUnlinkEdgeTool(ctx),
     createGetMessageTool(ctx),
     createListMessagesTool(ctx),
     createSearchMessagesTool(ctx),

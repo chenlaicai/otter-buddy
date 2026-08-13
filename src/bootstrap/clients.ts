@@ -1,4 +1,5 @@
 import type { MemoryContentType } from "@entities/memory/memory-entry";
+import type { EdgeType } from "@entities/memory/memory-edge";
 import type { ArtifactStatus } from "@entities/conversation/conversation";
 import type { UseCases } from "./types";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
@@ -43,6 +44,30 @@ export function buildMemoryClient(uc: UseCases) {
     getDetails: async (ids: string[]) => {
       const entries = await uc.manageMemory.getDetails(ids);
       return entries.map(e => ({ id: e.id, content: e.content, layer: e.layer, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
+    },
+    // F20260813mrel: 记忆关系层工具方法
+    linkMemory: async (params: { fromId: string; toId: string; edgeType: EdgeType; note?: string }, createdBy?: string) => {
+      const edgeId = await uc.createEdge.execute({
+        fromEntryId: params.fromId,
+        toEntryId: params.toId,
+        edgeType: params.edgeType,
+        metadata: params.note ? { note: params.note } : undefined,
+        createdBy,
+      });
+      return { edgeId };
+    },
+    getRelated: (params: { entryId: string; depth?: number; edgeTypes?: EdgeType[]; direction?: "out" | "in"; limit?: number }) =>
+      uc.getRelated.execute(params),
+    unlinkEdge: (edgeId: string) => uc.deleteEdge.execute(edgeId),
+    getDocProvenance: async (entryId: string) => {
+      const result = await uc.getDocProvenance.execute(entryId);
+      return {
+        conversationId: result.conversationId,
+        messages: result.messages.map(m => ({
+          id: m.id, content: m.content, layer: m.layer, score: 0,
+          contentType: m.contentType, metadata: m.metadata ?? undefined, createdAt: m.createdAt,
+        })),
+      };
     },
   };
 }

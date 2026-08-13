@@ -33,6 +33,8 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "manage_healing_events",
     "create_scheduled_task",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
+    // F20260813mrel: 记忆关系层工具
+    "link_memory", "get_related", "unlink_memory",
   ];
 
   if (!otterType || otterType === "big") {
@@ -51,6 +53,8 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "create_scheduled_task", "manage_healing_events",
     "restart_otter",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
+    // F20260813mrel: 记忆关系层工具（大小獭都能用）
+    "link_memory", "get_related", "unlink_memory",
   ];
 }
 

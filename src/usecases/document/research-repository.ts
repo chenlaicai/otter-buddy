@@ -16,4 +16,10 @@ export interface ResearchRepository {
 
   /** F20260803mval: 更新文档内容（upsert 场景，内容指纹变了重新 index） */
   updateContent(doc: ResearchDocument): Promise<void>;
+
+  /** F20260813mrel: 读取文档的对话 provenance（事实级，非推断） */
+  getCreatedInConversationId(id: string): Promise<string | null>;
+
+  /** F20260813mrel: 设置文档的对话 provenance（文档创建工具注入） */
+  setCreatedInConversationId(id: string, conversationId: string): Promise<void>;
 }
