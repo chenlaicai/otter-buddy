@@ -15,13 +15,12 @@ causal_links:
     - F20260804dglp   # OutputGuard 双机制检测
     - F20260730heal   # self-healing-system
 
-status: draft
+status: development
 change_type: prompt
 tags: [agent-architecture, sub-otter, prompt-engineering, degenerate-prevention]
 modules:
   - .pi/skills/otter-summon/SKILL.md
-  - prompts/identity/BIG_OTTER.md
-  - src/usecases/scheduler/scheduler-service.ts
+  - src/interface-adapters/agent-runtime/tools/scheduled-task-tools.ts
 capability_test: "待定：B 类（LLM 行为），需真系统 + 真 LLM 验证大獭在收到任务时是否触发召唤判断"
 ---
 
@@ -125,31 +124,30 @@ capability_test: "待定：B 类（LLM 行为），需真系统 + 真 LLM 验证
 
 #### 改动 1：otter-summon SKILL.md 触发条件具体化
 
-**位置**：`.pi/skills/otter-summon/SKILL.md` 的 description（L4）、触发（L18）、工作流判断表（L31-38）
+**位置**：`.pi/skills/otter-summon/SKILL.md` 的 description（L4）、触发条件（L18）、工作流步骤 1（判断示例）
 
 **改法**：把抽象词换成**可操作信号**，让大獭看到任务时能机械匹配。
 
 | 当前（抽象） | 改后（可操作信号） |
 |------------|------------------|
-| "并行做多件事" | "≥2 个**同构**任务待处理（如 4 个 issue、3 个 PR 待审视）" |
-| "任务量大需分担" | "单任务预估 ≥ 多步 tool-use（读 ≥2 文件 / 设计 / 实现 / 测试 / commit）" |
-| "需求明确且简单"（排除） | "单步可答 / 一次 read + 一次 speak 能闭环" |
+| "并行做多件事" | "≥2 个**同 skill** 任务并行（如 4 个 issue 都走开发流程、3 个 PR 都走审视流程）" |
+| "任务量大需分担" | "单任务涉及多阶段产出（设计+实现+测试）" |
+| "需求明确且简单"（排除） | "单步可答或一次 read + speak 能闭环" |
+
+**为什么 description 也必须改**：SKILL.md 的触发机制是"LLM 只看 name + description 决定是否 read SKILL.md"（F20260811sktp 铁律）。description 不改，大獭可能根本不会读 SKILL.md，判断示例加了也白加。
 
 —— 让大獭看到"4 个 issue 待处理"时**立刻匹配到信号**，而不是凭"任务量大不大"的模糊感觉。
 
-#### 改动 2：scheduler task body 改为调度指令
+#### 改动 2：scheduler task body 防催眠
 
-**位置**：`src/usecases/scheduler/scheduler-service.ts` 中 task body 的构造处（具体位置待实现时定位，可能在 task 创建时由 `create_scheduled_task` 工具或 ensure-scheduler 初始化时写入）
+**位置**：两处——(a) `create_scheduled_task` 工具的 body 参数 description（`scheduled-task-tools.ts`），(b) DB 中已有的 `scheduled_tasks` 记录（数据修复）。
 
 **改法**：把"你是小獭 + 步骤 1~5"改为"任务清单 + 判断委托"：
 
 ```
-今日 N 个 daily-review issue 待处理（每日健康检查生成）：
-- #255 [标题]
-- #256 [标题]
-- ...
+今日 N 个 daily-review issue 待处理（每日健康检查生成）。
 
-请判断如何处理：自己干 / 派开发獭并行。参考 otter-summon skill。
+请查询当前列表，判断如何处理：自己干 / 派开发獭并行。参考 otter-summon skill 的判断示例。
 ```
 
 **关键约束**：
@@ -158,15 +156,11 @@ capability_test: "待定：B 类（LLM 行为），需真系统 + 真 LLM 验证
 - ✅ 列任务清单（信息）
 - ✅ 委托判断（让大獭按 skill 信号判断）
 
-#### 改动 3（可选）：BIG_OTTER.md 给个 hook
+**范围限定**：只针对大獭通过 `create_scheduled_task` 动态创建的任务。ensure 创建的系统级任务（recruiting / healing）保持现状——recruiting body 已合规（无催眠文本），healing body 是系统侧分析任务（不适用"任务清单+委托"格式）。
 
-**位置**：`prompts/identity/BIG_OTTER.md` L14
+#### 改动 3（不做）：BIG_OTTER.md hook
 
-**改法**：那句"简单的事你直接上手做；复杂的事你也有办法——小獭是你的延伸"后加一句：
-
-> 判断信号见 `otter-summon` skill 的触发条件——别凭感觉，按信号判断。
-
-—— 给大獭一个明确的"该查 skill 了"的锚点，不下放完全判断权。
+对抗审视后判定为可选——description 具体化后大獭能直接匹配到信号，不需要额外 hook。如明天观察发现大獭仍不触发召唤，再补。
 
 ### 目标
 
@@ -205,7 +199,7 @@ capability_test: "待定：B 类（LLM 行为），需真系统 + 真 LLM 验证
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `.pi/skills/otter-summon/SKILL.md` | 修改 | 工作流步骤 1 判断表后加"判断示例"段（6 个具体场景） |
+| `.pi/skills/otter-summon/SKILL.md` | 修改 | description 具体化（L4）+ 触发条件具体化（L18）+ 工作流步骤 1 加"判断示例"段（6 个具体场景） |
 | `src/interface-adapters/agent-runtime/tools/scheduled-task-tools.ts` | 修改 | `create_scheduled_task` body 参数 description 加防催眠引导 |
 | DB `scheduled_tasks` 表 | 数据修复 | 每日 issue 处理 + 每日健康检查两个任务的 body 去掉"你是小獭"催眠文本 |
 
@@ -223,15 +217,24 @@ prompt 文件 1 个 + 工具 description 1 处 + DB 数据 2 条。
 
 ## 对抗审视记录
 
-> 多轮独立 agent 对抗审视结果，按"用户逐题拍板"流程进行。
+### 第一轮（3 视角并行，已完成）
 
-### 第一轮（待启动）
+3 个独立 agent 并行审视，发现合并后 8 题。用户拍板结果：
 
-审视焦点：
-- 改动 1 的可操作信号是否足够具体？会不会反而过度触发（简单任务也召唤）？
-- 改动 2 的 task body 格式是否覆盖所有现有 scheduler 场景（recruiting-daily-summary / self-healing-analysis / 每日 issue 处理）？
-- 改动 3 是否必要（BIG_OTTER.md 加 hook）还是锦上添花？
-- 成功标准 SC2 的 50K 阈值是否合理？
+| 题 | 决策 |
+|----|------|
+| 题 1：触发信号设计 | 选 A——用"同 skill"替代"同构"，删除"读 ≥2 文件"，加规模下限 |
+| 题 2：scheduler body 落点 | 选 A——改动 2 缩窄为只针对大獭通过工具创建的动态任务，改 `create_scheduled_task` 工具 description。recruiting 不动，healing 保持现状 |
+| 题 3：措辞 vs 机制 | 选 A——维持改 body 措辞（轻量），不升级为机制 |
+| 题 4：根因分层 | 选 A+B——F 文档加根因分层声明，SC3 限定为"main session 退化下降" |
+| 题 5：能力测试标准 | 暂缓——明天定时任务触发后线上观察 |
+| 题 6：50K 阈值 | 选 B——改为"显著低于今日 172K"（无硬阈值） |
+| 题 7：范围限定 | 选 A——F 文档加范围声明（仅覆盖独立同构任务） |
+| 题 8：方案取舍 | 选 A——三处一起上，避免改 body 后大獭不催眠但仍不会判断 |
+
+### PR 检视（第 1 轮，已完成）
+
+检视獭发现 1 严重 + 4 建议。S1 判定为**实现遗漏**（description 未改导致判断示例白加），已补齐 description 具体化。A1~A4 建议发现待明天观察后决定是否处理。
 
 ## 设计决策
 
