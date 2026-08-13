@@ -60,7 +60,6 @@ function mapMessagesCore(msgs: MessageDTO[]): LocalMessage[] {
   })
 }
 
-const FIRST_ITEM_INDEX_BASE = 100000
 
 function ConversationPage() {
   const [conversations, setConversations] = useState<LocalConversation[]>([])
@@ -207,7 +206,6 @@ function ConversationPage() {
         lastReadSeq: 0, unreadCount: 0, firstUnreadMessageId: null, firstUnreadSeq: null,
       }))
       let msgs = mapMessageDTOs(listResp.messages)
-      setFirstItemIndex(FIRST_ITEM_INDEX_BASE)
       setHasMoreBefore(listResp.hasMore)
       setHasMoreAfter(false)
       setUnreadState(unread)
@@ -221,7 +219,6 @@ function ConversationPage() {
       if (unread.firstUnreadSeq != null && unread.firstUnreadMessageId) {
         const unreadIdx = msgs.findIndex(m => m.seq === unread.firstUnreadSeq)
         if (unreadIdx >= 0) {
-          setInitialTopMostItemIndex(FIRST_ITEM_INDEX_BASE + unreadIdx)
           setUnreadSeparatorSeq(unread.firstUnreadSeq)
         } else {
           // 未读不在窗口（大量未读）：expand 加载未读附近
@@ -229,12 +226,8 @@ function ConversationPage() {
           msgs = mapMessagesCore(expanded)
           setHasMoreBefore(true)
           setHasMoreAfter(true)
-          const expandIdx = msgs.findIndex(m => m.seq === unread.firstUnreadSeq)
-          setInitialTopMostItemIndex(expandIdx >= 0 ? FIRST_ITEM_INDEX_BASE + expandIdx : { index: 'LAST' })
           setUnreadSeparatorSeq(unread.firstUnreadSeq)
         }
-      } else {
-        setInitialTopMostItemIndex({ index: 'LAST' })
       }
       setAllMessages(prev => ({
         ...prev,
@@ -320,7 +313,6 @@ function ConversationPage() {
       if (resp.messages.length === 0) { setHasMoreBefore(false); return }
       const olderMsgs = mapMessageDTOs(resp.messages) // DESC -> 升序
       setHasMoreBefore(resp.hasMore)
-      setFirstItemIndex(prev => Math.max(0, prev - olderMsgs.length))
       setAllMessages(prev => ({
         ...prev,
         [activeId]: [...olderMsgs, ...(prev[activeId] || [])],
