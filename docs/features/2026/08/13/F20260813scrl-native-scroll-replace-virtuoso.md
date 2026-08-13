@@ -1,11 +1,27 @@
 ---
+id: F20260813scrl
+title: native-scroll-replace-virtuoso
 doc_type: feature
+
+# 记忆索引
+summary: |
+  用原生滚动替换 react-virtuoso 彻底消除聊天界面抖动。根因：followOutput + atBottomStateChange
+  + scrollToIndex 三套滚动指令交叉执行。方案：原生 div + overflow-y + overflow-anchor:none。
+
+# 因果链路
+causal_links:
+  from:
+    - F20260803vmsg   # 对话消息展示机制重建
+    - F20260805abpp   # Agent 无缝重试机制
+    - F20260810p7zg   # scroll-jank-architecture-fix
+  supersedes:
+    - F20260810p7zg   # Virtuoso 方案未能根治，本方案彻底替换
+
+# 元数据
+status: development
 change_type: refactor
-feature_id: F20260813scrl
 tags: [scroll, jitter, virtuoso, native-scrolling, performance]
 modules: [web/src/pages/conversation]
-from: [F20260803vmsg, F20260805abpp, F20260810p7zg]
-supersedes: [F20260810p7zg]
 ---
 
 # 用原生滚动替换 react-virtuoso 消除抖动
