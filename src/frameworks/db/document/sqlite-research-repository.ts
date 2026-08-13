@@ -20,8 +20,8 @@ export class SqliteResearchRepository implements ResearchRepository {
   async insert(doc: ResearchDocument): Promise<void> {
     const row = entityToRow(doc);
     this.db.prepare(`
-      INSERT INTO research (id, title, summary, body_hash, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO research (id, title, summary, body_hash, exploration_type, status, tags, conclusion, causal_links_from, supersedes, file_path, created_at, created_in_conversation_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id,
       row.title,
@@ -34,7 +34,8 @@ export class SqliteResearchRepository implements ResearchRepository {
       row.causal_links_from,
       row.supersedes,
       row.file_path,
-      row.created_at
+      row.created_at,
+      row.created_in_conversation_id,
     );
   }
 
@@ -48,11 +49,11 @@ export class SqliteResearchRepository implements ResearchRepository {
     this.db.prepare(`
       UPDATE research
       SET title = ?, summary = ?, body_hash = ?, exploration_type = ?, status = ?, tags = ?, conclusion = ?,
-          causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?
+          causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?, created_in_conversation_id = ?
       WHERE id = ?
     `).run(
       row.title, row.summary, row.body_hash, row.exploration_type, row.status, row.tags, row.conclusion,
-      row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.id
+      row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.created_in_conversation_id, row.id
     );
   }
 

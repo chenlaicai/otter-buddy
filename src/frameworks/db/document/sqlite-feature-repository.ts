@@ -20,8 +20,8 @@ export class SqliteFeatureRepository implements FeatureRepository {
   async insert(doc: FeatureDocument): Promise<void> {
     const row = entityToRow(doc);
     this.db.prepare(`
-      INSERT INTO features (id, title, summary, body_hash, change_type, status, tags, modules, causal_links_from, supersedes, file_path, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO features (id, title, summary, body_hash, change_type, status, tags, modules, causal_links_from, supersedes, file_path, created_at, created_in_conversation_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id,
       row.title,
@@ -34,7 +34,8 @@ export class SqliteFeatureRepository implements FeatureRepository {
       row.causal_links_from,
       row.supersedes,
       row.file_path,
-      row.created_at
+      row.created_at,
+      row.created_in_conversation_id,
     );
   }
 
@@ -48,11 +49,11 @@ export class SqliteFeatureRepository implements FeatureRepository {
     this.db.prepare(`
       UPDATE features
       SET title = ?, summary = ?, body_hash = ?, change_type = ?, status = ?, tags = ?, modules = ?,
-          causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?
+          causal_links_from = ?, supersedes = ?, file_path = ?, created_at = ?, created_in_conversation_id = ?
       WHERE id = ?
     `).run(
       row.title, row.summary, row.body_hash, row.change_type, row.status, row.tags, row.modules,
-      row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.id
+      row.causal_links_from, row.supersedes, row.file_path, row.created_at, row.created_in_conversation_id, row.id
     );
   }
 

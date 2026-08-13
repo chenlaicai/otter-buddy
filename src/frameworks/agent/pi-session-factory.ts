@@ -598,7 +598,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** S1（R20260810piab）：构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源） */
-  private async buildIdentityPrefix(otterId: string, otterType: string): Promise<string> {
+  private async buildIdentityPrefix(otterId: string, otterType: string, conversationId: string): Promise<string> {
     const otter = await this.cfg.otterRepo.getById(otterId);
     if (!otter) {
       this.logger.warn('身份注入跳过：otters 表中不存在该记录', { otterId });
@@ -620,7 +620,7 @@ export class PiSessionFactory implements AgentGateway {
     const summonerIdentity = isBig ? '' : await this.buildSummonerIdentity(otter);
 
     return [
-      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}`,
+      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
       userIdentity,
       summonerIdentity,
       identityBody,
@@ -686,7 +686,8 @@ export class PiSessionFactory implements AgentGateway {
     // 对抗检视修正：system prompt 不被 session history 持久化，每次 invoke 重建 session 时
     // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
     // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
-    const identityPrefix = await this.buildIdentityPrefix(otterId, otterType);
+    const conversationId = options?.conversationId ?? "";
+    const identityPrefix = await this.buildIdentityPrefix(otterId, otterType, conversationId);
 
     // S1：整个 createAgentSession + prompt 包在 ALS scope 内，
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
