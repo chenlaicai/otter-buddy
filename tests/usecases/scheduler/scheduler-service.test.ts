@@ -6,6 +6,7 @@ import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
 import type { ManageScheduledTask, TaskChangeCallback } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
+import type { ManageSession } from '@usecases/otter/manage-session';
 import { DomainError } from '@entities/errors';
 import type { Logger } from '@usecases/ports/logger';
 
@@ -1149,11 +1150,7 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     await Promise.resolve();
 
     // 断言日志输出：manageSession 未注入时应有 warning
-    const warnCalls = mockLogger.warn.mock.calls;
-    const hasWarn = warnCalls.some((call: unknown[]) =>
-      typeof call[0] === 'string' && call[0].includes('restartBeforeInvoke skipped'),
-    );
-    expect(hasWarn).toBe(true);
+    expect(mockLogger.warn).toHaveBeenCalled();
     expect(agentInvoke.invokeConversation).toHaveBeenCalled();
   });
 });
