@@ -37,6 +37,8 @@ import {
 } from "./bootstrap/platforms";
 import { initControllers } from "./bootstrap/controllers";
 import { buildHttpApp } from "./bootstrap/server";
+import { initMetricsRegistry } from "@frameworks/metrics/registry";
+import { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
 import type { Repositories, UseCases } from "./bootstrap/types";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
@@ -98,8 +100,8 @@ export interface BuiltApp {
   modelPool: ModelPool;
   /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null） */
   retryWorker: { stopSync(): void; stop(): Promise<void> } | null;
-  /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志。幂等。 */
-  dispose(): void;
+  /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
+  dispose(): Promise<void>;
 }
 
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑
@@ -160,7 +162,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     ? createFeishuBundle(config.feishu, uc, dispatchChainEngine, logger, config.web?.baseUrl)
     : undefined;
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster: feishu?.broadcaster, logger, workspaceGateway });
+  // ── Metric 框架（prom-client + JSONL 文件持久化）──
+  const metricsRegistry = initMetricsRegistry(logger, { dir: path.join(dataDir, "metrics") });
+  const schedulerMetrics = new SchedulerMetrics(metricsRegistry);
+
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster: feishu?.broadcaster, logger, workspaceGateway, metrics: schedulerMetrics });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger });
 
@@ -193,12 +199,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     app, db, config, logger, controllers,
     usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
     embeddingService, modelPool, retryWorker,
-    dispose: () => {
+    dispose: async () => {
       if (disposed) return;
       disposed = true;
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
+      // await metric flush 到文件，确保进程退出前数据落盘
+      try {
+        await metricsRegistry.dispose();
+      } catch (err) {
+        logger.error("Metrics dispose failed", err instanceof Error ? err : undefined);
+      }
       disposeEmbedding();
       shutdownDatabase(db, logger);
       if ("flush" in logger && typeof logger.flush === "function") {
