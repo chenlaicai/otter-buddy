@@ -75,9 +75,9 @@ category: technique
 
 ## 参考（索引）
 
-- `references/testing-rules.md` — 步骤 4 使用
-- `references/coding-principles.md` — 步骤 3 使用
-- `references/commit-convention.md` — 步骤 6 使用
-- `_shared/signature-convention.md` — 步骤 6 使用
-- `_shared/review-protocol.md` — 步骤 8 使用
-- `adversarial-review/references/author-response-protocol.md` — 步骤 8 使用
+- `references/testing-rules.md` — 步骤 5 使用
+- `references/coding-principles.md` — 步骤 4 使用
+- `references/commit-convention.md` — 步骤 8 使用
+- `_shared/signature-convention.md` — 步骤 8 使用
+- `_shared/review-protocol.md` — 步骤 10 使用
+- `adversarial-review/references/author-response-protocol.md` — 步骤 10 使用
