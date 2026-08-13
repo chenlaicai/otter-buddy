@@ -166,8 +166,8 @@ L3 create_otter 回包默认"已交付" ◄── 时机性失教
 2. **分层负责（C1 vs C8/C3/C9）**：派工的**工程必然性**（不派工＝不发生）由工具层保证（C8 description 教育 + C3 回包提示 + C9 票据反馈）；skill 只沉淀**编排 know-how**（并行 vs 串行、顺序判断）。遵循 SYSTEM.md A5——skill 是经验不是官僚
 3. **L2 reframe 概念，保留工程名**：把 prompt-facing 的概念词从"发言/发言权"reframe 到"行动/行动权"，但**不改 `talkingStonePassedTo` 字段名和 DB 列名**（rename 成本高、文档漂移大）
 4. **工具优先于强编排（C9 第三条路）**：待派工状态由工具协议层反馈（C9 结构化票据回包），不是强编排/硬阻断——系统传达事实（"还有 N 只未派工"），不决定大獭该传给谁。这属于"工具优先"范畴，与"反强编排"记忆一致
-5. **C3 串行辅助**：create_otter 回包提示只覆盖串行调用场景；同批 create+speak(to user) 由 C8（description 上游）+ C9（票据反馈，即使同批 speak 也会触发未清空提醒）覆盖
-6. **承认架构债（D4）**：本期是控制流原语问题的第三个补丁（F20260810rout + 本特性 + 未来的未来）。语义散落 N 处无单一真相源——第三次同类 bug 时启动语义层抽象
+5. **C3 串行辅助**：create_otter 回包提示只覆盖串行调用场景；同批 create+speak(to user) 由 C8（description 上游教育）保证大獭不产生该路径。C9 在串行场景提供确定性票据反馈；**同批并行场景下 C9 有竞态**（SDK 并行执行，create 的 set 可能晚于 speak 的检查），非确定性触发——作为尽力而为的额外保险，不作为同批场景的覆盖保障
+6. **承认架构债（D4）**：本期是控制流原语问题的第二个补丁（F20260810rout 是第一个，修小獭侧；本特性修大獭侧）。语义散落 N 处无单一真相源——第三次同类 bug 时启动语义层抽象
 
 ### 目标
 
@@ -322,7 +322,7 @@ return { ...textResponse("[系统控制信号] 发言已提交成功，回合结
 
 **问题**：frontmatter `capability_test` 声明此路径，但 docs/README.md 硬规则"路径不存在报错"——sync 时若文件不存在会失败。必须在实现阶段创建。
 
-**改动**：随 C1-C6/C8/C9 一并新建测试文件，覆盖 AT-1（单只）/AT-2（批量 4 只）/AT-3（小獭回传）/AT-4（终审传 user）四个场景。设计要点见"能力测试映射"段。
+**改动**：随 C1-C6/C8/C9 一并新建测试文件，覆盖 AT-1（单只）/AT-2（批量 4 只）两个去程派工场景。AT-3（小獭回传大獭）/AT-4（终审传 user）复用 F20260810rout 的 `talking-stone-routing.capability.test.ts`（回程路由归 F20260810rout），不在本期重建。设计要点见"能力测试映射"段。
 
 #### 变更 C8（L0 上游根因修复）— create_otter description 去掉"执行特定任务"误导
 
@@ -426,7 +426,7 @@ return { ...textResponse("[系统控制信号] 发言已提交成功，回合结
 | R1 | `.pi/skills/otter-summon/SKILL.md` 工作流含独立"派工"步 | 文件内容 |
 | R2 | `tool-factory.ts` speak/talkingStonePassedTo 描述含"行动权"语义 | 文件内容 |
 | R3 | `tool-factory.ts` create_otter 回包 + speak 回包措辞 | 文件内容 |
-| R2 | `tool-factory.ts` speak/talkingStonePassedTo 描述含"行动权"语义 + 工具 label | 文件内容 |
+| R2 | `tool-factory.ts` speak/talkingStonePassedTo 描述含"行动权"语义（两重 bridge） | 文件内容 |
 | R3 | `tool-factory.ts` create_otter 回包 + speak 回包措辞 | 文件内容 |
 | R4 | buildRoster + buildSummonerIdentity + adversarial-review/SKILL.md + seed-terminology.json 措辞 | 文件内容 |
 | R5 | `messages.talking_stone_passed_to`（大獭召唤后传小獭 ID） | 运行时状态 |
@@ -544,6 +544,31 @@ return { ...textResponse("[系统控制信号] 发言已提交成功，回合结
 
 **结论**：第三轮架构审视通过。C8 补上上游根因（最高杠杆），C9 引入工具层状态反馈（第三条路），C1 重新分层（A5 合规），D4 记录架构债与演进方向。方案从"纯 prompt reframe"升级为"上游 description + prompt reframe + 工具层结构化反馈"三层协同。
 
+### 第四轮：PR 审视（代码落地质量，三 agent 并行）
+
+**审视范围**：PR #270 的代码 diff——C9 实现正确性、reframe 完整性、方案一致性。
+
+**阻断性发现**（prompt-facing 残留，已修复）：
+- `tool-factory.ts` speak 校验错误消息"不能把**发言石**传给自己 / **发言石**目标不在场"——与已 reframe 的 speak description 撕裂，已改"行动权"
+- `tool-factory.ts` get_active_participants description"可用什么名字传**发言石**"——已改"行动权"
+- `message-controller.ts:281` 链深超限系统消息"**发言石**交还给你"（注入对话，LLM+用户可见）——已改"行动权"
+- `seed-terminology.json` aliases 缺"发言权"——已补
+
+**F 文档一致性修正**（已修）：
+- D3 正文仍写"三重 bridge"含 label，实际 label 因 SDK 不支持未实施——降为"两重 bridge"并注明弃用原因
+- R2 权威证据表残留"+工具 label"——已删
+- 设计原则 5 声称"C9 即使同批 speak 也会触发"——C9 在 SDK 并行执行同批工具时有竞态（create.set 可能晚于 speak 检查），不可靠；已修正为"串行确定性 + 同批尽力而为"
+- 设计原则 6"第三个补丁"与 summary/D4 的"第二个补丁"矛盾——已统一为第二个
+- D1 论据从旧 9/21 弱数据更新为实施后 7/7 实测
+- C7 正文"覆盖 AT-1~AT-4"修正为"覆盖 AT-1/AT-2，AT-3/AT-4 复用 F20260810rout 测试"
+- C9 代码注释补"同批调用不可靠"说明
+
+**C9 实现正确性核实**（6 角度，4 个完全不成立）：dispatchWarningShown 作用域（可接受的语义选择）、terminate=false 后消息状态机一致（C9 在 startSpeaking 前返回，消息始终 streaming，不卡中间态）、conflict 分支交互（无冲突）、内存泄漏（invoke 级生命周期，不存在）、resolvedIds NFC 一致性（id 层面无归一化差异）。
+
+**记录在案的已知局限**（不阻断）：AT-2 断言取最后一条 completed 消息——因 C9 拦截不提交 speak，失败的首次 speak 不产生 completed 消息，故取最后一条即成功那条，断言有效；若未来 speak 软守卫语义变化需重审。
+
+**结论**：PR 审视通过（阻断项已修复）。能力测试 5/5 + 7/7 数据不变（修复为措辞/文档层，不改行为逻辑）。
+
 ## 设计决策
 
 ### D1：为什么不直接让 create_otter auto-dispatch
@@ -555,7 +580,7 @@ return { ...textResponse("[系统控制信号] 发言已提交成功，回合结
 2. **与 F20260810rout 的修复哲学不一致**：F20260810rout 走的是 prompt-first / mechanism-as-fallback（L5 工程兜底只在 prompt 修复无效时启用）。本期也应先验证 prompt 修复效果，再决定是否需要机制改动
 3. **可加不可减**：如果 prompt 修复验证后仍兜不住（弱模型仍漏派工步），auto-dispatch 是 L4 工程兜底的候选——届时再做，可进可退
 
-**行为数据支撑**：批量场景含部分丢失 57.1% 失败率，但仍有 9/21 批量事件 OK——说明大獭**在特定上下文下**能批量派工，只是不稳定（注：这些 OK 案例是在当前有 bug 的 prompt 下发生的，可能含运气成分，不能直接推断修复后的能力上限。但至少证明批量派工模式在工程上可行，不应被 auto-dispatch 砍掉）。
+**行为数据支撑**：批量场景含部分丢失 57.1% 失败率，但仍有 9/21 批量事件 OK——说明大獭**在特定上下文下**能批量派工，只是不稳定。**实施后 AT-2 批量 7/7 全过**，将工程可行性从"可能含运气"升级为"修复后稳定可复现"——D1 否决 auto-dispatch 的理由进一步加强，批量派工模式确实应保留。
 
 **保留的后路**：若能力测试 AT-2（批量 4 只）在 7 次采样中"全 4 只都在"的绝对成功率 <60%（即 <5/7），启动 L4 评估——候选方案包括 create 时 auto-dispatch（牺牲编排灵活性换可靠性）或 speak 闭包的"召唤后未派工"软校验。**触发条件用绝对成功率而非宽松的采样通过率**，避免 L4 永远不被触发。
 
@@ -567,15 +592,16 @@ return { ...textResponse("[系统控制信号] 发言已提交成功，回合结
 
 证据：F20260810rout 的实验证明 otter 实际模型（mimo）严格按 prompt 字面走，不推断缺失步骤、不权衡措辞细微差别。所以 L1 的"步骤缺失"和 L2 的"措辞软化"对弱模型都是致命的。
 
-### D3：术语 bridge 的处理（对抗审视第二轮强化）
+### D3：术语 bridge 的处理（对抗审视第二轮强化，PR 审视后修正）
 
-参数名 `talkingStonePassedTo`（工程名）与 prompt 概念词"行动权"不同名，工具 `name` "speak"也仍带"发言"语义——三处三种信号。处理方式三重 bridge：
+参数名 `talkingStonePassedTo`（工程名）与 prompt 概念词"行动权"不同名，工具 `name` "speak"也仍带"发言"语义——三处三种信号。处理方式两重 bridge：
 
 1. **参数 description 桥接**：talkingStonePassedTo description 显式写"参数名 talkingStonePassedTo 即行动权令牌"。
-2. **工具 label 桥接**：speak 的 display label 改为"结束行动"（C2），LLM 在工具选择界面看到的是"行动"语义而非"speak/发言"。
-3. **保留工程 name 不改**：`name: "speak"` 和字段 `talkingStonePassedTo` 是 JSON key / 工程标识，rename 成本高且 LLM 主要靠 description 学语义，不靠 name。
+2. **保留工程 name 不改**：`name: "speak"` 和字段 `talkingStonePassedTo` 是 JSON key / 工程标识，rename 成本高且 LLM 主要靠 description 学语义，不靠 name。
 
-不桥接的风险：弱模型看到 description 说"行动权"，但工具叫 speak、参数叫 talkingStone——三词三义可能产生 frame 回退（对抗审视第二轮角度 2）。三重 bridge 后，display 层（label + description）统一为"行动"，工程层（name + 字段）保留原样，分层清晰。
+**原计划的第三重 bridge（工具 label）已弃用**：PR 实施时核实 Pi SDK 不支持工具 `label` display name（无消费者，加了是死代码）。D3 从原"三重 bridge"降为"两重 bridge"。工具名 `speak` 仍带"发言"语义——这是保留工程名的已知代价，由 description 的强 reframe 弥补。
+
+不桥接的风险：弱模型看到 description 说"行动权"，但工具叫 speak、参数叫 talkingStone——名/义不一致。两重 bridge 后，description 层统一为"行动"语义，工程层（name + 字段）保留原样，分层清晰。
 
 ### D4：架构 debt 声明（第三轮架构审视采纳）
 

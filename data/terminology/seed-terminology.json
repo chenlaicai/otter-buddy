@@ -74,7 +74,7 @@
   {
     "id": "seed-009",
     "term": "行动权",
-    "aliases": ["Talking Stone", "发言石", "Action Token"],
+    "aliases": ["Talking Stone", "发言石", "发言权", "Action Token"],
     "definition": "对话级行动权传递机制（工程名 talkingStonePassedTo）。行动权在谁手里谁就被唤醒执行（思考、调工具、出结论），做完后传给下一位。多 Otter 对话时用于协调谁该干活。创建小獭不等于派工——必须把行动权传给它才会执行。",
     "context": null,
     "examples": null,

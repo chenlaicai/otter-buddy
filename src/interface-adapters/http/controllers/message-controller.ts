@@ -278,7 +278,7 @@ export class MessageController {
     this.logger.warn('发言链达到深度上限，交还用户', { depth, pendingTargets, conversationId });
     const sysMsg = await this.sendMessageUseCase.sendSystem(
       conversationId,
-      `发言接力已达系统安全上限（${depth} 跳），发言石交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
+      `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     );
     if (this.messageBroadcaster) {
       this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });

@@ -70,6 +70,11 @@ export interface ToolContext {
  * F20260813actk C9：待派工票据的软守卫。
  * 清除本轮已被 speak 覆盖的票据；若仍有未派工且本次未提醒过，返回提醒文案（调用方以 terminate=false 返回）。
  * 返回 null 表示无需提醒，可正常提交 speak。
+ *
+ * 同批调用限制：SDK 默认并行执行同批工具。create_otter 与 speak 同批调用时，
+ * create_otter 的 pendingDispatches.set() 可能晚于 speak 的检查执行——C9 只可靠
+ * 覆盖串行调用场景（create 先完成返回，speak 后调用）。同批 create+speak(to user)
+ * 由 prompt 层（C8 description + C1 skill 工作流 + C2 reframe）保证大獭不产生该路径。
  */
 function checkPendingDispatches(
   ctx: ToolContext,
@@ -117,11 +122,11 @@ function validateAndResolve(
   const { resolvedIds, invalid } = resolveTalkingStoneTargets(recipients, active);
   if (resolvedIds.includes(selfOtterId)) {
     const myName = active.find(p => p.otterId === selfOtterId)?.otterName ?? selfOtterId;
-    return { resolvedIds: [], error: `[错误] 不能把发言石传给自己（${myName}）。请选择其他参与者。` };
+    return { resolvedIds: [], error: `[错误] 不能把行动权传给自己（${myName}）。请选择其他参与者。` };
   }
   if (invalid.length > 0) {
     const options = [...active.map(p => p.otterName), "搭档('user')"].join("、");
-    return { resolvedIds: [], error: `[错误] 发言石目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 speak。` };
+    return { resolvedIds: [], error: `[错误] 行动权目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 speak。` };
   }
   return { resolvedIds };
 }
@@ -553,7 +558,7 @@ function createDeleteContextTool(ctx: ToolContext): AgentTool {
 function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_active_participants",
-    description: "获取当前对话所有活跃参与者. When: 需要知道场上有谁、可用什么名字传发言石. Output: otterId / otterName / status / joinedAtTurnNumber 列表. BOUNDARY: 只读不修改状态. conversationId 由系统注入. TIP: speak 的 talkingStonePassedTo 用 otterName; invite/dissolve 用 otterId.",
+    description: "获取当前对话所有活跃参与者. When: 需要知道场上有谁、可用什么名字传行动权. Output: otterId / otterName / status / joinedAtTurnNumber 列表. BOUNDARY: 只读不修改状态. conversationId 由系统注入. TIP: speak 的 talkingStonePassedTo 用 otterName; invite/dissolve 用 otterId.",
     parameters: {
       type: "object",
       properties: {},
