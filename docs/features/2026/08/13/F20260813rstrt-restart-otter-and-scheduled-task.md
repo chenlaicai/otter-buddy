@@ -1,11 +1,26 @@
 ---
-title: 海獭自重启 + 定时任务重启
 id: F20260813rstrt
+title: restart-otter-and-scheduled-task
+doc_type: feature
+
+summary: |
+  海獭自重启：restart_otter(self) 标记 pendingRestart，prompt 完成后由 PiSessionFactory 执行。
+  定时任务重启：ScheduledTask 新增 restartBeforeInvoke，触发前重启执行獭 session。
+  两条消息两个 turn：自重启后发言石指向自己，下一 hop 用新 session 继续。
+
+causal_links:
+  from:
+    - F20260805rsto   # agent-restart-otter-tool
+
 status: implemented
 change_type: feature
 tags: [agent, session, restart, scheduled-task]
-modules: [src/interface-adapters/agent-runtime/tools/tool-factory.ts, src/frameworks/agent/pi-session-factory.ts, src/usecases/scheduler/scheduler-service.ts, src/entities/scheduled-task/scheduled-task.ts]
-capability_test: n/a: 纯 A 类改动（确定性逻辑，无 LLM 参与行为）
+modules:
+  - src/interface-adapters/agent-runtime/tools/tool-factory.ts
+  - src/frameworks/agent/pi-session-factory.ts
+  - src/usecases/scheduler/scheduler-service.ts
+  - src/entities/scheduled-task/scheduled-task.ts
+capability_test: "n/a: 纯 A 类改动（确定性逻辑，无 LLM 参与行为）"
 ---
 
 # F20260813rstrt: 海獭自重启 + 定时任务重启
