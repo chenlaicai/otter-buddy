@@ -111,8 +111,8 @@ return result
 
 | AT | 证据状态 | 判定 |
 |----|---------|------|
-| AT-1 | 证明完成（代码审查 + restartSession 逻辑复用） | ✅ |
-| AT-2 | 证明完成（代码审查 + restartSession 逻辑复用） | ✅ |
+| AT-1 | 证明完成（单元测试 + 代码审查） | ✅ |
+| AT-2 | 证明完成（单元测试 + 代码审查） | ✅ |
 | AT-3 | 证明完成（现有 restart_otter 逻辑不变） | ✅ |
 | AT-4 | 证明完成（scheduler-service.test.ts 新增测试） | ✅ |
 | AT-5 | 证明完成（scheduler-service.test.ts 降级测试） | ✅ |
