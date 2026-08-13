@@ -189,8 +189,9 @@ describe("F20260813mrel: DeleteEdge", () => {
     expect(after.find(r => r.entry.id === "del-b")).toBeUndefined();
   });
 
-  it("删不存在的 edge id 抛错", async () => {
-    await expect(deleteEdge.execute("nonexistent-edge")).rejects.toThrow();
+  it("幂等：删不存在的 edge id 静默返回", async () => {
+    // DeleteEdge 幂等——与工具描述"删不存在的 edge_id 不报错"一致
+    await expect(deleteEdge.execute("nonexistent-edge")).resolves.toBeUndefined();
   });
 });
 

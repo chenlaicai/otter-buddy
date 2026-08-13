@@ -100,11 +100,18 @@ capability_test: tests/capability/memory-relations.capability.test.ts
 
 **决策**：砍字段。所有边物理上是 directed。`GetRelated` 查询时对 `relates-to` 类型自动双向查（`WHERE from_entry_id = ? OR to_entry_id = ?`），其他类型单向。
 
-### D5: 不污染 frontmatter，provenance 走工具上下文
+### D5: frontmatter 记录 provenance（用户拍板，撤销原"不污染"决策）
 
-原方案把 `conversationId` 写进文档 frontmatter。审视指出 `docs/` 是人类阅读、git 版本控制的设计制品，加运行时 conversationId 是耦合。
+原审视方案：不把 `conversationId` 写进文档 frontmatter（怕污染文档库），改走工具上下文直接写 DB。
 
-**决策**：文档创建工具（writing-skills 等）的 execute 上下文已有 conversationId，直接写 DB 的 `features.created_in_conversation_id` 列，不经过 frontmatter。
+**用户拍板撤销**：frontmatter 本就是 provenance 载体（`causal_links_from`/`supersedes` 同模式），加一个字段是自然的。且文档就是本地文件，海獭用 bash/workspace_write 或任何方式都能写，绑特定工具反而脆弱。
+
+**最终实现**：
+1. 身份注入加「当前对话 ID」——海獭写文档时知道自己的 `conversationId`
+2. frontmatter 加 `created_in_conversation: <conv-id>`（海獭用任何方式写文件时填入）
+3. `SyncDocuments` 读 `fm.created_in_conversation` → `createdInConversationId`
+4. fingerprint 加入此字段——provenance 变更触发 sync update
+5. mapper 双向映射 + INSERT/UPDATE SQL 包含 `created_in_conversation_id` 列
 
 ### D6: get_related 返回结构化 path 而非平铺列表
 

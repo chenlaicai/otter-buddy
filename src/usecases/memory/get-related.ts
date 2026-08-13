@@ -55,18 +55,7 @@ export class GetRelated {
           visited.add(neighborEntry.id);
 
           results.push({
-            entry: {
-              id: neighborEntry.id,
-              layer: neighborEntry.layer,
-              contentType: neighborEntry.contentType,
-              sourceId: neighborEntry.sourceId,
-              sourceTable: neighborEntry.sourceTable,
-              conversationId: neighborEntry.conversationId,
-              granularity: neighborEntry.granularity,
-              content: neighborEntry.content,
-              metadata: neighborEntry.metadata,
-              createdAt: neighborEntry.createdAt,
-            },
+            entry: neighborEntry,
             edgeType: edge.edgeType,
             edgeFromEntryId: edge.fromEntryId,
             depth: d,

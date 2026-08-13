@@ -842,7 +842,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return rows.map(rowToMemoryEntry);
   }
 
-  /** F20260813mrel: 创建关系边。幂等（UNIQUE + ON CONFLICT）。 */
+  /** F20260813mrel: 创建关系边。幂等（UNIQUE + ON CONFLICT 原子操作，防 TOCTOU 竞态）。 */
   async createEdge(input: {
     fromEntryId: string;
     toEntryId: string;
@@ -852,17 +852,17 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }): Promise<string> {
     const id = crypto.randomUUID();
     const metaJson = input.metadata ? JSON.stringify(input.metadata) : null;
-    // ON CONFLICT 幂等：同 (from, to, type) 已存在则返回已存在 id
-    const existing = this.db.prepare(
-      `SELECT id FROM memory_edges WHERE from_entry_id = ? AND to_entry_id = ? AND edge_type = ?`,
-    ).get(input.fromEntryId, input.toEntryId, input.edgeType) as { id: string } | undefined;
-    if (existing) return existing.id;
-
+    // ON CONFLICT 幂等：同 (from, to, type) 已存在则跳过 INSERT，随后 SELECT 拿实际 id
     this.db.prepare(`
       INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
       VALUES (?, ?, ?, ?, ?, datetime('now'), ?)
+      ON CONFLICT(from_entry_id, to_entry_id, edge_type) DO NOTHING
     `).run(id, input.fromEntryId, input.toEntryId, input.edgeType, metaJson, input.createdBy ?? null);
-    return id;
+
+    const row = this.db.prepare(
+      `SELECT id FROM memory_edges WHERE from_entry_id = ? AND to_entry_id = ? AND edge_type = ?`,
+    ).get(input.fromEntryId, input.toEntryId, input.edgeType) as { id: string };
+    return row.id;
   }
 
   /**

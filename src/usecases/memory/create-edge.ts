@@ -30,7 +30,9 @@ export class CreateEdge {
       throw new DomainError("self-loop edges not allowed", "validation");
     }
 
-    // D3: 校验两端 entry 都是 coarse 粒度
+    // D3: 校验两端 entry 不是 chunk 类型（chunk 被 sync replaceEntriesBySource 删旧建新，边会静默丢失）
+    // 注意：message 是 fine 粒度但不会被 sync 替换，所以允许建边。
+    // 真正需要排除的只有 feature_chunk 和 research_chunk。
     const [fromEntry, toEntry] = await Promise.all([
       this.repo.getById(input.fromEntryId),
       this.repo.getById(input.toEntryId),
@@ -41,15 +43,16 @@ export class CreateEdge {
     if (!toEntry) {
       throw new DomainError(`entry not found: ${input.toEntryId}`, "not_found");
     }
-    if (fromEntry.granularity !== "coarse") {
+    const CHUNK_TYPES = ["feature_chunk", "research_chunk"];
+    if (CHUNK_TYPES.includes(fromEntry.contentType)) {
       throw new DomainError(
-        `edges only allowed on coarse entries (D3: chunk sync would silently lose fine-grained edges). from entry ${input.fromEntryId} is ${fromEntry.granularity}`,
+        `edges not allowed on chunk entries (D3: sync replaceEntriesBySource would silently lose them). from entry ${input.fromEntryId} is ${fromEntry.contentType}`,
         "validation",
       );
     }
-    if (toEntry.granularity !== "coarse") {
+    if (CHUNK_TYPES.includes(toEntry.contentType)) {
       throw new DomainError(
-        `edges only allowed on coarse entries (D3). to entry ${input.toEntryId} is ${toEntry.granularity}`,
+        `edges not allowed on chunk entries (D3). to entry ${input.toEntryId} is ${toEntry.contentType}`,
         "validation",
       );
     }

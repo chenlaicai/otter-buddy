@@ -2,6 +2,7 @@
  * F20260813mrel: 记忆关系层实体。
  * memory_entries 之间的有向关系边，让 flat 数据变成可遍历的记忆图。
  */
+import type { MemoryEntry } from "./memory-entry";
 
 /** 边类型（固定枚举，D2 决策：4 种） */
 export type EdgeType = "produced" | "references" | "supersedes" | "relates-to";
@@ -39,19 +40,8 @@ export interface MemoryEdge {
  * LLM 拿到后能理解 "A 指向 B，B 指向 C" 的链式关系，而非平铺列表。
  */
 export interface RelatedEntryItem {
-  /** 邻居 entry（含完整 MemoryEntry 字段） */
-  entry: {
-    id: string;
-    layer: string;
-    contentType: string;
-    sourceId: string;
-    sourceTable: string;
-    conversationId: string | null;
-    granularity: string;
-    content: string;
-    metadata: Record<string, unknown> | null;
-    createdAt: string;
-  };
+  /** 邻居 entry（完整 MemoryEntry，PR 审视 P1-5：复用类型防退化） */
+  entry: MemoryEntry;
   /** 这条边的类型 */
   edgeType: EdgeType;
   /** 边的起点 entry id（判断方向用：若 edgeFromEntryId == 起点，则是出边；否则入边） */
