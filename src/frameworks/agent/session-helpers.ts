@@ -33,9 +33,9 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "manage_healing_events",
     "create_scheduled_task",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
-    // F20260813mrel: 记忆关系层工具
+    // F20260813mren: 记忆关系层工具
     "link_memory", "get_related", "unlink_memory",
-    // F20260813mrel 审视二轮: 文档同步工具（写完文档立即入库）
+    // F20260813mren 审视二轮: 文档同步工具（写完文档立即入库）
     "sync_docs",
   ];
 
@@ -55,9 +55,9 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "create_scheduled_task", "manage_healing_events",
     "restart_otter",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
-    // F20260813mrel: 记忆关系层工具（大小獭都能用）
+    // F20260813mren: 记忆关系层工具（大小獭都能用）
     "link_memory", "get_related", "unlink_memory",
-    // F20260813mrel 审视二轮: 文档同步工具
+    // F20260813mren 审视二轮: 文档同步工具
     "sync_docs",
   ];
 }

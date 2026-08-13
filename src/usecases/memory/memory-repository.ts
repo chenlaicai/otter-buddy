@@ -163,10 +163,10 @@ export interface MemoryRepository {
    */
   markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void>;
 
-  // ---- F20260813mrel: 记忆关系层 ----
+  // ---- F20260813mren: 记忆关系层 ----
 
   /**
-   * F20260813mrel Part 2: 按 conversationId 获取消息条目（provenance 读路径用）。
+   * F20260813mren Part 2: 按 conversationId 获取消息条目（provenance 读路径用）。
    * D8: 不做预筛选，返回全部（按 limit 截断），附带 role/turn 等元数据。
    */
   getEntriesByConversation(
@@ -187,7 +187,7 @@ export interface MemoryRepository {
   }): Promise<string>;
 
   /**
-   * F20260813mrel D6: 从某 entry 出发 BFS 遍历关系图。
+   * F20260813mren D6: 从某 entry 出发 BFS 遍历关系图。
    * 返回 [{ edge, entry }]——边 + 邻居 entry 配对，让调用方拼结构化 path。
    * depth 默认 1。visited 守门防环。
    * relates-to 自动双向查（from OR to），其余单向。

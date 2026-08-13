@@ -38,7 +38,7 @@ category: technique
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
-6. **文档**：将实现要点、变更说明追加到特性文档（参见全局约定「特性文档」）。
+6. **文档**：将实现要点、变更说明追加到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
 7. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 8. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。

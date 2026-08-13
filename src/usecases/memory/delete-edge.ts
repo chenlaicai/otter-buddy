@@ -1,5 +1,5 @@
 /**
- * F20260813mrel Part 3: 删除关系边（unlink_memory 工具用）。
+ * F20260813mren Part 3: 删除关系边（unlink_memory 工具用）。
  * 纠错场景：LLM 发现之前声明的边有误，删除重建。
  * 幂等：删不存在的 edge_id 静默返回（与工具描述一致）。
  */

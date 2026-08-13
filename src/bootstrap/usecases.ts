@@ -45,7 +45,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageTerminology = new ManageTerminology(repos.terminology);
   const scanDarkEntries = new ScanDarkEntries(repos.memory, logger);
   const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
-  // F20260813mrel: 记忆关系层 use cases
+  // F20260813mren: 记忆关系层 use cases
   const createEdge = new CreateEdge(repos.memory, logger);
   const getRelated = new GetRelated(repos.memory);
   const deleteEdge = new DeleteEdge(repos.memory);

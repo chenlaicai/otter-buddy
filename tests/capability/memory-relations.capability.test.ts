@@ -1,5 +1,5 @@
 /**
- * F20260813mrel 能力测试：记忆关系层端到端。
+ * F20260813mren 能力测试：记忆关系层端到端。
  *
  * 验证的能力：LLM 能用 link_memory 声明关系，get_related 拼出结构化链。
  * 基础设施层（无 LLM）：真 app + 真 DB，use case 直调验证 edge CRUD + BFS + provenance。

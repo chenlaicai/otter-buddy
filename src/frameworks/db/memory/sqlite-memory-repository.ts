@@ -150,7 +150,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
         // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
         this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
-        // F20260813mrel: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
+        // F20260813mren: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
         this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
       }
       this.db.prepare(
@@ -165,7 +165,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   /** F20260803mval: 按 source 原子替换（单事务删旧+插新），B2 修复 */
   /** F20260803fbit: DELETE/SELECT WHERE 加 content_type 过滤，防 summary entry 和 body entry 互相删除 */
-  /** F20260813mrel 审视二轮 P1-12：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
+  /** F20260813mren 审视二轮 P1-12：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
    *  顺序：插新行 → 重定向边 → 按旧 id 删旧行（不能用 source 删，会误删新行）。
    *  chunk 的 N:M replaceEntriesBySource 无法重定向，维持禁边（D3）。 */
   async replaceEntryBySource(entry: MemoryEntry): Promise<void> {
@@ -204,10 +204,16 @@ export class SqliteMemoryRepository implements MemoryRepository {
       `).run(entry.id);
 
       // 2. 边重定向：旧 id → 新 id（新 id 是全新 UUID，UNIQUE 不可能冲突）
-      for (const row of oldRows) {
-        this.db.prepare("UPDATE memory_edges SET from_entry_id = ? WHERE from_entry_id = ?").run(entry.id, row.id);
-        this.db.prepare("UPDATE memory_edges SET to_entry_id = ? WHERE to_entry_id = ?").run(entry.id, row.id);
-      }
+      // 审视三轮 #2：多旧行（历史脏数据）只重定向第一行的边，其余旧行的边删除——
+      // 否则两行同型边指向同一对端时 UPDATE 撞 UNIQUE 约束，整个 sync 永久失败（行为退化）。
+      oldRows.forEach((row, index) => {
+        if (index === 0) {
+          this.db.prepare("UPDATE memory_edges SET from_entry_id = ? WHERE from_entry_id = ?").run(entry.id, row.id);
+          this.db.prepare("UPDATE memory_edges SET to_entry_id = ? WHERE to_entry_id = ?").run(entry.id, row.id);
+        } else {
+          this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
+        }
+      });
 
       // 3. 删旧行及联动数据（按 id 删）
       for (const row of oldRows) {
@@ -262,7 +268,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
         // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
         this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
-        // F20260813mrel: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
+        // F20260813mren: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
         this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
       }
       this.db.prepare(
@@ -325,7 +331,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
         // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
         this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
-        // F20260813mrel: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
+        // F20260813mren: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
         this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
       }
       this.db.prepare(
@@ -822,9 +828,9 @@ export class SqliteMemoryRepository implements MemoryRepository {
     `).run(errMsg, maxAttempts, entryId);
   }
 
-  // ---- F20260813mrel: 记忆关系层 ----
+  // ---- F20260813mren: 记忆关系层 ----
 
-  /** F20260813mrel Part 2: 按 conversationId 获取消息条目（provenance 读路径） */
+  /** F20260813mren Part 2: 按 conversationId 获取消息条目（provenance 读路径） */
   async getEntriesByConversation(
     conversationId: string,
     opts?: { contentType?: MemoryContentType[]; limit?: number },
@@ -848,7 +854,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return rows.map(rowToMemoryEntry);
   }
 
-  /** F20260813mrel: 创建关系边。幂等（UNIQUE + ON CONFLICT 原子操作，防 TOCTOU 竞态）。 */
+  /** F20260813mren: 创建关系边。幂等（UNIQUE + ON CONFLICT 原子操作，防 TOCTOU 竞态）。 */
   async createEdge(input: {
     fromEntryId: string;
     toEntryId: string;
@@ -872,7 +878,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   /**
-   * F20260813mrel: 从某 entry 出发查直接邻居（1 跳）。
+   * F20260813mren: 从某 entry 出发查直接邻居（1 跳）。
    * BFS 的 depth>1 在 GetRelated use case 层循环调此方法。
    * D4: relates-to 自动双向（from OR to）；其余按 direction 单向。
    */
@@ -932,19 +938,19 @@ export class SqliteMemoryRepository implements MemoryRepository {
     return rows.map(row => ({ edge: rowToMemoryEdge(row), neighborEntry: rowToMemoryEntryJoined(row) }));
   }
 
-  /** F20260813mrel: 按 id 获取单条边 */
+  /** F20260813mren: 按 id 获取单条边 */
   async getEdgeById(edgeId: string): Promise<MemoryEdge | null> {
     const row = this.db.prepare(`SELECT * FROM memory_edges WHERE id = ?`).get(edgeId) as Record<string, unknown> | undefined;
     return row ? rowToMemoryEdge(row) : null;
   }
 
-  /** F20260813mrel: 删除一条边（unlink_memory 用） */
+  /** F20260813mren: 删除一条边（unlink_memory 用） */
   async deleteEdge(edgeId: string): Promise<void> {
     this.db.prepare(`DELETE FROM memory_edges WHERE id = ?`).run(edgeId);
   }
 
   /**
-   * F20260813mrel D7: 按 entry id 批量清理关联边。
+   * F20260813mren D7: 按 entry id 批量清理关联边。
    * deleteBySource / replaceEntryBySource 等 delete 路径调。
    * 不依赖 FK CASCADE（与 embedding_tasks 一致模式）。
    */

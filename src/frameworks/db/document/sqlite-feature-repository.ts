@@ -57,7 +57,7 @@ export class SqliteFeatureRepository implements FeatureRepository {
     );
   }
 
-  /** F20260813mrel: 读取文档的对话 provenance */
+  /** F20260813mren: 读取文档的对话 provenance */
   async getCreatedInConversationId(id: string): Promise<string | null> {
     const row = this.db.prepare("SELECT created_in_conversation_id FROM features WHERE id = ?")
       .get(id) as { created_in_conversation_id: string | null } | undefined;

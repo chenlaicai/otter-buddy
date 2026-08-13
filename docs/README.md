@@ -144,6 +144,7 @@ tags: [area, concept]
 modules:
   - src/path/to/file.ts
 capability_test: tests/capability/xxx.capability.test.ts   # 指向能力测试用例（见下方验收标准章节）
+created_in_conversation: <conversation-id>   # 可选：本文档产出自哪段对话（海獭从身份注入的「当前对话 ID」获知）。sync 写入 features/research.created_in_conversation_id，get_related 可返回催生对话的消息（F20260813mren）
 ---
 
 # F20260804x7k3: 标题

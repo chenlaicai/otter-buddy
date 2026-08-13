@@ -1,5 +1,5 @@
 /**
- * F20260813mrel: 记忆关系层实体。
+ * F20260813mren: 记忆关系层实体。
  * memory_entries 之间的有向关系边，让 flat 数据变成可遍历的记忆图。
  */
 import type { MemoryEntry } from "./memory-entry";
@@ -7,20 +7,12 @@ import type { MemoryEntry } from "./memory-entry";
 /** 边类型（固定枚举，D2 决策：4 种） */
 export type EdgeType = "produced" | "references" | "supersedes" | "relates-to";
 
-/** F20260813mrel: 运行时校验字符串是否为合法 EdgeType */
+/** F20260813mren: 运行时校验字符串是否为合法 EdgeType */
 const VALID_EDGE_TYPES: ReadonlySet<EdgeType> = new Set<EdgeType>([
   "produced", "references", "supersedes", "relates-to",
 ]);
 export function isEdgeType(s: string): s is EdgeType {
   return VALID_EDGE_TYPES.has(s as EdgeType);
-}
-
-/**
- * 边类型语义（D4: relates-to 查询层自动双向，其余单向）。
- * 用于 GetRelated 生成 SQL WHERE 条件。
- */
-export function isSymmetricEdgeType(type: EdgeType): boolean {
-  return type === "relates-to";
 }
 
 /** 记忆关系边实体 */
@@ -36,7 +28,7 @@ export interface MemoryEdge {
 }
 
 /**
- * F20260813mrel D6: GetRelated 返回的结构化路径项。
+ * F20260813mren D6: GetRelated 返回的结构化路径项。
  * LLM 拿到后能理解 "A 指向 B，B 指向 C" 的链式关系，而非平铺列表。
  */
 export interface RelatedEntryItem {

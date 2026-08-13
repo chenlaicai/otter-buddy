@@ -1,5 +1,5 @@
 /**
- * F20260813mrel: 记忆关系层集成测试
+ * F20260813mren: 记忆关系层集成测试
  * 覆盖：createEdge 幂等/自环、getEdgesByEntry 方向/relates-to 双向、deleteEdgesByEntryIds、
  *       CreateEdge coarse 校验、GetRelated BFS/path 结构/环安全
  */
@@ -52,7 +52,7 @@ async function insertEntry(id: string, content: string, opts?: Partial<MemoryEnt
   await repo.storeEntry(entry);
 }
 
-describe("F20260813mrel: memory_edges 表 + CreateEdge", () => {
+describe("F20260813mren: memory_edges 表 + CreateEdge", () => {
   it("createEdge 成功建边", async () => {
     await insertEntry("msg-a", "讨论 A");
     await insertEntry("doc-b", "文档 B", { contentType: "feature", sourceTable: "features" });
@@ -93,7 +93,7 @@ describe("F20260813mrel: memory_edges 表 + CreateEdge", () => {
   });
 });
 
-describe("F20260813mrel: getEdgesByEntry + GetRelated", () => {
+describe("F20260813mren: getEdgesByEntry + GetRelated", () => {
   beforeAll(async () => {
     // 补充更多边用于 BFS 测试
     // msg-a produced doc-b (已建)
@@ -170,7 +170,7 @@ describe("F20260813mrel: getEdgesByEntry + GetRelated", () => {
   });
 });
 
-describe("F20260813mrel: DeleteEdge", () => {
+describe("F20260813mren: DeleteEdge", () => {
   it("删除边后 getRelated 不再返回", async () => {
     await insertEntry("del-a", "del A");
     await insertEntry("del-b", "del B");
@@ -195,7 +195,7 @@ describe("F20260813mrel: DeleteEdge", () => {
   });
 });
 
-describe("F20260813mrel: deleteEdgesByEntryIds CASCADE 清理", () => {
+describe("F20260813mren: deleteEdgesByEntryIds CASCADE 清理", () => {
   it("删 entry 后其关联边被清理", async () => {
     await insertEntry("cascade-a", "cascade A");
     await insertEntry("cascade-b", "cascade B");
@@ -216,7 +216,7 @@ describe("F20260813mrel: deleteEdgesByEntryIds CASCADE 清理", () => {
   });
 });
 
-describe("F20260813mrel 审视二轮 P1-12: re-sync 边重定向", () => {
+describe("F20260813mren 审视二轮 P1-12: re-sync 边重定向", () => {
   it("summary entry re-sync 后边指向新 entry id（不静默丢失）", async () => {
     // 模拟真实场景：消息 produced 文档 summary
     await insertEntry("rs-msg", "讨论内容", { contentType: "message", sourceTable: "messages", granularity: "fine" });

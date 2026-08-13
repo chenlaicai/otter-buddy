@@ -81,7 +81,7 @@ export function bufferToFloat32Array(buf: Buffer): Float32Array {
   return new Float32Array(buf.buffer, buf.byteOffset, buf.length / 4);
 }
 
-// ---- F20260813mrel: 记忆关系层 mappers ----
+// ---- F20260813mren: 记忆关系层 mappers ----
 
 /** memory_edges 表行（SELECT * 时 snake_case 列名） */
 export interface MemoryEdgeRow {

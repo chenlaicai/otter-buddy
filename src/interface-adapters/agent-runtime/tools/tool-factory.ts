@@ -385,7 +385,7 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260813mrel Part 3: link_memory — LLM 声明两个记忆条目之间的关系 */
+/** F20260813mren Part 3: link_memory — LLM 声明两个记忆条目之间的关系 */
 function createLinkMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "link_memory",
@@ -423,11 +423,11 @@ function createLinkMemoryTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260813mrel Part 3: get_related — BFS 遍历关系图，返回结构化 path */
+/** F20260813mren Part 3: get_related — BFS 遍历关系图，返回结构化 path */
 function createGetRelatedTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_related",
-    description: `从一个记忆条目出发遍历关系图. When: 需要拼证据链/因果链/发展链时，从一个已知条目找关联（如'F文档D是怎么来的'→ 查 produced 入边找催生消息）；典型前置是 search_memory 命中条目后想深挖关联. Output: [{entry, edgeType, edgeFromEntryId, depth}] 结构化路径（不是平铺列表）——你能看到 A→B→C 的链式关系；若起点是特性/研究文档且有 provenance，附带催生对话的消息. direction: out=出边(默认, A→谁), in=入边(谁→A)；direction 只作用于有向边（produced/references/supersedes），relates-to 恒双向. depth>1 多跳遍历找间接关联. 发现未声明的关联可用 link_memory 补上.`,
+    description: `从一个记忆条目出发遍历关系图. When: 需要拼证据链/因果链/发展链时，从一个已知条目找关联（如'F文档D是怎么来的'→ 查 produced 入边找催生消息）；典型前置是 search_memory 命中条目后想深挖关联. Output: { related: [{entry, edgeType, edgeFromEntryId, depth}], provenance? }——related 是结构化路径（不是平铺列表），你能看到 A→B→C 的链式关系；provenance 仅在起点是特性/研究文档且有 provenance 时出现，含催生对话的消息. direction: out=出边(默认, A→谁), in=入边(谁→A)；direction 只作用于有向边（produced/references/supersedes），relates-to 恒双向. depth>1 多跳遍历找间接关联. 发现未声明的关联可用 link_memory 补上.`,
     parameters: {
       type: "object",
       properties: {
@@ -455,7 +455,7 @@ function createGetRelatedTool(ctx: ToolContext): AgentTool {
         direction: params.direction as "out" | "in" | undefined,
         limit: params.limit as number | undefined,
       });
-      // F20260813mrel Part 2: 若起点是 feature/research 文档，附带 provenance（催生它的对话消息）
+      // F20260813mren Part 2: 若起点是 feature/research 文档，附带 provenance（催生它的对话消息）
       // 审视二轮：输出 schema 统一为 { related, provenance? }——消二态，LLM 不用面对两种结构
       const provenance = await ctx.client.memory.getDocProvenance(params.entry_id as string);
       return textResponse(JSON.stringify({
@@ -466,18 +466,20 @@ function createGetRelatedTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260813mrel 审视二轮: sync_docs — 写完文档立即同步入库（不等重启） */
+/** F20260813mren 审视二轮: sync_docs — 写完文档立即同步入库（不等重启） */
 function createSyncDocsTool(ctx: ToolContext): AgentTool {
   return {
     name: "sync_docs",
-    description: `同步特性/研究文档入库. When: 刚写完或修改了 docs/features/ 或 docs/research/ 下的文档——不调的话要等系统重启才会入库（search_memory 搜不到、provenance 不可查）. Output: { synced, updated, skipped, archived, errors } 同步统计. TIP: 写完文档后建议顺手 sync_docs + link_memory（当前讨论 produced 本文档），文档立即可检索且关系链成型. BOUNDARY: 全量扫描 docs/ 目录（幂等），不删除未改动内容.`,
+    description: `同步特性/研究文档入库. When: 刚写完或修改了 docs/features/ 或 docs/research/ 下的文档——不调的话要等系统重启才会入库（search_memory 搜不到、provenance 不可查）. Output: { synced, updated, skipped, archived, errors } 同步统计. TIP: 写完文档后建议顺手 sync_docs + link_memory（当前讨论 produced 本文档），文档立即可检索且关系链成型. BOUNDARY: 在 worktree 里写文档时必须传 root_dir=worktree 绝对路径（默认扫主仓根，扫不到 worktree 里刚写的文档）；并发调用会返回'同步进行中'，稍后重试即可.`,
     parameters: {
       type: "object",
-      properties: {},
+      properties: {
+        root_dir: { type: "string", description: "扫描根目录绝对路径。在 worktree 中写文档时传 worktree 路径（如 /path/to/.claude/worktrees/xxx）；不传默认主仓根" },
+      },
     },
-    execute: async () => {
+    execute: async (_id: string, params: Record<string, unknown>) => {
       try {
-        const stats = await ctx.client.docs.sync();
+        const stats = await ctx.client.docs.sync(params.root_dir as string | undefined);
         return textResponse(JSON.stringify(stats));
       } catch (err) {
         return errorResponse(`[错误] 文档同步失败：${err instanceof Error ? err.message : String(err)}`);
@@ -486,7 +488,7 @@ function createSyncDocsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260813mrel Part 3: unlink_memory — 删除关系边（纠错用） */
+/** F20260813mren Part 3: unlink_memory — 删除关系边（纠错用） */
 function createUnlinkEdgeTool(ctx: ToolContext): AgentTool {
   return {
     name: "unlink_memory",

@@ -1,5 +1,5 @@
 /**
- * F20260813mrel Part 2: 文档 provenance 读取。
+ * F20260813mren Part 2: 文档 provenance 读取。
  *
  * 给定一个 memory entry id，若它是 feature/research 文档：
  * 1. 查 features/research.created_in_conversation_id（事实级 provenance）

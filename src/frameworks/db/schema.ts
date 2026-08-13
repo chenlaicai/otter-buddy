@@ -226,7 +226,7 @@ function createMemoryTables(db: Database.Database): void {
       ON embedding_tasks (status, next_retry_at);
   `);
 
-  // F20260813mrel: 记忆关系层——memory_entries 之间的有向关系边。
+  // F20260813mren: 记忆关系层——memory_entries 之间的有向关系边。
   // 把 flat 数据变成可声明、可遍历的记忆图，让 LLM 拼证据链/因果链/发展链。
   // D4: 无 direction 字段——relates-to 查询层自动双向（from OR to），其余单向。
   // D7: 不依赖 FK CASCADE（与 embedding_tasks 一致），清理走 deleteBySource 内手动 DELETE。

@@ -1,13 +1,11 @@
 ---
-id: F20260813mrel
+id: F20260813mren
 title: memory-relation-layer
 summary: |
   记忆关系层：把 flat 的 memory_entries 升级为可声明、可遍历的有向关系图。
-  Part 1 memory_edges 表 + CreateEdge/GetRelated/DeleteEdge use case（4 种边类型：produced/references/supersedes/relates-to；无 direction 字段，relates-to 查询层双向；UNIQUE+ON CONFLICT 保幂等；只禁 chunk 建边——summary entry re-sync 时边重定向到新 id）；
-  Part 2 文档 provenance（frontmatter 加 created_in_conversation，sync 读入 features/research 列；身份注入告诉海獭当前对话 ID；get_related 返回同会话消息时不预筛选）；
-  Part 3 agent 工具（link_memory/get_related/unlink_memory/sync_docs，get_related 返回结构化 path + provenance，search_memory 交叉引用引导遍历）。
-  根因：memory_entries 扁平，文档入库 conversationId=undefined 导致 doc↔message 完全断链，跨会话同主题无关联，用户期待的"证据链/因果链/发展链"拼不出来。
-  主机制：建独立关系表 → frontmatter 记录事实级 provenance → 暴露工具让 LLM 自主声明和遍历 → sync_docs 让新文档立即入库。
+  memory_edges 表（4 种边类型，ON CONFLICT 幂等，只禁 chunk 建边，re-sync 边重定向）+ 文档 provenance（frontmatter created_in_conversation 入列）+ 4 个 agent 工具（link_memory/get_related/unlink_memory/sync_docs）。
+  根因：文档入库 conversationId=undefined 致 doc↔message 断链，跨会话同主题无关联，证据链/因果链拼不出。
+  主机制：建关系表 → frontmatter 记事实级 provenance → 工具让 LLM 自主声明遍历 → sync_docs 即时入库。
 
 causal_links:
   from:
@@ -33,7 +31,7 @@ modules:
 capability_test: tests/capability/memory-relations.capability.test.ts
 ---
 
-# F20260813mrel: 记忆关系层
+# F20260813mren: 记忆关系层
 
 ## 背景
 
@@ -299,12 +297,11 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 | AT-12 | re-sync 边重定向 | 建边 message→doc 后，replaceEntryBySource 换 doc 新 id | 边端点重定向到新 id，不丢失（审视二轮 P1-12） |
 | AT-13 | sync_docs 即时入库 | 写新文档后调 sync_docs | 不等重启，search_memory 立即可检索 |
 
-### 能力测试（B 类，真系统+真 LLM）
+### 能力测试
 
-| 编号 | 场景 | 验证 |
-|------|------|------|
-| CT-1 | 预置 fixture（消息 M produced 文档 D），用户提问"D 是怎么来的？" | 海獭调用 get_related(D)，回复包含 M 的内容 |
-| CT-2 | 预置 fixture（D1 references D2），用户问"D1 引用了什么" | 海獭调用 get_related(D1, types=["references"])，回复含 D2 |
+实际交付：`tests/capability/memory-relations.capability.test.ts` —— 真 app + 真 DB + 真 bge-m3 的基础设施层验证（edge CRUD/BFS/边重定向/provenance/即时入库 6 用例全过）。
+
+**真 LLM 在环的行为验证（"海獭收到提问后主动调 get_related 拼链"）归 issue #264**——该层效果依赖 prompt 引导就绪后验证才有意义（审视三轮确认：infra 层扎实但"LLM 真的会走这条路"需 #264 落地后用真 LLM 用例验证）。
 
 测试文件：`tests/capability/memory-relations.capability.test.ts`
 
@@ -312,7 +309,7 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 
 ## 不在本 F 范围
 
-- prompt 层引导（tool description 详细优化 + SYSTEM.md 强化）→ issue #264
+- prompt 层系统引导（SYSTEM.md 强化 + 真 LLM 行为验证）→ issue #264
 - search_memory 自动关系扩展（expandRelations）→ 砍（D1），永久不做（反强编排）
 - 文档 supersedes/from 反规范化到 edges → 砍（D1），LLM 用 link_memory 显式声明即可
 - 自动语义推断（NLP 提取消息间因果）→ 反强编排原则不做
@@ -320,6 +317,10 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 - 跨记忆库（terminology）的关系遍历 → 先不做
 - 关系边自身的 embedding → YAGNI
 - 边的软删/归档 → 先硬删，按需加
+- **存量文档 provenance 暗区**：本 F 上线前入库的文档 created_in_conversation_id 全为 NULL——历史事实（文档由哪段对话产出）入库时已丢失，不可考据，任何 backfill 都是推断而非事实，违背"只记事实级 provenance"原则。愈合方式：新文档自然带字段；存量文档在被再次讨论时由海獭用 link_memory 有机补边（审视三轮显式声明为已知 gap）
+- sync_docs 返回新建/更新文档的 entry ID 列表 / link_memory 支持按 (source_table, source_id) 建边（降 ID 获取摩擦）→ follow-up
+- user_flagged/retrieval_count 在 replaceEntryBySource 时重置（pre-existing 语义缺陷，与本 F 无关，另开 F 时可顺手修）
+- "参见全局约定「特性文档」"引用悬空（pre-existing：各 SKILL.md 的引用无解析机制；本 F 把 sync_docs/link_memory 引导直接写进了 3 个 SKILL.md 的工作流步骤规避此问题，引用机制本身的治理另开 issue）
 
 ---
 
@@ -348,9 +349,39 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 | Part 4.2 与已删 related-expand 同类 | B | 砍 Part 4（D1）|
 | get_related "关键消息"预筛选 | B | 删，返回全部带元数据（D8）|
 | get_related 返回平铺列表 | C | 改结构化 path（D6）|
-| 缺端到端能力测试 | C | 加 B 类测试（D9）|
+| 缺端到端能力测试 | C | 加能力测试（D9；真 LLM 行为验证归 #264，审视三轮对齐）|
 | tool description 太简略 | C | 归 issue #264（用户决策：不拉入本 F）|
 | unlink_memory 过早 | C | 保留（反强编排原则是给工具，删工具违背原则）|
+
+### 第二轮审视（PR #269 代码级，2 位独立 agent）
+
+| 质疑 | 决策 |
+|------|------|
+| createEdge SELECT+INSERT 有 TOCTOU 竞态 | 改 ON CONFLICT DO NOTHING + 重 SELECT |
+| message 是 fine 粒度被 D3 误拒（produced 头号用例建不了边） | 校验从 granularity 改为 contentType（只排两类 chunk） |
+| RelatedEntryItem.entry 内联类型退化 | 复用 MemoryEntry |
+| DeleteEdge 描述幂等但实现抛错 | 改真幂等 |
+| D5 frontmatter 决策 | 用户拍板撤销——frontmatter 本就是 provenance 载体 |
+| search_memory 零交叉引用 get_related | 用户拍板：加最小交叉引用（破"合并后 100% 看不到效果"） |
+| sync 仅启动时，写完即问必败 | 用户拍板：加 sync_docs 工具 |
+| 冷启动无边 + 无触发场景 | 用户拍板：skill 工作流加"声明关系"引导 |
+| 端到端评分 | 10-20%（数据层对但行为层抓手全缺） |
+
+### 第三轮审视（delta + 端到端重走，2 位独立 agent）
+
+| 质疑 | 决策 |
+|------|------|
+| **P1-12 re-sync 静默丢边**：replaceEntryBySource 是 DELETE+INSERT 新 UUID，D3 前提错误 | 边重定向（插新→UPDATE 端点→按 id 删旧），补"建边后 re-sync"测试 |
+| sync_docs rootDir 与 worktree 流程脱节（R1 红线文档写 worktree，sync 扫主仓） | 工具加 root_dir 参数 |
+| 引导加错文件（SKILL-TEMPLATE 运行时不被读） | 引导移到 3 个 SKILL.md 工作流步骤（code-implementation/requirement-analysis/troubleshooting） |
+| 多旧行 UNIQUE 冲突（脏数据从自愈退化为永久失败） | 只重定向 oldRows[0]，其余删边 |
+| get_related 描述裸数组 vs 实现对象包装 | 描述更新为 `{related, provenance?}` |
+| sync_docs 接线无测试 | 补 clients.test.ts（透传/未接线/并发互斥 3 用例） |
+| sync_docs 并发伪错误 | in-flight 互斥标志 |
+| docs/README 模板缺 created_in_conversation | 加字段 + 注释 |
+| isSymmetricEdgeType 死代码 | 删 |
+| 存量文档 provenance 暗区 | 显式声明为已知 gap（历史事实不可考，有机愈合），见"不在范围" |
+| 端到端评分 | 约 40%（读路径机制完备；写路径触发率 30-50%，剩余归 #264） |
 
 ---
 
@@ -363,7 +394,7 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 - **数据层**：edges 表 + provenance 列是纯数据基础设施，LLM 通过工具自主用
 - **写入路径**：语义关系（produced/references/supersedes/relates-to）由 LLM 用 `link_memory` 显式声明；工程只记录事实级 provenance（conversationId 是系统注入的 ID，非推断）
 - **读取路径**：`get_related` 是纯查询工具，LLM 自主调用、指定参数、解释结果；**不在 search_memory 里自动展开**（避免编排）
-- **校验**：coarse 粒度限制是数据完整性约束（防 chunk sync 丢边），非行为编排；自环 CHECK 是安全约束
+- **校验**：chunk 类型禁边 + re-sync 边重定向是数据完整性约束（防 sync 丢边），非行为编排；自环 CHECK 是安全约束
 
 ### 为什么不做 expandRelations（反编排审计 D1）
 

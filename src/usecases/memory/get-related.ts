@@ -1,5 +1,5 @@
 /**
- * F20260813mrel Part 1: 从某 entry 出发 BFS 遍历关系图。
+ * F20260813mren Part 1: 从某 entry 出发 BFS 遍历关系图。
  *
  * D4: relates-to 自动双向（查询层处理），其余按 direction。
  * D6: 返回结构化 path [{entry, edgeType, edgeFromEntryId, depth}]——LLM 能拼链而非看散点。

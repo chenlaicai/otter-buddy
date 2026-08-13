@@ -82,7 +82,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260812mrcq：embedding_tasks 表（embedding 重试队列） */
   ensureEmbeddingTasksTable(db, logger);
 
-  /** F20260813mrel: 记忆关系层——memory_edges 表 + 文档 provenance 列 */
+  /** F20260813mren: 记忆关系层——memory_edges 表 + 文档 provenance 列 */
   ensureMemoryEdgesTable(db, logger);
   addDocProvenanceColumns(db, logger);
 }
@@ -164,7 +164,7 @@ function ensureEmbeddingTasksTable(db: Database.Database, logger: Logger): void 
 }
 
 /**
- * F20260813mrel: memory_edges 表（记忆关系层）。
+ * F20260813mren: memory_edges 表（记忆关系层）。
  * CREATE IF NOT EXISTS 幂等——新库 initSchema 已建，老库走这里补建。
  */
 function ensureMemoryEdgesTable(db: Database.Database, logger: Logger): void {
@@ -190,7 +190,7 @@ function ensureMemoryEdgesTable(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260813mrel Part 2: features/research 表加 created_in_conversation_id 列。
+ * F20260813mren Part 2: features/research 表加 created_in_conversation_id 列。
  * 记录文档由哪段对话产出（事实级 provenance，非推断）。
  * PRAGMA table_info 检测列存在性作幂等。
  */

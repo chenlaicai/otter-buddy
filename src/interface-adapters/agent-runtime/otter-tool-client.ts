@@ -79,14 +79,14 @@ export interface OtterToolClient {
     search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean): Promise<{ entries: MemorySearchEntry[]; contextEntries?: MemorySearchEntry[] }>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
-    /** F20260813mrel: 声明两个记忆条目之间的关系（LLM 自主判断） */
+    /** F20260813mren: 声明两个记忆条目之间的关系（LLM 自主判断） */
     linkMemory(params: { fromId: string; toId: string; edgeType: EdgeType; note?: string }, createdBy?: string): Promise<{ edgeId: string }>;
-    /** F20260813mrel: 从某 entry 出发 BFS 遍历关系图，返回结构化 path */
+    /** F20260813mren: 从某 entry 出发 BFS 遍历关系图，返回结构化 path */
     getRelated(params: { entryId: string; depth?: number; edgeTypes?: EdgeType[]; direction?: "out" | "in"; limit?: number }): Promise<RelatedEntryItem[]>;
-    /** F20260813mrel: 删除一条关系边（纠错用） */
+    /** F20260813mren: 删除一条关系边（纠错用） */
     unlinkEdge(edgeId: string): Promise<void>;
     /**
-     * F20260813mrel Part 2: 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。
+     * F20260813mren Part 2: 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。
      * 只对 feature/research 文档有效；非文档或无 provenance 返回 conversationId=null。
      */
     getDocProvenance(entryId: string): Promise<{ conversationId: string | null; messages: MemorySearchEntry[] }>;
@@ -116,11 +116,13 @@ export interface OtterToolClient {
     archive(id: string, conversationId: string, currentTurnNumber: number): Promise<void>;
   };
   /**
-   * F20260813mrel 审视二轮：文档同步工具。
+   * F20260813mren 审视二轮：文档同步工具。
    * 海獭写完 docs/features|research 下的文档后调用，立即入库（不等重启），
    * 让文档立刻可被 search_memory 检索 + provenance 立即可查。
+   * 审视三轮 A-10：rootDir 可选——worktree 流程下文槛在 worktree 里，
+   * 海獭应传 worktree 绝对路径，否则默认扫主仓根扫不到刚写的文档。
    */
   docs: {
-    sync(): Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
+    sync(rootDir?: string): Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
   };
 }

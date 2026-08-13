@@ -75,7 +75,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    // F20260813mrel: 记忆关系层工具
+    // F20260813mren: 记忆关系层工具
     expect(tools).toContain("link_memory");
     expect(tools).toContain("get_related");
     expect(tools).toContain("unlink_memory");
@@ -108,7 +108,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    // F20260813mrel: 记忆关系层工具（大小獭都能用）
+    // F20260813mren: 记忆关系层工具（大小獭都能用）
     expect(tools).toContain("link_memory");
     expect(tools).toContain("get_related");
     expect(tools).toContain("unlink_memory");
