@@ -164,7 +164,7 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
           })),
         },
       },
-    } as Partial<ToolContext>);
+    } as unknown as Partial<ToolContext>);
     const restartTool = getRestartTool(ctx);
 
     // 调用生产代码（小獭重启别人）
