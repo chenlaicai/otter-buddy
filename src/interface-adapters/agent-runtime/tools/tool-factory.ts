@@ -56,6 +56,13 @@ export interface ToolContext {
    * 由 session 工厂按消息维护（message_start 清零、message_end 累积）；speak 用它检测"卡片写在 speak 外"的错误用法。
    */
   getTurnAssistantText?: () => string;
+  /**
+   * F20260815rstrt: 自重启时由 restart_otter 工具设置。
+   * PiSessionFactory 在 session.prompt() 返回后检查并执行重启。
+   * Why: session.prompt() 是原子的，中途无法替换 session；
+   * 延迟到 prompt 完成后执行，消息生命周期不受影响。
+   */
+  pendingRestart?: { summary?: string };
 }
 
 /** F20260803trrf: name->id resolve（NFC 归一化），speak 改用名字，系统侧做映射 */
@@ -307,6 +314,17 @@ function createRestartOtterTool(ctx: ToolContext): AgentTool {
         return errorResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
       }
 
+      // F20260815rstrt: 自重启时延迟执行——session.prompt() 是原子的，
+      // 中途 restart 会打断 LLM 生成。标记 pending，prompt 完成后由 PiSessionFactory 执行。
+      if (targetOtterId === ctx.otterId) {
+        ctx.pendingRestart = { summary };
+        return textResponse(
+          `已标记重启当前獭生。当前发言完成后将自动执行。` +
+          (summary ? ` 前情摘要：${summary}` : '')
+        );
+      }
+
+      // 重启别人：直接执行（不涉及自身 session）
       const session = await ctx.client.otter.restart(targetOtterId, summary);
       return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}`);
     },

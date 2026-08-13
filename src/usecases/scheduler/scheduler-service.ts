@@ -3,6 +3,7 @@ import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
+import type { ManageSession } from '@usecases/otter/manage-session';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
@@ -27,6 +28,7 @@ export interface SchedulerServiceOptions {
   cronParser: CronParser;
   logger: Logger;
   manageScheduledTask?: ManageScheduledTask;
+  manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
   metrics?: SchedulerMetrics;
 }
@@ -41,6 +43,7 @@ export class SchedulerService {
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
   private readonly metrics?: SchedulerMetrics;
+  private readonly manageSession?: ManageSession;
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -51,6 +54,7 @@ export class SchedulerService {
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
     this.metrics = options.metrics;
+    this.manageSession = options.manageSession;
 
     // 注册任务变更回调
     if (options.manageScheduledTask) {
@@ -239,6 +243,7 @@ export class SchedulerService {
   }
 
   /** 触发单个任务 */
+  // eslint-disable-next-line max-statements -- restartBeforeInvoke 逻辑增加语句数，重构会降低可读性
   private async triggerTask(task: ScheduledTask): Promise<{ executionId: string }> {
     const now = new Date().toISOString();
     // Why 默认 'failed'：任何路径抛错（resolveEffectiveBody/createExecution DB 错等）
@@ -263,6 +268,20 @@ export class SchedulerService {
 
       const executionId = crypto.randomUUID();
       await this.createExecution(executionId, task.id, now);
+
+      // F20260815rstrt: 触发前重启执行獭的 session（保持干净上下文）
+      if (task.restartBeforeInvoke && task.talkingStonePassedTo.length > 0) {
+        const executorOtterId = task.talkingStonePassedTo[0];
+        try {
+          await this.manageSession?.restartSession(executorOtterId,
+            `定时任务「${task.name}」触发前自动重启，保持干净上下文`);
+          this.logger.info('Pre-trigger restart completed', { taskId: task.id, otterId: executorOtterId });
+        } catch (err) {
+          // Why 降级：重启失败不阻塞任务执行，记日志即可
+          this.logger.error('Pre-trigger restart failed, continuing with task', err as Error, { taskId: task.id, otterId: executorOtterId });
+        }
+      }
+
       executionStartMs = nowMs();
       try {
         const message = await this.createSystemMessage(task, effectiveBody);

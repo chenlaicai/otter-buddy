@@ -114,6 +114,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     cronParser,
     logger,
     manageScheduledTask: uc.manageScheduledTask,
+    manageSession: uc.manageSession,
     healingRepo: repos.healingEvent,
     metrics,
   });

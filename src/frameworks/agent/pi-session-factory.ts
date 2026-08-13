@@ -697,7 +697,7 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.debug('[execute] Creating session with tools', { otterId });
         /** F20260804hcob: 当前 assistant 消息的文本缓冲（按消息清零/累积），speak 检测"卡片写在 speak 外"用 */
         const turnText = { text: "" };
-        const { session, sessionKey } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
+        const { session, sessionKey, toolContext } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
         this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
         // 2. 熔断器 + 输出退化检测
@@ -713,7 +713,16 @@ export class PiSessionFactory implements AgentGateway {
           armFirstByte();
           await session.prompt(fullMessage);
           this._checkSessionError(session, otterId);
-          return this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
+          const result = this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
+
+          // F20260815rstrt: session.prompt() 完成后检查自重启。
+          // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，restart 创建新 session。
+          if (toolContext.pendingRestart) {
+            this.otterToolClient!.otter.restart(otterId, toolContext.pendingRestart.summary)
+              .then(s => this.logger.info('Self-restart completed after invoke', { otterId, newSessionId: s.id }))
+              .catch(err => this.logger.error('Self-restart failed after invoke', err as Error, { otterId }));
+          }
+          return result;
         } catch (err) {
           const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
           e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
@@ -760,7 +769,7 @@ export class PiSessionFactory implements AgentGateway {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType);
-    const customTools = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId, turnText);
+    const { tools: customTools, toolContext } = this.buildCustomTools(otterId, conversationId, otterToolNames, messageId, turnText);
     const codingTools = getCodingToolsForOtterType(otterType);
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
@@ -796,7 +805,7 @@ export class PiSessionFactory implements AgentGateway {
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     this.activeSessions.set(sessionKey, { abort: () => session.abort(), toolCallCount: 0 });
 
-    return { session, sessionKey };
+    return { session, sessionKey, toolContext };
   }
 
   /** 构建 invoke 结果 */
@@ -893,23 +902,28 @@ export class PiSessionFactory implements AgentGateway {
     allowedNames: string[],
     messageId?: string,
     turnText?: { text: string },
-  ): Array<{
-    name: string;
-    label: string;
-    description: string;
-    parameters: Record<string, unknown>;
-    execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResponse>;
-  }> {
-    const otterTools = this.cfg.createTools({
+  ): {
+    tools: Array<{
+      name: string;
+      label: string;
+      description: string;
+      parameters: Record<string, unknown>;
+      execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResponse>;
+    }>;
+    toolContext: ToolContext;
+  } {
+    // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
+    const toolContext: ToolContext = {
       client: this.otterToolClient!,
       otterId,
       conversationId,
       currentMessageId: messageId ?? "",
       modelPool: this.cfg.modelPool,
       getTurnAssistantText: turnText ? () => turnText.text : undefined,
-    }, this.cfg.healingRepo, this.logger);
+    };
+    const otterTools = this.cfg.createTools(toolContext, this.cfg.healingRepo, this.logger);
 
-    return otterTools
+    const tools = otterTools
       .filter(t => allowedNames.includes(t.name))
       .map(t => ({
         name: t.name,
@@ -930,6 +944,8 @@ export class PiSessionFactory implements AgentGateway {
           return truncated;
         },
       }));
+
+    return { tools, toolContext };
   }
 
 

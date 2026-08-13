@@ -42,6 +42,7 @@ export class ScheduledTaskController {
         triggerAt: body.triggerAt,
         timezone: body.timezone,
         body: body.body,
+        restartBeforeInvoke: body.restartBeforeInvoke,
         talkingStonePassedTo: body.talkingStonePassedTo,
         senderId: body.senderId,
       });

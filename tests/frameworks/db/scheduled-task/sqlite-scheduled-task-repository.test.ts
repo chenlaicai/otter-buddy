@@ -36,6 +36,7 @@ function createTaskFixture(overrides: Partial<ScheduledTask> = {}): ScheduledTas
     status: "active",
     consecutiveFailures: 0,
     lastTriggeredAt: null,
+    restartBeforeInvoke: false,
     createdAt: "2026-07-22T00:00:00Z",
     updatedAt: "2026-07-22T00:00:00Z",
     ...overrides,

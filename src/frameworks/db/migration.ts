@@ -300,6 +300,14 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
   });
   rebuild();
   logger.info('Rebuilt features/research tables to drop CHECK constraints (doc_check_constraints_dropped=done)');
+
+  // F20260815rstrt: scheduled_tasks 表添加 restart_before_invoke 列
+  const stColumns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  const hasRestartBeforeInvoke = stColumns.some(col => col.name === 'restart_before_invoke');
+  if (!hasRestartBeforeInvoke) {
+    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN restart_before_invoke INTEGER NOT NULL DEFAULT 0").run();
+    logger.info('Added restart_before_invoke column to scheduled_tasks table');
+  }
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

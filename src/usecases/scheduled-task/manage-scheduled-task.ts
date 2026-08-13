@@ -48,6 +48,8 @@ export interface CreateScheduledTaskInput {
   triggerAt?: string;
   timezone?: string;
   body: string;
+  /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
+  restartBeforeInvoke?: boolean;
   talkingStonePassedTo: string[];
   senderId?: string;
 }
@@ -61,6 +63,8 @@ export interface UpdateScheduledTaskInput {
   body?: string;
   talkingStonePassedTo?: string[];
   status?: ScheduledTaskStatus;
+  /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
+  restartBeforeInvoke?: boolean;
 }
 
 export type TaskChangeCallback = (taskId: string, action: 'created' | 'updated' | 'deleted') => void;
@@ -103,6 +107,7 @@ export class ManageScheduledTask {
       status: 'active',
       consecutiveFailures: 0,
       lastTriggeredAt: null,
+      restartBeforeInvoke: input.restartBeforeInvoke ?? false,
       createdAt: now,
       updatedAt: now,
     };
@@ -139,6 +144,7 @@ export class ManageScheduledTask {
       body: input.body ?? task.body,
       talkingStonePassedTo: input.talkingStonePassedTo ?? task.talkingStonePassedTo,
       status: input.status ?? task.status,
+      restartBeforeInvoke: input.restartBeforeInvoke ?? task.restartBeforeInvoke,
       updatedAt: now,
     };
 

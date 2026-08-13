@@ -39,6 +39,7 @@ export function createCreateScheduledTaskTool(
         triggerAt: { type: "string", description: "一次性触发时间，ISO 8601，scheduleType=once 时必填" },
         timezone: { type: "string", description: "时区，默认 Asia/Shanghai" },
         body: { type: "string", description: "触发时发送给海獭的消息内容" },
+        restartBeforeInvoke: { type: "boolean", description: "每次触发前是否重启执行獭的 session（默认 false）。适合需要干净上下文的定期任务（如健康检查）。" },
       },
       required: ["name", "body"],
     },
@@ -56,6 +57,7 @@ export function createCreateScheduledTaskTool(
           triggerAt: scheduleType === "once" ? params.triggerAt as string : undefined,
           timezone: params.timezone as string | undefined,
           body: (params.body as string).trim(),
+          restartBeforeInvoke: (params.restartBeforeInvoke as boolean) ?? false,
           talkingStonePassedTo: [ctx.otterId],
           senderId: ctx.otterId,
         });
