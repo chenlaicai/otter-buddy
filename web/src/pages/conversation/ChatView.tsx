@@ -1,6 +1,5 @@
 import { type RefObject } from 'react'
 import { Archive, ShieldAlert } from 'lucide-react'
-import type { VirtuosoHandle } from 'react-virtuoso'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message } from '../../lib/mappers'
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
@@ -17,12 +16,8 @@ interface ChatViewProps {
   onGoToSettings: () => void
   onArchive: () => void
   otters: Otter[]
-  // virtuoso props 透传
+  // 滚动 props 透传
   conversationId: string
-  virtuosoRef: RefObject<VirtuosoHandle | null>
-  firstItemIndex: number
-  initialTopMostItemIndex: number | { index: 'LAST' }
-  onAtBottomChange: (atBottom: boolean) => void
   isAtBottomRef: RefObject<boolean>
   newMessagesCount?: number
   onJumpToBottom?: () => void
@@ -86,10 +81,6 @@ export function ChatView(props: ChatViewProps) {
         onGoToSettings={props.onGoToSettings}
         otters={props.otters}
         conversationId={props.conversationId}
-        virtuosoRef={props.virtuosoRef}
-        firstItemIndex={props.firstItemIndex}
-        initialTopMostItemIndex={props.initialTopMostItemIndex}
-        onAtBottomChange={props.onAtBottomChange}
         isAtBottomRef={props.isAtBottomRef}
         newMessagesCount={props.newMessagesCount}
         onJumpToBottom={props.onJumpToBottom}

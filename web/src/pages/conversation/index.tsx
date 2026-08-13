@@ -20,8 +20,7 @@ import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
 import { ApiError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
-import { type VirtuosoHandle } from 'react-virtuoso'
-import type { MessageDTO } from '@contract/api'
+import { type MessageDTO } from '@contract/api'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
@@ -74,12 +73,8 @@ function ConversationPage() {
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
-  // 虚拟滚动状态（react-virtuoso）
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
-  const [firstItemIndex, setFirstItemIndex] = useState(100000)
-  const [initialTopMostItemIndex, setInitialTopMostItemIndex] = useState<number | { index: 'LAST' }>({ index: 'LAST' })
+  // 滚动状态
   const isAtBottomRef = useRef(true)
-  const atBottomDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
@@ -104,7 +99,6 @@ function ConversationPage() {
   }, [allMessages])
   useEffect(() => () => {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
-    if (atBottomDebounceRef.current) clearTimeout(atBottomDebounceRef.current)
   }, [])
 
   // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少 Virtuoso 重渲染
@@ -303,32 +297,13 @@ function ConversationPage() {
     }
   }, []) // 依赖为空，通过 allMessagesRef 读取最新值
 
-  /** Virtuoso 底部状态变化：跟踪 isAtBottom（ref 镜像供 SSE handler 闭包使用）。
-   *  Why: false 信号用 50ms 短 debounce（检视獭建议）——
-   *  followOutput 已改为使用 isAtBottomRef，Virtuoso 瞬态 false 不再影响跟随行为；
-   *  50ms < 一帧，不影响跟随响应性，但过滤内容高度重算时的瞬态 false
-   *  信号，避免"新消息 N 条"浮窗闪烁。 */
-  const handleAtBottomChange = useCallback((atBottom: boolean) => {
-    if (atBottom) {
-      if (atBottomDebounceRef.current) {
-        clearTimeout(atBottomDebounceRef.current)
-        atBottomDebounceRef.current = null
-      }
-      isAtBottomRef.current = true
-      setNewMessagesCount(0)
-    } else {
-      if (!atBottomDebounceRef.current) {
-        atBottomDebounceRef.current = setTimeout(() => {
-          atBottomDebounceRef.current = null
-          isAtBottomRef.current = false
-        }, 50)
-      }
-    }
-  }, [])
-
   /** 点击"新消息 N 条"浮窗：滚到底部 + 清零计数 */
   const handleJumpToBottom = useCallback(() => {
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' })
+    // 找到滚动容器，滚到底部
+    const scrollEl = document.querySelector('[data-message-list]') as HTMLElement
+    if (scrollEl) {
+      scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' })
+    }
     setNewMessagesCount(0)
   }, [])
 
@@ -388,8 +363,8 @@ function ConversationPage() {
     if (!activeId) return
     const list = allMessages[activeId] || []
     if (list.length === 0) return
-    const startArr = Math.max(0, range.startIndex - firstItemIndex)
-    const endArr = Math.min(list.length - 1, range.endIndex - firstItemIndex)
+    const startArr = Math.max(0, range.startIndex)
+    const endArr = Math.min(list.length - 1, range.endIndex)
     let maxSeq = 0
     for (let i = startArr; i <= endArr; i++) {
       const s = list[i]?.seq
@@ -409,19 +384,23 @@ function ConversationPage() {
         console.error('Failed to mark read:', err)
       }
     }, 500)
-  }, [activeId, allMessages, firstItemIndex, unreadState])
+  }, [activeId, allMessages, unreadState])
 
-  /** 跳转到消息：已加载则 scrollToIndex，未加载则 expand 加载后定位；高亮 2s */
+  /** 跳转到消息：已加载则滚动定位，未加载则 expand 加载后定位；高亮 2s */
   const handleJumpToMessage = useCallback((messageId: string) => {
     if (!activeId) return
     const msgs = allMessages[activeId] || []
     const targetIndex = msgs.findIndex(m => m.id === messageId)
     if (targetIndex >= 0) {
-      virtuosoRef.current?.scrollToIndex({ index: firstItemIndex + targetIndex, behavior: 'smooth', align: 'center' })
+      // 找到目标消息的 DOM 元素，滚动到可视区域
+      const msgEl = document.querySelector(`[data-message-id="${messageId}"]`)
+      if (msgEl) {
+        msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
       setHighlightMessageId(messageId)
       setTimeout(() => setHighlightMessageId(null), 2000)
     }
-  }, [activeId, allMessages, firstItemIndex])
+  }, [activeId, allMessages])
 
   useEffect(() => {
     if (activeId && !allMessages[activeId]) {
@@ -1227,7 +1206,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} virtuosoRef={virtuosoRef} firstItemIndex={firstItemIndex} initialTopMostItemIndex={initialTopMostItemIndex} onAtBottomChange={handleAtBottomChange} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} onLoadMoreAfter={loadMoreAfter} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} onRangeChanged={handleRangeChanged} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
