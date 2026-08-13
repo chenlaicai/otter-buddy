@@ -24,6 +24,9 @@ modules:
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
   - src/usecases/conversation/dispatch-chain-engine.ts
   - src/frameworks/agent/pi-session-factory.ts
+  - src/interface-adapters/http/controllers/message-controller.ts
+  - src/frameworks/db/memory/sqlite-terminology-repository.ts
+  - web/src/pages/conversation/ScheduledTaskModal.tsx
   - prompts/identity/BIG_OTTER.md
   - prompts/identity/SMALL_OTTER.md
   - .pi/skills/otter-summon/SKILL.md
@@ -31,6 +34,8 @@ modules:
   - .pi/skills/adversarial-review/SKILL.md
   - data/terminology/seed-terminology.json
   - tests/capability/big-otter-dispatch.capability.test.ts
+  - tests/interface-adapters/speak-tool.test.ts
+  - tests/usecases/memory/manage-terminology.test.ts
 capability_test: tests/capability/big-otter-dispatch.capability.test.ts
 ---
 
@@ -568,6 +573,29 @@ return { ...textResponse("[系统控制信号] 发言已提交成功，回合结
 **记录在案的已知局限**（不阻断）：AT-2 断言取最后一条 completed 消息——因 C9 拦截不提交 speak，失败的首次 speak 不产生 completed 消息，故取最后一条即成功那条，断言有效；若未来 speak 软守卫语义变化需重审。
 
 **结论**：PR 审视通过（阻断项已修复）。能力测试 5/5 + 7/7 数据不变（修复为措辞/文档层，不改行为逻辑）。
+
+### 第五轮：PR 审视（新攻击面 + 回归验证）
+
+**审视范围**：前四轮未覆盖的攻击面——术语库 sync 兼容性、新旧词共存期、C9 未触发路径、单测缺口、前端展示层。同时实际重跑 F20260810rout 回程回归测试（T6 验证缺口）。
+
+**上线级阻断（已修复）**：
+- **术语库 syncSeed 按 term 匹配 + 同 id 改名 → PK 冲突 → 生产启动崩溃**：syncSeed 按 term 查存量（sqlite-terminology-repository.ts），seed-009 改 term（发言石→行动权）后按新 term 查 miss → 走 INSERT 带同 id → PRIMARY KEY 冲突 → buildApp 无兜底 → `process.exit(1)`。**所有存量 DB 合入后无法启动**。已修：term miss 后按 id 兜底，走 UPDATE（含 term 列更新）+ FTS 重建；补"同 id 改名"单测。
+- **C9 票据按"意图"提前清除的潜伏缺陷**：原 checkPendingDispatches 在 startSpeaking 成功前按 resolvedIds 清票据——startSpeaking 失败（db locked 等）时票据泄漏，大獭重试 speak(user) 不再被提醒，C9 在最需要的失败重试场景失效。已修：清除移到 startSpeaking 成功后（confirmDispatchesClear），拆"查提醒/确认清除"两步。
+- **C9 提醒路径零覆盖**：能力测试 5/5+7/7 全过意味着软守卫从未真实触发。已补 5 个单测（提醒路径/二次放行/补派直传/失败保票据/no-op 回归）。
+- **F20260810rout 回程回归**：talking-stone-routing.capability.test.ts 重跑**通过**——buildSummonerIdentity 措辞改动未破坏小獭→大獭回程路由（T6 ✓）。
+
+**次要（已修）**：
+- talkingStonePassedTo description 加"（旧称：发言权/发言石）"桥接——新旧词共存期唯一必达信道的映射
+- ScheduledTaskModal.tsx:158 前端 label"发言石传递给"→"行动权传递给"
+- F20260810rout status: design→implemented，causal_links.to 补 F20260813actk
+
+**结论**：第五轮通过。术语库 PK 冲突是本轮最有价值的发现——若无此轮，合入即造成所有存量实例启动失败。
+
+## 过渡期风险（第五轮补充）
+
+**新旧词共存**：合入后，新 invoke 的獭会在同一上下文同时看到 prompt 层新词（行动权）与对话历史旧词（发言石/发言权）——老消息原文呈现（dispatch-chain-engine 未读消息注入 + session 历史恢复，verbatim）。
+
+**判定低危**：(a) 语义邻近——"发言权传给我"与"行动权传给它"在上下文中指同一动作，弱模型大概率对齐；(b) 路由决策的近因信号是 prompt 层新词（必达信道），历史旧词是远因；(c) talkingStonePassedTo description 已加"（旧称：发言权/发言石）"桥接，术语库 aliases 含全部旧词。无需过渡期工程处理，持续观察即可。
 
 ## 设计决策
 

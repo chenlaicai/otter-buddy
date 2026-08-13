@@ -67,9 +67,12 @@ export interface ToolContext {
 }
 
 /**
- * F20260813actk C9：待派工票据的软守卫。
- * 清除本轮已被 speak 覆盖的票据；若仍有未派工且本次未提醒过，返回提醒文案（调用方以 terminate=false 返回）。
+ * F20260813actk C9：待派工票据的软守卫——检查未派工并提醒（不清除票据）。
+ * 若本轮创建的小獭仍有未获行动权的、且本次未提醒过，返回提醒文案（调用方以 terminate=false 返回）。
  * 返回 null 表示无需提醒，可正常提交 speak。
+ *
+ * 票据清除不在此函数做——移到 startSpeaking 成功后（confirmDispatchesClear）。
+ * 若按"意图"提前清除，startSpeaking 失败（如 db locked）会泄漏票据：大獭重试 speak(user) 不再被提醒。
  *
  * 同批调用限制：SDK 默认并行执行同批工具。create_otter 与 speak 同批调用时，
  * create_otter 的 pendingDispatches.set() 可能晚于 speak 的检查执行——C9 只可靠
@@ -83,15 +86,22 @@ function checkPendingDispatches(
 ): string | null {
   const pending = ctx.pendingDispatches;
   if (!pending) return null;
-  for (const id of resolvedIds) pending.delete(id);
-  if (pending.size === 0 || ctx.dispatchWarningShown) return null;
-  const names = [...pending.values()].join("、");
+  const remaining = [...pending.entries()].filter(([id]) => !resolvedIds.includes(id));
+  if (remaining.length === 0 || ctx.dispatchWarningShown) return null;
+  const names = remaining.map(([, name]) => name).join("、");
   ctx.dispatchWarningShown = true;
   return (
-    `[系统状态] 你本轮创建的小獭还有 ${pending.size} 只未获得行动权：${names}。它们不会被唤醒执行。` +
+    `[系统状态] 你本轮创建的小獭还有 ${remaining.length} 只未获得行动权：${names}。它们不会被唤醒执行。` +
     `如果你确实要把行动权交给 [${recipients.join("、")}]，再次调用 speak 即可放行；` +
     `如果是漏派，请把 ${names} 加入 talkingStonePassedTo 后重新调用 speak。`
   );
+}
+
+/** F20260813actk C9：startSpeaking 提交成功后确认清除已派工票据（按"提交成功"清，非按"意图"清） */
+function confirmDispatchesClear(ctx: ToolContext, resolvedIds: string[]): void {
+  const pending = ctx.pendingDispatches;
+  if (!pending) return;
+  for (const id of resolvedIds) pending.delete(id);
 }
 
 /** F20260803trrf: name->id resolve（NFC 归一化），speak 改用名字，系统侧做映射 */
@@ -142,7 +152,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "行动权交给谁（参数名 talkingStonePassedTo 即行动权令牌；用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
+          description: "行动权（旧称：发言权/发言石）交给谁（参数名 talkingStonePassedTo 即行动权令牌；用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -164,12 +174,14 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
       if (error) return errorResponse(error);
 
-      /** F20260813actk C9：软守卫——未派工票据未清空时给一次提醒（非阻断，二次放行） */
+      /** F20260813actk C9：软守卫——未派工票据未清空时给一次提醒（非阻断，二次放行；此处不清除票据） */
       const dispatchWarning = checkPendingDispatches(ctx, resolvedIds, recipients);
       if (dispatchWarning) return textResponse(dispatchWarning);
 
       try {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
+        /** F20260813actk C9：提交成功后才确认清除已派工票据 */
+        confirmDispatchesClear(ctx, resolvedIds);
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合发言已提交，无需重复调用 speak。请停止调用任何工具。"), terminate: true };
