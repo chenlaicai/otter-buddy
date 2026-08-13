@@ -21,7 +21,7 @@ tags: [agent-architecture, sub-otter, prompt-engineering, degenerate-prevention]
 modules:
   - .pi/skills/otter-summon/SKILL.md
   - src/interface-adapters/agent-runtime/tools/scheduled-task-tools.ts
-capability_test: "待定：B 类（LLM 行为），需真系统 + 真 LLM 验证大獭在收到任务时是否触发召唤判断"
+capability_test: "n/a: 纯 prompt 文本改动（B 类），无代码逻辑变更。验证方式为明天定时任务触发后线上观察大獭是否主动召唤开发獭"
 ---
 
 # F20260813otwn: 大獭召唤小獭的判断指导
@@ -36,7 +36,10 @@ capability_test: "待定：B 类（LLM 行为），需真系统 + 真 LLM 验证
 
 ### 根因分析
 
-不是 mimo 单方面的问题（虽然 mimo 有 repeat_window 自发倾向，已记录于 `project_mimo_degenerate_tendency.md`）。**核心是判断指导失效**——大獭本该派开发獭处理 4 个并行 issue，实际却自己在 main session 跑完了全部任务体。
+不是 mimo 单方面的问题。**根因分层**：
+
+1. **可改善因素（本 F 解决）**：判断指导失效——大獭本该派开发獭处理 4 个并行 issue，实际却自己在 main session 跑完了全部任务体
+2. **不可消除因素（本 F 不解决）**：mimo 模型存在 repeat_window 自发退化倾向（记忆 `project_mimo_degenerate_tendency.md`：干净上下文下也会自发退化）。即使本 F 完美生效，开发獭仍用 mimo，退化只是从 main session 转移到开发獭 session
 
 判断指导失效有三层：
 
@@ -164,15 +167,17 @@ capability_test: "待定：B 类（LLM 行为），需真系统 + 真 LLM 验证
 
 ### 目标
 
-- T1: 大獭看到"≥2 个同构任务"信号时，主动召唤开发獭并行处理（不自己在 main session 跑任务体）
+- T1: 大獭看到"≥2 个同 skill 任务"信号时，主动召唤开发獭并行处理（不自己在 main session 跑任务体）
 - T2: scheduler 触发的任务 body 不再催眠大獭（不出现"你是小獭"等身份错位文本）
 - T3: 大獭 main session 累积从 O(N × 任务体) 降到 O(N)
+
+**范围限定**：本方案仅覆盖"N 个独立同构任务"场景。有依赖的多任务（如多个 issue 修改同一文件）不在范围内——大獭应串行 dispatch 而非并行。
 
 ### 成功标准
 
 - SC1: 同样跑 4 个 daily-review issue，大獭主动召唤 ≥1 只开发獭（行为可观测）
-- SC2: 大獭 main session cacheRead 峰值 < 50K（今日事故峰值 172K；4 个 dispatch + 4 份 terminal signal 估算 < 50K）
-- SC3: 同期退化事件数显著下降（基线：今日 7 次 / 1 小时）
+- SC2: 大獭 main session cacheRead 峰值显著低于今日 172K（无硬阈值，方向性目标）
+- SC3: **main session** 退化事件数显著下降（基线：今日 7 次 / 1 小时；mimo 自发退化不在本 F 覆盖范围）
 
 ## 验收标准
 
@@ -236,6 +241,32 @@ prompt 文件 1 个 + 工具 description 1 处 + DB 数据 2 条。
 
 检视獭发现 1 严重 + 4 建议。S1 判定为**实现遗漏**（description 未改导致判断示例白加），已补齐 description 具体化。A1~A4 建议发现待明天观察后决定是否处理。
 
+### PR 检视（第 2 轮 delta 复核，已完成）
+
+S1 修复正确，无回归。N1 新发现（核心判断表术语未统一）已顺手修复。
+
+### PR 检视（第 3 轮 fresh-eyes，已完成）
+
+全新检视獭发现 3 严重 + 5 建议：
+- S1：CI 红灯（分支落后 main）→ 已 rebase
+- S2：`capability_test: "待定"` 触发 lint 硬错误 → 已改为 `n/a`
+- S3：三条已拍板决策未回写正文 → 已回写（SC2 无硬阈值、根因分层、范围限定）
+- 5 个建议发现待明天观察后决定是否处理
+
 ## 设计决策
 
-> 关键决策的 rationale，待审视后填。
+### D1: 为什么 description 也必须改
+
+SKILL.md 的触发机制是"LLM 只看 name + description 决定是否 read SKILL.md"（F20260811sktp 铁律）。description 不改，大獭可能根本不会读 SKILL.md，判断示例加了也白加。所以 description 具体化是**触发面**，不是锦上添花。
+
+### D2: 为什么不加 BIG_OTTER.md hook
+
+description 具体化后大獭能直接匹配到信号，不需要额外 hook。如明天观察发现大獭仍不触发召唤，再补。
+
+### D3: 为什么三处一起上而不是只改 body
+
+改动 2（scheduler body）是直接锚点（治标），改动 1（SKILL 信号）是根因改善（治本）。一起上是为了让"措辞改 + 判断准"配套，避免改 body 后大獭不催眠但仍不会判断。
+
+### D4: 为什么范围限定为独立同构任务
+
+有依赖的多任务（如多个 issue 修改同一文件）需要协调机制，本方案不覆盖。大獭遇到有依赖的情况应串行 dispatch 而非并行。
