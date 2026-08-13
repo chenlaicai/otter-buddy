@@ -272,13 +272,17 @@ export class SchedulerService {
       // F20260815rstrt: 触发前重启执行獭的 session（保持干净上下文）
       if (task.restartBeforeInvoke && task.talkingStonePassedTo.length > 0) {
         const executorOtterId = task.talkingStonePassedTo[0];
-        try {
-          await this.manageSession?.restartSession(executorOtterId,
-            `定时任务「${task.name}」触发前自动重启，保持干净上下文`);
-          this.logger.info('Pre-trigger restart completed', { taskId: task.id, otterId: executorOtterId });
-        } catch (err) {
-          // Why 降级：重启失败不阻塞任务执行，记日志即可
-          this.logger.error('Pre-trigger restart failed, continuing with task', err as Error, { taskId: task.id, otterId: executorOtterId });
+        if (!this.manageSession) {
+          this.logger.warn('restartBeforeInvoke skipped: manageSession not injected', { taskId: task.id, otterId: executorOtterId });
+        } else {
+          try {
+            await this.manageSession.restartSession(executorOtterId,
+              `定时任务「${task.name}」触发前自动重启，保持干净上下文`);
+            this.logger.info('Pre-trigger restart completed', { taskId: task.id, otterId: executorOtterId });
+          } catch (err) {
+            // Why 降级：重启失败不阻塞任务执行，记日志即可
+            this.logger.error('Pre-trigger restart failed, continuing with task', err as Error, { taskId: task.id, otterId: executorOtterId });
+          }
         }
       }
 

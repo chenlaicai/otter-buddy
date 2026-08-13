@@ -73,6 +73,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260805rbrg：messages 表添加 metadata 列（招聘桥接查重用） */
   addMessagesMetadataColumn(db, logger);
 
+  /** F20260815rstrt：scheduled_tasks 表添加 restart_before_invoke 列 */
+  addRestartBeforeInvokeColumn(db, logger);
+
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
 
@@ -300,14 +303,16 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
   });
   rebuild();
   logger.info('Rebuilt features/research tables to drop CHECK constraints (doc_check_constraints_dropped=done)');
+}
 
-  // F20260815rstrt: scheduled_tasks 表添加 restart_before_invoke 列
-  const stColumns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
-  const hasRestartBeforeInvoke = stColumns.some(col => col.name === 'restart_before_invoke');
-  if (!hasRestartBeforeInvoke) {
-    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN restart_before_invoke INTEGER NOT NULL DEFAULT 0").run();
-    logger.info('Added restart_before_invoke column to scheduled_tasks table');
-  }
+/** F20260815rstrt: scheduled_tasks 表添加 restart_before_invoke 列。PRAGMA 探测幂等。 */
+function addRestartBeforeInvokeColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  const hasRestartBeforeInvoke = columns.some(col => col.name === 'restart_before_invoke');
+  if (hasRestartBeforeInvoke) return;
+
+  db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN restart_before_invoke INTEGER NOT NULL DEFAULT 0").run();
+  logger.info('Added restart_before_invoke column to scheduled_tasks table');
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

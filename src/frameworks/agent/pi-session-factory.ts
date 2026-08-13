@@ -692,6 +692,7 @@ export class PiSessionFactory implements AgentGateway {
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
     return await otterInvokeStorage.run(
       { otterPromptConfig, identityPrefix },
+      // eslint-disable-next-line max-statements -- F20260815rstrt pendingRestart 检查增加语句数
       async () => {
         // 1. 构建工具配置并创建 AgentSession
         this.logger.debug('[execute] Creating session with tools', { otterId });
@@ -717,10 +718,14 @@ export class PiSessionFactory implements AgentGateway {
 
           // F20260815rstrt: session.prompt() 完成后检查自重启。
           // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，restart 创建新 session。
+          // Why await：fire-and-forget 会导致 restart 失败时 summary 丢失，语义不完整。
           if (toolContext.pendingRestart) {
-            this.otterToolClient!.otter.restart(otterId, toolContext.pendingRestart.summary)
-              .then(s => this.logger.info('Self-restart completed after invoke', { otterId, newSessionId: s.id }))
-              .catch(err => this.logger.error('Self-restart failed after invoke', err as Error, { otterId }));
+            try {
+              const newSession = await this.otterToolClient!.otter.restart(otterId, toolContext.pendingRestart.summary);
+              this.logger.info('Self-restart completed after invoke', { otterId, newSessionId: newSession.id });
+            } catch (restartErr) {
+              this.logger.error('Self-restart failed after invoke', restartErr as Error, { otterId });
+            }
           }
           return result;
         } catch (err) {

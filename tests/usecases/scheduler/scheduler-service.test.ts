@@ -1043,3 +1043,117 @@ describe('SchedulerService - onChange', () => {
     });
   });
 });
+
+describe('SchedulerService - restartBeforeInvoke', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-15T08:59:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should call manageSession.restartSession before invoking agent when restartBeforeInvoke=true', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: true, cron: '0 9 * * *' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    let restartCalled = false;
+    let invokeCalled = false;
+    const mockManageSession = {
+      restartSession: vi.fn(async () => {
+        restartCalled = true;
+        return { id: 'new-session-id' };
+      }),
+    };
+    agentInvoke.invokeConversation.mockImplementation(async () => {
+      invokeCalled = true;
+      return { messageId: 'msg-1' };
+    });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      manageSession: mockManageSession as unknown as ManageSession,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await Promise.resolve();
+
+    // 断言副作用：restart 和 invoke 都被调用
+    expect(restartCalled).toBe(true);
+    expect(invokeCalled).toBe(true);
+  });
+
+  it('should not call restartSession when restartBeforeInvoke=false', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: false, cron: '0 9 * * *' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    let restartCalled = false;
+    const mockManageSession = {
+      restartSession: vi.fn(async () => {
+        restartCalled = true;
+        return { id: 'new-session-id' };
+      }),
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      manageSession: mockManageSession as unknown as ManageSession,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await Promise.resolve();
+
+    expect(restartCalled).toBe(false);
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('should log warning when manageSession not injected and restartBeforeInvoke=true', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: true, cron: '0 9 * * *' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      // manageSession not injected
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await Promise.resolve();
+
+    // 断言日志输出：manageSession 未注入时应有 warning
+    const warnCalls = mockLogger.warn.mock.calls;
+    const hasWarn = warnCalls.some((call: unknown[]) =>
+      typeof call[0] === 'string' && call[0].includes('restartBeforeInvoke skipped'),
+    );
+    expect(hasWarn).toBe(true);
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+});
