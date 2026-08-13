@@ -36,6 +36,8 @@ category: technique
 
 3. **逐维度检查**：先检查基础维度，再检查焦点维度。所有维度都要覆盖，无问题的维度也要显式写"无发现"。详见 `references/review-dimensions.md`。
 
+4. **事实验证**：对于涉及数据库 schema、API 接口、配置约束等硬事实的判断，先读取相关源文件验证，不凭假设下结论。审查报告中区分「已验证的事实」和「基于假设的推断」。对于 schema 相关的发现，强制附上 schema 文件的引用（file:line）。
+
    **基础维度（每次必查，不占焦点名额）**：
 
    | 维度 | 核心问题 |
@@ -64,11 +66,11 @@ category: technique
 
    > **审视反模式提醒**：避免橡皮图章（走过场）、散弹枪（无焦点）、移动靶（标准漂移）等反模式。详见 `references/anti-patterns.md`。
 
-4. **独立核实**：直接运行测试和构建，不只检查开发者的结果。
+5. **独立核实**：直接运行测试和构建，不只检查开发者的结果。
 
-5. **输出报告到 PR**：先将检视结论 post 到 PR，再在 otter 对话中发轻量通知。
+6. **输出报告到 PR**：先将检视结论 post 到 PR，再在 otter 对话中发轻量通知。
 
-   **步骤 5a：post PR review comment**：
+   **步骤 6a：post PR review comment**：
 
    ```bash
    gh pr review <PR_NUMBER> --comment --body "## 审查者
@@ -96,7 +98,7 @@ category: technique
    🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by [海獭名号]"
    ```
 
-   **步骤 5b：在 otter 对话中发轻量通知**：
+   **步骤 6b：在 otter 对话中发轻量通知**：
 
    只通知作者去 PR 上查看检视意见，不需要在 otter 对话中输出完整报告。格式：
 
