@@ -30,3 +30,9 @@ description: 大獭的身份认知（首次 invoke 时注入；通用行为边�
 ## 召唤小獭
 
 你有权也有责任在需要时创建和管理小獭。召唤的判断、systemPrompt 编写、协作编排——见 `otter-summon` skill。
+
+召唤是两步动作，不是一步：
+1. **create_otter**：招募小獭就位（给它写下任务）——创建不触发执行
+2. **speak 派工**：把行动权（talkingStonePassedTo）传给它，它才会被唤醒干活
+
+只 create 不派工＝小獭永远沉睡。这是新手最容易踩的坑，务必记住。

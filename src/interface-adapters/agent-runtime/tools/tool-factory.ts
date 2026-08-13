@@ -56,6 +56,37 @@ export interface ToolContext {
    * 由 session 工厂按消息维护（message_start 清零、message_end 累积）；speak 用它检测"卡片写在 speak 外"的错误用法。
    */
   getTurnAssistantText?: () => string;
+  /**
+   * F20260813actk C9：本轮待派工票据（otterId → otterName）。
+   * create_otter 创建后注册；speak 派工后清除已覆盖的；未清空时 speak 给一次软提醒（非阻断）。
+   * agent invoke 级生命周期（每次 invoke 新建）。可选——未注入时 C9 no-op。
+   */
+  pendingDispatches?: Map<string, string>;
+  /** F20260813actk C9：本轮是否已展示过派工提醒。避免软守卫死循环——首次提醒后二次 speak 放行。 */
+  dispatchWarningShown?: boolean;
+}
+
+/**
+ * F20260813actk C9：待派工票据的软守卫。
+ * 清除本轮已被 speak 覆盖的票据；若仍有未派工且本次未提醒过，返回提醒文案（调用方以 terminate=false 返回）。
+ * 返回 null 表示无需提醒，可正常提交 speak。
+ */
+function checkPendingDispatches(
+  ctx: ToolContext,
+  resolvedIds: string[],
+  recipients: string[],
+): string | null {
+  const pending = ctx.pendingDispatches;
+  if (!pending) return null;
+  for (const id of resolvedIds) pending.delete(id);
+  if (pending.size === 0 || ctx.dispatchWarningShown) return null;
+  const names = [...pending.values()].join("、");
+  ctx.dispatchWarningShown = true;
+  return (
+    `[系统状态] 你本轮创建的小獭还有 ${pending.size} 只未获得行动权：${names}。它们不会被唤醒执行。` +
+    `如果你确实要把行动权交给 [${recipients.join("、")}]，再次调用 speak 即可放行；` +
+    `如果是漏派，请把 ${names} 加入 talkingStonePassedTo 后重新调用 speak。`
+  );
 }
 
 /** F20260803trrf: name->id resolve（NFC 归一化），speak 改用名字，系统侧做映射 */
@@ -98,7 +129,7 @@ function validateAndResolve(
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的发言并指定下一位发言者。发言内容全部放在 body 里——speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（terminate=true），系统调度下位发言者。GOTCHA: speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
+    description: "结束你的本轮行动（思考、调工具、出结论都在这里），并指定下一位行动者——接到行动权的人会立刻开始干活。发言内容全部放在 body 里——speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（terminate=true）。GOTCHA: speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
     parameters: {
       type: "object",
       properties: {
@@ -106,7 +137,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         talkingStonePassedTo: {
           type: "array",
           items: { type: "string" },
-          description: "发言权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
+          description: "行动权交给谁（参数名 talkingStonePassedTo 即行动权令牌；用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
         },
       },
       required: ["body", "talkingStonePassedTo"],
@@ -128,6 +159,10 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
       if (error) return errorResponse(error);
 
+      /** F20260813actk C9：软守卫——未派工票据未清空时给一次提醒（非阻断，二次放行） */
+      const dispatchWarning = checkPendingDispatches(ctx, resolvedIds, recipients);
+      if (dispatchWarning) return textResponse(dispatchWarning);
+
       try {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
       } catch (err) {
@@ -136,7 +171,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         }
         return errorResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
-      return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。系统将自动调度下一位发言者。"), terminate: true };
+      return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。"), terminate: true };
     },
   };
 }
@@ -202,7 +237,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
-    description: "创建子 Otter. When: 需要召唤专门执行特定任务的小獭（独立审视/并行工作/角色讨论/任务分担）. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
+    description: "创建子 Otter 并让它就位待命. When: 需要召唤小獭分担工作（独立审视/并行工作/角色讨论/任务分担）. **创建不触发执行——新 Otter 只是就位待命，你必须在随后的 speak 里把行动权（talkingStonePassedTo）传给它，它才会被唤醒干活；只创建不派工＝小獭永远不产出**. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话（但未开工）. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
     parameters: {
       type: "object",
       properties: {
@@ -235,7 +270,13 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       });
       /** 创建后自动加入当前对话参与者 */
       await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
-      return textResponse(`Otter created: ${otter.id} (${otter.name})`);
+      /** F20260813actk C9：注册待派工票据，供 speak 软守卫检测 */
+      ctx.pendingDispatches?.set(otter.id, otter.name);
+      /** F20260813actk C3：回包提示就位待命状态（串行场景教育） */
+      return textResponse(
+        `Otter created: ${otter.id} (${otter.name}). 已就位待命，但尚未开工——` +
+        `你需要在随后的 speak 里把行动权（talkingStonePassedTo=["${otter.name}"]）传给它，它才会执行。`
+      );
     },
   };
 }

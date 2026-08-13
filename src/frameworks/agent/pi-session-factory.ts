@@ -616,7 +616,7 @@ export class PiSessionFactory implements AgentGateway {
     const userName = rawName?.replace(/[\r\n]/g, '');
     const userIdentity = userName ? `## 你的搭档\n- 名字：${userName}\n- 称呼：搭档（你可以用名字称呼 ta）` : '';
 
-    // F20260810rout: 小獭注入召唤者身份（修复发言权路由 bug——子獭需知道召唤者是谁，结论才能交回）
+    // F20260810rout: 小獭注入召唤者身份（修复行动权路由 bug——子獭需知道召唤者是谁，结论才能交回）
     const summonerIdentity = isBig ? '' : await this.buildSummonerIdentity(otter);
 
     return [
@@ -628,7 +628,7 @@ export class PiSessionFactory implements AgentGateway {
     ].filter(Boolean).join("\n\n");
   }
 
-  /** F20260810rout: 构建召唤者身份段（小獭专用）——子獭需知道召唤者是谁，发言权才能交回 */
+  /** F20260810rout: 构建召唤者身份段（小獭专用）——子獭需知道召唤者是谁，行动权才能交回 */
   private async buildSummonerIdentity(otter: { parentOtterId: string | null }): Promise<string> {
     if (!otter.parentOtterId) return '';
     const parentOtter = await this.cfg.otterRepo.getById(otter.parentOtterId);
@@ -636,7 +636,7 @@ export class PiSessionFactory implements AgentGateway {
     return [
       '## 你的召唤者',
       `- 召唤你的海獭：${parentOtter.name}（本次任务的主导者）`,
-      `- **子任务完成后，发言权默认交回 ${parentOtter.name} 处置，不要传 'user'**`,
+      `- **子任务完成后，行动权默认交回 ${parentOtter.name} 处置，不要传 'user'**`,
       `- 只有整个协作任务真正完成、需要搭档（用户）拍板时，才传 'user'`,
     ].join('\n');
   }
@@ -907,6 +907,9 @@ export class PiSessionFactory implements AgentGateway {
       currentMessageId: messageId ?? "",
       modelPool: this.cfg.modelPool,
       getTurnAssistantText: turnText ? () => turnText.text : undefined,
+      /** F20260813actk C9：每次 invoke 新建待派工票据 Map（agent turn 级生命周期） */
+      pendingDispatches: new Map<string, string>(),
+      dispatchWarningShown: false,
     }, this.cfg.healingRepo, this.logger);
 
     return otterTools
