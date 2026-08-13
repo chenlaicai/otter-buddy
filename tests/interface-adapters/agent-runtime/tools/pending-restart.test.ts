@@ -1,12 +1,11 @@
 /**
  * F20260815rstrt pendingRestart 路径单元测试。
  *
- * 测试 restart_otter 工具的自重启延迟执行逻辑：
- * - 自重启：设置 pendingRestart，不立即执行
- * - 重启别人：直接执行 restart
- * - 异常处理：pendingRestart restart 失败时 catch 并记录日志
+ * 通过公共 API createTools 测试 restart_otter 工具的自重启延迟执行逻辑。
+ * 实际调用生产代码，而非手动复制逻辑。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createTools } from '@interface-adapters/agent-runtime/tools/tool-factory';
 import type { ToolContext } from '@interface-adapters/agent-runtime/tools/tool-factory';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
@@ -63,6 +62,14 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
   } as unknown as ToolContext & { _restartCalls: Array<{ id: string; summary?: string }> };
 }
 
+/** 获取 restart_otter 工具 */
+function getRestartTool(ctx: ToolContext) {
+  const tools = createTools(ctx, undefined, createRecordingLogger());
+  const restartTool = tools.find(t => t.name === 'restart_otter');
+  if (!restartTool) throw new Error('restart_otter tool not found');
+  return restartTool;
+}
+
 // ─── 测试 ─────────────────────────────────────────────────
 
 describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
@@ -72,15 +79,10 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
 
   it('自重启：设置 pendingRestart，不立即执行 restart', async () => {
     const ctx = createMockToolContext();
+    const restartTool = getRestartTool(ctx);
 
-    // 模拟 restart_otter 工具的 execute 逻辑（自重启路径）
-    const targetOtterId = ctx.otterId;
-    const summary = '测试前情摘要';
-
-    // 自重启时设置 pendingRestart
-    if (targetOtterId === ctx.otterId) {
-      ctx.pendingRestart = { summary };
-    }
+    // 调用生产代码（自重启路径）
+    const result = await restartTool.execute('call-1', { summary: '测试前情摘要' });
 
     // 验证 pendingRestart 被设置
     expect(ctx.pendingRestart).toBeDefined();
@@ -88,82 +90,36 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
 
     // 验证 restart 没有被调用（延迟执行）
     expect(ctx._restartCalls).toHaveLength(0);
+
+    // 验证返回消息
+    expect(result.content[0].text).toContain('已标记重启');
   });
 
-  it('自重启：pendingRestart 设置后，PiSessionFactory 应执行 restart', async () => {
+  it('自重启无 summary：pendingRestart.summary 为 undefined', async () => {
     const ctx = createMockToolContext();
+    const restartTool = getRestartTool(ctx);
 
-    // 模拟 restart_otter 工具设置 pendingRestart
-    ctx.pendingRestart = { summary: '测试前情摘要' };
+    // 调用生产代码（自重启路径，无 summary）
+    const result = await restartTool.execute('call-1', {});
 
-    // 模拟 PiSessionFactory 在 prompt 完成后检查 pendingRestart
-    if (ctx.pendingRestart) {
-      const newSession = await ctx.client.otter.restart(ctx.otterId, ctx.pendingRestart.summary);
-      ctx.logger.info('Self-restart completed after invoke', { otterId: ctx.otterId, newSessionId: newSession.id });
-    }
+    // 验证 pendingRestart 被设置
+    expect(ctx.pendingRestart).toBeDefined();
+    expect(ctx.pendingRestart!.summary).toBeUndefined();
 
-    // 验证 restart 被调用（通过记录的调用）
-    expect(ctx._restartCalls).toHaveLength(1);
-    expect(ctx._restartCalls[0].id).toBe('otter-1');
-    expect(ctx._restartCalls[0].summary).toBe('测试前情摘要');
+    // 验证 restart 没有被调用（延迟执行）
+    expect(ctx._restartCalls).toHaveLength(0);
 
-    // 验证日志记录（通过记录的调用）
-    const logger = ctx.logger as unknown as { _infoCalls: Array<{ message: string; data?: Record<string, unknown> }> };
-    expect(logger._infoCalls).toHaveLength(1);
-    expect(logger._infoCalls[0].message).toBe('Self-restart completed after invoke');
-    expect(logger._infoCalls[0].data?.otterId).toBe('otter-1');
-  });
-
-  it('自重启：pendingRestart restart 失败时 catch 并记录日志', async () => {
-    const ctx = createMockToolContext();
-
-    // 模拟 restart_otter 工具设置 pendingRestart
-    ctx.pendingRestart = { summary: '测试前情摘要' };
-
-    // 模拟 restart 失败（保留记录调用的能力）
-    const originalRestart = ctx.client.otter.restart as ReturnType<typeof vi.fn>;
-    originalRestart.mockImplementationOnce(async (id: string, summary?: string) => {
-      ctx._restartCalls.push({ id, summary });
-      throw new Error('restart failed');
-    });
-
-    // 模拟 PiSessionFactory 在 prompt 完成后检查 pendingRestart（带错误处理）
-    if (ctx.pendingRestart) {
-      try {
-        const newSession = await ctx.client.otter.restart(ctx.otterId, ctx.pendingRestart.summary);
-        ctx.logger.info('Self-restart completed after invoke', { otterId: ctx.otterId, newSessionId: newSession.id });
-      } catch (restartErr) {
-        ctx.logger.error('Self-restart failed after invoke', restartErr as Error, { otterId: ctx.otterId });
-      }
-    }
-
-    // 验证 restart 被调用（通过记录的调用）
-    expect(ctx._restartCalls).toHaveLength(1);
-
-    // 验证错误被记录（通过记录的调用）
-    const logger = ctx.logger as unknown as { _errorCalls: Array<{ message: string; error?: Error; data?: Record<string, unknown> }> };
-    expect(logger._errorCalls).toHaveLength(1);
-    expect(logger._errorCalls[0].message).toBe('Self-restart failed after invoke');
-    expect(logger._errorCalls[0].error?.message).toBe('restart failed');
-    expect(logger._errorCalls[0].data?.otterId).toBe('otter-1');
-
-    // 验证 info 没有被调用（restart 失败）
-    const infoLogger = ctx.logger as unknown as { _infoCalls: Array<{ message: string; data?: Record<string, unknown> }> };
-    expect(infoLogger._infoCalls).toHaveLength(0);
+    // 验证返回消息不含"前情摘要"
+    expect(result.content[0].text).toContain('已标记重启');
+    expect(result.content[0].text).not.toContain('前情摘要');
   });
 
   it('重启别人：直接执行 restart，不设置 pendingRestart', async () => {
     const ctx = createMockToolContext();
+    const restartTool = getRestartTool(ctx);
 
-    // 模拟 restart_otter 工具的 execute 逻辑（重启别人路径）
-    const targetOtterId = 'otter-2';
-    const summary = '测试前情摘要';
-
-    // 重启别人：直接执行 restart
-    if (targetOtterId !== ctx.otterId) {
-      const session = await ctx.client.otter.restart(targetOtterId, summary);
-      ctx.logger.info('Restart other otter', { targetOtterId, sessionId: session.id });
-    }
+    // 调用生产代码（重启别人路径）
+    const result = await restartTool.execute('call-1', { otterId: 'otter-2', summary: '测试前情摘要' });
 
     // 验证 restart 被调用（通过记录的调用）
     expect(ctx._restartCalls).toHaveLength(1);
@@ -172,27 +128,50 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
 
     // 验证 pendingRestart 没有被设置
     expect(ctx.pendingRestart).toBeUndefined();
+
+    // 验证返回消息
+    expect(result.content[0].text).toContain('已重启獭生');
   });
 
-  it('自重启无 summary：pendingRestart.summary 为 undefined', async () => {
+  it('目标 Otter 不存在：返回错误', async () => {
     const ctx = createMockToolContext();
+    const restartTool = getRestartTool(ctx);
 
-    // 模拟 restart_otter 工具设置 pendingRestart（无 summary）
-    ctx.pendingRestart = {};
+    // 调用生产代码（目标不存在）
+    const result = await restartTool.execute('call-1', { otterId: 'non-existent' });
 
-    // 验证 pendingRestart 被设置
-    expect(ctx.pendingRestart).toBeDefined();
-    expect(ctx.pendingRestart!.summary).toBeUndefined();
+    // 验证返回错误
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('不存在或已解散');
 
-    // 模拟 PiSessionFactory 在 prompt 完成后检查 pendingRestart
-    if (ctx.pendingRestart) {
-      const newSession = await ctx.client.otter.restart(ctx.otterId, ctx.pendingRestart.summary);
-      ctx.logger.info('Self-restart completed after invoke', { otterId: ctx.otterId, newSessionId: newSession.id });
-    }
+    // 验证 restart 没有被调用
+    expect(ctx._restartCalls).toHaveLength(0);
+  });
 
-    // 验证 restart 被调用（summary 为 undefined）
-    expect(ctx._restartCalls).toHaveLength(1);
-    expect(ctx._restartCalls[0].id).toBe('otter-1');
-    expect(ctx._restartCalls[0].summary).toBeUndefined();
+  it('小獭不能重启别人：返回错误', async () => {
+    const ctx = createMockToolContext({
+      otterId: 'small-otter',
+      client: {
+        otter: {
+          getById: vi.fn(async (id: string) => {
+            if (id === 'small-otter') return { id: 'small-otter', type: 'small', name: '小獭' };
+            if (id === 'otter-2') return { id: 'otter-2', type: 'big', name: '大獭' };
+            return null;
+          }),
+          restart: vi.fn(async (id: string, summary?: string) => ({
+            id: `new-session-${id}`,
+            summary,
+          })),
+        },
+      },
+    } as Partial<ToolContext>);
+    const restartTool = getRestartTool(ctx);
+
+    // 调用生产代码（小獭重启别人）
+    const result = await restartTool.execute('call-1', { otterId: 'otter-2' });
+
+    // 验证返回错误
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('小獭只能重启自己的獭生');
   });
 });
