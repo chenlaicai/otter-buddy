@@ -56,7 +56,6 @@ function makeStatefulFeatureRepo(initial: FeatureDocument[] = []): FeatureReposi
       if (i >= 0) store[i] = doc;
     }),
     getCreatedInConversationId: vi.fn(async () => null),
-    setCreatedInConversationId: vi.fn(async () => {}),
   };
 }
 
@@ -68,7 +67,6 @@ function makeResearchRepo(): ResearchRepository {
     updateStatus: vi.fn(async () => {}),
     updateContent: vi.fn(async () => {}),
     getCreatedInConversationId: vi.fn(async () => null),
-    setCreatedInConversationId: vi.fn(async () => {}),
   };
 }
 

@@ -19,7 +19,4 @@ export interface FeatureRepository {
 
   /** F20260813mrel: 读取文档的对话 provenance（事实级，非推断） */
   getCreatedInConversationId(id: string): Promise<string | null>;
-
-  /** F20260813mrel: 设置文档的对话 provenance（文档创建工具注入） */
-  setCreatedInConversationId(id: string, conversationId: string): Promise<void>;
 }

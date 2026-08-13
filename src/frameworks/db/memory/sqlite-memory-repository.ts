@@ -165,30 +165,17 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   /** F20260803mval: 按 source 原子替换（单事务删旧+插新），B2 修复 */
   /** F20260803fbit: DELETE/SELECT WHERE 加 content_type 过滤，防 summary entry 和 body entry 互相删除 */
+  /** F20260813mrel 审视二轮 P1-12：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
+   *  顺序：插新行 → 重定向边 → 按旧 id 删旧行（不能用 source 删，会误删新行）。
+   *  chunk 的 N:M replaceEntriesBySource 无法重定向，维持禁边（D3）。 */
   async replaceEntryBySource(entry: MemoryEntry): Promise<void> {
     this.db.exec("BEGIN");
     try {
-      // 删旧（同 source + 同 contentType），复用 deleteBySource 的联动删除逻辑
       const oldRows = this.db
         .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
         .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string }>;
-      for (const row of oldRows) {
-        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
-        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
-        if (this.vecTableExists) {
-          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
-        }
-        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
-        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
-        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
-        // F20260813mrel: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
-        this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
-      }
-      this.db.prepare(
-        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
-      ).run(entry.sourceTable, entry.sourceId, entry.contentType);
 
-      // 插新（同 storeEntry 逻辑，但同一事务内）
+      // 1. 插新（必须在重定向前——FK 要求新行先存在）
       this.db.prepare(`
         INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
           conversation_id, granularity, content, metadata, created_at)
@@ -215,6 +202,25 @@ export class SqliteMemoryRepository implements MemoryRepository {
         INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
         VALUES (?, 0, NULL, 0)
       `).run(entry.id);
+
+      // 2. 边重定向：旧 id → 新 id（新 id 是全新 UUID，UNIQUE 不可能冲突）
+      for (const row of oldRows) {
+        this.db.prepare("UPDATE memory_edges SET from_entry_id = ? WHERE from_entry_id = ?").run(entry.id, row.id);
+        this.db.prepare("UPDATE memory_edges SET to_entry_id = ? WHERE to_entry_id = ?").run(entry.id, row.id);
+      }
+
+      // 3. 删旧行及联动数据（按 id 删）
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
+        if (this.vecTableExists) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
+        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_entries WHERE id = ?").run(row.id);
+      }
 
       this.db.exec("COMMIT");
     } catch (error) {

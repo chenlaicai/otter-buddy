@@ -63,9 +63,4 @@ export class SqliteResearchRepository implements ResearchRepository {
       .get(id) as { created_in_conversation_id: string | null } | undefined;
     return row?.created_in_conversation_id ?? null;
   }
-
-  /** F20260813mrel: 设置文档的对话 provenance */
-  async setCreatedInConversationId(id: string, conversationId: string): Promise<void> {
-    this.db.prepare("UPDATE research SET created_in_conversation_id = ? WHERE id = ?").run(conversationId, id);
-  }
 }

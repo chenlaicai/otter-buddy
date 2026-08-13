@@ -146,7 +146,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
+    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）；命中条目后可调 get_related 沿关系图遍历（如'这文档怎么来的'），发现条目间关联可用 link_memory 声明. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
     parameters: {
       type: "object",
       properties: {
@@ -389,7 +389,7 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
 function createLinkMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "link_memory",
-    description: `声明两个记忆条目之间的关系. When: 你判断两条记忆有产出/引用/取代/相关关系时调用. type: produced(A产出B, 如消息催生文档)/references(A引用B)/supersedes(A取代B)/relates-to(双向相关). BOUNDARY: 只能对 coarse 粒度条目建边（文档 summary / 消息 / fact，不能对文档 chunk）. 幂等：同 from+to+type 重复调用返回已存在 id.`,
+    description: `声明两个记忆条目之间的关系. When: 你判断两条记忆有产出/引用/取代/相关关系时调用——典型时机：文档创建完成后（当前讨论 produced 本文档）、回答引用了历史决策时（当前发言 references 历史条目）、发现跨会话同主题时（relates-to）. type: produced(A产出B, 如消息催生文档)/references(A引用B)/supersedes(A取代B)/relates-to(双向相关). 关系一旦声明可被 get_related 遍历拼链. BOUNDARY: 不能对文档 chunk（feature_chunk/research_chunk）建边——sync 会替换 chunk 导致边丢失；消息/文档 summary/fact 均可. 幂等：同 from+to+type 重复调用返回已存在 id.`,
     parameters: {
       type: "object",
       properties: {
@@ -427,7 +427,7 @@ function createLinkMemoryTool(ctx: ToolContext): AgentTool {
 function createGetRelatedTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_related",
-    description: `从一个记忆条目出发遍历关系图. When: 需要拼证据链/因果链/发展链时，从一个已知条目找关联（如'F文档D是怎么来的'→ 查 produced 入边找催生消息）. Output: [{entry, edgeType, edgeFromEntryId, depth}] 结构化路径（不是平铺列表）——你能看到 A→B→C 的链式关系. direction: out=出边(默认, A→谁), in=入边(谁→A). depth>1 多跳遍历找间接关联.`,
+    description: `从一个记忆条目出发遍历关系图. When: 需要拼证据链/因果链/发展链时，从一个已知条目找关联（如'F文档D是怎么来的'→ 查 produced 入边找催生消息）；典型前置是 search_memory 命中条目后想深挖关联. Output: [{entry, edgeType, edgeFromEntryId, depth}] 结构化路径（不是平铺列表）——你能看到 A→B→C 的链式关系；若起点是特性/研究文档且有 provenance，附带催生对话的消息. direction: out=出边(默认, A→谁), in=入边(谁→A)；direction 只作用于有向边（produced/references/supersedes），relates-to 恒双向. depth>1 多跳遍历找间接关联. 发现未声明的关联可用 link_memory 补上.`,
     parameters: {
       type: "object",
       properties: {
@@ -456,11 +456,32 @@ function createGetRelatedTool(ctx: ToolContext): AgentTool {
         limit: params.limit as number | undefined,
       });
       // F20260813mrel Part 2: 若起点是 feature/research 文档，附带 provenance（催生它的对话消息）
+      // 审视二轮：输出 schema 统一为 { related, provenance? }——消二态，LLM 不用面对两种结构
       const provenance = await ctx.client.memory.getDocProvenance(params.entry_id as string);
-      const output = provenance.conversationId
-        ? { related: results, provenance }
-        : results;
-      return textResponse(JSON.stringify(output));
+      return textResponse(JSON.stringify({
+        related: results,
+        ...(provenance.conversationId ? { provenance } : {}),
+      }));
+    },
+  };
+}
+
+/** F20260813mrel 审视二轮: sync_docs — 写完文档立即同步入库（不等重启） */
+function createSyncDocsTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "sync_docs",
+    description: `同步特性/研究文档入库. When: 刚写完或修改了 docs/features/ 或 docs/research/ 下的文档——不调的话要等系统重启才会入库（search_memory 搜不到、provenance 不可查）. Output: { synced, updated, skipped, archived, errors } 同步统计. TIP: 写完文档后建议顺手 sync_docs + link_memory（当前讨论 produced 本文档），文档立即可检索且关系链成型. BOUNDARY: 全量扫描 docs/ 目录（幂等），不删除未改动内容.`,
+    parameters: {
+      type: "object",
+      properties: {},
+    },
+    execute: async () => {
+      try {
+        const stats = await ctx.client.docs.sync();
+        return textResponse(JSON.stringify(stats));
+      } catch (err) {
+        return errorResponse(`[错误] 文档同步失败：${err instanceof Error ? err.message : String(err)}`);
+      }
     },
   };
 }
@@ -645,6 +666,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createLinkMemoryTool(ctx),
     createGetRelatedTool(ctx),
     createUnlinkEdgeTool(ctx),
+    createSyncDocsTool(ctx),
     createGetMessageTool(ctx),
     createListMessagesTool(ctx),
     createSearchMessagesTool(ctx),

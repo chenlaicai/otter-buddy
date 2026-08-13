@@ -7,8 +7,14 @@
  * 断言为行为不变量（边存在、path 结构正确、provenance 消息返回），不断言 LLM 措辞。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { bootCapabilityApp, type CapabilityContext } from "./helpers/boot";
 import { StoreMemory } from "@usecases/memory/store-memory";
+import { SyncDocuments } from "@usecases/document/sync-documents";
+import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
+import { MemoryIndexAdapter } from "../../src/bootstrap/memory";
 import { createTestLogger } from "../helpers/logger";
 
 describe("记忆关系层：edge CRUD + BFS + provenance（真 app + 真 DB）", () => {
@@ -168,5 +174,58 @@ describe("记忆关系层：edge CRUD + BFS + provenance（真 app + 真 DB）",
     // D8: 不预筛选，两条消息都返回
     expect(provenance.messages.some(m => m.content.includes("第一条"))).toBe(true);
     expect(provenance.messages.some(m => m.content.includes("第二条"))).toBe(true);
+  });
+
+  it("AT-13+AT-8 完整链路：frontmatter created_in_conversation → sync 立即入库 → 可检索 + provenance 可查", async () => {
+    // 1. 创建真实对话
+    const convRes = await ctx.built.app.request("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "sync-docs-conv", title: "sync-docs-test" }),
+    });
+    const conv = await convRes.json() as { id: string };
+
+    // 2. 模拟海獭写文档：frontmatter 带 created_in_conversation，写到临时 docs 目录
+    const docsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "otter-sync-test-"));
+    const docDir = path.join(docsRoot, "docs/features/2026/08/13");
+    fs.mkdirSync(docDir, { recursive: true });
+    fs.writeFileSync(path.join(docDir, "F20260813sync-sync-test-doc.md"), `---
+id: F20260813sync
+title: sync-test-doc
+summary: |
+  即时入库验证文档。测试 sync 不等重启。
+status: draft
+change_type: feature
+created_in_conversation: ${conv.id}
+---
+
+# 即时入库验证
+
+正文内容：含独特标记 SYNC7-DOC-7788。
+`);
+
+    // 3. 触发同步（与 sync_docs 工具同一 SyncDocuments 代码路径）
+    const memoryIndex = new MemoryIndexAdapter(
+      new StoreMemory(ctx.built.repos.memory, ctx.built.embeddingService, createTestLogger()),
+    );
+    const syncDocs = new SyncDocuments(
+      new NodeFileSystem(), ctx.built.repos.feature, ctx.built.repos.research, memoryIndex, createTestLogger(),
+    );
+    const syncResult = await syncDocs.execute(docsRoot);
+    expect(syncResult.synced).toBe(1);
+
+    // 4. 立即可检索（不等重启）——HTTP API 用户视角
+    const searchRes = await ctx.built.app.request(
+      `/api/memory/search?query=${encodeURIComponent("SYNC7-DOC-7788")}&limit=5`,
+    );
+    expect(searchRes.status).toBe(200);
+    const searchBody = await searchRes.json() as { entries: Array<{ content: string }> };
+    expect(searchBody.entries.some(e => e.content.includes("SYNC7-DOC-7788"))).toBe(true);
+
+    // 5. provenance 写入 features 列（frontmatter → sync → DB）
+    const convId = await ctx.built.repos.feature.getCreatedInConversationId("F20260813sync");
+    expect(convId).toBe(conv.id);
+
+    fs.rmSync(docsRoot, { recursive: true, force: true });
   });
 });

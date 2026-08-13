@@ -3,11 +3,11 @@ id: F20260813mrel
 title: memory-relation-layer
 summary: |
   记忆关系层：把 flat 的 memory_entries 升级为可声明、可遍历的有向关系图。
-  Part 1 memory_edges 表 + CreateEdge/GetRelated/DeleteEdge use case（4 种边类型：produced/references/supersedes/relates-to；无 direction 字段，relates-to 查询层双向；UNIQUE 约束保幂等；限制 LLM 只能对 coarse entry 建边防 chunk sync 丢边）；
-  Part 2 文档 provenance（features/research 加 created_in_conversation_id 列，工具上下文直接写 DB 不污染 frontmatter；get_related 返回同会话消息时不预筛选，带 role/turn 元数据）；
-  Part 3 agent 工具（link_memory/get_related/unlink_memory，get_related 返回结构化 path 而非平铺列表）。
+  Part 1 memory_edges 表 + CreateEdge/GetRelated/DeleteEdge use case（4 种边类型：produced/references/supersedes/relates-to；无 direction 字段，relates-to 查询层双向；UNIQUE+ON CONFLICT 保幂等；只禁 chunk 建边——summary entry re-sync 时边重定向到新 id）；
+  Part 2 文档 provenance（frontmatter 加 created_in_conversation，sync 读入 features/research 列；身份注入告诉海獭当前对话 ID；get_related 返回同会话消息时不预筛选）；
+  Part 3 agent 工具（link_memory/get_related/unlink_memory/sync_docs，get_related 返回结构化 path + provenance，search_memory 交叉引用引导遍历）。
   根因：memory_entries 扁平，文档入库 conversationId=undefined 导致 doc↔message 完全断链，跨会话同主题无关联，用户期待的"证据链/因果链/发展链"拼不出来。
-  主机制：建独立关系表 → 记录事实级 provenance → 暴露工具让 LLM 自主声明和遍历。
+  主机制：建独立关系表 → frontmatter 记录事实级 provenance → 暴露工具让 LLM 自主声明和遍历 → sync_docs 让新文档立即入库。
 
 causal_links:
   from:
@@ -92,7 +92,9 @@ capability_test: tests/capability/memory-relations.capability.test.ts
 
 **审视抓到的隐蔽 bug**：文档 sync 时 `replaceEntriesBySource` 会删旧 chunk entries 建新 chunk entries。如果 LLM 在 chunk entry（fine 粒度）上建了边，CASCADE/手动删都会让边在每次文档更新后静默丢失。
 
-**决策**：`link_memory` 校验目标 entry 的粒度——只允许 `granularity = "coarse"` 的 entry（文档 summary、message、fact、linked_resource）建边，拒绝 `feature_chunk`/`research_chunk`（fine 粒度 chunk）。文档 summary entry 的 `source_id` = 文档 ID，sync 时不删，边安全。
+**决策（PR 审视二轮修正）**：`link_memory` 校验目标 entry 的 contentType——拒绝 `feature_chunk`/`research_chunk`（chunk 被 sync replaceEntriesBySource N:M 删旧建新，边无法重定向）；message/fact/文档 summary 均可建边（message 是 fine 粒度但不会被 sync 替换）。
+
+**审视二轮 P1-12 修正**：初版 D3 论断"summary entry 的 source_id 不变所以边安全"是错误前提——`replaceEntryBySource` 是 DELETE 旧行 + INSERT 新 UUID 行，文档改一个错别字就触发，LLM 声明的 `produced` 边会静默消失。修复：1:1 summary entry 的 replace 改为**边重定向**（同事务内 UPDATE 边端点到新 id），不再删边；chunk 的 N:M replace 无法重定向，维持禁边。
 
 ### D4: 砍 direction 字段
 
@@ -177,8 +179,8 @@ CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge
 ### 1.3 use cases
 
 - `CreateEdge.execute({ fromEntryId, toEntryId, edgeType, metadata?, createdBy? })`
-  - **校验粒度**（D3）：from 和 to 的 entry 必须 `granularity = "coarse"`，否则抛 `DomainError("edges only allowed on coarse entries")`
-  - **幂等**：同 (from, to, type) 已存在则返回已存在的 edge id（`ON CONFLICT DO NOTHING RETURNING id`）
+  - **校验类型**（D3，审视二轮修正）：拒绝 `feature_chunk`/`research_chunk`（chunk 被 N:M replace 删旧建新，边无法重定向）；message/fact/文档 summary 均可
+  - **幂等**：同 (from, to, type) 已存在则返回已存在的 edge id（`INSERT ... ON CONFLICT DO NOTHING` + 重 SELECT，原子防 TOCTOU）
   - **自环拒绝**：CHECK 约束
 - `GetRelated.execute({ entryId, depth?, edgeTypes?, direction?, limit? })`
   - BFS 遍历，默认 `depth=1`
@@ -214,9 +216,11 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 
 通过 `migration.ts` 加（项目已有大量 ALTER 先例，PRAGMA table_info 幂等检测）。
 
-### 2.2 写入路径（不经过 frontmatter）
+### 2.2 写入路径（frontmatter，用户拍板）
 
-文档创建/更新工具（如 writing-skills 的相关工具）的 execute 上下文已有 `conversationId`（`ToolContext.conversationId`）。工具调用 `createFeatureDoc` / `updateFeatureDoc` 等 use case 时，把 conversationId 一并传入，写入 `features.created_in_conversation_id`。**不污染 frontmatter**。
+海獭创建文档时在 frontmatter 写 `created_in_conversation: <conv-id>`（当前对话 ID 从身份注入获知，任何写文件方式均可——bash/workspace_write 等）。`SyncDocuments` 读 `fm.created_in_conversation` → entity.createdInConversationId → 写入 `features.created_in_conversation_id` 列。fingerprint 含此字段，provenance 变更触发 update。
+
+**即时性**：写完文档调 `sync_docs` 工具立即入库（审视二轮新增——否则要等系统重启才可检索）。
 
 人工/外部创建的文档无此字段（null），表示"外部引入"。
 
@@ -234,8 +238,11 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 |------|------|------|
 | `src/frameworks/db/schema.ts` | 修改 | features/research 表定义加列 |
 | `src/frameworks/db/migration.ts` | 修改 | ALTER 迁移 |
-| 文档创建 use cases（`src/usecases/document/` 或相关） | 修改 | 接受并写入 conversationId |
-| `src/usecases/memory/get-related.ts` | 修改 | feature/research entry 的 provenance JOIN |
+| `src/usecases/document/sync-documents.ts` | 修改 | 读 `fm.created_in_conversation` + fingerprint 含此字段 |
+| `src/frameworks/db/document/*-mapper.ts` | 修改 | 双向映射新列 |
+| `src/frameworks/db/document/sqlite-*-repository.ts` | 修改 | INSERT/UPDATE 含新列 |
+| `src/frameworks/agent/pi-session-factory.ts` | 修改 | 身份注入加「当前对话 ID」 |
+| `src/usecases/memory/get-doc-provenance.ts` | 新增 | provenance 读路径 use case |
 
 ---
 
@@ -245,26 +252,30 @@ ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT;
 
 | 工具 | 入参 | 作用 |
 |------|------|------|
-| `link_memory` | from_id, to_id, type, note?, created_by? | LLM 声明两个记忆条目之间的关系 |
-| `get_related` | entry_id, depth?, types?, direction?, limit? | 从某条目出发遍历关系图，返回结构化 path |
-| `unlink_memory` | edge_id | 删除一条关系边（纠正错误声明） |
+| `link_memory` | from_id, to_id, type, note? | LLM 声明两个记忆条目之间的关系 |
+| `get_related` | entry_id, depth?, types?, direction?, limit? | 从某条目出发遍历关系图，返回 `{related: [{entry, edgeType, edgeFromEntryId, depth}], provenance?}` |
+| `unlink_memory` | edge_id | 删除一条关系边（幂等，纠错用） |
+| `sync_docs` | 无 | 写完/改完文档后立即同步入库（审视二轮新增——否则要等重启才可检索） |
 
-### 3.2 工具描述骨架
+### 3.2 工具描述与交叉引用（审视二轮拍板）
 
-```
-link_memory: 声明两个记忆条目之间的关系。入参：from_id, to_id, type(produced/references/supersedes/relates-to), note?
-get_related: 从一个记忆条目出发，沿关系边遍历邻居。入参：entry_id, depth?(默认1), types?, direction?(out/in)
-unlink_memory: 删除一条关系边。入参：edge_id
-```
+审视发现 search_memory 与关系工具零交叉引用，海獭搜到条目后不知道下一步——不加这行本 PR 合并后用户 100% 看不到效果。最小交叉引用（工具契约文档，非行为引导）：
 
-详细引导语（什么时候用、怎么用好）归 issue #264，配合 prompt 层优化。
+- `search_memory` 加："命中条目后可调 get_related 沿关系图遍历，发现条目间关联可用 link_memory 声明"
+- `get_related` 加：典型前置是 search_memory 命中后深挖；发现未声明的关联可用 link_memory 补上
+- `link_memory` 加：典型时机——文档创建完成后（当前讨论 produced 本文档）、回答引用历史决策时、发现跨会话同主题时
+
+更系统的 prompt 引导（SYSTEM.md 强化等）仍归 issue #264。
 
 ### 3.3 改动范围
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | 修改 | 加 3 个工具 |
+| `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | 修改 | 加 4 个工具 + 交叉引用描述 |
 | `src/frameworks/agent/session-helpers.ts` | 修改 | `getOtterToolNamesForType` 加新工具名 |
+| `src/bootstrap/clients.ts` | 修改 | docs.sync 接线 |
+| `src/app.ts` | 修改 | syncDocs 注入 |
+| `.pi/skills/_shared/SKILL-TEMPLATE.md` | 修改 | 特性文档全局约定：字段清单加 created_in_conversation + sync_docs/link_memory 引导 |
 
 ---
 
@@ -279,12 +290,14 @@ unlink_memory: 删除一条关系边。入参：edge_id
 | AT-3 | 自环拒绝 | link_memory(A, A, ...) | 抛错（CHECK 约束）|
 | AT-4 | 双向查询 | produced(A, B)，get_related(B, direction="in") | 返回 A |
 | AT-5 | relates-to 自动双向 | relates-to(A, B)，get_related(B) 不传 direction | 返回 A |
-| AT-6 | 粗粒度限制 | link_memory 到 feature_chunk entry（fine）| 抛 DomainError |
-| AT-7 | entry 删边清 | 删 entry A，查 memory_edges | from/to 为 A 的边都被 deleteEdgesByEntry 清理 |
-| AT-8 | 文档 provenance | 在对话 C 中用工具创建 F 文档 D，查 features.created_in_conversation_id | = C 的 id |
-| AT-9 | provenance JOIN 返回全部消息 | get_related(D)，D 是 feature 且有 provenance | 返回 C 的消息（带 role/turn），不做预筛选 |
+| AT-6 | chunk 类型限制 | link_memory 到 feature_chunk entry | 抛 DomainError |
+| AT-7 | entry 删边清 | 删 entry A，查 memory_edges | from/to 为 A 的边都被清理 |
+| AT-8 | 文档 provenance | frontmatter 写 created_in_conversation: C，sync 后查 features.created_in_conversation_id | = C 的 id |
+| AT-9 | provenance JOIN 返回全部消息 | get_related(D)，D 是 feature 且有 provenance | 返回 C 的消息，不做预筛选 |
 | AT-10 | 环安全 | A→B→A 成环，get_related(A, depth=5) | visited 守门，不无限循环 |
-| AT-11 | path 结构 | get_related 返回值 | 每项含 {entry, edgeType, edgeFromEntryId, depth} |
+| AT-11 | path 结构 | get_related 返回值 | `{related: [{entry, edgeType, edgeFromEntryId, depth}], provenance?}` |
+| AT-12 | re-sync 边重定向 | 建边 message→doc 后，replaceEntryBySource 换 doc 新 id | 边端点重定向到新 id，不丢失（审视二轮 P1-12） |
+| AT-13 | sync_docs 即时入库 | 写新文档后调 sync_docs | 不等重启，search_memory 立即可检索 |
 
 ### 能力测试（B 类，真系统+真 LLM）
 

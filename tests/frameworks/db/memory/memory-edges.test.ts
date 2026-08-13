@@ -215,3 +215,48 @@ describe("F20260813mrel: deleteEdgesByEntryIds CASCADE 清理", () => {
     expect(after.find(r => r.entry.id === "cascade-a")).toBeUndefined();
   });
 });
+
+describe("F20260813mrel 审视二轮 P1-12: re-sync 边重定向", () => {
+  it("summary entry re-sync 后边指向新 entry id（不静默丢失）", async () => {
+    // 模拟真实场景：消息 produced 文档 summary
+    await insertEntry("rs-msg", "讨论内容", { contentType: "message", sourceTable: "messages", granularity: "fine" });
+    await insertEntry("rs-doc-old", "文档 v1", { contentType: "feature", sourceTable: "features", sourceId: "F20260813rsyn" });
+    const edgeId = await createEdge.execute({
+      fromEntryId: "rs-msg", toEntryId: "rs-doc-old", edgeType: "produced",
+    });
+
+    // 模拟 re-sync：replaceEntryBySource 换新 UUID（文档正文改了一个字触发 fingerprint 变化）
+    await repo.replaceEntryBySource({
+      id: "rs-doc-new",
+      layer: "document",
+      contentType: "feature",
+      sourceId: "F20260813rsyn",
+      sourceTable: "features",
+      conversationId: null,
+      granularity: "coarse",
+      content: "文档 v2",
+      metadata: null,
+      createdAt: "2026-08-13T01:00:00Z",
+    });
+
+    // 旧 entry 没了，新 entry 在
+    expect(await repo.getById("rs-doc-old")).toBeNull();
+    expect(await repo.getById("rs-doc-new")).not.toBeNull();
+
+    // 关键断言：边没有丢，重定向到了新 entry id
+    const related = await getRelated.execute({ entryId: "rs-msg", direction: "out", edgeTypes: ["produced"] });
+    const hit = related.find(r => r.entry.sourceId === "F20260813rsyn");
+    expect(hit).toBeDefined();
+    expect(hit!.entry.id).toBe("rs-doc-new");
+    expect(hit!.entry.content).toBe("文档 v2");
+
+    // 反向也可查
+    const inbound = await getRelated.execute({ entryId: "rs-doc-new", direction: "in", edgeTypes: ["produced"] });
+    expect(inbound.find(r => r.entry.id === "rs-msg")).toBeDefined();
+
+    // edgeId 仍然有效（边行没删，只是端点变了）
+    const edge = await repo.getEdgeById(edgeId);
+    expect(edge).not.toBeNull();
+    expect(edge!.toEntryId).toBe("rs-doc-new");
+  });
+});

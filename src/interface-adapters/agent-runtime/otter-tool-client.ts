@@ -115,4 +115,12 @@ export interface OtterToolClient {
     supersede(existingId: string, newInput: LinkResourceInput, currentTurnNumber: number): Promise<LinkedResource>;
     archive(id: string, conversationId: string, currentTurnNumber: number): Promise<void>;
   };
+  /**
+   * F20260813mrel 审视二轮：文档同步工具。
+   * 海獭写完 docs/features|research 下的文档后调用，立即入库（不等重启），
+   * 让文档立刻可被 search_memory 检索 + provenance 立即可查。
+   */
+  docs: {
+    sync(): Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
+  };
 }

@@ -118,7 +118,14 @@ export function buildResourceClient(uc: UseCases) {
   };
 }
 
-export function buildOtterToolClient(uc: UseCases): OtterToolClient {
+// eslint-disable-next-line max-lines-per-function -- F20260813mrel 加 docs.sync 后超 60 行；Composition Root 集中装配，拆分降低可读性
+export function buildOtterToolClient(
+  uc: UseCases,
+  deps?: {
+    /** F20260813mrel 审视二轮：文档同步（sync_docs 工具）。由 app.ts 装配时注入。 */
+    syncDocs?: () => Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
+  },
+): OtterToolClient {
   return {
     conversation: {
       message: buildMessageClient(uc),
@@ -165,5 +172,14 @@ export function buildOtterToolClient(uc: UseCases): OtterToolClient {
       delete: (otterId, key) => uc.manageContext.delete(otterId, key),
     },
     resource: buildResourceClient(uc),
+    // F20260813mrel 审视二轮：sync_docs 工具——写文档后立即入库，不等重启
+    docs: {
+      sync: async () => {
+        if (!deps?.syncDocs) {
+          throw new Error("syncDocs not wired");
+        }
+        return deps.syncDocs();
+      },
+    },
   };
 }
