@@ -15,6 +15,7 @@ export interface ResearchRow {
   supersedes: string;
   file_path: string;
   created_at: string;
+  created_in_conversation_id: string | null;
 }
 
 /** Row -> Entity */
@@ -35,6 +36,7 @@ export function rowToEntity(row: ResearchRow): ResearchDocument {
     supersedes: JSON.parse(row.supersedes),
     filePath: row.file_path,
     createdAt: row.created_at,
+    createdInConversationId: row.created_in_conversation_id ?? null,
   };
 }
 
@@ -53,5 +55,6 @@ export function entityToRow(doc: ResearchDocument): ResearchRow {
     supersedes: JSON.stringify(doc.supersedes),
     file_path: doc.filePath,
     created_at: doc.createdAt,
+    created_in_conversation_id: doc.createdInConversationId ?? null,
   };
 }

@@ -75,7 +75,11 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toHaveLength(26);
+    // F20260813mren: 记忆关系层工具
+    expect(tools).toContain("link_memory");
+    expect(tools).toContain("get_related");
+    expect(tools).toContain("unlink_memory");
+    expect(tools).toHaveLength(30);
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
@@ -104,7 +108,11 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toHaveLength(24);
+    // F20260813mren: 记忆关系层工具（大小獭都能用）
+    expect(tools).toContain("link_memory");
+    expect(tools).toContain("get_related");
+    expect(tools).toContain("unlink_memory");
+    expect(tools).toHaveLength(28);
     // 管理类工具不包含
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
@@ -115,6 +123,6 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("create_otter");
     expect(tools).toContain("dissolve_otter");
     expect(tools).toContain("restart_otter");
-    expect(tools).toHaveLength(26);
+    expect(tools).toHaveLength(30);
   });
 });

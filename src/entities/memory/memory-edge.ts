@@ -1,0 +1,43 @@
+/**
+ * F20260813mren: 记忆关系层实体。
+ * memory_entries 之间的有向关系边，让 flat 数据变成可遍历的记忆图。
+ */
+import type { MemoryEntry } from "./memory-entry";
+
+/** 边类型（固定枚举，D2 决策：4 种） */
+export type EdgeType = "produced" | "references" | "supersedes" | "relates-to";
+
+/** F20260813mren: 运行时校验字符串是否为合法 EdgeType */
+const VALID_EDGE_TYPES: ReadonlySet<EdgeType> = new Set<EdgeType>([
+  "produced", "references", "supersedes", "relates-to",
+]);
+export function isEdgeType(s: string): s is EdgeType {
+  return VALID_EDGE_TYPES.has(s as EdgeType);
+}
+
+/** 记忆关系边实体 */
+export interface MemoryEdge {
+  id: string;
+  fromEntryId: string;
+  toEntryId: string;
+  edgeType: EdgeType;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  /** 创建者（otter id 或 "user"），可选 */
+  createdBy: string | null;
+}
+
+/**
+ * F20260813mren D6: GetRelated 返回的结构化路径项。
+ * LLM 拿到后能理解 "A 指向 B，B 指向 C" 的链式关系，而非平铺列表。
+ */
+export interface RelatedEntryItem {
+  /** 邻居 entry（完整 MemoryEntry，PR 审视 P1-5：复用类型防退化） */
+  entry: MemoryEntry;
+  /** 这条边的类型 */
+  edgeType: EdgeType;
+  /** 边的起点 entry id（判断方向用：若 edgeFromEntryId == 起点，则是出边；否则入边） */
+  edgeFromEntryId: string;
+  /** BFS 深度（起点 depth=0，直接邻居 depth=1） */
+  depth: number;
+}

@@ -175,6 +175,12 @@ describe("SearchMemory - progressive disclosure", () => {
       getBySourceId: async () => null,
       findNeighborsByChunkIndex: async () => [],
       findNeighborsByTime: async () => [],
+      createEdge: async () => "edge-id",
+      getEdgesByEntry: async () => [],
+      getEdgeById: async () => null,
+      deleteEdge: async () => {},
+      deleteEdgesByEntryIds: async () => {},
+      getEntriesByConversation: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {
@@ -405,6 +411,12 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       getBySourceId: async () => null,
       findNeighborsByChunkIndex: async () => [],
       findNeighborsByTime: async () => [],
+      createEdge: async () => "edge-id",
+      getEdgesByEntry: async () => [],
+      getEdgeById: async () => null,
+      deleteEdge: async () => {},
+      deleteEdgesByEntryIds: async () => {},
+      getEntriesByConversation: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({
@@ -478,6 +490,12 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       getBySourceId: async () => null,
       findNeighborsByChunkIndex: async () => [],
       findNeighborsByTime: async () => [],
+      createEdge: async () => "edge-id",
+      getEdgesByEntry: async () => [],
+      getEdgeById: async () => null,
+      deleteEdge: async () => {},
+      deleteEdgesByEntryIds: async () => {},
+      getEntriesByConversation: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({

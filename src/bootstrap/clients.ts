@@ -1,4 +1,5 @@
 import type { MemoryContentType } from "@entities/memory/memory-entry";
+import type { EdgeType } from "@entities/memory/memory-edge";
 import type { ArtifactStatus } from "@entities/conversation/conversation";
 import type { UseCases } from "./types";
 import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
@@ -43,6 +44,30 @@ export function buildMemoryClient(uc: UseCases) {
     getDetails: async (ids: string[]) => {
       const entries = await uc.manageMemory.getDetails(ids);
       return entries.map(e => ({ id: e.id, content: e.content, layer: e.layer, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
+    },
+    // F20260813mren: 记忆关系层工具方法
+    linkMemory: async (params: { fromId: string; toId: string; edgeType: EdgeType; note?: string }, createdBy?: string) => {
+      const edgeId = await uc.createEdge.execute({
+        fromEntryId: params.fromId,
+        toEntryId: params.toId,
+        edgeType: params.edgeType,
+        metadata: params.note ? { note: params.note } : undefined,
+        createdBy,
+      });
+      return { edgeId };
+    },
+    getRelated: (params: { entryId: string; depth?: number; edgeTypes?: EdgeType[]; direction?: "out" | "in"; limit?: number }) =>
+      uc.getRelated.execute(params),
+    unlinkEdge: (edgeId: string) => uc.deleteEdge.execute(edgeId),
+    getDocProvenance: async (entryId: string) => {
+      const result = await uc.getDocProvenance.execute(entryId);
+      return {
+        conversationId: result.conversationId,
+        messages: result.messages.map(m => ({
+          id: m.id, content: m.content, layer: m.layer, score: 0,
+          contentType: m.contentType, metadata: m.metadata ?? undefined, createdAt: m.createdAt,
+        })),
+      };
     },
   };
 }
@@ -93,7 +118,16 @@ export function buildResourceClient(uc: UseCases) {
   };
 }
 
-export function buildOtterToolClient(uc: UseCases): OtterToolClient {
+// eslint-disable-next-line max-lines-per-function -- F20260813mren 加 docs.sync 后超 60 行；Composition Root 集中装配，拆分降低可读性
+export function buildOtterToolClient(
+  uc: UseCases,
+  deps?: {
+    /** F20260813mren 审视二轮：文档同步（sync_docs 工具）。由 app.ts 装配时注入。 */
+    syncDocs?: (rootDir?: string) => Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
+  },
+): OtterToolClient {
+  // 审视三轮：sync_docs 并发互斥标志（模块级——client 单例，全进程共享）
+  let syncInFlight = false;
   return {
     conversation: {
       message: buildMessageClient(uc),
@@ -140,5 +174,23 @@ export function buildOtterToolClient(uc: UseCases): OtterToolClient {
       delete: (otterId, key) => uc.manageContext.delete(otterId, key),
     },
     resource: buildResourceClient(uc),
+    // F20260813mren 审视二轮：sync_docs 工具——写文档后立即入库，不等重启
+    docs: {
+      sync: async (rootDir?: string) => {
+        if (!deps?.syncDocs) {
+          throw new Error("syncDocs not wired");
+        }
+        // 审视三轮 A-10 附带：并发互斥——并发调用直接返回进行中，防 file_path UNIQUE 伪错误
+        if (syncInFlight) {
+          throw new Error("文档同步进行中，请稍后重试");
+        }
+        syncInFlight = true;
+        try {
+          return await deps.syncDocs(rootDir);
+        } finally {
+          syncInFlight = false;
+        }
+      },
+    },
   };
 }

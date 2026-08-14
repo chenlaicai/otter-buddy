@@ -29,7 +29,7 @@ category: technique
 
 1. **收集信息**：读取相关文件、日志、配置；查询 memory 中的历史决策和类似问题；确认复现条件和影响范围。
 2. **分析根因**：提出假设 → 逐一验证（读代码、查日志、对比配置）。区分症状和根因——修根因，不修症状。
-3. **形成结论**：输出结构化结论（问题现象 + 根因分析附 file:line + 修复建议 + 影响范围）。将排查结论写入 worktree 中的特性文档（参见全局约定「特性文档」），首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选）。
+3. **形成结论**：输出结构化结论（问题现象 + 根因分析附 file:line + 修复建议 + 影响范围）。将排查结论写入 worktree 中的特性文档（参见全局约定「特性文档」），首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选）。写完后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 4. **需要修复时**：转入 `worktree-isolation` 流程创建 worktree，在 worktree 内修复并提交。
 5. **排查中需改文件验证假设时**：立即转入 worktree，验证完成后决定提交或 revert，继续排查。
 

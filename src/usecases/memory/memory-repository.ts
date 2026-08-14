@@ -5,6 +5,7 @@ import type {
   MemoryContentType,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
+import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
 import type { EmbedModelMeta } from "./embedding-gateway";
 
 export interface SearchFilters {
@@ -161,4 +162,50 @@ export interface MemoryRepository {
    * 若 attempts >= maxAttempts，status 转 'dead'。
    */
   markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void>;
+
+  // ---- F20260813mren: 记忆关系层 ----
+
+  /**
+   * F20260813mren Part 2: 按 conversationId 获取消息条目（provenance 读路径用）。
+   * D8: 不做预筛选，返回全部（按 limit 截断），附带 role/turn 等元数据。
+   */
+  getEntriesByConversation(
+    conversationId: string,
+    opts?: { contentType?: MemoryContentType[]; limit?: number },
+  ): Promise<MemoryEntry[]>;
+
+  /**
+   * 创建关系边。幂等：同 (from, to, type) 已存在则返回已存在 edge id。
+   * 应用层保证 from/to 是 coarse 粒度 entry（防 chunk sync 丢边，见 CreateEdge use case）。
+   */
+  createEdge(input: {
+    fromEntryId: string;
+    toEntryId: string;
+    edgeType: EdgeType;
+    metadata?: Record<string, unknown>;
+    createdBy?: string;
+  }): Promise<string>;
+
+  /**
+   * F20260813mren D6: 从某 entry 出发 BFS 遍历关系图。
+   * 返回 [{ edge, entry }]——边 + 邻居 entry 配对，让调用方拼结构化 path。
+   * depth 默认 1。visited 守门防环。
+   * relates-to 自动双向查（from OR to），其余单向。
+   */
+  getEdgesByEntry(entryId: string, opts?: {
+    edgeTypes?: EdgeType[];
+    direction?: "out" | "in";
+  }): Promise<Array<{ edge: MemoryEdge; neighborEntry: MemoryEntry }>>;
+
+  /** 按 edge id 获取单条边（unlink_memory 用） */
+  getEdgeById(edgeId: string): Promise<MemoryEdge | null>;
+
+  /** 删除一条边（unlink_memory 纠错用） */
+  deleteEdge(edgeId: string): Promise<void>;
+
+  /**
+   * 按 entry id 批量清理关联边（deleteBySource 等 delete 路径调）。
+   * D7: 不依赖 FK CASCADE，手动 DELETE（与 embedding_tasks 模式一致）。
+   */
+  deleteEdgesByEntryIds(entryIds: string[]): Promise<void>;
 }

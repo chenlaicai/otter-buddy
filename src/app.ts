@@ -152,7 +152,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     workspaceGateway,
   });
   const uc = initUseCases({ repos, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway });
-  resolveOtterToolClient(buildOtterToolClient(uc));
+  // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
+  // 审视三轮 A-10：rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
+  resolveOtterToolClient(buildOtterToolClient(uc, {
+    syncDocs: async (rootDir?: string) => {
+      const r = await syncDocuments(repos, memoryIndex, logger, rootDir ?? options.rootDir ?? process.cwd());
+      return { synced: r.synced, updated: r.updated, skipped: r.skipped, archived: r.archived, errors: r.errors.length };
+    },
+  }));
   resolveManageScheduledTask(uc.manageScheduledTask);
 
   // ── 调度引擎 + 平台集成 ──

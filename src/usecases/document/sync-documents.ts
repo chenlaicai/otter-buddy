@@ -41,13 +41,15 @@ export interface SyncResult {
 function featureFingerprint(doc: FeatureDocument): string {
   return [doc.title, doc.summary, doc.bodyHash, doc.changeType, doc.status, doc.filePath,
     JSON.stringify(doc.tags), JSON.stringify(doc.modules),
-    JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes)].join("|");
+    JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes),
+    doc.createdInConversationId ?? ""].join("|");
 }
 
 function researchFingerprint(doc: ResearchDocument): string {
   return [doc.title, doc.summary, doc.bodyHash, doc.explorationType, doc.status, doc.filePath,
     JSON.stringify(doc.tags), doc.conclusion ?? "",
-    JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes)].join("|");
+    JSON.stringify(doc.causalLinksFrom), JSON.stringify(doc.supersedes),
+    doc.createdInConversationId ?? ""].join("|");
 }
 
 /** F20260803fbit: 计算 body_hash（清理后 body 的 sha256 前 16 字符） */
@@ -341,6 +343,7 @@ export class SyncDocuments {
         : [],
       filePath,
       createdAt: (fm.created_at as string) || new Date().toISOString(),
+      createdInConversationId: (fm.created_in_conversation as string) || null,
     };
   }
 
@@ -369,6 +372,7 @@ export class SyncDocuments {
         : [],
       filePath,
       createdAt: (fm.created_at as string) || new Date().toISOString(),
+      createdInConversationId: (fm.created_in_conversation as string) || null,
     };
   }
 }
