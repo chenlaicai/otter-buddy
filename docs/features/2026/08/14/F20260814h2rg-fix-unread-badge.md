@@ -11,7 +11,6 @@ summary: |
 causal_links:
   from:
     - F20260813actk
-  to: []
 
 status: implemented
 ---
