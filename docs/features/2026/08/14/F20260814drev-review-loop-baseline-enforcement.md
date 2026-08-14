@@ -45,7 +45,7 @@ capability_test: "n/a: 纯 prompt/skill 文本改动（B 类行为）。验证�
 
 ### Problem 1 根因：规则在错误的 agent 的文档里
 
-"修复≠签收"规则写在 `adversarial-review/SKILL.md:255-259`——这是**检视獭读的 skill**。大獭在"修复完→决定路由给谁"这个时刻，它作为编排者读的是 `otter-summon/references/collaboration-patterns.md`。那里只有一句跨文档引用：
+"修复≠签收"规则写在 `adversarial-review/SKILL.md`（改动前行号 255-259，"行动权路由"节）——这是**检视獭读的 skill**。大獭在"修复完→决定路由给谁"这个时刻，它作为编排者读的是 `otter-summon/references/collaboration-patterns.md`。那里只有一句跨文档引用：
 
 > 循环的继续与终止按收敛判据运转（定义见 adversarial-review/references/review-loop.md）
 
@@ -57,11 +57,11 @@ capability_test: "n/a: 纯 prompt/skill 文本改动（B 类行为）。验证�
 
 ### Problem 2 根因：有工具不用 + 设计盲区
 
-表面看是检视獭不仔细。但读工具实现发现：**小獭已经有 `bash`/`read`/`write`/`edit` 编码工具**（`session-helpers.ts:15-18`，注释明确写"small otter 需要写代码、评论 PR、执行构建命令等实际工作"）。
+表面看是检视獭不仔细。但读工具实现发现：**小獭已经有 `bash`/`read`/`write`/`edit` 编码工具**（`src/frameworks/agent/session-helpers.ts:15-18`，注释明确写"small otter 需要写代码、评论 PR、执行构建命令等实际工作"）。
 
 所以问题不是工具缺口——检视獭有能力跑 `gh run list`、读 worktree 文件、跑测试。问题是**有工具不用**：把 B1/B2/B3 当勾选框填"通过"，而不是实际运行检查。报告模板有"证据"列，但填"通过"和实际查过在报告上看起来一模一样，无法区分。
 
-同时，**特性编号根本不在检视维度里**。它是 `code-implementation` 的输入要求（`SKILL.md:26`），不是检视 checklist 的检查项。检视獭不检查编号不是疏忽——是设计上的盲区。
+同时，**特性编号根本不在检视维度里**。它是 `code-implementation` 的输入要求（`code-implementation/SKILL.md` 输入表"方案编号"行），不是检视 checklist 的检查项。检视獭不检查编号不是疏忽——是设计上的盲区。
 
 ## 改动
 
@@ -78,7 +78,7 @@ capability_test: "n/a: 纯 prompt/skill 文本改动（B 类行为）。验证�
 **设计理由**：
 - 不靠跨文档引用——规则住在大獭实际读到的地方
 - 用"大白话"翻译降低 LLM 误读概率
-- 与 `adversarial-review/SKILL.md:255-259` 的行动权路由表形成双保险（一处给检视獭读、一处给大獭读）
+- 与 `adversarial-review/SKILL.md` 的行动权路由表（改动前行号 255-259）形成双保险（一处给检视獭读、一处给大獭读）
 
 **不做机制守卫的理由**：speak 工具内联软守卫（类比 C9 pendingDispatches）可行但脆弱——`role.name` 是 LLM 自由命名的自由文本，pattern match 误报风险高。遵循"机制约束优先让 LLM 理解"——先 prompt 修复，观察效果后再决定是否加机制。
 
@@ -96,10 +96,13 @@ capability_test: "n/a: 纯 prompt/skill 文本改动（B 类行为）。验证�
 
 在 B3 之后新增 B4，检查特性编号在 commit message / PR title / PR 描述 / 特性文档 frontmatter 间的一致性。放在基础维度层（每次必查，不占焦点名额）。
 
-**文件**：`.pi/skills/adversarial-review/SKILL.md` 同步更新：
+**文件**：`.pi/skills/adversarial-review/SKILL.md` 同步更新（9 处）：
+- frontmatter description "6 维度检查" → "基础维度 B1-B4 + 焦点维度"（delta 复核修复：原"6 维度"与新 B4 矛盾）
+- 步骤 2 "基础维度不占焦点名额"句加"变更标识一致性"
 - 步骤 3 基础维度表格加 B4 行
 - "基础维度失败"段 B1/B2/B3 → B1/B2/B3/B4
 - 新增"基础维度必须附验证证据"引用指针
+- 步骤 5a gh pr review 命令内联模板加 B4 行
 - PR Review Comment 模板基础维度表格加 B4 行
 - 完整报告模板基础维度表格加 B4 行
 - 维度扫视结论表格加 B4 行
