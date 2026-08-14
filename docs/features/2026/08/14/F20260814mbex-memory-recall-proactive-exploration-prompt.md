@@ -60,9 +60,9 @@ issue #264。排查记忆系统效果时发现：用户期待 agent 每次回答
 
 **改动 3：get_related description 讲清"链怎么读、怎么顺着走"**（issue 点 3，依赖线1已合入 #269）
 
-- 读法：related 是路径片段集合，每项 = 从 edgeFromEntryId 沿 edgeType 指向 entry，用 id 对接成链；分叉时一个节点挂多条链（BFS 平铺数组，非保证相邻的链序）
+- 读法：related 是路径片段集合，按方向分述——out 时每项 = 从 edgeFromEntryId 沿 edgeType 指向 entry，用 id 对接成链；in 时 entry 是边起点（edgeFromEntryId 与 entry.id 相同），含义是 entry --edgeType--> 查询起点（depth=1）或上一跳节点（depth>1）。（in 读法为二轮 N1 修订后的最终形态，与工具 description 一致；分叉时一个节点挂多条链）
 - 走法（方向经实现核实，见 D5）：查"X 怎么来的" → direction=in + produced；查"X 产出了什么" → direction=out + produced；查"X 被什么取代（找新版）" → direction=in + supersedes；查"X 取代过什么（找前身）" → direction=out + supersedes；同主题 → relates-to（恒双向）
-- provenance 读法：起点是 F/R 文档时返回催生对话消息，可还原"这文档是在哪段讨论里出来的"
+- provenance 读法：起点是 F/R 文档且有催生对话记录时返回催生对话消息，可还原"这文档是在哪段讨论里出来的"
 
 ### 目标
 
@@ -181,6 +181,15 @@ issue #264。排查记忆系统效果时发现：用户期待 agent 每次回答
 | F2 | informational | relates-to 反向存储边在 out 查询下片段自指——但 relates-to 语义对称且文案已声明恒双向，误读无实质危害 | **不改**，随 follow-up（补 edgeToEntryId 后两类歧义一并消失） |
 
 三轮总体判断：**可合入**。
+
+### 第四轮（终审，2026-08-14，独立检视 agent）
+
+独立重放全部验证（BFS 端到端心理模拟 ×方向/深度组合、provenance 三方一致性、测试稳定性）。结论：17 条处置经独立重验全部真实落实，收敛是真收敛。**无阻断发现，可合入**。
+
+| # | 严重度 | 发现 | 处置 |
+|---|--------|------|------|
+| T1 | informational | in+relates-to 组合下"edgeFromEntryId 与 entry.id 相同"不总成立——三轮 F2 同族歧义，误读无实质危害 | **确认不改**，随 #269 follow-up 消失 |
+| T2 | low | 方案设计"改动 3"的读法句仍是二轮 N1 修订前的无条件表述，未来读者只看方案设计会拿到被推翻的读法 | **接受并修订**。正文同步为方向分述最终形态 |
 
 ## 二轮审视后的 follow-up 待办
 
