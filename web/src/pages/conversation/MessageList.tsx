@@ -175,6 +175,8 @@ interface MessageListProps {
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   userName?: string
+  /** 用户滚动到底部时调用，用于标记已读 */
+  onReachBottom?: () => void
 }
 
 /** 判断是否在底部（阈值 100px） */
@@ -187,7 +189,7 @@ export function MessageList({
   conversationId, isAtBottomRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
   loadingMore, onAtBottomChange,
   unreadSeparatorSeq, highlightMessageId,
-  userName,
+  userName, onReachBottom,
 }: MessageListProps) {
   if (state === 'no-llm') {
     return (
@@ -277,18 +279,27 @@ export function MessageList({
     isAtBottomRef.current = atBottom
     onAtBottomChange?.(atBottom)
 
+    // 到达底部，标记已读
+    if (atBottom && onReachBottom) {
+      onReachBottom()
+    }
+
     // 到达顶部，触发加载更多
     if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
       // 记录当前滚动高度，加载后恢复
       pendingScrollRestoreRef.current = el.scrollHeight
       onLoadMore()
     }
-  }, [onLoadMore, loadingMore, onAtBottomChange, isAtBottomRef])
+  }, [onLoadMore, loadingMore, onAtBottomChange, isAtBottomRef, onReachBottom])
 
   /** 首次渲染滚到底部 */
   useEffect(() => {
     if (messages.length > 0) {
-      requestAnimationFrame(() => scrollToBottom())
+      requestAnimationFrame(() => {
+        scrollToBottom()
+        // Why: 首次渲染滚到底部后标记已读（此时 isNearBottom 检测已通过）
+        if (onReachBottom) onReachBottom()
+      })
     }
   }, [])
 

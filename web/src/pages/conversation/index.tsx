@@ -852,6 +852,26 @@ function ConversationPage() {
       })
   }, [activeId])
 
+  /** 标记已读防抖（避免滚动时频繁调用 API） */
+  const markReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (markReadDebounceRef.current) clearTimeout(markReadDebounceRef.current)
+  }, [])
+
+  /** 用户滚动到底部时标记已读（防抖 500ms） */
+  const handleMarkRead = useCallback(() => {
+    if (!activeId) return
+    if (markReadDebounceRef.current) clearTimeout(markReadDebounceRef.current)
+    markReadDebounceRef.current = setTimeout(() => {
+      const msgs = allMessagesRef.current[activeId] || []
+      const realMsgs = msgs.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-') && m.seq != null)
+      if (realMsgs.length === 0) return
+      const maxSeq = Math.max(...realMsgs.map(m => m.seq!))
+      api.markRead(activeId, maxSeq).catch(() => {})
+      markReadDebounceRef.current = null
+    }, 500)
+  }, [activeId])
+
   /** 手动重试：对 failed/aborted 的 otter 消息重新触发 agent */
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!activeId) return
@@ -1144,7 +1164,7 @@ function ConversationPage() {
     <AppLayout activeView="conversation">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
         <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
