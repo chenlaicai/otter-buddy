@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { MessageBatcher } from './batch-update'
 import type { LocalMessage } from './mappers'
 
 /**
- * 批量更新逻辑的纯函数测试。
- * 
- * 由于 batchUpdateMessages 和 flushBatchUpdates 依赖 React state（setAllMessages），
- * 这里测试的是它们的纯函数逻辑：pendingUpdatesRef 的 Map-overwrite 语义。
+ * F20260814qswp：直接测试真实实现 MessageBatcher。
+ * 旧测试文件复刻了一份实现副本做断言（影子测试），且把"窗口内更新丢失"
+ * 当作预期行为固化——本文件改为对真实代码断言正确语义。
  */
 
 function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
@@ -16,114 +16,112 @@ function msg(overrides: Partial<LocalMessage> = {}): LocalMessage {
   }
 }
 
-describe('批量更新逻辑（纯函数语义）', () => {
-  let pendingUpdates: Map<string, LocalMessage[]>
-  let allMessages: Record<string, LocalMessage[]>
+describe('MessageBatcher', () => {
+  let base: Record<string, LocalMessage[]>
+  let applied: Array<Map<string, LocalMessage[]>>
+  let batcher: MessageBatcher
 
   beforeEach(() => {
-    pendingUpdates = new Map()
-    allMessages = {
+    vi.useFakeTimers()
+    base = {
       'conv-1': [msg({ id: 'm1', content: 'msg1' }), msg({ id: 'm2', content: 'msg2' })],
       'conv-2': [msg({ id: 'm3', content: 'msg3' })],
     }
+    applied = []
+    batcher = new MessageBatcher({
+      windowMs: 50,
+      getBase: (convId) => base[convId] ?? [],
+      apply: (updates) => {
+        applied.push(new Map(updates))
+        // 模拟 apply 后 state 与镜像同步
+        for (const [convId, msgs] of updates) base[convId] = msgs
+      },
+    })
   })
 
-  /** 模拟 batchUpdateMessages 的核心逻辑 */
-  function batchUpdateMessages(convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) {
-    const current = allMessages[convId] || []
-    const updated = updater(current)
-    if (updated === current) return
-    pendingUpdates.set(convId, updated)
-  }
-
-  /** 模拟 flushBatchUpdates 的核心逻辑 */
-  function flushBatchUpdates() {
-    if (pendingUpdates.size === 0) return
-    const updates = new Map(pendingUpdates)
-    pendingUpdates.clear()
-    allMessages = { ...allMessages }
-    for (const [convId, msgs] of updates) {
-      allMessages[convId] = msgs
-    }
-  }
-
-  it('同一 convId 的多次 batchUpdateMessages，只有最后一次的 updated 被 flush', () => {
-    // 注意：在真实代码中，batchUpdateMessages 的 setAllMessages 返回 prev，state 不会变化
-    // 所以同一 50ms 窗口内的多次 batchUpdateMessages 调用，updater 读取的 prev 是相同的
-    
-    // 第一次更新：添加消息
-    batchUpdateMessages('conv-1', (list) => [...list, msg({ id: 'm4', content: 'msg4' })])
-    expect(pendingUpdates.get('conv-1')?.map(m => m.id)).toEqual(['m1', 'm2', 'm4'])
-
-    // 第二次更新：替换消息（updater 读取的 list 是原始 state，没有 m4）
-    batchUpdateMessages('conv-1', (list) => list.map(m => m.id === 'm1' ? { ...m, content: 'updated' } : m))
-    // 注意：因为 updater 读取的 list 是原始 state（['m1', 'm2']），所以返回的 updated 也是 ['m1', 'm2']
-    // 这会覆盖 Map 中的条目，丢失第一次更新
-    expect(pendingUpdates.get('conv-1')?.map(m => m.id)).toEqual(['m1', 'm2'])
-    expect(pendingUpdates.get('conv-1')?.find(m => m.id === 'm1')?.content).toBe('updated')
-
-    // Flush：只有最后一次更新生效（丢失了 m4）
-    flushBatchUpdates()
-    expect(allMessages['conv-1'].map(m => m.id)).toEqual(['m1', 'm2'])
-    expect(allMessages['conv-1'].find(m => m.id === 'm1')?.content).toBe('updated')
-    expect(pendingUpdates.size).toBe(0)
+  afterEach(() => {
+    batcher.dispose()
+    vi.useRealTimers()
   })
 
-  it('flushBatchUpdates 用存储值直接覆盖 state', () => {
-    // 模拟 state 在存储后变化
-    batchUpdateMessages('conv-1', (list) => [...list, msg({ id: 'm4', content: 'msg4' })])
-    
-    // 模拟 state 被外部修改（如轮询更新）
-    allMessages['conv-1'] = [msg({ id: 'm1', content: 'external-update' })]
-    
-    // Flush：用存储的值覆盖，丢失外部更新
-    flushBatchUpdates()
-    expect(allMessages['conv-1'].map(m => m.id)).toEqual(['m1', 'm2', 'm4'])
-    expect(allMessages['conv-1'].find(m => m.id === 'm1')?.content).toBe('msg1') // 存储的值，不是 external-update
+  it('窗口内同会话多次 update 链式生效，中间更新不丢失（回归：message.start + assistant_text + complete 同窗口）', () => {
+    // message.start：占位消息
+    batcher.update('conv-1', (list) => [...list, msg({ id: 'm4', content: '', status: 'streaming', seq: 3 })])
+    // 同窗口 assistant_text：updater 读到的 base 必须包含 m4
+    batcher.update('conv-1', (list) => {
+      const target = list.find(m => m.id === 'm4')
+      if (!target) throw new Error('m4 丢失——链式语义被破坏')
+      return list.map(m => m.id === 'm4' ? { ...m, content: m.content + 'streaming...' } : m)
+    })
+    // 同窗口 message.complete
+    batcher.update('conv-1', (list) => list.map(m => m.id === 'm4' ? { ...m, content: 'final', status: 'completed' as const } : m))
+
+    vi.advanceTimersByTime(50)
+
+    expect(applied).toHaveLength(1)
+    const conv1 = applied[0].get('conv-1')!
+    expect(conv1.map(m => m.id)).toEqual(['m1', 'm2', 'm4'])
+    expect(conv1.find(m => m.id === 'm4')?.content).toBe('final')
+    expect(conv1.find(m => m.id === 'm4')?.status).toBe('completed')
   })
 
-  it('跨 convId 的批量更新正确性', () => {
-    batchUpdateMessages('conv-1', (list) => [...list, msg({ id: 'm4', content: 'msg4' })])
-    batchUpdateMessages('conv-2', (list) => [...list, msg({ id: 'm5', content: 'msg5' })])
-    
-    expect(pendingUpdates.get('conv-1')?.map(m => m.id)).toEqual(['m1', 'm2', 'm4'])
-    expect(pendingUpdates.get('conv-2')?.map(m => m.id)).toEqual(['m3', 'm5'])
-    
-    flushBatchUpdates()
-    expect(allMessages['conv-1'].map(m => m.id)).toEqual(['m1', 'm2', 'm4'])
-    expect(allMessages['conv-2'].map(m => m.id)).toEqual(['m3', 'm5'])
+  it('updater 同步执行：调用返回后即可读取闭包标志位（added 计数模式）', () => {
+    let added = false
+    batcher.update('conv-1', () => {
+      added = true
+      return [...base['conv-1'], msg({ id: 'm4' })]
+    })
+    expect(added).toBe(true)
   })
 
-  it('updater 返回相同引用时不存入 Map', () => {
-    batchUpdateMessages('conv-1', (list) => list) // 返回相同引用
-    expect(pendingUpdates.size).toBe(0) // 不存入 Map
+  it('updater 返回相同引用时不暂存、flush 无操作', () => {
+    batcher.update('conv-1', (list) => list)
+    vi.advanceTimersByTime(50)
+    expect(applied).toHaveLength(0)
   })
 
-  it('flushBatchUpdates 在 Map 为空时不做任何操作', () => {
-    const original = { ...allMessages }
-    flushBatchUpdates()
-    expect(allMessages).toEqual(original) // 不变
+  it('跨会话更新在同一窗口 flush 中各自生效', () => {
+    batcher.update('conv-1', (list) => [...list, msg({ id: 'm4' })])
+    batcher.update('conv-2', (list) => [...list, msg({ id: 'm5' })])
+    vi.advanceTimersByTime(50)
+    expect(applied).toHaveLength(1)
+    expect(applied[0].has('conv-1')).toBe(true)
+    expect(applied[0].has('conv-2')).toBe(true)
+    expect(base['conv-1'].map(m => m.id)).toEqual(['m1', 'm2', 'm4'])
+    expect(base['conv-2'].map(m => m.id)).toEqual(['m3', 'm5'])
   })
 
-  it('同一 convId 的多次更新，只有最后一次的 updated 被 flush（终态事件兜底）', () => {
-    // 注意：在真实代码中，batchUpdateMessages 的 setAllMessages 返回 prev，state 不会变化
-    // 所以同一 50ms 窗口内的多次 batchUpdateMessages 调用，updater 读取的 prev 是相同的
-    // 这就是为什么 Map-overwrite 会导致中间态丢失
-    
-    // 模拟 message.start 事件
-    batchUpdateMessages('conv-1', (list) => [...list, msg({ id: 'm4', content: 'streaming', status: 'streaming' })])
-    
-    // 模拟 assistant_text 事件（同一 50ms 窗口内，updater 读取的 list 是原始 state）
-    batchUpdateMessages('conv-1', (list) => list.map(m => m.id === 'm4' ? { ...m, content: 'streaming...' } : m))
-    
-    // 模拟 message.complete 事件（同一 50ms 窗口内，updater 读取的 list 是原始 state）
-    batchUpdateMessages('conv-1', (list) => list.map(m => m.id === 'm4' ? { ...m, content: 'final', status: 'completed' } : m))
-    
-    // Flush：只有 message.complete 的更新生效（Map-overwrite 语义）
-    flushBatchUpdates()
-    // 注意：m4 不存在，因为第二次和第三次 updater 读取的 list 没有 m4
-    // 这就是中间态丢失的真实场景
-    expect(allMessages['conv-1'].find(m => m.id === 'm4')).toBeUndefined()
-    // 但终态事件（message.complete）会在下一个 50ms 窗口到达时修正
+  it('窗口到期后新 update 开启新窗口；两次 flush 各自独立', () => {
+    batcher.update('conv-1', (list) => [...list, msg({ id: 'm4' })])
+    vi.advanceTimersByTime(50)
+    batcher.update('conv-1', (list) => [...list, msg({ id: 'm5' })])
+    vi.advanceTimersByTime(50)
+    expect(applied).toHaveLength(2)
+    expect(base['conv-1'].map(m => m.id)).toEqual(['m1', 'm2', 'm4', 'm5'])
+  })
+
+  it('flush 后再 update：base 是已应用的最新结果', () => {
+    batcher.update('conv-1', (list) => [...list, msg({ id: 'm4' })])
+    vi.advanceTimersByTime(50)
+    batcher.update('conv-1', (list) => {
+      expect(list.some(m => m.id === 'm4')).toBe(true)
+      return list
+    })
+  })
+
+  it('dispose 清理定时器，不再触发 apply（卸载后无泄漏 setState）', () => {
+    batcher.update('conv-1', (list) => [...list, msg({ id: 'm4' })])
+    batcher.dispose()
+    vi.advanceTimersByTime(100)
+    expect(applied).toHaveLength(0)
+  })
+
+  it('getBase 对未知会话返回空数组', () => {
+    let seen: LocalMessage[] | undefined
+    batcher.update('conv-new', (list) => {
+      seen = list
+      return list
+    })
+    expect(seen).toEqual([])
   })
 })

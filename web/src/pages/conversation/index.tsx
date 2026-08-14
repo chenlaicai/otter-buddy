@@ -5,6 +5,7 @@ import '../../styles/globals.css'
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage } from '../../lib/message-stream'
+import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
@@ -99,42 +100,33 @@ function ConversationPage() {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
   }, [])
 
-  // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少 Virtuoso 重渲染
+  // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少消息列表重渲染
   // 选择依据：≥16ms 保证至少一帧合并，≤100ms 保证流式体感（人类感知延迟阈值约 100ms）
-  // 50ms 是平衡点：既减少 Virtuoso 重渲染频率，又不明显影响流式文本的实时感
+  // 50ms 是平衡点：既减少重渲染频率，又不明显影响流式文本的实时感
+  // F20260814qswp：改为 MessageBatcher 暂存副本链式执行——旧实现在 setState updater 内
+  // 执行业务 updater 且返回 prev，窗口内后续 updater 读到的是原始列表，中间更新丢失
   const BATCH_WINDOW_MS = 50
-  const pendingUpdatesRef = useRef<Map<string, LocalMessage[]>>(new Map())
-  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const flushBatchUpdates = useCallback(() => {
-    if (pendingUpdatesRef.current.size === 0) return
-    const updates = new Map(pendingUpdatesRef.current)
-    pendingUpdatesRef.current.clear()
-    setAllMessages(prev => {
-      const next = { ...prev }
-      for (const [convId, msgs] of updates) {
-        next[convId] = msgs
-      }
-      return next
-    })
-  }, [])
-  const batchUpdateMessages = useCallback((convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) => {
-    setAllMessages(prev => {
-      const current = prev[convId] || []
-      const updated = updater(current)
-      if (updated === current) return prev
-      pendingUpdatesRef.current.set(convId, updated)
-      if (!batchTimerRef.current) {
-        batchTimerRef.current = setTimeout(() => {
-          batchTimerRef.current = null
-          flushBatchUpdates()
-        }, BATCH_WINDOW_MS)
-      }
-      return prev
-    })
-  }, [flushBatchUpdates])
+  const batcher = useMemo(() => new MessageBatcher({
+    windowMs: BATCH_WINDOW_MS,
+    getBase: (convId) => allMessagesRef.current[convId] ?? [],
+    apply: (updates) => {
+      setAllMessages(prev => {
+        let next: Record<string, LocalMessage[]> | null = null
+        for (const [convId, msgs] of updates) {
+          if (prev[convId] === msgs) continue
+          next = next ?? { ...prev }
+          next[convId] = msgs
+        }
+        return next ?? prev
+      })
+    },
+  }), [])
   useEffect(() => () => {
-    if (batchTimerRef.current) clearTimeout(batchTimerRef.current)
-  }, [])
+    batcher.dispose()
+  }, [batcher])
+  const batchUpdateMessages = useCallback((convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) => {
+    batcher.update(convId, updater)
+  }, [batcher])
 
   // 从 URL 路径获取对话 ID（格式：/conversation/:id）
   const pathParts = window.location.pathname.split('/')
@@ -388,7 +380,7 @@ function ConversationPage() {
     const handlers: Record<string, (data: Record<string, unknown>) => void> = {
       'message': (data) => {
         const message = mapMessageDTO(data as unknown as Parameters<typeof mapMessageDTO>[0])
-        // React 18 createRoot 保证 state updater 同步执行，added 在回调内设置、回调外读取是可靠的
+        // MessageBatcher 的 updater 在 update() 调用时同步执行（F20260814qswp），added 在回调内设置、回调外读取是可靠的
         let added = false
         batchUpdateMessages(activeId!, (current) => {
           if (current.some(m => m.id === message.id)) return current
@@ -413,7 +405,7 @@ function ConversationPage() {
           id: messageId, st: 'otter', si: otterId, sn: otterName,
           content: '', status: 'streaming', seq: data.seq as number, ts: (data.createdAt as string) || nowTs(), dur: null, events: [],
         }
-        // React 18 createRoot 保证 state updater 同步执行（同 message handler 的 added 模式）
+        // MessageBatcher 的 updater 同步执行（同 message handler 的 added 模式）
         let added = false
         batchUpdateMessages(activeId!, (current) => {
           if (current.some(m => m.id === messageId)) return current
@@ -585,7 +577,7 @@ function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId])
+  }, [activeId, batchUpdateMessages])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -631,14 +623,14 @@ function ConversationPage() {
       const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
       const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
 
-      /** SSE 事件就地更新 allMessages 中的进行中消息（统一渲染通道：消息流只有 allMessages 一条） */
+      /** SSE 事件就地更新 allMessages 中的进行中消息（统一渲染通道：消息流只有 allMessages 一条；
+       *  F20260814qswp：改走 batchUpdateMessages，与批量暂存副本单轨，避免双轨覆盖） */
       const syncLiveEvents = (messageId: string) => {
         const liveEvents = liveEventsMap.get(messageId)
         if (!liveEvents) return
-        setAllMessages(prev => {
-          const list = prev[activeId]
-          if (!list?.some(m => m.id === messageId)) return prev
-          return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m) }
+        batchUpdateMessages(activeId!, (list) => {
+          if (!list.some(m => m.id === messageId)) return list
+          return list.map(m => m.id === messageId ? { ...m, events: [...liveEvents] } : m)
         })
       }
 
@@ -686,10 +678,9 @@ function ConversationPage() {
           /** 累积文本到消息正文：让用户实时看到发言内容逐步出现 */
           const text = Array.isArray(data.content) ? (data.content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
           if (!text) return
-          setAllMessages(prev => {
-            const list = prev[activeId!]
-            if (!list?.some(m => m.id === messageId)) return prev
-            return { ...prev, [activeId!]: list.map(m => m.id === messageId ? { ...m, content: (m.content || '') + text } : m) }
+          batchUpdateMessages(activeId!, (list) => {
+            if (!list.some(m => m.id === messageId)) return list
+            return list.map(m => m.id === messageId ? { ...m, content: (m.content || '') + text } : m)
           })
         },
         'message.complete': (data) => {
@@ -807,7 +798,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages])
+  }, [activeId, refreshMessages, batchUpdateMessages])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -919,16 +910,16 @@ function ConversationPage() {
         },
         'assistant_text': (data) => {
           const { messageId: msgId, content } = data
-          const meta = liveMeta.get(msgId)
-          if (!meta) return
+          const liveEvents = liveEventsMap.get(msgId)
+          if (!liveEvents) return
+          /** F20260814qswp：事件形状对齐常驻/发送流（eventType:'assistant_text' + payload.content）。
+           *  旧实现用 eventType:'text'/payload:{text}，MessageList 的 EventItem 只识别 'assistant_text'，
+           *  重试消息的流式文本事件全部静默丢失（落入 return null） */
+          liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content } })
+          syncLiveEvents(msgId)
           const textContent = Array.isArray(content) ? (content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
           if (!textContent) return
-          liveEventsMap.get(msgId)?.push({ ts: nowTs(), eventType: 'text', payload: { text: textContent } })
-          syncLiveEvents(msgId)
-          batchUpdateMessages(activeId, (list) => {
-            if (!list) return list
-            return list.map(m => m.id === msgId ? { ...m, content: (m.content || '') + textContent } : m)
-          })
+          batchUpdateMessages(activeId, (list) => list.map(m => m.id === msgId ? { ...m, content: (m.content || '') + textContent } : m))
         },
         'message.complete': (data) => {
           const { messageId: msgId } = data
@@ -946,17 +937,13 @@ function ConversationPage() {
         },
         'message.failed': (data) => {
           const { messageId: msgId } = data
-          batchUpdateMessages(activeId, (list) => {
-            if (!list) return list
-            return list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]' } : m)
-          })
+          batchUpdateMessages(activeId, (list) =>
+            list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]' } : m))
         },
         'message.aborted': (data) => {
           const { messageId: msgId } = data
-          batchUpdateMessages(activeId, (list) => {
-            if (!list) return list
-            return list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]' } : m)
-          })
+          batchUpdateMessages(activeId, (list) =>
+            list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]' } : m))
         },
         'error': (data) => {
           showToast(data.message || '重试出错', 'error')
@@ -965,7 +952,7 @@ function ConversationPage() {
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId])
+  }, [activeId, batchUpdateMessages])
 
   const handleSelectConv = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新
