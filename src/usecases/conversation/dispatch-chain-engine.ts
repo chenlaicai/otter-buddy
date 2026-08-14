@@ -162,7 +162,7 @@ export class DispatchChainEngine {
       return `- ${otter?.name ?? p.otterId}`;
     }));
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
-    lines.push(`- ${partnerLabel}（传 'user' 即交还发言权）`);
+    lines.push(`- ${partnerLabel}（传 'user' 即交还行动权给搭档）`);
     return `## 在场成员\n${lines.join('\n')}`;
   }
 
