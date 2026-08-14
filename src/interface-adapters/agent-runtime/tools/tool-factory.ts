@@ -205,7 +205,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆. When: 有明确历史信号时（搭档提到'上次'/问历史决策原因/跨会话续接/术语不明）才检索，不要每次回复前都搜索. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）；命中条目后可调 get_related 沿关系图遍历（如'这文档怎么来的'），发现条目间关联可用 link_memory 声明. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
+    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是你了解一件事来龙去脉的第一入口. When: 需要历史脉络时——显性信号：搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；隐性信号：收到方案/决策/排查类实质问题先自问'这事在本项目有历史脉络吗'（本项目的方案、结论、教训大多沉淀在记忆里），有则先搜再答，答案能站在已有结论上. 纯新话题/闲聊不必搜，不是为了搜而搜. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）；命中条目后调 get_related 沿关系图拼链（怎么读链、怎么顺着链走见其 description）；发现条目间关联用 link_memory 声明，链越拼越完整. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
     parameters: {
       type: "object",
       properties: {
@@ -503,7 +503,7 @@ function createLinkMemoryTool(ctx: ToolContext): AgentTool {
 function createGetRelatedTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_related",
-    description: `从一个记忆条目出发遍历关系图. When: 需要拼证据链/因果链/发展链时，从一个已知条目找关联（如'F文档D是怎么来的'→ 查 produced 入边找催生消息）；典型前置是 search_memory 命中条目后想深挖关联. Output: { related: [{entry, edgeType, edgeFromEntryId, depth}], provenance? }——related 是结构化路径（不是平铺列表），你能看到 A→B→C 的链式关系；provenance 仅在起点是特性/研究文档且有 provenance 时出现，含催生对话的消息. direction: out=出边(默认, A→谁), in=入边(谁→A)；direction 只作用于有向边（produced/references/supersedes），relates-to 恒双向. depth>1 多跳遍历找间接关联. 发现未声明的关联可用 link_memory 补上.`,
+    description: `从一个记忆条目出发遍历关系图，拼证据链/因果链/发展链. When: 手里有 entry id 想深挖关联——'这事怎么来的/产出了什么/被什么取代/和什么相关'；id 典型来自 search_memory 命中（刚 sync_docs 的文档也可用文档 ID 经 search_memory 短路定位拿到）. Output: { related: [{entry, edgeType, edgeFromEntryId, depth}], provenance? }. 怎么读链：direction=out（默认）时，每项 = 从 edgeFromEntryId 沿 edgeType 指向 entry，用 edgeFromEntryId ↔ entry.id 把片段对接成链；direction=in 时，entry 就是边的起点（edgeFromEntryId 与 entry.id 相同），含义是 entry --edgeType--> 你的查询起点（depth=1）或上一跳节点（depth>1）；分叉时一个节点可能挂在多条链上. depth=1 直接邻居，depth=2 两跳间接关联. 怎么顺着链走：查'X 怎么来的'（谁催生/产出 X）→ entry_id=X + direction=in + produced；查'X 产出了什么' → direction=out + produced；查'X 被什么取代（找新版）'→ direction=in + supersedes，查'X 取代过什么（找前身）'→ direction=out + supersedes；查同主题关联 → relates-to（恒双向，direction 不影响）. provenance 仅在起点是特性/研究文档且有催生对话记录时出现，含催生对话的消息——读它可以还原'这文档是在哪段讨论里、基于什么讨论出来的'. 发现未声明的关联可用 link_memory 补上.`,
     parameters: {
       type: "object",
       properties: {
