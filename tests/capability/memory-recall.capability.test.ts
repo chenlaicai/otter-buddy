@@ -17,6 +17,7 @@ import {
   toolCallNamesForExchange,
   latestUserSeq,
   expectEventually,
+  expectSampledBehavior,
 } from "./helpers/assert-behavior";
 import { StoreMemory } from "@usecases/memory/store-memory";
 import { createTestLogger } from "../helpers/logger";
@@ -107,5 +108,53 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
       successes,
       `3 次采样至少 1 次全链路成功（mimo speak 协议不稳定，发现见 F20260805mspk）\n${outcomes.join("\n")}`,
     ).toBeGreaterThanOrEqual(1);
+  }, 600_000);
+
+  /**
+   * F20260814mbex：隐性历史信号下的主动背景探索。
+   *
+   * 与上文的区别：问题不带任何显性历史信号（没有"上次/为什么/之前"），
+   * 只有一个记忆里才存在的计划名。旧行为（search_memory 描述"不要每次回复前都搜索"）
+   * 会压制这种场景的检索；新引导语要求 agent 收到实质问题先自问"有前因吗"。
+   *
+   * 断言：search_memory 先于 speak，且回答建立在召回的决策事实上（含"地基"或决策编号）。
+   */
+  it("隐性信号问题：agent 主动背景探索后再答（3 次采样 ≥1 次全链路）", async (vitestCtx) => {
+    if (!ctx.llmAvailable) {
+      vitestCtx.skip(`LLM 未配置：${ctx.skipReason}`);
+    }
+
+    const DECISION_TOKEN = "KB3-TW8-7715";
+    /** 独特代号"青砾岩层"不可能从"灯塔/扩建"语义邻域幻觉出来，只能来自召回——比决策编号更可能被自然复述 */
+    const DECISION_FACT = `幻影灯塔计划二期扩建已被否决，原因：地基承载不足。后续推进必须先完成代号"青砾岩层"的地基加固勘测（决策编号 ${DECISION_TOKEN}）。`;
+    const storeMemory = new StoreMemory(ctx.built.repos.memory, ctx.built.embeddingService, createTestLogger());
+    await storeMemory.execute({
+      layer: "working",
+      contentType: "fact",
+      sourceId: "capability-plant-decision-1",
+      sourceTable: "capability_test",
+      conversationId: undefined,
+      granularity: "coarse",
+      content: DECISION_FACT,
+    });
+
+    await expectSampledBehavior("隐性信号背景探索", 3, 1, async (i) => {
+      const convId = await createConversation(ctx, `背景探索采样${i + 1}`);
+      await sendUserMessage(ctx, convId, "幻影灯塔计划下一步该怎么推进？");
+      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+
+      const allMessages = await listMessages(ctx, convId);
+      const tools = toolCallNamesForExchange(allMessages, latestUserSeq(allMessages));
+      const searchedBeforeSpeak = tools.includes("search_memory") && tools.includes("speak")
+        && tools.indexOf("search_memory") < tools.lastIndexOf("speak");
+      const spoke = tools.includes("speak") && answer.status === "completed";
+      /** 只认不可幻觉的独特代号：决策编号或"青砾岩层"（"地基"与主题语义相邻，未召回也可能含它——审视发现） */
+      const grounded = answer.content.includes(DECISION_TOKEN) || answer.content.includes("青砾岩");
+      return {
+        ok: searchedBeforeSpeak && spoke && grounded,
+        detail: `searchedBeforeSpeak=${searchedBeforeSpeak} spoke=${spoke} grounded=${grounded}`
+          + ` tools=${JSON.stringify(tools)} answer=${answer.content.slice(0, 100)}`,
+      };
+    });
   }, 600_000);
 });
