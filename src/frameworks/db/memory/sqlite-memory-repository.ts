@@ -2,6 +2,7 @@
 
 import type Database from "better-sqlite3";
 import type { MemoryEntry, MemoryWeight, MemoryLayer, MemoryContentType } from "@entities/memory/memory-entry";
+import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
 import type {
   FTSHit,
   MemoryRepository,
@@ -14,6 +15,8 @@ import {
   bufferToFloat32Array,
   rowToMemoryEntry,
   rowToMemoryWeight,
+  rowToMemoryEdge,
+  rowToMemoryEntryJoined,
   type FtsRow,
   type FtsHighlightRow,
   type MemoryEntryRow,
@@ -147,6 +150,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
         // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
         this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
+        // F20260813mren: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
+        this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ?"
@@ -160,28 +165,17 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   /** F20260803mval: 按 source 原子替换（单事务删旧+插新），B2 修复 */
   /** F20260803fbit: DELETE/SELECT WHERE 加 content_type 过滤，防 summary entry 和 body entry 互相删除 */
+  /** F20260813mren 审视二轮 P1-12：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
+   *  顺序：插新行 → 重定向边 → 按旧 id 删旧行（不能用 source 删，会误删新行）。
+   *  chunk 的 N:M replaceEntriesBySource 无法重定向，维持禁边（D3）。 */
   async replaceEntryBySource(entry: MemoryEntry): Promise<void> {
     this.db.exec("BEGIN");
     try {
-      // 删旧（同 source + 同 contentType），复用 deleteBySource 的联动删除逻辑
       const oldRows = this.db
         .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
         .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string }>;
-      for (const row of oldRows) {
-        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
-        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
-        if (this.vecTableExists) {
-          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
-        }
-        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
-        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
-        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
-      }
-      this.db.prepare(
-        "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
-      ).run(entry.sourceTable, entry.sourceId, entry.contentType);
 
-      // 插新（同 storeEntry 逻辑，但同一事务内）
+      // 1. 插新（必须在重定向前——FK 要求新行先存在）
       this.db.prepare(`
         INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
           conversation_id, granularity, content, metadata, created_at)
@@ -208,6 +202,31 @@ export class SqliteMemoryRepository implements MemoryRepository {
         INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
         VALUES (?, 0, NULL, 0)
       `).run(entry.id);
+
+      // 2. 边重定向：旧 id → 新 id（新 id 是全新 UUID，UNIQUE 不可能冲突）
+      // 审视三轮 #2：多旧行（历史脏数据）只重定向第一行的边，其余旧行的边删除——
+      // 否则两行同型边指向同一对端时 UPDATE 撞 UNIQUE 约束，整个 sync 永久失败（行为退化）。
+      oldRows.forEach((row, index) => {
+        if (index === 0) {
+          this.db.prepare("UPDATE memory_edges SET from_entry_id = ? WHERE from_entry_id = ?").run(entry.id, row.id);
+          this.db.prepare("UPDATE memory_edges SET to_entry_id = ? WHERE to_entry_id = ?").run(entry.id, row.id);
+        } else {
+          this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
+        }
+      });
+
+      // 3. 删旧行及联动数据（按 id 删）
+      for (const row of oldRows) {
+        this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
+        if (this.vecTableExists) {
+          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
+        }
+        this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
+        // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
+        this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
+        this.db.prepare("DELETE FROM memory_entries WHERE id = ?").run(row.id);
+      }
 
       this.db.exec("COMMIT");
     } catch (error) {
@@ -249,6 +268,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
         // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
         this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
+        // F20260813mren: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
+        this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
@@ -310,6 +331,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
         this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(row.id);
         // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
         this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(row.id);
+        // F20260813mren: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
+        this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(row.id, row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
@@ -803,5 +826,139 @@ export class SqliteMemoryRepository implements MemoryRepository {
           status = CASE WHEN attempts >= ? THEN 'dead' ELSE status END
       WHERE entry_id = ?
     `).run(errMsg, maxAttempts, entryId);
+  }
+
+  // ---- F20260813mren: 记忆关系层 ----
+
+  /** F20260813mren Part 2: 按 conversationId 获取消息条目（provenance 读路径） */
+  async getEntriesByConversation(
+    conversationId: string,
+    opts?: { contentType?: MemoryContentType[]; limit?: number },
+  ): Promise<MemoryEntry[]> {
+    const limit = opts?.limit ?? 50;
+    const types = opts?.contentType;
+    if (types && types.length > 0) {
+      const placeholders = types.map(() => "?").join(",");
+      const rows = this.db.prepare(`
+        SELECT * FROM memory_entries
+        WHERE conversation_id = ? AND content_type IN (${placeholders})
+        ORDER BY created_at ASC LIMIT ?
+      `).all(conversationId, ...types, limit) as MemoryEntryRow[];
+      return rows.map(rowToMemoryEntry);
+    }
+    const rows = this.db.prepare(`
+      SELECT * FROM memory_entries
+      WHERE conversation_id = ?
+      ORDER BY created_at ASC LIMIT ?
+    `).all(conversationId, limit) as MemoryEntryRow[];
+    return rows.map(rowToMemoryEntry);
+  }
+
+  /** F20260813mren: 创建关系边。幂等（UNIQUE + ON CONFLICT 原子操作，防 TOCTOU 竞态）。 */
+  async createEdge(input: {
+    fromEntryId: string;
+    toEntryId: string;
+    edgeType: EdgeType;
+    metadata?: Record<string, unknown>;
+    createdBy?: string;
+  }): Promise<string> {
+    const id = crypto.randomUUID();
+    const metaJson = input.metadata ? JSON.stringify(input.metadata) : null;
+    // ON CONFLICT 幂等：同 (from, to, type) 已存在则跳过 INSERT，随后 SELECT 拿实际 id
+    this.db.prepare(`
+      INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?)
+      ON CONFLICT(from_entry_id, to_entry_id, edge_type) DO NOTHING
+    `).run(id, input.fromEntryId, input.toEntryId, input.edgeType, metaJson, input.createdBy ?? null);
+
+    const row = this.db.prepare(
+      `SELECT id FROM memory_edges WHERE from_entry_id = ? AND to_entry_id = ? AND edge_type = ?`,
+    ).get(input.fromEntryId, input.toEntryId, input.edgeType) as { id: string };
+    return row.id;
+  }
+
+  /**
+   * F20260813mren: 从某 entry 出发查直接邻居（1 跳）。
+   * BFS 的 depth>1 在 GetRelated use case 层循环调此方法。
+   * D4: relates-to 自动双向（from OR to）；其余按 direction 单向。
+   */
+  async getEdgesByEntry(entryId: string, opts?: {
+    edgeTypes?: EdgeType[];
+    direction?: "out" | "in";
+  }): Promise<Array<{ edge: MemoryEdge; neighborEntry: MemoryEntry }>> {
+    const ALL_TYPES: EdgeType[] = ["produced", "references", "supersedes", "relates-to"];
+    const types = opts?.edgeTypes ?? ALL_TYPES;
+    const direction = opts?.direction ?? "out";
+
+    const symmetricTypes = types.filter(t => t === "relates-to");
+    const directedTypes = types.filter(t => t !== "relates-to");
+
+    const results: Array<{ edge: MemoryEdge; neighborEntry: MemoryEntry }> = [];
+    if (directedTypes.length > 0) {
+      results.push(...this.queryDirectedEdges(entryId, directedTypes, direction));
+    }
+    if (symmetricTypes.length > 0) {
+      results.push(...this.querySymmetricEdges(entryId, symmetricTypes));
+    }
+    return results;
+  }
+
+  /** D4: directed 边（produced/references/supersedes）按 direction 单向查 */
+  private queryDirectedEdges(entryId: string, types: EdgeType[], direction: "out" | "in"):
+    Array<{ edge: MemoryEdge; neighborEntry: MemoryEntry }> {
+    const dirCol = direction === "in" ? "to_entry_id" : "from_entry_id";
+    const neighborCol = direction === "in" ? "from_entry_id" : "to_entry_id";
+    const placeholders = types.map(() => "?").join(",");
+    const rows = this.db.prepare(`
+      SELECT e.*, m.id as m_id, m.layer as m_layer, m.content_type as m_content_type,
+             m.source_id as m_source_id, m.source_table as m_source_table,
+             m.conversation_id as m_conversation_id, m.granularity as m_granularity,
+             m.content as m_content, m.metadata as m_metadata, m.created_at as m_created_at
+      FROM memory_edges e
+      JOIN memory_entries m ON m.id = e.${neighborCol}
+      WHERE e.${dirCol} = ? AND e.edge_type IN (${placeholders})
+    `).all(entryId, ...types) as Array<Record<string, unknown>>;
+    return rows.map(row => ({ edge: rowToMemoryEdge(row), neighborEntry: rowToMemoryEntryJoined(row) }));
+  }
+
+  /** D4: relates-to 自动双向查（from OR to） */
+  private querySymmetricEdges(entryId: string, types: EdgeType[]):
+    Array<{ edge: MemoryEdge; neighborEntry: MemoryEntry }> {
+    const placeholders = types.map(() => "?").join(",");
+    const rows = this.db.prepare(`
+      SELECT e.*, m.id as m_id, m.layer as m_layer, m.content_type as m_content_type,
+             m.source_id as m_source_id, m.source_table as m_source_table,
+             m.conversation_id as m_conversation_id, m.granularity as m_granularity,
+             m.content as m_content, m.metadata as m_metadata, m.created_at as m_created_at
+      FROM memory_edges e
+      JOIN memory_entries m ON m.id = CASE WHEN e.from_entry_id = ? THEN e.to_entry_id ELSE e.from_entry_id END
+      WHERE e.edge_type IN (${placeholders})
+        AND (e.from_entry_id = ? OR e.to_entry_id = ?)
+    `).all(entryId, ...types, entryId, entryId) as Array<Record<string, unknown>>;
+    return rows.map(row => ({ edge: rowToMemoryEdge(row), neighborEntry: rowToMemoryEntryJoined(row) }));
+  }
+
+  /** F20260813mren: 按 id 获取单条边 */
+  async getEdgeById(edgeId: string): Promise<MemoryEdge | null> {
+    const row = this.db.prepare(`SELECT * FROM memory_edges WHERE id = ?`).get(edgeId) as Record<string, unknown> | undefined;
+    return row ? rowToMemoryEdge(row) : null;
+  }
+
+  /** F20260813mren: 删除一条边（unlink_memory 用） */
+  async deleteEdge(edgeId: string): Promise<void> {
+    this.db.prepare(`DELETE FROM memory_edges WHERE id = ?`).run(edgeId);
+  }
+
+  /**
+   * F20260813mren D7: 按 entry id 批量清理关联边。
+   * deleteBySource / replaceEntryBySource 等 delete 路径调。
+   * 不依赖 FK CASCADE（与 embedding_tasks 一致模式）。
+   */
+  async deleteEdgesByEntryIds(entryIds: string[]): Promise<void> {
+    if (entryIds.length === 0) return;
+    const placeholders = entryIds.map(() => "?").join(",");
+    this.db.prepare(
+      `DELETE FROM memory_edges WHERE from_entry_id IN (${placeholders}) OR to_entry_id IN (${placeholders})`,
+    ).run(...entryIds, ...entryIds);
   }
 }

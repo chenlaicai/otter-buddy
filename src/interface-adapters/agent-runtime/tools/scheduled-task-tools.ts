@@ -38,7 +38,7 @@ export function createCreateScheduledTaskTool(
         cron: { type: "string", description: "cron 表达式（5字段），scheduleType=cron 时必填" },
         triggerAt: { type: "string", description: "一次性触发时间，ISO 8601，scheduleType=once 时必填" },
         timezone: { type: "string", description: "时区，默认 Asia/Shanghai" },
-        body: { type: "string", description: "触发时发送给海獭的消息内容" },
+        body: { type: "string", description: "触发时发送给海獭的消息内容。写任务清单 + 判断委托（如「今日有 N 个 issue 待处理，请判断如何处理」）。不要写身份文本（如「你是小獭」），不要预设步骤——接收者自行判断处理方式。" },
         restartBeforeInvoke: { type: "boolean", description: "每次触发前是否重启执行獭的 session（默认 false）。适合需要干净上下文的定期任务（如健康检查）。" },
       },
       required: ["name", "body"],

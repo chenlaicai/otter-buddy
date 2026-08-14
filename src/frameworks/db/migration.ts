@@ -84,6 +84,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260812mrcq：embedding_tasks 表（embedding 重试队列） */
   ensureEmbeddingTasksTable(db, logger);
+
+  /** F20260813mren: 记忆关系层——memory_edges 表 + 文档 provenance 列 */
+  ensureMemoryEdgesTable(db, logger);
+  addDocProvenanceColumns(db, logger);
 }
 
 /**
@@ -160,6 +164,51 @@ function ensureEmbeddingTasksTable(db: Database.Database, logger: Logger): void 
       ON embedding_tasks (status, next_retry_at);
   `);
   logger.info('Ensured embedding_tasks table exists');
+}
+
+/**
+ * F20260813mren: memory_edges 表（记忆关系层）。
+ * CREATE IF NOT EXISTS 幂等——新库 initSchema 已建，老库走这里补建。
+ */
+function ensureMemoryEdgesTable(db: Database.Database, logger: Logger): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_edges (
+      id TEXT PRIMARY KEY,
+      from_entry_id TEXT NOT NULL,
+      to_entry_id TEXT NOT NULL,
+      edge_type TEXT NOT NULL CHECK (edge_type IN ('produced','references','supersedes','relates-to')),
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by TEXT,
+      CHECK (from_entry_id != to_entry_id),
+      FOREIGN KEY (from_entry_id) REFERENCES memory_entries(id),
+      FOREIGN KEY (to_entry_id) REFERENCES memory_entries(id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_edges_unique
+      ON memory_edges(from_entry_id, to_entry_id, edge_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_entry_id, edge_type);
+    CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge_type);
+  `);
+  logger.info('Ensured memory_edges table exists');
+}
+
+/**
+ * F20260813mren Part 2: features/research 表加 created_in_conversation_id 列。
+ * 记录文档由哪段对话产出（事实级 provenance，非推断）。
+ * PRAGMA table_info 检测列存在性作幂等。
+ */
+function addDocProvenanceColumns(db: Database.Database, logger: Logger): void {
+  const featuresCols = db.prepare("PRAGMA table_info(features)").all() as Array<{ name: string }>;
+  if (!featuresCols.some(col => col.name === 'created_in_conversation_id')) {
+    db.prepare("ALTER TABLE features ADD COLUMN created_in_conversation_id TEXT").run();
+    logger.info('Added created_in_conversation_id column to features table');
+  }
+
+  const researchCols = db.prepare("PRAGMA table_info(research)").all() as Array<{ name: string }>;
+  if (!researchCols.some(col => col.name === 'created_in_conversation_id')) {
+    db.prepare("ALTER TABLE research ADD COLUMN created_in_conversation_id TEXT").run();
+    logger.info('Added created_in_conversation_id column to research table');
+  }
 }
 
 /**

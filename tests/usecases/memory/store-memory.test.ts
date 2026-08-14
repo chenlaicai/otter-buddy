@@ -49,6 +49,12 @@ function statefulRepo(): MemoryRepository & {
       getBySourceId: async () => null,
       findNeighborsByChunkIndex: async () => [],
       findNeighborsByTime: async () => [],
+      createEdge: async () => "edge-id",
+      getEdgesByEntry: async () => [],
+      getEdgeById: async () => null,
+      deleteEdge: async () => {},
+      deleteEdgesByEntryIds: async () => {},
+      getEntriesByConversation: async () => [],
   };
 }
 
