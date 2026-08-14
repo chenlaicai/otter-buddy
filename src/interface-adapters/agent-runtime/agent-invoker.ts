@@ -10,9 +10,27 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { SSEEvent } from "@contract/sse/events";
+import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
+import type { AgentMetricsPort, InvokeOutcome, InvokeOutcomeRecord } from "@usecases/ports/agent-metrics-port";
+import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
-type ErrorWithToolCallCount = Error & { _toolCallCount?: number };
+type ErrorWithToolCallCount = Error & {
+  _toolCallCount?: number;
+  /** F20260814mtrc：guard abort 路径的 outputGuard 元数据（含首字节样本） */
+  _outputGuardMetadata?: { firstByteLatencyMs?: number };
+};
+
+/** invoke 结果形状（F20260814mtrc：补 metrics 透传字段，替换散落的内联类型） */
+interface InvokeResultShape {
+  text: string;
+  tokenUsage?: { input: number; output: number };
+  ctxTokens?: number;
+  ctxMax?: number;
+  modelAlias?: string;
+  sessionRebuilt?: boolean;
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+}
 
 /** Agent 对话调用结果 */
 export interface ConversationInvokeResult {
@@ -134,6 +152,8 @@ export class AgentInvoker {
     private readonly messageBroadcaster?: MessageBroadcaster,
     private readonly workspaceGateway?: WorkspaceGateway,
     private readonly settingsRepo?: SettingsRepository,
+    /** F20260814mtrc：可选注入，缺省 no-op（不破坏既有测试） */
+    private readonly metrics?: AgentMetricsPort,
   ) {}
 
   /**
@@ -142,6 +162,9 @@ export class AgentInvoker {
    *
    * streaming 事件通过 messageBroadcaster.broadcastEvent 统一推送给所有订阅者。
    * onSSEEvent 可选覆盖（测试用），默认走 broadcastEvent。
+   *
+   * F20260814mtrc：trace 兜底——已有链级 trace（DispatchChainEngine 注入）则直接执行；
+   * 直连路径（scheduler/手动重试）生成新 traceId 并标记 source="direct"。
    */
   async invokeConversation(params: {
     otterId: string;
@@ -150,8 +173,25 @@ export class AgentInvoker {
     senderId: string;
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
+    /** F20260814mtrc：Web 手动重试标识（retry label 区分 manual/auto） */
+    manualRetry?: boolean;
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0 } = params;
+    if (getTraceContext().traceId) {
+      return this.invokeConversationInner(params);
+    }
+    return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
+  }
+
+  private async invokeConversationInner(params: {
+    otterId: string;
+    conversationId: string;
+    userMessageContent: string;
+    senderId: string;
+    onSSEEvent?: (event: SSEEvent) => void;
+    retryCount?: number;
+    manualRetry?: boolean;
+  }): Promise<ConversationInvokeResult> {
+    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0, manualRetry = false } = params;
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -186,21 +226,26 @@ export class AgentInvoker {
     /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确） */
     emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
 
-    try {
-      const { result, toolCallCount } = await this.executeAgentInvocation({
-        otterId, userMessageContent, dynamicContext, conversationId, messageId: message.id, emitEvent,
-      });
-      return await this.classifyAndRoute({
-        messageId: message.id, otterId, senderId, result, toolCallCount,
-        startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
-      });
-    } catch (err) {
-      const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? 0;
-      return await this.classifyAndRoute({
-        messageId: message.id, otterId, senderId, err, toolCallCount,
-        startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
-      });
-    }
+    // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
+    return runWithTrace({ messageId: message.id }, async () => {
+      try {
+        const { result, toolCallCount } = await this.executeAgentInvocation({
+          otterId, userMessageContent, dynamicContext, conversationId, messageId: message.id, emitEvent,
+        });
+        return await this.classifyAndRoute({
+          messageId: message.id, otterId, senderId, result, toolCallCount,
+          startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
+          manualRetry,
+        });
+      } catch (err) {
+        const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? 0;
+        return await this.classifyAndRoute({
+          messageId: message.id, otterId, senderId, err, toolCallCount,
+          startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId,
+          manualRetry,
+        });
+      }
+    });
   }
 
   /**
@@ -214,8 +259,10 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     emitEvent: (event: SSEEvent) => void;
-  }): Promise<{ result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number }; toolCallCount: number }> {
+  }): Promise<{ result: InvokeResultShape; toolCallCount: number }> {
     let toolCallCount = 0;
+    /** F20260814mtrc：工具执行按 toolCallId 配对计时（对齐 circuit-breaker 的防御式配对） */
+    const toolStarts = new Map<string, number>();
     this.logger.debug('Calling agentInvoke.invoke', { otterId: params.otterId, messageId: params.messageId });
     const result = await this.agentInvoke.invoke(params.otterId, params.userMessageContent, {
       dynamicContext: params.dynamicContext,
@@ -223,7 +270,10 @@ export class AgentInvoker {
       messageId: params.messageId,
       onEvent: (e: AgentStreamEvent) => {
         this.logger.debug('Agent event received', { messageId: params.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
-        if (e.type === "tool_execution_start") toolCallCount++;
+        this.recordStreamEventMetrics(e, toolStarts);
+        if (e.type === "tool_execution_start") {
+          toolCallCount++;
+        }
         /** 所有事件如实推送到订阅者（event 就是 event，不抑制） */
         const sse = mapToSSEEvent(e);
         if (sse) {
@@ -252,12 +302,15 @@ export class AgentInvoker {
     conversationId: string;
     messageId: string;
     senderId: string;
-    result: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    result: InvokeResultShape;
     startTime: number;
     emitEvent: (event: SSEEvent) => void;
     aggregatedTargets?: string[];
+    /** F20260814mtrc：显式传入才记录 metrics——成功路径必传；
+     * user_abort 的 speaking 收尾不传（recordFailedAttempt 已按 user_abort 记过，防双计） */
+    outcomeMeta?: { outcome: InvokeOutcome; retryCount: number; manualRetry: boolean; attemptStartTime: number };
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, messageId, result, startTime, emitEvent, aggregatedTargets } = params;
+    const { otterId, conversationId, messageId, result, startTime, emitEvent, aggregatedTargets, outcomeMeta } = params;
 
     /** 消息已在 invokeConversation 中通过 sendMessage.complete() 完成，此处发 SSE 事件和清理状态 */
 
@@ -266,6 +319,18 @@ export class AgentInvoker {
     this.terminalMessages.delete(messageId);
 
     const duration = Date.now() - startTime;
+
+    // F20260814mtrc：success 在此记录——tryCompleteSpeaking 早返回会绕过 classifyAndRoute，
+    // 此处才是成功路径的汇合点（duration 用 attempt 级时间；SSE 展示仍用链级 startTime）
+    if (outcomeMeta) {
+      await this.recordAttempt({
+        otterId, result,
+        outcome: outcomeMeta.outcome,
+        retryCount: outcomeMeta.retryCount,
+        manualRetry: outcomeMeta.manualRetry,
+        startTime: outcomeMeta.attemptStartTime,
+      });
+    }
 
     // 记录 Agent 调用完成日志
     this.logger.info('Agent invocation completed', {
@@ -316,30 +381,48 @@ export class AgentInvoker {
   /** Post-invocation: classify exit reason and route to appropriate handler */
   private async classifyAndRoute(p: {
     messageId: string; otterId: string; senderId: string;
-    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    result?: InvokeResultShape;
     err?: unknown;
     toolCallCount: number; startTime: number;
+    /** F20260814mtrc：attempt 级计时起点（speak-retry 复用外层 startTime 是链级口径，metrics 需 attempt 级） */
+    attemptStartTime?: number;
     emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
+    manualRetry?: boolean;
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
-    const { messageId, otterId, senderId, result, err, toolCallCount, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId } = p;
+    const { messageId, otterId, senderId, result, err, toolCallCount, startTime, emitEvent, onSSEEvent, retryCount, manualRetry, userMessageContent, conversationId } = p;
 
     // 1. Speaking guard: content delivery takes priority over everything
-    const speakingHandled = await this.tryCompleteSpeaking({ messageId, otterId, senderId, conversationId, result, startTime, emitEvent });
+    const speakingHandled = await this.tryCompleteSpeaking({
+      messageId, otterId, senderId, conversationId, result, startTime, emitEvent,
+      retryCount: retryCount ?? 0, manualRetry: manualRetry ?? false,
+      attemptStartTime: p.attemptStartTime ?? startTime,
+    });
     if (speakingHandled) return speakingHandled;
 
     // 2. Classify exit reason and route
     const reason = this.classifyExit({ messageId, result, err, toolCallCount });
-    return this.routeByReason(reason, { messageId, otterId, senderId, result, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId });
+
+    // F20260814mtrc：失败 attempt 在分类后、路由前记录（duration 不含后续重试链的 await）
+    await this.recordFailedAttempt(reason, {
+      otterId, result, err,
+      retryCount: retryCount ?? 0,
+      manualRetry: manualRetry ?? false,
+      attemptStartTime: p.attemptStartTime ?? startTime,
+    });
+
+    return this.routeByReason(reason, { messageId, otterId, senderId, result, startTime, emitEvent, onSSEEvent, retryCount, manualRetry, userMessageContent, conversationId });
   }
 
   /** Try to complete a speaking message; returns result if handled, undefined otherwise */
   private async tryCompleteSpeaking(p: {
     messageId: string; otterId: string; senderId: string; conversationId?: string;
-    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    result?: InvokeResultShape;
     startTime: number; emitEvent: (event: SSEEvent) => void;
+    retryCount: number; manualRetry: boolean;
+    attemptStartTime: number;
   }): Promise<ConversationInvokeResult | undefined> {
     const msg = await this.queryMessage.getMessageById(p.messageId);
     if (msg?.status !== 'speaking') return undefined;
@@ -350,6 +433,7 @@ export class AgentInvoker {
       return this.completeAgentInvocation({
         otterId: p.otterId, conversationId: p.conversationId ?? '', messageId: p.messageId, senderId: p.senderId,
         result: p.result, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose.aggregatedTargets,
+        outcomeMeta: { outcome: "success", retryCount: p.retryCount, manualRetry: p.manualRetry, attemptStartTime: p.attemptStartTime },
       });
     }
     try {
@@ -357,6 +441,7 @@ export class AgentInvoker {
       return this.completeAgentInvocation({
         otterId: p.otterId, conversationId: p.conversationId ?? '', messageId: p.messageId, senderId: p.senderId,
         result: { text: '' }, startTime: p.startTime, emitEvent: p.emitEvent, aggregatedTargets: cr.turnClose?.aggregatedTargets,
+        outcomeMeta: { outcome: "success", retryCount: p.retryCount, manualRetry: p.manualRetry, attemptStartTime: p.attemptStartTime },
       });
     } catch (err) {
       this.logger.warn('tryCompleteSpeaking: sendMessage.complete failed, falling through to classify', { messageId: p.messageId, error: err instanceof Error ? err.message : String(err) });
@@ -367,21 +452,22 @@ export class AgentInvoker {
   /** Route by classified exit reason */
   private routeByReason(reason: ExitReason, p: {
     messageId: string; otterId: string; senderId: string;
-    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+    result?: InvokeResultShape;
     startTime: number; emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number; userMessageContent?: string; conversationId?: string;
+    retryCount?: number; manualRetry?: boolean;
+    userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
-    const { messageId, otterId, senderId, result, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId } = p;
+    const { messageId, otterId, senderId, result, startTime, emitEvent, onSSEEvent, retryCount, manualRetry, userMessageContent, conversationId } = p;
     switch (reason.kind) {
       case 'user_abort':
         return this.handleUserAbort({ messageId, otterId, senderId, reason, startTime, emitEvent, conversationId });
       case 'guard_abort':
-        return this.routeGuardAbort({ messageId, otterId, senderId, reason, startTime, emitEvent, onSSEEvent, retryCount, userMessageContent, conversationId, result });
+        return this.routeGuardAbort({ messageId, otterId, senderId, reason, startTime, emitEvent, onSSEEvent, retryCount, manualRetry, userMessageContent, conversationId, result });
       case 'api_error':
         return this.routeApiError({ messageId, otterId, reason, startTime, emitEvent });
       case 'no_speak':
-        return this.handleSpeakRetry({ messageId, otterId, conversationId: conversationId ?? '', userMessageContent: userMessageContent ?? '', senderId, emitEvent, onSSEEvent, retryCount: retryCount ?? 0, startTime, tokenUsage: result?.tokenUsage, toolCallCount: reason.toolCallCount });
+        return this.handleSpeakRetry({ messageId, otterId, conversationId: conversationId ?? '', userMessageContent: userMessageContent ?? '', senderId, emitEvent, onSSEEvent, retryCount: retryCount ?? 0, manualRetry: manualRetry ?? false, startTime, tokenUsage: result?.tokenUsage, toolCallCount: reason.toolCallCount });
       default:
         return Promise.resolve({ messageId, duration: Date.now() - startTime });
     }
@@ -443,9 +529,9 @@ export class AgentInvoker {
     reason: ExitReason & { kind: 'guard_abort' };
     startTime: number; emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number;
+    retryCount?: number; manualRetry?: boolean;
     userMessageContent?: string; conversationId?: string;
-    result?: { text: string; tokenUsage?: { input: number; output: number } };
+    result?: InvokeResultShape;
   }): Promise<ConversationInvokeResult> {
     const { guardReason, toolCallCount } = p.reason;
     const retryCount = p.retryCount ?? 0;
@@ -462,6 +548,8 @@ export class AgentInvoker {
 
     if (retryCount === 0 && this.isRetryableGuardAbort(guardReason)) {
       this.logger.info('Auto-retry on guard abort', { messageId: p.messageId, otterId: p.otterId, guardReason });
+      /** F20260814mtrc：invoker 层自动重试计数（与 SDK 层 sdk_auto 分层） */
+      this.metrics?.recordRetry(guardReason.startsWith("circuit_break:") ? "circuit_break" : guardReason as "streaming_timeout" | "first_byte_timeout");
       return this.handleAutoRetry(p, guardReason);
     }
 
@@ -527,7 +615,7 @@ export class AgentInvoker {
     messageId: string; otterId: string; senderId: string;
     startTime: number; emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
-    retryCount?: number;
+    retryCount?: number; manualRetry?: boolean;
     userMessageContent?: string; conversationId?: string;
   }, reason: string): Promise<ConversationInvokeResult> {
     const { messageId, otterId, senderId, startTime, emitEvent, onSSEEvent, userMessageContent, conversationId } = p;
@@ -548,6 +636,7 @@ export class AgentInvoker {
       otterId, conversationId,
       userMessageContent,
       senderId, retryCount: 1,
+      manualRetry: p.manualRetry,
       onSSEEvent,
     });
 
@@ -581,6 +670,7 @@ export class AgentInvoker {
     if (msg?.status !== "speaking") return false;
     try {
       const cr = await this.sendMessage.complete(messageId);
+      /** F20260814mtrc：不传 outcomeMeta——recordFailedAttempt 已按 user_abort 记过，此处防双计 */
       await this.completeAgentInvocation({
         otterId, conversationId, messageId,
         senderId: senderId ?? '',
@@ -682,6 +772,8 @@ export class AgentInvoker {
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
     this.logger.info('Degenerate output retry triggered', { messageId: p.messageId, otterId: p.otterId });
+    /** F20260814mtrc：退化重试计数 */
+    this.metrics?.recordRetry("degenerate_output");
     return this.executeRetryWithSystemReminder({
       messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "",
       senderId: p.senderId, emitEvent: p.emitEvent, onSSEEvent: p.onSSEEvent,
@@ -707,14 +799,17 @@ export class AgentInvoker {
     emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount: number;
+    manualRetry: boolean;
     startTime: number;
     tokenUsage?: { input: number; output: number };
     toolCallCount?: number;
   }): Promise<ConversationInvokeResult> {
-    const { messageId, otterId, conversationId, senderId, emitEvent, retryCount, startTime, tokenUsage, toolCallCount } = params;
+    const { messageId, otterId, conversationId, senderId, emitEvent, retryCount, manualRetry, startTime, tokenUsage, toolCallCount } = params;
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
+      /** F20260814mtrc：speak 重试计数 */
+      this.metrics?.recordRetry("no_speak");
       // 1. 内部标记消息失败（不发 SSE 事件，用户不可见）
       const failBody = "[系统] 未调用 speak 工具结束发言";
       /** 为什么 catch 吞掉异常：消息可能已被用户 abort 标记为终态（aborted），此时 fail() 被 canFailMessage 拒绝。吞掉是安全的——后续 prepareForRetry 会检查状态并按需降级。 */
@@ -742,7 +837,7 @@ export class AgentInvoker {
       const retryResult = await this.retryInvokeOnSameMessage({
         otterId, conversationId, userMessageContent: retryMsg,
         senderId, messageId, emitEvent, onSSEEvent: params.onSSEEvent,
-        retryCount: 1, startTime,
+        retryCount: 1, manualRetry, startTime,
       });
 
       this.logger.info('Speak retry completed (seamless)', { messageId, otterId });
@@ -778,32 +873,38 @@ export class AgentInvoker {
     emitEvent: (event: SSEEvent) => void;
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount: number;
+    manualRetry: boolean;
     startTime: number;
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, userMessageContent, senderId, messageId, emitEvent, onSSEEvent, retryCount, startTime } = params;
+    const { otterId, conversationId, userMessageContent, senderId, messageId, emitEvent, onSSEEvent, retryCount, manualRetry, startTime } = params;
+    /** F20260814mtrc：attempt 级计时——外层 startTime 是链级口径，metrics 用 attempt 入口时间防直方图双计 */
+    const attemptStartTime = Date.now();
 
     const dynamicContext = await this.buildDynamicContext(otterId);
     await this.injectWorkspacePath(dynamicContext, conversationId);
 
-    try {
-      const { result, toolCallCount } = await this.executeAgentInvocation({
-        otterId, userMessageContent, dynamicContext, conversationId, messageId, emitEvent,
-      });
+    // F20260814mtrc：messageId 进 trace scope（此路径不经 invokeConversation）
+    return runWithTrace({ messageId }, async () => {
+      try {
+        const { result, toolCallCount } = await this.executeAgentInvocation({
+          otterId, userMessageContent, dynamicContext, conversationId, messageId, emitEvent,
+        });
 
-      // Why: 复用 classifyAndRoute 做退出分类，覆盖 user abort / guard abort / no_speak / api error
-      return this.classifyAndRoute({
-        messageId, otterId, senderId, result, toolCallCount,
-        startTime, emitEvent, onSSEEvent, retryCount,
-        userMessageContent, conversationId,
-      });
-    } catch (err) {
-      const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? 0;
-      return this.classifyAndRoute({
-        messageId, otterId, senderId, err, toolCallCount,
-        startTime, emitEvent, onSSEEvent, retryCount,
-        userMessageContent, conversationId,
-      });
-    }
+        // Why: 复用 classifyAndRoute 做退出分类，覆盖 user abort / guard abort / no_speak / api error
+        return this.classifyAndRoute({
+          messageId, otterId, senderId, result, toolCallCount,
+          startTime, attemptStartTime, emitEvent, onSSEEvent, retryCount, manualRetry,
+          userMessageContent, conversationId,
+        });
+      } catch (err) {
+        const toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? 0;
+        return this.classifyAndRoute({
+          messageId, otterId, senderId, err, toolCallCount,
+          startTime, attemptStartTime, emitEvent, onSSEEvent, retryCount, manualRetry,
+          userMessageContent, conversationId,
+        });
+      }
+    });
   }
 
   /** 构建 speak 重试的系统提醒消息 */
@@ -818,6 +919,123 @@ export class AgentInvoker {
   abort(otterId: string, messageId: string): void {
     this.userAbortedMessages.add(messageId);
     this.agentInvoke.abort(otterId, messageId);
+  }
+
+  /**
+   * F20260814mtrc：流事件埋点——工具调用/耗时/错误、SDK 自动重试、compaction。
+   * 工具按 toolCallId 配对计时（对齐 circuit-breaker 的防御式配对）。
+   */
+  private recordStreamEventMetrics(e: AgentStreamEvent, toolStarts: Map<string, number>): void {
+    if (!this.metrics) return;
+    switch (e.type) {
+      case "tool_execution_start": {
+        this.metrics.recordToolCall(String(e.name ?? e.toolName ?? "unknown"));
+        const toolCallId = e.toolCallId as string | undefined;
+        if (toolCallId) toolStarts.set(toolCallId, Date.now());
+        break;
+      }
+      case "tool_execution_end": {
+        const tool = String(e.name ?? e.toolName ?? "unknown");
+        this.recordToolEndMetric(e, tool, toolStarts);
+        break;
+      }
+      case "auto_retry_start":
+        this.metrics.recordRetry("sdk_auto");
+        break;
+      case "compaction_end":
+        this.metrics.recordCompaction(String(e.reason ?? ""), e.aborted === true);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** 工具执行结束：按 toolCallId 配对计时 + 顶层 isError 错误计数 */
+  private recordToolEndMetric(e: AgentStreamEvent, tool: string, toolStarts: Map<string, number>): void {
+    const toolCallId = e.toolCallId as string | undefined;
+    const start = toolCallId !== undefined ? toolStarts.get(toolCallId) : undefined;
+    if (toolCallId !== undefined && start !== undefined) {
+      this.metrics?.recordToolDuration(tool, Date.now() - start);
+      toolStarts.delete(toolCallId);
+    }
+    /** 错误标志在事件顶层（result.isError 成功路径被 SDK 硬编码 false） */
+    if (e.isError === true) this.metrics?.recordToolError(tool);
+  }
+
+  /**
+   * F20260814mtrc：记录一次 attempt 的 metrics。
+   * otter_type/model/source 在此汇聚；metrics 失败绝不影响主流程。
+   */
+  private async recordAttempt(p: {
+    otterId: string;
+    result?: InvokeResultShape;
+    err?: unknown;
+    outcome: InvokeOutcome;
+    retryCount: number;
+    manualRetry: boolean;
+    startTime: number;
+  }): Promise<void> {
+    if (!this.metrics) return;
+    try {
+      const otter = await this.queryOtter.getById(p.otterId);
+      const record = this.buildInvokeRecord(p, otter?.type);
+      if (p.result?.sessionRebuilt) this.metrics.recordSessionRebuild();
+      this.metrics.recordInvoke(record);
+    } catch (err) {
+      this.logger.warn('metrics recording failed (non-fatal)', {
+        otterId: p.otterId, outcome: p.outcome,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** 组装 attempt 记录（otter_type 缺失记 unknown） */
+  private buildInvokeRecord(
+    p: { otterId: string; result?: InvokeResultShape; err?: unknown; outcome: InvokeOutcome; retryCount: number; manualRetry: boolean; startTime: number },
+    otterType?: string,
+  ): InvokeOutcomeRecord {
+    const firstByte = p.result?.outputGuardMetadata?.firstByteLatencyMs
+      ?? (p.err as ErrorWithToolCallCount | undefined)?._outputGuardMetadata?.firstByteLatencyMs;
+    return {
+      otterId: p.otterId,
+      model: p.result?.modelAlias ?? "unknown",
+      otterType: otterType ?? "unknown",
+      source: getTraceContext().source ?? "direct",
+      outcome: p.outcome,
+      retry: toRetryLabel(p.retryCount, p.manualRetry),
+      durationMs: Date.now() - p.startTime,
+      tokenUsage: p.result?.tokenUsage,
+      ctxTokens: p.result?.ctxTokens,
+      firstByteLatencyMs: firstByte,
+    };
+  }
+
+  /** F20260814mtrc：失败 attempt 记录（分类后、路由前；duration 不含重试链） */
+  private async recordFailedAttempt(reason: ExitReason, p: {
+    otterId: string; result?: InvokeResultShape; err?: unknown;
+    retryCount: number; manualRetry: boolean; attemptStartTime: number;
+  }): Promise<void> {
+    if (!this.metrics) return;
+    let outcome: InvokeOutcome;
+    switch (reason.kind) {
+      case 'user_abort':
+        outcome = 'user_abort';
+        break;
+      case 'guard_abort':
+        outcome = 'guard_abort';
+        this.metrics.recordGuardAbort(p.result?.modelAlias ?? "unknown", reason.guardReason);
+        break;
+      case 'api_error':
+        outcome = 'api_error';
+        break;
+      default:
+        outcome = p.retryCount === 0 ? 'no_speak_retry' : 'no_speak_failed';
+    }
+    await this.recordAttempt({
+      otterId: p.otterId, result: p.result, err: p.err,
+      outcome, retryCount: p.retryCount, manualRetry: p.manualRetry,
+      startTime: p.attemptStartTime,
+    });
   }
 
   /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发 */

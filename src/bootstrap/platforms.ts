@@ -18,6 +18,7 @@ import { AgentInvokePortAdapter } from "@usecases/ports/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import type { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
+import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { FeishuConfig } from "@frameworks/feishu/types";
 import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 import { FeishuClient } from "@frameworks/feishu/client";
@@ -83,7 +84,7 @@ export async function createAgentGateway(options: {
   };
 }
 
-export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger): DispatchChainEngine {
+export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, agentMetrics?: AgentMetricsPort): DispatchChainEngine {
   return new DispatchChainEngine({
     conversationRepo: repos.conversation,
     queryMessage: uc.queryMessage,
@@ -91,17 +92,18 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     logger,
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
     settingsRepo: repos.settings,
+    metrics: agentMetrics,
   });
 }
 
-export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics } = options;
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics } = options;
   await agentGateway.warmup();
 
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
-    messageBroadcaster, workspaceGateway, repos.settings,
+    messageBroadcaster, workspaceGateway, repos.settings, agentMetrics,
   );
 
   const cronParser = new SimpleCronParser();

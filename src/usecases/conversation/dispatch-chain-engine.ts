@@ -5,6 +5,8 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
+import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
+import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 
 export interface ChainHopResult {
   otterReply?: string;
@@ -43,14 +45,31 @@ export class DispatchChainEngine {
       logger: Logger;
       maxChainDepth?: number;
       settingsRepo?: SettingsRepository;
+      /** F20260814mtrc：链级指标（hop 分布/触顶计数），可选 */
+      metrics?: AgentMetricsPort;
     },
   ) {}
 
   /**
    * 执行发言链。
    * @param invokeFn 注入的调用函数 — MC 传带 onSSEEvent 的版本，ADS 传不带的版本
+   *
+   * F20260814mtrc：整条链包在 trace scope 内（链级 traceId，所有 hop 共享）。
    */
   async executeChain(
+    params: {
+      conversationId: string;
+      userMessageContent: string;
+      senderId: string;
+      initialTargets: string[];
+      invokeFn: InvokeFn;
+      callbacks?: ChainCallbacks;
+    },
+  ): Promise<{ otterReply?: string }> {
+    return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
+  }
+
+  private async executeChainInner(
     params: {
       conversationId: string;
       userMessageContent: string;
@@ -75,8 +94,11 @@ export class DispatchChainEngine {
       targets = result.nextTargets;
     }
 
+    this.deps.metrics?.recordChainHops(depth);
+
     if (targets.length > 0) {
       this.deps.logger.warn('发言链达到深度上限', { depth, targets, conversationId });
+      this.deps.metrics?.recordChainDepthExceeded();
       await callbacks?.onDepthExceeded?.(targets, depth);
     }
 

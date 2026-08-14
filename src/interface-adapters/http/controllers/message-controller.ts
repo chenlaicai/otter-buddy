@@ -372,12 +372,14 @@ export class MessageController {
       }
 
       // 直接 re-invoke，不注入系统消息；retryCount=1 防止叠加自动重试
+      // manualRetry=F20260814mtrc：metrics retry label 区分手动/自动重试
       this.agentInvoker.invokeConversation({
         otterId,
         conversationId,
         userMessageContent,
         senderId,
         retryCount: 1,
+        manualRetry: true,
       })
         .catch((err: unknown) => {
           const errMsg = err instanceof Error ? err.message : String(err);

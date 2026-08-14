@@ -4,6 +4,7 @@
  */
 import pino from 'pino';
 import type { Logger, LogContext } from '@usecases/ports/logger';
+import { traceLogFields } from '@usecases/ports/trace-context';
 
 export class PinoLogger implements Logger {
   private pino: pino.Logger;
@@ -18,20 +19,27 @@ export class PinoLogger implements Logger {
     }
   }
 
+  /** F20260814mtrc：合并 trace 字段（traceId/messageId）；显式 context 优先 */
+  private withTrace(context?: LogContext): LogContext | undefined {
+    const trace = traceLogFields();
+    if (!trace.traceId && !trace.messageId) return context;
+    return { ...trace, ...context };
+  }
+
   info(message: string, context?: LogContext): void {
-    this.pino.info(context, message);
+    this.pino.info(this.withTrace(context), message);
   }
 
   warn(message: string, context?: LogContext): void {
-    this.pino.warn(context, message);
+    this.pino.warn(this.withTrace(context), message);
   }
 
   error(message: string, error?: Error, context?: LogContext): void {
-    this.pino.error({ ...context, err: error }, message);
+    this.pino.error({ ...this.withTrace(context), err: error }, message);
   }
 
   debug(message: string, context?: LogContext): void {
-    this.pino.debug(context, message);
+    this.pino.debug(this.withTrace(context), message);
   }
 
   child(context: LogContext): Logger {
