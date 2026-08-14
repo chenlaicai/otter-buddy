@@ -74,6 +74,9 @@ data/sessions/
 # Metrics runtime output (prom-client JSONL snapshots, 7-day rotation)
 data/metrics/
 
+# Per-conversation workspace dirs (runtime scratch area for agent tools)
+data/workspaces/
+
 # Local model weights (large, downloaded separately)
 # Layout: models/<model-name>/onnx/*.onnx[+_data]
 models/
