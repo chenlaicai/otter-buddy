@@ -34,7 +34,26 @@ Verification depends on PR type:
 
 End-to-end verification failure must be reported as a 严重发现 in the review report.
 
-> **基础维度失败 → 严重发现**：任一基础维度失败（B1 CI 失败 / B2 文档缺失或不一致 / B3 端到端验证失败）必须在审视报告的"严重发现"节建立对应条目（标明 B1/B2/B3 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列。严重发现不可延后——见 `SKILL.md` 严重发现模板和 `author-response-protocol.md` 决策树。
+### B4. Change Identity Consistency
+
+特性编号在 commit message、PR title、PR 描述、特性文档间一致？
+
+- 从 commit message 或 PR title 提取特性编号（格式 `F<YYYYMMDD><id>`）
+- 确认同一个编号出现在：特性文档 frontmatter / PR 描述 / `list_artifacts` 的 groupId
+- 缺失或不一致必须报为严重发现（标明 B4 来源）
+
+> 特性编号是变更追溯的锚点——编号不一致会导致特性文档无法被 `search_memory` 按 ID 召回，也会让 `get_related` 的关系链断裂。
+
+> **基础维度失败 → 严重发现**：任一基础维度失败（B1 CI 失败 / B2 文档缺失或不一致 / B3 端到端验证失败 / B4 特性编号缺失或不一致）必须在审视报告的"严重发现"节建立对应条目（标明 B1/B2/B3/B4 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列。严重发现不可延后——见 `SKILL.md` 严重发现模板和 `author-response-protocol.md` 决策树。
+
+> **基础维度必须附验证证据**：每项基础维度的结论必须附实际验证证据（命令输出 / 工具返回 / 文件路径）。你有 bash、read 等编码工具——必须实际运行检查，不可凭印象填"通过"。
+>
+> - B1 CI 状态：实际运行 `gh run list --limit 3`，贴关键输出（通过/失败 + 哪些 job）
+> - B2 文档完整性：实际运行 `list_artifacts` 查找特性文档，贴结果；read 特性文档核对实现一致性
+> - B3 全链路验证：实际运行测试或构建命令，贴关键输出
+> - B4 变更标识一致性：从 commit/PR 提取编号，与 `list_artifacts` groupId / 特性文档 frontmatter 对照
+>
+> **无证据填"通过" = 虚假签收，等同漏报。** 报告合规门禁（见 `review-loop.md`）有权打回。
 
 ---
 
