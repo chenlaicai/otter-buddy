@@ -31,6 +31,8 @@ interface ChatViewProps {
   cardPreview?: CardPreview | null
   onConfirmCard?: () => void
   onRejectCard?: () => void
+  /** 用户滚动到底部时调用，用于标记已读 */
+  onReachBottom?: () => void
 }
 
 export function ChatView(props: ChatViewProps) {
@@ -87,6 +89,7 @@ export function ChatView(props: ChatViewProps) {
         unreadSeparatorSeq={props.unreadSeparatorSeq}
         highlightMessageId={props.highlightMessageId}
         userName={props.userName}
+        onReachBottom={props.onReachBottom}
       />
 
       {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}
