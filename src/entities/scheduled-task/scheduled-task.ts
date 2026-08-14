@@ -24,6 +24,8 @@ export interface ScheduledTask {
   status: ScheduledTaskStatus;
   consecutiveFailures: number;
   lastTriggeredAt: string | null;
+  /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
+  restartBeforeInvoke: boolean;
   createdAt: string;
   updatedAt: string;
 }

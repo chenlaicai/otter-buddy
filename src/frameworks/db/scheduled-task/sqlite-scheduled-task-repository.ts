@@ -26,12 +26,12 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
       INSERT INTO scheduled_tasks (
         id, conversation_id, name, schedule_type, cron, trigger_at, timezone, body,
         talking_stone_passed_to, sender_id, status, consecutive_failures,
-        last_triggered_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_triggered_at, restart_before_invoke, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id, row.conversation_id, row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone,
       row.body, row.talking_stone_passed_to, row.sender_id, row.status,
-      row.consecutive_failures, row.last_triggered_at, row.created_at,
+      row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.created_at,
       row.updated_at,
     );
   }
@@ -63,12 +63,12 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
       UPDATE scheduled_tasks SET
         name = ?, schedule_type = ?, cron = ?, trigger_at = ?, timezone = ?, body = ?,
         talking_stone_passed_to = ?, sender_id = ?, status = ?,
-        consecutive_failures = ?, last_triggered_at = ?, updated_at = ?
+        consecutive_failures = ?, last_triggered_at = ?, restart_before_invoke = ?, updated_at = ?
       WHERE id = ?
     `).run(
       row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone, row.body,
       row.talking_stone_passed_to, row.sender_id, row.status,
-      row.consecutive_failures, row.last_triggered_at, row.updated_at,
+      row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.updated_at,
       row.id,
     );
   }

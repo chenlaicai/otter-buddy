@@ -13,6 +13,8 @@ export interface CreateScheduledTaskRequestDTO {
   body: string;
   talkingStonePassedTo: string[];
   senderId?: string;
+  /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
+  restartBeforeInvoke?: boolean;
 }
 
 /** 更新定时任务请求 */
@@ -42,6 +44,8 @@ export interface ScheduledTaskDTO {
   status: string;
   consecutiveFailures: number;
   lastTriggeredAt: string | null;
+  /** F20260815rstrt */
+  restartBeforeInvoke: boolean;
   nextTriggerAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -83,6 +87,7 @@ export function toScheduledTaskDTO(task: ScheduledTask, nextTriggerAt?: string |
     status: task.status,
     consecutiveFailures: task.consecutiveFailures,
     lastTriggeredAt: task.lastTriggeredAt,
+    restartBeforeInvoke: task.restartBeforeInvoke,
     nextTriggerAt: nextTriggerAt ?? null,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

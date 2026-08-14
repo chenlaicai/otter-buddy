@@ -6,6 +6,7 @@ import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
 import type { ManageScheduledTask, TaskChangeCallback } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
+import type { ManageSession } from '@usecases/otter/manage-session';
 import { DomainError } from '@entities/errors';
 import type { Logger } from '@usecases/ports/logger';
 
@@ -35,6 +36,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     status: 'active',
     consecutiveFailures: 0,
     lastTriggeredAt: null,
+    restartBeforeInvoke: false,
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
     ...overrides,
@@ -1040,5 +1042,155 @@ describe('SchedulerService - onChange', () => {
       expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
       expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(false);
     });
+  });
+});
+
+describe('SchedulerService - restartBeforeInvoke', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-15T08:59:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should call manageSession.restartSession before invoking agent when restartBeforeInvoke=true', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: true, cron: '0 9 * * *' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    let restartCalled = false;
+    let invokeCalled = false;
+    const mockManageSession = {
+      restartSession: vi.fn(async () => {
+        restartCalled = true;
+        return { id: 'new-session-id' };
+      }),
+    };
+    agentInvoke.invokeConversation.mockImplementation(async () => {
+      invokeCalled = true;
+      return { messageId: 'msg-1' };
+    });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      manageSession: mockManageSession as unknown as ManageSession,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await Promise.resolve();
+
+    // 断言副作用：restart 和 invoke 都被调用
+    expect(restartCalled).toBe(true);
+    expect(invokeCalled).toBe(true);
+  });
+
+  it('should not call restartSession when restartBeforeInvoke=false', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: false, cron: '0 9 * * *' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    let restartCalled = false;
+    const mockManageSession = {
+      restartSession: vi.fn(async () => {
+        restartCalled = true;
+        return { id: 'new-session-id' };
+      }),
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      manageSession: mockManageSession as unknown as ManageSession,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await Promise.resolve();
+
+    expect(restartCalled).toBe(false);
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('should log warning when manageSession not injected and restartBeforeInvoke=true', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', makeTask({ restartBeforeInvoke: true, cron: '0 9 * * *' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      // manageSession not injected
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await Promise.resolve();
+
+    // 断言日志输出：manageSession 未注入时应有 warning
+    expect(mockLogger.warn).toHaveBeenCalled();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+
+  it('should handle concurrent restarts when multiple tasks trigger simultaneously', async () => {
+    const task1 = makeTask({ id: 'task-1', restartBeforeInvoke: true, cron: '0 9 * * *' });
+    const task2 = makeTask({ id: 'task-2', restartBeforeInvoke: true, cron: '0 9 * * *', name: '午间检查' });
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    taskRepo._store.set('task-1', task1);
+    taskRepo._store.set('task-2', task2);
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const restartCallIds: string[] = [];
+    const mockManageSession = {
+      restartSession: vi.fn(async () => {
+        restartCallIds.push(crypto.randomUUID());
+        return { id: 'new-session-id' };
+      }),
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
+      logger: mockLogger,
+      manageSession: mockManageSession as unknown as ManageSession,
+    });
+
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    // flush 微任务让两个任务的异步操作完成
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // 断言：两个任务都触发了 restart，且 invoke 也被调用
+    expect(restartCallIds.length).toBeGreaterThanOrEqual(2);
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
   });
 });
