@@ -1,10 +1,19 @@
 ---
 id: F20260814h2rg
-title: 修复左侧栏未读消息数字小红点不会消失
-status: in-progress
-created: 2026-08-14
-updated: 2026-08-14
-summary: 修复左侧栏未读消息数字小红点不会消失的问题
+title: fix-unread-badge
+doc_type: feature
+
+summary: |
+  修复左侧栏未读消息数字小红点不会消失的问题。
+  根因：前端只在首次访问且无未读时调用 markRead，用户滚动到底部时未调用。
+  修复：在 MessageList 组件中添加 onReachBottom 回调，用户滚动到底部时调用 markRead API，带防抖（500ms）。
+
+causal_links:
+  from:
+    - F20260813actk
+  to: []
+
+status: implemented
 ---
 
 # 修复左侧栏未读消息数字小红点不会消失
