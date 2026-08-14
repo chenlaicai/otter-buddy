@@ -130,7 +130,7 @@ issue #264。排查记忆系统效果时发现：用户期待 agent 每次回答
   - #1 ✅ 全链路：search_memory → speak，回答含"青砾岩层"与决策编号 KB3-TW8-7715
   - #2 部分：search_memory → speak（搜到并复述了否决决策与原因，未引用代号）
   - #3 部分：search_memory ×2 → speak（检索命中不全，如实说明不知道）
-  - **3/3 均在 speak 前主动检索**——主动背景探索行为稳定出现；grounding 复述质量有模型级抖动，与既有 speak 协议抖动（F20260805mspk）量级一致
+  - 本次采样 3/3 在 speak 前主动检索（n=3、单次运行，不外推"稳定"）；全链路口径 1/3 恰在 ≥1 阈值上，未来跑可能抖红（与既有 speak 协议抖动 F20260805mspk 量级一致）
 
 ### 证据判定
 
@@ -158,6 +158,22 @@ issue #264。排查记忆系统效果时发现：用户期待 agent 每次回答
 | 8 | low | get_related When 收窄为"search_memory 命中后"，排除其他 id 来源 | **接受并修订**。改为"手里有 entry id"，列举 sync_docs/link_memory 来源 |
 | 9 | low | F 文档措辞：substantive 中英混用、"describe 块"实为 it 用例 | **接受并修订** |
 | 10 | low | "不为了搜而搜"语法、"前因"偏向负面教训语义 | **接受并修订**。"不是为了搜而搜"、"来龙去脉/历史脉络" |
+
+### 第二轮（delta 审视，2026-08-14，独立检视 agent）
+
+核对结论：第一轮 10 条处置全部真实落实。新发现与处置：
+
+| # | 严重度 | 发现 | 处置 |
+|---|--------|------|------|
+| N1 | high | "edgeFromEntryId ↔ entry.id 对接成链"读法对 direction=in 不成立：实现中 edgeFromEntryId 恒为 edge.fromEntryId，in 查询的邻居恰是 from 端，片段退化为自指（entry produced entry），D5 四个 in 配方产出的正是这种片段 | **接受并修订**（方案 a）。description 按方向分述读法：in 时含义是"entry --edgeType--> 查询起点"。根因是 #269 输出缺 to 端信息（RelatedEntryItem 无 edgeToEntryId），已记录为 follow-up，不扩大本 PR 范围 |
+| N2 | medium | "sync_docs / link_memory 返回的 id 同样可用"事实错误：sync_docs 只返回计数；link_memory 返回的是 edgeId 不是 entry id，误用会静默空结果 | **接受并修订**。删错误例举，改为"刚 sync_docs 的文档用文档 ID 经 search_memory 短路定位" |
+| N3 | low | provenance 条件弱化为"起点是 F/R 文档"，实际还需 created_in_conversation 非空 | **接受并修订**。恢复"且有催生对话记录" |
+| N4 | low | 测试 JSDoc 残留旧"含'地基'"断言描述 | **接受并修订** |
+| N5 | low | F 文档"主动背景探索行为稳定出现"结论强度超过 n=3 单次采样证据；且全链路 1/3 恰在阈值上 | **接受并修订**。改为事实陈述并注明可能抖红 |
+
+## 二轮审视后的 follow-up 待办
+
+- #269 输出格式补 edgeToEntryId（或 in 查询翻转边语义），让 get_related 片段在两个方向都可直接拼接——本 PR 以 description 分述读法兜住，行为级修复另立特性
 
 ## 设计决策
 

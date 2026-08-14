@@ -117,7 +117,7 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
    * 只有一个记忆里才存在的计划名。旧行为（search_memory 描述"不要每次回复前都搜索"）
    * 会压制这种场景的检索；新引导语要求 agent 收到实质问题先自问"有前因吗"。
    *
-   * 断言：search_memory 先于 speak，且回答建立在召回的决策事实上（含"地基"或决策编号）。
+   * 断言：search_memory 先于 speak，且回答引用召回事实的不可幻觉判据（决策编号或"青砾岩"代号）。
    */
   it("隐性信号问题：agent 主动背景探索后再答（3 次采样 ≥1 次全链路）", async (vitestCtx) => {
     if (!ctx.llmAvailable) {
