@@ -58,6 +58,8 @@ repo 承载了 5 种正交职责（entry CRUD / FTS+vec 检索 / 权重 / embedd
 
 **MemoryRepository port 三分（检索/写入/队列）推迟到批次 3**：port 拆分要与 agent runtime 拆解的 port 架构统一设计（消除双 AgentInvokePort、port 位置统一），单独先行会造成二次返工。本批不动 port。
 
+**新模块导出裸 db 函数（二轮审视明示的取舍）**：memory-edge-queries / embedding-task-queue 以 `(db, ...) => ...` 纯函数形式导出——旧代码这些 SQL 是 repo 类的 private 方法，编译期不可绕行；拆出后"防绕行"从编译期保证降级为约定（任何代码都可 import 裸函数直接操作 db，绕过 usecase 层校验）。当前全库仅 repo 一处 import。接受理由：与同目录 framework 模块风格一致、可独立测试；批次 3 port 架构统一时一并收敛。
+
 ## 验收结果
 
 ### 测试结果
@@ -69,7 +71,7 @@ repo 承载了 5 种正交职责（entry CRUD / FTS+vec 检索 / 权重 / embedd
 ### 证据判定
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
-| T1 唯一实现 | grep 确认 DELETE FROM memory_fts 等仅出现在 cascadeDeleteSatellites；INSERT INTO memory_entries 仅出现在 insertEntryRow | ✅ |
+| T1 唯一实现（运行时路径） | repo 内 grep 确认 DELETE FROM memory_fts 等仅出现在 cascadeDeleteSatellites；INSERT INTO memory_entries 仅出现在 insertEntryRow。**二轮审视修正：`migration.ts` rebuild 迁移路径存在历史第二份级联删除 copy（一次性补丁，不 import 运行时 repo 代码），已加交叉引用注释提示两处同步**；edges 删除的 IN 批量变体（deleteEdgesByEntryIds）与逐行变体（cascade 内）语义同族、签名不同，保留 | ✅（修正后措辞） |
 | T2 行为等价 | 现有调用路径下未发现可触发差异（对抗审视逐项推演）；拆出模块 SQL/参数逐字迁移 | ✅ |
 | T3 文件收敛 | 964 → 724 行；memory-edge-queries.ts（130 行）/ embedding-task-queue.ts（90 行）独立 | ✅ |
 
@@ -84,10 +86,20 @@ repo 承载了 5 种正交职责（entry CRUD / FTS+vec 检索 / 权重 / embedd
 
 **审视发现的测试盲区（已补）**：replaceEntryBySource 的多旧行分支（审视三轮 #2 的关键防御，原零覆盖）补用例"多旧行只重定向第一行的边，其余行及其边删除"。事务回滚路径仍无直接测试（改动前后均无，等价性依赖事务包装库自身语义，接受）。
 
+### 二轮审视记录
+
+第二轮攻击一轮审查的盲区，结论维持"行为等价"，新增发现与跟进：
+
+1. **【中·文档级】T1 证据声明不实（已修正）**：一轮声称"DELETE FROM memory_fts 仅出现在 cascadeDeleteSatellites"——实际 `migration.ts:429` rebuild 迁移路径还有一份历史 copy（本次 PR 之前已存在，非行为回归）。已在 migration.ts 加交叉引用注释（新增卫星表两处同步），T1 证据行措辞修正。
+2. **【低·潜伏】新模块导出裸 db 函数**：防绕行从编译期降级为约定（见范围决策）。当前全库仅 repo 一处 import。
+3. **prepare 开销**：better-sqlite3 无语句缓存，但新旧版在循环内逐条 prepare 的次数完全相同（等价）；将 4 条语句 hoist 到事务开头是 missed opportunity，留待后续。
+4. **补测的 flaky 质疑不成立**：多旧行测试断言置换不变（无论哪行是 index=0，终态恒为"恰 1 条边指向新行"）；且测试数据恰为历史 UNIQUE 崩溃触发器（同 from 同 type 不同 to），两个方向的回归（全重定向/全删边）都会被抓住。
+
 ## 改动范围
 | 文件 | 操作 | 说明 |
 |------|------|------|
 | src/frameworks/db/memory/sqlite-memory-repository.ts | 修改 | 去重 + 事务包装 + 委托 |
 | src/frameworks/db/memory/memory-edge-queries.ts | 新增 | edges 图查询（自 repo 原样迁移） |
 | src/frameworks/db/memory/embedding-task-queue.ts | 新增 | embedding 重试任务队列（原样迁移） |
+| src/frameworks/db/migration.ts | 修改 | 二轮审视：级联删除历史 copy 处加交叉引用注释 |
 | tests/frameworks/db/memory/memory-edges.test.ts | 修改 | 对抗审视补测：多旧行边重定向/删除分支 |
