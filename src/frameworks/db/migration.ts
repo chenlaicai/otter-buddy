@@ -426,6 +426,9 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
     for (const ct of types) {
       const rows = db.prepare("SELECT id FROM memory_entries WHERE content_type = ?").all(ct) as Array<{ id: string }>;
       for (const row of rows) {
+        // 注意（F20260817mrp2 二轮审视）：这里是级联删除卫星表的【第二份实现】（rebuild 迁移路径，
+        // 历史 copy）——运行时唯一实现在 sqlite-memory-repository.ts 的 cascadeDeleteSatellites。
+        // 新增/修改卫星表时两处都要同步（迁移是一次性补丁，不 import repo 运行时代码）。
         db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
         db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         // S10：vec 删除 try-catch 加 log warn（vec0 表可能不存在，D22 降级）
