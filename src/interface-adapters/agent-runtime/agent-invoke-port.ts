@@ -32,6 +32,10 @@ export interface AgentRunResult {
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  /** 本次 invoke 实际使用的模型别名（F20260814mtrc：metrics model label 数据源） */
+  modelAlias?: string;
+  /** 本次 invoke 重建了全新 session（F20260814mtrc） */
+  sessionRebuilt?: boolean;
 }
 
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */
