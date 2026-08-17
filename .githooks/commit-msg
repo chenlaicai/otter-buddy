@@ -24,12 +24,21 @@ if [ "$has_cjk" != "yes" ]; then
   exit 1
 fi
 
-is_template_valid=$(node -e "const title = process.argv[1]; const pattern = /^\[F(\d{10}|\d{8}[a-kmnp-z][2-9a-kmnp-z]{3})\]\[[a-z][a-z-]*\]\[(Feature Update|BugFix|New Feature)\](\[Incompatible\])?\s+.+[\u4e00-\u9fff].*$/; process.stdout.write(pattern.test(title) ? 'yes' : 'no');" "$first_line")
+is_template_valid=$(node -e "
+const title = process.argv[1];
+const id = '(\\\\d{10}|\\\\d{8}[a-kmnp-z][2-9a-kmnp-z]{3,9})';
+const cjk = '[\\\\u4e00-\\\\u9fff]';
+// F：必须带变更类型；R：类型可省略（与 CI PR 标题规则及历史 R 提交一致）
+const f = new RegExp('^\\\\[F' + id + '\\\\]\\\\[[a-z][a-z-]*\\\\]\\\\[(Feature Update|BugFix|New Feature)\\\\](\\\\[Incompatible\\\\])?\\\\s+.+' + cjk + '.*$');
+const r = new RegExp('^\\\\[R' + id + '\\\\]\\\\[[a-z][a-z-]*\\\\](\\\\[(Feature Update|BugFix|New Feature)\\\\](\\\\[Incompatible\\\\])?)?\\\\s+.+' + cjk + '.*$');
+process.stdout.write((f.test(title) || r.test(title)) ? 'yes' : 'no');
+" "$first_line")
 if [ "$is_template_valid" != "yes" ]; then
   echo "错误：commit message 首行必须使用模板："
-  echo "[FYYYYMMDDNN|FYYYYMMDDxNNN][module][Feature Update|BugFix|New Feature][Incompatible] 中文标题"
-  echo "说明：[Incompatible] 仅在存在不兼容更新时出现。"
-  echo "xxxx 首位必须是字母（a-k, m-n, p-z，排除 l/o），后 3 位为 2-9 数字或 a-k, m-n, p-z 字母（排除 l/o/0/1），以区分日期部分。"
+  echo "[F|YYYYMMDDNN|YYYYMMDDxNNN][module][Feature Update|BugFix|New Feature][Incompatible] 中文标题"
+  echo "或 [R...][module] 中文标题（R=research，类型字段可省略）"
+  echo "说明：ID 前缀 F=feature/bugfix（须带变更类型），R=research。[Incompatible] 仅在存在不兼容更新时出现。"
+  echo "xxxx 首位必须是字母（a-k, m-n, p-z，排除 l/o），后 3-9 位为 2-9 数字或 a-k, m-n, p-z 字母（排除 l/o/0/1），以区分日期部分（4-10 位后缀，与 docs/README 及 CI PR 标题规则对齐）。"
   echo "module 为小写中划线格式（如 project-setup、agent、memory 等功能区域标签）"
   echo "当前首行: $first_line"
   exit 1
