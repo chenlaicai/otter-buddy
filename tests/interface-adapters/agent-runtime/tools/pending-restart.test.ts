@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTools } from '@interface-adapters/agent-runtime/tools/tool-factory';
-import type { ToolContext } from '@interface-adapters/agent-runtime/tools/tool-factory';
+import type { ToolContext } from '@usecases/ports/agent-tools';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
 

@@ -16,7 +16,6 @@ import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
-export type { AgentTool, ToolContext, ToolResponse } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 /**

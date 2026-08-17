@@ -1,4 +1,4 @@
-import type { AgentTool } from "./tool-factory";
+import type { AgentTool } from "@usecases/ports/agent-tools";
 import { textResponse } from "@usecases/ports/agent-tools";
 
 /**

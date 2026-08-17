@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createListArtifactsTool } from "@interface-adapters/agent-runtime/tools/artifact-tools";
-import type { ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { ToolContext } from "@usecases/ports/agent-tools";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 const TRUNCATED_MARK = "…(已截断)";
