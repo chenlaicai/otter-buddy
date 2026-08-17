@@ -191,44 +191,8 @@ export function MessageList({
   unreadSeparatorSeq, highlightMessageId,
   userName, onReachBottom,
 }: MessageListProps) {
-  if (state === 'no-llm') {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-3.5">
-        <AlertTriangle className="w-12 h-12 text-stone-300" />
-        <div className="text-base font-semibold text-stone-600">请先配置 LLM</div>
-        <div className="text-sm text-stone-400 text-center max-w-xs leading-relaxed">
-          系统需要 LLM API Key 才能工作。<br />请前往设置页面配置。
-        </div>
-        <button
-          onClick={onGoToSettings}
-          className="px-4 py-2 text-sm text-white rounded-2xl shadow-glow transition flex items-center gap-1.5"
-          style={{ background: OTTER_GRADIENT }}
-        >
-          前往设置
-        </button>
-      </div>
-    )
-  }
-
-  if (state === 'loading') {
-    return (
-      <div className="mx-auto px-1">
-        <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
-        <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
-        <div className="h-14 rounded-3xl bg-white/30 animate-pulse" />
-      </div>
-    )
-  }
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-2">
-        <div className="text-sm font-medium text-stone-400">开始对话</div>
-        <div className="text-xs text-stone-400">在下方输入消息开始与大獭对话</div>
-      </div>
-    )
-  }
-
+  /** F20260814qswp：全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
+   *  的早退位于 hooks 声明之前，同一挂载实例上 state 切换会导致 hooks 数量变化而崩溃 */
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevMessagesLenRef = useRef(messages.length)
   /** 上翻加载历史时，记录需要恢复的滚动位置差值 */
@@ -308,6 +272,45 @@ export function MessageList({
     isAtBottomRef.current = true
     prevMessagesLenRef.current = 0
   }, [conversationId, isAtBottomRef])
+
+  // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
+  if (state === 'no-llm') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3.5">
+        <AlertTriangle className="w-12 h-12 text-stone-300" />
+        <div className="text-base font-semibold text-stone-600">请先配置 LLM</div>
+        <div className="text-sm text-stone-400 text-center max-w-xs leading-relaxed">
+          系统需要 LLM API Key 才能工作。<br />请前往设置页面配置。
+        </div>
+        <button
+          onClick={onGoToSettings}
+          className="px-4 py-2 text-sm text-white rounded-2xl shadow-glow transition flex items-center gap-1.5"
+          style={{ background: OTTER_GRADIENT }}
+        >
+          前往设置
+        </button>
+      </div>
+    )
+  }
+
+  if (state === 'loading') {
+    return (
+      <div className="mx-auto px-1">
+        <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
+        <div className="h-14 mb-2 rounded-3xl bg-white/30 animate-pulse" />
+        <div className="h-14 rounded-3xl bg-white/30 animate-pulse" />
+      </div>
+    )
+  }
+
+  if (messages.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-stone-300 gap-2">
+        <div className="text-sm font-medium text-stone-400">开始对话</div>
+        <div className="text-xs text-stone-400">在下方输入消息开始与大獭对话</div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">

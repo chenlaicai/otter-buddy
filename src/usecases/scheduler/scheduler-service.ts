@@ -7,8 +7,7 @@ import type { ManageSession } from '@usecases/otter/manage-session';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
-import type { SchedulerMetrics } from '@frameworks/metrics/scheduler-metrics';
-import { nowMs } from '@frameworks/metrics/registry';
+import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import { DomainError } from '@entities/errors';
 
 /** once 任务重试参数 */
@@ -30,7 +29,11 @@ export interface SchedulerServiceOptions {
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
-  metrics?: SchedulerMetrics;
+  metrics?: SchedulerMetricsPort;
+  /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
+   *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响，对抗审视二轮修复——
+   *  首版误用 Date.now 墙钟）；与调度延迟计算的 Date.now 是两条时间线，注入方须保持一致语义 */
+  now?: () => number;
 }
 
 export class SchedulerService {
@@ -42,7 +45,8 @@ export class SchedulerService {
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
-  private readonly metrics?: SchedulerMetrics;
+  private readonly metrics?: SchedulerMetricsPort;
+  private readonly now: () => number;
   private readonly manageSession?: ManageSession;
 
   constructor(options: SchedulerServiceOptions) {
@@ -54,6 +58,7 @@ export class SchedulerService {
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
     this.metrics = options.metrics;
+    this.now = options.now ?? (() => performance.now());
     this.manageSession = options.manageSession;
 
     // 注册任务变更回调
@@ -286,7 +291,7 @@ export class SchedulerService {
         }
       }
 
-      executionStartMs = nowMs();
+      executionStartMs = this.now();
       try {
         const message = await this.createSystemMessage(task, effectiveBody);
         await this.invokeAgentWithTimeout(task, effectiveBody);
@@ -302,7 +307,7 @@ export class SchedulerService {
       this.metrics?.recordTrigger(task.scheduleType, status);
       // executionStartMs=0 表示前置阶段就抛错，不计入 histogram（无可观测的执行耗时）
       if (executionStartMs > 0) {
-        this.metrics?.observeExecutionDuration(task.scheduleType, nowMs() - executionStartMs);
+        this.metrics?.observeExecutionDuration(task.scheduleType, this.now() - executionStartMs);
       }
     }
   }
