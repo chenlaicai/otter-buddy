@@ -104,4 +104,14 @@ describe("buildApp 组装根启动", () => {
     const res = await built.app.request("/memory");
     expect(res.status).toBe(404);
   });
+
+  it("F20260814mtrc：/metrics 端点含 agent 域指标（装配完成即注册）", async () => {
+    const res = await built.app.request("/metrics");
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain("agent_invoke_total");
+    expect(text).toContain("agent_tool_calls_total");
+    expect(text).toContain("agent_chain_hops");
+    expect(text).toContain("agent_first_byte_latency_ms");
+  });
 });
