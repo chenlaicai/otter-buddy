@@ -157,3 +157,12 @@ ESLint 10 的 `no-restricted-imports` patterns 对象既不支持 pattern 级 `a
 ## 对抗审视记录
 
 本批为 bugfix + 工程门禁清理（无新架构决策），按流程未走多轮对抗审视；批次二的 repo 重构与批次三的 agent runtime 拆解设计文档将走完整审视流程。
+
+## 对抗审视记录（二轮，合入前补做）
+
+独立 agent 对抗审查发现两处真问题，已修复并补回归用例：
+
+1. **【高危·首版引入的回归】MessageBatcher 暂存副本覆盖窗口内直接写入**：首版 "pending 优先于 getBase" 使得同窗口内不走 batcher 的直接 `setAllMessages` 写入（refreshMessages 轮询合并 / loadMoreBefore 上翻 prepend / stopStream 乐观 abort / handleSend tmp 追加）在 flush 时被旧暂存整体抹掉——"流式输出 + 上翻加载历史"可稳定复现历史消失。旧实现反而不丢（其 updater 在 React 更新队列中按序执行、读到含直接写入的最新 state）。**修复**：staging 记录 base 引用快照，flush 时引用已变则把 updater 链重放到最新列表（恢复旧实现的延迟执行语义），未变则直接应用暂存结果。新增 3 个双轨回归用例。
+2. **【中危】scheduler 时钟语义偷换**：首版默认 `() => Date.now()`（墙钟），原 `nowMs()` 是 `performance.now()`（单调钟，duration histogram 计时）——NTP 步进期间会记录负时长/尖峰。修复：默认改回 `() => performance.now()`，注释明确与调度延迟的 Date.now 是两条时间线。
+
+审视确认无问题的攻击面（节选）：added/unread 计数语义、retry 流守卫等价性、hooks 前置的 effect 副作用、eslint regex 边界（仅剩与旧配置相同的大小写/动态 import 缺口）、port 结构化兼容、abort catch 类型安全、web 依赖删除零引用。已知残留（低危，接受）：dispose 丢弃最后 ≤50ms 暂存（MPA 切换走整页刷新，实际影响近零）。

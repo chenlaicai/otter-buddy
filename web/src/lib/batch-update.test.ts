@@ -109,6 +109,54 @@ describe('MessageBatcher', () => {
     })
   })
 
+  // —— 对抗审视二轮修复的回归用例：窗口内外部直接写入 state（双轨场景）——
+
+  it('窗口内外部直接写入（上翻加载 prepend）不被 flush 覆盖——updater 链重放到最新列表', () => {
+    // 场景：流式 assistant_text 追加文本（走 batcher）+ 同窗口用户上翻加载历史（直接写 state）
+    batcher.update('conv-1', (list) =>
+      list.map(m => m.id === 'm2' ? { ...m, content: m.content + ' 流式追加' } : m))
+    // 外部直接写入：prepend 两条历史（不走 batcher，替换 base 引用）
+    base['conv-1'] = [msg({ id: 'h1', content: '历史1' }), msg({ id: 'h2', content: '历史2' }), ...base['conv-1']]
+    // 同窗口后续 batcher 更新
+    batcher.update('conv-1', (list) =>
+      list.map(m => m.id === 'm2' ? { ...m, content: m.content + '!' } : m))
+
+    vi.advanceTimersByTime(50)
+
+    // flush 结果必须同时含：prepend 的历史 + 重放后的流式追加
+    expect(base['conv-1'].map(m => m.id)).toEqual(['h1', 'h2', 'm1', 'm2'])
+    expect(base['conv-1'].find(m => m.id === 'h1')?.content).toBe('历史1')
+    expect(base['conv-1'].find(m => m.id === 'm2')?.content).toBe('msg2 流式追加!')
+  })
+
+  it('窗口内外部直接写入（乐观置 aborted）不被 flush 回退', () => {
+    batcher.update('conv-1', (list) =>
+      list.map(m => m.id === 'm2' ? { ...m, content: m.content + ' 流式' } : m))
+    // 外部直接写入：stopStream 乐观置 aborted（替换引用）
+    base['conv-1'] = base['conv-1'].map(m => m.id === 'm2' ? { ...m, status: 'aborted' as const } : m)
+
+    vi.advanceTimersByTime(50)
+
+    const m2 = base['conv-1'].find(m => m.id === 'm2')
+    expect(m2?.status).toBe('aborted')
+    expect(m2?.content).toBe('msg2 流式')
+  })
+
+  it('窗口内无外部写入时直接应用暂存结果（不重放，staged 引用透传）', () => {
+    const captured: LocalMessage[][] = []
+    batcher = new MessageBatcher({
+      windowMs: 50,
+      getBase: (convId) => base[convId] ?? [],
+      apply: (updates) => {
+        for (const [convId, msgs] of updates) { captured.push(msgs); base[convId] = msgs }
+      },
+    })
+    batcher.update('conv-1', (list) => [...list, msg({ id: 'm4' })])
+    vi.advanceTimersByTime(50)
+    expect(captured).toHaveLength(1)
+    expect(captured[0].map(m => m.id)).toEqual(['m1', 'm2', 'm4'])
+  })
+
   it('dispose 清理定时器，不再触发 apply（卸载后无泄漏 setState）', () => {
     batcher.update('conv-1', (list) => [...list, msg({ id: 'm4' })])
     batcher.dispose()

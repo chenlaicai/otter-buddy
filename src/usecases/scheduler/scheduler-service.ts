@@ -30,7 +30,9 @@ export interface SchedulerServiceOptions {
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
   metrics?: SchedulerMetricsPort;
-  /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换 */
+  /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
+   *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响，对抗审视二轮修复——
+   *  首版误用 Date.now 墙钟）；与调度延迟计算的 Date.now 是两条时间线，注入方须保持一致语义 */
   now?: () => number;
 }
 
@@ -56,7 +58,7 @@ export class SchedulerService {
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
     this.metrics = options.metrics;
-    this.now = options.now ?? (() => Date.now());
+    this.now = options.now ?? (() => performance.now());
     this.manageSession = options.manageSession;
 
     // 注册任务变更回调

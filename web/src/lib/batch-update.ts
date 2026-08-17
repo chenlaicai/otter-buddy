@@ -9,12 +9,19 @@ import type { LocalMessage } from './mappers'
  * 的文本段直接消失）。副作用（写 pendingUpdatesRef、起 timer）写在 React state
  * updater 内也违反 updater 纯函数约定。
  *
- * 新语义：update() 调用时**立即**对暂存副本（pending 或外部提供的 base）执行 updater，
- * 窗口内多次 update 链式生效；窗口到期 flush 一次性 apply 到真实 state。
- * 调用方仍可依赖“updater 同步执行”（闭包标志位模式，如 added 计数）。
+ * 新语义：update() 调用时**立即**对暂存副本（pending 或外部提供的 base）执行 updater
+ * （调用方可依赖闭包标志位模式，如 added 计数）；窗口到期 flush 一次性 apply。
  *
- * 窗口内的暂存值与外部对 state 的直接写入（如轮询快照）仍是 Map-overwrite
- * 语义——依赖 upsertTerminalMessage 等幂等合并兜底，与旧实现一致。
+ * F20260814qswp 二轮（对抗审视修复）：首版"暂存副本 + pending 优先"引入了新回归——
+ * 窗口内若有**不走本 batcher 的直接 setState 写入**（轮询合并 / 上翻加载 prepend /
+ * 乐观 abort / tmp 追加），后续 update 仍基于窗口前的旧暂存，flush 时整体覆盖，
+ * 直接写入被抹掉（流式期间上翻加载历史会稳定复现历史消失）。旧实现反而不丢：
+ * 其 updater 在 React 更新队列中按序执行，读到的是含直接写入的最新 state。
+ *
+ * 修复：staging 开始时记录 base 引用快照；flush 时若 getBase 返回的引用已变化
+ * （外部写入过），把**暂存的 updater 链重放**到当前最新列表上——等价于旧实现的
+ * "延迟到队列处理时对最新 state 执行"。引用未变则直接应用暂存结果（省一次重放）。
+ * 要求 updater 是纯函数（list → list，无闭包外副作用）——现有全部调用点满足。
  */
 export interface MessageBatcherOptions {
   /** 合并窗口毫秒数 */
@@ -25,18 +32,33 @@ export interface MessageBatcherOptions {
   apply: (updates: ReadonlyMap<string, LocalMessage[]>) => void
 }
 
+interface PendingChain {
+  /** staging 开始时 getBase 返回的引用（undefined 表示当时无会话记录） */
+  baseRef: LocalMessage[] | undefined
+  /** 按序暂存的 updater 链（flush 重放用） */
+  updaters: Array<(prev: LocalMessage[]) => LocalMessage[]>
+  /** 对暂存副本链式执行的结果（base 未变时直接应用） */
+  staged: LocalMessage[]
+}
+
 export class MessageBatcher {
-  private pending = new Map<string, LocalMessage[]>()
+  private pending = new Map<string, PendingChain>()
   private timer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly opts: MessageBatcherOptions) {}
 
   /** 对暂存副本同步执行 updater；有实际变更时暂存并启动合并窗口 */
   update(convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]): void {
-    const base = this.pending.get(convId) ?? this.opts.getBase(convId)
-    const updated = updater(base)
-    if (updated === base) return
-    this.pending.set(convId, updated)
+    let chain = this.pending.get(convId)
+    if (!chain) {
+      const base = this.opts.getBase(convId)
+      chain = { baseRef: base, updaters: [], staged: base }
+      this.pending.set(convId, chain)
+    }
+    const updated = updater(chain.staged)
+    if (updated === chain.staged) return
+    chain.staged = updated
+    chain.updaters.push(updater)
     if (this.timer === null) {
       this.timer = setTimeout(() => {
         this.timer = null
@@ -45,10 +67,22 @@ export class MessageBatcher {
     }
   }
 
-  /** 立即应用全部暂存更新（窗口到期或组件卸载前调用） */
+  /** 立即应用全部暂存更新（窗口到期或需要立即提交时调用） */
   flush(): void {
     if (this.pending.size === 0) return
-    const updates = new Map(this.pending)
+    const updates = new Map<string, LocalMessage[]>()
+    for (const [convId, chain] of this.pending) {
+      const current = this.opts.getBase(convId)
+      if (current === chain.baseRef) {
+        // 窗口内无外部写入：直接应用暂存结果
+        updates.set(convId, chain.staged)
+      } else {
+        // 外部已写入：重放 updater 链到最新列表（恢复旧实现的"对最新 state 执行"语义）
+        let list = current
+        for (const u of chain.updaters) list = u(list)
+        updates.set(convId, list)
+      }
+    }
     this.pending.clear()
     this.opts.apply(updates)
   }
