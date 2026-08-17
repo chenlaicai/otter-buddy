@@ -47,14 +47,14 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 - `message-broadcaster.ts` 瘦身为纯总线：subscribe / broadcast / broadcastEvent（Web 分发）+ `registerOutboundChannel`（出站通道注册）。构造只依赖 logger。
 - 新 `feishu-message-channel.ts`：`FeishuMessageChannel implements OutboundMessageChannel, OutboundEventChannel`——原 `broadcastToFeishu` / `maybeSendFeishuThinkingMessage` / `resolveSenderLabel` / `shouldBroadcastToFeishu` 逻辑原样迁移（含 F20260812fmdr 的投影/降级与 R5 时间戳 gate）。
 - `app.ts` 无条件 `new MessageBroadcaster(logger)`；`createFeishuBundle` 增加总线参数并在飞书启用时注册 channel；`setupFeishu` 的 `messageBroadcaster` 从 bundle 字段改为显式参数（`FeishuBundle` 不再持有 broadcaster）。
-- 事件语义保持：broadcast 对出站通道逐个 await（通道内部 catch）；broadcastEvent 对出站通道 fire-and-forget（与旧 thinking 消息路径一致）。
+- 事件语义保持：broadcast 对出站通道逐个顺序 await（通道抛错冒泡至调用方 .catch，与拆分前 broadcastToFeishu 一致）；broadcastEvent 对出站通道 fire-and-forget（与旧 thinking 消息路径一致）。
 
 ## 验收结果
 
 ### 测试结果
 
 - `npx tsc --noEmit` 通过；`npx eslint .` 0 error
-- 全量 vitest 101 文件通过（含 tests/usecases/im 13 文件 177 用例——broadcaster/feishu-channel 行为断言全部沿用，仅装配方式改为"总线 + 注册通道"，与生产一致）
+- 全量 vitest 105 文件 / 1231 用例通过（含 tests/usecases/im 5 文件 63 用例——broadcaster/feishu-channel 行为断言全部沿用，仅装配方式改为"总线 + 注册通道"，与生产一致；tests/api 的 POST SSE 用例改走真实总线）
 - subscribe-sse 测试标注：裸总线（无出站通道）即 web-only 部署形态，subscribe 正常建立、事件到达 SSE 流
 
 ### 证据判定
@@ -79,6 +79,13 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 2. **【中】web-only 验证未走到 message.complete 且该路径无自动化覆盖**：真实验证因 LLM 401 止步于 error 事件；而 tests/api 的 broadcaster 原是**手写 mock**（绕过真实总线实现）。修复：tests/api/helpers.ts 改用真实 `MessageBroadcaster`（裸总线 = web-only 形态），POST 流 → 生产总线 → SSE complete 链路（tests/api/message.test.ts:150）现在真实走过。
 
 理论边角（接受）：registerOutboundChannel 无去重（当前单一同步调用点，buildApp 复用时才会暴露）；feishu 测试的 `messageChannels[0]["manageConnection"]` 私有访问链在字段改名时响亮失败（非静默）。
+
+### 二轮审视记录
+
+攻击一轮修复本身与盲区，结论：一轮两个修复方向正确、未引入行为回归（helpers 换真实总线与旧 mock 语义等价偏优：message 回调路径在 tests/api 无用例执行、双清 unsubscribe 更完整；无 broadcaster 的 POST 流有 stream.end 兜底不挂起；前端无 500 专属分支残留；无 setup 前事件泄漏；无跨 app 串流）。两个残留已修：
+
+1. **【中】broadcast() 实现处注释仍残留一轮要消灭的谎言**（"通道内部 catch，单个通道失败不影响其他"）——与修好的接口注释同文件矛盾。已改。
+2. **【低·文档】F 文档测试数字失实**（"tests/usecases/im 13 文件 177 用例"实为 im+api 合并跑的数字误归属；实测 5 文件 63 用例）。已改为实测数字。
 
 ## 关联
 

@@ -99,7 +99,8 @@ export class MessageBroadcaster {
     // 1. 广播到 Web 端(通过 SSE 回调)
     this.broadcastToWeb(message);
 
-    // 2. 广播到出站通道（飞书等；通道内部 catch，单个通道失败不影响其他）
+    // 2. 广播到出站通道（飞书等；逐通道顺序 await，通道抛错冒泡至调用方 .catch——
+    //    隔离语义详见 OutboundMessageChannel 接口注释）
     for (const channel of this.messageChannels) {
       await channel.onMessage(message);
     }
