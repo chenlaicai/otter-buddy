@@ -1,4 +1,4 @@
-import type { AgentTool, ToolContext } from "./tool-factory";
+import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 

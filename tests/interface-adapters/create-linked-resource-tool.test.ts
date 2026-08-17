@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { ToolContext } from "@usecases/ports/agent-tools";
 import { FACT_CONTENT_MAX_LENGTH } from "@usecases/conversation/manage-key-info";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 

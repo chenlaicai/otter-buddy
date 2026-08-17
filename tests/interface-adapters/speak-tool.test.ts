@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { ToolContext } from "@usecases/ports/agent-tools";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import { DomainError } from "@entities/errors";
 

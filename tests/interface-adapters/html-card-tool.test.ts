@@ -8,7 +8,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { ToolContext } from "@usecases/ports/agent-tools";
 import { HTML_CARD_CONTRACT } from "@interface-adapters/agent-runtime/tools/html-card-contract-tool";
 import { getOtterToolNamesForType } from "@frameworks/agent/session-helpers";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";

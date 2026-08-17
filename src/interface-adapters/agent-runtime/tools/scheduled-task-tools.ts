@@ -1,5 +1,5 @@
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-import type { AgentTool, ToolContext } from "./tool-factory";
+import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse, type ToolResponse } from "@usecases/ports/agent-tools";
 
 /** 校验参数，返回错误消息或 null */
