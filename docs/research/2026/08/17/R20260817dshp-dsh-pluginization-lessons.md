@@ -10,7 +10,7 @@ summary: |
   拒绝四项机制（Cordis 运行时/分层 patch/waterfall/依赖图，含重估锚点），已知局限三条。
   与已锁定的批次3设计 R20260817arnt 互证无冲突，A4/A5 排批次3 之后另立 PR。
 
-status: draft
+status: locked
 exploration_type: technical
 tags: [architecture, pluginization, harness, ports, agent-runtime, composability]
 modules:
