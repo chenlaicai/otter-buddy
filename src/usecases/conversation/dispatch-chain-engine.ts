@@ -94,11 +94,15 @@ export class DispatchChainEngine {
       targets = result.nextTargets;
     }
 
-    this.deps.metrics?.recordChainHops(depth);
+    try {
+      this.deps.metrics?.recordChainHops(depth);
+    } catch { /* F20260814mtrc：metrics 异常不影响链路主流程 */ }
 
     if (targets.length > 0) {
       this.deps.logger.warn('发言链达到深度上限', { depth, targets, conversationId });
-      this.deps.metrics?.recordChainDepthExceeded();
+      try {
+        this.deps.metrics?.recordChainDepthExceeded();
+      } catch { /* F20260814mtrc */ }
       await callbacks?.onDepthExceeded?.(targets, depth);
     }
 

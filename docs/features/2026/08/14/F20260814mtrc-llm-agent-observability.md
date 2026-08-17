@@ -98,7 +98,15 @@ metrics 骨架（registry/flush/端点/过期清理）与领域 metrics 模块�
 - **duration 语义**：`agent_invoke_duration_ms` 含前置开销（DynamicContext 构建、session 锁等待 `session:{otterId}`、排队），与纯 LLM 的 `first_byte_latency_ms` 不可直接对照，文档明示。**speak-retry 的第二 attempt 使用 attempt 入口时间**（`retryInvokeOnSameMessage` 复用外层 startTime 是链级口径，直方图会双计 wall-clock，故 metrics 单独计时）。
 - **label 基数控制**：严禁 `messageId`/`otterId`/`conversationId`/`errorMessage` 入 label；这些归属日志维度，靠 traceId 关联（Part 2）。
 - **otter_type 获取**：埋点处 `queryOtter.getById` 一次（SQLite 主键读；查不到记 `unknown`）。
-- **已知漏计**：`invokeConversation` 的 try 块之前（`sendMessage.start` 等）抛错不产生 attempt 记录（罕见路径，上层有 error 日志，接受）。
+- **attempt 记录恰好一次**（PR 审视 P0 修复）：以 `messageId:retryCount` 为去重键——`routeByReason` 抛错被外层 catch 捕获后**重入** `classifyAndRoute` 时（重入分类通常产出虚假 `api_error`），去重键阻止同一 attempt 二次记录。键在 `invokeConversationInner`/`retryInvokeOnSameMessage` 的 finally 中清理（重入只可能发生在该窗口内）。
+- **err 路径 model 回退**（PR 审视 P1 修复）：guard abort 主路径走 throw（result 不可达），`pi-session-factory` catch 分支在 error 上附加 `_modelAlias`，随 `_outputGuardMetadata` 一起带出——否则失败样本（恰是超时/退化关心的那批）model 全落 `unknown`，归因失效。
+- **重试计数语义**：`agent_retry_total` 计的是"重试意图"——个别降级路径（sendSystem 失败转 abort）计入但二次 invoke 未实际发生。
+- **已知漏计**（PR 审视确认接受，总量守恒或影响可忽略）：
+  - `invokeConversation` try 块之前（`sendMessage.start` 等）抛错不产生 attempt 记录（罕见路径，上层有 error 日志）。
+  - err 路径 `tokenUsage` 不可得、快照不更新——失败 attempt 烧掉的 token 被**下一次成功 attempt 的差分吸收**（归因到成功 attempt 的 model），总量不虚增。
+  - `sessionRebuilt` 仅在成功结果上透传——重建后紧跟失败的 invoke 不计 `agent_session_rebuild_total`。
+  - 同一 registry 重复构造 AgentMetrics 会共享 counter 但重置 token 快照（生产单次装配不触发；测试用独立 registry）。
+  - `lastTokenSnapshot` 按 otterId 键控，隐含 otter↔会话 1:1 假设（现行域模型成立）；未来解除该假设需改为按 session 键控。
 - **无 end 事件的工具调用**（abort 中断）：不记 duration（Map 等 GC 回收），start 计数已如实反映。`toolCallId` 缺失时防御性跳过配对（对齐 circuit-breaker 先例）。
 
 #### Part 2：TraceContext 链路追踪
@@ -121,7 +129,7 @@ export interface TraceContext {
 
 | 注入点 | 注入字段 | 覆盖路径 |
 |--------|---------|---------|
-| `DispatchChainEngine.executeChain` | `traceId`（新链生成）+ `conversationId` + `source="chain"` | Web SSE、飞书、招聘桥 |
+| `DispatchChainEngine.executeChain` | `traceId`（新链生成）+ `source="chain"` | Web SSE、飞书、招聘桥 |
 | `AgentInvoker.invokeConversation` | 兜底：无 traceId 时生成并置 `source="direct"`（scheduler、Web 手动重试直连路径）；执行段补 `messageId`（`retryInvokeOnSameMessage` 同样补） | 全量汇合点 |
 
 兜底生成不告警（direct 是 scheduler 的**常态**路径，warn 会刷屏）；入口归因由 `source` label 承担。**已知局限**：Web 手动重试生成的新 traceId 与原链无关联（原 messageId 可在日志中手工衔接，不做自动关联）；飞书 `triggerAgentDispatch` 的 `.then/.catch` 收尾回调在 trace scope 外，其日志不带 traceId（对 fire-and-forget 回调逐个包裹属过度工程，接受）。
@@ -248,7 +256,7 @@ jq -s 'map(select(.metric=="agent_guard_abort_total")) | group_by(.labels.model)
 
 - `npx tsc --noEmit`：0 错误
 - `npx eslint .`：0 错误 0 警告
-- `npm test`：105 文件 / 1226 用例全过（含新增 19 个 + 冒烟 1 个）
+- `npm test`：105 文件 / 1230 用例全过（PR 审视修复后新增 4 个：api_error、user_abort+speaking 收尾、路由抛错重入去重、guard 序列强断言）
 - `tests/app/build-app.test.ts`：全栈装配后 `/metrics` 含 `agent_invoke_total`/`agent_tool_calls_total`/`agent_chain_hops`/`agent_first_byte_latency_ms`（AT-1 装配部分）
 
 ### 证据判定
@@ -301,6 +309,21 @@ jq -s 'map(select(.metric=="agent_guard_abort_total")) | group_by(.labels.model)
 | P2-4 | AT 场景不可自动化 | 接受 | AT 表补具体命令/mock 位置 |
 | P2-5 | guard reason 枚举未封闭 | 接受 | 封闭枚举 + other 兜底 |
 | P2-6 | 飞书 fire-and-forget 回调日志无 traceId | 接受（不做） | 记入已知局限，不为收尾日志逐个包裹 scope |
+
+### 第三轮（PR diff 审视，实现合入前）
+
+两个独立 agent 对实际 diff 做的审视（角度：计数正确性 / 主流程回归风险）。回归侧结论：**未发现 P0 行为回归**，"只埋点不改行为"逐项比对成立（invokeConversation/executeChain 拆分、SSE 时序、异常传播与 main 一致；ALS 无跨任务污染）。
+
+| 编号 | 发现 | 裁决 | 处置 |
+|------|------|------|------|
+| P0-1 | `routeByReason` 抛错 → 外层 catch 重入 `classifyAndRoute` → 同一 attempt 双计且误标 `api_error`（路由阶段真实可抛点：queryOtter/settingsRepo/emitEvent 回调） | 接受 | `recordedAttempts` 去重键（`messageId:retryCount`），finally 清理；补端到端测试（路由抛错场景断言恰好两条记录、无虚假 api_error） |
+| P1 | err 路径（guard abort 主路径）result 不可达 → model label 全落 `unknown`，击穿 mimo 归因 | 接受（双方独立发现） | pi-session-factory catch 附加 `_modelAlias`；resolveModel 回退链 result → err → unknown；测试断言 err 路径 model 不断 unknown |
+| P1 | `recordGuardAbort` 等 metrics 调用裸奔在主流程，破"metrics 失败绝不影响主流程"不变量（若抛错会跳过 guard 自动重试） | 接受 | recordRetrySafe 安全壳 + recordGuardAbort/stream 事件/链深指标全部包 try/catch |
+| P1 | 成功路径 `await recordAttempt`（含 DB 读）插在 message.complete SSE 之前，阻塞用户可见完成事件 | 接受 | 改 fire-and-forget（`void`，recordAttempt 内部全捕获不产生游离 rejection） |
+| 复核发现 | err 路径 + 消息已 speaking：tryCompleteSpeaking 早返回导致整条 attempt **漏记**（比误标更糟） | 接受 | err 收尾分支按 `classifyExit` 补记 outcome；补 user_abort+speaking 用例 |
+| P1 | 测试缝隙：guard 断言过弱（双计漏网）、user_abort+speaking 假验证（未触达分支）、api_error 零覆盖 | 接受 | mock 参数化 guardReason/errModelAlias；guard 序列钉死 `[guard_abort, guard_abort]`+retry label；新增 api_error、路由抛错重入、speaking 收尾用例 |
+| P2 | err 路径 token 被下个成功 attempt 吸收；sessionRebuilt 失败路径丢失；chain hops 采样选择偏差；重复构造 AgentMetrics 共享 counter 重置快照；otterId 键控的 1:1 假设 | 接受（记档） | 全部写入口径节"已知漏计"，不改实现 |
+| P2 | 重入 classifyAndRoute 自身再抛错会传播给调用方 | 接受（与 main 行为一致，非回归） | 不加第二层 catch（避免吞掉真实基础设施错误），去重键已保证不双计 |
 
 ## 设计决策
 

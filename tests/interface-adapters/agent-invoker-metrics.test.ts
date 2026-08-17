@@ -65,13 +65,20 @@ function makeInvoker(opts: {
   metrics: ReturnType<typeof metricsSpy>["port"];
   invokeResult?: Record<string, unknown>;
   throwOnInvoke?: Error;
+  /** throwOnInvoke 的 guard 原因；null = 无 guard（纯 api_error） */
+  guardReason?: string | null;
+  /** err 路径透传的模型别名（pi-session-factory catch 分支行为模拟） */
+  errModelAlias?: string;
   events?: AgentStreamEvent[];
   msgStatus: Message["status"];
 }): AgentInvoker {
   const agentInvoke: AgentInvokePort = {
     invoke: async (_otterId: string, _msg: string, options?: { onEvent?: (e: AgentStreamEvent) => void }) => {
       if (opts.throwOnInvoke) {
-        (opts.throwOnInvoke as Error & { _guardAbortReason?: string })._guardAbortReason = "degenerate_output";
+        const e = opts.throwOnInvoke as Error & { _guardAbortReason?: string; _modelAlias?: string };
+        const guardReason = opts.guardReason === undefined ? "degenerate_output" : opts.guardReason;
+        if (guardReason !== null) e._guardAbortReason = guardReason;
+        if (opts.errModelAlias) e._modelAlias = opts.errModelAlias;
         throw opts.throwOnInvoke;
       }
       for (const e of opts.events ?? []) options?.onEvent?.(e);
@@ -157,12 +164,13 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
     expect(spy.retries).toContain("no_speak");
   });
 
-  it("user_abort 路径：outcome=user_abort，不与 speaking 收尾双计", async () => {
+  it("user_abort 路径（abortTerminal）：outcome=user_abort，恰好一次", async () => {
     const spy = metricsSpy();
     const invoker = makeInvoker({
       metrics: spy.port,
       msgStatus: "aborted",
       throwOnInvoke: new Error("user abort"),
+      guardReason: null,
     });
     invoker.abort("otter-1", "msg-streaming");
 
@@ -174,12 +182,34 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
     expect(spy.invokes.map(i => i.outcome)).toEqual(["user_abort"]);
   });
 
-  it("guard_abort 路径：guardAbort 计数 + degenerate 重试", async () => {
+  it("user_abort + 消息已 speaking：收尾路径也记 user_abort，不漏不重（PR 审视修复）", async () => {
+    const spy = metricsSpy();
+    const invoker = makeInvoker({
+      metrics: spy.port,
+      msgStatus: "speaking", // speak 已交付 body，但 invoke 被用户中断
+      throwOnInvoke: new Error("user abort"),
+      guardReason: null,
+      errModelAlias: "mimo",
+    });
+    invoker.abort("otter-1", "msg-streaming");
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["user_abort"]);
+    expect(spy.invokes[0].model).toBe("mimo"); // err 路径 model 回退
+  });
+
+  it("api_error 路径：无 guard 原因的 throw → outcome=api_error", async () => {
     const spy = metricsSpy();
     const invoker = makeInvoker({
       metrics: spy.port,
       msgStatus: "streaming",
-      throwOnInvoke: new Error("guard"),
+      throwOnInvoke: new Error("LLM API error"),
+      guardReason: null,
+      errModelAlias: "mimo",
     });
 
     await invoker.invokeConversation({
@@ -187,9 +217,62 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
       userMessageContent: "Hi", senderId: "user-1",
     });
 
-    expect(spy.invokes.map(i => i.outcome).length).toBeGreaterThanOrEqual(1);
-    expect(spy.guardAborts.map(g => g.reason)).toContain("degenerate_output");
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["api_error"]);
+    expect(spy.invokes[0].model).toBe("mimo"); // err 路径 model 回退（PR 审视 P1 修复）
+  });
+
+  it("guard_abort 路径：序列恰为 [guard_abort, guard_abort]，err 路径 model 不落 unknown", async () => {
+    const spy = metricsSpy();
+    const invoker = makeInvoker({
+      metrics: spy.port,
+      msgStatus: "streaming",
+      throwOnInvoke: new Error("guard"),
+      guardReason: "degenerate_output",
+      errModelAlias: "mimo",
+    });
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["guard_abort", "guard_abort"]);
+    expect(spy.invokes[0].retry).toBe("0");
+    expect(spy.invokes[1].retry).toBe("auto"); // degenerate 重试轮
+    expect(spy.invokes.every(i => i.model === "mimo")).toBe(true);
+    expect(spy.guardAborts.map(g => g.reason)).toEqual(["degenerate_output", "degenerate_output"]);
     expect(spy.retries).toContain("degenerate_output");
+  });
+
+  it("路由阶段抛错 → catch 重入 classifyAndRoute：attempt 去重，不产生虚假 api_error（PR 审视 P0-1）", async () => {
+    const spy = metricsSpy();
+    let thrownOnce = false;
+    const invoker = makeInvoker({
+      metrics: spy.port,
+      msgStatus: "streaming",
+      invokeResult: { text: "no speak" }, // 两轮都 no_speak，触发 seamless 重试
+    });
+
+    /**
+     * P0-1 场景：attempt2 已按 no_speak_failed 记录后，handleSpeakRetry 的
+     * 第二次失败 emitEvent(message.failed) 抛错 → retryInvokeOnSameMessage 的
+     * catch 重入 classifyAndRoute —— 去重键应阻止 attempt2 被再次记录为 api_error。
+     */
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+      onSSEEvent: (e) => {
+        if (e.event === "message.failed" && !thrownOnce) {
+          thrownOnce = true;
+          throw new Error("SSE downstream failure");
+        }
+      },
+    });
+
+    /** 恰好两条：attempt1 no_speak_retry + attempt2 no_speak_failed；无虚假 api_error */
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["no_speak_retry", "no_speak_failed"]);
+    expect(spy.invokes[1].retry).toBe("auto");
+    expect(spy.retries).toContain("no_speak");
   });
 
   it("链级 trace 下 source=chain；手动重试 retry=manual", async () => {

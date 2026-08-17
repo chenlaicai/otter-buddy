@@ -736,11 +736,13 @@ export class PiSessionFactory implements AgentGateway {
           }
           return result;
         } catch (err) {
-          const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string; _outputGuardMetadata?: unknown };
+          const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string; _outputGuardMetadata?: unknown; _modelAlias?: string };
           e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
           e._guardAbortReason = activeEntry?.guardAbortReason;
           /** F20260814mtrc：guard abort 路径的首字节样本不随 abort 丢弃（超时样本恰是最关心的） */
           e._outputGuardMetadata = outputGuard.getMetadata();
+          /** F20260814mtrc PR 审视修复：err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
+          e._modelAlias = this.getModelAliasForLog(otterId);
           throw err;
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
