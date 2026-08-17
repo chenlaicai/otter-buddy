@@ -39,6 +39,7 @@ import { initControllers } from "./bootstrap/controllers";
 import { buildHttpApp } from "./bootstrap/server";
 import { initMetricsRegistry } from "@frameworks/metrics/registry";
 import { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
+import { AgentMetrics } from "@frameworks/metrics/agent-metrics";
 import type { Repositories, UseCases } from "./bootstrap/types";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
@@ -162,18 +163,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }));
   resolveManageScheduledTask(uc.manageScheduledTask);
 
+  // ── Metric 框架（prom-client + JSONL 文件持久化）──
+  const metricsRegistry = initMetricsRegistry(logger, { dir: path.join(dataDir, "metrics") });
+  const schedulerMetrics = new SchedulerMetrics(metricsRegistry);
+  const agentMetrics = new AgentMetrics(metricsRegistry);
+
   // ── 调度引擎 + 平台集成 ──
-  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger);
+  const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, agentMetrics);
   const feishuEnabled = options.enableFeishu ?? !!config.feishu;
   const feishu: FeishuBundle | undefined = feishuEnabled && config.feishu
     ? createFeishuBundle(config.feishu, uc, dispatchChainEngine, logger, config.web?.baseUrl)
     : undefined;
 
-  // ── Metric 框架（prom-client + JSONL 文件持久化）──
-  const metricsRegistry = initMetricsRegistry(logger, { dir: path.join(dataDir, "metrics") });
-  const schedulerMetrics = new SchedulerMetrics(metricsRegistry);
-
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster: feishu?.broadcaster, logger, workspaceGateway, metrics: schedulerMetrics });
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster: feishu?.broadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger });
 

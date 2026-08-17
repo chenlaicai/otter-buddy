@@ -63,6 +63,10 @@ export interface AgentRunResult {
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  /** 本次 invoke 实际使用的模型别名（F20260814mtrc：metrics model label 数据源） */
+  modelAlias?: string;
+  /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；F20260814mtrc） */
+  sessionRebuilt?: boolean;
 }
 
 /** _buildInvokeResult 所需的 session 结构子集（统计 + 分支条目读取） */
@@ -582,6 +586,8 @@ export class PiSessionFactory implements AgentGateway {
 
     // 5. 注入成功后才消费标记（invoke 失败时保留，下次重试仍会注入）
     this.pendingIdentity.delete(otterId);
+    /** F20260814mtrc：session 重建事实随结果透传（metrics 用） */
+    if (createdNew) result.sessionRebuilt = true;
     return result;
   }
 
@@ -730,9 +736,13 @@ export class PiSessionFactory implements AgentGateway {
           }
           return result;
         } catch (err) {
-          const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string };
+          const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string; _outputGuardMetadata?: unknown; _modelAlias?: string };
           e._toolCallCount = this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
           e._guardAbortReason = activeEntry?.guardAbortReason;
+          /** F20260814mtrc：guard abort 路径的首字节样本不随 abort 丢弃（超时样本恰是最关心的） */
+          e._outputGuardMetadata = outputGuard.getMetadata();
+          /** F20260814mtrc PR 审视修复：err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
+          e._modelAlias = this.getModelAliasForLog(otterId);
           throw err;
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
@@ -836,7 +846,10 @@ export class PiSessionFactory implements AgentGateway {
     } else {
       ctxMax = this.cfg.model.contextWindow;
     }
-    return buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
+    const result: AgentRunResult = buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
+    /** F20260814mtrc：模型别名随结果透传（metrics model label 数据源） */
+    result.modelAlias = this.getModelAliasForLog(otterId);
+    return result;
   }
   private _attachGuards(session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> }, sessionKey: string, otterId: string) {
     const activeEntry = this.activeSessions.get(sessionKey);
