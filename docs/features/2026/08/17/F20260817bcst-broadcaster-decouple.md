@@ -71,6 +71,15 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 - **controller 的 `messageBroadcaster?` 可选性保留**：改为必传会破坏 dispatch-turn-loop 测试刻意构造的无 broadcaster 分支（守卫返回 500 的防御路径仍有效）；真正的保证在 app.ts 装配层（无条件创建）。
 - **createFeishuBundle / setupFeishu 参数对象化**：加入总线参数后超 max-params 5 上限，顺手收敛为 options 对象。
 
+## 对抗审视记录（一轮）
+
+独立 agent 对抗审查结论：**"飞书行为不变"逐行等价成立**（broadcast 顺序/异常传播、思考中消息时机、时间戳 gate、投影参数逐字一致；merge 未损失 observability 接线；无"事件先于注册"窗口）。两个真问题已修复：
+
+1. **【中】接口注释承诺的通道隔离不存在**：`broadcast` 逐通道顺序 await，通道在 reply 之外的抛错（manageConnection 查询等）会冒泡中断后续通道——与拆分前 broadcastToFeishu 的冒泡语义一致（等价），但注释谎称"不阻塞其他通道"。修复：注释改为如实描述 + 多通道隔离留待批次 3 在总线层加 try/catch。
+2. **【中】web-only 验证未走到 message.complete 且该路径无自动化覆盖**：真实验证因 LLM 401 止步于 error 事件；而 tests/api 的 broadcaster 原是**手写 mock**（绕过真实总线实现）。修复：tests/api/helpers.ts 改用真实 `MessageBroadcaster`（裸总线 = web-only 形态），POST 流 → 生产总线 → SSE complete 链路（tests/api/message.test.ts:150）现在真实走过。
+
+理论边角（接受）：registerOutboundChannel 无去重（当前单一同步调用点，buildApp 复用时才会暴露）；feishu 测试的 `messageChannels[0]["manageConnection"]` 私有访问链在字段改名时响亮失败（非静默）。
+
 ## 关联
 
 - issue #281（本 F 文档实现其验收标准）

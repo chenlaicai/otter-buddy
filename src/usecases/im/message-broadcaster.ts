@@ -14,7 +14,9 @@ import type { SSEEvent } from "@contract/sse/events";
  * 拆至 FeishuMessageChannel，作为 outbound channel 在飞书启用时注册。
  */
 export interface OutboundMessageChannel {
-  /** 最终消息出站（broadcast 时逐通道 await，通道内部自行 catch，不阻塞其他通道） */
+  /** 最终消息出站。broadcast 按注册序逐通道 await——**通道抛错会中断后续通道**
+   *  （与拆分前 broadcastToFeishu 的冒泡语义一致，调用方的 .catch 记日志）；
+   *  多通道隔离（单通道失败不阻塞其他）留待批次 3（issue #282），届时在总线层加 try/catch */
   onMessage(message: Message): Promise<void>;
 }
 
