@@ -23,18 +23,10 @@ function mockMessage(overrides: Partial<Message> = {}): Message {
 }
 
 function createBroadcaster() {
-  const manageConnection = {
-    getSessionByConversation: vi.fn().mockResolvedValue(null),
-    getConnection: vi.fn().mockResolvedValue(null),
-  } as any;
-  const feishuGateway = {
-    replyText: vi.fn(),
-    replyMarkdown: vi.fn(),
-  } as any;
-  const queryOtter = { getById: vi.fn().mockResolvedValue({ id: "otter-1", name: "大獭" }) } as any;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
-  const broadcaster = new MessageBroadcaster(manageConnection, feishuGateway, queryOtter, logger);
-  return { broadcaster, manageConnection, feishuGateway, queryOtter, logger };
+  /** issue #281：纯总线（无出站通道），Web 订阅语义测试 */
+  const broadcaster = new MessageBroadcaster(logger);
+  return { broadcaster, logger };
 }
 
 describe("MessageBroadcaster", () => {

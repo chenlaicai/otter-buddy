@@ -35,6 +35,7 @@ import {
   createAgentGateway, createDispatchChainEngine, initAgentAndScheduler,
   createFeishuBundle, initPlatforms, setupFeishu, type FeishuBundle,
 } from "./bootstrap/platforms";
+import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { initControllers } from "./bootstrap/controllers";
 import { buildHttpApp } from "./bootstrap/server";
 import { initMetricsRegistry } from "@frameworks/metrics/registry";
@@ -164,23 +165,29 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // ── 调度引擎 + 平台集成 ──
   const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger);
+  /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
+   *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
+  const messageBroadcaster = new MessageBroadcaster(logger);
   const feishuEnabled = options.enableFeishu ?? !!config.feishu;
   const feishu: FeishuBundle | undefined = feishuEnabled && config.feishu
-    ? createFeishuBundle(config.feishu, uc, dispatchChainEngine, logger, config.web?.baseUrl)
+    ? createFeishuBundle({
+      feishuConfig: config.feishu, uc, dispatchChainEngine, logger,
+      webBaseUrl: config.web?.baseUrl, messageBroadcaster,
+    })
     : undefined;
 
   // ── Metric 框架（prom-client + JSONL 文件持久化）──
   const metricsRegistry = initMetricsRegistry(logger, { dir: path.join(dataDir, "metrics") });
   const schedulerMetrics = new SchedulerMetrics(metricsRegistry);
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster: feishu?.broadcaster, logger, workspaceGateway, metrics: schedulerMetrics });
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger });
 
   // ── HTTP 层 ──
   const controllers = initControllers({
     uc, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
-    schedulerService, cronParser, dispatchChainEngine, messageBroadcaster: feishu?.broadcaster,
+    schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
     featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService,
     processInboundRecruit, inboundApiKey, getBridgeStatus,
   }, logger);
@@ -189,7 +196,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   if (feishu) {
-    setupFeishu(config, uc, agentInvoker, feishu, logger);
+    setupFeishu({ appConfig: config, uc, agentInvoker, feishu, messageBroadcaster, logger });
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。

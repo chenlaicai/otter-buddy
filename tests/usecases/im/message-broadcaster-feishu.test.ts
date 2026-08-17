@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import type { Message } from "@entities/conversation/message";
 
 function mockMessage(overrides: Partial<Message> = {}): Message {
@@ -22,6 +23,8 @@ function mockMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
+/** issue #281：broadcaster 拆为纯总线 + FeishuMessageChannel 出站通道。
+ *  测试装配与生产一致：总线注册飞书通道，行为断言全部沿用 */
 function createBroadcaster(webBaseUrl?: string) {
   const manageConnection = {
     getSessionByConversation: vi.fn().mockResolvedValue(null),
@@ -33,13 +36,16 @@ function createBroadcaster(webBaseUrl?: string) {
   } as any;
   const queryOtter = { getById: vi.fn().mockResolvedValue({ id: "otter-1", name: "大獭" }) } as any;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
-  const broadcaster = new MessageBroadcaster(manageConnection, feishuGateway, queryOtter, logger, webBaseUrl);
+  const broadcaster = new MessageBroadcaster(logger);
+  broadcaster.registerOutboundChannel(
+    new FeishuMessageChannel(manageConnection, feishuGateway, queryOtter, logger, webBaseUrl),
+  );
   return { broadcaster, manageConnection, feishuGateway, queryOtter, logger };
 }
 
 /** 把 manageConnection mock 设置为有飞书绑定 */
 function bindFeishu(broadcaster: MessageBroadcaster, externalId = "chat-123") {
-  const manageConnection = (broadcaster as any).manageConnection;
+  const manageConnection = (broadcaster as any).messageChannels[0]["manageConnection"];
   manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
   manageConnection.getConnection.mockResolvedValue({ externalId });
 }

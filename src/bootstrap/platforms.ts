@@ -26,7 +26,8 @@ import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-con
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
-import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
 import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
 import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
@@ -35,7 +36,6 @@ import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recrui
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 
 export interface FeishuBundle {
-  broadcaster: MessageBroadcaster;
   client: FeishuClient;
   tokenManager: FeishuAccessTokenManager;
   dispatchChainEngine: DispatchChainEngine;
@@ -122,17 +122,34 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   return { agentInvoker, cronParser, schedulerService };
 }
 
-export function createFeishuBundle(feishuConfig: FeishuConfig, uc: UseCases, dispatchChainEngine: DispatchChainEngine, logger: Logger, webBaseUrl?: string): FeishuBundle {
+/** issue #281：broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
+export function createFeishuBundle(options: {
+  feishuConfig: FeishuConfig;
+  uc: UseCases;
+  dispatchChainEngine: DispatchChainEngine;
+  logger: Logger;
+  webBaseUrl: string | undefined;
+  messageBroadcaster: MessageBroadcaster;
+}): FeishuBundle {
+  const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster } = options;
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  const broadcaster = new MessageBroadcaster(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl);
+  messageBroadcaster.registerOutboundChannel(new FeishuMessageChannel(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl));
   if (!webBaseUrl) {
     logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
   }
-  return { broadcaster, client, tokenManager, dispatchChainEngine };
+  return { client, tokenManager, dispatchChainEngine };
 }
 
-export function setupFeishu(appConfig: AppConfig, uc: UseCases, agentInvoker: AgentInvoker, feishu: FeishuBundle, logger: Logger): void {
+export function setupFeishu(options: {
+  appConfig: AppConfig;
+  uc: UseCases;
+  agentInvoker: AgentInvoker;
+  feishu: FeishuBundle;
+  messageBroadcaster: MessageBroadcaster;
+  logger: Logger;
+}): void {
+  const { appConfig, uc, agentInvoker, feishu, messageBroadcaster, logger } = options;
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
@@ -149,7 +166,7 @@ export function setupFeishu(appConfig: AppConfig, uc: UseCases, agentInvoker: Ag
     commandDispatcher,
     feishuGateway: feishu.client,
     agentDispatchService,
-    messageBroadcaster: feishu.broadcaster,
+    messageBroadcaster,
     logger,
   });
 
