@@ -1,5 +1,5 @@
 /* eslint-disable max-lines */
-import type { AgentInvokePort, AgentStreamEvent, DynamicContext } from "./agent-invoke-port";
+import type { SdkInvokePort, AgentStreamEvent, DynamicContext } from "@usecases/ports/sdk-invoke-port";
 import type { SendMessage, MessageEventInput } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
@@ -151,7 +151,7 @@ export class AgentInvoker {
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
-    private readonly agentInvoke: AgentInvokePort,
+    private readonly agentInvoke: SdkInvokePort,
     private readonly sendMessage: SendMessage,
     private readonly queryMessage: QueryMessage,
     private readonly manageSession: ManageSession,
@@ -939,7 +939,7 @@ export class AgentInvoker {
       : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
   }
 
-  /** 中断 Agent 生成（UA-2: 调用 AgentInvokePort.abort()）；标记按 messageId 键控 */
+  /** 中断 Agent 生成（UA-2: 调用 SdkInvokePort.abort()）；标记按 messageId 键控 */
   abort(otterId: string, messageId: string): void {
     this.userAbortedMessages.add(messageId);
     this.agentInvoke.abort(otterId, messageId);

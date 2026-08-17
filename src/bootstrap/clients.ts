@@ -2,7 +2,7 @@ import type { MemoryContentType } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
 import type { ArtifactStatus } from "@entities/conversation/conversation";
 import type { UseCases } from "./types";
-import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 export function buildMessageClient(uc: UseCases) {
   return {

@@ -1,11 +1,10 @@
 /* eslint-disable max-lines -- 合并 main 分支 contentType + recruiting createdAfter 后行数增加 */
-import type { OtterToolClient } from "../otter-tool-client";
 import type { MemoryContentType } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
 import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
-import { type ToolResponse, textResponse, errorResponse, validateSpeakBody } from "./tool-helpers";
+import { validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
@@ -15,64 +14,10 @@ import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-
-
-export interface AgentTool {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  /**
-   * 执行工具。
-   * M1（R20260810piab）：signal 透传 SDK 的 AbortSignal——用户中断时工具可检查 signal.aborted 提前返回。
-   * 大多数工具不需要中断（执行快），signal 参数可选；长耗时工具（如 workspace_* 操作大文件）应定期检查。
-   */
-  execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResponse>;
-  [key: string]: unknown;
-}
-
-export type { ToolResponse } from "./tool-helpers";
-
-/**
- * 模型池接口（用于工具层校验 modelAlias，不依赖 frameworks 层）。
- * 与 ModelPool 接口一致，但定义在 interface-adapters 层避免循环依赖。
- */
-export interface ModelPoolLike {
-  hasModel(alias: string): boolean;
-  describeModels(): Array<{ alias: string; description?: string; strengths?: string[]; weaknesses?: string[] }>;
-}
-
-/**
- * 工具上下文：invoke 时由系统注入，闭包捕获。
- * otterId、conversationId、currentMessageId 由系统注入，LLM 不传。
- */
-export interface ToolContext {
-  client: OtterToolClient;
-  otterId: string;
-  conversationId: string;
-  currentMessageId: string;
-  /** 模型池（多模型路由，可选，用于校验 modelAlias） */
-  modelPool?: ModelPoolLike;
-  /**
-   * 当前 assistant 消息的文本（speak 之外的输出）。
-   * 由 session 工厂按消息维护（message_start 清零、message_end 累积）；speak 用它检测"卡片写在 speak 外"的错误用法。
-   */
-  getTurnAssistantText?: () => string;
-  /**
-   * F20260815rstrt: 自重启时由 restart_otter 工具设置。
-   * PiSessionFactory 在 session.prompt() 返回后检查并执行重启。
-   * Why: session.prompt() 是原子的，中途无法替换 session；
-   * 延迟到 prompt 完成后执行，消息生命周期不受影响。
-   */
-  pendingRestart?: { summary?: string };
-  /**
-   * F20260813actk C9：本轮待派工票据（otterId → otterName）。
-   * create_otter 创建后注册；speak 派工后清除已覆盖的；未清空时 speak 给一次软提醒（非阻断）。
-   * agent invoke 级生命周期（每次 invoke 新建）。可选——未注入时 C9 no-op。
-   */
-  pendingDispatches?: Map<string, string>;
-  /** F20260813actk C9：本轮是否已展示过派工提醒。避免软守卫死循环——首次提醒后二次 speak 放行。 */
-  dispatchWarningShown?: boolean;
-}
+// R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
+import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
+export type { AgentTool, ToolContext, ToolResponse } from "@usecases/ports/agent-tools";
+import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 /**
  * F20260813actk C9：待派工票据的软守卫——检查未派工并提醒（不清除票据）。

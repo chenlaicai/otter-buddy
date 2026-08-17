@@ -21,16 +21,16 @@ import type {
   AgentContext,
   AgentGateway,
 } from "@usecases/otter/agent-gateway";
-import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
-import type { AgentTool, ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import { truncateToolResult } from "@interface-adapters/agent-runtime/tools/tool-helpers";
-import type { ToolResponse } from "@interface-adapters/agent-runtime/tools/tool-helpers";
+// R20260817arnt PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
+import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
+import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
+import { truncateToolResult, type ToolResponse } from "@usecases/ports/agent-tools";
 import type { ResourceLoader, SessionEntry, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { getContextWindowTokens } from "./context-tokens";
 import { createAgentSessionStore } from "./agent-session-store";
 import type { AgentSessionStore } from "./agent-session-store";
-import type { DynamicContext, AgentStreamEvent } from "@interface-adapters/agent-runtime/agent-invoke-port";
+import type { DynamicContext, AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig, ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import { getConfig } from "@frameworks/config";

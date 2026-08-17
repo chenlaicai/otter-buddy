@@ -7,7 +7,7 @@ import type { HealingResolutionAction } from "@entities/healing/healing-event";
 import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
 import type { Logger } from "@usecases/ports/logger";
 import type { ToolContext, AgentTool } from "./tool-factory";
-import { type ToolResponse, textResponse, errorResponse } from "./tool-helpers";
+import { type ToolResponse, textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 /** 解析并剥离 healing report，返回清理后的 body */
 export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {

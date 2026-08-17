@@ -1,6 +1,9 @@
 /**
- * Agent 调用端口：描述"驱动 Agent 生成"的能力。
- * PiSessionFactory (frameworks 层) 的 invoke() 方法结构匹配此接口。
+ * SDK 级 Agent 调用端口（R20260817arnt PR-A：自 interface-adapters/agent-runtime/agent-invoke-port.ts
+ * 改名上移，消除与 usecases/ports/agent-invoke-port.ts 的同名双定义——那边是 invokeConversation
+ * 粒度、PR-D1 时删除；本接口是 SDK invoke 粒度，PiSessionFactory 结构匹配）。
+ *
+ * ⚠️ 本 port 依赖 pi-coding-agent 的 AgentSessionEvent 类型（re-export）——换 SDK 时需修订。
  */
 
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -54,7 +57,7 @@ export interface InvokeOptions {
   onEvent?: (event: AgentStreamEvent) => void;
 }
 
-export interface AgentInvokePort {
+export interface SdkInvokePort {
   invoke(otterId: string, message: string, options?: InvokeOptions): Promise<AgentRunResult>;
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
   abort(otterId: string, messageId?: string): void;

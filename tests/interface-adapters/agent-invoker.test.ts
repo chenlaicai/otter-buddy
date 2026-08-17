@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import type { AgentInvokePort, AgentStreamEvent } from "@interface-adapters/agent-runtime/agent-invoke-port";
+import type { SdkInvokePort, AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
@@ -94,14 +94,14 @@ function mockQueryOtter(): QueryOtter {
   return { getById: async () => null } as unknown as QueryOtter;
 }
 
-/** 创建 AgentInvokePort mock，可在指定事件后完成或抛出异常 */
+/** 创建 SdkInvokePort mock（R20260817arnt PR-A 改名），可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
   result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
   throwOnInvoke?: Error;
   toolCallCount?: number;
   internalAbortReason?: string;
-}): AgentInvokePort & { _invokeMessages: string[]; _invokeContexts: Array<{ sessionSummary?: string } | undefined> } {
+}): SdkInvokePort & { _invokeMessages: string[]; _invokeContexts: Array<{ sessionSummary?: string } | undefined> } {
   const invokeMessages: string[] = [];
   const invokeContexts: Array<{ sessionSummary?: string } | undefined> = [];
   return {
@@ -907,7 +907,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessageWithIncrementalId();
     let invokeCount = 0;
-    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+    const mockInvoke: SdkInvokePort & { _invokeMessages: string[] } = {
       invoke: async () => { invokeCount++; return { text: "正常输出" }; },
       abort: () => {},
       getToolCallCount: () => 0,
@@ -943,7 +943,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }),
     } as unknown as QueryMessage;
-    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+    const mockInvoke: SdkInvokePort & { _invokeMessages: string[] } = {
       invoke: async () => ({ text: "" }),
       abort: () => {},
       getToolCallCount: () => 0,
@@ -994,7 +994,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }),
     } as unknown as QueryMessage;
-    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+    const mockInvoke: SdkInvokePort & { _invokeMessages: string[] } = {
       invoke: async () => ({ text: "" }),
       abort: () => {},
       getToolCallCount: () => 0,
@@ -1020,7 +1020,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
       getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }),
     } as unknown as QueryMessage;
     let invokeCount = 0;
-    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+    const mockInvoke: SdkInvokePort & { _invokeMessages: string[] } = {
       invoke: async () => {
         invokeCount++;
         if (invokeCount === 1) return { text: "" };
@@ -1045,7 +1045,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessageWithIncrementalId();
     let invokeCount = 0;
-    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+    const mockInvoke: SdkInvokePort & { _invokeMessages: string[] } = {
       invoke: async () => { invokeCount++; return { text: "正常输出" }; },
       abort: () => {},
       getToolCallCount: () => 0,
@@ -1083,7 +1083,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessageWithIncrementalId();
     let invokeCount = 0;
-    const mockInvoke: AgentInvokePort & { _invokeMessages: string[] } = {
+    const mockInvoke: SdkInvokePort & { _invokeMessages: string[] } = {
       invoke: async () => {
         invokeCount++;
         if (invokeCount === 1) {

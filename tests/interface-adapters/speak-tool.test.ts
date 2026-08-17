@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createTools, type ToolContext } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import { DomainError } from "@entities/errors";
 
 function makeSpeakTool(

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { truncateToolResult, textResponse, MAX_TOOL_RESULT_CHARS } from "@interface-adapters/agent-runtime/tools/tool-helpers";
+import { truncateToolResult, textResponse, MAX_TOOL_RESULT_CHARS } from "@usecases/ports/agent-tools";
 
 describe("truncateToolResult", () => {
   it("短结果不被截断", () => {

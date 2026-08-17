@@ -2,10 +2,12 @@
  * create_otter 工具测试：modelAlias 校验 + type 参数移除（大獭只能创建小獭）
  */
 import { describe, it, expect } from "vitest";
-import { createTools, type ToolContext, type ModelPoolLike } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
+import type { ToolContext } from "@usecases/ports/agent-tools";
+import type { ToolModelPool } from "@usecases/ports/agent-tools";
+import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
-function makeModelPool(aliases: string[]): ModelPoolLike {
+function makeModelPool(aliases: string[]): ToolModelPool {
   return {
     hasModel: (alias: string) => aliases.includes(alias),
     describeModels: () => aliases.map(alias => ({ alias, description: `Model ${alias}` })),
@@ -13,7 +15,7 @@ function makeModelPool(aliases: string[]): ModelPoolLike {
 }
 
 function makeCreateOtterTool(options: {
-  modelPool?: ModelPoolLike;
+  modelPool?: ToolModelPool;
   existingParticipants?: Array<{ otterId: string; otterName: string }>;
   createError?: Error;
 } = {}) {

@@ -4,7 +4,7 @@
 
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { OtterPromptConfig } from "@contract/api/otter";
-import type { DynamicContext } from "@interface-adapters/agent-runtime/agent-invoke-port";
+import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
 
 /**
  * 按 otterType 获取编码工具列表。

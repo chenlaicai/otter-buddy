@@ -1,3 +1,8 @@
+/**
+ * OtterToolClient 端口（R20260817arnt PR-A：自 interface-adapters/agent-runtime/otter-tool-client.ts
+ * 整体上移）——usecase 门面：agent 工具经此访问对话/记忆/文档领域查询，bootstrap/clients.ts
+ * 装配具体实现。其 import 全部落在 entities/usecases（上移合法的前提）。
+ */
 import type { Message } from "@entities/conversation/message";
 import type { ArtifactStatus, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";

@@ -1,6 +1,6 @@
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { AgentTool, ToolContext } from "./tool-factory";
-import { textResponse, errorResponse } from "./tool-helpers";
+import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 function createWorkspaceInfoTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
   return {
