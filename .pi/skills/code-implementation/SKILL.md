@@ -30,19 +30,20 @@ category: technique
 
 1. **准备环境**：执行 `worktree-isolation` 最小流程创建 worktree。记录 worktree 名、分支名、特性编号。
 2. **确认理解**：通读方案，确认涉及的文件和模块、核心逻辑、是否有破坏性变更。用 `search_terminology` 确认术语。不清楚就问，不猜。不在方案内的功能不实现。
-3. **实现**：按方案逐步实现。遵守 `references/coding-principles.md` 中的架构约束和命名规范。匹配项目术语。非显而易见的设计意图加注释。
-4. **写测试**：为新增或修改的行为写测试。见 `references/testing-rules.md`。测试失败时先诊断：是测试错还是实现错？不自动回退业务代码。
-5. **自检**：测试通过、符合项目规范、无方案外变更、无兼容桥代码、视觉变更有截图证据、发现的问题全部修复。
+3. **预检查**：动手实现前，先检查相关测试断言和设计意图——尤其是权限白名单、配置约束、接口契约等易冲突区域。用 `grep` 扫描测试文件中的 `expect`/`not.toContain` 断言，识别潜在冲突。发现冲突时自行分析设计意图并给出建议方案，不把问题抛给用户。
+4. **实现**：按方案逐步实现。遵守 `references/coding-principles.md` 中的架构约束和命名规范。匹配项目术语。非显而易见的设计意图加注释。
+5. **写测试**：为新增或修改的行为写测试。见 `references/testing-rules.md`。测试失败时先诊断：是测试错还是实现错？不自动回退业务代码。
+6. **自检**：测试通过、符合项目规范、无方案外变更、无兼容桥代码、视觉变更有截图证据、发现的问题全部修复。
 
    **CI 验证（必须）**：
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
-6. **文档**：将实现要点、变更说明追加到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
+7. **文档**：将实现要点、变更说明追加到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
-7. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
-8. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
-9. **对抗审视**：
+8. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
+9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
+10. **对抗审视**：
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
    - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；**每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修复/建 issue，更差→带证据反驳**；四类处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置；不作为不允许
@@ -75,9 +76,9 @@ category: technique
 
 ## 参考（索引）
 
-- `references/testing-rules.md` — 步骤 4 使用
-- `references/coding-principles.md` — 步骤 3 使用
-- `references/commit-convention.md` — 步骤 6 使用
-- `_shared/signature-convention.md` — 步骤 6 使用
-- `_shared/review-protocol.md` — 步骤 8 使用
-- `adversarial-review/references/author-response-protocol.md` — 步骤 8 使用
+- `references/testing-rules.md` — 步骤 5 使用
+- `references/coding-principles.md` — 步骤 4 使用
+- `references/commit-convention.md` — 步骤 8 使用
+- `_shared/signature-convention.md` — 步骤 8 使用
+- `_shared/review-protocol.md` — 步骤 10 使用
+- `adversarial-review/references/author-response-protocol.md` — 步骤 10 使用
