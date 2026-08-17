@@ -256,7 +256,7 @@ export class AgentInvoker {
           });
         }
       } finally {
-        this.recordedAttempts.delete(`${message.id}:${retryCount}`);
+        this.recordedAttempts.delete(this.attemptKey(message.id, retryCount));
       }
     });
   }
@@ -421,7 +421,7 @@ export class AgentInvoker {
     const reason = this.classifyExit({ messageId, result, err, toolCallCount });
 
     // F20260814mtrc：失败 attempt 在分类后、路由前记录（duration 不含后续重试链的 await）
-    await this.recordFailedAttempt(reason, {
+    this.recordFailedAttempt(reason, {
       messageId, otterId, result, err,
       retryCount: retryCount ?? 0,
       manualRetry: manualRetry ?? false,
@@ -572,8 +572,7 @@ export class AgentInvoker {
 
     if (retryCount === 0 && this.isRetryableGuardAbort(guardReason)) {
       this.logger.info('Auto-retry on guard abort', { messageId: p.messageId, otterId: p.otterId, guardReason });
-      /** F20260814mtrc：invoker 层自动重试计数（与 SDK 层 sdk_auto 分层） */
-      this.recordRetrySafe(guardReason.startsWith("circuit_break:") ? "circuit_break" : guardReason as "streaming_timeout" | "first_byte_timeout");
+      /** F20260814mtrc：重试意图计数在 recordFailedAttempt（分类点，去重键保护） */
       return this.handleAutoRetry(p, guardReason);
     }
 
@@ -796,8 +795,6 @@ export class AgentInvoker {
     userMessageContent?: string; conversationId?: string;
   }): Promise<ConversationInvokeResult> {
     this.logger.info('Degenerate output retry triggered', { messageId: p.messageId, otterId: p.otterId });
-    /** F20260814mtrc：退化重试计数 */
-    this.recordRetrySafe("degenerate_output");
     return this.executeRetryWithSystemReminder({
       messageId: p.messageId, otterId: p.otterId, conversationId: p.conversationId ?? "",
       senderId: p.senderId, emitEvent: p.emitEvent, onSSEEvent: p.onSSEEvent,
@@ -832,8 +829,6 @@ export class AgentInvoker {
     this.logger.info('Speak retry triggered', { messageId, otterId, retryCount });
 
     if (retryCount === 0) {
-      /** F20260814mtrc：speak 重试计数 */
-      this.recordRetrySafe("no_speak");
       // 1. 内部标记消息失败（不发 SSE 事件，用户不可见）
       const failBody = "[系统] 未调用 speak 工具结束发言";
       /** 为什么 catch 吞掉异常：消息可能已被用户 abort 标记为终态（aborted），此时 fail() 被 canFailMessage 拒绝。吞掉是安全的——后续 prepareForRetry 会检查状态并按需降级。 */
@@ -1093,11 +1088,15 @@ export class AgentInvoker {
     };
   }
 
-  /** F20260814mtrc：失败 attempt 记录（分类后、路由前；duration 不含重试链） */
-  private async recordFailedAttempt(reason: ExitReason, p: {
+  /**
+   * F20260814mtrc：失败 attempt 记录（分类后、路由前；duration 不含重试链）。
+   * 同步方法：去重键/guard 计数/重试意图同步完成（防重入双计），DB 读 fire-and-forget
+   * （不阻塞路由——对齐成功路径，PR 四审修复）。
+   */
+  private recordFailedAttempt(reason: ExitReason, p: {
     messageId: string; otterId: string; result?: InvokeResultShape; err?: unknown;
     retryCount: number; manualRetry: boolean; attemptStartTime: number;
-  }): Promise<void> {
+  }): void {
     if (!this.metrics) return;
     if (this.recordedAttempts.has(this.attemptKey(p.messageId, p.retryCount))) return;
     if (reason.kind === 'guard_abort') {
@@ -1110,12 +1109,38 @@ export class AgentInvoker {
         });
       }
     }
-    await this.recordAttempt({
+    /** PR 四审 P1 修复：重试意图计数移到分类点（受去重键保护）——散落在路由方法里的
+     * 计数在"路由抛错 → 重入"场景会双计（与第三轮 P0 同源场景） */
+    this.recordRetryIntent(reason, p.retryCount);
+    void this.recordAttempt({
       messageId: p.messageId, otterId: p.otterId, result: p.result, err: p.err,
       outcome: this.exitKindToOutcome(reason.kind, p.retryCount),
       retryCount: p.retryCount, manualRetry: p.manualRetry,
       startTime: p.attemptStartTime,
     });
+  }
+
+  /**
+   * 重试意图计数（与退出分类同点、同一去重键）。
+   * 语义为"意图"：个别降级路径（sendSystem 失败转 abort 等）计入但二次 invoke 未发生。
+   * 条件镜像 routeGuardAbort/handleSpeakRetry 的重试触发条件（retryCount===0）。
+   */
+  private recordRetryIntent(reason: ExitReason, retryCount: number): void {
+    if (retryCount !== 0) return;
+    if (reason.kind === 'no_speak') {
+      this.recordRetrySafe("no_speak");
+      return;
+    }
+    if (reason.kind !== 'guard_abort') return;
+    if (reason.guardReason === 'degenerate_output') {
+      this.recordRetrySafe("degenerate_output");
+      return;
+    }
+    if (this.isRetryableGuardAbort(reason.guardReason)) {
+      this.recordRetrySafe(reason.guardReason.startsWith("circuit_break:")
+        ? "circuit_break"
+        : reason.guardReason as "streaming_timeout" | "first_byte_timeout");
+    }
   }
 
   /** 构建 DynamicContext：会话摘要（前情）。记忆召回由 agent 通过 search_memory tool 主动触发 */

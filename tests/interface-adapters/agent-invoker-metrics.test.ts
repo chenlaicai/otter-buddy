@@ -129,6 +129,8 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
       otterId: "otter-1", conversationId: "conv-1",
       userMessageContent: "Hi", senderId: "user-1",
     });
+    /** PR 四审修复：recordAttempt 是 fire-and-forget（至少 1 个微任务），显式 flush 再断言 */
+    await new Promise(resolve => setImmediate(resolve));
 
     expect(spy.invokes).toHaveLength(1);
     expect(spy.invokes[0]).toMatchObject({
@@ -272,7 +274,8 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
     /** 恰好两条：attempt1 no_speak_retry + attempt2 no_speak_failed；无虚假 api_error */
     expect(spy.invokes.map(i => i.outcome)).toEqual(["no_speak_retry", "no_speak_failed"]);
     expect(spy.invokes[1].retry).toBe("auto");
-    expect(spy.retries).toContain("no_speak");
+    /** PR 四审 P1 修复：重试意图计数在分类点去重——重入不产生第二条 no_speak 计数 */
+    expect(spy.retries).toEqual(["no_speak"]);
   });
 
   it("链级 trace 下 source=chain；手动重试 retry=manual", async () => {

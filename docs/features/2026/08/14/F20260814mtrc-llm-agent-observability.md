@@ -100,7 +100,7 @@ metrics 骨架（registry/flush/端点/过期清理）与领域 metrics 模块�
 - **otter_type 获取**：埋点处 `queryOtter.getById` 一次（SQLite 主键读；查不到记 `unknown`）。
 - **attempt 记录恰好一次**（PR 审视 P0 修复）：以 `messageId:retryCount` 为去重键——`routeByReason` 抛错被外层 catch 捕获后**重入** `classifyAndRoute` 时（重入分类通常产出虚假 `api_error`），去重键阻止同一 attempt 二次记录。键在 `invokeConversationInner`/`retryInvokeOnSameMessage` 的 finally 中清理（重入只可能发生在该窗口内）。
 - **err 路径 model 回退**（PR 审视 P1 修复）：guard abort 主路径走 throw（result 不可达），`pi-session-factory` catch 分支在 error 上附加 `_modelAlias`，随 `_outputGuardMetadata` 一起带出——否则失败样本（恰是超时/退化关心的那批）model 全落 `unknown`，归因失效。
-- **重试计数语义**：`agent_retry_total` 计的是"重试意图"——个别降级路径（sendSystem 失败转 abort）计入但二次 invoke 未实际发生。
+- **重试计数语义**：`agent_retry_total` 计的是"重试意图"——个别降级路径（sendSystem 失败转 abort）计入但二次 invoke 未实际发生。invoker 层的重试意图计数在**退出分类点**与 attempt 记录共用同一去重键（PR 四审修复：路由方法内散落计数在"路由抛错 → 重入"场景会双计）。
 - **已知漏计**（PR 审视确认接受，总量守恒或影响可忽略）：
   - `invokeConversation` try 块之前（`sendMessage.start` 等）抛错不产生 attempt 记录（罕见路径，上层有 error 日志）。
   - err 路径 `tokenUsage` 不可得、快照不更新——失败 attempt 烧掉的 token 被**下一次成功 attempt 的差分吸收**（归因到成功 attempt 的 model），总量不虚增。
@@ -152,7 +152,7 @@ export interface TraceContext {
 #### 消费闭环
 
 - **消费节奏**：事故排查时（退化和重试问题出现场）随查随看；无固定巡检。
-- **JSONL 消费**（60s 全量累计快照，指标值 = 末次快照 − 首次快照）：
+- **JSONL 消费**（60s 全量累计快照，指标值 = 末次快照 − 首次快照。**Caveat**：进程重启后 counter 归零，跨重启时段的首末 diff 会低估甚至出负数——排查时优先看当日无重启的区间，或直接 `curl /metrics` 看内存累计值）：
 
 ```bash
 # 当日 attempt 成功率与退出原因分布（同 label 组首末快照 diff）
@@ -194,7 +194,7 @@ jq -s 'map(select(.metric=="agent_guard_abort_total")) | group_by(.labels.model)
 | 编号 | 需求 | 复现步骤 | 预期结果 |
 |------|------|---------|----------|
 | AT-1 | invoke 指标上报 | `curl :3000/metrics \| grep agent_invoke_total` 前后对比，发一条消息触发单獭回复 | `agent_invoke_total{outcome="success"...}` +1；duration/token histogram 有观测值 |
-| AT-2 | 退出原因分类正确 | 单测：mock invoke 返回 no-speak 与 user_abort 场景（tests/unit，断言 AgentMetrics 调用） | outcome 分别为 `no_speak_retry`/`user_abort`，`agent_retry_total{kind="no_speak"}` +1 |
+| AT-2 | 退出原因分类正确 | 单测：mock invoke 返回 no-speak 与 user_abort 场景（tests/interface-adapters/agent-invoker-metrics.test.ts，断言 AgentMetrics 调用） | outcome 分别为 `no_speak_retry`/`user_abort`，`agent_retry_total{kind="no_speak"}` +1 |
 | AT-3 | 工具级指标 | 正常对话（含工具调用）后 `curl :3000/metrics \| grep agent_tool` | `agent_tool_calls_total`/`agent_tool_duration_ms` 按 tool 维度有值 |
 | AT-4 | trace 串联 | 触发双獭链式对话，`grep <traceId> data/logs/otter-buddy.log` | 同链所有 hop 日志含相同 traceId；不同链 traceId 不同 |
 | AT-5 | 缺省不破坏 | `npm test`（不注入 AgentMetrics 的既有测试路径） | 全部通过，无异常 |
@@ -203,7 +203,7 @@ jq -s 'map(select(.metric=="agent_guard_abort_total")) | group_by(.labels.model)
 
 | 验收场景 | 能力测试文件 |
 |---------|-------------|
-| AT-1~AT-5 | n/a（纯软件边界内改动，单元/集成测试覆盖，见 `tests/unit/`） |
+| AT-1~AT-5 | n/a（纯软件边界内改动，单元/集成测试覆盖，见 `tests/interface-adapters/`、`tests/frameworks/metrics/` 等） |
 
 ## 实现细节
 
@@ -267,7 +267,7 @@ jq -s 'map(select(.metric=="agent_guard_abort_total")) | group_by(.labels.model)
 | AT-2 退出原因分类（no_speak/user_abort/guard/degenerate） | agent-invoker-metrics.test.ts 断言 outcome 序列与 retry 计数、双计防护 | ✅ |
 | AT-3 工具级指标 | 单测断言 calls/duration/errors 按 tool 维度 | ✅ |
 | AT-4 trace 串联 | trace-context.test.ts（merge/并行隔离）+ logger-trace.test.ts（富化/优先级）；真实链 grep 验证待上线 | ❓（单测证据充分，端到端待运行时） |
-| AT-5 缺省不破坏 | 全量 1226 用例含全部既有测试路径通过（未注入 metrics 的构造） | ✅ |
+| AT-5 缺省不破坏 | 全量 1230 用例含全部既有测试路径通过（未注入 metrics 的构造） | ✅ |
 
 ## 对抗审视记录
 
@@ -318,12 +318,26 @@ jq -s 'map(select(.metric=="agent_guard_abort_total")) | group_by(.labels.model)
 |------|------|------|------|
 | P0-1 | `routeByReason` 抛错 → 外层 catch 重入 `classifyAndRoute` → 同一 attempt 双计且误标 `api_error`（路由阶段真实可抛点：queryOtter/settingsRepo/emitEvent 回调） | 接受 | `recordedAttempts` 去重键（`messageId:retryCount`），finally 清理；补端到端测试（路由抛错场景断言恰好两条记录、无虚假 api_error） |
 | P1 | err 路径（guard abort 主路径）result 不可达 → model label 全落 `unknown`，击穿 mimo 归因 | 接受（双方独立发现） | pi-session-factory catch 附加 `_modelAlias`；resolveModel 回退链 result → err → unknown；测试断言 err 路径 model 不断 unknown |
-| P1 | `recordGuardAbort` 等 metrics 调用裸奔在主流程，破"metrics 失败绝不影响主流程"不变量（若抛错会跳过 guard 自动重试） | 接受 | recordRetrySafe 安全壳 + recordGuardAbort/stream 事件/链深指标全部包 try/catch |
+| P1 | `recordGuardAbort` 等 metrics 调用裸奔在主流程，破"metrics 失败绝不影响主流程"不变量（若抛错会跳过 guard 自动重试） | 接受 | recordRetrySafe 安全壳 + recordGuardAbort/stream 事件/链深指标全部包 try/catch（范围限定 AgentMetrics 调用点；SchedulerMetrics 裸奔是预存独立 port，不在本档 scope） |
 | P1 | 成功路径 `await recordAttempt`（含 DB 读）插在 message.complete SSE 之前，阻塞用户可见完成事件 | 接受 | 改 fire-and-forget（`void`，recordAttempt 内部全捕获不产生游离 rejection） |
 | 复核发现 | err 路径 + 消息已 speaking：tryCompleteSpeaking 早返回导致整条 attempt **漏记**（比误标更糟） | 接受 | err 收尾分支按 `classifyExit` 补记 outcome；补 user_abort+speaking 用例 |
 | P1 | 测试缝隙：guard 断言过弱（双计漏网）、user_abort+speaking 假验证（未触达分支）、api_error 零覆盖 | 接受 | mock 参数化 guardReason/errModelAlias；guard 序列钉死 `[guard_abort, guard_abort]`+retry label；新增 api_error、路由抛错重入、speaking 收尾用例 |
 | P2 | err 路径 token 被下个成功 attempt 吸收；sessionRebuilt 失败路径丢失；chain hops 采样选择偏差；重复构造 AgentMetrics 共享 counter 重置快照；otterId 键控的 1:1 假设 | 接受（记档） | 全部写入口径节"已知漏计"，不改实现 |
 | P2 | 重入 classifyAndRoute 自身再抛错会传播给调用方 | 接受（与 main 行为一致，非回归） | 不加第二层 catch（避免吞掉真实基础设施错误），去重键已保证不双计 |
+
+### 第四轮（PR diff 复审，修复代码本身 + 三方对账）
+
+两个独立 agent：一个专攻第三轮修复新增的代码（修复引入新缺陷盲区），一个做文档承诺/实现/验收证据三方对账。对账结论：**无 P0**——15 项指标/口径声明/测试数字/SSE 契约零变更/改动范围全部对上，无占位符残留，AT 判定诚实。修复侧发现：
+
+| 编号 | 发现 | 裁决 | 处置 |
+|------|------|------|------|
+| P1 | `recordRetrySafe` 不在去重范围：路由抛错重入场景（与第三轮 P0 同源）retry 计数双计；且 `getInternalAbortReason` 是清费式读取、首分类走 `err._guardAbortReason` 时未消费 → 重入可再次分类为 guard_abort | 接受（指标部分） | 重试意图计数移入 `recordFailedAttempt`（分类点），与 attempt 记录共用去重键；删除 routeGuardAbort/handleDegenerateRetry/handleSpeakRetry 三处散落调用。重入导致的**重复重试执行**是 main 预存行为，记档不改 |
+| P2 | finally 清理点用模板字符串而非 `attemptKey()`，键格式双写（演进时清理会静默失效） | 接受 | 统一走 `attemptKey()` |
+| P2 | 失败路径 `recordFailedAttempt` 仍 await（含 DB 读）阻塞路由，与成功路径不对称 | 接受 | 改同步方法：去重键/guard 计数/重试意图同步完成，DB 读 fire-and-forget（同步前缀保证去重键先于路由加入） |
+| P2 | 成功路径测试断言依赖 fire-and-forget 微任务时序（margin 约 2 个微任务跳，结构性但无显式保证） | 接受 | 测试加 `setImmediate` flush；retry 断言从 `toContain` 收紧为 `toEqual`（钉死重入不双计） |
+| P2 | err+speaking 补记的 classifyExit 消费清费式 internal reason 后，complete 失败降级路径分类会从 guard_abort 漂移为 api_error | 接受（记档） | outcome 已被去重保护，漂移只影响路由；`_guardAbortReason` 非破坏复制 vs `getInternalAbortReason` 破坏读取的双语义是根因，后续重构 session 重启/守卫时一并处理 |
+| P1 | 对账偏差：AT-5 陈旧数字、两处 `tests/unit/` 幻路径、PR body 测试数字未随修复更新、jq 命令缺进程重启归零 caveat | 接受 | 全部修正（本节及 PR body） |
+| P2 | compaction reason 非封闭枚举（`unknown` 兜底未文档化）、source label 弱封闭（string + 兜底，无类型约束） | 接受（记档） | 写入方仅两处，风险低；若未来 label 膨胀再收紧 |
 
 ## 设计决策
 
