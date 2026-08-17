@@ -8,6 +8,7 @@
  */
 import { vi } from "vitest";
 import { Hono } from "hono";
+import { MessageBroadcaster } from "../../src/usecases/im/message-broadcaster";
 import { createRouter, type Controllers } from "../../src/interface-adapters/http/router";
 import { ConversationController } from "../../src/interface-adapters/http/controllers/conversation-controller";
 import { MessageController } from "../../src/interface-adapters/http/controllers/message-controller";
@@ -403,24 +404,9 @@ export function createTestApp(deps: TestDeps): Hono {
     maxChainDepth: 20,
   });
 
-  // 创建 mock broadcaster，支持 subscribe + broadcastEvent 完整链路
-  const broadcastEventCalls: Array<{ event: string; data: Record<string, unknown> }> = [];
-  const eventSubscribers = new Map<string, Set<(event: { event: string; data: Record<string, unknown> }) => void>>();
-  const mockBroadcaster = {
-    broadcastEvent: (convId: string, event: { event: string; data: Record<string, unknown> }) => {
-      broadcastEventCalls.push(event);
-      const subs = eventSubscribers.get(convId);
-      if (subs) { for (const cb of subs) cb(event); }
-    },
-    broadcast: async () => {},
-    subscribe: (convId: string, _onMessage: any, onEvent?: (event: { event: string; data: Record<string, unknown> }) => void) => {
-      if (onEvent) {
-        if (!eventSubscribers.has(convId)) eventSubscribers.set(convId, new Set());
-        eventSubscribers.get(convId)!.add(onEvent);
-      }
-      return () => { eventSubscribers.get(convId)?.delete(onEvent!); };
-    },
-  };
+  // F20260817bcst 对抗审视 T2：改用**真实** MessageBroadcaster（裸总线 = web-only 形态），
+  // 让 API 测试真正走过 POST 流 → 生产总线 → SSE 的完整链路（旧 mock 绕过了总线实现）
+  const broadcaster = new MessageBroadcaster(logger);
 
   const messageCtrl = new MessageController(
     deps.sendMessageUseCase,
@@ -430,7 +416,7 @@ export function createTestApp(deps: TestDeps): Hono {
     logger,
     deps.queryOtter,
     dispatchChainEngine,
-    mockBroadcaster as any,
+    broadcaster,
   );
   const otterCtrl = new OtterController(
     deps.createOtterUseCase,
@@ -481,8 +467,7 @@ export function createTestApp(deps: TestDeps): Hono {
   const app = createRouter(controllers, createTestLogger());
 
   // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
-  (app as any).__broadcastEventCalls = broadcastEventCalls;
-  (app as any).__mockBroadcaster = mockBroadcaster;
+  (app as any).__mockBroadcaster = broadcaster;
 
   return app;
 }
