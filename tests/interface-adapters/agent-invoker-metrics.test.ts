@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import type { AgentInvokePort, AgentStreamEvent } from "@interface-adapters/agent-runtime/agent-invoke-port";
+import type { SdkInvokePort, AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
@@ -72,7 +72,7 @@ function makeInvoker(opts: {
   events?: AgentStreamEvent[];
   msgStatus: Message["status"];
 }): AgentInvoker {
-  const agentInvoke: AgentInvokePort = {
+  const agentInvoke: SdkInvokePort = {
     invoke: async (_otterId: string, _msg: string, options?: { onEvent?: (e: AgentStreamEvent) => void }) => {
       if (opts.throwOnInvoke) {
         const e = opts.throwOnInvoke as Error & { _guardAbortReason?: string; _modelAlias?: string };

@@ -1,6 +1,6 @@
 import type { AgentTool, ToolContext } from "./tool-factory";
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
-import { textResponse, errorResponse } from "./tool-helpers";
+import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 export function createGetMessageTool(ctx: ToolContext): AgentTool {
   return {

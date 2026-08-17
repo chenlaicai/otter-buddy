@@ -17,4 +17,6 @@ export interface ModelPoolLike {
   hasModel(alias: string): boolean;
   /** 返回所有模型信息（不含 pi-ai model 对象），用于 settings DTO 等场景 */
   getModelInfos(): ModelInfo[];
+  /** R20260817arnt PR-A：自 tool-factory 的重复定义收敛——工具层校验 modelAlias / 列举可用模型 */
+  describeModels(): Array<{ alias: string; description?: string; strengths?: string[]; weaknesses?: string[] }>;
 }

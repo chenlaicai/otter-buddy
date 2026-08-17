@@ -1,14 +1,15 @@
-import type { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
-import type { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-context-repository";
-import type { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
-import type { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-terminology-repository";
-import type { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
-import type { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-settings-repository";
-import type { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
-import type { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
-import type { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
-import type { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
-import type { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
+// R20260817arnt PR-A：组合根声明 port 接口而非 Sqlite 具体类——替换实现时类型不突变
+import type { OtterRepository } from "@usecases/otter/otter-repository";
+import type { OtterContextRepository } from "@usecases/otter/otter-context-repository";
+import type { MemoryRepository } from "@usecases/memory/memory-repository";
+import type { TerminologyRepository } from "@usecases/memory/terminology-repository";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import type { FeatureRepository } from "@usecases/document/feature-repository";
+import type { ResearchRepository } from "@usecases/document/research-repository";
+import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
+import type { ConnectionRepository } from "@usecases/im/connection-repository";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -32,17 +33,17 @@ import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-schedu
 import type { ManageConnection } from "@usecases/im/manage-connection";
 
 export interface Repositories {
-  otter: SqliteOtterRepository;
-  otterContext: SqliteOtterContextRepository;
-  memory: SqliteMemoryRepository;
-  terminology: SqliteTerminologyRepository;
-  conversation: SqliteConversationRepository;
-  settings: SqliteSettingsRepository;
-  feature: SqliteFeatureRepository;
-  research: SqliteResearchRepository;
-  scheduledTask: SqliteScheduledTaskRepository;
-  connection: SqliteConnectionRepository;
-  healingEvent: SqliteHealingEventRepository;
+  otter: OtterRepository;
+  otterContext: OtterContextRepository;
+  memory: MemoryRepository;
+  terminology: TerminologyRepository;
+  conversation: ConversationRepository;
+  settings: SettingsRepository;
+  feature: FeatureRepository;
+  research: ResearchRepository;
+  scheduledTask: ScheduledTaskRepository;
+  connection: ConnectionRepository;
+  healingEvent: HealingEventRepository;
 }
 
 export interface UseCases {

@@ -8,7 +8,7 @@ import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
-import type { OtterToolClient } from "@interface-adapters/agent-runtime/otter-tool-client";
+import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";

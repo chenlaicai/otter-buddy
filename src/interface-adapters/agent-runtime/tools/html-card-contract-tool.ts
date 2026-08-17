@@ -1,5 +1,5 @@
 import type { AgentTool } from "./tool-factory";
-import { textResponse } from "./tool-helpers";
+import { textResponse } from "@usecases/ports/agent-tools";
 
 /**
  * HTML 卡片完整写作契约（F20260728htar）。

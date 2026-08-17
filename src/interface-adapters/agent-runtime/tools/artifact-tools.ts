@@ -1,5 +1,5 @@
 import type { AgentTool, ToolContext } from "./tool-factory";
-import { textResponse, errorResponse } from "./tool-helpers";
+import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 /**
  * F20260807factlim: content 预览截断。按 code point（而非 UTF-16 code unit）切片，
