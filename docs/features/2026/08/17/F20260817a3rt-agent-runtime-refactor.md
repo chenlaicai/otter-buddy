@@ -58,7 +58,12 @@ capability_test: "n/a: 纯代码逻辑重构（A 类），各 Part 如涉及 LLM
 
 - `npx tsc --noEmit` 通过；`npx eslint .` 0 error；全量 vitest 105 文件 / 1231 用例通过
 - frameworks → interface-adapters import：grep 零命中（倒穿消除实证）
+- **隔离实例启动冒烟（二轮审视补）**：本分支 npm run build 后 `node dist/src/main.js` 于端口 3211 启动成功（dist 新路径 sdk-invoke-port/agent-tools/otter-tool-client 就位），/api/conversations 200、日志 0 error
 - 未删旧 `usecases/ports/agent-invoke-port.ts`（PR-D1 随 scheduler/recruiting 切换删除，保证本 PR 可独立回滚）
+
+### 对抗审视记录（两轮）
+
+一轮：迁移逐字符一致、type-only 无运行时环、8 测试文件零断言变更确认；修 3 边角（双 port 区分注释/SDK 依赖警示/describeModels 单一形状）。二轮：Pick 兼容性与消费点字段确认（注释措辞如实化——仅 alias 受编译器硬校验）；发现本地 dist 陈旧→补启动冒烟（上）；import 来源三层混用确认为声明的临时态（PR-B 收口清单见 Part B 行）；ports 含运行时纯函数有先例（trace-context/agent-metrics-port），成文约定一句：**ports/ 以接口为主，可含无状态纯函数（需有先例级理由）**。
 
 ### 改动范围
 
@@ -81,7 +86,7 @@ capability_test: "n/a: 纯代码逻辑重构（A 类），各 Part 如涉及 LLM
 | Part | 内容 | 状态 |
 |------|------|------|
 | A | port 收拢 + 倒穿消除 + 组合根 port 声明 | 本 PR |
-| B | tool-factory 规则下沉 | 待实施 |
+| B | tool-factory 规则下沉 + **re-export 收口**（二轮审视固化清单：tool-factory:19 的类型 re-export 删除时，6 个工具文件（artifact/healing/html-card/message/scheduled-task/workspace-tools）与 4 个测试（artifact/create-linked-resource/html-card/speak）的 `from "./tool-factory"` / `from "@interface-adapters/.../tool-factory"` 类型 import 改直连 @usecases/ports/agent-tools——tsc 全量拦截不会静默漏改） | 待实施 |
 | C | AgentInvoker 编排上提（两段式） | 待实施 |
 | D1 | controller/scheduler 切 agent-turn-port + 删旧 port | 待实施 |
 | D2 | pi-session-factory 瘦身 | 待实施 |
