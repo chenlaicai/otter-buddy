@@ -4,7 +4,7 @@ import type { LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 
 interface MessageInputProps {
-  onSend: (text: string, mentionOtterId?: string) => void
+  onSend: (text: string, mentionOtterIds?: string[]) => void
   disabled: boolean
   placeholder?: string
   otters: Otter[]
@@ -49,15 +49,20 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   function handleSend() {
     if (!value.trim() || disabled) return
 
-    // Check for @mention
-    const mentionMatch = value.match(/@(\S+)\s/)
-    let mentionId: string | undefined
-    if (mentionMatch) {
-      const mentioned = otters.find(o => o.name === mentionMatch[1])
-      if (mentioned) mentionId = mentioned.id
+    // Why: 匹配所有 @mention 而非仅第一个——后端已支持多目标并发 dispatch
+    const mentionMatches = value.match(/@(\S+)/g)
+    let mentionIds: string[] | undefined
+    if (mentionMatches) {
+      const ids: string[] = []
+      for (const match of mentionMatches) {
+        const name = match.slice(1)
+        const otter = otters.find(o => o.name === name)
+        if (otter) ids.push(otter.id)
+      }
+      if (ids.length > 0) mentionIds = ids
     }
 
-    onSend(value, mentionId)
+    onSend(value, mentionIds)
     setValue('')
     setMentionQuery(null)
     requestAnimationFrame(() => {
