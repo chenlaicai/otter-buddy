@@ -87,6 +87,15 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 1. **【中】broadcast() 实现处注释仍残留一轮要消灭的谎言**（"通道内部 catch，单个通道失败不影响其他"）——与修好的接口注释同文件矛盾。已改。
 2. **【低·文档】F 文档测试数字失实**（"tests/usecases/im 13 文件 177 用例"实为 im+api 合并跑的数字误归属；实测 5 文件 63 用例）。已改为实测数字。
 
+### 三轮审视记录
+
+攻击 web-only 修复后**新激活的执行面**（此前被 undefined 守卫短路、从未生产执行的路径）：POST SSE 的 push-after-close 安全（sse-streamer closed 守卫）、broadcast 字段完整性（全部调用点传完整 Message 实体）、enableFeishu=false 组合、装配测试适配、回滚安全（main 无代码假设 broadcaster 恒存在）——逐项验证等价或安全，**无 P0/P1**。两个低级发现已处理：
+
+1. 【低】web-only 下"无事件订阅者"分支的 info 日志成片出现（scheduler/cron 触发的 invoke 无订阅者，每轮 10-60 事件）——降为 debug（该路径系本 PR 新激活，属新引入噪音）。
+2. 【低】PR 描述测试数字 stale（101 系 merge 前实测）——编辑修正为 105/1231。
+
+**批次 3 设计输入（已记入 #282）**：OutboundEventChannel 的 `void onEvent` 签名无法表达跨事件顺序（通道内异步任务不返回 Promise）与背压——若外部通道要收完整 streaming 事件流，接口须改返回 Promise 或带序列号；且"Web 订阅者同步先行于外部通道"的隐含优先级未声明。背压推演：broadcast 调用点全部 fire-and-forget、单消息单 promise，无无界堆积，无需队列。
+
 ## 关联
 
 - issue #281（本 F 文档实现其验收标准）

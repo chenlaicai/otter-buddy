@@ -125,7 +125,9 @@ export class MessageBroadcaster {
 
     const subscribers = this.eventSubscribers.get(conversationId);
     if (!subscribers || subscribers.size === 0) {
-      this.logger.info("[broadcastEvent] 无事件订阅者", { conversationId, event: event.event });
+      // F20260817bcst 三轮审视：web-only 修复后此路径新激活（此前 broadcaster undefined 短路），
+      // scheduler/cron 触发的 invoke 无任何订阅者，每轮 10-60 事件全是此分支——降为 debug 防日志噪音
+      this.logger.debug("[broadcastEvent] 无事件订阅者", { conversationId, event: event.event });
       return;
     }
     this.logger.info("[broadcastEvent] 推送事件", { conversationId, event: event.event, subscriberCount: subscribers.size });
@@ -151,7 +153,7 @@ export class MessageBroadcaster {
 
     const subscribers = this.webSubscribers.get(message.conversationId);
     if (!subscribers || subscribers.size === 0) {
-      this.logger.info("[broadcastToWeb] 无订阅者,跳过", {
+      this.logger.debug("[broadcastToWeb] 无订阅者,跳过", {
         conversationId: message.conversationId,
         messageId: message.id,
         senderType: message.senderType,
