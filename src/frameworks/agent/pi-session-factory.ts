@@ -866,7 +866,10 @@ export class PiSessionFactory implements AgentGateway {
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     const entry = this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId);
     if (entry) {
-      entry.abort();
+      /** abort 返回 Promise：fire 路径无人 await，catch 防 unhandledRejection（与 _attachGuards 的 guardAbort 同模式） */
+      void entry.abort().catch((err: unknown) => {
+        this.logger.warn(`[abort] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
   }
 

@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
 
 /**
  * Clean Architecture layer dependency rules (D30-D42)
@@ -19,20 +20,17 @@ import tseslint from "typescript-eslint";
  */
 
 /**
- * Frameworks modules restricted from inner layers (everything except logger).
- * MAINTENANCE: When adding a new module under frameworks/, add it here too,
- * otherwise inner layers will be able to import it without ESLint errors.
+ * Frameworks restricted from inner layers: default-deny（deny-all-except-logger）.
+ * F20260814qswp：原白名单式列举已失守（metrics/scheduler/feishu 遗漏未被拦截，
+ * scheduler-service 曾直接值导入 @frameworks/metrics）。取反为默认全限制，
+ * 新增 frameworks 模块自动被覆盖，无需维护清单。D39 豁免仅 logger。
  */
-const restrictedFrameworks = [
-  // Alias imports
-  "@frameworks/db/**", "@frameworks/llm/**", "@frameworks/embedding/**",
-  "@frameworks/agent/**", "@frameworks/web/**", "@frameworks/config",
-  "@frameworks/document/**", "@frameworks/file-system/**",
-  // Relative imports (any depth)
-  "**/frameworks/db/**", "**/frameworks/llm/**", "**/frameworks/embedding/**",
-  "**/frameworks/agent/**", "**/frameworks/web/**", "**/frameworks/config",
-  "**/frameworks/document/**", "**/frameworks/file-system/**",
-];
+const restrictedFrameworks = [{
+  // deny-all-except-logger：ESLint 10 的 patterns 对象不支持 allow 例外字段，
+  // 用负向前瞻实现"除 logger 外全限制"（D39 豁免）
+  regex: "(?:^|@|/)frameworks/(?!logger(?:/|$))",
+  message: "Inner layers cannot import from frameworks (except @frameworks/logger per D39)",
+}];
 
 export default tseslint.config(
   {
@@ -57,8 +55,11 @@ export default tseslint.config(
   },
   {
     files: ["web/src/**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
     rules: {
       "no-console": "off",
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
@@ -97,10 +98,7 @@ export default tseslint.config(
             group: ["@usecases/**", "@interface-adapters/**", "**/usecases/**", "**/interface-adapters/**"],
             message: "Entities layer cannot import from usecases or interface-adapters"
           },
-          {
-            group: restrictedFrameworks,
-            message: "Entities layer cannot import from frameworks (except @frameworks/logger per D39)"
-          }
+          ...restrictedFrameworks
         ]
       }]
     }
@@ -115,10 +113,7 @@ export default tseslint.config(
             group: ["@interface-adapters/**", "**/interface-adapters/**"],
             message: "Use cases layer cannot import from interface-adapters"
           },
-          {
-            group: restrictedFrameworks,
-            message: "Use cases layer cannot import from frameworks (except @frameworks/logger per D39)"
-          }
+          ...restrictedFrameworks
         ]
       }]
     }
