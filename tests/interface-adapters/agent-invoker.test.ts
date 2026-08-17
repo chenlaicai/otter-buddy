@@ -94,7 +94,7 @@ function mockQueryOtter(): QueryOtter {
   return { getById: async () => null } as unknown as QueryOtter;
 }
 
-/** 创建 AgentInvokePort mock，可在指定事件后完成或抛出异常 */
+/** 创建 SdkInvokePort mock（R20260817arnt PR-A 改名），可在指定事件后完成或抛出异常 */
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
   result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
