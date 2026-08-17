@@ -259,14 +259,23 @@ jq -s 'map(select(.metric=="agent_guard_abort_total")) | group_by(.labels.model)
 - `npm test`：105 文件 / 1230 用例全过（PR 审视修复后新增 4 个：api_error、user_abort+speaking 收尾、路由抛错重入去重、guard 序列强断言）
 - `tests/app/build-app.test.ts`：全栈装配后 `/metrics` 含 `agent_invoke_total`/`agent_tool_calls_total`/`agent_chain_hops`/`agent_first_byte_latency_ms`（AT-1 装配部分）
 
+### 运行时抽查（隔离实例：独立端口 3789 + 独立 DB + 真实 LLM，2026-08-17）
+
+- **AT-1 ✅**：真实对话（kimi）后 `/metrics` 实测：
+  - `agent_invoke_total{model="kimi",otter_type="big",source="chain",outcome="success",retry="0"} 1`
+  - `agent_invoke_duration_ms_sum` 45567（落 30-60s 桶）；`agent_token_input_total` 12705 / `output` 704；`agent_context_tokens_sum` 12776
+- **AT-3 ✅**：`agent_tool_calls_total{tool="read"} 2`、`{tool="bash"} 1`、`{tool="speak"} 1`；`agent_tool_duration_ms` 按 tool 有观测值；`agent_first_byte_latency_ms_sum` 5640
+- **AT-4 ✅**：第一条链 traceId `t_eb3eab6b944a` 串联 6 条日志（发言链调用 → invocation started → tools registered → LLM request → first-byte → completed）；第二条链独立 traceId `t_5c0d6a4dadda`，无跨链混串。双獭多 hop 未走完（见附带发现），trace 机制本身已验证。
+- **附带发现（预存问题，非本 PR 引入，待单独排查）**：kimi 流卡死时 `session.abort()` 无法打断 `prompt()`——circuit-breaker PER_EVENT_TIMEOUT 与用户 abort 均受理但 attempt 永不返回，120s 流超时守卫亦未生效，消息卡 streaming。metrics 对未终结 attempt 不记录 outcome（正确行为）。与"连续退化→session reset 熔断"议题同域。
+
 ### 证据判定
 
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
-| AT-1 invoke 指标上报（装配+计数） | 单测断言 recordInvoke 全 label；buildApp 冒烟断言 /metrics 注册 | ✅（运行时真实对话验证待上线后按消费闭环命令抽查） |
+| AT-1 invoke 指标上报（装配+计数） | 单测断言 recordInvoke 全 label；buildApp 冒烟断言 /metrics 注册；隔离实例真实对话实测（见"运行时抽查"） | ✅ |
 | AT-2 退出原因分类（no_speak/user_abort/guard/degenerate） | agent-invoker-metrics.test.ts 断言 outcome 序列与 retry 计数、双计防护 | ✅ |
-| AT-3 工具级指标 | 单测断言 calls/duration/errors 按 tool 维度 | ✅ |
-| AT-4 trace 串联 | trace-context.test.ts（merge/并行隔离）+ logger-trace.test.ts（富化/优先级）；真实链 grep 验证待上线 | ❓（单测证据充分，端到端待运行时） |
+| AT-3 工具级指标 | 单测断言 calls/duration/errors 按 tool 维度；隔离实例真实对话实测（read/bash/speak + duration + first_byte） | ✅ |
+| AT-4 trace 串联 | trace-context.test.ts（merge/并行隔离）+ logger-trace.test.ts（富化/优先级）；隔离实例真实链 grep 验证（单链 6 条日志同 traceId、双链不混串） | ✅（双獭多 hop 未走完——模型流挂死，属预存问题，trace 机制已验证） |
 | AT-5 缺省不破坏 | 全量 1230 用例含全部既有测试路径通过（未注入 metrics 的构造） | ✅ |
 
 ## 对抗审视记录
