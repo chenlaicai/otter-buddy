@@ -9,7 +9,7 @@ interface ChatViewProps {
   conversation: Conversation | null
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
-  onSend: (text: string, mentionOtterId?: string) => void
+  onSend: (text: string, mentionOtterIds?: string[]) => void
   onStopStream: (messageId: string) => void
   onRetryMessage: (messageId: string) => void
   onRetry: () => void

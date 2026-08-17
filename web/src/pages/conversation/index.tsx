@@ -609,10 +609,10 @@ function ConversationPage() {
   const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
   const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
 
-  const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
+  const handleSend = useCallback(async (text: string, mentionOtterIds?: string[]) => {
     if (!activeId) return
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
-    const targetOtterIds = mentionOtterId ? [mentionOtterId] : []
+    const targetOtterIds = mentionOtterIds?.length ? mentionOtterIds : []
 
     const userMsg: LocalMessage = {
       id: 'tmp-' + Date.now(), st: 'user', si: 'user',
@@ -828,7 +828,7 @@ function ConversationPage() {
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
     activeId,
     messages: activeMessages,
-    onSendReply: (body, authorId) => { handleSend(body, authorId) },
+    onSendReply: (body, authorId) => { handleSend(body, [authorId]) },
   })
 
   const stopStream = useCallback((messageId: string) => {
