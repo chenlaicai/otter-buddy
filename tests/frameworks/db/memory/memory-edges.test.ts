@@ -259,4 +259,37 @@ describe("F20260813mren 审视二轮 P1-12: re-sync 边重定向", () => {
     expect(edge).not.toBeNull();
     expect(edge!.toEntryId).toBe("rs-doc-new");
   });
+
+  it("F20260817mrp2 对抗审视补测：多旧行（历史脏数据）只重定向第一行的边，其余行及其边删除", async () => {
+    // 构造脏数据：同 (source, contentType) 两行旧行（正常 sync 不会出现，历史事故可能）
+    await insertEntry("dirty-msg", "讨论", { contentType: "message", sourceTable: "messages", granularity: "fine" });
+    await insertEntry("dirty-old-1", "v1-a", { contentType: "feature", sourceTable: "features", sourceId: "F20260817dirty" });
+    await insertEntry("dirty-old-2", "v1-b", { contentType: "feature", sourceTable: "features", sourceId: "F20260817dirty" });
+    await createEdge.execute({ fromEntryId: "dirty-msg", toEntryId: "dirty-old-1", edgeType: "references" });
+    await createEdge.execute({ fromEntryId: "dirty-msg", toEntryId: "dirty-old-2", edgeType: "references" });
+
+    await repo.replaceEntryBySource({
+      id: "dirty-new",
+      layer: "document",
+      contentType: "feature",
+      sourceId: "F20260817dirty",
+      sourceTable: "features",
+      conversationId: null,
+      granularity: "coarse",
+      content: "v2",
+      metadata: null,
+      createdAt: "2026-08-17T01:00:00Z",
+    });
+
+    // 两行旧行都没了，新行在
+    expect(await repo.getById("dirty-old-1")).toBeNull();
+    expect(await repo.getById("dirty-old-2")).toBeNull();
+    expect(await repo.getById("dirty-new")).not.toBeNull();
+
+    // 只剩一条 references 边，指向新行（第一行重定向保留，第二行按审视三轮 #2 删除防 UNIQUE 冲突）
+    const related = await getRelated.execute({ entryId: "dirty-msg", direction: "out", edgeTypes: ["references"] });
+    const hits = related.filter(r => r.entry.sourceId === "F20260817dirty");
+    expect(hits).toHaveLength(1);
+    expect(hits[0].entry.id).toBe("dirty-new");
+  });
 });

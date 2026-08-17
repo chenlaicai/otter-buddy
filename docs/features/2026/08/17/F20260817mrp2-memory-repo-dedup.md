@@ -51,7 +51,7 @@ repo 承载了 5 种正交职责（entry CRUD / FTS+vec 检索 / 权重 / embedd
 ### 目标
 
 - T1: 卫星表级联删除/完整插入各只有一份实现——新增卫星表只改一处
-- T2: 行为零变更（既有 125 个 memory 相关测试全绿）
+- T2: **现有全部调用路径下行为等价**（对抗审视后将"行为零变更"降级为此措辞——见审视记录的两处语义级差异）
 - T3: 主文件 964 → ~720 行，edges/队列独立可测
 
 ### 范围决策
@@ -70,8 +70,19 @@ repo 承载了 5 种正交职责（entry CRUD / FTS+vec 检索 / 权重 / embedd
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
 | T1 唯一实现 | grep 确认 DELETE FROM memory_fts 等仅出现在 cascadeDeleteSatellites；INSERT INTO memory_entries 仅出现在 insertEntryRow | ✅ |
-| T2 行为零变更 | 全量测试通过；重构为纯方法提取+委托，无 SQL 变更 | ✅ |
+| T2 行为等价 | 现有调用路径下未发现可触发差异（对抗审视逐项推演）；拆出模块 SQL/参数逐字迁移 | ✅ |
 | T3 文件收敛 | 964 → 724 行；memory-edge-queries.ts（130 行）/ embedding-task-queue.ts（90 行）独立 | ✅ |
+
+## 对抗审视记录
+
+独立 agent 对抗审查结论：**现有调用路径下未构造出可触发的行为差异**，但"行为零变更"不严格成立，两处语义级差异（均已确认方向为改进或无触发路径，接受不改）：
+
+1. **嵌套事务契约放宽（潜伏）**：旧手写 `BEGIN` 在外部事务内调用会抛 `cannot start a transaction within a transaction`；better-sqlite3 的 `transaction()` 在 `db.inTransaction` 时降级为 SAVEPOINT 静默成功。核查全部调用点：无任何路径在外部事务内调用 memory repo 方法，当前不可触发；若未来出现嵌套调用，savepoint 语义是期望行为。
+2. **IO 类错误上抛身份（方向为修复）**：SQLite 致命错误（SQLITE_FULL/IOERR 族）自动回滚后，旧版无条件 ROLLBACK 会抛第二个错误覆盖原始错误；新版有 `inTransaction` 守卫，原始错误正确上抛。
+
+审视确认无问题的攻击面：replaceEntryBySource 级联中 edges DELETE 确为 no-op（自环被 schema CHECK 约束排除、UPDATE 原子覆盖所有引用、新 UUID 不撞 UNIQUE）；BEGIN 默认 DEFERRED 与手写一致；双重分词为纯函数仅性能开销；拆出模块 SQL/参数逐字一致无循环依赖。
+
+**审视发现的测试盲区（已补）**：replaceEntryBySource 的多旧行分支（审视三轮 #2 的关键防御，原零覆盖）补用例"多旧行只重定向第一行的边，其余行及其边删除"。事务回滚路径仍无直接测试（改动前后均无，等价性依赖事务包装库自身语义，接受）。
 
 ## 改动范围
 | 文件 | 操作 | 说明 |
@@ -79,3 +90,4 @@ repo 承载了 5 种正交职责（entry CRUD / FTS+vec 检索 / 权重 / embedd
 | src/frameworks/db/memory/sqlite-memory-repository.ts | 修改 | 去重 + 事务包装 + 委托 |
 | src/frameworks/db/memory/memory-edge-queries.ts | 新增 | edges 图查询（自 repo 原样迁移） |
 | src/frameworks/db/memory/embedding-task-queue.ts | 新增 | embedding 重试任务队列（原样迁移） |
+| tests/frameworks/db/memory/memory-edges.test.ts | 修改 | 对抗审视补测：多旧行边重定向/删除分支 |
