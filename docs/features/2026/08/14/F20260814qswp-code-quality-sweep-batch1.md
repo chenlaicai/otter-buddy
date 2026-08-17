@@ -131,15 +131,22 @@ ESLint 10 的 `no-restricted-imports` patterns 对象既不支持 pattern 级 `a
 - `npx eslint .`：0 error / 8 warning（exhaustive-deps 存量）
 - 后端 `npx tsc --noEmit` 通过；web `npx tsc --noEmit` 通过
 - 后端 vitest：101 文件 / 1207 测试全部通过
-- web vitest：13 文件 / 119 测试全部通过（含新增 MessageBatcher 8 用例）
+- web vitest：14 文件 / 123 测试全部通过（含新增 MessageBatcher 8 用例 + MessageList 渲染 4 用例）
 
 ### 证据判定
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
 | T1 窗口内零丢失 | 测试通过（回归用例直接断言链式语义） | ✅ |
-| T2 重试流事件可见 | 事件形状统一 + lint/tsc 通过；手动端到端验证待真机 | ❓ |
+| T2 重试流事件可见 | 真实实例验证（隔离端口 3210 + 独立 DB + kimi 真实 LLM，send→abort→retry 全流程）：重试 SSE 流实际投递 assistant_text 事件且 payload.content 为 blocks 数组；DB 持久化事件同形状；新增 MessageList.test.tsx 4 用例锁定 EventItem 对新形状渲染、旧形状（'text'）不渲染 | ✅ |
 | T3 hooks 守护 | rules-of-hooks error 级 0 违规 | ✅ |
-| T4 分层全限制 | 黑名单取反后全仓 0 error（破口清零） | ✅ |
+| T4 分层全限制 | 黑名单取反后全仓 0 error（破口清零）+ 探针阳性验证 | ✅ |
+
+#### AT-2 验证过程记录（含两个顺带发现）
+
+- 验证路径：隔离实例（`config/config.yaml` 本地副本：端口 3210、`./data/verify-at2.db`、默认模型 mimo→kimi）→ 建会话 → POST 发送 → 2.5s abort → POST retry → 抓取 SSE 原始事件 + 查 DB message_events。mimo 首响应挂起 18min+（与既往退化观察一致），换 kimi 后流程正常。
+- **发现 A（未修，独立问题）**：POST 发送流与 GET 订阅流的事件推送均依赖 `messageBroadcaster`，而 broadcaster 仅在飞书配置存在时创建（`app.ts:176` `messageBroadcaster: feishu?.broadcaster`）。web-only 部署（不配飞书）下整个流式事件链路断流，POST 流只剩 stream.end，GET subscribe 端点直接对 undefined 调 subscribe 会抛错。验证时以无效飞书凭证让 broadcaster 建立后链路恢复。建议后续独立 issue：broadcaster 与飞书解耦（本地 SSE 也应走统一广播总线）。
+- **发现 B（未修，既有行为）**：重试触发的 speak 失败会走 speak 重试，耗尽后 message.failed（"Speak retry exhausted"）——与记忆中"重试成功率待观察"一致，非本 PR 引入。
+- jsdom 测试技巧记录：React 合成事件需用原生 `HTMLElement.click()` 触发，`dispatchEvent(new MouseEvent)` 无效（MessageList.test.tsx 内有注释）。
 
 ## 设计决策
 
