@@ -105,6 +105,8 @@ function ConversationPage() {
   // 50ms 是平衡点：既减少重渲染频率，又不明显影响流式文本的实时感
   // F20260814qswp：改为 MessageBatcher 暂存副本链式执行——旧实现在 setState updater 内
   // 执行业务 updater 且返回 prev，窗口内后续 updater 读到的是原始列表，中间更新丢失
+  // F20260814qswp 三轮：materialize 在 setState 函数式 updater 内调用（prev=队列最新值），
+  // 消除 allMessagesRef 镜像在 commit→passive-effect 间隙的引用比较盲区
   const BATCH_WINDOW_MS = 50
   const batcher = useMemo(() => new MessageBatcher({
     windowMs: BATCH_WINDOW_MS,
@@ -112,10 +114,11 @@ function ConversationPage() {
     apply: (updates) => {
       setAllMessages(prev => {
         let next: Record<string, LocalMessage[]> | null = null
-        for (const [convId, msgs] of updates) {
-          if (prev[convId] === msgs) continue
+        for (const [convId, materialize] of updates) {
+          const result = materialize(prev[convId])
+          if (result === prev[convId]) continue
           next = next ?? { ...prev }
-          next[convId] = msgs
+          next[convId] = result
         }
         return next ?? prev
       })
@@ -366,6 +369,11 @@ function ConversationPage() {
     // streaming 生命周期状态
     const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
     const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
+    /** F20260814qswp 三轮：按 messageId 累积的流式文本。assistant_text 的 content 更新
+     *  用"累积 + 全量 set"幂等语义（不再 content += text）——服务端 startSpeaking 在 speak
+     *  开始即持久化全文，轮询快照会以全文替换 content；+= 语义（含 batcher 重放路径）在
+     *  快照之上再追加会造成文本重复，set 语义天然幂等、重放/快照安全 */
+    const liveText = new Map<string, string>()
 
     const syncLiveEvents = (messageId: string) => {
       const liveEvents = liveEventsMap.get(messageId)
@@ -426,12 +434,16 @@ function ConversationPage() {
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
         syncLiveEvents(data.messageId as string)
-        /** 累积文本到消息正文：让用户实时看到发言内容逐步出现（不仅在流式过程面板） */
+        /** 累积文本到消息正文：让用户实时看到发言内容逐步出现（不仅在流式过程面板）。
+         *  累积+全量 set 幂等语义（见 liveText 声明处注释） */
         const text = Array.isArray(data.content) ? (data.content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
         if (!text) return
+        const messageId = data.messageId as string
+        const acc = (liveText.get(messageId) || '') + text
+        liveText.set(messageId, acc)
         batchUpdateMessages(activeId!, (list) => {
-          if (!list.some(m => m.id === data.messageId)) return list
-          return list.map(m => m.id === data.messageId ? { ...m, content: (m.content || '') + text } : m)
+          if (!list.some(m => m.id === messageId)) return list
+          return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
         })
       },
       'assistant_toolcall': (data) => {
@@ -460,6 +472,7 @@ function ConversationPage() {
         batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, finalMsg))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
+        liveText.delete(messageId)
       },
       'message.failed': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
@@ -473,6 +486,7 @@ function ConversationPage() {
         batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
+        liveText.delete(messageId)
       },
       /** F20260805abpp：常驻通道必须处理 message.aborted——MPA 整页刷新后随发送请求建立的
        *  SSE 流已死，abort 终态只能经此通道到达；缺失时 streaming 占位消息永久卡在生成中 */
@@ -504,6 +518,7 @@ function ConversationPage() {
         }
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
+        liveText.delete(messageId)
       },
       'error': (data) => {
         const messageId = data.messageId as string | undefined
@@ -622,6 +637,8 @@ function ConversationPage() {
       /** 按 messageId 隔离的 liveEvents 与 otter 元信息（每个 otter 独立，仅本次发送流程内使用） */
       const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
       const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
+      /** F20260814qswp 三轮：累积+全量 set 幂等语义（见常驻通道 liveText 声明处注释） */
+      const liveText = new Map<string, string>()
 
       /** SSE 事件就地更新 allMessages 中的进行中消息（统一渲染通道：消息流只有 allMessages 一条；
        *  F20260814qswp：改走 batchUpdateMessages，与批量暂存副本单轨，避免双轨覆盖） */
@@ -675,12 +692,15 @@ function ConversationPage() {
           if (!liveEvents) return
           liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
           syncLiveEvents(messageId)
-          /** 累积文本到消息正文：让用户实时看到发言内容逐步出现 */
+          /** 累积文本到消息正文：让用户实时看到发言内容逐步出现。
+           *  累积+全量 set 幂等语义（见 liveText 声明处注释） */
           const text = Array.isArray(data.content) ? (data.content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
           if (!text) return
+          const acc = (liveText.get(messageId) || '') + text
+          liveText.set(messageId, acc)
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: (m.content || '') + text } : m)
+            return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
           })
         },
         'message.complete': (data) => {
@@ -709,6 +729,7 @@ function ConversationPage() {
           })
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
+          liveText.delete(messageId)
         },
         'error': (data) => {
           const { messageId, otterId } = data
@@ -723,6 +744,7 @@ function ConversationPage() {
           if (messageId) {
             liveEventsMap.delete(messageId)
             liveMeta.delete(messageId)
+            liveText.delete(messageId)
           }
         },
         'message.aborted': (data) => {
@@ -754,6 +776,7 @@ function ConversationPage() {
           }
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
+          liveText.delete(messageId)
         },
         'message.failed': (data) => {
           /** 失败消息：body 来自 SSE 事件（服务端 sendMessage.fail 存储的失败原因） */
@@ -769,6 +792,7 @@ function ConversationPage() {
           batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, failedMsg))
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
+          liveText.delete(messageId)
         },
         'system.message': (data) => {
           const sysMsg: LocalMessage = {
@@ -872,6 +896,8 @@ function ConversationPage() {
 
       const liveEventsMap = new Map<string, Array<{ ts: string; eventType: string; payload: Record<string, unknown> }>>()
       const liveMeta = new Map<string, { otterId: string; otterName?: string; createdAt: string }>()
+      /** F20260814qswp 三轮：累积+全量 set 幂等语义（见常驻通道 liveText 声明处注释） */
+      const liveText = new Map<string, string>()
 
       const syncLiveEvents = (msgId: string) => {
         const liveEvents = liveEventsMap.get(msgId)
@@ -919,7 +945,9 @@ function ConversationPage() {
           syncLiveEvents(msgId)
           const textContent = Array.isArray(content) ? (content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
           if (!textContent) return
-          batchUpdateMessages(activeId, (list) => list.map(m => m.id === msgId ? { ...m, content: (m.content || '') + textContent } : m))
+          const acc = (liveText.get(msgId) || '') + textContent
+          liveText.set(msgId, acc)
+          batchUpdateMessages(activeId, (list) => list.map(m => m.id === msgId ? { ...m, content: acc } : m))
         },
         'message.complete': (data) => {
           const { messageId: msgId } = data

@@ -9,35 +9,42 @@ import type { LocalMessage } from './mappers'
  * 的文本段直接消失）。副作用（写 pendingUpdatesRef、起 timer）写在 React state
  * updater 内也违反 updater 纯函数约定。
  *
- * 新语义：update() 调用时**立即**对暂存副本（pending 或外部提供的 base）执行 updater
- * （调用方可依赖闭包标志位模式，如 added 计数）；窗口到期 flush 一次性 apply。
+ * 新语义：update() 调用时**立即**对暂存副本（pending 或 getBase 提供的镜像）执行
+ * updater（调用方可依赖闭包标志位模式，如 added 计数）；窗口到期 flush 产出
+ * materialize 闭包，由 apply 在 **React setState 函数式 updater 内**调用——
+ * 传入的 current 是 React 更新队列的最新值（可能比 getBase 镜像新：镜像在
+ * passive effect 中同步，存在 commit→effect 间隙，二轮审视证明在 flush 外做
+ * 引用比较会漏检该间隙内的外部写入）。
  *
- * F20260814qswp 二轮（对抗审视修复）：首版"暂存副本 + pending 优先"引入了新回归——
- * 窗口内若有**不走本 batcher 的直接 setState 写入**（轮询合并 / 上翻加载 prepend /
- * 乐观 abort / tmp 追加），后续 update 仍基于窗口前的旧暂存，flush 时整体覆盖，
- * 直接写入被抹掉（流式期间上翻加载历史会稳定复现历史消失）。旧实现反而不丢：
- * 其 updater 在 React 更新队列中按序执行，读到的是含直接写入的最新 state。
+ * 演进史：
+ * - 一轮修复引入"暂存副本 + pending 优先"→ 被对抗审视抓到双轨覆盖回归（窗口内
+ *   直接 setAllMessages 写入被旧暂存整体抹掉）。
+ * - 二轮修复加"baseRef 引用快照 + flush 时重放 updater 链"→ 又被抓到镜像滞后
+ *   盲区（上述 commit→effect 间隙）与累积型 updater 重放重复问题。
+ * - 三轮（当前）：检测/重放移入 apply 的函数式 updater 内（current=队列真实值，
+ *   引用比较无盲区）；累积型 updater 的重复问题在消费方解决（index.tsx 的
+ *   assistant_text 改"按 messageId 累积 + 全量 set"幂等语义，重放安全）。
  *
- * 修复：staging 开始时记录 base 引用快照；flush 时若 getBase 返回的引用已变化
- * （外部写入过），把**暂存的 updater 链重放**到当前最新列表上——等价于旧实现的
- * "延迟到队列处理时对最新 state 执行"。引用未变则直接应用暂存结果（省一次重放）。
  * 要求 updater 是纯函数（list → list，无闭包外副作用）——现有全部调用点满足。
  */
 export interface MessageBatcherOptions {
   /** 合并窗口毫秒数 */
   windowMs: number
-  /** 读取某会话当前消息列表（真实 state 的同步镜像，如 ref；无会话记录时返回空数组） */
+  /** 读取某会话当前消息列表（state 的同步镜像，如 ref；仅用于 update() 时的 eager
+   *  staging（added 标志等闭包语义），最终一致性由 apply 内的 materialize 保证） */
   getBase: (convId: string) => LocalMessage[]
-  /** 窗口到期：将暂存的会话 → 列表映射应用到真实 state */
-  apply: (updates: ReadonlyMap<string, LocalMessage[]>) => void
+  /** 窗口到期：在 setAllMessages 的函数式 updater 内对每个会话调用 materialize，
+   *  用返回值更新 state。materialize(current) 语义：current 与 staging 基线同引用
+   *  → 直接返回暂存结果；否则把 updater 链重放到 current（外部写入保留） */
+  apply: (updates: ReadonlyMap<string, (current: LocalMessage[] | undefined) => LocalMessage[]>) => void
 }
 
 interface PendingChain {
-  /** staging 开始时 getBase 返回的引用（undefined 表示当时无会话记录） */
-  baseRef: LocalMessage[] | undefined
+  /** staging 开始时 getBase 返回的引用 */
+  baseRef: LocalMessage[]
   /** 按序暂存的 updater 链（flush 重放用） */
   updaters: Array<(prev: LocalMessage[]) => LocalMessage[]>
-  /** 对暂存副本链式执行的结果（base 未变时直接应用） */
+  /** 对暂存副本链式执行的结果（基线未变时直接应用） */
   staged: LocalMessage[]
 }
 
@@ -47,18 +54,19 @@ export class MessageBatcher {
 
   constructor(private readonly opts: MessageBatcherOptions) {}
 
-  /** 对暂存副本同步执行 updater；有实际变更时暂存并启动合并窗口 */
+  /** 对暂存副本同步执行 updater；有实际变更时暂存并启动合并窗口。
+   *  no-op（updater 返回相同引用）不留链、不进 pending、不起 timer */
   update(convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]): void {
     let chain = this.pending.get(convId)
     if (!chain) {
       const base = this.opts.getBase(convId)
       chain = { baseRef: base, updaters: [], staged: base }
-      this.pending.set(convId, chain)
     }
     const updated = updater(chain.staged)
     if (updated === chain.staged) return
     chain.staged = updated
     chain.updaters.push(updater)
+    this.pending.set(convId, chain)
     if (this.timer === null) {
       this.timer = setTimeout(() => {
         this.timer = null
@@ -67,21 +75,21 @@ export class MessageBatcher {
     }
   }
 
-  /** 立即应用全部暂存更新（窗口到期或需要立即提交时调用） */
+  /** 立即产出全部暂存更新的 materialize 闭包并交给 apply（窗口到期时调用）。
+   *  materialize 必须在 React setState 的函数式 updater 内调用（current 取队列最新值） */
   flush(): void {
     if (this.pending.size === 0) return
-    const updates = new Map<string, LocalMessage[]>()
+    const updates = new Map<string, (current: LocalMessage[] | undefined) => LocalMessage[]>()
     for (const [convId, chain] of this.pending) {
-      const current = this.opts.getBase(convId)
-      if (current === chain.baseRef) {
-        // 窗口内无外部写入：直接应用暂存结果
-        updates.set(convId, chain.staged)
-      } else {
-        // 外部已写入：重放 updater 链到最新列表（恢复旧实现的"对最新 state 执行"语义）
-        let list = current
+      updates.set(convId, (current) => {
+        const cur = current ?? []
+        // 与 staging 基线同引用：窗口内无外部写入，直接应用暂存结果
+        if (cur === chain.baseRef) return chain.staged
+        // 外部已写入：重放 updater 链到最新列表（保留外部写入的效果）
+        let list = cur
         for (const u of chain.updaters) list = u(list)
-        updates.set(convId, list)
-      }
+        return list
+      })
     }
     this.pending.clear()
     this.opts.apply(updates)

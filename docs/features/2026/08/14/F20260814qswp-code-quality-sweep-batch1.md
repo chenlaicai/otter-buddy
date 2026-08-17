@@ -166,3 +166,13 @@ ESLint 10 的 `no-restricted-imports` patterns 对象既不支持 pattern 级 `a
 2. **【中危】scheduler 时钟语义偷换**：首版默认 `() => Date.now()`（墙钟），原 `nowMs()` 是 `performance.now()`（单调钟，duration histogram 计时）——NTP 步进期间会记录负时长/尖峰。修复：默认改回 `() => performance.now()`，注释明确与调度延迟的 Date.now 是两条时间线。
 
 审视确认无问题的攻击面（节选）：added/unread 计数语义、retry 流守卫等价性、hooks 前置的 effect 副作用、eslint regex 边界（仅剩与旧配置相同的大小写/动态 import 缺口）、port 结构化兼容、abort catch 类型安全、web 依赖删除零引用。已知残留（低危，接受）：dispose 丢弃最后 ≤50ms 暂存（MPA 切换走整页刷新，实际影响近零）。
+
+## 对抗审视记录（三轮）
+
+二轮审视攻击二轮修复本身，抓到两处真问题，已修复：
+
+1. **【中高·镜像滞后盲区】baseRef 引用比较漏检**：二轮修复在 flush 外（读 allMessagesRef 镜像）做引用比较，而镜像在 passive effect 中同步——存在 commit→effect 间隙，flush 定时器落入该间隙时外部写入被漏检、仍被旧暂存覆盖。**修复**：batcher 的 flush 产出 materialize 闭包，检测/重放移入 `setAllMessages` 函数式 updater 内执行（current=React 队列真实最新值），镜像滞后不再影响正确性；镜像仅服务于 update() 时的 eager staging（added 标志语义）。测试基座改为 mirror/queue 双轨，可表达该间隙。
+2. **【中高·重放重复】累积型 `content += text` 重放到已含自身效果的外部写入会文本重复**：服务端 `startSpeaking` 在 speak 开始即持久化全文，轮询快照会以全文替换 content；`+=` 语义（含重放路径）在快照之上再追加 → "全文+增量"重复。旧实现存在同构缺陷但触发面窄且可自愈，二轮重放扩大了触发面。**修复**：三处 assistant_text handler 改"按 messageId 累积（liveText map）+ 全量 set"幂等语义——重放/快照均安全，同时修复了既有缺陷（非重放路径的轮询快照重复）。
+3. 【低】no-op update 留空链 / `?? []` 引用永不相等：update() 改为有实际变更才进 pending。
+
+已知残留（低危，接受）：双通道重复 message.start 在镜像滞后窗口可能虚增未读计数（最终列表正确，仅计数瞬态偏差）；单测基座与真实 React 调度的完全一致性仍无法表达（双轨基座已覆盖主要分离场景）。
