@@ -50,8 +50,13 @@ export function useDraftCache(conversationId: string | null) {
     if (!conversationId) return
 
     // 设置新的 debounce timer
+    // Why: 使用 conversationIdRef.current 而非闭包中的 conversationId
+    // 与 beforeunload handler 保持一致，避免 conversationId 变化时闭包捕获旧值
     debounceTimerRef.current = setTimeout(() => {
-      localStorage.setItem(`draft:${conversationId}`, text)
+      const currentConversationId = conversationIdRef.current
+      if (currentConversationId) {
+        localStorage.setItem(`draft:${currentConversationId}`, text)
+      }
       debounceTimerRef.current = null
     }, 300)
   }, [conversationId])

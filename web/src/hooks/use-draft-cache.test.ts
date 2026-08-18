@@ -4,10 +4,12 @@ import { useDraftCache } from './use-draft-cache'
 
 describe('useDraftCache', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     localStorage.clear()
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     localStorage.clear()
   })
 
@@ -26,6 +28,19 @@ describe('useDraftCache', () => {
 
     rerender({ conversationId: 'conv-1' })
     expect(result.current.draft).toBe('saved draft')
+  })
+
+  it('should not write to localStorage immediately on saveDraft (debounce)', () => {
+    const { result } = renderHook(() => useDraftCache('conv-1'))
+
+    act(() => {
+      result.current.saveDraft('new draft')
+    })
+
+    // 状态立即更新
+    expect(result.current.draft).toBe('new draft')
+    // 但 localStorage 不应立即写入（debounce 300ms）
+    expect(localStorage.getItem('draft:conv-1')).toBeNull()
   })
 
   it('should clear draft from localStorage when clearDraft is called', () => {
