@@ -13,7 +13,7 @@ import { DEFAULT_MODEL_ALIAS_KEY } from "@usecases/settings/settings-keys";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
-import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks } from "@frameworks/db/migration";
+import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks, migrateMessageSegments } from "@frameworks/db/migration";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { backfillSessionLedger } from "@frameworks/db/otter/backfill-session-ledger";
@@ -57,6 +57,7 @@ export async function initDatabaseAndModels(
    *  migrateDatabase 幂等（PRAGMA 检查 + IF NOT EXISTS），新库也必须跑到最新结构——
    *  否则下方 migrateExistingData 读 session_file 直接崩（F20260805codx 曾把两者做成互斥分支，新库无法启动）。 */
   migrateDatabase(db, logger);
+  migrateMessageSegments(db, logger);
 
   const otterConfigProvider = new SqliteOtterConfigProvider(db);
   ensureBgeM3Model(appConfig.embedding, logger);

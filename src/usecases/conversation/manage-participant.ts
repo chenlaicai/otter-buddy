@@ -29,6 +29,7 @@ export class ManageParticipant {
    * 前置条件：当前有活跃 Turn（后进场者必须有 Turn）。
    * 系统消息 body 由调用方传入（A1：ManageParticipant 不依赖 OtterRepository）。
    */
+  // eslint-disable-next-line max-lines-per-function -- F20260818segs segment 创建逻辑增加行数
   async join(
     conversationId: string,
     otterId: string,
@@ -85,7 +86,7 @@ export class ManageParticipant {
       senderId: otterId,
       talkingStonePassedTo: [],
       status: "completed",
-      body: systemMessageBody,
+      segments: [],
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -94,6 +95,8 @@ export class ManageParticipant {
       completedAt: now,
     };
     await this.repo.createCompletedMessage(systemMessage);
+    const seg = await this.repo.appendSegment(messageId, systemMessageBody);
+    systemMessage.segments = [seg];
 
     /** 5. 更新已读位置到当前 turn（小獭能看到整个 turn 的所有消息） */
     await this.repo.updateLastReadTurnNumber(conversationId, otterId, turn.turnNumber);
@@ -152,7 +155,7 @@ export class ManageParticipant {
       senderId: otterId,
       talkingStonePassedTo: [],
       status: "completed",
-      body: systemMessageBody,
+      segments: [],
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -161,6 +164,8 @@ export class ManageParticipant {
       completedAt: now,
     };
     await this.repo.createCompletedMessage(systemMessage);
+    const seg = await this.repo.appendSegment(messageId, systemMessageBody);
+    systemMessage.segments = [seg];
 
     /** 5. 尝试关闭 Turn */
     await tryCloseTurn(this.repo, turn.id);

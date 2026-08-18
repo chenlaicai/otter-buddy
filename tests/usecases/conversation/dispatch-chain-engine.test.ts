@@ -15,7 +15,9 @@ function makeTurn(overrides: Partial<Turn> = {}): Turn {
 function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
     id: "m-1", conversationId: "conv-1", turnId: "turn-1", senderId: "otter-1",
-    senderType: "otter", status: "completed", body: "hi", sequenceNum: 1,
+    senderType: "otter", status: "completed",
+    segments: [{ id: "seg-1", messageId: "m-1", body: "hi", sequenceNum: 0, createdAt: "" }],
+    sequenceNum: 1,
     talkingStonePassedTo: [], contextTokens: null, contextTokensMax: null,
     source: "web", createdAt: "", completedAt: "",
     ...overrides,

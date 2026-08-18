@@ -10,6 +10,7 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 import type { Conversation, Turn } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { DomainError } from "@entities/errors";
+import { aggregateBody } from "@entities/conversation/message";
 import { createTestDb } from "../../helpers/db";
 
 function otterFixture(id: string, name: string): Otter {
@@ -75,7 +76,7 @@ describe("ManageParticipant（真 sqlite）", () => {
       expect(result.participant.conversationId).toBe("conv-1");
 
       expect(result.systemMessage.senderType).toBe("system");
-      expect(result.systemMessage.body).toBe("小獭进场了");
+      expect(aggregateBody(result.systemMessage.segments)).toBe("小獭进场了");
       expect(result.systemMessage.status).toBe("completed");
       expect(result.systemMessage.talkingStonePassedTo).toEqual([]);
 
@@ -117,7 +118,7 @@ describe("ManageParticipant（真 sqlite）", () => {
       expect(result.participant.status).toBe("left");
       expect(result.participant.leftAtTurnId).toBe(leaveTurnId);
       expect(result.participant.leftAt).toBeTruthy();
-      expect(result.systemMessage.body).toBe("小獭退场了");
+      expect(aggregateBody(result.systemMessage.segments)).toBe("小獭退场了");
       expect(result.systemMessage.senderType).toBe("system");
 
       /** 真 DB 断言：参与者已 left，系统消息落库 */

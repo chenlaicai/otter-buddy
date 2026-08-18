@@ -2,7 +2,7 @@
 name: otter-summon
 description: >-
   Use when: 需要独立审视（异体执行）/ ≥2 个同 skill 任务并行（如 4 个 issue 都走开发流程、3 个 PR 都走审视流程）/ 模拟多角色讨论 / 单任务涉及多阶段产出（设计+实现+测试）.
-  Not for: 搭档在讨论/闲聊/发散 → companion. 单步可答或一次 read + speak 能闭环 → 大獭直接做.
+  Not for: 搭档在讨论/闲聊/发散 → companion. 单步可答或一次 read + speak + yield 能闭环 → 大獭直接做.
   Output: 召唤出的小獭按其任务 skill 产出，本 skill 是编排层不直接产出.
   Precondition: MUST 先 search_memory 检查是否已有相关结论/方案/教训——有则用、无则召唤，不重复召唤.
 co_loads: []
@@ -17,7 +17,7 @@ category: technique
 
 **触发条件**：需要独立审视（异体执行）、≥2 个同 skill 任务并行、模拟多角色讨论、或单任务涉及多阶段产出（设计+实现+测试）时。
 
-**排除**：搭档在讨论/闲聊/发散 → `companion`。单步可答或一次 read + speak 能闭环 → 大獭直接做。搭档说"你来就行" → 尊重。
+**排除**：搭档在讨论/闲聊/发散 → `companion`。单步可答或一次 read + speak + yield 能闭环 → 大獭直接做。搭档说"你来就行" → 尊重。
 
 **硬规则**：搭档明确提到多个任务/多个 PR/并行处理时，必须召唤，不得自行判断为单步可答。搭档说「你来处理这几个 PR」= 隐含并行 + 审视意图，不是「只做 rebase」。
 
@@ -75,4 +75,4 @@ category: technique
 
 ## 参考（索引）
 
-- `references/collaboration-patterns.md` — 步骤 3 使用（原步骤 3"派工编排"已删除，speak/talkingStonePassedTo 指导见 create_otter 工具描述与 BIG_OTTER.md）
+- `references/collaboration-patterns.md` — 步骤 3 使用（原步骤 3"派工编排"已删除，yield 派工指导见 create_otter 工具描述与 BIG_OTTER.md）

@@ -30,14 +30,14 @@ export function formatConversationList(conversations: Array<{ id: string; title:
   return `活跃对话列表:\n${lines.join('\n')}`;
 }
 
-export function formatMessageHistory(messages: Array<{ senderType: string; body: string | null; createdAt: string }>): string {
+export function formatMessageHistory(messages: Array<{ senderType: string; segments: Array<{ body: string }>; createdAt: string }>): string {
   if (messages.length === 0) {
     return '暂无历史消息';
   }
 
   const lines = messages.map(msg => {
     const sender = msg.senderType === 'user' ? '用户' : msg.senderType === 'otter' ? '水獭' : '系统';
-    const body = msg.body || '(空消息)';
+    const body = msg.segments.map(s => s.body).join("\n\n") || '(空消息)';
     const time = new Date(msg.createdAt).toLocaleString('zh-CN');
     return `[${time}] ${sender}: ${body}`;
   });

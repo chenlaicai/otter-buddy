@@ -23,7 +23,8 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-1",
     talkingStonePassedTo: ["user-1"], status: "completed",
-    body: CARD_BODY, sequenceNum: 1,
+    segments: [{ id: "seg-1", messageId: "msg-1", body: CARD_BODY, sequenceNum: 0, createdAt: "2026-07-28T00:00:00Z" }],
+    sequenceNum: 1,
     contextTokens: null, contextTokensMax: null,
     source: "web",
       createdAt: "2026-07-28T00:00:00Z", completedAt: "2026-07-28T00:01:00Z",
@@ -123,7 +124,7 @@ describe("消息工具注入出口剥离投影（只剥 html-card，回执 JSON 
   it("list_messages：html-card-reply 不剥离（回执 JSON 直接可见）", async () => {
     const ctx = makeCtx();
     ctx.client.conversation.message.list = async () => [
-      makeMessage({ senderType: "user", senderId: "user-1", body: REPLY_BODY }),
+      makeMessage({ senderType: "user", senderId: "user-1", segments: [{ id: "seg-1", messageId: "msg-1", body: REPLY_BODY, sequenceNum: 0, createdAt: "2026-07-28T00:00:00Z" }] }),
     ];
     const tool = createTools(ctx).find(t => t.name === "list_messages")!;
     const res = await tool.execute("c1", {});
@@ -134,7 +135,7 @@ describe("消息工具注入出口剥离投影（只剥 html-card，回执 JSON 
   it("list_messages：body 为 null 的 streaming 消息保持 null", async () => {
     const ctx = makeCtx();
     ctx.client.conversation.message.list = async () => [
-      makeMessage({ body: null, status: "streaming", talkingStonePassedTo: null, completedAt: null }),
+      makeMessage({ segments: [], status: "streaming", talkingStonePassedTo: null, completedAt: null }),
     ];
     const tool = createTools(ctx).find(t => t.name === "list_messages")!;
     const res = await tool.execute("c1", {});
@@ -146,7 +147,7 @@ describe("消息工具注入出口剥离投影（只剥 html-card，回执 JSON 
     const ctx = makeCtx();
     ctx.client.conversation.message.getTurnHistory = async () => [{
       turn: { id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "closed", createdAt: "2026-07-28T00:00:00Z", closedAt: "2026-07-28T00:02:00Z" },
-      messages: [makeMessage(), makeMessage({ id: "msg-2", senderType: "user", senderId: "user-1", body: REPLY_BODY, sequenceNum: 2 })],
+      messages: [makeMessage(), makeMessage({ id: "msg-2", senderType: "user", senderId: "user-1", segments: [{ id: "seg-2", messageId: "msg-2", body: REPLY_BODY, sequenceNum: 0, createdAt: "2026-07-28T00:00:00Z" }], sequenceNum: 2 })],
     }];
     const tool = createTools(ctx).find(t => t.name === "get_turn_history")!;
     const res = await tool.execute("c1", { includeMessages: true });

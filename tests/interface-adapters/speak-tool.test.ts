@@ -8,14 +8,15 @@ function makeSpeakTool(
   participants: Array<{ otterId: string; otterName: string }>,
   options: { currentMessageId?: string; startSpeakingError?: Error; turnAssistantText?: string; pendingDispatches?: Map<string, string> } = {},
 ) {
-  const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
+  const speakingCalls: Array<{ talkingStonePassedTo: string[] }> = [];
   const client = {
     conversation: {
       participant: {
         getActive: async () => participants.map(p => ({ otterId: p.otterId, otterName: p.otterName })),
       },
       message: {
-        startSpeaking: async (_id: string, input: { body: string; talkingStonePassedTo: string[] }) => {
+        appendSegment: async (_id: string, _body: string) => ({ id: "seg-1", messageId: _id, body: _body, sequenceNum: 0, createdAt: "2024-01-01" }),
+        startSpeaking: async (_id: string, input: { talkingStonePassedTo: string[] }) => {
           if (options.startSpeakingError) throw options.startSpeakingError;
           speakingCalls.push(input);
         },
@@ -274,12 +275,13 @@ describe("speak 工具待派工票据软守卫（C9）", () => {
     const tickets = freshTickets();
     let committed = false;
     const participants = WITH_SMALL.map(p => ({ otterId: p.otterId, otterName: p.otterName }));
-    const speakingCalls: Array<{ body: string; talkingStonePassedTo: string[] }> = [];
+    const speakingCalls: Array<{ talkingStonePassedTo: string[] }> = [];
     const client = {
       conversation: {
         participant: { getActive: async () => participants },
         message: {
-          startSpeaking: async (_id: string, input: { body: string; talkingStonePassedTo: string[] }) => {
+          appendSegment: async (_id: string, _body: string) => ({ id: "seg-1", messageId: _id, body: _body, sequenceNum: 0, createdAt: "2024-01-01" }),
+          startSpeaking: async (_id: string, input: { talkingStonePassedTo: string[] }) => {
             if (committed) throw new DomainError("Cannot start speaking for message with status: speaking", "conflict");
             committed = true;
             speakingCalls.push(input);

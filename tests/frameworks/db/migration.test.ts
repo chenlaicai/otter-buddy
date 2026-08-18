@@ -21,8 +21,9 @@ function createTestDb(): Database.Database {
 function seedMessage(db: Database.Database, id: string, body: string): void {
   db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-07-28T00:00:00Z', '2026-07-28T00:00:00Z')`).run();
   db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-07-28T00:00:00Z')`).run();
-  db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body, sequence_num, turn_id, created_at)
-    VALUES (?, 'conv-1', 'otter', 'otter-1', 'completed', ?, 1, 'turn-1', '2026-07-28T00:01:00Z')`).run(id, body);
+  db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
+    VALUES (?, 'conv-1', 'otter', 'otter-1', 'completed', 1, 'turn-1', '2026-07-28T00:01:00Z')`).run(id);
+  db.prepare(`INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, 0, '2026-07-28T00:01:00Z')`).run(`seg-${id}`, id, body);
 }
 
 describe("migrateDatabase - F20260728htar 补丁", () => {
@@ -47,9 +48,9 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
 
       const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-1'").get() as { body: string };
       expect(fts.body).toBe("前言\n[html-card: 旧卡]\n后记");
-      /** messages.body 原文不动 */
-      const msg = db.prepare("SELECT body FROM messages WHERE id = 'msg-1'").get() as { body: string };
-      expect(msg.body).toBe(body);
+      /** message_segments.body 原文不动 */
+      const seg = db.prepare("SELECT body FROM message_segments WHERE message_id = 'msg-1'").get() as { body: string };
+      expect(seg.body).toBe(body);
       /** 幂等键已写入 */
       const key = db.prepare("SELECT value FROM settings WHERE key = 'messages_fts_stripped_rebuild'").get() as { value: string };
       expect(key.value).toBe("done");
@@ -70,13 +71,15 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
     it("body 为 null 的存量消息 rebuild 后 FTS 为空串", () => {
       db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-07-28T00:00:00Z', '2026-07-28T00:00:00Z')`).run();
       db.prepare(`INSERT INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-07-28T00:00:00Z')`).run();
-      db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body, sequence_num, turn_id, created_at)
-        VALUES ('msg-null', 'conv-1', 'otter', 'otter-1', 'streaming', NULL, 1, 'turn-1', '2026-07-28T00:01:00Z')`).run();
+      db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
+        VALUES ('msg-null', 'conv-1', 'otter', 'otter-1', 'streaming', 1, 'turn-1', '2026-07-28T00:01:00Z')`).run();
+      /** streaming 消息无 segment，FTS 应为空串 */
 
       migrateDatabase(db, createTestLogger());
 
-      const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-null'").get() as { body: string };
-      expect(fts.body).toBe("");
+      const fts = db.prepare("SELECT body FROM messages_fts WHERE message_id = 'msg-null'").get() as { body: string } | undefined;
+      /** 无 segment 的消息（streaming）在 segments 重建路径中不生成 FTS 条目 */
+      expect(fts).toBeUndefined();
     });
   });
 

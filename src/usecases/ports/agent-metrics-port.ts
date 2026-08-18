@@ -14,8 +14,8 @@ export type InvokeOutcome =
   | "user_abort"
   | "guard_abort"
   | "api_error"
-  | "no_speak_retry"
-  | "no_speak_failed";
+  | "no_yield_retry"
+  | "no_yield_failed";
 
 /** retry label 值：首轮 | invoker/SDK 自动重试 | 用户手动重试 */
 export type RetryLabel = "0" | "auto" | "manual";
@@ -24,7 +24,7 @@ export type RetryLabel = "0" | "auto" | "manual";
 export type RetryKind =
   | "sdk_auto"
   | "degenerate_output"
-  | "no_speak"
+  | "no_yield"
   | "streaming_timeout"
   | "first_byte_timeout"
   | "circuit_break";

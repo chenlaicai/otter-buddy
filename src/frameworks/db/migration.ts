@@ -225,11 +225,19 @@ function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void
 
   const rebuild = db.transaction(() => {
     db.prepare("DELETE FROM messages_fts").run();
-    const rows = db.prepare("SELECT id, body FROM messages").all() as Array<{ id: string; body: string | null }>;
+    // F20260818segs: 优先从 message_segments 聚合 body；降级读 messages.body（旧库）
+    const hasSegments = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_segments'").get());
     const insert = db.prepare("INSERT INTO messages_fts (message_id, body) VALUES (?, ?)");
-    for (const row of rows) {
-      /** COALESCE(null,'') 语义：body 为 null 的 streaming 消息索引空串 */
-      insert.run(row.id, row.body === null ? '' : stripHtmlCardFences(row.body));
+    if (hasSegments) {
+      const rows = db.prepare("SELECT message_id, GROUP_CONCAT(body, '\n\n') AS agg FROM message_segments GROUP BY message_id").all() as Array<{ message_id: string; agg: string }>;
+      for (const row of rows) {
+        insert.run(row.message_id, stripHtmlCardFences(row.agg));
+      }
+    } else {
+      const rows = db.prepare("SELECT id, body FROM messages").all() as Array<{ id: string; body: string | null }>;
+      for (const row of rows) {
+        insert.run(row.id, row.body === null ? '' : stripHtmlCardFences(row.body));
+      }
     }
     db.prepare(
       "INSERT INTO settings (key, value, updated_at) VALUES ('messages_fts_stripped_rebuild', 'done', datetime('now')) " +
@@ -448,4 +456,60 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
   });
   migrate();
   logger.info('Migrated feature_body/research_body entries to chunk model (chunking_v1_migrated=done)');
+}
+
+/**
+ * F20260818segs: message_segments 子表迁移。
+ * 1. 创建 message_segments 表（幂等）
+ * 2. 将存量 messages.body 迁移到 message_segments（一条 body → 一个 segment，sequence_num=0）
+ * 3. 移除 messages.body 列（SQLite 3.35+ DROP COLUMN，降级时跳过）
+ */
+export function migrateMessageSegments(db: Database.Database, logger: Logger): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'message_segments_migrated'").get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  const migrate = db.transaction(() => {
+    // 1. 创建 message_segments 表（幂等）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS message_segments (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        body TEXT NOT NULL,
+        sequence_num INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_message_segments_message_seq ON message_segments(message_id, sequence_num);
+    `);
+
+    // 2. 存量迁移：messages.body → message_segments
+    const hasBody = (db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).some(c => c.name === 'body');
+    if (hasBody) {
+      // 空/NULL body 不迁移（streaming 消息无内容），有内容的 body 迁移为 segment
+      const rows = db.prepare("SELECT id, body, created_at FROM messages WHERE body IS NOT NULL AND body != ''").all() as Array<{ id: string; body: string; created_at: string }>;
+      const insert = db.prepare("INSERT OR IGNORE INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, 0, ?)");
+      for (const row of rows) {
+        insert.run(`seg-${row.id}`, row.id, row.body, row.created_at);
+      }
+      logger.info(`Migrated ${rows.length} message bodies to message_segments`);
+    }
+
+    // 3. 标记迁移完成（在 DROP COLUMN 之前，避免 DROP 失败导致 livelock）
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('message_segments_migrated', 'done', datetime('now')) " +
+      "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+    ).run();
+
+    // 4. 移除 messages.body 列（SQLite 3.35+，降级时跳过——列保留但不再使用）
+    if (hasBody) {
+      try {
+        db.exec("ALTER TABLE messages DROP COLUMN body");
+        logger.info('Dropped messages.body column');
+      } catch (e) {
+        logger.warn(`Could not drop messages.body column (SQLite version may not support DROP COLUMN): ${e}`);
+      }
+    }
+  });
+  migrate();
+  logger.info('Message segments migration completed (message_segments_migrated=done)');
 }

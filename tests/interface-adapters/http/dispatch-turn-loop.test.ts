@@ -34,7 +34,7 @@ function makeSendMessageUseCase() {
     send: async () => ({ id: "user-msg-1", talkingStonePassedTo: ["otter-x"] }),
     sendSystem: async (_convId: string, body: string) => {
       systemBodies.push(body);
-      return { id: "sys-msg-1", body };
+      return { id: "sys-msg-1", conversationId: _convId, turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: [], status: "completed" as const, segments: [{ id: "sys-msg-1-seg-0", messageId: "sys-msg-1", body, sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }], sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: null, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:00Z" };
     },
   };
   const conversationRepo = {
@@ -158,7 +158,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       { otterId: "otter-x" },
     ] as never;
     conversationRepo.getUnreadMessages = async () => [
-      { senderType: "otter", senderId: "otter-x", body: "万象更新" },
+      { senderType: "otter", senderId: "otter-x", segments: [{ id: "seg-1", messageId: "msg-1", body: "万象更新", sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }] },
     ] as never;
     const { logger } = makeLogger();
     const queryOtter = { getById: async () => ({ name: "小獭" }) } as unknown as QueryOtter;

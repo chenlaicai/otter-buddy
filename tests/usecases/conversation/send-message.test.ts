@@ -14,6 +14,7 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 import type { Conversation, Turn, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
+import { aggregateBody } from "@entities/conversation/message";
 import type { Otter } from "@entities/otter/otter";
 import { DomainError } from "@entities/errors";
 import { createTestDb } from "../../helpers/db";
@@ -29,10 +30,13 @@ function otterFixture(overrides: Partial<Otter> = {}): Otter {
 }
 
 function messageFixture(overrides: Partial<Message> = {}): Message {
+  const id = overrides.id ?? "msg-1";
   return {
-    id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
+    id, conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-big", talkingStonePassedTo: ["user"],
-    status: "completed", body: "发言", sequenceNum: 1,
+    status: "completed",
+    segments: [{ id: `${id}-seg-0`, messageId: id, body: "发言", sequenceNum: 0, createdAt: "2026-01-01T00:00:00Z" }],
+    sequenceNum: 1,
     contextTokens: null, contextTokensMax: null, source: "web",
     createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -123,7 +127,7 @@ describe("SendMessage（真 sqlite）", () => {
       expect(msg.status).toBe("completed");
       const stored = await repo.getMessageById(msg.id);
       expect(stored!.status).toBe("completed");
-      expect(stored!.body).toBe("你好");
+      expect(aggregateBody(stored!.segments)).toBe("你好");
       expect(stored!.talkingStonePassedTo).toEqual(["otter-big"]);
     });
 
@@ -302,7 +306,7 @@ describe("SendMessage（真 sqlite）", () => {
       const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
 
       expect(msg.status).toBe("streaming");
-      expect(msg.body).toBeNull();
+      expect(msg.segments).toEqual([]);
       const stored = await repo.getMessageById(msg.id);
       expect(stored!.status).toBe("streaming");
     });
@@ -337,11 +341,11 @@ describe("SendMessage（真 sqlite）", () => {
       const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
       await sm.startSpeaking(msg.id, { body: "发言内容", talkingStonePassedTo: ["user"] });
 
-      await sm.complete(msg.id, { body: "发言内容", talkingStonePassedTo: ["user"] });
+      await sm.complete(msg.id, { talkingStonePassedTo: ["user"] });
 
       const stored = await repo.getMessageById(msg.id);
       expect(stored!.status).toBe("completed");
-      expect(stored!.body).toBe("发言内容");
+      expect(aggregateBody(stored!.segments)).toBe("发言内容");
     });
 
     it("complete：空 body 抛出 validation 错误", async () => {
@@ -377,7 +381,7 @@ describe("SendMessage（真 sqlite）", () => {
 
       const stored = await repo.getMessageById(msg.id);
       expect(stored!.status).toBe("aborted");
-      expect(stored!.body).toBe("被中断");
+      expect(aggregateBody(stored!.segments)).toBe("被中断");
     });
   });
 
@@ -388,14 +392,14 @@ describe("SendMessage（真 sqlite）", () => {
       expect(msg.status).toBe("completed");
       expect(msg.senderType).toBe("system");
       expect(msg.talkingStonePassedTo).toEqual([]);
-      expect((await repo.getMessageById(msg.id))!.body).toBe("系统广播");
+      expect(aggregateBody((await repo.getMessageById(msg.id))!.segments)).toBe("系统广播");
     });
   });
 
   describe("prepareForRetry", () => {
     it("成功：failed 消息重置为 streaming，创建新 Turn", async () => {
       const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
-      await sm.fail(msg.id, "[系统] 未调用 speak");
+      await sm.fail(msg.id, "[系统] 未调用 yield 交棒");
 
       const failedMsg = await repo.getMessageById(msg.id);
       expect(failedMsg!.status).toBe("failed");
@@ -403,13 +407,13 @@ describe("SendMessage（真 sqlite）", () => {
       const result = await sm.prepareForRetry(msg.id);
 
       expect(result.status).toBe("streaming");
-      expect(result.body).toBeNull();
+      expect(result.segments).toEqual([]);
       expect(result.talkingStonePassedTo).toBeNull();
       expect(result.turnId).not.toBe(msg.turnId); // 新 Turn
 
       const stored = await repo.getMessageById(msg.id);
       expect(stored!.status).toBe("streaming");
-      expect(stored!.body).toBeNull();
+      expect(stored!.segments).toEqual([]);
     });
 
     it("拒绝：status 不是 failed 时抛 DomainError", async () => {
