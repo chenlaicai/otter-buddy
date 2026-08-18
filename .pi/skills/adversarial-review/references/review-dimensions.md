@@ -22,6 +22,11 @@ Does relevant feature documentation exist and match the implementation?
 - Verify documentation matches actual implementation
 - Missing or inconsistent documentation must be reported as a 严重发现 in the review report
 
+**判断标准（硬规则，不可降级）**：
+- 特性文档存在 → read 文档，检查与实现一致性
+- 特性文档缺失 → **严重发现（B2）**，无论变更类型（代码/prompt/skill/doc），不可降级为「可接受」或「完整」
+- 检查步骤：`list_artifacts` 查找特性文档 → 不存在则直接标记严重发现 → 存在则 read 核对一致性
+
 ### B3. End-to-End Verification
 
 Is the feature functional end-to-end, not just unit tests passing?
