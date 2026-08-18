@@ -14,7 +14,7 @@ const speakingMsg: Message = {
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
   senderType: "otter", senderId: "otter-1",
   talkingStonePassedTo: ["user-1"], status: "speaking",
-  body: "Response",
+  segments: [{ id: "seg-1", messageId: "msg-streaming", body: "Response", sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z" }],
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
@@ -24,7 +24,7 @@ const completedMsg: Message = {
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
   senderType: "otter", senderId: "otter-1",
   talkingStonePassedTo: ["user-1"], status: "completed",
-  body: "Response",
+  segments: [{ id: "seg-1", messageId: "msg-streaming", body: "Response", sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z" }],
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
@@ -36,7 +36,7 @@ function mockSendMessage() {
     id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-1",
     talkingStonePassedTo: null, status: "streaming",
-    body: null,
+    segments: [],
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
@@ -53,7 +53,7 @@ function mockSendMessage() {
     fail: async (id: string, body?: string) => { calls.fail!.push({ id, body: body ?? '' }); },
     abort: async (id: string, input: { body: string }) => { calls.abort!.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
-    sendSystem: async (_conversationId: string, body: string) => { sendSystemBodies.push(body); return { ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const }; },
+    sendSystem: async (_conversationId: string, body: string) => { sendSystemBodies.push(body); return { ...streamingMsg, id: "msg-system", senderType: "system" as const, status: "completed" as const, segments: [{ id: "msg-system-seg-0", messageId: "msg-system", body, sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }], talkingStonePassedTo: [], completedAt: "2026-07-16T00:00:00Z" }; },
     updateTokenUsage: async () => ({}),
     prepareForRetry: async (id: string) => { calls.prepareForRetry!.push(id); return { ...streamingMsg, status: "streaming" as const, body: null, talkingStonePassedTo: null }; },
     _calls: calls,
@@ -531,7 +531,7 @@ function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): Qu
     id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-1",
     talkingStonePassedTo: null, status: "streaming",
-    body: null,
+    segments: [],
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     source: "web",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
@@ -894,7 +894,7 @@ function mockSendMessageWithIncrementalId() {
     appendEvent: async () => ({}),
     sendSystem: async (_conversationId: string, body: string) => {
       sendSystemBodies.push(body);
-      return { id: "msg-system", conversationId: "conv-1", turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: null, status: "completed" as const, body, sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: "system" as const, createdAt: "2026-07-16T00:00:00Z", completedAt: null };
+      return { id: "msg-system", conversationId: "conv-1", turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: [], status: "completed" as const, segments: [{ id: "msg-system-seg-0", messageId: "msg-system", body, sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }], sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: "system" as const, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:00Z" };
     },
     updateTokenUsage: async () => ({}),
     _calls: calls,

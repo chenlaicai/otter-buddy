@@ -1,3 +1,4 @@
+import { aggregateBody } from "@entities/conversation/message";
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
@@ -163,8 +164,8 @@ export class DispatchChainEngine {
       }
 
       const msg = await this.deps.queryMessage.getMessageById(r.value.messageId);
-      if (msg?.body) {
-        otterReply = msg.body;
+      if (msg?.segments.length) {
+        otterReply = aggregateBody(msg.segments);
       }
 
       if (r.value.aggregatedTargets) {
@@ -207,7 +208,7 @@ export class DispatchChainEngine {
     const names = await this.resolveSenderNames(unreadMessages);
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     const formatted = unreadMessages
-      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? partnerLabel : (names.get(m.senderId) ?? m.senderId)}] ${m.body ? stripHtmlCardsOnly(m.body) : ''}`)
+      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? partnerLabel : (names.get(m.senderId) ?? m.senderId)}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}`)
       .join('\n');
     return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
   }

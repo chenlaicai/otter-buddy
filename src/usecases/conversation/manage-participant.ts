@@ -85,7 +85,7 @@ export class ManageParticipant {
       senderId: otterId,
       talkingStonePassedTo: [],
       status: "completed",
-      body: systemMessageBody,
+      segments: [],
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -94,6 +94,8 @@ export class ManageParticipant {
       completedAt: now,
     };
     await this.repo.createCompletedMessage(systemMessage);
+    const seg = await this.repo.appendSegment(messageId, systemMessageBody);
+    systemMessage.segments = [seg];
 
     /** 5. 更新已读位置到当前 turn（小獭能看到整个 turn 的所有消息） */
     await this.repo.updateLastReadTurnNumber(conversationId, otterId, turn.turnNumber);
@@ -152,7 +154,7 @@ export class ManageParticipant {
       senderId: otterId,
       talkingStonePassedTo: [],
       status: "completed",
-      body: systemMessageBody,
+      segments: [],
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -161,6 +163,8 @@ export class ManageParticipant {
       completedAt: now,
     };
     await this.repo.createCompletedMessage(systemMessage);
+    const seg = await this.repo.appendSegment(messageId, systemMessageBody);
+    systemMessage.segments = [seg];
 
     /** 5. 尝试关闭 Turn */
     await tryCloseTurn(this.repo, turn.id);

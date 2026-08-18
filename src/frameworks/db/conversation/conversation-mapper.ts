@@ -13,6 +13,7 @@ import type {
   MessageEvent,
   MessageEventType,
   MessageMetadata,
+  MessageSegment,
   MessageSource,
   MessageStatus,
   SenderType,
@@ -37,7 +38,6 @@ export interface MessageRow {
   sender_type: string;
   sender_id: string;
   status: string;
-  body: string | null;
   sequence_num: number;
   turn_id: string;
   talking_stone_passed_to: string | null;
@@ -128,7 +128,7 @@ export function rowToMessage(row: MessageRow): Message {
       ? (JSON.parse(row.talking_stone_passed_to) as string[])
       : null,
     status: row.status as MessageStatus,
-    body: row.body,
+    segments: [], // populated by repository after fetch
     sequenceNum: row.sequence_num,
     contextTokens: row.context_tokens,
     contextTokensMax: row.context_tokens_max,
@@ -199,5 +199,23 @@ export function rowToParticipant(row: ParticipantRow): ConversationParticipant {
     createdAt: row.created_at,
     leftAt: row.left_at,
     lastReadTurnNumber: row.last_read_turn_number ?? 0,
+  };
+}
+
+export interface SegmentRow {
+  id: string;
+  message_id: string;
+  body: string;
+  sequence_num: number;
+  created_at: string;
+}
+
+export function rowToSegment(row: SegmentRow): MessageSegment {
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    body: row.body,
+    sequenceNum: row.sequence_num,
+    createdAt: row.created_at,
   };
 }

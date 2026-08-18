@@ -27,6 +27,15 @@ export interface MessageMetadata {
   [key: string]: unknown;
 }
 
+/** 消息片段实体（speak 内容存储单元，一条 message 有 N 个 segment） */
+export interface MessageSegment {
+  id: string;
+  messageId: string;
+  body: string;
+  sequenceNum: number;
+  createdAt: string;
+}
+
 /** 消息实体（含发言石传递） */
 export interface Message {
   id: string;
@@ -36,7 +45,7 @@ export interface Message {
   senderId: string;
   talkingStonePassedTo: string[] | null; // 发言石传递：streaming 时为 null，completed 时必填非空。对齐 Snail 的 to_speakers 模式
   status: MessageStatus;
-  body: string | null;
+  segments: MessageSegment[]; // 消息内容片段（speak 落库单元）
   sequenceNum: number;
   contextTokens: number | null;
   contextTokensMax: number | null;
@@ -116,19 +125,26 @@ export function canPrepareForRetry(status: MessageStatus): boolean {
 
 /**
  * 完成消息时 body 是否合法。
- * completed 状态的 Message 必须有非空 body——这是实体状态不变量，
+ * completed 状态的 Message 必须有非空 segments——这是实体状态不变量，
  * 任何 use case 调用 completeMessage 时都必须遵守。
- * 来源：旧 adapter.ts completeMessage() 方法中的 `if (!completion.body)` 校验
  */
-export function isValidCompletedMessageBody(body: string): boolean {
-  return body.length > 0;
+export function isValidCompletedMessage(segments: MessageSegment[]): boolean {
+  return segments.length > 0 && segments.some(s => s.body.length > 0);
+}
+
+/**
+ * 从 segments 聚合完整 body（用 "\n\n" 拼接）。
+ * 读路径统一使用此函数——DTO、FTS、SSE、飞书、memory index。
+ */
+export function aggregateBody(segments: MessageSegment[]): string {
+  return segments.map(s => s.body).join("\n\n");
 }
 
 /**
  * 发言石传递是否合法（UA-8 规则）。
  *
  * - system：始终豁免（系统消息不传递发言石）
- * - streaming/failed：可为 null 或空数组（body 为 null，发言石无意义）
+ * - streaming/failed：可为 null 或空数组（内容未定稿，发言石无意义）
  * - speaking/completed/aborted（user/otter）：必须非 null 且非空数组
  */
 export function isValidTalkingStonePass(

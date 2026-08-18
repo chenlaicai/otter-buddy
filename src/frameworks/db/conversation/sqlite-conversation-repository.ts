@@ -8,7 +8,7 @@ import type {
   LinkedResource,
   Turn,
 } from "@entities/conversation/conversation";
-import type { Message, MessageEvent } from "@entities/conversation/message";
+import type { Message, MessageEvent, MessageSegment } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import type {
@@ -20,10 +20,12 @@ import {
   rowToConversation,
   rowToMessage,
   rowToMessageEvent,
+  rowToSegment,
   rowToTurn,
   type ConversationRow,
   type MessageEventRow,
   type MessageRow,
+  type SegmentRow,
   type TurnRow,
 } from "./conversation-mapper";
 import * as mixins from "./conversation-repository-mixins";
@@ -35,13 +37,42 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   /**
    * 应用层 FTS upsert（F20260728htar：废触发器后由 repository 接管）。
-   * messages_fts.body 存 html-card 剥离投影；messages.body 原文不动。
+   * messages_fts.body 存 html-card 剥离投影。
    * 调用方必须在 db.transaction() 内使用（写消息 + FTS 同事务，中间崩溃不漂移）。
    */
   private upsertMessageFts(messageId: string, body: string): void {
     this.db.prepare("DELETE FROM messages_fts WHERE message_id = ?").run(messageId);
     this.db.prepare("INSERT INTO messages_fts (message_id, body) VALUES (?, ?)")
       .run(messageId, stripHtmlCardFences(body));
+  }
+
+  /** 从 segments 聚合 body 并刷新 FTS（调用方须在事务内） */
+  private refreshMessageFts(messageId: string): void {
+    const rows = this.db.prepare(
+      "SELECT body FROM message_segments WHERE message_id = ? ORDER BY sequence_num ASC",
+    ).all(messageId) as { body: string }[];
+    const body = rows.map(r => r.body).join("\n\n");
+    this.upsertMessageFts(messageId, body);
+  }
+
+  /** 批量加载 segments 并挂载到已映射的 messages */
+  private attachSegments(messages: Message[]): void {
+    if (messages.length === 0) return;
+    const ids = messages.map(m => m.id);
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = this.db.prepare(
+      `SELECT * FROM message_segments WHERE message_id IN (${placeholders}) ORDER BY sequence_num ASC`,
+    ).all(...ids) as SegmentRow[];
+    const byMsgId = new Map<string, MessageSegment[]>();
+    for (const row of rows) {
+      const seg = rowToSegment(row);
+      const arr = byMsgId.get(seg.messageId) ?? [];
+      arr.push(seg);
+      byMsgId.set(seg.messageId, arr);
+    }
+    for (const msg of messages) {
+      msg.segments = byMsgId.get(msg.id) ?? [];
+    }
   }
 
   // ── Conversation CRUD ──
@@ -150,7 +181,9 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getMessagesByTurnId(turnId: string): Promise<Message[]> {
     const rows = this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC")
       .all(turnId) as MessageRow[];
-    return rows.map(rowToMessage);
+    const messages = rows.map(rowToMessage);
+    this.attachSegments(messages);
+    return messages;
   }
 
   // ── Message 生命周期 ──
@@ -159,15 +192,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.transaction(() => {
       const includeSource = message.source != null;
       const cols = includeSource
-        ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
+        ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
             sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`
+        : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
             sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`;
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
-        message.body,
         message.sequenceNum, message.turnId,
         message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
         message.contextTokens, message.contextTokensMax,
@@ -176,7 +208,16 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
-      this.upsertMessageFts(message.id, message.body ?? "");
+      // Insert segments if provided
+      if (message.segments.length > 0) {
+        const segStmt = this.db.prepare(
+          "INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, ?)",
+        );
+        for (const seg of message.segments) {
+          segStmt.run(seg.id, seg.messageId, seg.body, seg.sequenceNum, seg.createdAt);
+        }
+        this.refreshMessageFts(message.id);
+      }
     })();
   }
 
@@ -184,15 +225,14 @@ export class SqliteConversationRepository implements ConversationRepository {
     this.db.transaction(() => {
       const includeSource = message.source != null;
       const cols = includeSource
-        ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
+        ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
             sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, body,
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`
+        : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
             sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`;
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
-        message.body,
         message.sequenceNum, message.turnId,
         message.talkingStonePassedTo ? JSON.stringify(message.talkingStonePassedTo) : null,
         message.contextTokens, message.contextTokensMax,
@@ -201,72 +241,75 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
-      /** body=null 时 FTS 写空串（复制旧触发器 COALESCE(NEW.body, '') 语义） */
-      this.upsertMessageFts(message.id, message.body ?? "");
+      /** 无 segments 时 FTS 写空串 */
+      this.upsertMessageFts(message.id, "");
     })();
   }
 
-  async startSpeaking(messageId: string, body: string, talkingStonePassedTo: string[]): Promise<void> {
+  async startSpeaking(messageId: string, talkingStonePassedTo: string[]): Promise<void> {
     this.db.transaction(() => {
       const result = this.db.prepare(`
-        UPDATE messages SET status = 'speaking', body = ?, talking_stone_passed_to = ?
+        UPDATE messages SET status = 'speaking', talking_stone_passed_to = ?
         WHERE id = ? AND status = 'streaming'
-      `).run(body, JSON.stringify(talkingStonePassedTo), messageId);
+      `).run(JSON.stringify(talkingStonePassedTo), messageId);
       if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
-      this.upsertMessageFts(messageId, body);
     })();
   }
 
   async completeMessage(input: {
-    messageId: string; body: string; talkingStonePassedTo: string[];
+    messageId: string; talkingStonePassedTo: string[];
     completedAt: string;
     contextTokens?: number; contextTokensMax?: number;
   }): Promise<void> {
     this.db.transaction(() => {
       const result = this.db.prepare(`
-        UPDATE messages SET status = 'completed', body = ?, talking_stone_passed_to = ?,
+        UPDATE messages SET status = 'completed', talking_stone_passed_to = ?,
           context_tokens = ?, context_tokens_max = ?, completed_at = ?
         WHERE id = ? AND status = 'speaking'
       `).run(
-        input.body, JSON.stringify(input.talkingStonePassedTo),
+        JSON.stringify(input.talkingStonePassedTo),
         input.contextTokens ?? null, input.contextTokensMax ?? null,
         input.completedAt, input.messageId,
       );
       if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in speaking status`);
-      this.upsertMessageFts(input.messageId, input.body);
+      this.refreshMessageFts(input.messageId);
     })();
   }
 
-  async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
+  async failMessage(messageId: string, failedAt: string, talkingStonePassedTo?: string[]): Promise<void> {
     this.db.transaction(() => {
       const updates: string[] = ["status = 'failed'", "completed_at = ?"];
       const params: unknown[] = [failedAt];
-      if (body !== undefined) { updates.unshift("body = ?"); params.unshift(body); }
       if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
       params.push(messageId);
       const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status IN ('streaming', 'speaking')`).run(...params);
       if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
-      /** 仅本次写入了 body 才 upsert（body 未变时旧触发器也不点火） */
-      if (body !== undefined) this.upsertMessageFts(messageId, body);
     })();
   }
 
-  async failInFlightMessages(failedAt: string, body: string): Promise<number> {
-    /** streaming（body 为 null）写入中断说明；speaking 保留已有 speak body 但加中断标记前缀，
-     *  避免半截 body 被其它 otter 当作完整发言读入上下文（F5）。
-     *  F20260728htar：批量 SQL 改"SELECT 受影响行 → JS 合成新 body → 逐行 UPDATE + FTS upsert"。 */
+  async failInFlightMessages(failedAt: string, noticeBody: string): Promise<number> {
+    /** streaming 无 segments 时插入中断说明 segment；speaking 已有 segments 则追加中断标记前缀。
+     *  避免半截内容被其它 otter 当作完整发言读入上下文（F5）。 */
     return this.db.transaction(() => {
       const rows = this.db.prepare(
-        "SELECT id, body FROM messages WHERE status IN ('streaming', 'speaking')",
-      ).all() as { id: string; body: string | null }[];
+        "SELECT id FROM messages WHERE status IN ('streaming', 'speaking')",
+      ).all() as { id: string }[];
       const update = this.db.prepare(`
-        UPDATE messages SET status = 'failed', body = ?, completed_at = ?
+        UPDATE messages SET status = 'failed', completed_at = ?
         WHERE id = ? AND status IN ('streaming', 'speaking')
       `);
+      const segStmt = this.db.prepare(
+        "INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, ?)",
+      );
+      const bumpSeq = this.db.prepare(
+        "UPDATE message_segments SET sequence_num = sequence_num + 1 WHERE message_id = ?",
+      );
       for (const row of rows) {
-        const newBody = row.body === null ? body : `${body}\n\n${row.body}`;
-        update.run(newBody, failedAt, row.id);
-        this.upsertMessageFts(row.id, newBody);
+        // Insert notice as prefix (sequence_num=0): bump existing segments first
+        bumpSeq.run(row.id);
+        segStmt.run(crypto.randomUUID(), row.id, noticeBody, 0, failedAt);
+        update.run(failedAt, row.id);
+        this.refreshMessageFts(row.id);
       }
       return rows.length;
     })();
@@ -285,13 +328,14 @@ export class SqliteConversationRepository implements ConversationRepository {
   /**
    * 重置 failed 消息为 streaming（yield 重试专用）。
    * Why: SQL 层面做状态守卫（AND status = 'failed'），防止并发 abort 将终态消息重置回 streaming。
-   * Why: 清空 FTS 索引，避免重试期间搜索命中旧 fail body（与 createStreamingMessage 对 null body 的处理一致）。
+   * Why: 清空 segments 和 FTS 索引，避免重试期间搜索命中旧 fail 内容。
    */
   async resetForStreaming(messageId: string, turnId: string): Promise<void> {
     this.db.transaction(() => {
+      this.db.prepare("DELETE FROM message_segments WHERE message_id = ?").run(messageId);
       const result = this.db.prepare(`
         UPDATE messages
-        SET status = 'streaming', body = NULL, turn_id = ?, completed_at = NULL,
+        SET status = 'streaming', turn_id = ?, completed_at = NULL,
             talking_stone_passed_to = NULL
         WHERE id = ? AND status = 'failed'
       `).run(turnId, messageId);
@@ -308,14 +352,13 @@ export class SqliteConversationRepository implements ConversationRepository {
     );
   }
 
-  async abortMessage(messageId: string, body: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
+  async abortMessage(messageId: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
     this.db.transaction(() => {
       const result = this.db.prepare(`
-        UPDATE messages SET status = 'aborted', body = ?, talking_stone_passed_to = ?, completed_at = ?
+        UPDATE messages SET status = 'aborted', talking_stone_passed_to = ?, completed_at = ?
         WHERE id = ? AND status IN ('streaming', 'speaking')
-      `).run(body, JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
+      `).run(JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
       if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
-      this.upsertMessageFts(messageId, body);
     })();
   }
 
@@ -325,11 +368,43 @@ export class SqliteConversationRepository implements ConversationRepository {
     return result.max_seq ?? 0;
   }
 
+  // ── Message Segments ──
+
+  async appendSegment(messageId: string, body: string): Promise<MessageSegment> {
+    return this.db.transaction(() => {
+      const maxSeq = this.db.prepare(
+        "SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?",
+      ).get(messageId) as { max_seq: number };
+      const seg: MessageSegment = {
+        id: crypto.randomUUID(),
+        messageId,
+        body,
+        sequenceNum: maxSeq.max_seq + 1,
+        createdAt: new Date().toISOString(),
+      };
+      this.db.prepare(
+        "INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(seg.id, seg.messageId, seg.body, seg.sequenceNum, seg.createdAt);
+      this.refreshMessageFts(messageId);
+      return seg;
+    })();
+  }
+
+  async getSegments(messageId: string): Promise<MessageSegment[]> {
+    const rows = this.db.prepare(
+      "SELECT * FROM message_segments WHERE message_id = ? ORDER BY sequence_num ASC",
+    ).all(messageId) as SegmentRow[];
+    return rows.map(rowToSegment);
+  }
+
   // ── Message 查询 ──
 
   async getMessageById(id: string): Promise<Message | null> {
     const row = this.db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as MessageRow | undefined;
-    return row ? rowToMessage(row) : null;
+    if (!row) return null;
+    const message = rowToMessage(row);
+    this.attachSegments([message]);
+    return message;
   }
 
   async getMessages(conversationId: string, options: GetMessagesOptions): Promise<Message[]> {
@@ -343,7 +418,9 @@ export class SqliteConversationRepository implements ConversationRepository {
     sql += " ORDER BY sequence_num DESC LIMIT ?";
     params.push(limit);
     const rows = this.db.prepare(sql).all(...params) as MessageRow[];
-    return rows.map(rowToMessage);
+    const messages = rows.map(rowToMessage);
+    this.attachSegments(messages);
+    return messages;
   }
 
   async getMessagesBefore(messageId: string, count: number): Promise<Message[]> {
@@ -353,7 +430,9 @@ export class SqliteConversationRepository implements ConversationRepository {
         AND sequence_num < (SELECT sequence_num FROM messages WHERE id = ?)
       ORDER BY sequence_num DESC LIMIT ?
     `).all(messageId, messageId, count) as MessageRow[];
-    return rows.map(rowToMessage);
+    const messages = rows.map(rowToMessage);
+    this.attachSegments(messages);
+    return messages;
   }
 
   async getMessagesAfter(messageId: string, count: number): Promise<Message[]> {
@@ -363,7 +442,9 @@ export class SqliteConversationRepository implements ConversationRepository {
         AND sequence_num > (SELECT sequence_num FROM messages WHERE id = ?)
       ORDER BY sequence_num ASC LIMIT ?
     `).all(messageId, messageId, count) as MessageRow[];
-    return rows.map(rowToMessage);
+    const messages = rows.map(rowToMessage);
+    this.attachSegments(messages);
+    return messages;
   }
 
   // ── MessageEvent ──
@@ -417,16 +498,23 @@ export class SqliteConversationRepository implements ConversationRepository {
   async updateLastReadTurnNumber(conversationId: string, otterId: string, turnNumber: number): Promise<void> { mixins.updateLastReadTurnNumber(this.db, conversationId, otterId, turnNumber); }
   async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }
   async getUnreadMessages(conversationId: string, otterId: string): Promise<Message[]> {
-    return mixins.getUnreadMessages(this.db, conversationId, otterId).map(row => ({
+    const messages = mixins.getUnreadMessages(this.db, conversationId, otterId).map(row => ({
       id: row.id, conversationId, senderType: row.sender_type as 'user' | 'otter' | 'system',
-      senderId: row.sender_id, status: 'completed' as const, body: row.body,
+      senderId: row.sender_id, status: 'completed' as const, segments: [] as MessageSegment[],
       sequenceNum: row.sequence_num, turnId: '', talkingStonePassedTo: null,
       contextTokens: null, contextTokensMax: null, source: 'web' as const,
       createdAt: '', completedAt: null,
     }));
+    this.attachSegments(messages);
+    return messages;
   }
 
-  async getLastMessageBySender(conversationId: string, senderId: string): Promise<Message | null> { return mixins.getLastMessageBySender(this.db, conversationId, senderId); }
+  async getLastMessageBySender(conversationId: string, senderId: string): Promise<Message | null> {
+    const message = mixins.getLastMessageBySender(this.db, conversationId, senderId);
+    if (!message) return null;
+    this.attachSegments([message]);
+    return message;
+  }
 
   // ── Web 用户已读状态（消息级，与 otter 的 turn 级独立） ──
 
@@ -458,7 +546,10 @@ export class SqliteConversationRepository implements ConversationRepository {
         AND m.status NOT IN ('streaming', 'speaking')
       ORDER BY m.sequence_num ASC LIMIT 1
     `).get(conversationId, userId, conversationId) as MessageRow | undefined;
-    return row ? rowToMessage(row) : null;
+    if (!row) return null;
+    const message = rowToMessage(row);
+    this.attachSegments([message]);
+    return message;
   }
 
   async getUnreadCount(conversationId: string, userId: string): Promise<number> {
@@ -477,7 +568,10 @@ export class SqliteConversationRepository implements ConversationRepository {
     const row = this.db.prepare(
       "SELECT * FROM messages WHERE conversation_id = ? AND status NOT IN ('streaming', 'speaking') ORDER BY sequence_num DESC LIMIT 1",
     ).get(conversationId) as MessageRow | undefined;
-    return row ? rowToMessage(row) : null;
+    if (!row) return null;
+    const message = rowToMessage(row);
+    this.attachSegments([message]);
+    return message;
   }
 
   async listConversationsWithMeta(
@@ -492,7 +586,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id
           AND m.sequence_num > COALESCE(u.last_read_message_seq, 0)
           AND m.status NOT IN ('streaming', 'speaking')) AS unread_count,
-        lm.body AS last_message_body,
+        lm.id AS last_message_id,
         lm.created_at AS last_message_ts,
         (SELECT GROUP_CONCAT(otter_id, ',') FROM conversation_otters WHERE conversation_id = c.id) AS otter_ids_flat,
         CASE
@@ -512,14 +606,28 @@ export class SqliteConversationRepository implements ConversationRepository {
       ORDER BY c.pinned DESC, COALESCE(lm.created_at, c.created_at) DESC LIMIT ? OFFSET ?
     `).all(userId, limit, offset) as Array<ConversationRow & {
       last_read_seq: number; unread_count: number;
-      last_message_body: string | null; last_message_ts: string | null;
+      last_message_id: string | null; last_message_ts: string | null;
       otter_ids_flat: string | null;
       activity_status: 'processing' | 'awaiting_user' | 'idle';
     }>;
+    // Batch-load segments for all last messages
+    const lastMsgIds = rows.map(r => r.last_message_id).filter((id): id is string => id != null);
+    const segMap = new Map<string, string>();
+    if (lastMsgIds.length > 0) {
+      const placeholders = lastMsgIds.map(() => "?").join(",");
+      const segRows = this.db.prepare(
+        `SELECT message_id, body FROM message_segments WHERE message_id IN (${placeholders}) ORDER BY sequence_num ASC`,
+      ).all(...lastMsgIds) as Array<{ message_id: string; body: string }>;
+      for (const sr of segRows) {
+        const prev = segMap.get(sr.message_id);
+        segMap.set(sr.message_id, prev ? `${prev}\n\n${sr.body}` : sr.body);
+      }
+    }
     return rows.map(row => {
       const conv = rowToConversation(row);
-      const preview = row.last_message_body
-        ? row.last_message_body.replace(/<[^>]*>/g, "").slice(0, 50)
+      const aggregated = row.last_message_id ? (segMap.get(row.last_message_id) ?? "") : "";
+      const preview = aggregated
+        ? aggregated.replace(/<[^>]*>/g, "").slice(0, 50)
         : null;
       return {
         ...conv,
@@ -536,15 +644,16 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   async searchMessages(conversationId: string, query: string, limit = 10): Promise<Message[]> {
     const escaped = escapeFtsQuery(query);
-    /** 返回 fts.body（剥离投影）而非 messages.body 原文——检索出口不含 HTML 卡片源码；
-     *  消息其他字段仍取 m.*，body 用 fts.body 覆盖。回看源码走 getMessageById。 */
+    /** FTS 匹配后加载 segments（FTS body 是剥离投影，回看源码走 getMessageById）。 */
     const rows = this.db.prepare(`
-      SELECT m.*, fts.body AS fts_body FROM messages m
+      SELECT m.* FROM messages m
       INNER JOIN messages_fts fts ON fts.message_id = m.id
       WHERE m.conversation_id = ? AND messages_fts MATCH ?
       ORDER BY rank LIMIT ?
-    `).all(conversationId, escaped, limit) as (MessageRow & { fts_body: string })[];
-    return rows.map(row => ({ ...rowToMessage(row), body: row.fts_body }));
+    `).all(conversationId, escaped, limit) as MessageRow[];
+    const messages = rows.map(rowToMessage);
+    this.attachSegments(messages);
+    return messages;
   }
 
   /** F20260805rbrg：按 metadata 查重。支持单条（externalId）和批量（externalIds 数组）两种格式。 */
@@ -557,7 +666,10 @@ export class SqliteConversationRepository implements ConversationRepository {
         OR EXISTS (SELECT 1 FROM JSON_EACH(JSON_EXTRACT(metadata, '$.externalIds')) WHERE value = ?)
       LIMIT 1
     `).get(externalId, externalId) as MessageRow | undefined;
-    return row ? rowToMessage(row) : null;
+    if (!row) return null;
+    const message = rowToMessage(row);
+    this.attachSegments([message]);
+    return message;
   }
 
   // ── Turn 历史 ──
@@ -567,13 +679,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       .all(conversationId) as TurnRow[];
     return turnRows.map(row => {
       const turn = rowToTurn(row);
-      return {
-        turn,
-        messages: includeMessages
-          ? (this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC")
-              .all(turn.id) as MessageRow[]).map(rowToMessage)
-          : [],
-      };
+      if (!includeMessages) return { turn, messages: [] };
+      const messages = (this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC")
+        .all(turn.id) as MessageRow[]).map(rowToMessage);
+      this.attachSegments(messages);
+      return { turn, messages };
     });
   }
 }

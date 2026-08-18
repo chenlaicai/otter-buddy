@@ -4,6 +4,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import type { Conversation, Turn } from "@entities/conversation/conversation";
 import type { Message, MessageEvent } from "@entities/conversation/message";
+import { aggregateBody } from "@entities/conversation/message";
 
 /** 创建内存 SQLite 数据库并初始化 schema */
 function createTestDb(): Database.Database {
@@ -53,15 +54,16 @@ function turnFixture(overrides: Partial<Turn> = {}): Turn {
 
 /** 构造测试用 Message 实体 */
 function messageFixture(overrides: Partial<Message> = {}): Message {
+  const id = overrides.id ?? "msg-1";
   return {
-    id: "msg-1",
+    id,
     conversationId: "conv-1",
     turnId: "turn-1",
     senderType: "user",
     senderId: "user-1",
     talkingStonePassedTo: ["otter-1"],
     status: "completed",
-    body: "你好，请帮我分析一下数据",
+    segments: overrides.segments ?? [{ id: `${id}-seg-0`, messageId: id, body: "你好，请帮我分析一下数据", sequenceNum: 0, createdAt: "2026-07-22T00:01:00Z" }],
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
@@ -269,7 +271,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
       expect(result!.senderType).toBe("user");
       expect(result!.senderId).toBe("user-1");
       expect(result!.status).toBe("completed");
-      expect(result!.body).toBe("你好，请帮我分析一下数据");
+      expect(aggregateBody(result!.segments)).toBe("你好，请帮我分析一下数据");
       expect(result!.sequenceNum).toBe(1);
       expect(result!.talkingStonePassedTo).toEqual(["otter-1"]);
     });
@@ -287,7 +289,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
 
       const message = messageFixture({
         id: "msg-streaming",
-        body: null,
+        segments: [],
         talkingStonePassedTo: null,
         source: "web",
       completedAt: null,
@@ -298,7 +300,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
       const result = await repo.getMessageById("msg-streaming");
       expect(result).not.toBeNull();
       expect(result!.status).toBe("streaming");
-      expect(result!.body).toBeNull();
+      expect(result!.segments).toEqual([]);
       expect(result!.talkingStonePassedTo).toBeNull();
     });
   });
@@ -310,7 +312,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
 
       await repo.createStreamingMessage(messageFixture({
         id: "msg-streaming",
-        body: null,
+        segments: [],
         talkingStonePassedTo: null,
         source: "web",
       completedAt: null,
@@ -318,11 +320,12 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
       }));
 
       // 先调用 startSpeaking 将消息转为 speaking 状态
-      await repo.startSpeaking("msg-streaming", "助手的完整回复内容", ["otter-1"]);
+      await repo.startSpeaking("msg-streaming", ["otter-1"]);
+      // speak 工具先 appendSegment 再 complete
+      await repo.appendSegment("msg-streaming", "助手的完整回复内容");
 
       await repo.completeMessage({
         messageId: "msg-streaming",
-        body: "助手的完整回复内容",
         talkingStonePassedTo: ["otter-1"],
         completedAt: "2026-07-22T00:02:00Z",
         contextTokens: 150,
@@ -331,7 +334,7 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
 
       const result = await repo.getMessageById("msg-streaming");
       expect(result!.status).toBe("completed");
-      expect(result!.body).toBe("助手的完整回复内容");
+      expect(aggregateBody(result!.segments)).toBe("助手的完整回复内容");
       expect(result!.talkingStonePassedTo).toEqual(["otter-1"]);
       expect(result!.contextTokens).toBe(150);
       expect(result!.contextTokensMax).toBe(4096);
@@ -344,7 +347,6 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
 
       await expect(repo.completeMessage({
         messageId: "msg-1",
-        body: "新内容",
         talkingStonePassedTo: ["otter-1"],
         completedAt: "2026-07-22T00:02:00Z",
       })).rejects.toThrow(/not found or not in speaking status/);
@@ -371,7 +373,7 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
       await repo.createTurn(turnFixture());
       await repo.createStreamingMessage(messageFixture({
         id: "msg-streaming",
-        body: null,
+        segments: [],
         talkingStonePassedTo: null,
         source: "web",
       completedAt: null,
@@ -416,18 +418,19 @@ describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724c
       await repo.createTurn(turnFixture());
       await repo.createStreamingMessage(messageFixture({
         id: "msg-streaming",
-        body: null,
+        segments: [],
         talkingStonePassedTo: null,
         source: "web",
       completedAt: null,
         status: "streaming",
       }));
+      await repo.appendSegment("msg-streaming", "中止内容");
 
-      await repo.abortMessage("msg-streaming", "中止内容", ["otter-1"], "2026-07-22T00:02:00Z");
+      await repo.abortMessage("msg-streaming", ["otter-1"], "2026-07-22T00:02:00Z");
 
       const result = await repo.getMessageById("msg-streaming");
       expect(result!.status).toBe("aborted");
-      expect(result!.body).toBe("中止内容");
+      expect(aggregateBody(result!.segments)).toBe("中止内容");
       expect(result!.talkingStonePassedTo).toEqual(["otter-1"]);
       expect(result!.completedAt).toBe("2026-07-22T00:02:00Z");
     });
@@ -437,7 +440,7 @@ describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724c
       await repo.createTurn(turnFixture());
       await repo.createCompletedMessage(messageFixture());
 
-      await expect(repo.abortMessage("msg-1", "中止", [], "2026-07-22T00:02:00Z")).rejects.toThrow(
+      await expect(repo.abortMessage("msg-1", [], "2026-07-22T00:02:00Z")).rejects.toThrow(
         /not found or not in streaming\/speaking status/,
       );
     });
@@ -465,7 +468,7 @@ describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724c
       await repo.createTurn(turnFixture());
 
       await repo.createCompletedMessage(messageFixture({ id: "msg-completed", sequenceNum: 1, status: "completed" }));
-      await repo.createStreamingMessage(messageFixture({ id: "msg-streaming", sequenceNum: 2, status: "streaming", body: null, talkingStonePassedTo: null, completedAt: null }));
+      await repo.createStreamingMessage(messageFixture({ id: "msg-streaming", sequenceNum: 2, status: "streaming", segments: [], talkingStonePassedTo: null, completedAt: null }));
 
       const results = await repo.getMessages("conv-1", { limit: 10, status: "completed" });
       expect(results).toHaveLength(1);
@@ -588,7 +591,7 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
       await repo.createTurn(turnFixture());
       await repo.createStreamingMessage(messageFixture({
         id: "msg-streaming",
-        body: null,
+        segments: [],
         talkingStonePassedTo: null,
         source: "web",
       completedAt: null,
@@ -596,14 +599,15 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
       }));
       await repo.createStreamingMessage(messageFixture({
         id: "msg-speaking",
-        body: null,
+        segments: [],
         talkingStonePassedTo: null,
         source: "web",
       completedAt: null,
         status: "streaming",
         sequenceNum: 2,
       }));
-      await repo.startSpeaking("msg-speaking", "发言到一半的正文", ["user-1"]);
+      await repo.startSpeaking("msg-speaking", ["user-1"]);
+      await repo.appendSegment("msg-speaking", "发言到一半的正文");
       await repo.createCompletedMessage(messageFixture({ id: "msg-done", sequenceNum: 3 }));
 
       const count = await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]");
@@ -611,12 +615,12 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
       expect(count).toBe(2);
       const streaming = await repo.getMessageById("msg-streaming");
       expect(streaming!.status).toBe("failed");
-      expect(streaming!.body).toBe("[服务重启，发言中断]");
+      expect(aggregateBody(streaming!.segments)).toBe("[服务重启，发言中断]");
       expect(streaming!.completedAt).toBe("2026-07-24T00:02:00Z");
       const speaking = await repo.getMessageById("msg-speaking");
       expect(speaking!.status).toBe("failed");
-      /** speaking 保留已有 body 但加中断标记前缀（F5：避免半截 body 被当作完整发言） */
-      expect(speaking!.body).toBe("[服务重启，发言中断]\n\n发言到一半的正文");
+      /** speaking 保留已有 segments 但加中断标记前缀（F5：避免半截 body 被当作完整发言） */
+      expect(aggregateBody(speaking!.segments)).toBe("[服务重启，发言中断]\n\n发言到一半的正文");
       const done = await repo.getMessageById("msg-done");
       expect(done!.status).toBe("completed");
     });
@@ -640,7 +644,7 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         id: "msg-inflight",
         turnId: "turn-active",
         sequenceNum: 2,
-        body: null,
+        segments: [],
         talkingStonePassedTo: null,
         source: "web",
       completedAt: null,
@@ -680,7 +684,7 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
       await repo.createCompletedMessage(messageFixture({ senderId: "otter-1" }));
       await repo.createStreamingMessage(messageFixture({
         id: "msg-inflight", senderId: "otter-1", sequenceNum: 2,
-        body: null, talkingStonePassedTo: null, source: "web",
+        segments: [], talkingStonePassedTo: null, source: "web",
       completedAt: null, status: "streaming",
       }));
 
@@ -761,7 +765,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
   it("存在 streaming 消息时派生为 processing", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("processing");
@@ -770,8 +774,8 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
   it("存在 speaking 消息时派生为 processing", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
-    await repo.startSpeaking("msg-1", "正在回复", ["user"]);
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
+    await repo.startSpeaking("msg-1", ["user"]);
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("processing");
@@ -805,8 +809,8 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
   it("active 对话 + 仅有 failed 消息 → awaiting_user（failed 不误判为 processing）", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
-    await repo.failMessage("msg-1", "2026-07-22T00:02:00Z", "失败内容");
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
+    await repo.failMessage("msg-1", "2026-07-22T00:02:00Z");
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("awaiting_user");
@@ -815,8 +819,8 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
   it("active 对话 + 有 aborted 消息 → awaiting_user（aborted 不干扰）", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", body: null }));
-    await repo.abortMessage("msg-1", "已中止", ["user"], "2026-07-22T00:02:00Z");
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
+    await repo.abortMessage("msg-1", ["user"], "2026-07-22T00:02:00Z");
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("awaiting_user");
@@ -825,7 +829,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
   it("多对话并发时各自独立派生状态", async () => {
     await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-22T00:00:00Z" }));
     await repo.createTurn(turnFixture({ id: "turn-a", conversationId: "conv-a" }));
-    await repo.createStreamingMessage(messageFixture({ id: "msg-a", conversationId: "conv-a", turnId: "turn-a", status: "streaming", body: null }));
+    await repo.createStreamingMessage(messageFixture({ id: "msg-a", conversationId: "conv-a", turnId: "turn-a", status: "streaming", segments: [] }));
 
     await repo.create(conversationFixture({ id: "conv-b", createdAt: "2026-07-22T00:01:00Z" }));
     await repo.createTurn(turnFixture({ id: "turn-b", conversationId: "conv-b" }));

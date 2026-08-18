@@ -11,7 +11,7 @@ function mockMessage(overrides: Partial<Message> = {}): Message {
     senderId: "otter-1",
     talkingStonePassedTo: null,
     status: "completed",
-    body: "hello",
+    segments: [{ id: "seg-1", messageId: "msg-1", body: "hello", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }],
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,

@@ -9,6 +9,7 @@ import type {
 import type {
   Message,
   MessageEvent,
+  MessageSegment,
   MessageStatus,
   SenderType,
 } from "@entities/conversation/message";
@@ -55,32 +56,36 @@ export interface ConversationRepository {
   // Message 生命周期
   createCompletedMessage(message: Message): Promise<void>;
   createStreamingMessage(message: Message): Promise<void>;
-  /** 开始发言：streaming → speaking，暂存 body + 发言石目标 */
-  startSpeaking(messageId: string, body: string, talkingStonePassedTo: string[]): Promise<void>;
+  /** 开始发言：streaming → speaking，设置发言石目标 */
+  startSpeaking(messageId: string, talkingStonePassedTo: string[]): Promise<void>;
   completeMessage(input: {
     messageId: string;
-    body: string;
     talkingStonePassedTo: string[];
     completedAt: string;
     contextTokens?: number;
     contextTokensMax?: number;
   }): Promise<void>;
-  failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
-  /** 服务重启兜底：将所有遗留 streaming/speaking 消息标记为 failed（重启后不存在活跃 agent），返回处理条数 */
-  failInFlightMessages(failedAt: string, body: string): Promise<number>;
+  failMessage(messageId: string, failedAt: string, talkingStonePassedTo?: string[]): Promise<void>;
+  /** 服务重启兜底：将所有遗留 streaming/speaking 消息标记为 failed，插入系统提示 segment，返回处理条数 */
+  failInFlightMessages(failedAt: string, noticeBody: string): Promise<number>;
   /** 服务重启兜底：关闭不再有进行中消息的 open turn（配合 failInFlightMessages），返回关闭条数 */
   closeOrphanedTurns(closedAt: string): Promise<number>;
-  /** 重置 failed 消息为 streaming（yield 重试专用）。status 非 failed 时抛 DomainError。 */
+  /** 重置 failed 消息为 streaming（yield 重试专用）。清空 segments。status 非 failed 时抛 DomainError。 */
   resetForStreaming(messageId: string, turnId: string): Promise<void>;
   /** 更新消息的 token 使用量（yield complete 后补充写入） */
   updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
-  /** 中止消息：streaming -> aborted（body 必须非空，talkingStonePassedTo 必须非空） */
+  /** 中止消息：streaming -> aborted（talkingStonePassedTo 必须非空） */
   abortMessage(
     messageId: string,
-    body: string,
     talkingStonePassedTo: string[],
     abortedAt: string,
   ): Promise<void>;
+
+  // Message Segments
+  /** 追加一条 speak 片段到消息，自动更新 FTS */
+  appendSegment(messageId: string, body: string): Promise<MessageSegment>;
+  /** 获取消息的所有片段（按 sequence_num 排序） */
+  getSegments(messageId: string): Promise<MessageSegment[]>;
   getMaxSequenceNum(conversationId: string): Promise<number>;
 
   // Message 查询

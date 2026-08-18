@@ -449,3 +449,55 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
   migrate();
   logger.info('Migrated feature_body/research_body entries to chunk model (chunking_v1_migrated=done)');
 }
+
+/**
+ * F20260818segs: message_segments 子表迁移。
+ * 1. 创建 message_segments 表（幂等）
+ * 2. 将存量 messages.body 迁移到 message_segments（一条 body → 一个 segment，sequence_num=0）
+ * 3. 移除 messages.body 列（SQLite 3.35+ DROP COLUMN，降级时跳过）
+ */
+export function migrateMessageSegments(db: Database.Database, logger: Logger): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'message_segments_migrated'").get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  const migrate = db.transaction(() => {
+    // 1. 创建 message_segments 表（幂等）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS message_segments (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        body TEXT NOT NULL,
+        sequence_num INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_message_segments_message_seq ON message_segments(message_id, sequence_num);
+    `);
+
+    // 2. 存量迁移：messages.body → message_segments
+    const hasBody = (db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).some(c => c.name === 'body');
+    if (hasBody) {
+      const rows = db.prepare("SELECT id, body, created_at FROM messages WHERE body IS NOT NULL AND body != ''").all() as Array<{ id: string; body: string; created_at: string }>;
+      const insert = db.prepare("INSERT OR IGNORE INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, 0, ?)");
+      for (const row of rows) {
+        insert.run(`seg-${row.id}`, row.id, row.body, row.created_at);
+      }
+      logger.info(`Migrated ${rows.length} message bodies to message_segments`);
+
+      // 3. 移除 messages.body 列（SQLite 3.35+）
+      try {
+        db.exec("ALTER TABLE messages DROP COLUMN body");
+        logger.info('Dropped messages.body column');
+      } catch (e) {
+        logger.warn(`Could not drop messages.body column (SQLite version may not support DROP COLUMN): ${e}`);
+      }
+    }
+
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('message_segments_migrated', 'done', datetime('now')) " +
+      "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+    ).run();
+  });
+  migrate();
+  logger.info('Message segments migration completed (message_segments_migrated=done)');
+}

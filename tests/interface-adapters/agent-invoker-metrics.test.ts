@@ -42,7 +42,7 @@ const baseMsg = (status: Message["status"]): Message => ({
   id: "msg-streaming", conversationId: "conv-1", turnId: "turn-1",
   senderType: "otter", senderId: "otter-1",
   talkingStonePassedTo: null, status,
-  body: status === "speaking" ? "Body" : null,
+  segments: status === "speaking" ? [{ id: "seg-1", messageId: "msg-streaming", body: "Body", sequenceNum: 1, createdAt: "2026-08-14T00:00:00Z" }] : [],
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   source: "web",
   createdAt: "2026-08-14T00:00:00Z", completedAt: null,
@@ -256,7 +256,7 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
     });
 
     /**
-     * P0-1 场景：attempt2 已按 no_yield_failed 记录后，handleYieldRetry 的
+     * P0-1 场景：attempt2 已按 no_yield_failed 记录后，handleSpeakRetry 的
      * 第二次失败 emitEvent(message.failed) 抛错 → retryInvokeOnSameMessage 的
      * catch 重入 classifyAndRoute —— 去重键应阻止 attempt2 被再次记录为 api_error。
      */

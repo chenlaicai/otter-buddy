@@ -113,7 +113,7 @@ describe("CommandDispatcher", () => {
           senderId: "user-1",
           talkingStonePassedTo: ["otter-1"],
           status: "completed",
-          body: "你好",
+          segments: [{ id: "seg-1", messageId: "msg-1", body: "你好", sequenceNum: 0, createdAt: "2026-07-30T10:00:00Z" }],
           sequenceNum: 1,
           contextTokens: null,
           contextTokensMax: null,

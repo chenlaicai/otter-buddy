@@ -3,7 +3,7 @@
  * 整体上移）——usecase 门面：agent 工具经此访问对话/记忆/文档领域查询，bootstrap/clients.ts
  * 装配具体实现。其 import 全部落在 entities/usecases（上移合法的前提）。
  */
-import type { Message } from "@entities/conversation/message";
+import type { Message, MessageSegment } from "@entities/conversation/message";
 import type { ArtifactStatus, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import type { OtterSession } from "@entities/otter/otter-session";
@@ -56,11 +56,12 @@ export interface LinkResourceInput {
 export interface OtterToolClient {
   conversation: {
     message: {
-      /** 开始发言：streaming → speaking，暂存 body + 发言石目标（speak 工具调用） */
+      /** 开始发言：streaming → speaking，设置发言石目标（speak 工具调用） */
       startSpeaking(messageId: string, params: {
-        body: string;
         talkingStonePassedTo: string[];
       }): Promise<Message>;
+      /** 追加一条 speak 片段到消息 */
+      appendSegment(messageId: string, body: string): Promise<MessageSegment>;
       /** 完成消息：speaking → completed */
       complete(messageId: string, params?: {
         body?: string;

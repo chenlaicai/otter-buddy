@@ -13,10 +13,13 @@ import { DomainError } from "@entities/errors";
 import { createTestDb } from "../../helpers/db";
 
 function messageFixture(overrides: Partial<Message> = {}): Message {
+  const id = overrides.id ?? "msg-1";
   return {
-    id: "msg-1", conversationId: "conv-1", turnId: "turn-1",
+    id, conversationId: "conv-1", turnId: "turn-1",
     senderType: "user", senderId: "user-1", talkingStonePassedTo: ["otter-1"],
-    status: "completed", body: "消息内容", sequenceNum: 1,
+    status: "completed",
+    segments: overrides.segments ?? [{ id: `${id}-seg-0`, messageId: id, body: "消息内容", sequenceNum: 0, createdAt: "2026-01-01T00:00:00Z" }],
+    sequenceNum: 1,
     contextTokens: null, contextTokensMax: null, source: "web",
     createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
     ...overrides,
