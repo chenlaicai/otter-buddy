@@ -52,6 +52,14 @@ export interface TurnResult {
   aggregatedTargets?: string[];
 }
 
+/** 重试信号（degenerate_output 创建新消息重试） */
+export interface RetryWithNewMessageSignal {
+  _retryWithNewMessage: true;
+  newMessageId: string;
+  retryMsg: string;
+  toolCallCount: number;
+}
+
 /** AttemptDriver - orchestrator 驱动 adapter 的执行面（仅限重执行当前轮） */
 export interface AttemptDriver {
   /** 执行一次 agent invoke，返回结果 + toolCallCount */
@@ -62,6 +70,8 @@ export interface AttemptDriver {
   getInternalAbortReason(messageId: string): string | undefined;
   /** 获取工具调用计数 */
   getToolCallCount(otterId: string, messageId: string): number;
+  /** 检查消息是否被用户中止 */
+  isUserAborted(messageId: string): boolean;
 }
 
 /** TurnCallbacks - orchestrator 回调 adapter 的接口 */
@@ -74,6 +84,8 @@ export interface TurnCallbacks {
   getMessageById(messageId: string): Promise<{ status: string; body?: string; turnId?: string } | null>;
   /** 发送系统消息 */
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number }>;
+  /** 创建新消息（重试用） */
+  startNewMessage(conversationId: string, senderId: string, talkingStonePassedTo: string[]): Promise<{ id: string; sequenceNum: number; createdAt: string }>;
   /** 重试准备 */
   prepareForRetry(messageId: string): Promise<void>;
   /** 查询 otter */

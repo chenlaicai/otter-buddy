@@ -5,9 +5,10 @@
  * orchestrator 负责：退出分类、重试决策、终态防护、metrics 埋点。
  * adapter（AgentInvoker）负责：SDK 调用、SSE 事件映射、消息生命周期。
  *
- * 反强编排原则：attemptDriver 回调仅限"重执行当前轮"，
+ * 反强编排原则：attemptDriver 回调仅限“重执行当前轮”，
  * 接口注释显式声明防扩写成流程引擎。
  */
+/* eslint-disable max-lines */ // Phase 2 orchestrator consolidates retry/abort/metrics logic; splitting prematurely would harm readability
 
 import type { AgentMetricsPort, InvokeOutcomeRecord } from "@usecases/ports/agent-metrics-port";
 import type { Logger } from "@usecases/ports/logger";
@@ -17,7 +18,7 @@ import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
 import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildSpeakRetryMsg } from "./retry-policy";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
-import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext } from "./types";
+import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
 
 export class AgentTurnOrchestrator {
   /** Messages already sent to a terminal state (abort/fail), prevents double-terminal */
@@ -33,12 +34,22 @@ export class AgentTurnOrchestrator {
     private readonly metrics?: AgentMetricsPort,
   ) {}
 
+  /** Safe emitEvent wrapper - emitEvent is a user callback that can throw */
+  private safeEmitEvent(callbacks: TurnCallbacks, event: { event: string; data: Record<string, unknown> }): void {
+    try {
+      callbacks.emitEvent(event);
+    } catch {
+      // Ignore SSE downstream failures - non-fatal
+    }
+  }
+
   /**
    * 执行一轮发言：分类退出、按策略重试、守护终态。
    *
    * 核心循环：invoke → classify → route（可能重试 → 再 invoke）。
    * 递归重入改为循环 + driver.invoke，避免栈溢出。
    */
+  // eslint-disable-next-line max-lines-per-function, max-statements -- executeTurn is the core retry loop; splitting would obscure control flow
   async executeTurn(
     input: TurnInput,
     driver: AttemptDriver,
@@ -52,6 +63,7 @@ export class AgentTurnOrchestrator {
       const attemptStartTime = Date.now();
       let result: InvokeResultShape;
       let toolCallCount: number;
+      let err: unknown;
 
       try {
         const attempt = await driver.invoke(currentInput, (event) => {
@@ -59,26 +71,32 @@ export class AgentTurnOrchestrator {
         });
         result = attempt.result;
         toolCallCount = attempt.toolCallCount;
-      } catch (err) {
+      } catch (e) {
+        err = e;
         result = { text: '' };
-        toolCallCount = (err as ErrorWithToolCallCount)._toolCallCount ?? 0;
+        const errMeta = e as ErrorWithToolCallCount;
+        toolCallCount = errMeta._toolCallCount ?? driver.getToolCallCount(currentInput.otterId, currentInput.messageId);
       }
 
-      // Speaking guard: content delivery takes priority
+      // Speaking guard: content delivery takes priority (unless user aborted)
       const speakingResult = await this.tryCompleteSpeaking(
-        currentInput, result, callbacks, startTime, attemptStartTime,
+        currentInput, result, driver, { callbacks, startTime, attemptStartTime },
       );
       if (speakingResult) return speakingResult;
 
       // Classify exit reason
+      const userAbortedSet = new Set<string>();
+      if (driver.isUserAborted(currentInput.messageId)) {
+        userAbortedSet.add(currentInput.messageId);
+      }
       const reason = classifyExit(
-        { messageId: currentInput.messageId, result, err: undefined, toolCallCount },
-        new Set<string>(),
+        { messageId: currentInput.messageId, result, err, toolCallCount },
+        userAbortedSet,
         (id) => driver.getInternalAbortReason(id) ?? undefined,
       );
 
       // Record failed attempt
-      this.recordFailedAttempt(reason, currentInput, result, callbacks, attemptStartTime);
+      this.recordFailedAttempt(reason, currentInput, result, err, { callbacks, attemptStartTime });
 
       // Route by reason
       const routeCtx: RouteContext = {
@@ -91,9 +109,22 @@ export class AgentTurnOrchestrator {
       };
       const routeResult = await this.routeByReason(reason, routeCtx);
 
-      if (routeResult) return routeResult;
+      if (routeResult) {
+        // Check if it's a retry-with-new-message signal
+        if ('_retryWithNewMessage' in routeResult) {
+          const retrySignal = routeResult as RetryWithNewMessageSignal;
+          currentInput = {
+            ...currentInput,
+            messageId: retrySignal.newMessageId,
+            retryCount: 1,
+            userMessageContent: retrySignal.retryMsg,
+          };
+          continue;
+        }
+        return routeResult as TurnResult;
+      }
 
-      // If routeByReason returns null, retry with updated input
+      // If routeByReason returns null, retry with updated input (speak retry)
       currentInput = {
         ...currentInput,
         retryCount: 1,
@@ -106,15 +137,17 @@ export class AgentTurnOrchestrator {
   private async tryCompleteSpeaking(
     input: TurnInput,
     result: InvokeResultShape,
-    callbacks: TurnCallbacks,
-    startTime: number,
-    attemptStartTime: number,
+    driver: AttemptDriver,
+    ctx: { callbacks: TurnCallbacks; startTime: number; attemptStartTime: number },
   ): Promise<TurnResult | undefined> {
-    const msg = await callbacks.getMessageById(input.messageId);
+    const msg = await ctx.callbacks.getMessageById(input.messageId);
     if (msg?.status !== 'speaking') return undefined;
 
+    // If user has aborted, don't complete - let abort path handle it
+    if (driver.isUserAborted(input.messageId)) return undefined;
+
     try {
-      const cr = await callbacks.completeMessage(input.messageId, {
+      const cr = await ctx.callbacks.completeMessage(input.messageId, {
         contextTokens: result.ctxTokens,
         contextTokensMax: result.ctxMax,
       });
@@ -126,21 +159,41 @@ export class AgentTurnOrchestrator {
         outcome: 'success',
         retryCount: input.retryCount,
         manualRetry: input.manualRetry,
-        startTime: attemptStartTime,
-      }, callbacks);
+        startTime: ctx.attemptStartTime,
+      }, ctx.callbacks);
 
       this.logger.info('Agent invocation completed', {
         otterId: input.otterId,
         conversationId: input.conversationId,
         messageId: input.messageId,
-        duration: Date.now() - startTime,
+        duration: Date.now() - ctx.startTime,
         tokenUsage: result.tokenUsage,
         status: 'success',
       });
 
+      // 发送 message.complete 事件
+      const duration = Date.now() - ctx.startTime;
+      const otter = await ctx.callbacks.getOtterById(input.otterId);
+      this.safeEmitEvent(ctx.callbacks, {
+        event: "message.complete",
+        data: {
+          messageId: input.messageId,
+          otterId: input.otterId,
+          otterName: otter?.name ?? input.otterId,
+          body: msg?.body ?? '',
+          turnId: msg?.turnId ?? '',
+          duration: `${(duration / 1000).toFixed(1)}s`,
+          ctx: result.ctxTokens,
+          ctxMax: result.ctxMax,
+        },
+      });
+
+      // 发送 turn.complete 事件
+      this.safeEmitEvent(ctx.callbacks, { event: "turn.complete", data: {} });
+
       return {
         messageId: input.messageId,
-        duration: Date.now() - startTime,
+        duration,
         tokenUsage: result.tokenUsage,
         aggregatedTargets: cr.turnClose?.aggregatedTargets,
       };
@@ -153,7 +206,7 @@ export class AgentTurnOrchestrator {
   private async routeByReason(
     reason: ExitReason,
     ctx: RouteContext,
-  ): Promise<TurnResult | null> {
+  ): Promise<TurnResult | RetryWithNewMessageSignal | null> {
     switch (reason.kind) {
       case 'user_abort':
         return this.handleUserAbort(ctx);
@@ -173,8 +226,29 @@ export class AgentTurnOrchestrator {
     const msg = await ctx.callbacks.getMessageById(ctx.input.messageId);
     if (msg?.status === 'speaking') {
       try {
-        await ctx.callbacks.completeMessage(ctx.input.messageId);
-        return { messageId: ctx.input.messageId, duration: Date.now() - ctx.startTime };
+        const cr = await ctx.callbacks.completeMessage(ctx.input.messageId);
+
+        // 发送 message.complete 事件
+        const duration = Date.now() - ctx.startTime;
+        const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+        this.safeEmitEvent(ctx.callbacks, {
+          event: "message.complete",
+          data: {
+            messageId: ctx.input.messageId,
+            otterId: ctx.input.otterId,
+            otterName: otter?.name ?? ctx.input.otterId,
+            body: msg?.body ?? '',
+            turnId: msg?.turnId ?? '',
+            duration: `${(duration / 1000).toFixed(1)}s`,
+            ctx: ctx.result.ctxTokens,
+            ctxMax: ctx.result.ctxMax,
+          },
+        });
+
+        // 发送 turn.complete 事件
+        this.safeEmitEvent(ctx.callbacks, { event: "turn.complete", data: {} });
+
+        return { messageId: ctx.input.messageId, duration, aggregatedTargets: cr.turnClose?.aggregatedTargets };
       } catch {
         // Fall through to abort
       }
@@ -187,7 +261,7 @@ export class AgentTurnOrchestrator {
   private async routeGuardAbort(
     reason: ExitReason & { kind: 'guard_abort' },
     ctx: RouteContext,
-  ): Promise<TurnResult | null> {
+  ): Promise<TurnResult | RetryWithNewMessageSignal | null> {
     const { guardReason } = reason;
     const { retryCount } = ctx.input;
 
@@ -208,7 +282,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Handle degenerate retry: abort + system reminder + retry */
-  private async handleDegenerateRetry(ctx: RouteContext): Promise<TurnResult | null> {
+  private async handleDegenerateRetry(ctx: RouteContext): Promise<RetryWithNewMessageSignal | TurnResult> {
     this.logger.info('Degenerate output retry triggered', {
       messageId: ctx.input.messageId,
       otterId: ctx.input.otterId,
@@ -218,7 +292,7 @@ export class AgentTurnOrchestrator {
     try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
-    ctx.callbacks.emitEvent({
+    this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
     });
@@ -227,7 +301,7 @@ export class AgentTurnOrchestrator {
     let sysMsg;
     try {
       sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, retryMsg);
-      ctx.callbacks.emitEvent({
+      this.safeEmitEvent(ctx.callbacks, {
         event: "system.message",
         data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
       });
@@ -240,7 +314,33 @@ export class AgentTurnOrchestrator {
       return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason: 'degenerate_output' });
     }
 
-    return null;
+    // Create new message for retry (degenerate retry uses new message)
+    try {
+      const newMsg = await ctx.callbacks.startNewMessage(
+        ctx.input.conversationId,
+        ctx.input.senderId,
+        [ctx.input.senderId],
+      );
+      this.safeEmitEvent(ctx.callbacks, {
+        event: "message.start",
+        data: { messageId: newMsg.id, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, seq: newMsg.sequenceNum, createdAt: newMsg.createdAt },
+      });
+
+      // Update input with new message ID for retry
+      return {
+        _retryWithNewMessage: true as const,
+        newMessageId: newMsg.id,
+        retryMsg,
+        toolCallCount: ctx.toolCallCount,
+      } satisfies RetryWithNewMessageSignal;
+    } catch (err) {
+      this.logger.warn('startNewMessage failed during retry, falling back to abort', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason: 'degenerate_output' });
+    }
   }
 
   /** Handle auto-retry: fail + re-invoke */
@@ -250,7 +350,7 @@ export class AgentTurnOrchestrator {
     try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
-    ctx.callbacks.emitEvent({
+    this.safeEmitEvent(ctx.callbacks, {
       event: 'message.failed',
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
     });
@@ -298,7 +398,7 @@ export class AgentTurnOrchestrator {
       await ctx.callbacks.failMessage(ctx.input.messageId, failBody, [ctx.input.senderId]);
     } catch { /* ignore */ }
 
-    ctx.callbacks.emitEvent({
+    this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, body: failBody },
     });
@@ -316,7 +416,7 @@ export class AgentTurnOrchestrator {
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     const otterName = otter?.name ?? ctx.input.otterId;
-    ctx.callbacks.emitEvent({
+    this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, body: ctx.failBody },
     });
@@ -324,7 +424,7 @@ export class AgentTurnOrchestrator {
     let sysMsg;
     try {
       sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, ctx.retryMsg);
-      ctx.callbacks.emitEvent({
+      this.safeEmitEvent(ctx.callbacks, {
         event: "system.message",
         data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
       });
@@ -370,7 +470,7 @@ export class AgentTurnOrchestrator {
     } catch { /* ignore */ }
 
     const otter = await ctx.callbacks.getOtterById(otterId);
-    ctx.callbacks.emitEvent({
+    this.safeEmitEvent(ctx.callbacks, {
       event: 'message.aborted',
       data: { messageId, body, otterId, otterName: otter?.name },
     });
@@ -397,7 +497,7 @@ export class AgentTurnOrchestrator {
       await callbacks.failMessage(messageId, `[错误] ${errorMessage}`);
     } catch { /* ignore */ }
 
-    callbacks.emitEvent({
+    this.safeEmitEvent(callbacks, {
       event: 'error',
       data: { message: errorMessage, messageId, otterId },
     });
@@ -405,29 +505,10 @@ export class AgentTurnOrchestrator {
     return { messageId, duration: Date.now() - startTime };
   }
 
-  /** F20260814mtrc：流事件埋点 */
-  private recordStreamEventMetrics(e: AgentStreamEvent, callbacks: TurnCallbacks): void {
-    if (!callbacks.metrics) return;
-    try {
-      switch (e.type) {
-        case "tool_execution_start":
-          callbacks.metrics.recordToolCall(String(e.name ?? e.toolName ?? "unknown"));
-          break;
-        case "auto_retry_start":
-          callbacks.metrics.recordRetry("sdk_auto");
-          break;
-        case "compaction_end":
-          callbacks.metrics.recordCompaction(String(e.reason ?? ""), e.aborted === true);
-          break;
-        default:
-          break;
-      }
-    } catch (err) {
-      callbacks.logger.warn('stream event metrics failed (non-fatal)', {
-        eventType: e.type,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  /** F20260814mtrc：流事件埋点 - metrics 由 invoker 层 recordStreamEventMetrics 统一处理 */
+  private recordStreamEventMetrics(_e: AgentStreamEvent, _callbacks: TurnCallbacks): void {
+    // Metrics recording is handled by the invoker's onEvent callback.
+    // This method is intentionally a no-op to avoid double-counting.
   }
 
   /** attempt 记录去重键 */
@@ -503,37 +584,40 @@ export class AgentTurnOrchestrator {
     reason: ExitReason,
     input: TurnInput,
     result: InvokeResultShape | undefined,
-    callbacks: TurnCallbacks,
-    attemptStartTime: number,
+    err: unknown,
+    ctx: { callbacks: TurnCallbacks; attemptStartTime: number },
   ): void {
-    if (!callbacks.metrics) return;
+    if (!ctx.callbacks.metrics) return;
     if (this.recordedAttempts.has(this.attemptKey(input.messageId, input.retryCount))) return;
+
+    const errMeta = err as ErrorWithToolCallCount | undefined;
 
     if (reason.kind === 'guard_abort') {
       try {
-        callbacks.metrics.recordGuardAbort(
-          result?.modelAlias ?? "unknown",
+        ctx.callbacks.metrics.recordGuardAbort(
+          result?.modelAlias ?? errMeta?._modelAlias ?? "unknown",
           reason.guardReason,
         );
-      } catch (err) {
-        callbacks.logger.warn('metrics recordGuardAbort failed (non-fatal)', {
+      } catch (e) {
+        ctx.callbacks.logger.warn('metrics recordGuardAbort failed (non-fatal)', {
           reason: reason.guardReason,
-          error: err instanceof Error ? err.message : String(err),
+          error: e instanceof Error ? e.message : String(e),
         });
       }
     }
 
-    this.recordRetryIntent(reason, input.retryCount, callbacks);
+    this.recordRetryIntent(reason, input.retryCount, ctx.callbacks);
 
     void this.recordAttempt({
       messageId: input.messageId,
       otterId: input.otterId,
       result,
+      err,
       outcome: exitKindToOutcome(reason.kind, input.retryCount),
       retryCount: input.retryCount,
       manualRetry: input.manualRetry,
-      startTime: attemptStartTime,
-    }, callbacks);
+      startTime: ctx.attemptStartTime,
+    }, ctx.callbacks);
   }
 
   /** 重试意图计数 */
