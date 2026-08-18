@@ -80,6 +80,8 @@ export interface TurnCallbacks {
   completeMessage(messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }): Promise<{ turnClose: { aggregatedTargets?: string[] } }>;
   failMessage(messageId: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
   abortMessage(messageId: string, input: { body: string; talkingStonePassedTo?: string[] }): Promise<void>;
+  /** 广播消息到 Web 和飞书 */
+  broadcastMessage(messageId: string): Promise<void>;
   /** 查询消息状态 */
   getMessageById(messageId: string): Promise<{ status: string; body?: string; turnId?: string } | null>;
   /** 发送系统消息 */

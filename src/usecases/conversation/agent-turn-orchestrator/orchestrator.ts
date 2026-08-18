@@ -64,6 +64,7 @@ export class AgentTurnOrchestrator {
       let result: InvokeResultShape;
       let toolCallCount: number;
       let err: unknown;
+      const attemptKey = this.attemptKey(currentInput.messageId, currentInput.retryCount);
 
       try {
         const attempt = await driver.invoke(currentInput, (event) => {
@@ -76,6 +77,9 @@ export class AgentTurnOrchestrator {
         result = { text: '' };
         const errMeta = e as ErrorWithToolCallCount;
         toolCallCount = errMeta._toolCallCount ?? driver.getToolCallCount(currentInput.otterId, currentInput.messageId);
+      } finally {
+        // 清理当前 attempt 的去重键，防止内存泄漏
+        this.recordedAttempts.delete(attemptKey);
       }
 
       // Speaking guard: content delivery takes priority (unless user aborted)
@@ -190,6 +194,9 @@ export class AgentTurnOrchestrator {
 
       // 发送 turn.complete 事件
       this.safeEmitEvent(ctx.callbacks, { event: "turn.complete", data: {} });
+
+      // 广播消息到 Web 和飞书
+      await ctx.callbacks.broadcastMessage(input.messageId).catch(() => { /* non-fatal */ });
 
       return {
         messageId: input.messageId,

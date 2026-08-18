@@ -25,16 +25,7 @@ import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
-import type { TurnInput, TurnResult, AttemptDriver, TurnCallbacks, InvokeResultShape } from "@usecases/conversation/agent-turn-orchestrator/types";
-
-/** 携带工具调用计数的 Error（abort 路径跨层传递用） */
-type ErrorWithToolCallCount = Error & {
-  _toolCallCount?: number;
-  /** F20260814mtrc：guard abort 路径的 outputGuard 元数据（含首字节样本） */
-  _outputGuardMetadata?: { firstByteLatencyMs?: number };
-  /** F20260814mtrc：失败路径的模型别名（err 路径 result 不可达，PR 审视 P1 修复） */
-  _modelAlias?: string;
-};
+import type { TurnInput, TurnResult, AttemptDriver, TurnCallbacks, InvokeResultShape, ErrorWithToolCallCount } from "@usecases/conversation/agent-turn-orchestrator/types";
 
 /** Agent 对话调用结果 */
 export interface ConversationInvokeResult {
@@ -265,6 +256,15 @@ export class AgentInvoker {
 
       prepareForRetry: async (messageId: string) => {
         await this.sendMessage.prepareForRetry(messageId);
+      },
+
+      broadcastMessage: async (messageId: string) => {
+        if (this.messageBroadcaster) {
+          const msg = await this.queryMessage.getMessageById(messageId);
+          if (msg) {
+            await this.messageBroadcaster.broadcast(msg);
+          }
+        }
       },
 
       getOtterById: async (otterId: string) => {
