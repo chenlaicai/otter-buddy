@@ -30,6 +30,12 @@ export interface CapabilityContext {
 
 export interface BootOptions {
   /**
+   * A3 模型可见内容比对：录音网关地址（http://127.0.0.1:port）。
+   * 提供时 llm 配置整体替换为指向该网关的伪端点（anthropic 协议、假 key）——
+   * SDK 真实发请求，网关记录 wire 级请求体并回放脚本化响应。见 model-visible.ts。
+   */
+  recordingGatewayUrl?: string;
+  /**
    * 文档同步根目录。默认空目录（tmp 下新建）：真仓库 docs 同步会 fire-and-forget
    * ~500+ chunk embedding 挤爆 worker 串行队列，测试的 embed 排队超时。
    * 确实需要真实文档库的用例可显式传仓库根（并接受长启动与队列排空时间）。
@@ -143,6 +149,23 @@ async function buildFauxModels(config: AppConfig): Promise<{ model: Model<Api>; 
 export async function bootCapabilityApp(options: BootOptions = {}): Promise<CapabilityContext> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "otter-capability-"));
   const config = resolveTestConfig(tmpDir);
+
+  /** A3 录音网关：llm 整体替换为指向网关的伪 anthropic 端点（SDK 全链路照常走） */
+  if (options.recordingGatewayUrl) {
+    config.llm = {
+      default: "a3-recorder",
+      models: [{
+        alias: "a3-recorder",
+        provider: "anthropic",
+        model: "recorder-1",
+        apiKey: "a3-recorder-dummy-key",
+        apiBaseUrl: options.recordingGatewayUrl,
+        contextWindow: 200_000,
+        maxTokens: 8_192,
+      }],
+    };
+  }
+
   const llm = detectLlm(config);
 
   const emptyDocsDir = path.join(tmpDir, "empty-docs");
