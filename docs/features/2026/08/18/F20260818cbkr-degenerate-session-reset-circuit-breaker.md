@@ -205,7 +205,19 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 | T3 全程无人工干预 | 单测证明（AT-1 链路无用户输入） | ✅ |
 | T4 abort 后手动继续仍退化被覆盖 | 单测证明（AT-4 二级预检） | ✅ |
 | T5 退化事件落 healing_events | 单测证明（各用例断言 degenerate/circuit_break 事件落库） | ✅ |
-| AT-5 隔离实例真实 LLM 验证 | 待合入后执行 | ❓ |
+| AT-5 隔离实例真实 LLM 验证 | 2026-08-18 已执行（worktree 隔离实例：独立端口 3999 + 独立 DB + 真实 mimo-v2.5-pro） | ✅（机制链路全证）/❓（最终回复，见下） |
+
+**AT-5 验证记录**：预埋 2 条 degenerate 事件（同 turn、晚于 session 启动）后发送消息，实测证据链：
+
+1. 服务日志 `Secondary circuit break executed, degenerateCount:2, newSessionId:ce76870c`
+2. 旧 session 归档（status=restarted, archive_reason=restart），新 session active 且 summary 为二级熔断摘要
+3. healing_events 落 circuit_break 事件（context 含 newSessionId、trigger=secondary）
+4. **前情摘要注入实证**：新 pi session 首条 user message 为 "## 会话摘要\n[二级熔断重启]…当前任务：暗号是什么?…"（session jsonl）
+5. 真实 mimo 在新 session 上正常开始工作（thinking + 工具调用）
+
+最终回复未完成——阻塞于**独立环境问题**（非本特性缺陷）：隔离实例冷启动 embedding 积压（1000 条迁移任务打满 CPU）→ search_memory 工具调用卡死 → 工具熔断 10 分钟 PER_EVENT_TIMEOUT 后 SDK prompt() 未解除阻塞，turn 悬挂。对照组：同实例不涉及 search_memory 的对话 20 秒正常完成。回复连续性以 AT-1 单测（摘要含原始任务与工具序列）+ 上述第 4/5 点（摘要注入 + 真实模型依摘要开工）为证。
+
+**衍生发现（另行处理）**：search_memory 在 embedding 高负载下可卡死且工具熔断超时后 SDK prompt 不解除阻塞——turn 永久悬挂需用户手动中断，建议立独立 issue 排查。
 
 ## 对抗审视记录
 
