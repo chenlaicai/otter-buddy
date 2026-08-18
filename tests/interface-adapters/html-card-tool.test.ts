@@ -14,7 +14,6 @@ import { HTML_CARD_CONTRACT } from "@interface-adapters/agent-runtime/tools/html
 import { getOtterToolNamesForType } from "@frameworks/agent/session-helpers";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { Message } from "@entities/conversation/message";
-import { aggregateBody } from "@entities/conversation/message";
 
 const CARD_BODY = '前言\n```html-card title="方案对比"\n<table/>\n```\n后记';
 const REPLY_BODY = '选择了方案 B\n```html-card-reply card="m1:0"\n{"choice":"B"}\n```';

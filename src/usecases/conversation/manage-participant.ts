@@ -29,6 +29,7 @@ export class ManageParticipant {
    * 前置条件：当前有活跃 Turn（后进场者必须有 Turn）。
    * 系统消息 body 由调用方传入（A1：ManageParticipant 不依赖 OtterRepository）。
    */
+  // eslint-disable-next-line max-lines-per-function -- F20260818segs segment 创建逻辑增加行数
   async join(
     conversationId: string,
     otterId: string,

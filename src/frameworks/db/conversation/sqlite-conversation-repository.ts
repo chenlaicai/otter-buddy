@@ -590,6 +590,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     return message;
   }
 
+  // eslint-disable-next-line max-lines-per-function -- F20260818segs segments 聚合逻辑增加行数
   async listConversationsWithMeta(
     userId: string,
     options?: { limit?: number; offset?: number },
