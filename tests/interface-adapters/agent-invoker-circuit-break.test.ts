@@ -164,18 +164,24 @@ function mockQueryMessage(overrides?: {
         turnId: overrides?.turnByMessage?.[id] ?? "turn-1",
       };
     },
-    getMessageEvents: async () => (overrides?.events ?? []).map((e, i) => ({
-      id: `ev-${i}`, messageId: "any", eventType: e.eventType, payload: e.payload,
-      sequenceNum: i, createdAt: new Date().toISOString(),
-    })),
-    getLastMessageBySender: async () => ({
-      id: "msg-user-1", conversationId: "conv-1", turnId: "turn-1",
-      senderType: "user" as const, senderId: "user", talkingStonePassedTo: null,
-      status: "completed" as const,
-      segments: [{ id: "seg-user-1", messageId: "msg-user-1", body: "继续实现小獭闲置预警", sequenceNum: 0, createdAt: new Date().toISOString() }],
-      sequenceNum: 1, contextTokens: null, contextTokensMax: null, source: "web" as const,
-      createdAt: new Date().toISOString(), completedAt: null,
-    }),
+    getMessageEvents: async (messageId: string) => (overrides?.events ?? [])
+      .filter(e => (e as { messageIds?: string[] }).messageIds?.includes(messageId) !== false)
+      .map((e, i) => ({
+        id: `ev-${i}`, messageId, eventType: (e as { eventType: string }).eventType, payload: (e as { payload: Record<string, unknown> }).payload,
+        sequenceNum: i, createdAt: new Date().toISOString(),
+      })),
+    /** senderType 口径（与生产一致,sender_id 字面量仅 web 路径成立） */
+    getMessages: async (_conversationId: string, options: { senderType?: string; limit?: number }) => {
+      if (options.senderType !== "user") return [];
+      return [{
+        id: "msg-user-1", conversationId: "conv-1", turnId: "turn-1",
+        senderType: "user" as const, senderId: "user", talkingStonePassedTo: null,
+        status: "completed" as const,
+        segments: [{ id: "seg-user-1", messageId: "msg-user-1", body: "继续实现小獭闲置预警", sequenceNum: 0, createdAt: new Date().toISOString() }],
+        sequenceNum: 1, contextTokens: null, contextTokensMax: null, source: "web" as const,
+        createdAt: new Date().toISOString(), completedAt: null,
+      }];
+    },
   } as unknown as QueryMessage;
 }
 
@@ -187,10 +193,10 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     const healing = mockHealingRepo();
     const session = mockManageSession(makeSession());
     const invoke = mockAgentInvoke(2); // 前两次退化，第三次成功
+    /** 工具事件只挂在 retry 前的首条消息(msg-1)——摘要必须合并首条消息的工作进度 */
     const toolEvents = [
-      { eventType: "assistant_text", payload: { content: [] } },
-      { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read" }, { type: "toolCall", name: "write" }] } },
-      { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+      { eventType: "assistant_text", payload: { content: [] }, messageIds: ["msg-1"] },
+      { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read" }, { type: "toolCall", name: "write" }] }, messageIds: ["msg-1"] },
     ];
     const qm = mockQueryMessage({ events: toolEvents, speakingAfter: 2 });
     const invoker = new AgentInvoker(
@@ -208,6 +214,7 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     const summary = session.restartCalls[0].summary ?? "";
     expect(summary).toContain("熔断重启");
     expect(summary).toContain("实现小獭闲置预警系统");
+    /** 工具序列来自 retry 前首条消息(retry 消息无事件),验证 firstMessageId 合并 */
     expect(summary).toContain("read");
     expect(summary).toContain("write");
 

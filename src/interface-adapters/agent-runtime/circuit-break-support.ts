@@ -125,8 +125,9 @@ export class CircuitBreakSupport {
       const inWindow = await this.countDegenerateInTurnWindow(otterId, session);
       if (inWindow.count < 2) return;
 
-      const lastUserMsg = await this.deps.queryMessage.getLastMessageBySender(conversationId, 'user').catch(() => null);
-      const lastUserMessage = lastUserMsg ? aggregateBody(lastUserMsg.segments) : '';
+      /** senderType 口径（sender_id 字面量仅 web 路径成立，scheduler/桥接路径会落空） */
+      const userMsgs = await this.deps.queryMessage.getMessages(conversationId, { senderType: 'user', limit: 1 }).catch(() => []);
+      const lastUserMessage = userMsgs[0] ? aggregateBody(userMsgs[0].segments) : '';
       const summary = lastUserMessage
         ? buildSecondaryCircuitBreakSummary({ lastUserMessage })
         : buildCircuitBreakFallbackSummary();
@@ -203,7 +204,17 @@ export class CircuitBreakSupport {
   /** 熔断前情摘要：原始消息 + 失败 turn 的工具调用序列；素材查询失败降级短摘要 */
   private async buildCircuitBreakSummaryText(info: CircuitBreakInfo): Promise<string> {
     try {
-      const toolNames = await this.extractToolNames(info.failedMessageId);
+      /**
+       * 工作进度主要在首条消息（degenerate retry 前的 attempt）——retry 创建的第二条消息
+       * 往往刚起步就退化。合并两条消息的事件，按发生顺序还原工具序列。
+       */
+      const messageIds = info.firstMessageId && info.firstMessageId !== info.failedMessageId
+        ? [info.firstMessageId, info.failedMessageId]
+        : [info.failedMessageId];
+      const toolNames: string[] = [];
+      for (const mid of messageIds) {
+        toolNames.push(...await this.extractToolNames(mid));
+      }
       return buildCircuitBreakSummary({ originalUserMessage: info.originalUserMessage, toolNames });
     } catch {
       return buildCircuitBreakFallbackSummary();

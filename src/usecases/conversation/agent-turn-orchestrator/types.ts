@@ -40,6 +40,8 @@ export interface TurnInput {
   userMessageContent: string;
   /** F20260818cbkr：用户原始消息。retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取此字段 */
   originalUserMessage: string;
+  /** F20260818cbkr：degenerate retry 前的首条消息 id（工作进度主要在此，熔断摘要合并取用） */
+  preRetryMessageId?: string;
   senderId: string;
   retryCount: number;
   manualRetry: boolean;
@@ -56,6 +58,8 @@ export interface CircuitBreakInfo {
   conversationId: string;
   originalUserMessage: string;
   failedMessageId: string;
+  /** retry 前首条消息 id（摘要合并工具序列用；无 retry 时等同 failedMessageId） */
+  firstMessageId: string;
   toolCallCount: number;
 }
 

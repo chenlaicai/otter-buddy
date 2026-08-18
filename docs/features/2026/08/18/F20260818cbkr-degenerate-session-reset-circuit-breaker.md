@@ -194,17 +194,18 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 ### 测试结果
 
-[验收阶段填写]
+单元测试 tests/interface-adapters/agent-invoker-circuit-break.test.ts（8 用例）：AT-1/AT-3 一级熔断+前情摘要（含首条消息工具序列合并）、AT-2 上限 abort、AT-4 二级预检、二级不命中（跨 session 旧事件）、熔断执行失败降级、repo 未注入降级配置、二级+一级叠加、半成功路径（restart 成功事件写入失败仍续跑）。全量 1239/1239 通过（vitest），tsc 零错误，eslint 0 error。AT-5（隔离实例真实 LLM）待合入后执行。
 
 ### 证据判定
 
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
-| T1 | 待验收 | ❓ |
-| T2 | 待验收 | ❓ |
-| T3 | 待验收 | ❓ |
-| T4 | 待验收 | ❓ |
-| T5 | 待验收 | ❓ |
+| T1 二次退化自动熔断重启续跑 | 单测证明（AT-1：fail→retry→fail→熔断信号→restart→全新 invoke→成功） | ✅ |
+| T2 前情摘要注入与任务连续性 | 单测证明摘要构建与注入（AT-3）；真实任务连续性待 AT-5 | ✅（机制）/❓（端到端） |
+| T3 全程无人工干预 | 单测证明（AT-1 链路无用户输入） | ✅ |
+| T4 abort 后手动继续仍退化被覆盖 | 单测证明（AT-4 二级预检） | ✅ |
+| T5 退化事件落 healing_events | 单测证明（各用例断言 degenerate/circuit_break 事件落库） | ✅ |
+| AT-5 隔离实例真实 LLM 验证 | 待合入后执行 | ❓ |
 
 ## 对抗审视记录
 
@@ -224,6 +225,17 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 | 8. working 记忆全量降层语义未提示 | 建议（更好） | 已采纳：方案中补"内容不丢、丢的是 working 层活性"说明 |
 
 审查者核验确认的事实性声明（无需修改）：degenerate retry 只允许一次（orchestrator.ts retryCount===0 分支）；restartSession 含 pi session reset 与记忆转历史；摘要注入点语义准确（行号 375-376）。
+
+### 第五轮（2026-08-18，审查者：独立 agent 检视獭·深潜，PR #303 审视，焦点：rebase main #290 适配 / message_events 假设 / 测试真实性）
+
+0 严重、4 建议。审查者独立复跑全量测试与 tsc（全绿）；对账抽查前四轮 5 项关键处置全部属实；rebase 适配核实通过（无 .body 残留，payload 结构与 main 的 event-mapping 写入结构一致）。处置：
+
+| 发现 | 级别 | 处置 |
+|------|------|------|
+| 1. 二级摘要按 sender_id 字面量 'user' 查询，scheduler/桥接路径必落空（正确口径是 senderType） | 建议（更好） | 已修：改 getMessages(conversationId, { senderType: 'user', limit: 1 })；mock 同步改口径 |
+| 2. 熔断 sendSystem 失败回退 abortTerminal——通知失败不应放弃 restart（治疗动作），且消息已 failed 再广播 aborted 会与熔断文案矛盾 | 建议（更好） | 已修：sendSystem 失败仅留痕，restart 照常执行 |
+| 3. 前情摘要只取 retry 消息的工具事件，丢失首条消息的工作进度（事故形态 seq 19 证明进度在首条） | 建议（更好） | 已修：TurnInput.preRetryMessageId 保留首条消息 id，摘要合并两条消息的工具序列；测试验证（工具事件只挂首条消息仍入摘要） |
+| 4. 验收结果节未回填 | 建议（更好） | 已修：回填测试结果与证据判定（AT-5 待合入后人工验证，标 ❓） |
 
 ### 第四轮（2026-08-18，审查者：独立 agent，实现代码对抗审视，焦点：修复轮盲区——新写代码忠实性与边界完备性）
 

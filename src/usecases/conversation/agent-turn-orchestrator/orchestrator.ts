@@ -122,6 +122,8 @@ export class AgentTurnOrchestrator {
             messageId: retrySignal.newMessageId,
             retryCount: 1,
             userMessageContent: retrySignal.retryMsg,
+            // F20260818cbkr：保留 retry 前首条消息 id（工作进度主要在此，熔断摘要合并取用）
+            preRetryMessageId: currentInput.preRetryMessageId ?? currentInput.messageId,
           };
           continue;
         }
@@ -363,6 +365,10 @@ export class AgentTurnOrchestrator {
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
     });
 
+    /**
+     * sendSystem 是通知性 IO——失败仅留痕,不放弃 restartSession(治疗动作)。
+     * (不回退 abortTerminal:消息已 failed,再广播 aborted 会与熔断文案矛盾)
+     */
     try {
       const sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, buildCircuitBreakSystemMsg());
       this.safeEmitEvent(ctx.callbacks, {
@@ -370,12 +376,11 @@ export class AgentTurnOrchestrator {
         data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
       });
     } catch (err) {
-      this.logger.warn('sendSystem failed during circuit break, falling back to abort', {
+      this.logger.warn('sendSystem failed during circuit break (non-fatal, restart continues)', {
         messageId: ctx.input.messageId,
         otterId: ctx.input.otterId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason: 'degenerate_output' });
     }
 
     return {
@@ -386,6 +391,7 @@ export class AgentTurnOrchestrator {
         conversationId: ctx.input.conversationId,
         originalUserMessage: ctx.input.originalUserMessage,
         failedMessageId: ctx.input.messageId,
+        firstMessageId: ctx.input.preRetryMessageId ?? ctx.input.messageId,
         toolCallCount: ctx.toolCallCount,
       },
     };
