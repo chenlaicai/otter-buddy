@@ -21,7 +21,7 @@ const OTTER_PROMPT_STRING = "你是一个友好的助手。";
 const OTTER_PROMPT_CONFIG: OtterPromptConfig = {
   systemPrompt: "你是一个专业的编码助手。",
   reminders: [
-    { content: "记得调用 speak 工具结束发言", priority: "high" },
+    { content: "记得用 speak 输出结论后调用 yield 交棒", priority: "high" },
   ],
 };
 
@@ -51,7 +51,7 @@ describe("buildBeforeAgentStartResult（S1 system prompt 注入纯函数）", ()
     expect(result).toBeDefined();
     expect(result!.systemPrompt).toContain(OTTER_PROMPT_CONFIG.systemPrompt!);
     // reminder 的 content 应出现在最终 systemPrompt 中（buildOtterPrompt 会包装为 <system-reminder>）
-    expect(result!.systemPrompt).toContain("记得调用 speak 工具结束发言");
+    expect(result!.systemPrompt).toContain("记得用 speak 输出结论后调用 yield 交棒");
     expect(result!.systemPrompt).toContain(IDENTITY_SMALL);
   });
 

@@ -148,11 +148,11 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
     expect(spy.compactions).toEqual([{ reason: "token_limit", aborted: false }]);
   });
 
-  it("no_speak 路径：首轮 no_speak_retry + 重试计数，重试轮 no_speak_failed", async () => {
+  it("no_yield 路径：首轮 no_yield_retry + 重试计数，重试轮 no_yield_failed", async () => {
     const spy = metricsSpy();
     const invoker = makeInvoker({
       metrics: spy.port,
-      msgStatus: "streaming", // 未 speaking → no_speak 分类
+      msgStatus: "streaming", // 未 speaking → no_yield 分类
       invokeResult: { text: "no speak here" },
     });
 
@@ -161,9 +161,9 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
       userMessageContent: "Hi", senderId: "user-1",
     });
 
-    expect(spy.invokes.map(i => i.outcome)).toEqual(["no_speak_retry", "no_speak_failed"]);
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["no_yield_retry", "no_yield_failed"]);
     expect(spy.invokes[1].retry).toBe("auto");
-    expect(spy.retries).toContain("no_speak");
+    expect(spy.retries).toContain("no_yield");
   });
 
   it("user_abort 路径（abortTerminal）：outcome=user_abort，恰好一次", async () => {
@@ -252,11 +252,11 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
     const invoker = makeInvoker({
       metrics: spy.port,
       msgStatus: "streaming",
-      invokeResult: { text: "no speak" }, // 两轮都 no_speak，触发 seamless 重试
+      invokeResult: { text: "no speak" }, // 两轮都 no_yield，触发 seamless 重试
     });
 
     /**
-     * P0-1 场景：attempt2 已按 no_speak_failed 记录后，handleSpeakRetry 的
+     * P0-1 场景：attempt2 已按 no_yield_failed 记录后，handleYieldRetry 的
      * 第二次失败 emitEvent(message.failed) 抛错 → retryInvokeOnSameMessage 的
      * catch 重入 classifyAndRoute —— 去重键应阻止 attempt2 被再次记录为 api_error。
      */
@@ -271,11 +271,11 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
       },
     });
 
-    /** 恰好两条：attempt1 no_speak_retry + attempt2 no_speak_failed；无虚假 api_error */
-    expect(spy.invokes.map(i => i.outcome)).toEqual(["no_speak_retry", "no_speak_failed"]);
+    /** 恰好两条：attempt1 no_yield_retry + attempt2 no_yield_failed；无虚假 api_error */
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["no_yield_retry", "no_yield_failed"]);
     expect(spy.invokes[1].retry).toBe("auto");
-    /** PR 四审 P1 修复：重试意图计数在分类点去重——重入不产生第二条 no_speak 计数 */
-    expect(spy.retries).toEqual(["no_speak"]);
+    /** PR 四审 P1 修复：重试意图计数在分类点去重——重入不产生第二条 no_yield 计数 */
+    expect(spy.retries).toEqual(["no_yield"]);
   });
 
   it("链级 trace 下 source=chain；手动重试 retry=manual", async () => {

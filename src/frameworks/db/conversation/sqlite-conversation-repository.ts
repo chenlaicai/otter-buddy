@@ -283,7 +283,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   /**
-   * 重置 failed 消息为 streaming（speak 重试专用）。
+   * 重置 failed 消息为 streaming（yield 重试专用）。
    * Why: SQL 层面做状态守卫（AND status = 'failed'），防止并发 abort 将终态消息重置回 streaming。
    * Why: 清空 FTS 索引，避免重试期间搜索命中旧 fail body（与 createStreamingMessage 对 null body 的处理一致）。
    */

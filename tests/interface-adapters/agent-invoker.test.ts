@@ -325,10 +325,10 @@ describe("AgentInvoker", () => {
     expect(msg._calls.fail[0].body).toContain('rate limit exceeded');
     expect(msg._calls.fail[0].body).not.toContain('正在自动重试');
   });
-  it("calls sendMessage.fail() through speak retry on system failure (B10)", async () => {
+  it("calls sendMessage.fail() through yield retry on system failure (B10)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
-    /** 系统故障场景：agent 抛出异常，消息停留在 streaming 状态（agent 未调 speak） */
+    /** 系统故障场景：agent 抛出异常，消息停留在 streaming 状态（agent 未调 yield） */
     const streamingQm: QueryMessage = {
       getMessageById: async () => ({
         ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null,
@@ -343,7 +343,7 @@ describe("AgentInvoker", () => {
       createTestLogger(),
     );
 
-    /** invokeConversation 通过 speak 重试机制处理系统故障 */
+    /** invokeConversation 通过 yield 重试机制处理系统故障 */
     const result = await invoker.invokeConversation({
       otterId: "otter-1",
       conversationId: "conv-1",
@@ -547,7 +547,7 @@ function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): Qu
   } as unknown as QueryMessage & { callCount: number };
 }
 
-describe("AgentInvoker speak retry", () => {
+describe("AgentInvoker yield retry", () => {
   it("retries once when agent does not call speak (first failure → system message → retry)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessage();
@@ -673,7 +673,7 @@ describe("AgentInvoker speak retry", () => {
     /** 第二次 invoke 的 userMessageContent 应包含重试提示 */
     expect(agent._invokeMessages).toHaveLength(2);
     expect(agent._invokeMessages[1]).toContain("没有调用任何工具");
-    expect(agent._invokeMessages[1]).toContain("困境");
+    expect(agent._invokeMessages[1]).toContain("yield");
   });
 
   it("有工具调用但漏 speak（toolCallCount>0）重试提示不包含'没有调用任何工具'", async () => {

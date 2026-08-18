@@ -395,7 +395,7 @@ describe("SendMessage（真 sqlite）", () => {
   describe("prepareForRetry", () => {
     it("成功：failed 消息重置为 streaming，创建新 Turn", async () => {
       const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
-      await sm.fail(msg.id, "[系统] 未调用 speak");
+      await sm.fail(msg.id, "[系统] 未调用 yield 交棒");
 
       const failedMsg = await repo.getMessageById(msg.id);
       expect(failedMsg!.status).toBe("failed");

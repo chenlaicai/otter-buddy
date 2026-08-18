@@ -330,7 +330,7 @@ export class SendMessage {
   }
 
   /**
-   * 重置 failed 消息为 streaming（speak 重试专用）。
+   * 重置 failed 消息为 streaming（yield 重试专用）。
    * Why: 重试时复用同一消息 ID，避免创建新消息导致用户看到 3 条消息（失败 + 系统提醒 + 新消息）。
    * 操作：清空 body、创建新 Turn 并关联消息、更新 FTS 索引。
    *

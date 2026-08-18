@@ -106,9 +106,9 @@ export function canAbortMessage(status: MessageStatus): boolean {
 }
 
 /**
- * 是否可以准备重试（speak 重试专用）。
+ * 是否可以准备重试（yield 重试专用）。
  * 仅 failed 状态的消息可被重置为 streaming。
- * Why: failed 是终态，正常流程不可逆；speak 重试是唯一的合法重置路径。
+ * Why: failed 是终态，正常流程不可逆；yield 重试是唯一的合法重置路径。
  */
 export function canPrepareForRetry(status: MessageStatus): boolean {
   return status === "failed";
