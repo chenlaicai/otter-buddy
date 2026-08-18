@@ -6,6 +6,10 @@ export type HealingErrorType =
   | 'format_violation'
   | 'knowledge_gap'
   | 'performance'
+  /** F20260818cbkr：degenerate guard 触发（每次退化均落一条） */
+  | 'degenerate'
+  /** F20260818cbkr：熔断重启执行（context.newSessionId 关联新 session） */
+  | 'circuit_break'
   | 'other';
 
 /** Healing event 严重程度 */

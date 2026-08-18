@@ -639,6 +639,7 @@ function createHealingEventTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_healing_events_severity ON healing_events(severity);
     CREATE INDEX IF NOT EXISTS idx_healing_events_created ON healing_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_healing_events_type ON healing_events(error_type);
+    CREATE INDEX IF NOT EXISTS idx_healing_events_otter ON healing_events(otter_id, created_at);
   `);
 }
 

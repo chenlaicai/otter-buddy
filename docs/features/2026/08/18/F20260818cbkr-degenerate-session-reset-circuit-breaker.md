@@ -16,7 +16,7 @@ causal_links:
     - F20260810rsta   # restart_otter 工具（restartSession 从 controller 提取共用）
     - F20260813rstrt  # pendingRestart 自重启延迟执行
 
-status: design
+status: development
 change_type: fix
 tags: [agent, degenerate, circuit-breaker, session-restart, resilience]
 modules:
@@ -163,11 +163,18 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 ### 代码修改
 
-[实现阶段填写]
+- `orchestrator.ts`：routeGuardAbort 入口对每次 degenerate guard 落 healing 事件（recordDegenerateHealingEvent，非致命）；新增 handleCircuitBreak——上限判定（isSessionCircuitBreakCreated）→ 当前消息 failMessage（熔断文案）+ sendSystem（熔断说明）+ TurnResult 携带 `_circuitBreak` 上抛；healingRepo 未注入（isCircuitBreakerEnabled=false）时降级为旧 abort 语义
+- `circuit-break-support.ts`（新文件，interface-adapters/agent-runtime）：熔断执行器——executeCircuitBreakRestart（restart → circuit_break 事件 → true；失败降级 sendSystem 熔断失败说明 + 留痕）、maybeSecondaryCircuitBreak（invoke 前预检：本 session 生命周期内最近 2 turn 窗口 ≥2 次 degenerate → restart）、countDegenerateInTurnWindow（turn 经 messages.turn_id 推导）、前情摘要构建（原始消息 + message_events 工具序列，失败降级短摘要）
+- `agent-invoker.ts`：构造时按 healingRepo 是否注入创建 CircuitBreakSupport（未注入则熔断整体禁用）；invokeConversationInner 在 buildDynamicContext 前挂二级预检；executeTurn 返回后 handleCircuitBreakSignal 检测 `_circuitBreak` → restart 成功则以原 params 递归全新 invokeConversationInner；TurnCallbacks 装配 recordHealingEvent / isSessionCircuitBreakCreated / isCircuitBreakerEnabled
+- `healing-event.ts` / `schema.ts` / healing repo：errorType 枚举扩展 degenerate/circuit_break；healing_events 补 (otter_id, created_at) 索引；新增 findRecentByOtter 查询
+- `platforms.ts`：AgentInvoker 装配 repos.healingEvent
 
 ### 逻辑变更
 
-[实现阶段填写]
+- 二次退化不再直接 abort：先判上限（session 由熔断创建 → abort 终态），否则消息置 failed + 熔断系统消息 + 跨层信号
+- 熔断后的续跑是全新 invokeConversation（sessionSummary 在入口 buildDynamicContext 注入一次的实现红线）
+- 二级触发只统计 createdAt ≥ 当前 session.startedAt 的退化事件（重启前旧事件属于已清空上下文，天然防熔断后无限重启循环）；circuit_break 事件 context.newSessionId 同时服务上限判定与二级防循环
+- 全部 healing 写入与预检均为非致命（失败降级、不阻塞 invoke）
 
 ### 改动范围
 
@@ -177,7 +184,9 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 | src/usecases/conversation/agent-turn-orchestrator/types.ts | 修改 | TurnResult 熔断判别字段；TurnInput 增加 originalUserMessage |
 | src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts | 修改 | 熔断文案、摘要构建纯函数 |
 | src/usecases/conversation/agent-turn-orchestrator/（guard 触发点） | 修改 | degenerate guard 触发时（retry 失败与 abort 两处）经新增 TurnCallbacks healing 事件回调写 healing_events——二级触发与 AT-6 的数据源，漏做则二级触发永远无数据 |
-| src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | 装配 restartSession 与 healing 事件回调；检测熔断信号 → restart + 写 circuit_break 事件 + 全新 invoke；二级触发查询挂载 |
+| src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | 装配 CircuitBreakSupport 与 TurnCallbacks 新回调；检测熔断信号 → 全新 invoke；二级触发预检挂载 |
+| src/interface-adapters/agent-runtime/circuit-break-support.ts | 新增 | 熔断执行器（restart/事件写入/摘要构建/二级预检） |
+| tests/interface-adapters/agent-invoker-circuit-break.test.ts | 新增 | AT-1~AT-4 + 上限 + 失败降级 + 降级配置（repo 未注入走旧 abort） |
 | src/usecases/otter/manage-session.ts | 不改 | restartSession 已满足需求；事件写入在 invoker 层 |
 | src/entities/…/healing-event.ts + src/frameworks/db/schema.ts | 修改 | errorType 枚举扩展 degenerate/circuit_break；healing_events 补 otter_id 索引 |
 
@@ -220,7 +229,7 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 1 严重发现、3 建议发现，全部为完备性/一致性层面（改动范围表漏项、陈旧表述、计数措辞），无设计缺陷。核心代码论断逐条核实通过（routeGuardAbort 结构、信号消费位置、摘要注入时机、healing_events schema、message_events 既有查询方法 getMessageEvents / getLastMessageBySender 均真实存在，无幻路径）。处置：改动范围表补 degenerate 事件写入路径（TurnCallbacks healing 回调）与 types.ts 行；调用方计数改"5 个调用点、4 条路径"；第一轮 pendingRestart 处置加修订标注。
 
-**收敛判定**：三轮发现数 8→9→4 递减，第三轮唯一严重项为表格漏项（非设计缺陷），审视收敛，文档定稿（status: design，待实现）。
+**收敛判定**：三轮发现数 8→9→4 递减，第三轮唯一严重项为表格漏项（非设计缺陷），审视收敛，文档定稿（status: development，待实现）。
 
 ### 第二轮（2026-08-18，审查者：独立 agent 拾遗獭，焦点：第一轮修复新增设计的自身缺陷）
 

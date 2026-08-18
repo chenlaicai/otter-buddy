@@ -104,6 +104,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
     messageBroadcaster, workspaceGateway, repos.settings, agentMetrics,
+    repos.healingEvent,
   );
 
   const cronParser = new SimpleCronParser();

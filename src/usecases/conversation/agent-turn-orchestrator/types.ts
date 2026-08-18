@@ -38,10 +38,25 @@ export interface TurnInput {
   conversationId: string;
   messageId: string;
   userMessageContent: string;
+  /** F20260818cbkr：用户原始消息。retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取此字段 */
+  originalUserMessage: string;
   senderId: string;
   retryCount: number;
   manualRetry: boolean;
   attemptStartTime: number;
+}
+
+/**
+ * F20260818cbkr 熔断信号载荷。挂在 TurnResult 上跨层上抛——
+ * executeTurn 不在循环内消费（区别于 RetryWithNewMessageSignal），
+ * 由 agent-invoker 检测后执行 restartSession + 全新 invoke。
+ */
+export interface CircuitBreakInfo {
+  otterId: string;
+  conversationId: string;
+  originalUserMessage: string;
+  failedMessageId: string;
+  toolCallCount: number;
 }
 
 /** 发言轮结果 */
@@ -50,6 +65,8 @@ export interface TurnResult {
   duration: number;
   tokenUsage?: { input: number; output: number };
   aggregatedTargets?: string[];
+  /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
+  _circuitBreak?: CircuitBreakInfo;
 }
 
 /** 重试信号（degenerate_output 创建新消息重试） */
@@ -74,12 +91,30 @@ export interface AttemptDriver {
   isUserAborted(messageId: string): boolean;
 }
 
+/** F20260818cbkr：healing 事件写入回调入参（完整实体由 invoker 层组装） */
+export interface HealingEventInput {
+  messageId: string;
+  conversationId: string;
+  otterId: string;
+  errorType: "degenerate" | "circuit_break";
+  severity: "low" | "medium" | "high";
+  description: string;
+  suggestion?: string;
+  context?: Record<string, unknown>;
+}
+
 /** TurnCallbacks - orchestrator 回调 adapter 的接口 */
 export interface TurnCallbacks {
   /** 消息生命周期回调 */
   completeMessage(messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }): Promise<{ turnClose: { aggregatedTargets?: string[] } }>;
   failMessage(messageId: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
   abortMessage(messageId: string, input: { body: string; talkingStonePassedTo?: string[] }): Promise<void>;
+  /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
+  recordHealingEvent(input: HealingEventInput): Promise<void>;
+  /** F20260818cbkr：当前 active session 是否由熔断创建（上限判定） */
+  isSessionCircuitBreakCreated(otterId: string): Promise<boolean>;
+  /** F20260818cbkr：熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */
+  isCircuitBreakerEnabled(): boolean;
   /** 广播消息到 Web 和飞书 */
   broadcastMessage(messageId: string): Promise<void>;
   /** 查询消息状态 */

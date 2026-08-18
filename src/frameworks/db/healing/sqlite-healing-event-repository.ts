@@ -48,6 +48,13 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     return rows.map(rowToHealingEvent);
   }
 
+  async findRecentByOtter(otterId: string, errorType: string, limit = 10): Promise<HealingEvent[]> {
+    const rows = this.db.prepare(
+      'SELECT * FROM healing_events WHERE otter_id = ? AND error_type = ? ORDER BY created_at DESC LIMIT ?',
+    ).all(otterId, errorType, limit) as HealingEventRow[];
+    return rows.map(rowToHealingEvent);
+  }
+
   async updateStatus(id: string, status: HealingEventStatus): Promise<void> {
     const now = new Date().toISOString();
     this.db.prepare(
