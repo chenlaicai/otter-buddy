@@ -129,6 +129,7 @@ export function ChatView(props: ChatViewProps) {
         onSend={props.onSend}
         disabled={c?.status === 'archived'}
         otters={props.otters}
+        conversationId={props.conversationId}
       />
     </main>
   )

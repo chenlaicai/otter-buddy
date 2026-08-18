@@ -2,16 +2,18 @@ import { useState, useRef } from 'react'
 import { ArrowUp } from 'lucide-react'
 import type { LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
+import { useDraftCache } from '../../hooks/use-draft-cache'
 
 interface MessageInputProps {
   onSend: (text: string, mentionOtterId?: string) => void
   disabled: boolean
   placeholder?: string
   otters: Otter[]
+  conversationId: string | null
 }
 
-export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭', otters }: MessageInputProps) {
-  const [value, setValue] = useState('')
+export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭', otters, conversationId }: MessageInputProps) {
+  const { draft, saveDraft, clearDraft } = useDraftCache(conversationId)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -25,7 +27,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
-    setValue(val)
+    saveDraft(val)
     autoResize()
 
     // Detect @mention
@@ -47,18 +49,18 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   }
 
   function handleSend() {
-    if (!value.trim() || disabled) return
+    if (!draft.trim() || disabled) return
 
     // Check for @mention
-    const mentionMatch = value.match(/@(\S+)\s/)
+    const mentionMatch = draft.match(/@(\S+)\s/)
     let mentionId: string | undefined
     if (mentionMatch) {
       const mentioned = otters.find(o => o.name === mentionMatch[1])
       if (mentioned) mentionId = mentioned.id
     }
 
-    onSend(value, mentionId)
-    setValue('')
+    onSend(draft, mentionId)
+    clearDraft()
     setMentionQuery(null)
     requestAnimationFrame(() => {
       if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -66,13 +68,13 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   }
 
   function insertMention(name: string) {
-    const cp = textareaRef.current?.selectionStart ?? value.length
-    const before = value.substring(0, cp)
-    const after = value.substring(cp)
+    const cp = textareaRef.current?.selectionStart ?? draft.length
+    const before = draft.substring(0, cp)
+    const after = draft.substring(cp)
     const match = before.match(/@(\w*)$/)
     if (match) {
       const newVal = before.substring(0, match.index) + '@' + name + ' ' + after
-      setValue(newVal)
+      saveDraft(newVal)
       const newPos = (match.index ?? 0) + name.length + 2
       requestAnimationFrame(() => {
         textareaRef.current?.focus()
@@ -120,7 +122,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
           <textarea
             ref={textareaRef}
             rows={1}
-            value={value}
+            value={draft}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             disabled={disabled}
@@ -129,7 +131,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
           />
           <button
             onClick={handleSend}
-            disabled={disabled || !value.trim()}
+            disabled={disabled || !draft.trim()}
             className="w-9 h-9 rounded-2xl text-white flex items-center justify-center shadow-glow transition flex-shrink-0 disabled:opacity-50"
             style={{ background: OTTER_GRADIENT }}
           >
