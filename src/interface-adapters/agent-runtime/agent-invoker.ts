@@ -28,17 +28,9 @@ import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/ag
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
+import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 
-/** Agent 对话调用结果 */
-export interface ConversationInvokeResult {
-  messageId: string;
-  duration: number;
-  tokenUsage?: { input: number; output: number };
-  /** Turn 关闭后的聚合发言石目标 */
-  aggregatedTargets?: string[];
-}
-
-export class AgentInvoker {
+export class AgentInvoker implements AgentTurnPort {
   /** Messages explicitly aborted by the user (written only by abort()) */
   private readonly userAbortedMessages = new Set<string>();
   private readonly orchestrator: AgentTurnOrchestrator;
@@ -86,7 +78,7 @@ export class AgentInvoker {
     retryCount?: number;
     /** F20260814mtrc：Web 手动重试标识（retry label 区分 manual/auto） */
     manualRetry?: boolean;
-  }): Promise<ConversationInvokeResult> {
+  }): Promise<AgentTurnResult> {
     if (getTraceContext().traceId) {
       return this.invokeConversationInner(params);
     }
@@ -101,7 +93,7 @@ export class AgentInvoker {
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     manualRetry?: boolean;
-  }): Promise<ConversationInvokeResult> {
+  }): Promise<AgentTurnResult> {
     const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0 } = params;
     const startTime = Date.now();
 
@@ -455,7 +447,7 @@ export class AgentInvoker {
       manualRetry?: boolean;
     },
     emitEvent: (event: SSEEvent) => void,
-  ): Promise<ConversationInvokeResult | null> {
+  ): Promise<AgentTurnResult | null> {
     if (!turnResult._circuitBreak || !this.circuitBreak) return null;
     const restarted = await this.circuitBreak.executeCircuitBreakRestart(turnResult._circuitBreak, emitEvent);
     if (!restarted) return null;

@@ -14,7 +14,6 @@ import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factor
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import { AgentInvokePortAdapter } from "@usecases/ports/agent-invoke-port";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import type { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
@@ -108,12 +107,11 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   );
 
   const cronParser = new SimpleCronParser();
-  const agentInvokePort = new AgentInvokePortAdapter(agentInvoker);
   const schedulerService = new SchedulerService({
     taskRepo: repos.scheduledTask,
     convRepo: repos.conversation,
     sendMessage: uc.sendMessage,
-    agentInvokePort,
+    agentInvokePort: agentInvoker,
     cronParser,
     logger,
     manageScheduledTask: uc.manageScheduledTask,

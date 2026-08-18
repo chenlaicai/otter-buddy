@@ -3,7 +3,7 @@ import { SchedulerService, type CronParser } from '@usecases/scheduler/scheduler
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
-import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
+import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ManageScheduledTask, TaskChangeCallback } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
@@ -201,7 +201,7 @@ function createMockSendMessage() {
   };
 }
 
-/** 创建 AgentInvokePort 的状态化 mock */
+/** 创建 AgentTurnPort 的状态化 mock */
 function createMockAgentInvoke() {
   /** agent 调用是否应该失败 */
   let shouldFail = false;
@@ -212,8 +212,9 @@ function createMockAgentInvoke() {
       if (shouldFail) {
         throw new Error('Agent invocation failed');
       }
-      return { messageId: 'agent-msg-1' };
+      return { messageId: 'agent-msg-1', duration: 0 };
     }),
+    abort: vi.fn(),
   };
 }
 
@@ -293,7 +294,7 @@ describe('SchedulerService - start/stop', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -332,7 +333,7 @@ describe('SchedulerService - start/stop', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -360,7 +361,7 @@ describe('SchedulerService - start/stop', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -392,7 +393,7 @@ describe('SchedulerService - start/stop', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -435,7 +436,7 @@ describe('SchedulerService - trigger', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -473,7 +474,7 @@ describe('SchedulerService - trigger', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -499,7 +500,7 @@ describe('SchedulerService - trigger', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -530,7 +531,7 @@ describe('SchedulerService - trigger', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -565,7 +566,7 @@ describe('SchedulerService - trigger', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -600,7 +601,7 @@ describe('SchedulerService - trigger', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -648,7 +649,7 @@ describe('SchedulerService - error handling', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -688,7 +689,7 @@ describe('SchedulerService - error handling', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -722,7 +723,7 @@ describe('SchedulerService - error handling', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -769,7 +770,7 @@ describe('SchedulerService - onChange', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
         manageScheduledTask: manageScheduledTask as unknown as ManageScheduledTask,
@@ -807,7 +808,7 @@ describe('SchedulerService - onChange', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
         manageScheduledTask: manageScheduledTask as unknown as ManageScheduledTask,
@@ -857,7 +858,7 @@ describe('SchedulerService - onChange', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
         manageScheduledTask: manageScheduledTask as unknown as ManageScheduledTask,
@@ -898,7 +899,7 @@ describe('SchedulerService - onChange', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
       });
@@ -935,7 +936,7 @@ describe('SchedulerService - onChange', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
       });
@@ -974,14 +975,14 @@ describe('SchedulerService - onChange', () => {
       agentInvoke.invokeConversation = vi.fn(async () => {
         invokeCount++;
         if (invokeCount === 1) throw new Error('agent invoke failed');
-        return { messageId: 'msg-1' };
+        return { messageId: 'msg-1', duration: 0 };
       });
 
       const service = new SchedulerService({
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
       });
@@ -1023,7 +1024,7 @@ describe('SchedulerService - onChange', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date() } as unknown as CronParser,
         logger: mockLogger,
       });
@@ -1072,14 +1073,14 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     };
     agentInvoke.invokeConversation.mockImplementation(async () => {
       invokeCalled = true;
-      return { messageId: 'msg-1' };
+      return { messageId: 'msg-1', duration: 0 };
     });
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
       manageSession: mockManageSession as unknown as ManageSession,
@@ -1113,7 +1114,7 @@ describe('SchedulerService - restartBeforeInvoke', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
       manageSession: mockManageSession as unknown as ManageSession,
@@ -1139,7 +1140,7 @@ describe('SchedulerService - restartBeforeInvoke', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
       // manageSession not injected
@@ -1176,7 +1177,7 @@ describe('SchedulerService - restartBeforeInvoke', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: { getNextTime: () => new Date('2025-01-15T09:00:00.000Z') } as unknown as CronParser,
       logger: mockLogger,
       manageSession: mockManageSession as unknown as ManageSession,

@@ -1,6 +1,6 @@
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
-import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
+import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
@@ -23,7 +23,7 @@ export interface SchedulerServiceOptions {
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
   sendMessage: SendMessage;
-  agentInvokePort: AgentInvokePort;
+  agentInvokePort: AgentTurnPort;
   cronParser: CronParser;
   logger: Logger;
   manageScheduledTask?: ManageScheduledTask;
@@ -41,7 +41,7 @@ export class SchedulerService {
   private readonly taskRepo: ScheduledTaskRepository;
   private readonly convRepo: ConversationRepository;
   private readonly sendMessage: SendMessage;
-  private readonly agentInvokePort: AgentInvokePort;
+  private readonly agentInvokePort: AgentTurnPort;
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
