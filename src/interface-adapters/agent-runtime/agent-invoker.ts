@@ -1,6 +1,6 @@
 /* eslint-disable max-lines */
 import type { SdkInvokePort, AgentStreamEvent, DynamicContext } from "@usecases/ports/sdk-invoke-port";
-import type { SendMessage, MessageEventInput } from "@usecases/conversation/send-message";
+import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -13,6 +13,10 @@ import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort, InvokeOutcome, InvokeOutcomeRecord } from "@usecases/ports/agent-metrics-port";
 import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
+import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
+import { classifyExit, exitKindToOutcome } from "@usecases/conversation/agent-turn-orchestrator/exit-classifier";
+import type { ExitReason } from "@usecases/conversation/agent-turn-orchestrator/exit-classifier";
+import { isRetryableGuardAbort, buildRetryFailBody, buildSpeakRetryMsg, buildGuardAbortBody, buildUserAbortBody } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
 type ErrorWithToolCallCount = Error & {
@@ -43,99 +47,7 @@ export interface ConversationInvokeResult {
   aggregatedTargets?: string[];
 }
 
-/** Agent invocation exit reason classification */
-type ExitReason =
-  | { kind: 'user_abort'; toolCallCount: number }
-  | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
-  | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
-  | { kind: 'no_speak'; toolCallCount: number };
 
-/** Pi 事件 -> SSE 事件映射 */
-/** 从 message_end 事件提取 assistant 内容块（过滤 user/toolResult） */
-function extractAssistantContent(e: AgentStreamEvent): { type: "toolcall" | "text"; blocks: Array<Record<string, unknown>> } | null {
-  const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
-  const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
-  const role = msg?.role as string | undefined;
-  const content = msg?.content as Array<Record<string, unknown>> | undefined;
-  if (!content || role === "user" || role === "toolResult") return null;
-  const toolCalls = content.filter((c) => c.type === "toolCall");
-  if (toolCalls.length > 0) return { type: "toolcall", blocks: toolCalls };
-  const textBlocks = content.filter((c) => c.type === "text");
-  return textBlocks.length > 0 ? { type: "text", blocks: textBlocks } : null;
-}
-
-/** R20260810piab 遗漏 1：SDK 结构化事件 → SSE 事件映射（auto_retry / compaction，之前被丢弃） */
-const SDK_EVENT_SSE_MAP: Record<string, string> = {
-  auto_retry_start: "agent.retry_start",
-  auto_retry_end: "agent.retry_end",
-  compaction_start: "agent.compaction_start",
-  compaction_end: "agent.compaction_end",
-};
-
-/** 从 SDK 事件提取结构化字段（透传到 SSE data） */
-function extractSdkEventFields(e: AgentStreamEvent): Record<string, unknown> {
-  switch (e.type) {
-    case "auto_retry_start":
-      return { attempt: e.attempt, maxAttempts: e.maxAttempts, delayMs: e.delayMs, errorMessage: e.errorMessage };
-    case "auto_retry_end":
-      return { success: e.success, attempt: e.attempt, finalError: e.finalError };
-    case "compaction_start":
-      return { reason: e.reason };
-    case "compaction_end":
-      return { reason: e.reason, aborted: e.aborted, willRetry: e.willRetry, errorMessage: e.errorMessage };
-    default:
-      return {};
-  }
-}
-
-function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
-  const sseEventName = SDK_EVENT_SSE_MAP[e.type];
-  if (sseEventName) {
-    return { event: sseEventName, data: extractSdkEventFields(e) };
-  }
-  switch (e.type) {
-    case "tool_execution_end":
-      return { event: "tool.result", data: { toolName: e.name ?? e.toolName ?? "", result: e.result } };
-    case "message_end": {
-      const extracted = extractAssistantContent(e);
-      if (!extracted) return null;
-      const event = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
-      return { event, data: { content: extracted.blocks } };
-    }
-    case "turn_end":
-      return null;
-    case "agent_end":
-      return { event: "agent.idle", data: {} };
-    default:
-      return null;
-  }
-}
-
-/** 从 message_end 事件提取可存储的 MessageEventInput */
-function mapMessageEndEvent(e: AgentStreamEvent, messageId: string): MessageEventInput | null {
-  const extracted = extractAssistantContent(e);
-  if (!extracted) return null;
-  const eventType = extracted.type === "toolcall" ? "assistant_toolcall" : "assistant_text";
-  return { messageId, eventType, payload: { content: extracted.blocks } };
-}
-
-/** Pi 事件 -> MessageEventInput 映射（持久化到 DB） */
-function mapToMessageEventInput(
-  e: AgentStreamEvent,
-  messageId: string,
-): MessageEventInput | null {
-  switch (e.type) {
-    case "tool_execution_end":
-      return { messageId, eventType: "tool_result", payload: { name: e.name ?? e.toolName, result: e.result } };
-    case "message_end":
-      return mapMessageEndEvent(e, messageId);
-    default:
-      if (String(e.type).includes("error")) {
-        return { messageId, eventType: "error", payload: { message: String(e.error ?? e.message ?? "Unknown error") } };
-      }
-      return null;
-  }
-}
 
 export class AgentInvoker {
   /** Messages explicitly aborted by the user (written only by abort()) */
@@ -418,7 +330,7 @@ export class AgentInvoker {
     if (speakingHandled) return speakingHandled;
 
     // 2. Classify exit reason and route
-    const reason = this.classifyExit({ messageId, result, err, toolCallCount });
+    const reason = classifyExit({ messageId, result, err, toolCallCount }, this.userAbortedMessages, (id) => this.agentInvoke.getInternalAbortReason(id));
 
     // F20260814mtrc：失败 attempt 在分类后、路由前记录（duration 不含后续重试链的 await）
     this.recordFailedAttempt(reason, {
@@ -459,7 +371,7 @@ export class AgentInvoker {
        * 早返回会绕过 classifyAndRoute，此前整条 attempt 漏记。此处按退出分类补记 outcome。
        */
       const outcome = this.exitKindToOutcome(
-        this.classifyExit({ messageId: p.messageId, err: p.err, toolCallCount: 0 }).kind,
+        classifyExit({ messageId: p.messageId, err: p.err, toolCallCount: 0 }, this.userAbortedMessages, (id) => this.agentInvoke.getInternalAbortReason(id)).kind,
         p.retryCount,
       );
       return this.completeAgentInvocation({
@@ -495,39 +407,6 @@ export class AgentInvoker {
       default:
         return Promise.resolve({ messageId, duration: Date.now() - startTime });
     }
-  }
-
-  /** Classify the exit reason from invocation result or error */
-  private classifyExit(p: {
-    messageId: string;
-    result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
-    err?: unknown;
-    toolCallCount: number;
-  }): ExitReason {
-    if (this.userAbortedMessages.has(p.messageId)) {
-      return { kind: 'user_abort', toolCallCount: p.toolCallCount };
-    }
-
-    const guardReason = this.extractGuardReason(p.messageId, p.result, p.err);
-    if (guardReason) {
-      return { kind: 'guard_abort', guardReason, toolCallCount: p.toolCallCount };
-    }
-
-    if (p.err) {
-      const msg = p.err instanceof Error ? p.err.message : String(p.err);
-      return { kind: 'api_error', errorMessage: msg, toolCallCount: p.toolCallCount };
-    }
-
-    return { kind: 'no_speak', toolCallCount: p.toolCallCount };
-  }
-
-  /** Extract guard abort reason from result or error (single source of truth) */
-  private extractGuardReason(messageId: string, result?: unknown, err?: unknown): string | undefined {
-    const fromResult = (result as Record<string, unknown>)?._guardAbortReason as string | undefined;
-    if (fromResult) return fromResult;
-    const fromErr = (err as { _guardAbortReason?: string })?._guardAbortReason;
-    if (fromErr) return fromErr;
-    return this.agentInvoke.getInternalAbortReason(messageId);
   }
 
   /** Handle user abort: speaking guard → abort terminal */
@@ -644,10 +523,10 @@ export class AgentInvoker {
     const { messageId, otterId, senderId, startTime, emitEvent, onSSEEvent, userMessageContent, conversationId } = p;
     if (!conversationId || !userMessageContent) {
       this.logger.warn('Auto-retry skipped: missing conversationId or userMessageContent', { messageId, otterId });
-      return this.failTerminal(p, this.buildRetryFailBody(reason));
+      return this.failTerminal(p, buildRetryFailBody(reason));
     }
 
-    const failBody = `[系统] ${this.buildRetryFailBody(reason)}, 正在自动重试`;
+    const failBody = `[系统] ${buildRetryFailBody(reason)}, 正在自动重试`;
 
     try { await this.sendMessage.fail(messageId, failBody); } catch { /* ignore */ }
     const otter = await this.queryOtter.getById(otterId);
@@ -666,13 +545,9 @@ export class AgentInvoker {
     return { messageId, duration: Date.now() - startTime };
   }
 
-  /** Check if guard abort reason is retryable */
+  /** Check if guard abort reason is retryable (delegated to retry-policy) */
   private isRetryableGuardAbort(reason: string): boolean {
-    if (reason === 'degenerate_output') return false;
-    if (reason === 'streaming_timeout') return true;
-    if (reason === 'first_byte_timeout') return true;
-    if (reason.startsWith('circuit_break:')) return true;
-    return false;
+    return isRetryableGuardAbort(reason);
   }
 
   /**
@@ -708,31 +583,20 @@ export class AgentInvoker {
     }
   }
 
-  /** 构造自动重试的过渡态消息 */
+  /** 构造自动重试的过渡态消息 (delegated to retry-policy) */
   private buildRetryFailBody(reason: string): string {
-    if (reason === "streaming_timeout") return "生成过程超时";
-    if (reason === "first_byte_timeout") return "模型响应超时";
-    if (reason.startsWith("circuit_break:")) return "工具调用异常";
-    if (reason === "api_error") return "模型服务异常";
-    return "执行异常";
+    return buildRetryFailBody(reason);
   }
 
   /** Build abort body: user abort vs guard abort */
   private async buildAbortBody(kind: 'user' | 'guard', guardReason: string | undefined, toolCallCount: number, _otterId: string): Promise<string> {
     if (kind === 'guard') {
-      if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';
-      if (guardReason === 'streaming_timeout') return '[系统保护] 生成过程超时，已自动中断。';
-      if (guardReason === 'first_byte_timeout') return '[系统保护] 模型响应超时，已自动中断。';
-      if (guardReason?.startsWith('circuit_break:')) {
-        if (guardReason.includes('event_timeout')) return '[系统保护] 单次工具调用超时，已自动中断。';
-        return '[系统保护] 检测到工具调用异常循环，已自动中断。';
-      }
-      return '[系统保护] 输出异常，已自动中断。';
+      return buildGuardAbortBody(guardReason);
     }
 
     // User abort
     const partnerLabel = this.settingsRepo ? ((await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
-    return `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
+    return buildUserAbortBody(toolCallCount, partnerLabel);
   }
 
   /**
@@ -931,12 +795,9 @@ export class AgentInvoker {
     });
   }
 
-  /** 构建 speak 重试的系统提醒消息 */
+  /** 构建 speak 重试的系统提醒消息 (delegated to retry-policy) */
   private buildSpeakRetryMsg(toolCallCount?: number): string {
-    const isThinkingOnly = (toolCallCount ?? 0) === 0;
-    return isThinkingOnly
-      ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
-      : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
+    return buildSpeakRetryMsg(toolCallCount);
   }
 
   /** 中断 Agent 生成（UA-2: 调用 SdkInvokePort.abort()）；标记按 messageId 键控 */
@@ -999,18 +860,9 @@ export class AgentInvoker {
     if (e.isError === true) this.metrics?.recordToolError(tool);
   }
 
-  /** ExitReason.kind → outcome 枚举映射（tryCompleteSpeaking err 收尾复用） */
+  /** ExitReason.kind → outcome 枚举映射（tryCompleteSpeaking err 收尾复用，delegated to exit-classifier） */
   private exitKindToOutcome(kind: ExitReason["kind"], retryCount: number): InvokeOutcome {
-    switch (kind) {
-      case 'user_abort':
-        return 'user_abort';
-      case 'guard_abort':
-        return 'guard_abort';
-      case 'api_error':
-        return 'api_error';
-      default:
-        return retryCount === 0 ? 'no_speak_retry' : 'no_speak_failed';
-    }
+    return exitKindToOutcome(kind, retryCount);
   }
 
   /** attempt 记录去重键（PR 审视 P0-1：防 classifyAndRoute 重入双计） */
