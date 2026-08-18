@@ -7,6 +7,8 @@ export interface HealingEventRepository {
   findOpen(limit?: number): Promise<HealingEvent[]>;
   findAll(status: HealingEventStatus, limit?: number): Promise<HealingEvent[]>;
   findByConversation(conversationId: string): Promise<HealingEvent[]>;
+  /** F20260818cbkr：按 otter 查最近指定类型事件（created_at 倒序），熔断判定数据源 */
+  findRecentByOtter(otterId: string, errorType: string, limit?: number): Promise<HealingEvent[]>;
   updateStatus(id: string, status: HealingEventStatus): Promise<void>;
   resolve(id: string, resolution: HealingResolution): Promise<void>;
   getStats(): Promise<HealingEventStats>;

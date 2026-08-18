@@ -16,7 +16,7 @@ import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
-import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildSpeakRetryMsg } from "./retry-policy";
+import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildSpeakRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
 
@@ -122,6 +122,8 @@ export class AgentTurnOrchestrator {
             messageId: retrySignal.newMessageId,
             retryCount: 1,
             userMessageContent: retrySignal.retryMsg,
+            // F20260818cbkr：保留 retry 前首条消息 id（工作进度主要在此，熔断摘要合并取用）
+            preRetryMessageId: currentInput.preRetryMessageId ?? currentInput.messageId,
           };
           continue;
         }
@@ -264,7 +266,7 @@ export class AgentTurnOrchestrator {
     return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'user' });
   }
 
-  /** Route guard abort: degenerate retry → auto-retry → abort terminal */
+  /** Route guard abort: degenerate retry → degenerate circuit break → auto-retry → abort terminal */
   private async routeGuardAbort(
     reason: ExitReason & { kind: 'guard_abort' },
     ctx: RouteContext,
@@ -272,8 +274,17 @@ export class AgentTurnOrchestrator {
     const { guardReason } = reason;
     const { retryCount } = ctx.input;
 
+    if (guardReason === 'degenerate_output') {
+      await this.recordDegenerateHealingEvent(ctx);
+    }
+
     if (guardReason === 'degenerate_output' && retryCount === 0) {
       return this.handleDegenerateRetry(ctx);
+    }
+
+    // F20260818cbkr：带污重试再次退化 → 熔断重启（上限判定在 handleCircuitBreak）
+    if (guardReason === 'degenerate_output' && retryCount > 0) {
+      return this.handleCircuitBreak(ctx);
     }
 
     if (retryCount === 0 && isRetryableGuardAbort(guardReason)) {
@@ -286,6 +297,104 @@ export class AgentTurnOrchestrator {
     }
 
     return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
+  }
+
+  /** F20260818cbkr：degenerate guard 每次触发都落 healing_events（二级触发与观测的数据源，非致命） */
+  private async recordDegenerateHealingEvent(ctx: RouteContext): Promise<void> {
+    try {
+      await ctx.callbacks.recordHealingEvent({
+        messageId: ctx.input.messageId,
+        conversationId: ctx.input.conversationId,
+        otterId: ctx.input.otterId,
+        errorType: "degenerate",
+        severity: "high",
+        description: `检测到输出异常重复（retry=${ctx.input.retryCount}）`,
+        suggestion: "连续退化将触发熔断重启（F20260818cbkr）",
+        context: { retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
+      });
+    } catch (err) {
+      ctx.callbacks.logger.warn('degenerate healing event record failed (non-fatal)', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * F20260818cbkr 一级熔断：degenerate retry 本身再次退化。
+   * 当前消息收尾为 failed + 熔断说明；熔断信号跨层上抛（executeTurn 不消费），
+   * 由 agent-invoker 执行 restartSession + 写 circuit_break 事件 + 全新 invoke。
+   */
+  private async handleCircuitBreak(ctx: RouteContext): Promise<TurnResult> {
+    // 熔断依赖 healing_events 状态载体（上限/二级判定）；不可用时降级为旧 abort 语义
+    if (!ctx.callbacks.isCircuitBreakerEnabled()) {
+      return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason: 'degenerate_output' });
+    }
+
+    this.logger.info('Circuit break triggered', {
+      messageId: ctx.input.messageId,
+      otterId: ctx.input.otterId,
+      conversationId: ctx.input.conversationId,
+    });
+
+    // 熔断上限：当前 session 已由熔断创建，再退化说明非上下文污染问题 → 直接终态
+    let circuitBreakCreated = false;
+    try {
+      circuitBreakCreated = await ctx.callbacks.isSessionCircuitBreakCreated(ctx.input.otterId);
+    } catch (err) {
+      ctx.callbacks.logger.warn('circuit break session check failed, treating as not created', {
+        otterId: ctx.input.otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (circuitBreakCreated) {
+      this.logger.warn('Circuit break limit reached, aborting', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+      });
+      return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason: 'degenerate_output' });
+    }
+
+    const failBody = buildCircuitBreakFailBody();
+    try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
+
+    const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+    this.safeEmitEvent(ctx.callbacks, {
+      event: "message.failed",
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
+    });
+
+    /**
+     * sendSystem 是通知性 IO——失败仅留痕,不放弃 restartSession(治疗动作)。
+     * (不回退 abortTerminal:消息已 failed,再广播 aborted 会与熔断文案矛盾)
+     */
+    try {
+      const sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, buildCircuitBreakSystemMsg());
+      this.safeEmitEvent(ctx.callbacks, {
+        event: "system.message",
+        data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+      });
+    } catch (err) {
+      this.logger.warn('sendSystem failed during circuit break (non-fatal, restart continues)', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return {
+      messageId: ctx.input.messageId,
+      duration: Date.now() - ctx.startTime,
+      _circuitBreak: {
+        otterId: ctx.input.otterId,
+        conversationId: ctx.input.conversationId,
+        originalUserMessage: ctx.input.originalUserMessage,
+        failedMessageId: ctx.input.messageId,
+        firstMessageId: ctx.input.preRetryMessageId ?? ctx.input.messageId,
+        toolCallCount: ctx.toolCallCount,
+      },
+    };
   }
 
   /** Handle degenerate retry: abort + system reminder + retry */

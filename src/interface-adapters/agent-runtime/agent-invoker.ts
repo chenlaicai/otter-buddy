@@ -23,9 +23,11 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
-import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape } from "@usecases/conversation/agent-turn-orchestrator/types";
+import { CircuitBreakSupport } from "./circuit-break-support";
+import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
 
 /** Agent 对话调用结果 */
 export interface ConversationInvokeResult {
@@ -40,6 +42,8 @@ export class AgentInvoker {
   /** Messages explicitly aborted by the user (written only by abort()) */
   private readonly userAbortedMessages = new Set<string>();
   private readonly orchestrator: AgentTurnOrchestrator;
+  /** F20260818cbkr：熔断执行器（healingRepo 未注入时为 null，熔断禁用） */
+  private readonly circuitBreak: CircuitBreakSupport | null;
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -54,8 +58,13 @@ export class AgentInvoker {
     private readonly settingsRepo?: SettingsRepository,
     /** F20260814mtrc：可选注入，缺省 no-op（不破坏既有测试） */
     private readonly metrics?: AgentMetricsPort,
+    /** F20260818cbkr：可选注入，缺省禁用熔断（不破坏既有测试） */
+    private readonly healingRepo?: HealingEventRepository,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
+    this.circuitBreak = healingRepo
+      ? new CircuitBreakSupport({ manageSession, queryMessage, sendMessage, healingRepo, logger })
+      : null;
   }
 
   /**
@@ -93,7 +102,7 @@ export class AgentInvoker {
     retryCount?: number;
     manualRetry?: boolean;
   }): Promise<ConversationInvokeResult> {
-    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0, manualRetry = false } = params;
+    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0 } = params;
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -112,6 +121,8 @@ export class AgentInvoker {
     });
 
     this.logger.debug('Building dynamic context', { otterId });
+    /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
+    await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
     const dynamicContext = await this.buildDynamicContext(otterId);
     await this.injectWorkspacePath(dynamicContext, conversationId);
     this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary, hasWorkspace: !!dynamicContext.workspacePath });
@@ -134,20 +145,17 @@ export class AgentInvoker {
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent);
       const callbacks = this.createTurnCallbacks(emitEvent);
 
-      // 创建 TurnInput
-      const turnInput: TurnInput = {
-        otterId,
-        conversationId,
-        messageId: message.id,
-        userMessageContent,
-        senderId,
-        retryCount,
-        manualRetry,
-        attemptStartTime: startTime,
-      };
+      const turnInput = this.buildTurnInput(params, message.id, startTime);
 
       // 委托给 orchestrator 执行
       const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
+
+      /**
+       * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
+       * restart + 写 circuit_break 事件 + 全新 invoke（新入口重新 buildDynamicContext，前情摘要随新 session.summary 注入）。
+       */
+      const retried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
+      if (retried) return retried;
 
       return {
         messageId: turnResult.messageId,
@@ -237,6 +245,17 @@ export class AgentInvoker {
 
       abortMessage: async (messageId: string, input: { body: string; talkingStonePassedTo?: string[] }) => {
         await this.sendMessage.abort(messageId, { body: input.body, talkingStonePassedTo: input.talkingStonePassedTo ?? [] });
+      },
+
+      recordHealingEvent: async (input: HealingEventInput) => {
+        if (!this.circuitBreak) return;
+        await this.circuitBreak.recordHealingEvent(input);
+      },
+
+      isCircuitBreakerEnabled: () => !!this.circuitBreak,
+
+      isSessionCircuitBreakCreated: async (otterId: string) => {
+        return this.circuitBreak ? this.circuitBreak.isSessionCircuitBreakCreated(otterId) : false;
       },
 
       getMessageById: async (messageId: string) => {
@@ -385,12 +404,66 @@ export class AgentInvoker {
     return ctx;
   }
 
+  /** 构建 TurnInput。F20260818cbkr：originalUserMessage 单独保留——retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取原始消息 */
+  private buildTurnInput(
+    params: { otterId: string; conversationId: string; userMessageContent: string; senderId: string; retryCount?: number; manualRetry?: boolean },
+    messageId: string,
+    startTime: number,
+  ): TurnInput {
+    const { otterId, conversationId, userMessageContent, senderId, retryCount = 0, manualRetry = false } = params;
+    return {
+      otterId,
+      conversationId,
+      messageId,
+      userMessageContent,
+      originalUserMessage: params.userMessageContent,
+      senderId,
+      retryCount,
+      manualRetry,
+      attemptStartTime: startTime,
+    };
+  }
+
   /** 注入对话工作区路径到 DynamicContext */
   private async injectWorkspacePath(ctx: DynamicContext, conversationId: string): Promise<void> {
     if (!this.workspaceGateway) return;
     const ok = await this.workspaceGateway.exists(conversationId);
     if (ok) {
       ctx.workspacePath = this.workspaceGateway.getWorkspacePath(conversationId);
+    }
+  }
+
+  /**
+   * F20260818cbkr：熔断信号处理。restart 成功 → 全新 invoke 的结果；未触发或降级返回 null。
+   * 全新 invoke 是硬约束：sessionSummary 仅在 invokeConversation 入口 buildDynamicContext 注入一次，
+   * orchestrator 内 continue 拿不到新 session 的前情摘要（详见 F20260818cbkr 实现红线）。
+   */
+  private async handleCircuitBreakSignal(
+    turnResult: { _circuitBreak?: CircuitBreakInfo },
+    params: {
+      otterId: string;
+      conversationId: string;
+      userMessageContent: string;
+      senderId: string;
+      onSSEEvent?: (event: SSEEvent) => void;
+      retryCount?: number;
+      manualRetry?: boolean;
+    },
+    emitEvent: (event: SSEEvent) => void,
+  ): Promise<ConversationInvokeResult | null> {
+    if (!turnResult._circuitBreak || !this.circuitBreak) return null;
+    const restarted = await this.circuitBreak.executeCircuitBreakRestart(turnResult._circuitBreak, emitEvent);
+    if (!restarted) return null;
+    try {
+      /** retryCount 归零：新 session 语义上等同新 invoke，首次退化应获得自我纠正机会而非直达熔断判定 */
+      return await this.invokeConversationInner({ ...params, retryCount: 0, manualRetry: false });
+    } catch (err) {
+      /** 递归失败不掩盖已完成的熔断收尾：降级返回原 turnResult（消息已 failed，系统消息已发） */
+      this.logger.error('Circuit break re-invoke failed, falling back to interrupted state', err instanceof Error ? err : new Error(String(err)), {
+        otterId: params.otterId,
+        conversationId: params.conversationId,
+      });
+      return null;
     }
   }
 }
