@@ -1,4 +1,3 @@
-/* eslint-disable max-lines */
 /**
  * AgentInvoker - SDK 调用适配器
  *
@@ -25,7 +24,7 @@ import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
-import type { TurnInput, TurnResult, AttemptDriver, TurnCallbacks, InvokeResultShape, ErrorWithToolCallCount } from "@usecases/conversation/agent-turn-orchestrator/types";
+import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape } from "@usecases/conversation/agent-turn-orchestrator/types";
 
 /** Agent 对话调用结果 */
 export interface ConversationInvokeResult {
@@ -132,7 +131,7 @@ export class AgentInvoker {
     return runWithTrace({ messageId: message.id }, async () => {
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent);
-      const callbacks = this.createTurnCallbacks(emitEvent, conversationId);
+      const callbacks = this.createTurnCallbacks(emitEvent);
 
       // 创建 TurnInput
       const turnInput: TurnInput = {
@@ -224,7 +223,6 @@ export class AgentInvoker {
   /** 创建 TurnCallbacks：消息生命周期 + SSE 事件推送 */
   private createTurnCallbacks(
     emitEvent: (event: SSEEvent) => void,
-    conversationId: string,
   ): TurnCallbacks {
     return {
       completeMessage: async (messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }) => {
