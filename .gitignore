@@ -65,8 +65,9 @@ temp/
 
 # Database files
 data/*.db
-data/*.db-shm
-data/*.db-wal
+*.db
+*.db-shm
+*.db-wal
 
 # Agent sessions
 data/sessions/

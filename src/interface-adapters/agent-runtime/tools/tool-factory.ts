@@ -17,81 +17,9 @@ import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-schedu
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
-
-/**
- * F20260813actk C9：待派工票据的软守卫——检查未派工并提醒（不清除票据）。
- * 若本轮创建的小獭仍有未获行动权的、且本次未提醒过，返回提醒文案（调用方以 terminate=false 返回）。
- * 返回 null 表示无需提醒，可正常提交 speak。
- *
- * 票据清除不在此函数做——移到 startSpeaking 成功后（confirmDispatchesClear）。
- * 若按"意图"提前清除，startSpeaking 失败（如 db locked）会泄漏票据：大獭重试 speak(user) 不再被提醒。
- *
- * 同批调用限制：SDK 默认并行执行同批工具。create_otter 与 speak 同批调用时，
- * create_otter 的 pendingDispatches.set() 可能晚于 speak 的检查执行——C9 只可靠
- * 覆盖串行调用场景（create 先完成返回，speak 后调用）。同批 create+speak(to user)
- * 由 prompt 层（C8 description + C1 skill 工作流 + C2 reframe）保证大獭不产生该路径。
- */
-function checkPendingDispatches(
-  ctx: ToolContext,
-  resolvedIds: string[],
-  recipients: string[],
-): string | null {
-  const pending = ctx.pendingDispatches;
-  if (!pending) return null;
-  const remaining = [...pending.entries()].filter(([id]) => !resolvedIds.includes(id));
-  if (remaining.length === 0 || ctx.dispatchWarningShown) return null;
-  const names = remaining.map(([, name]) => name).join("、");
-  ctx.dispatchWarningShown = true;
-  return (
-    `[系统状态] 你本轮创建的小獭还有 ${remaining.length} 只未获得行动权：${names}。它们不会被唤醒执行。` +
-    `如果你确实要把行动权交给 [${recipients.join("、")}]，再次调用 speak 即可放行；` +
-    `如果是漏派，请把 ${names} 加入 talkingStonePassedTo 后重新调用 speak。`
-  );
-}
-
-/** F20260813actk C9：startSpeaking 提交成功后确认清除已派工票据（按"提交成功"清，非按"意图"清） */
-function confirmDispatchesClear(ctx: ToolContext, resolvedIds: string[]): void {
-  const pending = ctx.pendingDispatches;
-  if (!pending) return;
-  for (const id of resolvedIds) pending.delete(id);
-}
-
-/** F20260803trrf: name->id resolve（NFC 归一化），speak 改用名字，系统侧做映射 */
-function resolveTalkingStoneTargets(
-  recipients: string[],
-  active: Array<{ otterId: string; otterName: string }>,
-): { resolvedIds: string[]; invalid: string[] } {
-  const byName = new Map<string, string>();
-  for (const p of active) byName.set(p.otterName.normalize("NFC"), p.otterId);
-  /** 用 Set 去重，防止 LLM 传重复名字导致 DB 存重复 otterId（F20260803trrf review P3） */
-  const resolvedSet = new Set<string>();
-  const invalid: string[] = [];
-  for (const r of recipients) {
-    if (r === "user") { resolvedSet.add("user"); continue; }
-    const id = byName.get(r.normalize("NFC"));
-    if (id) resolvedSet.add(id); else invalid.push(r);
-  }
-  return { resolvedIds: [...resolvedSet], invalid };
-}
-
-/** F20260803trrf: 校验 + resolve，降低 execute 复杂度 */
-function validateAndResolve(
-  recipients: string[],
-  active: Array<{ otterId: string; otterName: string }>,
-  selfOtterId: string,
-): { resolvedIds: string[]; error?: string } {
-  if (!recipients || recipients.length === 0) return { resolvedIds: [], error: "[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者名字。" };
-  const { resolvedIds, invalid } = resolveTalkingStoneTargets(recipients, active);
-  if (resolvedIds.includes(selfOtterId)) {
-    const myName = active.find(p => p.otterId === selfOtterId)?.otterName ?? selfOtterId;
-    return { resolvedIds: [], error: `[错误] 不能把行动权传给自己（${myName}）。请选择其他参与者。` };
-  }
-  if (invalid.length > 0) {
-    const options = [...active.map(p => p.otterName), "搭档('user')"].join("、");
-    return { resolvedIds: [], error: `[错误] 行动权目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 speak。` };
-  }
-  return { resolvedIds };
-}
+// R20260817arnt PR-B：领域规则下沉到 usecases 层
+import { validateAndResolve } from "@usecases/conversation/talking-stone";
+import { checkPendingDispatches, confirmDispatchesClear } from "@usecases/conversation/dispatch-guard";
 
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
