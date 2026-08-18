@@ -280,14 +280,20 @@ export class SqliteConversationRepository implements ConversationRepository {
     })();
   }
 
-  async failMessage(messageId: string, failedAt: string, talkingStonePassedTo?: string[]): Promise<void> {
+  async failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void> {
     this.db.transaction(() => {
+      // 插入 fail body segment（原子）
+      if (body) {
+        const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
+        this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-fail-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
+      }
       const updates: string[] = ["status = 'failed'", "completed_at = ?"];
       const params: unknown[] = [failedAt];
       if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
       params.push(messageId);
       const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status IN ('streaming', 'speaking')`).run(...params);
       if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+      if (body) this.refreshMessageFts(messageId);
     })();
   }
 
@@ -356,13 +362,19 @@ export class SqliteConversationRepository implements ConversationRepository {
     );
   }
 
-  async abortMessage(messageId: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
+  async abortMessage(messageId: string, body: string, talkingStonePassedTo: string[], abortedAt: string): Promise<void> {
     this.db.transaction(() => {
+      // 插入 abort body segment（原子，非空 body 才插入）
+      if (body) {
+        const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
+        this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-abort-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
+      }
       const result = this.db.prepare(`
         UPDATE messages SET status = 'aborted', talking_stone_passed_to = ?, completed_at = ?
         WHERE id = ? AND status IN ('streaming', 'speaking')
       `).run(JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
       if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+      if (body) this.refreshMessageFts(messageId);
     })();
   }
 

@@ -65,7 +65,7 @@ export interface ConversationRepository {
     contextTokens?: number;
     contextTokensMax?: number;
   }): Promise<void>;
-  failMessage(messageId: string, failedAt: string, talkingStonePassedTo?: string[]): Promise<void>;
+  failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
   /** 服务重启兜底：将所有遗留 streaming/speaking 消息标记为 failed，插入系统提示 segment，返回处理条数 */
   failInFlightMessages(failedAt: string, noticeBody: string): Promise<number>;
   /** 服务重启兜底：关闭不再有进行中消息的 open turn（配合 failInFlightMessages），返回关闭条数 */
@@ -74,9 +74,10 @@ export interface ConversationRepository {
   resetForStreaming(messageId: string, turnId: string): Promise<void>;
   /** 更新消息的 token 使用量（yield complete 后补充写入） */
   updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
-  /** 中止消息：streaming -> aborted（talkingStonePassedTo 必须非空） */
+  /** 中止消息：streaming -> aborted（body + talkingStonePassedTo 同一事务写入） */
   abortMessage(
     messageId: string,
+    body: string,
     talkingStonePassedTo: string[],
     abortedAt: string,
   ): Promise<void>;

@@ -378,7 +378,7 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
         status: "streaming",
       }));
 
-      await repo.failMessage("msg-streaming", "2026-07-22T00:02:00Z");
+      await repo.failMessage("msg-streaming", "2026-07-22T00:02:00Z", undefined);
 
       const result = await repo.getMessageById("msg-streaming");
       expect(result!.status).toBe("failed");
@@ -390,7 +390,7 @@ describe("SqliteConversationRepository - 消息状态转换与查询", () => {
       await repo.createTurn(turnFixture());
       await repo.createCompletedMessage(messageFixture());
 
-      await expect(repo.failMessage("msg-1", "2026-07-22T00:02:00Z")).rejects.toThrow(
+      await expect(repo.failMessage("msg-1", "2026-07-22T00:02:00Z", undefined)).rejects.toThrow(
         /not found or not in streaming\/speaking status/,
       );
     });
@@ -424,7 +424,7 @@ describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724c
       }));
       await repo.appendSegment("msg-streaming", "中止内容");
 
-      await repo.abortMessage("msg-streaming", ["otter-1"], "2026-07-22T00:02:00Z");
+      await repo.abortMessage("msg-streaming", "", ["otter-1"], "2026-07-22T00:02:00Z");
 
       const result = await repo.getMessageById("msg-streaming");
       expect(result!.status).toBe("aborted");
@@ -438,7 +438,7 @@ describe("SqliteConversationRepository - 中止/查询/重启兜底（F20260724c
       await repo.createTurn(turnFixture());
       await repo.createCompletedMessage(messageFixture());
 
-      await expect(repo.abortMessage("msg-1", [], "2026-07-22T00:02:00Z")).rejects.toThrow(
+      await expect(repo.abortMessage("msg-1", "", [], "2026-07-22T00:02:00Z")).rejects.toThrow(
         /not found or not in streaming\/speaking status/,
       );
     });
@@ -807,7 +807,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
     await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
-    await repo.failMessage("msg-1", "2026-07-22T00:02:00Z");
+    await repo.failMessage("msg-1", "2026-07-22T00:02:00Z", undefined);
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("awaiting_user");
@@ -817,7 +817,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
     await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
-    await repo.abortMessage("msg-1", ["user"], "2026-07-22T00:02:00Z");
+    await repo.abortMessage("msg-1", "", ["user"], "2026-07-22T00:02:00Z");
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("awaiting_user");

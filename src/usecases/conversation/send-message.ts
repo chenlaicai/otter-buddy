@@ -299,11 +299,8 @@ export class SendMessage {
       throw new DomainError(`Cannot fail message with status: ${message.status}`, "validation");
     }
 
-    if (body) {
-      await this._repo.appendSegment(messageId, body);
-    }
     const now = new Date().toISOString();
-    await this._repo.failMessage(messageId, now, talkingStonePassedTo);
+    await this._repo.failMessage(messageId, now, body, talkingStonePassedTo);
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this._repo, message.turnId);
@@ -328,9 +325,8 @@ export class SendMessage {
       throw new DomainError("talkingStonePassedTo must be non-empty for aborted messages", "validation");
     }
 
-    await this._repo.appendSegment(messageId, input.body);
     const now = new Date().toISOString();
-    await this._repo.abortMessage(messageId, input.talkingStonePassedTo, now);
+    await this._repo.abortMessage(messageId, input.body, input.talkingStonePassedTo, now);
 
     /** B-4: 索引消息 body 到记忆系统（中断标记可识别；html-card 剥离投影，与 FTS 一致） */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(input.body));

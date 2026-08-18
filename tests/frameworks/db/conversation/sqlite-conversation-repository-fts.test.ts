@@ -168,7 +168,7 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
       completedAt: null,
     }));
     await repo.appendSegment("msg-s", CARD_BODY);
-    await repo.abortMessage("msg-s", ["user-1"], "2026-07-28T00:06:00Z");
+    await repo.abortMessage("msg-s", "", ["user-1"], "2026-07-28T00:06:00Z");
 
     const rows = ftsRows(db);
     expect(rows).toHaveLength(1);
