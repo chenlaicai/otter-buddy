@@ -16,7 +16,7 @@ causal_links:
     - F20260810rsta   # restart_otter 工具（restartSession 从 controller 提取共用）
     - F20260813rstrt  # pendingRestart 自重启延迟执行
 
-status: draft
+status: design
 change_type: fix
 tags: [agent, degenerate, circuit-breaker, session-restart, resilience]
 modules:
@@ -83,12 +83,32 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 **核心：复用既有"重启獭生"机制（`manage-session.ts restartSession`）作为熔断动作，不新造 reset 基础设施。**
 
-`restartSession(otterId, summary)` 一步完成：归档当前 session（含底层 pi session reset——复读垃圾随之清除、工作记忆转历史不丢失）→ 创建新 session 并写入前情摘要 → invoke 时由 `agent-invoker.ts` 将 `session.summary` 注入 DynamicContext（身份 + 前情冷启动上下文现成）。竞态认领、pi 锁等待（熔断场景 invoke 已退出，无 in-flight）均已处理。
+`restartSession(otterId, summary)` 一步完成：归档当前 session（含底层 pi session reset——复读垃圾随之清除；工作记忆全量转历史——内容不丢，丢的是 working 层活性，与既有重启獭生语义一致）→ 创建新 session 并写入前情摘要 → invoke 时由 `agent-invoker.ts` 将 `session.summary` 注入 DynamicContext（身份 + 前情冷启动上下文现成）。竞态认领已处理；pi 锁方面，reset 走锁管理器串行化，熔断触发时 invoke 已 await 返回（guard abort 路径 driver.invoke 已结束），无 in-flight 等待。
 
-**触发条件（两级）**：
+**触发条件（两级，数据源统一为 healing_events）**：
 
-1. **一级（本次事故直接形态，必须做）**：degenerate retry 本身再次 degenerate——即 `routeGuardAbort` 中 `guardReason === 'degenerate_output' && retryCount > 0` 的路径，从 `abortTerminal` 改为 `restartSession + 最后一次重试`。无需新增计数器，改动收敛在 orchestrator 一处。
-2. **二级（abort 后用户手动继续又退化，覆盖 seq 23/25 形态）**：按 otter 维护滑动窗口退化计数（如最近 3 个 turn 内 ≥3 次 degenerate_output），命中则下次 invoke 前先 restart。计数可从消息历史推导（failed 且 body 为退化标记的消息），避免新状态。
+每次 degenerate guard 触发（含 retry 失败与 abort）都写一条 healing_events（T5）。两级触发都从该表推导，不依赖消息 body 字符串匹配（文案硬编码且散落在 orchestrator.ts/retry-policy.ts 两处，改文案即静默失效；且 aborted 状态的退化按 body 匹配会漏）。
+
+1. **一级（本次事故直接形态，必须做）**：degenerate retry 本身再次 degenerate——即 `routeGuardAbort` 中 `guardReason === 'degenerate_output' && retryCount > 0` 的路径，从 `abortTerminal` 改为 `熔断重启`。
+2. **二级（abort 后用户手动继续又退化，覆盖 seq 23/25 形态）**：invoke 前查 healing_events，该 otter 最近 2 个 turn 内 ≥2 次 degenerate 事件（retry 失败与 abort 各计一次）→ 先 restart 再执行。窗口参数依据：一级触发已覆盖"turn 内连续两次退化"，二级只需兜"abort 后手动继续又退化"，两轮即熔断，用户最多再经历一次 abort。
+
+**熔断执行路径（关键：restart 后必须是全新 invoke，不能在 orchestrator 内 continue）**：
+
+`sessionSummary` 只在 `invokeConversation` 入口构建 DynamicContext 时注入一次（agent-invoker.ts buildDynamicContext），executeTurn 循环内所有 attempt 复用同一份 context——orchestrator 内 continue 重试拿不到新 session 的前情摘要。因此：
+
+1. `routeGuardAbort` 检测到一级触发条件 → 返回熔断信号（对齐现有 `RetryWithNewMessageSignal` 模式，如 `CircuitBreakSignal`），携带摘要素材
+2. **agent-invoker**（装配层）收到信号 → 调 `restartSession` → 以新 session 发起**全新的 invokeConversation**
+3. 新 invoke 入口正常走 buildDynamicContext，前情摘要随新 session.summary 注入
+
+依赖注入方式：orchestrator 不直接依赖 `ManageSession`（usecases/otter），`restartSession` 作为 TurnCallbacks 回调由 agent-invoker 装配，对齐现有 `sendSystem`/`startNewMessage` 模式。
+
+**熔断上限（防止无限 restart 循环）**：restartSession 写入 healing_events 一条 `circuit_break` 事件并关联新 session id；新 session 的 invoke 若再次触发 degenerate guard，查得"当前 session 由熔断创建"→ 不再 restart，直接 `abortTerminal`。上限状态跨 invoke 存续，不依赖进程内存。
+
+**pendingRestart 交互**：同一 turn 内 agent 若先调了 restart_otter（设置 pendingRestart）随后输出退化触发熔断，存在双重 restart 风险（刚建的干净新獭生被再归档一次）。熔断执行前先消费/清除 pendingRestart 标记；若 pendingRestart 已在收尾执行（session 已是新 session 且无退化历史），熔断检查（healing_events 推导）自然不命中，不重复触发。
+
+**熔断动作失败的降级**：restartSession 失败（archive 抛错 / reset 抛错 / 摘要素材查询失败）时回退 `abortTerminal`，系统消息说明"熔断失败已中断"，healing_events 记录失败原因。失败场景多为 DB/锁异常，不引入延迟重试；降级后行为与现状等价，不会更糟。
+
+**前情摘要构建**：素材查询（用户最近消息、turn 内工具调用记录）失败时降级为仅含熔断原因的短摘要，不因摘要构建失败阻塞熔断。
 
 **前情摘要构成**（唯一需要设计的新内容）：
 
@@ -103,8 +123,6 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 **用户体验**：熔断发生时发系统消息说明"检测到连续退化，已重启獭生（清空污染上下文），自动继续执行中"，替换死循环的 abort 文案。用户无感知自动恢复。
 
-**熔断上限**：restart 后的重试若第三次仍退化，`abortTerminal`（此时可确认非上下文污染问题，继续烧 token 无意义）。
-
 ### 目标
 
 - T1: degenerate retry 再次退化时，自动 restartSession 并续跑，不再直接 abort
@@ -115,7 +133,7 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 ### 成功标准
 
-- 复现"degenerate retry 再退化"场景时，观察到的行为序列是：fail → retry → fail → 系统消息（熔断说明）→ restartSession → 新 session invoke → speak 成功，全程无人工干预
+- 复现"degenerate retry 再退化"场景时，观察到的行为序列是：fail → retry → fail → 熔断信号 → 系统消息（熔断说明）→ restartSession → **全新 invoke**（含前情摘要）→ speak 成功，全程无人工干预
 - 新 session 的 invoke prompt 中含前情摘要，otter 输出体现任务连续性（不重新做已完成的步骤）
 - 单元测试覆盖：一级触发、二级触发、熔断上限、摘要注入
 
@@ -125,10 +143,10 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 | 编号 | 需求 | 复现步骤 | 预期结果 |
 |------|------|---------|----------|
-| AT-1 | T1 一级熔断 | 单测：mock invoke 连续两次返回 degenerate_output guard abort | 第二次触发 restartSession（session 被归档、新 session 创建），随后再 invoke 一次 |
-| AT-2 | T1 熔断上限 | 单测：restart 后第三次仍 degenerate | 走 abortTerminal，不再 restart |
-| AT-3 | T2 前情摘要 | 单测：触发熔断，检查 restartSession 入参 summary | 含熔断原因 + 任务进度要素 |
-| AT-4 | T4 二级熔断 | 单测：构造消息历史含密集退化标记后 invoke | invoke 前先 restart |
+| AT-1 | T1 一级熔断 | 单测：mock invoke 连续两次返回 degenerate_output guard abort | 第二次返回熔断信号，agent-invoker 调 restartSession 后以新 session 全新 invoke |
+| AT-2 | T1 熔断上限 | 单测：熔断创建的新 session 再次 degenerate（healing_events 含 circuit_break 关联） | 走 abortTerminal，不再 restart |
+| AT-3 | T2 前情摘要 | 单测：触发熔断，检查 restartSession 入参 summary；新 invoke 的 DynamicContext | summary 含熔断原因 + 任务进度要素；新 invoke 的 sessionSummary 注入生效 |
+| AT-4 | T4 二级熔断 | 单测：healing_events 构造最近 2 turn 内 2 次退化事件后 invoke | invoke 前先 restart |
 | AT-5 | T3/T2 真实行为 | 隔离实例（独立端口 + 独立 DB + 真实 LLM）重现退化场景（可用长任务 + mimo 触发），观察全链路 | 自动恢复链路走通，otter 输出体现任务连续性 |
 | AT-6 | T5 观测 | 触发退化后查 healing_events | 有对应事件记录 |
 
@@ -153,10 +171,11 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts | 修改 | routeGuardAbort 二次退化走 restart 分支 |
+| src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts | 修改 | routeGuardAbort 二次退化返回熔断信号；pendingRestart 交互；摘要降级 |
 | src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts | 修改 | 熔断文案、摘要构建纯函数 |
+| src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | 装配 restartSession 回调；接收熔断信号后发起全新 invoke |
 | src/usecases/otter/manage-session.ts | 预计不改 | restartSession 已满足需求 |
-| src/frameworks/db/（healing events 写入） | 修改 | 退化事件落库 |
+| src/frameworks/db/（healing events 写入） | 修改 | 退化/circuit_break 事件落库，供上限判定与二级触发推导 |
 
 ## 验收结果
 
@@ -176,7 +195,22 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 ## 对抗审视记录
 
-[审视阶段填写]
+### 第一轮（2026-08-18，审查者：独立 agent 挑剔獭，焦点：正确性 / 边界条件 / 架构合规）
+
+4 严重发现、4 建议发现。全部处置如下：
+
+| 发现 | 级别 | 处置 |
+|------|------|------|
+| 1. 前情摘要不会注入 orchestrator 内 continue 的重试（sessionSummary 仅在 invokeConversation 入口构建一次） | 严重 | 已修：方案明确熔断走"信号返回 → agent-invoker 全新 invoke"路径，并写明为什么不能 orchestrator 内 continue |
+| 2. "无需新增计数器"与熔断上限（AT-2）自相矛盾（restart 后新 TurnInput，retryCount 归零） | 严重 | 已修：上限状态载体为 healing_events 的 circuit_break 事件（关联新 session id），跨 invoke 存续；删除"无需新增计数器"表述 |
+| 3. 二级触发靠消息 body 字符串匹配不可靠且漏 aborted 状态 | 严重 | 已修：两级触发数据源统一为 healing_events；窗口参数改为"最近 2 turn 内 ≥2 次"，按目标形态重新推导 |
+| 4. restartSession 失败路径未考虑（熔断时 turn 已在失败态，抛错即三不管） | 严重 | 已修：失败降级回退 abortTerminal + 系统消息说明 + healing_events 留痕；不引入延迟重试 |
+| 5. orchestrator 直接依赖 ManageSession 打破上下文隔离 | 建议（更好） | 已采纳：restartSession 走 TurnCallbacks 回调由 agent-invoker 装配；agent-invoker.ts 补入改动范围 |
+| 6. "invoke 已退出、无 in-flight"论证缺失（reset 走锁管理器） | 建议 | 已修：方案中补论证（guard abort 路径 driver.invoke 已 await 返回）；实现阶段 AT-5 实测验证 |
+| 7. pendingRestart 双重 restart 风险 | 建议（更好） | 已采纳：熔断执行前消费/清除 pendingRestart；靠 healing_events 推导天然防重复触发 |
+| 8. working 记忆全量降层语义未提示 | 建议（更好） | 已采纳：方案中补"内容不丢、丢的是 working 层活性"说明 |
+
+审查者核验确认的事实性声明（无需修改）：degenerate retry 只允许一次（orchestrator.ts retryCount===0 分支）；restartSession 含 pi session reset 与记忆转历史；摘要注入点语义准确（行号 375-376）。
 
 ## 设计决策
 
@@ -186,7 +220,19 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 ### 为什么复用 restartSession 而非新造 reset
 
-restartSession 已解决：pi session 清理、工作记忆转历史（记忆不丢）、前情摘要注入（invoke 时进 DynamicContext）、竞态认领。熔断场景 invoke 已 guard abort 退出，无 pi 锁等待问题。
+restartSession 已解决：pi session 清理、工作记忆转历史、前情摘要注入、竞态认领。熔断场景 invoke 已 guard abort 退出，无 pi 锁等待问题。
+
+### 为什么熔断后必须全新 invoke 而非 orchestrator 内 continue
+
+非权衡，是代码事实决定的唯一解：sessionSummary 仅在 invokeConversation 入口的 buildDynamicContext 注入一次，executeTurn 循环内复用同一份 DynamicContext。continue 路径拿不到新 session 摘要，T2 必然失败。
+
+### 为什么状态载体选 healing_events（而非消息 body 匹配 / 内存计数器）
+
+排除法：body 匹配——退化文案硬编码在 orchestrator.ts/retry-policy.ts 两处，改文案即静默失效，且 aborted 状态（事故 seq 21/25 形态）按 body 匹配会漏；内存计数器——进程重启即丢，与持久化观测割裂。healing_events 是 T5 本来就要建的，上限判定、二级触发、观测三用一源。
+
+### 为什么熔断失败降级选"回退 abortTerminal"而非"延迟重试一次"
+
+熔断失败场景多为 DB/锁异常，重试大概率再失败；降级到现状等价行为保证不会更糟。产品层面含义：用户此时看到的仍是中断消息（附"熔断失败"说明），体验回到现状水平。
 
 ### bash 工具结果语义修正（关联但独立）
 
