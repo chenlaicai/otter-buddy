@@ -13,7 +13,7 @@ export type ExitReason =
   | { kind: 'user_abort'; toolCallCount: number }
   | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
-  | { kind: 'no_speak'; toolCallCount: number };
+  | { kind: 'no_yield'; toolCallCount: number };
 
 /** Extract guard abort reason from result or error (single source of truth) */
 export function extractGuardReason(
@@ -54,7 +54,7 @@ export function classifyExit(
     return { kind: 'api_error', errorMessage: msg, toolCallCount: p.toolCallCount };
   }
 
-  return { kind: 'no_speak', toolCallCount: p.toolCallCount };
+  return { kind: 'no_yield', toolCallCount: p.toolCallCount };
 }
 
 /** ExitReason.kind → outcome 枚举映射（tryCompleteSpeaking err 收尾复用） */
@@ -67,6 +67,6 @@ export function exitKindToOutcome(kind: ExitReason["kind"], retryCount: number):
     case 'api_error':
       return 'api_error';
     default:
-      return retryCount === 0 ? 'no_speak_retry' : 'no_speak_failed';
+      return retryCount === 0 ? 'no_yield_retry' : 'no_yield_failed';
   }
 }

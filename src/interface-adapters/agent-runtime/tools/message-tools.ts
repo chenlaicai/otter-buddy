@@ -1,5 +1,6 @@
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
+import { aggregateBody } from "@entities/conversation/message";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
 export function createGetMessageTool(ctx: ToolContext): AgentTool {
@@ -18,7 +19,7 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
       if (!msg) return errorResponse(`[错误] 消息 ${params.messageId} 不存在`);
       return textResponse(JSON.stringify({
         id: msg.id, senderType: msg.senderType, senderId: msg.senderId,
-        body: msg.body, status: msg.status, turnId: msg.turnId,
+        body: aggregateBody(msg.segments), status: msg.status, turnId: msg.turnId,
         sequenceNum: msg.sequenceNum, createdAt: msg.createdAt, completedAt: msg.completedAt,
       }));
     },
@@ -45,7 +46,7 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
         id: m.id, senderType: m.senderType, senderId: m.senderId,
         /** 注入出口给剥离投影：html-card 替换为占位符（源码经 get_message 取回）；
          *  html-card-reply 不剥（回执 JSON 是交互载荷，须直接可见） */
-        body: m.body === null ? null : stripHtmlCardsOnly(m.body), status: m.status, sequenceNum: m.sequenceNum, createdAt: m.createdAt,
+        body: m.segments.length === 0 ? null : stripHtmlCardsOnly(aggregateBody(m.segments)), status: m.status, sequenceNum: m.sequenceNum, createdAt: m.createdAt,
       }))));
     },
   };
@@ -71,7 +72,7 @@ export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
       );
       return textResponse(JSON.stringify(messages.map(m => ({
         id: m.id, senderType: m.senderType, senderId: m.senderId,
-        body: m.body, sequenceNum: m.sequenceNum, createdAt: m.createdAt,
+        body: aggregateBody(m.segments), sequenceNum: m.sequenceNum, createdAt: m.createdAt,
       }))));
     },
   };
@@ -100,7 +101,7 @@ export function createGetTurnHistoryTool(ctx: ToolContext): AgentTool {
         messages: entry.messages.map(m => ({
           id: m.id, senderType: m.senderType, senderId: m.senderId,
           /** 与 list_messages 同款剥离投影（只剥 html-card，回执 JSON 保留） */
-          body: m.body === null ? null : stripHtmlCardsOnly(m.body), sequenceNum: m.sequenceNum,
+          body: m.segments.length === 0 ? null : stripHtmlCardsOnly(aggregateBody(m.segments)), sequenceNum: m.sequenceNum,
         })),
       }))));
     },
