@@ -74,15 +74,9 @@ export class CircuitBreakSupport {
    */
   async executeCircuitBreakRestart(info: CircuitBreakInfo, emitEvent: (event: SSEEvent) => void): Promise<boolean> {
     const summary = await this.buildCircuitBreakSummaryText(info);
+    let session;
     try {
-      const session = await this.deps.manageSession.restartSession(info.otterId, summary);
-      await this.writeCircuitBreakEvent(info, { newSessionId: session.id, trigger: 'primary' });
-      this.deps.logger.info('Circuit break restart executed', {
-        otterId: info.otterId,
-        conversationId: info.conversationId,
-        newSessionId: session.id,
-      });
-      return true;
+      session = await this.deps.manageSession.restartSession(info.otterId, summary);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.deps.logger.error('Circuit break restart failed, falling back to interrupted state', error, {
@@ -96,6 +90,24 @@ export class CircuitBreakSupport {
       await this.writeCircuitBreakEvent(info, { trigger: 'primary', failed: true, error: error.message }).catch(() => { /* non-fatal */ });
       return false;
     }
+
+    /**
+     * restart 成功即熔断成功：事件写入失败仅留痕、仍返回 true——
+     * 若按失败处理会谎报"重启失败可手动重试"（上下文实际已清空），且新 session 无上限标记。
+     * 二级预检的 startedAt 过滤兜底防循环（重启前的退化事件不属于新 session 生命周期）。
+     */
+    await this.writeCircuitBreakEvent(info, { newSessionId: session.id, trigger: 'primary' }).catch(err => {
+      this.deps.logger.error('circuit_break event write failed after successful restart (marker missing, non-fatal)', err instanceof Error ? err : new Error(String(err)), {
+        otterId: info.otterId,
+        newSessionId: session.id,
+      });
+    });
+    this.deps.logger.info('Circuit break restart executed', {
+      otterId: info.otterId,
+      conversationId: info.conversationId,
+      newSessionId: session.id,
+    });
+    return true;
   }
 
   /**
@@ -120,7 +132,12 @@ export class CircuitBreakSupport {
       await this.writeCircuitBreakEvent(
         { otterId, conversationId, failedMessageId: inWindow.firstMessageId },
         { newSessionId: newSession.id, trigger: 'secondary' },
-      );
+      ).catch(err => {
+        this.deps.logger.error('circuit_break event write failed after secondary restart (marker missing, non-fatal)', err instanceof Error ? err : new Error(String(err)), {
+          otterId,
+          newSessionId: newSession.id,
+        });
+      });
       this.deps.logger.info('Secondary circuit break executed', {
         otterId,
         conversationId,
@@ -146,23 +163,28 @@ export class CircuitBreakSupport {
     }
 
     const turnIdByMessage = await this.mapMessageTurnIds(recent);
+    /** turn 未知的消息不参与窗口：不同 turn 归并进同一 unknown 会造成假阳性，非致命优先不命中 */
+    const known = recent.filter(ev => turnIdByMessage.has(ev.messageId));
     const orderedTurns: string[] = [];
-    for (const ev of recent) {
-      const tid = turnIdByMessage.get(ev.messageId) ?? 'unknown';
+    for (const ev of known) {
+      const tid = turnIdByMessage.get(ev.messageId)!;
       if (!orderedTurns.includes(tid)) orderedTurns.push(tid);
     }
+    if (orderedTurns.length === 0) {
+      return { count: 0, firstMessageId: recent[0]?.messageId ?? '' };
+    }
     const window = new Set(orderedTurns.slice(0, 2));
-    const inWindow = recent.filter(ev => window.has(turnIdByMessage.get(ev.messageId) ?? 'unknown'));
-    return { count: inWindow.length, firstMessageId: inWindow[0]?.messageId ?? recent[0].messageId };
+    const inWindow = known.filter(ev => window.has(turnIdByMessage.get(ev.messageId)!));
+    return { count: inWindow.length, firstMessageId: inWindow[0]?.messageId ?? '' };
   }
 
-  /** messageId → turnId 映射（一次查询，失败按 unknown 归并） */
+  /** messageId → turnId 映射（一次查询；查询失败的消息不写入映射，即不参与窗口） */
   private async mapMessageTurnIds(recent: HealingEvent[]): Promise<Map<string, string>> {
     const turnIdByMessage = new Map<string, string>();
     for (const ev of recent) {
       if (turnIdByMessage.has(ev.messageId)) continue;
       const msg = await this.deps.queryMessage.getMessageById(ev.messageId).catch(() => null);
-      turnIdByMessage.set(ev.messageId, msg?.turnId ?? 'unknown');
+      if (msg?.turnId) turnIdByMessage.set(ev.messageId, msg.turnId);
     }
     return turnIdByMessage;
   }

@@ -126,7 +126,12 @@ function mockManageSession(initial: OtterSession) {
       restartSession: async (otterId: string, summary?: string) => {
         if (failRestart.value) throw failRestart.value;
         restartCalls.push({ otterId, summary });
-        active = makeSession({ id: "sess-new", otterId, summary: summary ?? null, previousSessionId: initial.id });
+        /**
+         * startedAt 取重启时刻。生产时序：restartSession 需经 archiveSession 多次 DB 往返，
+         * 新 session startedAt 必然严格晚于退化事件 createdAt（重启前的退化不属于新 session 生命周期）。
+         * mock 无真实 IO，+1s 模拟该时序差。
+         */
+        active = makeSession({ id: "sess-new", otterId, summary: summary ?? null, previousSessionId: initial.id, startedAt: new Date(Date.now() + 1000).toISOString() });
         return active;
       },
     } as unknown as ManageSession,
@@ -312,6 +317,63 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(circuitBreaks).toHaveLength(1);
     expect((circuitBreaks[0].context as { failed?: boolean })?.failed).toBe(true);
     expect(invoke._count()).toBe(2);
+  });
+
+  it("叠加场景：二级预检重启后本 invoke 再连续退化 → 上限 abort，不再二次 restart", async () => {
+    const msg = mockSendMessage();
+    const now = new Date().toISOString();
+    /** 预置本 session 内 2 次退化（触发二级预检） */
+    const healing = mockHealingRepo([
+      seedEvent({ messageId: "msg-deg-1", createdAt: now }),
+      seedEvent({ messageId: "msg-deg-2", createdAt: now }),
+    ]);
+    const session = mockManageSession(makeSession({ startedAt: "2026-08-01T00:00:00Z" }));
+    const invoke = mockAgentInvoke(99); // 预检重启后仍持续退化
+    const qm = mockQueryMessage({
+      turnByMessage: { "msg-deg-1": "turn-1", "msg-deg-2": "turn-2" },
+      speakingAfter: Infinity,
+    });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    /** 二级预检 restart 1 次；随后 invoke 内退化→retry→再退化→一级熔断查得 session 由熔断创建→上限 abort。总 restart 恰好 1 次，无循环。 */
+    expect(session.restartCalls).toHaveLength(1);
+    expect(session.restartCalls[0].summary).toContain("二级熔断重启");
+    expect(msg._abortCalls).toHaveLength(1);
+    expect(msg._abortCalls[0].body).toContain("异常重复");
+  });
+
+  it("半成功路径（S1）：restart 成功但 circuit_break 事件写入失败 → 仍按熔断成功续跑，不发失败文案", async () => {
+    const msg = mockSendMessage();
+    const healing = mockHealingRepo();
+    /** 仅 circuit_break 类型写入抛错（degenerate 事件正常落库） */
+    (healing.repo as unknown as { create: (e: HealingEvent) => Promise<void> }).create = async (e: HealingEvent) => {
+      if (e.errorType === "circuit_break") throw new Error("healing db locked");
+      healing.events.push(e);
+    };
+    const session = mockManageSession(makeSession());
+    const invoke = mockAgentInvoke(2);
+    const qm = mockQueryMessage({ speakingAfter: 2 });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    /** restart 真实发生，按成功处理：全新 invoke 发生、无"熔断重启执行失败"误导文案 */
+    expect(session.restartCalls).toHaveLength(1);
+    expect(invoke._count()).toBe(3);
+    expect(msg._sendSystemBodies).not.toContainEqual(expect.stringContaining("熔断重启执行失败"));
+    expect(msg._abortCalls).toHaveLength(0);
   });
 
   it("healingRepo 未注入（降级配置）：二次退化走旧 abort 语义，不熔断", async () => {

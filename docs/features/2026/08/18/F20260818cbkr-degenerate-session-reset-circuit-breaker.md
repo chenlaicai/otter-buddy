@@ -225,6 +225,22 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 审查者核验确认的事实性声明（无需修改）：degenerate retry 只允许一次（orchestrator.ts retryCount===0 分支）；restartSession 含 pi session reset 与记忆转历史；摘要注入点语义准确（行号 375-376）。
 
+### 第四轮（2026-08-18，审查者：独立 agent，实现代码对抗审视，焦点：修复轮盲区——新写代码忠实性与边界完备性）
+
+1 严重发现、8 建议发现。审查者验证确认：跨层信号确实不被 executeTurn 循环消费、上限事件时序由顺序 await 保证、二级+一级叠加推演安全（二级 restart 写标记后，同 invoke 内一级熔断的上限判定命中 → abort）、递归深度被上限封顶为 1、healingRepo 未注入降级完整。处置：
+
+| 发现 | 级别 | 处置 |
+|------|------|------|
+| S1. 半成功窗口：restart 成功但 circuit_break 事件写入失败 → 谎报"重启失败"+新 session 无上限标记，上限机制被击穿 | 严重 | 已修：restart 成功即熔断成功，事件写入失败仅 error 留痕、仍返回 true 续跑；失败文案仅在本番 restartSession 自身失败时发送。测试覆盖（半成功路径用例） |
+| J1. 二级预检同根半成功（事件写入失败被外层 catch 吞成预检失败） | 建议 | 已修：事件写入单独 catch + error 留痕（restart 已成功，invoke 正常继续） |
+| J2. unknown turnId 归并假阳性（不同 turn 的消息归并进同一 unknown 凑数） | 建议 | 已修：turn 未知的消息不参与窗口（非致命优先不命中） |
+| J3. 二级触发计数含被自我纠正恢复的单次退化，比"retry 失败与 abort 各计一次"口径宽 | 建议 | 保留并记录：重试成功也会在 session 留下退化输出（本特性根因分析实证），两次即构成上下文污染证据，预检重启正当（见设计决策） |
+| J4. 递归 invoke 内 sendMessage.start 等抛错会让整链 reject，掩盖已完成的熔断收尾 | 建议 | 已修：递归单独 try/catch，失败降级返回原 turnResult |
+| J5. 递归沿用原 retryCount，manual retry 场景新 session 首次退化直达熔断判定（少一次纠错机会） | 建议（架构师定） | 已修：递归 retryCount 归零 + manualRetry 复位（新 session 语义上等同新 invoke） |
+| J6. 多 conversation 并发 invoke 同一 otter 的二级预检竞态（连续两次 restart） | 建议 | 记录为已知竞态：窗口极窄、结果幂等（最终仍是干净 session），不修 |
+| J7. circuit-break-support.ts 放 adapter 层但含策略（阈值/窗口），与 PR-B 下沉方向相反 | 建议（架构师定） | 维持现状并记录：策略纯函数（文案/摘要构建）已在 usecases/retry-policy；support 剩余部分是 IO 编排（repo 读写 + restart 调用），归 adapter 合理；阈值常量随编排就近（见设计决策） |
+| J8. 测试缺口：叠加场景、半成功路径、sendSystem 失败回退、manual retry 入口 | 建议 | 已补叠加场景与半成功路径两用例（8 用例全绿）；sendSystem 失败回退与 manual retry 入口为存量路径，后续补 |
+
 ### 第三轮（2026-08-18，审查者：独立 agent 对账獭，焦点：文档承诺 ↔ 代码事实 ↔ 内部一致性三方核对）
 
 1 严重发现、3 建议发现，全部为完备性/一致性层面（改动范围表漏项、陈旧表述、计数措辞），无设计缺陷。核心代码论断逐条核实通过（routeGuardAbort 结构、信号消费位置、摘要注入时机、healing_events schema、message_events 既有查询方法 getMessageEvents / getLastMessageBySender 均真实存在，无幻路径）。处置：改动范围表补 degenerate 事件写入路径（TurnCallbacks healing 回调）与 types.ts 行；调用方计数改"5 个调用点、4 条路径"；第一轮 pendingRestart 处置加修订标注。
@@ -280,6 +296,18 @@ session 与退化倾向都是 otter 级的，restart 也是 otter 级动作；A 
 ### 为什么熔断失败降级选"回退 abortTerminal"而非"延迟重试一次"
 
 熔断失败场景多为 DB/锁异常，重试大概率再失败；降级到现状等价行为保证不会更糟。产品层面含义：用户此时看到的仍是中断消息（附"熔断失败"说明），体验回到现状水平。
+
+### 为什么二级触发计入"被自我纠正恢复的单次退化"
+
+实现口径比初稿（"retry 失败与 abort 各计一次"）宽：每次 degenerate guard 触发都落事件。依据本特性根因分析——重试成功的退化输出仍留在 pi session 上下文（事故 seq 8/15 实证），两次退化即构成污染证据，预检重启正当，且无需区分事件 outcome 的复杂判定。
+
+### 为什么 circuit-break-support.ts 留在 adapter 层
+
+策略纯函数（文案/摘要构建）在 usecases/retry-policy.ts；support 类剩余职责是 IO 编排（healing repo 读写、restartSession 调用、SSE 事件），依赖 ManageSession/QueryMessage 等 usecases 端口，归 interface-adapters 与 agent-invoker 同层一致。窗口阈值（≥2 次 / 2 turn）作为编排参数就近声明。
+
+### 已知竞态：多 conversation 并发 invoke 同一 otter
+
+两个 invoke 同时通过二级预检（标记检查与计数都在对方写 circuit_break 事件前）→ 连续两次 restart。窗口极窄、结果幂等（最终仍是干净 session），不修。
 
 ### bash 工具结果语义修正（关联但独立）
 

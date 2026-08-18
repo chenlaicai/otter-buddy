@@ -453,6 +453,17 @@ export class AgentInvoker {
   ): Promise<ConversationInvokeResult | null> {
     if (!turnResult._circuitBreak || !this.circuitBreak) return null;
     const restarted = await this.circuitBreak.executeCircuitBreakRestart(turnResult._circuitBreak, emitEvent);
-    return restarted ? this.invokeConversationInner(params) : null;
+    if (!restarted) return null;
+    try {
+      /** retryCount 归零：新 session 语义上等同新 invoke，首次退化应获得自我纠正机会而非直达熔断判定 */
+      return await this.invokeConversationInner({ ...params, retryCount: 0, manualRetry: false });
+    } catch (err) {
+      /** 递归失败不掩盖已完成的熔断收尾：降级返回原 turnResult（消息已 failed，系统消息已发） */
+      this.logger.error('Circuit break re-invoke failed, falling back to interrupted state', err instanceof Error ? err : new Error(String(err)), {
+        otterId: params.otterId,
+        conversationId: params.conversationId,
+      });
+      return null;
+    }
   }
 }
