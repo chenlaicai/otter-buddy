@@ -95,7 +95,6 @@ function createMessageTables(db: Database.Database): void {
       sender_type TEXT NOT NULL,
       sender_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'completed',
-      body TEXT,
       sequence_num INTEGER NOT NULL,
       turn_id TEXT NOT NULL,
       talking_stone_passed_to TEXT,
@@ -129,6 +128,19 @@ function createMessageTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_message_events_message_seq ON message_events(message_id, sequence_num);
     CREATE INDEX IF NOT EXISTS idx_message_events_type ON message_events(event_type);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS message_segments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_message_segments_message_seq ON message_segments(message_id, sequence_num);
   `);
 }
 

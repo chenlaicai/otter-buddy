@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { canAbortMessage, type Message } from "@entities/conversation/message";
+import { canAbortMessage, aggregateBody, type Message } from "@entities/conversation/message";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -281,7 +281,7 @@ export class MessageController {
       `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
     );
     if (this.messageBroadcaster) {
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });
+      this.messageBroadcaster.broadcastEvent(conversationId, { event: "system.message", data: { messageId: sysMsg.id, content: aggregateBody(sysMsg.segments), seq: sysMsg.sequenceNum } });
     }
   }
 
@@ -352,7 +352,7 @@ export class MessageController {
       // 原始用户消息内容：从同 turn 的 user 消息中取
       // turn 关系由 turnId 关联，但 QueryMessage 无 getMessagesByTurnId；
       // 用 body 中保留的原始 prompt 或兜底空串（session 上下文已完整）
-      const userMessageContent = msg.body ?? "";
+      const userMessageContent = aggregateBody(msg.segments);
 
       // 获取原始 user senderId（发言石应传回给用户，不能用 otterId）
       const turnUserMsgs = await this.queryMessage.getMessages(conversationId, { turnId: msg.turnId, senderType: "user", limit: 1 });

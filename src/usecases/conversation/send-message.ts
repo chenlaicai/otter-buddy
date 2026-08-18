@@ -4,6 +4,7 @@ import type {
   MessageEvent,
   MessageEventType,
   MessageMetadata,
+  MessageSegment,
   MessageSource,
 } from "@entities/conversation/message";
 import {
@@ -13,8 +14,9 @@ import {
   canAbortMessage,
   canStartSpeaking,
   canPrepareForRetry,
-  isValidCompletedMessageBody,
+  isValidCompletedMessage,
   isValidTalkingStonePass,
+  aggregateBody,
 } from "@entities/conversation/message";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { canAddMessageToTurn } from "@entities/conversation/conversation";
@@ -118,7 +120,7 @@ export class SendMessage {
       senderId: input.senderId,
       talkingStonePassedTo,
       status: "completed",
-      body: input.body,
+      segments: [],
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -129,6 +131,7 @@ export class SendMessage {
     };
 
     await this._repo.createCompletedMessage(message);
+    await this._repo.appendSegment(message.id, input.body);
 
     /** B11: 索引消息内容到记忆系统（html-card 剥离投影，与 FTS 一致） */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(input.body));
@@ -170,7 +173,7 @@ export class SendMessage {
       senderId: input.senderId,
       talkingStonePassedTo: input.talkingStonePassedTo,
       status: "streaming",
-      body: null,
+      segments: [],
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -208,7 +211,7 @@ export class SendMessage {
     return event;
   }
 
-  /** 开始发言（speak 工具调用）：streaming → speaking，暂存 body + 发言石目标 */
+  /** 开始发言（speak 工具调用）：streaming → speaking，插入 segment + 设置发言石目标（同一事务） */
   async startSpeaking(messageId: string, input: StartSpeakingInput): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
@@ -217,8 +220,8 @@ export class SendMessage {
     if (!canStartSpeaking(message.status)) {
       throw new DomainError(`Cannot start speaking for message with status: ${message.status}`, "conflict");
     }
-    if (!isValidCompletedMessageBody(input.body)) {
-      throw new DomainError("body must be non-empty string", "validation");
+    if (!input.body || input.body.trim().length === 0) {
+      throw new DomainError("body must be non-empty", "validation");
     }
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "speaking", message.senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for speaking messages", "validation");
@@ -229,12 +232,19 @@ export class SendMessage {
     return {
       ...message,
       status: "speaking",
-      body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
     };
   }
 
-  /** 完成消息：speaking → completed。body/targets 从 DB 读取（由 startSpeaking 暂存）。 */
+  /** 追加一条 speak 片段到消息 */
+  async appendSegment(messageId: string, body: string): Promise<MessageSegment> {
+    if (!body || body.trim().length === 0) {
+      throw new DomainError("body must be non-empty string", "validation");
+    }
+    return this._repo.appendSegment(messageId, body);
+  }
+
+  /** 完成消息：speaking → completed。segments 从 DB 读取（由 startSpeaking 追加）。 */
   async complete(messageId: string, input?: Partial<CompleteMessageInput>): Promise<CompleteResult> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) throw new DomainError(`Message not found: ${messageId}`, "not_found");
@@ -242,37 +252,41 @@ export class SendMessage {
       throw new DomainError(`Cannot complete message with status: ${message.status}`, "validation");
     }
 
-    const { body, talkingStonePassedTo } = this.resolveCompleteParams(message, input);
+    const { talkingStonePassedTo } = this.resolveCompleteParams(message, input);
     const now = new Date().toISOString();
 
     await this._repo.completeMessage({
-      messageId, body, talkingStonePassedTo, completedAt: now,
+      messageId, talkingStonePassedTo, completedAt: now,
       contextTokens: input?.contextTokens, contextTokensMax: input?.contextTokensMax,
     });
+
     /** 索引记忆用剥离投影（html-card 源码不入索引，与 FTS 一致） */
+    const segments = message.segments.length > 0
+      ? message.segments
+      : await this._repo.getSegments(messageId);
+    const body = aggregateBody(segments);
     await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(body));
     const turnClose = await tryCloseTurn(this._repo, message.turnId);
 
     return {
-      message: { ...message, status: "completed", body, talkingStonePassedTo, completedAt: now },
+      message: { ...message, status: "completed", segments, talkingStonePassedTo, completedAt: now },
       turnClose,
     };
   }
 
-  /** 解析 complete 参数：从 input 或 DB 中读取 body/targets 并校验 */
+  /** 解析 complete 参数：从 input 或 DB 中读取 talkingStonePassedTo 并校验 */
   private resolveCompleteParams(
     message: Message,
     input?: Partial<CompleteMessageInput>,
-  ): { body: string; talkingStonePassedTo: string[] } {
-    const body = input?.body ?? message.body;
+  ): { talkingStonePassedTo: string[] } {
     const talkingStonePassedTo = input?.talkingStonePassedTo ?? message.talkingStonePassedTo;
-    if (!body || !isValidCompletedMessageBody(body)) {
-      throw new DomainError("body must be non-empty string", "validation");
-    }
     if (!talkingStonePassedTo || !isValidTalkingStonePass(talkingStonePassedTo, "completed", message.senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
     }
-    return { body, talkingStonePassedTo };
+    if (!isValidCompletedMessage(message.segments)) {
+      throw new DomainError("message must have non-empty segments to complete", "validation");
+    }
+    return { talkingStonePassedTo };
   }
 
   /** 标记消息失败（可选 body 存错误信息，可选 talkingStonePassedTo 写入发言石） */
@@ -294,7 +308,7 @@ export class SendMessage {
 
   /**
    * 中止流式消息（用户主动中断）。
-   * 与 complete() 类似：设置 body、传递发言石、索引记忆、关闭 turn，但状态为 aborted。
+   * 与 complete() 类似：追加 segment、传递发言石、索引记忆、关闭 turn，但状态为 aborted。
    */
   async abort(messageId: string, input: AbortMessageInput): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
@@ -304,7 +318,7 @@ export class SendMessage {
     if (!canAbortMessage(message.status)) {
       throw new DomainError(`Cannot abort message with status: ${message.status}`, "conflict");
     }
-    if (!isValidCompletedMessageBody(input.body)) {
+    if (!input.body || input.body.trim().length === 0) {
       throw new DomainError("body must be non-empty string", "validation");
     }
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "aborted", message.senderType)) {
@@ -323,14 +337,13 @@ export class SendMessage {
     return {
       ...message,
       status: "aborted",
-      body: input.body,
       talkingStonePassedTo: input.talkingStonePassedTo,
       completedAt: now,
     };
   }
 
   /**
-   * 重置 failed 消息为 streaming（speak 重试专用）。
+   * 重置 failed 消息为 streaming（yield 重试专用）。
    * Why: 重试时复用同一消息 ID，避免创建新消息导致用户看到 3 条消息（失败 + 系统提醒 + 新消息）。
    * 操作：清空 body、创建新 Turn 并关联消息、更新 FTS 索引。
    *
@@ -355,7 +368,7 @@ export class SendMessage {
     return {
       ...message,
       status: "streaming",
-      body: null,
+      segments: [],
       turnId: turn.id,
       talkingStonePassedTo: null,
     };
@@ -376,7 +389,7 @@ export class SendMessage {
       senderId: "system",
       talkingStonePassedTo: [],
       status: "completed",
-      body,
+      segments: [],
       sequenceNum,
       contextTokens: null,
       contextTokensMax: null,
@@ -386,6 +399,8 @@ export class SendMessage {
     };
 
     await this._repo.createCompletedMessage(message);
+    const seg = await this._repo.appendSegment(message.id, body);
+    message.segments = [seg];
     return message;
   }
 

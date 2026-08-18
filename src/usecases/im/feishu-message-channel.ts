@@ -1,4 +1,5 @@
 import type { Message } from "@entities/conversation/message";
+import { aggregateBody } from "@entities/conversation/message";
 import type { ManageConnection } from "./manage-connection";
 import type { FeishuGateway } from "./feishu-gateway";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -36,7 +37,7 @@ export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEve
     if (!connection) return;
 
     const senderLabel = await this.resolveSenderLabel(message);
-    const body = message.body ?? "(空消息)";
+    const body = aggregateBody(message.segments) || "(空消息)";
     const markdown = projectForChannel(body, {
       webBaseUrl: this.webBaseUrl,
       conversationId: message.conversationId,

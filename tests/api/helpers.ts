@@ -115,25 +115,30 @@ export function makeMessage(overrides: Partial<{
   talkingStonePassedTo: string[] | null;
   status: string;
   body: string | null;
+  segments: Array<{ id: string; messageId: string; body: string; sequenceNum: number; createdAt: string }>;
   sequenceNum: number;
   contextTokens: number | null;
   contextTokensMax: number | null;
+  source: string | null;
   createdAt: string;
   completedAt: string | null;
 }> = {}) {
   const now = new Date().toISOString();
+  const id = overrides.id ?? "msg-1";
+  const body = overrides.body ?? "Hello world";
   return {
-    id: overrides.id ?? "msg-1",
+    id,
     conversationId: overrides.conversationId ?? "conv-1",
     turnId: overrides.turnId ?? "turn-1",
     senderType: overrides.senderType ?? "user",
     senderId: overrides.senderId ?? "user-1",
     talkingStonePassedTo: overrides.talkingStonePassedTo ?? ["otter-1"],
     status: overrides.status ?? "completed",
-    body: overrides.body ?? "Hello world",
+    segments: overrides.segments ?? (body ? [{ id: `${id}-seg-0`, messageId: id, body, sequenceNum: 0, createdAt: now }] : []),
     sequenceNum: overrides.sequenceNum ?? 1,
     contextTokens: overrides.contextTokens ?? null,
     contextTokensMax: overrides.contextTokensMax ?? null,
+    source: overrides.source ?? "web",
     createdAt: overrides.createdAt ?? now,
     completedAt: overrides.completedAt ?? now,
   };

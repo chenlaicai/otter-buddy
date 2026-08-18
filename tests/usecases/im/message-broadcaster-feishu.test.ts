@@ -12,7 +12,7 @@ function mockMessage(overrides: Partial<Message> = {}): Message {
     senderId: "otter-1",
     talkingStonePassedTo: null,
     status: "completed",
-    body: "hello",
+    segments: [{ id: "seg-1", messageId: "msg-1", body: "hello", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }],
     sequenceNum: 1,
     contextTokens: null,
     contextTokensMax: null,
@@ -59,7 +59,7 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
       sent.push({ chatId, senderLabel, markdown });
     });
 
-    await broadcaster.broadcast(mockMessage({ senderType: "otter", senderId: "otter-1", body: "你好" }));
+    await broadcaster.broadcast(mockMessage({ senderType: "otter", senderId: "otter-1", segments: [{ id: "seg-1", messageId: "msg-1", body: "你好", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
 
     expect(sent).toHaveLength(1);
     expect(sent[0].chatId).toBe("chat-123");
@@ -75,7 +75,7 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
       sent.push({ senderLabel });
     });
 
-    await broadcaster.broadcast(mockMessage({ senderType: "user", senderId: "user-1", body: "hi" }));
+    await broadcaster.broadcast(mockMessage({ senderType: "user", senderId: "user-1", segments: [{ id: "seg-1", messageId: "msg-1", body: "hi", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
 
     expect(sent[0].senderLabel).toBe("用户");
   });
@@ -89,7 +89,7 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
     });
 
     const body = '前文\n\n```html-card title="薪资对比"\n<div/>\n```\n\n后文';
-    await broadcaster.broadcast(mockMessage({ body }));
+    await broadcaster.broadcast(mockMessage({ segments: [{ id: "seg-1", messageId: "msg-1", body, sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
 
     expect(sent[0]).toBe(
       "前文\n\n【交互卡片:薪资对比】\n👉 https://otter.app/conversations/conv-1\n\n后文",
@@ -105,7 +105,7 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
     });
 
     const body = '```html-card title="卡"\n<x/>\n```';
-    await broadcaster.broadcast(mockMessage({ body }));
+    await broadcaster.broadcast(mockMessage({ segments: [{ id: "seg-1", messageId: "msg-1", body, sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
 
     expect(sent[0]).toBe("【交互卡片:卡】");
   });

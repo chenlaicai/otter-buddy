@@ -12,6 +12,7 @@
 import type { SdkInvokePort, AgentStreamEvent, DynamicContext } from "@usecases/ports/sdk-invoke-port";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
+import { aggregateBody } from "@entities/conversation/message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
@@ -240,11 +241,11 @@ export class AgentInvoker {
 
       getMessageById: async (messageId: string) => {
         const msg = await this.queryMessage.getMessageById(messageId);
-        return msg ? { status: msg.status, body: msg.body ?? undefined, turnId: msg.turnId } : null;
+        return msg ? { status: msg.status, segments: msg.segments ?? [], turnId: msg.turnId } : null;
       },
 
       sendSystem: async (convId: string, body: string) => {
-        return this.sendMessage.sendSystem(convId, body);
+        const msg = await this.sendMessage.sendSystem(convId, body); return { id: msg.id, body: aggregateBody(msg.segments), sequenceNum: msg.sequenceNum };
       },
 
       startNewMessage: async (conversationId: string, senderId: string, talkingStonePassedTo: string[]) => {

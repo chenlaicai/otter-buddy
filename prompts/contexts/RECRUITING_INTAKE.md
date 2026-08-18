@@ -78,7 +78,7 @@ critical 类常见场景的行动建议（按事件 type 区分）：
 - `login-expired` → "BOSS 登录已失效。请打开扩展 options 页刷新登录状态。"
 - `otter-unreachable` → "扩展连续多次推送到 otter 失败（otter 服务可能挂了）。请检查 otter-buddy 是否在运行。"
 
-critical 状态**不需要 create_linked_resource 入库**（不是新公司/HR），但仍要 speak 让搭档看到。
+critical 状态**不需要 create_linked_resource 入库**（不是新公司/HR），但仍要 speak 输出让搭档看到，然后 yield 交棒。
 
 ## 硬边界（不许违反）
 

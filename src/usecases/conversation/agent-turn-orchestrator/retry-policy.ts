@@ -27,8 +27,8 @@ export function buildRetryFailBody(reason: string): string {
 export function buildSpeakRetryMsg(toolCallCount?: number): string {
   const isThinkingOnly = (toolCallCount ?? 0) === 0;
   return isThinkingOnly
-    ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。"
-    : "[系统提醒] 你上一次发言没有调用 speak 工具就结束了。请调用 speak 结束发言——可以是你的结论，也可以是你遇到的困境。";
+    ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言。"
+    : "[系统提醒] 你上一次发言没有调用 speak 就结束了。请调用 speak 结束发言。";
 }
 
 /** Build abort body: user abort vs guard abort */

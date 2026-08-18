@@ -221,7 +221,7 @@ export class AgentTurnOrchestrator {
         return this.routeGuardAbort(reason, ctx);
       case 'api_error':
         return this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
-      case 'no_speak':
+      case 'no_yield':
         return this.handleSpeakRetry(ctx);
       default:
         return { messageId: ctx.input.messageId, duration: Date.now() - ctx.startTime };
@@ -647,8 +647,8 @@ export class AgentTurnOrchestrator {
       }
     };
 
-    if (reason.kind === 'no_speak') {
-      recordRetrySafe("no_speak");
+    if (reason.kind === 'no_yield') {
+      recordRetrySafe("no_yield");
       return;
     }
     if (reason.kind !== 'guard_abort') return;

@@ -1,4 +1,5 @@
 import type { Message, MessageEvent } from "@entities/conversation/message";
+import { aggregateBody } from "@entities/conversation/message";
 import type {
   MessageDTO,
   MessageEventDTO,
@@ -19,7 +20,7 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     id: msg.id,
     st: msg.senderType,
     si: msg.senderId,
-    content: msg.body,
+    content: aggregateBody(msg.segments),
     status: msg.status,
     ts: msg.createdAt,
     // 用户消息和系统消息不显示耗时（仅 agent 消息有意义）

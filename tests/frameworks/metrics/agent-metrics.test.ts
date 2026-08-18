@@ -38,11 +38,11 @@ describe("AgentMetrics", () => {
     });
     metrics.recordInvoke({
       otterId: "otter-2", model: "default", otterType: "small", source: "direct",
-      outcome: "no_speak_failed", retry: "manual", durationMs: 800,
+      outcome: "no_yield_failed", retry: "manual", durationMs: 800,
     });
     const text = await registry.metricsText();
     expect(text).toContain('agent_invoke_total{model="mimo",otter_type="big",source="chain",outcome="success",retry="0"} 2');
-    expect(text).toContain('agent_invoke_total{model="default",otter_type="small",source="direct",outcome="no_speak_failed",retry="manual"} 1');
+    expect(text).toContain('agent_invoke_total{model="default",otter_type="small",source="direct",outcome="no_yield_failed",retry="manual"} 1');
     expect(text).toContain('agent_invoke_duration_ms_bucket{le="5000"');
   });
 
@@ -107,7 +107,7 @@ describe("AgentMetrics", () => {
     metrics.recordToolDuration("speak", 150);
     metrics.recordToolError("bash");
     metrics.recordRetry("sdk_auto");
-    metrics.recordRetry("no_speak");
+    metrics.recordRetry("no_yield");
     metrics.recordCompaction("token_limit", false);
     metrics.recordSessionRebuild();
     metrics.recordChainHops(3);
@@ -117,7 +117,7 @@ describe("AgentMetrics", () => {
     expect(text).toContain('agent_tool_duration_ms_bucket{le="500",tool="speak"}');
     expect(text).toContain('agent_tool_errors_total{tool="bash"} 1');
     expect(text).toContain('agent_retry_total{kind="sdk_auto"} 1');
-    expect(text).toContain('agent_retry_total{kind="no_speak"} 1');
+    expect(text).toContain('agent_retry_total{kind="no_yield"} 1');
     expect(text).toContain('agent_compaction_total{reason="token_limit",aborted="false"} 1');
     expect(text).toMatch(/agent_session_rebuild_total\s+1/);
     expect(text).toContain('agent_chain_hops_bucket{le="3"}');

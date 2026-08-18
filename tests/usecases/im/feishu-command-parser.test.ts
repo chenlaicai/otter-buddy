@@ -71,7 +71,7 @@ describe("formatMessageHistory", () => {
 
   it("格式化用户消息", () => {
     const result = formatMessageHistory([
-      { senderType: "user", body: "你好", createdAt: "2026-07-29T10:00:00Z" },
+      { senderType: "user", segments: [{ body: "你好" }], createdAt: "2026-07-29T10:00:00Z" },
     ]);
     expect(result).toContain("用户");
     expect(result).toContain("你好");
@@ -79,7 +79,7 @@ describe("formatMessageHistory", () => {
 
   it("格式化 Otter 消息", () => {
     const result = formatMessageHistory([
-      { senderType: "otter", body: "你好！有什么可以帮助你的？", createdAt: "2026-07-29T10:01:00Z" },
+      { senderType: "otter", segments: [{ body: "你好！有什么可以帮助你的？" }], createdAt: "2026-07-29T10:01:00Z" },
     ]);
     expect(result).toContain("水獭");
     expect(result).toContain("你好！有什么可以帮助你的？");
@@ -87,7 +87,7 @@ describe("formatMessageHistory", () => {
 
   it("格式化系统消息", () => {
     const result = formatMessageHistory([
-      { senderType: "system", body: "小獭加入了对话", createdAt: "2026-07-29T10:02:00Z" },
+      { senderType: "system", segments: [{ body: "小獭加入了对话" }], createdAt: "2026-07-29T10:02:00Z" },
     ]);
     expect(result).toContain("系统");
     expect(result).toContain("小獭加入了对话");
@@ -95,15 +95,15 @@ describe("formatMessageHistory", () => {
 
   it("处理空消息体", () => {
     const result = formatMessageHistory([
-      { senderType: "user", body: null, createdAt: "2026-07-29T10:00:00Z" },
+      { senderType: "user", segments: [], createdAt: "2026-07-29T10:00:00Z" },
     ]);
     expect(result).toContain("(空消息)");
   });
 
   it("格式化多条消息", () => {
     const result = formatMessageHistory([
-      { senderType: "user", body: "消息一", createdAt: "2026-07-29T10:00:00Z" },
-      { senderType: "otter", body: "消息二", createdAt: "2026-07-29T10:01:00Z" },
+      { senderType: "user", segments: [{ body: "消息一" }], createdAt: "2026-07-29T10:00:00Z" },
+      { senderType: "otter", segments: [{ body: "消息二" }], createdAt: "2026-07-29T10:01:00Z" },
     ]);
     expect(result).toContain("最近消息:");
     expect(result).toContain("消息一");
