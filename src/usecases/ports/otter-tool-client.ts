@@ -65,7 +65,6 @@ export interface OtterToolClient {
       appendSegment(messageId: string, body: string): Promise<MessageSegment>;
       /** 完成消息：speaking → completed */
       complete(messageId: string, params?: {
-        body?: string;
         talkingStonePassedTo?: string[];
       }): Promise<{ message: Message; turnClose: { closed: boolean; aggregatedTargets: string[] } }>;
       getById(id: string): Promise<Message | null>;

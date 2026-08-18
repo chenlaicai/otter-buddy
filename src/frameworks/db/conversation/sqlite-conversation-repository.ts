@@ -255,7 +255,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         UPDATE messages SET status = 'speaking', talking_stone_passed_to = ?
         WHERE id = ? AND status = 'streaming'
       `).run(JSON.stringify(talkingStonePassedTo), messageId);
-      if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming status`);
+      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming status`, "conflict");
       this.refreshMessageFts(messageId);
     })();
   }
@@ -275,7 +275,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         input.contextTokens ?? null, input.contextTokensMax ?? null,
         input.completedAt, input.messageId,
       );
-      if (result.changes === 0) throw new Error(`Message ${input.messageId} not found or not in speaking status`);
+      if (result.changes === 0) throw new DomainError(`Message ${input.messageId} not found or not in speaking status`, "conflict");
       this.refreshMessageFts(input.messageId);
     })();
   }
@@ -292,7 +292,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       if (talkingStonePassedTo !== undefined) { updates.push("talking_stone_passed_to = ?"); params.push(JSON.stringify(talkingStonePassedTo)); }
       params.push(messageId);
       const result = this.db.prepare(`UPDATE messages SET ${updates.join(", ")} WHERE id = ? AND status IN ('streaming', 'speaking')`).run(...params);
-      if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming/speaking status`, "conflict");
       if (body) this.refreshMessageFts(messageId);
     })();
   }
@@ -373,7 +373,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         UPDATE messages SET status = 'aborted', talking_stone_passed_to = ?, completed_at = ?
         WHERE id = ? AND status IN ('streaming', 'speaking')
       `).run(JSON.stringify(talkingStonePassedTo), abortedAt, messageId);
-      if (result.changes === 0) throw new Error(`Message ${messageId} not found or not in streaming/speaking status`);
+      if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming/speaking status`, "conflict");
       if (body) this.refreshMessageFts(messageId);
     })();
   }

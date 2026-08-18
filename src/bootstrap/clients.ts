@@ -10,7 +10,7 @@ export function buildMessageClient(uc: UseCases) {
       uc.sendMessage.startSpeaking(messageId, params),
     appendSegment: (messageId: string, body: string) =>
       uc.sendMessage.appendSegment(messageId, body),
-    complete: (messageId: string, params?: { body?: string; talkingStonePassedTo?: string[] }) =>
+    complete: (messageId: string, params?: { talkingStonePassedTo?: string[] }) =>
       uc.sendMessage.complete(messageId, params),
     getById: (id: string) => uc.queryMessage.getMessageById(id),
     list: (convId: string, opts?: { limit?: number; before?: string }) =>

@@ -673,7 +673,7 @@ describe("AgentInvoker yield retry", () => {
     /** 第二次 invoke 的 userMessageContent 应包含重试提示 */
     expect(agent._invokeMessages).toHaveLength(2);
     expect(agent._invokeMessages[1]).toContain("没有调用任何工具");
-    expect(agent._invokeMessages[1]).toContain("yield");
+    expect(agent._invokeMessages[1]).toContain("speak");
   });
 
   it("有工具调用但漏 speak（toolCallCount>0）重试提示不包含'没有调用任何工具'", async () => {
