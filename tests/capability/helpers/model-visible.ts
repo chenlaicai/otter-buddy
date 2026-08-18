@@ -52,6 +52,8 @@ export class RecordingGateway {
   }
 
   async stop(): Promise<void> {
+    /** close() 只停监听，keep-alive 持久连接会拖住回调——必须显式全断 */
+    this.server.closeAllConnections();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 
@@ -72,8 +74,12 @@ export class RecordingGateway {
         this.requests.push(body);
         const reply = this.replies.shift();
         if (!reply) {
-          res.statusCode = 500;
-          res.end(JSON.stringify({ type: "error", error: { message: "录音网关：脚本化回复已耗尽" } }));
+          /** 4xx 不触发 SDK 重试（5xx 会引起指数退避重试链，每次重试都会污染录音） */
+          res.statusCode = 400;
+          res.end(JSON.stringify({
+            type: "error",
+            error: { type: "invalid_request_error", message: "录音网关：脚本化回复已耗尽（场景比预期的 LLM 调用多——可能是重试链或多打了一次网关）" },
+          }));
           return;
         }
         res.writeHead(200, {

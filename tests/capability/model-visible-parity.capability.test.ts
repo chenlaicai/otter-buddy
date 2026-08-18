@@ -99,6 +99,11 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     const canonical = canonicalizeRequests(gateway.requests, { tmpDir: ctx.tmpDir });
 
     const captureTo = process.env.A3_SNAPSHOT_CAPTURE;
+    if (!captureTo && !process.env.A3_SNAPSHOT_FILE) {
+      /** 默认模式也不能空跑：至少断言快照规模（防 vacuous pass） */
+      expect(canonical.length).toBe(2);
+      return;
+    }
     if (captureTo) {
       writeSnapshot(captureTo, buildSnapshot(SCENARIO, canonical));
       console.log(`[A3] 基线快照已写入 ${captureTo}（${canonical.length} 次请求）`);
