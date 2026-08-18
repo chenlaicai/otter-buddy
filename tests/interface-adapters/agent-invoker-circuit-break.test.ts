@@ -68,7 +68,7 @@ function mockSendMessage() {
   const start = async (): Promise<Message> => ({
     id: `msg-${++seq}`, conversationId: "conv-1", turnId: "turn-1",
     senderType: "otter", senderId: "otter-1", talkingStonePassedTo: null,
-    status: "streaming", body: null, sequenceNum: seq,
+    status: "streaming", segments: [], sequenceNum: seq,
     contextTokens: null, contextTokensMax: null, source: "web",
     createdAt: new Date().toISOString(), completedAt: null,
   });
@@ -81,7 +81,17 @@ function mockSendMessage() {
     fail: async (id: string, body?: string) => { failCalls.push({ id, body: body ?? "" }); },
     abort: async (id: string, input: { body: string }) => { abortCalls.push({ id, body: input.body }); },
     appendEvent: async () => ({}),
-    sendSystem: async (_c: string, body: string) => { sendSystemBodies.push(body); return { id: `sys-${++seq}`, body, sequenceNum: seq }; },
+    sendSystem: async (_c: string, body: string) => {
+      sendSystemBodies.push(body);
+      return {
+        id: `sys-${++seq}`, conversationId: "conv-1", turnId: "turn-1",
+        senderType: "system" as const, senderId: "system", talkingStonePassedTo: null,
+        status: "completed" as const,
+        segments: [{ id: `seg-${++seq}`, messageId: `sys-${seq}`, body, sequenceNum: 0, createdAt: new Date().toISOString() }],
+        sequenceNum: seq, contextTokens: null, contextTokensMax: null, source: "web" as const,
+        createdAt: new Date().toISOString(), completedAt: null,
+      };
+    },
     updateTokenUsage: async () => ({}),
     prepareForRetry: async (id: string) => ({ id }),
     _failCalls: failCalls,
@@ -158,7 +168,14 @@ function mockQueryMessage(overrides?: {
       id: `ev-${i}`, messageId: "any", eventType: e.eventType, payload: e.payload,
       sequenceNum: i, createdAt: new Date().toISOString(),
     })),
-    getLastMessageBySender: async () => ({ body: "继续实现小獭闲置预警" }),
+    getLastMessageBySender: async () => ({
+      id: "msg-user-1", conversationId: "conv-1", turnId: "turn-1",
+      senderType: "user" as const, senderId: "user", talkingStonePassedTo: null,
+      status: "completed" as const,
+      segments: [{ id: "seg-user-1", messageId: "msg-user-1", body: "继续实现小獭闲置预警", sequenceNum: 0, createdAt: new Date().toISOString() }],
+      sequenceNum: 1, contextTokens: null, contextTokensMax: null, source: "web" as const,
+      createdAt: new Date().toISOString(), completedAt: null,
+    }),
   } as unknown as QueryMessage;
 }
 

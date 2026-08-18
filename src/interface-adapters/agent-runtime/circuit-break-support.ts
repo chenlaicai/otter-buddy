@@ -18,6 +18,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { HealingEvent } from "@entities/healing/healing-event";
 import type { OtterSession } from "@entities/otter/otter-session";
+import { aggregateBody } from "@entities/conversation/message";
 import type { SSEEvent } from "@contract/sse/events";
 import {
   buildCircuitBreakSummary,
@@ -85,7 +86,7 @@ export class CircuitBreakSupport {
       });
       try {
         const sysMsg = await this.deps.sendMessage.sendSystem(info.conversationId, buildCircuitBreakFailureMsg());
-        emitEvent({ event: "system.message", data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum } });
+        emitEvent({ event: "system.message", data: { messageId: sysMsg.id, content: aggregateBody(sysMsg.segments), seq: sysMsg.sequenceNum } });
       } catch { /* ignore */ }
       await this.writeCircuitBreakEvent(info, { trigger: 'primary', failed: true, error: error.message }).catch(() => { /* non-fatal */ });
       return false;
@@ -124,7 +125,8 @@ export class CircuitBreakSupport {
       const inWindow = await this.countDegenerateInTurnWindow(otterId, session);
       if (inWindow.count < 2) return;
 
-      const lastUserMessage = (await this.deps.queryMessage.getLastMessageBySender(conversationId, 'user').catch(() => null))?.body ?? '';
+      const lastUserMsg = await this.deps.queryMessage.getLastMessageBySender(conversationId, 'user').catch(() => null);
+      const lastUserMessage = lastUserMsg ? aggregateBody(lastUserMsg.segments) : '';
       const summary = lastUserMessage
         ? buildSecondaryCircuitBreakSummary({ lastUserMessage })
         : buildCircuitBreakFallbackSummary();
