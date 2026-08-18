@@ -945,8 +945,6 @@ export class PiSessionFactory implements AgentGateway {
       /** F20260813actk C9：每次 invoke 新建待派工票据 Map（agent turn 级生命周期） */
       pendingDispatches: new Map<string, string>(),
       dispatchWarningShown: false,
-      speakBodyBuffer: [],
-      pendingYieldTargets: [],
     };
     const otterTools = this.cfg.createTools(toolContext, this.cfg.healingRepo, this.logger);
 

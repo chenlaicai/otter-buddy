@@ -319,10 +319,8 @@ describe("SqliteConversationRepository - 消息与事件操作", () => {
         status: "streaming",
       }));
 
-      // 先调用 startSpeaking 将消息转为 speaking 状态
-      await repo.startSpeaking("msg-streaming", ["otter-1"]);
-      // speak 工具先 appendSegment 再 complete
-      await repo.appendSegment("msg-streaming", "助手的完整回复内容");
+      // 先调用 startSpeaking 将消息转为 speaking 状态（body 直接传入，startSpeaking 插入 segment）
+      await repo.startSpeaking("msg-streaming", "助手的完整回复内容", ["otter-1"]);
 
       await repo.completeMessage({
         messageId: "msg-streaming",
@@ -606,8 +604,7 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         status: "streaming",
         sequenceNum: 2,
       }));
-      await repo.startSpeaking("msg-speaking", ["user-1"]);
-      await repo.appendSegment("msg-speaking", "发言到一半的正文");
+      await repo.startSpeaking("msg-speaking", "发言到一半的正文", ["user-1"]);
       await repo.createCompletedMessage(messageFixture({ id: "msg-done", sequenceNum: 3 }));
 
       const count = await repo.failInFlightMessages("2026-07-24T00:02:00Z", "[服务重启，发言中断]");
@@ -775,7 +772,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
     await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
-    await repo.startSpeaking("msg-1", ["user"]);
+    await repo.startSpeaking("msg-1", "test body content", ["user"]);
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("processing");

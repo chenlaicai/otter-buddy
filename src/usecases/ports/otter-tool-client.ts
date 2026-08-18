@@ -56,8 +56,9 @@ export interface LinkResourceInput {
 export interface OtterToolClient {
   conversation: {
     message: {
-      /** 开始发言：streaming → speaking，设置发言石目标（speak 工具调用） */
+      /** 开始发言：streaming → speaking，插入 segment + 设置发言石目标（同一事务） */
       startSpeaking(messageId: string, params: {
+        body: string;
         talkingStonePassedTo: string[];
       }): Promise<Message>;
       /** 追加一条 speak 片段到消息 */

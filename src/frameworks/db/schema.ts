@@ -95,7 +95,6 @@ function createMessageTables(db: Database.Database): void {
       sender_type TEXT NOT NULL,
       sender_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'completed',
-      body TEXT,
       sequence_num INTEGER NOT NULL,
       turn_id TEXT NOT NULL,
       talking_stone_passed_to TEXT,

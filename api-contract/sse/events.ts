@@ -20,8 +20,6 @@ export type SSEEventMap = {
   "agent.compaction_end": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; errorMessage?: string };
   "stream.end": Record<string, never>;
   "error": { message: string; messageId: string; otterId: string };
-  /** speak-to-self 中间发言：agent 继续工作时的增量内容（不触发 turn 关闭） */
-  "speak.intermediate": { messageId: string; body: string };
 };
 
 export type SSEEventType = keyof SSEEventMap;

@@ -6,7 +6,7 @@ import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 export function buildMessageClient(uc: UseCases) {
   return {
-    startSpeaking: (messageId: string, params: { talkingStonePassedTo: string[] }) =>
+    startSpeaking: (messageId: string, params: { body: string; talkingStonePassedTo: string[] }) =>
       uc.sendMessage.startSpeaking(messageId, params),
     appendSegment: (messageId: string, body: string) =>
       uc.sendMessage.appendSegment(messageId, body),

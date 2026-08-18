@@ -131,8 +131,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (dispatchWarning) return textResponse(dispatchWarning);
 
       try {
-        await ctx.client.conversation.message.appendSegment(ctx.currentMessageId, cleanBody);
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
         /** F20260813actk C9：提交成功后才确认清除已派工票据 */
         confirmDispatchesClear(ctx, resolvedIds);
       } catch (err) {

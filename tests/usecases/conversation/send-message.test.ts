@@ -339,8 +339,7 @@ describe("SendMessage（真 sqlite）", () => {
 
     it("complete：speaking -> completed 并设置 body", async () => {
       const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
-      await sm.startSpeaking(msg.id, { talkingStonePassedTo: ["user"] });
-      await sm.appendSegment(msg.id, "发言内容");
+      await sm.startSpeaking(msg.id, { body: "发言内容", talkingStonePassedTo: ["user"] });
 
       await sm.complete(msg.id, { talkingStonePassedTo: ["user"] });
 

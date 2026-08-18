@@ -90,13 +90,12 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
     expect(ftsRows(db)).toEqual([{ message_id: "msg-s", body: "" }]);
   });
 
-  it("startSpeaking + appendSegment：FTS 更新为发言 body 的剥离投影", async () => {
+  it("startSpeaking：FTS 写发言 body 的剥离投影（startSpeaking 插入 segment）", async () => {
     await repo.createStreamingMessage(messageFixture({
       id: "msg-s", segments: [], talkingStonePassedTo: null, status: "streaming", source: "web",
       completedAt: null,
     }));
-    await repo.startSpeaking("msg-s", ["user-1"]);
-    await repo.appendSegment("msg-s", CARD_BODY);
+    await repo.startSpeaking("msg-s", CARD_BODY, ["user-1"]);
 
     const rows = ftsRows(db);
     expect(rows).toHaveLength(1);
@@ -108,8 +107,7 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
       id: "msg-s", segments: [], talkingStonePassedTo: null, status: "streaming", source: "web",
       completedAt: null,
     }));
-    await repo.startSpeaking("msg-s", ["user-1"]);
-    await repo.appendSegment("msg-s", CARD_BODY);
+    await repo.startSpeaking("msg-s", CARD_BODY, ["user-1"]);
     await repo.completeMessage({
       messageId: "msg-s", talkingStonePassedTo: ["user-1"], completedAt: "2026-07-28T00:02:00Z",
     });
@@ -124,8 +122,7 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
       id: "msg-s", segments: [], talkingStonePassedTo: null, status: "streaming", source: "web",
       completedAt: null,
     }));
-    await repo.startSpeaking("msg-s", ["user-1"]);
-    await repo.appendSegment("msg-s", CARD_BODY);
+    await repo.startSpeaking("msg-s", CARD_BODY, ["user-1"]);
 
     /** failMessage 不写 body：FTS 保持原值 */
     await repo.failMessage("msg-s", "2026-07-28T00:03:00Z");
@@ -136,8 +133,7 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
       id: "msg-f", sequenceNum: 2, segments: [], talkingStonePassedTo: null, status: "streaming", source: "web",
       completedAt: null,
     }));
-    await repo.startSpeaking("msg-f", ["user-1"]);
-    await repo.appendSegment("msg-f", CARD_BODY);
+    await repo.startSpeaking("msg-f", CARD_BODY, ["user-1"]);
     await repo.appendSegment("msg-f", "[错误] 模型限流");
     await repo.failMessage("msg-f", "2026-07-28T00:04:00Z");
     const row = ftsRows(db).find(r => r.message_id === "msg-f");
@@ -153,8 +149,7 @@ describe("SqliteConversationRepository - FTS 应用层写入（F20260728htar）"
       id: "msg-speaking", sequenceNum: 2, segments: [], talkingStonePassedTo: null, status: "streaming", source: "web",
       completedAt: null,
     }));
-    await repo.startSpeaking("msg-speaking", ["user-1"]);
-    await repo.appendSegment("msg-speaking", CARD_BODY);
+    await repo.startSpeaking("msg-speaking", CARD_BODY, ["user-1"]);
 
     const count = await repo.failInFlightMessages("2026-07-28T00:05:00Z", "[服务重启，发言中断]");
     expect(count).toBe(2);

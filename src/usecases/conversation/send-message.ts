@@ -64,6 +64,7 @@ export interface CompleteMessageInput {
 
 /** 开始发言输入 */
 export interface StartSpeakingInput {
+  body: string;
   talkingStonePassedTo: string[];
 }
 
@@ -210,7 +211,7 @@ export class SendMessage {
     return event;
   }
 
-  /** 开始发言（speak 工具调用）：streaming → speaking，设置发言石目标 */
+  /** 开始发言（speak 工具调用）：streaming → speaking，插入 segment + 设置发言石目标（同一事务） */
   async startSpeaking(messageId: string, input: StartSpeakingInput): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
@@ -219,11 +220,14 @@ export class SendMessage {
     if (!canStartSpeaking(message.status)) {
       throw new DomainError(`Cannot start speaking for message with status: ${message.status}`, "conflict");
     }
+    if (!input.body || input.body.trim().length === 0) {
+      throw new DomainError("body must be non-empty", "validation");
+    }
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "speaking", message.senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for speaking messages", "validation");
     }
 
-    await this._repo.startSpeaking(messageId, input.talkingStonePassedTo);
+    await this._repo.startSpeaking(messageId, input.body, input.talkingStonePassedTo);
 
     return {
       ...message,

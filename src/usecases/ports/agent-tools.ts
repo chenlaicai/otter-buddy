@@ -134,16 +134,4 @@ export interface ToolContext {
   pendingDispatches?: Map<string, string>;
   /** F20260813actk C9：本轮是否已展示过派工提醒。避免软守卫死循环——首次提醒后二次 speak 放行。 */
   dispatchWarningShown?: boolean;
-  /**
-   * speak-to-self body 累积缓冲。
-   * 每次 speak-to-self 追加一段 body；最终交棒时拼接为完整消息写入 DB。
-   * Per-invocation 生命周期（PiSessionFactory.buildCustomTools 每次新建）。
-   */
-  speakBodyBuffer?: string[];
-  /**
-   * speak-to-self+others 的待 dispatch 目标。
-   * yieldTo=[self, 他人] 时记录他人；最终交棒时合并到 talkingStonePassedTo。
-   * Per-invocation 生命周期。
-   */
-  pendingYieldTargets?: string[];
 }
