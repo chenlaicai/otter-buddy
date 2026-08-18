@@ -92,7 +92,7 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 1. **一级（本次事故直接形态，必须做）**：degenerate retry 本身再次 degenerate——即 `routeGuardAbort` 中 `guardReason === 'degenerate_output' && retryCount > 0` 的路径，从 `abortTerminal` 改为 `熔断重启`。
 2. **二级（abort 后用户手动继续又退化，覆盖 seq 23/25 形态）**：invoke 前查 healing_events，该 otter 最近 2 个 turn 内 ≥2 次 degenerate 事件（retry 失败与 abort 各计一次）→ 先 restart 再执行。窗口参数依据：一级触发已覆盖"turn 内连续两次退化"，二级只需兜"abort 后手动继续又退化"，两轮即熔断，用户最多再经历一次 abort。
 
-   - **挂载点**：`invokeConversationInner` 的 buildDynamicContext 阶段（与既有 getActiveSession 查询同期）。invokeConversation 共 4 个调用方（dispatch 链 / scheduler / message-controller 手动重试 / inbound recruit），挂入口全覆盖——含手动重试按钮路径，不会绕过熔断。
+   - **挂载点**：`invokeConversationInner` 的 buildDynamicContext 阶段（与既有 getActiveSession 查询同期）。invokeConversation 有 5 个调用点、4 条路径（dispatch 链 / scheduler / message-controller 手动重试 / inbound recruit），挂入口全覆盖——含手动重试按钮路径，不会绕过熔断。
    - **turn 粒度推导**：healing_events 无 turn 字段，按 message_id JOIN messages 取 turn_id 去重计数。
    - **跨 conversation 计数（有意决策）**：同一 otter 多对话时退化事件互相累计。session 与退化倾向都是 otter 级的，restart 也是 otter 级动作，按 otter 计数语义正确。
 
@@ -173,9 +173,11 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts | 修改 | routeGuardAbort 二次退化返回熔断信号（跨层上抛）；retry 消息收尾；TurnInput 保留 originalUserMessage |
+| src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts | 修改 | routeGuardAbort 二次退化返回熔断信号（跨层上抛）；retry 消息收尾 |
+| src/usecases/conversation/agent-turn-orchestrator/types.ts | 修改 | TurnResult 熔断判别字段；TurnInput 增加 originalUserMessage |
 | src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts | 修改 | 熔断文案、摘要构建纯函数 |
-| src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | 装配 restartSession 回调；检测熔断信号 → restart + 写 circuit_break 事件 + 全新 invoke；二级触发查询挂载 |
+| src/usecases/conversation/agent-turn-orchestrator/（guard 触发点） | 修改 | degenerate guard 触发时（retry 失败与 abort 两处）经新增 TurnCallbacks healing 事件回调写 healing_events——二级触发与 AT-6 的数据源，漏做则二级触发永远无数据 |
+| src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | 装配 restartSession 与 healing 事件回调；检测熔断信号 → restart + 写 circuit_break 事件 + 全新 invoke；二级触发查询挂载 |
 | src/usecases/otter/manage-session.ts | 不改 | restartSession 已满足需求；事件写入在 invoker 层 |
 | src/entities/…/healing-event.ts + src/frameworks/db/schema.ts | 修改 | errorType 枚举扩展 degenerate/circuit_break；healing_events 补 otter_id 索引 |
 
@@ -209,10 +211,16 @@ created_in_conversation: 9bf7b011-ddbc-49b7-98dd-a44315cd83d9
 | 4. restartSession 失败路径未考虑（熔断时 turn 已在失败态，抛错即三不管） | 严重 | 已修：失败降级回退 abortTerminal + 系统消息说明 + healing_events 留痕；不引入延迟重试 |
 | 5. orchestrator 直接依赖 ManageSession 打破上下文隔离 | 建议（更好） | 已采纳：restartSession 走 TurnCallbacks 回调由 agent-invoker 装配；agent-invoker.ts 补入改动范围 |
 | 6. "invoke 已退出、无 in-flight"论证缺失（reset 走锁管理器） | 建议 | 已修：方案中补论证（guard abort 路径 driver.invoke 已 await 返回）；实现阶段 AT-5 实测验证 |
-| 7. pendingRestart 双重 restart 风险 | 建议（更好） | 已采纳：熔断执行前消费/清除 pendingRestart；靠 healing_events 推导天然防重复触发 |
+| 7. pendingRestart 双重 restart 风险 | 建议（更好） | 已采纳（后经第二轮 S5 修订：跨层清除不可实现，改为异常路径天然跳过论证 + healing_events 兜底，见下轮及设计决策） |
 | 8. working 记忆全量降层语义未提示 | 建议（更好） | 已采纳：方案中补"内容不丢、丢的是 working 层活性"说明 |
 
 审查者核验确认的事实性声明（无需修改）：degenerate retry 只允许一次（orchestrator.ts retryCount===0 分支）；restartSession 含 pi session reset 与记忆转历史；摘要注入点语义准确（行号 375-376）。
+
+### 第三轮（2026-08-18，审查者：独立 agent 对账獭，焦点：文档承诺 ↔ 代码事实 ↔ 内部一致性三方核对）
+
+1 严重发现、3 建议发现，全部为完备性/一致性层面（改动范围表漏项、陈旧表述、计数措辞），无设计缺陷。核心代码论断逐条核实通过（routeGuardAbort 结构、信号消费位置、摘要注入时机、healing_events schema、message_events 既有查询方法 getMessageEvents / getLastMessageBySender 均真实存在，无幻路径）。处置：改动范围表补 degenerate 事件写入路径（TurnCallbacks healing 回调）与 types.ts 行；调用方计数改"5 个调用点、4 条路径"；第一轮 pendingRestart 处置加修订标注。
+
+**收敛判定**：三轮发现数 8→9→4 递减，第三轮唯一严重项为表格漏项（非设计缺陷），审视收敛，文档定稿（status: design，待实现）。
 
 ### 第二轮（2026-08-18，审查者：独立 agent 拾遗獭，焦点：第一轮修复新增设计的自身缺陷）
 
