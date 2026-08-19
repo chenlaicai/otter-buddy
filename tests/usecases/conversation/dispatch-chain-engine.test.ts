@@ -35,6 +35,7 @@ function makeMocks() {
   const conversationRepo = {
     getActiveParticipants: vi.fn().mockResolvedValue([]),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
+    getMaxTurnNumber: vi.fn().mockResolvedValue(0),
     getTurnById, updateLastReadTurnNumber, updateLastActiveTurnNumber, getLastMessageBySender,
     getActiveTurn, getMessageById,
     getParticipant: vi.fn().mockResolvedValue(null),
@@ -45,7 +46,7 @@ function makeMocks() {
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
-  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, updateLastReadTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn };
+  return { sendMessage, conversationRepo, queryMessage, queryOtter, logger, updateLastReadTurnNumber, getTurnById, getMessageById, getLastMessageBySender, getActiveTurn, getMaxTurnNumber: conversationRepo.getMaxTurnNumber as ReturnType<typeof vi.fn> };
 }
 
 /** 提取 mock 首次调用的参数（避免 toHaveBeenCalledWith 绑定实现细节的 lint 规则） */
@@ -127,5 +128,99 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
     const byOtter = new Map(calls.map(([, otterId, turnNum]) => [otterId, turnNum]));
     expect(byOtter.get("otter-1")).toBe(5);
     expect(byOtter.get("otter-2")).toBe(7);
+  });
+});
+
+describe("buildIdleOttersWarning", () => {
+  function makeParticipant(overrides: Record<string, unknown> = {}) {
+    return {
+      otterId: "otter-1",
+      status: "active",
+      lastActiveTurnNumber: 0,
+      lastReadTurnNumber: 0,
+      ...overrides,
+    };
+  }
+
+  it("有闲置小獭时返回正确预警文本", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
+      makeParticipant({ otterId: "otter-current", lastActiveTurnNumber: 20 }),
+    ]);
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+      if (id === "otter-x") return { name: "闲置獭" };
+      if (id === "otter-current") return { name: "当前獭" };
+      return null;
+    });
+    m.getMaxTurnNumber.mockResolvedValue(25);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const result = await engine.buildIdleOttersWarning("conv-1", "otter-current");
+    expect(result).toContain("闲置獭");
+    expect(result).toContain("24 轮");
+    expect(result).toContain("系统提示");
+  });
+
+  it("无闲置小獭时返回 null", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 20 }),
+    ]);
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "活跃獭" });
+    m.getMaxTurnNumber.mockResolvedValue(25);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
+    expect(result).toBeNull();
+  });
+
+  it("getMaxTurnNumber 返回 0 时返回 null", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    m.getMaxTurnNumber.mockResolvedValue(0);
+    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
+    expect(result).toBeNull();
+  });
+
+  it("从 settingsRepo 读取自定义阈值", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
+    ]);
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
+    m.getMaxTurnNumber.mockResolvedValue(10);
+    const settingsRepo = { get: vi.fn().mockResolvedValue("5") };
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never });
+    // idleTurns = 10 - 1 = 9, threshold = 5 → 超过
+    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
+    expect(result).toContain("獭");
+    expect(result).toContain("9 轮");
+  });
+
+  it("settingsRepo 不可用时 fallback 到默认阈值 20", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
+    ]);
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
+    m.getMaxTurnNumber.mockResolvedValue(25);
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    // idleTurns = 25 - 1 = 24, threshold = 20 → 超过
+    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
+    expect(result).toContain("24 轮");
+  });
+
+  it("无效阈值配置 fallback 到默认值 20", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeParticipant({ otterId: "otter-x", lastActiveTurnNumber: 1 }),
+    ]);
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "獭" });
+    m.getMaxTurnNumber.mockResolvedValue(25);
+    const settingsRepo = { get: vi.fn().mockResolvedValue("abc") };
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, settingsRepo: settingsRepo as never });
+    // idleTurns = 24, threshold fallback 20 → 超过
+    const result = await engine.buildIdleOttersWarning("conv-1", "user-1");
+    expect(result).toContain("24 轮");
   });
 });

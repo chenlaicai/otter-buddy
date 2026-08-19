@@ -677,7 +677,7 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         leftAtTurnId: null, leftAtTurnNumber: null,
         status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
         lastReadTurnNumber: 0,
-      lastActiveTurnNumber: 0,
+        lastActiveTurnNumber: 0,
       });
       await repo.createCompletedMessage(messageFixture({ senderId: "otter-1" }));
       await repo.createStreamingMessage(messageFixture({
@@ -737,7 +737,7 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
         leftAtTurnId: null, leftAtTurnNumber: null,
         status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
         lastReadTurnNumber: 0,
-      lastActiveTurnNumber: 0,
+        lastActiveTurnNumber: 0,
       });
 
       await repo.markParticipantLeft("conv-1", "otter-x");

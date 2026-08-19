@@ -199,11 +199,14 @@ export class DispatchChainEngine {
     currentOtterId: string
   ): Promise<string | null> {
     // 从 settings 读取阈值，fallback 到默认值 20
-    const threshold = this.deps.settingsRepo
-      ? (await this.deps.settingsRepo.get('otter_idle_threshold'))?.trim()
-        ? parseInt((await this.deps.settingsRepo.get('otter_idle_threshold'))!.trim(), 10)
-        : 20
-      : 20;
+    let threshold = 20;
+    if (this.deps.settingsRepo) {
+      const raw = (await this.deps.settingsRepo.get('otter_idle_threshold'))?.trim();
+      if (raw) {
+        const parsed = parseInt(raw, 10);
+        threshold = isNaN(parsed) ? 20 : parsed;
+      }
+    }
 
     const participants = await this.deps.conversationRepo.getActiveParticipants(conversationId);
     // 使用 getMaxTurnNumber 替代 getActiveTurn，避免链式调用中 turn 已关闭的问题
@@ -248,9 +251,18 @@ export class DispatchChainEngine {
     senderId: string,
     roster: string,
   ): Promise<string> {
+    // F20260818idnw：闲置小獭预警（增强功能，失败不影响主流程）
+    // 必须在早返回路径之前计算，否则无未读消息时预警会被跳过
+    let idleWarning: string | null = null;
+    try {
+      idleWarning = await this.buildIdleOttersWarning(conversationId, otterId);
+    } catch { /* 预警失败不影响主流程 */ }
+
     const unreadMessages = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
     if (unreadMessages.length === 0) {
-      return `${roster}\n\n## 当前任务\n${userMessageContent}`;
+      let result = `${roster}\n\n## 当前任务\n${userMessageContent}`;
+      if (idleWarning) result += `\n\n${idleWarning}`;
+      return result;
     }
     const names = await this.resolveSenderNames(unreadMessages);
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
@@ -258,11 +270,6 @@ export class DispatchChainEngine {
       .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? partnerLabel : (names.get(m.senderId) ?? m.senderId)}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}`)
       .join('\n');
 
-    // F20260818idnw：闲置小獭预警（增强功能，失败不影响主流程）
-    let idleWarning: string | null = null;
-    try {
-      idleWarning = await this.buildIdleOttersWarning(conversationId, otterId);
-    } catch { /* 预警失败不影响主流程 */ }
     let result = `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
