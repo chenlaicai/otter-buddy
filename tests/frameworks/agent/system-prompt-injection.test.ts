@@ -10,8 +10,8 @@
  * 不需要走完整 SDK 调用链。
  */
 import { describe, it, expect } from "vitest";
-import { buildBeforeAgentStartResult, otterInvokeStorage } from "@frameworks/agent/pi-session-factory";
-import type { OtterInvokeContext } from "@frameworks/agent/pi-session-factory";
+import { buildBeforeAgentStartResult, otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
+import type { OtterInvokeContext } from "@frameworks/agent/model-runtime-registry";
 import type { OtterPromptConfig } from "@contract/api/otter";
 
 const BASE_PROMPT = "You are a coding agent with tools: read, write, edit, bash.";

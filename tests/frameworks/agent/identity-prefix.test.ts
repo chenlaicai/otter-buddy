@@ -38,8 +38,8 @@ function makeFactory(db: Database.Database, identityPromptDir?: string): PiSessi
 }
 
 async function buildIdentityPrefix(factory: PiSessionFactory, otterId: string, otterType: string): Promise<string> {
-  return (factory as unknown as { buildIdentityPrefix(id: string, type: string): Promise<string> })
-    .buildIdentityPrefix(otterId, otterType);
+  return (factory as unknown as { identityBuilder: { buildIdentityPrefix(id: string, type: string, conversationId: string): Promise<string> } })
+    .identityBuilder.buildIdentityPrefix(otterId, otterType, "");
 }
 
 describe("buildIdentityPrefix 分支", () => {
