@@ -24,9 +24,14 @@ export interface ScriptedReply {
   toolCalls?: Array<{ name: string; input: unknown }>;
 }
 
-/** speak 工具调用回复（让回合正常收尾） */
+/** speak 工具调用回复（纯内容输出，不终止回合——拆分后需后续 yieldScript 收尾） */
 export function speakScript(body: string): ScriptedReply {
-  return { toolCalls: [{ name: "speak", input: { body, talkingStonePassedTo: ["user"] } }] };
+  return { toolCalls: [{ name: "speak", input: { body } }] };
+}
+
+/** yield 工具调用回复（交棒收尾，终结回合）。必须与 speak 分开两轮脚本（yield 与其他工具同批时 terminate 不生效） */
+export function yieldScript(to: string[] = ["user"]): ScriptedReply {
+  return { toolCalls: [{ name: "yield", input: { to } }] };
 }
 
 /** 录音网关：记录 anthropic wire 请求体，回放脚本化 SSE 响应 */

@@ -44,7 +44,7 @@ export function validateAndResolve(
   active: Array<{ otterId: string; otterName: string }>,
   selfOtterId: string,
 ): { resolvedIds: string[]; error?: string } {
-  if (!recipients || recipients.length === 0) return { resolvedIds: [], error: "[错误] talkingStonePassedTo 不能为空数组。请指定下一个应该发言的参与者名字。" };
+  if (!recipients || recipients.length === 0) return { resolvedIds: [], error: "[错误] 行动权目标不能为空数组。请指定下一个应该行动的参与者名字。" };
   const { resolvedIds, invalid } = resolveTalkingStoneTargets(recipients, active);
   if (resolvedIds.includes(selfOtterId)) {
     const myName = active.find(p => p.otterId === selfOtterId)?.otterName ?? selfOtterId;
@@ -52,7 +52,7 @@ export function validateAndResolve(
   }
   if (invalid.length > 0) {
     const options = [...active.map(p => p.otterName), "搭档('user')"].join("、");
-    return { resolvedIds: [], error: `[错误] 行动权目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 speak。` };
+    return { resolvedIds: [], error: `[错误] 行动权目标不在场：${invalid.join("、")}。可选目标：${options}。请用正确的名字重新调用 yield。` };
   }
   return { resolvedIds };
 }

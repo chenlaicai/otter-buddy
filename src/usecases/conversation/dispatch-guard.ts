@@ -40,8 +40,8 @@ export function checkPendingDispatches(
   ctx.dispatchWarningShown = true;
   return (
     `[系统状态] 你本轮创建的小獭还有 ${remaining.length} 只未获得行动权：${names}。它们不会被唤醒执行。` +
-    `如果你确实要把行动权交给 [${recipients.join("、")}]，再次调用 speak 即可放行；` +
-    `如果是漏派，请把 ${names} 加入 talkingStonePassedTo 后重新调用 speak。`
+    `如果你确实要把行动权交给 [${recipients.join("、")}]，再次调用 yield 即可放行；` +
+    `如果是漏派，请把 ${names} 加入 yield 的 to 参数后重新调用 yield。`
   );
 }
 

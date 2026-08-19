@@ -676,7 +676,7 @@ describe("AgentInvoker yield retry", () => {
     expect(agent._invokeMessages[1]).toContain("speak");
   });
 
-  it("有工具调用但漏 speak（toolCallCount>0）重试提示不包含'没有调用任何工具'", async () => {
+  it("有工具调用但漏 yield（toolCallCount>0）重试提示不包含'没有调用任何工具'", async () => {
     const msg = mockSendMessage();
     const qm = mockQueryMessageSequence(["streaming", "speaking"]);
     /** 传 tool_execution_start 事件 → toolCallCount>0 */
@@ -700,7 +700,7 @@ describe("AgentInvoker yield retry", () => {
     /** 第二次 invoke 的 userMessageContent 应包含重试提示（不含'没有调用任何工具'） */
     expect(agent._invokeMessages).toHaveLength(2);
     expect(agent._invokeMessages[1]).not.toContain("没有调用任何工具");
-    expect(agent._invokeMessages[1]).toContain("speak");
+    expect(agent._invokeMessages[1]).toContain("yield");
   });
 
   it("重试通过 userMessageContent 传递系统提醒给 LLM", async () => {

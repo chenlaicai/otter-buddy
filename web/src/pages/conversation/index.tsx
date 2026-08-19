@@ -446,6 +446,17 @@ function ConversationPage() {
           return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
         })
       },
+      'speak.intermediate': (data) => {
+        const body = data.body as string
+        if (!body) return
+        const messageId = data.messageId as string
+        const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
+        liveText.set(messageId, acc)
+        batchUpdateMessages(activeId!, (list) => {
+          if (!list.some(m => m.id === messageId)) return list
+          return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
+        })
+      },
       'assistant_toolcall': (data) => {
         const liveEvents = liveEventsMap.get(data.messageId as string)
         if (!liveEvents) return
@@ -703,6 +714,16 @@ function ConversationPage() {
             return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
           })
         },
+        'speak.intermediate': (data) => {
+          const { messageId, body } = data as { messageId: string; body: string }
+          if (!body) return
+          const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
+          liveText.set(messageId, acc)
+          batchUpdateMessages(activeId!, (list) => {
+            if (!list.some(m => m.id === messageId)) return list
+            return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
+          })
+        },
         'message.complete': (data) => {
           const { messageId } = data
           const liveEvents = liveEventsMap.get(messageId) || []
@@ -948,6 +969,16 @@ function ConversationPage() {
           const acc = (liveText.get(msgId) || '') + textContent
           liveText.set(msgId, acc)
           batchUpdateMessages(activeId, (list) => list.map(m => m.id === msgId ? { ...m, content: acc } : m))
+        },
+        'speak.intermediate': (data) => {
+          const { messageId, body } = data as { messageId: string; body: string }
+          if (!body) return
+          const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
+          liveText.set(messageId, acc)
+          batchUpdateMessages(activeId!, (list) => {
+            if (!list.some(m => m.id === messageId)) return list
+            return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
+          })
         },
         'message.complete': (data) => {
           const { messageId: msgId } = data

@@ -23,12 +23,12 @@ export function buildRetryFailBody(reason: string): string {
   return "执行异常";
 }
 
-/** 构建 speak 重试的系统提醒消息 */
-export function buildSpeakRetryMsg(toolCallCount?: number): string {
+/** 构建 yield 重试的系统提醒消息（speak+yield 拆分：回合必须以 yield 交棒结束） */
+export function buildYieldRetryMsg(toolCallCount?: number): string {
   const isThinkingOnly = (toolCallCount ?? 0) === 0;
   return isThinkingOnly
-    ? "[系统提醒] 你上一轮没有调用任何工具。请调用 speak 结束发言。"
-    : "[系统提醒] 你上一次发言没有调用 speak 就结束了。请调用 speak 结束发言。";
+    ? "[系统提醒] 你上一轮没有调用任何工具。请先用 speak 输出结论，再调用 yield 交回行动权。"
+    : "[系统提醒] 你上一次行动没有调用 yield 交棒就结束了。请调用 yield(to) 把行动权交给下一位。";
 }
 
 /** Build abort body: user abort vs guard abort */

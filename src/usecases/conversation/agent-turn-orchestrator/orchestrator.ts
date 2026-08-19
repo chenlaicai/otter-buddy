@@ -16,7 +16,8 @@ import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
-import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildSpeakRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
+import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
+import { aggregateBody } from "@entities/conversation/message";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
 
@@ -134,7 +135,7 @@ export class AgentTurnOrchestrator {
       currentInput = {
         ...currentInput,
         retryCount: 1,
-        userMessageContent: buildSpeakRetryMsg(toolCallCount),
+        userMessageContent: buildYieldRetryMsg(toolCallCount),
       };
     }
   }
@@ -186,7 +187,7 @@ export class AgentTurnOrchestrator {
           messageId: input.messageId,
           otterId: input.otterId,
           otterName: otter?.name ?? input.otterId,
-          body: msg?.body ?? '',
+          body: msg ? aggregateBody(msg.segments) : '',
           turnId: msg?.turnId ?? '',
           duration: `${(duration / 1000).toFixed(1)}s`,
           ctx: result.ctxTokens,
@@ -224,7 +225,7 @@ export class AgentTurnOrchestrator {
       case 'api_error':
         return this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
       case 'no_yield':
-        return this.handleSpeakRetry(ctx);
+        return this.handleYieldRetry(ctx);
       default:
         return { messageId: ctx.input.messageId, duration: Date.now() - ctx.startTime };
     }
@@ -246,7 +247,7 @@ export class AgentTurnOrchestrator {
             messageId: ctx.input.messageId,
             otterId: ctx.input.otterId,
             otterName: otter?.name ?? ctx.input.otterId,
-            body: msg?.body ?? '',
+            body: msg ? aggregateBody(msg.segments) : '',
             turnId: msg?.turnId ?? '',
             duration: `${(duration / 1000).toFixed(1)}s`,
             ctx: ctx.result.ctxTokens,
@@ -474,10 +475,10 @@ export class AgentTurnOrchestrator {
     return null;
   }
 
-  /** Handle speak retry: fail + system reminder + retry */
-  private async handleSpeakRetry(ctx: RouteContext): Promise<TurnResult | null> {
+  /** Handle yield retry: fail + system reminder + retry */
+  private async handleYieldRetry(ctx: RouteContext): Promise<TurnResult | null> {
     if (ctx.input.retryCount === 0) {
-      const failBody = "[系统] 未调用 speak 工具结束发言";
+      const failBody = "[系统] 未调用 yield 工具交回行动权";
       try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
       try {
@@ -490,7 +491,7 @@ export class AgentTurnOrchestrator {
         return this.executeRetryWithSystemReminder({
           input: ctx.input,
           failBody,
-          retryMsg: buildSpeakRetryMsg(ctx.toolCallCount),
+          retryMsg: buildYieldRetryMsg(ctx.toolCallCount),
           tokenUsage: ctx.result.tokenUsage,
           callbacks: ctx.callbacks,
           startTime: ctx.startTime,
@@ -500,7 +501,7 @@ export class AgentTurnOrchestrator {
       return null;
     }
 
-    this.logger.warn('Speak retry exhausted, failing message', {
+    this.logger.warn('Yield retry exhausted, failing message', {
       messageId: ctx.input.messageId,
       otterId: ctx.input.otterId,
       conversationId: ctx.input.conversationId,
@@ -508,7 +509,7 @@ export class AgentTurnOrchestrator {
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     const otterName = otter?.name ?? ctx.input.otterId;
-    const failBody = "[系统] 重试后仍未调用 speak 工具";
+    const failBody = "[系统] 重试后仍未调用 yield 工具";
 
     try {
       await ctx.callbacks.failMessage(ctx.input.messageId, failBody, [ctx.input.senderId]);

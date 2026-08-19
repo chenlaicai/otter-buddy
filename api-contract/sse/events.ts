@@ -4,6 +4,8 @@ export type SSEEventMap = {
   "assistant_toolcall": { messageId: string; content: Array<Record<string, unknown>> };
   "tool.result": { messageId: string; toolName: string; result: unknown };
   "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };
+  /** speak 中间发言：agent 继续工作时的增量内容（speak+yield 拆分——speak 即时呈现，不结束回合） */
+  "speak.intermediate": { messageId: string; body: string };
   "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number };
   "message.failed": { messageId: string; otterId: string; otterName: string; body?: string };
   "message.aborted": { messageId: string; body?: string; otterId?: string; otterName?: string };
