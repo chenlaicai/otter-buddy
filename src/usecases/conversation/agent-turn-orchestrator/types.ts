@@ -31,6 +31,8 @@ export interface InvokeResultShape {
 export interface AttemptResult {
   result: InvokeResultShape;
   toolCallCount: number;
+  /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，agent-invoker 执行 restart + 全新 invoke */
+  _selfRestart?: { otterId: string; summary?: string };
 }
 
 /** 发言轮输入 */
@@ -72,6 +74,8 @@ export interface TurnResult {
   aggregatedTargets?: string[];
   /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
   _circuitBreak?: CircuitBreakInfo;
+  /** F20260819rscn：LLM 调用 restart_otter(self) 时携带，agent-invoker 执行 restart + 全新 invoke */
+  _selfRestart?: { otterId: string; summary?: string };
 }
 
 /** 重试信号（degenerate_output 创建新消息重试） */

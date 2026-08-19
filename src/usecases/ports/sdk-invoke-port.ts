@@ -39,6 +39,8 @@ export interface AgentRunResult {
   modelAlias?: string;
   /** 本次 invoke 重建了全新 session（F20260814mtrc） */
   sessionRebuilt?: boolean;
+  /** F20260819rscn: LLM 调用 restart_otter(self) 时，SDK 不执行 restart，改为标记信号由调用方处理 */
+  _selfRestart?: { otterId: string; summary?: string };
 }
 
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */
