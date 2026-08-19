@@ -133,8 +133,11 @@ export class AgentInvoker implements AgentTurnPort {
 
     // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: message.id }, async () => {
+      // F20260819rscn: 用闭包捕获自重启信号（orchestrator 不透传未知字段）
+      let pendingSelfRestart: { otterId: string; summary?: string } | undefined;
+
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent);
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, (signal) => { pendingSelfRestart = signal; });
       const callbacks = this.createTurnCallbacks(emitEvent);
 
       const turnInput = this.buildTurnInput(params, message.id, startTime);
@@ -148,6 +151,17 @@ export class AgentInvoker implements AgentTurnPort {
        */
       const retried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
       if (retried) return retried;
+
+      /**
+       * F20260819rscn 自重启信号：LLM 调用 restart_otter(self) 后，SDK 标记信号不执行 restart，
+       * 由 agent-invoker 执行 restart + 全新 invoke（獭继续工作）。
+       * Why 对齐 handleCircuitBreakSignal 模式：restart 后必须递归调用 invokeConversationInner，
+       * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
+       */
+      if (pendingSelfRestart) {
+        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params);
+        if (selfRestarted) return selfRestarted;
+      }
 
       return {
         messageId: turnResult.messageId,
@@ -164,6 +178,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
+    onSelfRestart?: (signal: { otterId: string; summary?: string }) => void,
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
@@ -204,6 +219,8 @@ export class AgentInvoker implements AgentTurnPort {
             onEvent(e);
           },
         });
+        // F20260819rscn: SDK 标记了自重启信号时，通知调用方（闭包捕获）
+        if (result._selfRestart) onSelfRestart?.(result._selfRestart);
         return { result: result as unknown as InvokeResultShape, toolCallCount };
       },
 
@@ -457,6 +474,46 @@ export class AgentInvoker implements AgentTurnPort {
     } catch (err) {
       /** 递归失败不掩盖已完成的熔断收尾：降级返回原 turnResult（消息已 failed，系统消息已发） */
       this.logger.error('Circuit break re-invoke failed, falling back to interrupted state', err instanceof Error ? err : new Error(String(err)), {
+        otterId: params.otterId,
+        conversationId: params.conversationId,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * F20260819rscn：自重启信号处理。LLM 调用 restart_otter(self) 后，
+   * SDK 标记 _selfRestart 信号不执行 restart；agent-invoker 执行 restart + 全新 invoke。
+   * Why 对齐 handleCircuitBreakSignal：restart 后必须递归调用 invokeConversationInner，
+   * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
+   * Why 不用 circuitBreak.executeCircuitBreakRestart：
+   * 自重启不需要写 circuit_break healing 事件、不需要构建熔断摘要，语义不同。
+   */
+  private async handleSelfRestartSignal(
+    signal: { otterId: string; summary?: string },
+    params: {
+      otterId: string;
+      conversationId: string;
+      userMessageContent: string;
+      senderId: string;
+      onSSEEvent?: (event: SSEEvent) => void;
+      retryCount?: number;
+      manualRetry?: boolean;
+    },
+  ): Promise<AgentTurnResult | null> {
+    if (!signal) return null;
+    const { otterId, summary } = signal;
+    try {
+      const newSession = await this.manageSession.restartSession(otterId, summary);
+      this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId: newSession.id });
+    } catch (restartErr) {
+      this.logger.error('Self-restart failed, continuing with current session', restartErr instanceof Error ? restartErr : new Error(String(restartErr)), { otterId });
+      return null;
+    }
+    try {
+      return await this.invokeConversationInner({ ...params, retryCount: 0, manualRetry: false });
+    } catch (reinvokeErr) {
+      this.logger.error('Self-restart re-invoke failed, falling back to interrupted state', reinvokeErr instanceof Error ? reinvokeErr : new Error(String(reinvokeErr)), {
         otterId: params.otterId,
         conversationId: params.conversationId,
       });

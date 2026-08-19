@@ -67,6 +67,8 @@ export interface AgentRunResult {
   modelAlias?: string;
   /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；F20260814mtrc） */
   sessionRebuilt?: boolean;
+  /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke */
+  _selfRestart?: { otterId: string; summary?: string };
 }
 
 /** _buildInvokeResult 所需的 session 结构子集（统计 + 分支条目读取） */
@@ -723,16 +725,14 @@ export class PiSessionFactory implements AgentGateway {
           this._checkSessionError(session, otterId);
           const result = this._buildPromptResult(otterId, session, circuitBreaker, outputGuard, activeEntry);
 
-          // F20260815rstrt: session.prompt() 完成后检查自重启。
-          // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，restart 创建新 session。
-          // Why await：fire-and-forget 会导致 restart 失败时 summary 丢失，语义不完整。
+          // F20260819rscn: session.prompt() 完成后检查自重启。
+          // Why 不在此处执行 restart：自重启后需要自动 re-invoke（獭继续工作），
+          // 这需要 agent-invoker 层递归调用 invokeConversationInner。
+          // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，
+          // 信号必须在 session 生命周期内捕获。
           if (toolContext.pendingRestart) {
-            try {
-              const newSession = await this.otterToolClient!.otter.restart(otterId, toolContext.pendingRestart.summary);
-              this.logger.info('Self-restart completed after invoke', { otterId, newSessionId: newSession.id });
-            } catch (restartErr) {
-              this.logger.error('Self-restart failed after invoke', restartErr as Error, { otterId });
-            }
+            result._selfRestart = { otterId, summary: toolContext.pendingRestart.summary };
+            this.logger.info('Self-restart signal set on result', { otterId });
           }
           return result;
         } catch (err) {
