@@ -44,12 +44,16 @@ function makeRepos(opts: {
   let writtenMeta: EmbedModelMeta | undefined;
   let degradedWritten = false;
   let vecDisabledFlag = false;
+  const memoryMock = {
+    getEmbeddingMeta: vi.fn().mockResolvedValue(opts.storedMeta ?? {}),
+    setEmbeddingMeta: vi.fn().mockImplementation(async (meta: EmbedModelMeta) => { writtenMeta = meta; }),
+    disableVec: vi.fn().mockImplementation(() => { vecDisabledFlag = true; }),
+  };
   return {
-    memory: {
-      getEmbeddingMeta: vi.fn().mockResolvedValue(opts.storedMeta ?? {}),
-      setEmbeddingMeta: vi.fn().mockImplementation(async (meta: EmbedModelMeta) => { writtenMeta = meta; }),
-      disableVec: vi.fn().mockImplementation(() => { vecDisabledFlag = true; }),
-    },
+    memory: memoryMock,
+    memoryReader: memoryMock,
+    memoryWriter: memoryMock,
+    memoryQueue: memoryMock,
     otterContext: {
       set: vi.fn().mockImplementation(async () => { degradedWritten = true; }),
       get: vi.fn().mockResolvedValue({}),

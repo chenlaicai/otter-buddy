@@ -41,15 +41,15 @@ export interface UseCaseDeps {
 export function initUseCases(deps: UseCaseDeps): UseCases {
   const { repos, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway } = deps;
   const searchEngine = new SearchEngine(appConfig.memory);
-  const manageMemory = new ManageMemory(repos.memory);
+  const manageMemory = new ManageMemory(repos.memoryReader, repos.memoryWriter);
   const manageTerminology = new ManageTerminology(repos.terminology);
-  const scanDarkEntries = new ScanDarkEntries(repos.memory, logger);
-  const searchMemory = new SearchMemory(repos.memory, embeddingService, searchEngine, logger, repos.terminology);
+  const scanDarkEntries = new ScanDarkEntries(repos.memoryReader, logger);
+  const searchMemory = new SearchMemory(repos.memoryReader, repos.memoryWriter, embeddingService, searchEngine, logger, repos.terminology);
   // F20260813mren: 记忆关系层 use cases
-  const createEdge = new CreateEdge(repos.memory, logger);
-  const getRelated = new GetRelated(repos.memory);
-  const deleteEdge = new DeleteEdge(repos.memory);
-  const getDocProvenance = new GetDocProvenance(repos.memory, repos.feature, repos.research);
+  const createEdge = new CreateEdge(repos.memoryReader, repos.memoryWriter, logger);
+  const getRelated = new GetRelated(repos.memoryReader);
+  const deleteEdge = new DeleteEdge(repos.memoryWriter);
+  const getDocProvenance = new GetDocProvenance(repos.memoryReader, repos.feature, repos.research);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
   const manageReadState = new ManageReadState(repos.conversation);

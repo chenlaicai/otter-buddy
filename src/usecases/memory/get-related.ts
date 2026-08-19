@@ -8,7 +8,7 @@
  * 注：provenance messages（Part 2.3）在工具层组合，不在本 use case。
  */
 import type { EdgeType, RelatedEntryItem } from "@entities/memory/memory-edge";
-import type { MemoryRepository } from "./memory-repository";
+import type { MemoryReader } from "./memory-reader";
 
 export interface GetRelatedInput {
   entryId: string;
@@ -26,7 +26,7 @@ const DEFAULT_DEPTH = 1;
 const DEFAULT_LIMIT = 20;
 
 export class GetRelated {
-  constructor(private readonly repo: MemoryRepository) {}
+  constructor(private readonly reader: MemoryReader) {}
 
   async execute(input: GetRelatedInput): Promise<RelatedEntryItem[]> {
     const maxDepth = input.depth ?? DEFAULT_DEPTH;
@@ -45,7 +45,7 @@ export class GetRelated {
       for (const node of frontier) {
         if (results.length >= limit) break;
 
-        const neighbors = await this.repo.getEdgesByEntry(node.entryId, {
+        const neighbors = await this.reader.getEdgesByEntry(node.entryId, {
           edgeTypes: input.edgeTypes,
           direction,
         });

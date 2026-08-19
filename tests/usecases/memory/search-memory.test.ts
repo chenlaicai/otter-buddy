@@ -60,8 +60,8 @@ describe("SearchMemory - progressive disclosure", () => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
-    manageMemory = new ManageMemory(repo);
+    searchMemory = new SearchMemory(repo, repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
+    manageMemory = new ManageMemory(repo, repo);
 
     /** 存入测试数据 */
     storeEntry(db, { ...BASE_ENTRY, id: "e1", content: "用户询问了关于记忆系统的渐进式披露设计原则" });
@@ -189,7 +189,7 @@ describe("SearchMemory - progressive disclosure", () => {
     };
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const vecOnlySearch = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
+    const vecOnlySearch = new SearchMemory(mockRepo, mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
     expect(result.entries.length).toBe(1);
@@ -288,7 +288,7 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    searchMemory = new SearchMemory(repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
+    searchMemory = new SearchMemory(repo, repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
 
     /** 构造同文档的 summary entry + body entry，同 sourceId="F123" */
     const docBase = { layer: "document" as const, sourceId: "F123", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
@@ -428,7 +428,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
-    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
+    const searchMemory = new SearchMemory(mockRepo, mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
 
@@ -507,7 +507,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
-    const searchMemory = new SearchMemory(mockRepo, mockEmbedding, searchEngine, createTestLogger());
+    const searchMemory = new SearchMemory(mockRepo, mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await searchMemory.search({ query: "梁山伯", limit: 5 });
 
@@ -537,7 +537,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
     await repo.storeEmbedding("anchor-1", new Float32Array([0.1, 0.2, 0.3]));
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "F20260812mrcq",
@@ -573,7 +573,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
     });
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "F20260812mrcq 召回优化",
@@ -596,7 +596,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
     };
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "F20999999zzzz",
@@ -624,7 +624,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "F20260812mrcqextra",
@@ -651,7 +651,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "F20260812mrcq",
@@ -679,7 +679,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     // URL 编码的空格
     const result = await search.search({
@@ -718,7 +718,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "weights rerank",
@@ -757,7 +757,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "intro",
@@ -788,7 +788,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "anchor",
@@ -813,7 +813,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "intro",
@@ -850,7 +850,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "weights rerank",
@@ -883,7 +883,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       embed: async () => { throw new Error("mock"); },
     };
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
-    const search = new SearchMemory(repo, embedding, searchEngine, createTestLogger());
+    const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
       query: "intro",

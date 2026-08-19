@@ -148,11 +148,11 @@ export async function verifyEmbeddingVersion(
     return { vecEnabled: true };
   }
 
-  const stored = await repos.memory.getEmbeddingMeta();
+  const stored = await repos.memoryReader.getEmbeddingMeta();
 
   // 初次启动：表为空，写入基线
   if (!stored.modelId) {
-    await repos.memory.setEmbeddingMeta(currentMeta);
+    await repos.memoryWriter.setEmbeddingMeta(currentMeta);
     logger.info(`Embedding meta baseline recorded: ${currentMeta.modelId} rev=${currentMeta.modelRev} dim=${currentMeta.dim}`);
     return { vecEnabled: true };
   }

@@ -1,22 +1,26 @@
 import type { MemoryEntry, MemoryLayer } from "@entities/memory/memory-entry";
 import { canTransitionMemoryLayer } from "@entities/memory/memory-entry";
 import { DomainError } from "@entities/errors";
-import type { MemoryRepository } from "./memory-repository";
+import type { MemoryReader } from "./memory-reader";
+import type { MemoryWriter } from "./memory-writer";
 
 export class ManageMemory {
-  constructor(private readonly repo: MemoryRepository) {}
+  constructor(
+    private readonly reader: MemoryReader,
+    private readonly writer: MemoryWriter,
+  ) {}
 
   async getById(id: string): Promise<MemoryEntry | null> {
-    return this.repo.getById(id);
+    return this.reader.getById(id);
   }
 
   /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
   async getDetails(ids: string[]): Promise<MemoryEntry[]> {
-    return this.repo.getDetails(ids);
+    return this.reader.getDetails(ids);
   }
 
   async flagMemory(memoryEntryId: string, flagged: boolean): Promise<void> {
-    await this.repo.flagMemory(memoryEntryId, flagged);
+    await this.writer.flagMemory(memoryEntryId, flagged);
   }
 
   async updateLayer(
@@ -30,6 +34,6 @@ export class ManageMemory {
         "validation",
       );
     }
-    await this.repo.updateLayerByConversation(conversationId, from, to);
+    await this.writer.updateLayerByConversation(conversationId, from, to);
   }
 }

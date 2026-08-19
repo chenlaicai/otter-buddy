@@ -6,7 +6,7 @@ import type {
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
 import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
-import type { SnippetHit } from "@usecases/memory/memory-repository";
+import type { SnippetHit } from "@usecases/memory/memory-types";
 
 export interface MemoryEntryRow {
   id: string;

@@ -12,7 +12,9 @@
  * - 生命周期：start() 启 setInterval；stop() clearInterval + await inflightTick。
  *   app.ts dispose 调 stop() 避免 in-flight 写入已关闭 DB。
  */
-import type { MemoryRepository } from "./memory-repository";
+import type { MemoryReader } from "./memory-reader";
+import type { MemoryWriter } from "./memory-writer";
+import type { MemoryQueue } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -26,8 +28,11 @@ export class EmbeddingRetryWorker {
   private inflightTick: Promise<void> | null = null;
   private stopped = true;
 
+  // eslint-disable-next-line max-params -- E 三分：拆为 Reader + Writer + Queue 三参数
   constructor(
-    private readonly repo: MemoryRepository,
+    private readonly reader: MemoryReader,
+    private readonly writer: MemoryWriter,
+    private readonly queue: MemoryQueue,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly logger: Logger,
     private readonly intervalMs: number = 30_000,
@@ -86,17 +91,17 @@ export class EmbeddingRetryWorker {
   private async tick(): Promise<void> {
     // 审视 B3：双重守卫——worker 没 ready 或 vec 被运行时禁用都不消费
     if (!this.embeddingGateway.available) return;
-    if (!this.repo.isVecEnabled()) return;
+    if (!this.reader.isVecEnabled()) return;
 
     // claimPendingTasks 内置指数退避（30/60/120/300/3600s）
-    const claimed = await this.repo.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
+    const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
     if (claimed.length === 0) return;
 
     for (const task of claimed) {
       // entry 已被删除（content 为空字符串）：调 markTaskAttemptFailed（累计 3 次后转 dead）
       if (!task.content) {
         this.logger.warn(`EmbeddingRetryWorker: entry ${task.entryId} vanished, recording failed attempt`);
-        await this.repo.markTaskAttemptFailed(task.entryId, new Error("entry deleted"), this.maxAttempts);
+        await this.queue.markTaskAttemptFailed(task.entryId, new Error("entry deleted"), this.maxAttempts);
         continue;
       }
 
@@ -105,10 +110,10 @@ export class EmbeddingRetryWorker {
           ? task.content.slice(0, EmbeddingRetryWorker.EMBED_MAX_CHARS)
           : task.content;
         const emb = await this.embeddingGateway.embed(truncated);
-        await this.repo.storeEmbedding(task.entryId, emb);
-        await this.repo.markTaskDone(task.entryId);
+        await this.writer.storeEmbedding(task.entryId, emb);
+        await this.queue.markTaskDone(task.entryId);
       } catch (err) {
-        await this.repo.markTaskAttemptFailed(task.entryId, err, this.maxAttempts);
+        await this.queue.markTaskAttemptFailed(task.entryId, err, this.maxAttempts);
         // 检查是否转 dead
         if (task.attempts >= this.maxAttempts) {
           this.logger.error(
