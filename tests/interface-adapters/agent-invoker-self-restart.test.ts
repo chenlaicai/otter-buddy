@@ -223,8 +223,9 @@ describe("AgentInvoker — 自重启信号处理 (F20260819rscn)", () => {
       userMessageContent: "测试", senderId: "user-1",
     });
 
-    // restart 失败，不 re-invoke（invoke 次数与无重启场景一致）
+    // restart 失败，不 re-invoke（invoke 次数不变）
     expect(invokeCount).toBeGreaterThanOrEqual(1);
+    expect(session.restartCalls).toHaveLength(0);
     expect(result).toBeDefined();
   });
 
@@ -257,9 +258,10 @@ describe("AgentInvoker — 自重启信号处理 (F20260819rscn)", () => {
     // restart 成功但 re-invoke 失败
     expect(session.restartCalls).toHaveLength(1);
     // re-invoke 发生（invoke 次数 > 原始次数）
-    expect(invokeCount).toBeGreaterThanOrEqual(2);
-    // 降级返回原始结果
+    expect(invokeCount).toBeGreaterThan(1);
+    // 降级返回原始结果（result 定义且包含原始消息信息）
     expect(result).toBeDefined();
+    expect(result.messageId).toBeDefined();
   });
 
   it("AT-6: 无 _selfRestart 信号 → 行为不变", async () => {
