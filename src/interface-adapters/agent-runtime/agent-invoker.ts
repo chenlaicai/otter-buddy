@@ -137,7 +137,7 @@ export class AgentInvoker implements AgentTurnPort {
       let pendingSelfRestart: { otterId: string; summary?: string } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, (signal) => { pendingSelfRestart = signal; });
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, otter?.name, (signal) => { pendingSelfRestart = signal; });
       const callbacks = this.createTurnCallbacks(emitEvent);
 
       const turnInput = this.buildTurnInput(params, message.id, startTime);
@@ -178,6 +178,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
+    otterName?: string,
     onSelfRestart?: (signal: { otterId: string; summary?: string }) => void,
   ): AttemptDriver {
     return {
@@ -203,11 +204,7 @@ export class AgentInvoker implements AgentTurnPort {
             }
             if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
               this.logger.debug('speak tool executed', { messageId: input.messageId });
-              /** speak+yield 拆分：speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒） */
-              const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
-              if (details?.__speakIntermediate === true) {
-                emitEvent({ event: "speak.intermediate", data: { messageId: input.messageId, body: String(details.body ?? "") } });
-              }
+              this.emitSpeakIntermediate(e, input.messageId, otterId, otterName, emitEvent);
             }
             /** 所有事件如实持久化（event 就是 event，不抑制） */
             const evt = mapToMessageEventInput(e, input.messageId);
@@ -368,6 +365,20 @@ export class AgentInvoker implements AgentTurnPort {
     }
     /** 错误标志在事件顶层（result.isError 成功路径被 SDK 硬编码 false） */
     if (e.isError === true) this.metrics?.recordToolError(tool);
+  }
+
+  /** speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒） */
+  private emitSpeakIntermediate(
+    e: AgentStreamEvent,
+    messageId: string,
+    otterId: string,
+    otterName: string | undefined,
+    emitEvent: (event: SSEEvent) => void,
+  ): void {
+    const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
+    if (details?.__speakIntermediate === true) {
+      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? otterId } });
+    }
   }
 
   /** 中断 Agent 生成（UA-2: 调用 SdkInvokePort.abort()）；标记按 messageId 键控 */
