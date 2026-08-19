@@ -373,7 +373,7 @@ describe('SchedulerService - start/stop', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
       });
@@ -1114,7 +1114,7 @@ describe('SchedulerService - once 任务调度', () => {
         taskRepo: taskRepo as unknown as ScheduledTaskRepository,
         convRepo: convRepo as unknown as ConversationRepository,
         sendMessage: sendMessage as unknown as SendMessage,
-        agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
         cronParser: { getNextTime: () => new Date('2025-06-15T09:00:00.000Z') } as unknown as CronParser,
         logger: mockLogger,
       });
