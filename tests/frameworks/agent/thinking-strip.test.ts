@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripHistoricalThinking } from "@frameworks/agent/pi-session-factory";
+import { stripHistoricalThinking } from "@frameworks/agent/model-runtime-registry";
 
 /** 构造 assistant 消息（匹配 SDK AssistantMessage 结构） */
 function assistant(content: Array<{ type: string; [k: string]: unknown }>) {

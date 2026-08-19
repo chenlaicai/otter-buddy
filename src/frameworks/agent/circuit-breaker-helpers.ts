@@ -5,9 +5,148 @@
 import { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import type { Logger } from "@usecases/ports/logger";
+import { getContextWindowTokens } from "./context-tokens";
+import type { ModelPool } from "@frameworks/llm/model-pool";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { Model, Api } from "@earendil-works/pi-ai";
+import { getConfig } from "@frameworks/config";
+import type { OutputGuardConfig } from "./output-guard";
+import { attachOutputGuard } from "./output-guard";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 /** 上下文窗口占用警告阈值（超过则记录警告） */
 export const TOKEN_WARNING_THRESHOLD = 100_000;
+
+/** _attachGuards 所需的参数类型 */
+export interface AttachGuardsParams {
+  session: { subscribe: (fn: (event: unknown) => void) => () => void; abort: () => Promise<void> };
+  sessionKey: string;
+  otterId: string;
+  activeSessions: Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>;
+  circuitBreakerConfig: CircuitBreakerConfig;
+  logger: Logger;
+}
+
+/** _attachGuards 返回类型 */
+export interface AttachGuardsResult {
+  activeEntry: { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string } | undefined;
+  circuitBreaker: ToolCallCircuitBreaker;
+  unregisterToolCall: (() => void) | undefined;
+  outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number }; armFirstByteTimer: (guardAbort: () => void) => void };
+  cleanupOutputGuard: () => void;
+  armFirstByte: () => void;
+}
+
+/** attachGuards：熔断器 + 输出退化检测 */
+export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
+  const { session, sessionKey, otterId, activeSessions, circuitBreakerConfig, logger } = params;
+  const activeEntry = activeSessions.get(sessionKey);
+  const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
+  const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, wrappedAbort);
+  timerRef.clear = clearEventTimer;
+  /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
+  const cb = getConfig().circuitBreaker;
+  const cfg: Partial<OutputGuardConfig> = {
+    ...cb?.outputGuard,
+    ...(cb?.streamingTimeoutMs !== undefined && { streamingTimeoutMs: cb.streamingTimeoutMs }),
+    ...(cb?.firstByteTimeoutMs !== undefined && { firstByteTimeoutMs: cb.firstByteTimeoutMs }),
+  };
+  /** abort 返回 Promise：fire 路径无人 await，catch 防 unhandledRejection */
+  const guardAbort = () => {
+    void wrappedAbort(outputGuard.getMetadata().reason).catch((err: unknown) => {
+      logger.warn(`[output-guard] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
+  const { guard: outputGuard, cleanup: cleanupOutputGuard } = attachOutputGuard(session, otterId, cfg, logger, guardAbort);
+  const armFirstByte = () => outputGuard.armFirstByteTimer(guardAbort);
+  return { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte };
+}
+
+/** _buildInvokeResult 所需的参数类型 */
+export interface BuildInvokeResultParams {
+  otterId: string;
+  session: { getSessionStats: () => { tokens: { input: number; output: number } }; sessionManager: { getBranch: () => SessionEntry[] } };
+  circuitBreaker: ToolCallCircuitBreaker;
+  modelPool?: ModelPool;
+  otterConfigProvider: OtterConfigProvider;
+  model: Model<Api>;
+  logger: Logger;
+  getModelAliasForLog: (otterId: string) => string;
+}
+
+/** _buildInvokeResult 返回类型 */
+export interface BuildInvokeResultResult {
+  text: string;
+  tokenUsage?: { input: number; output: number };
+  ctxTokens?: number;
+  ctxMax?: number;
+  circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  modelAlias?: string;
+  _selfRestart?: { otterId: string; summary?: string };
+}
+
+/** buildInvokeResult：构建 invoke 结果 */
+export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeResultResult {
+  const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, logger, getModelAliasForLog } = params;
+  const stats = session.getSessionStats();
+  const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output };
+
+  /** F20260808ctxw：上下文窗口占用 = 末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
+   * 与 SDK compaction 判定同公式、同 compaction 边界语义；session 重建/compaction 后自然回落，不会虚增 */
+  const ctxTokens = getContextWindowTokens(session.sessionManager.getBranch());
+  checkTokenWarning(otterId, ctxTokens, logger);
+
+  // per-otter contextWindow
+  let ctxMax: number | undefined;
+  if (modelPool) {
+    const otterConfig = otterConfigProvider.getConfig(otterId);
+    ctxMax = modelPool.getContextWindow(otterConfig?.modelAlias);
+  } else {
+    ctxMax = model.contextWindow;
+  }
+  const result: BuildInvokeResultResult = buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
+  /** F20260814mtrc：模型别名随结果透传（metrics model label 数据源） */
+  result.modelAlias = getModelAliasForLog(otterId);
+  return result;
+}
+
+/** checkSessionError：检查 session 是否记录了 LLM API 错误 */
+export function checkSessionError(session: { state: { errorMessage?: string } }, otterId: string, logger: Logger): void {
+  const errorMessage = session.state.errorMessage;
+  if (errorMessage) {
+    logger.error('LLM API error detected after prompt', undefined, { otterId, errorMessage });
+    throw new Error(`LLM API error: ${errorMessage}`);
+  }
+}
+
+/** buildPromptResult 所需的参数类型 */
+export interface BuildPromptResultParams {
+  otterId: string;
+  session: { getSessionStats: () => { tokens: { input: number; output: number } }; sessionManager: { getBranch: () => SessionEntry[] } };
+  circuitBreaker: ToolCallCircuitBreaker;
+  outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number } };
+  activeEntry: { guardAbortReason?: string } | undefined;
+  modelPool: ModelPool | undefined;
+  otterConfigProvider: OtterConfigProvider;
+  model: Model<Api>;
+  logger: Logger;
+  getModelAliasForLog: (otterId: string) => string;
+}
+
+/** buildPromptResult：prompt 成功后的结果组装 + 首字节延迟埋点日志 */
+export function buildPromptResult(params: BuildPromptResultParams): BuildInvokeResultResult {
+  const { otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool, otterConfigProvider, model, logger, getModelAliasForLog } = params;
+  const result = buildInvokeResult({ otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, logger, getModelAliasForLog });
+  const guardMeta = outputGuard.getMetadata();
+  result.outputGuardMetadata = guardMeta;
+  if (guardMeta.firstByteLatencyMs !== undefined) {
+    logger.info('LLM first-byte latency', { otterId, firstByteLatencyMs: guardMeta.firstByteLatencyMs });
+  }
+  if (activeEntry?.guardAbortReason) (result as unknown as Record<string, unknown>)._guardAbortReason = activeEntry.guardAbortReason;
+  return result;
+}
 
 /** 熔断器 tool_execution_start 钩子 */
 // eslint-disable-next-line max-lines-per-function
