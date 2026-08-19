@@ -11,66 +11,17 @@
 import type {
   MemoryEntry,
   MemoryWeight,
-  MemoryLayer,
   MemoryContentType,
-  RetrievalGranularity,
 } from "@entities/memory/memory-entry";
 import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
 import type { EmbedModelMeta } from "./embedding-gateway";
-
-export interface SearchFilters {
-  layer?: MemoryLayer;
-  granularity?: RetrievalGranularity;
-  conversationId?: string;
-  /** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
-  createdAfter?: string;
-  /** F20260803fbit: 按 contentType 过滤（多选 IN 查询），支持"只搜 body"或"只搜 summary" */
-  contentType?: MemoryContentType[];
-}
-
-/**
- * 检索来源标识。
- * F20260811mrpy Part 1：扩展契约为多种检索路径预留。
- * F20260812mrcq Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
- *   related-expand（重工程收益不明）。保留 anchor + context-expand 由 F20260812mrcq 实施。
- */
-export type RetrievalSource =
-  | "fts"
-  | "vec"
-  | "both"
-  | "anchor"            // F20260812mrcq Part 3：F/R ID 子串提取 + 主键直查短路注入
-  | "context-expand";   // F20260812mrcq Part 2：邻域扩展（chunk ±1 / message 前后条）
-
-/** FTS5 全文检索命中 */
-export interface FTSHit {
-  entryId: string;
-  ftsRank: number;
-  entry: MemoryEntry;
-}
-
-/** 带 snippet 的 FTS5 命中（渐进式披露） */
-export interface SnippetHit {
-  entryId: string;
-  ftsRank: number;
-  entry: MemoryEntry;
-  /** FTS5 highlight() 生成的匹配片段，vec0 结果为 undefined */
-  snippet?: string;
-}
-
-/** vec0 向量检索命中 */
-export interface VecHit {
-  entryId: string;
-  distance: number;
-  entry: MemoryEntry;
-}
-
-/** F20260811mrpy Part 1：暗化条目（无 vec 索引的 memory entry） */
-export interface DarkEntry {
-  entryId: string;
-  contentType: string;
-  sourceId: string;
-  createdAt: string;
-}
+import type {
+  SearchFilters,
+  FTSHit,
+  SnippetHit,
+  VecHit,
+  DarkEntry,
+} from "./memory-repository";
 
 export interface MemoryReader {
   // 查询
@@ -116,10 +67,6 @@ export interface MemoryReader {
   isVecEnabled(): boolean;
   /** 按 ID 批量获取记忆条目（渐进式披露 get_memory_detail） */
   getDetails(ids: string[]): Promise<MemoryEntry[]>;
-  // 更新
-  incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void>;
-  flagMemory(memoryEntryId: string, flagged: boolean): Promise<void>;
-  updateLayerByConversation(conversationId: string, from: MemoryLayer, to: MemoryLayer): Promise<void>;
   /** F20260811mrpy Part 3：读取存储的 embedding 元信息 */
   getEmbeddingMeta(): Promise<Partial<EmbedModelMeta>>;
   /**

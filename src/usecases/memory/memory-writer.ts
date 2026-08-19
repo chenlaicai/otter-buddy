@@ -13,6 +13,7 @@
 import type {
   MemoryEntry,
   MemoryContentType,
+  MemoryLayer,
 } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
 import type { EmbedModelMeta } from "./embedding-gateway";
@@ -30,6 +31,9 @@ export interface MemoryWriter {
   /** PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
   deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
   // 更新
+  incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void>;
+  flagMemory(memoryEntryId: string, flagged: boolean): Promise<void>;
+  updateLayerByConversation(conversationId: string, from: MemoryLayer, to: MemoryLayer): Promise<void>;
   /** F20260811mrpy Part 3：写入/更新 embedding 元信息 */
   setEmbeddingMeta(meta: EmbedModelMeta): Promise<void>;
 
