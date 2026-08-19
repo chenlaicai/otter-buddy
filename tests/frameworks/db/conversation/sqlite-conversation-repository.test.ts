@@ -802,6 +802,19 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     expect(item.activityStatus).toBe("processing");
   });
 
+  it("active 对话 + otter 消息发言石同时传给 user 和 otter → awaiting_user", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createCompletedMessage(messageFixture({
+      senderType: "otter",
+      senderId: "otter-1",
+      talkingStonePassedTo: ["user", "otter-2"],
+    }));
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("awaiting_user");
+  });
+
   it("active 对话 + 无任何消息 → idle", async () => {
     await repo.create(conversationFixture());
 

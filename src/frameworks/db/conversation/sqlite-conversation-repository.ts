@@ -618,6 +618,7 @@ export class SqliteConversationRepository implements ConversationRepository {
               AND m2.sender_type = 'otter'
               AND m2.talking_stone_passed_to IS NOT NULL
               AND m2.talking_stone_passed_to != '[]'
+              AND m2.talking_stone_passed_to NOT LIKE '%user%'  -- 用户在目标列表中时应为 awaiting_user
               AND m2.talking_stone_passed_to LIKE '%otter%'
               AND m2.id = (
                 SELECT id FROM messages WHERE conversation_id = c.id
