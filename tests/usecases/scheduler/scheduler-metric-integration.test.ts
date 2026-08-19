@@ -16,7 +16,7 @@ import { SchedulerService, type CronParser } from '@usecases/scheduler/scheduler
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
-import type { AgentInvokePort } from '@usecases/ports/agent-invoke-port';
+import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
@@ -121,7 +121,7 @@ function createMockSendMessage() {
 }
 
 function createMockAgentInvoke() {
-  return { invokeConversation: vi.fn(async () => ({ messageId: 'msg-1' })) };
+  return { invokeConversation: vi.fn(async () => ({ messageId: 'msg-1', duration: 0 })), abort: vi.fn() };
 }
 
 function createMockCronParser(next: Date): CronParser {
@@ -171,7 +171,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,
@@ -196,7 +196,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,
@@ -221,7 +221,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,
@@ -245,7 +245,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,
@@ -273,7 +273,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,
@@ -307,7 +307,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,
@@ -333,7 +333,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,
@@ -365,7 +365,7 @@ describe('SchedulerService metric 集成', () => {
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendMessage: sendMessage as unknown as SendMessage,
-      agentInvokePort: agentInvoke as unknown as AgentInvokePort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date('2025-06-15T09:00:00.000Z')),
       logger: mockLogger,
       metrics,

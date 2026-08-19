@@ -1,5 +1,5 @@
 import type { QueryMessage } from "./query-message";
-import type { AgentInvokePort } from "@usecases/ports/agent-invoke-port";
+import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
 import type { Logger } from "@usecases/ports/logger";
 import type { DispatchChainEngine } from "./dispatch-chain-engine";
 
@@ -14,7 +14,7 @@ export class AgentDispatchService {
     private readonly deps: {
       dispatchChainEngine: DispatchChainEngine;
       queryMessage: QueryMessage;
-      agentInvokePort: AgentInvokePort;
+      agentInvokePort: AgentTurnPort;
       logger: Logger;
     },
   ) {}
