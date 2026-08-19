@@ -164,14 +164,17 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     });
     
     const timeoutMs = EmbeddingServiceImpl.testTimeoutOverride ?? EmbeddingServiceImpl.EMBED_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array>((_, reject) => {
-      setTimeout(() => {
+      timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
       }, timeoutMs);
     });
     
-    return Promise.race([embedPromise, timeoutPromise]);
+    return Promise.race([embedPromise, timeoutPromise]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
   }
 
   /** F20260811mrpy Part 3：返回 worker 加载的模型元信息 */
