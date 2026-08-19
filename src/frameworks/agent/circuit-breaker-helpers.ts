@@ -84,6 +84,7 @@ export interface BuildInvokeResultResult {
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
   modelAlias?: string;
+  _selfRestart?: { otterId: string; summary?: string };
 }
 
 /** buildInvokeResult：构建 invoke 结果 */

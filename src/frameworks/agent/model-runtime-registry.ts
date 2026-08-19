@@ -9,11 +9,14 @@
  * - 设置 API key 到 alias 和 provider 两个名称上
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { ResourceLoader, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelConfig } from "@frameworks/config";
 import type { ModelPool } from "@frameworks/llm/model-pool";
+import type { OtterPromptConfig } from "@contract/api/otter";
+import { buildOtterPrompt } from "./session-helpers";
 
 /** pi-coding-agent 模块类型（动态加载） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -257,9 +260,5 @@ export interface OtterInvokeContext {
   /** 首次 invoke 的身份前缀（名称/ID/类型/身份文案/模型指南/搭档名）；非首次为空串 */
   identityPrefix: string;
 }
-
-import { AsyncLocalStorage } from 'node:async_hooks';
-import type { OtterPromptConfig } from "@contract/api/otter";
-import { buildOtterPrompt } from "./session-helpers";
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
