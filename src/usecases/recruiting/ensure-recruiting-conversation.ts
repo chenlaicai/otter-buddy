@@ -99,6 +99,7 @@ async function createConversationAndParticipant(
     createdAt: now,
     leftAt: null,
     lastReadTurnNumber: 0,
+    lastActiveTurnNumber: 0,
   };
   await convRepo.createParticipants([participant]);
   return conversationId;

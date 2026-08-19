@@ -414,6 +414,7 @@ function createParticipantTables(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       left_at TEXT,
       last_read_turn_number INTEGER NOT NULL DEFAULT 0,
+      last_active_turn_number INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
       FOREIGN KEY (otter_id) REFERENCES otters(id),
       FOREIGN KEY (joined_at_turn_id) REFERENCES turns(id),

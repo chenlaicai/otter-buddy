@@ -100,6 +100,7 @@ export interface ParticipantRow {
   created_at: string;
   left_at: string | null;
   last_read_turn_number: number;
+  last_active_turn_number: number;
 }
 
 export function rowToConversation(row: ConversationRow): Conversation {
@@ -199,6 +200,7 @@ export function rowToParticipant(row: ParticipantRow): ConversationParticipant {
     createdAt: row.created_at,
     leftAt: row.left_at,
     lastReadTurnNumber: row.last_read_turn_number ?? 0,
+    lastActiveTurnNumber: row.last_active_turn_number ?? 0,
   };
 }
 

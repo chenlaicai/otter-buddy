@@ -44,6 +44,7 @@ function makeSendMessageUseCase() {
     getLastMessageBySender: async () => null,
     getActiveTurn: async () => null,
     updateLastReadTurnNumber: async () => {},
+    updateLastActiveTurnNumber: async () => {},
     getActiveParticipants: async () => [],
   } as unknown as ConversationRepository;
   return { useCase, conversationRepo, systemBodies };

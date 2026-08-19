@@ -78,6 +78,8 @@ export interface ConversationParticipant {
   leftAt: string | null;
   /** 已读位置：该 otter 在此对话中已读到的 turn_number（0 表示未读） */
   lastReadTurnNumber: number;
+  /** 最后活跃轮次：该 otter 在此对话中最后发言的 turn_number（0 表示未发言） */
+  lastActiveTurnNumber: number;
 }
 
 /**
