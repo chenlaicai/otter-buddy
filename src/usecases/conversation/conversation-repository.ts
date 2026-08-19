@@ -145,6 +145,12 @@ export interface ConversationRepository {
     otterId: string,
     turnNumber: number,
   ): Promise<void>;
+  /** F20260818idnw：更新最后活跃轮次（小獭发言时） */
+  updateLastActiveTurnNumber(
+    conversationId: string,
+    otterId: string,
+    turnNumber: number,
+  ): Promise<void>;
   /** 标记参与者已离开（dissolve_otter 顺带修：不要求 active turn，不创建系统消息） */
   markParticipantLeft(conversationId: string, otterId: string): Promise<void>;
   /** 获取未读消息（从 lastReadTurnNumber 之后的消息） */

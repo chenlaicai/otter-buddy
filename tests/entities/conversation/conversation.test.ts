@@ -88,6 +88,7 @@ describe("canJoinConversation", () => {
       createdAt: new Date().toISOString(),
       leftAt: null,
       lastReadTurnNumber: 0,
+      lastActiveTurnNumber: 0,
     };
     expect(canJoinConversation(existing)).toBe(false);
   });
@@ -111,6 +112,7 @@ describe("canLeaveConversation", () => {
       createdAt: new Date().toISOString(),
       leftAt: null,
       lastReadTurnNumber: 0,
+      lastActiveTurnNumber: 0,
     };
     expect(canLeaveConversation(participant)).toBe(true);
   });
@@ -128,6 +130,7 @@ describe("canLeaveConversation", () => {
       createdAt: new Date().toISOString(),
       leftAt: new Date().toISOString(),
       lastReadTurnNumber: 0,
+      lastActiveTurnNumber: 0,
     };
     expect(canLeaveConversation(participant)).toBe(false);
   });

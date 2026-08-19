@@ -183,6 +183,20 @@ export function updateLastReadTurnNumber(
   `).run(turnNumber, conversationId, otterId);
 }
 
+/** F20260818idnw：更新最后活跃轮次（小獭发言时） */
+export function updateLastActiveTurnNumber(
+  db: Database.Database,
+  conversationId: string,
+  otterId: string,
+  turnNumber: number,
+): void {
+  db.prepare(`
+    UPDATE conversation_participants
+    SET last_active_turn_number = ?
+    WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
+  `).run(turnNumber, conversationId, otterId);
+}
+
 export function getUnreadMessages(
   db: Database.Database,
   conversationId: string,

@@ -26,6 +26,7 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
 
 function makeMocks() {
   const updateLastReadTurnNumber = vi.fn().mockResolvedValue(undefined);
+  const updateLastActiveTurnNumber = vi.fn().mockResolvedValue(undefined);
   const getTurnById = vi.fn().mockResolvedValue(makeTurn());
   const getMessageById = vi.fn().mockResolvedValue(makeMsg());
   const getLastMessageBySender = vi.fn().mockResolvedValue(makeMsg());
@@ -34,7 +35,7 @@ function makeMocks() {
   const conversationRepo = {
     getActiveParticipants: vi.fn().mockResolvedValue([]),
     getUnreadMessages: vi.fn().mockResolvedValue([]),
-    getTurnById, updateLastReadTurnNumber, getLastMessageBySender,
+    getTurnById, updateLastReadTurnNumber, updateLastActiveTurnNumber, getLastMessageBySender,
     getActiveTurn, getMessageById,
     getParticipant: vi.fn().mockResolvedValue(null),
   } as unknown as ConversationRepository;

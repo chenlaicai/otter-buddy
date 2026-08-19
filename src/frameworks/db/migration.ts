@@ -59,6 +59,13 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added last_read_turn_number column to conversation_participants table');
   }
 
+  // F20260818idnw：检查 last_active_turn_number 字段是否存在
+  const hasLastActiveTurnNumber = participantColumns.some(col => col.name === 'last_active_turn_number');
+  if (!hasLastActiveTurnNumber) {
+    db.prepare("ALTER TABLE conversation_participants ADD COLUMN last_active_turn_number INTEGER NOT NULL DEFAULT 0").run();
+    logger.info('Added last_active_turn_number column to conversation_participants table');
+  }
+
   /** F20260728htar 一次性补丁 */
   rebuildMessagesFtsStripped(db, logger);
   dropMessagesAttachmentsColumn(db, logger);

@@ -193,6 +193,53 @@ export class DispatchChainEngine {
     return `## 在场成员\n${lines.join('\n')}`;
   }
 
+  /** F20260818idnw：构建闲置小獭预警信息 */
+  async buildIdleOttersWarning(
+    conversationId: string,
+    currentOtterId: string
+  ): Promise<string | null> {
+    // 从 settings 读取阈值，fallback 到默认值 20
+    const threshold = this.deps.settingsRepo
+      ? (await this.deps.settingsRepo.get('otter_idle_threshold'))?.trim()
+        ? parseInt((await this.deps.settingsRepo.get('otter_idle_threshold'))!.trim(), 10)
+        : 20
+      : 20;
+
+    const participants = await this.deps.conversationRepo.getActiveParticipants(conversationId);
+    // 使用 getMaxTurnNumber 替代 getActiveTurn，避免链式调用中 turn 已关闭的问题
+    const currentTurnNumber = await this.deps.conversationRepo.getMaxTurnNumber(conversationId);
+
+    if (!currentTurnNumber) return null;
+
+    // 批量预取所有 participant 的 otter 信息，避免 N+1 查询
+    const otterNames = new Map<string, string>();
+    await Promise.all(participants.map(async p => {
+      const otter = await this.deps.queryOtter.getById(p.otterId);
+      if (otter) otterNames.set(p.otterId, otter.name);
+    }));
+
+    const idleOtters: Array<{ name: string; idleTurns: number }> = [];
+
+    for (const p of participants) {
+      if (p.otterId === currentOtterId) continue;
+      const idleTurns = currentTurnNumber - p.lastActiveTurnNumber;
+      if (idleTurns > threshold) {
+        const name = otterNames.get(p.otterId);
+        if (name) {
+          idleOtters.push({ name, idleTurns });
+        }
+      }
+    }
+
+    if (idleOtters.length === 0) return null;
+
+    const warnings = idleOtters.map(o =>
+      `${o.name} 已闲置 ${o.idleTurns} 轮`
+    ).join('、');
+
+    return `系统提示：现场有小獭（${warnings}），你评估下是否顺手解散。`;
+  }
+
   /** 组装派发上下文：名册 + 具名对话历史 + 当前任务 */
   async buildMessageWithContext(
     conversationId: string,
@@ -210,7 +257,17 @@ export class DispatchChainEngine {
     const formatted = unreadMessages
       .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? partnerLabel : (names.get(m.senderId) ?? m.senderId)}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}`)
       .join('\n');
-    return `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+
+    // F20260818idnw：闲置小獭预警（增强功能，失败不影响主流程）
+    let idleWarning: string | null = null;
+    try {
+      idleWarning = await this.buildIdleOttersWarning(conversationId, otterId);
+    } catch { /* 预警失败不影响主流程 */ }
+    let result = `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+    if (idleWarning) {
+      result += `\n\n${idleWarning}`;
+    }
+    return result;
   }
 
   private async resolveSenderNames(messages: Array<{ senderType: string; senderId: string }>): Promise<Map<string, string>> {
@@ -250,6 +307,15 @@ export class DispatchChainEngine {
       const turn = await this.deps.conversationRepo.getTurnById(msg.turnId);
       if (!turn) continue;
       await this.deps.conversationRepo.updateLastReadTurnNumber(conversationId, msg.senderId, turn.turnNumber);
+
+      // F20260818idnw：更新最后活跃轮次（小獭发言时）
+      if (msg.senderType === 'otter') {
+        await this.deps.conversationRepo.updateLastActiveTurnNumber(
+          conversationId,
+          msg.senderId,
+          turn.turnNumber
+        );
+      }
     }
   }
 }

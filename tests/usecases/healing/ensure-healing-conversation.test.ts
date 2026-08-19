@@ -70,6 +70,7 @@ function mockParticipant(otterId: string, conversationId: string): ConversationP
     createdAt: "2026-01-01T00:00:00Z",
     leftAt: null,
     lastReadTurnNumber: 0,
+      lastActiveTurnNumber: 0,
   };
 }
 
