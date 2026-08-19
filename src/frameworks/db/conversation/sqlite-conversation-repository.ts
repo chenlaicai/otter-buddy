@@ -612,6 +612,18 @@ export class SqliteConversationRepository implements ConversationRepository {
         CASE
           WHEN EXISTS (SELECT 1 FROM messages WHERE conversation_id = c.id AND status IN ('streaming', 'speaking'))
             THEN 'processing'
+          WHEN EXISTS (
+            SELECT 1 FROM messages m2
+            WHERE m2.conversation_id = c.id
+              AND m2.sender_type = 'otter'
+              AND m2.talking_stone_passed_to IS NOT NULL
+              AND m2.talking_stone_passed_to != '[]'
+              AND m2.talking_stone_passed_to LIKE '%otter%'
+              AND m2.id = (
+                SELECT id FROM messages WHERE conversation_id = c.id
+                ORDER BY sequence_num DESC LIMIT 1
+              )
+          ) THEN 'processing'
           WHEN c.status = 'active' AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = c.id)
             THEN 'awaiting_user'
           ELSE 'idle'

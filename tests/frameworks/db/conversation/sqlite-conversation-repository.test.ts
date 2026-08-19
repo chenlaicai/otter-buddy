@@ -780,13 +780,26 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     expect(item.activityStatus).toBe("processing");
   });
 
-  it("active 对话 + 仅有 completed 消息 → awaiting_user", async () => {
+  it("active 对话 + 仅有 completed 消息（发言石传回用户）→ awaiting_user", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createCompletedMessage(messageFixture());
+    await repo.createCompletedMessage(messageFixture({ talkingStonePassedTo: ["user"] }));
 
     const [item] = await repo.listConversationsWithMeta("user-1");
     expect(item.activityStatus).toBe("awaiting_user");
+  });
+
+  it("active 对话 + otter 消息发言石传给其他 otter → processing（非 awaiting_user）", async () => {
+    await repo.create(conversationFixture());
+    await repo.createTurn(turnFixture());
+    await repo.createCompletedMessage(messageFixture({
+      senderType: "otter",
+      senderId: "otter-1",
+      talkingStonePassedTo: ["otter-2"],
+    }));
+
+    const [item] = await repo.listConversationsWithMeta("user-1");
+    expect(item.activityStatus).toBe("processing");
   });
 
   it("active 对话 + 无任何消息 → idle", async () => {
@@ -808,7 +821,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
   it("active 对话 + 仅有 failed 消息 → awaiting_user（failed 不误判为 processing）", async () => {
     await repo.create(conversationFixture());
     await repo.createTurn(turnFixture());
-    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [] }));
+    await repo.createStreamingMessage(messageFixture({ status: "streaming", segments: [], talkingStonePassedTo: ["user"] }));
     await repo.failMessage("msg-1", "2026-07-22T00:02:00Z", undefined);
 
     const [item] = await repo.listConversationsWithMeta("user-1");
@@ -832,7 +845,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
 
     await repo.create(conversationFixture({ id: "conv-b", createdAt: "2026-07-22T00:01:00Z" }));
     await repo.createTurn(turnFixture({ id: "turn-b", conversationId: "conv-b" }));
-    await repo.createCompletedMessage(messageFixture({ id: "msg-b", conversationId: "conv-b", turnId: "turn-b" }));
+    await repo.createCompletedMessage(messageFixture({ id: "msg-b", conversationId: "conv-b", turnId: "turn-b", talkingStonePassedTo: ["user"] }));
 
     await repo.create(conversationFixture({ id: "conv-c", createdAt: "2026-07-22T00:02:00Z" }));
 
