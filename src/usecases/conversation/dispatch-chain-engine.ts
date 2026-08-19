@@ -193,7 +193,7 @@ export class DispatchChainEngine {
     return `## 在场成员\n${lines.join('\n')}`;
   }
 
-  /** F20260818idnw：构建闲置小獭预警信息 */
+  /** F20260819idnw：构建闲置小獭预警信息 */
   async buildIdleOttersWarning(
     conversationId: string,
     currentOtterId: string
@@ -251,7 +251,7 @@ export class DispatchChainEngine {
     senderId: string,
     roster: string,
   ): Promise<string> {
-    // F20260818idnw：闲置小獭预警（增强功能，失败不影响主流程）
+    // F20260819idnw：闲置小獭预警（增强功能，失败不影响主流程）
     // 必须在早返回路径之前计算，否则无未读消息时预警会被跳过
     let idleWarning: string | null = null;
     try {
@@ -315,7 +315,7 @@ export class DispatchChainEngine {
       if (!turn) continue;
       await this.deps.conversationRepo.updateLastReadTurnNumber(conversationId, msg.senderId, turn.turnNumber);
 
-      // F20260818idnw：更新最后活跃轮次（小獭发言时）
+      // F20260819idnw：更新最后活跃轮次（小獭发言时）
       if (msg.senderType === 'otter') {
         await this.deps.conversationRepo.updateLastActiveTurnNumber(
           conversationId,

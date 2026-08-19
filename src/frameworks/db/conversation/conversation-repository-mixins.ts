@@ -183,7 +183,7 @@ export function updateLastReadTurnNumber(
   `).run(turnNumber, conversationId, otterId);
 }
 
-/** F20260818idnw：更新最后活跃轮次（小獭发言时） */
+/** F20260819idnw：更新最后活跃轮次（小獭发言时） */
 export function updateLastActiveTurnNumber(
   db: Database.Database,
   conversationId: string,

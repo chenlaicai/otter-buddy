@@ -71,7 +71,7 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
     expect(m.updateLastReadTurnNumber).toHaveBeenCalled();
     const [convId, otterId, turnNum] = firstCallArgs(m.updateLastReadTurnNumber);
     expect([convId, otterId, turnNum]).toEqual(["conv-1", "otter-1", 5]);
-    // F20260818idnw: 小獭发言时同时更新 lastActiveTurnNumber
+    // F20260819idnw: 小獭发言时同时更新 lastActiveTurnNumber
     expect(m.updateLastActiveTurnNumber).toHaveBeenCalled();
     const [aConvId, aOtterId, aTurnNum] = firstCallArgs(m.updateLastActiveTurnNumber);
     expect([aConvId, aOtterId, aTurnNum]).toEqual(["conv-1", "otter-1", 5]);

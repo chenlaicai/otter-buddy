@@ -145,7 +145,7 @@ export interface ConversationRepository {
     otterId: string,
     turnNumber: number,
   ): Promise<void>;
-  /** F20260818idnw：更新最后活跃轮次（小獭发言时） */
+  /** F20260819idnw：更新最后活跃轮次（小獭发言时） */
   updateLastActiveTurnNumber(
     conversationId: string,
     otterId: string,

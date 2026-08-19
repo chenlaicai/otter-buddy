@@ -1,5 +1,5 @@
 ---
-id: F20260818idnw
+id: F20260819idnw
 title: 小獭闲置预警系统
 summary: 系统追踪小獭最后活跃轮次，闲置超阈值时注入预警到大獭 prompt，由 AI 决策是否清理
 status: draft
