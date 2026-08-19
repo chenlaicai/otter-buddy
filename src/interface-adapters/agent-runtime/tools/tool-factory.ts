@@ -24,24 +24,18 @@ import { checkPendingDispatches, confirmDispatchesClear } from "@usecases/conver
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "结束你的本轮行动（思考、调工具、出结论都在这里），并指定下一位行动者——接到行动权的人会被立即唤醒执行。发言内容全部放在 body 里——speak 之外的任何输出（之前或之后）都不会进入消息，搭档看不到。调用成功后回合立即结束（terminate=true）。GOTCHA: speak 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
+    description: "发言工具——让其他人（海獭或搭档）看到你的内容。纯内容输出，不涉及行动权移交。调用后 agent loop 继续（terminate=false），可以继续调工具或再次 speak。多次调用的 body 会作为独立片段按顺序拼接为最终消息。GOTCHA: speak 不等于交棒——说完后还需调 yield 把行动权交给下一位，回合才会结束。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
     parameters: {
       type: "object",
       properties: {
-        body: { type: "string", description: "最终答复内容（总结/结论，不是中间推理过程）" },
-        talkingStonePassedTo: {
-          type: "array",
-          items: { type: "string" },
-          description: "行动权（旧称：发言权/发言石）交给谁（参数名 talkingStonePassedTo 即行动权令牌；用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。不确定在场成员时先调 get_active_participants。",
-        },
+        body: { type: "string", description: "发言内容（进展/结论，会即时呈现给搭档）" },
       },
-      required: ["body", "talkingStonePassedTo"],
+      required: ["body"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法声明发言。");
+      if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
-      const recipients = params.talkingStonePassedTo as string[];
       const cleanBody = healingRepo && rawBody
         ? interceptHealingReport(rawBody, ctx, healingRepo, logger)
         : rawBody;
@@ -49,6 +43,49 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
       const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
       if (bodyError) return errorResponse(bodyError);
+
+      try {
+        /** 拆分后 speak 只落内容（每次一条 segment，原子事务），行动权移交由 yield 负责 */
+        await ctx.client.conversation.message.appendSegment(ctx.currentMessageId, cleanBody);
+      } catch (err) {
+        return errorResponse(`[错误] 发言落库失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
+      }
+      return {
+        ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
+        terminate: false,
+        /** agent-invoker 检测此标记并广播 speak.intermediate SSE（前端实时展示中间发言） */
+        details: { __speakIntermediate: true, body: cleanBody },
+      };
+    },
+  };
+}
+
+function createYieldTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "yield",
+    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。不确定在场成员时先调 get_active_participants。",
+    parameters: {
+      type: "object",
+      properties: {
+        to: {
+          type: "array",
+          items: { type: "string" },
+          description: "行动权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。",
+        },
+      },
+      required: ["to"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法交棒。");
+
+      const recipients = params.to as string[];
+      if (!recipients || recipients.length === 0) return errorResponse("[错误] 交棒目标不能为空。请指定下一个应该行动的参与者名字。");
+
+      /** 守卫：消息完成后必须有非空内容（isValidCompletedMessage 不变量）——先给模型即时反馈，而非丢回合走重试 */
+      const msg = await ctx.client.conversation.message.getById(ctx.currentMessageId);
+      if (!msg || msg.segments.length === 0) {
+        return errorResponse("[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。");
+      }
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
@@ -59,16 +96,17 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (dispatchWarning) return textResponse(dispatchWarning);
 
       try {
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { body: cleanBody, talkingStonePassedTo: resolvedIds });
+        /** 拆分后 startSpeaking 只设路由 + 状态（内容已由 speak 的 segments 落库） */
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
         /** F20260813actk C9：提交成功后才确认清除已派工票据 */
         confirmDispatchesClear(ctx, resolvedIds);
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
-          return { ...textResponse("[系统控制信号] 本回合发言已提交，无需重复调用 speak。请停止调用任何工具。"), terminate: true };
+          return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
         }
-        return errorResponse(`[错误] 发言声明失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
+        return errorResponse(`[错误] 交棒失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
-      return { ...textResponse("[系统控制信号] 发言已提交成功，回合结束。"), terminate: true };
+      return { ...textResponse("[系统控制信号] 交棒成功，回合结束。"), terminate: true };
     },
   };
 }
@@ -134,7 +172,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
 function createCreateOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_otter",
-    description: "创建子 Otter 并让它就位待命. When: 需要召唤小獭分担工作（独立审视/并行工作/角色讨论/任务分担）. **创建不触发执行——新 Otter 只是就位待命，你必须在随后的 speak 里把行动权（talkingStonePassedTo）传给它，它才会被唤醒执行；只创建不派工＝小獭永远不产出**. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话（但未开工）. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
+    description: "创建子 Otter 并让它就位待命. When: 需要召唤小獭分担工作（独立审视/并行工作/角色讨论/任务分担）. **创建不触发执行——新 Otter 只是就位待命，你必须在随后的 yield 里把行动权传给它（to=[\"名字\"]），它才会被唤醒执行；只创建不派工＝小獭永远不产出**. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话（但未开工）. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
     parameters: {
       type: "object",
       properties: {
@@ -172,7 +210,7 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       /** F20260813actk C3：回包提示就位待命状态（串行场景教育） */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}). 已就位待命，但尚未开工——` +
-        `你需要在随后的 speak 里把行动权（talkingStonePassedTo=["${otter.name}"]）传给它，它才会执行。`
+        `你需要在随后的 yield 里把行动权（to=["${otter.name}"]）传给它，它才会执行。`
       );
     },
   };
@@ -607,6 +645,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
+    createYieldTool(ctx),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),

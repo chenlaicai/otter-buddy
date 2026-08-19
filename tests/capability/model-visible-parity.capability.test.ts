@@ -3,7 +3,7 @@
  *
  * 机制：boot 指向本地录音网关（伪 anthropic 端点），SDK 全链路照常发真实请求——
  * wire 级请求体即模型可见输入的最终真相（system + messages + tools）。
- * 网关回放脚本化 speak 响应驱动确定性对话。录音 → 规范化 → 快照。
+ * 网关回放脚本化 speak+yield 响应驱动确定性对话。录音 → 规范化 → 快照。
  *
  * 三种运行模式：
  * - 默认（无环境变量）：结构健全性 + 规范化确定性自检——CI 常规价值
@@ -25,6 +25,7 @@ import {
 import {
   RecordingGateway,
   speakScript,
+  yieldScript,
   canonicalizeRequests,
   stableStringify,
   diffCanonical,
@@ -43,7 +44,9 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     gateway = await RecordingGateway.start();
     gateway.queue([
       speakScript("第一轮固定答复：收到，一切正常。"),
+      yieldScript(),
       speakScript("第二轮固定答复：任务完成。"),
+      yieldScript(),
     ]);
     ctx = await bootCapabilityApp({ recordingGatewayUrl: gateway.url });
   });
@@ -66,9 +69,10 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     const second = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000, afterSeq: userSeq2 });
     expect(second.status).toBe("completed");
 
-    expect(gateway.requests.length).toBe(2);
+    /** speak+yield 拆分：每轮 = speak 请求 + yield 请求（speak 不终止回合） */
+    expect(gateway.requests.length).toBe(4);
 
-    /** 第 1 次请求：system 非空、工具表含 speak、消息含本轮 user 输入 */
+    /** 第 1 次请求：system 非空、工具表含 speak 与 yield、消息含本轮 user 输入 */
     const r0 = gateway.requests[0] as {
       system?: unknown;
       tools?: Array<{ name: string }>;
@@ -76,13 +80,15 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     };
     expect(JSON.stringify(r0.system ?? "").length).toBeGreaterThan(100);
     expect(r0.tools?.map((t) => t.name)).toContain("speak");
+    expect(r0.tools?.map((t) => t.name)).toContain("yield");
     expect(JSON.stringify(r0.messages)).toContain("A3-第一轮");
 
-    /** 第 2 次请求：上下文累积——含第 1 轮 speak tool_use、其 tool_result、新的 user 输入 */
-    const r1dump = JSON.stringify(gateway.requests[1]);
-    expect(r1dump).toContain("speak");
-    expect(r1dump).toContain("tool_result");
-    expect(r1dump).toContain("A3-第二轮");
+    /** 第 3 次请求（第二轮 speak）：上下文累积——含第 1 轮 speak/yield tool_use、其 tool_result、新的 user 输入 */
+    const r2dump = JSON.stringify(gateway.requests[2]);
+    expect(r2dump).toContain("speak");
+    expect(r2dump).toContain("yield");
+    expect(r2dump).toContain("tool_result");
+    expect(r2dump).toContain("A3-第二轮");
   }, 300_000);
 
   it("规范化确定性：同一份原始请求两次规范化结果完全一致", () => {
@@ -101,7 +107,7 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     const captureTo = process.env.A3_SNAPSHOT_CAPTURE;
     if (!captureTo && !process.env.A3_SNAPSHOT_FILE) {
       /** 默认模式也不能空跑：至少断言快照规模（防 vacuous pass） */
-      expect(canonical.length).toBe(2);
+      expect(canonical.length).toBe(4);
       return;
     }
     if (captureTo) {

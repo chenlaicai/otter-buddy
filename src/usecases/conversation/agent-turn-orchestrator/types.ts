@@ -5,6 +5,7 @@
  */
 
 import type { Logger } from "@usecases/ports/logger";
+import type { MessageSegment } from "@entities/conversation/message";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 
@@ -121,8 +122,8 @@ export interface TurnCallbacks {
   isCircuitBreakerEnabled(): boolean;
   /** 广播消息到 Web 和飞书 */
   broadcastMessage(messageId: string): Promise<void>;
-  /** 查询消息状态 */
-  getMessageById(messageId: string): Promise<{ status: string; body?: string; turnId?: string } | null>;
+  /** 查询消息状态。segments 是消息内容的唯一载体（messages.body 列已移除，SSE body 由 aggregateBody 计算） */
+  getMessageById(messageId: string): Promise<{ status: string; segments: MessageSegment[]; turnId?: string } | null>;
   /** 发送系统消息 */
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number }>;
   /** 创建新消息（重试用） */

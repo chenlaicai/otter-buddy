@@ -64,7 +64,8 @@ export interface CompleteMessageInput {
 
 /** 开始发言输入 */
 export interface StartSpeakingInput {
-  body: string;
+  /** 可选：随发言一并落库的内容（拆分后由 speak 的 appendSegment 负责，yield 调用时不传） */
+  body?: string;
   talkingStonePassedTo: string[];
 }
 
@@ -211,7 +212,8 @@ export class SendMessage {
     return event;
   }
 
-  /** 开始发言（speak 工具调用）：streaming → speaking，插入 segment + 设置发言石目标（同一事务） */
+  /** 开始发言（yield 工具调用）：streaming → speaking，设置发言石目标；可选 body 时附带插入 segment（同一事务）。
+   *  speak+yield 拆分后内容由 speak 的 appendSegment 落库，yield 调用时 body 为空——只设路由与状态。 */
   async startSpeaking(messageId: string, input: StartSpeakingInput): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
@@ -220,8 +222,8 @@ export class SendMessage {
     if (!canStartSpeaking(message.status)) {
       throw new DomainError(`Cannot start speaking for message with status: ${message.status}`, "conflict");
     }
-    if (!input.body || input.body.trim().length === 0) {
-      throw new DomainError("body must be non-empty", "validation");
+    if (input.body !== undefined && input.body.trim().length === 0) {
+      throw new DomainError("body must be non-empty when provided", "validation");
     }
     if (!isValidTalkingStonePass(input.talkingStonePassedTo, "speaking", message.senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for speaking messages", "validation");

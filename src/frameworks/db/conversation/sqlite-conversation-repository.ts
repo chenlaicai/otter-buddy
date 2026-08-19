@@ -246,11 +246,13 @@ export class SqliteConversationRepository implements ConversationRepository {
     })();
   }
 
-  async startSpeaking(messageId: string, body: string, talkingStonePassedTo: string[]): Promise<void> {
+  async startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[]): Promise<void> {
     this.db.transaction(() => {
-      // 插入 segment + 状态变更 + FTS 刷新，同一事务保证原子性
-      const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
-      this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
+      // 状态变更 + FTS 刷新同一事务；body 非空时附带插入 segment（speak+yield 拆分后 yield 调用不传 body）
+      if (body !== undefined) {
+        const maxSeq = this.db.prepare("SELECT COALESCE(MAX(sequence_num), 0) AS max_seq FROM message_segments WHERE message_id = ?").get(messageId) as { max_seq: number };
+        this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
+      }
       const result = this.db.prepare(`
         UPDATE messages SET status = 'speaking', talking_stone_passed_to = ?
         WHERE id = ? AND status = 'streaming'

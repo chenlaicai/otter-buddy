@@ -196,6 +196,11 @@ export class AgentInvoker {
             }
             if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
               this.logger.debug('speak tool executed', { messageId: input.messageId });
+              /** speak+yield 拆分：speak 落库成功后广播中间发言（前端实时展示，无需等 yield 交棒） */
+              const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
+              if (details?.__speakIntermediate === true) {
+                emitEvent({ event: "speak.intermediate", data: { messageId: input.messageId, body: String(details.body ?? "") } });
+              }
             }
             /** 所有事件如实持久化（event 就是 event，不抑制） */
             const evt = mapToMessageEventInput(e, input.messageId);

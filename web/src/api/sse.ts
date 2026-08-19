@@ -21,6 +21,9 @@ export function consumeSSE(
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  /** 事件名跨 chunk 保持：event: 行与 data: 行可能分属不同 read chunk，
+   *  声明在循环内会在 chunk 边界丢失事件名导致整帧静默丢弃（F20260819spyd） */
+  let currentEvent = ''
 
   ;(async () => {
     try {
@@ -32,7 +35,6 @@ export function consumeSSE(
         const lines = buffer.split('\n')
         buffer = lines.pop() ?? ''
 
-        let currentEvent = ''
         for (const line of lines) {
           if (line.startsWith('event:')) {
             currentEvent = line.slice(6).trim()
