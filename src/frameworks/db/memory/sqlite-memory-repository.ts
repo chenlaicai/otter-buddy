@@ -648,7 +648,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   /** F20260812mrcq Part 1：原子认领 pending 任务（F20260814qswp 拆至 embedding-task-queue） */
   async claimPendingTasks(
     limit: number,
-  ): Promise<Array<{ entryId: string; content: string; attempts: number }>> {
+  ): Promise<Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string }>> {
     return claimPendingTasks(this.db, limit);
   }
 

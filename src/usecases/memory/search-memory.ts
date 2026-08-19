@@ -24,9 +24,11 @@ const SNIPPET_FALLBACK_LENGTH = 200;
 /**
  * F20260812mrcq Part 3：F/R 文档 ID anchor 正则。
  * 子串提取（非全匹配）——支持 "F20260812mrcq 召回优化" 这种 "ID + 限定词" 模式。
- * \b 词边界防 "F20260812mrcqextra" 误匹配。4-6 位后缀兼容历史（推荐 4 位）。
+ * 用 (?<![\w])/(?![\w]) 替代 \b 显式表达意图：ID 前后不能紧接 ASCII 单词字符。
+ * 4-6 位后缀兼容历史（推荐 4 位）。
+ * 修法：m3（#245 follow-up），用显式否定回顾/前瞻替代 \b 防未来 JS 引擎 Unicode \b 变更。
  */
-const ANCHOR_PATTERN = /\b([FR])\d{8}[a-z0-9]{4,6}\b/i;
+const ANCHOR_PATTERN = /(?<![\w])([FR])\d{8}[a-z0-9]{4,6}(?![\w])/i;
 
 export interface SearchQuery {
   query: string;
@@ -209,8 +211,14 @@ export class SearchMemory {
     // 组装 anchor entry 为 RetrievalResultEntry
     const anchorResultEntry = this.buildAnchorEntry(anchorEntry, detailLevel);
 
+    // m1（#245 follow-up）：anchor 命中不经过 dedupAndBoostBySource，
+    // RRF 结果中同 sourceId 的 chunk 应过滤，避免 anchor summary + 同源 chunk 并列。
+    const filteredEntries = rrfResult.entries.filter(
+      e => e.sourceId !== anchorEntry.sourceId,
+    );
+
     return {
-      entries: [anchorResultEntry, ...rrfResult.entries],
+      entries: [anchorResultEntry, ...filteredEntries],
       total: rrfResult.total + 1,
       vecCoverage: rrfResult.vecCoverage,
     };

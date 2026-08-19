@@ -36,7 +36,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
       const duration = Date.now() - startTime;
       logger.info('Schema initialized', {
         duration,
-        tables: 12,
+        tables: 32,
       });
     }
   } catch (error) {
