@@ -439,14 +439,13 @@ function ConversationPage() {
          *  气泡内容只由 speak.intermediate（真实落库内容的实时投影）累积。 */
       },
       'speak.intermediate': (data) => {
-        const body = data.body as string
+        const { messageId, body, otterName } = data as { messageId: string; body: string; otterName?: string }
         if (!body) return
-        const messageId = data.messageId as string
         const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
         liveText.set(messageId, acc)
         batchUpdateMessages(activeId!, (list) => {
           if (!list.some(m => m.id === messageId)) return list
-          return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || (data as Record<string, unknown>).otterName as string || m.sn } : m)
+          return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
         })
       },
       'assistant_toolcall': (data) => {
@@ -711,7 +710,7 @@ function ConversationPage() {
           liveText.set(messageId, acc)
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || m.sn } : m)
+            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
           })
         },
         'message.complete': (data) => {
@@ -963,7 +962,7 @@ function ConversationPage() {
           liveText.set(messageId, acc)
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || m.sn } : m)
+            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
           })
         },
         'message.complete': (data) => {
