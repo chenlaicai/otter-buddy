@@ -91,7 +91,7 @@ capability_test: "n/a: 纯代码逻辑重构（A 类），各 Part 如涉及 LLM
 | D1 | controller/scheduler 切 agent-turn-port + 删旧 port | 待实施 |
 | D2 | pi-session-factory 瘦身 | 待实施 |
 | E | MemoryRepository 三分 | 待实施 |
-| F | broadcaster 事件通道改造 | 待实施 |
+| F | broadcaster 事件通道改造 | **PR #329**（已实施：broadcast 方法逐通道 catch 隔离） |
 
 ## 全局验收标准
 
