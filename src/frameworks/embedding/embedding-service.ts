@@ -53,13 +53,22 @@ interface ReadyState {
   waiters: Array<{ resolve: () => void; reject: (err: Error) => void }>;
 }
 
-class EmbeddingServiceImpl implements EmbeddingGateway {
+export class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   /** F20260811mrpy Part 3：worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
   private requestId = 0;
+  /** 单次 embed 请求超时（ms）。超时后触发 FTS5-only 降级（#306） */
+  private static readonly EMBED_TIMEOUT_MS = 30_000;
+  /** 测试用覆盖超时（ms） */
+  private static testTimeoutOverride: number | null = null;
+  
+  /** 设置测试用超时覆盖（仅测试环境） */
+  static setTestTimeoutOverride(ms: number | null): void {
+    EmbeddingServiceImpl.testTimeoutOverride = ms;
+  }
 
   get available(): boolean {
     return this.readyState.ready;
@@ -147,11 +156,22 @@ class EmbeddingServiceImpl implements EmbeddingGateway {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     await this.waitForReady();
     const id = ++this.requestId;
-    return new Promise((resolve, reject) => {
+    
+    const embedPromise = new Promise<Float32Array>((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });
       const request: EmbedRequest = { type: "embed", text, id };
       this.worker.postMessage(request);
     });
+    
+    const timeoutMs = EmbeddingServiceImpl.testTimeoutOverride ?? EmbeddingServiceImpl.EMBED_TIMEOUT_MS;
+    const timeoutPromise = new Promise<Float32Array>((_, reject) => {
+      setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
+      }, timeoutMs);
+    });
+    
+    return Promise.race([embedPromise, timeoutPromise]);
   }
 
   /** F20260811mrpy Part 3：返回 worker 加载的模型元信息 */
