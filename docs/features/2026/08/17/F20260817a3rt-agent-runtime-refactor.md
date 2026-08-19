@@ -90,8 +90,51 @@ capability_test: "n/a: 纯代码逻辑重构（A 类），各 Part 如涉及 LLM
 | C | AgentInvoker 编排上提（两段式） | 待实施 |
 | D1 | controller/scheduler 切 agent-turn-port + 删旧 port | 待实施 |
 | D2 | pi-session-factory 瘦身 | 待实施 |
-| E | MemoryRepository 三分 | 待实施 |
+| E | MemoryRepository 三分 | **PR #327**（Phase 1：接口定义）+ **PR #331**（Phase 2：消费者切换 + 共享类型提取） |
 | F | broadcaster 事件通道改造 | 待实施 |
+
+## Part E：MemoryRepository 三分（Phase 1 + Phase 2）
+
+### Phase 1（PR #327）：接口定义
+
+按 R20260817arnt §2/Q6，将 MemoryRepository 拆分为三个窄接口：
+
+1. **MemoryReader**：查询记忆条目、检索记忆（FTS/vec）、获取记忆权重、获取记忆详情
+2. **MemoryWriter**：存储记忆条目、更新记忆、删除记忆、创建/删除边
+3. **MemoryQueue**：embedding 重试队列操作
+
+**验收结果**：
+- TypeScript 编译通过
+- 现有测试通过（1260 tests, 107 files, 0 failures）
+- SqliteMemoryRepository 实现三个接口
+
+### Phase 2（PR #331）：消费者切换 + 共享类型提取
+
+**建议 3 — 消费者切换**：9 个文件全部从 MemoryRepository 切换到窄接口：
+
+| 文件 | 切换到 |
+|------|--------|
+| get-doc-provenance.ts | Reader |
+| get-related.ts | Reader |
+| scan-dark-entries.ts | Reader |
+| delete-edge.ts | Writer |
+| create-edge.ts | Reader + Writer |
+| manage-memory.ts | Reader + Writer |
+| search-memory.ts | Reader + Writer |
+| store-memory.ts | Writer + Queue |
+| embedding-retry-worker.ts | Reader + Writer + Queue |
+
+**建议 4 — 共享类型提取**：
+- 新增 `memory-types.ts`（SearchFilters, FTSHit, SnippetHit, VecHit, DarkEntry, RetrievalSource）
+- 消除 `memory-reader.ts` 对 `memory-repository.ts` 的反向依赖
+- `memory-repository.ts` 保留 re-export（向后兼容）
+
+**DI 层**：`Repositories` 接口新增 `memoryReader`/`memoryWriter`/`memoryQueue`，同一实例暴露
+
+**验收结果**：
+- `tsc --noEmit`：零错误
+- `vitest run`：1260 tests, 107 files, 0 failures
+- 行为等价（零运行时变更，纯机械重构）
 
 ## 全局验收标准
 
