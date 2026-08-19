@@ -434,17 +434,9 @@ function ConversationPage() {
         if (!liveEvents) return
         liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
         syncLiveEvents(data.messageId as string)
-        /** 累积文本到消息正文：让用户实时看到发言内容逐步出现（不仅在流式过程面板）。
-         *  累积+全量 set 幂等语义（见 liveText 声明处注释） */
-        const text = Array.isArray(data.content) ? (data.content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
-        if (!text) return
-        const messageId = data.messageId as string
-        const acc = (liveText.get(messageId) || '') + text
-        liveText.set(messageId, acc)
-        batchUpdateMessages(activeId!, (list) => {
-          if (!list.some(m => m.id === messageId)) return list
-          return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
-        })
+        /** F20260819spyd：assistant 文本不再累积进气泡——speak 之外的输出不进入最终消息，
+         *  且与 speak.intermediate 双通道累积会造成同内容重复渲染。
+         *  气泡内容只由 speak.intermediate（真实落库内容的实时投影）累积。 */
       },
       'speak.intermediate': (data) => {
         const body = data.body as string
@@ -557,10 +549,17 @@ function ConversationPage() {
       let buffer = ''
       let currentEvent = ''
       let currentData = ''
+      /** 已消费的 responseText 字节数。responseText 是累积全量，而 buffer 处理完行后会
+       *  变短——若用 buffer.length 做偏移，每次 onprogress（含 15s keep-alive 心跳）都会
+       *  从头重放整个流，追加型 handler（speak.intermediate 累积）每跳一次翻一倍（F20260819spyd）。
+       *  cursor 只增不减，buffer 仅承载跨 chunk 的不完整尾行。 */
+      let processedLen = 0
 
       xhr.onprogress = () => {
         if (!xhr) return
-        buffer += xhr.responseText.slice(buffer.length)
+        if (xhr.responseText.length <= processedLen) return
+        buffer += xhr.responseText.slice(processedLen)
+        processedLen = xhr.responseText.length
         const lines = buffer.split('\n')
         buffer = lines.pop()!
 
@@ -703,16 +702,7 @@ function ConversationPage() {
           if (!liveEvents) return
           liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content: data.content } })
           syncLiveEvents(messageId)
-          /** 累积文本到消息正文：让用户实时看到发言内容逐步出现。
-           *  累积+全量 set 幂等语义（见 liveText 声明处注释） */
-          const text = Array.isArray(data.content) ? (data.content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
-          if (!text) return
-          const acc = (liveText.get(messageId) || '') + text
-          liveText.set(messageId, acc)
-          batchUpdateMessages(activeId!, (list) => {
-            if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
-          })
+          /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
         },
         'speak.intermediate': (data) => {
           const { messageId, body } = data as { messageId: string; body: string }
@@ -964,11 +954,7 @@ function ConversationPage() {
            *  重试消息的流式文本事件全部静默丢失（落入 return null） */
           liveEvents.push({ ts: nowTs(), eventType: 'assistant_text', payload: { content } })
           syncLiveEvents(msgId)
-          const textContent = Array.isArray(content) ? (content as Array<{ type: string; text: string }>).filter(b => b.type === 'text').map(b => b.text).join('') : ''
-          if (!textContent) return
-          const acc = (liveText.get(msgId) || '') + textContent
-          liveText.set(msgId, acc)
-          batchUpdateMessages(activeId, (list) => list.map(m => m.id === msgId ? { ...m, content: acc } : m))
+          /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
         },
         'speak.intermediate': (data) => {
           const { messageId, body } = data as { messageId: string; body: string }

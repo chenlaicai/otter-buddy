@@ -147,7 +147,8 @@ segments 重构后 `Message` 实体没有 `body` 字段（只有 `segments`）�
 | src/usecases/ports/otter-tool-client.ts | 修改 | startSpeaking params.body 可选化 |
 | src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | speak.intermediate 发射 |
 | api-contract/sse/events.ts | 修改 | 事件类型 |
-| web/src/pages/conversation/index.tsx | 修改 | 前端 handler ×3 |
+| web/src/pages/conversation/index.tsx | 修改 | 前端 handler ×3；常驻通道 XHR 解析器累积重放 bug 修复 |
+| web/src/api/sse.ts | 修改 | consumeSSE 跨 chunk 事件名丢失 bug 修复 |
 | tests/interface-adapters/speak-tool.test.ts | 重写 | 拆分语义 24 cases |
 | tests/capability/helpers/model-visible.ts | 修改 | speakScript/yieldScript 两段脚本 |
 | tests/capability/model-visible-parity.capability.test.ts | 修改 | 每轮两请求断言 |
@@ -170,7 +171,7 @@ segments 重构后 `Message` 实体没有 `body` 字段（只有 `segments`）�
 | T1 speak 纯输出 | 单元 + 真实 LLM 观察均符合 | ✅ |
 | T2 yield 交棒 | 路由能力测试 3/3 | ✅ |
 | T3 协议一致性 | parity 工具表断言 + 全局术语排查 | ✅ |
-| T4 SSE body | aggregateBody 单元覆盖 + 待用户 UI 复验 | ❓（合并后 UI 复验） |
+| T4 SSE body | aggregateBody 单元覆盖 + 隔离实例 UI 验证（气泡正常渲染） | ✅ |
 
 ## 附带：文档门禁存量违规修复
 
@@ -180,6 +181,29 @@ pre-commit 的 lint:docs 被三处**已合入 PR 的存量违规**阻断（与�
 - F20260818sgmt 缺 summary（补蒸馏摘要）
 
 不修则任何 commit 无法通过门禁，随本 PR 一并带入。
+
+## UI 验证轮发现：前端 SSE 解析器两个陈年 bug
+
+隔离实例（3001 + 独立 DB）真实验证发现流式期间气泡内容重复渲染/闪空。逐层排查（服务端事件广播
+计数、DB 事件序列、双通道+轮询 Node 模拟、Playwright 真实浏览器 + 临时埋点）定位到两个前端解析
+器 bug——均非拆分引入，而是被 speak.intermediate 的**追加型累积**首次显性化（全量 set 型 handler
+对重放幂等，肉眼不可见；历史上 F20260814qswp 的"幂等化"修复实际一直在与重放 bug 的症状搏斗）：
+
+1. **常驻通道 XHR 累积重放**（index.tsx）：`buffer += xhr.responseText.slice(buffer.length)`——
+   responseText 是累积全量，而 buffer 处理完行后变短，偏移失真导致每次 onprogress（含服务端 15s
+   keep-alive 心跳）**从头重放整个事件流**，追加型 handler 每 15s 翻一倍。修复：processedLen 游标
+   只增不减，buffer 仅承载跨 chunk 尾行。
+2. **consumeSSE 跨 chunk 丢事件**（sse.ts）：`currentEvent` 声明在 read 循环内，`event:` 行与
+   `data:` 行跨 chunk 到达时事件名被重置、整帧静默丢弃（POST 流通道后续 speak 事件全丢的原因）。
+   修复：事件名提升到循环外。
+
+验证：Playwright 真实浏览器复现修复前后对比——修复前同一 speak 事件 B 通道 15s 重放一次、A 通道
+只收首个；修复后 A/B 各一次、气泡内容稳定无跳变。附带入账：模型先调工具不 speak 直接 yield 被守卫
+拦截后自我修正（"上次忘了 yield，这次补上"）——空内容守卫的即时反馈机制实证。
+
+另：assistant 流式文本不再累积进气泡（三处副本移除）——它本就不进最终消息，且与
+speak.intermediate 双通道叠加是同内容重复的另一半来源；气泡内容 = speak 落库内容的实时镜像，
+流式与终态完全一致。
 
 ## 对抗审视记录
 
