@@ -13,6 +13,7 @@ status: implemented
 change_type: feature
 tags: [web, ux]
 modules:
+  - web/src/hooks/use-draft-cache.ts
   - web/src/pages/conversation/MessageInput.tsx
 capability_test: "n/a: 纯前端本地存储逻辑（A 类），无 LLM 参与行为"
 ---
