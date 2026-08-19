@@ -137,7 +137,7 @@ export class AgentInvoker implements AgentTurnPort {
       let pendingSelfRestart: { otterId: string; summary?: string } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, otter?.name, (signal) => { pendingSelfRestart = signal; });
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; } });
       const callbacks = this.createTurnCallbacks(emitEvent);
 
       const turnInput = this.buildTurnInput(params, message.id, startTime);
@@ -178,8 +178,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    otterName?: string,
-    onSelfRestart?: (signal: { otterId: string; summary?: string }) => void,
+    opts?: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void },
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
@@ -204,7 +203,7 @@ export class AgentInvoker implements AgentTurnPort {
             }
             if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
               this.logger.debug('speak tool executed', { messageId: input.messageId });
-              this.emitSpeakIntermediate(e, input.messageId, otterId, otterName, emitEvent);
+              this.emitSpeakIntermediate(e, input.messageId, otterId, opts?.otterName, emitEvent);
             }
             /** 所有事件如实持久化（event 就是 event，不抑制） */
             const evt = mapToMessageEventInput(e, input.messageId);
@@ -217,7 +216,7 @@ export class AgentInvoker implements AgentTurnPort {
           },
         });
         // F20260819rscn: SDK 标记了自重启信号时，通知调用方（闭包捕获）
-        if (result._selfRestart) onSelfRestart?.(result._selfRestart);
+        if (result._selfRestart) opts?.onSelfRestart?.(result._selfRestart);
         return { result: result as unknown as InvokeResultShape, toolCallCount };
       },
 
@@ -377,7 +376,7 @@ export class AgentInvoker implements AgentTurnPort {
   ): void {
     const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
     if (details?.__speakIntermediate === true) {
-      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? otterId } });
+      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? '' } });
     }
   }
 

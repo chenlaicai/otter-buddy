@@ -86,7 +86,7 @@ private emitSpeakIntermediate(
   if (details?.__speakIntermediate === true) {
     emitEvent({
       event: "speak.intermediate",
-      data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? otterId }
+      data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? '' }
     });
   }
 }
