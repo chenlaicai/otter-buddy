@@ -114,7 +114,7 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
 }
 
 export function createMemoryIndex(repos: Repositories, embeddingService: EmbeddingGateway, logger: Logger): MemoryIndexGateway {
-  return new MemoryIndexAdapter(new StoreMemory(repos.memory, embeddingService, logger));
+  return new MemoryIndexAdapter(new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger));
 }
 
 export async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway, logger: Logger, cwd: string): Promise<SyncResult> {
@@ -144,22 +144,22 @@ export async function createAndStartRetryWorker(
   logger: Logger,
 ): Promise<EmbeddingRetryWorkerType | null> {
   // vec 未启用：不启动 worker（tick 会空转）
-  if (!repos.memory.isVecEnabled()) {
+  if (!repos.memoryReader.isVecEnabled()) {
     logger.info("EmbeddingRetryWorker not started: vec path disabled");
     return null;
   }
 
   // F20260812mrcq Part 1 审视 M8：存量暗化条目迁移
   // 扫描已存在的暗化条目，批量 enqueueRetry 入队
-  const existing = await repos.memory.scanDarkEntries(true);  // includeDead=true：之前若曾有 dead 也尝试重新 embed
+  const existing = await repos.memoryReader.scanDarkEntries(true);  // includeDead=true：之前若曾有 dead 也尝试重新 embed
   if (existing.total > 0) {
     logger.info(`Migrating ${existing.total} existing dark entries to retry queue`);
     for (const entry of existing.entries) {
-      await repos.memory.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"));
+      await repos.memoryQueue.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"));
     }
   }
 
-  const worker = new EmbeddingRetryWorker(repos.memory, embeddingService, logger);
+  const worker = new EmbeddingRetryWorker(repos.memoryReader, repos.memoryWriter, repos.memoryQueue, embeddingService, logger);
   worker.start();
   logger.info("EmbeddingRetryWorker started", {
     intervalMs: 30_000,

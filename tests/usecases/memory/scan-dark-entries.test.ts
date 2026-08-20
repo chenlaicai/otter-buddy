@@ -3,7 +3,8 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { ScanDarkEntries } from "@usecases/memory/scan-dark-entries";
-import type { MemoryRepository, DarkEntry } from "@usecases/memory/memory-repository";
+import type { MemoryReader } from "@usecases/memory/memory-reader";
+import type { DarkEntry } from "@usecases/memory/memory-types";
 
 function makeDarkEntry(overrides: Partial<DarkEntry> = {}): DarkEntry {
   return {
@@ -14,11 +15,11 @@ function makeDarkEntry(overrides: Partial<DarkEntry> = {}): DarkEntry {
   };
 }
 
-function makeMockRepo(scanResult: { entries: DarkEntry[]; total: number; vecDisabled: boolean }): MemoryRepository {
+function makeMockRepo(scanResult: { entries: DarkEntry[]; total: number; vecDisabled: boolean }): MemoryReader {
   return {
     scanDarkEntries: vi.fn().mockResolvedValue(scanResult),
     // 其余方法用最小 stub（ScanDarkEntries 只依赖 scanDarkEntries）
-  } as unknown as MemoryRepository;
+  } as unknown as MemoryReader;
 }
 
 describe("ScanDarkEntries", () => {

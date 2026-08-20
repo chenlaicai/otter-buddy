@@ -8,7 +8,8 @@
  * - 默认排除 status='dead' 的 dead-letter（防报告噪音）
  * - 传 includeDead=true 查看全部（运维主动排查）
  */
-import type { MemoryRepository, DarkEntry } from "./memory-repository";
+import type { MemoryReader } from "./memory-reader";
+import type { DarkEntry } from "./memory-types";
 import type { Logger } from "@usecases/ports/logger";
 
 export interface ScanDarkEntriesResult {
@@ -19,12 +20,12 @@ export interface ScanDarkEntriesResult {
 
 export class ScanDarkEntries {
   constructor(
-    private readonly repo: MemoryRepository,
+    private readonly reader: MemoryReader,
     private readonly logger?: Logger,
   ) {}
 
   async execute(includeDead: boolean = false): Promise<ScanDarkEntriesResult> {
-    const result = await this.repo.scanDarkEntries(includeDead);
+    const result = await this.reader.scanDarkEntries(includeDead);
     if (result.total > 0) {
       this.logger?.warn(`Detected ${result.total} dark entries (no vec index)`);
     }

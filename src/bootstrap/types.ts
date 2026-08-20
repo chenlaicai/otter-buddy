@@ -2,6 +2,9 @@
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterContextRepository } from "@usecases/otter/otter-context-repository";
 import type { MemoryRepository } from "@usecases/memory/memory-repository";
+import type { MemoryReader } from "@usecases/memory/memory-reader";
+import type { MemoryWriter } from "@usecases/memory/memory-writer";
+import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { TerminologyRepository } from "@usecases/memory/terminology-repository";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
@@ -35,7 +38,11 @@ import type { ManageConnection } from "@usecases/im/manage-connection";
 export interface Repositories {
   otter: OtterRepository;
   otterContext: OtterContextRepository;
+  /** @deprecated 使用 memoryReader / memoryWriter / memoryQueue 窄接口 */
   memory: MemoryRepository;
+  memoryReader: MemoryReader;
+  memoryWriter: MemoryWriter;
+  memoryQueue: MemoryQueue;
   terminology: TerminologyRepository;
   conversation: ConversationRepository;
   settings: SettingsRepository;

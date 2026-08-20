@@ -5,11 +5,11 @@ import type { MemoryEntry, MemoryWeight, MemoryLayer, MemoryContentType } from "
 import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
 import type {
   FTSHit,
-  MemoryRepository,
   SearchFilters,
   VecHit,
   DarkEntry,
-} from "@usecases/memory/memory-repository";
+} from "@usecases/memory/memory-types";
+import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { MemoryReader } from "@usecases/memory/memory-reader";
 import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
@@ -23,7 +23,7 @@ import {
   type MemoryWeightRow,
   type VecRow,
 } from "./memory-mapper";
-import type { SnippetHit } from "@usecases/memory/memory-repository";
+import type { SnippetHit } from "@usecases/memory/memory-types";
 import { tokenizeWithJieba, tokenizeQuery } from "@frameworks/db/jieba-tokenizer";
 import {
   createEdge,

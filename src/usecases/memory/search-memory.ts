@@ -8,11 +8,12 @@ import type {
 } from "@entities/memory/memory-entry";
 import { DomainError } from "@entities/errors";
 import type {
-  MemoryRepository,
   SearchFilters,
   RetrievalSource,
   VecHit,
-} from "./memory-repository";
+} from "./memory-types";
+import type { MemoryReader } from "./memory-reader";
+import type { MemoryWriter } from "./memory-writer";
 import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { SearchEngine, RrfHit, ScoredHit } from "./search-engine";
@@ -112,8 +113,10 @@ export interface RetrievalResult {
 }
 
 export class SearchMemory {
+  // eslint-disable-next-line max-params -- E 三分：拆为 Reader + Writer 双参数
   constructor(
-    private readonly repo: MemoryRepository,
+    private readonly reader: MemoryReader,
+    private readonly writer: MemoryWriter,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly searchEngine: SearchEngine,
     private readonly logger: Logger,
@@ -184,8 +187,8 @@ export class SearchMemory {
     const preferredContentType = isFeature ? "feature" : "research";
     // 优先 summary（coarse 粒度信息密度高），fallback 到任意 contentType
     const anchorEntry =
-      (await this.repo.getBySourceId(anchorId, preferredContentType as MemoryContentType))
-      ?? (await this.repo.getBySourceId(anchorId));
+      (await this.reader.getBySourceId(anchorId, preferredContentType as MemoryContentType))
+      ?? (await this.reader.getBySourceId(anchorId));
     if (!anchorEntry) return null;
 
     // 剩余 query（去除原始大小写的 ID + trim）走 RRF
@@ -266,11 +269,11 @@ export class SearchMemory {
       if (entry.contentType === "feature_chunk" || entry.contentType === "research_chunk") {
         const chunkIndex = Number(entry.metadata?.chunk_index);
         if (!Number.isFinite(chunkIndex)) continue;
-        neighbors = await this.repo.findNeighborsByChunkIndex(
+        neighbors = await this.reader.findNeighborsByChunkIndex(
           entry.sourceTable, entry.sourceId, chunkIndex,
         );
       } else if (entry.contentType === "message" && entry.conversationId) {
-        neighbors = await this.repo.findNeighborsByTime(
+        neighbors = await this.reader.findNeighborsByTime(
           entry.conversationId, entry.createdAt,
         );
       } else {
@@ -446,7 +449,7 @@ export class SearchMemory {
     let rrfHits;
 
     if (useHighlight) {
-      const ftsHits = await this.repo.searchFTSWithHighlight(query.query, filters);
+      const ftsHits = await this.reader.searchFTSWithHighlight(query.query, filters);
       // F20260803chunk M6: FTS 预聚合，每 source 最多保留 top-3 chunk 防 long doc 霸占 limit
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
       snippetMap = new Map(aggregatedFts.map((h) => [h.entryId, h.snippet]));
@@ -457,7 +460,7 @@ export class SearchMemory {
         vecHits,
       );
     } else {
-      const ftsHits = await this.repo.searchFTS(query.query, filters);
+      const ftsHits = await this.reader.searchFTS(query.query, filters);
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
       const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
       rrfHits = this.searchEngine.rrfFusion(aggregatedFts, vecHits);
@@ -472,13 +475,13 @@ export class SearchMemory {
     limit: number,
   ): Promise<RetrievalResult> {
     /** 1. 获取 embedding */
-    const embedding = await this.repo.getEmbedding(memoryEntryId);
+    const embedding = await this.reader.getEmbedding(memoryEntryId);
     if (!embedding) {
       return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
 
     /** 2. vec 搜索（limit+1 补偿自身匹配过滤） */
-    const vecHits = await this.repo.searchVec(embedding, limit + 1, {});
+    const vecHits = await this.reader.searchVec(embedding, limit + 1, {});
     const filtered = vecHits.filter((h) => h.entryId !== memoryEntryId);
 
     /** 3. 单源 RRF + 重排（searchSimilar 不去重：语义是"找相似条目"，同源多 entry 合法） */
@@ -492,10 +495,10 @@ export class SearchMemory {
     filters: SearchFilters,
     limit: number,
   ): Promise<VecHit[]> {
-    if (!this.repo.hasVecTable()) return [];
+    if (!this.reader.hasVecTable()) return [];
     try {
       const queryEmbedding = await this.embeddingGateway.embed(query);
-      return this.repo.searchVec(queryEmbedding, limit, filters);
+      return this.reader.searchVec(queryEmbedding, limit, filters);
     } catch (err) {
       this.logger.warn(`Embedding search failed, falling back to FTS5 only: ${err}`);
       return [];
@@ -522,7 +525,7 @@ export class SearchMemory {
       return { entries: [], total: 0, vecCoverage: this.buildVecCoverage(0, 0) };
     }
 
-    const weights = await this.repo.getWeights(hitIds);
+    const weights = await this.reader.getWeights(hitIds);
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
 
     const scored = this.searchEngine.rerank(rrfHits, weightMap);
@@ -532,11 +535,11 @@ export class SearchMemory {
     const top = deduped.slice(0, limit);
 
     /** S15: 批量递增检索计数 */
-    await this.repo.incrementRetrievalCounts(top.map((h) => h.entryId));
+    await this.writer.incrementRetrievalCounts(top.map((h) => h.entryId));
 
     /** F20260811mrpy Part 1：计算 vecCoverage（默认返回） */
     const topIds = top.map(h => h.entryId);
-    const hasVecMap = await this.repo.hasEmbeddings(topIds);
+    const hasVecMap = await this.reader.hasEmbeddings(topIds);
     const withVecCount = Array.from(hasVecMap.values()).filter(Boolean).length;
     const vecCoverage: VecCoverage = this.buildVecCoverage(top.length, withVecCount);
 
@@ -674,7 +677,7 @@ export class SearchMemory {
       total,
       withVec,
       ratio: total > 0 ? withVec / total : 0,
-      vecDisabled: !this.repo.isVecEnabled(),
+      vecDisabled: !this.reader.isVecEnabled(),
     };
   }
 

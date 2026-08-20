@@ -1,5 +1,5 @@
 import type { MemoryEntry, MemoryWeight } from "@entities/memory/memory-entry";
-import type { RetrievalSource, FTSHit, VecHit } from "./memory-repository";
+import type { RetrievalSource, FTSHit, VecHit } from "./memory-types";
 
 export interface SearchEngineConfig {
   rrfK: number;

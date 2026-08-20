@@ -3,7 +3,8 @@ import type {
   MemoryContentType,
   RetrievalGranularity,
 } from "@entities/memory/memory-entry";
-import type { MemoryRepository } from "./memory-repository";
+import type { MemoryWriter } from "./memory-writer";
+import type { MemoryQueue } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -23,7 +24,8 @@ export class StoreMemory {
   private static readonly EMBED_MAX_CHARS = 6000;
 
   constructor(
-    private readonly repo: MemoryRepository,
+    private readonly writer: MemoryWriter,
+    private readonly queue: MemoryQueue,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly logger: Logger,
   ) {}
@@ -52,7 +54,7 @@ export class StoreMemory {
     };
 
     /** 同步事务：entries + fts + weights */
-    await this.repo.storeEntry(entry);
+    await this.writer.storeEntry(entry);
 
     /** 异步 fire-and-forget embedding（D27: 不阻塞返回）
      *  D22 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞
@@ -72,16 +74,16 @@ export class StoreMemory {
     this.embeddingGateway
       .embed(this.truncateForEmbed(content))
       .then((emb) => {
-        this.repo.storeEmbedding(entryId, emb).catch((err) => {
+        this.writer.storeEmbedding(entryId, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${entryId}: ${err}`);
-          this.repo.enqueueRetry(entryId, err).catch(e =>
+          this.queue.enqueueRetry(entryId, err).catch(e =>
             this.logger.error(`enqueueRetry failed for ${entryId}: ${e}`),
           );
         });
       })
       .catch((err) => {
         this.logger.debug(`Embedding generation failed for ${entryId}: ${err}`);
-        this.repo.enqueueRetry(entryId, err).catch(e =>
+        this.queue.enqueueRetry(entryId, err).catch(e =>
           this.logger.error(`enqueueRetry failed for ${entryId}: ${e}`),
         );
       });
@@ -106,7 +108,7 @@ export class StoreMemory {
       createdAt: new Date().toISOString(),
     };
 
-    await this.repo.replaceEntryBySource(entry);
+    await this.writer.replaceEntryBySource(entry);
 
     // F20260803fbit + F20260812mrcq Part 1：截断防超长 body OOM worker；失败入队
     this.fireAndForgetEmbed(id, input.content);
@@ -136,7 +138,7 @@ export class StoreMemory {
       createdAt: now,
     }));
 
-    await this.repo.replaceEntriesBySource(entries);
+    await this.writer.replaceEntriesBySource(entries);
 
     // 异步 fire-and-forget embedding（每 chunk 独立，chunk 长度可控 truncateForEmbed 几乎不触发）
     for (const entry of entries) {
@@ -148,6 +150,6 @@ export class StoreMemory {
 
   /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
   async deleteChunksBySource(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void> {
-    await this.repo.deleteBySourceAndType(sourceTable, sourceId, contentType);
+    await this.writer.deleteBySourceAndType(sourceTable, sourceId, contentType);
   }
 }
