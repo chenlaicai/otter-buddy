@@ -14,9 +14,8 @@ import type { SSEEvent } from "@contract/sse/events";
  * 拆至 FeishuMessageChannel，作为 outbound channel 在飞书启用时注册。
  */
 export interface OutboundMessageChannel {
-  /** 最终消息出站。broadcast 按注册序逐通道 await——**通道抛错会中断后续通道**
-   *  （与拆分前 broadcastToFeishu 的冒泡语义一致，调用方的 .catch 记日志）；
-   *  多通道隔离（单通道失败不阻塞其他）留待批次 3（issue #282），届时在总线层加 try/catch */
+  /** 最终消息出站。broadcast 按注册序逐通道 await，**逐通道 catch 隔离**——
+   *  单通道失败不阻塞后续通道，错误记日志后继续。 */
   onMessage(message: Message): Promise<void>;
 }
 
@@ -121,10 +120,19 @@ export class MessageBroadcaster {
     // 1. 广播到 Web 端(通过 SSE 回调)
     this.broadcastToWeb(message);
 
-    // 2. 广播到出站通道（飞书等；逐通道顺序 await，通道抛错冒泡至调用方 .catch——
-    //    隔离语义详见 OutboundMessageChannel 接口注释）
-    for (const channel of this.messageChannels) {
-      await channel.onMessage(message);
+    // 2. 广播到出站通道（飞书等；逐通道顺序 await，逐通道 catch 隔离——
+    //    单通道失败不阻塞后续通道）
+    for (let i = 0; i < this.messageChannels.length; i++) {
+      const channel = this.messageChannels[i];
+      try {
+        await channel.onMessage(message);
+      } catch (err) {
+        this.logger.error("Failed to dispatch message to outbound channel", err instanceof Error ? err : undefined, {
+          conversationId: message.conversationId,
+          messageId: message.id,
+          channelIndex: i,
+        });
+      }
     }
   }
 
@@ -134,13 +142,15 @@ export class MessageBroadcaster {
    */
   broadcastEvent(conversationId: string, event: SSEEvent): void {
     // 出站事件通道（如飞书"正在思考..."，fire-and-forget）
-    for (const channel of this.eventChannels) {
+    for (let i = 0; i < this.eventChannels.length; i++) {
+      const channel = this.eventChannels[i];
       try {
         channel.onEvent(conversationId, event);
       } catch (err) {
         this.logger.error("Failed to dispatch event to outbound channel", err instanceof Error ? err : undefined, {
           conversationId,
           event: event.event,
+          channelIndex: i,
         });
       }
     }
