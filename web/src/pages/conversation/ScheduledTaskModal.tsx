@@ -193,6 +193,9 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
           </div>
           <button
             type="button"
+            role="switch"
+            aria-checked={restartBeforeInvoke}
+            aria-label="每次触发前重启獭生"
             onClick={() => setRestartBeforeInvoke(prev => !prev)}
             className={`relative w-9 h-5 rounded-full transition-colors ${
               restartBeforeInvoke ? 'bg-otter-500' : 'bg-stone-300'
