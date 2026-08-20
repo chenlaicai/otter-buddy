@@ -33,6 +33,9 @@ export class MessageBroadcaster {
   // 出站通道（飞书等外部 IM；按注册序调用）
   private messageChannels: OutboundMessageChannel[] = [];
   private eventChannels: OutboundEventChannel[] = [];
+  // #241: 幂等性去重——最近广播过的 messageId 集合（进程内 LRU）
+  private recentBroadcasts = new Set<string>();
+  private static readonly DEDUP_MAX_SIZE = 1000;
 
   constructor(private readonly logger: Logger) {}
 
@@ -96,6 +99,25 @@ export class MessageBroadcaster {
    * 当消息完成时调用
    */
   async broadcast(message: Message): Promise<void> {
+    // #241: 幂等性去重——同一 messageId 不重复广播
+    if (this.recentBroadcasts.has(message.id)) {
+      this.logger.info('[broadcast] 幂等去重，跳过重复广播', {
+        messageId: message.id,
+        conversationId: message.conversationId,
+      });
+      return;
+    }
+    // 记录已广播的 messageId（LRU 策略：满时清空最旧的一半）
+    if (this.recentBroadcasts.size >= MessageBroadcaster.DEDUP_MAX_SIZE) {
+      const half = Math.floor(MessageBroadcaster.DEDUP_MAX_SIZE / 2);
+      const entries = this.recentBroadcasts.values();
+      for (let i = 0; i < half; i++) {
+        const entry = entries.next();
+        if (!entry.done) this.recentBroadcasts.delete(entry.value);
+      }
+    }
+    this.recentBroadcasts.add(message.id);
+
     // 1. 广播到 Web 端(通过 SSE 回调)
     this.broadcastToWeb(message);
 

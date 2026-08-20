@@ -103,4 +103,33 @@ describe("MessageBroadcaster", () => {
       expect(receivedEvents).toHaveLength(0);
     });
   });
+
+  // #241: 幂等性去重测试
+  describe("broadcast 幂等性", () => {
+    it("同一 messageId 重复 broadcast 只投递一次", async () => {
+      const { broadcaster } = createBroadcaster();
+      const received: Message[] = [];
+      broadcaster.subscribe("conv-1", (msg) => { received.push(msg); });
+
+      const msg = mockMessage({ id: "msg-dedup-1" });
+      await broadcaster.broadcast(msg);
+      await broadcaster.broadcast(msg);
+      await broadcaster.broadcast(msg);
+
+      // 只收到 1 次（去重）
+      expect(received).toHaveLength(1);
+    });
+
+    it("不同 messageId 正常投递", async () => {
+      const { broadcaster } = createBroadcaster();
+      const received: Message[] = [];
+      broadcaster.subscribe("conv-1", (msg) => { received.push(msg); });
+
+      await broadcaster.broadcast(mockMessage({ id: "msg-a" }));
+      await broadcaster.broadcast(mockMessage({ id: "msg-b" }));
+      await broadcaster.broadcast(mockMessage({ id: "msg-c" }));
+
+      expect(received).toHaveLength(3);
+    });
+  });
 });

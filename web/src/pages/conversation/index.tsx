@@ -441,14 +441,13 @@ function ConversationPage() {
          *  气泡内容只由 speak.intermediate（真实落库内容的实时投影）累积。 */
       },
       'speak.intermediate': (data) => {
-        const body = data.body as string
+        const { messageId, body, otterName } = data as { messageId: string; body: string; otterName?: string }
         if (!body) return
-        const messageId = data.messageId as string
         const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
         liveText.set(messageId, acc)
         batchUpdateMessages(activeId!, (list) => {
           if (!list.some(m => m.id === messageId)) return list
-          return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
+          return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
         })
       },
       'assistant_toolcall': (data) => {
@@ -707,13 +706,13 @@ function ConversationPage() {
           /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
         },
         'speak.intermediate': (data) => {
-          const { messageId, body } = data as { messageId: string; body: string }
+          const { messageId, body, otterName } = data as { messageId: string; body: string; otterName?: string }
           if (!body) return
           const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
           liveText.set(messageId, acc)
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
+            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
           })
         },
         'message.complete': (data) => {
@@ -959,13 +958,13 @@ function ConversationPage() {
           /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
         },
         'speak.intermediate': (data) => {
-          const { messageId, body } = data as { messageId: string; body: string }
+          const { messageId, body, otterName } = data as { messageId: string; body: string; otterName?: string }
           if (!body) return
           const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
           liveText.set(messageId, acc)
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: acc } : m)
+            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
           })
         },
         'message.complete': (data) => {

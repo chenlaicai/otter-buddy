@@ -10,6 +10,9 @@ import type {
   VecHit,
   DarkEntry,
 } from "@usecases/memory/memory-repository";
+import type { MemoryReader } from "@usecases/memory/memory-reader";
+import type { MemoryWriter } from "@usecases/memory/memory-writer";
+import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import {
   bufferToFloat32Array,
@@ -41,7 +44,7 @@ import { escapeFtsQuery } from "../fts-utils";
 const DEFAULT_FTS_LIMIT = 50;
 const MAX_GET_DETAILS_BATCH = 100;
 
-export class SqliteMemoryRepository implements MemoryRepository {
+export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, MemoryWriter, MemoryQueue {
   private readonly db: Database.Database;
   /**
    * F20260812mrcq Part 0：vec 表物理存在标志，构造时通过 checkVecTable 固化，readonly。
