@@ -122,13 +122,15 @@ export class MessageBroadcaster {
 
     // 2. 广播到出站通道（飞书等；逐通道顺序 await，逐通道 catch 隔离——
     //    单通道失败不阻塞后续通道）
-    for (const channel of this.messageChannels) {
+    for (let i = 0; i < this.messageChannels.length; i++) {
+      const channel = this.messageChannels[i];
       try {
         await channel.onMessage(message);
       } catch (err) {
         this.logger.error("Failed to dispatch message to outbound channel", err instanceof Error ? err : undefined, {
           conversationId: message.conversationId,
           messageId: message.id,
+          channelIndex: i,
         });
       }
     }
@@ -140,13 +142,15 @@ export class MessageBroadcaster {
    */
   broadcastEvent(conversationId: string, event: SSEEvent): void {
     // 出站事件通道（如飞书"正在思考..."，fire-and-forget）
-    for (const channel of this.eventChannels) {
+    for (let i = 0; i < this.eventChannels.length; i++) {
+      const channel = this.eventChannels[i];
       try {
         channel.onEvent(conversationId, event);
       } catch (err) {
         this.logger.error("Failed to dispatch event to outbound channel", err instanceof Error ? err : undefined, {
           conversationId,
           event: event.event,
+          channelIndex: i,
         });
       }
     }
