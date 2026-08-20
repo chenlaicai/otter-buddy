@@ -168,17 +168,29 @@ export class SchedulerService {
     // 如果延迟超过 24 小时，使用 24 小时后重新计算
     const maxDelay = 24 * 60 * 60 * 1000;
     const actualDelay = Math.min(delay, maxDelay);
+    // #247: 标记是否被截断到 24h
+    const wasCapped = delay > maxDelay;
 
     const timer = setTimeout(async () => {
-      try {
-        await this.triggerTask(task);
-      } catch (error) {
-        this.logger.error(`Failed to trigger task ${task.id}`, error as Error);
-      }
-      // 触发后重新调度下一次
-      const updatedTask = await this.taskRepo.getById(task.id);
-      if (updatedTask?.status === 'active') {
-        this.scheduleNext(updatedTask);
+      if (wasCapped) {
+        // #247: 24h 截断后只重新调度，不触发任务。
+        // 原代码在此处调用 triggerTask 会导致月级/周级 cron 任务
+        // 在中间每 24h 都被真实触发一次，浪费 LLM token 且打扰用户。
+        const updatedTask = await this.taskRepo.getById(task.id);
+        if (updatedTask?.status === 'active') {
+          this.scheduleNext(updatedTask);
+        }
+      } else {
+        try {
+          await this.triggerTask(task);
+        } catch (error) {
+          this.logger.error(`Failed to trigger task ${task.id}`, error as Error);
+        }
+        // 触发后重新调度下一次
+        const updatedTask = await this.taskRepo.getById(task.id);
+        if (updatedTask?.status === 'active') {
+          this.scheduleNext(updatedTask);
+        }
       }
     }, actualDelay);
 
@@ -238,7 +250,9 @@ export class SchedulerService {
     }
 
     try {
-      await this.triggerTask(task);
+      // #246: once 任务重试时跳过 handleExecutionFailure 的 consecutiveFailures 追踪，
+      // 让 triggerOnceWithRetry 独立控制重试/error 语义。
+      await this.triggerTask(task, { skipConsecutiveFailureTracking: true });
       // Why: 一次性任务重试成功后直接删除，不保留历史
       await this.taskRepo.delete(task.id);
     } catch (error) {
@@ -247,9 +261,11 @@ export class SchedulerService {
     }
   }
 
-  /** 触发单个任务 */
-  // eslint-disable-next-line max-statements -- restartBeforeInvoke 逻辑增加语句数，重构会降低可读性
-  private async triggerTask(task: ScheduledTask): Promise<{ executionId: string }> {
+  /** 触发单个任务。
+   *  @param options.skipConsecutiveFailureTracking - #246: once 任务重试时跳过 consecutiveFailures 追踪，
+   *    由 triggerOnceWithRetry 独立控制重试/error 语义，避免两层机制冲突。 */
+  // eslint-disable-next-line max-statements, complexity -- restartBeforeInvoke + #246 skipConsecutiveFailureTracking 增加语句数和复杂度，重构会降低可读性
+  private async triggerTask(task: ScheduledTask, options?: { skipConsecutiveFailureTracking?: boolean }): Promise<{ executionId: string }> {
     const now = new Date().toISOString();
     // Why 默认 'failed'：任何路径抛错（resolveEffectiveBody/createExecution DB 错等）
     //   未显式置 status 时，记 'failed' 比 'completed' 误导更小。
@@ -296,11 +312,21 @@ export class SchedulerService {
         const message = await this.createSystemMessage(task, effectiveBody);
         await this.invokeAgentWithTimeout(task, effectiveBody);
         await this.completeExecution(executionId, task.conversationId, message.id);
-        await this.taskRepo.resetConsecutiveFailures(task.id, now);
+        // #251: resetConsecutiveFailures 在 completeExecution 之后执行，
+        // 如果抛 DB 错不应覆写已 completed 的 execution record。
+        // 吞掉错误，记录 warning 而不 throw。
+        try {
+          await this.taskRepo.resetConsecutiveFailures(task.id, now);
+        } catch (resetErr) {
+          this.logger.warn('resetConsecutiveFailures failed (non-fatal)', {
+            taskId: task.id,
+            error: resetErr instanceof Error ? resetErr.message : String(resetErr),
+          });
+        }
         status = 'completed';
         return { executionId };
       } catch (error) {
-        await this.handleExecutionFailure(executionId, task.id, error);
+        await this.handleTaskExecutionFailure(executionId, task.id, error, options?.skipConsecutiveFailureTracking);
         throw error;
       }
     } finally {
@@ -409,6 +435,34 @@ export class SchedulerService {
     const failures = await this.taskRepo.incrementConsecutiveFailures(taskId, now);
     if (failures >= 3) {
       await this.taskRepo.updateStatus(taskId, 'error', now);
+    }
+  }
+
+  /** #246: 统一执行失败处理入口，根据 skipConsecutiveFailureTracking 选择路径。
+   *  once 任务重试时只更新 execution record，不走 consecutiveFailures/status 标记，
+   *  让 triggerOnceWithRetry 独立控制重试/error 语义。 */
+  private async handleTaskExecutionFailure(
+    executionId: string,
+    taskId: string,
+    error: unknown,
+    skipConsecutiveFailureTracking?: boolean,
+  ): Promise<void> {
+    if (skipConsecutiveFailureTracking) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      try {
+        await this.taskRepo.updateExecutionStatus(executionId, {
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          errorMessage,
+        });
+      } catch (updateErr) {
+        this.logger.warn('updateExecutionStatus failed in once-retry path (non-fatal)', {
+          executionId,
+          error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+        });
+      }
+    } else {
+      await this.handleExecutionFailure(executionId, taskId, error);
     }
   }
 
