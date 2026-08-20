@@ -218,8 +218,8 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(summary).toContain("read");
     expect(summary).toContain("write");
 
-    // 消息序列：自我纠正 fail → 熔断 fail；系统消息含熔断说明；无 abort
-    expect(msg._failCalls.map(f => f.body)).toContainEqual(expect.stringContaining("自我纠正"));
+    // 消息序列：自动重试 fail → 熔断 fail；系统消息含熔断说明；无 abort
+    expect(msg._failCalls.map(f => f.body)).toContainEqual(expect.stringContaining("自动重试"));
     expect(msg._failCalls.map(f => f.body)).toContainEqual(expect.stringContaining("熔断重启獭生"));
     expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("已重启獭生"));
     expect(msg._abortCalls).toHaveLength(0);

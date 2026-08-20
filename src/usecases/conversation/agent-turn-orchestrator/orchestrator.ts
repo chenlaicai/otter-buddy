@@ -405,7 +405,8 @@ export class AgentTurnOrchestrator {
       otterId: ctx.input.otterId,
     });
 
-    const failBody = "[系统] 检测到输出异常重复，正在自我纠正";
+    // F20260820d338：改进 failBody——避免 LLM 复述系统消息
+    const failBody = "[系统保护] 输出内容异常重复，已中断并自动重试";
     try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
@@ -414,7 +415,11 @@ export class AgentTurnOrchestrator {
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
     });
 
-    const retryMsg = "[系统提醒] 你上一轮陷入重复循环，分析已在上下文中，不要重新推理，直接基于已有结论调用 speak 输出。";
+    // F20260820d338：改进重试消息——避免 LLM 复述系统消息，给出具体指令
+    const retryMsg =
+      '[系统提醒] 你上一条消息的输出内容出现了重复循环（同一段文字被反复输出）。' +
+      '上下文已包含之前的分析，不需要重新推理。' +
+      '请直接调用 speak 工具输出一次结论，不要重复输出之前已经说过的内容。';
     let sysMsg;
     try {
       sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, retryMsg);

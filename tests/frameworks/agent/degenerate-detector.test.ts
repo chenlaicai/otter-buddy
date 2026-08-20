@@ -58,7 +58,7 @@ describe("DegenerateDetector 机制 A（非对齐精确重复）", () => {
     if (verdict.degenerate) expect(verdict.mechanism).toBe("repeat_window");
   });
 
-  it("精确重复在秒级触发（~5KB 累积量，K=50）", () => {
+  it("精确重复在秒级触发（F20260820d338：K=20，~2KB 累积量）", () => {
     const unit = "x".repeat(60) + " "; // 61 字符周期
     const detector = new DegenerateDetector();
     // 分段喂入，统计触发时的累积量
@@ -135,10 +135,10 @@ describe("DegenerateDetector 阴性夹具（不误伤）", () => {
 });
 
 describe("默认配置", () => {
-  it("DEFAULT_DEGENERATE_CONFIG 常量符合设计文档", () => {
+  it("DEFAULT_DEGENERATE_CONFIG 常量符合设计文档（F20260820d338 更新阈值）", () => {
     expect(DEFAULT_DEGENERATE_CONFIG.windowLength).toBe(100);
-    expect(DEFAULT_DEGENERATE_CONFIG.maxWindowRepeats).toBe(50);
-    expect(DEFAULT_DEGENERATE_CONFIG.minBlockLength).toBe(5000);
+    expect(DEFAULT_DEGENERATE_CONFIG.maxWindowRepeats).toBe(20);
+    expect(DEFAULT_DEGENERATE_CONFIG.minBlockLength).toBe(3000);
     expect(DEFAULT_DEGENERATE_CONFIG.distinctRatioThreshold).toBe(0.3);
   });
 });
