@@ -19,6 +19,9 @@ export interface MemoryQueue {
    * attempts 自增 1，next_retry_at 按指数退避自动计算（30/60/120/300/3600s）。
    * 返回 [{entryId, content, attempts}]，content 从 memory_entries JOIN 获取。
    * 排除 status='dead'（除非 enqueueRetry 复活）。
+   *
+   * 注意：相比 MemoryRepository 版本，有意省略 lastAttemptAt/createdAt——
+   * embedding-retry-worker 只需 entryId + content + attempts 即可执行重试。
    */
   claimPendingTasks(limit: number): Promise<Array<{
     entryId: string;
