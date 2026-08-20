@@ -63,12 +63,12 @@ function makeMocks(): { mocks: MockState; depSet: ProcessInboundRecruitCtorArgs;
         talkingStonePassedTo: input.talkingStonePassedTo,
         senderType: input.senderType,
       });
-      return {
+      return { message: {
         id: 'msg-' + Math.random().toString(36).slice(2),
         conversationId: input.conversationId,
         segments: [],
         metadata: input.metadata ?? null,
-      } as unknown as Message;
+      } as unknown as Message };
     }),
     sendSystem: vi.fn(),
   } as unknown as SendMessage;

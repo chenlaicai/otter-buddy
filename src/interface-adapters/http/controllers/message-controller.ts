@@ -179,7 +179,7 @@ export class MessageController {
       }
 
       /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
-      const userMessage = await this.sendMessageUseCase.send({
+      const { message: userMessage, mentionFeedback } = await this.sendMessageUseCase.send({
         conversationId,
         senderId: body.senderId,
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
@@ -204,10 +204,10 @@ export class MessageController {
       const { response, push, close } = streamEvents(c);
 
       // F20260820i333: 发送 @提及解析 feedback 给用户
-      if ('mentionFeedback' in userMessage && userMessage.mentionFeedback) {
+      if (mentionFeedback) {
         push({
           event: 'mention.feedback',
-          data: { feedback: userMessage.mentionFeedback },
+          data: { feedback: mentionFeedback },
         });
       }
 

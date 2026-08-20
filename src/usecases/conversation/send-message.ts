@@ -91,7 +91,7 @@ export class SendMessage {
   ) {}
 
   /** 用户发送消息（立即 completed） */
-  async send(input: SendMessageInput): Promise<Message & { mentionFeedback?: string }> {
+  async send(input: SendMessageInput): Promise<{ message: Message; mentionFeedback?: string }> {
     const senderType = input.senderType ?? "user";
     const source = input.source ?? "web";
 
@@ -159,7 +159,7 @@ export class SendMessage {
       ...(mentionFeedback ? { mentionFeedback } : {}),
     });
 
-    return { ...message, mentionFeedback };
+    return { message, mentionFeedback };
   }
 
   /** Otter 开始流式消息（status="streaming"） */

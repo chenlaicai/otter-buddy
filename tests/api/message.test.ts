@@ -80,7 +80,7 @@ describe("Message API", () => {
 
     it("accepts empty talkingStonePassedTo and dispatches to resolved target", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
-      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.sendMessageUseCase.send.mockResolvedValue({ message: userMsg });
       deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: "agent-msg-1", duration: 100 });
 
       const res = await app.request("/api/conversations/conv-1/messages", {
@@ -105,7 +105,7 @@ describe("Message API", () => {
 
     it("treats missing talkingStonePassedTo as empty and forwards to usecase", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
-      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.sendMessageUseCase.send.mockResolvedValue({ message: userMsg });
       deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: "agent-msg-1", duration: 100 });
 
       const res = await app.request("/api/conversations/conv-1/messages", {
@@ -149,7 +149,7 @@ describe("Message API", () => {
 
     it("streams SSE events with correct content on success", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
-      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.sendMessageUseCase.send.mockResolvedValue({ message: userMsg });
       // 通过 broadcaster 推送事件（统一架构）
       const broadcaster = (app as any).__mockBroadcaster;
       deps.agentInvoker.invokeConversation.mockImplementation(async () => {
@@ -185,7 +185,7 @@ describe("Message API", () => {
 
     it("streams error event when agent invocation fails", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
-      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.sendMessageUseCase.send.mockResolvedValue({ message: userMsg });
       // 通过 broadcaster 推送错误事件
       const broadcaster = (app as any).__mockBroadcaster;
       deps.agentInvoker.invokeConversation.mockImplementation(async () => {
@@ -210,7 +210,7 @@ describe("Message API", () => {
 
     it("客户端断开 SSE 不中止 agent：agent 继续跑完且 abort 不被调用（刷新≠停止）", async () => {
       const userMsg = makeMessage({ id: "user-msg-1", senderType: "user" });
-      deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+      deps.sendMessageUseCase.send.mockResolvedValue({ message: userMsg });
       let invocationCompleted = false;
       deps.agentInvoker.invokeConversation.mockImplementation(async (params: any) => {
         params.onSSEEvent?.({ event: "message.start", data: { messageId: "agent-msg-1", otterId: "otter-1", otterName: "TestOtter", createdAt: "2026-07-29T00:00:00.000Z" } });
@@ -454,7 +454,7 @@ describe("Message API - 未读注入剥离投影（F20260728htar）", () => {
     const deps = createMockDeps();
     const app = createTestApp(deps);
     const userMsg = makeMessage({ id: "user-msg-1", senderType: "user", talkingStonePassedTo: ["otter-1"] });
-    deps.sendMessageUseCase.send.mockResolvedValue(userMsg);
+    deps.sendMessageUseCase.send.mockResolvedValue({ message: userMsg });
     deps.conversationRepo.getUnreadMessages.mockResolvedValue([
       makeMessage({
         id: "otter-msg-1", senderType: "otter", senderId: "otter-1",

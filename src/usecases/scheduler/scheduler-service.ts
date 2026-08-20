@@ -389,13 +389,14 @@ export class SchedulerService {
   }
 
   private async createSystemMessage(task: ScheduledTask, body?: string) {
-    return this.sendMessage.send({
+    const { message } = await this.sendMessage.send({
       conversationId: task.conversationId,
       senderType: 'system',
       senderId: task.senderId,
       body: body ?? task.body,
       talkingStonePassedTo: task.talkingStonePassedTo,
     });
+    return message;
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body?: string): Promise<void> {

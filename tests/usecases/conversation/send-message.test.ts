@@ -123,7 +123,7 @@ describe("SendMessage（真 sqlite）", () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "你好", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "你好", talkingStonePassedTo: [] });
 
       expect(msg.status).toBe("completed");
       const stored = await repo.getMessageById(msg.id);
@@ -136,7 +136,7 @@ describe("SendMessage（真 sqlite）", () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
 
-      const msg = await sm.send({
+      const { message: msg } = await sm.send({
         conversationId: "conv-1", senderId: "user-1",
         body: '前文\n```html-card\n{"card":"源码"}\n```\n后文',
         talkingStonePassedTo: [],
@@ -158,7 +158,7 @@ describe("SendMessage（真 sqlite）", () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "@大獭 你好", talkingStonePassedTo: ["otter-big"] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "@大獭 你好", talkingStonePassedTo: ["otter-big"] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
     });
@@ -169,7 +169,7 @@ describe("SendMessage（真 sqlite）", () => {
       await joinParticipant("otter-dead");
       await joinParticipant("otter-big");
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "@死獭 你好", talkingStonePassedTo: ["otter-dead"] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "@死獭 你好", talkingStonePassedTo: ["otter-dead"] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
     });
@@ -179,7 +179,7 @@ describe("SendMessage（真 sqlite）", () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "@局外獭", talkingStonePassedTo: ["otter-outsider"] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "@局外獭", talkingStonePassedTo: ["otter-outsider"] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
     });
@@ -190,7 +190,7 @@ describe("SendMessage（真 sqlite）", () => {
       await joinParticipant("otter-small");
       await joinParticipant("otter-dead");
 
-      const msg = await sm.send({
+      const { message: msg } = await sm.send({
         conversationId: "conv-1", senderId: "user-1", body: "@小獭 @死獭",
         talkingStonePassedTo: ["otter-small", "otter-dead"],
       });
@@ -199,7 +199,7 @@ describe("SendMessage（真 sqlite）", () => {
     });
 
     it("system 消息豁免校验：显式目标不在场也原样保留（定时任务链不改派）", async () => {
-      const msg = await sm.send({
+      const { message: msg } = await sm.send({
         conversationId: "conv-1", senderType: "system", senderId: "system",
         body: "定时提醒", talkingStonePassedTo: ["otter-nonexistent"],
       });
@@ -216,7 +216,7 @@ describe("SendMessage（真 sqlite）", () => {
       await joinParticipant("otter-small");
       await repo.createCompletedMessage(messageFixture({ id: "msg-spoke", senderId: "otter-small", sequenceNum: 9 }));
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-small"]);
     });
@@ -228,7 +228,7 @@ describe("SendMessage（真 sqlite）", () => {
       await joinParticipant("otter-small");
       await repo.createCompletedMessage(messageFixture({ id: "msg-failed", senderId: "otter-small", status: "failed", sequenceNum: 9 }));
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-small"]);
     });
@@ -240,7 +240,7 @@ describe("SendMessage（真 sqlite）", () => {
       await joinParticipant("otter-small");
       await repo.createCompletedMessage(messageFixture({ id: "msg-spoke", senderId: "otter-small", sequenceNum: 9 }));
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
     });
@@ -252,7 +252,7 @@ describe("SendMessage（真 sqlite）", () => {
       await joinParticipant("otter-small", { status: "left" });
       await repo.createCompletedMessage(messageFixture({ id: "msg-spoke", senderId: "otter-small", sequenceNum: 9 }));
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "继续", talkingStonePassedTo: [] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
     });
@@ -261,7 +261,7 @@ describe("SendMessage（真 sqlite）", () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "你好", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "你好", talkingStonePassedTo: [] });
 
       expect(msg.talkingStonePassedTo).toEqual(["otter-big"]);
     });
@@ -278,7 +278,7 @@ describe("SendMessage（真 sqlite）", () => {
 
   describe("send（system 与 Turn）", () => {
     it("system 消息空 talkingStonePassedTo 可成功", async () => {
-      const msg = await sm.send({ conversationId: "conv-1", senderType: "system", senderId: "system", body: "系统通知", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderType: "system", senderId: "system", body: "系统通知", talkingStonePassedTo: [] });
 
       expect(msg.status).toBe("completed");
       expect(msg.senderType).toBe("system");
@@ -289,7 +289,7 @@ describe("SendMessage（真 sqlite）", () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
 
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "新回合", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "新回合", talkingStonePassedTo: [] });
 
       /** 真实语义：消息落在新建 Turn（非 turn-1）；该 Turn 因用户消息已终态被 tryCloseTurn 关闭——
        *  turn 是"一跳"而非"一轮问答"（后续 otter 发言会开下一个 Turn） */
@@ -325,7 +325,7 @@ describe("SendMessage（真 sqlite）", () => {
     it("completed 消息追加事件抛出 validation 错误", async () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "完成", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "完成", talkingStonePassedTo: [] });
 
       await expect(
         sm.appendEvent({ messageId: msg.id, eventType: "assistant_text", payload: {} }),
@@ -368,7 +368,7 @@ describe("SendMessage（真 sqlite）", () => {
     it("fail：completed 消息标记失败抛出 validation 错误", async () => {
       await seedOtter(otterFixture());
       await joinParticipant("otter-big");
-      const msg = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "完成", talkingStonePassedTo: [] });
+      const { message: msg } = await sm.send({ conversationId: "conv-1", senderId: "user-1", body: "完成", talkingStonePassedTo: [] });
 
       await expect(sm.fail(msg.id)).rejects.toSatisfy(
         (err: DomainError) => err.kind === "validation",

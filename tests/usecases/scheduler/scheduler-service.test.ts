@@ -197,7 +197,7 @@ function createMockSendMessage() {
     _getMessageCount: () => messageCount,
     send: vi.fn(async () => {
       messageCount += 1;
-      return { id: `msg-${messageCount}`, body: '早上好！' };
+      return { message: { id: `msg-${messageCount}`, body: '早上好！' } };
     }),
   };
 }
