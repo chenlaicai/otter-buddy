@@ -104,6 +104,58 @@ describe("MessageBroadcaster", () => {
     });
   });
 
+  // broadcast 逐通道 catch 隔离测试
+  describe("broadcast 通道错误隔离", () => {
+    it("单通道抛错不阻塞后续通道", async () => {
+      const { broadcaster, logger } = createBroadcaster();
+      
+      const received2: Message[] = [];
+      
+      // 注册两个出站通道
+      const channel1 = {
+        onMessage: vi.fn().mockRejectedValue(new Error("channel 1 failed")),
+        onEvent: vi.fn(),
+      };
+      const channel2 = {
+        onMessage: vi.fn().mockImplementation(async (msg: Message) => { received2.push(msg); }),
+        onEvent: vi.fn(),
+      };
+      
+      broadcaster.registerOutboundChannel(channel1);
+      broadcaster.registerOutboundChannel(channel2);
+      
+      const msg = mockMessage();
+      await broadcaster.broadcast(msg);
+      
+      // 通道 2 仍然被调用（不被通道 1 的错误阻塞）
+      expect(received2).toHaveLength(1);
+      expect(received2[0].id).toBe("msg-1");
+      // 错误被记录到日志
+      expect(logger.error).toHaveBeenCalled();
+    });
+
+    it("多个通道都抛错时全部记录", async () => {
+      const { broadcaster, logger } = createBroadcaster();
+      
+      const channel1 = {
+        onMessage: vi.fn().mockRejectedValue(new Error("channel 1 failed")),
+        onEvent: vi.fn(),
+      };
+      const channel2 = {
+        onMessage: vi.fn().mockRejectedValue(new Error("channel 2 failed")),
+        onEvent: vi.fn(),
+      };
+      
+      broadcaster.registerOutboundChannel(channel1);
+      broadcaster.registerOutboundChannel(channel2);
+      
+      await broadcaster.broadcast(mockMessage());
+      
+      // 两个错误都被记录
+      expect(logger.error).toHaveBeenCalled();
+    });
+  });
+
   // #241: 幂等性去重测试
   describe("broadcast 幂等性", () => {
     it("同一 messageId 重复 broadcast 只投递一次", async () => {
