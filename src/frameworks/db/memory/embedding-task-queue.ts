@@ -34,7 +34,7 @@ export function enqueueRetry(db: Database.Database, entryId: string, error: unkn
 export function claimPendingTasks(
   db: Database.Database,
   limit: number,
-): Array<{ entryId: string; content: string; attempts: number }> {
+): Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string }> {
   const rows = db.prepare(`
     UPDATE embedding_tasks
     SET last_attempt_at = datetime('now'),
@@ -53,8 +53,8 @@ export function claimPendingTasks(
         AND next_retry_at <= datetime('now')
       LIMIT ?
     )
-    RETURNING entry_id, attempts
-  `).all(limit) as Array<{ entry_id: string; attempts: number }>;
+    RETURNING entry_id, attempts, last_attempt_at, created_at
+  `).all(limit) as Array<{ entry_id: string; attempts: number; last_attempt_at: string | null; created_at: string }>;
 
   if (rows.length === 0) return [];
   // 二次查询 JOIN memory_entries 拿 content
@@ -67,6 +67,8 @@ export function claimPendingTasks(
     entryId: r.entry_id,
     content: contentMap.get(r.entry_id) ?? "",
     attempts: r.attempts,
+    lastAttemptAt: r.last_attempt_at,
+    createdAt: r.created_at,
   }));
 }
 
