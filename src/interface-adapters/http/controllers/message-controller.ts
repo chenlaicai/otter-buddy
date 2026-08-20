@@ -371,15 +371,21 @@ export class MessageController {
         );
       }
 
-      // 直接 re-invoke，不注入系统消息；retryCount=1 防止叠加自动重试
-      // manualRetry=F20260814mtrc：metrics retry label 区分手动/自动重试
-      this.agentInvoker.invokeConversation({
-        otterId,
+      // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
+      // 链引擎消费 aggregatedTargets 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332）
+      this.dispatchChainEngine.executeChain({
         conversationId,
         userMessageContent,
         senderId,
-        retryCount: 1,
-        manualRetry: true,
+        initialTargets: [otterId],
+        invokeFn: async (params) => this.agentInvoker.invokeConversation({
+          otterId: params.otterId,
+          conversationId: params.conversationId,
+          userMessageContent: params.userMessageContent,
+          senderId: params.senderId,
+          retryCount: 1,
+          manualRetry: true,
+        }),
       })
         .catch((err: unknown) => {
           const errMsg = err instanceof Error ? err.message : String(err);
