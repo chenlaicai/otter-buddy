@@ -474,14 +474,24 @@ export class SendMessage {
     explicit: string[],
     body?: string,
   ): Promise<{ targets: string[]; feedback?: string }> {
-    const participants = await this._repo.getActiveParticipants(conversationId);
-    const participantNames = await this.fetchParticipantNames(participants)
-    /** 空显式 + 有消息体时，从文本解析 @提及 */
-    const effectiveExplicit = await this.resolveEffectiveExplicit(explicit, body, participantNames, conversationId)
-    if (effectiveExplicit.length === 0) {
+    /** 有显式目标或无消息体时直接走校验/默认，不查参与者名册 */
+    if (explicit.length > 0) {
+      const participants = await this._repo.getActiveParticipants(conversationId);
+      const participantNames = await this.fetchParticipantNames(participants)
+      return this.validateTargets(conversationId, explicit, participants, participantNames)
+    }
+    /** 空显式时：先检查文本是否含 @，无 @ 则跳过名册查询（避免 N+1） */
+    if (!body || !body.includes('@')) {
       return { targets: await this.resolveDefaultTargets(conversationId) }
     }
-    return this.validateTargets(conversationId, effectiveExplicit, participants, participantNames)
+    const participants = await this._repo.getActiveParticipants(conversationId);
+    const participantNames = await this.fetchParticipantNames(participants)
+    const { resolvedIds, invalidNames } = parseMentionsFromText(body, participantNames)
+    if (resolvedIds.length === 0 && invalidNames.length === 0) {
+      return { targets: await this.resolveDefaultTargets(conversationId) }
+    }
+    if (invalidNames.length > 0) this.logger.info('从文本解析到无效 @提及', { conversationId, invalidNames })
+    return this.validateTargets(conversationId, resolvedIds, participants, participantNames)
   }
 
   /** 获取参与者对应 otter 名字 */
@@ -494,22 +504,6 @@ export class SendMessage {
       if (otter) names.push({ otterId: p.otterId, otterName: otter.name })
     }
     return names
-  }
-
-  /** 空显式时从文本解析 @提及，有显式时原样返回 */
-  private async resolveEffectiveExplicit(
-    explicit: string[],
-    body: string | undefined,
-    participantNames: Array<{ otterId: string; otterName: string }>,
-    conversationId: string,
-  ): Promise<string[]> {
-    if (explicit.length > 0 || !body) return explicit
-    const { resolvedIds, invalidNames } = parseMentionsFromText(body, participantNames)
-    if (resolvedIds.length > 0 || invalidNames.length > 0) {
-      if (invalidNames.length > 0) this.logger.info('从文本解析到无效 @提及', { conversationId, invalidNames })
-      return resolvedIds
-    }
-    return explicit
   }
 
   /** 校验显式目标 + 构建 feedback（F20260820i333） */

@@ -47,31 +47,4 @@ export function parseMentionsFromText(
   return { resolvedIds: [...resolvedSet], invalidNames }
 }
 
-/**
- * 校验显式目标的合法性，构建 feedback。
- * 校验"在场 + active"，全部不合法退默认，部分不合法过滤。
- * 返回 valid targets + feedback 字符串。 */
-export function validateAndBuildFeedback(
-  effectiveExplicit: string[],
-  activeOtterIds: Set<string>,
-  otterNameMap: Map<string, string>,
-  defaultTargetId: string,
-): { valid: string[]; feedback?: string } {
-  const valid: string[] = []
-  const invalidIds: string[] = []
-  for (const id of effectiveExplicit) {
-    if (activeOtterIds.has(id)) valid.push(id)
-    else invalidIds.push(id)
-  }
-  if (valid.length === 0) {
-    const feedback = invalidIds.length > 0
-      ? `@提及的目标不可用：${invalidIds.map(id => otterNameMap.get(id) ?? id).join('、')}（可能已退场或解散），已派给 ${otterNameMap.get(defaultTargetId) ?? '大獭'}`
-      : undefined
-    return { valid: [defaultTargetId], feedback }
-  }
-  if (invalidIds.length > 0) {
-    const feedback = `@提及的目标不可用：${invalidIds.map(id => otterNameMap.get(id) ?? id).join('、')}（可能已退场或解散）`
-    return { valid, feedback }
-  }
-  return { valid }
-}
+
