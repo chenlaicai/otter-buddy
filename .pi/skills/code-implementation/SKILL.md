@@ -43,7 +43,12 @@ category: technique
 
 8. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
+
+> ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。
+
 10. **对抗审视**：
+   > 小獭没有 create_otter 能力，无法自行召唤检视獭。小獭完成代码后，将产出（PR 链接、worktree 路径、测试结果）交回大獭，由大獭编排对抗审视。
+
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含"本轮焦点"声明、发现分级、file:line 引用）——不合规打回重做
    - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；**每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修复/建 issue，更差→带证据反驳**；四类处置：接受并修复 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置；不作为不允许
@@ -71,7 +76,8 @@ category: technique
 
 | 产出 | 下一步 | 执行者 |
 |------|--------|--------|
-| 代码 PR | 对抗审视 | 检视獭 |
+| 代码 PR | **对抗审视（必须）** | 检视獭 |
+| 审视通过 | 呈搭档终审 | 搭档 |
 | 排查结论（需修复） | worktree-isolation | 当前獭 |
 
 ## 参考（索引）

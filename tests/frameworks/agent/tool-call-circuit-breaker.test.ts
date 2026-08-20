@@ -69,6 +69,20 @@ describe("buildToolSignature", () => {
     expect(e1).not.toBe(e2);
     expect(e1).toBe(e1Retry);
   });
+
+  it("speak 签名含 body 内容指纹：不同内容不算重复，同一内容重试算重复（F20260820d338）", () => {
+    const s1 = buildToolSignature("speak", { body: "## 进度汇报\n已完成 A" });
+    const s2 = buildToolSignature("speak", { body: "## 进度汇报\n已完成 B" });
+    const s1Retry = buildToolSignature("speak", { body: "## 进度汇报\n已完成 A" });
+    expect(s1).not.toBe(s2);
+    expect(s1).toBe(s1Retry);
+    expect(s1).toContain("speak#");
+  });
+
+  it("speak 无 body 时退化为工具名", () => {
+    expect(buildToolSignature("speak")).toBe("speak");
+    expect(buildToolSignature("speak", {})).toBe("speak");
+  });
 });
 
 describe("ToolCallCircuitBreaker", () => {
