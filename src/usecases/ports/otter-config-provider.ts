@@ -1,6 +1,7 @@
 import type { OtterPromptConfig } from "@contract/api/otter";
 
-export type OtterType = 'big' | 'small';
+/** F20260820a4rt: 从联合类型改为 string，运行时校验交由 manifest loader + lint 处理 */
+export type OtterType = string;
 
 export interface OtterConfig {
   systemPrompt?: string | OtterPromptConfig;

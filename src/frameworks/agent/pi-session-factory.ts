@@ -431,7 +431,7 @@ export class PiSessionFactory implements AgentGateway {
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, turnText?: { text: string }) {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
-    const otterToolNames = getOtterToolNamesForType(otterType);
+    const otterToolNames = getOtterToolNamesForType(otterType, undefined, process.cwd(), this.logger);
     const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, logger: this.logger });
     const codingTools = getCodingToolsForOtterType(otterType);
 
