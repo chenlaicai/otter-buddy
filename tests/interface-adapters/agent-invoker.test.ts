@@ -929,7 +929,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
     expect(msg._sendSystemBodies).toHaveLength(1);
     expect(msg._sendSystemBodies[0]).toContain("重复循环");
-    expect(msg._sendSystemBodies[0]).toContain("不要重新推理");
+    expect(msg._sendSystemBodies[0]).toContain("不需要重新推理");
     expect(msg._calls.abort).toHaveLength(0);
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.failed");
