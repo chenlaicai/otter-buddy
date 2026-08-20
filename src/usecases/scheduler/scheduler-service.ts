@@ -399,11 +399,15 @@ export class SchedulerService {
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body?: string): Promise<void> {
-    const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+    // Why: 单次 invoke 5 分钟；链引擎路径覆盖整条链（多 hop 共享），按最大深度 3 放大为 15 分钟。
+    // 链引擎自身有 maxChainDepth 安全限制，超时只是 scheduler 层的兜底防线。
+    const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
+    const CHAIN_TIMEOUT_MS = 15 * 60 * 1000;
     let timer: NodeJS.Timeout | undefined;
     try {
       // Why: 有 dispatchChainEngine 时走链引擎消费 aggregatedTargets 续跑发言链，
       // 否则降级为直接 invoke（兼容未注入的旧装配）。#332 修复。
+      const isChain = !!this.dispatchChainEngine;
       const invokeAction = this.dispatchChainEngine
         ? this.dispatchChainEngine.executeChain({
             conversationId: task.conversationId,
@@ -419,10 +423,11 @@ export class SchedulerService {
             senderId: task.senderId,
           });
 
+      const timeoutMs = isChain ? CHAIN_TIMEOUT_MS : SINGLE_INVOKE_TIMEOUT_MS;
       await Promise.race([
         invokeAction,
         new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS);
+          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), timeoutMs);
         }),
       ]);
     } finally {
