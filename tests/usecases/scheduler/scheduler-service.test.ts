@@ -340,13 +340,50 @@ describe('SchedulerService - start/stop', () => {
 
       await service.start();
 
+      // #247 修复：24h 截断后只重新调度，不触发任务
       // 推进 23 小时：不应触发（delay 被 cap 到 24h）
       await vi.advanceTimersByTimeAsync(23 * 60 * 60 * 1000);
       expect(taskRepo._executions.size).toBe(0);
 
-      // 再推进 1 小时（总计 24h）：应触发任务
+      // 再推进 1 小时（总计 24h）：不应触发任务，只重新调度
       await vi.advanceTimersByTimeAsync(1 * 60 * 60 * 1000);
-      expect(taskRepo._executions.size).toBe(1);
+      expect(taskRepo._executions.size).toBe(0);
+      // cronParser 应被再次调用（重新调度）
+      expect(cronParser._callCount.value).toBe(2);
+    });
+
+    it('#247 24h 截断后重新调度，到真实触发时间时正常触发', async () => {
+      // 验证：24h 重新调度后，cronParser 被再次调用，任务仍然活着
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+
+      // 下次触发时间设为 72 小时后
+      const nextTime = new Date('2025-06-18T08:00:00.000Z');
+      const cronParser = createMockCronParser(nextTime);
+
+      taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      await service.start();
+
+      // 推进 24h：触发重新调度
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+      expect(taskRepo._executions.size).toBe(0); // 不触发
+      expect(cronParser._callCount.value).toBe(2); // 重新计算下次时间
     });
 
     it('没有 active 任务时，不调度任何定时器', async () => {
@@ -878,6 +915,18 @@ describe('SchedulerService - onChange', () => {
     });
   });
 
+  // once 任务调度测试已移至独立 describe 块
+});
+
+describe('SchedulerService - once 任务调度', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe("once 任务调度", () => {
     it("once 任务 triggerAt 在未来 -> setTimeout 调度", async () => {
       const now = new Date('2025-06-15T08:00:00.000Z');
@@ -999,7 +1048,7 @@ describe('SchedulerService - onChange', () => {
       expect(taskRepo._store.has('task-1')).toBe(false);
     });
 
-    it("once 任务重试全部失败 -> 标记 error", async () => {
+    it("once 任务重试全部失败 -> 标记 error（#246 修复：所有重试均执行）", async () => {
       const now = new Date('2025-06-15T08:00:00.000Z');
       vi.setSystemTime(now);
 
@@ -1039,9 +1088,48 @@ describe('SchedulerService - onChange', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      // 验证：invoke 被调用多次，任务标记 error（而非 disabled）
+      // 验证：任务标记 error（而非 disabled）
+      // #246 修复后：所有重试均执行，由 triggerOnceWithRetry 标记 error
       expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
       expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(false);
+    });
+
+    it("#251 resetConsecutiveFailures 失败不覆写已 completed 的 execution", async () => {
+      // #251: completeExecution 之后 resetConsecutiveFailures 抛 DB 错时，
+      // 不应走 handleExecutionFailure 覆写已 completed 的 execution record。
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+
+      taskRepo._store.set('task-1', makeTask());
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 模拟 resetConsecutiveFailures 抛 DB 错（如 SQLite locked）
+      taskRepo.resetConsecutiveFailures = vi.fn(async () => {
+        throw new Error('SQLITE_BUSY: database is locked');
+      });
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: { getNextTime: () => new Date('2025-06-15T09:00:00.000Z') } as unknown as CronParser,
+        logger: mockLogger,
+      });
+
+      // trigger 应成功返回（不抛错）
+      const result = await service.trigger('task-1');
+      expect(result.executionId).toBeTruthy();
+
+      // execution record 应为 completed（不被覆写为 failed）
+      const execution = taskRepo._executions.get(result.executionId);
+      expect(execution).toBeTruthy();
+      expect(execution!.status).toBe('completed');
+
+      // #251 核心验证：trigger 成功返回且 execution 为 completed，
+      // 说明 resetConsecutiveFailures 的错误被吞掉，不影响成功语义。
     });
   });
 });
