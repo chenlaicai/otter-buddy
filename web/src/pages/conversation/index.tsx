@@ -816,7 +816,7 @@ function ConversationPage() {
         // F20260820i333: @提及解析 feedback 显示为 toast
         'mention.feedback': (data) => {
           if (data.feedback) {
-            showToast(data.feedback, 'warning')
+            showToast(data.feedback, 'info')
           }
         },
         'agent.idle': () => { /* 信息性事件，不做处理 */ },
@@ -846,7 +846,7 @@ function ConversationPage() {
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
     activeId,
     messages: activeMessages,
-    onSendReply: (body, authorId) => { handleSend(body, authorId) },
+    onSendReply: (body, authorId) => { handleSend(body, authorId ? [authorId] : undefined) },
   })
 
   const stopStream = useCallback((messageId: string) => {
