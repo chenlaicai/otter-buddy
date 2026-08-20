@@ -97,6 +97,7 @@ export class ScheduledTaskController {
         body: body.body,
         talkingStonePassedTo: body.talkingStonePassedTo,
         status: body.status,
+        restartBeforeInvoke: body.restartBeforeInvoke,
       });
 
       return c.json(toScheduledTaskDTO(task, this.getNextTriggerAt(task)));
