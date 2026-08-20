@@ -32,6 +32,8 @@ export function fmtRelativeTime(ts: string): string {
   const diffMin = Math.floor(diffSec / 60)
   const diffHour = Math.floor(diffMin / 60)
 
+  // 未来时间：显示绝对时间（生产环境不会出现，防御性处理）
+  if (diffSec < 0) return fmtTime(ts)
   if (diffSec < 60) return '刚刚'
   if (diffMin < 60) return `${diffMin}分钟前`
   if (diffHour < 24) return `${diffHour}小时前`
