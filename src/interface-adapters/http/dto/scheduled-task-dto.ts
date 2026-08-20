@@ -27,6 +27,8 @@ export interface UpdateScheduledTaskRequestDTO {
   body?: string;
   talkingStonePassedTo?: string[];
   status?: 'active' | 'disabled' | 'error';
+  /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
+  restartBeforeInvoke?: boolean;
 }
 
 /** 定时任务响应 */

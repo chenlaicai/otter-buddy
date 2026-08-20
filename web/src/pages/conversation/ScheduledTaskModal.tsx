@@ -13,6 +13,7 @@ interface Props {
     timezone: string
     body: string
     talkingStonePassedTo: string[]
+    restartBeforeInvoke: boolean
   }) => void
   onClose: () => void
 }
@@ -43,6 +44,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
   const [selectedOtters, setSelectedOtters] = useState<string[]>(
     task?.talkingStonePassedTo ?? (otters.length === 1 ? [otters[0].id] : [])
   )
+  const [restartBeforeInvoke, setRestartBeforeInvoke] = useState(task?.restartBeforeInvoke ?? false)
   const [saving, setSaving] = useState(false)
 
   // 表单验证
@@ -66,6 +68,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
         timezone,
         body: body.trim(),
         talkingStonePassedTo: selectedOtters,
+        restartBeforeInvoke,
       })
     } finally {
       setSaving(false)
@@ -180,6 +183,28 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
               ))}
             </div>
           )}
+        </div>
+
+        {/* 每次触发前重启獭生 */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-stone-50/50">
+          <div>
+            <div className="text-sm font-medium text-stone-700">每次触发前重启獭生</div>
+            <div className="text-xs text-stone-400 mt-0.5">适合需要干净上下文的定期任务（如健康检查、依赖升级）</div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={restartBeforeInvoke}
+            aria-label="每次触发前重启獭生"
+            onClick={() => setRestartBeforeInvoke(prev => !prev)}
+            className={`relative w-9 h-5 rounded-full transition-colors ${
+              restartBeforeInvoke ? 'bg-otter-500' : 'bg-stone-300'
+            }`}
+          >
+            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+              restartBeforeInvoke ? 'translate-x-4' : 'translate-x-0.5'
+            }`} />
+          </button>
         </div>
       </div>
 
