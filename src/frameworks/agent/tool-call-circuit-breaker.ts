@@ -131,6 +131,9 @@ function fileToolSignature(toolName: string, a: Record<string, unknown>): string
  * 构建工具调用的行为签名（"连续相同"的判据）。
  * 同名工具不同行为不算重复：bash 看命令词、read 看目标路径、edit/write 看路径+内容指纹；
  * 真正的卡壳（同一命令反复失败、同一编辑反复重试、反复读同一文件）才会累计。
+ *
+ * F20260820d338：speak 加入 body 内容指纹——连续 speak 不同内容不算重复，
+ * 同一 speak 内容反复输出才累计（与 write/edit 同理）。
  */
 export function buildToolSignature(toolName: string, args?: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
@@ -140,6 +143,11 @@ export function buildToolSignature(toolName: string, args?: unknown): string {
   }
   if (toolName === "read" || toolName === "write" || toolName === "edit") {
     return fileToolSignature(toolName, a);
+  }
+  // F20260820d338：speak 签名含 body 内容指纹，区分不同输出与同一输出重试
+  if (toolName === "speak" && typeof a.body === "string") {
+    const digest = contentDigest(a.body);
+    return `speak#${digest}`;
   }
   return toolName;
 }
