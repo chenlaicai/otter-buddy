@@ -115,6 +115,13 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
             {task.body}
           </div>
 
+          {/* 特性标签 */}
+          {task.restartBeforeInvoke && (
+            <div className="text-xs text-otter-600 mb-2 flex items-center gap-1">
+              <span className="px-1.5 py-0.5 rounded-full bg-otter-100 text-otter-700 text-[10px] font-medium">重启獭生</span>
+            </div>
+          )}
+
           {/* 操作按钮 */}
           <div className="flex items-center gap-1.5">
             <button
