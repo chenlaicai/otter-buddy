@@ -6,7 +6,7 @@
  * 1. schemaVersion 必须为正整数
  * 2. defaultType 必须指向 manifest 中已定义的类型
  * 3. DB otter_type CHECK 约束中的类型必须在 manifest 中有对应条目
- * 4. manifest 中引用的工具名必须存在（如果可以获取工具列表）
+ * 4. manifest 中引用的工具名必须在 tool-factory.ts 中存在
  *
  * 退出码：0 通过 / 1 有错误。
  */
@@ -113,6 +113,44 @@ function validateManifest(manifest) {
   }
 }
 
+/** 从 src/interface-adapters/agent-runtime/tools/*.ts 解析已注册的工具名列表 */
+function parseRegisteredTools() {
+  const toolsDir = path.join(root, "src/interface-adapters/agent-runtime/tools");
+  if (!fs.existsSync(toolsDir)) {
+    error(`tools 目录不存在: ${toolsDir}`);
+    return null;
+  }
+
+  const tools = new Set();
+  const files = fs.readdirSync(toolsDir).filter(f => f.endsWith(".ts"));
+
+  for (const file of files) {
+    const content = fs.readFileSync(path.join(toolsDir, file), "utf-8");
+    // 匹配 name: "tool_name" 模式（排除参数定义中的 name 字段）
+    const matches = content.matchAll(/^\s+name:\s*"([a-z_]+)",?$/gm);
+    for (const match of matches) {
+      tools.add(match[1]);
+    }
+  }
+
+  return tools;
+}
+
+/** 校验 manifest 中引用的工具名是否在 tool-factory.ts 中存在 */
+function validateToolNames(manifest, registeredTools) {
+  if (!registeredTools) return;
+
+  for (const [typeName, typeConfig] of Object.entries(manifest.types)) {
+    if (typeConfig.tools === "*") continue;
+
+    for (const tool of typeConfig.tools) {
+      if (!registeredTools.has(tool)) {
+        error(`types.${typeName}.tools 中的工具 "${tool}" 在 tool-factory.ts 中未注册`);
+      }
+    }
+  }
+}
+
 /** 校验 manifest 类型与 DB 约束一致性 */
 function validateTypeConsistency(manifest, dbTypes) {
   if (!dbTypes) return;
@@ -145,6 +183,12 @@ validateManifest(manifest);
 const dbTypes = parseMigrationCheckConstraint();
 if (manifest && dbTypes) {
   validateTypeConsistency(manifest, dbTypes);
+}
+
+// 4. 工具名存在性检查
+const registeredTools = parseRegisteredTools();
+if (manifest && registeredTools) {
+  validateToolNames(manifest, registeredTools);
 }
 
 if (errors > 0) {
