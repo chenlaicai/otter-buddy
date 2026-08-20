@@ -154,6 +154,8 @@ export interface MemoryRepository {
     entryId: string;
     content: string;
     attempts: number;
+    lastAttemptAt: string | null;
+    createdAt: string;
   }>>;
   /** F20260812mrcq Part 1：task 成功，删除 task 行 */
   markTaskDone(entryId: string): Promise<void>;
