@@ -69,6 +69,15 @@ export class FeishuMessageProcessor {
       messageId: message.id,
     });
 
+    // F20260820i333: @提及解析失败时发送 feedback 给用户
+    if ('mentionFeedback' in message && message.mentionFeedback) {
+      await this.deps.feishuGateway.replyText(chatId, message.mentionFeedback as string).catch(err => {
+        this.deps.logger.error("Failed to send mention feedback", err instanceof Error ? err : undefined, {
+          conversationId: conversation.id,
+        });
+      });
+    }
+
     // 广播飞书消息到 Web 端（实时同步）
     this.deps.messageBroadcaster.broadcast(message).catch(err => {
       this.deps.logger.error("Failed to broadcast feishu message", err instanceof Error ? err : undefined, {

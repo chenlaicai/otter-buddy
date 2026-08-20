@@ -203,6 +203,14 @@ export class MessageController {
       const allTargets = new Set(firstTurnTargets);
       const { response, push, close } = streamEvents(c);
 
+      // F20260820i333: 发送 @提及解析 feedback 给用户
+      if ('mentionFeedback' in userMessage && userMessage.mentionFeedback) {
+        push({
+          event: 'mention.feedback',
+          data: { feedback: userMessage.mentionFeedback },
+        });
+      }
+
       /** 5. 订阅 broadcaster：统一接收 agent streaming 事件和完成消息 */
       let unsubscribe: (() => void) | undefined;
       if (this.messageBroadcaster) {

@@ -5,7 +5,7 @@ import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { useDraftCache } from '../../hooks/use-draft-cache'
 
 interface MessageInputProps {
-  onSend: (text: string, mentionOtterId?: string) => void
+  onSend: (text: string, mentionOtterIds?: string[]) => void
   disabled: boolean
   placeholder?: string
   otters: Otter[]
@@ -48,18 +48,28 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     }
   }
 
+  /** 从文本提取所有 @提及（支持末尾、标点、多 @） */
+  function extractMentions(text: string): string[] {
+    const mentions: string[] = []
+    /** 匹配 @名字：名字 = 非空白且非中文标点的连续字符，后接空白/中文标点/字符串结尾 */
+    const regex = /@([^\s，。！？、；：''（）【】《》\u3000]+)(?=[\s，。！？、；：''（）【】《》\u3000]|$)/g
+    let match
+    while ((match = regex.exec(text)) !== null) {
+      mentions.push(match[1])
+    }
+    return mentions
+  }
+
   function handleSend() {
     if (!draft.trim() || disabled) return
 
-    // Check for @mention
-    const mentionMatch = draft.match(/@(\S+)\s/)
-    let mentionId: string | undefined
-    if (mentionMatch) {
-      const mentioned = otters.find(o => o.name === mentionMatch[1])
-      if (mentioned) mentionId = mentioned.id
-    }
+    // Check for @mention（支持多 @、末尾无空格、标点分隔）
+    const mentionNames = extractMentions(draft)
+    const mentionIds = mentionNames
+      .map(name => otters.find(o => o.name === name)?.id)
+      .filter((id): id is string => !!id)
 
-    onSend(draft, mentionId)
+    onSend(draft, mentionIds.length > 0 ? mentionIds : undefined)
     clearDraft()
     setMentionQuery(null)
     requestAnimationFrame(() => {
