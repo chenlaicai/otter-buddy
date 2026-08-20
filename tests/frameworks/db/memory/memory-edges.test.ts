@@ -26,7 +26,7 @@ beforeAll(() => {
   db = new Database(":memory:");
   initSchema(db);
   repo = new SqliteMemoryRepository(db);
-  createEdge = new CreateEdge(repo, logger);
+  createEdge = new CreateEdge(repo, repo, logger);
   getRelated = new GetRelated(repo);
   deleteEdge = new DeleteEdge(repo);
 });

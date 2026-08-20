@@ -8,7 +8,7 @@
  *
  * 用于 get_related 工具：遍历关系边后，若 entry 是文档，也返回催生它的对话消息。
  */
-import type { MemoryRepository } from "./memory-repository";
+import type { MemoryReader } from "./memory-reader";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
@@ -20,13 +20,13 @@ export interface DocProvenanceResult {
 
 export class GetDocProvenance {
   constructor(
-    private readonly memoryRepo: MemoryRepository,
+    private readonly memoryReader: MemoryReader,
     private readonly featureRepo: FeatureRepository,
     private readonly researchRepo: ResearchRepository,
   ) {}
 
   async execute(entryId: string): Promise<DocProvenanceResult> {
-    const entry = await this.memoryRepo.getById(entryId);
+    const entry = await this.memoryReader.getById(entryId);
     if (!entry) {
       return { conversationId: null, messages: [] };
     }
@@ -44,7 +44,7 @@ export class GetDocProvenance {
     }
 
     // D8: 返回该对话全部消息 memory entries（不做"关键消息"预筛选）
-    const messages = await this.memoryRepo.getEntriesByConversation(conversationId, {
+    const messages = await this.memoryReader.getEntriesByConversation(conversationId, {
       contentType: ["message"],
       limit: 50,
     });

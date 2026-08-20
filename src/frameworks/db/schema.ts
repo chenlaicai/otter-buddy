@@ -34,9 +34,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     // 记录 Schema 初始化完成日志
     if (logger) {
       const duration = Date.now() - startTime;
+      // 27 regular tables + 5 virtual tables (FTS/vec) = 32 total
       logger.info('Schema initialized', {
         duration,
-        tables: 12,
+        tables: 32,
       });
     }
   } catch (error) {

@@ -21,7 +21,7 @@ import type {
   SnippetHit,
   VecHit,
   DarkEntry,
-} from "./memory-repository";
+} from "./memory-types";
 
 export interface MemoryReader {
   // 查询

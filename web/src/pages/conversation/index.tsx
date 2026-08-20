@@ -180,6 +180,8 @@ function ConversationPage() {
       .catch(() => setPageState('error'))
 
     // 获取用户设置（用于消息气泡旁的名称显示）
+    // NOTE: useEffect([], []) 只在 mount 时执行。当前 MPA 模式下 window.location.href
+    // 整页跳转会重新 mount，行为正确。未来改 SPA 路由时需改为响应式（如 context/store）。
     api.getSettings()
       .then(s => setUserName(s.userName ?? ''))
       .catch(() => console.warn('[ConversationPage] Failed to load userName setting'))

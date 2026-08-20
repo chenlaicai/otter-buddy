@@ -6,7 +6,8 @@
  * D7: 幂等由 repo 层 UNIQUE(from, to, type) + ON CONFLICT 保证。
  */
 import type { EdgeType } from "@entities/memory/memory-edge";
-import type { MemoryRepository } from "./memory-repository";
+import type { MemoryReader } from "./memory-reader";
+import type { MemoryWriter } from "./memory-writer";
 import type { Logger } from "@usecases/ports/logger";
 import { DomainError } from "@entities/errors";
 
@@ -20,7 +21,8 @@ export interface CreateEdgeInput {
 
 export class CreateEdge {
   constructor(
-    private readonly repo: MemoryRepository,
+    private readonly reader: MemoryReader,
+    private readonly writer: MemoryWriter,
     private readonly logger: Logger,
   ) {}
 
@@ -34,8 +36,8 @@ export class CreateEdge {
     // 注意：message 是 fine 粒度但不会被 sync 替换，所以允许建边。
     // 真正需要排除的只有 feature_chunk 和 research_chunk。
     const [fromEntry, toEntry] = await Promise.all([
-      this.repo.getById(input.fromEntryId),
-      this.repo.getById(input.toEntryId),
+      this.reader.getById(input.fromEntryId),
+      this.reader.getById(input.toEntryId),
     ]);
     if (!fromEntry) {
       throw new DomainError(`entry not found: ${input.fromEntryId}`, "not_found");
@@ -57,7 +59,7 @@ export class CreateEdge {
       );
     }
 
-    const edgeId = await this.repo.createEdge(input);
+    const edgeId = await this.writer.createEdge(input);
     this.logger.debug(`Created edge ${edgeId}: ${input.fromEntryId} -[${input.edgeType}]-> ${input.toEntryId}`);
     return edgeId;
   }

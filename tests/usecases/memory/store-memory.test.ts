@@ -1,13 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { StoreMemory } from "@usecases/memory/store-memory";
 import type { MemoryEntryInput } from "@usecases/memory/store-memory";
-import type { MemoryRepository } from "@usecases/memory/memory-repository";
+import type { MemoryWriter } from "@usecases/memory/memory-writer";
+import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
 import { createTestLogger } from "../../helpers/logger";
 
-/** 创建带状态捕获的 MemoryRepository mock */
-function statefulRepo(): MemoryRepository & {
+/** 创建带状态捕获的 MemoryWriter + MemoryQueue mock */
+function statefulRepo(): MemoryWriter & MemoryQueue & {
   storedEntries: MemoryEntry[];
   storedEmbeddings: { id: string; embedding: Float32Array }[];
 } {
@@ -22,39 +23,21 @@ function statefulRepo(): MemoryRepository & {
     storeEmbedding: async (id: string, embedding: Float32Array) => {
       storedEmbeddings.push({ id, embedding });
     },
-    getById: async () => null,
-    getEmbedding: async () => null,
-    getWeights: async () => [],
-    searchFTS: async () => [],
-    searchFTSWithHighlight: async () => [],
-    searchVec: async () => [],
-    hasVecTable: () => false,
-    isVecEnabled: () => false,
-    getDetails: async () => [],
-    incrementRetrievalCounts: async () => {},
-    flagMemory: async () => {},
-    updateLayerByConversation: async () => {},
     deleteBySource: async () => {},
     replaceEntryBySource: async () => {},
     replaceEntriesBySource: async () => {},
     deleteBySourceAndType: async () => {},
-      getEmbeddingMeta: async () => ({}),
-      setEmbeddingMeta: async () => {},
-      scanDarkEntries: async () => ({ entries: [], total: 0, vecDisabled: false }),
-      hasEmbeddings: async () => new Map(),
-      enqueueRetry: async () => {},
-      claimPendingTasks: async () => [],
-      markTaskDone: async () => {},
-      markTaskAttemptFailed: async () => {},
-      getBySourceId: async () => null,
-      findNeighborsByChunkIndex: async () => [],
-      findNeighborsByTime: async () => [],
-      createEdge: async () => "edge-id",
-      getEdgesByEntry: async () => [],
-      getEdgeById: async () => null,
-      deleteEdge: async () => {},
-      deleteEdgesByEntryIds: async () => {},
-      getEntriesByConversation: async () => [],
+    incrementRetrievalCounts: async () => {},
+    flagMemory: async () => {},
+    updateLayerByConversation: async () => {},
+    setEmbeddingMeta: async () => {},
+    createEdge: async () => "edge-id",
+    deleteEdge: async () => {},
+    deleteEdgesByEntryIds: async () => {},
+    enqueueRetry: async () => {},
+    claimPendingTasks: async () => [],
+    markTaskDone: async () => {},
+    markTaskAttemptFailed: async () => {},
   };
 }
 
@@ -77,7 +60,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
 
     const id = await store.execute(SAMPLE_INPUT);
 
@@ -95,7 +78,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
 
     const id = await store.execute(SAMPLE_INPUT);
 
@@ -118,7 +101,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
 
     const inputWithoutConv = { ...SAMPLE_INPUT };
     delete inputWithoutConv.conversationId;
@@ -134,7 +117,7 @@ describe("StoreMemory.execute()", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
 
     const inputWithoutMeta = { ...SAMPLE_INPUT };
     delete inputWithoutMeta.metadata;
@@ -160,7 +143,7 @@ describe("StoreMemory.execute()", () => {
       },
     };
 
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
 
     const id = await store.execute(SAMPLE_INPUT);
 
@@ -189,7 +172,7 @@ describe("StoreMemory.execute()", () => {
       },
     };
 
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
 
     // 即使嵌入失败，execute 也应正常返回
     const id = await store.execute(SAMPLE_INPUT);
@@ -215,7 +198,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("短文本不截断，embed 收到原文", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
     const shortContent = "短文本";
     await store.execute({ ...SAMPLE_INPUT, content: shortContent });
     // fire-and-forget，等微任务
@@ -226,7 +209,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("超长文本截断到 6000 字符，embed 收到截断版", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
     const longContent = "x".repeat(10000);
     await store.execute({ ...SAMPLE_INPUT, content: longContent });
     await new Promise(r => setTimeout(r, 10));
@@ -236,7 +219,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("replaceBySource 路径也截断", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
     const longContent = "y".repeat(10000);
     await store.replaceBySource({ ...SAMPLE_INPUT, content: longContent });
     await new Promise(r => setTimeout(r, 10));
@@ -246,7 +229,7 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
   it("空字符串不截断不抛异常", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
-    const store = new StoreMemory(repo, embedding, createTestLogger());
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
     await store.execute({ ...SAMPLE_INPUT, content: "" });
     await new Promise(r => setTimeout(r, 10));
     expect(embedding.receivedContents[0]).toBe("");

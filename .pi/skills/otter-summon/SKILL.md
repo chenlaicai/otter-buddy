@@ -63,6 +63,8 @@ category: technique
    完成标准：[什么算做完]
    ```
 
+   **硬规则（#307）**：如果任务涉及代码修改，systemPrompt 必须包含 R1 红线提醒：「小獭在 worktree 内工作，禁止修改主目录文件。需要提交代码时，先由大獭创建 worktree，你在 worktree 内工作。」
+
    如果存在特性文档（通过 `list_artifacts` 查找），在 systemPrompt 中附上路径。
 
 3. **接住产出**：审视小獭产出质量 → 整合有价值的产出 → 发现遗漏决定自己补或再召唤 → 向搭档汇报。

@@ -64,4 +64,15 @@ describe('fmtRelativeTime', () => {
     const { yearDate } = localDisplay(ts)
     expect(fmtRelativeTime(ts)).toBe(yearDate)
   })
+
+  it('未来时间显示绝对时间（防御性处理）', () => {
+    // 未来时间（负 diff）应显示绝对时间而非'刚刚'
+    const ts = '2026-08-11T08:00:00Z' // 1小时后
+    expect(fmtRelativeTime(ts)).not.toBe('刚刚')
+    // 应该显示绝对时间格式
+    const d = new Date(ts)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const expected = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    expect(fmtRelativeTime(ts)).toBe(expected)
+  })
 })

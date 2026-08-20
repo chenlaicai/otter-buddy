@@ -4,6 +4,7 @@ import type {
   LinkedResource,
 } from "@entities/conversation/conversation";
 import { canTransitionArtifactStatus } from "@entities/conversation/conversation";
+import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 
@@ -61,14 +62,14 @@ export class ManageKeyInfo {
   private validateInput(input: LinkedResourceInput): void {
     if (input.resourceType === "fact") {
       if (!input.content || input.content.trim().length === 0) {
-        throw new Error("fact 类型资源必须提供 content");
+        throw new DomainError("fact 类型资源必须提供 content", "validation");
       }
       if (input.content.length > FACT_CONTENT_MAX_LENGTH) {
-        throw new Error(FACT_CONTENT_TOO_LONG_MESSAGE);
+        throw new DomainError(FACT_CONTENT_TOO_LONG_MESSAGE, "validation");
       }
     }
     if (input.resourceType !== "fact" && !input.url) {
-      throw new Error("非 fact 类型资源必须提供 url");
+      throw new DomainError("非 fact 类型资源必须提供 url", "validation");
     }
   }
 
@@ -94,9 +95,9 @@ export class ManageKeyInfo {
   ): Promise<LinkedResource> {
     this.validateInput(newInput);
     const existing = await this.repo.getLinkedResourceById(existingId);
-    if (!existing) throw new Error(`LinkedResource ${existingId} not found`);
+    if (!existing) throw new DomainError(`LinkedResource ${existingId} not found`, "not_found");
     if (!canTransitionArtifactStatus(existing.status, "superseded")) {
-      throw new Error(`Cannot supersede resource in status '${existing.status}'`);
+      throw new DomainError(`Cannot supersede resource in status '${existing.status}'`, "conflict");
     }
 
     const newResource = this.buildResource(newInput, currentTurnNumber, existing.groupId);
@@ -108,9 +109,9 @@ export class ManageKeyInfo {
   /** 归档产物 */
   async archiveResource(id: string, _conversationId: string, currentTurnNumber: number): Promise<void> {
     const resource = await this.repo.getLinkedResourceById(id);
-    if (!resource) throw new Error(`LinkedResource ${id} not found`);
+    if (!resource) throw new DomainError(`LinkedResource ${id} not found`, "not_found");
     if (!canTransitionArtifactStatus(resource.status, "archived")) {
-      throw new Error(`Cannot archive resource in status '${resource.status}'`);
+      throw new DomainError(`Cannot archive resource in status '${resource.status}'`, "conflict");
     }
     await this.repo.updateResourceStatus(id, "archived", currentTurnNumber);
   }
@@ -128,12 +129,12 @@ export class ManageKeyInfo {
   /** 更新资源状态（含领域守卫校验） */
   async updateResourceStatus(id: string, status: ArtifactStatus, statusChangedAtTurnNumber: number, supersededBy?: string): Promise<void> {
     const resource = await this.repo.getLinkedResourceById(id);
-    if (!resource) throw new Error(`LinkedResource ${id} not found`);
+    if (!resource) throw new DomainError(`LinkedResource ${id} not found`, "not_found");
     if (!canTransitionArtifactStatus(resource.status, status)) {
-      throw new Error(`Cannot transition resource from '${resource.status}' to '${status}'`);
+      throw new DomainError(`Cannot transition resource from '${resource.status}' to '${status}'`, "conflict");
     }
     if (status === "superseded" && !supersededBy) {
-      throw new Error(`supersededBy is required when transitioning to 'superseded'`);
+      throw new DomainError(`supersededBy is required when transitioning to 'superseded'`, "validation");
     }
     await this.repo.updateResourceStatus(id, status, statusChangedAtTurnNumber, supersededBy);
   }

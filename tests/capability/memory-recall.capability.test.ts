@@ -42,7 +42,7 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
   });
 
   it("事实经 StoreMemory 落入记忆，混合检索（真 bge-m3 + FTS）可召回", async () => {
-    const storeMemory = new StoreMemory(ctx.built.repos.memory, ctx.built.embeddingService, createTestLogger());
+    const storeMemory = new StoreMemory(ctx.built.repos.memoryWriter, ctx.built.repos.memoryQueue, ctx.built.embeddingService, createTestLogger());
     await storeMemory.execute({
       layer: "working",
       contentType: "fact",
@@ -127,7 +127,7 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
     const DECISION_TOKEN = "KB3-TW8-7715";
     /** 独特代号"青砾岩层"不可能从"灯塔/扩建"语义邻域幻觉出来，只能来自召回——比决策编号更可能被自然复述 */
     const DECISION_FACT = `幻影灯塔计划二期扩建已被否决，原因：地基承载不足。后续推进必须先完成代号"青砾岩层"的地基加固勘测（决策编号 ${DECISION_TOKEN}）。`;
-    const storeMemory = new StoreMemory(ctx.built.repos.memory, ctx.built.embeddingService, createTestLogger());
+    const storeMemory = new StoreMemory(ctx.built.repos.memoryWriter, ctx.built.repos.memoryQueue, ctx.built.embeddingService, createTestLogger());
     await storeMemory.execute({
       layer: "working",
       contentType: "fact",

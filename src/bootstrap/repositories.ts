@@ -13,10 +13,14 @@ import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 
 export function initRepositories(db: Database.Database): Repositories {
+  const memoryRepo = new SqliteMemoryRepository(db);
   return {
     otter: new SqliteOtterRepository(db),
     otterContext: new SqliteOtterContextRepository(db),
-    memory: new SqliteMemoryRepository(db),
+    memory: memoryRepo,
+    memoryReader: memoryRepo,
+    memoryWriter: memoryRepo,
+    memoryQueue: memoryRepo,
     terminology: new SqliteTerminologyRepository(db),
     conversation: new SqliteConversationRepository(db),
     settings: new SqliteSettingsRepository(db),

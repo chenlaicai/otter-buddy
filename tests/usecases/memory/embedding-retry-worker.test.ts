@@ -104,7 +104,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     await repo.enqueueRetry("e3", new Error("first failure"));
 
     const gw = makeEmbeddingGateway(async () => SAMPLE_VEC);
-    const worker = new EmbeddingRetryWorker(repo, gw, createTestLogger(), 30_000, 3);
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gw, createTestLogger(), 30_000, 3);
     await worker.tickNow();
 
     expect(getTaskStatus("e3")).toBeNull();  // task 删除
@@ -115,7 +115,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     insertEntry("e4", "x");
     await repo.enqueueRetry("e4", new Error("fail"));
     const gw = makeEmbeddingGateway(async () => { throw new Error("always fails"); });
-    const worker = new EmbeddingRetryWorker(repo, gw, createTestLogger(), 30_000, 3);
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gw, createTestLogger(), 30_000, 3);
 
     // 第 1 次 tick：claim（attempts 0→1），embed 抛错，markFailed 不转 dead（1<3）
     await worker.tickNow();
@@ -153,7 +153,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     // 让 e5 走到 dead
     await repo.enqueueRetry("e5", new Error("fail"));
     const gw = makeEmbeddingGateway(async () => { throw new Error("always"); });
-    const worker = new EmbeddingRetryWorker(repo, gw, createTestLogger(), 30_000, 3);
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gw, createTestLogger(), 30_000, 3);
     for (let i = 0; i < 3; i++) {
       db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second') WHERE entry_id='e5'`).run();
       await worker.tickNow();
@@ -174,7 +174,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     repo.disableVec();  // 清表 + 设 hasVec=false
 
     const gw = makeEmbeddingGateway(async () => SAMPLE_VEC);
-    const worker = new EmbeddingRetryWorker(repo, gw, createTestLogger(), 30_000, 3);
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gw, createTestLogger(), 30_000, 3);
     await worker.tickNow();
 
     // task 应仍在（未被消费）
@@ -219,7 +219,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     `).run();
 
     const gw = makeEmbeddingGateway(async () => SAMPLE_VEC);
-    const worker = new EmbeddingRetryWorker(repo, gw, createTestLogger(), 30_000, 3);
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gw, createTestLogger(), 30_000, 3);
     // 多次 claim+tick 让 attempts 累加到 maxAttempts 转 dead
     for (let i = 0; i < 3; i++) {
       db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second') WHERE entry_id='orphan'`).run();
@@ -252,7 +252,7 @@ describe("F20260812mrcq Part 1 审视 M3 - createAndStartRetryWorker 存量迁�
     expect(before.total).toBe(3);
 
     // mock Repositories 最小结构
-    const mockRepos = { memory: migRepo } as unknown as Repositories;
+    const mockRepos = { memory: migRepo, memoryReader: migRepo, memoryWriter: migRepo, memoryQueue: migRepo } as unknown as Repositories;
     const mockEmbedding: EmbeddingGateway = {
       available: true,
       embed: async () => new Float32Array(1024).fill(0.1),
@@ -280,7 +280,7 @@ describe("F20260812mrcq Part 1 审视 M3 - createAndStartRetryWorker 存量迁�
     const migRepo = new SqliteMemoryRepository(migDb);
     migRepo.disableVec();  // vec 禁用
 
-    const mockRepos = { memory: migRepo } as unknown as Repositories;
+    const mockRepos = { memory: migRepo, memoryReader: migRepo, memoryWriter: migRepo, memoryQueue: migRepo } as unknown as Repositories;
     const mockEmbedding: EmbeddingGateway = {
       available: true,
       embed: async () => new Float32Array(1024).fill(0.1),
