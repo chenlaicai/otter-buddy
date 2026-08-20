@@ -8,6 +8,7 @@ import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
+import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 import { DomainError } from '@entities/errors';
 
 /** once 任务重试参数 */
@@ -30,6 +31,9 @@ export interface SchedulerServiceOptions {
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
   metrics?: SchedulerMetricsPort;
+  /** Why: 链外 invoke 路径不消费 aggregatedTargets 导致 yield 传递目标丢失（#332）。
+   *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
+  dispatchChainEngine?: DispatchChainEngine;
   /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
    *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响，对抗审视二轮修复——
    *  首版误用 Date.now 墙钟）；与调度延迟计算的 Date.now 是两条时间线，注入方须保持一致语义 */
@@ -46,6 +50,7 @@ export class SchedulerService {
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
   private readonly metrics?: SchedulerMetricsPort;
+  private readonly dispatchChainEngine?: DispatchChainEngine;
   private readonly now: () => number;
   private readonly manageSession?: ManageSession;
 
@@ -58,6 +63,7 @@ export class SchedulerService {
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
     this.metrics = options.metrics;
+    this.dispatchChainEngine = options.dispatchChainEngine;
     this.now = options.now ?? (() => performance.now());
     this.manageSession = options.manageSession;
 
@@ -393,18 +399,35 @@ export class SchedulerService {
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body?: string): Promise<void> {
-    const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+    // Why: 单次 invoke 5 分钟；链引擎路径覆盖整条链（多 hop 共享），按最大深度 3 放大为 15 分钟。
+    // 链引擎自身有 maxChainDepth 安全限制，超时只是 scheduler 层的兜底防线。
+    const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
+    const CHAIN_TIMEOUT_MS = 15 * 60 * 1000;
     let timer: NodeJS.Timeout | undefined;
     try {
+      // Why: 有 dispatchChainEngine 时走链引擎消费 aggregatedTargets 续跑发言链，
+      // 否则降级为直接 invoke（兼容未注入的旧装配）。#332 修复。
+      const isChain = !!this.dispatchChainEngine;
+      const invokeAction = this.dispatchChainEngine
+        ? this.dispatchChainEngine.executeChain({
+            conversationId: task.conversationId,
+            userMessageContent: body ?? task.body,
+            senderId: task.senderId,
+            initialTargets: task.talkingStonePassedTo,
+            invokeFn: async (params) => this.agentInvokePort.invokeConversation(params),
+          })
+        : this.agentInvokePort.invokeConversation({
+            otterId: task.talkingStonePassedTo[0],
+            conversationId: task.conversationId,
+            userMessageContent: body ?? task.body,
+            senderId: task.senderId,
+          });
+
+      const timeoutMs = isChain ? CHAIN_TIMEOUT_MS : SINGLE_INVOKE_TIMEOUT_MS;
       await Promise.race([
-        this.agentInvokePort.invokeConversation({
-          otterId: task.talkingStonePassedTo[0],
-          conversationId: task.conversationId,
-          userMessageContent: body ?? task.body,
-          senderId: task.senderId,
-        }),
+        invokeAction,
         new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), AGENT_TIMEOUT_MS);
+          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), timeoutMs);
         }),
       ]);
     } finally {

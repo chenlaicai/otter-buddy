@@ -9,6 +9,7 @@ import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
 import { DomainError } from '@entities/errors';
 import type { Logger } from '@usecases/ports/logger';
+import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
 
@@ -1281,5 +1282,150 @@ describe('SchedulerService - restartBeforeInvoke', () => {
     // 断言：两个任务都触发了 restart，且 invoke 也被调用
     expect(restartCallIds.length).toBeGreaterThanOrEqual(2);
     expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+  });
+});
+
+// ─── #332: 链外 invoke 路径走 DispatchChainEngine 续跑发言链 ────────────
+
+describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引擎', () => {
+  function createMockDispatchChainEngine() {
+    return {
+      executeChain: vi.fn(async () => ({ otterReply: 'chain reply' })),
+    };
+  }
+
+  it('注入 dispatchChainEngine 后，触发任务走 executeChain 而非直接 invoke', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+    const dispatchChainEngine = createMockDispatchChainEngine();
+
+    const task = makeTask({
+      id: 'task-chain',
+      conversationId: 'conv-chain',
+      talkingStonePassedTo: ['otter-1', 'otter-2'],
+      senderId: 'boss',
+      body: '问候',
+    });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-chain', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+    });
+
+    // 直接调用 trigger 走完整 triggerTask 流程
+    const result = await service.trigger('task-chain');
+    expect(result.executionId).toBeTruthy();
+
+    // 链引擎被调用：initialTargets 包含全部 talkingStonePassedTo
+    const calls = (dispatchChainEngine.executeChain as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBe(1);
+    const callArg = calls[0][0];
+    expect(callArg.conversationId).toBe('conv-chain');
+    expect(callArg.initialTargets).toEqual(['otter-1', 'otter-2']);
+    expect(callArg.senderId).toBe('boss');
+
+    // 直接 invoke 未被调用（链引擎接管）
+    expect((agentInvoke.invokeConversation as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+
+    // 执行记录最终状态为 completed
+    const execution = taskRepo._executions.get(result.executionId);
+    expect(execution!.status).toBe('completed');
+  });
+
+  it('未注入 dispatchChainEngine 时，降级为直接 invoke（兼容旧行为）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    const task = makeTask({
+      id: 'task-fallback',
+      conversationId: 'conv-fallback',
+      talkingStonePassedTo: ['otter-1'],
+      senderId: 'boss',
+      body: '问候',
+    });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-fallback', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      // 不注入 dispatchChainEngine
+    });
+
+    const result = await service.trigger('task-fallback');
+    expect(result.executionId).toBeTruthy();
+
+    // 降级：直接 invoke 被调用
+    const calls = (agentInvoke.invokeConversation as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBe(1);
+    expect(calls[0][0].otterId).toBe('otter-1');
+
+    // 执行记录最终状态为 completed
+    const execution = taskRepo._executions.get(result.executionId);
+    expect(execution!.status).toBe('completed');
+  });
+
+  it('dispatchChainEngine.executeChain 失败时 execution 标记为 failed', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    // 模拟链引擎抛出错误
+    const dispatchChainEngine = {
+      executeChain: vi.fn(async () => { throw new Error('Chain engine failed'); }),
+    };
+
+    const task = makeTask({
+      id: 'task-chain-fail',
+      conversationId: 'conv-chain-fail',
+      talkingStonePassedTo: ['otter-1'],
+      senderId: 'boss',
+      body: '问候',
+    });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-chain-fail', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+    });
+
+    const err = await service.trigger('task-chain-fail').catch(e => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe('Chain engine failed');
+
+    // 链引擎被调用，直接 invoke 未被调用
+    expect((dispatchChainEngine.executeChain as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect((agentInvoke.invokeConversation as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+
+    // execution 标记为 failed
+    const execs = [...taskRepo._executions.values()];
+    expect(execs.length).toBeGreaterThanOrEqual(1);
+    const lastExec = execs[execs.length - 1];
+    expect(lastExec.status).toBe('failed');
   });
 });

@@ -182,7 +182,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     })
     : undefined;
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics });
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger });
 

@@ -95,8 +95,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
   });
 }
 
-export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics } = options;
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine } = options;
   await agentGateway.warmup();
 
   const agentInvoker = new AgentInvoker(
@@ -118,6 +118,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     manageSession: uc.manageSession,
     healingRepo: repos.healingEvent,
     metrics,
+    dispatchChainEngine,
   });
 
   return { agentInvoker, cronParser, schedulerService };

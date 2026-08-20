@@ -387,6 +387,66 @@ describe("Message API", () => {
       expect(deps.agentInvoker.abort).not.toHaveBeenCalled();
     });
   });
+
+  // ─── POST /api/messages/:id/retry (#332 链引擎路径) ───
+
+  describe('POST /api/messages/:id/retry', () => {
+    it('failed otter 消息重试走 DispatchChainEngine（invokeFn 包装 agentInvoker）', async () => {
+      const failedMsg = makeMessage({
+        id: 'failed-msg-1',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        senderType: 'otter',
+        senderId: 'otter-1',
+        status: 'failed',
+        body: 'original prompt',
+      });
+      deps.queryMessage.getMessageById.mockResolvedValue(failedMsg);
+      deps.queryMessage.getMessages.mockResolvedValue([
+        makeMessage({ senderType: 'user', senderId: 'user-1' }),
+      ]);
+      deps.agentInvoker.invokeConversation.mockResolvedValue({ messageId: 'retry-msg-1', duration: 100 });
+
+      const res = await app.request('/api/messages/failed-msg-1/retry', { method: 'POST' });
+
+      expect(res.status).toBe(200);
+      await readSSEEvents(res);
+
+      // Why: 链引擎通过 invokeFn 调用 agentInvoker，验证 retryCount/manualRetry 正确传递
+      expect(deps.agentInvoker.invokeConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          otterId: 'otter-1',
+          conversationId: 'conv-1',
+          senderId: 'user-1',
+          retryCount: 1,
+          manualRetry: true,
+        }),
+      );
+    });
+
+    it('非 otter 消息重试返回 400', async () => {
+      const userMsg = makeMessage({ id: 'user-msg-1', senderType: 'user', status: 'completed' });
+      deps.queryMessage.getMessageById.mockResolvedValue(userMsg);
+
+      const res = await app.request('/api/messages/user-msg-1/retry', { method: 'POST' });
+      expect(res.status).toBe(400);
+    });
+
+    it('非 failed/aborted 消息重试返回 409', async () => {
+      const completedMsg = makeMessage({ id: 'completed-msg-1', senderType: 'otter', status: 'completed' });
+      deps.queryMessage.getMessageById.mockResolvedValue(completedMsg);
+
+      const res = await app.request('/api/messages/completed-msg-1/retry', { method: 'POST' });
+      expect(res.status).toBe(409);
+    });
+
+    it('消息不存在返回 404', async () => {
+      deps.queryMessage.getMessageById.mockResolvedValue(null);
+
+      const res = await app.request('/api/messages/nonexistent/retry', { method: 'POST' });
+      expect(res.status).toBe(404);
+    });
+  });
 });
 
 describe("Message API - 未读注入剥离投影（F20260728htar）", () => {
