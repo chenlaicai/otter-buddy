@@ -134,6 +134,8 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     ctxMax: dto.ctxMax,
     turnId: dto.turnId,
     src: dto.src as 'web' | 'feishu' | undefined,
+    // F-multi-speak-bubble: 历史消息分段数据
+    segments: dto.segments,
   }
 }
 

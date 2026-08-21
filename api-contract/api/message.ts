@@ -1,3 +1,10 @@
+/** 消息分段 DTO */
+export interface MessageSegmentDTO {
+  id: string;
+  body: string;
+  sequenceNum: number;
+}
+
 /** 消息响应 DTO（前端短字段名映射，D57） */
 export interface MessageDTO {
   id: string;
@@ -16,6 +23,8 @@ export interface MessageDTO {
   ctxMax?: number;
   /** 消息来源 "web" | "feishu"，仅非 web 时携带 */
   src?: string;
+  /** 消息分段数组（多 speak 气泡），仅 agent 消息且 segments 非空时携带 */
+  segments?: MessageSegmentDTO[];
   events?: MessageEventDTO[];
 }
 
