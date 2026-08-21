@@ -19,7 +19,7 @@ npm run lint:docs
 node scripts/lint-capability-docs.mjs
 # F20260806tstr Part 5: 测试反模式机械拦截（手写 DDL / logger 副本）
 node scripts/lint-tests.mjs
-# F20260821lgts: skill 系统契约校验（frontmatter / manifest 一致性）
+# F20260821kgts: skill 系统契约校验（frontmatter / manifest 一致性）
 npm run lint:skills
-# F20260821lgts: otter-type 工具路由 manifest 校验（schema / 工具名存在性）
+# F20260821kgts: otter-type 工具路由 manifest 校验（schema / 工具名存在性）
 npm run lint:tool-manifest
