@@ -377,7 +377,8 @@ export class AgentInvoker implements AgentTurnPort {
     const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
     if (details?.__speakIntermediate === true) {
       // ?? otterId: null/undefined 时兜底到 otterId（UUID），避免空串被前端 || 跳过显示 'Otter'
-      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? otterId } });
+      // F-multi-speak-bubble: 传递 segmentId + sequenceNum 用于前端分段渲染
+      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? otterId, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
     }
   }
 
