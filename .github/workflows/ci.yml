@@ -68,6 +68,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # F20260821lgts: skill 契约 + 工具 manifest lint 接入 CI
+      # （#366 PR-2：纪律≠机制，只挂 pre-commit 会被 --no-verify 绕过）
+      - name: Run skills / tool-manifest lint gates
+        run: |
+          npm run lint:skills
+          npm run lint:tool-manifest
+
       - name: Run full project checks
         run: npm run check
 
