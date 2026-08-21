@@ -135,8 +135,10 @@ export async function verifyEmbeddingVersion(
   repos: Repositories,
   logger: Logger,
 ): Promise<{ vecEnabled: boolean; reason?: string }> {
-  // 兼容老接口（无 getMeta）：跳过校验，保持原有行为
-  if (!embeddingGateway.available || typeof embeddingGateway.getMeta !== "function") {
+  // 兼容老接口（无 getMeta）：跳过校验，保持原有行为。
+  // 注意不能用 available 判断——它是 worker ready 的时序快照，bootstrap 时恒为 false，
+  // 会让校验永远走不到（F20260821evaf 根因）。getMeta 内部会 waitForReady，直接调用即可。
+  if (typeof embeddingGateway.getMeta !== "function") {
     return { vecEnabled: true };
   }
 

@@ -2,10 +2,12 @@
  * F20260811mrpy Part 3：verifyEmbeddingVersion 三分支测试
  *
  * 分支：
- * 1. embeddingGateway 不 available 或无 getMeta → 跳过（vecEnabled=true）
+ * 1. embeddingGateway 无 getMeta（老接口）→ 跳过（vecEnabled=true）
  * 2. 初次启动（stored.modelId 空）→ 写基线（vecEnabled=true）
  * 3. 一致 → vecEnabled=true
  * 4. 不一致 → disableVec + otter_context 告警（vecEnabled=false）
+ *
+ * F20260821evaf：available=false（worker 尚未 ready）不再跳过——getMeta 内部 waitForReady。
  */
 import { describe, it, expect, vi } from "vitest";
 import { verifyEmbeddingVersion } from "../../src/bootstrap/database";
@@ -79,15 +81,17 @@ function makeLogger(): Logger {
 }
 
 describe("verifyEmbeddingVersion - F20260811mrpy Part 3", () => {
-  it("embeddingGateway 不 available → 跳过校验，vecEnabled=true", async () => {
+  it("embeddingGateway 不 available（worker 尚未 ready）→ 仍执行校验（F20260821evaf：available 是时序快照，getMeta 内部 waitForReady）", async () => {
     const gateway = makeGateway({ available: false });
-    const repos = makeRepos({});
+    const repos = makeRepos({
+      storedMeta: { modelId: "Xenova/bge-m3", modelRev: "unknown", dim: 1024 },
+    });
     const logger = makeLogger();
 
     const result = await verifyEmbeddingVersion(gateway, repos, logger);
 
     expect(result.vecEnabled).toBe(true);
-    expect(repos.memory.getEmbeddingMeta).not.toHaveBeenCalled();
+    expect(repos.memory.getEmbeddingMeta).toHaveBeenCalled();
   });
 
   it("embeddingGateway 无 getMeta 方法（老接口）→ 跳过校验", async () => {

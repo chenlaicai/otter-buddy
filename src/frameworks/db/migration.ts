@@ -92,6 +92,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260812mrcq：embedding_tasks 表（embedding 重试队列） */
   ensureEmbeddingTasksTable(db, logger);
 
+  /** F20260821evaf：embedding 版本锚表。老库 initSchema 不再执行，须在此补建（否则 getEmbeddingMeta 直接抛 no such table） */
+  ensureEmbeddingMetaTable(db, logger);
+
   /** F20260813mren: 记忆关系层——memory_edges 表 + 文档 provenance 列 */
   ensureMemoryEdgesTable(db, logger);
   addDocProvenanceColumns(db, logger);
@@ -171,6 +174,18 @@ function ensureEmbeddingTasksTable(db: Database.Database, logger: Logger): void 
       ON embedding_tasks (status, next_retry_at);
   `);
   logger.info('Ensured embedding_tasks table exists');
+}
+
+/** F20260821evaf：embedding_meta 表（版本锚，schema.ts 同构）。老库补建——initSchema 仅新库执行。 */
+function ensureEmbeddingMetaTable(db: Database.Database, logger: Logger): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS embedding_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  logger.info('Ensured embedding_meta table exists');
 }
 
 /**

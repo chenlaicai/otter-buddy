@@ -4,7 +4,7 @@ export interface EmbedModelMeta {
   modelId: string;
   /** 模型 revision（HF revision 或本地模型 mtime），未知则为 "unknown" */
   modelRev: string;
-  /** 向量维度（从实际加载的模型输出 dims[0] 读取，不硬编码） */
+  /** 向量维度（从实际加载的模型输出形状数组最后一维读取，不硬编码） */
   dim: number;
 }
 
