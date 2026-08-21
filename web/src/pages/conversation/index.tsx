@@ -455,11 +455,8 @@ function ConversationPage() {
           const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
           liveText.set(messageId, acc)
         }
-        // 从 segments 构建 content
-        const segments = data.segments as LocalMessageSegment[] | undefined
-        const content = segments && segments.length > 0
-          ? segments.sort((a, b) => a.sequenceNum - b.sequenceNum).map(s => s.body).join('\n\n')
-          : (liveText.get(messageId) || body)
+        // 从 liveText 或 segment 构建 content
+        const content = liveText.get(messageId) || body
         batchUpdateMessages(activeId!, (list) => {
           if (!list.some(m => m.id === messageId)) return list
           return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
@@ -739,11 +736,8 @@ function ConversationPage() {
             const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
             liveText.set(messageId, acc)
           }
-          // 从 segments 构建 content
-          const segments = data.segments as LocalMessageSegment[] | undefined
-          const content = segments && segments.length > 0
-            ? segments.sort((a, b) => a.sequenceNum - b.sequenceNum).map(s => s.body).join('\n\n')
-            : (liveText.get(messageId) || body)
+          // 从 liveText 构建 content
+          const content = liveText.get(messageId) || body
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
             return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
@@ -1014,11 +1008,8 @@ function ConversationPage() {
             const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
             liveText.set(messageId, acc)
           }
-          // 从 segments 构建 content
-          const segments = data.segments as LocalMessageSegment[] | undefined
-          const content = segments && segments.length > 0
-            ? segments.sort((a, b) => a.sequenceNum - b.sequenceNum).map(s => s.body).join('\n\n')
-            : (liveText.get(messageId) || body)
+          // 从 liveText 构建 content
+          const content = liveText.get(messageId) || body
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
             return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
