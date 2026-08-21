@@ -10,6 +10,7 @@ import type { OtterSession } from "@entities/otter/otter-session";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { TurnHistoryEntry } from "@usecases/conversation/conversation-repository";
 import type { DetailLevel, MemoryContentType } from "@entities/memory/memory-entry";
+import type { VecCoverage } from "@usecases/memory/search-memory";
 import type { EdgeType, RelatedEntryItem } from "@entities/memory/memory-edge";
 
 /** 记忆条目（search_memory 返回结构，渐进式披露） */
@@ -82,7 +83,7 @@ export interface OtterToolClient {
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
-    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean): Promise<{ entries: MemorySearchEntry[]; contextEntries?: MemorySearchEntry[]; vecCoverage?: { total: number; withVec: number; ratio: number; vecDisabled: boolean } }>;
+    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean): Promise<{ entries: MemorySearchEntry[]; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
     /** F20260813mren: 声明两个记忆条目之间的关系（LLM 自主判断） */
