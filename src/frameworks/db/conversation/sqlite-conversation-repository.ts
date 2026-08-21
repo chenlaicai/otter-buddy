@@ -340,7 +340,8 @@ export class SqliteConversationRepository implements ConversationRepository {
   /**
    * 重置 failed 消息为 streaming（yield 重试专用）。
    * Why: SQL 层面做状态守卫（AND status = 'failed'），防止并发 abort 将终态消息重置回 streaming。
-   * Why: 清空 segments 和 FTS 索引，避免重试期间搜索命中旧 fail 内容。
+   * Why: 默认清空 segments 和 FTS 索引，避免重试期间搜索命中旧 fail 内容。
+   * Why: preserveSegments=true 时保留 segments 并重建 FTS 索引（no_yield 重试专用：speak 内容有效，不应被删除）。
    */
   async resetForStreaming(messageId: string, turnId: string, preserveSegments: boolean = false): Promise<void> {
     this.db.transaction(() => {
