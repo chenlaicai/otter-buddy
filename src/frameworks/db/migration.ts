@@ -406,7 +406,7 @@ export function migrateExistingData(
 
     if (otter) {
       otterConfigProvider.setConfig(session.otter_id, {
-        otterType: otter.type as 'big' | 'small',
+        otterType: otter.type,
         // systemPrompt 为 undefined，因为当前代码存储在内存 Map 中，无法迁移
       });
     }

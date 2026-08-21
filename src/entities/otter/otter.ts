@@ -1,5 +1,6 @@
 /** Otter 类型 */
-export type OtterType = "big" | "small";
+/** F20260820a4rt: 从联合类型改为 string，运行时校验交由 manifest loader + lint 处理 */
+export type OtterType = string;
 
 /** Otter 状态 */
 export type OtterStatus = "active" | "dissolved";

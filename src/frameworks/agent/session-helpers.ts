@@ -5,6 +5,7 @@
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
+import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manifest-loader";
 
 /**
  * 按 otterType 获取编码工具列表。
@@ -19,10 +20,24 @@ export function getCodingToolsForOtterType(_otterType: string | undefined): stri
 
 /**
  * 按 otterType 获取 Otter 自定义工具名称白名单。
- * big otter 拥有全部工具，small otter 只有消息和记忆相关工具。
+ *
+ * F20260820a4rt: 从硬编码改为声明式 manifest 路由。
+ * - 优先从 config/tool-manifest.json 加载配置
+ * - manifest 加载失败时 fallback 到硬编码默认值（兼容性保证）
+ *
+ * @param otterType - otter 类型名
+ * @param allToolNames - 当前 session 可用的全部工具名（由调用方从 createTools 传入）
+ * @param projectRoot - 项目根目录（用于定位 manifest 文件）
+ * @param logger - 可选日志器
  */
-export function getOtterToolNamesForType(otterType: string | undefined): string[] {
-  const allToolNames = [
+export function getOtterToolNamesForType(
+  otterType: string | undefined,
+  allToolNames?: string[],
+  projectRoot?: string,
+  logger?: { warn: (msg: string) => void; error: (msg: string) => void },
+): string[] {
+  // Fallback 默认工具列表（与原硬编码一致）
+  const fallbackToolNames = allToolNames ?? [
     "speak", "yield", "search_memory",
     "create_otter", "dissolve_otter", "restart_otter", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
@@ -33,14 +48,21 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "manage_healing_events",
     "create_scheduled_task",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
-    // F20260813mren: 记忆关系层工具
     "link_memory", "get_related", "unlink_memory",
-    // F20260813mren 审视二轮: 文档同步工具（写完文档立即入库）
     "sync_docs",
   ];
 
+  // 尝试从 manifest 加载
+  if (projectRoot) {
+    const manifest = loadToolManifest(projectRoot, logger);
+    if (manifest) {
+      return getToolNamesFromManifest(manifest, otterType ?? "big", fallbackToolNames);
+    }
+  }
+
+  // Fallback: 硬编码默认行为（manifest 加载失败时）
   if (!otterType || otterType === "big") {
-    return allToolNames;
+    return fallbackToolNames;
   }
 
   /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理 + 自身重启，不含 Otter 管理类工具（create_otter/dissolve_otter）。
@@ -55,9 +77,7 @@ export function getOtterToolNamesForType(otterType: string | undefined): string[
     "create_scheduled_task", "manage_healing_events",
     "restart_otter",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
-    // F20260813mren: 记忆关系层工具（大小獭都能用）
     "link_memory", "get_related", "unlink_memory",
-    // F20260813mren 审视二轮: 文档同步工具
     "sync_docs",
   ];
 }

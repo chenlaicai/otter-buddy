@@ -81,3 +81,4 @@ data/workspaces/
 # Local model weights (large, downloaded separately)
 # Layout: models/<model-name>/onnx/*.onnx[+_data]
 models/
+*.bak
