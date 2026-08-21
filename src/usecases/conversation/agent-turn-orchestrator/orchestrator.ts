@@ -100,8 +100,19 @@ export class AgentTurnOrchestrator {
         (id) => driver.getInternalAbortReason(id) ?? undefined,
       );
 
+      // F20260821spcm: 旁白流失检测——LLM 输出了直出文本但未调 speak
+      const hasOrphanText = this.detectOrphanText(reason, result);
+
       // Record failed attempt
       this.recordFailedAttempt(reason, currentInput, result, err, { callbacks, attemptStartTime });
+      if (hasOrphanText) {
+        this.recordNoYieldWithOrphanText(currentInput.otterId, currentInput, callbacks);
+        this.logger.info('Orphan text detected: LLM output direct text without calling speak', {
+          messageId: currentInput.messageId,
+          otterId: currentInput.otterId,
+          orphanTextLength: result.directText?.trim().length ?? 0,
+        });
+      }
 
       // Route by reason
       const routeCtx: RouteContext = {
@@ -111,6 +122,7 @@ export class AgentTurnOrchestrator {
         driver,
         callbacks,
         startTime,
+        hasOrphanText,
       };
       const routeResult = await this.routeByReason(reason, routeCtx);
 
@@ -135,7 +147,7 @@ export class AgentTurnOrchestrator {
       currentInput = {
         ...currentInput,
         retryCount: 1,
-        userMessageContent: buildYieldRetryMsg(toolCallCount),
+        userMessageContent: buildYieldRetryMsg(toolCallCount, hasOrphanText),
       };
     }
   }
@@ -496,7 +508,7 @@ export class AgentTurnOrchestrator {
         return this.executeRetryWithSystemReminder({
           input: ctx.input,
           failBody,
-          retryMsg: buildYieldRetryMsg(ctx.toolCallCount),
+          retryMsg: buildYieldRetryMsg(ctx.toolCallCount, ctx.hasOrphanText),
           tokenUsage: ctx.result.tokenUsage,
           callbacks: ctx.callbacks,
           startTime: ctx.startTime,
@@ -775,6 +787,31 @@ export class AgentTurnOrchestrator {
       recordRetrySafe(reason.guardReason.startsWith("circuit_break:")
         ? "circuit_break"
         : reason.guardReason as "streaming_timeout" | "first_byte_timeout");
+    }
+  }
+
+  /** F20260821spcm: 旁白流失检测——LLM 输出了直出文本但未调 speak */
+  private detectOrphanText(reason: ExitReason, result: InvokeResultShape): boolean {
+    return reason.kind === 'no_yield'
+      && !!result.directText?.trim()
+      && result.directText.trim().length >= 20;
+  }
+
+  /** F20260821spcm: 旁白流失 metrics——LLM 输出了直出文本但未调 speak */
+  private recordNoYieldWithOrphanText(
+    otterId: string,
+    input: TurnInput,
+    callbacks: TurnCallbacks,
+  ): void {
+    if (!callbacks.metrics) return;
+    try {
+      callbacks.metrics.recordNoYieldWithOrphanText(otterId);
+    } catch (err) {
+      callbacks.logger.warn('metrics recordNoYieldWithOrphanText failed (non-fatal)', {
+        messageId: input.messageId,
+        otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

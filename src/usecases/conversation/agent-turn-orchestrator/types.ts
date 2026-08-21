@@ -25,6 +25,8 @@ export interface InvokeResultShape {
   modelAlias?: string;
   sessionRebuilt?: boolean;
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
+  directText?: string;
 }
 
 /** Attempt 执行结果 */
@@ -150,6 +152,8 @@ export interface RouteContext {
   driver: AttemptDriver;
   callbacks: TurnCallbacks;
   startTime: number;
+  /** LLM 输出了直出文本但未调 speak（旁白流失检测） */
+  hasOrphanText?: boolean;
 }
 
 /** 重试上下文 */
