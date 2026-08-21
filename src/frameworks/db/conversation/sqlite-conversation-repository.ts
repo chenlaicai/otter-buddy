@@ -342,9 +342,12 @@ export class SqliteConversationRepository implements ConversationRepository {
    * Why: SQL 层面做状态守卫（AND status = 'failed'），防止并发 abort 将终态消息重置回 streaming。
    * Why: 清空 segments 和 FTS 索引，避免重试期间搜索命中旧 fail 内容。
    */
-  async resetForStreaming(messageId: string, turnId: string): Promise<void> {
+  async resetForStreaming(messageId: string, turnId: string, preserveSegments: boolean = false): Promise<void> {
     this.db.transaction(() => {
-      this.db.prepare("DELETE FROM message_segments WHERE message_id = ?").run(messageId);
+      // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+      if (!preserveSegments) {
+        this.db.prepare("DELETE FROM message_segments WHERE message_id = ?").run(messageId);
+      }
       const result = this.db.prepare(`
         UPDATE messages
         SET status = 'streaming', turn_id = ?, completed_at = NULL,
@@ -354,7 +357,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       if (result.changes === 0) {
         throw new DomainError(`resetForStreaming failed: message ${messageId} is not in failed status`, 'conflict');
       }
-      this.upsertMessageFts(messageId, '');
+      if (!preserveSegments) {
+        this.upsertMessageFts(messageId, '');
+      } else {
+        this.refreshMessageFts(messageId);
+      }
     })();
   }
 

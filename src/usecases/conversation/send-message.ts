@@ -361,7 +361,7 @@ export class SendMessage {
    * 设计决策：失败期间的 message_events 保留不删——包含两次尝试的完整
    * 工具调用链，有调试价值。FTS 索引清空以避免搜索命中旧 fail body。
    */
-  async prepareForRetry(messageId: string): Promise<Message> {
+  async prepareForRetry(messageId: string, preserveSegments: boolean = false): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
@@ -374,12 +374,16 @@ export class SendMessage {
     const turn = await this.ensureActiveTurn(message.conversationId);
 
     // 重置消息状态（含状态守卫 + FTS 清空）
-    await this._repo.resetForStreaming(messageId, turn.id);
+    // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+    await this._repo.resetForStreaming(messageId, turn.id, preserveSegments);
+
+    // F20260821fix: preserveSegments 时保留原始 segments
+    const segments = preserveSegments ? message.segments : [];
 
     return {
       ...message,
       status: "streaming",
-      segments: [],
+      segments,
       turnId: turn.id,
       talkingStonePassedTo: null,
     };

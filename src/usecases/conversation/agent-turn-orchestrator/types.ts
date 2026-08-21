@@ -131,7 +131,8 @@ export interface TurnCallbacks {
   /** 创建新消息（重试用） */
   startNewMessage(conversationId: string, senderId: string, talkingStonePassedTo: string[]): Promise<{ id: string; sequenceNum: number; createdAt: string }>;
   /** 重试准备 */
-  prepareForRetry(messageId: string): Promise<void>;
+  // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+  prepareForRetry(messageId: string, preserveSegments?: boolean): Promise<void>;
   /** 查询 otter */
   getOtterById(otterId: string): Promise<{ name: string; type?: string } | null>;
   /** 查询用户显示名 */
