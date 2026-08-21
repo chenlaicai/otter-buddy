@@ -28,7 +28,6 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createConnectionTables(db);
     createHealingEventTables(db);
     createUserReadStateTable(db);
-    createDispatchRecordsTable(db);
 
     db.exec("COMMIT");
 
@@ -663,28 +662,4 @@ function createUserReadStateTable(db: Database.Database): void {
   `);
 }
 
-/** 派工台账表（F20260821i336：派工记录持久化，消灭状态虚报） */
-function createDispatchRecordsTable(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS dispatch_records (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      otter_id TEXT NOT NULL,
-      otter_name TEXT NOT NULL,
-      task TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'failed')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      completed_at TEXT,
-      result_pr TEXT,
-      result_summary TEXT,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-      FOREIGN KEY (otter_id) REFERENCES otters(id)
-    );
 
-    CREATE INDEX IF NOT EXISTS idx_dispatch_records_conversation ON dispatch_records(conversation_id);
-    CREATE INDEX IF NOT EXISTS idx_dispatch_records_otter ON dispatch_records(otter_id);
-    CREATE INDEX IF NOT EXISTS idx_dispatch_records_status ON dispatch_records(status);
-    CREATE INDEX IF NOT EXISTS idx_dispatch_records_created ON dispatch_records(created_at);
-  `);
-}

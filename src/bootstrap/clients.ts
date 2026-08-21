@@ -239,11 +239,43 @@ export function buildOtterToolClient(
           }
         }
       },
-      queryRecords: async (_params) => {
-        // 查询所有 otter 的 dispatch 记录（简化实现，遍历所有 otter）
-        // 实际实现需要查询所有 otter 的 context，这里简化为查询当前 otter
-        // TODO: 实现完整的跨 otter 查询
-        return [];
+      queryRecords: async (params) => {
+        // 查询所有 otter 的 dispatch 记录
+        // 从 manageContext 获取所有 otter 的 context，筛选 dispatch 记录
+        const records: Array<{
+          id: string; conversationId: string; otterId: string; otterName: string; task: string;
+          status: 'pending' | 'in_progress' | 'completed' | 'failed';
+          createdAt: string; updatedAt: string; completedAt?: string; resultPr?: string; resultSummary?: string;
+        }> = [];
+        
+        // 获取所有活跃参与者
+        const participants = await uc.manageParticipant.getActiveParticipants(params.conversationId);
+        
+        // 遍历所有参与者，提取 dispatch 记录
+        const extractRecords = async (otterId: string) => {
+          try {
+            const context = await uc.manageContext.get(otterId);
+            for (const [key, value] of Object.entries(context)) {
+              if (!key.startsWith('dispatch:') || typeof value !== 'string') continue;
+              try {
+                const record = JSON.parse(value);
+                // 过滤条件
+                if (params.status && record.status !== params.status) continue;
+                if (params.otterId && record.otterId !== params.otterId) continue;
+                records.push(record);
+              } catch {
+                // 解析失败，跳过
+              }
+            }
+          } catch {
+            // 获取 context 失败，跳过该 otter
+          }
+        };
+        
+        await Promise.all(participants.map(p => extractRecords(p.participant.otterId)));
+        
+        // 按创建时间倒序排序
+        return records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       },
     },
   };
