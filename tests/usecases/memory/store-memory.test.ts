@@ -235,3 +235,97 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
     expect(embedding.receivedContents[0]).toBe("");
   });
 });
+
+describe("StoreMemory - F20260821scrt secrets 脱敏", () => {
+  function capturingEmbedGateway(): EmbeddingGateway & { receivedContents: string[] } {
+    const receivedContents: string[] = [];
+    return {
+      receivedContents,
+      available: true,
+      embed: async (content: string) => {
+        receivedContents.push(content);
+        return new Float32Array([0.1, 0.2]);
+      },
+    };
+  }
+
+  it("execute：content 含密钥时入库与 embed 均为脱敏后内容", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+
+    await store.execute({
+      ...SAMPLE_INPUT,
+      content: "用户贴了 OpenAI key：sk-abcdefghij1234567890abcdefghij1234",
+    });
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(repo.storedEntries[0].content).not.toContain("sk-abcdefghij");
+    expect(repo.storedEntries[0].content).toContain("[REDACTED]");
+    expect(embedding.receivedContents[0]).not.toContain("sk-abcdefghij");
+  });
+
+  it("execute：metadata 字符串值含密钥时同样脱敏", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+
+    await store.execute({
+      ...SAMPLE_INPUT,
+      metadata: { note: "api_key: 0123456789abcdef0123456789abcdef", count: 3 },
+    });
+
+    const metadata = repo.storedEntries[0].metadata as Record<string, unknown>;
+    expect(String(metadata.note)).not.toContain("0123456789abcdef");
+    expect(metadata.count).toBe(3);
+  });
+
+  it("replaceBySource：文档 upsert 路径同样脱敏", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+    const replaceCalls: MemoryEntry[] = [];
+    repo.replaceEntryBySource = async (entry: MemoryEntry) => {
+      replaceCalls.push(entry);
+    };
+
+    await store.replaceBySource({
+      ...SAMPLE_INPUT,
+      content: "密码：a1b2c3d4e5f6a7b8c9d0",
+    });
+
+    expect(replaceCalls[0].content).not.toContain("a1b2c3d4e5f6a7b8c9d0");
+    expect(replaceCalls[0].content).toContain("[REDACTED]");
+  });
+
+  it("replaceChunksBySource：chunk 批量路径同样脱敏", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+    const replaceCalls: MemoryEntry[][] = [];
+    repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
+      replaceCalls.push(entries);
+    };
+
+    await store.replaceChunksBySource([
+      { ...SAMPLE_INPUT, content: "正常 chunk 内容" },
+      { ...SAMPLE_INPUT, content: "xoxb-fixturefixturefx-fixturefixturefx-fixturefixture" },
+    ]);
+
+    const [first, second] = replaceCalls[0];
+    expect(first.content).toBe("正常 chunk 内容");
+    expect(second.content).toBe("[REDACTED]");
+  });
+
+  it("普通内容完全不变（含引用等值比较）", async () => {
+    const repo = statefulRepo();
+    const embedding = capturingEmbedGateway();
+    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
+    const metadata = { key: "value" };
+
+    await store.execute({ ...SAMPLE_INPUT, content: "用户询问了天气情况", metadata });
+
+    expect(repo.storedEntries[0].content).toBe("用户询问了天气情况");
+    expect(repo.storedEntries[0].metadata).toBe(metadata);
+  });
+});
