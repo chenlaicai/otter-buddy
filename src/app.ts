@@ -126,7 +126,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   await postInitDatabase(db, repos, logger);
 
   // F20260811mrpy Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
-  // 模型/维度不一致时禁用 vec 路径 + 写入 otter_context('system', 'embedding_degraded')
+  // 模型/维度不一致时禁用 vec 路径（降级状态经检索结果 vecCoverage 暴露，F20260821evaf）
   const embeddingVersionCheck = await verifyEmbeddingVersion(embeddingService, repos, logger);
   if (!embeddingVersionCheck.vecEnabled) {
     logger.warn(`Embedding vec path disabled due to ${embeddingVersionCheck.reason}`);
