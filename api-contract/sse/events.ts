@@ -4,9 +4,11 @@ export type SSEEventMap = {
   "assistant_toolcall": { messageId: string; content: Array<Record<string, unknown>> };
   "tool.result": { messageId: string; toolName: string; result: unknown };
   "assistant_text": { messageId: string; content: Array<Record<string, unknown>> };
-  /** speak 中间发言：agent 继续工作时的增量内容（speak+yield 拆分——speak 即时呈现，不结束回合） */
-  "speak.intermediate": { messageId: string; body: string; otterId?: string; otterName?: string };
-  "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number };
+  /** speak 中间发言：agent 继续工作时的增量内容（speak+yield 拆分——speak 即时呈现，不结束回合）
+   *  F-multi-speak-bubble: segmentId + sequenceNum 用于前端分段渲染
+   */
+  "speak.intermediate": { messageId: string; body: string; otterId?: string; otterName?: string; segmentId?: string; sequenceNum?: number };
+  "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number; segments?: Array<{ id: string; body: string; sequenceNum: number }> };
   "message.failed": { messageId: string; otterId: string; otterName: string; body?: string };
   "message.aborted": { messageId: string; body?: string; otterId?: string; otterName?: string };
   "system.message": { messageId: string; content: string; seq: number };

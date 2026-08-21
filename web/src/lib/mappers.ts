@@ -37,6 +37,13 @@ export interface LocalMessageEvent {
 /** 前端本地消息状态（对齐后端 MessageStatus） */
 export type LocalMessageStatus = 'streaming' | 'speaking' | 'completed' | 'failed' | 'aborted'
 
+/** 前端本地消息分段（F-multi-speak-bubble） */
+export interface LocalMessageSegment {
+  id: string
+  body: string
+  sequenceNum: number
+}
+
 /** 前端本地 Message 类型 */
 export interface LocalMessage {
   id: string
@@ -57,6 +64,8 @@ export interface LocalMessage {
   turnId?: string
   /** 消息来源 "web" | "feishu" */
   src?: 'web' | 'feishu'
+  /** 消息分段（F-multi-speak-bubble）；历史消息可能无此字段 */
+  segments?: LocalMessageSegment[]
 }
 
 /** 前端本地 LinkedResource 类型（统一产物模型）
@@ -125,6 +134,8 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     ctxMax: dto.ctxMax,
     turnId: dto.turnId,
     src: dto.src as 'web' | 'feishu' | undefined,
+    // F-multi-speak-bubble: 历史消息分段数据
+    segments: dto.segments,
   }
 }
 

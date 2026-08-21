@@ -437,15 +437,36 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
-          <div className="relative group">
-            {m.content
-              ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{m.content}</MarkdownContent>
-              : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
-            }
-            <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
-              <CopyButton text={m.content} />
+          {/* F-multi-speak-bubble: 分段渲染 */}
+          {m.segments && m.segments.length > 0 ? (
+            <div className="space-y-2">
+              {m.segments
+                .slice()
+                .sort((a, b) => a.sequenceNum - b.sequenceNum)
+                .map((seg, idx) => (
+                  <div
+                    key={seg.id}
+                    className="relative group"
+                    style={idx > 0 ? { borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '0.5rem' } : undefined}
+                  >
+                    <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{seg.body}</MarkdownContent>
+                    <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
+                      <CopyButton text={seg.body} />
+                    </div>
+                  </div>
+                ))}
             </div>
-          </div>
+          ) : (
+            <div className="relative group">
+              {m.content
+                ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{m.content}</MarkdownContent>
+                : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
+              }
+              <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
+                <CopyButton text={m.content} />
+              </div>
+            </div>
+          )}
           {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
           {inFlight && (
             <div className="mt-1.5">
