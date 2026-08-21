@@ -1,42 +1,37 @@
 ## 问题描述
 
-当前熔断器的 `maxToolCalls` 限制为 40，对于复杂任务（如代码分析、多文件处理、深度调试）来说过于严格，容易导致误杀。
-
-## 决策转向说明
-
-之前的 circuit-breaker-speak-steer-loop 事故修复（F20260728cbwt）明确记录"不动 maxToolCalls=40 额度：本次是误杀不是额度不足；额度调参属另一议题"。当时的设计决策是：先修复根因（speak 后 steer 注入导致 loop 复活），再单独处理额度调参。
-
-现在根因修复已到位（speak 重复调用幂等终结、熔断器不对 speak 注入 steer、abort 路径 speaking 守卫），本 PR 是额度调参的后续议题。
+当前 html-card 卡片在前端有硬性限制（CARD_MAX_PER_MESSAGE = 2），第 3 张起会自动降级为源码块（不可读）。但 LLM 在生成内容时可能没有意识到这个限制，导致生成了 3+ 张卡片才发现用户看不到内容。
 
 ## 解决方案
 
-**完全移除 maxToolCalls 限制**，完全依赖重复检测机制：
+在 speak 工具中增加执行时检测，如果检测到 3+ 张卡片就拒绝执行，并提示 LLM 合并卡片或分多次 speak 输出。
 
-1. **保留**：连续相同调用检测（`maxConsecutiveIdentical=5`）
-2. **保留**：滑动窗口检测（跨工具交替循环检测）
-3. **移除**：`maxToolCalls` 和 `warningThreshold` 配置
+### 修改内容
 
-### 为什么移除而不是提高
+1. **tool-helpers.ts**：增加卡片数量检测逻辑
+   - 增加 `CARD_MAX_PER_MESSAGE = 2` 常量
+   - 增加 `countCardFences` 函数（使用正则表达式统计卡片数量）
+   - 在 `validateSpeakBody` 中增加卡片数量检测，超过 2 张会返回错误提示
 
-- 真正的"重复"（同一命令反复失败、同一编辑反复重试）会被连续相同检测捕获
-- 真正的"循环"（A-B-C-A-B-C）会被滑动窗口检测捕获
-- `maxToolCalls` 限制是"误杀"的根源，应该移除
+2. **html-card-contract-tool.ts**：在契约开头增加醒目的警告
+   - 在契约开头增加醒目的警告："⚠️ **硬性限制**：一条消息最多 2 张卡片，单卡 ≤4KB。第 3 张起用户会看到降级的源码块（不可读）。如果需要展示超过 2 张卡片的内容，请合并为 2 张，或分多次 speak 输出。"
 
-## 修改文件
+3. **tool-factory.ts**：在 speak 工具的 description 中更突出限制
+   - 在 speak 工具的 description 中更突出了限制："**一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用**"
 
-- `src/frameworks/agent/tool-call-circuit-breaker.ts`：移除 maxToolCalls 和 warningThreshold 配置
-- `src/frameworks/config-service.ts`：移除配置加载逻辑
-- `config/config.yaml.example`：更新配置示例和注释
-- `tests/frameworks/agent/tool-call-circuit-breaker.test.ts`：移除相关测试
-- `tests/frameworks/agent/circuit-breaker-helpers.test.ts`：移除相关测试
-- `tests/frameworks/config-service.test.ts`：更新测试期望值
-- `docs/features/F20260810cb01-remove-maxtoolcalls-limit.md`：特性文档
+4. **speak-tool.test.ts**：为新增的卡片数量检测功能添加测试
+   - 添加 6 个测试用例，覆盖各种场景（1 张、2 张、3 张、4 张、回执不计入数量等）
 
 ## 测试
 
-所有相关测试已通过（136 个测试）。
+所有相关测试已通过（33 个测试）。
+
+## Discovered Issues
+
+- #360：前后端 CARD_MAX_PER_MESSAGE 常量无编译时对齐检查
 
 ## 注意事项
 
-- 真正的重复调用由连续相同检测和滑动窗口检测处理
-- 复杂任务现在可以正常执行，不会被误杀
+- 这个限制是前端硬性约束，不会改变
+- LLM 现在会在生成内容时就知道这个限制，避免生成 3+ 张卡片
+- 如果需要展示超过 2 张卡片的内容，可以分多次 speak 输出
