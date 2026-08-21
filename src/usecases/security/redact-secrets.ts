@@ -1,15 +1,22 @@
 /**
  * F20260821scrt: secrets 写入前脱敏（PR-3 / issue #366 #2）。
  *
- * LLM 可写持久层（memory_entries / otter_context）的统一 redaction 纯函数。
+ * LLM 可写持久层（memory_entries / otter_context / linked_resources /
+ * otter_sessions.summary / memory_edges）的统一 redaction 纯函数。
  * 用户粘贴的 token/密钥会随消息投影、fact、set_context 进入持久层，
  * 此处在 usecase 入口拦截，DB 与 embedding 拿到的都是脱敏后内容。
  *
  * 模式集刻意保守（已知前缀 + 带标签赋值），避免误伤正常文本；
  * 覆盖面是"明文密钥不再入库"，不是全量 PII 清洗。
+ * 已知边界（对抗审视 F20260821scrt 记录）：换行切断的 key、二次编码
+ * （整体 base64/URL 编码/HTML 实体）不覆盖——regex 追不完，属声明边界。
  */
 
 export const REDACTED_PLACEHOLDER = "[REDACTED]";
+
+/** PEM 私钥块（多行，非贪婪到 END 行） */
+const PEM_PRIVATE_KEY_PATTERN =
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
 
 /**
  * 已知服务前缀的密钥模式（整串命中即替换）。
@@ -18,49 +25,79 @@ export const REDACTED_PLACEHOLDER = "[REDACTED]";
 const KNOWN_SECRET_PATTERNS: RegExp[] = [
   // Anthropic: sk-ant-api03-...
   /sk-ant-[A-Za-z0-9_-]{20,}/g,
-  // OpenAI: sk-... / sk-proj-...
+  // OpenAI: sk-... / sk-proj- / sk-svcacct-
   /sk-(?:proj-|svcacct-)[A-Za-z0-9_-]{20,}/g,
   /\bsk-[A-Za-z0-9_-]{32,}/g,
-  // GitHub: ghp_ / gho_ / ghu_ / ghs_ / ghr_
+  // Stripe: sk_live_ / sk_test_ / rk_live_ / rk_test_
+  /\b[sr]k_(?:live|test)_[A-Za-z0-9]{20,}/g,
+  // GitHub: ghp_ / gho_ / ghu_ / ghs_ / ghr_ / github_pat_
   /gh[pousr]_[A-Za-z0-9]{36,}/g,
+  /github_pat_[A-Za-z0-9_]{40,}/g,
+  // GitLab PAT
+  /glpat-[A-Za-z0-9_-]{20,}/g,
+  // HuggingFace / npm
+  /\bhf_[A-Za-z0-9]{30,}/g,
+  /\bnpm_[A-Za-z0-9]{30,}/g,
   // AWS access key id
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
-  // Slack: xoxb- / xoxp- / xoxa- / xoxr- / xoxs-
-  /xox[baprs]-[A-Za-z0-9-]{10,}/g,
+  // Slack: xoxb- / xoxp- / xoxa- / xoxr- / xoxs-（要求首段以数字开头，防 "xoxb-my-token" 型误报）
+  /xox[baprs]-\d[A-Za-z0-9-]{15,}/g,
   // Google API key
   /AIza[0-9A-Za-z_-]{35,}/g,
   // JWT（三段 base64url）
   /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{5,}/g,
-  // Bearer 凭据
-  /\bBearer\s+[A-Za-z0-9+/=_-]{16,}/g,
 ];
 
 /**
- * 带标签的赋值：`api_key: XXXX` / `SECRET=XXXX` / `密码：XXXX`。
- * 只替换值部分（捕获组 1），标签保留以便后续阅读定位。
- * 值至少 16 字符，且限定为凭据常见字符集（不含空格/中文），
- * 避免把普通说明文字误伤。
+ * 带标签的赋值（宽松阈值 8+）：密码类标签。真实密码大量在 8-15 位，
+ * 只有密码类降阈值，其余标签保持 16+ 防误伤。
+ * 支持全角/半角引号与全角/半角冒号（中文用户混用普遍）。
+ */
+const LABELED_PASSWORD_PATTERN =
+  /((?:\b(?:password|passwd)\b|密码|口令)\s*[：:=]\s*)(["'\u201c\u2018]?)([A-Za-z0-9+/=_.-]{8,})/gi;
+
+/**
+ * 带标签的赋值（严格阈值 16+）：密钥/token 类标签。
+ * 复合词（access_token / client_secret 等）显式列出——\b 对 `_` 复合
+ * 词不生效（_ 是 word char），逐一词表覆盖。
  */
 const LABELED_SECRET_PATTERN =
-  /\b(?:api[_-]?key|apikey|app[_-]?secret|secret|token|password|passwd|access[_-]?key)\b\s*[:=]\s*["']?([A-Za-z0-9+/=_.-]{16,})/gi;
+  /((?:\b(?:api[_-]?key|apikey|app[_-]?secret|client[_-]?secret|account[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|secret|token|credential)\b|访问令牌|密钥|秘钥|私钥|令牌|凭据)\s*[：:=]\s*)(["'\u201c\u2018]?)([A-Za-z0-9+/=_.-]{16,})/gi;
 
-const LABELED_SECRET_PATTERN_ZH =
-  /(?:密钥|密码|令牌|凭据|口令)\s*[：=]\s*["']?([A-Za-z0-9+/=_.-]{16,})/g;
+/**
+ * Bearer 凭据：保留 "Bearer" 字样（说明性文字常用），只脱凭据部分。
+ */
+const BEARER_PATTERN = /(\bBearer\s+)([A-Za-z0-9+/=_.-]{16,})/g;
 
 /** 对自由文本做 secrets 脱敏，返回替换后的文本 */
 export function redactSecrets(text: string): string {
   if (!text) return text;
   let result = text;
+  result = result.replace(PEM_PRIVATE_KEY_PATTERN, REDACTED_PLACEHOLDER);
   for (const pattern of KNOWN_SECRET_PATTERNS) {
     result = result.replace(pattern, REDACTED_PLACEHOLDER);
   }
-  result = result.replace(LABELED_SECRET_PATTERN, (_m, value: string) =>
-    _m.replace(value, REDACTED_PLACEHOLDER),
+  result = result.replace(BEARER_PATTERN, (_m, prefix: string, value: string) =>
+    prefix + stripTrailingPeriod(value, REDACTED_PLACEHOLDER),
   );
-  result = result.replace(LABELED_SECRET_PATTERN_ZH, (_m, value: string) =>
-    _m.replace(value, REDACTED_PLACEHOLDER),
-  );
+  result = applyLabeled(result, LABELED_SECRET_PATTERN);
+  result = applyLabeled(result, LABELED_PASSWORD_PATTERN);
   return result;
+}
+
+/**
+ * 带标签替换：保留捕获组 1（标签+分隔符）与捕获组 2（引号），值替换为占位符；
+ * 值尾部的 `.` 视为句读标点，保留在占位符之后（base64 以 `=` 结尾，不以 `.` 结尾）。
+ */
+function applyLabeled(text: string, pattern: RegExp): string {
+  return text.replace(pattern, (_m, label: string, quote: string, value: string) =>
+    label + quote + stripTrailingPeriod(value, REDACTED_PLACEHOLDER),
+  );
+}
+
+function stripTrailingPeriod(value: string, replacement: string): string {
+  const trailing = value.match(/[.]+$/)?.[0] ?? "";
+  return replacement + trailing;
 }
 
 /**

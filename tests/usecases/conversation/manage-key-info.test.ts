@@ -166,3 +166,57 @@ describe("ManageKeyInfo.supersedeResource validation", () => {
     ).rejects.toThrow("非 fact 类型资源必须提供 url");
   });
 });
+
+describe("ManageKeyInfo - F20260821scrt secrets 脱敏", () => {
+  it("fact content 含密钥时本体表存脱敏后内容", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await uc.linkResource({
+      conversationId: "conv-1",
+      resourceType: "fact",
+      content: "部署密钥是 api_key: 0123456789abcdef01234567",
+      linkedBy: "user-1",
+      autoLinked: false,
+    }, 1);
+
+    const resource = (repo.linkResource as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(resource.content).not.toContain("0123456789abcdef");
+    expect(resource.content).toContain("[REDACTED]");
+  });
+
+  it("metadata 字符串值含密钥时同样脱敏", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await uc.linkResource({
+      conversationId: "conv-1",
+      resourceType: "fact",
+      content: "普通事实",
+      metadata: { note: "密码: hunter2xx" },
+      linkedBy: "user-1",
+      autoLinked: false,
+    }, 1);
+
+    const resource = (repo.linkResource as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(String(resource.metadata.note)).not.toContain("hunter2xx");
+  });
+
+  it("普通 content 与 metadata 原样保存", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await uc.linkResource({
+      conversationId: "conv-1",
+      resourceType: "fact",
+      content: "项目约定：部署走 worktree",
+      metadata: { count: 2 },
+      linkedBy: "user-1",
+      autoLinked: false,
+    }, 1);
+
+    const resource = (repo.linkResource as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(resource.content).toBe("项目约定：部署走 worktree");
+    expect(resource.metadata).toEqual({ count: 2 });
+  });
+});

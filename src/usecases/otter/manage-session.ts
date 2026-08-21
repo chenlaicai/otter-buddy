@@ -9,6 +9,7 @@ import { DomainError } from "@entities/errors";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 import type { Logger } from "@usecases/ports/logger";
+import { redactSecrets } from "@usecases/security/redact-secrets";
 
 /** Gateway: 查询 otter 关联的对话 ID（由 main.ts 装配 ManageConversation 实现） */
 export interface ConversationQueryGateway {
@@ -63,7 +64,8 @@ export class ManageSession {
     const history = await this.repo.getSessionHistory(otterId);
     const previousSessionId = history.length > 0 ? history[0].id : null;
 
-    const session = buildNewSession(otterId, previousSessionId, params?.summary ?? null);
+    // F20260821scrt: 前情摘要是 LLM 自由文本（restart_session 工具），写入前脱敏
+    const session = buildNewSession(otterId, previousSessionId, params?.summary ? redactSecrets(params.summary) : null);
 
     await this.repo.createSession(session);
 
@@ -82,9 +84,9 @@ export class ManageSession {
     return this.repo.getActiveSession(otterId);
   }
 
-  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情） */
+  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情；F20260821scrt：写入前脱敏） */
   async setSessionSummary(sessionId: string, summary: string): Promise<void> {
-    await this.repo.setSessionSummary(sessionId, summary);
+    await this.repo.setSessionSummary(sessionId, redactSecrets(summary));
   }
 
   /**
@@ -209,7 +211,8 @@ export class ManageSession {
         const adopted = await this.repo.getActiveSession(otterId);
         if (adopted) {
           if (summary) {
-            await this.repo.setSessionSummary(adopted.id, summary);
+            // F20260821scrt：直写 repo 的旁路同样脱敏（createSession/setSessionSummary 已各自覆盖主路径）
+            await this.repo.setSessionSummary(adopted.id, redactSecrets(summary));
           }
           this.logger.info("Restart adopted backfilled session", {
             otterId,

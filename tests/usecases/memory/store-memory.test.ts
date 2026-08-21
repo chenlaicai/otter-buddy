@@ -309,7 +309,7 @@ describe("StoreMemory - F20260821scrt secrets 脱敏", () => {
 
     await store.replaceChunksBySource([
       { ...SAMPLE_INPUT, content: "正常 chunk 内容" },
-      { ...SAMPLE_INPUT, content: "xoxb-fixturefixturefx-fixturefixturefx-fixturefixture" },
+      { ...SAMPLE_INPUT, content: "xoxb-1fixturefixturefx-fixturefixturefx-fixturefixtur" },
     ]);
 
     const [first, second] = replaceCalls[0];
