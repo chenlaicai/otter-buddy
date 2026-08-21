@@ -199,6 +199,7 @@ export class AgentMetrics implements AgentMetricsPort {
       noYieldWithOrphanTextTotal: registry.counter({
         name: "agent_no_yield_orphan_text_total",
         help: "No-yield retries where LLM output direct text but never called speak (orphan text detection)",
+        labelNames: ["otter_id"],
       }),
     };
   }
@@ -267,8 +268,8 @@ export class AgentMetrics implements AgentMetricsPort {
     this.chainDepthExceededTotal.inc();
   }
 
-  /** F20260821spcm: 旁白流失计数 */
-  recordNoYieldWithOrphanText(): void {
-    this.noYieldWithOrphanTextTotal.inc();
+  /** F20260821spcm: 旁白流失计数（按 otterId 分组） */
+  recordNoYieldWithOrphanText(otterId: string): void {
+    this.noYieldWithOrphanTextTotal.inc({ otter_id: otterId });
   }
 }

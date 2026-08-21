@@ -106,7 +106,12 @@ export class AgentTurnOrchestrator {
       // Record failed attempt
       this.recordFailedAttempt(reason, currentInput, result, err, { callbacks, attemptStartTime });
       if (hasOrphanText) {
-        this.recordNoYieldWithOrphanText(currentInput, callbacks);
+        this.recordNoYieldWithOrphanText(currentInput.otterId, currentInput, callbacks);
+        this.logger.info('Orphan text detected: LLM output direct text without calling speak', {
+          messageId: currentInput.messageId,
+          otterId: currentInput.otterId,
+          orphanTextLength: result.directText?.trim().length ?? 0,
+        });
       }
 
       // Route by reason
@@ -794,16 +799,17 @@ export class AgentTurnOrchestrator {
 
   /** F20260821spcm: 旁白流失 metrics——LLM 输出了直出文本但未调 speak */
   private recordNoYieldWithOrphanText(
+    otterId: string,
     input: TurnInput,
     callbacks: TurnCallbacks,
   ): void {
     if (!callbacks.metrics) return;
     try {
-      callbacks.metrics.recordNoYieldWithOrphanText();
+      callbacks.metrics.recordNoYieldWithOrphanText(otterId);
     } catch (err) {
       callbacks.logger.warn('metrics recordNoYieldWithOrphanText failed (non-fatal)', {
         messageId: input.messageId,
-        otterId: input.otterId,
+        otterId,
         error: err instanceof Error ? err.message : String(err),
       });
     }
