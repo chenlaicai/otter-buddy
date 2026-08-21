@@ -70,6 +70,8 @@ export class AgentMetrics implements AgentMetricsPort {
   private readonly sessionRebuildTotal: Counter<string>;
   private readonly chainHops: Histogram<string>;
   private readonly chainDepthExceededTotal: Counter<string>;
+  /** F20260821spcm: 旁白流失计数 */
+  private readonly noYieldWithOrphanTextTotal: Counter<string>;
 
   /** otterId → 上次 session 累计 token 快照（attempt 增量差分用；基数=獭数） */
   private lastTokenSnapshot = new Map<string, { input: number; output: number }>();
@@ -97,6 +99,7 @@ export class AgentMetrics implements AgentMetricsPort {
     const chain = AgentMetrics.buildChainMetrics(registry);
     this.chainHops = chain.chainHops;
     this.chainDepthExceededTotal = chain.chainDepthExceededTotal;
+    this.noYieldWithOrphanTextTotal = chain.noYieldWithOrphanTextTotal;
   }
 
   private static buildInvokeMetrics(registry: MetricsRegistry) {
@@ -193,6 +196,11 @@ export class AgentMetrics implements AgentMetricsPort {
         name: "agent_chain_depth_exceeded_total",
         help: "Dispatch chains that hit max depth",
       }),
+      noYieldWithOrphanTextTotal: registry.counter({
+        name: "agent_no_yield_orphan_text_total",
+        help: "No-yield retries where LLM output direct text but never called speak (orphan text detection)",
+        labelNames: ["otter_id"],
+      }),
     };
   }
 
@@ -258,5 +266,10 @@ export class AgentMetrics implements AgentMetricsPort {
 
   recordChainDepthExceeded(): void {
     this.chainDepthExceededTotal.inc();
+  }
+
+  /** F20260821spcm: 旁白流失计数（按 otterId 分组） */
+  recordNoYieldWithOrphanText(otterId: string): void {
+    this.noYieldWithOrphanTextTotal.inc({ otter_id: otterId });
   }
 }

@@ -25,6 +25,8 @@ export interface InvokeResultShape {
   modelAlias?: string;
   sessionRebuilt?: boolean;
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
+  directText?: string;
 }
 
 /** Attempt 执行结果 */
@@ -129,7 +131,8 @@ export interface TurnCallbacks {
   /** 创建新消息（重试用） */
   startNewMessage(conversationId: string, senderId: string, talkingStonePassedTo: string[]): Promise<{ id: string; sequenceNum: number; createdAt: string }>;
   /** 重试准备 */
-  prepareForRetry(messageId: string): Promise<void>;
+  // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+  prepareForRetry(messageId: string, preserveSegments?: boolean): Promise<void>;
   /** 查询 otter */
   getOtterById(otterId: string): Promise<{ name: string; type?: string } | null>;
   /** 查询用户显示名 */
@@ -150,6 +153,8 @@ export interface RouteContext {
   driver: AttemptDriver;
   callbacks: TurnCallbacks;
   startTime: number;
+  /** LLM 输出了直出文本但未调 speak（旁白流失检测） */
+  hasOrphanText?: boolean;
 }
 
 /** 重试上下文 */

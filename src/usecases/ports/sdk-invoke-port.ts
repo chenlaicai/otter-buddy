@@ -41,6 +41,8 @@ export interface AgentRunResult {
   sessionRebuilt?: boolean;
   /** F20260819rscn: LLM 调用 restart_otter(self) 时，SDK 不执行 restart，改为标记信号由调用方处理 */
   _selfRestart?: { otterId: string; summary?: string };
+  /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
+  directText?: string;
 }
 
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */

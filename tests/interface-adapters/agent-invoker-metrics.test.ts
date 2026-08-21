@@ -33,6 +33,7 @@ function metricsSpy() {
       recordSessionRebuild: () => sessionRebuilds.push(1),
       recordChainHops: () => {},
       recordChainDepthExceeded: () => {},
+      recordNoYieldWithOrphanText: () => {},
     } as AgentMetricsPort,
     invokes, retries, guardAborts, toolCalls, toolDurations, toolErrors, compactions, sessionRebuilds,
   };
