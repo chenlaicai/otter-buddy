@@ -7,6 +7,7 @@ import { canTransitionArtifactStatus } from "@entities/conversation/conversation
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
+import { redactSecrets, redactMetadataSecrets } from "@usecases/security/redact-secrets";
 
 export interface LinkedResourceInput {
   conversationId: string;
@@ -43,10 +44,11 @@ export class ManageKeyInfo {
       resourceType: input.resourceType,
       url: input.url ?? null,
       title: input.title ?? null,
-      content: input.content ?? null,
+      // F20260821scrt: fact 本体表（linked_resources.content）写入前脱敏——记忆索引侧由 StoreMemory 覆盖，本体表此前是明文旁路
+      content: input.content ? redactSecrets(input.content) : null,
       category: input.category ?? null,
       userFlagged: false,
-      metadata: input.metadata ?? null,
+      metadata: input.metadata ? redactMetadataSecrets(input.metadata) : null,
       linkedBy: input.linkedBy,
       otterId: input.otterId ?? null,
       autoLinked: input.autoLinked,

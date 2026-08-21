@@ -133,3 +133,28 @@ describe("ManageSession.restartSession（F20260810rstart）", () => {
     expect(result.summary).toBe("竞态前情");
   });
 });
+
+describe("ManageSession - F20260821scrt summary 脱敏", () => {
+  it("setSessionSummary 写入脱敏后内容", async () => {
+    const written: { sessionId: string; summary: string }[] = [];
+    const repo = {
+      setSessionSummary: async (sessionId: string, summary: string) => {
+        written.push({ sessionId, summary });
+      },
+    } as unknown as import("@frameworks/db/otter/sqlite-otter-repository").SqliteOtterRepository;
+    const gateway = fakeAgentGateway();
+    const manageSession = new ManageSession(
+      repo, gateway,
+      { getIdsByOtterId: vi.fn(async () => []) } as unknown as ConversationQueryGateway,
+      { updateLayer: vi.fn(async () => {}) } as unknown as MemoryLayerGateway,
+      createTestLogger(),
+    );
+
+    await manageSession.setSessionSummary("session-1", "上轮贴过密钥 api_key: 0123456789abcdef01234567");
+
+    expect(written).toHaveLength(1);
+    expect(written[0].sessionId).toBe("session-1");
+    expect(written[0].summary).toContain("[REDACTED]");
+    expect(written[0].summary).not.toContain("0123456789abcdef");
+  });
+});
