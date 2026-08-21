@@ -85,6 +85,8 @@ export interface BuildInvokeResultResult {
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
   modelAlias?: string;
   _selfRestart?: { otterId: string; summary?: string };
+  /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
+  directText?: string;
 }
 
 /** buildInvokeResult：构建 invoke 结果 */

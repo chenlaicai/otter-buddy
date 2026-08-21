@@ -397,6 +397,11 @@ export class PiSessionFactory implements AgentGateway {
           checkSessionError(session, otterId, this.logger);
           const result = buildPromptResult({ otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, model: this.cfg.model, logger: this.logger, getModelAliasForLog: this.getModelAliasForLog.bind(this) });
 
+          // F20260821spcm: 携带 LLM 直出文本（旁白流失检测用）
+          if (turnText.text.trim()) {
+            result.directText = turnText.text;
+          }
+
           // F20260819rscn: session.prompt() 完成后检查自重启。
           // Why 不在此处执行 restart：自重启后需要自动 re-invoke（獭继续工作），
           // 这需要 agent-invoker 层递归调用 invokeConversationInner。

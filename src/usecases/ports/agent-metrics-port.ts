@@ -55,6 +55,8 @@ export interface AgentMetricsPort {
   recordSessionRebuild(): void;
   recordChainHops(count: number): void;
   recordChainDepthExceeded(): void;
+  /** F20260821spcm: 旁白流失计数——LLM 输出了直出文本但未调 speak */
+  recordNoYieldWithOrphanText(): void;
 }
 
 /** retryCount + manual 标识 → retry label 值（封闭枚举） */
