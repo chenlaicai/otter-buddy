@@ -46,7 +46,6 @@ function makeRepos(opts: {
   let writtenMeta: EmbedModelMeta | undefined;
   let degradedWritten = false;
   let vecDisabledFlag = false;
-  const deletedKeys: string[] = [];
   const memoryMock = {
     getEmbeddingMeta: vi.fn().mockResolvedValue(opts.storedMeta ?? {}),
     setEmbeddingMeta: vi.fn().mockImplementation(async (meta: EmbedModelMeta) => { writtenMeta = meta; }),
@@ -60,14 +59,14 @@ function makeRepos(opts: {
     otterContext: {
       set: vi.fn().mockImplementation(async () => { degradedWritten = true; }),
       get: vi.fn().mockResolvedValue({}),
-      delete: vi.fn().mockImplementation(async (_otterId: string, key: string) => { deletedKeys.push(key); }),
+      delete: vi.fn().mockResolvedValue(undefined),
     },
     // 暴露副作用状态供断言
     writtenMeta: undefined as any,
     degradedWritten: undefined as any,
     vecDisabledFlag: undefined as any,
     // 通过 getter 同步暴露（闭包变量）
-    get __state() { return { writtenMeta, degradedWritten, vecDisabledFlag, deletedKeys }; },
+    get __state() { return { writtenMeta, degradedWritten, vecDisabledFlag }; },
   } as any;
 }
 
@@ -150,6 +149,21 @@ describe("verifyEmbeddingVersion - F20260811mrpy Part 3", () => {
 
     expect(result.vecEnabled).toBe(true);
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("no such table（schema 缺失）→ error 级告警而非静默 warn（F20260821evaf 二轮审视项：migration 未跑到不能被掩盖）", async () => {
+    const gateway = makeGateway({});
+    const repos = makeRepos({});
+    (repos.memoryReader.getEmbeddingMeta as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("no such table: embedding_meta"),
+    );
+    const logger = makeLogger();
+
+    const result = await verifyEmbeddingVersion(gateway, repos, logger);
+
+    expect(result.vecEnabled).toBe(true);
+    expect(logger.error).toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("初次启动（stored 为空）→ 写基线，vecEnabled=true", async () => {

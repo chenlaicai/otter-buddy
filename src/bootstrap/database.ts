@@ -139,30 +139,42 @@ const GET_META_TIMEOUT_MS = 30_000;
 
 /** 取 worker 当前 meta，带超时。超时/失败返回 null（调用方跳过校验，不崩 boot）。
  * 超时只截断"worker 永不 ready 也永不报错"的挂起态（onnxruntime 死锁等），
- * 不掩盖 mismatch——mismatch 在 meta 成功拿到后才判定（F20260821evaf 审视项）。 */
+ * 不掩盖 mismatch——mismatch 在 meta 成功拿到后才判定（F20260821evaf 审视项）。
+ * 依赖：getMeta 内部 waitForReady 的 waiters 由 worker ready/error/exit 事件兜底回收，
+ * 超时后残留 waiter 最坏滞留为有界对象，无泄漏。 */
 async function fetchCurrentMeta(
   embeddingGateway: EmbeddingGateway,
   logger: Logger,
 ): Promise<EmbedModelMeta | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
+    const meta = await Promise.race([
       embeddingGateway.getMeta!(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`getMeta timeout after ${GET_META_TIMEOUT_MS}ms`)), GET_META_TIMEOUT_MS),
-      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`getMeta timeout after ${GET_META_TIMEOUT_MS}ms`)), GET_META_TIMEOUT_MS);
+      }),
     ]);
+    return meta;
   } catch (err) {
     logger.warn(`Failed to read embedding meta from worker, skipping version check: ${err}`);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-/** 读存储基线。DB 读失败（磁盘满/只读等 IO 错误）返回 null（跳过校验，不崩 boot）。 */
+/** 读存储基线。IO 错误（磁盘满/只读等）返回 null（跳过校验，不崩 boot）。
+ * schema 缺失（no such table）单独识别并 error 级告警——那是 migration 没跑到的信号，
+ * 不能像 IO 错误一样静默 skip（否则重演"静默跳过藏 10 天"，F20260821evaf 二轮审视项）。 */
 async function readStoredMeta(repos: Repositories, logger: Logger): Promise<Partial<EmbedModelMeta> | null> {
   try {
     return await repos.memoryReader.getEmbeddingMeta();
   } catch (err) {
-    logger.warn(`Failed to read embedding_meta from db, skipping version check: ${err}`);
+    if (err instanceof Error && err.message.includes("no such table")) {
+      logger.error(`embedding_meta table missing — version anchor silently inactive, check migration: ${err}`);
+    } else {
+      logger.warn(`Failed to read embedding_meta from db, skipping version check: ${err}`);
+    }
     return null;
   }
 }
