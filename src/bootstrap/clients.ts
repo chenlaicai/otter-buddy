@@ -41,6 +41,9 @@ export function buildMemoryClient(uc: UseCases) {
         entries: result.entries.map(mapEntry),
         // F20260812mrcq Part 2 审视二轮 B1: agent 路径透传 contextEntries
         ...(result.contextEntries ? { contextEntries: result.contextEntries.map(mapEntry) } : {}),
+        // F20260821evaf 二轮审视: agent 路径透传 vecCoverage——移除 otter_context 降级告警后，
+        // 这是 agent 感知 FTS-only 降级/暗化条目的唯一通道（此前只到 HTTP 端点，工具 description 却已承诺）
+        vecCoverage: result.vecCoverage,
       };
     },
     getDetails: async (ids: string[]) => {

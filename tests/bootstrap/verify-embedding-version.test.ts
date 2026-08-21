@@ -2,10 +2,12 @@
  * F20260811mrpy Part 3：verifyEmbeddingVersion 三分支测试
  *
  * 分支：
- * 1. embeddingGateway 不 available 或无 getMeta → 跳过（vecEnabled=true）
+ * 1. embeddingGateway 无 getMeta（老接口）→ 跳过（vecEnabled=true）
  * 2. 初次启动（stored.modelId 空）→ 写基线（vecEnabled=true）
  * 3. 一致 → vecEnabled=true
  * 4. 不一致 → disableVec + otter_context 告警（vecEnabled=false）
+ *
+ * F20260821evaf：available=false（worker 尚未 ready）不再跳过——getMeta 内部 waitForReady。
  */
 import { describe, it, expect, vi } from "vitest";
 import { verifyEmbeddingVersion } from "../../src/bootstrap/database";
@@ -79,15 +81,17 @@ function makeLogger(): Logger {
 }
 
 describe("verifyEmbeddingVersion - F20260811mrpy Part 3", () => {
-  it("embeddingGateway 不 available → 跳过校验，vecEnabled=true", async () => {
+  it("embeddingGateway 不 available（worker 尚未 ready）→ 仍执行校验（F20260821evaf：available 是时序快照，getMeta 内部 waitForReady）", async () => {
     const gateway = makeGateway({ available: false });
-    const repos = makeRepos({});
+    const repos = makeRepos({
+      storedMeta: { modelId: "Xenova/bge-m3", modelRev: "unknown", dim: 1024 },
+    });
     const logger = makeLogger();
 
     const result = await verifyEmbeddingVersion(gateway, repos, logger);
 
     expect(result.vecEnabled).toBe(true);
-    expect(repos.memory.getEmbeddingMeta).not.toHaveBeenCalled();
+    expect(repos.memory.getEmbeddingMeta).toHaveBeenCalled();
   });
 
   it("embeddingGateway 无 getMeta 方法（老接口）→ 跳过校验", async () => {
@@ -114,6 +118,54 @@ describe("verifyEmbeddingVersion - F20260811mrpy Part 3", () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
+  it("getMeta 永不返回（worker 挂死）→ 30s 超时后跳过校验，不无限挂起（F20260821evaf 审视项）", async () => {
+    vi.useFakeTimers();
+    try {
+      const gateway = makeGateway({ getMeta: () => new Promise<EmbedModelMeta>(() => {}) });
+      const repos = makeRepos({});
+      const logger = makeLogger();
+
+      const resultPromise = verifyEmbeddingVersion(gateway, repos, logger);
+      const asserted = resultPromise.then((result) => {
+        expect(result.vecEnabled).toBe(true);
+        expect(logger.warn).toHaveBeenCalled();
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      await asserted;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("getEmbeddingMeta 读 DB 抛错（IO 错误）→ 跳过校验不崩 boot（F20260821evaf 审视项）", async () => {
+    const gateway = makeGateway({});
+    const repos = makeRepos({});
+    (repos.memoryReader.getEmbeddingMeta as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("database is locked"),
+    );
+    const logger = makeLogger();
+
+    const result = await verifyEmbeddingVersion(gateway, repos, logger);
+
+    expect(result.vecEnabled).toBe(true);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("no such table（schema 缺失）→ error 级告警而非静默 warn（F20260821evaf 二轮审视项：migration 未跑到不能被掩盖）", async () => {
+    const gateway = makeGateway({});
+    const repos = makeRepos({});
+    (repos.memoryReader.getEmbeddingMeta as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("no such table: embedding_meta"),
+    );
+    const logger = makeLogger();
+
+    const result = await verifyEmbeddingVersion(gateway, repos, logger);
+
+    expect(result.vecEnabled).toBe(true);
+    expect(logger.error).toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
   it("初次启动（stored 为空）→ 写基线，vecEnabled=true", async () => {
     const gateway = makeGateway({});
     const repos = makeRepos({ storedMeta: {} });
@@ -138,7 +190,7 @@ describe("verifyEmbeddingVersion - F20260811mrpy Part 3", () => {
     expect((repos as any).__state.writtenMeta).toBeUndefined();
   });
 
-  it("modelId 不一致 → disableVec + otter_context 告警，vecEnabled=false", async () => {
+  it("modelId 不一致 → disableVec，vecEnabled=false（F20260821evaf：otter_context 写入已移除——FK 挡 system 幽灵 id 且无消费方）", async () => {
     const gateway = makeGateway({});
     const repos = makeRepos({
       storedMeta: { modelId: "old-model", modelRev: "unknown", dim: 1024 },
@@ -150,7 +202,7 @@ describe("verifyEmbeddingVersion - F20260811mrpy Part 3", () => {
     expect(result.vecEnabled).toBe(false);
     expect(result.reason).toBe("version_mismatch");
     expect((repos as any).__state.vecDisabledFlag).toBe(true);
-    expect((repos as any).__state.degradedWritten).toBe(true);
+    expect((repos as any).__state.degradedWritten).toBe(false);
     expect(logger.error).toHaveBeenCalled();
   });
 

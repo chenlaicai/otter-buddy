@@ -254,3 +254,37 @@ describe("migrateDatabase - F20260803fbit body_hash 列", () => {
     }
   });
 });
+
+/**
+ * F20260821evaf：embedding_meta 表老库补建。
+ * initSchema 仅新库执行——存量库若只靠 initSchema，embedding_meta 永远不存在，
+ * getEmbeddingMeta 的 SELECT 直接抛 no such table。
+ */
+describe("migrateDatabase - F20260821evaf embedding_meta 表", () => {
+  it("老库无 embedding_meta：migrate 补建后可读写", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      db.exec("DROP TABLE embedding_meta"); // 模拟 initSchema 早于该表时代的存量库
+
+      migrateDatabase(db, createTestLogger());
+
+      db.prepare("INSERT INTO embedding_meta (key, value, updated_at) VALUES ('model_id', 'bge-m3', '2026-08-21T00:00:00Z')").run();
+      const row = db.prepare("SELECT value FROM embedding_meta WHERE key = 'model_id'").get() as { value: string };
+      expect(row.value).toBe("bge-m3");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("幂等：已有表的库跑 migrate 不报错", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      migrateDatabase(db, createTestLogger());
+    } finally {
+      db.close();
+    }
+  });
+});

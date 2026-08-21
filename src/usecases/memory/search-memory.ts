@@ -337,8 +337,10 @@ export class SearchMemory {
         snippet,
       };
     });
-    // F20260811mrpy Part 1：术语库不索引 vec，withVec 恒为 0
-    return { entries, total: entries.length, vecCoverage: this.buildVecCoverage(entries.length, 0) };
+    // F20260811mrpy Part 1：术语库不索引 vec。
+    // F20260821evaf 三轮审视：total 报 0（而非 entries.length）——术语条目恒无 vec，
+    // 报实际数量会把 ratio 算成 0.0，误导消费方"全部暗化"。total=0 约定 = 本路由不参与 vec 统计。
+    return { entries, total: entries.length, vecCoverage: this.buildVecCoverage(0, 0) };
   }
 
   /** 全库搜索：排名位置归一化混排 */
@@ -381,11 +383,11 @@ export class SearchMemory {
       return e;
     });
 
-    // F20260811mrpy Part 1：合并对话库 vecCoverage + 术语库（术语库不索引 vec）
-    const convWithVec = convResult.vecCoverage.withVec;
-    const mergedVecCoverage = this.buildVecCoverage(entries.length, convWithVec);
-
-    return { entries, total: entries.length, vecCoverage: mergedVecCoverage };
+    // F20260811mrpy Part 1：vecCoverage 只统计 vec 索引库（对话库）。
+    // F20260821evaf 三轮审视修正：原用混排后 entries.length（含术语条目）作分母、
+    // 对话库混排前 withVec 作分子，口径错位会把 ratio 系统性稀释甚至算成 0.0。
+    // 直接透传对话库自身口径（分子分母同源），术语库不参与统计。
+    return { entries, total: entries.length, vecCoverage: convResult.vecCoverage };
   }
 
   /** 术语库搜索辅助方法（用于全库搜索混排） */
