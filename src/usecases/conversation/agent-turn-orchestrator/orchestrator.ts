@@ -607,7 +607,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.aborted',
-      data: { messageId, body, otterId, otterName: otter?.name },
+      data: { messageId, body, otterId, otterName: otter?.name ?? otterId },
     });
 
     return { messageId, duration: Date.now() - ctx.startTime };
