@@ -93,7 +93,7 @@ function ConversationPage() {
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
   const abortNotifiedRef = useRef<Set<string>>(new Set())
   // F-multi-speak-bubble: 分段状态管理
-  const { upsertSegment, clearSegments, mergeSegmentsToMessage } = useSpeakSegments()
+  const { upsertSegment, clearSegments } = useSpeakSegments()
   const allMessagesRef = useRef<Record<string, LocalMessage[]>>({})
   // 同步 allMessages 到 ref，供回调函数读取（解除闭包依赖）
   useEffect(() => {
