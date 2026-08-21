@@ -178,6 +178,9 @@ function ensureEmbeddingTasksTable(db: Database.Database, logger: Logger): void 
 
 /** F20260821evaf：embedding_meta 表（版本锚，schema.ts 同构）。老库补建——initSchema 仅新库执行。 */
 function ensureEmbeddingMetaTable(db: Database.Database, logger: Logger): void {
+  const existed = (db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'embedding_meta'",
+  ).get() !== undefined);
   db.exec(`
     CREATE TABLE IF NOT EXISTS embedding_meta (
       key TEXT PRIMARY KEY,
@@ -185,7 +188,8 @@ function ensureEmbeddingMetaTable(db: Database.Database, logger: Logger): void {
       updated_at TEXT NOT NULL
     );
   `);
-  logger.info('Ensured embedding_meta table exists');
+  // 只在真正补建时打日志，让日志可作为"老库升级发生"的证据（F20260821evaf 审视项）
+  if (!existed) logger.info('Ensured embedding_meta table exists');
 }
 
 /**

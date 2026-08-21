@@ -2,7 +2,9 @@
 export interface EmbedModelMeta {
   /** 模型标识，如 "Xenova/bge-m3" */
   modelId: string;
-  /** 模型 revision（HF revision 或本地模型 mtime），未知则为 "unknown" */
+  /** 模型 revision。当前实现恒为 "unknown"（worker 未上报真实 revision，F20260821evaf 审视记录）。
+   *  后果：本地 models/ 目录整目录替换时 modelId/dim 可能都不变，锚检测不到；将来实现真实 rev
+   *  （本地 mtime 或 HF revision）时需一次性重写存量基线，否则必然 mismatch。 */
   modelRev: string;
   /** 向量维度（从实际加载的模型输出形状数组最后一维读取，不硬编码） */
   dim: number;
