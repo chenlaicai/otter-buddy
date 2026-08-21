@@ -36,6 +36,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
 import { attachGuards, checkSessionError, buildPromptResult } from "./circuit-breaker-helpers";
+import { checkOrchestrationGuard } from "@usecases/conversation/dispatch-guard";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { IdentityBuilder } from "./identity-builder";
@@ -382,8 +383,8 @@ export class PiSessionFactory implements AgentGateway {
         const { session, sessionKey, toolContext } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
         this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
-        // 2. 熔断器 + 输出退化检测
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger });
+        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName) });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);

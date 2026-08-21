@@ -47,6 +47,12 @@ function makeTools(
         }),
       },
     },
+    // F20260821i336：派工台账 mock
+    dispatch: {
+      createRecord: async () => ({ id: "dispatch-1" }),
+      updateRecord: async () => {},
+      queryRecords: async () => [],
+    },
   } as unknown as OtterToolClient;
 
   const ctx: ToolContext = {

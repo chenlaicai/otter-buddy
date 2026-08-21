@@ -50,6 +50,7 @@ export function getOtterToolNamesForType(
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
+    "query_dispatch_ledger", // F20260821i336：派工台账查询工具
   ];
 
   // 尝试从 manifest 加载

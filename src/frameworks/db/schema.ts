@@ -661,3 +661,5 @@ function createUserReadStateTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_user_read_state_conv ON conversation_user_read_state(conversation_id);
   `);
 }
+
+

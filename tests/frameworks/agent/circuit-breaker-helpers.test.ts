@@ -139,7 +139,7 @@ describe("attachCircuitBreaker - 终止策略与 abort 原因", () => {
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 1 }),
       createTestLogger(),
-      abortOverride,
+      { abortOverride: abortOverride },
     );
 
     const stuck = () => session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
@@ -163,7 +163,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 触发一次工具调用，启动 timer
@@ -189,7 +189,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 第一次工具调用：执行 3 秒后完成
@@ -221,7 +221,7 @@ describe("attachCircuitBreaker - per-event 超时（基础）", () => {
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 工具执行 4 秒后完成
@@ -254,7 +254,7 @@ describe("attachCircuitBreaker - per-event 超时（清理）", () => {
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 触发一次工具调用，启动 timer
@@ -279,7 +279,7 @@ describe("attachCircuitBreaker - per-event 超时（清理）", () => {
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 触发一次工具调用，启动 timer
@@ -306,7 +306,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 并行启动两个工具调用
@@ -340,7 +340,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 并行启动两个工具调用
@@ -372,7 +372,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 第一次 start
@@ -404,7 +404,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 先发 end（toolCallId="tc-tool_1"）
@@ -430,7 +430,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000, maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 1 }),
         createTestLogger(),
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 并行启动两个工具
@@ -464,7 +464,7 @@ describe("attachCircuitBreaker - per-event 超时（并行工具调用）", () =
         "otter-1",
         makeConfig({ maxPerEventTimeMs: 5000 }),
         logger,
-        abortOverride,
+        { abortOverride: abortOverride },
       );
 
       // 发送缺少 toolCallId 的事件
@@ -511,7 +511,7 @@ describe("attachCircuitBreaker - F20260806cbsx speak 豁免 steer 注入", () =>
       "otter-1",
       makeConfig({ maxConsecutiveIdentical: 3, maxRepeatAfterWarning: 2 }),
       createTestLogger(),
-      abortOverride,
+      { abortOverride: abortOverride },
     );
 
     // speak 连续 6 次：前 3 次 allow，4-6 触发 consecutive steer（但 speak 不注入），
