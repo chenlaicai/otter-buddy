@@ -282,8 +282,8 @@ export class AgentInvoker implements AgentTurnPort {
         return { id: msg.id, sequenceNum: msg.sequenceNum, createdAt: msg.createdAt };
       },
 
-      prepareForRetry: async (messageId: string) => {
-        await this.sendMessage.prepareForRetry(messageId);
+      prepareForRetry: async (messageId: string, preserveSegments?: boolean) => {
+        await this.sendMessage.prepareForRetry(messageId, preserveSegments);
       },
 
       broadcastMessage: async (messageId: string) => {
