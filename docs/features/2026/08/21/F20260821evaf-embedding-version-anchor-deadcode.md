@@ -25,7 +25,6 @@ modules:
   - src/bootstrap/clients.ts
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
-created_in_conversation: fix-embedding-version-anchor
 ---
 
 # F20260821evaf: embedding 版本锚死代码修复
@@ -118,10 +117,12 @@ boot 日志出现 `Embedding model loaded: ... dim=1024` + `Embedding meta basel
 | src/bootstrap/database.ts | 修改 | 守卫去掉 available 快照；getMeta 30s 超时（含 timer 清理）；DB 读写容错（no-such-table 升 error 级）；移除 otter_context 告警写入 |
 | src/usecases/ports/otter-tool-client.ts | 修改 | search 返回类型补 vecCoverage（二轮审视） |
 | src/bootstrap/clients.ts | 修改 | search 透传 vecCoverage 到 agent 路径（二轮审视） |
-| src/interface-adapters/agent-runtime/tools/tool-factory.ts | 修改 | search_memory 输出含 vecCoverage（二轮审视） |
+| src/interface-adapters/agent-runtime/tools/tool-factory.ts | 修改 | search_memory 输出含 vecCoverage；description 补 vecCoverage 读法（三轮审视） |
+| src/usecases/memory/search-memory.ts | 修改 | terminology 路由 vecCoverage total=0（不参与统计）；全库混排透传对话库口径（三轮审视修正口径错位） |
 | src/app.ts | 修改 | 注释同步（降级状态经 vecCoverage 暴露） |
 | tests/bootstrap/verify-embedding-version.test.ts | 修改 | 反转 available 用例；新增超时/IO 错误/no-such-table 用例；降级用例改为断言不写 otter_context |
 | tests/bootstrap/clients.test.ts | 修改 | 新增 vecCoverage 透传用例（二轮审视） |
+| tests/interface-adapters/search-memory-tool.test.ts | 新增 | search_memory 输出 shape 3 例，钉住 vecCoverage 序列化契约（三轮审视） |
 | tests/frameworks/db/migration.test.ts | 修改 | 新增老库补建 + 幂等两个用例 |
 
 ### 逻辑变更
@@ -132,7 +133,7 @@ boot 日志出现 `Embedding model loaded: ... dim=1024` + `Embedding meta basel
 
 ### 测试结果
 
-- 单测：`npm test` 1357/1357 通过、lint 0 error（verify-embedding-version 11 例含超时/IO 容错/no-such-table、clients vecCoverage 透传 1 例、migration 新增 2 例）
+- 单测：`npm test` 1360/1360 通过、lint 0 error（verify-embedding-version 10 例含超时/IO 容错/no-such-table、clients vecCoverage 透传 1 例、search_memory 输出 shape 3 例、migration 新增 2 例）
 - 隔离实例实证（worktree + 独立端口 3901 + 生产库一致性副本，三轮启动）：
   - 首启：`Ensured embedding_meta table exists` → `Embedding model loaded: bge-m3 rev=unknown dim=1024` → `Embedding meta baseline recorded: bge-m3 rev=unknown dim=1024`；表内容 model_id=bge-m3 / dim=1024
   - mismatch 轮（dim 改 999）：`Embedding version mismatch, degrading to FTS-only` → `Embedding vec path disabled` → `EmbeddingRetryWorker not started`，memory_vec 被 disableVec 清空；无 FK 报错（告警写入已移除）
@@ -180,6 +181,21 @@ boot 日志出现 `Embedding model loaded: ... dim=1024` + `Embedding meta basel
 | migratedExisting 语义被误读为"回灌完成量" | 修：文档澄清是入队数 |
 | boot 迁移复活 dead-letter 条目（attempts 不重置，每次 boot 白做一轮推理） | 记录未修：F20260812mrcq 遗留，独立问题 |
 
+### 第三轮（发布前门禁 + 二轮新增成为靶子）
+
+两个独立 agent（攻 vecCoverage 透传语义 / 最终门禁审查）。核心发现：刚打通的通道在最常用的两种查询下传递失真信号。
+
+| 审视项 | 处置 |
+|--------|------|
+| **全库混排 vecCoverage 口径错位**：分母用混排后 entries.length（含术语条目）、分子用对话库混排前统计——ratio 被系统性稀释，极端时算成 0.0 | 修：全库直接透传对话库自身口径（分子分母同源，术语库不参与统计） |
+| **terminology 路由恒 ratio=0.0**：术语条目恒无 vec，报实际数量=告诉 agent"全部暗化" | 修：total 报 0（约定=本路由不参与 vec 统计），与空结果/锚点短路路径一致 |
+| **vecDisabled 在 description 零解释**：透传只完成一半，降级时 agent 拿到字段却没有解码钥匙 | 修：description 补 vecCoverage 完整读法（total=0 / 0<ratio<1 / vecDisabled=true 三态语义） |
+| search_memory 输出 shape 无直接单测 | 修：新增 3 例钉住序列化契约 |
+| created_in_conversation 填了 worktree 名（假指针，provenance 追溯失效） | 修：删除该字段（存 null 比存假指针诚实） |
+| 文档测试计数 off-by-one（11 例实为 10 例） | 修：更正为 1360/1360 全量复算 |
+| 输出 shape 变化的消费方 / no-such-table 字符串匹配 / timer 时序 | 验证无问题：healing 不碰工具 JSON；HTTP 端点 shape 未变；SQLite 错误消息不走 locale 跨版本稳定；executor 同步执行保证赋值先于 finally |
+| memory_fts 只写不查无跟踪去处 | 修：建 issue 登记（见设计决策） |
+
 ### 运维语义（二轮审视要求补文档）
 
 - **mismatch 的代价**：disableVec 会 DELETE memory_vec（防新旧向量混跑，F20260812mrcq Part 0 设计）。按 retry worker 实际吞吐（每 30s 批 10 条 ≈ 1200 条/小时），4245 条全量回灌约 3.5 小时；期间检索静默 FTS-only，agent 可经 vecCoverage 感知，人类用户无感知。回灌与对话查询共用同一 worker 线程，回灌期查询 embed 延迟会叠加。
@@ -193,4 +209,4 @@ boot 日志出现 `Embedding model loaded: ... dim=1024` + `Embedding meta basel
 - **移除而非修复 otter_context 告警**：修复需要造 system 海獭实体 + 新增读取通道，而降级状态已有暴露通道（vecCoverage，本轮起 agent 路径也通），再建一条是重复机制。
 - **不做 disableVec 前的向量影子备份**：mismatch 属低频事件且假 mismatch 路径已收窄（基线只从真实 worker meta 写入）；备份表引入恢复语义复杂度，与"不做 re-embed 基础设施"决策方向一致。以 runbook 文档化替代。
 - **modelRev 固化为 unknown 的代价**：本地 models/ 目录整目录替换（同 modelId 同 dim）时锚检测不到；将来实现真实 rev 时需一次性重写基线。接受理由：换模型属低频运维事件，届时全库线下 re-embed 顺带重写锚即可。
-- **顺带发现未修**：memory_fts（trigram 表）只写不查，每条 entry 白写一份索引；boot 迁移复活 dead-letter 条目——均为独立问题，另行处理。
+- **顺带发现未修**：memory_fts（trigram 表）只写不查，每条 entry 白写一份索引——已建 issue 跟踪（三轮门禁要求消除无主状态）；boot 迁移复活 dead-letter 条目——F20260812mrcq 遗留，独立问题。
