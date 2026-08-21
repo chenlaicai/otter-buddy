@@ -70,8 +70,9 @@ export interface ConversationRepository {
   failInFlightMessages(failedAt: string, noticeBody: string): Promise<number>;
   /** 服务重启兜底：关闭不再有进行中消息的 open turn（配合 failInFlightMessages），返回关闭条数 */
   closeOrphanedTurns(closedAt: string): Promise<number>;
-  /** 重置 failed 消息为 streaming（yield 重试专用）。清空 segments。status 非 failed 时抛 DomainError。 */
-  resetForStreaming(messageId: string, turnId: string): Promise<void>;
+  /** 重置 failed 消息为 streaming（yield 重试专用）。默认清空 segments。preserveSegments=true 时保留 segments（no_yield 重试专用：speak 内容有效，不应被删除）。status 非 failed 时抛 DomainError。 */
+  // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+  resetForStreaming(messageId: string, turnId: string, preserveSegments?: boolean): Promise<void>;
   /** 更新消息的 token 使用量（yield complete 后补充写入） */
   updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
   /** 中止消息：streaming -> aborted（body + talkingStonePassedTo 同一事务写入） */

@@ -499,7 +499,8 @@ export class AgentTurnOrchestrator {
       try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
       try {
-        await ctx.callbacks.prepareForRetry(ctx.input.messageId);
+        // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+        await ctx.callbacks.prepareForRetry(ctx.input.messageId, true);
       } catch (err) {
         this.logger.warn('prepareForRetry failed, falling back to legacy retry', {
           messageId: ctx.input.messageId,
