@@ -275,7 +275,8 @@ function ConversationPage() {
             if (!existing) return prev
             /** 仍在生成且内容未变：跳过替换，避免引用抖动触发轮询 effect 空转重排 */
             if (existing.status === serverMsg.status && existing.content === serverMsg.content) return prev
-            return { ...prev, [convId]: l.map(x => x.id === m.id ? { ...serverMsg, events: m.events } : x) }
+            /** 用 || 而非 ??：空串也视为缺失，回退到 SSE 设置的 sn（同 stopStream 注释） */
+            return { ...prev, [convId]: l.map(x => x.id === m.id ? { ...serverMsg, events: m.events, sn: serverMsg.sn || m.sn } : x) }
           })
         } catch { /* 下轮重试 */ }
       }
@@ -876,8 +877,8 @@ function ConversationPage() {
           setAllMessages(prev => {
             const list = prev[activeId]
             if (!list?.some(m => m.id === messageId)) return prev
-            /** getMessage 不含 events，保留本地已有事件 */
-            return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...serverMsg, events: m.events } : m) }
+            /** getMessage 不含 events，保留本地已有事件；sn 可能缺失（服务端降级），保留本地已有的。用 || 而非 ??：空串也视为缺失，回退到 SSE 设置的 sn */
+            return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...serverMsg, events: m.events, sn: serverMsg.sn || m.sn } : m) }
           })
         } catch {
           revertToInFlight()
