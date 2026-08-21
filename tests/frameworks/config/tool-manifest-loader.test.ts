@@ -1,5 +1,6 @@
 /**
  * F20260820a4rt: tool-manifest-loader 单元测试
+ * F20260821a5cb: 新增 capabilityBlocks / groups 测试
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "fs";
@@ -36,6 +37,32 @@ const VALID_MANIFEST: ToolManifest = {
   },
 };
 
+const VALID_MANIFEST_V2: ToolManifest = {
+  schemaVersion: 2,
+  defaultType: "big",
+  capabilityBlocks: {
+    memory: {
+      description: "记忆检索与管理",
+      tools: ["search_memory", "get_memory_detail"],
+    },
+    conversation: {
+      description: "对话历史查询",
+      tools: ["get_message", "list_messages"],
+    },
+  },
+  types: {
+    big: {
+      description: "大獭 - 全功能",
+      tools: "*",
+    },
+    small: {
+      description: "小獭 - 子集",
+      groups: ["memory"],
+      tools: ["speak", "yield"],
+    },
+  },
+};
+
 describe("loadToolManifest", () => {
   beforeEach(cleanup);
   afterEach(cleanup);
@@ -58,8 +85,8 @@ describe("loadToolManifest", () => {
     expect(result).toBeNull();
   });
 
-  it("should return null when schemaVersion is not 1", () => {
-    createManifest({ schemaVersion: 2, defaultType: "big", types: {} });
+  it("should return null when schemaVersion is unsupported", () => {
+    createManifest({ schemaVersion: 3, defaultType: "big", types: {} });
     const result = loadToolManifest(TEST_DIR);
     expect(result).toBeNull();
   });
@@ -116,7 +143,7 @@ describe("loadToolManifest", () => {
     expect(result).toBeNull();
   });
 
-  it("should load valid manifest successfully", () => {
+  it("should load valid v1 manifest successfully", () => {
     createManifest(VALID_MANIFEST);
     const result = loadToolManifest(TEST_DIR);
     expect(result).not.toBeNull();
@@ -124,6 +151,31 @@ describe("loadToolManifest", () => {
     expect(result!.defaultType).toBe("big");
     expect(result!.types.big.tools).toBe("*");
     expect(result!.types.small.tools).toEqual(["speak", "yield", "search_memory"]);
+  });
+
+  it("should load valid v2 manifest successfully", () => {
+    createManifest(VALID_MANIFEST_V2);
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).not.toBeNull();
+    expect(result!.schemaVersion).toBe(2);
+    expect(result!.capabilityBlocks).toBeDefined();
+    expect(result!.capabilityBlocks!.memory.tools).toEqual(["search_memory", "get_memory_detail"]);
+    expect(result!.types.small.groups).toEqual(["memory"]);
+    expect(result!.types.small.tools).toEqual(["speak", "yield"]);
+  });
+
+  it("should accept schemaVersion 1", () => {
+    createManifest({ schemaVersion: 1, defaultType: "big", types: { big: { description: "test", tools: "*" } } });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).not.toBeNull();
+    expect(result!.schemaVersion).toBe(1);
+  });
+
+  it("should accept schemaVersion 2", () => {
+    createManifest({ schemaVersion: 2, defaultType: "big", types: { big: { description: "test", tools: "*" } } });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).not.toBeNull();
+    expect(result!.schemaVersion).toBe(2);
   });
 
   it("should call logger.warn when file not found", () => {
@@ -142,6 +194,120 @@ describe("loadToolManifest", () => {
     loadToolManifest(TEST_DIR, logger);
     expect(errors.length).toBe(1);
     expect(errors[0]).toContain("JSON 解析失败");
+  });
+
+  // capabilityBlocks 校验测试
+  it("should return null when capabilityBlocks is not an object", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: "invalid",
+      types: { big: { description: "test", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).toBeNull();
+  });
+
+  it("should return null when capabilityBlock is missing description", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: { tools: ["search_memory"] },
+      },
+      types: { big: { description: "test", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).toBeNull();
+  });
+
+  it("should return null when capabilityBlock tools is not an array", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: { description: "test", tools: "*" },
+      },
+      types: { big: { description: "test", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).toBeNull();
+  });
+
+  it("should return null when capabilityBlock tools contains non-string", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: { description: "test", tools: [123] },
+      },
+      types: { big: { description: "test", tools: "*" } },
+    });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).toBeNull();
+  });
+
+  // groups 校验测试
+  it("should return null when groups is not an array", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: { description: "test", tools: ["search_memory"] },
+      },
+      types: {
+        big: { description: "test", tools: "*" },
+        small: { description: "test", groups: "invalid", tools: ["speak"] },
+      },
+    });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).toBeNull();
+  });
+
+  it("should return null when groups references non-existent block", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: { description: "test", tools: ["search_memory"] },
+      },
+      types: {
+        big: { description: "test", tools: "*" },
+        small: { description: "test", groups: ["nonexistent"], tools: ["speak"] },
+      },
+    });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).toBeNull();
+  });
+
+  it("should return null when groups contains non-string", () => {
+    createManifest({
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: { description: "test", tools: ["search_memory"] },
+      },
+      types: {
+        big: { description: "test", tools: "*" },
+        small: { description: "test", groups: [123], tools: ["speak"] },
+      },
+    });
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).toBeNull();
+  });
+
+  it("should load manifest with valid groups references", () => {
+    createManifest(VALID_MANIFEST_V2);
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).not.toBeNull();
+    expect(result!.types.small.groups).toEqual(["memory"]);
+  });
+
+  it("should not include capabilityBlocks when not defined", () => {
+    createManifest(VALID_MANIFEST);
+    const result = loadToolManifest(TEST_DIR);
+    expect(result).not.toBeNull();
+    expect(result!.capabilityBlocks).toBeUndefined();
   });
 });
 
@@ -171,5 +337,140 @@ describe("getToolNamesFromManifest", () => {
     };
     const result = getToolNamesFromManifest(manifest, "unknown", allToolNames);
     expect(result).toEqual(allToolNames);
+  });
+
+  // v2 groups 展开测试
+  it("should expand groups and merge with type tools", () => {
+    const manifest: ToolManifest = {
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: {
+          description: "记忆",
+          tools: ["search_memory", "get_memory_detail"],
+        },
+        conversation: {
+          description: "对话",
+          tools: ["get_message", "list_messages"],
+        },
+      },
+      types: {
+        big: { description: "大獭", tools: "*" },
+        small: {
+          description: "小獭",
+          groups: ["memory"],
+          tools: ["speak", "yield"],
+        },
+      },
+    };
+
+    const result = getToolNamesFromManifest(manifest, "small", allToolNames);
+    // groups 在前，type tools 在后
+    expect(result).toEqual(["search_memory", "get_memory_detail", "speak", "yield"]);
+  });
+
+  it("should expand multiple groups in order", () => {
+    const manifest: ToolManifest = {
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: {
+          description: "记忆",
+          tools: ["search_memory"],
+        },
+        conversation: {
+          description: "对话",
+          tools: ["get_message"],
+        },
+      },
+      types: {
+        big: { description: "大獭", tools: "*" },
+        small: {
+          description: "小獭",
+          groups: ["memory", "conversation"],
+          tools: ["speak"],
+        },
+      },
+    };
+
+    const result = getToolNamesFromManifest(manifest, "small", allToolNames);
+    expect(result).toEqual(["search_memory", "get_message", "speak"]);
+  });
+
+  it("should dedupe tools from groups and type tools", () => {
+    const manifest: ToolManifest = {
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: {
+          description: "记忆",
+          tools: ["search_memory", "speak"],
+        },
+      },
+      types: {
+        big: { description: "大獭", tools: "*" },
+        small: {
+          description: "小獭",
+          groups: ["memory"],
+          tools: ["speak", "yield"],
+        },
+      },
+    };
+
+    const result = getToolNamesFromManifest(manifest, "small", allToolNames);
+    // speak 出现在 groups 和 type tools 中，只保留第一次出现
+    expect(result).toEqual(["search_memory", "speak", "yield"]);
+  });
+
+  it("should handle type with groups but no tools", () => {
+    const manifest: ToolManifest = {
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: {
+          description: "记忆",
+          tools: ["search_memory"],
+        },
+      },
+      types: {
+        big: { description: "大獭", tools: "*" },
+        small: {
+          description: "小獭",
+          groups: ["memory"],
+          tools: [],
+        },
+      },
+    };
+
+    const result = getToolNamesFromManifest(manifest, "small", allToolNames);
+    expect(result).toEqual(["search_memory"]);
+  });
+
+  it("should handle type with tools but no groups", () => {
+    const manifest: ToolManifest = {
+      schemaVersion: 2,
+      defaultType: "big",
+      capabilityBlocks: {
+        memory: {
+          description: "记忆",
+          tools: ["search_memory"],
+        },
+      },
+      types: {
+        big: { description: "大獭", tools: "*" },
+        small: {
+          description: "小獭",
+          tools: ["speak", "yield"],
+        },
+      },
+    };
+
+    const result = getToolNamesFromManifest(manifest, "small", allToolNames);
+    expect(result).toEqual(["speak", "yield"]);
+  });
+
+  it("should handle v1 manifest without capabilityBlocks", () => {
+    const result = getToolNamesFromManifest(VALID_MANIFEST, "small", allToolNames);
+    expect(result).toEqual(["speak", "yield", "search_memory"]);
   });
 });
