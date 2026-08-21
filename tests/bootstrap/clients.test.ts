@@ -45,3 +45,19 @@ describe("buildOtterToolClient syncDocs 接线（F20260813mren 审视三轮 #11�
     await first;
   });
 });
+
+/** F20260821evaf 二轮审视：vecCoverage 必须透传到 agent 路径——
+ * 移除 otter_context 降级告警后这是 agent 感知 FTS-only 降级的唯一通道，
+ * 此前在 client 层被丢弃（工具 description 却已承诺该字段）。 */
+describe("buildMemoryClient search vecCoverage 透传（F20260821evaf 二轮审视）", () => {
+  it("search 返回值包含 usecase 层的 vecCoverage", async () => {
+    const vecCoverage = { total: 10, withVec: 8, ratio: 0.8, vecDisabled: false };
+    const uc = {
+      searchMemory: { search: vi.fn(async () => ({ entries: [], total: 0, vecCoverage })) },
+      manageMemory: { getById: vi.fn(), getDetails: vi.fn() },
+    };
+    const client = buildOtterToolClient(uc as unknown as UseCases);
+    const result = await client.memory.search("query");
+    expect(result.vecCoverage).toEqual(vecCoverage);
+  });
+});
