@@ -22,6 +22,8 @@ export type SSEEventMap = {
   "agent.compaction_end": { reason: "manual" | "threshold" | "overflow"; aborted: boolean; willRetry: boolean; errorMessage?: string };
   "stream.end": Record<string, never>;
   "error": { message: string; messageId: string; otterId: string };
+  /** @提及解析 feedback：目标退场或解析失败时通知用户 */
+  "mention.feedback": { feedback: string };
 };
 
 export type SSEEventType = keyof SSEEventMap;

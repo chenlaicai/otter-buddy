@@ -179,7 +179,7 @@ export class MessageController {
       }
 
       /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
-      const userMessage = await this.sendMessageUseCase.send({
+      const { message: userMessage, mentionFeedback } = await this.sendMessageUseCase.send({
         conversationId,
         senderId: body.senderId,
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
@@ -202,6 +202,14 @@ export class MessageController {
       /** 4. 创建 SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
       const allTargets = new Set(firstTurnTargets);
       const { response, push, close } = streamEvents(c);
+
+      // F20260820i333: 发送 @提及解析 feedback 给用户
+      if (mentionFeedback) {
+        push({
+          event: 'mention.feedback',
+          data: { feedback: mentionFeedback },
+        });
+      }
 
       /** 5. 订阅 broadcaster：统一接收 agent streaming 事件和完成消息 */
       let unsubscribe: (() => void) | undefined;

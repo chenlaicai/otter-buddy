@@ -620,10 +620,10 @@ function ConversationPage() {
   const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
   const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
 
-  const handleSend = useCallback(async (text: string, mentionOtterId?: string) => {
+  const handleSend = useCallback(async (text: string, mentionOtterIds?: string[]) => {
     if (!activeId) return
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
-    const targetOtterIds = mentionOtterId ? [mentionOtterId] : []
+    const targetOtterIds = mentionOtterIds ?? []
 
     const userMsg: LocalMessage = {
       id: 'tmp-' + Date.now(), st: 'user', si: 'user',
@@ -813,6 +813,12 @@ function ConversationPage() {
           }
           batchUpdateMessages(activeId!, (list) => insertBySeq(list, sysMsg))
         },
+        // F20260820i333: @提及解析 feedback 显示为 toast
+        'mention.feedback': (data) => {
+          if (data.feedback) {
+            showToast(data.feedback, 'info')
+          }
+        },
         'agent.idle': () => { /* 信息性事件，不做处理 */ },
       }, { onError: () => {
         showToast('SSE 连接中断', 'error')
@@ -840,7 +846,7 @@ function ConversationPage() {
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
     activeId,
     messages: activeMessages,
-    onSendReply: (body, authorId) => { handleSend(body, authorId) },
+    onSendReply: (body, authorId) => { handleSend(body, authorId ? [authorId] : undefined) },
   })
 
   const stopStream = useCallback((messageId: string) => {

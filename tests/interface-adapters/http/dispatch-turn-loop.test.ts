@@ -31,7 +31,7 @@ function makeLogger() {
 function makeSendMessageUseCase() {
   const systemBodies: string[] = [];
   const useCase = {
-    send: async () => ({ id: "user-msg-1", talkingStonePassedTo: ["otter-x"] }),
+    send: async () => ({ message: { id: "user-msg-1", talkingStonePassedTo: ["otter-x"] } }),
     sendSystem: async (_convId: string, body: string) => {
       systemBodies.push(body);
       return { id: "sys-msg-1", conversationId: _convId, turnId: "turn-1", senderType: "system" as const, senderId: "system", talkingStonePassedTo: [], status: "completed" as const, segments: [{ id: "sys-msg-1-seg-0", messageId: "sys-msg-1", body, sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }], sequenceNum: 99, contextTokens: null, contextTokensMax: null, source: null, createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:00Z" };

@@ -54,7 +54,7 @@ export class FeishuMessageProcessor {
     }
 
     // 存消息
-    const message = await this.deps.sendMessage.send({
+    const { message, mentionFeedback } = await this.deps.sendMessage.send({
       conversationId: conversation.id,
       senderId,
       senderType: "user",
@@ -68,6 +68,15 @@ export class FeishuMessageProcessor {
       conversationId: conversation.id,
       messageId: message.id,
     });
+
+    // F20260820i333: @提及解析失败时发送 feedback 给用户
+    if (mentionFeedback) {
+      await this.deps.feishuGateway.replyText(chatId, mentionFeedback).catch(err => {
+        this.deps.logger.error("Failed to send mention feedback", err instanceof Error ? err : undefined, {
+          conversationId: conversation.id,
+        });
+      });
+    }
 
     // 广播飞书消息到 Web 端（实时同步）
     this.deps.messageBroadcaster.broadcast(message).catch(err => {

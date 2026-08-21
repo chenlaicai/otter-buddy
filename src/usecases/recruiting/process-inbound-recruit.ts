@@ -129,7 +129,7 @@ export class ProcessInboundRecruit {
     const metadata: MessageMetadata = {
       externalIds,
     };
-    const message = await this.sendMessage.send({
+    const { message } = await this.sendMessage.send({
       conversationId,
       senderType: 'system',
       senderId: 'boss-zhipin-bridge',
@@ -177,7 +177,7 @@ export class ProcessInboundRecruit {
           eventType: event.type,
           severity: event.severity,
         };
-        const message = await this.sendMessage.send({
+        const { message } = await this.sendMessage.send({
           conversationId,
           senderType: 'system',
           senderId: 'boss-zhipin-bridge',

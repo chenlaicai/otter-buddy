@@ -26,6 +26,7 @@ import { tryCloseTurn } from "./turn-utils";
 import type { TurnCloseResult } from "./turn-utils";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 import type { Logger } from "@usecases/ports/logger";
+import { parseMentionsFromText } from "./mention-parser";
 
 /** 用户发送消息输入 */
 export interface SendMessageInput {
@@ -90,16 +91,23 @@ export class SendMessage {
   ) {}
 
   /** 用户发送消息（立即 completed） */
-  async send(input: SendMessageInput): Promise<Message> {
+  async send(input: SendMessageInput): Promise<{ message: Message; mentionFeedback?: string }> {
     const senderType = input.senderType ?? "user";
     const source = input.source ?? "web";
 
     /** 用户消息统一走目标解析：空目标按领域规则解析默认派发；
      *  显式目标（@ / 卡片回执路由）校验"在场 + otter 未解散"，不合法退默认派发（F20260728htar）。
-     *  system 消息豁免校验（定时任务链：目标獭解散后任务消息不应被静默改派）。 */
-    const talkingStonePassedTo = senderType === "user"
-      ? await this.resolveUserTargets(input.conversationId, input.talkingStonePassedTo)
-      : input.talkingStonePassedTo;
+     *  system 消息豁免校验（定时任务链：目标獭解散后任务消息不应被静默改派）。
+     *  F20260820i333：支持从文本解析 @提及 + 解析失败时返回 feedback。 */
+    let mentionFeedback: string | undefined
+    let talkingStonePassedTo: string[]
+    if (senderType === "user") {
+      const result = await this.resolveUserTargets(input.conversationId, input.talkingStonePassedTo, input.body)
+      talkingStonePassedTo = result.targets
+      mentionFeedback = result.feedback
+    } else {
+      talkingStonePassedTo = input.talkingStonePassedTo
+    }
 
     /** UA-8: completed 消息必须传递发言石（system 豁免） */
     if (!isValidTalkingStonePass(talkingStonePassedTo, "completed", senderType)) {
@@ -148,9 +156,10 @@ export class SendMessage {
       messageLength: input.body.length,
       source,
       action: 'send',
+      ...(mentionFeedback ? { mentionFeedback } : {}),
     });
 
-    return message;
+    return { message, mentionFeedback };
   }
 
   /** Otter 开始流式消息（status="streaming"） */
@@ -456,36 +465,76 @@ export class SendMessage {
    * - 显式目标（@ 提及 / 卡片回执路由到卡片作者）：校验"在场 + otter.status==='active'"
    *   （与 resolveDefaultTargets 同款判据）。全部不合法退默认派发；部分不合法过滤掉。
    *   顺带修复存量洞：用户 @ 此前无校验，会复活已解散的獭。
-   */
-  private async resolveUserTargets(conversationId: string, explicit: string[]): Promise<string[]> {
-    if (explicit.length === 0) {
-      return this.resolveDefaultTargets(conversationId);
+   *
+   * F20260820i333 增强：
+   * - 支持从文本解析 @提及（feishu 通道 + 前端未传 target 时的兜底）
+   * - 解析失败时返回 feedback 消息（不再静默降级） */
+  private async resolveUserTargets(
+    conversationId: string,
+    explicit: string[],
+    body?: string,
+  ): Promise<{ targets: string[]; feedback?: string }> {
+    /** 有显式目标或无消息体时直接走校验/默认，不查参与者名册 */
+    if (explicit.length > 0) {
+      const participants = await this._repo.getActiveParticipants(conversationId);
+      const participantNames = await this.fetchParticipantNames(participants)
+      return this.validateTargets(conversationId, explicit, participants, participantNames)
     }
-
+    /** 空显式时：先检查文本是否含 @，无 @ 则跳过名册查询（避免 N+1） */
+    if (!body || !body.includes('@')) {
+      return { targets: await this.resolveDefaultTargets(conversationId) }
+    }
     const participants = await this._repo.getActiveParticipants(conversationId);
-    const activeOtterIds = new Set(participants.map((p) => p.otterId));
+    const participantNames = await this.fetchParticipantNames(participants)
+    const { resolvedIds, invalidNames } = parseMentionsFromText(body, participantNames)
+    if (resolvedIds.length === 0 && invalidNames.length === 0) {
+      return { targets: await this.resolveDefaultTargets(conversationId) }
+    }
+    if (invalidNames.length > 0) this.logger.info('从文本解析到无效 @提及', { conversationId, invalidNames })
+    return this.validateTargets(conversationId, resolvedIds, participants, participantNames)
+  }
 
-    const valid: string[] = [];
-    for (const id of explicit) {
-      if (!activeOtterIds.has(id)) continue;
-      const otter = await this.otterRepo.getById(id);
-      if (otter?.status === "active") {
-        valid.push(id);
+  /** 获取参与者对应 otter 名字 */
+  private async fetchParticipantNames(
+    participants: Array<{ otterId: string }> ,
+  ): Promise<Array<{ otterId: string; otterName: string }>> {
+    const names: Array<{ otterId: string; otterName: string }> = []
+    for (const p of participants) {
+      const otter = await this.otterRepo.getById(p.otterId)
+      if (otter) names.push({ otterId: p.otterId, otterName: otter.name })
+    }
+    return names
+  }
+
+  /** 校验显式目标 + 构建 feedback（F20260820i333） */
+  private async validateTargets(
+    conversationId: string,
+    effectiveExplicit: string[],
+    participants: Array<{ otterId: string }>,
+    participantNames: Array<{ otterId: string; otterName: string }>,
+  ): Promise<{ targets: string[]; feedback?: string }> {
+    const participantIds = new Set(participants.map((p) => p.otterId))
+    const otterNameMap = new Map<string, string>()
+    for (const n of participantNames) otterNameMap.set(n.otterId, n.otterName)
+    const valid: string[] = []
+    const invalidIds: string[] = []
+    for (const id of effectiveExplicit) {
+      if (!participantIds.has(id)) { invalidIds.push(id); continue }
+      const otter = await this.otterRepo.getById(id)
+      if (otter?.status === 'active') valid.push(id)
+      else invalidIds.push(id)
+    }
+    if (valid.length > 0) {
+      if (invalidIds.length > 0) {
+        this.logger.info('部分显式发言石目标不可用，已过滤', { conversationId, explicitTargets: effectiveExplicit, validTargets: valid })
+        return { targets: valid, feedback: `@提及的目标不可用：${invalidIds.map(id => otterNameMap.get(id) ?? id).join('、')}（可能已退场或解散）` }
       }
+      return { targets: valid }
     }
-
-    if (valid.length === 0) {
-      this.logger.info('显式发言石目标全部不可用（不在场或已解散），退默认派发', {
-        conversationId, explicitTargets: explicit,
-      });
-      return this.resolveDefaultTargets(conversationId);
-    }
-    if (valid.length < explicit.length) {
-      this.logger.info('部分显式发言石目标不可用（不在场或已解散），已过滤', {
-        conversationId, explicitTargets: explicit, validTargets: valid,
-      });
-    }
-    return valid;
+    this.logger.warn('显式发言石目标全部不可用，退默认派发', { conversationId, explicitTargets: effectiveExplicit })
+    const defaultTargets = await this.resolveDefaultTargets(conversationId)
+    const feedback = `@提及的目标不可用：${invalidIds.map(id => otterNameMap.get(id) ?? id).join('、')}（可能已退场或解散），已派给 ${otterNameMap.get(defaultTargets[0]) ?? '大獭'}`
+    return { targets: defaultTargets, feedback }
   }
 
   /** 确保活跃 Turn 存在，无则创建新 Turn */

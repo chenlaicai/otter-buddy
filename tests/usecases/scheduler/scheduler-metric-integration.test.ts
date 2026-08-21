@@ -117,7 +117,7 @@ function createMockConvRepo() {
 }
 
 function createMockSendMessage() {
-  return { send: vi.fn(async () => ({ id: 'msg-1' })) };
+  return { send: vi.fn(async () => ({ message: { id: 'msg-1' } })) };
 }
 
 function createMockAgentInvoke() {
