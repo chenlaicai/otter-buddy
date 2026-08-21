@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /**
  * F20260820a4rt: otter-type 工具路由 manifest 校验（commit-time gate）。
+ * F20260822a5cb: 新增 capabilityBlocks / groups 校验。
  *
  * 校验项：
- * 1. schemaVersion 必须为正整数
+ * 1. schemaVersion 必须为 1 或 2
  * 2. defaultType 必须指向 manifest 中已定义的类型
  * 3. DB otter_type CHECK 约束中的类型必须在 manifest 中有对应条目
  * 4. manifest 中引用的工具名必须在 tool-factory.ts 中存在
+ * 5. capabilityBlocks 结构校验（v2+）
+ * 6. groups 引用校验（引用的块名必须在 capabilityBlocks 中存在）
+ * 7. capabilityBlocks 内工具名存在性校验
  *
  * 退出码：0 通过 / 1 有错误。
  */
@@ -16,6 +20,8 @@ import * as path from "node:path";
 const root = process.cwd();
 const MANIFEST_PATH = path.join(root, "config/tool-manifest.json");
 const MIGRATION_PATH = path.join(root, "src/frameworks/db/migration.ts");
+
+const SUPPORTED_SCHEMA_VERSIONS = [1, 2];
 
 let errors = 0;
 
@@ -72,8 +78,8 @@ function parseMigrationCheckConstraint() {
 /** 校验 manifest */
 function validateManifest(manifest) {
   // 1. schemaVersion
-  if (typeof manifest.schemaVersion !== "number" || manifest.schemaVersion < 1 || !Number.isInteger(manifest.schemaVersion)) {
-    error(`schemaVersion 必须为正整数，实际为 ${manifest.schemaVersion}`);
+  if (typeof manifest.schemaVersion !== "number" || !SUPPORTED_SCHEMA_VERSIONS.includes(manifest.schemaVersion) || !Number.isInteger(manifest.schemaVersion)) {
+    error(`schemaVersion 必须为 ${SUPPORTED_SCHEMA_VERSIONS.join(" 或 ")} 的正整数，实际为 ${manifest.schemaVersion}`);
   }
 
   // 2. defaultType
@@ -83,7 +89,12 @@ function validateManifest(manifest) {
     error(`defaultType "${manifest.defaultType}" 在 types 中未定义`);
   }
 
-  // 3. types 结构
+  // 3. capabilityBlocks（v2+ 可选）
+  if (manifest.capabilityBlocks !== undefined) {
+    validateCapabilityBlocks(manifest.capabilityBlocks);
+  }
+
+  // 4. types 结构
   if (typeof manifest.types !== "object" || manifest.types === null) {
     error("types 必须为对象");
     return;
@@ -99,6 +110,11 @@ function validateManifest(manifest) {
       error(`types.${typeName}.description 必须为字符串`);
     }
 
+    // 校验 groups（可选）
+    if (typeConfig.groups !== undefined) {
+      validateGroups(typeName, typeConfig.groups, manifest.capabilityBlocks);
+    }
+
     if (typeConfig.tools !== "*" && !Array.isArray(typeConfig.tools)) {
       error(`types.${typeName}.tools 必须为 "*" 或数组`);
     }
@@ -109,6 +125,56 @@ function validateManifest(manifest) {
           error(`types.${typeName}.tools 中包含非字符串元素: ${tool}`);
         }
       }
+    }
+  }
+}
+
+/** 校验 capabilityBlocks 结构 */
+function validateCapabilityBlocks(blocks) {
+  if (typeof blocks !== "object" || blocks === null) {
+    error("capabilityBlocks 必须为对象");
+    return;
+  }
+
+  for (const [blockName, blockConfig] of Object.entries(blocks)) {
+    if (typeof blockConfig !== "object" || blockConfig === null) {
+      error(`capabilityBlocks.${blockName} 必须为对象`);
+      continue;
+    }
+
+    if (typeof blockConfig.description !== "string") {
+      error(`capabilityBlocks.${blockName}.description 必须为字符串`);
+    }
+
+    if (!Array.isArray(blockConfig.tools)) {
+      error(`capabilityBlocks.${blockName}.tools 必须为数组`);
+      continue;
+    }
+
+    for (const tool of blockConfig.tools) {
+      if (typeof tool !== "string") {
+        error(`capabilityBlocks.${blockName}.tools 中包含非字符串元素: ${tool}`);
+      }
+    }
+  }
+}
+
+/** 校验 groups 引用 */
+function validateGroups(typeName, groups, blocks) {
+  if (!Array.isArray(groups)) {
+    error(`types.${typeName}.groups 必须为数组`);
+    return;
+  }
+
+  for (const group of groups) {
+    if (typeof group !== "string") {
+      error(`types.${typeName}.groups 中包含非字符串元素: ${group}`);
+      continue;
+    }
+
+    // Why: groups 引用的块名必须在 capabilityBlocks 中定义
+    if (!blocks || typeof blocks !== "object" || !(group in blocks)) {
+      error(`types.${typeName}.groups 引用了不存在的能力块 "${group}"`);
     }
   }
 }
@@ -140,12 +206,24 @@ function parseRegisteredTools() {
 function validateToolNames(manifest, registeredTools) {
   if (!registeredTools) return;
 
+  // 校验 types 中的工具名
   for (const [typeName, typeConfig] of Object.entries(manifest.types)) {
     if (typeConfig.tools === "*") continue;
 
     for (const tool of typeConfig.tools) {
       if (!registeredTools.has(tool)) {
         error(`types.${typeName}.tools 中的工具 "${tool}" 在 tool-factory.ts 中未注册`);
+      }
+    }
+  }
+
+  // 校验 capabilityBlocks 中的工具名
+  if (manifest.capabilityBlocks) {
+    for (const [blockName, blockConfig] of Object.entries(manifest.capabilityBlocks)) {
+      for (const tool of blockConfig.tools) {
+        if (!registeredTools.has(tool)) {
+          error(`capabilityBlocks.${blockName}.tools 中的工具 "${tool}" 在 tool-factory.ts 中未注册`);
+        }
       }
     }
   }
@@ -185,7 +263,7 @@ if (manifest && dbTypes) {
   validateTypeConsistency(manifest, dbTypes);
 }
 
-// 4. 工具名存在性检查
+// 工具名存在性检查
 const registeredTools = parseRegisteredTools();
 if (manifest && registeredTools) {
   validateToolNames(manifest, registeredTools);
