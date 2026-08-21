@@ -7,6 +7,8 @@
 
 /** F20260804hcob: html-card 围栏匹配（``` 与 ~~~ 两种合法围栏，与渲染侧对齐），排除 html-card-reply（回执围栏，不算卡片） */
 const HTML_CARD_FENCE = /(?:```|~~~)html-card(?!-reply)/;
+/** 全局匹配版本（用于 countCardFences） */
+const HTML_CARD_FENCE_GLOBAL = /(?:```|~~~)html-card(?!-reply)/g;
 
 /** 单消息卡片预算：第 3 张起前端降级为源码块（与 web/src/lib/html-card.ts CARD_MAX_PER_MESSAGE 对齐） */
 const CARD_MAX_PER_MESSAGE = 2;
@@ -14,7 +16,7 @@ const CARD_MAX_PER_MESSAGE = 2;
 /** 统计 body 中的 html-card 围栏数量（``` 与 ~~~ 两种合法围栏，排除 html-card-reply） */
 function countCardFences(body: string): number {
   if (!body.includes('html-card')) return 0;
-  const matches = body.match(/(?:```|~~~)html-card(?!-reply)/g);
+  const matches = body.match(HTML_CARD_FENCE_GLOBAL);
   return matches ? matches.length : 0;
 }
 
