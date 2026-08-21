@@ -1,6 +1,6 @@
 /**
  * F20260820a4rt: tool-manifest-loader 单元测试
- * F20260822a5cb: 新增 capabilityBlocks / groups 测试
+ * F20260821a5cb: 新增 capabilityBlocks / groups 测试
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "fs";

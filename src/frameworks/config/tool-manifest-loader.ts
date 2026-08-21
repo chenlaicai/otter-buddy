@@ -4,7 +4,7 @@
  * F20260820a4rt: 将硬编码的工具白名单改为声明式配置，
  * 新增/调整 otter 类型只需修改 config/tool-manifest.json，不改代码。
  *
- * F20260822a5cb: 新增 capabilityBlocks（能力块）支持。
+ * F20260821a5cb: 新增 capabilityBlocks（能力块）支持。
  * types 可通过 groups 字段引用命名工具组，loader 自动展开合并。
  */
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * F20260820a4rt: otter-type 工具路由 manifest 校验（commit-time gate）。
- * F20260822a5cb: 新增 capabilityBlocks / groups 校验。
+ * F20260821a5cb: 新增 capabilityBlocks / groups 校验。
  *
  * 校验项：
  * 1. schemaVersion 必须为 1 或 2

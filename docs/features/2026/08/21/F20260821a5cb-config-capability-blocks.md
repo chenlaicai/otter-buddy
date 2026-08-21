@@ -1,5 +1,5 @@
 ---
-id: F20260822a5cb
+id: F20260821a5cb
 change_type: feature
 title: config 能力块约定
 summary: 在 tool-manifest.json 中新增 capabilityBlocks 顶层字段，定义命名工具组（能力块）。types 可通过 groups 字段引用能力块，loader 自动展开合并去重。schemaVersion 从 1 升到 2，向后兼容 v1 格式。
