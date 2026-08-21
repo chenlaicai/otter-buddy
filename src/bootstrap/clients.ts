@@ -194,5 +194,57 @@ export function buildOtterToolClient(
         }
       },
     },
+    // F20260821i336：派工台账工具
+    dispatch: {
+      createRecord: async (params) => {
+        const id = `dispatch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const now = new Date().toISOString();
+        // 使用 manageContext 存储派工记录（简化实现，避免新增 DB 表）
+        const key = `dispatch:${id}`;
+        const value = JSON.stringify({
+          id,
+          conversationId: params.conversationId,
+          otterId: params.otterId,
+          otterName: params.otterName,
+          task: params.task,
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        });
+        await uc.manageContext.set(params.otterId, key, value);
+        return { id };
+      },
+      updateRecord: async (params) => {
+        // 查询所有 dispatch 记录，找到匹配的并更新
+        const context = await uc.manageContext.get(params.otterId);
+        for (const [key, value] of Object.entries(context)) {
+          if (key.startsWith('dispatch:') && typeof value === 'string') {
+            try {
+              const record = JSON.parse(value);
+              if (record.conversationId === params.conversationId && record.status !== 'completed' && record.status !== 'failed') {
+                const now = new Date().toISOString();
+                const updated = {
+                  ...record,
+                  status: params.status,
+                  updatedAt: now,
+                  completedAt: params.status === 'completed' || params.status === 'failed' ? now : undefined,
+                  resultPr: params.resultPr,
+                  resultSummary: params.resultSummary,
+                };
+                await uc.manageContext.set(params.otterId, key, JSON.stringify(updated));
+              }
+            } catch {
+              // 解析失败，跳过
+            }
+          }
+        }
+      },
+      queryRecords: async (_params) => {
+        // 查询所有 otter 的 dispatch 记录（简化实现，遍历所有 otter）
+        // 实际实现需要查询所有 otter 的 context，这里简化为查询当前 otter
+        // TODO: 实现完整的跨 otter 查询
+        return [];
+      },
+    },
   };
 }

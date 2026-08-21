@@ -58,6 +58,8 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     /** F20260813actk C9：每次 invoke 新建待派工票据 Map（agent turn 级生命周期） */
     pendingDispatches: new Map<string, string>(),
     dispatchWarningShown: false,
+    /** F20260821i336：编排守卫提醒标志（agent turn 级生命周期） */
+    orchestrationWarningShown: false,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
 

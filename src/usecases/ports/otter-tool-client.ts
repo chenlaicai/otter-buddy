@@ -131,4 +131,17 @@ export interface OtterToolClient {
   docs: {
     sync(rootDir?: string): Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
   };
+  /**
+   * F20260821i336：派工台账工具。
+   * 大獭派工时创建记录，小獭完成时更新状态，汇报前可核对。
+   */
+  dispatch: {
+    createRecord(params: { conversationId: string; otterId: string; otterName: string; task: string }): Promise<{ id: string }>;
+    updateRecord(params: { otterId: string; conversationId: string; status: 'pending' | 'in_progress' | 'completed' | 'failed'; resultPr?: string; resultSummary?: string }): Promise<void>;
+    queryRecords(params: { conversationId: string; status?: 'pending' | 'in_progress' | 'completed' | 'failed'; otterId?: string }): Promise<Array<{
+      id: string; conversationId: string; otterId: string; otterName: string; task: string;
+      status: 'pending' | 'in_progress' | 'completed' | 'failed';
+      createdAt: string; updatedAt: string; completedAt?: string; resultPr?: string; resultSummary?: string;
+    }>>;
+  };
 }
