@@ -113,68 +113,73 @@ describe("speak 工具（纯内容输出）", () => {
   });
 });
 
-/** F20260804hcob: html-card 写在 speak 之外的检测拦截（拆分后归属 speak 的 body 校验） */
-describe("speak 工具 html-card 位置校验", () => {
-  it("assistant 文本含 html-card 围栏而 body 没有：拒绝、不落库、不终止，错误信息指导移入 body", async () => {
-    const { speak, segmentCalls } = makeTools(PARTICIPANTS, {
-      turnAssistantText: "方案如下：\n```html-card title=\"方案\"\n<div>...</div>\n```\n请查看。",
+/** 新增：html-card 卡片数量检测（第 3 张起降级为源码块） */
+describe("speak 工具 html-card 卡片数量检测", () => {
+  it("body 中只有 1 张卡片：正常落库", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案\"\n<div>内容</div>\n```",
     });
-    const res = await speak.execute("c1", { body: "详细方案已用 HTML 卡片呈现，请查看。" });
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(res.terminate).toBe(false);
+    expect(segmentCalls).toHaveLength(1);
+  });
+
+  it("body 中有 2 张卡片：正常落库", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```",
+    });
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(res.terminate).toBe(false);
+    expect(segmentCalls).toHaveLength(1);
+  });
+
+  it("body 中有 3 张卡片：拒绝、不落库、不终止，错误信息提示合并或分多次 speak", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```\n```html-card title=\"方案3\"\n<div>内容3</div>\n```",
+    });
     const text = res.content[0].text;
     expect(text).toContain("[错误]");
-    expect(text).toContain("html-card");
-    expect(text).toContain("body");
+    expect(text).toContain("3 张");
+    expect(text).toContain("2 张");
+    expect(text).toContain("合并");
+    expect(text).toContain("分多次 speak");
     expect(res.terminate).toBeUndefined();
     expect(segmentCalls).toHaveLength(0);
   });
 
-  it("assistant 文本和 body 都含 html-card 围栏：正常落库", async () => {
-    const { speak, segmentCalls } = makeTools(PARTICIPANTS, {
-      turnAssistantText: "```html-card title=\"草稿\"\n<div>draft</div>\n```",
-    });
-    const res = await speak.execute("c1", {
-      body: "方案：\n```html-card title=\"方案\"\n<div>final</div>\n```",
-    });
-    expect(res.content[0].text).toContain("已记录发言");
-    expect(res.terminate).toBe(false);
-    expect(segmentCalls).toHaveLength(1);
-  });
-
-  it("body 用 ~~~ 围栏（渲染侧合法卡片）：与 ``` 草稿混用时正常落库，不误拒", async () => {
-    const { speak, segmentCalls } = makeTools(PARTICIPANTS, {
-      turnAssistantText: "```html-card title=\"草稿\"\n<div>draft</div>\n```",
-    });
-    const res = await speak.execute("c1", {
-      body: "方案：\n~~~html-card title=\"方案\"\n<div>final</div>\n~~~",
-    });
-    expect(res.content[0].text).toContain("已记录发言");
-    expect(res.terminate).toBe(false);
-    expect(segmentCalls).toHaveLength(1);
-  });
-
-  it("assistant 文本用 ~~~ 围栏写卡片而 body 没有：同样拒绝", async () => {
-    const { speak, segmentCalls } = makeTools(PARTICIPANTS, {
-      turnAssistantText: "方案如下：\n~~~html-card title=\"方案\"\n<div>x</div>\n~~~",
-    });
-    const res = await speak.execute("c1", { body: "方案已用卡片呈现。" });
-    expect(res.content[0].text).toContain("[错误]");
-    expect(res.terminate).toBeUndefined();
-    expect(segmentCalls).toHaveLength(0);
-  });
-
-  it("assistant 文本只有 html-card-reply 回执围栏：不误伤，正常落库", async () => {
-    const { speak, segmentCalls } = makeTools(PARTICIPANTS, {
-      turnAssistantText: "我解析一下这张 ```html-card-reply 回执的内容。",
-    });
-    const res = await speak.execute("c1", { body: "回执已确认。" });
-    expect(res.content[0].text).toContain("已记录发言");
-    expect(res.terminate).toBe(false);
-    expect(segmentCalls).toHaveLength(1);
-  });
-
-  it("未注入 getTurnAssistantText（其他调用方）：行为不变，正常落库", async () => {
+  it("body 中有 4 张卡片：拒绝、不落库、不终止，错误信息提示合并或分多次 speak", async () => {
     const { speak, segmentCalls } = makeTools(PARTICIPANTS);
-    const res = await speak.execute("c1", { body: "普通发言" });
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```\n```html-card title=\"方案3\"\n<div>内容3</div>\n```\n```html-card title=\"方案4\"\n<div>内容4</div>\n```",
+    });
+    const text = res.content[0].text;
+    expect(text).toContain("[错误]");
+    expect(text).toContain("4 张");
+    expect(text).toContain("2 张");
+    expect(text).toContain("合并");
+    expect(text).toContain("分多次 speak");
+    expect(res.terminate).toBeUndefined();
+    expect(segmentCalls).toHaveLength(0);
+  });
+
+  it("body 中有 html-card-reply 围栏：不计入卡片数量，正常落库", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "回执：\n```html-card-reply card=\"msg-1:0\"\n{}\n```",
+    });
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(res.terminate).toBe(false);
+    expect(segmentCalls).toHaveLength(1);
+  });
+
+  it("body 中有 2 张卡片 + 1 张回执：正常落库（回执不计入数量）", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```\n```html-card-reply card=\"msg-1:0\"\n{}\n```",
+    });
     expect(res.content[0].text).toContain("已记录发言");
     expect(res.terminate).toBe(false);
     expect(segmentCalls).toHaveLength(1);
