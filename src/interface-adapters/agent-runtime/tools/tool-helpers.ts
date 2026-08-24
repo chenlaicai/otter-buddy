@@ -5,13 +5,13 @@
  * （工具契约归 port，本文件只剩 speak 专属校验）。
  */
 
+/** 单消息卡片预算：Issue #360 起前后端共享常量，单一真相源在 @contract/api/html-card */
+import { CARD_MAX_PER_MESSAGE } from "@contract/api/html-card";
+
 /** F20260804hcob: html-card 围栏匹配（``` 与 ~~~ 两种合法围栏，与渲染侧对齐），排除 html-card-reply（回执围栏，不算卡片） */
 const HTML_CARD_FENCE = /(?:```|~~~)html-card(?!-reply)/;
 /** 全局匹配版本（用于 countCardFences） */
 const HTML_CARD_FENCE_GLOBAL = /(?:```|~~~)html-card(?!-reply)/g;
-
-/** 单消息卡片预算（Issue #360：前后端共享常量，单一真相源在 @contract/api/html-card） */
-import { CARD_MAX_PER_MESSAGE } from "@contract/api/html-card";
 
 /** 统计 body 中的 html-card 围栏数量（``` 与 ~~~ 两种合法围栏，排除 html-card-reply） */
 function countCardFences(body: string): number {
