@@ -29,6 +29,19 @@ function randomText(length: number, seed = 42): string {
   return out;
 }
 
+/** 机制 B 视角的 distinct ratio（非重叠 windowLength 分段，与实现同参数）。
+ * 阴性夹具用它断言 ratio 远离阈值（防未来夹具参数微调后贴阈值飞行）。 */
+function distinctRatioOf(text: string): number {
+  const w = DEFAULT_DEGENERATE_CONFIG.windowLength;
+  const segs = new Set<string>();
+  let total = 0;
+  for (let i = 0; i + w <= text.length; i += w) {
+    segs.add(text.slice(i, i + w));
+    total++;
+  }
+  return total === 0 ? 1 : segs.size / total;
+}
+
 // ---------- #346：3-5KB 区间阴性夹具生成器 ----------
 // 背景：F20260820d338 将 minBlockLength 5000→3000，3-5KB 块首次暴露于机制 B。
 // 实测：高度模板化的合法结构（表格/日志/JSON/清单/段落）ratio 均 = 1.000，
@@ -119,15 +132,14 @@ function reportText(seed: number, tableRows: number, checklistItems: number): st
   );
 }
 
-/** 对齐分段压测：每行恰好 100 字符（含换行）且取自 n 个逐字模板——ratio 下界=n/行数 */
-function alignedPoolText(lines: number, templateCount: number, seed: number): string {
-  const rand = mulberry32(seed);
+/** 对齐分段压测：每行恰好 100 字符（含换行）且取自 n 个逐字模板轮转——ratio = n/行数 */
+function alignedPoolText(lines: number, templateCount: number): string {
   const templates = Array.from({ length: templateCount }, (_, i) => {
     const head = `- [x] 模板${i}：固定内容逐字重复，仅模板编号区分，用于对齐分段压测。`;
     return head + "·".repeat(100 - head.length - 1) + "\n";
   });
   let out = "";
-  for (let i = 0; i < lines; i++) out += templates[Math.floor(rand() * templateCount)];
+  for (let i = 0; i < lines; i++) out += templates[i % templateCount];
   return out;
 }
 
@@ -238,9 +250,11 @@ describe("DegenerateDetector 阴性夹具（不误伤）", () => {
 
 describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈值回归）", () => {
   // minBlockLength 5000→3000 后，3-5KB 块首次暴露于机制 B（distinct-ratio）。
-  // 阴性断言统一要求：verdict = { degenerate: false }。
-  // 实测（2026-08-24，macOS/Node 24）：下述全部夹具 distinct ratio = 1.000，
-  // 阈值 0.3 的安全边际约 3.3 倍；对照 F20260820d338 的 ≥5KB 实测最低 0.838。
+  // 阴性断言：verdict = { degenerate: false } 且 distinctRatioOf(text) > 0.5
+  //（实测全部 = 1.000，安全边际约 3.3 倍；0.5 护栏防止夹具参数微调后贴阈值飞行）。
+  // 对照 F20260820d338 的 ≥5KB 实测最低 0.838。
+  // 断言长度下限统一 >= 3000：表达“样本必须落在被测区间”的设计意图，
+  // 而非迁就个别样本的实际长度（否则低于 minBlockLength 机制 B 不介入、断言空转）。
 
   it("伪随机文本跨 3-5KB 边界扫描不触发（6 个尺寸档）", () => {
     for (let i = 0; i < 6; i++) {
@@ -248,23 +262,26 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
       expect(text.length).toBeGreaterThanOrEqual(3000);
       expect(text.length).toBeLessThanOrEqual(5000);
       expect(analyzeText(text).degenerate).toBe(false);
+      expect(distinctRatioOf(text)).toBeGreaterThan(0.5);
     }
   });
 
-  it("markdown 表格：行结构重复、字段各异，3-4KB 不触发（3 种子）", () => {
+  it("markdown 表格：行结构重复、字段各异，3.2-4.1KB 不触发（3 种子）", () => {
     for (let i = 0; i < 3; i++) {
-      const text = tableText(50 + i * 8, 500 + i);
-      expect(text.length).toBeGreaterThanOrEqual(2780); // 最小档接近 3KB，其余 3.2-3.7KB
+      const text = tableText(57 + i * 8, 500 + i);
+      expect(text.length).toBeGreaterThanOrEqual(3000);
       expect(analyzeText(text).degenerate).toBe(false);
+      expect(distinctRatioOf(text)).toBeGreaterThan(0.5);
     }
   });
 
-  it("编号 checklist：重复 bullet 前缀 + 8 条内容池复用，3-4KB 不触发（3 种子）", () => {
+  it("编号 checklist：重复 bullet 前缀 + 8 条内容池复用，3.1-4.2KB 不触发（3 种子）", () => {
     // kimi-分析獭-v2 在 #346 建议的高危形态：前缀模式重复但内容各异
     for (let i = 0; i < 3; i++) {
-      const text = checklistText(110 + i * 20, 700 + i);
-      expect(text.length).toBeGreaterThanOrEqual(2880);
+      const text = checklistText(118 + i * 20, 700 + i);
+      expect(text.length).toBeGreaterThanOrEqual(3000);
       expect(analyzeText(text).degenerate).toBe(false);
+      expect(distinctRatioOf(text)).toBeGreaterThan(0.5);
     }
   });
 
@@ -275,6 +292,7 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
       expect(text.length).toBeGreaterThan(4000);
       expect(text.length).toBeLessThanOrEqual(5200);
       expect(analyzeText(text).degenerate).toBe(false);
+      expect(distinctRatioOf(text)).toBeGreaterThan(0.5);
     }
   });
 
@@ -283,6 +301,7 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
       const text = jsonText(24 + i * 6, 300 + i);
       expect(text.length).toBeGreaterThanOrEqual(3200);
       expect(analyzeText(text).degenerate).toBe(false);
+      expect(distinctRatioOf(text)).toBeGreaterThan(0.5);
     }
   });
 
@@ -291,6 +310,7 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
       const text = proseText(45 + i * 8, 400 + i);
       expect(text.length).toBeGreaterThanOrEqual(3000);
       expect(analyzeText(text).degenerate).toBe(false);
+      expect(distinctRatioOf(text)).toBeGreaterThan(0.5);
     }
   });
 
@@ -301,6 +321,7 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
       expect(text.length).toBeGreaterThanOrEqual(3500);
       expect(text.length).toBeLessThanOrEqual(5000);
       expect(analyzeText(text).degenerate).toBe(false);
+      expect(distinctRatioOf(text)).toBeGreaterThan(0.5);
     }
   });
 
@@ -323,26 +344,50 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
     }
   });
 
-  it("阳性对照：3.2KB 近似重复（6 变体池）触发 distinct_ratio", () => {
+  it("阳性对照：3.2KB 近似重复（6 变体池）流式喂入中途触发 distinct_ratio（运行时路径）", () => {
+    // OutputGuard 的真实工作路径是流式增量喂入、首次命中即介入——
+    // 阳性方向也须验证流式与整段判定一致
     const variants = Array.from({ length: 6 }, (_, i) => randomText(100, 1000 + i));
-    const verdict = analyzeText(nearDuplicate(variants, 3_200));
-    expect(verdict.degenerate).toBe(true);
-    if (verdict.degenerate) {
-      expect(verdict.mechanism).toBe("distinct_ratio");
+    const text = nearDuplicate(variants, 3_200);
+    const chunked = new DegenerateDetector();
+    let degenerate = false;
+    let mechanism = "";
+    let consumed = 0;
+    for (let fed = 0; fed < text.length; fed += 37) {
+      consumed = fed + 37;
+      const v = chunked.add(text.slice(fed, fed + 37));
+      if (v.degenerate) {
+        degenerate = true;
+        mechanism = v.mechanism;
+        break;
+      }
     }
+    expect(degenerate).toBe(true);
+    expect(mechanism).toBe("distinct_ratio");
+    // 触发点在首次跨过 minBlockLength=3000 的 add（阈值语义）
+    expect(consumed).toBeGreaterThanOrEqual(3000);
+    expect(consumed).toBeLessThanOrEqual(text.length);
   });
 
-  it("阈值语义边界：3KB 输出逐字重复分段超 70% 触发，1/3 唯一则不触发", () => {
-    // 每行恰好 100 字符（含换行）取自 n 个逐字模板——分段与行完全对齐，
-    // ratio = n/行数。这是机制 B 在 3KB 的判定语义：逐字重复才是退化，
-    // 模板化结构（字段各异）即使 70%+ 行同构也不误伤。
-    const degenerate = analyzeText(alignedPoolText(30, 8, 42)); // 8/30 ≈ 0.27 ≤ 0.3
-    expect(degenerate.degenerate).toBe(true);
-    if (degenerate.degenerate) {
-      expect(degenerate.mechanism).toBe("distinct_ratio");
+  it("阈值语义边界（3KB/5KB 双点）：逐字重复分段 ≤70% 触发，>1/3 唯一不触发", () => {
+    // 每行恰好 100 字符（含换行）按 n 个逐字模板轮转——分段与行完全对齐，
+    // ratio = n/行数（轮转保证每个模板至少出现一次，数值确定性）。
+    // 这是机制 B 在 3-5KB 的判定语义：逐字重复才是退化，模板化结构
+    // （字段各异）即使大量行同构也不误伤。5KB 点单分段影响降至 0.02。
+    const d30 = analyzeText(alignedPoolText(30, 8)); // 3KB，8/30 ≈ 0.27 ≤ 0.3
+    expect(d30.degenerate).toBe(true);
+    if (d30.degenerate) {
+      expect(d30.mechanism).toBe("distinct_ratio");
     }
-    const legit = analyzeText(alignedPoolText(30, 12, 44)); // 12/30 ≈ 0.33 > 0.3
-    expect(legit.degenerate).toBe(false);
+    const l30 = analyzeText(alignedPoolText(30, 12)); // 3KB，12/30 = 0.40 > 0.3
+    expect(l30.degenerate).toBe(false);
+    const d50 = analyzeText(alignedPoolText(50, 15)); // 5KB，15/50 = 0.30 恰好压阈值等值点（≤ 语义）
+    expect(d50.degenerate).toBe(true);
+    if (d50.degenerate) {
+      expect(d50.mechanism).toBe("distinct_ratio");
+    }
+    const l50 = analyzeText(alignedPoolText(50, 16)); // 5KB，16/50 = 0.32 > 0.3
+    expect(l50.degenerate).toBe(false);
   });
 });
 
