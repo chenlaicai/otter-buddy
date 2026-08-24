@@ -25,6 +25,8 @@ export interface AttachGuardsParams {
   activeSessions: Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>;
   circuitBreakerConfig: CircuitBreakerConfig;
   logger: Logger;
+  /** F20260821i336：编排守卫检查函数（可选） */
+  orchestrationCheck?: (toolName: string, args?: unknown) => string | null;
 }
 
 /** _attachGuards 返回类型 */
@@ -43,7 +45,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, wrappedAbort);
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -157,10 +159,10 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  abortOverride?: (reason?: string) => void,
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
-  const doAbort = abortOverride ?? (() => { session.abort(); });
+  const doAbort = options?.abortOverride ?? (() => { session.abort(); });
 
   // per-event 超时：只计单次工具执行时间（start → end），不覆盖工具间的 LLM 思考时间
   // 按 toolCallId 分别跟踪计时器，支持并行工具调用（issue #140）
@@ -178,7 +180,7 @@ export function attachCircuitBreaker(
   };
 
   /** 通过 subscribe 拦截 tool_execution_start / tool_execution_end 事件实现熔断 */
-  // eslint-disable-next-line complexity
+  // eslint-disable-next-line complexity, max-statements
   const unregisterToolCall = session.subscribe((event: unknown) => {
     const e = event as { type?: string; toolCallId?: string; toolName?: string; name?: string; args?: unknown };
     if (e.type === "tool_execution_start") {
@@ -206,6 +208,15 @@ export function attachCircuitBreaker(
       if (result.action === "steer") {
         if (toolName !== "speak") session.steer?.(result.reason ?? "Stop calling tools. Call speak now."); // F20260806cbsx: speak 是回合出口，对其 steer 有害无益
         return;
+      }
+
+      // F20260821i336：编排对话软守卫——熔断器检查通过后，检查编排守卫条件
+      if (options?.orchestrationCheck && toolName !== "speak") {
+        const orchestrationWarning = options.orchestrationCheck(toolName, e.args);
+        if (orchestrationWarning) {
+          session.steer?.(orchestrationWarning);
+          return;
+        }
       }
     }
     if (e.type === "tool_execution_end") {
