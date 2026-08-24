@@ -459,6 +459,13 @@ describe("yield 工具待派工票据软守卫（C9）", () => {
 
 /** yield to user 反思检查点：reason 参数测试 */
 describe("yield to user 反思检查点", () => {
+  it("yield 工具 description 包含反思检查点引导文本（确保不被意外删除）", () => {
+    const { yield: yieldTool } = makeTools(PARTICIPANTS);
+    expect(yieldTool.description).toContain("反思检查点");
+    expect(yieldTool.description).toContain("为什么需要用户介入");
+    expect(yieldTool.description).toContain("reason");
+  });
+
   it("yield to user 无 reason：正常放行（反思在 description 层引导，非代码强制）", async () => {
     const { yield: yieldTool, speakingCalls } = makeTools(PARTICIPANTS);
 
