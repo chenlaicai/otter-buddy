@@ -9,6 +9,7 @@ import { DomainError } from "@entities/errors";
 import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 import type { Logger } from "@usecases/ports/logger";
+import { redactSecrets } from "@usecases/security/redact-secrets";
 
 /** Gateway: 查询 otter 关联的对话 ID（由 main.ts 装配 ManageConversation 实现） */
 export interface ConversationQueryGateway {
@@ -63,7 +64,8 @@ export class ManageSession {
     const history = await this.repo.getSessionHistory(otterId);
     const previousSessionId = history.length > 0 ? history[0].id : null;
 
-    const session = buildNewSession(otterId, previousSessionId, params?.summary ?? null);
+    // F20260821scrt: 前情摘要是 LLM 自由文本（restart_session 工具），写入前脱敏
+    const session = buildNewSession(otterId, previousSessionId, params?.summary ? redactSecrets(params.summary) : null);
 
     await this.repo.createSession(session);
 
@@ -82,9 +84,9 @@ export class ManageSession {
     return this.repo.getActiveSession(otterId);
   }
 
-  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情） */
+  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情；F20260821scrt：写入前脱敏） */
   async setSessionSummary(sessionId: string, summary: string): Promise<void> {
-    await this.repo.setSessionSummary(sessionId, summary);
+    await this.repo.setSessionSummary(sessionId, redactSecrets(summary));
   }
 
   /**
@@ -96,8 +98,13 @@ export class ManageSession {
     sessionId: string,
     params: ArchiveSessionInput,
   ): Promise<OtterSession> {
+    // F20260821scrt 二轮审视#4：repo.archiveSession 会把 params.summary 写入旧行
+    // otter_sessions.summary（restart/dissolve 传 LLM 原文），入口统一脱敏
+    const safeParams: ArchiveSessionInput = params.summary
+      ? { ...params, summary: redactSecrets(params.summary) }
+      : params;
     const { session, targetStatus, archivedAt } =
-      await this.archiveSessionCore(sessionId, params);
+      await this.archiveSessionCore(sessionId, safeParams);
 
     /** Agent reset（重置上下文） */
     await this.agentGateway.reset(session.otterId);
@@ -115,9 +122,9 @@ export class ManageSession {
       ...session,
       status: targetStatus,
       archivedAt,
-      archiveReason: params.reason,
-      isNegativeCase: params.isNegativeCase,
-      summary: params.summary ?? null,
+      archiveReason: safeParams.reason,
+      isNegativeCase: safeParams.isNegativeCase,
+      summary: safeParams.summary ?? null,
     };
   }
 
@@ -185,18 +192,20 @@ export class ManageSession {
    */
   async restartSession(otterId: string, summary?: string): Promise<OtterSession> {
     // 1. 归档当前 active session（含 agent session reset，确保旧 agent 会话被清理）
+    // F20260821scrt：summary 是 LLM 自由文本，入口统一脱敏（archive/create/adopt 各路径与返回值一致）
+    const safeSummary = summary ? redactSecrets(summary) : undefined;
     const active = await this.repo.getActiveSession(otterId);
     if (active) {
       await this.archiveSession(active.id, {
         reason: "restart",
         isNegativeCase: false,
-        summary,
+        summary: safeSummary,
       });
     }
 
     // 2. 创建新 session（写入前情摘要）
     try {
-      const session = await this.createSession(otterId, { summary });
+      const session = await this.createSession(otterId, { summary: safeSummary });
       this.logger.info("Session restarted", {
         otterId,
         sessionId: session.id,
@@ -208,15 +217,15 @@ export class ManageSession {
       if (err instanceof DomainError && err.kind === "conflict") {
         const adopted = await this.repo.getActiveSession(otterId);
         if (adopted) {
-          if (summary) {
-            await this.repo.setSessionSummary(adopted.id, summary);
+          if (safeSummary) {
+            await this.repo.setSessionSummary(adopted.id, safeSummary);
           }
           this.logger.info("Restart adopted backfilled session", {
             otterId,
             sessionId: adopted.id,
             action: "restart_adopt",
           });
-          return summary ? { ...adopted, summary } : adopted;
+          return safeSummary ? { ...adopted, summary: safeSummary } : adopted;
         }
       }
       throw err;

@@ -27,6 +27,9 @@ const root = process.cwd();
 const SKILLS_DIR = path.join(root, ".pi/skills");
 const MANIFEST_PATH = path.join(root, "prompts/skills/manifest.yaml");
 const VALID_CATEGORIES = new Set(["technique", "pattern", "reference"]);
+// F20260821kgts: 数量下限 ratchet（防"删光 skills + 同步清空 manifest"静默绿）。
+// 有意移除 skill 时须同步下调此值，让移除成为显式决策。
+const MIN_SKILLS = 9;
 const THREE_PART_MARKERS = ["Use when", "Not for", "Output"];
 const THREE_PART_EXEMPT = new Set(["companion"]); // fallback skill 豁免
 
@@ -120,21 +123,22 @@ if (!manifest) {
 for (const s of skills) {
   const rel = path.relative(root, s.skillMd);
 
-  // 校验 1: frontmatter 必填字段
+  // 校验 1: frontmatter 必填字段（0/false 等非空值也算缺失——name: 0 曾双重绕过）
   for (const f of ["name", "description", "co_loads", "category"]) {
-    if (!s.fm[f] && s.fm[f] !== 0) error(`${rel}: frontmatter 缺字段 ${f}`);
+    if (s.fm[f] === undefined || s.fm[f] === null || s.fm[f] === "") error(`${rel}: frontmatter 缺字段 ${f}`);
   }
 
-  // 校验 2: name = 目录名
-  if (s.fm.name && s.fm.name !== s.name) {
-    error(`${rel}: frontmatter.name="${s.fm.name}" 但目录名="${s.name}"`);
+  // 校验 2: name = 目录名（必须是字符串，非字符串类型直接报错）
+  if (s.fm.name !== undefined && (typeof s.fm.name !== "string" || s.fm.name !== s.name)) {
+    error(`${rel}: frontmatter.name="${String(s.fm.name)}" 但目录名="${s.name}"`);
   }
 
   // 校验 7: references 路径存在
   // _shared/xxx 相对 .pi/skills/ 解析；references/xxx 与 ../xxx 相对当前 skill 目录解析
-  const refMatches = s.body.matchAll(/`((?:\.\.\/|_shared\/|references\/)[^`]+\.md)`/g);
+  // 反引号代码与 markdown 链接 ](path) 两种形态都校验
+  const refMatches = s.body.matchAll(/`((?:\.\.\/|_shared\/|references\/)[^`]+\.md)`|\]\(((?:\.\.\/|_shared\/|references\/)[^)]+\.md)\)/g);
   for (const m of refMatches) {
-    const refPath = m[1];
+    const refPath = m[1] ?? m[2];
     const base = refPath.startsWith("_shared/") ? SKILLS_DIR : s.dir;
     const full = path.resolve(base, refPath);
     if (!fs.existsSync(full)) error(`${rel}: references 路径不存在: ${refPath}`);
@@ -156,6 +160,11 @@ for (const s of skills) {
     const missing = THREE_PART_MARKERS.filter(m => !desc.includes(m));
     if (missing.length > 0) warn(`${rel}: description 缺三段式 marker: ${missing.join(", ")}`);
   }
+}
+
+// 校验 8: 数量下限 ratchet（F20260821kgts）
+if (skills.length < MIN_SKILLS) {
+  error(`skills 数量 ${skills.length} < 下限 ${MIN_SKILLS}——skill 目录被清空或大量缺失？有意移除请同步下调 MIN_SKILLS`);
 }
 
 if (warnings > 0) console.log(`[lint:skills] ${warnings} 个警告`);
