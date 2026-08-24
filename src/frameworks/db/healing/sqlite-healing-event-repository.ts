@@ -11,12 +11,13 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     this.db.prepare(`
       INSERT INTO healing_events (
         id, message_id, conversation_id, otter_id, error_type, severity,
-        description, suggestion, context, status, resolution, created_at, resolved_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        description, suggestion, context, status, resolution, created_at, resolved_at, introduced_by_pr
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id, row.message_id, row.conversation_id, row.otter_id,
       row.error_type, row.severity, row.description, row.suggestion,
       row.context, row.status, row.resolution, row.created_at, row.resolved_at,
+      row.introduced_by_pr,
     );
   }
 

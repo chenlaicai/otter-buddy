@@ -87,6 +87,10 @@ jobs:
       - name: Run docs frontmatter lint gate
         run: npm run lint:docs
 
+      # F20260824ax376: PR 评估体系 - intent 字段校验（commit-time gate）
+      - name: Run intent lint gate
+        run: npm run lint:intent
+
       - name: Build web frontend (tsc + vite)
         run: |
           npm --prefix web ci

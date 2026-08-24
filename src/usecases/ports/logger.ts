@@ -28,4 +28,6 @@ export interface LogContext {
   duration?: number;
   /** HTTP 状态码 */
   statusCode?: number;
+  /** PR ID（PR 评估体系） */
+  prId?: string;
 }
