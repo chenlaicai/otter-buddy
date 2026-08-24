@@ -35,7 +35,7 @@ function makeCreateOtterTool(options: {
       create: async (params: { name: string; type: string; systemPrompt: string; parentOtterId: string; modelAlias?: string }) => {
         if (options.createError) throw options.createError;
         createCalls.push({ name: params.name, type: params.type, modelAlias: params.modelAlias });
-        return { id: "new-otter-id", name: params.name };
+        return { id: "new-otter-id", name: params.name, modelAlias: params.modelAlias };
       },
     },
     // F20260821i336：派工台账 mock
@@ -202,6 +202,52 @@ describe("create_otter 工具", () => {
       expect(result.content[0].text).toContain("[错误]");
       expect(result.content[0].text).toContain("同名参与者");
       expect(createCalls).toHaveLength(0);
+    });
+  });
+
+  describe("modelLabel 回包测试（F20260824aibd）", () => {
+    it("传入 modelAlias 时回包包含模型标签", async () => {
+      const { createOtter } = makeCreateOtterTool({
+        modelPool: makeModelPool(["default", "fast"]),
+      });
+
+      const result = await createOtter.execute("c1", {
+        name: "快速小獭",
+        systemPrompt: "你是小獭",
+        modelAlias: "fast",
+      });
+
+      expect(result.content[0].text).toContain("Otter created");
+      expect(result.content[0].text).toContain("模型：fast");
+    });
+
+    it("不传 modelAlias 时回包不包含模型标签", async () => {
+      const { createOtter } = makeCreateOtterTool({
+        modelPool: makeModelPool(["default", "fast"]),
+      });
+
+      const result = await createOtter.execute("c1", {
+        name: "小獭",
+        systemPrompt: "你是小獭",
+      });
+
+      expect(result.content[0].text).toContain("Otter created");
+      expect(result.content[0].text).not.toContain("模型：");
+    });
+
+    it("传入空白 modelAlias 时回包不包含模型标签（trim 后为空）", async () => {
+      const { createOtter } = makeCreateOtterTool({
+        modelPool: makeModelPool(["default", "fast"]),
+      });
+
+      const result = await createOtter.execute("c1", {
+        name: "小獭",
+        systemPrompt: "你是小獭",
+        modelAlias: "   ",
+      });
+
+      expect(result.content[0].text).toContain("Otter created");
+      expect(result.content[0].text).not.toContain("模型：");
     });
   });
 });

@@ -12,6 +12,7 @@ import { truncateToolResult, type ToolResponse } from "@usecases/ports/agent-too
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { ModelPool } from "@frameworks/llm/model-pool";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 
 /** buildCustomTools 所需的参数类型 */
 export interface BuildCustomToolsParams {
@@ -22,7 +23,7 @@ export interface BuildCustomToolsParams {
   turnText?: { text: string };
   otterToolClient: OtterToolClient;
   modelPool?: ModelPool;
-  otterConfigProvider?: { getConfig(otterId: string): { modelAlias?: string } | null };
+  otterConfigProvider?: OtterConfigProvider;
   createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
   healingRepo?: HealingEventRepository;
   logger: Logger;

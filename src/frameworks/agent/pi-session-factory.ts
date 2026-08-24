@@ -368,7 +368,7 @@ export class PiSessionFactory implements AgentGateway {
     // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
     // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
     const conversationId = options?.conversationId ?? "";
-    // F20260824mdlid: 传递 modelAlias 给身份构建，让海獭知道自己运行在什么模型上
+    // F20260824aibd: 传递 modelAlias 给身份构建，让海獭知道自己运行在什么模型上
     const modelAlias = this.getModelAliasForLog(otterId);
     const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, modelAlias);
 

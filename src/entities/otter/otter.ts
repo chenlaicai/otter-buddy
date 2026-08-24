@@ -21,6 +21,8 @@ export interface Otter {
   parentOtterId: string | null;
   createdAt: string;
   dissolvedAt: string | null;
+  /** 模型别名（多模型路由，可选） */
+  modelAlias?: string;
 }
 
 /**

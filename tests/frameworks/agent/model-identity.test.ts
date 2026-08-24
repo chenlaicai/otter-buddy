@@ -1,5 +1,5 @@
 /**
- * buildIdentityPrefix 模型身份段测试（F20260824mdlid）。
+ * buildIdentityPrefix 模型身份段测试（F20260824aibd）。
  *
  * 验证：
  * - 多模型池 + 传入 modelAlias → 包含"你的运行时模型"段
@@ -41,7 +41,7 @@ const SINGLE_MODEL: ModelDescriptor[] = [
   { alias: "only", description: "唯一模型", strengths: ["通用"], weaknesses: [] },
 ];
 
-describe("buildIdentityPrefix 模型身份段（F20260824mdlid）", () => {
+describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
   let db: Database.Database;
   let repo: SqliteOtterRepository;
 

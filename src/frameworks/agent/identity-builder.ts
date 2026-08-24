@@ -66,7 +66,7 @@ export class IdentityBuilder {
     // F20260810rout: 小獭注入召唤者身份（修复行动权路由 bug——子獭需知道召唤者是谁，结论才能交回）
     const summonerIdentity = isBig ? '' : await this.buildSummonerIdentity(otter);
 
-    // F20260824mdlid: 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
+    // F20260824aibd: 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
     const modelIdentity = this.buildModelIdentity(modelAlias);
 
     return [
@@ -79,7 +79,7 @@ export class IdentityBuilder {
     ].filter(Boolean).join("\n\n");
   }
 
-  /** F20260824mdlid: 构建模型身份段——告诉海獭自己是什么模型、擅长什么，用于对抗性协作时选择异模型 */
+  /** F20260824aibd: 构建模型身份段——告诉海獭自己是什么模型、擅长什么，用于对抗性协作时选择异模型 */
   private buildModelIdentity(alias: string | undefined): string {
     if (!this.modelPool) return '';
     const models = this.modelPool.describeModels();

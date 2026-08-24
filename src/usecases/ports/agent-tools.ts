@@ -12,6 +12,7 @@
  */
 import type { OtterToolClient } from "./otter-tool-client";
 import type { ModelPoolLike } from "./model-pool-like";
+import type { OtterConfigProvider } from "./otter-config-provider";
 
 /**
  * 工具层的模型池窄接口（R20260817arnt PR-A）：工具只做 modelAlias 校验与列举，
@@ -114,8 +115,8 @@ export interface ToolContext {
   currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */
   modelPool?: ToolModelPool;
-  /** F20260824mdlid: Otter 配置提供者（用于查询其他獭的 modelAlias） */
-  otterConfigProvider?: { getConfig(otterId: string): { modelAlias?: string } | null };
+  /** F20260824aibd: Otter 配置提供者（用于查询其他獭的 modelAlias） */
+  otterConfigProvider?: OtterConfigProvider;
   /**
    * 当前 assistant 消息的文本（speak 之外的输出）。
    * 由 session 工厂按消息维护（message_start 清零、message_end 累积）；speak 用它检测"卡片写在 speak 外"的错误用法。

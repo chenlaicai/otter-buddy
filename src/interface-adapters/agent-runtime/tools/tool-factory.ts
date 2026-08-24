@@ -235,8 +235,8 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
         otterName: otter.name,
         task: (params.systemPrompt as string).substring(0, 200), // 截取前 200 字符作为任务摘要
       });
-      /** F20260824mdlid: 回包含模型信息，让大獭对模型分配有即时反馈 */
-      const modelLabel = modelAlias ? `，模型：${modelAlias}` : '';
+      /** F20260824aibd: 回包含模型信息，让大獭对模型分配有即时反馈 */
+      const modelLabel = otter.modelAlias ? `，模型：${otter.modelAlias}` : '';
       /** F20260813actk C3：回包提示就位待命状态（串行场景教育） */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}${modelLabel}). 已就位待命，但尚未开工——` +
@@ -681,7 +681,7 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
     },
     execute: async (_id: string, _params: Record<string, unknown>) => {
       const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
-      // F20260824mdlid: 返回 modelAlias，让大獭编排时知道每只獭用什么模型
+      // F20260824aibd: 返回 modelAlias，让大獭编排时知道每只獭用什么模型
       const result = participants.map(p => {
         const config = ctx.otterConfigProvider?.getConfig(p.otterId);
         return {
