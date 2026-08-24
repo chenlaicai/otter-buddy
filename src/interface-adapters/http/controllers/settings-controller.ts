@@ -25,7 +25,7 @@ export class SettingsController {
     private readonly settingsRepo: SettingsRepository,
     private readonly modelPool: ModelPoolLike,
     private readonly logger: Logger,
-    private readonly writeDefaultModel?: WriteDefaultModel,
+    private readonly writeDefaultModel: WriteDefaultModel,
   ) {}
 
   private buildDTO(userName: string): SettingsDTO {
@@ -54,7 +54,7 @@ export class SettingsController {
           return c.json({ error: `未知模型 alias: ${body.defaultModelAlias}` }, 400);
         }
         // Why: config.yaml 是默认模型的唯一真相源，不再写 DB settings 表
-        this.writeDefaultModel?.(body.defaultModelAlias, this.modelPool, this.logger);
+        this.writeDefaultModel(body.defaultModelAlias, this.modelPool, this.logger);
         this.modelPool.setDefaultAlias(body.defaultModelAlias);
         this.logger.info("Default model switched", { defaultModelAlias: body.defaultModelAlias });
       }

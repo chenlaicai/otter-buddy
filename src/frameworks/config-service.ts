@@ -103,8 +103,9 @@ export interface AppConfig {
 /**
  * 更新 config.yaml 中的 llm.default 字段。
  * config.yaml 是默认模型的唯一真相源（替代原 settings DB 覆盖机制）。
- * Why: atomic write（writeFileSync 到同路径）——同文件系统 rename 是原子的，
- * 避免写到一半进程崩溃导致配置损坏。
+ * Why: 用 write-to-temp + rename 而非 writeFileSync 同路径——
+ * 同路径 writeFileSync 是 truncate+write，进程崩溃时会丢失原文件；
+ * rename 在同文件系统下是原子操作，保证不会写到一半损坏配置。
  */
 export function updateDefaultModelInYaml(
   alias: string,
@@ -123,7 +124,12 @@ export function updateDefaultModelInYaml(
 
   raw.llm.default = alias;
   const content = yaml.dump(raw, { lineWidth: -1, noRefs: true });
-  fs.writeFileSync(configPath, content, "utf8");
+
+  // Why: write-to-temp + rename —— rename 在同文件系统下是原子的，
+  // 避免 truncate+write 模式下进程崩溃导致配置文件损坏
+  const tmpPath = configPath + ".tmp";
+  fs.writeFileSync(tmpPath, content, "utf8");
+  fs.renameSync(tmpPath, configPath);
 
   if (logger) {
     logger.info(`config.yaml llm.default 已更新为: ${alias}`);

@@ -446,6 +446,7 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.settingsRepo,
     deps.modelPool,
     logger,
+    () => {}, // writeDefaultModel mock (config.yaml 写入在测试中不执行)
   );
 
   const controllers: Controllers = {
