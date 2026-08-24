@@ -1,5 +1,5 @@
 /**
- * F20260824prEval: PR 评估体系 - intent 字段校验测试
+ * F20260824ax376: PR 评估体系 - intent 字段校验测试
  */
 import { describe, it, expect } from 'vitest';
 

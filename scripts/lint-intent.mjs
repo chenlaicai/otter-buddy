@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20260824prEval: PR 评估体系 - intent 字段校验脚本（commit-time gate）。
+ * F20260824ax376: PR 评估体系 - intent 字段校验脚本（commit-time gate）。
  *
  * 检查 F 文档 frontmatter 的 intent 字段，确保每次合入都有明确目标。
  * 依赖：pre-commit hook 已跑 `npm run check`（= build）产出 dist/。
