@@ -10,6 +10,7 @@ import type { MemoryReader } from "./memory-reader";
 import type { MemoryWriter } from "./memory-writer";
 import type { Logger } from "@usecases/ports/logger";
 import { DomainError } from "@entities/errors";
+import { redactMetadataSecrets } from "@usecases/security/redact-secrets";
 
 export interface CreateEdgeInput {
   fromEntryId: string;
@@ -59,7 +60,11 @@ export class CreateEdge {
       );
     }
 
-    const edgeId = await this.writer.createEdge(input);
+    // F20260821scrt: metadata 含 link_memory 的 note（LLM 自由文本），落库前脱敏
+    const edgeId = await this.writer.createEdge({
+      ...input,
+      metadata: input.metadata ? redactMetadataSecrets(input.metadata) : undefined,
+    });
     this.logger.debug(`Created edge ${edgeId}: ${input.fromEntryId} -[${input.edgeType}]-> ${input.toEntryId}`);
     return edgeId;
   }
