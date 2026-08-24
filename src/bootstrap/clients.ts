@@ -171,6 +171,7 @@ export function buildOtterToolClient(
       create: (params) => uc.createOtter.execute(params),
       dissolve: (id) => uc.dissolveOtter.execute(id),
       getById: (id) => uc.queryOtter.getById(id),
+      getActiveSession: (otterId) => uc.manageSession.getActiveSession(otterId),
       restart: (otterId, summary) => uc.manageSession.restartSession(otterId, summary),
     },
     context: {

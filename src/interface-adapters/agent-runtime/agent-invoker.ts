@@ -159,7 +159,7 @@ export class AgentInvoker implements AgentTurnPort {
        * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
        */
       if (pendingSelfRestart) {
-        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params);
+        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params, message.id);
         if (selfRestarted) return selfRestarted;
       }
 
@@ -494,12 +494,14 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * F20260819rscn：自重启信号处理。LLM 调用 restart_otter(self) 后，
-   * SDK 标记 _selfRestart 信号不执行 restart；agent-invoker 执行 restart + 全新 invoke。
-   * Why 对齐 handleCircuitBreakSignal：restart 后必须递归调用 invokeConversationInner，
-   * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
-   * Why 不用 circuitBreak.executeCircuitBreakRestart：
-   * 自重启不需要写 circuit_break healing 事件、不需要构建熔断摘要，语义不同。
+   * F20260819rscn + F20260824srst：自重启信号处理。
+   * LLM 调用 restart_otter(self) 后，SDK 标记 _selfRestart 信号不执行 restart；
+   * agent-invoker 执行 restart + 写 self_restart healing 事件 + 传 continuation message 递归 invoke。
+   *
+   * Why continuation message 而非原始消息：
+   * "你重启自己"是一次性指令，执行一次即完成。递归调用时若传同一消息，
+   * 新 session 的 LLM 会再次执行 → 无限循环。continuation message 告知"你已重启，请继续"，
+   * 消除循环根因。tool-factory 层 + healing_events 上限判定提供纵深防御。
    */
   private async handleSelfRestartSignal(
     signal: { otterId: string; summary?: string },
@@ -512,18 +514,48 @@ export class AgentInvoker implements AgentTurnPort {
       retryCount?: number;
       manualRetry?: boolean;
     },
+    currentMessageId: string,
   ): Promise<AgentTurnResult | null> {
     if (!signal) return null;
     const { otterId, summary } = signal;
+
+    // F20260824srst 防循环（第二道防线）：当前 session 是否由自重启创建
+    if (this.circuitBreak) {
+      const isSelfRestartSession = await this.circuitBreak.isSessionSelfRestartCreated(otterId);
+      if (isSelfRestartSession) {
+        this.logger.warn('Self-restart blocked: current session was created by self-restart', { otterId });
+        return null;
+      }
+    }
+
+    let newSessionId: string;
     try {
       const newSession = await this.manageSession.restartSession(otterId, summary);
-      this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId: newSession.id });
+      newSessionId = newSession.id;
+      this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId });
     } catch (restartErr) {
       this.logger.error('Self-restart failed, continuing with current session', restartErr instanceof Error ? restartErr : new Error(String(restartErr)), { otterId });
       return null;
     }
+
+    // F20260824srst 写 self_restart 事件（上限判定数据源）
+    if (this.circuitBreak) {
+      await this.circuitBreak.writeSelfRestartEvent(otterId, params.conversationId, newSessionId, currentMessageId).catch(err => {
+        this.logger.error('self_restart event write failed (non-fatal)', err instanceof Error ? err : new Error(String(err)), { otterId, newSessionId });
+      });
+    }
+
     try {
-      return await this.invokeConversationInner({ ...params, retryCount: 0, manualRetry: false });
+      // F20260824srst 传 continuation message 而非原始消息（消除循环根因）
+      const continuationMessage = summary
+        ? `[系统] 你已完成自重启。前情摘要：${summary}\n请基于前情摘要继续当前工作。如果没有明确任务，请告知搭档你已重启完成，等待新指令。`
+        : `[系统] 你已完成自重启，前世上下文已封存。请告知搭档你已重启完成，等待新指令。`;
+      return await this.invokeConversationInner({
+        ...params,
+        userMessageContent: continuationMessage,
+        retryCount: 0,
+        manualRetry: false,
+      });
     } catch (reinvokeErr) {
       this.logger.error('Self-restart re-invoke failed, falling back to interrupted state', reinvokeErr instanceof Error ? reinvokeErr : new Error(String(reinvokeErr)), {
         otterId: params.otterId,

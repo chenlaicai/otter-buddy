@@ -46,6 +46,7 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
           if (id === 'otter-2') return { id: 'otter-2', type: 'big', name: '小獭' };
           return null;
         }),
+        getActiveSession: vi.fn(async () => null),
         restart: vi.fn(async (id: string, summary?: string) => {
           restartCalls.push({ id, summary });
           return { id: `new-session-${id}`, summary };
@@ -158,6 +159,7 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
             if (id === 'otter-2') return { id: 'otter-2', type: 'big', name: '大獭' };
             return null;
           }),
+          getActiveSession: vi.fn(async () => null),
           restart: vi.fn(async (id: string, summary?: string) => ({
             id: `new-session-${id}`,
             summary,
@@ -173,5 +175,86 @@ describe('restart_otter pendingRestart 路径（F20260815rstrt）', () => {
     // 验证返回错误
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('小獭只能重启自己的獭生');
+  });
+});
+
+describe('restart_otter 自重启循环防护（F20260824srst）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('session 由自重启创建时，返回系统保护错误', async () => {
+    const ctx = createMockToolContext();
+    // mock healingRepo: 当前 session 由自重启创建
+    const healingRepo = {
+      create: async () => {},
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [{
+        id: 'evt-1', errorType: 'self_restart',
+        context: { newSessionId: 'new-session-otter-1' },
+        createdAt: new Date().toISOString(),
+      }],
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+    } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
+    // mock getActiveSession 返回匹配的 session
+    (ctx.client.otter.getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'new-session-otter-1', otterId: 'otter-1', status: 'active',
+    });
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '测试' });
+
+    // 验证返回系统保护错误
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('系统保护');
+    expect(result.content[0].text).toContain('不允许连续自重启');
+    // 验证 restart 未被调用
+    expect(ctx._restartCalls).toHaveLength(0);
+  });
+
+  it('healingRepo 未注入时，降级放行（不拦截）', async () => {
+    const ctx = createMockToolContext();
+    const tools = createTools(ctx, undefined, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '测试' });
+
+    // 无 healingRepo → isSelfRestartLoop 返回 false → 放行
+    expect(result.isError).toBeUndefined();
+    expect(ctx.pendingRestart).toBeDefined();
+  });
+
+  it('session 不是由自重启创建时，正常放行', async () => {
+    const ctx = createMockToolContext();
+    const healingRepo = {
+      create: async () => {},
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [], // 无 self_restart 事件
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+    } as unknown as import('@usecases/healing/healing-event-repository').HealingEventRepository;
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '测试' });
+
+    // 无 self_restart 事件 → 放行
+    expect(result.isError).toBeUndefined();
+    expect(ctx.pendingRestart).toBeDefined();
   });
 });

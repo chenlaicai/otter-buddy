@@ -18,6 +18,8 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { Message } from "@entities/conversation/message";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { HealingEvent } from "@entities/healing/healing-event";
 import { createTestLogger } from "../helpers/logger";
 
 function makeSession(overrides: Partial<OtterSession> = {}): OtterSession {
@@ -286,5 +288,134 @@ describe("AgentInvoker — 自重启信号处理 (F20260819rscn)", () => {
     // 无 restart，只有 1 次 invoke
     expect(session.restartCalls).toHaveLength(0);
     expect(result).toBeDefined();
+  });
+});
+
+describe("AgentInvoker — 自重启循环防护 (F20260824srst)", () => {
+  it("AT-7: 防循环——session 由自重启创建时，不执行 restart", async () => {
+    const msg = mockSendMessage();
+    const session = mockManageSession(makeSession({ id: "sess-self-restart" }));
+    const invoke: SdkInvokePort = {
+      invoke: async () => ({ text: "已标记重启", _selfRestart: { otterId: "otter-1" } }),
+      abort: () => {},
+      getToolCallCount: () => 1,
+      getInternalAbortReason: () => undefined,
+    };
+    // mock healingRepo: 当前 session 由自重启创建
+    const healingRepo = {
+      create: async () => {},
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [{
+        id: "evt-1", errorType: "self_restart" as const,
+        context: { newSessionId: "sess-self-restart" },
+        createdAt: new Date().toISOString(),
+      } as unknown as HealingEvent],
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+    } as HealingEventRepository;
+    const qm = mockQueryMessage();
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healingRepo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "你重启自己", senderId: "user-1",
+    });
+
+    // 防循环：restart 未被执行（session 由自重启创建 → handleSelfRestartSignal 返回 null）
+    expect(session.restartCalls).toHaveLength(0);
+  });
+
+  it("AT-8: continuation message 替代原始消息——re-invoke 传入的不是原始消息", async () => {
+    const msg = mockSendMessage();
+    const session = mockManageSession(makeSession());
+    let invokeCount = 0;
+    const invokeContents: string[] = [];
+    const invoke: SdkInvokePort = {
+      invoke: async (otterId: string, content: string) => {
+        invokeCount++;
+        invokeContents.push(content);
+        if (invokeCount === 1) {
+          return { text: "已标记重启", _selfRestart: { otterId: "otter-1", summary: "上下文污染" } };
+        }
+        return { text: "基于干净上下文的回复" };
+      },
+      abort: () => {},
+      getToolCallCount: () => 1,
+      getInternalAbortReason: () => undefined,
+    };
+    const qm = mockQueryMessage();
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(),
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "你重启自己", senderId: "user-1",
+    });
+
+    // restart 被执行
+    expect(session.restartCalls).toHaveLength(1);
+    // re-invoke 发生（invoke 次数 >= 2）
+    expect(invokeCount).toBeGreaterThanOrEqual(2);
+    // continuation message 出现在某次 invoke 中（可能是第 2 次或第 3 次，取决于 orchestrator 重试）
+    const hasContinuationMsg = invokeContents.some(c => c.includes("已完成自重启"));
+    expect(hasContinuationMsg).toBe(true);
+  });
+
+  it("AT-9: self_restart healing 事件被写入（上限判定数据源）", async () => {
+    const msg = mockSendMessage();
+    const session = mockManageSession(makeSession());
+    let invokeCount = 0;
+    const invoke: SdkInvokePort = {
+      invoke: async () => {
+        invokeCount++;
+        if (invokeCount === 1) {
+          return { text: "已标记重启", _selfRestart: { otterId: "otter-1" } };
+        }
+        return { text: "回复" };
+      },
+      abort: () => {},
+      getToolCallCount: () => 1,
+      getInternalAbortReason: () => undefined,
+    };
+    const createdEvents: HealingEvent[] = [];
+    const healingRepo = {
+      create: async (evt: HealingEvent) => { createdEvents.push(evt); },
+      findById: async () => null,
+      findOpen: async () => [],
+      findAll: async () => [],
+      findByConversation: async () => [],
+      findRecentByOtter: async () => [], // 无 self_restart 事件 → 防循环检查通过
+      updateStatus: async () => {},
+      resolve: async () => {},
+      getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
+      autoStaleDismiss: async () => 0,
+    } as HealingEventRepository;
+    const qm = mockQueryMessage();
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healingRepo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "测试", senderId: "user-1",
+    });
+
+    // self_restart 事件被写入
+    expect(createdEvents).toHaveLength(1);
+    expect(createdEvents[0].errorType).toBe("self_restart");
+    expect(createdEvents[0].otterId).toBe("otter-1");
+    // context.newSessionId 指向新 session
+    const ctx = createdEvents[0].context as { newSessionId?: string };
+    expect(ctx?.newSessionId).toBe("sess-new");
   });
 });

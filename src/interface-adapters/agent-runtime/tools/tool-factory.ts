@@ -273,8 +273,20 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   };
 }
 
+/** F20260824srst: 自重启循环防护——当前 session 是否由自重启创建（tool 层第一道防线） */
+async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRepository): Promise<boolean> {
+  if (!healingRepo) return false;
+  const activeSession = await ctx.client.otter.getActiveSession(ctx.otterId).catch(() => null);
+  if (!activeSession) return false;
+  const events = await healingRepo.findRecentByOtter(ctx.otterId, 'self_restart', 20);
+  return events.some(e => {
+    const ectx = e.context as { newSessionId?: string } | null;
+    return ectx?.newSessionId === activeSession.id;
+  });
+}
+
 /** F20260810rstart: restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
-function createRestartOtterTool(ctx: ToolContext): AgentTool {
+function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "restart_otter",
     description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——新世上下文为空，靠 summary 注入；不传 summary 则新世从零开始. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
@@ -309,6 +321,13 @@ function createRestartOtterTool(ctx: ToolContext): AgentTool {
       const target = await ctx.client.otter.getById(targetOtterId);
       if (!target) {
         return errorResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
+      }
+
+      // F20260824srst: 自重启循环防护（第一道防线）。
+      // Why 在 tool 层拦截而非 agent-invoker 层：LLM 调用 restart_otter(self) 时立即返回错误，
+      // 避免设置 pendingRestart 后再由 invoker 层拦截——tool 层拦截更早、更省 token。
+      if (targetOtterId === ctx.otterId && await isSelfRestartLoop(ctx, healingRepo)) {
+        return errorResponse('[系统保护] 当前 session 已由自重启创建，不允许连续自重启。请通过新消息与獭交互。');
       }
 
       // F20260815rstrt: 自重启时延迟执行——session.prompt() 是原子的，
@@ -707,7 +726,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
-    createRestartOtterTool(ctx),
+    createRestartOtterTool(ctx, healingRepo),
     createLinkedResourceTool(ctx),
     createGetMemoryDetailTool(ctx),
     createLinkMemoryTool(ctx),
