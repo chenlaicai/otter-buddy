@@ -107,7 +107,7 @@ export interface OtterToolClient {
     dissolve(otterId: string): Promise<void>;
     getById(id: string): Promise<Otter | null>;
     /** F20260824srst：获取当前 active session（自重启循环防护 tool 层拦截用） */
-    getActiveSession?(otterId: string): Promise<OtterSession | null>;
+    getActiveSession(otterId: string): Promise<OtterSession | null>;
     /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。F20260810rstart */
     restart(otterId: string, summary?: string): Promise<OtterSession>;
   };

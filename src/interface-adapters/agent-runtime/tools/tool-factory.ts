@@ -276,7 +276,7 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
 /** F20260824srst: 自重启循环防护——当前 session 是否由自重启创建（tool 层第一道防线） */
 async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRepository): Promise<boolean> {
   if (!healingRepo) return false;
-  const activeSession = await ctx.client.otter.getActiveSession?.(ctx.otterId).catch(() => null);
+  const activeSession = await ctx.client.otter.getActiveSession(ctx.otterId).catch(() => null);
   if (!activeSession) return false;
   const events = await healingRepo.findRecentByOtter(ctx.otterId, 'self_restart', 20);
   return events.some(e => {
