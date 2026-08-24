@@ -21,21 +21,26 @@ function walk(dir) {
   for (const e of entries) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) out.push(...walk(full));
-    else if (e.name.endsWith(".ts")) out.push(full);
+    else if (/\.(ts|mts)$/.test(e.name)) out.push(full);
   }
   return out;
 }
 
 let violations = 0;
+const allowDdlFiles = [];
+// F20260821kgts: 豁免 ratchet——新增 allow-ddl 豁免必须显式上调此上限
+const MAX_ALLOW_DDL_FILES = 2;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);
   const txt = fs.readFileSync(file, "utf8");
 
   /** 豁免：文件含 "lint-tests:allow-ddl" 标记（迁移测试需要建旧 schema 的表）；
+   *  豁免文件数有 ratchet 上限（F20260821kgts），新增豁免必须显式上调并过 review；
    *  匹配前剥掉注释行（防注释里的"CREATE TABLE"字样误报） */
   const codeOnly = txt.split("\n").filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*")).join("\n");
   const allowDdl = txt.includes("lint-tests:allow-ddl");
+  if (allowDdl) allowDdlFiles.push(rel);
 
   if (!allowDdl && /CREATE\s+(VIRTUAL\s+)?TABLE/i.test(codeOnly)) {
     violations++;
@@ -45,6 +50,11 @@ for (const file of walk(path.join(root, "tests"))) {
     violations++;
     console.error(`✗ ${rel}\n    重复定义 mockLogger/noopLogger——必须用 tests/helpers/logger 的 createTestLogger()`);
   }
+}
+
+if (allowDdlFiles.length > MAX_ALLOW_DDL_FILES) {
+  violations++;
+  console.error(`✗ allow-ddl 豁免文件 ${allowDdlFiles.length} 个 > 上限 ${MAX_ALLOW_DDL_FILES}：${allowDdlFiles.join(", ")}\n    新增豁免须显式上调 MAX_ALLOW_DDL_FILES 并在 review 中说明理由`);
 }
 
 if (violations > 0) {
