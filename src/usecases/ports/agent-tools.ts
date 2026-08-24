@@ -136,4 +136,5 @@ export interface ToolContext {
   dispatchWarningShown?: boolean;
   /** F20260821i336：本轮是否已展示过编排守卫提醒。二次放行——首次提醒后再次调用 write/edit/bash 放行。 */
   orchestrationWarningShown?: boolean;
+
 }

@@ -75,7 +75,7 @@ async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string
 function createYieldTool(ctx: ToolContext): AgentTool {
   return {
     name: "yield",
-    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。不确定在场成员时先调 get_active_participants。",
+    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。不确定在场成员时先调 get_active_participants。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，你必须提供 reason 参数，说明为什么需要用户介入。如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。",
     parameters: {
       type: "object",
       properties: {
@@ -83,6 +83,10 @@ function createYieldTool(ctx: ToolContext): AgentTool {
           type: "array",
           items: { type: "string" },
           description: "行动权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。",
+        },
+        reason: {
+          type: "string",
+          description: "（to 包含 'user' 时必填）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
         },
       },
       required: ["to"],
