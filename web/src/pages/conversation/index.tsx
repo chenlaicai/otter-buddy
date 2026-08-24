@@ -188,7 +188,8 @@ function ConversationPage() {
     api.getSettings()
       .then(s => setUserName(s.userName ?? ''))
       .catch(() => console.warn('[ConversationPage] Failed to load userName setting'))
-  }, [])
+    // urlConvId 源自 window.location.pathname，MPA 模式下 mount 后不变，行为等价
+  }, [urlConvId])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
   useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations)
@@ -623,7 +624,7 @@ function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -874,7 +875,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages, batchUpdateMessages])
+  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1052,7 +1053,7 @@ function ConversationPage() {
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   const handleSelectConv = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新
@@ -1060,6 +1061,9 @@ function ConversationPage() {
   }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
+  const handleCloseModal = useCallback(() => setModal({ type: 'none' }), [])
+  const handleOpenRestart = useCallback((oid: string) => setModal({ type: 'restart', otterId: oid }), [])
+  const handleOpenDissolve = useCallback((oid: string) => setModal({ type: 'dissolve', otterId: oid }), [])
 
   const handleContextMenu = (e: React.MouseEvent, cid: string) => {
     e.preventDefault()
@@ -1292,7 +1296,7 @@ function ConversationPage() {
         </>
       )}
 
-      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={handleCloseModal} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={handleOpenRestart} onOpenDissolve={handleOpenDissolve} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (

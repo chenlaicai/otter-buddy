@@ -265,6 +265,9 @@ export function MessageList({
         if (onReachBottom) onReachBottom()
       })
     }
+    // Why: 有意 mount-only。若补 messages.length 会在用户上翻阅读历史时把每条新消息
+    // 都强拉回底部（增量滚动由上方 messages.length effect 按 isAtBottomRef 门控负责）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** 切换会话时重置状态 */
@@ -519,7 +522,7 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
     tick()
     const timer = setInterval(tick, 100)
     return () => clearInterval(timer)
-  }, [inFlight, events[0]?.ts])
+  }, [inFlight, events])
   const statusLabel = inFlight
     ? `进行中 · ${elapsed || '...'}`
     : status === 'failed'
