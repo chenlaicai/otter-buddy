@@ -42,7 +42,7 @@ skills:
 
   - name: code-implementation
     category: technique
-    next: [adversarial-review, worktree-isolation, otter-summon]   # PR 审视 / 内部调 worktree 与 otter-summon
+    next: [adversarial-review, worktree-isolation, otter-summon, post-merge-cleanup]   # PR 审视 / 内部调 worktree 与 otter-summon / PR 合入后清理
     not_for: [requirement-analysis, worktree-isolation]
     notes: 已确认方案 → 代码 PR。步骤 1 调 worktree-isolation，步骤 8 调 otter-summon 召唤检视獭。
 
@@ -54,9 +54,15 @@ skills:
 
   - name: worktree-isolation
     category: technique
-    next: [adversarial-review, code-implementation]   # 小改动 → 搭档终审；功能开发 → 审视
+    next: [adversarial-review, code-implementation, post-merge-cleanup]   # 小改动 → 搭档终审；功能开发 → 审视；PR 合入 → 收尾清理
     not_for: [code-implementation]
     notes: "Precondition: MUST trigger BEFORE modifying any git-tracked file. 红线在 SYSTEM.md 全局定义。"
+
+  - name: post-merge-cleanup
+    category: technique
+    next: []   # 自包含，清理完成后无后续
+    not_for: [code-implementation, worktree-isolation]
+    notes: PR 合入后收尾清理。支持单 PR 清理和批量扫尾模式。
 
   # ── 编排层 ──
   - name: otter-summon
