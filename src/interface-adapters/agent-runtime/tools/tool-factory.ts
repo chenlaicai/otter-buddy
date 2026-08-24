@@ -61,6 +61,17 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
+/** F20260821i336：更新派工台账状态（yield 成功后批量更新） */
+async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string[]): Promise<void> {
+  for (const id of resolvedIds) {
+    await ctx.client.dispatch.updateRecord({
+      otterId: id,
+      conversationId: ctx.conversationId,
+      status: 'in_progress',
+    });
+  }
+}
+
 function createYieldTool(ctx: ToolContext): AgentTool {
   return {
     name: "yield",
@@ -101,6 +112,8 @@ function createYieldTool(ctx: ToolContext): AgentTool {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
         /** F20260813actk C9：提交成功后才确认清除已派工票据 */
         confirmDispatchesClear(ctx, resolvedIds);
+        /** F20260821i336：更新派工台账状态（小獭 yield 回来时标记为 in_progress） */
+        await updateDispatchLedgerOnYield(ctx, resolvedIds);
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
@@ -211,6 +224,13 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
       /** F20260813actk C9：注册待派工票据，供 speak 软守卫检测 */
       ctx.pendingDispatches?.set(otter.id, otter.name);
+      /** F20260821i336：创建派工台账记录 */
+      await ctx.client.dispatch.createRecord({
+        conversationId: ctx.conversationId,
+        otterId: otter.id,
+        otterName: otter.name,
+        task: (params.systemPrompt as string).substring(0, 200), // 截取前 200 字符作为任务摘要
+      });
       /** F20260813actk C3：回包提示就位待命状态（串行场景教育） */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}). 已就位待命，但尚未开工——` +
@@ -646,6 +666,36 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
+/** F20260821i336：query_dispatch_ledger — 查询派工台账，大獭汇报前核对 */
+function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "query_dispatch_ledger",
+    description: "查询派工台账. When: 大獭汇报任务状态前核对实际派工记录，消灭状态虚报. Output: 派工记录列表（otterName/task/status/PR/时间戳）. BOUNDARY: 只读不修改状态. conversationId 由系统注入.",
+    parameters: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["pending", "in_progress", "completed", "failed"],
+          description: "按状态过滤（可选）",
+        },
+        otterId: {
+          type: "string",
+          description: "按小獭 ID 过滤（可选）",
+        },
+      },
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const records = await ctx.client.dispatch.queryRecords({
+        conversationId: ctx.conversationId,
+        status: params.status as "pending" | "in_progress" | "completed" | "failed" | undefined,
+        otterId: params.otterId as string | undefined,
+      });
+      return textResponse(JSON.stringify(records));
+    },
+  };
+}
+
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
@@ -673,6 +723,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createUpdateArtifactStatusTool(ctx),
     createGetActiveParticipantsTool(ctx),
     createGetHtmlCardContractTool(),
+    createQueryDispatchLedgerTool(ctx),
   ];
   /** F20260811sktp 第五轮审视：manage_healing_events 此前未注册（pre-existing bug），
    *  但本 PR SYSTEM.md R5 显式引用了它，必须确保运行时可用。 */
