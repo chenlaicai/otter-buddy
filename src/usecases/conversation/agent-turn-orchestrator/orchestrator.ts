@@ -262,6 +262,8 @@ export class AgentTurnOrchestrator {
             otterId: ctx.input.otterId,
             otterName: otter?.name ?? ctx.input.otterId,
             body: msg ? aggregateBody(msg.segments) : '',
+            // F-multi-speak-bubble: 传递 segments 数组用于前端分段渲染
+            segments: msg ? msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })) : [],
             turnId: msg?.turnId ?? '',
             duration: `${(duration / 1000).toFixed(1)}s`,
             ctx: ctx.result.ctxTokens,
