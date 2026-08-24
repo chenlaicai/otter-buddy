@@ -18,8 +18,10 @@ export interface TraceContext {
   traceId?: string;
   /** invoke 级：当前 streaming 消息 */
   messageId?: string;
-  /** 入口来源："chain"（DispatchChainEngine）| "direct"（scheduler/手动重试直连） */
+  /** 入口来源：“chain”（DispatchChainEngine）| “direct”（scheduler/手动重试直连） */
   source?: string;
+  /** PR ID（PR 评估体系） */
+  prId?: string;
 }
 
 const storage = new AsyncLocalStorage<TraceContext>();
