@@ -180,15 +180,8 @@ function createMemoryTables(db: Database.Database): void {
     );
   `);
 
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      memory_entry_id UNINDEXED,
-      content,
-      tokenize = 'trigram'
-    );
-  `);
-
   // F20260805hybrid: jieba 分词表，支持中文短查询
+  // F370: memory_fts (trigram) 只写不查，已移除——旧库残留表无害，不主动 DROP
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
       memory_entry_id UNINDEXED,

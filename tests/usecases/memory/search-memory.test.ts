@@ -31,8 +31,6 @@ function storeEntry(db: Database.Database, entry: MemoryEntry): void {
     entry.conversationId ?? null, entry.granularity, entry.content,
     entry.metadata ? JSON.stringify(entry.metadata) : null, entry.createdAt,
   );
-  db.prepare(`INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)`)
-    .run(entry.id, entry.content);
   db.prepare(`INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)`)
     .run(entry.id, tokenizeWithJieba(entry.content));
   db.prepare(`INSERT INTO memory_weights (memory_entry_id) VALUES (?)`)
