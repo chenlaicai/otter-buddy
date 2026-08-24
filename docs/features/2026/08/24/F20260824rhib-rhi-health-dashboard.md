@@ -25,6 +25,7 @@ summary: |
 - `conversation/index.tsx` 被 BugFix 触碰 **19 次**、`agent-invoker.ts` 18 次
 - 239 份 F 文档存在，但链追踪相关字段覆盖率低：`from:` 仅 8/239（3.3%）、`supersedes:` 2/239（0.8%）、`intent:` 0/239（#386 后新增文档才开始积累）
 - commit message 带 F 前缀 249/259（96.1%），严格三段格式 182/259（70.3%）；不合规样本包括 init/Revert/R 文档头等需显式处理
+- 「严格三段格式」口径：模块段仅允许纯字母（不含连字符），由 Issue #1 CommitParser 正则定义
 
 ## 目标
 
@@ -323,7 +324,7 @@ Signal 产生
 - 验收：能正确构建所有有 FID 的 commit 的特性链，orphan 被正确标记
 
 **Issue #6**: 信号检测引擎
-- detect-signals.ts: 5 类规则实现（以信号注册表为准）
+- detect-signals.ts: 8 类规则实现（以信号注册表为准）
 - signals 表设计 + 迁移
 - MVP 规则：同模块同文件 bugfix ≥3 次/30 天（窄门，不依赖语义聚类）
 - 验收：按 30 天窗口规则实际触发的 recurrence 数
