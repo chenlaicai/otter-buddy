@@ -43,8 +43,9 @@ export class IdentityBuilder {
     }
   }
 
-  /** S1（R20260810piab）：构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源） */
-  async buildIdentityPrefix(otterId: string, otterType: string, conversationId: string): Promise<string> {
+  /** S1（R20260810piab）：构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源）
+   * @param modelAlias 当前 otter 的模型别名（来自 otterConfigProvider），用于注入模型身份段 */
+  async buildIdentityPrefix(otterId: string, otterType: string, conversationId: string, modelAlias?: string): Promise<string> {
     const otter = await this.otterRepo.getById(otterId);
     if (!otter) {
       this.logger.warn('身份注入跳过：otters 表中不存在该记录', { otterId });
@@ -65,16 +66,47 @@ export class IdentityBuilder {
     // F20260810rout: 小獭注入召唤者身份（修复行动权路由 bug——子獭需知道召唤者是谁，结论才能交回）
     const summonerIdentity = isBig ? '' : await this.buildSummonerIdentity(otter);
 
+    // F20260824mdlid: 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
+    const modelIdentity = this.buildModelIdentity(modelAlias);
+
     return [
       `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
       userIdentity,
       summonerIdentity,
       identityBody,
+      modelIdentity,
       modelGuidance,
     ].filter(Boolean).join("\n\n");
   }
 
-  /** F20260810rout: 构建召唤者身份段（小獭专用）——子獭需知道召唤者是谁，行动权才能交回 */
+  /** F20260824mdlid: 构建模型身份段——告诉海獭自己是什么模型、擅长什么，用于对抗性协作时选择异模型 */
+  private buildModelIdentity(alias: string | undefined): string {
+    if (!this.modelPool) return '';
+    const models = this.modelPool.describeModels();
+    // 单模型池省略："你用的是唯一模型"信息量为零，徒增 token
+    if (models.length <= 1) return '';
+
+    const target = alias
+      ? (models.find(m => m.alias === alias) ?? models.find(m => m.alias === this.modelPool!.getDefaultAlias()))
+      : models.find(m => m.alias === this.modelPool!.getDefaultAlias());
+    if (!target) return '';
+
+    const strengths = target.strengths?.length ? target.strengths.join('、') : '未指定';
+    const weaknesses = target.weaknesses?.length ? target.weaknesses.join('、') : '未指定';
+
+    return [
+      '## 你的运行时模型',
+      `- 模型：${target.alias}——${target.description ?? '无描述'}`,
+      `- 优势：${strengths}`,
+      `- 劣势：${weaknesses}`,
+      '- 以上信息由系统注入，以此为准判断自己的能力边界，不要凭预训练记忆推测或声称其他模型身份',
+      '- 对抗性协作提示：在开发/检视、编写/审核等配对场景中，你与对方使用不同模型。',
+      '  训练路径不同 → 思考盲区不同，这正是对抗价值的来源。审视对方产出时，',
+      '  优先从你的优势维度切入，不要假设“我想不到的对方也想不到”。',
+    ].join('\n');
+  }
+
+  /** 构建召唤者身份段（小獭专用）——子獭需知道召唤者是谁，行动权才能交回 */
   private async buildSummonerIdentity(otter: { parentOtterId: string | null }): Promise<string> {
     if (!otter.parentOtterId) return '';
     const parentOtter = await this.otterRepo.getById(otter.parentOtterId);

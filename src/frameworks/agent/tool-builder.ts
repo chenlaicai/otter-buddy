@@ -22,6 +22,7 @@ export interface BuildCustomToolsParams {
   turnText?: { text: string };
   otterToolClient: OtterToolClient;
   modelPool?: ModelPool;
+  otterConfigProvider?: { getConfig(otterId: string): { modelAlias?: string } | null };
   createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
   healingRepo?: HealingEventRepository;
   logger: Logger;
@@ -45,7 +46,7 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, messageId, turnText, otterToolClient, modelPool, createTools, healingRepo, logger } = params;
+  const { otterId, conversationId, allowedNames, messageId, turnText, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, logger } = params;
 
   // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
   const toolContext: ToolContext = {
@@ -54,6 +55,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     conversationId,
     currentMessageId: messageId ?? "",
     modelPool,
+    otterConfigProvider,
     getTurnAssistantText: turnText ? () => turnText.text : undefined,
     /** F20260813actk C9：每次 invoke 新建待派工票据 Map（agent turn 级生命周期） */
     pendingDispatches: new Map<string, string>(),
