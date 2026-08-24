@@ -1060,6 +1060,9 @@ function ConversationPage() {
   }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
+  const handleCloseModal = useCallback(() => setModal({ type: 'none' }), [])
+  const handleOpenRestart = useCallback((oid: string) => setModal({ type: 'restart', otterId: oid }), [])
+  const handleOpenDissolve = useCallback((oid: string) => setModal({ type: 'dissolve', otterId: oid }), [])
 
   const handleContextMenu = (e: React.MouseEvent, cid: string) => {
     e.preventDefault()
@@ -1292,7 +1295,7 @@ function ConversationPage() {
         </>
       )}
 
-      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={handleCloseModal} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={handleOpenRestart} onOpenDissolve={handleOpenDissolve} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, memo } from 'react'
 import { X } from 'lucide-react'
 import { OTTER_GRADIENT } from '../lib/otter-colors'
 
@@ -12,7 +12,7 @@ interface ModalProps {
   width?: string
 }
 
-export function Modal({ isOpen = true, onClose, title, children, footer, width = '440px' }: ModalProps) {
+export const Modal = memo(function Modal({ isOpen = true, onClose, title, children, footer, width = '440px' }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       const handler = (e: KeyboardEvent) => {
@@ -55,7 +55,7 @@ export function Modal({ isOpen = true, onClose, title, children, footer, width =
       </div>
     </div>
   )
-}
+})
 
 /** Button styles for modal footer */
 export function ModalButton({
