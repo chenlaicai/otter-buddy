@@ -24,7 +24,7 @@ summary: |
 - agent 模块 BugFix 26/72 = **36.1%**（按 module 标签）
 - `conversation/index.tsx` 被 BugFix 触碰 **19 次**、`agent-invoker.ts` 18 次
 - 239 份 F 文档存在，但链追踪相关字段覆盖率低：`from:` 仅 8/239（3.3%）、`supersedes:` 2/239（0.8%）、`intent:` 0/239（#386 后新增文档才开始积累）
-- commit message 带 F 前缀 249/259（96.1%），严格三段格式 196/259（75.7%）；不合规样本包括 init/Revert/R 文档头等需显式处理
+- commit message 带 F 前缀 249/259（96.1%），严格三段格式 182/259（70.3%）；不合规样本包括 init/Revert/R 文档头等需显式处理
 
 ## 目标
 
@@ -78,6 +78,7 @@ T5: 与 PR 评估体系（#386 introducedByPr/TraceContext.prId）天然咬合�
 │  ├─ GitLogCollector: child_process git log（只读）           │
 │  ├─ FeatureDocCollector: 复用 sync_docs 解析器              │
 │  ├─ MetricsCollector: 读 data/metrics/*.jsonl               │
+│  ├─ MessagesCollector: 读 messages 表（zombie 判定 FID 出现次数）  │
 │  └─ HealingCollector: 读 healing_events 表                   │
 ├─────────────────────────────────────────────────────────────┤
 │  存储层 Storage                                              │
@@ -112,7 +113,7 @@ FeatureDoc (F文档)                    PullRequest
 | active | status∈{draft,proposed,design,development} ∧ 最后 commit ≤14 天 |
 | stalled | status∈{draft,proposed,design,development} ∧ 最后 commit >14 天 ∧ 无 verify_by 达标 |
 | regressed | 链上最新 N 个 PR 是 BugFix 且触碰链内 feature 引入的文件 |
-| zombie | status∈{draft,proposed,design,development} ∧ 30 天无 commit ∧ 近 30 天对话消息中 FID 出现次数 = 0 |
+| zombie | status∈{draft,proposed,design,development} ∧ 30 天无 commit ∧ 近 30 天对话消息中 FID 出现次数 = 0（数据源：MessagesCollector 直查 messages 表） |
 | orphan | commit 的 FID 在 docs/features 找不到文档 |
 
 ### 指标体系（四层金字塔）
@@ -137,6 +138,19 @@ FeatureDoc (F文档)                    PullRequest
 | 🟡 意图兑现率下降 | 近 7 天 ❌+⚠️ 占比 > 阈值 | 触发回验 |
 | 🟡 热区失衡 | bugfix:feature >2 持续 2 周 | 重构立项 |
 | 🟡 审视债务 | 未走对抗审视 PR 占比上升 | 提醒流程 |
+
+**信号注册表**（统一信号定义，Issue #6 以此为准）：
+
+| 信号 ID | 名称 | 触发规则 | 数据依赖 | 严重程度 | 动作 |
+|---------|------|----------|----------|----------|------|
+| bug_recurrence | bug 反复出现 | 同模块同文件 bugfix ≥3 次/30天 | GitLogCollector + CommitParser | 🔴 critical | 强制根因分析 |
+| chain_stall | 特性链滞留 | F-doc status∈{draft,proposed,design,development} 且 14 天无 commit | GitLogCollector + FeatureDocCollector | 🔴 critical | 链复盘 |
+| hotspot | 热点文件 | 文件修改次数 > P95 或固定阈值 | GitLogCollector + CommitParser | 🟡 warning | 架构审视 |
+| behavior_defect | 行为缺陷 | 同一 errorType healing event 复发 | HealingCollector | 🟡 warning | prompt/skill 修订 |
+| eval_regression | 效果回退 | verify_by 达标后又恶化 | FeatureDocCollector + GitLogCollector | 🟡 warning | 触发回验 |
+| intent_drop | 意图兑现率下降 | 近 7 天 ❌+⚠️ 占比 > 阈值 | FeatureDocCollector | 🟡 warning | 触发回验 |
+| hotspot_imbalance | 热区失衡 | bugfix:feature >2 持续 2 周 | GitLogCollector + CommitParser | 🟡 warning | 重构立项 |
+| review_debt | 审视债务 | 未走对抗审视 PR 占比上升 | GitLogCollector + CommitParser | 🟡 warning | 提醒流程 |
 
 **L4 自进化信号**（最有创新性）：
 - 教训复用率：bugfix PR 中引用 R 文档/历史教训的比例
@@ -236,7 +250,6 @@ Signal 产生
 | 指标通货膨胀 | 中 | 严格分阶段，每阶段验证"有没有人/agent 真的消费" |
 | 数据冷启动 | 高 | 存量字段覆盖率低（from 3.3%，intent 0%），只统计增量 + 显式声明冷启动起点 |
 | introducedByPr 数据质量 | 中 | agent 自报可能不填或填错，需交叉校验（PR diff + commit message） |
-| 指标通货膨胀 | 中 | 严格分阶段，每阶段验证"有没有人/agent 真的消费" |
 
 ## 设计取舍
 
