@@ -188,7 +188,8 @@ function ConversationPage() {
     api.getSettings()
       .then(s => setUserName(s.userName ?? ''))
       .catch(() => console.warn('[ConversationPage] Failed to load userName setting'))
-  }, [])
+    // urlConvId 源自 window.location.pathname，MPA 模式下 mount 后不变，行为等价
+  }, [urlConvId])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
   useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations)
@@ -623,7 +624,7 @@ function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -874,7 +875,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages, batchUpdateMessages])
+  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1052,7 +1053,7 @@ function ConversationPage() {
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   const handleSelectConv = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新

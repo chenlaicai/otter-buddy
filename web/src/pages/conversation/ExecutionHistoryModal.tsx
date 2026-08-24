@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { CheckCircle, XCircle, Loader, MessageSquare, Clock } from 'lucide-react'
 import { Modal } from '../../components/Modal'
 import type { LocalScheduledTaskExecution } from '../../lib/mappers'
@@ -43,7 +43,7 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
   const [offset, setOffset] = useState(0)
   const limit = 20
 
-  const loadExecutions = async (newOffset: number) => {
+  const loadExecutions = useCallback(async (newOffset: number) => {
     setLoading(true)
     try {
       const result = await api.listExecutions(taskId, { limit, offset: newOffset })
@@ -60,11 +60,11 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
     } finally {
       setLoading(false)
     }
-  }
+  }, [taskId])
 
   useEffect(() => {
     loadExecutions(0)
-  }, [taskId])
+  }, [taskId, loadExecutions])
 
   const hasMore = offset + limit < total
 
