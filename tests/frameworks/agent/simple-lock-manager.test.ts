@@ -153,4 +153,45 @@ describe("SimpleLockManager", () => {
 
     release();
   });
+
+  it("should handle late release after destroy safely", async () => {
+    // Why: 检视獭发现 #2 —— destroy 在持有者释放前调用的边界场景
+    // 持有者的闭包仍引用旧 lock 对象，但 lock.held 已被 Map 清理
+    // 验证：不 crash、不挂起
+    const lock = new SimpleLockManager();
+
+    const release = await lock.acquire("resource-1");
+
+    // destroy 在持有者释放前调用——唤醒所有等待者并清理 Map
+    lock.destroy();
+
+    // 持有者仍然持有闭包中的 release 函数
+    // 调用 release 不应该 crash（lock entry 已被清理，held 状态不影响）
+    expect(() => release()).not.toThrow();
+
+    // destroy 后应该能重新获取锁（Map 已清理）
+    const release2 = await lock.acquire("resource-1");
+    release2();
+  });
+
+  it("should allow new acquire after waiter timeout and holder release", async () => {
+    // Why: 检视獭发现 #3 —— timeout 后 stale entry 清理的端到端路径
+    // holder 持有锁 → waiter 超时 → holder 释放 → 新 acquire 立即获取锁
+    const lock = new SimpleLockManager();
+
+    // 1. holder 获取锁
+    const holderRelease = await lock.acquire("resource-1");
+
+    // 2. waiter 尝试获取锁，会超时
+    const waiterPromise = lock.acquire("resource-1", 50);
+    await expect(waiterPromise).rejects.toThrow("Lock acquire timeout for key: resource-1");
+
+    // 3. holder 释放锁
+    holderRelease();
+
+    // 4. 新的 acquire 应该立即获取锁（stale waiter 已被清理，lock 正确重置）
+    const newRelease = await lock.acquire("resource-1");
+    // 不应该超时或挂起
+    newRelease();
+  });
 });
