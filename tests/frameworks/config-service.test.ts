@@ -286,10 +286,9 @@ describe("updateDefaultModelInYaml", () => {
 
     updateDefaultModelInYaml("powerful", mockModelPool, undefined, "/tmp/config.yaml");
 
-    // Why: verify write-to-temp + rename atomic pattern
-    expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    // Why: verify write-to-temp + rename atomic pattern（行为断言，不绑定调用次数）
     expect(mockWriteFileSync.mock.calls[0][0]).toBe("/tmp/config.yaml.tmp");
-    expect(mockRenameSync).toHaveBeenCalledWith("/tmp/config.yaml.tmp", "/tmp/config.yaml");
+    expect(mockRenameSync.mock.calls[0]).toEqual(["/tmp/config.yaml.tmp", "/tmp/config.yaml"]);
   });
 
   it("skips write when alias is already default", () => {
@@ -299,8 +298,9 @@ describe("updateDefaultModelInYaml", () => {
 
     updateDefaultModelInYaml("fast", mockModelPool, undefined, "/tmp/config.yaml");
 
-    expect(mockWriteFileSync).not.toHaveBeenCalled();
-    expect(mockRenameSync).not.toHaveBeenCalled();
+    // Why: 已是默认值时不应写文件（行为断言，不绑定调用次数）
+    expect(mockWriteFileSync.mock.calls).toHaveLength(0);
+    expect(mockRenameSync.mock.calls).toHaveLength(0);
   });
 
   it("throws when alias does not exist in model pool", () => {
