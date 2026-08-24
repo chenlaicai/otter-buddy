@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
 import { createTestLogger } from "../helpers/logger";
@@ -6,6 +6,7 @@ import { createTestLogger } from "../helpers/logger";
 describe("Settings API", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;
+  const writeDefaultModelMock = vi.fn();
 
   beforeEach(() => {
     deps = createMockDeps();
@@ -55,6 +56,7 @@ describe("Settings API", () => {
         deps.settingsRepo,
         pool,
         createTestLogger(),
+        writeDefaultModelMock,
       );
       multiPoolApp.put("/api/settings", (c) => ctrl.updateSettings(c));
 
@@ -70,7 +72,9 @@ describe("Settings API", () => {
       const body = await json(res);
       expect(body.defaultModelAlias).toBe("powerful");
       expect(pool.getDefaultAlias()).toBe("powerful");
-      expect(deps.settingsRepo.update).toHaveBeenCalledWith("llm.defaultModelAlias", "powerful");
+      // Why: config.yaml is the single source of truth, not DB settings table
+      expect(writeDefaultModelMock).toHaveBeenCalledWith("powerful", pool, expect.anything());
+      expect(deps.settingsRepo.update).not.toHaveBeenCalledWith("llm.defaultModelAlias", "powerful");
     });
 
     it("rejects unknown alias with 400", async () => {

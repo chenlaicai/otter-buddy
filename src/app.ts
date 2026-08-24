@@ -25,7 +25,7 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
-  postInitDatabase, postSyncMigrations, validateModelAliases, applyDefaultModelOverride, shutdownDatabase,
+  postInitDatabase, postSyncMigrations, validateModelAliases, shutdownDatabase,
   verifyEmbeddingVersion,
 } from "./bootstrap/database";
 import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
@@ -141,8 +141,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
-  await applyDefaultModelOverride(repos.settings, modelPool, logger);
-
+  
   // ── 对话工作区 ──
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
 
