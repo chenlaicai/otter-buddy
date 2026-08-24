@@ -13,6 +13,7 @@ import type { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound
 import type { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import type { UseCases } from "./types";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import { updateDefaultModelInYaml } from "@frameworks/config-service";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
@@ -73,7 +74,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
-    settings: new SettingsController(settings, settingsRepo, modelPool, logger),
+    settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
     connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),

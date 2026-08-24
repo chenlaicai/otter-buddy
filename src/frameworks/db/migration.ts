@@ -28,6 +28,13 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added source column to messages table');
   }
 
+  // sender_name: 发送者显示名快照（F20260824snrs 单一真相源）
+  const hasSenderName = msgColumns.some(col => col.name === 'sender_name');
+  if (!hasSenderName) {
+    db.prepare("ALTER TABLE messages ADD COLUMN sender_name TEXT NOT NULL DEFAULT ''").run();
+    logger.info('Added sender_name column to messages table');
+  }
+
   // 创建 otter_configs 表
   db.prepare(`
     CREATE TABLE IF NOT EXISTS otter_configs (
@@ -91,6 +98,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260812mrcq：embedding_tasks 表（embedding 重试队列） */
   ensureEmbeddingTasksTable(db, logger);
+
+  /** F20260821evaf：embedding 版本锚表。老库 initSchema 不再执行，须在此补建（否则 getEmbeddingMeta 直接抛 no such table） */
+  ensureEmbeddingMetaTable(db, logger);
 
   /** F20260813mren: 记忆关系层——memory_edges 表 + 文档 provenance 列 */
   ensureMemoryEdgesTable(db, logger);
@@ -171,6 +181,22 @@ function ensureEmbeddingTasksTable(db: Database.Database, logger: Logger): void 
       ON embedding_tasks (status, next_retry_at);
   `);
   logger.info('Ensured embedding_tasks table exists');
+}
+
+/** F20260821evaf：embedding_meta 表（版本锚，schema.ts 同构）。老库补建——initSchema 仅新库执行。 */
+function ensureEmbeddingMetaTable(db: Database.Database, logger: Logger): void {
+  const existed = (db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'embedding_meta'",
+  ).get() !== undefined);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS embedding_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  // 只在真正补建时打日志，让日志可作为"老库升级发生"的证据（F20260821evaf 审视项）
+  if (!existed) logger.info('Ensured embedding_meta table exists');
 }
 
 /**
@@ -444,7 +470,6 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
         // 注意（F20260817mrp2 二轮审视）：这里是级联删除卫星表的【第二份实现】（rebuild 迁移路径，
         // 历史 copy）——运行时唯一实现在 sqlite-memory-repository.ts 的 cascadeDeleteSatellites。
         // 新增/修改卫星表时两处都要同步（迁移是一次性补丁，不 import repo 运行时代码）。
-        db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(row.id);
         db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
         // S10：vec 删除 try-catch 加 log warn（vec0 表可能不存在，D22 降级）
         try {

@@ -24,7 +24,7 @@ import { checkPendingDispatches, confirmDispatchesClear } from "@usecases/conver
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "发言工具——让其他人（海獭或搭档）看到你的内容。纯内容输出，不涉及行动权移交。调用后 agent loop 继续（terminate=false），可以继续调工具或再次 speak。多次调用的 body 会作为独立片段按顺序拼接为最终消息。GOTCHA: speak 不等于交棒——说完后还需调 yield 把行动权交给下一位，回合才会结束。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
+    description: "发言工具——你在聊天室里唯一的发言通道。你生成的普通文本对其他参与者不可见（搭档需点开流式过程才能看到，其他海獭完全看不到），只有 speak 输出的内容才会被所有人看到。所有需要传达给他人的内容都必须通过 speak(body) 输出。纯内容输出，不涉及行动权移交。调用后 agent loop 继续（terminate=false），可以继续调工具或再次 speak。多次调用的 body 会作为独立片段按顺序拼接为最终消息。GOTCHA: speak 不等于交棒——说完后还需调 yield 把行动权交给下一位，回合才会结束。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——**一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用**。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
     parameters: {
       type: "object",
       properties: {
@@ -46,24 +46,36 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 
       try {
         /** 拆分后 speak 只落内容（每次一条 segment，原子事务），行动权移交由 yield 负责 */
-        await ctx.client.conversation.message.appendSegment(ctx.currentMessageId, cleanBody);
+        const seg = await ctx.client.conversation.message.appendSegment(ctx.currentMessageId, cleanBody);
+        return {
+          ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
+          terminate: false,
+          /** agent-invoker 检测此标记并广播 speak.intermediate SSE（前端实时展示中间发言）
+           *  segmentId + sequenceNum 用于前端分段渲染（F-multi-speak-bubble） */
+          details: { __speakIntermediate: true, body: cleanBody, segmentId: seg.id, sequenceNum: seg.sequenceNum },
+        };
       } catch (err) {
         return errorResponse(`[错误] 发言落库失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
-      return {
-        ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
-        terminate: false,
-        /** agent-invoker 检测此标记并广播 speak.intermediate SSE（前端实时展示中间发言） */
-        details: { __speakIntermediate: true, body: cleanBody },
-      };
     },
   };
+}
+
+/** F20260821i336：更新派工台账状态（yield 成功后批量更新） */
+async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string[]): Promise<void> {
+  for (const id of resolvedIds) {
+    await ctx.client.dispatch.updateRecord({
+      otterId: id,
+      conversationId: ctx.conversationId,
+      status: 'in_progress',
+    });
+  }
 }
 
 function createYieldTool(ctx: ToolContext): AgentTool {
   return {
     name: "yield",
-    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。不确定在场成员时先调 get_active_participants。",
+    description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。不确定在场成员时先调 get_active_participants。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
     parameters: {
       type: "object",
       properties: {
@@ -71,6 +83,10 @@ function createYieldTool(ctx: ToolContext): AgentTool {
           type: "array",
           items: { type: "string" },
           description: "行动权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 不能传自己。",
+        },
+        reason: {
+          type: "string",
+          description: "（to 包含 'user' 时建议提供）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
         },
       },
       required: ["to"],
@@ -100,6 +116,8 @@ function createYieldTool(ctx: ToolContext): AgentTool {
         await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
         /** F20260813actk C9：提交成功后才确认清除已派工票据 */
         confirmDispatchesClear(ctx, resolvedIds);
+        /** F20260821i336：更新派工台账状态（小獭 yield 回来时标记为 in_progress） */
+        await updateDispatchLedgerOnYield(ctx, resolvedIds);
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
@@ -115,7 +133,7 @@ function createYieldTool(ctx: ToolContext): AgentTool {
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
-    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是你了解一件事来龙去脉的第一入口. When: 需要历史脉络时——显性信号：搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；隐性信号：收到方案/决策/排查类实质问题先自问'这事在本项目有历史脉络吗'（本项目的方案、结论、教训大多沉淀在记忆里），有则先搜再答，答案能站在已有结论上. 纯新话题/闲聊不必搜，不是为了搜而搜. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引覆盖率，ratio<1.0 说明有暗化条目，召回可能不完整）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）；命中条目后调 get_related 沿关系图拼链（怎么读链、怎么顺着链走见其 description）；发现条目间关联用 link_memory 声明，链越拼越完整. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
+    description: `检索记忆：跨会话的历史决策、讨论、F/R 文档与事实都在这里，是你了解一件事来龙去脉的第一入口. When: 需要历史脉络时——显性信号：搭档提到'上次'/问某决策为什么/跨会话续接/术语不明；隐性信号：收到方案/决策/排查类实质问题先自问'这事在本项目有历史脉络吗'（本项目的方案、结论、教训大多沉淀在记忆里），有则先搜再答，答案能站在已有结论上. 纯新话题/闲聊不必搜，不是为了搜而搜. Not for: 当前上下文存取 → get_context/set_context. 取记忆全文 → get_memory_detail. Output: 记忆条目列表（detail_level 三级：summary 默认快速扫描/snippet 匹配上下文/full 完整内容）+ vecCoverage（vec 索引健康度，读法：total=0 → 本路由不走 vec 索引（术语库/锚点短路/空结果），ratio 无意义；0<ratio<1 → 有暗化条目（部分记忆缺向量），召回可能不完整；vecDisabled=true → vec 路径整体降级为 FTS-only（版本锚 mismatch 等），语义近邻召回缺失、仅关键词匹配可用，重要检索可提示用户排查）+ contextEntries（expand_context=true 时的邻域上下文）. TIP: 默认走 summary → get_memory_detail 两步（见 get_memory_detail description）；结果含 drillDown 字段时按其 tool/params 调用下钻；输入 F/R 文档 ID（如 F20260812mrcq）时自动短路定位（source=anchor）；命中条目后调 get_related 沿关系图拼链（怎么读链、怎么顺着链走见其 description）；发现条目间关联用 link_memory 声明，链越拼越完整. 命中并实质影响回答时，在发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说，搭档需要感知记忆在干活. BOUNDARY: 记忆与当前上下文冲突时以当前上下文为准；可指定 library 路由 / created_after 过滤时间范围（如定时摘要查今日新增）；debug=true 返回中间分值用于诊断召回排序（F20260811mrpy）；expand_context=true 返回命中条目的前后 chunk/消息邻域（F20260812mrcq）.`,
     parameters: {
       type: "object",
       properties: {
@@ -152,7 +170,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
     execute: async (_id: string, params: Record<string, unknown>) => {
       const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "summary";
       const contentType = params.content_type as MemoryContentType[] | undefined;
-      const { entries, contextEntries } = await ctx.client.memory.search(
+      const { entries, contextEntries, vecCoverage } = await ctx.client.memory.search(
         params.query as string,
         (params.limit as number) ?? 10,
         detailLevel,
@@ -162,9 +180,12 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         params.expand_context as boolean | undefined,
       );
       // F20260812mrcq Part 2: 透传 contextEntries 给 agent（不混入 entries，避免评分断层）
-      return textResponse(JSON.stringify(
-        contextEntries && contextEntries.length > 0 ? { entries, contextEntries } : entries,
-      ));
+      // F20260821evaf 二轮审视: 透传 vecCoverage——兑现 description 承诺，agent 感知降级/暗化
+      return textResponse(JSON.stringify({
+        entries,
+        ...(contextEntries && contextEntries.length > 0 ? { contextEntries } : {}),
+        ...(vecCoverage ? { vecCoverage } : {}),
+      }));
     },
   };
 }
@@ -207,6 +228,13 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
       /** F20260813actk C9：注册待派工票据，供 speak 软守卫检测 */
       ctx.pendingDispatches?.set(otter.id, otter.name);
+      /** F20260821i336：创建派工台账记录 */
+      await ctx.client.dispatch.createRecord({
+        conversationId: ctx.conversationId,
+        otterId: otter.id,
+        otterName: otter.name,
+        task: (params.systemPrompt as string).substring(0, 200), // 截取前 200 字符作为任务摘要
+      });
       /** F20260813actk C3：回包提示就位待命状态（串行场景教育） */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}). 已就位待命，但尚未开工——` +
@@ -245,8 +273,20 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   };
 }
 
+/** F20260824srst: 自重启循环防护——当前 session 是否由自重启创建（tool 层第一道防线） */
+async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRepository): Promise<boolean> {
+  if (!healingRepo) return false;
+  const activeSession = await ctx.client.otter.getActiveSession(ctx.otterId).catch(() => null);
+  if (!activeSession) return false;
+  const events = await healingRepo.findRecentByOtter(ctx.otterId, 'self_restart', 20);
+  return events.some(e => {
+    const ectx = e.context as { newSessionId?: string } | null;
+    return ectx?.newSessionId === activeSession.id;
+  });
+}
+
 /** F20260810rstart: restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
-function createRestartOtterTool(ctx: ToolContext): AgentTool {
+function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "restart_otter",
     description: "重启指定 Otter 的獭生——封存当前 Session（前世），以全新上下文开启新一世. When: Otter 上下文污染需要重置 / 退化熔断触发 / 显式要求重启. Not for: 解散 Otter（销毁身份）→ dissolve_otter. Output: 新 Session ID 确认. GOTCHA: **前世 session 封存不可逆**——新世上下文为空，靠 summary 注入；不传 summary 则新世从零开始. BOUNDARY: 访问控制——小獭只能重启自己，大獭可重启任意 Otter.",
@@ -281,6 +321,13 @@ function createRestartOtterTool(ctx: ToolContext): AgentTool {
       const target = await ctx.client.otter.getById(targetOtterId);
       if (!target) {
         return errorResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
+      }
+
+      // F20260824srst: 自重启循环防护（第一道防线）。
+      // Why 在 tool 层拦截而非 agent-invoker 层：LLM 调用 restart_otter(self) 时立即返回错误，
+      // 避免设置 pendingRestart 后再由 invoker 层拦截——tool 层拦截更早、更省 token。
+      if (targetOtterId === ctx.otterId && await isSelfRestartLoop(ctx, healingRepo)) {
+        return errorResponse('[系统保护] 当前 session 已由自重启创建，不允许连续自重启。请通过新消息与獭交互。');
       }
 
       // F20260815rstrt: 自重启时延迟执行——session.prompt() 是原子的，
@@ -642,6 +689,36 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
+/** F20260821i336：query_dispatch_ledger — 查询派工台账，大獭汇报前核对 */
+function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "query_dispatch_ledger",
+    description: "查询派工台账. When: 大獭汇报任务状态前核对实际派工记录，消灭状态虚报. Output: 派工记录列表（otterName/task/status/PR/时间戳）. BOUNDARY: 只读不修改状态. conversationId 由系统注入.",
+    parameters: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["pending", "in_progress", "completed", "failed"],
+          description: "按状态过滤（可选）",
+        },
+        otterId: {
+          type: "string",
+          description: "按小獭 ID 过滤（可选）",
+        },
+      },
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const records = await ctx.client.dispatch.queryRecords({
+        conversationId: ctx.conversationId,
+        status: params.status as "pending" | "in_progress" | "completed" | "failed" | undefined,
+        otterId: params.otterId as string | undefined,
+      });
+      return textResponse(JSON.stringify(records));
+    },
+  };
+}
+
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
@@ -649,7 +726,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
-    createRestartOtterTool(ctx),
+    createRestartOtterTool(ctx, healingRepo),
     createLinkedResourceTool(ctx),
     createGetMemoryDetailTool(ctx),
     createLinkMemoryTool(ctx),
@@ -669,6 +746,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createUpdateArtifactStatusTool(ctx),
     createGetActiveParticipantsTool(ctx),
     createGetHtmlCardContractTool(),
+    createQueryDispatchLedgerTool(ctx),
   ];
   /** F20260811sktp 第五轮审视：manage_healing_events 此前未注册（pre-existing bug），
    *  但本 PR SYSTEM.md R5 显式引用了它，必须确保运行时可用。 */

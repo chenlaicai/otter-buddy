@@ -9,9 +9,8 @@ import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import { ModelPool } from "@frameworks/llm/model-pool";
-import { DEFAULT_MODEL_ALIAS_KEY } from "@usecases/settings/settings-keys";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
-import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { EmbeddingGateway, EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
 import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks, migrateMessageSegments } from "@frameworks/db/migration";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
@@ -98,25 +97,6 @@ export function validateModelAliases(db: Database.Database, modelPool: { hasMode
   }
 }
 
-/**
- * 应用 settings 页保存的默认模型覆盖（settingsRepo「llm.defaultModelAlias」）。
- * 覆盖值指向已不存在的 alias 时忽略并告警（用户可能改了 config.yaml）。
- */
-export async function applyDefaultModelOverride(
-  settingsRepo: { get(key: string): Promise<string | null> },
-  modelPool: ModelPool,
-  logger: Logger,
-): Promise<void> {
-  const override = await settingsRepo.get(DEFAULT_MODEL_ALIAS_KEY);
-  if (!override) return;
-  if (!modelPool.hasModel(override)) {
-    logger.warn(`settings 中保存的默认模型「${override}」不在 config.yaml models[] 中，忽略该覆盖`);
-    return;
-  }
-  modelPool.setDefaultAlias(override);
-  logger.info(`应用 settings 默认模型覆盖: ${override}`);
-}
-
 export function shutdownDatabase(db: Database.Database, logger: Logger): void {
   closeDatabase(db, logger);
 }
@@ -125,35 +105,95 @@ export function shutdownDatabase(db: Database.Database, logger: Logger): void {
  * F20260811mrpy Part 3：Embedding 版本锚校验。
  *
  * bootstrap 时比对 worker 实际加载的模型元信息（modelId/modelRev/dim）与 embedding_meta 表存储的基线。
- * 不一致则禁用 vec 路径 + 写入 otter_context('system', 'embedding_degraded') 让 agent 感知。
+ * 不一致则禁用 vec 路径（检索结果的 vecCoverage.vecDisabled 向消费方暴露降级状态）。
  * 初次启动（表为空）写入基线。
  *
- * 失败模式：embeddingGateway 不 available 或无 getMeta 方法时跳过校验（兼容老接口与测试 mock）。
+ * 失败模式：无 getMeta 方法（老接口）或 getMeta 超时/失败时跳过校验（vecEnabled=true）。
+ *
+ * F20260821evaf 审视记录：原设计的 otter_context('system','embedding_degraded') 写入是双重死代码——
+ * a) FK 约束（otter_id → otters.id）挡住 'system' 幽灵 id，写入必失败；
+ * b) agent 的 get_context 工具按注入 otterId 读，无任何路径读 'system' 行，写了也没人消费。
+ * agent 感知实际由 search_memory 结果的 vecCoverage 字段承担，故移除该写入。
  */
+const GET_META_TIMEOUT_MS = 30_000;
+
+/** 取 worker 当前 meta，带超时。超时/失败返回 null（调用方跳过校验，不崩 boot）。
+ * 超时只截断"worker 永不 ready 也永不报错"的挂起态（onnxruntime 死锁等），
+ * 不掩盖 mismatch——mismatch 在 meta 成功拿到后才判定（F20260821evaf 审视项）。
+ * 依赖：getMeta 内部 waitForReady 的 waiters 由 worker ready/error/exit 事件兜底回收，
+ * 超时后残留 waiter 最坏滞留为有界对象，无泄漏。 */
+async function fetchCurrentMeta(
+  embeddingGateway: EmbeddingGateway,
+  logger: Logger,
+): Promise<EmbedModelMeta | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const meta = await Promise.race([
+      embeddingGateway.getMeta!(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`getMeta timeout after ${GET_META_TIMEOUT_MS}ms`)), GET_META_TIMEOUT_MS);
+      }),
+    ]);
+    return meta;
+  } catch (err) {
+    logger.warn(`Failed to read embedding meta from worker, skipping version check: ${err}`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 读存储基线。IO 错误（磁盘满/只读等）返回 null（跳过校验，不崩 boot）。
+ * schema 缺失（no such table）单独识别并 error 级告警——那是 migration 没跑到的信号，
+ * 不能像 IO 错误一样静默 skip（否则重演"静默跳过藏 10 天"，F20260821evaf 二轮审视项）。 */
+async function readStoredMeta(repos: Repositories, logger: Logger): Promise<Partial<EmbedModelMeta> | null> {
+  try {
+    return await repos.memoryReader.getEmbeddingMeta();
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("no such table")) {
+      logger.error(`embedding_meta table missing — version anchor silently inactive, check migration: ${err}`);
+    } else {
+      logger.warn(`Failed to read embedding_meta from db, skipping version check: ${err}`);
+    }
+    return null;
+  }
+}
+
+/** 初次启动写基线。写失败仅 warn（跳过校验，不崩 boot）。 */
+async function writeBaseline(
+  repos: Repositories,
+  currentMeta: EmbedModelMeta,
+  logger: Logger,
+): Promise<void> {
+  try {
+    await repos.memoryWriter.setEmbeddingMeta(currentMeta);
+    logger.info(`Embedding meta baseline recorded: ${currentMeta.modelId} rev=${currentMeta.modelRev} dim=${currentMeta.dim}`);
+  } catch (err) {
+    logger.warn(`Failed to write embedding meta baseline: ${err}`);
+  }
+}
+
 export async function verifyEmbeddingVersion(
   embeddingGateway: EmbeddingGateway,
   repos: Repositories,
   logger: Logger,
 ): Promise<{ vecEnabled: boolean; reason?: string }> {
-  // 兼容老接口（无 getMeta）：跳过校验，保持原有行为
-  if (!embeddingGateway.available || typeof embeddingGateway.getMeta !== "function") {
+  // 兼容老接口（无 getMeta）：跳过校验，保持原有行为。
+  // 注意不能用 available 判断——它是 worker ready 的时序快照，bootstrap 时恒为 false，
+  // 会让校验永远走不到（F20260821evaf 根因）。getMeta 内部会 waitForReady，直接调用即可。
+  if (typeof embeddingGateway.getMeta !== "function") {
     return { vecEnabled: true };
   }
 
-  let currentMeta;
-  try {
-    currentMeta = await embeddingGateway.getMeta();
-  } catch (err) {
-    logger.warn(`Failed to read embedding meta from worker, skipping version check: ${err}`);
-    return { vecEnabled: true };
-  }
+  const currentMeta = await fetchCurrentMeta(embeddingGateway, logger);
+  if (!currentMeta) return { vecEnabled: true };
 
-  const stored = await repos.memoryReader.getEmbeddingMeta();
+  const stored = await readStoredMeta(repos, logger);
+  if (!stored) return { vecEnabled: true };
 
   // 初次启动：表为空，写入基线
   if (!stored.modelId) {
-    await repos.memoryWriter.setEmbeddingMeta(currentMeta);
-    logger.info(`Embedding meta baseline recorded: ${currentMeta.modelId} rev=${currentMeta.modelRev} dim=${currentMeta.dim}`);
+    await writeBaseline(repos, currentMeta, logger);
     return { vecEnabled: true };
   }
 
@@ -169,18 +209,6 @@ export async function verifyEmbeddingVersion(
 
   // 不一致 → 降级
   logger.error(`Embedding version mismatch, degrading to FTS-only: stored=${JSON.stringify(stored)} current=${JSON.stringify(currentMeta)}`);
-  const degradeInfo = JSON.stringify({
-    reason: "version_mismatch",
-    stored,
-    current: currentMeta,
-    detectedAt: new Date().toISOString(),
-  });
-  try {
-    // otter_context 表是 (otter_id, key, value) 结构，embedding 降级是系统级状态用 otterId="system"
-    await repos.otterContext.set("system", "embedding_degraded", degradeInfo);
-  } catch (err) {
-    logger.warn(`Failed to write embedding_degraded to otter_context: ${err}`);
-  }
 
   // 禁用 vec 路径（SqliteMemoryRepository 特有方法）
   const sqliteMemoryRepo = repos.memory as { disableVec?: () => void };

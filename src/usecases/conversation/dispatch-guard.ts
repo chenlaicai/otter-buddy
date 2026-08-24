@@ -56,3 +56,38 @@ export function confirmDispatchesClear(ctx: ToolContext, resolvedIds: string[]):
   if (!pending) return;
   for (const id of resolvedIds) pending.delete(id);
 }
+
+/**
+ * F20260821i336：编排对话软守卫——当大獭在有未派工小獭时调用 write/edit/bash，提醒一次（二次放行）。
+ *
+ * 问题：同 turn 自己改文件 = 1 次工具调用，派工 = 多次调用。成本不对称导致大獭每次走最省力路径。
+ * 方案：在 tool_execution_start 事件中，对 write/edit/bash 检查 pendingDispatches，
+ * 非空则通过 session.steer() 注入提醒，把「顺手自己干」从零摩擦变成显式决策。
+ *
+ * 二次放行：首次提醒后设置 orchestrationWarningShown，后续调用放行——
+ * LLM 已看到提醒仍继续，视为显式决策。
+ *
+ * @param ctx ToolContext（包含 pendingDispatches 和 orchestrationWarningShown）
+ * @param toolName 当前调用的工具名
+ * @returns 提醒文案或 null
+ */
+export function checkOrchestrationGuard(
+  ctx: ToolContext,
+  toolName: string,
+): string | null {
+  const ORCHESTRATION_TOOLS = new Set(["write", "edit", "bash"]);
+  if (!ORCHESTRATION_TOOLS.has(toolName)) return null;
+
+  const pending = ctx.pendingDispatches;
+  if (!pending || pending.size === 0) return null;
+  if (ctx.orchestrationWarningShown) return null;
+
+  const names = [...pending.values()].join("、");
+  ctx.orchestrationWarningShown = true;
+  return (
+    `[编排守卫] 当前还有 ${pending.size} 只小獭未获行动权：${names}。` +
+    `你正在直接使用 ${toolName}（自己动手）。` +
+    `如果确实需要自己做，再次调用即可放行；` +
+    `否则请先通过 yield 把行动权派给 ${names}。`
+  );
+}

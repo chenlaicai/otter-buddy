@@ -20,6 +20,7 @@ import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUs
 import { aggregateBody } from "@entities/conversation/message";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
+import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 
 export class AgentTurnOrchestrator {
   /** Messages already sent to a terminal state (abort/fail), prevents double-terminal */
@@ -100,8 +101,19 @@ export class AgentTurnOrchestrator {
         (id) => driver.getInternalAbortReason(id) ?? undefined,
       );
 
+      // F20260821spcm: 旁白流失检测——LLM 输出了直出文本但未调 speak
+      const hasOrphanText = this.detectOrphanText(reason, result);
+
       // Record failed attempt
       this.recordFailedAttempt(reason, currentInput, result, err, { callbacks, attemptStartTime });
+      if (hasOrphanText) {
+        this.recordNoYieldWithOrphanText(currentInput.otterId, currentInput, callbacks);
+        this.logger.info('Orphan text detected: LLM output direct text without calling speak', {
+          messageId: currentInput.messageId,
+          otterId: currentInput.otterId,
+          orphanTextLength: result.directText?.trim().length ?? 0,
+        });
+      }
 
       // Route by reason
       const routeCtx: RouteContext = {
@@ -111,6 +123,7 @@ export class AgentTurnOrchestrator {
         driver,
         callbacks,
         startTime,
+        hasOrphanText,
       };
       const routeResult = await this.routeByReason(reason, routeCtx);
 
@@ -135,7 +148,7 @@ export class AgentTurnOrchestrator {
       currentInput = {
         ...currentInput,
         retryCount: 1,
-        userMessageContent: buildYieldRetryMsg(toolCallCount),
+        userMessageContent: buildYieldRetryMsg(toolCallCount, hasOrphanText),
       };
     }
   }
@@ -186,8 +199,10 @@ export class AgentTurnOrchestrator {
         data: {
           messageId: input.messageId,
           otterId: input.otterId,
-          otterName: otter?.name ?? input.otterId,
+          otterName: resolveSpeakerName("otter", input.otterId, otter?.name) ?? input.otterId,
           body: msg ? aggregateBody(msg.segments) : '',
+          // F-multi-speak-bubble: 传递 segments 数组用于前端分段渲染
+          segments: msg ? msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })) : [],
           turnId: msg?.turnId ?? '',
           duration: `${(duration / 1000).toFixed(1)}s`,
           ctx: result.ctxTokens,
@@ -246,8 +261,10 @@ export class AgentTurnOrchestrator {
           data: {
             messageId: ctx.input.messageId,
             otterId: ctx.input.otterId,
-            otterName: otter?.name ?? ctx.input.otterId,
+            otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId,
             body: msg ? aggregateBody(msg.segments) : '',
+            // F-multi-speak-bubble: 传递 segments 数组用于前端分段渲染
+            segments: msg ? msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })) : [],
             turnId: msg?.turnId ?? '',
             duration: `${(duration / 1000).toFixed(1)}s`,
             ctx: ctx.result.ctxTokens,
@@ -363,7 +380,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
     /**
@@ -412,7 +429,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
     // F20260820d338：改进重试消息——避免 LLM 复述系统消息，给出具体指令
@@ -445,7 +462,7 @@ export class AgentTurnOrchestrator {
       );
       this.safeEmitEvent(ctx.callbacks, {
         event: "message.start",
-        data: { messageId: newMsg.id, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, seq: newMsg.sequenceNum, createdAt: newMsg.createdAt },
+        data: { messageId: newMsg.id, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, seq: newMsg.sequenceNum, createdAt: newMsg.createdAt },
       });
 
       // Update input with new message ID for retry
@@ -474,7 +491,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.failed',
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
     return null;
@@ -487,7 +504,8 @@ export class AgentTurnOrchestrator {
       try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
       try {
-        await ctx.callbacks.prepareForRetry(ctx.input.messageId);
+        // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+        await ctx.callbacks.prepareForRetry(ctx.input.messageId, true);
       } catch (err) {
         this.logger.warn('prepareForRetry failed, falling back to legacy retry', {
           messageId: ctx.input.messageId,
@@ -496,7 +514,7 @@ export class AgentTurnOrchestrator {
         return this.executeRetryWithSystemReminder({
           input: ctx.input,
           failBody,
-          retryMsg: buildYieldRetryMsg(ctx.toolCallCount),
+          retryMsg: buildYieldRetryMsg(ctx.toolCallCount, ctx.hasOrphanText),
           tokenUsage: ctx.result.tokenUsage,
           callbacks: ctx.callbacks,
           startTime: ctx.startTime,
@@ -513,7 +531,7 @@ export class AgentTurnOrchestrator {
     });
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
-    const otterName = otter?.name ?? ctx.input.otterId;
+    const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
     const failBody = "[系统] 重试后仍未调用 yield 工具";
 
     try {
@@ -537,7 +555,7 @@ export class AgentTurnOrchestrator {
     try { await ctx.callbacks.failMessage(ctx.input.messageId, ctx.failBody); } catch { /* ignore */ }
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
-    const otterName = otter?.name ?? ctx.input.otterId;
+    const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
     this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, body: ctx.failBody },
@@ -594,7 +612,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.aborted',
-      data: { messageId, body, otterId, otterName: otter?.name },
+      data: { messageId, body, otterId, otterName: resolveSpeakerName("otter", otterId, otter?.name) ?? otterId },
     });
 
     return { messageId, duration: Date.now() - ctx.startTime };
@@ -775,6 +793,31 @@ export class AgentTurnOrchestrator {
       recordRetrySafe(reason.guardReason.startsWith("circuit_break:")
         ? "circuit_break"
         : reason.guardReason as "streaming_timeout" | "first_byte_timeout");
+    }
+  }
+
+  /** F20260821spcm: 旁白流失检测——LLM 输出了直出文本但未调 speak */
+  private detectOrphanText(reason: ExitReason, result: InvokeResultShape): boolean {
+    return reason.kind === 'no_yield'
+      && !!result.directText?.trim()
+      && result.directText.trim().length >= 20;
+  }
+
+  /** F20260821spcm: 旁白流失 metrics——LLM 输出了直出文本但未调 speak */
+  private recordNoYieldWithOrphanText(
+    otterId: string,
+    input: TurnInput,
+    callbacks: TurnCallbacks,
+  ): void {
+    if (!callbacks.metrics) return;
+    try {
+      callbacks.metrics.recordNoYieldWithOrphanText(otterId);
+    } catch (err) {
+      callbacks.logger.warn('metrics recordNoYieldWithOrphanText failed (non-fatal)', {
+        messageId: input.messageId,
+        otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

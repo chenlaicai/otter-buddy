@@ -193,11 +193,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       const includeSource = message.source != null;
       const cols = includeSource
         ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)`;
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
         message.sequenceNum, message.turnId,
@@ -205,6 +205,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.contextTokens, message.contextTokensMax,
         ...(includeSource ? [message.source] : []),
         message.metadata ? JSON.stringify(message.metadata) : null,
+        message.senderName ?? '',
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
@@ -226,11 +227,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       const includeSource = message.source != null;
       const cols = includeSource
         ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?)`;
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
         message.sequenceNum, message.turnId,
@@ -238,6 +239,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.contextTokens, message.contextTokensMax,
         ...(includeSource ? [message.source] : []),
         message.metadata ? JSON.stringify(message.metadata) : null,
+        message.senderName ?? '',
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
@@ -340,11 +342,15 @@ export class SqliteConversationRepository implements ConversationRepository {
   /**
    * 重置 failed 消息为 streaming（yield 重试专用）。
    * Why: SQL 层面做状态守卫（AND status = 'failed'），防止并发 abort 将终态消息重置回 streaming。
-   * Why: 清空 segments 和 FTS 索引，避免重试期间搜索命中旧 fail 内容。
+   * Why: 默认清空 segments 和 FTS 索引，避免重试期间搜索命中旧 fail 内容。
+   * Why: preserveSegments=true 时保留 segments 并重建 FTS 索引（no_yield 重试专用：speak 内容有效，不应被删除）。
    */
-  async resetForStreaming(messageId: string, turnId: string): Promise<void> {
+  async resetForStreaming(messageId: string, turnId: string, preserveSegments: boolean = false): Promise<void> {
     this.db.transaction(() => {
-      this.db.prepare("DELETE FROM message_segments WHERE message_id = ?").run(messageId);
+      // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+      if (!preserveSegments) {
+        this.db.prepare("DELETE FROM message_segments WHERE message_id = ?").run(messageId);
+      }
       const result = this.db.prepare(`
         UPDATE messages
         SET status = 'streaming', turn_id = ?, completed_at = NULL,
@@ -354,7 +360,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       if (result.changes === 0) {
         throw new DomainError(`resetForStreaming failed: message ${messageId} is not in failed status`, 'conflict');
       }
-      this.upsertMessageFts(messageId, '');
+      if (!preserveSegments) {
+        this.upsertMessageFts(messageId, '');
+      } else {
+        this.refreshMessageFts(messageId);
+      }
     })();
   }
 
@@ -522,6 +532,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       senderId: row.sender_id, status: 'completed' as const, segments: [] as MessageSegment[],
       sequenceNum: row.sequence_num, turnId: '', talkingStonePassedTo: null,
       contextTokens: null, contextTokensMax: null, source: 'web' as const,
+      senderName: '',
       createdAt: '', completedAt: null,
     }));
     this.attachSegments(messages);

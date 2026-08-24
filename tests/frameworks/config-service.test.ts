@@ -2,10 +2,14 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 
 const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
+const mockWriteFileSync = vi.fn();
+const mockRenameSync = vi.fn();
 
 vi.mock("node:fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+  writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+  renameSync: (...args: unknown[]) => mockRenameSync(...args),
 }));
 
 const MINIMAL_YAML = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n";
@@ -16,11 +20,13 @@ mockReadFileSync.mockReturnValue(MINIMAL_YAML);
 
 let validate: typeof import("../../src/frameworks/config-service").validate;
 let loadConfig: typeof import("../../src/frameworks/config-service").loadConfig;
+let updateDefaultModelInYaml: typeof import("../../src/frameworks/config-service").updateDefaultModelInYaml;
 
 beforeAll(async () => {
   const mod = await import("../../src/frameworks/config-service");
   validate = mod.validate;
   loadConfig = mod.loadConfig;
+  updateDefaultModelInYaml = mod.updateDefaultModelInYaml;
 });
 
 beforeEach(() => {
@@ -262,5 +268,44 @@ describe("validate — models[] 条目校验", () => {
         ],
       },
     })).toThrow("不在 models[] 中");
+  });
+});
+
+describe("updateDefaultModelInYaml", () => {
+  const mockModelPool = { hasModel: (alias: string) => ["fast", "powerful"].includes(alias) };
+
+  beforeEach(() => {
+    mockWriteFileSync.mockReset();
+    mockRenameSync.mockReset();
+  });
+
+  it("writes new default to config.yaml via temp file + rename", () => {
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  default: fast\n  models:\n    - alias: fast\n      provider: openai\n      model: gpt-4o\n    - alias: powerful\n      provider: anthropic\n      model: claude-sonnet-4-20250514\n",
+    );
+
+    updateDefaultModelInYaml("powerful", mockModelPool, undefined, "/tmp/config.yaml");
+
+    // Why: verify write-to-temp + rename atomic pattern（行为断言，不绑定调用次数）
+    expect(mockWriteFileSync.mock.calls[0][0]).toBe("/tmp/config.yaml.tmp");
+    expect(mockRenameSync.mock.calls[0]).toEqual(["/tmp/config.yaml.tmp", "/tmp/config.yaml"]);
+  });
+
+  it("skips write when alias is already default", () => {
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  default: fast\n  models:\n    - alias: fast\n      provider: openai\n      model: gpt-4o\n",
+    );
+
+    updateDefaultModelInYaml("fast", mockModelPool, undefined, "/tmp/config.yaml");
+
+    // Why: 已是默认值时不应写文件（行为断言，不绑定调用次数）
+    expect(mockWriteFileSync.mock.calls).toHaveLength(0);
+    expect(mockRenameSync.mock.calls).toHaveLength(0);
+  });
+
+  it("throws when alias does not exist in model pool", () => {
+    expect(() =>
+      updateDefaultModelInYaml("nonexistent", mockModelPool, undefined, "/tmp/config.yaml"),
+    ).toThrow('模型别名 "nonexistent" 不存在于 config.yaml models[] 中');
   });
 });

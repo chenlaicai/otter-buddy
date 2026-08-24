@@ -21,6 +21,7 @@ export interface HealingEventRow {
   resolution: string | null;  // JSON
   created_at: string;
   resolved_at: string | null;
+  introduced_by_pr: string | null;
 }
 
 /** DB Row -> Entity */
@@ -49,6 +50,7 @@ export function rowToHealingEvent(row: HealingEventRow): HealingEvent {
     resolution,
     createdAt: row.created_at,
     resolvedAt: row.resolved_at,
+    introducedByPr: row.introduced_by_pr || undefined,
   };
 }
 
@@ -68,5 +70,6 @@ export function eventToRow(event: HealingEvent): HealingEventRow {
     resolution: event.resolution ? JSON.stringify(event.resolution) : null,
     created_at: event.createdAt,
     resolved_at: event.resolvedAt,
+    introduced_by_pr: event.introducedByPr || null,
   };
 }

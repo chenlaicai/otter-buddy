@@ -103,6 +103,7 @@ function createMessageTables(db: Database.Database): void {
       context_tokens_max INTEGER,
       source TEXT,
       metadata TEXT,
+      sender_name TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
@@ -180,15 +181,8 @@ function createMemoryTables(db: Database.Database): void {
     );
   `);
 
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      memory_entry_id UNINDEXED,
-      content,
-      tokenize = 'trigram'
-    );
-  `);
-
   // F20260805hybrid: jieba 分词表，支持中文短查询
+  // F370: memory_fts (trigram) 只写不查，已移除——旧库残留表无害，不主动 DROP
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
       memory_entry_id UNINDEXED,
@@ -634,7 +628,8 @@ function createHealingEventTables(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'open',
       resolution TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      resolved_at TEXT
+      resolved_at TEXT,
+      introduced_by_pr TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_healing_events_status ON healing_events(status);
@@ -643,6 +638,15 @@ function createHealingEventTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_healing_events_type ON healing_events(error_type);
     CREATE INDEX IF NOT EXISTS idx_healing_events_otter ON healing_events(otter_id, created_at);
   `);
+
+  // F20260824ax376: 存量数据库迁移——introduced_by_pr 列
+  // ALTER TABLE ADD COLUMN 幂等：列已存在时 SQLite 抛错，try/catch 静默处理
+  // 策略：不引入独立迁移框架，保持 initSchema 幂等可重复调用的设计
+  try {
+    db.exec(`ALTER TABLE healing_events ADD COLUMN introduced_by_pr TEXT`);
+  } catch {
+    // 列已存在，忽略
+  }
 }
 
 /** Web 用户已读状态（消息级，与 otter agent 的 turn 级 last_read_turn_number 独立）。
@@ -661,3 +665,5 @@ function createUserReadStateTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_user_read_state_conv ON conversation_user_read_state(conversation_id);
   `);
 }
+
+

@@ -24,6 +24,7 @@ import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
@@ -128,8 +129,10 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Streaming message created', { otterId, messageId: message.id });
 
     const otter = await this.queryOtter.getById(otterId);
-    /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确） */
-    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
+    /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确）。
+     *  otterName 用 snapshot-first 策略：message.senderName（层 1 持久化快照）优先于运行时查询——
+     *  自重启/熔断场景下快照在 SendMessage.start() 时已解析，不依赖运行时 otter 查询。 */
+    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: resolveSpeakerName("otter", otterId, message.senderName || otter?.name) ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
 
     // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: message.id }, async () => {
@@ -159,7 +162,7 @@ export class AgentInvoker implements AgentTurnPort {
        * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
        */
       if (pendingSelfRestart) {
-        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params);
+        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params, message.id);
         if (selfRestarted) return selfRestarted;
       }
 
@@ -282,8 +285,8 @@ export class AgentInvoker implements AgentTurnPort {
         return { id: msg.id, sequenceNum: msg.sequenceNum, createdAt: msg.createdAt };
       },
 
-      prepareForRetry: async (messageId: string) => {
-        await this.sendMessage.prepareForRetry(messageId);
+      prepareForRetry: async (messageId: string, preserveSegments?: boolean) => {
+        await this.sendMessage.prepareForRetry(messageId, preserveSegments);
       },
 
       broadcastMessage: async (messageId: string) => {
@@ -376,7 +379,9 @@ export class AgentInvoker implements AgentTurnPort {
   ): void {
     const details = (e.result as { details?: Record<string, unknown> } | undefined)?.details;
     if (details?.__speakIntermediate === true) {
-      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? '' } });
+      // ?? otterId: null/undefined 时兜底到 otterId（UUID），避免空串被前端 || 跳过显示 'Otter'
+      // F-multi-speak-bubble: 传递 segmentId + sequenceNum 用于前端分段渲染
+      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: resolveSpeakerName("otter", otterId, otterName) ?? otterId, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
     }
   }
 
@@ -492,12 +497,14 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * F20260819rscn：自重启信号处理。LLM 调用 restart_otter(self) 后，
-   * SDK 标记 _selfRestart 信号不执行 restart；agent-invoker 执行 restart + 全新 invoke。
-   * Why 对齐 handleCircuitBreakSignal：restart 后必须递归调用 invokeConversationInner，
-   * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
-   * Why 不用 circuitBreak.executeCircuitBreakRestart：
-   * 自重启不需要写 circuit_break healing 事件、不需要构建熔断摘要，语义不同。
+   * F20260819rscn + F20260824srst：自重启信号处理。
+   * LLM 调用 restart_otter(self) 后，SDK 标记 _selfRestart 信号不执行 restart；
+   * agent-invoker 执行 restart + 写 self_restart healing 事件 + 传 continuation message 递归 invoke。
+   *
+   * Why continuation message 而非原始消息：
+   * "你重启自己"是一次性指令，执行一次即完成。递归调用时若传同一消息，
+   * 新 session 的 LLM 会再次执行 → 无限循环。continuation message 告知"你已重启，请继续"，
+   * 消除循环根因。tool-factory 层 + healing_events 上限判定提供纵深防御。
    */
   private async handleSelfRestartSignal(
     signal: { otterId: string; summary?: string },
@@ -510,18 +517,48 @@ export class AgentInvoker implements AgentTurnPort {
       retryCount?: number;
       manualRetry?: boolean;
     },
+    currentMessageId: string,
   ): Promise<AgentTurnResult | null> {
     if (!signal) return null;
     const { otterId, summary } = signal;
+
+    // F20260824srst 防循环（第二道防线）：当前 session 是否由自重启创建
+    if (this.circuitBreak) {
+      const isSelfRestartSession = await this.circuitBreak.isSessionSelfRestartCreated(otterId);
+      if (isSelfRestartSession) {
+        this.logger.warn('Self-restart blocked: current session was created by self-restart', { otterId });
+        return null;
+      }
+    }
+
+    let newSessionId: string;
     try {
       const newSession = await this.manageSession.restartSession(otterId, summary);
-      this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId: newSession.id });
+      newSessionId = newSession.id;
+      this.logger.info('Self-restart completed, re-invoking with new session', { otterId, newSessionId });
     } catch (restartErr) {
       this.logger.error('Self-restart failed, continuing with current session', restartErr instanceof Error ? restartErr : new Error(String(restartErr)), { otterId });
       return null;
     }
+
+    // F20260824srst 写 self_restart 事件（上限判定数据源）
+    if (this.circuitBreak) {
+      await this.circuitBreak.writeSelfRestartEvent(otterId, params.conversationId, newSessionId, currentMessageId).catch(err => {
+        this.logger.error('self_restart event write failed (non-fatal)', err instanceof Error ? err : new Error(String(err)), { otterId, newSessionId });
+      });
+    }
+
     try {
-      return await this.invokeConversationInner({ ...params, retryCount: 0, manualRetry: false });
+      // F20260824srst 传 continuation message 而非原始消息（消除循环根因）
+      const continuationMessage = summary
+        ? `[系统] 你已完成自重启。前情摘要：${summary}\n请基于前情摘要继续当前工作。如果没有明确任务，请告知搭档你已重启完成，等待新指令。`
+        : `[系统] 你已完成自重启，前世上下文已封存。请告知搭档你已重启完成，等待新指令。`;
+      return await this.invokeConversationInner({
+        ...params,
+        userMessageContent: continuationMessage,
+        retryCount: 0,
+        manualRetry: false,
+      });
     } catch (reinvokeErr) {
       this.logger.error('Self-restart re-invoke failed, falling back to interrupted state', reinvokeErr instanceof Error ? reinvokeErr : new Error(String(reinvokeErr)), {
         otterId: params.otterId,

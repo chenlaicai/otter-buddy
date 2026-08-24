@@ -38,6 +38,7 @@ function messageFixture(overrides: Partial<Message> = {}): Message {
     segments: [{ id: `${id}-seg-0`, messageId: id, body: "发言", sequenceNum: 0, createdAt: "2026-01-01T00:00:00Z" }],
     sequenceNum: 1,
     contextTokens: null, contextTokensMax: null, source: "web",
+    senderName: "Test Otter",
     createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
     ...overrides,
   };
@@ -426,6 +427,40 @@ describe("SendMessage（真 sqlite）", () => {
 
     it("拒绝：消息不存在时抛 DomainError", async () => {
       await expect(sm.prepareForRetry("non-existent")).rejects.toThrow(DomainError);
+    });
+
+    it("成功：preserveSegments=true 时保留 segments", async () => {
+      const msg = await sm.start({ conversationId: "conv-1", senderId: "otter-big", talkingStonePassedTo: ["user"] });
+      // 添加 segments
+      await sm.appendSegment(msg.id, "第一个 speak 内容");
+      await sm.appendSegment(msg.id, "第二个 speak 内容");
+
+      // 失败消息（会插入一个 fail body segment）
+      await sm.fail(msg.id, "[系统] 未调用 yield 交棒");
+
+      const failedMsg = await repo.getMessageById(msg.id);
+      expect(failedMsg!.status).toBe("failed");
+      // fail 操作会插入一个 fail body segment，所以总共有 3 个 segments
+      expect(failedMsg!.segments.length).toBe(3);
+
+      // 重试时保留 segments
+      const result = await sm.prepareForRetry(msg.id, true);
+
+      expect(result.status).toBe("streaming");
+      // preserveSegments=true 时保留所有 segments（包括 fail body segment）
+      expect(result.segments.length).toBe(3);
+      expect(result.segments[0].body).toBe("第一个 speak 内容");
+      expect(result.segments[1].body).toBe("第二个 speak 内容");
+      expect(result.segments[2].body).toBe("[系统] 未调用 yield 交棒");
+      expect(result.talkingStonePassedTo).toBeNull();
+      expect(result.turnId).not.toBe(msg.turnId); // 新 Turn
+
+      const stored = await repo.getMessageById(msg.id);
+      expect(stored!.status).toBe("streaming");
+      expect(stored!.segments.length).toBe(3);
+      expect(stored!.segments[0].body).toBe("第一个 speak 内容");
+      expect(stored!.segments[1].body).toBe("第二个 speak 内容");
+      expect(stored!.segments[2].body).toBe("[系统] 未调用 yield 交棒");
     });
   });
 });

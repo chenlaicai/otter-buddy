@@ -118,6 +118,7 @@ describe("CommandDispatcher", () => {
           contextTokens: null,
           contextTokensMax: null,
           source: "web",
+          senderName: '',
           createdAt: "2026-07-30T10:00:00Z",
           completedAt: "2026-07-30T10:00:00Z",
         },

@@ -120,6 +120,7 @@ export function makeMessage(overrides: Partial<{
   contextTokens: number | null;
   contextTokensMax: number | null;
   source: string | null;
+  senderName: string;
   createdAt: string;
   completedAt: string | null;
 }> = {}) {
@@ -139,6 +140,7 @@ export function makeMessage(overrides: Partial<{
     contextTokens: overrides.contextTokens ?? null,
     contextTokensMax: overrides.contextTokensMax ?? null,
     source: overrides.source ?? "web",
+    senderName: overrides.senderName ?? '',
     createdAt: overrides.createdAt ?? now,
     completedAt: overrides.completedAt ?? now,
   };
@@ -446,6 +448,7 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.settingsRepo,
     deps.modelPool,
     logger,
+    () => {}, // writeDefaultModel mock (config.yaml 写入在测试中不执行)
   );
 
   const controllers: Controllers = {

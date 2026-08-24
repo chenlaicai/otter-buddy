@@ -35,6 +35,7 @@ function messageFixture(overrides: Partial<Message> = {}): Message {
     segments: overrides.segments ?? [{ id: `${id}-seg-0`, messageId: id, body: "消息", sequenceNum: 0, createdAt: "2026-01-01T00:00:00Z" }],
     sequenceNum: 1,
     contextTokens: null, contextTokensMax: null, source: "web",
+    senderName: '',
     createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z",
     ...overrides,
   };

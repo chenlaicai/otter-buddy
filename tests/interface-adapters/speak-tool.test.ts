@@ -47,6 +47,12 @@ function makeTools(
         }),
       },
     },
+    // F20260821i336：派工台账 mock
+    dispatch: {
+      createRecord: async () => ({ id: "dispatch-1" }),
+      updateRecord: async () => {},
+      queryRecords: async () => [],
+    },
   } as unknown as OtterToolClient;
 
   const ctx: ToolContext = {
@@ -181,6 +187,79 @@ describe("speak 工具 html-card 位置校验", () => {
   });
 });
 
+/** 新增：html-card 卡片数量检测（第 3 张起降级为源码块） */
+describe("speak 工具 html-card 卡片数量检测", () => {
+  it("body 中只有 1 张卡片：正常落库", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案\"\n<div>内容</div>\n```",
+    });
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(res.terminate).toBe(false);
+    expect(segmentCalls).toHaveLength(1);
+  });
+
+  it("body 中有 2 张卡片：正常落库", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```",
+    });
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(res.terminate).toBe(false);
+    expect(segmentCalls).toHaveLength(1);
+  });
+
+  it("body 中有 3 张卡片：拒绝、不落库、不终止，错误信息提示合并或分多次 speak", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```\n```html-card title=\"方案3\"\n<div>内容3</div>\n```",
+    });
+    const text = res.content[0].text;
+    expect(text).toContain("[错误]");
+    expect(text).toContain("3 张");
+    expect(text).toContain("2 张");
+    expect(text).toContain("合并");
+    expect(text).toContain("分多次 speak");
+    expect(res.terminate).toBeUndefined();
+    expect(segmentCalls).toHaveLength(0);
+  });
+
+  it("body 中有 4 张卡片：拒绝、不落库、不终止，错误信息提示合并或分多次 speak", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```\n```html-card title=\"方案3\"\n<div>内容3</div>\n```\n```html-card title=\"方案4\"\n<div>内容4</div>\n```",
+    });
+    const text = res.content[0].text;
+    expect(text).toContain("[错误]");
+    expect(text).toContain("4 张");
+    expect(text).toContain("2 张");
+    expect(text).toContain("合并");
+    expect(text).toContain("分多次 speak");
+    expect(res.terminate).toBeUndefined();
+    expect(segmentCalls).toHaveLength(0);
+  });
+
+  it("body 中有 html-card-reply 围栏：不计入卡片数量，正常落库", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "回执：\n```html-card-reply card=\"msg-1:0\"\n{}\n```",
+    });
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(res.terminate).toBe(false);
+    expect(segmentCalls).toHaveLength(1);
+  });
+
+  it("body 中有 2 张卡片 + 1 张回执：正常落库（回执不计入数量）", async () => {
+    const { speak, segmentCalls } = makeTools(PARTICIPANTS);
+    const res = await speak.execute("c1", {
+      body: "方案：\n```html-card title=\"方案1\"\n<div>内容1</div>\n```\n```html-card title=\"方案2\"\n<div>内容2</div>\n```\n```html-card-reply card=\"msg-1:0\"\n{}\n```",
+    });
+    expect(res.content[0].text).toContain("已记录发言");
+    expect(res.terminate).toBe(false);
+    expect(segmentCalls).toHaveLength(1);
+  });
+});
+
 describe("yield 工具（行动权移交）", () => {
   it("合法目标（在场名字与 'user'）：startSpeaking 收到 resolved otterId、terminate=true 结束回合", async () => {
     const { yield: yieldTool, speakingCalls } = makeTools(PARTICIPANTS);
@@ -191,7 +270,8 @@ describe("yield 工具（行动权移交）", () => {
     /** resolve 后传给 startSpeaking 的是 otterId（系统侧 name->id 映射） */
     expect(speakingCalls[0].talkingStonePassedTo).toEqual(["otter-big"]);
 
-    const r2 = await yieldTool.execute("c2", { to: ["user"] });
+    /** yield to user 反思检查点：直接放行，reason 是可选参数 */
+    const r2 = await yieldTool.execute("c2", { to: ["user"], reason: "任务完成，需要搭档终审" });
     expect(r2.content[0].text).toContain("交棒成功");
     expect(r2.terminate).toBe(true);
     expect(speakingCalls[1].talkingStonePassedTo).toEqual(["user"]);
@@ -284,7 +364,7 @@ describe("speak + yield 组合", () => {
     const { speak, yield: yieldTool, segmentCalls, speakingCalls } = makeTools(PARTICIPANTS);
     await speak.execute("c1", { body: "进展一" });
     await speak.execute("c2", { body: "结论" });
-    const res = await yieldTool.execute("c3", { to: ["user"] });
+    const res = await yieldTool.execute("c3", { to: ["user"], reason: "所有内容已输出，交搭档终审" });
     expect(res.terminate).toBe(true);
     expect(segmentCalls).toEqual(["进展一", "结论"]);
     expect(speakingCalls).toHaveLength(1);
@@ -300,7 +380,7 @@ describe("yield 工具待派工票据软守卫（C9）", () => {
   it("有未派工票据时 yield 传 user：返回提醒、不提交、不终止，票据保留", async () => {
     const { yield: yieldTool, speakingCalls, ctx } = makeTools(WITH_SMALL, { pendingDispatches: freshTickets() });
 
-    const res = await yieldTool.execute("c1", { to: ["user"] });
+    const res = await yieldTool.execute("c1", { to: ["user"], reason: "任务完成" });
     const text = res.content[0].text;
     expect(text).toContain("[系统状态]");
     expect(text).toContain("报告獭");
@@ -316,8 +396,8 @@ describe("yield 工具待派工票据软守卫（C9）", () => {
   it("提醒后再次 yield 原路由：放行提交、terminate=true", async () => {
     const { yield: yieldTool, speakingCalls, ctx } = makeTools(WITH_SMALL, { pendingDispatches: freshTickets() });
 
-    await yieldTool.execute("c1", { to: ["user"] });
-    const res = await yieldTool.execute("c2", { to: ["user"] });
+    await yieldTool.execute("c1", { to: ["user"], reason: "任务完成" });
+    const res = await yieldTool.execute("c2", { to: ["user"], reason: "任务完成" });
     expect(res.content[0].text).toContain("交棒成功");
     expect(res.terminate).toBe(true);
     expect(speakingCalls).toHaveLength(1);
@@ -351,7 +431,7 @@ describe("yield 工具待派工票据软守卫（C9）", () => {
 
   it("未注入 pendingDispatches（scheduler 等其他调用方）：no-op 回归，正常提交", async () => {
     const { yield: yieldTool, speakingCalls } = makeTools(WITH_SMALL);
-    const res = await yieldTool.execute("c1", { to: ["user"] });
+    const res = await yieldTool.execute("c1", { to: ["user"], reason: "任务完成" });
     expect(res.content[0].text).toContain("交棒成功");
     expect(res.terminate).toBe(true);
     expect(speakingCalls).toHaveLength(1);
@@ -373,6 +453,43 @@ describe("yield 工具待派工票据软守卫（C9）", () => {
     const r2 = await yieldTool.execute("c2", { to: ["报告獭"] });
     expect(r2.content[0].text).toContain("本回合行动已交棒");
     expect(r2.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+});
+
+/** yield to user 反思检查点：reason 参数测试 */
+describe("yield to user 反思检查点", () => {
+  it("yield 工具 description 包含反思检查点引导文本（确保不被意外删除）", () => {
+    const { yield: yieldTool } = makeTools(PARTICIPANTS);
+    expect(yieldTool.description).toContain("反思检查点");
+    expect(yieldTool.description).toContain("为什么需要用户介入");
+    expect(yieldTool.description).toContain("reason");
+  });
+
+  it("yield to user 无 reason：正常放行（反思在 description 层引导，非代码强制）", async () => {
+    const { yield: yieldTool, speakingCalls } = makeTools(PARTICIPANTS);
+
+    const res = await yieldTool.execute("c1", { to: ["user"] });
+    expect(res.content[0].text).toContain("交棒成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+
+  it("yield to user 有 reason：正常放行，reason 被接受", async () => {
+    const { yield: yieldTool, speakingCalls } = makeTools(PARTICIPANTS);
+
+    const res = await yieldTool.execute("c1", { to: ["user"], reason: "任务已完成，所有检视獭已确认通过" });
+    expect(res.content[0].text).toContain("交棒成功");
+    expect(res.terminate).toBe(true);
+    expect(speakingCalls).toHaveLength(1);
+  });
+
+  it("yield to 非 user 目标无 reason：正常放行", async () => {
+    const { yield: yieldTool, speakingCalls } = makeTools(PARTICIPANTS);
+
+    const res = await yieldTool.execute("c1", { to: ["大獭"] });
+    expect(res.content[0].text).toContain("交棒成功");
+    expect(res.terminate).toBe(true);
     expect(speakingCalls).toHaveLength(1);
   });
 });

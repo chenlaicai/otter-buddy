@@ -100,6 +100,42 @@ export interface AppConfig {
   };
 }
 
+/**
+ * 更新 config.yaml 中的 llm.default 字段。
+ * config.yaml 是默认模型的唯一真相源（替代原 settings DB 覆盖机制）。
+ * Why: 用 write-to-temp + rename 而非 writeFileSync 同路径——
+ * 同路径 writeFileSync 是 truncate+write，进程崩溃时会丢失原文件；
+ * rename 在同文件系统下是原子操作，保证不会写到一半损坏配置。
+ */
+export function updateDefaultModelInYaml(
+  alias: string,
+  modelPool: { hasModel(alias: string): boolean },
+  logger?: Logger,
+  configPath: string = CONFIG_PATH,
+): void {
+  if (!modelPool.hasModel(alias)) {
+    throw new Error(`模型别名 "${alias}" 不存在于 config.yaml models[] 中`);
+  }
+
+  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as RawConfig;
+  if (!raw.llm) raw.llm = {};
+
+  if (raw.llm.default === alias) return; // 无需更新
+
+  raw.llm.default = alias;
+  const content = yaml.dump(raw, { lineWidth: -1, noRefs: true });
+
+  // Why: write-to-temp + rename —— rename 在同文件系统下是原子的，
+  // 避免 truncate+write 模式下进程崩溃导致配置文件损坏
+  const tmpPath = configPath + ".tmp";
+  fs.writeFileSync(tmpPath, content, "utf8");
+  fs.renameSync(tmpPath, configPath);
+
+  if (logger) {
+    logger.info(`config.yaml llm.default 已更新为: ${alias}`);
+  }
+}
+
 /** config.yaml 的原始 YAML 结构 */
 interface RawConfig {
   server?: { port?: number };

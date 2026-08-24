@@ -33,6 +33,7 @@ function metricsSpy() {
       recordSessionRebuild: () => sessionRebuilds.push(1),
       recordChainHops: () => {},
       recordChainDepthExceeded: () => {},
+      recordNoYieldWithOrphanText: () => {},
     } as AgentMetricsPort,
     invokes, retries, guardAborts, toolCalls, toolDurations, toolErrors, compactions, sessionRebuilds,
   };
@@ -45,6 +46,7 @@ const baseMsg = (status: Message["status"]): Message => ({
   segments: status === "speaking" ? [{ id: "seg-1", messageId: "msg-streaming", body: "Body", sequenceNum: 1, createdAt: "2026-08-14T00:00:00Z" }] : [],
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   source: "web",
+  senderName: "Test Otter",
   createdAt: "2026-08-14T00:00:00Z", completedAt: null,
 });
 

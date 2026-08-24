@@ -80,7 +80,8 @@ getExtractor()
     const meta: EmbedModelMeta = {
       modelId: resolveEnvSettings((workerData ?? {}) as WorkerConfig).modelId,
       modelRev: "unknown",
-      dim: dummy.dims[0],
+      // dims 是形状数组 [batch, dim]，取最后一维才是向量维度——取 [0] 会恒拿到 batch=1
+      dim: dummy.dims[dummy.dims.length - 1],
     };
     const response: EmbedResponse = { type: "ready", meta };
     port.postMessage(response);

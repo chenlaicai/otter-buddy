@@ -92,6 +92,7 @@ export class ManageParticipant {
       contextTokens: null,
       contextTokensMax: null,
       source: "web",
+      senderName: '',
       createdAt: now,
       completedAt: now,
     };
@@ -161,6 +162,7 @@ export class ManageParticipant {
       contextTokens: null,
       contextTokensMax: null,
       source: "web",
+      senderName: '',
       createdAt: now,
       completedAt: now,
     };

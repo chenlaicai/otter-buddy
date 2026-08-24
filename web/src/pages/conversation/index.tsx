@@ -2,8 +2,9 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../styles/globals.css'
 
-import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask } from '../../lib/mappers'
+import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalMessageSegment } from '../../lib/mappers'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
+import { useSpeakSegments } from '../../lib/use-speak-segments'
 import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage } from '../../lib/message-stream'
 import { MessageBatcher } from '../../lib/batch-update'
 import { nowTs } from '../../lib/utils'
@@ -91,6 +92,8 @@ function ConversationPage() {
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
   const abortNotifiedRef = useRef<Set<string>>(new Set())
+  // F-multi-speak-bubble: 分段状态管理
+  const { upsertSegment, clearSegments } = useSpeakSegments()
   const allMessagesRef = useRef<Record<string, LocalMessage[]>>({})
   // 同步 allMessages 到 ref，供回调函数读取（解除闭包依赖）
   useEffect(() => {
@@ -185,7 +188,8 @@ function ConversationPage() {
     api.getSettings()
       .then(s => setUserName(s.userName ?? ''))
       .catch(() => console.warn('[ConversationPage] Failed to load userName setting'))
-  }, [])
+    // urlConvId 源自 window.location.pathname，MPA 模式下 mount 后不变，行为等价
+  }, [urlConvId])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
   useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations)
@@ -275,7 +279,8 @@ function ConversationPage() {
             if (!existing) return prev
             /** 仍在生成且内容未变：跳过替换，避免引用抖动触发轮询 effect 空转重排 */
             if (existing.status === serverMsg.status && existing.content === serverMsg.content) return prev
-            return { ...prev, [convId]: l.map(x => x.id === m.id ? { ...serverMsg, events: m.events } : x) }
+            /** 用 || 而非 ??：空串也视为缺失，回退到 SSE 设置的 sn（同 stopStream 注释） */
+            return { ...prev, [convId]: l.map(x => x.id === m.id ? { ...serverMsg, events: m.events, sn: serverMsg.sn || m.sn } : x) }
           })
         } catch { /* 下轮重试 */ }
       }
@@ -441,13 +446,21 @@ function ConversationPage() {
          *  气泡内容只由 speak.intermediate（真实落库内容的实时投影）累积。 */
       },
       'speak.intermediate': (data) => {
-        const { messageId, body, otterName } = data as { messageId: string; body: string; otterName?: string }
+        const { messageId, body, otterName, segmentId, sequenceNum } = data as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number }
         if (!body) return
-        const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
-        liveText.set(messageId, acc)
+        // F-multi-speak-bubble: 使用 segmentId upsert（天然幂等，重放安全）
+        if (segmentId && sequenceNum != null) {
+          upsertSegment(messageId, segmentId, body, sequenceNum)
+        } else {
+          // 向后兼容：旧服务端无 segmentId，fallback 到字符串追加
+          const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
+          liveText.set(messageId, acc)
+        }
+        // 从 liveText 或 segment 构建 content
+        const content = liveText.get(messageId) || body
         batchUpdateMessages(activeId!, (list) => {
           if (!list.some(m => m.id === messageId)) return list
-          return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
+          return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
         })
       },
       'assistant_toolcall': (data) => {
@@ -467,16 +480,22 @@ function ConversationPage() {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
         const liveEvents = liveEventsMap.get(messageId) || []
         const meta = liveMeta.get(messageId)
+        // F-multi-speak-bubble: 优先使用 segments 数组，fallback 到 body 单段
+        const segments = (data.segments as LocalMessageSegment[] | undefined)?.map(s => ({
+          id: s.id, body: s.body, sequenceNum: s.sequenceNum
+        })) ?? []
         const finalMsg: LocalMessage = {
           id: messageId, st: 'otter', si: meta?.otterId || dataOtterId || '', sn: meta?.otterName || dataOtterName,
           content: (data.body as string) ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration as string,
           events: liveEvents.length > 0 ? liveEvents : undefined,
           ctx: data.ctx as number, ctxMax: data.ctxMax as number, turnId: (data.turnId as string) || undefined,
+          segments: segments.length > 0 ? segments : undefined,
         }
         batchUpdateMessages(activeId!, (list) => upsertTerminalMessage(list, finalMsg))
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
         liveText.delete(messageId)
+        clearSegments(messageId)
       },
       'message.failed': (data) => {
         const { messageId, otterId: dataOtterId, otterName: dataOtterName } = data as { messageId: string; otterId?: string; otterName?: string }
@@ -491,6 +510,7 @@ function ConversationPage() {
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
         liveText.delete(messageId)
+        clearSegments(messageId)
       },
       /** F20260805abpp：常驻通道必须处理 message.aborted——MPA 整页刷新后随发送请求建立的
        *  SSE 流已死，abort 终态只能经此通道到达；缺失时 streaming 占位消息永久卡在生成中 */
@@ -523,6 +543,7 @@ function ConversationPage() {
         liveEventsMap.delete(messageId)
         liveMeta.delete(messageId)
         liveText.delete(messageId)
+        clearSegments(messageId)
       },
       'error': (data) => {
         const messageId = data.messageId as string | undefined
@@ -603,7 +624,7 @@ function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -706,13 +727,21 @@ function ConversationPage() {
           /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
         },
         'speak.intermediate': (data) => {
-          const { messageId, body, otterName } = data as { messageId: string; body: string; otterName?: string }
+          const { messageId, body, otterName, segmentId, sequenceNum } = data as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number }
           if (!body) return
-          const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
-          liveText.set(messageId, acc)
+          // F-multi-speak-bubble: 使用 segmentId upsert（天然幂等，重放安全）
+          if (segmentId && sequenceNum != null) {
+            upsertSegment(messageId, segmentId, body, sequenceNum)
+          } else {
+            // 向后兼容：旧服务端无 segmentId，fallback 到字符串追加
+            const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
+            liveText.set(messageId, acc)
+          }
+          // 从 liveText 构建 content
+          const content = liveText.get(messageId) || body
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
+            return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
           })
         },
         'message.complete': (data) => {
@@ -720,6 +749,10 @@ function ConversationPage() {
           const liveEvents = liveEventsMap.get(messageId) || []
           const meta = liveMeta.get(messageId)
           const otterId = meta?.otterId || data.otterId || ''
+          // F-multi-speak-bubble: 优先使用 segments 数组，fallback 到 body 单段
+          const segments = (data.segments as LocalMessageSegment[] | undefined)?.map(s => ({
+            id: s.id, body: s.body, sequenceNum: s.sequenceNum
+          })) ?? []
           /** body 来自 SSE 事件（后端 speak 完成后从 DB 取出），与 assistant_text 事件无关 */
           const finalMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
@@ -727,6 +760,7 @@ function ConversationPage() {
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
+            segments: segments.length > 0 ? segments : undefined,
           }
           /** upsertTerminalMessage 原位替换 message.start 插入的占位消息并保留投影字段；
            *  M6：恰好一条未戳 tmp 时补戳 turnId（分隔线立即正确）；
@@ -742,6 +776,7 @@ function ConversationPage() {
           liveEventsMap.delete(messageId)
           liveMeta.delete(messageId)
           liveText.delete(messageId)
+          clearSegments(messageId)
         },
         'error': (data) => {
           const { messageId, otterId } = data
@@ -840,7 +875,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages, batchUpdateMessages])
+  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -876,8 +911,8 @@ function ConversationPage() {
           setAllMessages(prev => {
             const list = prev[activeId]
             if (!list?.some(m => m.id === messageId)) return prev
-            /** getMessage 不含 events，保留本地已有事件 */
-            return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...serverMsg, events: m.events } : m) }
+            /** getMessage 不含 events，保留本地已有事件；sn 可能缺失（服务端降级），保留本地已有的。用 || 而非 ??：空串也视为缺失，回退到 SSE 设置的 sn */
+            return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...serverMsg, events: m.events, sn: serverMsg.sn || m.sn } : m) }
           })
         } catch {
           revertToInFlight()
@@ -964,13 +999,21 @@ function ConversationPage() {
           /** F20260819spyd：assistant 文本不进气泡（同常驻通道注释——避免与 speak.intermediate 重复） */
         },
         'speak.intermediate': (data) => {
-          const { messageId, body, otterName } = data as { messageId: string; body: string; otterName?: string }
+          const { messageId, body, otterName, segmentId, sequenceNum } = data as { messageId: string; body: string; otterName?: string; segmentId?: string; sequenceNum?: number }
           if (!body) return
-          const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
-          liveText.set(messageId, acc)
+          // F-multi-speak-bubble: 使用 segmentId upsert（天然幂等，重放安全）
+          if (segmentId && sequenceNum != null) {
+            upsertSegment(messageId, segmentId, body, sequenceNum)
+          } else {
+            // 向后兼容：旧服务端无 segmentId，fallback 到字符串追加
+            const acc = (liveText.get(messageId) || '') + (liveText.has(messageId) ? '\n\n' : '') + body
+            liveText.set(messageId, acc)
+          }
+          // 从 liveText 构建 content
+          const content = liveText.get(messageId) || body
           batchUpdateMessages(activeId!, (list) => {
             if (!list.some(m => m.id === messageId)) return list
-            return list.map(m => m.id === messageId ? { ...m, content: acc, sn: m.sn || otterName || '' } : m)
+            return list.map(m => m.id === messageId ? { ...m, content, sn: m.sn || otterName || '' } : m)
           })
         },
         'message.complete': (data) => {
@@ -978,24 +1021,32 @@ function ConversationPage() {
           const liveEvents = liveEventsMap.get(msgId) || []
           const meta = liveMeta.get(msgId)
           const otterId = meta?.otterId || data.otterId || ''
+          // F-multi-speak-bubble: 优先使用 segments 数组，fallback 到 body 单段
+          const segments = (data.segments as LocalMessageSegment[] | undefined)?.map(s => ({
+            id: s.id, body: s.body, sequenceNum: s.sequenceNum
+          })) ?? []
           const finalMsg: LocalMessage = {
             id: msgId, st: 'otter', si: otterId, sn: meta?.otterName || data.otterName,
             content: data.body ?? '', status: 'completed', ts: meta?.createdAt || '', dur: data.duration,
             events: liveEvents.length > 0 ? liveEvents : undefined,
             ctx: data.ctx, ctxMax: data.ctxMax,
             turnId: data.turnId || undefined,
+            segments: segments.length > 0 ? segments : undefined,
           }
           batchUpdateMessages(activeId, (list) => upsertTerminalMessage(list, finalMsg))
+          clearSegments(msgId)
         },
         'message.failed': (data) => {
           const { messageId: msgId } = data
+          const meta = liveMeta.get(msgId)
           batchUpdateMessages(activeId, (list) =>
-            list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]' } : m))
+            list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]', sn: m.sn || meta?.otterName || data.otterName } : m))
         },
         'message.aborted': (data) => {
           const { messageId: msgId } = data
+          const meta = liveMeta.get(msgId)
           batchUpdateMessages(activeId, (list) =>
-            list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]' } : m))
+            list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]', sn: m.sn || meta?.otterName || data.otterName } : m))
         },
         'error': (data) => {
           showToast(data.message || '重试出错', 'error')
@@ -1004,7 +1055,7 @@ function ConversationPage() {
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
 
   const handleSelectConv = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新
@@ -1012,6 +1063,9 @@ function ConversationPage() {
   }, [])
   const handleNewConv = () => setModal({ type: 'new-conv' })
   const handleArchive = () => activeId && setModal({ type: 'archive', cid: activeId })
+  const handleCloseModal = useCallback(() => setModal({ type: 'none' }), [])
+  const handleOpenRestart = useCallback((oid: string) => setModal({ type: 'restart', otterId: oid }), [])
+  const handleOpenDissolve = useCallback((oid: string) => setModal({ type: 'dissolve', otterId: oid }), [])
 
   const handleContextMenu = (e: React.MouseEvent, cid: string) => {
     e.preventDefault()
@@ -1244,7 +1298,7 @@ function ConversationPage() {
         </>
       )}
 
-      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={() => setModal({ type: 'none' })} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={(oid) => setModal({ type: 'restart', otterId: oid })} onOpenDissolve={(oid) => setModal({ type: 'dissolve', otterId: oid })} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={handleCloseModal} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={handleOpenRestart} onOpenDissolve={handleOpenDissolve} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (

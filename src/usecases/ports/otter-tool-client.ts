@@ -10,6 +10,7 @@ import type { OtterSession } from "@entities/otter/otter-session";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { TurnHistoryEntry } from "@usecases/conversation/conversation-repository";
 import type { DetailLevel, MemoryContentType } from "@entities/memory/memory-entry";
+import type { VecCoverage } from "@usecases/memory/search-memory";
 import type { EdgeType, RelatedEntryItem } from "@entities/memory/memory-edge";
 
 /** 记忆条目（search_memory 返回结构，渐进式披露） */
@@ -82,7 +83,7 @@ export interface OtterToolClient {
   };
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
-    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean): Promise<{ entries: MemorySearchEntry[]; contextEntries?: MemorySearchEntry[] }>;
+    search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean): Promise<{ entries: MemorySearchEntry[]; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
     /** F20260813mren: 声明两个记忆条目之间的关系（LLM 自主判断） */
@@ -105,6 +106,8 @@ export interface OtterToolClient {
     create(params: CreateOtterInput): Promise<Otter>;
     dissolve(otterId: string): Promise<void>;
     getById(id: string): Promise<Otter | null>;
+    /** F20260824srst：获取当前 active session（自重启循环防护 tool 层拦截用） */
+    getActiveSession(otterId: string): Promise<OtterSession | null>;
     /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。F20260810rstart */
     restart(otterId: string, summary?: string): Promise<OtterSession>;
   };
@@ -130,5 +133,18 @@ export interface OtterToolClient {
    */
   docs: {
     sync(rootDir?: string): Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
+  };
+  /**
+   * F20260821i336：派工台账工具。
+   * 大獭派工时创建记录，小獭完成时更新状态，汇报前可核对。
+   */
+  dispatch: {
+    createRecord(params: { conversationId: string; otterId: string; otterName: string; task: string }): Promise<{ id: string }>;
+    updateRecord(params: { otterId: string; conversationId: string; status: 'pending' | 'in_progress' | 'completed' | 'failed'; resultPr?: string; resultSummary?: string }): Promise<void>;
+    queryRecords(params: { conversationId: string; status?: 'pending' | 'in_progress' | 'completed' | 'failed'; otterId?: string }): Promise<Array<{
+      id: string; conversationId: string; otterId: string; otterName: string; task: string;
+      status: 'pending' | 'in_progress' | 'completed' | 'failed';
+      createdAt: string; updatedAt: string; completedAt?: string; resultPr?: string; resultSummary?: string;
+    }>>;
   };
 }

@@ -22,6 +22,7 @@ import { stripHtmlCardFences } from "@entities/conversation/message-body-project
 import { canAddMessageToTurn } from "@entities/conversation/conversation";
 import type { ConversationRepository } from "./conversation-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
+import { resolveSpeakerName } from "./speaker-resolver";
 import { tryCloseTurn } from "./turn-utils";
 import type { TurnCloseResult } from "./turn-utils";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
@@ -135,6 +136,7 @@ export class SendMessage {
       contextTokensMax: null,
       source,
       metadata: input.metadata ?? null,
+      senderName: '',  // user/system 消息的显示名由层 3 前端处理
       createdAt: now,
       completedAt: now,
     };
@@ -171,6 +173,10 @@ export class SendMessage {
 
     const turn = await this.ensureActiveTurn(input.conversationId);
 
+    // 解析 senderName（层 1：创建时快照）
+    const otter = await this.otterRepo.getById(input.senderId);
+    const senderName = resolveSpeakerName("otter", input.senderId, otter?.name) ?? '';
+
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const sequenceNum = (await this._repo.getMaxSequenceNum(input.conversationId)) + 1;
@@ -188,6 +194,7 @@ export class SendMessage {
       contextTokens: null,
       contextTokensMax: null,
       source: null, // agent 消息不需要标记来源，广播给所有已连接前端
+      senderName,
       createdAt: now,
       completedAt: null,
     };
@@ -361,7 +368,7 @@ export class SendMessage {
    * 设计决策：失败期间的 message_events 保留不删——包含两次尝试的完整
    * 工具调用链，有调试价值。FTS 索引清空以避免搜索命中旧 fail body。
    */
-  async prepareForRetry(messageId: string): Promise<Message> {
+  async prepareForRetry(messageId: string, preserveSegments: boolean = false): Promise<Message> {
     const message = await this._repo.getMessageById(messageId);
     if (!message) {
       throw new DomainError(`Message not found: ${messageId}`, "not_found");
@@ -374,12 +381,16 @@ export class SendMessage {
     const turn = await this.ensureActiveTurn(message.conversationId);
 
     // 重置消息状态（含状态守卫 + FTS 清空）
-    await this._repo.resetForStreaming(messageId, turn.id);
+    // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
+    await this._repo.resetForStreaming(messageId, turn.id, preserveSegments);
+
+    // F20260821fix: preserveSegments 时保留原始 segments
+    const segments = preserveSegments ? message.segments : [];
 
     return {
       ...message,
       status: "streaming",
-      segments: [],
+      segments,
       turnId: turn.id,
       talkingStonePassedTo: null,
     };
@@ -405,6 +416,7 @@ export class SendMessage {
       contextTokens: null,
       contextTokensMax: null,
       source: null, // 系统消息不需要标记来源
+      senderName: '',  // 系统消息的显示名由层 3 前端处理
       createdAt: now,
       completedAt: now,
     };

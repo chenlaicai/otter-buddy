@@ -24,8 +24,11 @@ export function buildRetryFailBody(reason: string): string {
 }
 
 /** 构建 yield 重试的系统提醒消息（speak+yield 拆分：回合必须以 yield 交棒结束） */
-export function buildYieldRetryMsg(toolCallCount?: number): string {
+export function buildYieldRetryMsg(toolCallCount?: number, hasOrphanText?: boolean): string {
   const isThinkingOnly = (toolCallCount ?? 0) === 0;
+  if (hasOrphanText) {
+    return "[系统提醒] 你刚才输出了一段文本，但那是**只有你自己能看到的草稿**，搭档和其他海獭都看不到。请把那段内容通过 speak(body) 重新输出，然后 yield 交棒。";
+  }
   return isThinkingOnly
     ? "[系统提醒] 你上一轮没有调用任何工具。请先用 speak 输出结论，再调用 yield 交回行动权。"
     : "[系统提醒] 你上一次行动没有调用 yield 交棒就结束了。请调用 yield(to) 把行动权交给下一位。";

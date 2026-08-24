@@ -101,9 +101,6 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       entry.metadata ? JSON.stringify(entry.metadata) : null,
       entry.createdAt,
     );
-    this.db.prepare(`
-      INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)
-    `).run(entry.id, entry.content);
     // F20260805hybrid: jieba 分词，支持中文短查询
     this.db.prepare(`
       INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
@@ -115,14 +112,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260814qswp：按 entry id 级联删除卫星数据（fts + fts_jieba + vec? + weights +
+   * F20260814qswp：按 entry id 级联删除卫星数据（fts_jieba + vec? + weights +
    * embedding_tasks + edges，不含 memory_entries 本行——由调用方按 id 或按 source 删除）。
    * 此前在 deleteBySource / replaceEntryBySource / replaceEntriesBySource /
    * deleteBySourceAndType 四处逐字重复（历史上已被迫加过 3 次"联动清理"补丁）。
    * replaceEntryBySource 路径中边的重定向/删除已在调用前完成，此处 edges DELETE 为无害 no-op。
    */
   private cascadeDeleteSatellites(rowId: string): void {
-    this.db.prepare("DELETE FROM memory_fts WHERE memory_entry_id = ?").run(rowId);
     this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(rowId);
     // F20260803mval: memory_vec 是 vec0 虚拟表，sqlite-vec 扩展不可用时表不存在（D22 降级），删除前检查
     if (this.vecTableExists) {

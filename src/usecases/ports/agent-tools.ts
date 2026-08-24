@@ -134,4 +134,7 @@ export interface ToolContext {
   pendingDispatches?: Map<string, string>;
   /** F20260813actk C9：本轮是否已展示过派工提醒。避免软守卫死循环——首次提醒后二次 speak 放行。 */
   dispatchWarningShown?: boolean;
+  /** F20260821i336：本轮是否已展示过编排守卫提醒。二次放行——首次提醒后再次调用 write/edit/bash 放行。 */
+  orchestrationWarningShown?: boolean;
+
 }

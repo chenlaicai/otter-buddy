@@ -11,6 +11,7 @@ import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
+import { resolveDisplayName } from './display-name'
 
 
 /** 复制按钮 */
@@ -265,6 +266,9 @@ export function MessageList({
         if (onReachBottom) onReachBottom()
       })
     }
+    // Why: 有意 mount-only。若补 messages.length 会在用户上翻阅读历史时把每条新消息
+    // 都强拉回底部（增量滚动由上方 messages.length effect 按 isAtBottomRef 门控负责）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** 切换会话时重置状态 */
@@ -388,9 +392,8 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
 
   const isUser = m.st === 'user'
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
-  const otter = isUser ? null : otters.find(o => o.id === m.si)
   const userDisplayName = userName?.trim() || '我'
-  const name = isUser ? userDisplayName : (m.sn || otter?.name || 'Otter')
+  const name = isUser ? userDisplayName : resolveDisplayName(m, otters)
   const color = isUser ? null : getOtterColor(m.si)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
@@ -437,15 +440,36 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
-          <div className="relative group">
-            {m.content
-              ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{m.content}</MarkdownContent>
-              : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
-            }
-            <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
-              <CopyButton text={m.content} />
+          {/* F-multi-speak-bubble: 分段渲染 */}
+          {m.segments && m.segments.length > 0 ? (
+            <div className="space-y-2">
+              {m.segments
+                .slice()
+                .sort((a, b) => a.sequenceNum - b.sequenceNum)
+                .map((seg, idx) => (
+                  <div
+                    key={seg.id}
+                    className="relative group"
+                    style={idx > 0 ? { borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '0.5rem' } : undefined}
+                  >
+                    <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{seg.body}</MarkdownContent>
+                    <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
+                      <CopyButton text={seg.body} />
+                    </div>
+                  </div>
+                ))}
             </div>
-          </div>
+          ) : (
+            <div className="relative group">
+              {m.content
+                ? <MarkdownContent variant={isUser ? 'user-body' : 'otter-body'} messageId={m.id} authorId={m.si}>{m.content}</MarkdownContent>
+                : <span className="text-stone-400">{inFlight ? '正在回复...' : ''}</span>
+              }
+              <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition">
+                <CopyButton text={m.content} />
+              </div>
+            </div>
+          )}
           {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
           {inFlight && (
             <div className="mt-1.5">
@@ -498,7 +522,7 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
     tick()
     const timer = setInterval(tick, 100)
     return () => clearInterval(timer)
-  }, [inFlight, events[0]?.ts])
+  }, [inFlight, events])
   const statusLabel = inFlight
     ? `进行中 · ${elapsed || '...'}`
     : status === 'failed'
