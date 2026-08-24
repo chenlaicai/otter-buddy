@@ -22,6 +22,8 @@ const MANIFEST_PATH = path.join(root, "config/tool-manifest.json");
 const MIGRATION_PATH = path.join(root, "src/frameworks/db/migration.ts");
 
 const SUPPORTED_SCHEMA_VERSIONS = [1, 2];
+// F20260821kgts: tools:"*" 是全放行语义，新增 wildcard 类型必须显式改这里
+const WILDCARD_ALLOWED_TYPES = new Set(["big"]);
 
 let errors = 0;
 
@@ -119,6 +121,11 @@ function validateManifest(manifest) {
       error(`types.${typeName}.tools 必须为 "*" 或数组`);
     }
 
+    // F20260821kgts: wildcard 是全放行语义，仅 allowlist 内类型可用
+    if (typeConfig.tools === "*" && !WILDCARD_ALLOWED_TYPES.has(typeName)) {
+      error(`types.${typeName}.tools 使用了 "*"（全放行）但不在 WILDCARD_ALLOWED_TYPES 白名单中——新类型请显式枚举工具，或显式修改 lint 脚本白名单`);
+    }
+
     if (Array.isArray(typeConfig.tools)) {
       for (const tool of typeConfig.tools) {
         if (typeof tool !== "string") {
@@ -192,8 +199,8 @@ function parseRegisteredTools() {
 
   for (const file of files) {
     const content = fs.readFileSync(path.join(toolsDir, file), "utf-8");
-    // 匹配 name: "tool_name" 模式（排除参数定义中的 name 字段）
-    const matches = content.matchAll(/^\s+name:\s*"([a-z_]+)",?$/gm);
+    // 匹配 name: "tool_name" 模式（排除参数定义中的 name 字段；容忍单/双/反引号）
+    const matches = content.matchAll(/^\s+name:\s*["'`]([a-z_]+)["'`],?$/gm);
     for (const match of matches) {
       tools.add(match[1]);
     }
@@ -202,7 +209,7 @@ function parseRegisteredTools() {
   return tools;
 }
 
-/** 校验 manifest 中引用的工具名是否在 tool-factory.ts 中存在 */
+/** 校验 manifest 中引用的工具名是否在 agent-runtime/tools 目录中注册 */
 function validateToolNames(manifest, registeredTools) {
   if (!registeredTools) return;
 
@@ -212,7 +219,7 @@ function validateToolNames(manifest, registeredTools) {
 
     for (const tool of typeConfig.tools) {
       if (!registeredTools.has(tool)) {
-        error(`types.${typeName}.tools 中的工具 "${tool}" 在 tool-factory.ts 中未注册`);
+        error(`types.${typeName}.tools 中的工具 "${tool}" 在 agent-runtime/tools 目录中未注册`);
       }
     }
   }
@@ -222,7 +229,7 @@ function validateToolNames(manifest, registeredTools) {
     for (const [blockName, blockConfig] of Object.entries(manifest.capabilityBlocks)) {
       for (const tool of blockConfig.tools) {
         if (!registeredTools.has(tool)) {
-          error(`capabilityBlocks.${blockName}.tools 中的工具 "${tool}" 在 tool-factory.ts 中未注册`);
+          error(`capabilityBlocks.${blockName}.tools 中的工具 "${tool}" 在 agent-runtime/tools 目录中未注册`);
         }
       }
     }

@@ -68,8 +68,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # F20260821kgts: lint gates 接入 CI（#366 PR-2：纪律≠机制，只挂 pre-commit 会被 --no-verify 绕过）
+      # 以下四个只读源文件、零构建依赖，放 build 前获得快速反馈
+      - name: Run fast lint gates (skills / tool-manifest / tests / capability-docs)
+        run: |
+          npm run lint:skills
+          npm run lint:tool-manifest
+          node scripts/lint-tests.mjs
+          node scripts/lint-capability-docs.mjs
+
       - name: Run full project checks
         run: npm run check
+
+      # F20260821kgts: lint:docs 复用 dist 编译产物（单一真相源），必须在 build 之后
+      - name: Run docs frontmatter lint gate
+        run: npm run lint:docs
 
       - name: Build web frontend (tsc + vite)
         run: |
