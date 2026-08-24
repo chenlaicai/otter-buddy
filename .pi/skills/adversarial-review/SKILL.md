@@ -1,7 +1,7 @@
 ---
 name: adversarial-review
 description: >-
-  Precondition: 实现者不得自行执行审视（异体执行原则——自己审自己等于没审；单 agent 场景下降级为搭档确认）.
+  Precondition: 实现者不得自行执行审视（异体执行原则——自己审自己等于没审；单 agent 场景下降级为搭档确认）. 审视者与被审视者应使用不同模型（模型分配规则见 otter-summon）；同模型时审视报告须标注降级.
   Use when: 搭档或父 agent 要求对代码变更（PR）或设计文档进行对抗审视.
   Not for: 闲聊评审 → companion.
   Output: 结构化审视报告（本轮焦点 + 基础维度 B1-B4 + 焦点维度 + 严重发现附 file:line + 建议发现附更好/更差判断），代码审视留痕到 PR review comment.
@@ -126,6 +126,11 @@ category: technique
 
 ## 审查结论
 **需要修改** / **存在以下问题（决策者判断）**
+
+## 模型多样性
+- 被审查方模型：[模型名]
+- 审查方模型：[模型名]
+- 是否异模型：是/否（同模型审查存在盲区风险，见 otter-summon 模型分配规则）
 
 ## 基础维度检查
 | 维度 | 结论 | 证据 |

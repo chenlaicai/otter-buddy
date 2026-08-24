@@ -6,6 +6,7 @@ import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factor
 import type { ToolContext } from "@usecases/ports/agent-tools";
 import type { ToolModelPool } from "@usecases/ports/agent-tools";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 
 function makeModelPool(aliases: string[]): ToolModelPool {
   return {
@@ -18,6 +19,7 @@ function makeCreateOtterTool(options: {
   modelPool?: ToolModelPool;
   existingParticipants?: Array<{ otterId: string; otterName: string }>;
   createError?: Error;
+  otterConfigProvider?: OtterConfigProvider;
 } = {}) {
   const createCalls: Array<{ name: string; type: string; modelAlias?: string }> = [];
   const joinCalls: Array<{ conversationId: string; otterId: string }> = [];
@@ -35,6 +37,7 @@ function makeCreateOtterTool(options: {
       create: async (params: { name: string; type: string; systemPrompt: string; parentOtterId: string; modelAlias?: string }) => {
         if (options.createError) throw options.createError;
         createCalls.push({ name: params.name, type: params.type, modelAlias: params.modelAlias });
+        // 模拟真实行为：Otter 实体不包含 modelAlias
         return { id: "new-otter-id", name: params.name };
       },
     },
@@ -52,6 +55,7 @@ function makeCreateOtterTool(options: {
     conversationId: "conv-1",
     currentMessageId: "msg-1",
     modelPool: options.modelPool,
+    otterConfigProvider: options.otterConfigProvider,
   };
 
   const tools = createTools(ctx);
@@ -202,6 +206,85 @@ describe("create_otter 工具", () => {
       expect(result.content[0].text).toContain("[错误]");
       expect(result.content[0].text).toContain("同名参与者");
       expect(createCalls).toHaveLength(0);
+    });
+  });
+
+  describe("modelLabel 回包测试（F20260824aibd）", () => {
+    it("传入 modelAlias 时回包包含模型标签", async () => {
+      const otterConfigProvider: OtterConfigProvider = {
+        getConfig: (otterId: string) => {
+          if (otterId === "new-otter-id") return { otterType: "small", modelAlias: "fast" };
+          return null;
+        },
+        setConfig: () => {},
+        deleteConfig: () => {},
+        hasConfig: () => true,
+      };
+
+      const { createOtter } = makeCreateOtterTool({
+        modelPool: makeModelPool(["default", "fast"]),
+        otterConfigProvider,
+      });
+
+      const result = await createOtter.execute("c1", {
+        name: "快速小獭",
+        systemPrompt: "你是小獭",
+        modelAlias: "fast",
+      });
+
+      expect(result.content[0].text).toContain("Otter created");
+      expect(result.content[0].text).toContain("模型：fast");
+    });
+
+    it("不传 modelAlias 时回包不包含模型标签", async () => {
+      const otterConfigProvider: OtterConfigProvider = {
+        getConfig: (otterId: string) => {
+          if (otterId === "new-otter-id") return { otterType: "small" };
+          return null;
+        },
+        setConfig: () => {},
+        deleteConfig: () => {},
+        hasConfig: () => true,
+      };
+
+      const { createOtter } = makeCreateOtterTool({
+        modelPool: makeModelPool(["default", "fast"]),
+        otterConfigProvider,
+      });
+
+      const result = await createOtter.execute("c1", {
+        name: "小獭",
+        systemPrompt: "你是小獭",
+      });
+
+      expect(result.content[0].text).toContain("Otter created");
+      expect(result.content[0].text).not.toContain("模型：");
+    });
+
+    it("传入空白 modelAlias 时回包不包含模型标签（trim 后为空）", async () => {
+      const otterConfigProvider: OtterConfigProvider = {
+        getConfig: (otterId: string) => {
+          if (otterId === "new-otter-id") return { otterType: "small" };
+          return null;
+        },
+        setConfig: () => {},
+        deleteConfig: () => {},
+        hasConfig: () => true,
+      };
+
+      const { createOtter } = makeCreateOtterTool({
+        modelPool: makeModelPool(["default", "fast"]),
+        otterConfigProvider,
+      });
+
+      const result = await createOtter.execute("c1", {
+        name: "小獭",
+        systemPrompt: "你是小獭",
+        modelAlias: "   ",
+      });
+
+      expect(result.content[0].text).toContain("Otter created");
+      expect(result.content[0].text).not.toContain("模型：");
     });
   });
 });

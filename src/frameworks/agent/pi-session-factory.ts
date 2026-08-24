@@ -368,7 +368,9 @@ export class PiSessionFactory implements AgentGateway {
     // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
     // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
     const conversationId = options?.conversationId ?? "";
-    const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId);
+    // F20260824aibd: 传递 modelAlias 给身份构建，让海獭知道自己运行在什么模型上
+    const modelAlias = this.getModelAliasForLog(otterId);
+    const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, modelAlias);
 
     // S1：整个 createAgentSession + prompt 包在 ALS scope 内，
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
@@ -438,7 +440,7 @@ export class PiSessionFactory implements AgentGateway {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType, undefined, process.cwd(), this.logger);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, logger: this.logger });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, logger: this.logger });
     const codingTools = getCodingToolsForOtterType(otterType);
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
