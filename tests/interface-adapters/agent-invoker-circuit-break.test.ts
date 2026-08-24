@@ -70,6 +70,7 @@ function mockSendMessage() {
     senderType: "otter", senderId: "otter-1", talkingStonePassedTo: null,
     status: "streaming", segments: [], sequenceNum: seq,
     contextTokens: null, contextTokensMax: null, source: "web",
+    senderName: "Test Otter",
     createdAt: new Date().toISOString(), completedAt: null,
   });
   return {

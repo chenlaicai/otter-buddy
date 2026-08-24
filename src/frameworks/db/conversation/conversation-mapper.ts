@@ -45,6 +45,7 @@ export interface MessageRow {
   context_tokens_max: number | null;
   source: string;
   metadata: string | null;
+  sender_name: string;
   created_at: string;
   completed_at: string | null;
 }
@@ -135,6 +136,7 @@ export function rowToMessage(row: MessageRow): Message {
     contextTokensMax: row.context_tokens_max,
     source: (row.source ?? "web") as MessageSource,
     metadata: row.metadata ? (JSON.parse(row.metadata) as MessageMetadata) : null,
+    senderName: row.sender_name ?? '',
     createdAt: row.created_at,
     completedAt: row.completed_at,
   };

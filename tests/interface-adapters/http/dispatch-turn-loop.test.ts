@@ -159,7 +159,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       { otterId: "otter-x" },
     ] as never;
     conversationRepo.getUnreadMessages = async () => [
-      { senderType: "otter", senderId: "otter-x", segments: [{ id: "seg-1", messageId: "msg-1", body: "万象更新", sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }] },
+      { senderType: "otter", senderId: "otter-x", senderName: "Test Otter", segments: [{ id: "seg-1", messageId: "msg-1", body: "万象更新", sequenceNum: 0, createdAt: "2026-07-16T00:00:00Z" }] },
     ] as never;
     const { logger } = makeLogger();
     const queryOtter = { getById: async () => ({ name: "小獭" }) } as unknown as QueryOtter;

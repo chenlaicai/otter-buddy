@@ -24,6 +24,7 @@ import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
@@ -128,8 +129,10 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Streaming message created', { otterId, messageId: message.id });
 
     const otter = await this.queryOtter.getById(otterId);
-    /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确） */
-    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: otter?.name ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
+    /** seq 带给前端：进行中消息按服务端 sequence 插入消息流（M5：保证跨 otter 时序正确）。
+     *  otterName 用 snapshot-first 策略：message.senderName（层 1 持久化快照）优先于运行时查询——
+     *  自重启/熔断场景下快照在 SendMessage.start() 时已解析，不依赖运行时 otter 查询。 */
+    emitEvent({ event: "message.start", data: { messageId: message.id, otterId, otterName: resolveSpeakerName("otter", otterId, message.senderName || otter?.name) ?? otterId, seq: message.sequenceNum, createdAt: message.createdAt } });
 
     // F20260814mtrc：messageId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: message.id }, async () => {
@@ -378,7 +381,7 @@ export class AgentInvoker implements AgentTurnPort {
     if (details?.__speakIntermediate === true) {
       // ?? otterId: null/undefined 时兜底到 otterId（UUID），避免空串被前端 || 跳过显示 'Otter'
       // F-multi-speak-bubble: 传递 segmentId + sequenceNum 用于前端分段渲染
-      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: otterName ?? otterId, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
+      emitEvent({ event: "speak.intermediate", data: { messageId, body: String(details.body ?? ""), otterId, otterName: resolveSpeakerName("otter", otterId, otterName) ?? otterId, segmentId: details.segmentId as string, sequenceNum: details.sequenceNum as number } });
     }
   }
 

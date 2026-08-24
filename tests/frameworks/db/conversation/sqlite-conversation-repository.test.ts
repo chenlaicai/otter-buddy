@@ -68,6 +68,7 @@ function messageFixture(overrides: Partial<Message> = {}): Message {
     contextTokens: null,
     contextTokensMax: null,
     source: "web",
+    senderName: '',
     createdAt: "2026-07-22T00:01:00Z",
     completedAt: "2026-07-22T00:01:00Z",
     ...overrides,

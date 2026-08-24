@@ -17,6 +17,8 @@ function duration(createdAt: string, completedAt: string | null): string | null 
 }
 
 export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
+  // 优先取持久化快照（层 1），为空串再取参数（层 2）
+  const effectiveName = msg.senderName?.trim() ? msg.senderName : senderName;
   return {
     id: msg.id,
     st: msg.senderType,
@@ -29,7 +31,7 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     seq: msg.sequenceNum,
     tsp: msg.talkingStonePassedTo,
     turnId: msg.turnId,
-    ...(senderName !== undefined && { sn: senderName }),
+    ...(effectiveName !== undefined && { sn: effectiveName }),
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),
     ...(msg.source && msg.source !== "web" && { src: msg.source }),

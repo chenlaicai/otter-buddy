@@ -27,6 +27,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     sequenceNum: 1,
     contextTokens: null, contextTokensMax: null,
     source: "web",
+    senderName: "Test Otter",
       createdAt: "2026-07-28T00:00:00Z", completedAt: "2026-07-28T00:01:00Z",
     ...overrides,
   };
