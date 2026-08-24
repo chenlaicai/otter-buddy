@@ -52,6 +52,8 @@ export interface Message {
   source: MessageSource;
   /** 可选外部元数据（F20260805rbrg 招聘桥接用，旧消息为 null）。可选以避免破坏既有 Message 构造点。 */
   metadata?: MessageMetadata | null;
+  /** 发送者显示名快照（创建时解析）。空串 = 历史行未解析，读取时走 resolveSpeakerName 实时解析。 */
+  senderName: string;
   createdAt: string;
   completedAt: string | null;
 }

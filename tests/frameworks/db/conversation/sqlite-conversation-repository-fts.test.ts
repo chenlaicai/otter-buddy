@@ -38,6 +38,7 @@ function messageFixture(overrides: Partial<Message> = {}): Message {
     contextTokens: null,
     contextTokensMax: null,
     source: "web",
+    senderName: "Test Otter",
     createdAt: "2026-07-28T00:01:00Z",
     completedAt: "2026-07-28T00:01:00Z",
     ...overrides,

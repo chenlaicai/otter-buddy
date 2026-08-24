@@ -17,6 +17,7 @@ const speakingMsg: Message = {
   segments: [{ id: "seg-1", messageId: "msg-streaming", body: "Response", sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z" }],
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   source: "web",
+  senderName: "Test Otter",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
 };
 
@@ -27,6 +28,7 @@ const completedMsg: Message = {
   segments: [{ id: "seg-1", messageId: "msg-streaming", body: "Response", sequenceNum: 1, createdAt: "2026-07-16T00:00:00Z" }],
   sequenceNum: 2, contextTokens: null, contextTokensMax: null,
   source: "web",
+  senderName: "Test Otter",
       createdAt: "2026-07-16T00:00:00Z", completedAt: "2026-07-16T00:00:01Z",
 };
 
@@ -39,6 +41,7 @@ function mockSendMessage() {
     segments: [],
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     source: "web",
+    senderName: "Test Otter",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
   const calls: { fail?: Array<{ id: string; body: string }>; abort?: Array<{ id: string; body: string }>; sendSystem?: string[]; prepareForRetry?: string[] } = { fail: [], abort: [], sendSystem: [], prepareForRetry: [] };
@@ -534,6 +537,7 @@ function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): Qu
     segments: [],
     sequenceNum: 2, contextTokens: null, contextTokensMax: null,
     source: "web",
+    senderName: "Test Otter",
       createdAt: "2026-07-16T00:00:00Z", completedAt: null,
   };
   let callCount = 0;
@@ -882,7 +886,7 @@ function mockSendMessageWithIncrementalId() {
         senderType: "otter", senderId: "otter-1",
         talkingStonePassedTo: null, status: "streaming",
         body: null, sequenceNum: msgIdCounter + 1, contextTokens: null, contextTokensMax: null,
-        source: "web", createdAt: "2026-07-16T00:00:00Z", completedAt: null,
+        source: "web", senderName: "Test Otter", createdAt: "2026-07-16T00:00:00Z", completedAt: null,
       };
     },
     complete: async () => ({

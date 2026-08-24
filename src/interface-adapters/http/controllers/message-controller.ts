@@ -8,6 +8,7 @@ import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
@@ -32,7 +33,8 @@ export class MessageController {
     const otterSenderIds = [...new Set(messages.filter(m => m.senderType === "otter").map(m => m.senderId))];
     await Promise.all(otterSenderIds.map(async id => {
       const otter = await this.queryOtter.getById(id);
-      if (otter) names.set(id, otter.name);
+      const resolved = resolveSpeakerName("otter", id, otter?.name);
+      if (resolved) names.set(id, resolved);
     }));
     return names;
   }
@@ -87,7 +89,7 @@ export class MessageController {
           let senderName: string | undefined;
           if (message.senderType === "otter") {
             const otter = await this.queryOtter.getById(message.senderId);
-            senderName = otter?.name;
+            senderName = resolveSpeakerName("otter", message.senderId, otter?.name) ?? undefined;
           } else if (message.senderType === "user") {
             senderName = "我";
           } else {

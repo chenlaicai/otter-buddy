@@ -19,7 +19,7 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
     segments: [{ id: "seg-1", messageId: "m-1", body: "hi", sequenceNum: 0, createdAt: "" }],
     sequenceNum: 1,
     talkingStonePassedTo: [], contextTokens: null, contextTokensMax: null,
-    source: "web", createdAt: "", completedAt: "",
+    source: "web", senderName: "Test Otter", createdAt: "", completedAt: "",
     ...overrides,
   };
 }
@@ -253,7 +253,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     // getMaxTurnNumber 抛异常触发 buildIdleOttersWarning 的 try-catch
     (m.conversationRepo as unknown as { getMaxTurnNumber: ReturnType<typeof vi.fn> }).getMaxTurnNumber.mockRejectedValue(new Error("db error"));
     (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { senderType: "otter", senderId: "otter-1", segments: [{ body: "msg" }] },
+      { senderType: "otter", senderId: "otter-1", senderName: "Test Otter", segments: [{ body: "msg" }] },
     ]);
 
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });

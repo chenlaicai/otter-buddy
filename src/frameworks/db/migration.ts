@@ -28,6 +28,13 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added source column to messages table');
   }
 
+  // sender_name: 发送者显示名快照（F20260824snrs 单一真相源）
+  const hasSenderName = msgColumns.some(col => col.name === 'sender_name');
+  if (!hasSenderName) {
+    db.prepare("ALTER TABLE messages ADD COLUMN sender_name TEXT NOT NULL DEFAULT ''").run();
+    logger.info('Added sender_name column to messages table');
+  }
+
   // 创建 otter_configs 表
   db.prepare(`
     CREATE TABLE IF NOT EXISTS otter_configs (

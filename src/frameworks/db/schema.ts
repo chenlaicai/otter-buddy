@@ -103,6 +103,7 @@ function createMessageTables(db: Database.Database): void {
       context_tokens_max INTEGER,
       source TEXT,
       metadata TEXT,
+      sender_name TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
