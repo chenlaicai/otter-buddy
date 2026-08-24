@@ -7,6 +7,7 @@ import type { MemoryWriter } from "./memory-writer";
 import type { MemoryQueue } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
+import { redactSecrets, redactMetadataSecrets } from "@usecases/security/redact-secrets";
 
 export interface MemoryEntryInput {
   layer: MemoryLayer;
@@ -37,7 +38,8 @@ export class StoreMemory {
       : content;
   }
 
-  async execute(input: MemoryEntryInput): Promise<string> {
+  async execute(rawInput: MemoryEntryInput): Promise<string> {
+    const input = this.redactInput(rawInput);
     const id = crypto.randomUUID();
 
     const entry = {
@@ -93,7 +95,8 @@ export class StoreMemory {
    * F20260803mval: 按 source 原子替换（单事务内删旧+插新），用于文档 upsert reindex。
    * 防 B2 非原子问题：原 deleteBySource + execute 两事务，中间失败会丢 memory entry。
    */
-  async replaceBySource(input: MemoryEntryInput): Promise<string> {
+  async replaceBySource(rawInput: MemoryEntryInput): Promise<string> {
+    const input = this.redactInput(rawInput);
     const id = crypto.randomUUID();
     const entry = {
       id,
@@ -122,8 +125,9 @@ export class StoreMemory {
    * M16: N 个 chunk embedding 串行排队 bge-m3 worker，首次部署 ~546 embedding 约 27s，
    *      期间实时搜索的 query embedding 会排队（FTS 不受影响）。批量接口/优先级队列见 follow-up。
    */
-  async replaceChunksBySource(inputs: MemoryEntryInput[]): Promise<string[]> {
-    if (inputs.length === 0) return [];
+  async replaceChunksBySource(rawInputs: MemoryEntryInput[]): Promise<string[]> {
+    if (rawInputs.length === 0) return [];
+    const inputs = rawInputs.map((raw) => this.redactInput(raw));
     const now = new Date().toISOString();
     const entries = inputs.map((input) => ({
       id: crypto.randomUUID(),
@@ -146,6 +150,27 @@ export class StoreMemory {
     }
 
     return entries.map((e) => e.id);
+  }
+
+  /**
+   * F20260821scrt: 写入前 secrets 脱敏（content + metadata 字符串值）。
+   * 所有记忆持久化（消息投影/fact/文档 summary+chunks）必经此三入口，
+   * DB 双写表（entries/fts）与 embedding 拿到的均为脱敏后内容。
+   * 命中时 warn 只记录来源定位，不记录原文。
+   */
+  private redactInput(input: MemoryEntryInput): MemoryEntryInput {
+    const content = redactSecrets(input.content);
+    const metadata = input.metadata
+      ? redactMetadataSecrets(input.metadata)
+      : input.metadata;
+    if (content !== input.content || metadata !== input.metadata) {
+      this.logger.warn(
+        `Secrets redacted before storing memory entry (${input.sourceTable}/${input.sourceId}, contentType=${input.contentType})`,
+      );
+    }
+    return metadata === input.metadata
+      ? { ...input, content }
+      : { ...input, content, metadata };
   }
 
   /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
