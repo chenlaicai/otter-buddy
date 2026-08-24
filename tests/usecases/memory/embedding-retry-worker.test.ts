@@ -40,7 +40,6 @@ beforeEach(() => {
   // 清空所有表（注意 FK 顺序：先 subordinate 再 memory_entries）
   db.exec(`
     DELETE FROM memory_weights;
-    DELETE FROM memory_fts;
     DELETE FROM memory_fts_jieba;
     DELETE FROM embedding_tasks;
     DELETE FROM memory_vec;
@@ -57,7 +56,6 @@ function insertEntry(id: string, content: string): void {
       conversation_id, granularity, content, metadata, created_at)
     VALUES (?, 'working', 'message', ?, 'messages', NULL, 'fine', ?, NULL, ?)
   `).run(id, id, content, now);
-  db.prepare(`INSERT INTO memory_fts (memory_entry_id, content) VALUES (?, ?)`).run(id, content);
   db.prepare(`INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)`).run(id, content);
   db.prepare(`
     INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
