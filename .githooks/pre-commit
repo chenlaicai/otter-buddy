@@ -19,7 +19,7 @@ npm run lint:docs
 node scripts/lint-capability-docs.mjs
 # F20260806tstr Part 5: 测试反模式机械拦截（手写 DDL / logger 副本）
 node scripts/lint-tests.mjs
-# 能力文本版本门：skill 文件改动必须 bump manifest version
+# F20260824skvg: 能力文本版本门（skill 文件改动必须 bump manifest version）
 node scripts/check-skill-version-bump.mjs
 # F20260821kgts: skill 系统契约校验（frontmatter / manifest 一致性）
 npm run lint:skills
