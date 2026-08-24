@@ -13,8 +13,9 @@ import type { Code, Nodes } from 'mdast'
 const parseMd = (body: string) =>
   unified().use(remarkParse).use(remarkGfm, { singleTilde: false }).parse(body)
 
-/** 单消息卡片预算：第 3 张起前端降级为源码块 */
-export const CARD_MAX_PER_MESSAGE = 2
+// Why: 转发共享常量（Issue #360 单一真相源在 @contract/api/html-card）——
+// 保持从 lib/html-card 的既有导入路径不变，避免改动全部消费方
+export { CARD_MAX_PER_MESSAGE } from '@contract/api/html-card'
 /** 单卡体积预算（字节）：超出时折叠态加体积提示 */
 export const CARD_MAX_BYTES = 4096
 /** 卡片提交 payload 限制 */
