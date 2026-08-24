@@ -62,11 +62,7 @@ T5: 与 PR 评估体系（#386 introducedByPr/TraceContext.prId）天然咬合�
 │  └─ Agent 通道：signal → 记忆系统 fact + 定时任务唤醒        │
 ├─────────────────────────────────────────────────────────────┤
 │  L3 信号层 Signal Engine（规则引擎，阈值可配）               │
-│  ├─ bug_recurrence: 同文件 BugFix ≥3次/30天                 │
-│  ├─ chain_stall: F文档 status≠archived 且 14天无 commit     │
-│  ├─ hotspot: 文件修改次数 > P95 或固定阈值                   │
-│  ├─ behavior_defect: 同一 errorType healing event 复发      │
-│  └─ eval_regression: verify_by 达标后又恶化                 │
+│  └─ 8 类信号（详见信号注册表）                              │
 ├─────────────────────────────────────────────────────────────┤
 │  L2 指标层 Metrics Engine（全确定性，无 LLM）                │
 │  ├─ 流量指标：PR 速率、feature/bugfix 比、模块活跃度        │
@@ -130,14 +126,7 @@ FeatureDoc (F文档)                    PullRequest
 - 特性链生命体征（长度/存活时长/距 effect_window 倒计时）
 - 修复回归带（按 introducedByPr 聚合）
 
-**L3 异常信号**：
-| 信号 | 触发规则 | 动作 |
-|------|----------|------|
-| 🔴 bug 反复出现 | 同模块同文件 bugfix ≥3 次/30天（MVP 窄门规则，v2 引入语义聚类） | 强制根因分析 |
-| 🔴 特性链滞留 | F-doc status≠archived 且 14 天无 commit | 链复盘 |
-| 🟡 意图兑现率下降 | 近 7 天 ❌+⚠️ 占比 > 阈值 | 触发回验 |
-| 🟡 热区失衡 | bugfix:feature >2 持续 2 周 | 重构立项 |
-| 🟡 审视债务 | 未走对抗审视 PR 占比上升 | 提醒流程 |
+**L3 异常信号**（8 类，详见信号注册表）：
 
 **信号注册表**（统一信号定义，Issue #6 以此为准）：
 
@@ -324,7 +313,7 @@ Signal 产生
 - 验收：运行命令产出第一份健康报告
 
 ### Phase 1: 信号引擎（2-3 个 PR）
-**目标**：5 类规则信号 + 记忆通道
+**目标**：8 类规则信号（详见信号注册表）+ 记忆通道
 
 **Issue #5**: 特性链构建器
 - ChainBuilder: 从 commit 中提取的 FID + 时间序 → FeatureChain（不依赖 frontmatter，因为存量覆盖率低）
