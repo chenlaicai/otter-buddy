@@ -201,6 +201,37 @@ export class CircuitBreakSupport {
     });
   }
 
+  /**
+   * F20260824srst：当前 active session 是否由自重启创建（self_restart 事件 context.newSessionId 指向它）。
+   * Why 复用 isCircuitBreakCreatedSession 模式：self_restart 与 circuit_break 的防循环机制同构，
+   * 都是 healing_events + context.newSessionId 标记新 session，区别仅在 errorType 语义。
+   */
+  async isSessionSelfRestartCreated(otterId: string): Promise<boolean> {
+    const session = await this.deps.manageSession.getActiveSession(otterId).catch(() => null);
+    if (!session) return false;
+    const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'self_restart', 20);
+    return events.some(e => {
+      const ctx = e.context as { newSessionId?: string } | null;
+      return ctx?.newSessionId === session.id;
+    });
+  }
+
+  /**
+   * F20260824srst：写入 self_restart healing 事件（上限判定的数据源）。
+   * 复用 writeCircuitBreakEvent 模式，区别仅在 errorType 和描述语义。
+   */
+  async writeSelfRestartEvent(otterId: string, conversationId: string, newSessionId: string, messageId: string): Promise<void> {
+    await this.recordHealingEvent({
+      messageId,
+      conversationId,
+      otterId,
+      errorType: 'self_restart',
+      severity: 'medium',
+      description: '海獭自重启执行（F20260824srst）',
+      context: { newSessionId },
+    });
+  }
+
   /** 熔断前情摘要：原始消息 + 失败 turn 的工具调用序列；素材查询失败降级短摘要 */
   private async buildCircuitBreakSummaryText(info: CircuitBreakInfo): Promise<string> {
     try {

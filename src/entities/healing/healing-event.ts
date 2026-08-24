@@ -10,6 +10,8 @@ export type HealingErrorType =
   | 'degenerate'
   /** F20260818cbkr：熔断重启执行（context.newSessionId 关联新 session） */
   | 'circuit_break'
+  /** F20260824srst：自重启执行（context.newSessionId 关联新 session，防循环上限判定） */
+  | 'self_restart'
   | 'other';
 
 /** Healing event 严重程度 */
