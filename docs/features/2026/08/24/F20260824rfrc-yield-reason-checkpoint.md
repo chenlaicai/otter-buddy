@@ -1,5 +1,5 @@
 ---
-id: F20260821rfrc
+id: F20260824rfrc
 title: "yield to user 反思检查点：reason 参数 + description 反思引导"
 summary: "yield 工具新增 reason 参数 + description 反思引导，通用机制覆盖所有 yield to user 场景。核心洞察：LLM 跳过流程不是做不到，而是没有在决策时刻停下来思考。"
 status: implemented
