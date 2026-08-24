@@ -20,7 +20,8 @@
     "lint:capability": "node scripts/lint-capability-docs.mjs",
     "lint:tests": "node scripts/lint-tests.mjs",
     "lint:skills": "node scripts/lint-skills.mjs",
-    "lint:tool-manifest": "node scripts/lint-tool-manifest.mjs"
+    "lint:tool-manifest": "node scripts/lint-tool-manifest.mjs",
+    "lint:intent": "node scripts/lint-intent.mjs"
   },
   "keywords": [],
   "author": "",

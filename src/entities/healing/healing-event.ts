@@ -48,6 +48,8 @@ export interface HealingEvent {
   context: Record<string, unknown> | null;
   status: HealingEventStatus;
   resolution: HealingResolution | null;
+  /** PR ID（PR 评估体系：问题引入的 PR） */
+  introducedByPr?: string;
   createdAt: string;
   resolvedAt: string | null;
 }

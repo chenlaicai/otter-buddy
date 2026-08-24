@@ -634,7 +634,8 @@ function createHealingEventTables(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'open',
       resolution TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      resolved_at TEXT
+      resolved_at TEXT,
+      introduced_by_pr TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_healing_events_status ON healing_events(status);
