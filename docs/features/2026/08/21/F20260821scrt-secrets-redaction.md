@@ -140,7 +140,7 @@ Owner 排期（issue #366 评论）将此项从"产品化触发条件"提前纳�
 ### 测试结果
 
 - 定向：6 文件 45+ 用例全过（含对抗审视补充的混合密钥/长文本时序/幂等/短 ant 顺序用例）
-- 全量：`npm test` 115 文件 1403 用例全过（对抗审视修复前基线：114 文件 1380 用例）
+- 二轮审视后：全量 `npm test` 116 文件 1418 用例全过（一轮修复后 1403）；真实语料实证 372 文件 / 4.0 MB 扫描，修复后已知误报清零
 - `npx tsc --noEmit` 无错误；lint 0 error（8 个存量 warning 为 web/ 前端既有项）
 
 ### 证据判定
@@ -178,6 +178,23 @@ Owner 排期（issue #366 评论）将此项从"产品化触发条件"提前纳�
 | 17 | "不放 port 层"决策对未来不稳健：PR-12 若新增写入 usecase，编译器不强制调 redactSecrets | 架构 | 评估 | **补记触发条件**：PR-12 动工时重评是否下沉为 MemoryWriter 装饰器（发现 1-3 即现成反例，已通过全数补接缓解） |
 | 18 | 测试缺口：混合密钥 / 6000+ 长文本时序 / sk-ant 短 key 顺序 / 幂等性 | 正确性 | 建议 | **已补**：4 类用例全部落地 |
 
+## 对抗审视记录（第二轮，2026-08-24）
+
+三个新角度独立 agent：真实语料实证（redactor 实扫 372 文件 / 4.0 MB：docs 全库 + tests + 根文档，量化误报）、回归与跨层交互（专审第一轮修复引入的新问题）、端到端链路（读写对称与下游消费）。
+
+**通过项**：真实语料性能（52KB 文档 0.8ms、200KB 未闭合 PEM 3.2ms、无回溯退化）；幂等占位符实测安全（`[REDACTED]` 不被任何模式二次捕获）；`csrftoken`/`credentials` 复数等粘合词无误报；与 #365 merge 无交叉冲突；读写对称性成立（无"写脱敏读原文"缺陷）；密码阈值 8 在真实语料零误报。
+
+| # | 发现 | 来源 | 评级 | 裁决与处置 |
+|---|------|------|------|-----------|
+| R2-1 | **archive 路径泄露**：`archiveSession` → repo 把 `params.summary` 未脱敏写入旧行 otter_sessions.summary（restart/dissolve 传 LLM 原文），新行脱敏旧行明文，可经 getSessionHistory 回传 | 回归 | **Bug** | **已修**：archiveSession 入口统一脱敏 safeParams（含返回值）；restartSession 入口脱敏一次贯穿 archive/create/adopt/返回 |
+| R2-2 | 词表外下划线复合标签漏检：`db_password`/`auth_token`/`session_token` 全部不命中（`\b` 对 `_` 失效，第一轮只显式列了 6 个复合词） | 回归 | 缺陷 | **已修**：label 侧泛化为 `[A-Za-z0-9]+[_-]` 可选前缀 + lookbehind 边界；粘合词（csrftoken/pretoken）与复数（tokens/credentials）仍不误伤（测试钉住） |
+| R2-3 | 真实语料误报：`apiKey: process.env.OPENAI_API_KEY ?? ''`（F20260713i5k2:177，会被 chunk 索引）环境变量引用被当密钥值吞掉——372 文件仅此 1 处真实误报 | 实证 | 误报 | **已修**：值命中 `process.env.`/`os.environ`/`${` 时跳过脱敏 |
+| R2-4 | manage-key-info 索引侧传 raw input 而非脱敏后 resource.content，fact 本体与 FTS 一致性依赖"StoreMemory 隐式脱敏"，无测试拦截分叉（分叉方向是 FTS 漏明文） | 端到端 | 缺陷 | **已修**：getIndexContent 改收 resource（已脱敏），并加索引侧断言测试 |
+| R2-5 | set_context 回显确实架空 otter_context 脱敏，但明文同时在 assistant_toolcall 入参与 message_segments，单点修回显收益≈0 | 端到端 | 中 | **维持挂 #3**（整表治理而非单点修补）；本节论述替代初版"无新增泄露面"的不完整表述 |
+| R2-6 | healing_events 补盲区：三个写入点中两个纯系统元数据，唯一 LLM 文本是 healing report 的 description/resolutionNotes（LLM 概括非原文透传） | 端到端 | 低 | **记录不修**；补入排除清单 |
+| R2-7 | scheduled_tasks.body 写入源头是 LLM（任务指令），但无检索消费面、只单用户 DB 内回灌 | 端到端 | 低 | **维持排除**，排除清单补理由 |
+| R2-8 | get_context/search_memory 消费端读到 `[REDACTED]` 的误用风险（复述/当真值） | 端到端 | 低 | **挂，观测驱动**：复述是安全方向失败；加 prompt 提示属 B 类变更引入能力测试负担，不值 |
+
 ## 设计决策（对抗审视后补充）
 
 - **三通道补接的定位**：linked_resources / otter_sessions.summary / memory_edges 与 memory_entries / otter_context 同属"LLM 可写持久层"同一件事，本 PR 一并覆盖后，已知 LLM 自由文本入库通道全部有脱敏；剩余排除项（message_events.payload、messages.metadata、scheduled_tasks.body、terminology、存量数据）仍挂密钥管理 #3。
@@ -188,7 +205,7 @@ Owner 排期（issue #366 评论）将此项从"产品化触发条件"提前纳�
 - **为何不用 prompt 约束 LLM 不存密钥**：用户粘贴密钥是用户行为，LLM 无法阻止；此场景主手段是机制兜底而非让 LLM 懂。反之，本改动也未给 `set_context` 工具描述加"勿存密钥"提示——机制已兜底，加 prompt 属 B 类变更会引入能力测试负担，留待观测到 LLM 频繁尝试存密钥再议。
 - **替换占位符统一 `[REDACTED]`**：不保留前缀/长度/类型信息，杜绝侧信道。
 - **embedding 用脱敏后内容**：向量本身是不可读投影，但向量可被检索侧间接探测，统一用脱敏版内容无额外成本。
-- **明确排除范围（本 PR 不做，挂后续）**：`messages.metadata`、`message_events.payload`（工具调用入参持久化，含 set_context 原文回显）、`message_segments`（对话正文本体）、`connections.metadata`、`settings`、`scheduled_tasks.body`、`terminology_entries`、存量历史数据的追溯清洗（对抗审视 #16，用户拍板挂后续）。这些通道的密钥治理随"产品化触发条件"下的密钥管理（KMS/env 强制路径，#3）统一处理。
+- **明确排除范围（本 PR 不做，挂后续）**：`messages.metadata`、`message_events.payload`（工具调用入参持久化——set_context 的原文回显与 assistant_toolcall 入参都在此表，明文对话记录的治理只能整表做，见二轮审视 R2-5）、`message_segments`（对话正文本体）、`connections.metadata`、`settings`、`scheduled_tasks.body`（LLM 撰写任务指令，无检索消费面，风险低于 memory 通道，R2-7）、`terminology_entries`、`healing_events`（结构化元数据 + LLM 概括文本，无原文透传，R2-6）、存量历史数据的追溯清洗（对抗审视 #16，用户拍板挂后续）。这些通道的密钥治理随"产品化触发条件"下的密钥管理（KMS/env 强制路径，#3）统一处理。
 
 ## 关联
 

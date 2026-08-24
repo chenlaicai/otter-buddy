@@ -98,8 +98,13 @@ export class ManageSession {
     sessionId: string,
     params: ArchiveSessionInput,
   ): Promise<OtterSession> {
+    // F20260821scrt 二轮审视#4：repo.archiveSession 会把 params.summary 写入旧行
+    // otter_sessions.summary（restart/dissolve 传 LLM 原文），入口统一脱敏
+    const safeParams: ArchiveSessionInput = params.summary
+      ? { ...params, summary: redactSecrets(params.summary) }
+      : params;
     const { session, targetStatus, archivedAt } =
-      await this.archiveSessionCore(sessionId, params);
+      await this.archiveSessionCore(sessionId, safeParams);
 
     /** Agent reset（重置上下文） */
     await this.agentGateway.reset(session.otterId);
@@ -117,9 +122,9 @@ export class ManageSession {
       ...session,
       status: targetStatus,
       archivedAt,
-      archiveReason: params.reason,
-      isNegativeCase: params.isNegativeCase,
-      summary: params.summary ?? null,
+      archiveReason: safeParams.reason,
+      isNegativeCase: safeParams.isNegativeCase,
+      summary: safeParams.summary ?? null,
     };
   }
 
@@ -187,18 +192,20 @@ export class ManageSession {
    */
   async restartSession(otterId: string, summary?: string): Promise<OtterSession> {
     // 1. 归档当前 active session（含 agent session reset，确保旧 agent 会话被清理）
+    // F20260821scrt：summary 是 LLM 自由文本，入口统一脱敏（archive/create/adopt 各路径与返回值一致）
+    const safeSummary = summary ? redactSecrets(summary) : undefined;
     const active = await this.repo.getActiveSession(otterId);
     if (active) {
       await this.archiveSession(active.id, {
         reason: "restart",
         isNegativeCase: false,
-        summary,
+        summary: safeSummary,
       });
     }
 
     // 2. 创建新 session（写入前情摘要）
     try {
-      const session = await this.createSession(otterId, { summary });
+      const session = await this.createSession(otterId, { summary: safeSummary });
       this.logger.info("Session restarted", {
         otterId,
         sessionId: session.id,
@@ -210,16 +217,15 @@ export class ManageSession {
       if (err instanceof DomainError && err.kind === "conflict") {
         const adopted = await this.repo.getActiveSession(otterId);
         if (adopted) {
-          if (summary) {
-            // F20260821scrt：直写 repo 的旁路同样脱敏（createSession/setSessionSummary 已各自覆盖主路径）
-            await this.repo.setSessionSummary(adopted.id, redactSecrets(summary));
+          if (safeSummary) {
+            await this.repo.setSessionSummary(adopted.id, safeSummary);
           }
           this.logger.info("Restart adopted backfilled session", {
             otterId,
             sessionId: adopted.id,
             action: "restart_adopt",
           });
-          return summary ? { ...adopted, summary } : adopted;
+          return safeSummary ? { ...adopted, summary: safeSummary } : adopted;
         }
       }
       throw err;

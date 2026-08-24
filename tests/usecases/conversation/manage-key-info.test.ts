@@ -220,3 +220,22 @@ describe("ManageKeyInfo - F20260821scrt secrets 脱敏", () => {
     expect(resource.metadata).toEqual({ count: 2 });
   });
 });
+
+describe("ManageKeyInfo - 二轮审视#5 索引侧传脱敏后内容", () => {
+  it("indexLinkedResource 收到的 fact 内容已脱敏（不依赖 StoreMemory 二次脱敏）", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await uc.linkResource({
+      conversationId: "conv-1",
+      resourceType: "fact",
+      content: "密钥是 api_key: 0123456789abcdef01234567",
+      linkedBy: "user-1",
+      autoLinked: false,
+    }, 1);
+
+    const indexedContent = (memoryIndex.indexLinkedResource as ReturnType<typeof vi.fn>).mock.calls[0][2];
+    expect(String(indexedContent)).not.toContain("0123456789abcdef");
+    expect(String(indexedContent)).toContain("[REDACTED]");
+  });
+});

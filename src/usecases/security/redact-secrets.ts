@@ -52,17 +52,25 @@ const KNOWN_SECRET_PATTERNS: RegExp[] = [
  * 带标签的赋值（宽松阈值 8+）：密码类标签。真实密码大量在 8-15 位，
  * 只有密码类降阈值，其余标签保持 16+ 防误伤。
  * 支持全角/半角引号与全角/半角冒号（中文用户混用普遍）。
+ * 标签允许 `X_password` / `X-password` 形前缀（二轮审视#2：词表外复合标签漏检）；
+ * 前缀与词根之间必须有 `_`/`-` 分隔，故 `csrftoken`/`pretoken` 这类无分隔
+ * 粘合词不命中；左侧 lookbehind 防止从粘合词中间起配。
  */
 const LABELED_PASSWORD_PATTERN =
-  /((?:\b(?:password|passwd)\b|密码|口令)\s*[：:=]\s*)(["'\u201c\u2018]?)([A-Za-z0-9+/=_.-]{8,})/gi;
+  /((?:(?<![A-Za-z0-9_-])(?:[A-Za-z0-9]+[_-])?(?:password|passwd)|密码|口令)\s*[：:=]\s*)(["'\u201c\u2018]?)([A-Za-z0-9+/=_.-]{8,})/gi;
 
 /**
  * 带标签的赋值（严格阈值 16+）：密钥/token 类标签。
- * 复合词（access_token / client_secret 等）显式列出——\b 对 `_` 复合
- * 词不生效（_ 是 word char），逐一词表覆盖。
+ * 复合词（access_token / client_secret 等）通过前缀组泛化覆盖，无需逐一词表。
  */
 const LABELED_SECRET_PATTERN =
-  /((?:\b(?:api[_-]?key|apikey|app[_-]?secret|client[_-]?secret|account[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|secret|token|credential)\b|访问令牌|密钥|秘钥|私钥|令牌|凭据)\s*[：:=]\s*)(["'\u201c\u2018]?)([A-Za-z0-9+/=_.-]{16,})/gi;
+  /((?:(?<![A-Za-z0-9_-])(?:[A-Za-z0-9]+[_-])?(?:api[_-]?key|apikey|app[_-]?secret|client[_-]?secret|account[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|secret|token|credential)|访问令牌|密钥|秘钥|私钥|令牌|凭据)\s*[：:=]\s*)(["'\u201c\u2018]?)([A-Za-z0-9+/=_.-]{16,})/gi;
+
+/**
+ * 环境变量引用不是密钥值（二轮审视#3 误报：`apiKey: process.env.OPENAI_API_KEY`
+ * 被吞）。值命中以下形态时跳过脱敏。
+ */
+const ENV_REFERENCE_PATTERN = /process\.env\.|os\.environ|\$\{/;
 
 /**
  * Bearer 凭据：保留 "Bearer" 字样（说明性文字常用），只脱凭据部分。
@@ -87,12 +95,14 @@ export function redactSecrets(text: string): string {
 
 /**
  * 带标签替换：保留捕获组 1（标签+分隔符）与捕获组 2（引号），值替换为占位符；
+ * 值为环境变量引用时跳过（配置代码常见，非密钥本体）；
  * 值尾部的 `.` 视为句读标点，保留在占位符之后（base64 以 `=` 结尾，不以 `.` 结尾）。
  */
 function applyLabeled(text: string, pattern: RegExp): string {
-  return text.replace(pattern, (_m, label: string, quote: string, value: string) =>
-    label + quote + stripTrailingPeriod(value, REDACTED_PLACEHOLDER),
-  );
+  return text.replace(pattern, (match, label: string, quote: string, value: string) => {
+    if (ENV_REFERENCE_PATTERN.test(value)) return match;
+    return label + quote + stripTrailingPeriod(value, REDACTED_PLACEHOLDER);
+  });
 }
 
 function stripTrailingPeriod(value: string, replacement: string): string {

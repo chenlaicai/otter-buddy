@@ -158,3 +158,40 @@ describe("ManageSession - F20260821scrt summary 脱敏", () => {
     expect(written[0].summary).not.toContain("0123456789abcdef");
   });
 });
+
+describe("ManageSession - 二轮审视#4 archive 路径脱敏", () => {
+  it("archiveSession 写入旧行的 summary 脱敏", async () => {
+    const archived: { sessionId: string; params: { summary?: string | null } }[] = [];
+    const repo = {
+      getActiveSession: vi.fn(async () => null),
+      getSessionHistory: vi.fn(async () => []),
+      getSessionById: vi.fn(async () => ({
+        id: "session-1",
+        otterId: "otter-1",
+        status: "active",
+      })),
+      archiveSession: async (sessionId: string, _status: string, params: { summary?: string | null }) => {
+        archived.push({ sessionId, params });
+        return {};
+      },
+    } as unknown as import("@frameworks/db/otter/sqlite-otter-repository").SqliteOtterRepository;
+    const gateway = fakeAgentGateway();
+    const manageSession = new ManageSession(
+      repo, gateway,
+      { getIdsByOtterId: vi.fn(async () => []) } as unknown as ConversationQueryGateway,
+      { updateLayer: vi.fn(async () => {}) } as unknown as MemoryLayerGateway,
+      createTestLogger(),
+    );
+
+    const result = await manageSession.archiveSession("session-1", {
+      reason: "restart",
+      isNegativeCase: false,
+      summary: "前情里有密钥 密钥：a1b2c3d4e5f6a7b8c9d0e1f2",
+    });
+
+    expect(archived).toHaveLength(1);
+    expect(String(archived[0].params.summary)).not.toContain("a1b2c3d4e5f6");
+    expect(String(archived[0].params.summary)).toContain("[REDACTED]");
+    expect(String(result.summary)).toContain("[REDACTED]");
+  });
+});

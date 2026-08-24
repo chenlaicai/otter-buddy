@@ -259,3 +259,29 @@ describe("redactMetadataSecrets", () => {
     expect(redactMetadataSecrets(metadata)).toBe(metadata);
   });
 });
+
+describe("redactSecrets - 二轮对抗审视补充", () => {
+  it("下划线复合标签命中：db_password / auth_token / session_token", () => {
+    expect(redactSecrets("db_password: realpass123")).toBe(`db_password: ${REDACTED_PLACEHOLDER}`);
+    expect(redactSecrets("auth_token: abcdef1234567890abcdef")).toBe(`auth_token: ${REDACTED_PLACEHOLDER}`);
+    expect(redactSecrets("SESSION_TOKEN=a1b2c3d4e5f6a7b8c9d0")).toBe(`SESSION_TOKEN=${REDACTED_PLACEHOLDER}`);
+  });
+
+  it("无分隔粘合词不命中：csrftoken / pretoken / tokens 复数", () => {
+    expect(redactSecrets("csrftoken: abcdefgh12345678")).toBe("csrftoken: abcdefgh12345678");
+    expect(redactSecrets("pretoken: abcdefgh12345678")).toBe("pretoken: abcdefgh12345678");
+    expect(redactSecrets("tokens: abcdefgh1234567890")).toBe("tokens: abcdefgh1234567890");
+  });
+
+  it("环境变量引用不误报（process.env / os.environ）", () => {
+    const line = "apiKey: process.env.OPENAI_API_KEY ?? ''";
+    expect(redactSecrets(line)).toBe(line);
+    const py = "api_key: os.environ.get('API_KEY_SECRET_DEFAULT')";
+    expect(redactSecrets(py)).toBe(py);
+  });
+
+  it("真实密钥值仍命中（与 env 豁免不冲突）", () => {
+    expect(redactSecrets("apiKey: sk_live_fixturefixturefixturefx"))
+      .toBe(`apiKey: ${REDACTED_PLACEHOLDER}`);
+  });
+});

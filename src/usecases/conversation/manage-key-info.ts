@@ -75,17 +75,18 @@ export class ManageKeyInfo {
     }
   }
 
-  private getIndexContent(input: LinkedResourceInput): string {
-    return input.resourceType === "fact"
-      ? (input.content ?? "")
-      : (input.url ?? "");
+  /** 索引内容取自已脱敏的 resource（二轮审视#5：取 raw input 会让 fact 本体与 FTS 一致性依赖 StoreMemory 隐式脱敏） */
+  private getIndexContent(resource: LinkedResource): string {
+    return resource.resourceType === "fact"
+      ? (resource.content ?? "")
+      : (resource.url ?? "");
   }
 
   async linkResource(input: LinkedResourceInput, currentTurnNumber = 0): Promise<LinkedResource> {
     this.validateInput(input);
     const resource = this.buildResource(input, currentTurnNumber);
     await this.repo.linkResource(resource);
-    await this.memoryIndex.indexLinkedResource(resource.id, resource.conversationId, this.getIndexContent(input), input.resourceType);
+    await this.memoryIndex.indexLinkedResource(resource.id, resource.conversationId, this.getIndexContent(resource), resource.resourceType);
     return resource;
   }
 
@@ -104,7 +105,7 @@ export class ManageKeyInfo {
 
     const newResource = this.buildResource(newInput, currentTurnNumber, existing.groupId);
     await this.repo.supersedeLinkedResource(existingId, newResource, currentTurnNumber);
-    await this.memoryIndex.indexLinkedResource(newResource.id, newResource.conversationId, this.getIndexContent(newInput), newInput.resourceType);
+    await this.memoryIndex.indexLinkedResource(newResource.id, newResource.conversationId, this.getIndexContent(newResource), newResource.resourceType);
     return newResource;
   }
 
