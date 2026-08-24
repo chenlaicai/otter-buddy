@@ -28,7 +28,7 @@ modules:
   - src/usecases/ports/otter-tool-client.ts
   - src/bootstrap/clients.ts
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
-capability_test: "单元测试：14 个用例覆盖 checkOrchestrationGuard/checkPendingDispatches/confirmDispatchesClear"
+capability_test: "tests/usecases/conversation/dispatch-guard.test.ts"
 ---
 
 # 编排对话软守卫 + 派工台账
