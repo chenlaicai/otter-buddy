@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
-import { DEFAULT_MODEL_ALIAS_KEY, USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
+import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { handleError } from "../http-error";
 import type { SettingsDTO, UpdateSettingsRequestDTO } from "@contract/api/settings";
 
@@ -16,12 +16,16 @@ export interface SettingsConfig {
   embeddingDim: number;
 }
 
+/** 默认模型写入函数类型（由 Composition Root 注入，解耦 frameworks 依赖） */
+type WriteDefaultModel = (alias: string, modelPool: ModelPoolLike, logger: Logger) => void;
+
 export class SettingsController {
   constructor(
     private readonly settings: SettingsConfig,
     private readonly settingsRepo: SettingsRepository,
     private readonly modelPool: ModelPoolLike,
     private readonly logger: Logger,
+    private readonly writeDefaultModel?: WriteDefaultModel,
   ) {}
 
   private buildDTO(userName: string): SettingsDTO {
@@ -49,9 +53,10 @@ export class SettingsController {
         if (!this.modelPool.hasModel(body.defaultModelAlias)) {
           return c.json({ error: `未知模型 alias: ${body.defaultModelAlias}` }, 400);
         }
-        await this.settingsRepo.update(DEFAULT_MODEL_ALIAS_KEY, body.defaultModelAlias);
+        // Why: config.yaml 是默认模型的唯一真相源，不再写 DB settings 表
+        this.writeDefaultModel?.(body.defaultModelAlias, this.modelPool, this.logger);
         this.modelPool.setDefaultAlias(body.defaultModelAlias);
-        this.logger.info("Default model switched via settings", { defaultModelAlias: body.defaultModelAlias });
+        this.logger.info("Default model switched", { defaultModelAlias: body.defaultModelAlias });
       }
       if (body.userName !== undefined) {
         const cleaned = body.userName.replace(/[\r\n]/g, '').trim();

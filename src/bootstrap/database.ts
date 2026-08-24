@@ -9,7 +9,6 @@ import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import { ModelPool } from "@frameworks/llm/model-pool";
-import { DEFAULT_MODEL_ALIAS_KEY } from "@usecases/settings/settings-keys";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
 import type { EmbeddingGateway, EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
@@ -96,25 +95,6 @@ export function validateModelAliases(db: Database.Database, modelPool: { hasMode
       logger.warn(`Otter ${row.otter_id} 引用了不存在的模型别名「${row.model_alias}」，invoke 时将回退到默认模型`);
     }
   }
-}
-
-/**
- * 应用 settings 页保存的默认模型覆盖（settingsRepo「llm.defaultModelAlias」）。
- * 覆盖值指向已不存在的 alias 时忽略并告警（用户可能改了 config.yaml）。
- */
-export async function applyDefaultModelOverride(
-  settingsRepo: { get(key: string): Promise<string | null> },
-  modelPool: ModelPool,
-  logger: Logger,
-): Promise<void> {
-  const override = await settingsRepo.get(DEFAULT_MODEL_ALIAS_KEY);
-  if (!override) return;
-  if (!modelPool.hasModel(override)) {
-    logger.warn(`settings 中保存的默认模型「${override}」不在 config.yaml models[] 中，忽略该覆盖`);
-    return;
-  }
-  modelPool.setDefaultAlias(override);
-  logger.info(`应用 settings 默认模型覆盖: ${override}`);
 }
 
 export function shutdownDatabase(db: Database.Database, logger: Logger): void {

@@ -100,6 +100,36 @@ export interface AppConfig {
   };
 }
 
+/**
+ * 更新 config.yaml 中的 llm.default 字段。
+ * config.yaml 是默认模型的唯一真相源（替代原 settings DB 覆盖机制）。
+ * Why: atomic write（writeFileSync 到同路径）——同文件系统 rename 是原子的，
+ * 避免写到一半进程崩溃导致配置损坏。
+ */
+export function updateDefaultModelInYaml(
+  alias: string,
+  modelPool: { hasModel(alias: string): boolean },
+  logger?: Logger,
+  configPath: string = CONFIG_PATH,
+): void {
+  if (!modelPool.hasModel(alias)) {
+    throw new Error(`模型别名 "${alias}" 不存在于 config.yaml models[] 中`);
+  }
+
+  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as RawConfig;
+  if (!raw.llm) raw.llm = {};
+
+  if (raw.llm.default === alias) return; // 无需更新
+
+  raw.llm.default = alias;
+  const content = yaml.dump(raw, { lineWidth: -1, noRefs: true });
+  fs.writeFileSync(configPath, content, "utf8");
+
+  if (logger) {
+    logger.info(`config.yaml llm.default 已更新为: ${alias}`);
+  }
+}
+
 /** config.yaml 的原始 YAML 结构 */
 interface RawConfig {
   server?: { port?: number };
