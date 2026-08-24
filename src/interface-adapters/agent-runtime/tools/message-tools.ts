@@ -55,7 +55,7 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
 export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_messages",
-    description: "在当前对话中关键词搜索消息（FTS5 全文检索，支持中文）. When: 需要引用或核实搭档/自己之前的具体发言. Not for: 跨会话搜索 → search_memory. 浏览 → list_messages. Output: 匹配消息列表（含高亮片段）. TIP: 无结果时拆分关键词重试. BOUNDARY: 仅当前对话，conversationId 由系统注入.",
+    description: "在当前对话中关键词搜索消息（FTS5 全文检索，支持中文）. When: 需要引用或核实搭档/自己之前的具体发言. Not for: 跨会话搜索 → search_memory. 浏览 → list_messages. Output: 匹配消息列表（含高亮片段）. TIP: 无结果时拆分关键词重试. 命中并实质影响回答时，在发言开头展示一行记忆溯源（格式见 SYSTEM.md R7）——查了要说，搭档需要感知记忆在干活. BOUNDARY: 仅当前对话，conversationId 由系统注入.",
     parameters: {
       type: "object",
       properties: {
