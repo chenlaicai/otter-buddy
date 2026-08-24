@@ -11,6 +11,7 @@ import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
+import { resolveDisplayName } from './display-name'
 
 
 /** 复制按钮 */
@@ -391,9 +392,8 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
 
   const isUser = m.st === 'user'
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
-  const otter = isUser ? null : otters.find(o => o.id === m.si)
   const userDisplayName = userName?.trim() || '我'
-  const name = isUser ? userDisplayName : (m.sn || otter?.name || 'Otter')
+  const name = isUser ? userDisplayName : resolveDisplayName(m, otters)
   const color = isUser ? null : getOtterColor(m.si)
   const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
