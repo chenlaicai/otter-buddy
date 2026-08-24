@@ -83,9 +83,15 @@ export function getOtterToolNamesForType(
   ];
 }
 
-/** 简单的锁管理器，使用队列实现，避免竞态条件 */
+/**
+ * 简单的锁管理器，使用队列实现，避免竞态条件。
+ *
+ * Why: 显式跟踪 held 状态 —— 旧版仅检查 waiters 队列长度，
+ * 第一个获取锁的人不入队，导致第二个调用者也看到队列为空而直接获锁，
+ * 两个操作并发执行（EEXIST 竞态条件的根因，见 #376）。
+ */
 export class SimpleLockManager {
-  private queues = new Map<string, Array<() => void>>();
+  private locks = new Map<string, { held: boolean; waiters: Array<() => void> }>();
   private readonly defaultTimeout: number;
 
   constructor(timeoutMs: number = 30000) {
@@ -94,38 +100,61 @@ export class SimpleLockManager {
 
   async acquire(key: string, timeoutMs?: number): Promise<() => void> {
     const timeout = timeoutMs ?? this.defaultTimeout;
-    const queue = this.queues.get(key) ?? [];
-    this.queues.set(key, queue);
+    let lock = this.locks.get(key);
+    if (!lock) {
+      lock = { held: false, waiters: [] };
+      this.locks.set(key, lock);
+    }
 
-    // 如果队列不为空，等待前一个锁释放
-    if (queue.length > 0) {
+    // Why: 检查 held（非 waiters.length）—— 第一个获取者不会入队，
+    // 旧版检查队列长度导致两个调用者都绕过等待。
+    if (lock.held) {
+      // Why: 清理超时等待者 —— 防止 timeout 后 resolve 仍留在队列中被意外唤醒
+      let waiterResolve: (() => void) | undefined;
       await Promise.race([
-        new Promise<void>(resolve => queue.push(resolve)),
+        new Promise<void>(resolve => {
+          waiterResolve = resolve;
+          lock.waiters.push(resolve);
+        }),
         new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error(`Lock acquire timeout for key: ${key}`)), timeout)
+          setTimeout(() => {
+            if (waiterResolve) {
+              const idx = lock.waiters.indexOf(waiterResolve);
+              if (idx !== -1) lock.waiters.splice(idx, 1);
+            }
+            reject(new Error(`Lock acquire timeout for key: ${key}`));
+          }, timeout)
         ),
       ]);
     }
 
-    // 返回释放函数
+    lock.held = true;
+
+    // Why: released 标志防止 double release（调用方意外多次调用 release 函数）
+    let released = false;
     return () => {
-      const next = queue.shift();
+      if (released) return;
+      released = true;
+
+      const next = lock.waiters.shift();
       if (next) {
-        next(); // 唤醒下一个等待者
+        // Why: 保持 held=true —— 锁转移给下一个等待者，不经过 unheld 状态
+        next();
       } else {
-        this.queues.delete(key);
+        lock.held = false;
+        this.locks.delete(key);
       }
     };
   }
 
   destroy(): void {
     // 唤醒所有等待者，避免程序挂起
-    for (const queue of this.queues.values()) {
-      for (const resolve of queue) {
+    for (const lock of this.locks.values()) {
+      for (const resolve of lock.waiters) {
         resolve();
       }
     }
-    this.queues.clear();
+    this.locks.clear();
   }
 }
 
