@@ -1,5 +1,7 @@
 ---
+id: "F20260821mcp23"
 title: "多 speak 气泡分段渲染"
+summary: "将 speak 工具的长输出按段落拆分为多个子气泡，支持流式分段渲染和历史消息分段展示"
 doc_type: "feature"
 change_type: "New Feature"
 created_at: "2026-08-21"

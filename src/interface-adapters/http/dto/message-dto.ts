@@ -2,6 +2,7 @@ import type { Message, MessageEvent } from "@entities/conversation/message";
 import { aggregateBody } from "@entities/conversation/message";
 import type {
   MessageDTO,
+  MessageSegmentDTO,
   MessageEventDTO,
 } from "@contract/api/message";
 
