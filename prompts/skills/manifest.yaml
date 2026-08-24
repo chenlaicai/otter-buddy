@@ -10,7 +10,7 @@
 #     (2) next / not_for 指针有效（防 broken pointer）
 #     (3) manifest 中 category 与 SKILL.md frontmatter category 一致（防漂移）
 
-version: 1
+version: 2
 
 skills:
   # ── 默认 fallback ──
