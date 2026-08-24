@@ -3,7 +3,7 @@ name: post-merge-cleanup
 description: >-
   Use when: 搭档说"已合入"/"合了"/"merged"/"收拾一下"/"善后"等收尾指令，或要求清理堆积的分支/worktree.
   Not for: 功能开发 → code-implementation. PR 审视 → adversarial-review. 闲聊讨论 → companion.
-  Output: 清理报告（worktree / 本地分支 / 远程分支 / issue / 产物状态 / 检视獭）.
+  Output: 结构化清理报告（逐项列出 worktree / 分支 / issue / 产物的清理状态，部分失败标注原因）。
 co_loads: []
 category: technique
 ---
@@ -46,6 +46,7 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
    - 清理元数据残留：检查 `.git/worktrees/<name>/` 是否还存在，存在则 `rm -rf`
 
 4. **删除本地分支**：
+   - **保护分支检查**：若分支名为 `main` / `develop` / `production`（或仓库定义的保护分支），**跳过**，不删除
    - `git branch --list <branch>` 检查存在性
    - 存在 → `git branch -D <branch>`（-D 强制删除，因 PR 已合入）
    - 不存在 → 跳过
@@ -57,7 +58,7 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
 
 6. **关闭源头 issue**：
    - `gh pr view <PR> --json body` 取 PR description
-   - 用正则提取 `Fixes #N` / `Closes #N` / `fixes #N` / `close #N` 模式
+   - 用正则提取 `Fixes #N` / `Closes #N` / `Resolves #N`（含小写变体）模式
      - 匹配到 → `gh issue view <N> --json state` 检查状态
        - OPEN → `gh issue close <N>` + 注释关联 PR
        - CLOSED → 跳过
@@ -81,7 +82,7 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
 
 搭档说"清理一下过期分支/堆积"时触发：
 
-1. **扫描**：`git worktree list --porcelain` + `git branch --list 'feature/*' 'fix/*' 'refactor/*' 'chore/*' 'feat/*'`
+1. **扫描**：`git worktree list --porcelain` + `git branch --list 'feature/*' 'fix/*' 'refactor/*' 'chore/*' 'feat/*' 'hotfix/*'`
 2. **关联 PR 状态**：对每个本地分支查 `gh pr list --head <branch> --state all --json number,state,mergedAt`
 3. **分类**：
    - PR 已合入 → 可清理
