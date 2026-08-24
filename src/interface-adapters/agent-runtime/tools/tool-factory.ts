@@ -46,16 +46,17 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 
       try {
         /** 拆分后 speak 只落内容（每次一条 segment，原子事务），行动权移交由 yield 负责 */
-        await ctx.client.conversation.message.appendSegment(ctx.currentMessageId, cleanBody);
+        const seg = await ctx.client.conversation.message.appendSegment(ctx.currentMessageId, cleanBody);
+        return {
+          ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
+          terminate: false,
+          /** agent-invoker 检测此标记并广播 speak.intermediate SSE（前端实时展示中间发言）
+           *  segmentId + sequenceNum 用于前端分段渲染（F-multi-speak-bubble） */
+          details: { __speakIntermediate: true, body: cleanBody, segmentId: seg.id, sequenceNum: seg.sequenceNum },
+        };
       } catch (err) {
         return errorResponse(`[错误] 发言落库失败：${err instanceof Error ? err.message : String(err)}。请重试。`);
       }
-      return {
-        ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
-        terminate: false,
-        /** agent-invoker 检测此标记并广播 speak.intermediate SSE（前端实时展示中间发言） */
-        details: { __speakIntermediate: true, body: cleanBody },
-      };
     },
   };
 }

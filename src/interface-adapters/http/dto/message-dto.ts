@@ -2,10 +2,11 @@ import type { Message, MessageEvent } from "@entities/conversation/message";
 import { aggregateBody } from "@entities/conversation/message";
 import type {
   MessageDTO,
+  MessageSegmentDTO,
   MessageEventDTO,
 } from "@contract/api/message";
 
-export type { MessageDTO, MessageEventDTO };
+export type { MessageDTO, MessageSegmentDTO, MessageEventDTO };
 export type { SendMessageRequestDTO, MessageListResponseDTO, UnreadStateDTO, MarkReadResponseDTO, MarkReadRequestDTO } from "@contract/api/message";
 
 /** 计算消息持续时间 */
@@ -32,6 +33,10 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),
     ...(msg.source && msg.source !== "web" && { src: msg.source }),
+    // F-multi-speak-bubble: 透传分段数组（向后兼容，不带则前端 fallback 到 content）
+    ...(msg.segments.length > 0 && {
+      segments: msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })),
+    }),
   };
 }
 
