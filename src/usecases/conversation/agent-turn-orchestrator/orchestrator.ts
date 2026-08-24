@@ -20,6 +20,7 @@ import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUs
 import { aggregateBody } from "@entities/conversation/message";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
+import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 
 export class AgentTurnOrchestrator {
   /** Messages already sent to a terminal state (abort/fail), prevents double-terminal */
@@ -198,7 +199,7 @@ export class AgentTurnOrchestrator {
         data: {
           messageId: input.messageId,
           otterId: input.otterId,
-          otterName: otter?.name ?? input.otterId,
+          otterName: resolveSpeakerName("otter", input.otterId, otter?.name) ?? input.otterId,
           body: msg ? aggregateBody(msg.segments) : '',
           // F-multi-speak-bubble: 传递 segments 数组用于前端分段渲染
           segments: msg ? msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })) : [],
@@ -260,7 +261,7 @@ export class AgentTurnOrchestrator {
           data: {
             messageId: ctx.input.messageId,
             otterId: ctx.input.otterId,
-            otterName: otter?.name ?? ctx.input.otterId,
+            otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId,
             body: msg ? aggregateBody(msg.segments) : '',
             // F-multi-speak-bubble: 传递 segments 数组用于前端分段渲染
             segments: msg ? msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })) : [],
@@ -379,7 +380,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
     /**
@@ -428,7 +429,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
     // F20260820d338：改进重试消息——避免 LLM 复述系统消息，给出具体指令
@@ -461,7 +462,7 @@ export class AgentTurnOrchestrator {
       );
       this.safeEmitEvent(ctx.callbacks, {
         event: "message.start",
-        data: { messageId: newMsg.id, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, seq: newMsg.sequenceNum, createdAt: newMsg.createdAt },
+        data: { messageId: newMsg.id, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, seq: newMsg.sequenceNum, createdAt: newMsg.createdAt },
       });
 
       // Update input with new message ID for retry
@@ -490,7 +491,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.failed',
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: otter?.name ?? ctx.input.otterId, body: failBody },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
     return null;
@@ -530,7 +531,7 @@ export class AgentTurnOrchestrator {
     });
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
-    const otterName = otter?.name ?? ctx.input.otterId;
+    const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
     const failBody = "[系统] 重试后仍未调用 yield 工具";
 
     try {
@@ -554,7 +555,7 @@ export class AgentTurnOrchestrator {
     try { await ctx.callbacks.failMessage(ctx.input.messageId, ctx.failBody); } catch { /* ignore */ }
 
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
-    const otterName = otter?.name ?? ctx.input.otterId;
+    const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
     this.safeEmitEvent(ctx.callbacks, {
       event: "message.failed",
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, body: ctx.failBody },
@@ -611,7 +612,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.aborted',
-      data: { messageId, body, otterId, otterName: otter?.name ?? otterId },
+      data: { messageId, body, otterId, otterName: resolveSpeakerName("otter", otterId, otter?.name) ?? otterId },
     });
 
     return { messageId, duration: Date.now() - ctx.startTime };

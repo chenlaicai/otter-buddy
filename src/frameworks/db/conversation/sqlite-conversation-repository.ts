@@ -193,11 +193,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       const includeSource = message.source != null;
       const cols = includeSource
         ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)`;
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
         message.sequenceNum, message.turnId,
@@ -205,6 +205,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.contextTokens, message.contextTokensMax,
         ...(includeSource ? [message.source] : []),
         message.metadata ? JSON.stringify(message.metadata) : null,
+        message.senderName ?? '',
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
@@ -226,11 +227,11 @@ export class SqliteConversationRepository implements ConversationRepository {
       const includeSource = message.source != null;
       const cols = includeSource
         ? `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, source, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         : `INSERT INTO messages (id, conversation_id, sender_type, sender_id, status,
-            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?)`;
+            sequence_num, turn_id, talking_stone_passed_to, context_tokens, context_tokens_max, metadata, sender_name, created_at)
+          VALUES (?, ?, ?, ?, 'streaming', ?, ?, ?, ?, ?, ?, ?, ?)`;
       const params = [
         message.id, message.conversationId, message.senderType, message.senderId,
         message.sequenceNum, message.turnId,
@@ -238,6 +239,7 @@ export class SqliteConversationRepository implements ConversationRepository {
         message.contextTokens, message.contextTokensMax,
         ...(includeSource ? [message.source] : []),
         message.metadata ? JSON.stringify(message.metadata) : null,
+        message.senderName ?? '',
         message.createdAt,
       ];
       this.db.prepare(cols).run(...params);
@@ -530,6 +532,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       senderId: row.sender_id, status: 'completed' as const, segments: [] as MessageSegment[],
       sequenceNum: row.sequence_num, turnId: '', talkingStonePassedTo: null,
       contextTokens: null, contextTokensMax: null, source: 'web' as const,
+      senderName: '',
       createdAt: '', completedAt: null,
     }));
     this.attachSegments(messages);

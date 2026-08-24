@@ -1038,13 +1038,15 @@ function ConversationPage() {
         },
         'message.failed': (data) => {
           const { messageId: msgId } = data
+          const meta = liveMeta.get(msgId)
           batchUpdateMessages(activeId, (list) =>
-            list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]' } : m))
+            list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]', sn: m.sn || meta?.otterName || data.otterName } : m))
         },
         'message.aborted': (data) => {
           const { messageId: msgId } = data
+          const meta = liveMeta.get(msgId)
           batchUpdateMessages(activeId, (list) =>
-            list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]' } : m))
+            list.map(m => m.id === msgId ? { ...m, status: 'aborted' as const, content: data.body || m.content || '[中断]', sn: m.sn || meta?.otterName || data.otterName } : m))
         },
         'error': (data) => {
           showToast(data.message || '重试出错', 'error')
