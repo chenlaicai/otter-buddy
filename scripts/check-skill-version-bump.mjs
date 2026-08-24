@@ -21,20 +21,22 @@ function error(msg) {
 }
 
 function getChangedFiles() {
-  if (isCI) {
-    // CI 环境：比较 PR 分支与 main 的差异
-    const output = execSync(
-      "git diff origin/main...HEAD --name-only --diff-filter=ACMRD",
-      { cwd: root, encoding: "utf8" }
-    );
+  try {
+    if (isCI) {
+      const output = execSync(
+        "git diff origin/main...HEAD --name-only --diff-filter=ACMRD",
+        { cwd: root, encoding: "utf8" }
+      );
+      return output.split("\n").filter(Boolean);
+    }
+    const output = execSync("git diff --cached --name-only --diff-filter=ACMRD", {
+      cwd: root,
+      encoding: "utf8",
+    });
     return output.split("\n").filter(Boolean);
+  } catch (e) {
+    error(`获取变更文件列表失败: ${e.message}`);
   }
-  // pre-commit 环境：比较 staged 文件
-  const output = execSync("git diff --cached --name-only --diff-filter=ACMRD", {
-    cwd: root,
-    encoding: "utf8",
-  });
-  return output.split("\n").filter(Boolean);
 }
 
 function getVersionFromContent(content) {
@@ -97,7 +99,11 @@ if (currentVersion === null) {
   error("无法读取 prompts/skills/manifest.yaml 的 version 字段");
 }
 
-if (baseVersion !== null && currentVersion <= baseVersion) {
+if (baseVersion === null) {
+  error("无法读取基线 manifest.yaml 的 version 字段");
+}
+
+if (currentVersion <= baseVersion) {
   error(
     `manifest.yaml version 未 bump（当前: ${currentVersion}, 基线: ${baseVersion}）。\n` +
       "skill 文件改动必须递增 version 字段。"
