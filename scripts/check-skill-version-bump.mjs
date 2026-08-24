@@ -24,13 +24,13 @@ function getChangedFiles() {
   if (isCI) {
     // CI 环境：比较 PR 分支与 main 的差异
     const output = execSync(
-      "git diff origin/main...HEAD --name-only --diff-filter=ACMR",
+      "git diff origin/main...HEAD --name-only --diff-filter=ACMRD",
       { cwd: root, encoding: "utf8" }
     );
     return output.split("\n").filter(Boolean);
   }
   // pre-commit 环境：比较 staged 文件
-  const output = execSync("git diff --cached --name-only --diff-filter=ACMR", {
+  const output = execSync("git diff --cached --name-only --diff-filter=ACMRD", {
     cwd: root,
     encoding: "utf8",
   });
@@ -54,11 +54,24 @@ function getManifestVersion(ref) {
   }
 }
 
+/** 获取 staged 的 manifest version（pre-commit 模式） */
+function getStagedManifestVersion() {
+  try {
+    const output = execSync("git show :prompts/skills/manifest.yaml", {
+      cwd: root,
+      encoding: "utf8",
+    });
+    return getVersionFromContent(output);
+  } catch {
+    return null;
+  }
+}
+
 const changedFiles = getChangedFiles();
 
 // 检查是否有 .pi/skills/ 目录下的改动
 const skillFilesChanged = changedFiles.some(
-  (f) => f.startsWith(".pi/skills/") && f !== ".pi/skills/"
+  (f) => f.startsWith(".pi/skills/")
 );
 
 if (!skillFilesChanged) {
@@ -77,7 +90,7 @@ if (!manifestChanged) {
   );
 }
 
-const currentVersion = isCI ? getManifestVersion("HEAD") : getManifestVersion(":");
+const currentVersion = isCI ? getManifestVersion("HEAD") : getStagedManifestVersion();
 const baseVersion = isCI ? getManifestVersion("origin/main") : getManifestVersion("HEAD");
 
 if (currentVersion === null) {

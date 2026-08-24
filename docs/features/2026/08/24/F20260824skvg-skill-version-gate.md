@@ -48,11 +48,11 @@ skill 能力文件（`.pi/skills/` 目录下的 SKILL.md 等）是 otter 行为�
 
 ## 验收标准
 
-- [x] pre-commit 时，修改 `.pi/skills/` 下文件但未 bump version → 阻断
-- [x] pre-commit 时，修改 `.pi/skills/` 下文件且 bump version → 通过
-- [x] pre-commit 时，未修改 `.pi/skills/` 下文件 → 跳过
-- [x] CI 时，PR 包含 skill 文件改动但未 bump version → 失败
-- [x] CI 时，PR 包含 skill 文件改动且 bump version → 通过
+- [ ] pre-commit 时，修改 `.pi/skills/` 下文件但未 bump version → 阻断
+- [ ] pre-commit 时，修改 `.pi/skills/` 下文件且 bump version → 通过
+- [ ] pre-commit 时，未修改 `.pi/skills/` 下文件 → 跳过
+- [ ] CI 时，PR 包含 skill 文件改动但未 bump version → 失败
+- [ ] CI 时，PR 包含 skill 文件改动且 bump version → 通过
 
 ## 参考
 
