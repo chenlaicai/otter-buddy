@@ -129,4 +129,26 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const zombie = pipeline.listOpen().find(s => s.evidence.includes("F20260701zzzz"));
     expect(zombie?.evidence).toContain("僵尸链");
   });
+
+  it("buildChainsOnce 与 scanOnce 同源且不落库（审视发现 3 补测：/api/health/chains 专用方法）", async () => {
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+
+    const before = pipeline.listOpen().length;
+    const chains = await worker.buildChainsOnce();
+
+    // 与 scanOnce 同源：同样的仓库能构建出链（含 F20260801wwww / F20260701zzzz）
+    const fids = chains.map(c => c.featureId);
+    expect(fids).toContain("F20260801wwww");
+    expect(fids).toContain("F20260701zzzz");
+    // 每条链携带五态字段（面板 stateCounts 依赖）
+    for (const c of chains) {
+      expect(c.state).toMatch(/^(active|stalled|regressed|zombie|orphan)$/);
+    }
+    // 纯读：不检测信号不落库（signals 数不变）
+    expect(pipeline.listOpen().length).toBe(before);
+  });
 });

@@ -42,27 +42,31 @@ function HealthPage() {
   const [stateCounts, setStateCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(false)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
       const [ov, sig, ch] = await Promise.all([
-        api.getRhiOverview(),
-        api.getRhiSignals('open'),
-        api.getRhiChains(),
+        api.getRhiOverview(signal),
+        api.getRhiSignals('open', signal),
+        api.getRhiChains(signal),
       ])
+      if (signal?.aborted) return
       setOverview(ov)
       setSignals(sig.signals)
       setChains(ch.chains)
       setStateCounts(ch.stateCounts)
     } catch (err) {
+      if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) return
       showToast(err instanceof Error ? err.message : '加载失败', 'error')
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    void refresh()
+    const ac = new AbortController()
+    void refresh(ac.signal)
+    return () => ac.abort()
   }, [refresh])
 
   const triggerScan = async () => {

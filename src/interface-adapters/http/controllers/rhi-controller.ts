@@ -22,7 +22,6 @@ const OVERVIEW_KEYS = [
 ] as const;
 
 export class RhiController {
-  // eslint-disable-next-line max-params -- DI 依赖均为必需（snapshotRepo/signalRepo/scanWorker/logger）
   constructor(
     private readonly snapshotRepo: HealthSnapshotRepository,
     private readonly signalRepo: SignalRepository,

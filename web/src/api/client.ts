@@ -430,16 +430,16 @@ export interface RhiChainDTO {
   docStatus: string | null
 }
 
-export function getRhiOverview(): Promise<RhiOverviewDTO> {
-  return request('/health/overview')
+export function getRhiOverview(signal?: AbortSignal): Promise<RhiOverviewDTO> {
+  return request('/health/overview', { signal })
 }
 
-export function getRhiSignals(status = 'open'): Promise<{ signals: RhiSignalDTO[]; count: number }> {
-  return request(`/health/signals?status=${encodeURIComponent(status)}`)
+export function getRhiSignals(status = 'open', signal?: AbortSignal): Promise<{ signals: RhiSignalDTO[]; count: number }> {
+  return request(`/health/signals?status=${encodeURIComponent(status)}`, { signal })
 }
 
-export function getRhiChains(): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number }> {
-  return request('/health/chains')
+export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number }> {
+  return request('/health/chains', { signal })
 }
 
 export function triggerRhiScan(): Promise<{ ok: boolean; result: Record<string, unknown> }> {
