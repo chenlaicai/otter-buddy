@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { HealingEvent, HealingEventStats, HealingEventStatus, HealingResolution } from '@entities/healing/healing-event';
-import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
+import type { HealingEventRepository, HealingEventBatchFilter, BatchResolveResult } from '@usecases/healing/healing-event-repository';
 import { rowToHealingEvent, eventToRow, type HealingEventRow } from './healing-event-mapper';
 
 export class SqliteHealingEventRepository implements HealingEventRepository {
@@ -103,5 +103,66 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
       WHERE status = 'open' AND created_at < ?
     `).run(now, cutoff);
     return result.changes;
+  }
+
+  async batchResolveByFilter(
+    filter: HealingEventBatchFilter,
+    resolution: HealingResolution,
+    options?: { limit?: number; dryRun?: boolean },
+  ): Promise<BatchResolveResult> {
+    const limit = options?.limit ?? 100;
+    const dryRun = options?.dryRun ?? false;
+
+    // Why: 动态构建 WHERE 子句——filter 全字段可选，AND 拼接
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    const status = filter.status ?? 'open';
+    clauses.push('status = ?');
+    params.push(status);
+
+    if (filter.errorType) {
+      clauses.push('error_type = ?');
+      params.push(filter.errorType);
+    }
+    if (filter.createdBefore) {
+      clauses.push('created_at < ?');
+      params.push(filter.createdBefore);
+    }
+    if (filter.createdAfter) {
+      clauses.push('created_at > ?');
+      params.push(filter.createdAfter);
+    }
+
+    const where = clauses.join(' AND ');
+
+    // dryRun: 只返回匹配数
+    if (dryRun) {
+      const countRow = this.db.prepare(
+        `SELECT COUNT(*) as cnt FROM healing_events WHERE ${where}`,
+      ).get(...params) as { cnt: number };
+      return { matched: countRow.cnt, resolved: 0, resolvedIds: [] };
+    }
+
+    // Why: 单事务保证 match + update 原子性，避免 match 和 update 之间数据变化
+    const now = new Date().toISOString();
+    const resolutionJson = JSON.stringify(resolution);
+    const result = this.db.transaction(() => {
+      const matchedRows = this.db.prepare(
+        `SELECT id FROM healing_events WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
+      ).all(...params, limit) as Array<{ id: string }>;
+
+      if (matchedRows.length === 0) return { matched: 0, resolved: 0, resolvedIds: [] };
+
+      const ids = matchedRows.map(r => r.id);
+      const placeholders = ids.map(() => '?').join(', ');
+      const updateResult = this.db.prepare(
+        `UPDATE healing_events SET status = 'resolved', resolution = ?, resolved_at = ? WHERE id IN (${placeholders})`,
+      ).run(resolutionJson, now, ...ids);
+
+      return { matched: ids.length, resolved: updateResult.changes, resolvedIds: ids };
+    })();
+
+    return result;
   }
 }

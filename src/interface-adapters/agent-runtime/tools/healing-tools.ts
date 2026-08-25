@@ -2,8 +2,8 @@
  * Healing 相关工具：系统自愈报告解析和 healing event 管理。
  */
 
-import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
-import type { HealingResolutionAction } from "@entities/healing/healing-event";
+import type { HealingEventRepository, HealingEventBatchFilter } from "@usecases/healing/healing-event-repository";
+import type { HealingResolutionAction, HealingEventStatus, HealingErrorType } from "@entities/healing/healing-event";
 import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
 import type { Logger } from "@usecases/ports/logger";
 import type { ToolContext, AgentTool, ToolResponse } from "@usecases/ports/agent-tools";
@@ -30,6 +30,37 @@ export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: 
 }
 
 /** 创建 healing event 管理工具 */
+async function handleBatchResolve(
+  params: Record<string, unknown>,
+  healingRepo: HealingEventRepository,
+): Promise<ToolResponse> {
+  const filter: HealingEventBatchFilter = {
+    status: (params.filterStatus as string as HealingEventStatus) ?? 'open',
+    errorType: params.filterErrorType as HealingErrorType | undefined,
+    createdBefore: params.filterCreatedBefore as string | undefined,
+    createdAfter: params.filterCreatedAfter as string | undefined,
+  };
+  const resolution = {
+    action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction,
+    decidedBy: 'agent' as const,
+    decidedAt: new Date().toISOString(),
+    notes: (params.resolutionNotes as string) ?? '',
+  };
+  const dryRun = (params.dryRun as boolean) ?? false;
+
+  if (dryRun) {
+    const result = await healingRepo.batchResolveByFilter(filter, resolution, { dryRun: true });
+    return textResponse(JSON.stringify({ dryRun: true, matched: result.matched }, null, 2));
+  }
+
+  const result = await healingRepo.batchResolveByFilter(filter, resolution, { limit: 100 });
+  return textResponse(JSON.stringify({
+    matched: result.matched, resolved: result.resolved,
+    resolvedIds: result.resolvedIds, resolutionNotes: resolution.notes,
+  }, null, 2));
+}
+
+/** 创建 healing event 管理工具 */
 export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: HealingEventRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ToolResponse> => {
     const action = params.action as string;
@@ -40,6 +71,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
       if (et) events = events.filter(e => e.errorType === et);
       return textResponse(JSON.stringify(events, null, 2));
     }
+    if (action === 'batch_resolve') return handleBatchResolve(params, healingRepo);
     const ids = params.eventIds as string[];
     if (!ids?.length) return errorResponse("[错误] eventIds 不能为空");
     if (action === 'resolve' || action === 'dismiss') {
@@ -48,7 +80,6 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
         : (id: string) => healingRepo.updateStatus(id, 'dismissed');
       const res = await Promise.allSettled(ids.map(fn));
       const succeeded = res.filter(r => r.status === 'fulfilled').length;
-      /** F20260811sktp 第三轮审视：部分失败时设 isError=true，让 LLM 结构化识别重试失败的那些 */
       if (succeeded < ids.length) {
         const failedReasons = res
           .map((r, i) => r.status === 'rejected' ? `${ids[i]}: ${(r as PromiseRejectedResult).reason?.message ?? String((r as PromiseRejectedResult).reason)}` : null)
@@ -58,20 +89,25 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
       }
       return textResponse(`完成: ${succeeded}/${ids.length} 成功`);
     }
-    return errorResponse(`[错误] 未知操作: ${action}。支持的操作：query / resolve / dismiss。`);
+    return errorResponse(`[错误] 未知操作: ${action}。支持的操作：query / resolve / dismiss / batch_resolve。`);
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss）. GOTCHA: 批量 resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve）. GOTCHA: 批量 resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["query", "resolve", "dismiss"], description: "操作类型" },
+        action: { type: "string", enum: ["query", "resolve", "dismiss", "batch_resolve"], description: "操作类型" },
         status: { type: "string", enum: ["open", "resolved", "dismissed"], description: "按状态筛选" },
         errorType: { type: "string", description: "按错误类型筛选" },
         eventIds: { type: "array", items: { type: "string" }, description: "event ID 列表" },
         resolutionAction: { type: "string", enum: ["prompt_updated", "memory_added", "tool_fixed", "config_changed", "no_action", "deferred"], description: "修复行动" },
         resolutionNotes: { type: "string", description: "解决方式说明" },
+        filterStatus: { type: "string", enum: ["open", "resolved", "dismissed"], description: "[batch_resolve] 按状态筛选，默认 open" },
+        filterErrorType: { type: "string", description: "[batch_resolve] 按错误类型筛选" },
+        filterCreatedBefore: { type: "string", description: "[batch_resolve] ISO 时间戳，筛选 created_at < 此值的事件" },
+        filterCreatedAfter: { type: "string", description: "[batch_resolve] ISO 时间戳，筛选 created_at > 此值的事件" },
+        dryRun: { type: "boolean", description: "[batch_resolve] true 时只返回匹配事件数，不执行 resolve" },
       },
       required: ["action"],
     },

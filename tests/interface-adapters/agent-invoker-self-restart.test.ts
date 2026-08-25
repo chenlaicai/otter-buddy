@@ -318,6 +318,7 @@ describe("AgentInvoker — 自重启循环防护 (F20260824srst)", () => {
       resolve: async () => {},
       getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
       autoStaleDismiss: async () => 0,
+      batchResolveByFilter: async () => ({ matched: 0, resolved: 0, resolvedIds: [] }),
     } as HealingEventRepository;
     const qm = mockQueryMessage();
     const invoker = new AgentInvoker(
@@ -399,6 +400,7 @@ describe("AgentInvoker — 自重启循环防护 (F20260824srst)", () => {
       resolve: async () => {},
       getStats: async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} }),
       autoStaleDismiss: async () => 0,
+      batchResolveByFilter: async () => ({ matched: 0, resolved: 0, resolvedIds: [] }),
     } as HealingEventRepository;
     const qm = mockQueryMessage();
     const invoker = new AgentInvoker(
