@@ -16,7 +16,7 @@ import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
-import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
+import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
 import { aggregateBody } from "@entities/conversation/message";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
@@ -144,11 +144,12 @@ export class AgentTurnOrchestrator {
         return routeResult as TurnResult;
       }
 
-      // If routeByReason returns null, retry with updated input (speak retry)
+      // If routeByReason returns null, retry with updated input
+      // F20260821rtmo: 按退出原因使用匹配的重试文案（timeout 用超时提醒，no_yield 用 yield 提醒）
       currentInput = {
         ...currentInput,
         retryCount: 1,
-        userMessageContent: buildYieldRetryMsg(toolCallCount, hasOrphanText),
+        userMessageContent: this.buildRetryMsg(reason, toolCallCount, hasOrphanText),
       };
     }
   }
@@ -482,17 +483,30 @@ export class AgentTurnOrchestrator {
     }
   }
 
-  /** Handle auto-retry: fail + re-invoke */
+  /** Handle auto-retry: fail + prepareForRetry + re-invoke */
   private async handleAutoRetry(ctx: RouteContext, reason: string): Promise<TurnResult | null> {
     const failBody = `[系统] ${buildRetryFailBody(reason)}, 正在自动重试`;
 
     try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
+    // message.failed 事件必须在 prepareForRetry 之前发出（失败状态已确认，重置是后续操作）
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.failed',
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
+
+    // F20260821rtmo: 重置消息生命周期，使重试轮输出可 append（否则消息卡在 failed 状态，输出全部丢失）
+    try {
+      await ctx.callbacks.prepareForRetry(ctx.input.messageId, false);
+    } catch (err) {
+      this.logger.warn('prepareForRetry failed during auto-retry, falling back to abort', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason: reason });
+    }
 
     return null;
   }
@@ -649,6 +663,14 @@ export class AgentTurnOrchestrator {
   private recordStreamEventMetrics(_e: AgentStreamEvent, _callbacks: TurnCallbacks): void {
     // Metrics recording is handled by the invoker's onEvent callback.
     // This method is intentionally a no-op to avoid double-counting.
+  }
+
+  /** 构建重试时的系统提醒消息（按退出原因匹配文案） */
+  private buildRetryMsg(reason: ExitReason, toolCallCount: number, hasOrphanText: boolean): string {
+    if (reason.kind === 'guard_abort') {
+      return buildAutoRetryMsg(reason.guardReason);
+    }
+    return buildYieldRetryMsg(toolCallCount, hasOrphanText);
   }
 
   /** attempt 记录去重键 */
