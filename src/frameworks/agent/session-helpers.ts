@@ -254,6 +254,21 @@ export function buildMessageWithContext(
     parts.push(`## 会话摘要\n${dynamicContext.sessionSummary}`);
   }
 
+  // F20260825hndf：件②文件轨迹（借用式，消费即删）
+  if (dynamicContext?.fileTrail) {
+    parts.push(dynamicContext.fileTrail);
+  }
+
+  // F20260825hndf：件③近期原文（借用式，消费即删）
+  if (dynamicContext?.recencyWindow) {
+    parts.push(dynamicContext.recencyWindow);
+  }
+
+  // F20260825hndf：件④活状态盘点（借用式，消费即删）
+  if (dynamicContext?.stateInventory) {
+    parts.push(dynamicContext.stateInventory);
+  }
+
   if (dynamicContext?.workspacePath) {
     parts.push(`## 对话工作区\n你的对话工作区路径：${dynamicContext.workspacePath}\n使用 workspace_* 工具操作工作区文件。研究报告、临时文件等持久化内容请写入工作区。`);
   }

@@ -24,6 +24,11 @@ import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
+import type { ManageContext } from "@usecases/otter/manage-context";
+import type { LinkedResource } from "@entities/conversation/conversation";
+import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
@@ -37,6 +42,10 @@ export class AgentInvoker implements AgentTurnPort {
   private readonly orchestrator: AgentTurnOrchestrator;
   /** F20260818cbkr：熔断执行器（healingRepo 未注入时为 null，熔断禁用） */
   private readonly circuitBreak: CircuitBreakSupport | null;
+  /** F20260825hndf：上轮 ctxTokens 记录（post-turn 记录，pre-invoke 检查） */
+  private readonly lastCtxTokens = new Map<string, number>();
+  /** F20260825hndf：handoff 防重入标记 */
+  private readonly handoffInProgress = new Map<string, boolean>();
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -53,6 +62,14 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly metrics?: AgentMetricsPort,
     /** F20260818cbkr：可选注入，缺省禁用熔断（不破坏既有测试） */
     private readonly healingRepo?: HealingEventRepository,
+    /** F20260825hndf：可选注入，用于活状态盘点（不破坏既有测试） */
+    private readonly conversationRepo?: ConversationRepository,
+    /** F20260825hndf：可选注入，用于调度任务盘点（不破坏既有测试） */
+    private readonly scheduledTaskRepo?: ScheduledTaskRepository,
+    /** F20260825hndf：可选注入，用于产物盘点（不破坏既有测试） */
+    private readonly listArtifacts?: () => Promise<LinkedResource[]>,
+    /** F20260825hndf：可选注入，用于 otter_context 读写（借用式交接上下文） */
+    private readonly manageContext?: ManageContext,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo
@@ -430,7 +447,35 @@ export class AgentInvoker implements AgentTurnPort {
       });
     }
 
+    // F20260825hndf：从 otter_context 恢复交接上下文（借用式，消费即删）
+    await this.restoreHandoffContext(otterId, ctx);
+
     return ctx;
+  }
+
+  /**
+   * F20260825hndf：从 otter_context 恢复交接上下文（借用式，首次 invoke 后删除）。
+   * otter_context 跨 session 存活（F4 已验证），handoff 时写入的件②③④
+   * 在此被消费并清理——实现借用式生命周期。
+   */
+  private async restoreHandoffContext(otterId: string, ctx: DynamicContext): Promise<void> {
+    if (!this.manageContext) return;
+    const keys = ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory'] as const;
+    const targets = ['fileTrail', 'recencyWindow', 'stateInventory'] as const;
+
+    for (let i = 0; i < keys.length; i++) {
+      try {
+        const result = await this.manageContext.get(otterId, keys[i]);
+        const value = result[keys[i]];
+        if (value) {
+          (ctx as Record<string, unknown>)[targets[i]] = value;
+          await this.manageContext.delete(otterId, keys[i]);
+          this.logger.debug('[handoff] Restored and consumed context key', { otterId, key: keys[i] });
+        }
+      } catch {
+        // 非致命：恢复失败不阻塞 invoke
+      }
+    }
   }
 
   /** 构建 TurnInput。F20260818cbkr：originalUserMessage 单独保留——retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取原始消息 */
@@ -461,6 +506,83 @@ export class AgentInvoker implements AgentTurnPort {
       ctx.workspacePath = this.workspaceGateway.getWorkspacePath(conversationId);
     }
   }
+  /**
+   * F20260825hndf：优雅上下文交接。
+   * 检测到 ctxTokens 超阈值后，构建四件套上下文包，重启 session。
+   * 件①写入 session.summary（已有路径），件路径），件②③④写入 otter_context（借用式）。
+   */
+  private async handleHandoff(otterId: string, conversationId: string): Promise<void> {
+    // 防重入
+    if (this.handoffInProgress.get(otterId)) {
+      this.logger.warn("[handoff] Already in progress, skipping", { otterId });
+      return;
+    }
+    this.handoffInProgress.set(otterId, true);
+
+    try {
+      const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
+
+      // 构建四件套
+      const pkg = await buildHandoffPackage(
+        [], // Phase 1：entries 暂时传空，文件轨迹和原文在后续版本从 SDK sessionManager 获取
+        conversationId,
+        otterId,
+        {
+          recencyTokens: 8000,
+          stateInventoryDeps: {
+            queryMessage: this.queryMessage,
+            conversationRepo: this.conversationRepo!,
+            scheduledTaskRepo: this.scheduledTaskRepo,
+            healingRepo: this.healingRepo ?? undefined,
+            listArtifacts: this.listArtifacts ?? (async () => []),
+            workspacePath,
+            logger: this.logger,
+          },
+          logger: this.logger,
+        },
+      );
+
+      // 件件②③④写入 otter_context（借用式，首次 invoke 后删除）
+      if (this.manageContext) {
+        try {
+          await this.manageContext.set(otterId, "handoff_file_trail", pkg.fileTrail);
+          await this.manageContext.set(otterId, "handoff_recency_window", pkg.recencyWindow);
+          await this.manageContext.set(otterId, "handoff_state_inventory", pkg.stateInventory);
+        } catch (ctxErr) {
+          this.logger.warn("[handoff] Failed to write context, continuing with summary only", {
+            otterId, error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
+          });
+        }
+      }
+
+      // 件①写入 session.summary（重启 session）
+      try {
+        await this.manageSession.restartSession(otterId, pkg.summary);
+        this.lastCtxTokens.delete(otterId);
+        this.logger.info("[handoff] Session restarted with handoff package", {
+          otterId,
+          totalTokens: pkg.totalTokenEstimate,
+        });
+      } catch (restartErr) {
+        this.logger.error("[handoff] Restart failed, continuing with old session",
+          restartErr instanceof Error ? restartErr : new Error(String(restartErr)),
+          { otterId });
+      }
+    } catch (err) {
+      this.logger.error("[handoff] Unexpected error",
+        err instanceof Error ? err : new Error(String(err)),
+        { otterId });
+    } finally {
+      this.handoffInProgress.set(otterId, false);
+    }
+  }
+
+  /** F20260825hndf：获取 otter 的 context window 大小 */
+  private async getCtxMax(_otterId: string): Promise<number | undefined> {
+    // Phase 1：用默认值 128k；Phase 2 通过 modelPool.getContextWindow 获取精确值
+    return 128_000;
+  }
+
 
   /**
    * F20260818cbkr：熔断信号处理。restart 成功 → 全新 invoke 的结果；未触发或降级返回 null。
