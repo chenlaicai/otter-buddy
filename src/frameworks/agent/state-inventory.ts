@@ -191,6 +191,7 @@ async function collectActivity(
  * 渲染状态盘点为 markdown checklist。
  * 空行也打印——"调度任务：无"比省略好。
  */
+// eslint-disable-next-line max-statements, complexity -- 6 类状态渲染
 export function renderStateInventory(inv: StateInventory, timestamp?: string): string {
   const ts = timestamp ?? new Date().toISOString();
   const parts: string[] = [`## 活状态盘点（机械生成，${ts}）`];

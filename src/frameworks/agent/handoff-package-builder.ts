@@ -4,80 +4,71 @@
  * 编排交接上下文包的组装：摘要 + 文件轨迹 + 近期原文 + 活状态盘点。
  * Phase 1：摘要使用机械转储（不走 LLM）；Phase 2 将升级为 LLM 合成。
  *
- * 件②③④ 纯机械，零 LLM 成本。
+ * Phase 1 降级声明：
+ * - 件②文件轨迹：仅包含工作区存量文件列表（SDK session entries 不可直接访问）
+ * - 件③近期原文：通过 queryMessage 拉取应用层消息做近似
  */
 
-import type { SessionEntry } from '@earendil-works/pi-coding-agent';
-import { extractFileTrail, renderFileTrail } from './file-trail-extractor';
-import { extractRecencyWindow, renderRecencyWindow } from './recency-window';
+import type { QueryMessage } from '@usecases/conversation/query-message';
+import type { Message } from '@entities/conversation/message';
+import { aggregateBody } from '@entities/conversation/message';
+import { scanWorkspaceFiles, renderFileTrail } from './file-trail-extractor';
+import type { FileTrail } from './file-trail-extractor';
+import { renderRecencyWindow, estimateRecencyTokens } from './recency-window';
+import type { RecencyWindow, TurnFragment } from './recency-window';
 import { collectStateInventory, renderStateInventory } from './state-inventory';
 import type { StateInventoryDeps } from './state-inventory';
 import type { Logger } from '@usecases/ports/logger';
 
 /** 四件套完整包 */
 export interface HandoffPackage {
-  /** 件① 结构化摘要 */
   summary: string;
-  /** 件② 文件轨迹（渲染后 markdown） */
   fileTrail: string;
-  /** 件③ 近期原文（渲染后 markdown） */
   recencyWindow: string;
-  /** 件④ 活状态盘点（渲染后 markdown） */
   stateInventory: string;
-  /** 总 token 估算 */
   totalTokenEstimate: number;
 }
 
 /** 编排选项 */
 export interface HandoffPackageOptions {
-  /** 件① 摘要最大 token（Phase 1 不使用，预留） */
-  summaryMaxTokens?: number;
-  /** 件② 最大文件条目数 */
   fileTrailMaxEntries?: number;
-  /** 件③ 原文 token 预算 */
   recencyTokens?: number;
-  /** 件②③④ 的状态盘点依赖 */
   stateInventoryDeps: StateInventoryDeps;
+  queryMessage: QueryMessage;
   logger?: Logger;
 }
 
 /**
  * 构建四件套上下文包。
- *
- * @param entries 当前 session 的 entries（sessionManager.getBranch()）
- * @param conversationId 对话 ID
- * @param otterId 海獭 ID
- * @param options 编排选项
  */
 export async function buildHandoffPackage(
-  entries: SessionEntry[],
   conversationId: string,
   otterId: string,
   options: HandoffPackageOptions,
 ): Promise<HandoffPackage> {
   const {
-    fileTrailMaxEntries = 30,
     recencyTokens = 8000,
     stateInventoryDeps,
+    queryMessage,
     logger,
   } = options;
 
-  // 并行执行三件机械提取（件②③④）
   const [fileTrailResult, recencyResult, inventoryResult] = await Promise.all([
-    // 件②：文件轨迹
+    // 件②：文件轨迹（Phase 1 降级：仅工作区存量）
     Promise.resolve().then(() => {
-      const trail = extractFileTrail(entries, fileTrailMaxEntries);
-      if (stateInventoryDeps.workspacePath) {
-        const { scanWorkspaceFiles } = require('./file-trail-extractor');
-        trail.workspaceFiles = scanWorkspaceFiles(stateInventoryDeps.workspacePath);
-      }
+      const workspaceFiles = stateInventoryDeps.workspacePath
+        ? scanWorkspaceFiles(stateInventoryDeps.workspacePath)
+        : [];
+      const trail: FileTrail = { modified: [], readOnly: [], workspaceFiles };
       return renderFileTrail(trail);
     }),
     // 件③：近期原文
-    Promise.resolve().then(() => {
-      const window = extractRecencyWindow(entries, recencyTokens);
-      return renderRecencyWindow(window);
-    }),
+    fetchRecentMessages(queryMessage, conversationId, recencyTokens)
+      .then(w => renderRecencyWindow(w))
+      .catch(err => {
+        logger?.warn('[handoff-package] Recency window failed', { error: String(err) });
+        return '';
+      }),
     // 件④：活状态盘点
     collectStateInventory(conversationId, otterId, stateInventoryDeps)
       .then(inv => renderStateInventory(inv))
@@ -87,21 +78,13 @@ export async function buildHandoffPackage(
       }),
   ]);
 
-  // 件①：Phase 1 使用机械转储
-  const summary = buildMechanicalDump(entries, conversationId, otterId);
+  const summary = buildMechanicalDump(otterId);
 
-  // token 估算
   const estimate = (text: string) => Math.ceil(text.length / 4);
   const totalTokenEstimate = estimate(summary) + estimate(fileTrailResult) +
     estimate(recencyResult) + estimate(inventoryResult);
 
-  logger?.info('[handoff-package] Built', {
-    summaryTokens: estimate(summary),
-    fileTrailTokens: estimate(fileTrailResult),
-    recencyTokens: estimate(recencyResult),
-    inventoryTokens: estimate(inventoryResult),
-    total: totalTokenEstimate,
-  });
+  logger?.info('[handoff-package] Built', { total: totalTokenEstimate });
 
   return {
     summary,
@@ -113,56 +96,73 @@ export async function buildHandoffPackage(
 }
 
 /**
- * Phase 1 机械转储摘要。
- * 直接从 session entries 和 otter_context 机械提取关键信息，
- * 不走 LLM——这是三道防线的第二道。
- *
- * Phase 2 将替换为 LLM 合成的结构化摘要。
+ * 通过 queryMessage 获取近期消息并转换为 RecencyWindow。
  */
-function buildMechanicalDump(
-  entries: SessionEntry[],
+async function fetchRecentMessages(
+  queryMessage: QueryMessage,
   conversationId: string,
-  otterId: string,
-): string {
-  const parts: string[] = [
-    `## 交接摘要（机械转储，Phase 1 降级）`,
-    `meta: ${otterId} | ${new Date().toISOString()} | 触发: 70% 阈值`,
-  ];
+  tokenBudget: number,
+): Promise<RecencyWindow> {
+  const messages = await queryMessage.getMessages(conversationId, { limit: 20 });
 
-  // 从最近几条消息提取上下文
-  const recentMessages = entries
-    .filter(e => e.type === 'message')
-    .slice(-5);
+  const turns: TurnFragment[] = [];
+  let totalTokens = 0;
+  let timeFrom: string | undefined;
+  let timeTo: string | undefined;
 
-  if (recentMessages.length > 0) {
-    parts.push('');
-    parts.push('### 最近活动');
-    for (const entry of recentMessages) {
-      const msg = (entry as { message: unknown }).message as Record<string, unknown>;
-      const ts = (entry as { timestamp?: string }).timestamp;
-      const time = ts ? new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }) : '';
-      if (msg.role === 'user' && typeof msg.content === 'string') {
-        const preview = msg.content.slice(0, 200);
-        parts.push(`- [${time}] 搭档: ${preview}${msg.content.length > 200 ? '...' : ''}`);
-      } else if (msg.role === 'assistant') {
-        // 提取 speak 文本
-        const content = msg.content;
-        if (Array.isArray(content)) {
-          const textBlocks = content.filter(b => typeof b === 'object' && b !== null && (b as Record<string, unknown>).type === 'text');
-          for (const b of textBlocks) {
-            const text = (b as { text?: string }).text ?? '';
-            const preview = text.slice(0, 200);
-            parts.push(`- [${time}] 海獭: ${preview}${text.length > 200 ? '...' : ''}`);
-          }
-        }
-      }
+  for (const msg of messages) {
+    const fragment = messageToFragment(msg);
+    if (!fragment) continue;
+
+    const fragTokens = estimateRecencyTokens(fragment.content) +
+      (fragment.toolSummary ? estimateRecencyTokens(fragment.toolSummary) : 0);
+
+    if (totalTokens + fragTokens > tokenBudget && turns.length > 0) break;
+
+    turns.push(fragment);
+    totalTokens += fragTokens;
+
+    if (fragment.timestamp) {
+      if (!timeTo) timeTo = fragment.timestamp;
+      timeFrom = fragment.timestamp;
     }
   }
 
-  parts.push('');
-  parts.push('### 说明');
-  parts.push('- 这是 Phase 1 机械转储，Phase 2 将替换为 LLM 合成的结构化摘要');
-  parts.push('- 完整上下文请查阅：记忆检索（search_messages）、产物（list_artifacts）、上下文（get_context）');
+  turns.reverse();
 
+  return {
+    turns,
+    tokenEstimate: totalTokens,
+    turnCount: turns.filter(f => f.role === 'user').length,
+    timeRange: { from: timeFrom, to: timeTo },
+  };
+}
+
+/** 将 Message 转换为 TurnFragment */
+function messageToFragment(msg: Message): TurnFragment | null {
+  const content = aggregateBody(msg.segments);
+  if (!content.trim()) return null;
+
+  if (msg.senderType === 'user') {
+    return { role: 'user', content, timestamp: msg.createdAt };
+  }
+
+  if (msg.senderType === 'otter') {
+    return { role: 'assistant', content, timestamp: msg.createdAt };
+  }
+
+  return null;
+}
+
+/** Phase 1 机械转储摘要 */
+function buildMechanicalDump(otterId: string): string {
+  const parts: string[] = [
+    '## 交接摘要（机械转储，Phase 1 降级）',
+    `meta: ${otterId} | ${new Date().toISOString()} | 触发: 70% 阈值`,
+    '',
+    '### 说明',
+    '- 这是 Phase 1 机械转储，Phase 2 将替换为 LLM 合成的结构化摘要',
+    '- 完整上下文请查阅：记忆检索（search_messages）、产物（list_artifacts）、上下文（get_context）',
+  ];
   return parts.join('\n');
 }

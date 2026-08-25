@@ -9,7 +9,7 @@
  */
 
 import fs from 'fs';
-import path from 'path';
+
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
 
 /** 文件操作记录 */
@@ -47,6 +47,7 @@ const BASH_READ_PATTERNS: RegExp[] = [
 /**
  * 从 session entries 提取文件操作。
  */
+// eslint-disable-next-line complexity -- 多层文件操作提取逻辑，拆分反而降低可读性
 function extractFileOps(entries: SessionEntry[]): FileOps {
   const ops: FileOps = { read: new Map(), written: new Map() };
 

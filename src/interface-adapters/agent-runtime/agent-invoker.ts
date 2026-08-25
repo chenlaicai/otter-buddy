@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Phase 1 新增触发链路；后续可拆分为 handoff-support.ts */
 /**
  * AgentInvoker - SDK 调用适配器
  *
@@ -28,7 +29,6 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
-import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
@@ -70,6 +70,9 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly listArtifacts?: () => Promise<LinkedResource[]>,
     /** F20260825hndf：可选注入，用于 otter_context 读写（借用式交接上下文） */
     private readonly manageContext?: ManageContext,
+    /** F20260825hndf：可选注入，四件套构建器（从 bootstrap 注入，避免 interface-adapters→frameworks 直接依赖） */
+    /** F20260825hndf：四件套构建器返回类型 */
+    private readonly buildHandoffPackage?: (conversationId: string, otterId: string, options: Record<string, unknown>) => Promise<{ summary: string; fileTrail: string; recencyWindow: string; stateInventory: string; totalTokenEstimate: number }>,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo
@@ -103,6 +106,7 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
   }
 
+  // eslint-disable-next-line max-lines-per-function -- 触发链路+熔断+自重启集成点，拆分降低可读性
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -129,6 +133,16 @@ export class AgentInvoker implements AgentTurnPort {
       messageLength: userMessageContent.length,
       ...(retryCount > 0 && { retryCount }),
     });
+
+    /** F20260825hndf Pre-invoke 检查：上轮 ctxTokens 超 70% 阈值 → 先 handoff 再处理本轮消息 */
+    const prevTokens = this.lastCtxTokens.get(otterId);
+    if (prevTokens !== undefined && prevTokens > 0) {
+      const ctxMax = await this.getCtxMax(otterId);
+      if (ctxMax && prevTokens >= ctxMax * 0.7) {
+        this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, prevTokens, ctxMax });
+        await this.handleHandoff(otterId, conversationId);
+      }
+    }
 
     this.logger.debug('Building dynamic context', { otterId });
     /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
@@ -164,6 +178,16 @@ export class AgentInvoker implements AgentTurnPort {
 
       // 委托给 orchestrator 执行
       const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
+
+      /** F20260825hndf Post-turn 记录：从已完成消息获取 ctxTokens 供下轮 pre-invoke 检查 */
+      try {
+        const completedMsg = await this.queryMessage.getMessageById(message.id);
+        if (completedMsg?.contextTokens && completedMsg.contextTokens > 0) {
+          this.lastCtxTokens.set(otterId, completedMsg.contextTokens);
+        }
+      } catch {
+        // 非致命：获取失败不影响本轮结果
+      }
 
       /**
        * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
@@ -511,6 +535,7 @@ export class AgentInvoker implements AgentTurnPort {
    * 检测到 ctxTokens 超阈值后，构建四件套上下文包，重启 session。
    * 件①写入 session.summary（已有路径），件路径），件②③④写入 otter_context（借用式）。
    */
+  // eslint-disable-next-line complexity -- 交接触发+降级链+写context+重启
   private async handleHandoff(otterId: string, conversationId: string): Promise<void> {
     // 防重入
     if (this.handoffInProgress.get(otterId)) {
@@ -523,8 +548,8 @@ export class AgentInvoker implements AgentTurnPort {
       const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
 
       // 构建四件套
-      const pkg = await buildHandoffPackage(
-        [], // Phase 1：entries 暂时传空，文件轨迹和原文在后续版本从 SDK sessionManager 获取
+      if (!this.buildHandoffPackage) { this.logger.warn("[handoff] buildHandoffPackage not injected, skipping"); return; }
+      const pkg = await this.buildHandoffPackage(
         conversationId,
         otterId,
         {
@@ -538,6 +563,7 @@ export class AgentInvoker implements AgentTurnPort {
             workspacePath,
             logger: this.logger,
           },
+          queryMessage: this.queryMessage,
           logger: this.logger,
         },
       );
