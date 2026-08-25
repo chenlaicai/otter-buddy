@@ -94,13 +94,24 @@ describe("SqliteHealingEventRepository.batchResolveByFilter", () => {
     expect(result.resolvedIds).toEqual([]);
   });
 
-  it("limit 上限生效", async () => {
+  it("limit 上限生效 + truncated 标志", async () => {
     for (let i = 0; i < 5; i++) await repo.create(seedEvent({ id: `evt-${i}` }));
     const result = await repo.batchResolveByFilter({ status: "open" }, defaultResolution, { limit: 3 });
     expect(result.matched).toBe(3);
     expect(result.resolved).toBe(3);
+    expect(result.totalMatched).toBe(5);
+    expect(result.truncated).toBe(true);
     const remaining = await repo.findAll("open");
     expect(remaining).toHaveLength(2);
+  });
+
+  it("未截断时 truncated=false", async () => {
+    await repo.create(seedEvent({ id: "evt-1" }));
+    await repo.create(seedEvent({ id: "evt-2" }));
+    const result = await repo.batchResolveByFilter({ status: "open" }, defaultResolution, { limit: 100 });
+    expect(result.matched).toBe(2);
+    expect(result.totalMatched).toBe(2);
+    expect(result.truncated).toBe(false);
   });
 
   it("resolve 记录包含正确的 resolution 数据", async () => {

@@ -73,8 +73,13 @@ supersedes: []
 | 按 createdAfter 过滤 | 仅新事件被 resolve |
 | 组合 filter (errorType + createdBefore) | 精确匹配 1 条 |
 | 空结果 | matched=0, resolved=0 |
-| limit 上限生效 | 创建 5 条，limit=3，仅 resolve 3 条 |
+| limit 上限生效 + truncated 标志 | 创建 5 条，limit=3，resolve 3 条，truncated=true，totalMatched=5 |
+| 未截断时 truncated=false | 2 条未超限，truncated=false |
 | resolution 数据正确写入 | action/notes/resolvedAt 均正确 |
 | 已 resolved 事件不被重复处理 | 仅 open 事件被处理 |
+| 非法 ISO 日期被拒绝 | filterCreatedBefore="garbage" 返回 isError |
+| 工具层 dryRun 参数映射 | dryRun=true 时不落库 |
+| 工具层 150 条 truncated | matched=100, totalMatched=150, truncated=true |
+| 工具层 filterErrorType 映射 | 仅匹配类型被 resolve |
 
 Refs #424

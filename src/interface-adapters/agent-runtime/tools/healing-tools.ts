@@ -29,11 +29,25 @@ export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: 
   return cleanBody;
 }
 
+/** ISO 8601 日期校验——非法格式静默参与字典序比较会语义意外（检视獭-454 发现 3） */
+function isValidIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  // Why: Date.parse 对宽松格式（如 "2026-8-1"）也返回有效值，用正则锁定 yyyy-MM-ddTHH:mm:ss 格式
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z?$/.test(value) && !isNaN(Date.parse(value));
+}
+
 /** 创建 healing event 管理工具 */
 async function handleBatchResolve(
   params: Record<string, unknown>,
   healingRepo: HealingEventRepository,
 ): Promise<ToolResponse> {
+  // Why: 日期参数格式校验——非法输入会静默参与字典序比较导致语义意外
+  for (const key of ['filterCreatedBefore', 'filterCreatedAfter']) {
+    const val = params[key];
+    if (val !== undefined && !isValidIsoTimestamp(val)) {
+      return errorResponse(`[错误] ${key} 必须是 ISO 8601 时间戳（如 2026-08-25T00:00:00Z），收到：${val}`);
+    }
+  }
   const filter: HealingEventBatchFilter = {
     status: (params.filterStatus as string as HealingEventStatus) ?? 'open',
     errorType: params.filterErrorType as HealingErrorType | undefined,
@@ -57,6 +71,8 @@ async function handleBatchResolve(
   return textResponse(JSON.stringify({
     matched: result.matched, resolved: result.resolved,
     resolvedIds: result.resolvedIds, resolutionNotes: resolution.notes,
+    // Why: truncated 让 LLM 知道还有剩余未处置，需再次执行
+    truncated: result.truncated, totalMatched: result.totalMatched,
   }, null, 2));
 }
 
@@ -93,7 +109,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve）. GOTCHA: 批量 resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve）. batch_resolve: 按 filter 批量处置（用 filterStatus/filterErrorType/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. GOTCHA: resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {

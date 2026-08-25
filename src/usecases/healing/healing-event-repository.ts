@@ -45,4 +45,8 @@ export interface BatchResolveResult {
   matched: number;
   resolved: number;
   resolvedIds: string[];
+  /** true 时 matched < totalMatched，调用方应再次执行以处理剩余批次 */
+  truncated?: boolean;
+  /** filter 全量匹配数（不含 limit），供调用方判断是否有剩余 */
+  totalMatched?: number;
 }

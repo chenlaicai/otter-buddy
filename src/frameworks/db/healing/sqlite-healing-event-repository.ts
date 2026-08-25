@@ -144,15 +144,19 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
       return { matched: countRow.cnt, resolved: 0, resolvedIds: [] };
     }
 
-    // Why: 单事务保证 match + update 原子性，避免 match 和 update 之间数据变化
+    // Why: 单事务保证 count + match + update 原子性
     const now = new Date().toISOString();
     const resolutionJson = JSON.stringify(resolution);
     const result = this.db.transaction(() => {
+      const totalRow = this.db.prepare(
+        `SELECT COUNT(*) as cnt FROM healing_events WHERE ${where}`,
+      ).get(...params) as { cnt: number };
+
       const matchedRows = this.db.prepare(
         `SELECT id FROM healing_events WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
       ).all(...params, limit) as Array<{ id: string }>;
 
-      if (matchedRows.length === 0) return { matched: 0, resolved: 0, resolvedIds: [] };
+      if (matchedRows.length === 0) return { matched: 0, resolved: 0, resolvedIds: [], truncated: false, totalMatched: totalRow.cnt };
 
       const ids = matchedRows.map(r => r.id);
       const placeholders = ids.map(() => '?').join(', ');
@@ -160,7 +164,14 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
         `UPDATE healing_events SET status = 'resolved', resolution = ?, resolved_at = ? WHERE id IN (${placeholders})`,
       ).run(resolutionJson, now, ...ids);
 
-      return { matched: ids.length, resolved: updateResult.changes, resolvedIds: ids };
+      return {
+        matched: ids.length,
+        resolved: updateResult.changes,
+        resolvedIds: ids,
+        // Why: truncated 让调用方知道还有剩余未处置（100 上限截断）
+        truncated: totalRow.cnt > ids.length,
+        totalMatched: totalRow.cnt,
+      };
     })();
 
     return result;
