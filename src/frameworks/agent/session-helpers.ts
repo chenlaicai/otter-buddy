@@ -5,6 +5,7 @@
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
+import type { Logger } from "@usecases/ports/logger";
 import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manifest-loader";
 
 /**
@@ -91,18 +92,23 @@ export function getOtterToolNamesForType(
  * 两个操作并发执行（EEXIST 竞态条件的根因，见 #376）。
  */
 export class SimpleLockManager {
-  private locks = new Map<string, { held: boolean; waiters: Array<() => void> }>();
+  private locks = new Map<string, { held: boolean; heldAt: number | null; waiters: Array<() => void> }>();
   private readonly defaultTimeout: number;
 
-  constructor(timeoutMs: number = 30000) {
+  constructor(
+    timeoutMs: number = 30000,
+    /** 可选日志器：锁获取超时时输出结构化诊断日志（#423 方案 1） */
+    private readonly logger?: Logger,
+  ) {
     this.defaultTimeout = timeoutMs;
   }
 
   async acquire(key: string, timeoutMs?: number): Promise<() => void> {
     const timeout = timeoutMs ?? this.defaultTimeout;
+    const waitStartedAt = Date.now();
     let lock = this.locks.get(key);
     if (!lock) {
-      lock = { held: false, waiters: [] };
+      lock = { held: false, heldAt: null, waiters: [] };
       this.locks.set(key, lock);
     }
 
@@ -122,6 +128,30 @@ export class SimpleLockManager {
               const idx = lock.waiters.indexOf(waiterResolve);
               if (idx !== -1) lock.waiters.splice(idx, 1);
             }
+            // Why(#423 方案1): 超时是静默故障——错误被抛出后若无调用方记录，
+            // 事故侧只能看到报错文本，无法定位持有者是谁、持有了多久。
+            // 此处落结构化日志，把可得的诊断证据（持有者、持有时长、队列深度）留下。
+            // 边界说明：healing event 上报需要 messageId/conversationId（schema NOT NULL），
+            // 该层不可得，故不上报 healing event——由本日志驱动方案 2 的根因诊断。
+            const now = Date.now();
+            this.logger?.error(
+              `Lock acquire timeout for key: ${key}`,
+              new Error(`Lock acquire timeout for key: ${key}`),
+              {
+                module: 'SimpleLockManager',
+                lockKey: key,
+                /** key 形如 session:<otterId>，解析出 otterId 便于按獭聚合排查 */
+                otterId: key.startsWith('session:') ? key.slice('session:'.length) : undefined,
+                waitedMs: now - waitStartedAt,
+                timeoutMs: timeout,
+                /** 持有者已持有该锁的时长（ms）；null 表示状态不可考（如 destroy 后重建） */
+                holderHeldForMs: lock.heldAt !== null ? now - lock.heldAt : null,
+                /** 超时发生时仍在排队的等待者数量（不含本次） */
+                queueLength: lock.waiters.length,
+                /** 当前活跃锁总数（进程级锁竞争强度信号） */
+                activeLocks: this.locks.size,
+              },
+            );
             reject(new Error(`Lock acquire timeout for key: ${key}`));
           }, timeout)
         ),
@@ -129,6 +159,7 @@ export class SimpleLockManager {
     }
 
     lock.held = true;
+    lock.heldAt = Date.now();
 
     // Why: released 标志防止 double release（调用方意外多次调用 release 函数）
     let released = false;
@@ -139,9 +170,12 @@ export class SimpleLockManager {
       const next = lock.waiters.shift();
       if (next) {
         // Why: 保持 held=true —— 锁转移给下一个等待者，不经过 unheld 状态
+        // 同时重置 heldAt：持有权从此刻起属于新持有者
+        lock.heldAt = Date.now();
         next();
       } else {
         lock.held = false;
+        lock.heldAt = null;
         this.locks.delete(key);
       }
     };

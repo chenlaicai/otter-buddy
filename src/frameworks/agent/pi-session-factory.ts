@@ -143,7 +143,8 @@ export class PiSessionFactory implements AgentGateway {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
       ...getConfig().circuitBreaker,
     };
-    this.lockManager = new SimpleLockManager();
+    // Why(#423 方案1): 注入 logger，锁获取超时时落结构化诊断日志（持有者、持有时长、队列深度）
+    this.lockManager = new SimpleLockManager(undefined, logger);
   }
 
   /** 注入 OtterToolClient（解决 Composition Root 循环依赖） */

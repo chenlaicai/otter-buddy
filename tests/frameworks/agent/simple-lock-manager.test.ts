@@ -4,8 +4,9 @@
  * Why: #376 根因是旧版锁只检查 waiters 队列长度，第一个获取者不入队，
  * 导致第二个调用者也绕过等待。本测试验证修复后的锁正确跟踪 held 状态。
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SimpleLockManager } from "@frameworks/agent/session-helpers";
+import type { Logger } from "@usecases/ports/logger";
 
 describe("SimpleLockManager", () => {
   it("should prevent concurrent access to the same key", async () => {
@@ -193,5 +194,70 @@ describe("SimpleLockManager", () => {
     const newRelease = await lock.acquire("resource-1");
     // 不应该超时或挂起
     newRelease();
+  });
+
+  it("should emit structured diagnostic log on lock acquire timeout (#423)", async () => {
+    // Why(#423 方案1): 超时路径此前是静默故障——报错文本之外无任何证据，
+    // 无法定位持有者是谁、持有了多久。注入 logger 后，超时时必须落结构化日志。
+    const errorSpy = vi.fn();
+    const logger = {
+      info: vi.fn(), warn: vi.fn(), debug: vi.fn(),
+      error: errorSpy,
+      child: vi.fn(),
+    } as unknown as Logger;
+    const lock = new SimpleLockManager(30000, logger);
+
+    // holder 获取锁后持有不释放
+    const holderRelease = await lock.acquire("session:otter-abc");
+    await new Promise(r => setTimeout(r, 30)); // 让 holder 持有一段时间，heldForMs 可测
+
+    // waiter 超时
+    await expect(
+      lock.acquire("session:otter-abc", 60)
+    ).rejects.toThrow("Lock acquire timeout for key: session:otter-abc");
+
+    // 断言：结构化日志被记录，且包含诊断关键字段
+    expect(errorSpy.mock.calls).toHaveLength(1);
+    const [message, error, context] = errorSpy.mock.calls[0];
+    expect(message).toBe("Lock acquire timeout for key: session:otter-abc");
+    expect(error).toBeInstanceOf(Error);
+    expect(context).toMatchObject({
+      module: 'SimpleLockManager',
+      lockKey: "session:otter-abc",
+      otterId: "otter-abc",
+      timeoutMs: 60,
+      queueLength: 0,
+      activeLocks: 1,
+    });
+    expect(context.waitedMs).toBeGreaterThanOrEqual(60);
+    expect(context.holderHeldForMs).toBeGreaterThanOrEqual(30);
+
+    holderRelease();
+  });
+
+  it("should not log on successful acquire after waiting (#423)", async () => {
+    // Why: 只有超时路径落日志，正常等待后获锁不应产生噪音日志
+    const errorSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: errorSpy, child: vi.fn() } as unknown as Logger;
+    const lock = new SimpleLockManager(30000, logger);
+
+    const release1 = await lock.acquire("resource-1");
+    const waiter = lock.acquire("resource-1", 200);
+    await new Promise(r => setTimeout(r, 20));
+    release1(); // 释放后 waiter 获锁
+    const release2 = await waiter;
+    release2();
+
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("should work without logger (backward compatible)", async () => {
+    // Why: logger 可选——未注入时超时行为不变（仍 reject），只是无日志
+    const lock = new SimpleLockManager();
+    const release = await lock.acquire("resource-1");
+    await expect(
+      lock.acquire("resource-1", 50)
+    ).rejects.toThrow("Lock acquire timeout for key: resource-1");
+    release();
   });
 });
