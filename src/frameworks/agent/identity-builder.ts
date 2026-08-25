@@ -69,7 +69,7 @@ export class IdentityBuilder {
     // F20260824aibd: 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
     const modelIdentity = this.buildModelIdentity(modelAlias);
 
-    // F20260825i422: 注入当前日期时间——干净 session 无日期锚点导致特性 ID 日期臆断（#422）
+    // F20260825m422a: 注入当前日期时间——干净 session 无日期锚点导致特性 ID 日期臆断（#422）
     const now = new Date();
     const dateTimeStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
     const dateAnchor = `## 当前日期时间\n- 今天是 ${dateTimeStr}（Asia/Shanghai）`;

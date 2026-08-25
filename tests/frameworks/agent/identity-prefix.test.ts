@@ -77,7 +77,7 @@ describe("buildIdentityPrefix 分支", () => {
     expect(prefix).toContain("类型：大獭");
     expect(prefix).toContain("海獭团队的头儿");
     expect(prefix).not.toContain("name: big-otter-identity");
-    // F20260825i422: 日期锚点注入——格式 YYYY-MM-DD HH:MM（Asia/Shanghai）
+    // F20260825m422a: 日期锚点注入——格式 YYYY-MM-DD HH:MM（Asia/Shanghai）
     const dateSection = extractDateSection(prefix);
     expect(dateSection).toBeDefined();
     expect(dateSection).toMatch(/## 当前日期时间\n- 今天是 \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);

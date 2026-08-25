@@ -46,16 +46,22 @@ if [ "$is_template_valid" != "yes" ]; then
   exit 1
 fi
 
-# F20260825i422: 日期语义校验——特性 ID 日期与系统日期偏差 > 2 天则拒绝（#422）
+# F20260825m422a: 日期语义校验——F 类特性 ID 日期与系统日期偏差 > 2 天则拒绝（#422）
+# R 类 ID 跳过：R 类日期是研究文档创建日（frontmatter 锚点），跨天迭代追加 commit 时日期必然不同
+if ! echo "$first_line" | grep -q '^\[F'; then
+  exit 0
+fi
 date_check=$(node -e "
 const title = process.argv[1];
-const match = title.match(/^\\[([FR])([0-9]{8})/);
+const match = title.match(/^\\[F([0-9]{8})/);
 if (!match) { process.stdout.write('skip'); process.exit(0); }
-const idDate = match[2];
+const idDate = match[1];
+// 三层时区口径统一为 Asia/Shanghai：与 identity-builder 注入层一致
 const now = new Date();
-const y = now.getFullYear();
-const m = String(now.getMonth() + 1).padStart(2, '0');
-const d = String(now.getDate()).padStart(2, '0');
+const shNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+const y = shNow.getFullYear();
+const m = String(shNow.getMonth() + 1).padStart(2, '0');
+const d = String(shNow.getDate()).padStart(2, '0');
 const today = y + m + d;
 const idD = new Date(parseInt(idDate.slice(0,4)), parseInt(idDate.slice(4,6))-1, parseInt(idDate.slice(6,8)));
 const todayD = new Date(parseInt(today.slice(0,4)), parseInt(today.slice(4,6))-1, parseInt(today.slice(6,8)));
@@ -74,7 +80,7 @@ case "$date_check" in
     days=$(echo "$date_check" | cut -d: -f4)
     echo "错误：特性 ID 日期与系统日期不符（偏差 ${days} 天）。"
     echo "  ID 日期: ${id_date}  系统日期: ${sys_date}"
-    echo "请跑 date 确认今天日期，修正特性 ID 后重新提交。"
+    echo "请跑 date 确认今天日期，修正 F 类特性 ID 后重新提交。"
     exit 1
     ;;
 esac
