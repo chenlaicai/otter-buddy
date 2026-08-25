@@ -8,7 +8,7 @@
 
 - `FYYYYMMDDxxxx`: Feature number (immutable once assigned)
 - `module`: Affected module name (e.g., `skills`, `agent-runtime`, `conversation`)
-- `type`: One of `Feature`, `Feature Update`, `BugFix`, `Refactor`, `Design`, `New Feature`
+- `type`: One of `New Feature`, `Feature Update`, `BugFix`, `Refactor`, `Design`（与 Type Tags 表及 .githooks/commit-msg 白名单一致；`Feature` 为 `New Feature` 的历史别名，2026-08-25 起不再收录，存量提交见 #432）
 - `描述`: Chinese description of the change
 
 ## Type Tags
