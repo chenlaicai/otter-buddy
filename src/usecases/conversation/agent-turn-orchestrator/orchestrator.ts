@@ -145,7 +145,7 @@ export class AgentTurnOrchestrator {
       }
 
       // If routeByReason returns null, retry with updated input
-      // F20260821rtmo: 按退出原因使用匹配的重试文案（timeout 用超时提醒，no_yield 用 yield 提醒）
+      // F20260825rtmx: 按退出原因使用匹配的重试文案（timeout 用超时提醒，no_yield 用 yield 提醒）
       currentInput = {
         ...currentInput,
         retryCount: 1,
