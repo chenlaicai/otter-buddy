@@ -29,7 +29,10 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
+// eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
+import type { buildHandoffPackage, HandoffPackageOptions } from "@frameworks/agent/handoff-package-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
+import { HandoffState, shouldTriggerHandoff, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
@@ -42,10 +45,8 @@ export class AgentInvoker implements AgentTurnPort {
   private readonly orchestrator: AgentTurnOrchestrator;
   /** F20260818cbkr：熔断执行器（healingRepo 未注入时为 null，熔断禁用） */
   private readonly circuitBreak: CircuitBreakSupport | null;
-  /** F20260825hndf：上轮 ctxTokens 记录（post-turn 记录，pre-invoke 检查） */
-  private readonly lastCtxTokens = new Map<string, number>();
-  /** F20260825hndf：handoff 防重入标记 */
-  private readonly handoffInProgress = new Map<string, boolean>();
+  /** F20260825hndf：handoff 状态管理 */
+  private readonly handoffState = new HandoffState();
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -67,12 +68,11 @@ export class AgentInvoker implements AgentTurnPort {
     /** F20260825hndf：可选注入，用于调度任务盘点（不破坏既有测试） */
     private readonly scheduledTaskRepo?: ScheduledTaskRepository,
     /** F20260825hndf：可选注入，用于产物盘点（不破坏既有测试） */
-    private readonly listArtifacts?: () => Promise<LinkedResource[]>,
+    private readonly listArtifacts?: (conversationId: string) => Promise<LinkedResource[]>,
     /** F20260825hndf：可选注入，用于 otter_context 读写（借用式交接上下文） */
     private readonly manageContext?: ManageContext,
     /** F20260825hndf：可选注入，四件套构建器（从 bootstrap 注入，避免 interface-adapters→frameworks 直接依赖） */
-    /** F20260825hndf：四件套构建器返回类型 */
-    private readonly buildHandoffPackage?: (conversationId: string, otterId: string, options: Record<string, unknown>) => Promise<{ summary: string; fileTrail: string; recencyWindow: string; stateInventory: string; totalTokenEstimate: number }>,
+    private readonly buildHandoffPkg?: typeof buildHandoffPackage,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo
@@ -135,13 +135,10 @@ export class AgentInvoker implements AgentTurnPort {
     });
 
     /** F20260825hndf Pre-invoke 检查：上轮 ctxTokens 超 70% 阈值 → 先 handoff 再处理本轮消息 */
-    const prevTokens = this.lastCtxTokens.get(otterId);
-    if (prevTokens !== undefined && prevTokens > 0) {
-      const ctxMax = await this.getCtxMax(otterId);
-      if (ctxMax && prevTokens >= ctxMax * 0.7) {
-        this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, prevTokens, ctxMax });
-        await this.handleHandoff(otterId, conversationId);
-      }
+    const ctxMax = await this.getCtxMax(otterId) ?? DEFAULT_CTX_MAX;
+    if (shouldTriggerHandoff(otterId, this.handoffState, ctxMax)) {
+      this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, ctxMax });
+      await this.handleHandoff(otterId, conversationId);
     }
 
     this.logger.debug('Building dynamic context', { otterId });
@@ -179,15 +176,8 @@ export class AgentInvoker implements AgentTurnPort {
       // 委托给 orchestrator 执行
       const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
 
-      /** F20260825hndf Post-turn 记录：从已完成消息获取 ctxTokens 供下轮 pre-invoke 检查 */
-      try {
-        const completedMsg = await this.queryMessage.getMessageById(message.id);
-        if (completedMsg?.contextTokens && completedMsg.contextTokens > 0) {
-          this.lastCtxTokens.set(otterId, completedMsg.contextTokens);
-        }
-      } catch {
-        // 非致命：获取失败不影响本轮结果
-      }
+      /** F20260825hndf Post-turn 记录 */
+      await recordPostTurnTokens(otterId, message.id, this.queryMessage, this.handoffState, this.logger);
 
       /**
        * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
@@ -472,34 +462,9 @@ export class AgentInvoker implements AgentTurnPort {
     }
 
     // F20260825hndf：从 otter_context 恢复交接上下文（借用式，消费即删）
-    await this.restoreHandoffContext(otterId, ctx);
+    await restoreHandoffContext(otterId, ctx, this.manageContext, this.logger);
 
     return ctx;
-  }
-
-  /**
-   * F20260825hndf：从 otter_context 恢复交接上下文（借用式，首次 invoke 后删除）。
-   * otter_context 跨 session 存活（F4 已验证），handoff 时写入的件②③④
-   * 在此被消费并清理——实现借用式生命周期。
-   */
-  private async restoreHandoffContext(otterId: string, ctx: DynamicContext): Promise<void> {
-    if (!this.manageContext) return;
-    const keys = ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory'] as const;
-    const targets = ['fileTrail', 'recencyWindow', 'stateInventory'] as const;
-
-    for (let i = 0; i < keys.length; i++) {
-      try {
-        const result = await this.manageContext.get(otterId, keys[i]);
-        const value = result[keys[i]];
-        if (value) {
-          (ctx as Record<string, unknown>)[targets[i]] = value;
-          await this.manageContext.delete(otterId, keys[i]);
-          this.logger.debug('[handoff] Restored and consumed context key', { otterId, key: keys[i] });
-        }
-      } catch {
-        // 非致命：恢复失败不阻塞 invoke
-      }
-    }
   }
 
   /** 构建 TurnInput。F20260818cbkr：originalUserMessage 单独保留——retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取原始消息 */
@@ -538,18 +503,18 @@ export class AgentInvoker implements AgentTurnPort {
   // eslint-disable-next-line complexity -- 交接触发+降级链+写context+重启
   private async handleHandoff(otterId: string, conversationId: string): Promise<void> {
     // 防重入
-    if (this.handoffInProgress.get(otterId)) {
+    if (this.handoffState.isInProgress(otterId)) {
       this.logger.warn("[handoff] Already in progress, skipping", { otterId });
       return;
     }
-    this.handoffInProgress.set(otterId, true);
+    this.handoffState.setInProgress(otterId, true);
 
     try {
       const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
 
       // 构建四件套
-      if (!this.buildHandoffPackage) { this.logger.warn("[handoff] buildHandoffPackage not injected, skipping"); return; }
-      const pkg = await this.buildHandoffPackage(
+      if (!this.buildHandoffPkg) { this.logger.warn("[handoff] buildHandoffPkg not injected, skipping"); return; }
+      const pkg = await this.buildHandoffPkg(
         conversationId,
         otterId,
         {
@@ -559,7 +524,7 @@ export class AgentInvoker implements AgentTurnPort {
             conversationRepo: this.conversationRepo!,
             scheduledTaskRepo: this.scheduledTaskRepo,
             healingRepo: this.healingRepo ?? undefined,
-            listArtifacts: this.listArtifacts ?? (async () => []),
+            listArtifacts: this.listArtifacts ? () => this.listArtifacts!(conversationId) : (async () => []),
             workspacePath,
             logger: this.logger,
           },
@@ -584,7 +549,7 @@ export class AgentInvoker implements AgentTurnPort {
       // 件①写入 session.summary（重启 session）
       try {
         await this.manageSession.restartSession(otterId, pkg.summary);
-        this.lastCtxTokens.delete(otterId);
+        this.handoffState.clearLastCtxTokens(otterId);
         this.logger.info("[handoff] Session restarted with handoff package", {
           otterId,
           totalTokens: pkg.totalTokenEstimate,
@@ -599,14 +564,14 @@ export class AgentInvoker implements AgentTurnPort {
         err instanceof Error ? err : new Error(String(err)),
         { otterId });
     } finally {
-      this.handoffInProgress.set(otterId, false);
+      this.handoffState.setInProgress(otterId, false);
     }
   }
 
   /** F20260825hndf：获取 otter 的 context window 大小 */
   private async getCtxMax(_otterId: string): Promise<number | undefined> {
     // Phase 1：用默认值 128k；Phase 2 通过 modelPool.getContextWindow 获取精确值
-    return 128_000;
+    return DEFAULT_CTX_MAX;
   }
 
 

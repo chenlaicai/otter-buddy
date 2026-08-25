@@ -34,6 +34,7 @@ import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recr
 import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
+import { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 
 export interface FeishuBundle {
   client: FeishuClient;
@@ -104,6 +105,12 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
     messageBroadcaster, workspaceGateway, repos.settings, agentMetrics,
     repos.healingEvent,
+    // F20260825hndf：优雅上下交接依赖注入
+    repos.conversation,
+    repos.scheduledTask,
+    (conversationId) => repos.conversation.getLinkedResources(conversationId, { status: "active" }),
+    uc.manageContext,
+    buildHandoffPackage,
   );
 
   const cronParser = new SimpleCronParser();

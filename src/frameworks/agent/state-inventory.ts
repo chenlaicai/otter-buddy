@@ -37,7 +37,7 @@ export interface StateInventoryDeps {
   conversationRepo: ConversationRepository;
   scheduledTaskRepo?: ScheduledTaskRepository;
   healingRepo?: HealingEventRepository;
-  listArtifacts: () => Promise<LinkedResource[]>;
+  listArtifacts: (conversationId?: string) => Promise<LinkedResource[]>;
   workspacePath?: string;
   logger?: Logger;
 }
@@ -54,7 +54,7 @@ export async function collectStateInventory(
     collectTalkingStone(conversationId, deps),
     collectScheduledTasks(conversationId, otterId, deps),
     collectWorkspaceFiles(deps),
-    collectArtifacts(deps),
+    collectArtifacts(conversationId, deps),
     collectHealing(conversationId, deps),
     collectActivity(conversationId, deps),
   ]);
@@ -116,10 +116,11 @@ function collectWorkspaceFiles(deps: StateInventoryDeps): string[] {
 
 /** B4: 产物统计 */
 async function collectArtifacts(
+  conversationId: string,
   deps: StateInventoryDeps,
 ): Promise<{ active: number; superseded: number; flagged: number; latestTitle?: string }> {
   try {
-    const artifacts = await deps.listArtifacts();
+    const artifacts = await deps.listArtifacts(conversationId);
     let active = 0, superseded = 0, flagged = 0;
     let latestTitle: string | undefined;
     let latestTime = 0;
