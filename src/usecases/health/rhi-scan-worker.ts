@@ -87,6 +87,25 @@ export class RhiScanWorker {
     this.logger.info("RHI scan worker stopped", { action: "rhi_worker_stop" });
   }
 
+  /** 仅构建特性链（不检测信号不落库）——Phase 2 /api/health/chains 端点用。
+   *  采集+解析+两阶段 zombie 判定与 scanOnce 同逻辑，保证面板看到的链与信号同源。 */
+  async buildChainsOnce(): Promise<ReturnType<typeof buildFeatureChains>> {
+    const commitsWithFiles = await collectGitLogWithFiles(this.repoPath, {
+      ref: this.options.ref,
+      since: this.isoDaysAgo((this.options.windowDays ?? 30) + 30),
+    });
+    const parsed = parseCommits(commitsWithFiles.map(({ sha, message }) => ({ sha, message })));
+    const signalInputs = commitsWithFiles.map((c, i) => ({
+      sha: c.sha,
+      date: c.date,
+      message: c.message,
+      parsed: parsed[i]!,
+      filesChanged: c.filesChanged,
+    }));
+    const docs = await collectFeatureDocs(this.repoPath);
+    return this.buildChainsWithZombieJudging(signalInputs, docs);
+  }
+
   /** 单轮扫描（可独立调用，CLI/测试用） */
   async scanOnce(): Promise<RhiScanResult> {
     const scannedAt = new Date().toISOString();

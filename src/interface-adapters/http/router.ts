@@ -11,6 +11,7 @@ import type { SettingsController } from "./controllers/settings-controller";
 import type { ScheduledTaskController } from "./controllers/scheduled-task-controller";
 import type { ConnectionController } from "./controllers/connection-controller";
 import type { HealthController } from "./controllers/health-controller";
+import type { RhiController } from "./controllers/rhi-controller";
 
 
 export interface Controllers {
@@ -23,6 +24,7 @@ export interface Controllers {
   scheduledTask: ScheduledTaskController;
   connection: ConnectionController;
   health: HealthController;
+  rhi: RhiController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -61,6 +63,11 @@ function registerOtterRoutes(app: Hono, c: Controllers): void {
 
 function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/memory", (ctx) => c.health.memory(ctx));
+  // F20260825rweb（#402）：RHI 面板 API（与 memory 健康端点同前缀，职责分离的 controller）
+  app.get("/api/health/overview", (ctx) => c.rhi.overview(ctx));
+  app.get("/api/health/signals", (ctx) => c.rhi.signals(ctx));
+  app.get("/api/health/chains", (ctx) => c.rhi.chains(ctx));
+  app.post("/api/health/scan", (ctx) => c.rhi.scan(ctx));
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
   app.post("/api/memory/search/similar", (ctx) => c.memory.searchSimilar(ctx));
   app.get("/api/memory/batch", (ctx) => c.memory.getDetails(ctx));

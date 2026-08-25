@@ -469,6 +469,7 @@ export function createTestApp(deps: TestDeps): Hono {
     ),
     connection: {} as any, // TODO: 添加 mock
     health: {} as any, // TODO: 添加 mock
+    rhi: {} as any, // F20260825rweb：RHI 端点 mock（RHI 专项测试另建，见 tests/api/rhi-api.test.ts）
     inbound: {
       optionsEvents: (c: any) => c.body(null, 204),
       receiveEvents: async (c: any) => c.json({ ok: true }),
