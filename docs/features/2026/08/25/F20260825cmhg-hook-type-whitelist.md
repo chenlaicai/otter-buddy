@@ -2,7 +2,7 @@
 id: F20260825cmhg
 title: commit-msg 钩子类型白名单与 commit-convention.md 对齐
 summary: |
-  Issue #427（tech-debt）：commit-convention.md Type Tags 列出六种类型，但 commit-msg 钩子
+  Issue #427（tech-debt）：commit-convention.md Type Tags 列出五种类型，但 commit-msg 钩子
   正则白名单只有三种（Feature Update/BugFix/New Feature），Design/Refactor 类提交被拒收，
   PR #420 被迫降级用 Feature Update。方案：钩子白名单补录 Design|Refactor（改钩子方向，
   搭档拍板），错误提示文案同步。
@@ -18,7 +18,7 @@ created_in_conversation: 376077f2-7ebb-442b-943e-c7ce547f4f8a
 
 ### 问题描述
 
-`.pi/skills/code-implementation/references/commit-convention.md` 的 Type Tags 表列出六种类型（New Feature / Feature Update / BugFix / Refactor / Design），但 `.githooks/commit-msg` 的正则白名单只有三种——按文档写 `[Design]` 或 `[Refactor]` 的 commit 被钩子拒收。
+`.pi/skills/code-implementation/references/commit-convention.md` 的 Type Tags 表列出五种类型（New Feature / Feature Update / BugFix / Refactor / Design；Incompatible 是修饰符不是类型），但 `.githooks/commit-msg` 的正则白名单只有三种——按文档写 `[Design]` 或 `[Refactor]` 的 commit 被钩子拒收。
 
 实际咬人记录：PR #420（纯文档变更）按文档写 `[Design]` 被拦，被迫降级 `[Feature Update]`；历史 #159 曾以 `[Refactor]` 入库（当时钩子尚未收紧）。类型标签失真损害提交历史可检索性——钩子注释明言模板的目的就是「让变更类型在提交历史中可检索」。
 
