@@ -224,10 +224,11 @@ function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; o
       >
         <Star className="w-3.5 h-3.5" fill={f.flagged ? 'currentColor' : 'none'} />
       </span>
-      <span className="text-xs text-stone-600 flex-1">
-        {f.content}
+      <span className="text-xs text-stone-600 flex-1 min-w-0 flex flex-col gap-1">
+        {/* 长事实截断，悬停原生 tooltip 显示全文（沿用项目 title 属性惯例） */}
+        <span className="truncate" title={f.content ?? undefined}>{f.content}</span>
         {f.category && (
-          <span className="text-[9px] text-stone-400 bg-white/30 px-1.5 py-0.5 rounded-full ml-1">
+          <span className="text-[9px] text-stone-400 bg-white/30 px-1.5 py-0.5 rounded-full w-fit">
             {f.category}
           </span>
         )}
@@ -245,9 +246,13 @@ function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; o
 function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResource; onDelete: () => void }) {
   return (
     <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group">
-      <span className="text-xs text-teal-500 truncate flex-1">{r.title || r.url || '(无标题)'}</span>
+      {/* 与 FactItem 统一为 stone 色系：链接类资源加类型色块，长标题截断 + tooltip 显示全文（含 url） */}
+      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-stone-100 text-stone-500 uppercase flex-shrink-0">{r.type}</span>
+      <span className="text-xs text-stone-600 truncate flex-1" title={r.url || r.title || undefined}>
+        {r.title || r.url || '(无标题)'}
+      </span>
       {r.auto && (
-        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-500">自动</span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-500 flex-shrink-0">自动</span>
       )}
       <span
         onClick={onDelete}

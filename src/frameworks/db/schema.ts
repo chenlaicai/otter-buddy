@@ -28,6 +28,8 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createConnectionTables(db);
     createHealingEventTables(db);
     createUserReadStateTable(db);
+    createHealthSnapshotsTable(db);
+    createSignalsTable(db);
 
     db.exec("COMMIT");
 
@@ -663,6 +665,49 @@ function createUserReadStateTable(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_user_read_state_conv ON conversation_user_read_state(conversation_id);
+  `);
+}
+
+/** 健康快照表（RHI 指标持久化） */
+function createHealthSnapshotsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS health_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshot_date TEXT NOT NULL,
+      metric_type TEXT NOT NULL,
+      metric_key TEXT NOT NULL,
+      metric_value REAL NOT NULL,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_snapshots_date_type ON health_snapshots(snapshot_date, metric_type);
+    CREATE INDEX IF NOT EXISTS idx_snapshots_key ON health_snapshots(metric_key);
+  `);
+}
+
+/** 信号表（RHI 异常信号） */
+function createSignalsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS signals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      feature_id TEXT,
+      file_path TEXT,
+      evidence TEXT,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      occurrences INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'open',
+      suggested_action TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
+    CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
+    CREATE INDEX IF NOT EXISTS idx_signals_feature ON signals(feature_id);
   `);
 }
 
