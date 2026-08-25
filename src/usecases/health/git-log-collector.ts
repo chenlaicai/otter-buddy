@@ -89,10 +89,15 @@ export async function collectGitLogWithFiles(
     since?: string;
     until?: string;
     maxCount?: number;
+    /** 统计基准分支（默认 main）——RHI 语义是“仓库健康”，
+     *  不指定 ref 时 git log 取 HEAD，在 feature 分支上运行会得到分支线性历史，
+     *  bugfix 比率等指标不可复现（PR #417 对抗审视发现 2） */
+    ref?: string;
   }
 ): Promise<GitCommitWithFiles[]> {
   const args = [
     "log",
+    options?.ref ?? "main",
     "--format=%x1e%H%x1f%s",  // 记录分隔符开头：header 恒在首行，规避文件列表前置歧义
     "--name-only",
   ];

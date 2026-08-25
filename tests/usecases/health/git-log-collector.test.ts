@@ -27,6 +27,8 @@ describe("collectGitLogWithFiles（临时仓库 fixture）", () => {
   beforeAll(async () => {
     repoDir = await mkdtemp(path.join(tmpdir(), "rhi-git-test-"));
     git(["init"]);
+    // 显式 main：ref 默认值依赖 main 存在；老版 git 不支持 init -b，用 symbolic-ref 兼容
+    git(["symbolic-ref", "HEAD", "refs/heads/main"]);
     git(["config", "user.email", "test@example.com"]);
     git(["config", "user.name", "RHI Test"]);
     await commitFile("a.txt", "hello", "[F20260824tst1][health][New Feature] 第一个特性");
@@ -70,5 +72,22 @@ describe("collectGitLogWithFiles（临时仓库 fixture）", () => {
     const commits = await collectGitLogWithFiles(repoDir, { maxCount: 1 });
     expect(commits).toHaveLength(1);
     expect(commits[0].message).toContain("tst3");
+  });
+
+  it("ref 参数：默认统计 main，在非 main 分支上运行时不受当前分支影响", async () => {
+    // 切到 side 分支追加 commit，验证默认仍采 main
+    git(["checkout", "-b", "side"]);
+    await commitFile("side-only.txt", "s", "side 分支的 commit");
+
+    const defaultRef = await collectGitLogWithFiles(repoDir);
+    expect(defaultRef.some(c => c.message.includes("side"))).toBe(false);
+
+    const onMain = await collectGitLogWithFiles(repoDir, { ref: "main" });
+    expect(onMain).toEqual(defaultRef);
+
+    const onSide = await collectGitLogWithFiles(repoDir, { ref: "side" });
+    expect(onSide[0].message).toContain("side");
+
+    git(["checkout", "main"]);
   });
 });

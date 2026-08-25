@@ -72,7 +72,7 @@ export class HealthReport {
     // 4. 计算指标
     const metrics = calculateMetrics(parsed, commitsWithFiles);
 
-    // 5. 持久化（快照表，同日重复运行覆盖式追加——按日期查询取最新）
+    // 5. 持久化（同日 DELETE+INSERT 覆盖，对抗审视发现 4：消费方无需理解"取最新"）
     if (!options.skipPersistence) {
       this.persistMetrics(metrics);
     }
@@ -93,13 +93,14 @@ export class HealthReport {
 
   /**
    * 指标持久化到 health_snapshots。
-   * overview 级指标逐条写入；分布类指标 JSON 序列化进 metadata。
+   * 同日重复运行 DELETE+INSERT 覆盖：findByDate 返回的永远是当日最终快照。
    */
   private persistMetrics(metrics: Metrics): void {
     const snapshotDate = new Date().toISOString().slice(0, 10);
 
-    this.snapshotRepo.createBatch([
-      { snapshotDate, metricType: "overview", metricKey: "total_commits", metricValue: metrics.totalCommits },
+    this.snapshotRepo.replaceForDate(
+      snapshotDate,
+      [      { snapshotDate, metricType: "overview", metricKey: "total_commits", metricValue: metrics.totalCommits },
       { snapshotDate, metricType: "overview", metricKey: "commits_with_fid", metricValue: metrics.commitsWithFid },
       { snapshotDate, metricType: "overview", metricKey: "compliant_commits", metricValue: metrics.compliantCommits },
       { snapshotDate, metricType: "overview", metricKey: "skipped_commits", metricValue: metrics.skippedCommits },

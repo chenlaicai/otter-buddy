@@ -62,6 +62,17 @@ export class HealthSnapshotRepository {
     return tx(snapshots);
   }
 
+  /** 同日覆盖写入：单事务内先删当日旧快照再批量插入（对抗审视发现 4）。 */
+  replaceForDate(snapshotDate: string, snapshots: CreateHealthSnapshot[]): HealthSnapshot[] {
+    const tx = this.db.transaction((rows: CreateHealthSnapshot[]) => {
+      this.db
+        .prepare("DELETE FROM health_snapshots WHERE snapshot_date = ?")
+        .run(snapshotDate);
+      return this.createBatch(rows);
+    });
+    return tx(snapshots);
+  }
+
   findByDate(date: string): HealthSnapshot[] {
     return this.db
       .prepare("SELECT * FROM health_snapshots WHERE snapshot_date = ? ORDER BY id")

@@ -25,7 +25,7 @@ summary: |
 - `conversation/index.tsx` 被 BugFix 触碰 **19 次**、`agent-invoker.ts` 18 次
 - 239 份 F 文档存在，但链追踪相关字段覆盖率低：`from:` 仅 8/239（3.3%）、`supersedes:` 2/239（0.8%）、`intent:` 0/239（#386 后新增文档才开始积累）
 - commit message 带 F 前缀 249/259（96.1%），严格三段格式 182/259（70.3%）；不合规样本包括 init/Revert/R 文档头等需显式处理
-- 「严格三段格式」口径：模块段仅允许纯字母（不含连字符），由 Issue #1 CommitParser 正则定义
+- 「严格三段格式」口径（PR #417 对抗审视后修订）：模块段允许小写字母与连字符（`agent-runtime`、`api-contract` 等连字符模块名已广泛使用且有语义），由 Issue #1 CommitParser 正则定义
 
 ## 目标
 
