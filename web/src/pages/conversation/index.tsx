@@ -137,10 +137,11 @@ function ConversationPage() {
   useEffect(() => () => {
     batcher.dispose()
   }, [batcher])
-  /** F20260825scrf：同步 ref（batcher 回调读最新值）+ 关窗时 flush 冻结期间攒下的
-   *  流式更新（下次打开前背景已追上真实状态；手动 flush 后 timer 自然空转，无害） */
+  /** F20260825scrf：关窗时 flush 冻结期间攒下的流式更新（下次打开前背景已追上
+   *  真实状态；手动 flush 后 timer 自然空转，无害）。ref 同步在 render 阶段
+   *  （isAnyModalOpen 处）——effect 同步存在 commit→effect 间隙，弹窗打开瞬间
+   *  batcher timer 到期会穿透 defer（检视 S-2） */
   useEffect(() => {
-    modalOpenRef.current = modalOpen
     if (!modalOpen) batcher.flush()
   }, [modalOpen, batcher])
   const batchUpdateMessages = useCallback((convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) => {
@@ -160,6 +161,10 @@ function ConversationPage() {
   /** F20260825scrf：modalOpen 派生（8 种 ConversationModals + 定时任务/执行历史 modal）。
    *  下沉到 index 顶层供 batcher/轮询冻结用；setModalOpen 仅在此处同步 */
   const isAnyModalOpen = modal.type !== 'none' || scheduledTaskModal.type !== 'none' || executionHistoryTaskId !== null
+  /** F20260825scrf 检视 S-2 修复：render 阶段同步 ref（镜像最新值模式）——useEffect
+   *  同步存在 commit→effect 间隙，弹窗打开瞬间的 batcher timer 到期会读到旧值 false，
+   *  flush 穿透 defer 产生单帧闪烁。render 赋值幂等，StrictMode 双 render 无害 */
+  modalOpenRef.current = isAnyModalOpen
   useEffect(() => {
     setModalOpen(isAnyModalOpen)
   }, [isAnyModalOpen])
@@ -271,6 +276,10 @@ function ConversationPage() {
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
   /** 增量刷新：只拉比当前最新消息更新的消息（after 游标），不触碰 prepend 的历史 */
   const refreshMessages = useCallback(async (convId: string) => {
+    /** F20260825scrf 检视 S-1 修复：弹窗打开期间冻结——本函数直接 setAllMessages（绕过
+     *  batcher defer），SSE onError 等调用点会驱动 scrim 背后像素变化。关窗后由轮询
+     *  effect（依赖含 modalOpen，见下）无条件恢复续看，不依赖本次被跳过的播种 */
+    if (modalOpenRef.current) return
     try {
       const list = allMessagesRef.current[convId] || []
       const realMsgs = list.filter(m => !m.id.startsWith('tmp-') && !m.id.startsWith('err-'))
@@ -393,7 +402,10 @@ function ConversationPage() {
     }
     scheduleNext()
     return () => { cancelled = true; if (timer) clearTimeout(timer) }
-  }, [activeId, allMessages, refreshMessages])
+    /** 依赖含 modalOpen（F20260825scrf 检视 S-1）：关窗时无条件重跑恢复轮询链——
+     *  否则"弹窗期播种被跳 + 关窗 flush 无暂存"时 allMessages 不变，effect 不重跑，
+     *  in-flight 续看断链 */
+  }, [activeId, allMessages, refreshMessages, modalOpen])
 
   /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
   useEffect(() => {

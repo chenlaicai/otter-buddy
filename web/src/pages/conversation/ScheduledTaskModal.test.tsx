@@ -29,6 +29,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => { root.unmount() })
   container.remove()
+  // F20260825scrf 检视 A-2：Modal Portal 后内容挂 document.body，清理残留防串测
+  document.body.innerHTML = ''
 })
 
 function renderModal(

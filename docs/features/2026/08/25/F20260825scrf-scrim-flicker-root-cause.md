@@ -32,7 +32,7 @@ created_in_conversation: be190532-2eb0-4635-9adb-a2430d3040ef
 
 **思路**：结构解耦（Portal）+ 弹窗期间冻结背景渲染（三源全停）+ 纯色降级开关（CSS 一行可切）。
 
-1. **Portal**：Modal 用 createPortal 挂 document.body——scrim 成为独立顶层子树，与页面内容的合成相互独立，为冻结背景制造结构条件。
+1. **Portal**：Modal 用 createPortal 挂 document.body——scrim 脱离页面组件树（DOM 结构与事件冒泡解耦）。注：backdrop-filter 的采样语义跨 DOM 子树（scrim 仍采样页面内容位图，无论挂哪），冻结闪烁的真正机制是下述三源冻结，Portal 本身对合成零影响（检视 A-1 更正）。
 2. **冻结 SSE batch**：MessageBatcher 新增 `getShouldDefer` 选项——弹窗打开期间窗口到期不产出（pending 暂存链完整保留），关窗时 `batcher.flush()` 一次性追上。流式内容零丢失，关窗瞬间背景更新到真实状态。
 3. **冻结自续期轮询**：effect 入口 `modalOpenRef.current` 为真时直接 return——关窗后 allMessages 变化自然重跑 effect，轮询链自动接续，终态收敛不受影响。
 4. **冻结 5 秒列表轮询**：useConversationListPolling 的 enabled 参数追加 `&& !modalOpen`——关窗后 interval 立即重建。

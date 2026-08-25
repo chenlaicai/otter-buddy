@@ -38,8 +38,9 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
 
   if (!isOpen) return null
 
-  /** F20260825scrf：Portal 挂 body——scrim 脱离页面组件树成为独立顶层子树，
-   *  与页面内容的合成相互独立，为弹窗期间冻结背景渲染制造结构条件 */
+  /** F20260825scrf：Portal 挂 body——scrim 脱离页面组件树（事件冒泡与布局上下文
+   *  解耦）。注：backdrop-filter 的采样语义跨 DOM 子树（scrim 仍采样页面内容位图），
+   *  冻结闪烁的真正机制是弹窗期三源渲染冻结，Portal 是结构清理（检视 A-1 更正） */
   return createPortal(
     <div
       className="fixed inset-0 scrim flex items-center justify-center z-[100]"
