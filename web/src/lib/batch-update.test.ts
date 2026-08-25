@@ -176,3 +176,82 @@ describe('MessageBatcher', () => {
     expect(appliedCount).toBe(0)
   })
 })
+
+describe('MessageBatcher getShouldDefer（F20260825scrf 弹窗背景冻结）', () => {
+  let mirror: Record<string, LocalMessage[]>
+  let queue: Record<string, LocalMessage[]>
+  let appliedCount: number
+  let shouldDefer: boolean
+  let batcher: MessageBatcher
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    mirror = { c1: [msg()] }
+    queue = { c1: [msg()] }
+    appliedCount = 0
+    shouldDefer = false
+    batcher = new MessageBatcher({
+      windowMs: 50,
+      getBase: (convId) => mirror[convId] ?? [],
+      getShouldDefer: () => shouldDefer,
+      apply: (updates) => {
+        appliedCount++
+        const next = { ...queue }
+        for (const [convId, materialize] of updates) next[convId] = materialize(next[convId]) ?? []
+        queue = next
+        Object.assign(mirror, queue)
+      },
+    })
+  })
+
+  afterEach(() => {
+    batcher.dispose()
+    vi.useRealTimers()
+  })
+
+  it('冻结期间窗口到期不产出（背景像素不变），解冻 flush 零丢失追上', () => {
+    shouldDefer = true
+    batcher.update('c1', list => [...list, msg({ id: 'm2', content: '流式文本' })])
+    vi.advanceTimersByTime(200)
+    // 冻结期：无 apply、queue 未变（scrim 背后像素静止）
+    expect(appliedCount).toBe(0)
+    expect(queue.c1.length).toBe(1)
+
+    // 解冻：手动 flush 一次性应用暂存链
+    shouldDefer = false
+    batcher.flush()
+    expect(appliedCount).toBe(1)
+    expect(queue.c1.length).toBe(2)
+    expect(queue.c1[1].content).toBe('流式文本')
+  })
+
+  it('冻结期间持续 update 继续暂存（updater 链不丢），解冻后一次性产出', () => {
+    shouldDefer = true
+    batcher.update('c1', list => [...list, msg({ id: 'm2' })])
+    vi.advanceTimersByTime(100)
+    batcher.update('c1', list => list.map(m => m.id === 'm2' ? { ...m, content: '追加' } : m))
+    vi.advanceTimersByTime(100)
+    expect(appliedCount).toBe(0)
+
+    shouldDefer = false
+    batcher.flush()
+
+    expect(appliedCount).toBe(1)
+    expect(queue.c1.length).toBe(2)
+    expect(queue.c1[1].content).toBe('追加')
+  })
+
+  it('解冻后暂存仍在时，下个窗口到期自然恢复产出（timer 未被清除）', () => {
+    shouldDefer = true
+    batcher.update('c1', list => [...list, msg({ id: 'm2' })])
+    vi.advanceTimersByTime(200)
+    expect(appliedCount).toBe(0)
+
+    // 解冻但不手动 flush：下一个窗口到期应自然产出
+    shouldDefer = false
+    batcher.update('c1', list => [...list, msg({ id: 'm3' })])
+    vi.advanceTimersByTime(50)
+    expect(appliedCount).toBe(1)
+    expect(queue.c1.length).toBe(3)
+  })
+})
