@@ -70,7 +70,8 @@ created_in_conversation: f8bf2fbe-6da0-4861-8f48-9ccb27f50c07
 
 ## 验证
 
-- [x] 后端全量测试 1574 通过（含新增 4 个：usecase modelAlias 透传/缺省 ×2、participants API 透传+缺省、otter API 透传+缺省）
-- [x] 前端全量测试 156 通过（含新增 7 个：mappers 映射/缺省 ×4、卡片 badge 渲染/不渲染/与大獭共存 ×3）
+- [x] 后端全量测试 1580 通过（含新增 5 个：usecase modelAlias 透传/缺省 ×2、participants API 透传+缺省、otter GET/POST API 透传+缺省 ×2）
+- [x] 前端全量测试 157 通过（含新增 8 个：mappers 映射/缺省 ×4、卡片 badge 渲染/不渲染/未知 alias/与大獭共存 ×4）
 - [x] `npm run lint` 干净、`npm run build` + `web npm run build` 通过
-- [ ] CI 绿（推 PR 后 gh run watch 确认）
+- [x] CI 绿（初始 run 32817954796 + 修复后 run 32819015603 均 success）
+- [x] 对抗审视一轮（mimo-reviewer）：2 严重 + 1 建议，全部处置——POST 测试补齐、badge 断言 testid 语义化、N+1 建 issue #446
