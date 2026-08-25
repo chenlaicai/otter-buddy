@@ -9,6 +9,8 @@
  * - 按任务名查找 active 状态的定时任务，用 prompts/scheduled/ 下同名模板更新其 body
  * - 模板文件查找规则：prompts/scheduled/<任务名去空格转kebab>.md（如 每日对话健康检查 → daily-health-check.md）
  *   若未找到按名称匹配的模板，则扫描目录中所有 .md，取 frontmatter 的 task_name 字段匹配
+ * - frontmatter 含 dynamic: true 的模板（运行时填充占位符，如 self-healing-analysis）会被跳过，
+ *   不写入 DB——它们的 body 由调度器动态生成，静态同步会破坏占位符形态（issue #416）
  * - --dry-run：只打印 diff，不写库
  *
  * 背景：定时任务 body 曾是纯 DB 状态（issue #352 教训之一——prompt 层修复散落在 DB 里，
@@ -49,7 +51,16 @@ function kebab(name) {
 function loadTemplate(taskName) {
   const dir = join(repoRoot, 'prompts', 'scheduled');
   const direct = join(dir, `${kebab(taskName)}.md`);
-  if (existsSync(direct)) return { body: readFileSync(direct, 'utf8'), path: direct };
+  if (existsSync(direct)) {
+    if (isDynamicTemplate(direct)) {
+      console.log(`[update-task] 「${taskName}」是 dynamic 模板（运行时填充占位符），跳过——DB body 保持占位符形态，不能被静态文案覆盖`);
+      process.exit(0);
+    }
+    // 与下方扫描分支一致：去掉 frontmatter，body 为 frontmatter 之后的内容
+    const content = readFileSync(direct, 'utf8');
+    const m = content.match(/^---\n([\s\S]*?)\n---\n/);
+    return { body: m ? content.slice(m[0].length) : content, path: direct };
+  }
   if (!existsSync(dir)) return null;
   for (const f of readdirSync(dir)) {
     if (!f.endsWith('.md')) continue;
@@ -57,11 +68,22 @@ function loadTemplate(taskName) {
     const content = readFileSync(full, 'utf8');
     const m = content.match(/^---\n([\s\S]*?)\n---\n/);
     if (m && new RegExp(`task_name:\\s*['"]?${taskName}['"]?`).test(m[1])) {
+      if (isDynamicTemplate(full)) {
+        console.log(`[update-task] 「${taskName}」是 dynamic 模板（运行时填充占位符），跳过——DB body 保持占位符形态，不能被静态文案覆盖`);
+        process.exit(0);
+      }
       // body 为 frontmatter 之后的内容
       return { body: content.slice(m[0].length), path: full };
     }
   }
   return null;
+}
+
+/** dynamic 模板含运行时占位符（如 {{HEALING_DATA}}），DB 里的 body 由调度器动态生成，
+ *  静态同步会破坏占位符形态（issue #416）。 */
+function isDynamicTemplate(filePath) {
+  const m = readFileSync(filePath, 'utf8').match(/^---\n([\s\S]*?)\n---\n/);
+  return m ? /^dynamic:\s*true\s*$/m.test(m[1]) : false;
 }
 
 function main() {
