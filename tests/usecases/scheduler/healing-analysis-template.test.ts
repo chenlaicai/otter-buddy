@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
-import { SchedulerService, type CronParser } from '@usecases/scheduler/scheduler-service';
+import { SchedulerService, HEALING_FALLBACK_PROMPT, type CronParser } from '@usecases/scheduler/scheduler-service';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
@@ -120,6 +120,21 @@ function readTemplateBody(): string {
   const m = content.match(/^---\n([\s\S]*?)\n---\n/);
   return m ? content.slice(m[0].length) : content;
 }
+
+describe('守卫：回退文案与模板静态部分同步（#428 审视发现 1）', () => {
+  it('HEALING_FALLBACK_PROMPT ≡ 模板静态部分（去占位符后逐字节一致）', () => {
+    // 双源维护：模板是 git 真相源，回退文案是代码内副本。本测试锁定两者同步——
+    // 改任一处不同步另一处，这里会失败。
+    const templateBody = readTemplateBody();
+    expect(HEALING_FALLBACK_PROMPT.trim()).toBe(templateBody.trim());
+  });
+
+  it('模板含 {{HEALING_DATA}} 占位符且仅一处', () => {
+    const templateBody = readTemplateBody();
+    expect(templateBody.match(/\{\{HEALING_DATA\}\}/g)).toHaveLength(1);
+    expect(HEALING_FALLBACK_PROMPT.match(/\{\{HEALING_DATA\}\}/g)).toHaveLength(1);
+  });
+});
 
 describe('SchedulerService - self-healing-analysis 模板化（issue #416）', () => {
   beforeEach(() => {

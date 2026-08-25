@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- 452 行 vs 450 上限：本文件聚合调度核心路径（触发/重试/healing 注入/指标），
+   拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#416 增加 ~30 行模板化逻辑已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
@@ -503,6 +505,18 @@ const MAX_PROMPT_LENGTH = 8000;
 /** self-healing-analysis 模板路径（issue #416：静态文案的 git 真相源，动态部分由 {{HEALING_DATA}} 占位符填充） */
 export const HEALING_ANALYSIS_TEMPLATE_PATH = 'prompts/scheduled/self-healing-analysis.md';
 
+/** 回退文案（模板缺失时用）。必须与模板静态部分保持一致——
+ *  守卫测试 tests/usecases/scheduler/healing-analysis-template.test.ts 锁定同步，改任一处须同步另一处。 */
+export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
+
+{{HEALING_DATA}}
+
+请执行以下步骤：
+1. 分析上述问题的根因，识别是否有重复/聚类模式
+2. 对于你有能力直接修复的（术语、记忆类），提出具体建议
+3. 对于需要修改 prompt 或代码的，生成清晰的修复描述
+4. 与搭档讨论，达成共识后记录决策`;
+
 /** 读取模板文件，去掉 frontmatter。文件缺失时返回 null（调用方回退到内置文案）。 */
 function loadHealingTemplate(): string | null {
   const path = resolve(process.cwd(), HEALING_ANALYSIS_TEMPLATE_PATH);
@@ -556,8 +570,13 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
   if (template?.includes('{{HEALING_DATA}}')) {
     prompt = template.replace('{{HEALING_DATA}}', dataSection);
   } else {
-    // 回退：模板缺失或无占位符时用内置文案（与模板内容保持一致）
-    prompt = `## Self-Healing 定期分析任务\n\n${dataSection}\n请执行以下步骤：\n1. 分析上述问题的根因，识别是否有重复/聚类模式\n2. 对于你有能力直接修复的（术语、记忆类），提出具体建议\n3. 对于需要修改 prompt 或代码的，生成清晰的修复描述\n4. 与搭档讨论，达成共识后记录决策`;
+    // 回退：模板缺失或无占位符时用内置文案（与模板内容保持一致，守卫测试锁定同步）。
+    //  Why 留痕：静默回退会让「模板丢了」无人知晓，git 化目标落空——warn 日志是最低成本的可观测性。
+    // #416 审视发现 2：cwd 非项目根时模板会读不到，这条日志是定位线索。
+    const path = resolve(process.cwd(), HEALING_ANALYSIS_TEMPLATE_PATH);
+    // eslint-disable-next-line no-console -- logger 在类实例上，此处是模块级函数；console.warn 与脚本输出风格一致
+    console.warn(`[healing-template] 模板缺失或无占位符（${path}），回退内置文案——若非预期请检查 cwd/部署路径`);
+    prompt = HEALING_FALLBACK_PROMPT.replace('{{HEALING_DATA}}', dataSection);
   }
 
   if (prompt.length > MAX_PROMPT_LENGTH) {

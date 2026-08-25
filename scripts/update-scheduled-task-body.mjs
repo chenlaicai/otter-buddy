@@ -52,12 +52,12 @@ function loadTemplate(taskName) {
   const dir = join(repoRoot, 'prompts', 'scheduled');
   const direct = join(dir, `${kebab(taskName)}.md`);
   if (existsSync(direct)) {
-    if (isDynamicTemplate(direct)) {
+    const content = readFileSync(direct, 'utf8');
+    if (isDynamicTemplate(content)) {
       console.log(`[update-task] 「${taskName}」是 dynamic 模板（运行时填充占位符），跳过——DB body 保持占位符形态，不能被静态文案覆盖`);
       process.exit(0);
     }
     // 与下方扫描分支一致：去掉 frontmatter，body 为 frontmatter 之后的内容
-    const content = readFileSync(direct, 'utf8');
     const m = content.match(/^---\n([\s\S]*?)\n---\n/);
     return { body: m ? content.slice(m[0].length) : content, path: direct };
   }
@@ -68,7 +68,7 @@ function loadTemplate(taskName) {
     const content = readFileSync(full, 'utf8');
     const m = content.match(/^---\n([\s\S]*?)\n---\n/);
     if (m && new RegExp(`task_name:\\s*['"]?${taskName}['"]?`).test(m[1])) {
-      if (isDynamicTemplate(full)) {
+      if (isDynamicTemplate(content)) {
         console.log(`[update-task] 「${taskName}」是 dynamic 模板（运行时填充占位符），跳过——DB body 保持占位符形态，不能被静态文案覆盖`);
         process.exit(0);
       }
@@ -80,9 +80,9 @@ function loadTemplate(taskName) {
 }
 
 /** dynamic 模板含运行时占位符（如 {{HEALING_DATA}}），DB 里的 body 由调度器动态生成，
- *  静态同步会破坏占位符形态（issue #416）。 */
-function isDynamicTemplate(filePath) {
-  const m = readFileSync(filePath, 'utf8').match(/^---\n([\s\S]*?)\n---\n/);
+ *  静态同步会破坏占位符形态（issue #416）。接受已读文件内容，避免重复 IO。 */
+function isDynamicTemplate(fileContent) {
+  const m = fileContent.match(/^---\n([\s\S]*?)\n---\n/);
   return m ? /^dynamic:\s*true\s*$/m.test(m[1]) : false;
 }
 
