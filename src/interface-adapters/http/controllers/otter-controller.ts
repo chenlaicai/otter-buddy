@@ -6,11 +6,13 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { CreateOtterInput } from "@usecases/otter/create-otter";
 import type { Logger } from "@usecases/ports/logger";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { handleError, param } from "../http-error";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
 import type { CreateOtterRequestDTO } from "../dto/otter-dto";
 
 export class OtterController {
+  // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定（configProvider 读 modelAlias）
   constructor(
 
     private readonly createOtterUseCase: CreateOtter,
@@ -18,6 +20,8 @@ export class OtterController {
     private readonly manageSession: ManageSession,
     private readonly queryOtter: QueryOtter,
       private readonly logger: Logger,
+    /** 可选：无注入时 OtterDTO.modelAlias 缺省不返回（老数据/测试场景） */
+    private readonly configProvider?: OtterConfigProvider,
   ) {}
 
   async getById(c: Context): Promise<Response> {
@@ -27,7 +31,7 @@ export class OtterController {
       if (!otter) {
         return c.json({ error: "Otter not found" }, 404);
       }
-      return c.json(toOtterDTO(otter));
+      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(id)?.modelAlias));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -45,7 +49,7 @@ export class OtterController {
         context: body.context,
       };
       const otter = await this.createOtterUseCase.execute(input);
-      return c.json(toOtterDTO(otter), 201);
+      return c.json(toOtterDTO(otter, this.configProvider?.getConfig(otter.id)?.modelAlias), 201);
     } catch (err) {
       return handleError(c, err, this.logger);
     }

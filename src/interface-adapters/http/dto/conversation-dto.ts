@@ -39,7 +39,7 @@ export function toConversationListItemDTO(
 export function toParticipantDTO(
   p: ConversationParticipant,
   otterName: string,
-  extra?: { otterType?: string; roleName?: string },
+  extra?: { otterType?: string; roleName?: string; modelAlias?: string },
 ): ParticipantDTO {
   return {
     id: p.id,
@@ -48,6 +48,7 @@ export function toParticipantDTO(
     otterName,
     ...(extra?.otterType !== undefined && { otterType: extra.otterType }),
     ...(extra?.roleName !== undefined && { roleName: extra.roleName }),
+    ...(extra?.modelAlias !== undefined && { modelAlias: extra.modelAlias }),
     joinedAtTurnNumber: p.joinedAtTurnNumber,
     leftAtTurnNumber: p.leftAtTurnNumber,
     status: p.status,

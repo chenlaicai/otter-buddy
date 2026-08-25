@@ -7,6 +7,7 @@ import type Database from "better-sqlite3";
 import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import type { Conversation, Turn } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { DomainError } from "@entities/errors";
@@ -173,6 +174,31 @@ describe("ManageParticipant（真 sqlite）", () => {
       expect(result).toHaveLength(1);
       /** 回退名称格式：Otter {id.slice(0,8)} */
       expect(result[0].otterName).toBe("Otter otter-mi");
+    });
+
+    it("注入 configProvider 时返回 modelAlias，未配置的 otter 为 undefined", async () => {
+      const configProvider = new SqliteOtterConfigProvider(db);
+      configProvider.setConfig("otter-1", { otterType: "small", modelAlias: "mimo" });
+      configProvider.setConfig("otter-2", { otterType: "small" });
+      const mpWithConfig = new ManageParticipant(repo, otterRepo, configProvider);
+      await mpWithConfig.join("conv-1", "otter-1", "A 进场");
+      await newTurn();
+      await mpWithConfig.join("conv-1", "otter-2", "B 进场");
+
+      const result = await mpWithConfig.getActiveParticipants("conv-1");
+
+      const byOtter = new Map(result.map((r) => [r.participant.otterId, r.modelAlias]));
+      expect(byOtter.get("otter-1")).toBe("mimo");
+      expect(byOtter.get("otter-2")).toBeUndefined();
+    });
+
+    it("不注入 configProvider 时 modelAlias 为 undefined（老数据兼容）", async () => {
+      await mp.join("conv-1", "otter-1", "A 进场");
+
+      const result = await mp.getActiveParticipants("conv-1");
+
+      expect(result).toHaveLength(1);
+      expect(result[0].modelAlias).toBeUndefined();
     });
   });
 });

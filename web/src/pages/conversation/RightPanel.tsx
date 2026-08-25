@@ -191,6 +191,10 @@ function OtterParticipantCard({
           </div>
         )}
       </div>
+      {/* 模型标签：未配置（大獭/老数据/默认模型）不渲染，与"大獭"badge 同视觉权重 */}
+      {o.modelAlias && (
+        <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500">{o.modelAlias}</span>
+      )}
       {isBig ? (
         <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-otter-400/15 text-otter-500">大獭</span>
       ) : (

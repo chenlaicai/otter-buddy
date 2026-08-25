@@ -9,6 +9,7 @@ import { isValidTalkingStonePass } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { tryCloseTurn } from "./turn-utils";
 
 export interface ParticipantWithOtter {
@@ -16,12 +17,16 @@ export interface ParticipantWithOtter {
   otterName: string;
   otterType?: string;
   roleName?: string;
+  /** 模型别名（多模型路由）；未配置时不返回 */
+  modelAlias?: string;
 }
 
 export class ManageParticipant {
   constructor(
     private readonly repo: ConversationRepository,
     private readonly otterRepo: OtterRepository,
+    /** 可选：老数据/测试场景无 config 注入时 modelAlias 缺省不返回 */
+    private readonly configProvider?: OtterConfigProvider,
   ) {}
 
   /**
@@ -203,7 +208,8 @@ export class ManageParticipant {
     for (const participant of participants) {
       const otter = await this.otterRepo.getById(participant.otterId);
       const otterName = otter?.name ?? `Otter ${participant.otterId.slice(0, 8)}`;
-      result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name });
+      const modelAlias = this.configProvider?.getConfig(participant.otterId)?.modelAlias;
+      result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name, modelAlias });
     }
     return result;
   }

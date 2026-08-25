@@ -43,6 +43,8 @@ export interface ParticipantDTO {
   otterType?: string;
   /** otter 角色名（小獭的角色，如"审查獭"） */
   roleName?: string;
+  /** 模型别名（多模型路由，如 "mimo"）；未配置（大獭/老数据/默认模型）时不返回 */
+  modelAlias?: string;
   joinedAtTurnNumber: number;
   leftAtTurnNumber: number | null;
   status: string;
