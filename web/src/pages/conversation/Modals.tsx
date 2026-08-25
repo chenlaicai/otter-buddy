@@ -1,8 +1,10 @@
-import { useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Check, Copy, ChevronDown, ChevronRight } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { HelpIcon } from '../../components/HelpIcon'
+import { fetchOtterProfile } from '../../api/client'
+import type { OtterProfileDTO } from '@contract/api'
 import type { LocalOtter as Otter, LocalOtterSession as OtterSession } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
 
@@ -284,12 +286,48 @@ const HELP_TEXT = {
   badge: '称号由规则自动派生：族群长老=大獭；N世轮回=世数≥3；高产=产出≥10；无满足则不显示。',
   type: '大獭=族群长老（持久型，负责统筹和派活）；小獭=任务专员（临时型，完成任务后解散）。',
   sessionChain: '转世履历记录海獭的每次 session 生命周期。重启獭生 = 封存当前 session + 开启新 session。',
+  weapon: '驱动这只海獭的底层模型，来自创建时的 modelAlias 配置，未指定时用默认模型。',
+  skills: '从 .pi/skills 目录发现的流程能力，当前全族群共享同一套；个体差异在武器与心法。',
+  tools: '运行时注册的工具全集；部分工具按獭类型/大獭身份门控（注册全量≠都能用）。',
+  systemPrompt: '海獭级系统提示词（任务书）。实际生效 prompt 为三层叠加：平台 base + 本心法 + 身份注入；本槽只展示中间层。',
+  stats: '发言=消息段数（一段 speak 计 1）；产出=名下链接资源数；对话=参与过的对话数。',
+}
+
+/** 装备槽组件（PR-2） */
+function EquipmentSlot({ icon, label, helpText, extra, children }: {
+  icon: string; label: string; helpText: string; extra?: React.ReactNode; children: React.ReactNode
+}) {
+  return (
+    <div className="glass-card rounded-xl p-3">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="text-sm">{icon}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">{label}</span>
+        <HelpIcon text={helpText} />
+        {extra && <span className="ml-auto">{extra}</span>}
+      </div>
+      {children}
+    </div>
+  )
 }
 
 function OtterDetailModal(props: ModalsProps) {
   const { modal } = props
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [profile, setProfile] = useState<OtterProfileDTO | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [toolsExpanded, setToolsExpanded] = useState(false)
+  const [promptExpanded, setPromptExpanded] = useState(false)
   const otter = modal.type === 'otter-detail' ? props.otters.find(o => o.id === modal.otterId) : null
+
+  useEffect(() => {
+    if (!otter) return
+    setProfileLoading(true)
+    fetchOtterProfile(otter.id)
+      .then(setProfile)
+      .catch(() => setProfile(null))
+      .finally(() => setProfileLoading(false))
+  }, [otter?.id])
+
   if (!otter) return null
 
   const isBig = otter.type === 'big'
@@ -298,11 +336,11 @@ function OtterDetailModal(props: ModalsProps) {
   const activeSession = chain.find(s => s.status === 'active')
   const activeGen = activeSession ? chain.indexOf(activeSession) + 1 : 0
 
-  // 称号徽章：规则化派生（D3）
+  // 称号徽章：规则化派生（D3），PR-2 启用"高产"
   const badges: string[] = []
   if (isBig) badges.push('族群长老')
   if (activeGen >= 3) badges.push(`${activeGen}世轮回`)
-  // "高产" 需要 artifactCount，PR-2 数据到位后启用
+  if (profile && profile.stats.artifactCount >= 10) badges.push('高产')
   if (otter.role?.name) badges.push(otter.role.name)
 
   const statusEmoji = activeSession ? '🟢' : '💤'
@@ -409,15 +447,129 @@ function OtterDetailModal(props: ModalsProps) {
         </div>
       </div>
 
-      {/* ═══ 装备区占位（PR-2 扩展） ═══ */}
-      <div className="mb-5 p-3 rounded-xl border border-dashed border-stone-300/60">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 text-center">
-          装备区 · 武器 / 技能槽 / 工具袋 / 心法
+      {/* ═══ 装备区（PR-2） ═══ */}
+      {profileLoading ? (
+        <div className="mb-5 space-y-2">
+          <div className="h-8 bg-white/20 rounded-xl animate-pulse" />
+          <div className="h-8 bg-white/20 rounded-xl animate-pulse" />
         </div>
-        <div className="text-[10px] text-stone-400 text-center mt-0.5">PR-2 实现</div>
-      </div>
+      ) : profile && (
+        <div className="mb-5 space-y-3">
+          {/* ⚔️ 武器：模型描述 + 强项 */}
+          {profile.modelAlias && (
+            <EquipmentSlot
+              icon="⚔️"
+              label="武器"
+              helpText={HELP_TEXT.weapon}
+            >
+              <div className="text-sm font-medium text-stone-800">{profile.modelAlias}</div>
+              {profile.modelDescriptor?.description && (
+                <div className="text-xs text-stone-500 mt-0.5">{profile.modelDescriptor.description}</div>
+              )}
+              {profile.modelDescriptor?.strengths && profile.modelDescriptor.strengths.length > 0 && (
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {profile.modelDescriptor.strengths.map(s => (
+                    <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-600">{s}</span>
+                  ))}
+                </div>
+              )}
+            </EquipmentSlot>
+          )}
 
-      {/* ═══ 历练区：转世履历（改名自 Session Chain） ═══ */}
+          {/* ✨ 技能槽：skills chips 云 */}
+          {profile.skills.length > 0 && (
+            <EquipmentSlot
+              icon="✨"
+              label="技能槽"
+              helpText={HELP_TEXT.skills}
+              extra={<span className="text-[9px] text-stone-400">族群共享心法库</span>}
+            >
+              <div className="flex gap-1 flex-wrap">
+                {profile.skills.map(s => (
+                  <span key={s.name} className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600" title={s.description}>
+                    {s.name}
+                  </span>
+                ))}
+              </div>
+            </EquipmentSlot>
+          )}
+
+          {/* 🎒 工具袋：分组折叠 */}
+          <EquipmentSlot
+            icon="🎒"
+            label="工具袋"
+            helpText={HELP_TEXT.tools}
+            extra={<span className="text-[9px] text-stone-400">{profile.tools.length} 件</span>}
+          >
+            <button
+              onClick={() => setToolsExpanded(!toolsExpanded)}
+              className="text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
+            >
+              {toolsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              {toolsExpanded ? '收起' : '展开'}
+            </button>
+            {toolsExpanded && (
+              <div className="mt-1.5 space-y-1.5">
+                {Object.entries(
+                  profile.tools.reduce((acc, t) => {
+                    const g = t.group || '其他'
+                    ;(acc[g] ??= []).push(t)
+                    return acc
+                  }, {} as Record<string, typeof profile.tools>)
+                ).map(([group, tools]) => (
+                  <div key={group}>
+                    <div className="text-[9px] font-semibold text-stone-400 uppercase">{group}</div>
+                    <div className="flex gap-1 flex-wrap mt-0.5">
+                      {tools.map(t => (
+                        <span key={t.name} className="text-[9px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500" title={t.description}>
+                          {t.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </EquipmentSlot>
+
+          {/* 📜 心法：systemPrompt 折叠 */}
+          {profile.systemPrompt && (
+            <EquipmentSlot
+              icon="📜"
+              label="心法"
+              helpText={HELP_TEXT.systemPrompt}
+              extra={<span className="text-[9px] text-stone-400">约 {profile.systemPrompt.length} 字</span>}
+            >
+              <button
+                onClick={() => setPromptExpanded(!promptExpanded)}
+                className="text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
+              >
+                {promptExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                {promptExpanded ? '收起' : '展开'}
+              </button>
+              {promptExpanded && (
+                <pre className="mt-1.5 text-xs text-stone-600 bg-stone-50 rounded-lg p-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
+                  {profile.systemPrompt}
+                </pre>
+              )}
+            </EquipmentSlot>
+          )}
+        </div>
+      )}
+
+      {/* ═══ 战绩统计行 ═══ */}
+      {profile && !profileLoading && (
+        <div className="mb-5 flex items-center gap-3 text-[11px] text-stone-500 flex-wrap">
+          <span className="font-semibold uppercase tracking-wider text-[10px] text-stone-400 flex items-center">
+            战绩 <HelpIcon text={HELP_TEXT.stats} />
+          </span>
+          <span>发言 <strong className="text-stone-700">{profile.stats.messageCount}</strong> 段</span>
+          <span>产出 <strong className="text-stone-700">{profile.stats.artifactCount}</strong> 件</span>
+          <span>对话 <strong className="text-stone-700">{profile.stats.conversationCount}</strong> 场</span>
+        </div>
+      )}
+
+      {/* ═══ 历练区：转世履历 ═══ */}
       <div>
         <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5 flex items-center">
           转世履历 <HelpIcon text={HELP_TEXT.sessionChain} />

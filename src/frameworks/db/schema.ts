@@ -117,6 +117,7 @@ function createMessageTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(turn_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id);
   `);
 
   db.exec(`
