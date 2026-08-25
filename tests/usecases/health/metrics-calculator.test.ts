@@ -22,7 +22,12 @@ function buildSample() {
   ];
 
   const parsed = messages.map((m, i) => parseCommit(`sha${i}`, m));
-  const commitsWithFiles = messages.map((m, i) => ({ sha: `sha${i}`, message: m, filesChanged: filesPerCommit[i] }));
+  const commitsWithFiles = messages.map((m, i) => ({
+    sha: `sha${i}`,
+    message: m,
+    date: `2026-08-${String(20 + i).padStart(2, "0")}T10:00:00+08:00`,
+    filesChanged: filesPerCommit[i],
+  }));
   return { parsed, commitsWithFiles };
 }
 
