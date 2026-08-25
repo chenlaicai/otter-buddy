@@ -30,8 +30,9 @@ const id = '(\\\\d{10}|\\\\d{8}[a-kmnp-z][2-9a-kmnp-z]{3,9})';
 const cjk = '[\\\\u4e00-\\\\u9fff]';
 // F：必须带变更类型；R：类型可省略（与 CI PR 标题规则及历史 R 提交一致）
 // 类型白名单与 commit-convention.md Type Tags 对齐（补录 Design/Refactor，#427）
-const f = new RegExp('^\\\\[F' + id + '\\\\]\\\\[[a-z][a-z-]*\\\\]\\\\[(Feature Update|BugFix|New Feature|Refactor|Design)\\\\](\\\\[Incompatible\\\\])?\\\\s+.+' + cjk + '.*$');
-const r = new RegExp('^\\\\[R' + id + '\\\\]\\\\[[a-z][a-z-]*\\\\](\\\\[(Feature Update|BugFix|New Feature|Refactor|Design)\\\\](\\\\[Incompatible\\\\])?)?\\\\s+.+' + cjk + '.*$');
+const types = '(Feature Update|BugFix|New Feature|Refactor|Design)';
+const f = new RegExp('^\\\\[F' + id + '\\\\]\\\\[[a-z][a-z-]*\\\\]\\\\[' + types + '\\\\](\\\\[Incompatible\\\\])?\\\\s+.+' + cjk + '.*$');
+const r = new RegExp('^\\\\[R' + id + '\\\\]\\\\[[a-z][a-z-]*\\\\](\\\\[' + types + '\\\\](\\\\[Incompatible\\\\])?)?\\\\s+.+' + cjk + '.*$');
 process.stdout.write((f.test(title) || r.test(title)) ? 'yes' : 'no');
 " "$first_line")
 if [ "$is_template_valid" != "yes" ]; then
