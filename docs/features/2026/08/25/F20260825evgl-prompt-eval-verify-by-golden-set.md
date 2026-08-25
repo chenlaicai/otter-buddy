@@ -12,6 +12,7 @@ intent:
   verify_by:
     type: capability_test
     detail: "golden runner 跑 4 场景 n=3 采样断言通过（严肃点场景 manual_review 记录 verdict）"
+capability_test: tests/capability/golden/golden.capability.test.ts
 tags: [eval, prompt, capability-test, pr-evaluation, golden-set]
 modules: [scripts/lint-intent.mjs, tests/capability/, docs/features/]
 ---
@@ -237,17 +238,41 @@ export async function assert(/* ctx, messages */): Promise<{ ok: boolean; detail
 
 8 条发现全部确认修复。残余项：风险节 1 的成本估算引用原版 n=5 口径，与方案设计 golden 示例 `sampling: { n: 3, minSuccess: 2 }` 不一致。处置（kimi思考獭代执行，2026-08-25）：风险节 1 已改为按场景 sampling 协议表述（PR gate 精简版 n=3，terminal 场景可校准 n=5/n=10），时长估算同步从 15-20 分钟修为 8-15 分钟。
 
+## 实现记录（kimi思考獭，2026-08-25）
+
+按搭档决策（「没必要分开俩，本次就特性文档把实现也带上」），本 PR 升级为完整特性 PR（Design + 实现同 PR）。
+
+**T1 lint-intent 扩展（已验证）**：
+- `scripts/lint-intent.mjs`：VALID_VERIFY_BY_TYPES 扩展三值（capability_test/golden_replay/static_only），behavior_check 语义保持"人工行为检查"不变；新增 SOFT_CODE_SAMPLE_TYPES 联动规则（capability_test/golden_replay 时 expected_effect 禁用模糊词，错误非警告）；isSoftCodeChange 判定（modules 含 prompts/ 或 .pi/）→ 缺 verify_by 产生软代码警告（存量宽容，不阻断）
+- `tests/lint/lint-intent.test.ts`：validateIntent 相关函数抽到 describe 外（修 max-lines-per-function lint 错误）；新增 7 个用例（新三值接受 / 软代码 prompts/+.pi/ 警告 / capability_test+golden_replay 模糊词报错 / human_judge 模糊词仅警告）；15 测试全过
+- 真跑验证：lint 脚本对构造的软代码缺 verify_by 文档产生预期警告；本特性文档自身 verify_by.type=capability_test 被识别为合法（T1 落地后 lint error 自然消除）
+
+**T2 golden 设施（已验证编译/lint）**：
+- `tests/capability/golden/README.md`：golden 集约定（来源/沉淀/holdout/模型标签/重校准）+ T3 采样协议分层表 + manual_review 流程 + 铸-跑-记循环
+- `golden.runner.ts`：最小 runner——registerGoldenScenarios 统一 boot 一次、逐场景按 sampling 采样（复用 sendUserMessage/waitForOtterMessage/expectSampledBehavior）、每场景采样结束 append results.jsonl（写入点在 runner 不动 expectSampledBehavior）；manualReview 场景输出 MANUAL_REVIEW 标记 + 记录 pending verdict
+- 4 个场景文件（元数据 + 命令式断言函数，复用现有 helper，originTest 锚点标注源测试）：r4-summon-search-first / seriousness-mode-switch（manualReview）/ yield-handoff-protocol / talking-stone-routing
+- `golden.capability.test.ts`：入口注册 4 场景（命名匹配 vitest include 模式）
+- `.gitignore`：新增 results.jsonl（非追踪）
+- frontmatter 补 capability_test 字段（dogfooding B 类约定）
+- 验证：tsc 0 错误 / eslint 0 错误 / 全量 unit test 1632 全过 / lint:intent+lint:docs+lint:capability 全 OK
+
+**T3/T4**：采样协议分层表与防腐机制已写入 golden/README.md（文档约定，软）。
+
+**未跑真 LLM 验证**（golden 场景需 npm run test:capability 真模型）：设施编译/lint 干净，真跑校准（各场景 minSuccess 阈值）留给 PR 检视环节的检视獭按采样协议执行——这是设计意图（golden 是检视獭的工具而非 CI 硬门禁，先软后硬）。
+
 ## 改动范围
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| scripts/lint-intent.mjs | 修改 | 扩展 VALID_VERIFY_BY_TYPES + 软代码 PR 强制声明规则 |
-| tests/lint/lint-intent.test.ts | 修改 | 新规则单测 |
-| tests/capability/golden/README.md | 新增 | golden 集约定：来源/沉淀规则/holdout/模型标签/采样协议分层表/manual_review 流程 |
+| scripts/lint-intent.mjs | 修改 | 扩展 VALID_VERIFY_BY_TYPES + 软代码判定与联动规则 |
+| tests/lint/lint-intent.test.ts | 修改 | 函数抽顶层（修 lint 超长）+ 7 新用例 |
+| tests/capability/golden/README.md | 新增 | golden 集约定 + 采样协议分层表 + manual_review 流程 |
 | tests/capability/golden/golden.runner.ts | 新增 | 最小 runner：遍历场景→采样→断言→results.jsonl 记录 |
 | tests/capability/golden/r4-summon-search-first.golden.ts | 新增 | 伤疤1 场景 |
-| tests/capability/golden/seriousness-mode-switch.golden.ts | 新增 | 伤疤2 场景（含「停下」变体） |
+| tests/capability/golden/seriousness-mode-switch.golden.ts | 新增 | 伤疤2 场景（manualReview） |
 | tests/capability/golden/yield-handoff-protocol.golden.ts | 新增 | 伤疤3 场景 |
 | tests/capability/golden/talking-stone-routing.golden.ts | 新增 | 伤疤4 场景（断言复用现有测试） |
+| tests/capability/golden/golden.capability.test.ts | 新增 | 入口注册 4 场景 |
 | tests/capability/golden/results.jsonl | 新增(非追踪) | 本地结果沉淀，含模型标签（写入点在 golden runner） |
-| docs/features/2026/08/25/F20260825evgl-*.md | 新增 | 本特性文档 |
+| .gitignore | 修改 | results.jsonl 非追踪 |
+| docs/features/2026/08/25/F20260825evgl-*.md | 新增 | 本特性文档（含实现记录） |

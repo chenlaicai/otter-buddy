@@ -38,7 +38,27 @@ function walk(dir) {
 // Intent 字段校验规则
 const INTENT_REQUIRED_CHANGE_TYPES = new Set(["feature"]);
 const INTENT_RECOMMENDED_CHANGE_TYPES = new Set(["bugfix", "refactor"]);
-const VALID_VERIFY_BY_TYPES = new Set(["metric_probe", "behavior_check", "human_judge"]);
+// F20260825evgl：扩展软代码域三值。behavior_check 语义保持"人工行为检查"（对齐
+// metric_probe/human_judge 的人工语义），capability_test/golden_replay 是自动采样断言设施，
+// static_only 是纯文字润色的静态守护——分开声明避免混淆两类不同验证设施。
+const VALID_VERIFY_BY_TYPES = new Set([
+  "metric_probe",
+  "behavior_check",
+  "human_judge",
+  "capability_test",
+  "golden_replay",
+  "static_only",
+]);
+
+// 软代码域 verify_by：capability_test/golden_replay 要求 expected_effect 可判定（采样断言门禁）
+const SOFT_CODE_SAMPLE_TYPES = new Set(["capability_test", "golden_replay"]);
+
+/** 软代码判定：frontmatter modules 含 prompts/ 或 .pi/ 路径（直接消费已有字段，不重新发明判定） */
+function isSoftCodeChange(fm) {
+  const modules = fm.modules;
+  if (!Array.isArray(modules)) return false;
+  return modules.some((m) => typeof m === "string" && (m.startsWith("prompts/") || m.startsWith(".pi/")));
+}
 
 function validateIntent(fm) {
   const errors = [];
@@ -98,12 +118,24 @@ function validateIntent(fm) {
       // 检查 verify_by.type 是否为合法值
       if (!intent.verify_by.type || !VALID_VERIFY_BY_TYPES.has(intent.verify_by.type)) {
         errors.push(`Invalid intent.verify_by.type: ${intent.verify_by.type}. Must be one of: ${Array.from(VALID_VERIFY_BY_TYPES).join(", ")}`);
+      } else if (SOFT_CODE_SAMPLE_TYPES.has(intent.verify_by.type)) {
+        // F20260825evgl 联动规则：capability_test/golden_replay 要求 expected_effect 可判定——
+        // 采样断言的门禁是"评分布移动"翻译成可判定形式，模糊词在这里不是警告是错误。
+        const fuzzyWords = ["提升", "优化", "改善", "更好", "更优", "增强"];
+        const effect = typeof intent.expected_effect === "string" ? intent.expected_effect : "";
+        if (fuzzyWords.some((w) => effect.includes(w))) {
+          errors.push(`intent.expected_effect must be measurable when verify_by.type=${intent.verify_by.type}（采样断言门禁，禁用模糊词）`);
+        }
       }
     }
   } else {
-    // verify_by 可选，但 feature 最好有
+    // verify_by 缺失：软代码改动（modules 含 prompts/ 或 .pi/）提示必须显式声明。
+    // 存量宽容：统一警告不阻断（沿用阶段一策略，与 F20260824ax376 一致）——新规则靠后续
+    // PR 检视流程约束（检视獭按 verify_by.type 跑场景），不靠 lint 硬阻断存量文档。
     const changeType = fm.change_type;
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType)) {
+    if (isSoftCodeChange(fm)) {
+      warnings.push("Recommended intent.verify_by field for soft-code change (modules 含 prompts/ 或 .pi/)——软代码 PR 应显式声明 capability_test/golden_replay/human_judge/static_only 四选一");
+    } else if (INTENT_REQUIRED_CHANGE_TYPES.has(changeType)) {
       warnings.push("Recommended intent.verify_by field for feature");
     }
   }
