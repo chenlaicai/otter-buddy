@@ -489,14 +489,14 @@ export class AgentTurnOrchestrator {
 
     try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
-    // message.failed 事件必须在 prepareForRetry 之前发出（失败状态已确认，重置是后续操作）
+    // message.failed 事件：auto-retry 路径发此事件通知前端消息失败（no_yield 路径不发，两条路径前端感知语义不同——见 A1）
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.failed',
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
-    // F20260821rtmo: 重置消息生命周期，使重试轮输出可 append（否则消息卡在 failed 状态，输出全部丢失）
+    // F20260821rtmx: 重置消息生命周期，使重试轮输出可 append（否则消息卡在 failed 状态，输出全部丢失）
     try {
       await ctx.callbacks.prepareForRetry(ctx.input.messageId, false);
     } catch (err) {

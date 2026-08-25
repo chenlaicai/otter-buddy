@@ -16,15 +16,15 @@ causal_links:
 
 # 元数据
 status: development
-change_type: fix
+type: fix
 tags: [agent, orchestrator, retry, timeout, message-lifecycle]
 modules: [src/usecases/conversation/agent-turn-orchestrator]
 
 # 时间
-created_at: 2026-08-21
+created_at: 2026-08-25
 ---
 
-# F20260821rtmo - streaming_timeout 自动重试消息丢失修复
+# F20260821rtmx - streaming_timeout 自动重试消息丢失修复
 
 ## 1. 问题背景
 
