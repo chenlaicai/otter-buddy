@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- 452 行 vs 450 上限：本文件聚合调度核心路径（触发/重试/healing 注入/指标），
+   拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#416 增加 ~30 行模板化逻辑已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
@@ -10,6 +12,8 @@ import type { HealingEventRepository } from '@usecases/healing/healing-event-rep
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 import { DomainError } from '@entities/errors';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /** once 任务重试参数 */
 const ONCE_MAX_RETRIES = 3;
@@ -498,7 +502,36 @@ export class SchedulerService {
 
 const MAX_PROMPT_LENGTH = 8000;
 
-/** 构建 healing 分析任务的动态 prompt。返回 null 表示无待处理事件。 */
+/** self-healing-analysis 模板路径（issue #416：静态文案的 git 真相源，动态部分由 {{HEALING_DATA}} 占位符填充） */
+export const HEALING_ANALYSIS_TEMPLATE_PATH = 'prompts/scheduled/self-healing-analysis.md';
+
+/** 回退文案（模板缺失时用）。必须与模板静态部分保持一致——
+ *  守卫测试 tests/usecases/scheduler/healing-analysis-template.test.ts 锁定同步，改任一处须同步另一处。 */
+export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
+
+{{HEALING_DATA}}
+
+请执行以下步骤：
+1. 分析上述问题的根因，识别是否有重复/聚类模式
+2. 对于你有能力直接修复的（术语、记忆类），提出具体建议
+3. 对于需要修改 prompt 或代码的，生成清晰的修复描述
+4. 与搭档讨论，达成共识后记录决策`;
+
+/** 读取模板文件，去掉 frontmatter。文件缺失时返回 null（调用方回退到内置文案）。 */
+function loadHealingTemplate(): string | null {
+  const path = resolve(process.cwd(), HEALING_ANALYSIS_TEMPLATE_PATH);
+  try {
+    const content = readFileSync(path, 'utf8');
+    const fm = content.match(/^---\n([\s\S]*?)\n---\n/);
+    return fm ? content.slice(fm[0].length) : content;
+  } catch {
+    return null;
+  }
+}
+
+/** 构建 healing 分析任务的动态 prompt。返回 null 表示无待处理事件。
+ *  静态文案来自 prompts/scheduled/self-healing-analysis.md（issue #416 git 化），
+ *  文件缺失时回退到内置文案保证可用性。 */
 async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Promise<string | null> {
   const stats = await healingRepo.getStats();
   const openEvents = await healingRepo.findOpen(20);
@@ -512,9 +545,7 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
     return acc;
   }, {} as Record<string, typeof openEvents>);
 
-  let prompt = `## Self-Healing 定期分析任务
-
-当前系统健康概况：
+  let dataSection = `当前系统健康概况：
 - 待处理: ${stats.open} 个
 - 已解决: ${stats.resolved} 个
 - 已忽略: ${stats.dismissed} 个
@@ -526,19 +557,27 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
 `;
 
   for (const [type, events] of Object.entries(eventsByType)) {
-    prompt += `### ${type} (${events.length} 条)\n\n`;
+    dataSection += `### ${type} (${events.length} 条)\n\n`;
     for (const e of events) {
-      prompt += `- [${e.severity}] ${e.description}\n`;
-      if (e.suggestion) prompt += `  建议: ${e.suggestion}\n`;
+      dataSection += `- [${e.severity}] ${e.description}\n`;
+      if (e.suggestion) dataSection += `  建议: ${e.suggestion}\n`;
     }
-    prompt += '\n';
+    dataSection += '\n';
   }
 
-  prompt += `请执行以下步骤：
-1. 分析上述问题的根因，识别是否有重复/聚类模式
-2. 对于你有能力直接修复的（术语、记忆类），提出具体建议
-3. 对于需要修改 prompt 或代码的，生成清晰的修复描述
-4. 与搭档讨论，达成共识后记录决策`;
+  const template = loadHealingTemplate();
+  let prompt: string;
+  if (template?.includes('{{HEALING_DATA}}')) {
+    prompt = template.replace('{{HEALING_DATA}}', dataSection);
+  } else {
+    // 回退：模板缺失或无占位符时用内置文案（与模板内容保持一致，守卫测试锁定同步）。
+    //  Why 留痕：静默回退会让「模板丢了」无人知晓，git 化目标落空——warn 日志是最低成本的可观测性。
+    // #416 审视发现 2：cwd 非项目根时模板会读不到，这条日志是定位线索。
+    const path = resolve(process.cwd(), HEALING_ANALYSIS_TEMPLATE_PATH);
+    // eslint-disable-next-line no-console -- logger 在类实例上，此处是模块级函数；console.warn 与脚本输出风格一致
+    console.warn(`[healing-template] 模板缺失或无占位符（${path}），回退内置文案——若非预期请检查 cwd/部署路径`);
+    prompt = HEALING_FALLBACK_PROMPT.replace('{{HEALING_DATA}}', dataSection);
+  }
 
   if (prompt.length > MAX_PROMPT_LENGTH) {
     prompt = prompt.slice(0, MAX_PROMPT_LENGTH) + '\n\n... (内容过长已截断，请使用 manage_healing_events 工具查询更多)';
