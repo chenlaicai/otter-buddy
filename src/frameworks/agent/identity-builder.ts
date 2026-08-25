@@ -69,10 +69,16 @@ export class IdentityBuilder {
     // F20260824aibd: 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
     const modelIdentity = this.buildModelIdentity(modelAlias);
 
+    // F20260825m422a: 注入当前日期时间——干净 session 无日期锚点导致特性 ID 日期臆断（#422）
+    const now = new Date();
+    const dateTimeStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    const dateAnchor = `## 当前日期时间\n- 今天是 ${dateTimeStr}（Asia/Shanghai）`;
+
     return [
       `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
       userIdentity,
       summonerIdentity,
+      dateAnchor,
       identityBody,
       modelIdentity,
       modelGuidance,
