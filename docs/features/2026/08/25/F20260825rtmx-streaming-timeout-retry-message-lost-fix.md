@@ -1,5 +1,5 @@
 ---
-id: F20260821rtmx
+id: F20260825rtmx
 title: streaming-timeout-retry-message-lost-fix
 doc_type: feature
 
@@ -24,7 +24,7 @@ modules: [src/usecases/conversation/agent-turn-orchestrator]
 created_at: 2026-08-25
 ---
 
-# F20260821rtmx - streaming_timeout 自动重试消息丢失修复
+# F20260825rtmx - streaming_timeout 自动重试消息丢失修复
 
 ## 1. 问题背景
 

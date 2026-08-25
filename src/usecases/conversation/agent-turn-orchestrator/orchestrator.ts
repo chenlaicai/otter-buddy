@@ -496,7 +496,7 @@ export class AgentTurnOrchestrator {
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
-    // F20260821rtmx: 重置消息生命周期，使重试轮输出可 append（否则消息卡在 failed 状态，输出全部丢失）
+    // F20260825rtmx: 重置消息生命周期，使重试轮输出可 append（否则消息卡在 failed 状态，输出全部丢失）
     try {
       await ctx.callbacks.prepareForRetry(ctx.input.messageId, false);
     } catch (err) {

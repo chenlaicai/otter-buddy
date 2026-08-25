@@ -991,7 +991,7 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     expect(eventTypes).toContain("message.aborted");
   });
 
-  // F20260821rtmx: 验证 handleAutoRetry 调用 prepareForRetry 重置消息生命周期
+  // F20260825rtmx: 验证 handleAutoRetry 调用 prepareForRetry 重置消息生命周期
   it("streaming_timeout 自动重试：prepareForRetry 重置消息 → 重试轮可正常 append → 再超时 abort", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const msg = mockSendMessageWithIncrementalId();
