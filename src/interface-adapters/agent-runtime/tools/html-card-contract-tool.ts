@@ -1,5 +1,6 @@
 import type { AgentTool } from "@usecases/ports/agent-tools";
 import { textResponse } from "@usecases/ports/agent-tools";
+import { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES } from "@contract/api/html-card";
 
 /**
  * HTML 卡片完整写作契约（F20260728htar）。
@@ -8,11 +9,11 @@ import { textResponse } from "@usecases/ports/agent-tools";
  */
 export const HTML_CARD_CONTRACT = `# HTML 卡片写作契约
 
-⚠️ **硬性限制**：一条消息最多 2 张卡片，单卡 ≤4KB。第 3 张起用户会看到降级的源码块（不可读）。如果需要展示超过 2 张卡片的内容，请合并为 2 张，或分多次 speak 输出。
+⚠️ **硬性限制**：一条消息最多 ${CARD_MAX_PER_MESSAGE} 张卡片，单卡 ≤${CARD_MAX_BYTES / 1024}KB。第 3 张起用户会看到降级的源码块（不可读）。如果需要展示超过 2 张卡片的内容，请合并为 2 张，或分多次 speak 输出。
 
 ## 语法骨架
 
-卡片以 CommonMark 围栏块嵌入 speak 的 body，一条消息最多 2 张，单卡 ≤4KB（超限会被截断，可能导致发言损坏重来）：
+卡片以 CommonMark 围栏块嵌入 speak 的 body，一条消息最多 ${CARD_MAX_PER_MESSAGE} 张，单卡 ≤${CARD_MAX_BYTES / 1024}KB（超限会被截断，可能导致发言损坏重来）：
 
 \`\`\`html-card title="卡片标题"
 <!-- 自包含 HTML 片段：内联 <style> + 结构 + 内联 <script>（可选） -->
