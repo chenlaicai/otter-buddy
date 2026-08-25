@@ -37,6 +37,15 @@ task_name: 每日对话健康检查
 
 每项"发现"注明具体来源（issue 编号/对话 ID/事件 ID），无法定位的数据不上报。清单全部勾选后才写分析结论。
 
+## healing events 消费即处置（issue #424）
+
+分析过的 self-healing events 必须在本次产出内处置完毕，不留"已消费但未标记"的悬空状态：
+
+- **无需修复**（真实退化被自愈机制按设计拦截、单次偶发无聚类）：立即 `manage_healing_events(action: resolve)` 批量处置，resolutionNotes 写明判定依据 + 引用 issue 编号（如"真实退化，重试自愈成功，无额外修复，见 #424"）
+- **需要修复**（转入 daily-review issue 跟踪）：留 open，等修复 PR 合入后再 resolve，resolutionAction 对应实际修复方式（prompt_updated / tool_fixed / config_changed）
+- **处置前核实范围**：query 默认只返回 50 条 + status 单一——用 errorType 过滤逐一排查，确认覆盖昨日全部新增事件（#424 现场：批量 resolve 漏了 1 起，靠下一个任务补上）
+- 处置完成后重跑一次 query status=open 确认无遗漏，把"昨日事件 N 起 → resolved M 起 / open K 起（留修原因）"写进产出
+
 ## 分析维度
 
 - **用户情绪信号**：对话中的吐槽、GitHub issue 标题中的强烈措辞（如「红线」「不对」「错误」）

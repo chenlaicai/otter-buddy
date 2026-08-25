@@ -197,6 +197,35 @@ describe("DegenerateDetector 机制 A（非对齐精确重复）", () => {
     v = detector.add(full.slice(100));
     expect(v.degenerate).toBe(true);
   });
+
+  it("抓住 thinking 泄漏型循环（#424 型，f19a4a4e：532 字符周期 ×49，机制 B 盲区）", () => {
+    // 真实事件 #424（8/24 11:54 UTC，mimo）：speak 完成后继续生成的裸 text
+    // block 把 thinking 内容逐字复制后循环 49 遍（周期 532，总 26171 字符）。
+    // 匿名化：保持「机制 B 盲区」结构属性，措辞去人名/去项目专名；周期选质数
+    // 569（原始 532 与分段 100 的 gcd=4，匿名后与 100 互素）——比原始样本
+    // 更极端的 B 盲区形态：非重叠分段相位完全错开，ratio=1.000。
+    const cycle = `the user is asking two things:\n\n1. What's the medium/long-term solution? Explain it in detail.\n2. A serious statement: "already working" (已跑通) is NOT a valid reason to merge a PR. Long-term correctness > short-term efficiency.\n\nThis is a good point from the user. Let me address both:\n\n1. The medium/long-term solution is "runtime semantic fingerprinting" - I need to explain this concretely.\n2. I need to acknowledge the user's principle and not just default to "merge first, fix later".\n\nLet me also dissolve the idle reviewer agent and clean up the planning agents. `;
+    expect(cycle.length).toBe(569);
+    const text = cycle.repeat(49) + cycle.slice(0, 103);
+    // 机制 B 盲区断言（本夹具的核心不变量）：质数周期 → 分段相位完全错开，
+    // ratio = 1.000 远离阈值，机制 B 无法捕获（原始样本 gcd=4 时 ratio=0.510
+    // 同样 >0.3，但若未来阈值上调至 0.6，质数形态仍保持满格距离）——
+    // 机制 A 是此类退化的唯一防线
+    expect(distinctRatioOf(text)).toBeGreaterThan(0.3);
+    // 流式喂入（37 字符/块，模拟 OutputGuard delta）必须被机制 A 拦住
+    const detector = new DegenerateDetector();
+    let verdict: ReturnType<DegenerateDetector["add"]> | null = null;
+    let fed = 0;
+    for (let i = 0; i < text.length && !verdict; i += 37) {
+      const v = detector.add(text.slice(i, i + 37));
+      fed = i + 37;
+      if (v.degenerate) verdict = v;
+    }
+    expect(verdict).not.toBeNull();
+    expect(verdict && verdict.degenerate && verdict.mechanism).toBe("repeat_window");
+    // K=20 下 ~10.9K 字符即触发（运行时旧阈值 K=50 时拖到 26171）
+    expect(fed).toBeLessThan(12_000);
+  });
 });
 
 describe("DegenerateDetector 机制 B（distinct-ratio 近似重复）", () => {
