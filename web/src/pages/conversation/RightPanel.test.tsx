@@ -137,21 +137,26 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
 
   it('有 modelAlias 时渲染模型 badge', () => {
     renderPanel([], [makeOtter({ modelAlias: 'mimo' })])
-    const badge = Array.from(container.querySelectorAll('span.rounded-full')).find(el => el.textContent === 'mimo')
-    expect(badge).not.toBeUndefined()
+    const badge = container.querySelector('[data-testid="model-badge"]')
+    expect(badge).not.toBeNull()
+    expect(badge!.textContent).toBe('mimo')
   })
 
-  it('无 modelAlias 时不渲染模型 badge（不留空占位）', () => {
+  it('无 modelAlias 时不渲染模型 badge（不留空占位，也不渲染 undefined 字面串）', () => {
     renderPanel([], [makeOtter()])
-    const aliases = ['mimo', 'kimi', 'glm']
-    const found = Array.from(container.querySelectorAll('span.rounded-full')).filter(el => aliases.includes(el.textContent ?? ''))
-    expect(found).toHaveLength(0)
+    expect(container.querySelector('[data-testid="model-badge"]')).toBeNull()
+  })
+
+  it('未知新 alias 原样渲染（不依赖已知 alias 白名单）', () => {
+    renderPanel([], [makeOtter({ modelAlias: 'claude-future' })])
+    const badge = container.querySelector('[data-testid="model-badge"]')
+    expect(badge!.textContent).toBe('claude-future')
   })
 
   it('大獭 badge 与模型 badge 可同卡片共存', () => {
     renderPanel([], [makeOtter({ id: 'big-1', name: '大獭', type: 'big', modelAlias: 'glm' })])
     const texts = Array.from(container.querySelectorAll('span.rounded-full')).map(el => el.textContent)
     expect(texts).toContain('大獭')
-    expect(texts).toContain('glm')
+    expect(container.querySelector('[data-testid="model-badge"]')!.textContent).toBe('glm')
   })
 })

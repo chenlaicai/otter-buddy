@@ -79,6 +79,35 @@ describe("Otter API", () => {
       });
     });
 
+    it("create 响应注入 configProvider 时返回 modelAlias，未配置时字段缺省（F20260825vrqh 发现 1）", async () => {
+      const otter = makeOtter({ id: "new-otter" });
+      deps.createOtterUseCase.execute.mockResolvedValue(otter);
+      deps.otterConfigProvider = {
+        getConfig: (id: string) => id === "new-otter" ? { otterType: "small", modelAlias: "glm" } : null,
+        setConfig: () => {}, deleteConfig: () => {}, hasConfig: () => false,
+      };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/otters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "New Friend", type: "small" }),
+      });
+      expect(res.status).toBe(201);
+      const body = await json(res);
+      expect(body.modelAlias).toBe("glm");
+
+      deps.otterConfigProvider = undefined;
+      app = createTestApp(deps);
+      const res2 = await app.request("/api/otters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "New Friend", type: "small" }),
+      });
+      const body2 = await json(res2);
+      expect("modelAlias" in body2).toBe(false);
+    });
+
     it("passes all optional fields", async () => {
       const otter = makeOtter();
       deps.createOtterUseCase.execute.mockResolvedValue(otter);
