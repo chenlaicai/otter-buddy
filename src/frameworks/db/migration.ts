@@ -8,7 +8,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定
+// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句/行数由历史补丁数决定
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   // 检查 session_file 字段是否存在
   const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
@@ -105,6 +105,51 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260813mren: 记忆关系层——memory_edges 表 + 文档 provenance 列 */
   ensureMemoryEdgesTable(db, logger);
   addDocProvenanceColumns(db, logger);
+
+  /** F20260824rhib: RHI 健康监控——health_snapshots + signals 表。
+   *  initSchema 仅新库执行，老库升级路径必须在此补建（否则 server 集成后写入直接 no such table）。 */
+  ensureRhiTables(db, logger);
+}
+
+/**
+ * F20260824rhib: RHI 表（health_snapshots + signals）。
+ * 与 schema.ts 的 createHealthSnapshotsTable/createSignalsTable 同构。
+ * CREATE IF NOT EXISTS 幂等——新库 initSchema 已建，老库走这里补建。
+ */
+function ensureRhiTables(db: Database.Database, logger: Logger): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS health_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshot_date TEXT NOT NULL,
+      metric_type TEXT NOT NULL,
+      metric_key TEXT NOT NULL,
+      metric_value REAL NOT NULL,
+      metadata TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_snapshots_date_type ON health_snapshots(snapshot_date, metric_type);
+    CREATE INDEX IF NOT EXISTS idx_snapshots_key ON health_snapshots(metric_key);
+
+    CREATE TABLE IF NOT EXISTS signals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      signal_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      feature_id TEXT,
+      file_path TEXT,
+      evidence TEXT,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      occurrences INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'open',
+      suggested_action TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
+    CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
+    CREATE INDEX IF NOT EXISTS idx_signals_feature ON signals(feature_id);
+  `);
+  logger.info('Ensured RHI tables (health_snapshots, signals) exist');
 }
 
 /**
