@@ -74,6 +74,7 @@ Does the implementation match the design intent?
 - Trace the logic flow — are there paths that produce wrong results?
 - Check error handling — are failures handled or silently swallowed?
 - Verify edge cases in the logic — what happens at boundaries?
+- **F-claim audit (issue #379 ②)**：Cross-check each claim in the feature doc against the code — for every "implemented X" statement in the doc, verify the corresponding symbol/logic exists in code. List claims that run ahead of the code (doc says done, code not wired yet).（F 承诺对账：逐条核对特性文档声称的功能点 vs 代码实现，承诺面跑在代码前面时逐条列出）
 
 ## 2. Edge Cases
 
