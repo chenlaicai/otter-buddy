@@ -234,6 +234,25 @@ export async function assert(/* ctx, messages */): Promise<{ ok: boolean; detail
 
 检视者独立验算全部统计数字（6 项均 ✓），确认大獭修正后数值正确。
 
+### Delta 复核（mimo检视獭，2026-08-25）
+
+8 条发现 7 条完全修复，1 条残余不一致（风险节数字未同步）不阻断——已随后修订（风险节改为 n=3/n=5 按场景 + 8-15 分钟）。方案层审视通过。
+
+### 实现层审视（mimo检视獭 审 kimi思考獭实现，异模型，2026-08-25）
+
+4 条发现（2 严重 + 2 建议）：
+
+| # | 级别 | 发现 | 处置 | 修订位置 |
+|---|------|------|------|----------|
+| 1 | 严重 | lint 测试与实现分叉（6 个副本函数，15 全过是假阳性） | 接受并修复：lint-intent.mjs export validateIntent + isMain 守卫；测试 import 真实现；暴露「缺 intent 的 feature = warning」符合 F20260824ax376 存量宽容设计 | commit 3f5548eb |
+| 2 | 严重 | talking-stone 场景无迭代隔离（ORDER BY rowid 可能命中残留子獭） | 接受并修复：SQL 改 JOIN conversation_otters 按 conversation_id 过滤 | commit 3f5548eb |
+| 3 | 建议 | yield 场景断言未验 yield 调用（spokeViaTool 算而未用） | 接受并修复：ok 判定加 tsp 非空（yield→startSpeaking 写 tsp，机制证据链留注释） | commit 3f5548eb |
+| 4 | 建议 | .gitignore 条目位置不规范 | 不处置：检视者自判「更差」，后续整理时一并处理 | 决策史留痕 |
+
+### 实现层 Delta 复核（mimo检视獭，2026-08-25）
+
+3 条修复全部确认完全修复，方案→实现一致性 12 项无退化，行为确认点（warning 非 error）确认符合阶段一设计。审视通过，呈搭档终审。
+
 ### Delta 复核（mimo检视獭，2026-08-25）：通过，附 1 个残余修订项
 
 8 条发现全部确认修复。残余项：风险节 1 的成本估算引用原版 n=5 口径，与方案设计 golden 示例 `sampling: { n: 3, minSuccess: 2 }` 不一致。处置（kimi思考獭代执行，2026-08-25）：风险节 1 已改为按场景 sampling 协议表述（PR gate 精简版 n=3，terminal 场景可校准 n=5/n=10），时长估算同步从 15-20 分钟修为 8-15 分钟。
