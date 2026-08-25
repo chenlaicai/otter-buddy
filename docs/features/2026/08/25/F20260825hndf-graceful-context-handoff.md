@@ -125,6 +125,8 @@ Q4 必须保真？ → 是 = 独立机械携带
 
 **核心原则**：永不阻塞 restart。每一步失败都有下一级降级。
 
+> **D11 补充**：依赖缺失路径（如 buildHandoffPkg/conversationRepo 未注入）的行为是跳过本轮 handoff 而非裸重启——此时旧 session 继续运行，等待下一轮 pre-invoke 检查再次尝试。生产环境由 DI 保证依赖不缺失（platforms.ts 注入全部依赖），此路径仅在测试或配置异常时触发。
+
 ---
 
 ## 4. 竞态处理
