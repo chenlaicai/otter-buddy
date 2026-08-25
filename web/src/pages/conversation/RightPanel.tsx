@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
 import { OtterAvatar } from '../../components/OtterAvatar'
+import { OtterProfileCard } from '../../components/OtterProfileCard'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
 
 interface RightPanelProps {
@@ -158,6 +159,15 @@ export function RightPanel(props: RightPanelProps) {
   )
 }
 
+/** 触屏设备检测（惰性求值，避免 jsdom 测试环境崩溃） */
+let _isTouchDevice: boolean | undefined
+function isTouchDevice() {
+  if (_isTouchDevice === undefined) {
+    _isTouchDevice = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
+  }
+  return _isTouchDevice
+}
+
 function OtterParticipantCard({
   otter: o,
   sessions,
@@ -175,45 +185,71 @@ function OtterParticipantCard({
   const activeS = sessions.find(s => s.status === 'active')
   /** F20260805dmux：世数与详情弹窗同口径（拉链位置），不用 sessions.length */
   const activeGen = activeS ? sortSessionChain(sessions).indexOf(activeS) + 1 : 0
+  const [hovering, setHovering] = useState(false)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  // Why: 400ms 延迟 + useRef 手写 debounce —— 快速滑过不触发，停留才弹出
+  const handleMouseEnter = useCallback(() => {
+    if (isTouchDevice()) return
+    hoverTimer.current = setTimeout(() => setHovering(true), 400)
+  }, [])
+  const handleMouseLeave = useCallback(() => {
+    clearTimeout(hoverTimer.current)
+    setHovering(false)
+  }, [])
+
+  useEffect(() => () => clearTimeout(hoverTimer.current), [])
 
   return (
     <div
-      onClick={onClick}
-      className="flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer glass-card mb-1.5 transition hover:shadow-bubble hover:-translate-y-0.5 group"
+      className="relative"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
-      <OtterAvatar otterId={o.id} name={o.name} size={28} />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-semibold text-stone-700">{o.name}</div>
-        <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
-        {activeS && (
-          <div className="text-[9px] text-stone-400">
-            第{activeGen}世 · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
-          </div>
+      <div
+        onClick={onClick}
+        className="flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer glass-card mb-1.5 transition hover:shadow-bubble hover:-translate-y-0.5 group"
+      >
+        <OtterAvatar otterId={o.id} name={o.name} size={28} />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-semibold text-stone-700">{o.name}</div>
+          <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
+          {activeS && (
+            <div className="text-[9px] text-stone-400">
+              第{activeGen}世 · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
+            </div>
+          )}
+        </div>
+        {isBig ? (
+          <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-otter-400/15 text-otter-500">大獭</span>
+        ) : (
+          <span
+            onClick={e => { e.stopPropagation(); onDissolve(o.id) }}
+            className="opacity-0 group-hover:opacity-100 text-stone-400 cursor-pointer"
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </span>
+        )}
+        {/* F20260805rsto：重启是大獭专属（小獭用解散），与详情弹窗 footer 对齐 */}
+        {isBig && (
+          <button
+            onClick={e => { e.stopPropagation(); onRestart(o.id) }}
+            className="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"
+          >
+            <RotateCcw className="w-2.5 h-2.5" />
+            重启
+          </button>
         )}
       </div>
-      {/* 模型标签：未配置（大獭/老数据/默认模型）不渲染，与"大獭"badge 同视觉权重 */}
+      {/* 模型标签（#445）：未配置不渲染 */}
       {o.modelAlias && (
-        <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500">{o.modelAlias}</span>
+        <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500 mt-1 w-fit">{o.modelAlias}</span>
       )}
-      {isBig ? (
-        <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-otter-400/15 text-otter-500">大獭</span>
-      ) : (
-        <span
-          onClick={e => { e.stopPropagation(); onDissolve(o.id) }}
-          className="opacity-0 group-hover:opacity-100 text-stone-400 cursor-pointer"
-        >
-          <MoreHorizontal className="w-3.5 h-3.5" />
-        </span>
-      )}
-      {/* F20260805rsto：重启是大獭专属（小獭用解散），与详情弹窗 footer 对齐 */}
-      {isBig && (
-        <button
-          onClick={e => { e.stopPropagation(); onRestart(o.id) }}
-          className="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 px-1.5 py-0.5 rounded hover:bg-red-400/10 transition flex items-center gap-0.5"
-        >
-          <RotateCcw className="w-2.5 h-2.5" />
-          重启
-        </button>
+      {/* hover 快览卡：向左弹出（右栏贴屏幕右缘），overflow hidden 防底部溢出 */}
+      {hovering && (
+        <div className="absolute right-full bottom-0 mr-2 z-50">
+          <OtterProfileCard otter={o} sessions={sessions} modelAlias={o.modelAlias} />
+        </div>
       )}
     </div>
   )
