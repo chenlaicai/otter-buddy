@@ -42,6 +42,12 @@ import { initMetricsRegistry } from "@frameworks/metrics/registry";
 import { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
 import { AgentMetrics } from "@frameworks/metrics/agent-metrics";
 import type { Repositories, UseCases } from "./bootstrap/types";
+import type DatabaseType from "better-sqlite3";
+import type { Logger as LoggerType } from "@usecases/ports/logger";
+import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-scan-worker";
+import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
+import { SignalPipeline } from "@usecases/health/signal-pipeline";
+import { collectHealingEvents } from "@usecases/health/healing-collector";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -106,6 +112,22 @@ export interface BuiltApp {
   dispose(): Promise<void>;
 }
 
+/** F20260825sgnw（#401）：装配 RhiScanWorker（依赖注入集中在此，app.ts 主体只调 start/stop） */
+function createRhiScanWorker(deps: {
+  db: DatabaseType.Database;
+  repos: Repositories;
+  embeddingService: EmbeddingGateway;
+  logger: LoggerType;
+  rootDir: string;
+}): RhiScanWorkerType {
+  const pipeline = new SignalPipeline(deps.db, deps.repos.memoryWriter, deps.repos.memoryQueue, deps.embeddingService, deps.logger);
+
+  // healing 事件源：open 状态全部取（behavior_defect 检测数据面）
+  const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
+
+  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger);
+}
+
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑
 export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp> {
   const dataDir = options.dataDir ?? "./data";
@@ -139,6 +161,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
   const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
+
+  // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
+  const rhiScanWorker = createRhiScanWorker({
+    db, repos, embeddingService, logger,
+    rootDir: options.rootDir ?? process.cwd(),
+  });
+  rhiScanWorker.start();
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
@@ -220,6 +249,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
+      // F20260825sgnw（#401）：RHI worker 同样先停再关 DB
+      await rhiScanWorker.stop();
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();
