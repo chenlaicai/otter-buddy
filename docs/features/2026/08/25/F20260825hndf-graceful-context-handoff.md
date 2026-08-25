@@ -1,3 +1,15 @@
+---
+id: F20260825hndf
+title: "优雅上下文交接（Graceful Context Handoff）Phase 1"
+summary: |
+  实现 7/16 架构设计但从未落地的「Handoff 优先于 Compaction」：token 到 70% 时应用层主动交接，
+  而非等到 87% 被 Pi SDK 被动压缩。三层触发 × 四件套上下文包（结构化摘要/文件轨迹/近期原文/活状态盘点）
+  × 三道降级防线。Phase 1 交付触发链路 + 机械四件套 + Phase 0 约定（SYSTEM.md 滚动状态）。
+change_type: feature
+status: active
+capability_test: "n/a: 机械链路改动（阈值触发+数据搬运），LLM 合成摘要属 Phase 2"
+created_in_conversation: 9d326c9d-9818-40a2-9982-898315fe7aa4
+---
 # F20260825hndf 优雅上下文交接（Graceful Context Handoff）
 
 > 状态：方案完成，待实现
