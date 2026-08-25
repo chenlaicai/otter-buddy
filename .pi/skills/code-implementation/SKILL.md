@@ -3,7 +3,7 @@ name: code-implementation
 description: >-
   Use when: 搭档要求按方案实现功能/写代码/写测试.
   Not for: 无方案的需求分析 → requirement-analysis. 小改动（lockfile、配置、文档订正）→ worktree-isolation.
-  Output: 代码 PR（含测试、自检通过、对抗审视通过），呈搭档终审.
+  Output: 代码 PR + 特性文档（含测试、自检通过、对抗审视通过），呈搭档终审.
 co_loads: []
 category: technique
 ---
@@ -24,7 +24,7 @@ category: technique
 | 技术方案（搭档确认后） | 是 | 停下来问搭档。禁止自行编造方案 |
 | 方案编号 | 是 | 从方案文档或特性文档 frontmatter 读取 |
 | 工作分支 | 是 | 先走 worktree-isolation 创建 worktree |
-| 特性文档 | 否 | 通过 `list_artifacts` 查找；不存在则跳过
+| 特性文档 | 否 | 通过 `list_artifacts` 查找；不存在则步骤 7 创建
 
 ## 工作流
 
@@ -39,7 +39,7 @@ category: technique
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
-7. **文档**：将实现要点、变更说明追加到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
+7. **文档**：将实现要点、变更说明追加（不存在则创建）到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
 8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
@@ -76,6 +76,7 @@ category: technique
 
 | 产出 | 下一步 | 执行者 |
 |------|--------|--------|
+| 特性文档（docs/features/F*.md，步骤 7） | 随 PR 接受对抗审视 B2 文档完整性检核 | 检视獭 |
 | 代码 PR | **对抗审视（必须）** | 检视獭 |
 | 审视通过 | 呈搭档终审 | 搭档 |
 | 排查结论（需修复） | worktree-isolation | 当前獭 |
