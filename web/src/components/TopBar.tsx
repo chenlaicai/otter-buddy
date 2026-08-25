@@ -17,7 +17,7 @@ export function TopBar({ activeView }: { activeView: ViewKey }) {
       {/* Logo left-aligned */}
       <div className="flex items-center gap-2 flex-1">
         <img src="/otter-icon.png" alt="Otter Buddy" className="w-6 h-6 rounded-full" />
-        <span className="text-sm font-bold tracking-tight text-otter-600">Otter Buddy <span className="text-xs text-stone-400">v20260730-im</span></span>
+        <span className="text-sm font-bold tracking-tight text-otter-600">Otter Buddy</span>
       </div>
 
       {/* Tabs centered (← UA-12) */}
