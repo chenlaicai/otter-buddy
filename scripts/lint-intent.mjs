@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
  * F20260824ax376: PR 评估体系 - intent 字段校验脚本（commit-time gate）。
+ * F20260825evgl: 扩展软代码域三值 + 联动可判定检查；validateIntent 导出供测试 import 真实现
+ *               （检视发现 1：测试副本与实现分叉导致假阳性，改为单一真相源）。
  *
  * 检查 F 文档 frontmatter 的 intent 字段，确保每次合入都有明确目标。
  * 依赖：pre-commit hook 已跑 `npm run check`（= build）产出 dist/。
@@ -13,14 +15,6 @@ import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
 const distRoot = pathToFileURL(path.join(root, "dist/src")).href;
-
-if (!fs.existsSync(path.join(root, "dist/src/entities/document/frontmatter-validator.js"))) {
-  console.error("[lint:intent] dist/ 未构建。请先 `npm run build`。");
-  process.exit(1);
-}
-
-const { parseFrontmatterFromContent } =
-  await import(distRoot + "/usecases/document/frontmatter-parse.js");
 
 function walk(dir) {
   const out = [];
@@ -155,38 +149,56 @@ function validateIntent(fm) {
   return { errors, warnings };
 }
 
-let errors = 0;
-let warnings = 0;
-const files = walk(path.join(root, "docs/features"));
+export { validateIntent, isSoftCodeChange, VALID_VERIFY_BY_TYPES };
 
-for (const file of files) {
-  const rel = path.relative(root, file);
-  const txt = fs.readFileSync(file, "utf8");
-  let frontmatter;
-  try {
-    frontmatter = parseFrontmatterFromContent(txt).frontmatter;
-  } catch {
-    // 缺少 frontmatter 的文件由 lint-docs 处理，这里跳过
-    continue;
+/** 仅作为脚本直接运行时执行 lint 主流程；被测试 import 时只取纯函数，不触发 dist 依赖与文件遍历 */
+const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+if (isMain) {
+  await main();
+}
+
+async function main() {
+  if (!fs.existsSync(path.join(root, "dist/src/entities/document/frontmatter-validator.js"))) {
+    console.error("[lint:intent] dist/ 未构建。请先 `npm run build`。");
+    process.exit(1);
   }
 
-  const result = validateIntent(frontmatter, rel);
+  const { parseFrontmatterFromContent } =
+    await import(distRoot + "/usecases/document/frontmatter-parse.js");
 
-  if (result.errors.length > 0) {
-    errors++;
-    console.error(`✗ ${rel}\n    ${result.errors.join("\n    ")}`);
-  } else if (result.warnings.length > 0) {
-    warnings++;
-    console.warn(`⚠ ${frontmatter.id || rel}\n    ${result.warnings.join("\n    ")}`);
+  let errors = 0;
+  let warnings = 0;
+  const files = walk(path.join(root, "docs/features"));
+
+  for (const file of files) {
+    const rel = path.relative(root, file);
+    const txt = fs.readFileSync(file, "utf8");
+    let frontmatter;
+    try {
+      frontmatter = parseFrontmatterFromContent(txt).frontmatter;
+    } catch {
+      // 缺少 frontmatter 的文件由 lint-docs 处理，这里跳过
+      continue;
+    }
+
+    const result = validateIntent(frontmatter, rel);
+
+    if (result.errors.length > 0) {
+      errors++;
+      console.error(`✗ ${rel}\n    ${result.errors.join("\n    ")}`);
+    } else if (result.warnings.length > 0) {
+      warnings++;
+      console.warn(`⚠ ${frontmatter.id || rel}\n    ${result.warnings.join("\n    ")}`);
+    }
   }
-}
 
-if (warnings > 0) {
-  console.warn(`\n[lint:intent] ${warnings} warnings（不阻断 commit）`);
+  if (warnings > 0) {
+    console.warn(`\n[lint:intent] ${warnings} warnings（不阻断 commit）`);
+  }
+  if (errors > 0) {
+    console.error(`\n[lint:intent] ${errors} errors（阻断 commit）`);
+    console.error("修复参考：docs/README.md（硬规则单一真相源）");
+    process.exit(1);
+  }
+  console.log(`[lint:intent] ${files.length} docs OK`);
 }
-if (errors > 0) {
-  console.error(`\n[lint:intent] ${errors} errors（阻断 commit）`);
-  console.error("修复参考：docs/README.md（硬规则单一真相源）");
-  process.exit(1);
-}
-console.log(`[lint:intent] ${files.length} docs OK`);

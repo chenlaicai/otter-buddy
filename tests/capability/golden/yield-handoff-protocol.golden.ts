@@ -25,15 +25,19 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   const userSeq = latestUserSeq(messages.filter((m) => m.st === "user"));
   const tools = toolCallNamesForExchange(messages, userSeq);
 
-  // 收尾协议判据：獭有 completed 消息（speak 收尾成功）且内容非空。
-  // speak 未 yield 会导致消息不落 completed 或回合悬挂。
+  /** 收尾协议判据（发现 3 修复）：completed 消息存在 + 内容非空 + tsp 非空。
+   *  yield 机制已核实：yield 调 startSpeaking(currentMessageId, { talkingStonePassedTo })
+   *  写 tsp（tool-factory.ts）——所以 completed 消息的 tsp 非空 = yield 被调用过。
+   *  仅看 completed && hasContent 会漏过 no_yield 场景（自动重试 F20260730sbrt 可能补 completed）。 */
   const otterMsgs = messages.filter((m) => m.st === "otter" && m.seq > userSeq);
   const completed = otterMsgs.find((m) => m.status === "completed");
   const hasContent = (completed?.content.trim().length ?? 0) > 0;
+  const tsp = completed?.tsp ?? [];
+  const yielded = tsp.length > 0;
   const spokeViaTool = tools.includes("speak");
 
   return {
-    ok: Boolean(completed) && hasContent,
-    detail: `completed=${Boolean(completed)} hasContent=${hasContent} speakTool=${spokeViaTool} status=${completed?.status} tools=${JSON.stringify(tools)}`,
+    ok: Boolean(completed) && hasContent && yielded,
+    detail: `completed=${Boolean(completed)} hasContent=${hasContent} yielded=${yielded} tsp=${JSON.stringify(tsp)} speakTool=${spokeViaTool} status=${completed?.status}`,
   };
 };

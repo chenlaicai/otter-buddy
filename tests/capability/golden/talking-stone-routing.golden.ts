@@ -33,7 +33,7 @@ function findSmallOtterMessage(messages: MessageDto[], smallOtterId: string): Me
     .sort((a, b) => b.seq - a.seq)[0];
 }
 
-export const assert: GoldenModule["assert"] = async ({ ctx, messages }) => {
+export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) => {
   const userSeq = latestUserSeq(messages.filter((m) => m.st === "user"));
   const tools = toolCallNamesForExchange(messages, userSeq);
 
@@ -41,13 +41,18 @@ export const assert: GoldenModule["assert"] = async ({ ctx, messages }) => {
     return { ok: false, detail: `大獭未召唤小獭 tools=${JSON.stringify(tools)}` };
   }
 
-  // 找最新召唤的 small 类型子獭
-  const otters = ctx.built.db
-    .prepare("SELECT id, name, type, parent_otter_id FROM otters ORDER BY rowid DESC")
-    .all() as Array<Record<string, string>>;
-  const smallOtter = otters.find((r) => r.type === "small");
+  /** 发现 2 修复：按 conversation_id 过滤（JOIN conversation_otters），避免多轮采样
+   *  共享 DB 时命中前轮/历史残留子獭。源测试用 ottersBefore diff，golden 用会话隔离。 */
+  const smallOtter = ctx.built.db
+    .prepare(
+      `SELECT o.id, o.name, o.type, o.parent_otter_id FROM otters o
+       JOIN conversation_otters co ON co.otter_id = o.id
+       WHERE co.conversation_id = ? AND o.type = 'small'
+       ORDER BY o.rowid DESC LIMIT 1`,
+    )
+    .get(convId) as Record<string, string> | undefined;
   if (!smallOtter) {
-    return { ok: false, detail: "DB 中未找到 small 类型子獭" };
+    return { ok: false, detail: "本会话中未找到 small 类型子獭" };
   }
 
   const smallMsg = findSmallOtterMessage(messages, smallOtter.id);
@@ -56,7 +61,6 @@ export const assert: GoldenModule["assert"] = async ({ ctx, messages }) => {
   }
 
   const bigOtterId =
-    otters.find((r) => r.type === "big")?.id ??
     (ctx.built.db.prepare("SELECT parent_otter_id FROM otters WHERE id = ?").get(smallOtter.id) as {
       parent_otter_id: string;
     }).parent_otter_id;
