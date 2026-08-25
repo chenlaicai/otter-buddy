@@ -1,75 +1,77 @@
 #!/usr/bin/env node
+/**
+ * RHI CLI 入口：pnpm health:report
+ *
+ * 用法：
+ *   pnpm health:report                    # JSON + 文本双输出
+ *   pnpm health:report --format=json     # 仅 JSON（agent 消费通道）
+ *   pnpm health:report --format=text     # 仅文本
+ *   pnpm health:report --output=report.txt
+ *   pnpm health:report --since=2026-07-08 --max-count=100
+ */
 
-import path from "path";
-import { fileURLToPath } from "url";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, "..");
+const rootDir = path.resolve(path.dirname(__filename), "..");
+
+function parseArgs(argv) {
+  const args = { format: "both", output: undefined, since: undefined, until: undefined, maxCount: undefined };
+  for (const arg of argv) {
+    const [key, ...rest] = arg.split("=");
+    const value = rest.join("=");
+    if (key === "--format" && ["json", "text", "both"].includes(value)) args.format = value;
+    else if (key === "--output" && value) args.output = value;
+    else if (key === "--since" && value) args.since = value;
+    else if (key === "--until" && value) args.until = value;
+    else if (key === "--max-count" && value) args.maxCount = Number(value);
+  }
+  return args;
+}
+
+const logger = {
+  info: (msg, meta) => console.error(`[INFO] ${msg}`, meta ? JSON.stringify(meta) : ""),
+  warn: (msg, meta) => console.error(`[WARN] ${msg}`, meta ? JSON.stringify(meta) : ""),
+  error: (msg, err) => console.error(`[ERROR] ${msg}`, err?.message ?? err ?? ""),
+};
 
 async function main() {
+  const { HealthReport } = await import(path.join(rootDir, "dist/src/usecases/health/health-report.js"));
+  const { initSchema } = await import(path.join(rootDir, "dist/src/frameworks/db/schema.js"));
+  const Database = (await import("better-sqlite3")).default;
+
+  // 数据库路径：环境变量优先，默认 data/otter.db
+  const dbPath = process.env.OTTER_DB_PATH ?? path.join(rootDir, "data/otter.db");
+  const db = new Database(dbPath);
+  initSchema(db);
+
+  const args = parseArgs(process.argv.slice(2));
+  const report = new HealthReport(rootDir, db, logger);
+
   try {
-    // 导入编译后的模块
-    const { HealthReport } = await import(path.join(rootDir, "dist/src/usecases/health/health-report.js"));
-    const { initSchema } = await import(path.join(rootDir, "dist/src/frameworks/db/schema.js"));
-    const Database = (await import("better-sqlite3")).default;
+    const { report: content } = await report.generate({
+      format: args.format,
+      since: args.since,
+      until: args.until,
+      maxCount: args.maxCount,
+    });
 
-    // 创建数据库连接
-    const dbPath = path.join(rootDir, "data/otter.db");
-    const db = new Database(dbPath);
-
-    // 初始化 schema
-    initSchema(db);
-
-    // 创建文件系统网关（简化版）
-    const fs = {
-      async readFile(filePath) {
-        const fsModule = await import("fs/promises");
-        return fsModule.readFile(filePath, "utf-8");
-      },
-      async readDir(dirPath) {
-        const fsModule = await import("fs/promises");
-        return fsModule.readdir(dirPath, { withFileTypes: true });
-      },
-      async exists(filePath) {
-        const fsModule = await import("fs/promises");
-        try {
-          await fsModule.access(filePath);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-    };
-
-    // 创建日志记录器（简化版）
-    const logger = {
-      info: (message, meta) => console.log(`[INFO] ${message}`, meta || ""),
-      warn: (message, meta) => console.warn(`[WARN] ${message}`, meta || ""),
-      error: (message, error, meta) => console.error(`[ERROR] ${message}`, error?.message || error, meta || ""),
-    };
-
-    // 创建健康报告实例
-    const healthReport = new HealthReport(db, fs, rootDir, logger);
-
-    // 解析命令行参数
-    const args = process.argv.slice(2);
-    const format = args.find(arg => arg.startsWith("--format="))?.split("=")[1] || "both";
-    const outputPath = args.find(arg => arg.startsWith("--output="))?.split("=")[1];
-
-    // 生成报告
-    if (outputPath) {
-      await healthReport.outputToFile(path.resolve(outputPath), { format });
+    if (args.output) {
+      const outPath = path.resolve(args.output);
+      await fs.mkdir(path.dirname(outPath), { recursive: true });
+      await fs.writeFile(outPath, content, "utf-8");
+      console.error(`[INFO] Report written to ${outPath}`);
     } else {
-      await healthReport.outputToConsole({ format });
+      process.stdout.write(content + "\n");
     }
-
-    // 关闭数据库
+  } finally {
     db.close();
-  } catch (error) {
-    console.error("Failed to generate health report:", error.message);
-    process.exit(1);
   }
 }
 
-main();
+main().catch((err) => {
+  console.error("[FATAL]", err?.message ?? err);
+  process.exit(1);
+});

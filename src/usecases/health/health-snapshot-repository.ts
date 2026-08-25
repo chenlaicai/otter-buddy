@@ -1,14 +1,20 @@
+/**
+ * HealthSnapshotRepository: health_snapshots 表读写（Issue #396）
+ *
+ * SQLite 持久化指标快照，支持按日期/日期范围/指标键查询。
+ * schema 定义见 frameworks/db/schema.ts createHealthSnapshotsTable。
+ */
+
 import type Database from "better-sqlite3";
-import type { Logger } from "@usecases/ports/logger";
 
 export interface HealthSnapshot {
   id: number;
-  snapshotDate: string;
-  metricType: string;
-  metricKey: string;
-  metricValue: number;
+  snapshot_date: string;
+  metric_type: string;
+  metric_key: string;
+  metric_value: number;
   metadata: string | null;
-  createdAt: string;
+  created_at: string;
 }
 
 export interface CreateHealthSnapshot {
@@ -19,155 +25,73 @@ export interface CreateHealthSnapshot {
   metadata?: string;
 }
 
-/**
- * 健康快照仓库。
- * 使用 SQLite 持久化指标。
- */
 export class HealthSnapshotRepository {
-  constructor(
-    private readonly db: Database.Database,
-    private readonly logger: Logger,
-  ) {}
+  private readonly insertStmt: Database.Statement;
 
-  /**
-   * 创建健康快照。
-   * @param snapshot 快照数据
-   * @returns 创建的快照
-   */
-  create(snapshot: CreateHealthSnapshot): HealthSnapshot {
-    const stmt = this.db.prepare(`
+  constructor(private readonly db: Database.Database) {
+    this.insertStmt = db.prepare(`
       INSERT INTO health_snapshots (snapshot_date, metric_type, metric_key, metric_value, metadata)
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (@snapshotDate, @metricType, @metricKey, @metricValue, @metadata)
     `);
-
-    const result = stmt.run(
-      snapshot.snapshotDate,
-      snapshot.metricType,
-      snapshot.metricKey,
-      snapshot.metricValue,
-      snapshot.metadata || null,
-    );
-
-    return {
-      id: result.lastInsertRowid as number,
-      snapshotDate: snapshot.snapshotDate,
-      metricType: snapshot.metricType,
-      metricKey: snapshot.metricKey,
-      metricValue: snapshot.metricValue,
-      metadata: snapshot.metadata || null,
-      createdAt: new Date().toISOString(),
-    };
   }
 
-  /**
-   * 批量创建健康快照。
-   * @param snapshots 快照列表
-   * @returns 创建的快照列表
-   */
+  /** 批量写入（单事务） */
   createBatch(snapshots: CreateHealthSnapshot[]): HealthSnapshot[] {
-    const stmt = this.db.prepare(`
-      INSERT INTO health_snapshots (snapshot_date, metric_type, metric_key, metric_value, metadata)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    const results: HealthSnapshot[] = [];
-
-    const transaction = this.db.transaction(() => {
-      for (const snapshot of snapshots) {
-        const result = stmt.run(
-          snapshot.snapshotDate,
-          snapshot.metricType,
-          snapshot.metricKey,
-          snapshot.metricValue,
-          snapshot.metadata || null,
-        );
-
+    const tx = this.db.transaction((rows: CreateHealthSnapshot[]) => {
+      const results: HealthSnapshot[] = [];
+      for (const s of rows) {
+        const r = this.insertStmt.run({
+          snapshotDate: s.snapshotDate,
+          metricType: s.metricType,
+          metricKey: s.metricKey,
+          metricValue: s.metricValue,
+          metadata: s.metadata ?? null,
+        });
         results.push({
-          id: result.lastInsertRowid as number,
-          snapshotDate: snapshot.snapshotDate,
-          metricType: snapshot.metricType,
-          metricKey: snapshot.metricKey,
-          metricValue: snapshot.metricValue,
-          metadata: snapshot.metadata || null,
-          createdAt: new Date().toISOString(),
+          id: Number(r.lastInsertRowid),
+          snapshot_date: s.snapshotDate,
+          metric_type: s.metricType,
+          metric_key: s.metricKey,
+          metric_value: s.metricValue,
+          metadata: s.metadata ?? null,
+          created_at: new Date().toISOString(),
         });
       }
+      return results;
     });
-
-    transaction();
-    return results;
+    return tx(snapshots);
   }
 
-  /**
-   * 按日期查询快照。
-   * @param date 日期
-   * @returns 快照列表
-   */
   findByDate(date: string): HealthSnapshot[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM health_snapshots WHERE snapshot_date = ?
-    `);
-
-    return stmt.all(date) as HealthSnapshot[];
+    return this.db
+      .prepare("SELECT * FROM health_snapshots WHERE snapshot_date = ? ORDER BY id")
+      .all(date) as HealthSnapshot[];
   }
 
-  /**
-   * 按日期范围查询快照。
-   * @param startDate 开始日期
-   * @param endDate 结束日期
-   * @returns 快照列表
-   */
   findByDateRange(startDate: string, endDate: string): HealthSnapshot[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM health_snapshots WHERE snapshot_date BETWEEN ? AND ?
-    `);
-
-    return stmt.all(startDate, endDate) as HealthSnapshot[];
+    return this.db
+      .prepare("SELECT * FROM health_snapshots WHERE snapshot_date BETWEEN ? AND ? ORDER BY snapshot_date, id")
+      .all(startDate, endDate) as HealthSnapshot[];
   }
 
-  /**
-   * 按指标类型查询最新快照。
-   * @param metricType 指标类型
-   * @returns 最新快照或 null
-   */
-  findLatestByType(metricType: string): HealthSnapshot | null {
-    const stmt = this.db.prepare(`
-      SELECT * FROM health_snapshots WHERE metric_type = ?
-      ORDER BY snapshot_date DESC LIMIT 1
-    `);
-
-    return stmt.get(metricType) as HealthSnapshot | null;
+  findByMetricKey(metricKey: string): HealthSnapshot[] {
+    return this.db
+      .prepare("SELECT * FROM health_snapshots WHERE metric_key = ? ORDER BY snapshot_date DESC")
+      .all(metricKey) as HealthSnapshot[];
   }
 
-  /**
-   * 按指标键查询快照。
-   * @param metricKey 指标键
-   * @returns 快照列表
-   */
-  findByKey(metricKey: string): HealthSnapshot[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM health_snapshots WHERE metric_key = ?
-      ORDER BY snapshot_date DESC
-    `);
-
-    return stmt.all(metricKey) as HealthSnapshot[];
+  findLatestByMetricKey(metricKey: string): HealthSnapshot | null {
+    return (this.db
+      .prepare("SELECT * FROM health_snapshots WHERE metric_key = ? ORDER BY snapshot_date DESC, id DESC LIMIT 1")
+      .get(metricKey) as HealthSnapshot | undefined) ?? null;
   }
 
-  /**
-   * 删除旧快照（保留最近 N 天）。
-   * @param daysToKeep 保留天数
-   * @returns 删除的快照数量
-   */
-  deleteOldSnapshots(daysToKeep: number): number {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-    const cutoffDateStr = cutoffDate.toISOString().split("T")[0];
-
-    const stmt = this.db.prepare(`
-      DELETE FROM health_snapshots WHERE snapshot_date < ?
-    `);
-
-    const result = stmt.run(cutoffDateStr);
-    return result.changes;
+  /** 删除 N 天前的快照（数据保留策略：默认 90 天） */
+  deleteOlderThan(days: number): number {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return this.db
+      .prepare("DELETE FROM health_snapshots WHERE snapshot_date < ?")
+      .run(cutoff.toISOString().slice(0, 10)).changes;
   }
 }

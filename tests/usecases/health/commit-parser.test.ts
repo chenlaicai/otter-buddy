@@ -1,105 +1,173 @@
-import { describe, it, expect, vi } from "vitest";
-import { CommitParser } from "@usecases/health/commit-parser";
+import { describe, it, expect } from "vitest";
+import { parseCommit, parseCommits } from "@usecases/health/commit-parser";
 
 describe("CommitParser", () => {
-  const logger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  };
+  describe("parseCommit", () => {
+    it("should parse standard format commit", () => {
+      const result = parseCommit(
+        "abc123",
+        "[F20260824rhib][health][New Feature] RHI 系统健康监控面板 (#409)"
+      );
 
-  const parser = new CommitParser(logger as any);
-
-  describe("parse", () => {
-    it("should parse strict three-segment format", () => {
-      const message = "[F20260824rhib][health][New Feature] RHI Issue #394: 数据采集器实现";
-      const result = parser.parse(message);
-
-      expect(result.isValid).toBe(true);
-      expect(result.fid).toBe("F20260824rhib");
+      expect(result.sha).toBe("abc123");
+      expect(result.featureId).toBe("F20260824rhib");
       expect(result.module).toBe("health");
       expect(result.changeType).toBe("New Feature");
-      expect(result.prNumber).toBe(394);
+      expect(result.prNumber).toBe(409);
+      expect(result.isCompliant).toBe(true);
       expect(result.skipReason).toBeUndefined();
     });
 
-    it("should parse strict format with PR number", () => {
-      const message = "[F20260824rhib][health][New Feature] RHI Issue #394: 数据采集器实现 (#415)";
-      const result = parser.parse(message);
+    it("should parse BugFix format", () => {
+      const result = parseCommit(
+        "def456",
+        "[F20260824abcd][agent][BugFix] 修复 agent 崩溃问题 (#410)"
+      );
 
-      expect(result.isValid).toBe(true);
-      expect(result.fid).toBe("F20260824rhib");
-      expect(result.prNumber).toBe(394);
+      expect(result.featureId).toBe("F20260824abcd");
+      expect(result.module).toBe("agent");
+      expect(result.changeType).toBe("BugFix");
+      expect(result.prNumber).toBe(410);
+      expect(result.isCompliant).toBe(true);
     });
 
-    it("should parse loose format", () => {
-      const message = "F20260824rhib RHI Issue #394: 数据采集器实现";
-      const result = parser.parse(message);
+    it("should parse Feature Update format", () => {
+      const result = parseCommit(
+        "ghi789",
+        "[F20260824abcd][memory][Feature Update] 优化记忆检索 (#411)"
+      );
 
-      expect(result.isValid).toBe(true);
-      expect(result.fid).toBe("F20260824rhib");
-      expect(result.module).toBeNull();
-      expect(result.changeType).toBeNull();
-      expect(result.skipReason).toBe("loose_format");
+      expect(result.featureId).toBe("F20260824abcd");
+      expect(result.module).toBe("memory");
+      expect(result.changeType).toBe("Feature Update");
+      expect(result.prNumber).toBe(411);
+      expect(result.isCompliant).toBe(true);
     });
 
-    it("should skip revert commits", () => {
-      const message = "Revert \"RHI Issue #394: 数据采集器实现\"";
-      const result = parser.parse(message);
+    it("should handle merge commit", () => {
+      const result = parseCommit(
+        "jkl012",
+        "Merge branch 'feature/rhi-mvp' into main"
+      );
 
-      expect(result.isValid).toBe(false);
-      expect(result.skipReason).toBe("revert_commit");
+      expect(result.isCompliant).toBe(false);
+      expect(result.skipReason).toBe("merge_commit");
+      expect(result.featureId).toBeNull();
     });
 
-    it("should skip init commits", () => {
-      const message = "init project";
-      const result = parser.parse(message);
+    it("should handle fixup commit", () => {
+      const result = parseCommit(
+        "mno345",
+        "fixup! [F20260824rhib][health][New Feature] RHI 系统健康监控面板"
+      );
 
-      expect(result.isValid).toBe(false);
+      expect(result.isCompliant).toBe(false);
+      expect(result.skipReason).toBe("fixup_commit");
+    });
+
+    it("should handle init commit", () => {
+      const result = parseCommit(
+        "pqr678",
+        "init: bootstrap project"
+      );
+
+      expect(result.isCompliant).toBe(false);
       expect(result.skipReason).toBe("init_commit");
     });
 
-    it("should skip merge commits", () => {
-      const message = "Merge branch 'main' into feature/rhi-mvp";
-      const result = parser.parse(message);
+    it("should handle Revert commit", () => {
+      const result = parseCommit(
+        "stu901",
+        'Revert "[F20260824rhib][health][New Feature] RHI 系统健康监控面板"'
+      );
 
-      expect(result.isValid).toBe(false);
-      expect(result.skipReason).toBe("merge_commit");
+      expect(result.isCompliant).toBe(false);
+      expect(result.skipReason).toBe("revert_commit");
     });
 
-    it("should skip FID-only commits", () => {
-      const message = "F20260824rhib";
-      const result = parser.parse(message);
+    it("should handle R document header", () => {
+      const result = parseCommit(
+        "vwx234",
+        "[R20260824abcd][research] 技术调研报告"
+      );
 
-      expect(result.isValid).toBe(false);
-      expect(result.skipReason).toBe("fid_only_no_message");
+      expect(result.isCompliant).toBe(false);
+      expect(result.skipReason).toBe("research_document");
     });
 
-    it("should mark unparseable commits", () => {
-      const message = "some random commit message";
-      const result = parser.parse(message);
+    it("should handle non-standard format with F prefix", () => {
+      const result = parseCommit(
+        "yza567",
+        "[F20260824abcd] 简单标题 (#412)"
+      );
 
-      expect(result.isValid).toBe(false);
-      expect(result.skipReason).toBe("unparseable");
+      expect(result.featureId).toBe("F20260824abcd");
+      expect(result.prNumber).toBe(412);
+      expect(result.isCompliant).toBe(false);
+      expect(result.skipReason).toBe("non_standard_format");
+    });
+
+    it("should handle commit without F prefix", () => {
+      const result = parseCommit(
+        "bcd890",
+        "一些普通提交"
+      );
+
+      expect(result.isCompliant).toBe(false);
+      expect(result.skipReason).toBe("no_f_prefix");
+      expect(result.featureId).toBeNull();
+    });
+
+    it("should handle commit with hyphenated module", () => {
+      const result = parseCommit(
+        "efg123",
+        "[F20260824abcd][agent-runtime][New Feature] 新功能 (#413)"
+      );
+
+      // 模块段含连字符，但 regex 允许，所以是合规的
+      expect(result.featureId).toBe("F20260824abcd");
+      expect(result.module).toBe("agent-runtime");
+      expect(result.isCompliant).toBe(true);
+    });
+
+    it("should handle commit with numeric module", () => {
+      const result = parseCommit(
+        "hij456",
+        "[F20260824abcd][agent2][New Feature] 新功能 (#414)"
+      );
+
+      // 模块段含数字，不匹配严格三段格式（数字不在 [a-z][a-z-]* 中）
+      expect(result.featureId).toBe("F20260824abcd");
+      expect(result.module).toBeNull();
+      expect(result.isCompliant).toBe(false);
+      expect(result.skipReason).toBe("non_standard_format");
     });
   });
 
-  describe("parseBatch", () => {
-    it("should parse multiple messages", () => {
-      const messages = [
-        "[F20260824rhib][health][New Feature] RHI Issue #394: 数据采集器实现",
-        "Revert \"RHI Issue #394: 数据采集器实现\"",
-        "F20260824rhib RHI Issue #394: 数据采集器实现",
-        "some random commit message",
+  describe("parseCommits", () => {
+    it("should parse multiple commits", () => {
+      const commits = [
+        {
+          sha: "abc123",
+          message: "[F20260824rhib][health][New Feature] RHI 系统健康监控面板 (#409)",
+        },
+        {
+          sha: "def456",
+          message: "Merge branch 'main' into feature/rhi-mvp",
+        },
+        {
+          sha: "ghi789",
+          message: "[F20260824abcd][agent][BugFix] 修复问题 (#410)",
+        },
       ];
 
-      const results = parser.parseBatch(messages);
+      const results = parseCommits(commits);
 
-      expect(results).toHaveLength(4);
-      expect(results[0].isValid).toBe(true);
-      expect(results[1].isValid).toBe(false);
-      expect(results[2].isValid).toBe(true);
-      expect(results[3].isValid).toBe(false);
+      expect(results).toHaveLength(3);
+      expect(results[0].isCompliant).toBe(true);
+      expect(results[1].isCompliant).toBe(false);
+      expect(results[1].skipReason).toBe("merge_commit");
+      expect(results[2].isCompliant).toBe(true);
     });
   });
 });

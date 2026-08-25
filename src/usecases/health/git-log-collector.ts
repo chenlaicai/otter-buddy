@@ -1,113 +1,163 @@
-import { execSync } from "node:child_process";
-import type { Logger } from "@usecases/ports/logger";
+/**
+ * GitLogCollector: 从 git log 中采集 commit 信息（只读操作）
+ * 
+ * 使用 child_process 执行 git log，提取 commit SHA 和 message。
+ * 不修改任何 git 数据，仅读取。
+ */
+
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export interface GitCommit {
-  hash: string;
-  author: string;
-  date: string;
+  sha: string;
+  message: string;
+}
+
+/**
+ * 从 git log 中采集 commit 信息
+ * @param repoPath 仓库根目录路径
+ * @param options 可选参数
+ * @param options.since 起始日期（ISO 格式），默认不限制
+ * @param options.until 结束日期（ISO 格式），默认不限制
+ * @param options.maxCount 最大 commit 数，默认不限制
+ * @returns commit 列表
+ */
+export async function collectGitLog(
+  repoPath: string,
+  options?: {
+    since?: string;
+    until?: string;
+    maxCount?: number;
+  }
+): Promise<GitCommit[]> {
+  const args = [
+    "log",
+    "--format=%H %s",  // SHA + 第一行 message
+  ];
+
+  if (options?.since) {
+    args.push(`--since=${options.since}`);
+  }
+  if (options?.until) {
+    args.push(`--until=${options.until}`);
+  }
+  if (options?.maxCount) {
+    args.push(`--max-count=${options.maxCount}`);
+  }
+
+  try {
+    const { stdout } = await execFileAsync("git", args, {
+      cwd: repoPath,
+      maxBuffer: 10 * 1024 * 1024,  // 10MB buffer
+    });
+
+    const commits: GitCommit[] = [];
+    const lines = stdout.trim().split("\n").filter(line => line.length > 0);
+
+    for (const line of lines) {
+      const spaceIndex = line.indexOf(" ");
+      if (spaceIndex === -1) continue;
+
+      const sha = line.substring(0, spaceIndex);
+      const message = line.substring(spaceIndex + 1);
+      commits.push({ sha, message });
+    }
+
+    return commits;
+  } catch (error) {
+    throw new Error(`Failed to collect git log: ${error}`, { cause: error });
+  }
+}
+
+/** 带文件变更列表的 commit（文件热点/模块热区计算用） */
+export interface GitCommitWithFiles {
+  sha: string;
   message: string;
   filesChanged: string[];
 }
 
-export interface GitLogCollectorOptions {
-  since?: string;
-  until?: string;
-  maxCount?: number;
+/**
+ * 批量采集 commit + 变更文件列表（单次 git log，避免逐 commit 子进程）。
+ * 用 %x1f（字段分隔）/ %x1e（记录分隔）标记，规避 message 含 | 或空行的歧义。
+ * merge commit 默认不列文件（git log 对 merge 不做 diff），filesChanged 为空数组。
+ */
+export async function collectGitLogWithFiles(
+  repoPath: string,
+  options?: {
+    since?: string;
+    until?: string;
+    maxCount?: number;
+  }
+): Promise<GitCommitWithFiles[]> {
+  const args = [
+    "log",
+    "--format=%x1e%H%x1f%s",  // 记录分隔符开头：header 恒在首行，规避文件列表前置歧义
+    "--name-only",
+  ];
+
+  if (options?.since) args.push(`--since=${options.since}`);
+  if (options?.until) args.push(`--until=${options.until}`);
+  if (options?.maxCount) args.push(`--max-count=${options.maxCount}`);
+
+  const { stdout } = await execFileAsync("git", args, {
+    cwd: repoPath,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+
+  const commits: GitCommitWithFiles[] = [];
+  // stdout 以 \x1e 开头（首条记录），split 后首段为空串，filter(Boolean) 去除
+  const records = stdout.split("\x1e").map(r => r.trim()).filter(Boolean);
+
+  for (const record of records) {
+    // record 结构："sha\x1fmessage\n\nfile1\nfile2..."（name-only 在 message 后带空行）
+    const lines = record.split("\n");
+    const header = lines[0] ?? "";
+    const sepIdx = header.indexOf("\x1f");
+    if (sepIdx === -1) continue;
+    const sha = header.substring(0, sepIdx);
+    const message = header.substring(sepIdx + 1);
+    const filesChanged = lines.slice(1).map(f => f.trim()).filter(Boolean);
+    commits.push({ sha, message, filesChanged });
+  }
+
+  return commits;
 }
 
 /**
- * Git 日志采集器（只读）。
- * 使用 child_process 执行 git log，采集提交历史。
+ * 获取 commit 的详细信息（包含修改的文件列表）
+ * @param repoPath 仓库根目录路径
+ * @param commitSha commit SHA
+ * @returns commit 详情（包含修改的文件列表）
  */
-export class GitLogCollector {
-  constructor(
-    private readonly rootDir: string,
-    private readonly logger: Logger,
-  ) {}
+export async function getCommitDetails(
+  repoPath: string,
+  commitSha: string
+): Promise<{ sha: string; message: string; filesChanged: string[] }> {
+  try {
+    // 获取 commit message
+    const { stdout: messageStdout } = await execFileAsync(
+      "git",
+      ["log", "-1", "--format=%s", commitSha],
+      { cwd: repoPath }
+    );
+    const message = messageStdout.trim();
 
-  /**
-   * 采集 git log。
-   * @param options 采集选项（时间范围、最大数量）
-   * @returns 提交列表
-   */
-  collect(options: GitLogCollectorOptions = {}): GitCommit[] {
-    const { since, until, maxCount } = options;
-    const args = [
-      "log",
-      "--pretty=format:%H|%an|%ai|%s",
-      "--name-only",
-    ];
+    // 获取修改的文件列表
+    const { stdout: filesStdout } = await execFileAsync(
+      "git",
+      ["diff-tree", "--no-commit-id", "--name-only", "-r", commitSha],
+      { cwd: repoPath }
+    );
+    const filesChanged = filesStdout.trim().split("\n").filter(f => f.length > 0);
 
-    if (since) args.push(`--since=${since}`);
-    if (until) args.push(`--until=${until}`);
-    if (maxCount) args.push(`--max-count=${maxCount}`);
-
-    try {
-      const output = execSync(`git ${args.join(" ")}`, {
-        cwd: this.rootDir,
-        encoding: "utf-8",
-        maxBuffer: 1024 * 1024 * 10, // 10MB
-      });
-
-      return this.parseGitLog(output);
-    } catch (error) {
-      this.logger.error("Failed to collect git log", error instanceof Error ? error : undefined);
-      throw error;
-    }
-  }
-
-  /**
-   * 解析 git log 输出。
-   * 格式：hash|author|date|message\nfiles...
-   */
-  private parseGitLog(output: string): GitCommit[] {
-    const commits: GitCommit[] = [];
-    const lines = output.split("\n").filter(line => line.trim());
-
-    let currentCommit: Partial<GitCommit> | null = null;
-
-    for (const line of lines) {
-      // 提交头行：hash|author|date|message
-      if (this.isCommitHeader(line)) {
-        if (currentCommit?.hash) {
-          commits.push(currentCommit as GitCommit);
-        }
-        currentCommit = this.parseCommitHeader(line);
-      } else if (currentCommit && line.trim()) {
-        // 文件变更行
-        if (!currentCommit.filesChanged) {
-          currentCommit.filesChanged = [];
-        }
-        currentCommit.filesChanged.push(line.trim());
-      }
-    }
-
-    // 最后一个提交
-    if (currentCommit?.hash) {
-      commits.push(currentCommit as GitCommit);
-    }
-
-    return commits;
-  }
-
-  /**
-   * 判断是否为提交头行。
-   */
-  private isCommitHeader(line: string): boolean {
-    return line.includes("|") && !line.startsWith(" ");
-  }
-
-  /**
-   * 解析提交头行。
-   */
-  private parseCommitHeader(line: string): Partial<GitCommit> {
-    const [hash, author, date, ...messageParts] = line.split("|");
     return {
-      hash: hash?.trim() || "",
-      author: author?.trim() || "",
-      date: date?.trim() || "",
-      message: messageParts.join("|").trim(),
-      filesChanged: [],
+      sha: commitSha,
+      message,
+      filesChanged,
     };
+  } catch (error) {
+    throw new Error(`Failed to get commit details for ${commitSha}: ${error}`, { cause: error });
   }
 }
