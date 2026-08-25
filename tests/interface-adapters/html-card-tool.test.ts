@@ -76,6 +76,19 @@ describe("get_html_card_contract 工具", () => {
     expect(speak.description).toContain("get_html_card_contract");
     expect(speak.description).toContain("html-card-reply");
   });
+
+  it("speak description 携带正向判断标准（F20260825hcpg 归位：场景锚 + 正文卡片搭配 + 反例）", () => {
+    const speak = createTools(makeCtx()).find(t => t.name === "speak")!;
+    // 场景锚：方案对比/设计思路/排查结论/结构化数据 → 卡片；反例：短问答/代码片段/简单列表 → md
+    expect(speak.description).toContain("方案对比");
+    expect(speak.description).toContain("设计思路");
+    expect(speak.description).toContain("排查结论");
+    expect(speak.description).toContain("结构化数据");
+    expect(speak.description).toContain("正文先写");
+    expect(speak.description).toContain("用 md");
+    // 频控哲学：防矫枉过正（每条都出卡）
+    expect(speak.description).toContain("每条都出卡等于没出卡");
+  });
 });
 
 describe("契约样式变量与前端注入 token 交叉断言", () => {

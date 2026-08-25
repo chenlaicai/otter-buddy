@@ -24,7 +24,10 @@ import { checkPendingDispatches, confirmDispatchesClear } from "@usecases/conver
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    description: "发言工具——你在聊天室里唯一的发言通道。你生成的普通文本对其他参与者不可见（搭档需点开流式过程才能看到，其他海獭完全看不到），只有 speak 输出的内容才会被所有人看到。所有需要传达给他人的内容都必须通过 speak(body) 输出。纯内容输出，不涉及行动权移交。调用后 agent loop 继续（terminate=false），可以继续调工具或再次 speak。多次调用的 body 会作为独立片段按顺序拼接为最终消息。GOTCHA: speak 不等于交棒——说完后还需调 yield 把行动权交给下一位，回合才会结束。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——**一条消息最多 2 张，单卡 ≤4KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用**。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
+    // F20260825hcpg 判断标准归位（原设计 F20260728htar L81，在 description 压缩中失传）。
+    // 勿再移出：行为触发类引导必须在工具 description（每请求随 tools 参数注入，pi-ai
+    // anthropic-messages.js convertTools），references 指针对「要不要用」的决策无效。
+    description: "发言工具——你在聊天室里唯一的发言通道。你生成的普通文本对其他参与者不可见（搭档需点开流式过程才能看到，其他海獭完全看不到），只有 speak 输出的内容才会被所有人看到。所有需要传达给他人的内容都必须通过 speak(body) 输出。纯内容输出，不涉及行动权移交。调用后 agent loop 继续（terminate=false），可以继续调工具或再次 speak。多次调用的 body 会作为独立片段按顺序拼接为最终消息。TIP: 面向搭档的方案对比、设计思路、排查结论、结构化数据——正文先写 1-2 句结论，html-card 卡片放结构化详情，搭档更直观；短问答、代码片段、简单列表用 md。每条都出卡等于没出卡。GOTCHA: speak 不等于交棒——说完后还需调 yield 把行动权交给下一位，回合才会结束。GOTCHA: HTML 卡片（```html-card title=\"标题\"``` 围栏）必须完整写在 body 参数内——**一条消息最多 2 张，单卡 ≤8KB；写在 speak 之外文本里的卡片搭档看不到，系统会检测并拒绝该次调用**。写卡片前必须调 get_html_card_contract 获取完整契约；搭档回复中的 ```html-card-reply``` 围栏是卡片回执（内嵌 JSON 可解析）。系统自愈：见 SYSTEM.md R5——调用遇系统问题时在 body 末尾附 healing 块，顺利则附 no_issue 块。",
     parameters: {
       type: "object",
       properties: {
