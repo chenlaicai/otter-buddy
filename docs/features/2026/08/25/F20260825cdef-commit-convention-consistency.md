@@ -37,15 +37,17 @@ commit 规范的三处载体（文档 `.pi/skills/code-implementation/references
 
 **#432 按 issue 内裁决流程执行**：查 git log 存量决定「补表」还是「删 Feature」。
 
-存量验证结果（本 worktree 实测）：
+存量验证结果（本 worktree 实测，已经检视复核订正）：
 
-- 标准格式完整 type 段为 `[Feature]` 的提交共 **7 条**，日期 2026-07-31 ~ 2026-08-18，
+- 完整 type 段为 `[Feature]` 的提交共 **10 条**，日期 2026-07-28 ~ 2026-08-18，
   最近一条为 8/18 的 #300——**非远古遗留，但 8/18 后已无新增**
+- 初次计数 7 条系 regex 过窄（`[a-z0-9]{4}` 恰好 4 字符码），遗漏 3 条 5-6 字符随机码
+  提交（#202 rstart / #132 chunk / #94 guard）；订正后口径 `[a-z0-9]{4,10}`（检视獭-452 发现）
 - hook 白名单 5 种（PR #431 起强制）已阻止新增 `[Feature]` 提交——存量不会再增长
-- 其余 11 条 `][Feature]` 匹配均为 `[Feature Update]` 前缀误匹配
+- 其余 `][Feature]` 匹配均为 `[Feature Update]` 前缀误匹配
 
 裁决：**方向 1（删 `Feature`）**——类型清单收敛至 Type Tags 表的 5 种。理由：
-单一规范名、检索一致性优先；hook 已强制 5 种，文档同步是唯一未对齐处；存量 7 条
+单一规范名、检索一致性优先；hook 已强制 5 种，文档同步是唯一未对齐处；存量 10 条
 属历史事实不 rewrite。
 
 **#441 方向复核**：简报默认方向为「放宽 CI 对齐 hook」，但与已合入事实冲突——PR #437
@@ -84,12 +86,16 @@ commit 规范的三处载体（文档 `.pi/skills/code-implementation/references
 ### 存量验证（裁决依据）
 
 ```bash
-# 完整 type 段 [Feature] 的提交：7 条，2026-07-31 ~ 2026-08-18
+# 完整 type 段 [Feature] 的提交：10 条，2026-07-28 ~ 2026-08-18
+# （regex 口径 [a-z0-9]{4,10}：覆盖 4-10 位随机码，含 5-6 字符的 #202/#132/#94）
 git log --all --extended-regexp \
-  --grep='^\[F[0-9]{8}[a-z0-9]{4}\]\[[a-z]+\]\[Feature\]( |$|\[)' --format='%h %ad %s' --date=short
+  --grep='^\[F[0-9]{8}[a-z0-9]{4,10}\]\[[a-z]+\]\[Feature\]( |$|\[)' --format='%h %ad %s' --date=short
 ```
 
-### hook 行为回归（本 worktree 实测，python 提取 hook 内 node 代码逐用例执行）
+### hook 行为回归（本 worktree 实测）
+
+回归脚本已入档：`scripts/tmp-verify/hook-regression-verify.py`（python 提取 hook 内
+node 代码逐用例真实执行，非重写正则），复跑 6 用例全 PASS：
 
 | 用例 | 预期 | 结果 |
 |------|------|------|
@@ -99,6 +105,8 @@ git log --all --extended-regexp \
 | `[F20260825zzzc][ci][Feature] 类型 Feature 应拒绝` | REJECT | ✅ |
 | `[F20260825zzzd][ci-x][Design] 模块段连字符应拒绝` | REJECT | ✅ |
 | `[F20260825cmhg][ci][BugFix] 存量ID应通过` | PASS | ✅ |
+
+> 注：用例 ID 后缀须用合法字符集（首位 a-kmnp-z，后 3-9 位 2-9a-kmnp-z，排除 l/o/0/1）。
 
 ### CI 验证
 
