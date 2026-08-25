@@ -27,6 +27,10 @@ import { KeyInfoController } from "@interface-adapters/http/controllers/key-info
 import { SettingsController } from "@interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
+import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
+import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
+import type { SignalRepository } from "@usecases/health/signal-repository";
+import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 
 
 /** 未配置 inbound 时的空实现，避免 as unknown as 双重断言 */
@@ -52,10 +56,14 @@ export interface ControllerDeps {
   processInboundRecruit?: ProcessInboundRecruit;
   inboundApiKey?: string;
   getBridgeStatus?: GetBridgeStatus;
+  /** F20260825rweb（#402）：RHI 面板 API 依赖（worker + 两个 repo） */
+  rhiScanWorker: RhiScanWorker;
+  signalRepo: SignalRepository;
+  healthSnapshotRepo: HealthSnapshotRepository;
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
-  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus } = deps;
+  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo } = deps;
 
   const settings: SettingsConfig = {
     port: appConfig.server.port,
@@ -78,6 +86,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
     connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),
+    rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger),
     inbound: processInboundRecruit && inboundApiKey
       ? new InboundController(
           inboundApiKey,

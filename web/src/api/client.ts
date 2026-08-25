@@ -395,3 +395,53 @@ export function leaveConversation(connectionId: string): Promise<{ status: strin
 export function listActiveConversations(): Promise<Array<{ id: string; title: string; occupiedBy?: string }>> {
   return request('/connections/any/conversations')
 }
+
+// ── RHI 健康面板（F20260825rweb #402/#403）──
+
+export interface RhiOverviewDTO {
+  metrics: Record<string, number>
+  snapshotDate: string | null
+  openSignals: number
+  openSignalsBySeverity: { critical: number; warning: number }
+}
+
+export interface RhiSignalDTO {
+  id: number
+  signal_type: string
+  severity: string
+  feature_id: string | null
+  file_path: string | null
+  evidence: string
+  first_seen: string
+  last_seen: string
+  occurrences: number
+  status: string
+  suggested_action: string | null
+}
+
+export interface RhiChainDTO {
+  featureId: string
+  state: 'active' | 'stalled' | 'regressed' | 'zombie' | 'orphan'
+  commitCount: number
+  bugfixCount: number
+  daysSinceLastCommit: number | null
+  firstSeenAt: string | null
+  lastCommitAt: string | null
+  docStatus: string | null
+}
+
+export function getRhiOverview(): Promise<RhiOverviewDTO> {
+  return request('/health/overview')
+}
+
+export function getRhiSignals(status = 'open'): Promise<{ signals: RhiSignalDTO[]; count: number }> {
+  return request(`/health/signals?status=${encodeURIComponent(status)}`)
+}
+
+export function getRhiChains(): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number }> {
+  return request('/health/chains')
+}
+
+export function triggerRhiScan(): Promise<{ ok: boolean; result: Record<string, unknown> }> {
+  return request('/health/scan', { method: 'POST' })
+}

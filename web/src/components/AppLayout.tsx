@@ -3,7 +3,7 @@ import { TopBar } from './TopBar'
 import { ToastContainer } from './Toast'
 
 interface AppLayoutProps {
-  activeView: 'conversation' | 'memory' | 'skills' | 'settings' | 'connections'
+  activeView: 'conversation' | 'memory' | 'skills' | 'settings' | 'connections' | 'health'
   children: ReactNode
   showRightPanel?: boolean
   wsBar?: ReactNode
