@@ -42,6 +42,12 @@ async function buildIdentityPrefix(factory: PiSessionFactory, otterId: string, o
     .identityBuilder.buildIdentityPrefix(otterId, otterType, "");
 }
 
+/** 提取身份前缀中的日期段，用于断言日期锚点注入 */
+function extractDateSection(prefix: string): string | undefined {
+  const match = prefix.match(/## 当前日期时间\n- 今天是 .+/);
+  return match?.[0];
+}
+
 describe("buildIdentityPrefix 分支", () => {
   let db: Database.Database;
   let repo: SqliteOtterRepository;
@@ -62,7 +68,7 @@ describe("buildIdentityPrefix 分支", () => {
     });
   }
 
-  it("大獭：头部字段 + 大獭身份正文（frontmatter 已剥离）", async () => {
+  it("大獭：头部字段 + 大獭身份正文 + 日期锚点（#422）", async () => {
     await seedOtter("o-big", "大獭", "big");
     const prefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
 
@@ -71,6 +77,10 @@ describe("buildIdentityPrefix 分支", () => {
     expect(prefix).toContain("类型：大獭");
     expect(prefix).toContain("海獭团队的头儿");
     expect(prefix).not.toContain("name: big-otter-identity");
+    // F20260825i422: 日期锚点注入——格式 YYYY-MM-DD HH:MM（Asia/Shanghai）
+    const dateSection = extractDateSection(prefix);
+    expect(dateSection).toBeDefined();
+    expect(dateSection).toMatch(/## 当前日期时间\n- 今天是 \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
   });
 
   it("小獭：以 otterType 参数为准（即使 DB type 字段不一致）", async () => {
