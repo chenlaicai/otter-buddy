@@ -75,6 +75,8 @@ export async function collectGitLog(
 export interface GitCommitWithFiles {
   sha: string;
   message: string;
+  /** ISO 8601 作者日期（%aI，特性链时间序/信号窗口判定用） */
+  date: string;
   filesChanged: string[];
 }
 
@@ -98,7 +100,8 @@ export async function collectGitLogWithFiles(
   const args = [
     "log",
     options?.ref ?? "main",
-    "--format=%x1e%H%x1f%s",  // 记录分隔符开头：header 恒在首行，规避文件列表前置歧义
+    // %aI=ISO 作者日期：链构建/信号窗口的时间基准（不用 %cI 提交日期——rebase 会改写）
+    "--format=%x1e%H%x1f%aI%x1f%s",
     "--name-only",
   ];
 
@@ -111,20 +114,25 @@ export async function collectGitLogWithFiles(
     maxBuffer: 10 * 1024 * 1024,
   });
 
+  return parseLogWithFiles(stdout);
+}
+
+/** 解析 `git log --format=%x1e%H%x1f%aI%x1f%s --name-only` 输出 */
+function parseLogWithFiles(stdout: string): GitCommitWithFiles[] {
   const commits: GitCommitWithFiles[] = [];
   // stdout 以 \x1e 开头（首条记录），split 后首段为空串，filter(Boolean) 去除
   const records = stdout.split("\x1e").map(r => r.trim()).filter(Boolean);
 
   for (const record of records) {
-    // record 结构："sha\x1fmessage\n\nfile1\nfile2..."（name-only 在 message 后带空行）
+    // record 结构："sha\x1fdate\x1fmessage\n\nfile1\nfile2..."（name-only 在 message 后带空行）
     const lines = record.split("\n");
     const header = lines[0] ?? "";
-    const sepIdx = header.indexOf("\x1f");
-    if (sepIdx === -1) continue;
-    const sha = header.substring(0, sepIdx);
-    const message = header.substring(sepIdx + 1);
+    const fields = header.split("\x1f");
+    if (fields.length < 3) continue;
+    const [sha, date] = fields;
+    const message = fields.slice(2).join("\x1f");  // message 理论上不含 \x1f，防御性 join
     const filesChanged = lines.slice(1).map(f => f.trim()).filter(Boolean);
-    commits.push({ sha, message, filesChanged });
+    commits.push({ sha: sha ?? "", date: date ?? "", message: message ?? "", filesChanged });
   }
 
   return commits;
