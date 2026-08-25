@@ -906,6 +906,7 @@ function mockSendMessageWithIncrementalId() {
   } as unknown as SendMessage & { _calls: typeof calls; _sendSystemBodies: string[] };
 }
 
+// eslint-disable-next-line max-lines-per-function
 describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
   it("第一次触发：fail + sendSystem 提醒 + 重试成功", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
@@ -988,6 +989,37 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.failed");
     expect(eventTypes).toContain("message.aborted");
+  });
+
+  // F20260825rtmx: 验证 handleAutoRetry 调用 prepareForRetry 重置消息生命周期
+  it("streaming_timeout 自动重试：prepareForRetry 重置消息 → 重试轮可正常 append → 再超时 abort", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessageWithIncrementalId();
+    // 添加 prepareForRetry 实现（原 mock 缺失此方法）
+    const prepareCalls: string[] = [];
+    (msg as unknown as { prepareForRetry: (id: string) => Promise<{ id: string }> }).prepareForRetry =
+      async (id: string) => { prepareCalls.push(id); return { id }; };
+    const streamingQm: QueryMessage = {
+      getMessageById: async () => ({ ...speakingMsg, status: "streaming", body: null, talkingStonePassedTo: null }),
+    } as unknown as QueryMessage;
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "" }, internalAbortReason: "streaming_timeout" }),
+      msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger(),
+    );
+    await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
+
+    // prepareForRetry 被调用（重置消息生命周期）
+    expect(prepareCalls).toHaveLength(1);
+    // fail + abort 终态
+    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    expect(msg._calls.abort).toHaveLength(1);
+    expect(msg._calls.abort[0].body).toContain("[系统保护]");
+    expect(msg._calls.abort[0].body).toContain("超时");
+    const eventTypes = events.map((e) => e.event);
+    expect(eventTypes).toContain("message.failed");
+    expect(eventTypes).toContain("message.aborted");
+    // 没有 message.complete（重试再超时，不是成功）
+    expect(eventTypes).not.toContain("message.complete");
   });
 
   it("sendSystem 失败：降级为直接 abort", async () => {

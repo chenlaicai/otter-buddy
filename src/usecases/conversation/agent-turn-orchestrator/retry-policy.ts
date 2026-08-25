@@ -34,6 +34,20 @@ export function buildYieldRetryMsg(toolCallCount?: number, hasOrphanText?: boole
     : "[系统提醒] 你上一次行动没有调用 yield 交棒就结束了。请调用 yield(to) 把行动权交给下一位。";
 }
 
+/** 构建自动重试的系统提醒消息（streaming_timeout / first_byte_timeout / circuit_break 重试时注入） */
+export function buildAutoRetryMsg(reason: string): string {
+  if (reason === 'streaming_timeout') {
+    return '[系统提醒] 你上一轮生成过程超时，已被系统自动重试。请从中断处继续完成你的发言，不需要重新开始。';
+  }
+  if (reason === 'first_byte_timeout') {
+    return '[系统提醒] 你上一轮模型响应超时，已被系统自动重试。请重新生成你的发言。';
+  }
+  if (reason.startsWith('circuit_break:')) {
+    return '[系统提醒] 你上一轮工具调用异常，已被系统自动重试。请检查工具调用策略后继续。';
+  }
+  return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
+}
+
 /** Build abort body: user abort vs guard abort */
 export function buildGuardAbortBody(guardReason: string | undefined): string {
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';
