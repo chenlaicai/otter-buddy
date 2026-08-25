@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
+import { OtterAvatar } from '../../components/OtterAvatar'
+import { HelpIcon } from '../../components/HelpIcon'
 import type { LocalOtter as Otter, LocalOtterSession as OtterSession } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
 
@@ -275,21 +277,42 @@ function legacyCopy(text: string): boolean {
   return ok
 }
 
+/** 属性说明文案常量（D2.1）
+ *  与映射表同源维护——改映射必须同步改此处。 */
+const HELP_TEXT = {
+  level: '等级 = 世数：海獭每次重启獭生（session 封存重开）+1。资历指标，非游戏升级。',
+  badge: '称号由规则自动派生：族群长老=大獭；N世轮回=世数≥3；高产=产出≥10；无满足则不显示。',
+  type: '大獭=族群长老（持久型，负责统筹和派活）；小獭=任务专员（临时型，完成任务后解散）。',
+  sessionChain: '转世履历记录海獭的每次 session 生命周期。重启獭生 = 封存当前 session + 开启新 session。',
+}
+
 function OtterDetailModal(props: ModalsProps) {
   const { modal } = props
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const otter = modal.type === 'otter-detail' ? props.otters.find(o => o.id === modal.otterId) : null
   if (!otter) return null
 
+  const isBig = otter.type === 'big'
   const sessions: OtterSession[] = props.sessions[otter.id] || []
   const chain: OtterSession[] = sortSessionChain(sessions)
+  const activeSession = chain.find(s => s.status === 'active')
+  const activeGen = activeSession ? chain.indexOf(activeSession) + 1 : 0
+
+  // 称号徽章：规则化派生（D3）
+  const badges: string[] = []
+  if (isBig) badges.push('族群长老')
+  if (activeGen >= 3) badges.push(`${activeGen}世轮回`)
+  // "高产" 需要 artifactCount，PR-2 数据到位后启用
+  if (otter.role?.name) badges.push(otter.role.name)
+
+  const statusEmoji = activeSession ? '🟢' : '💤'
+  const statusText = activeSession ? '活跃' : '休眠'
 
   const copySessionId = (id: string) => {
     const done = () => {
       setCopiedId(id)
       setTimeout(() => setCopiedId(cur => (cur === id ? null : cur)), 1500)
     }
-    // 打勾反馈挂在复制成功之后，避免复制实际失败也显示成功
     if (navigator.clipboard) {
       navigator.clipboard.writeText(id).then(done).catch(() => { if (legacyCopy(id)) done() })
     } else if (legacyCopy(id)) {
@@ -301,12 +324,12 @@ function OtterDetailModal(props: ModalsProps) {
     <Modal
       isOpen
       onClose={props.onClose}
-      title="Otter 详情"
+      title="海獭面板"
       width="580px"
       footer={
         <>
           <ModalButton onClick={props.onClose}>关闭</ModalButton>
-          {otter.type === 'big' ? (
+          {isBig ? (
             <ModalButton variant="danger" onClick={() => { props.onClose(); props.onOpenRestart(otter.id) }}>
               重启獭生
             </ModalButton>
@@ -318,15 +341,40 @@ function OtterDetailModal(props: ModalsProps) {
         </>
       }
     >
-      <div className="flex gap-6 mb-4">
-        <div className="flex-1 space-y-3">
+      {/* ═══ 形象区：头像 + 名称 + 称号徽章 ═══ */}
+      <div className="flex items-center gap-4 mb-5">
+        <OtterAvatar otterId={otter.id} name={otter.name} size={48} />
+        <div className="flex-1 min-w-0">
+          <div className="text-lg font-semibold text-stone-800">{otter.name}</div>
+          {badges.length > 0 && (
+            <div className="flex gap-1.5 mt-1 flex-wrap">
+              {badges.slice(0, 3).map(b => (
+                <span key={b} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-otter-400/15 text-otter-600">
+                  {b}
+                </span>
+              ))}
+              {badges.length > 3 && (
+                <span className="text-[10px] text-stone-400">+{badges.length - 3}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ═══ 属性区 + 状态区 ═══ */}
+      <div className="grid grid-cols-2 gap-4 mb-5">
+        <div className="space-y-2.5">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">名称</div>
-            <div className="text-sm mt-0.5 text-stone-800">{otter.name}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center">
+              类型 <HelpIcon text={HELP_TEXT.type} />
+            </div>
+            <div className="text-sm mt-0.5 text-stone-800">{isBig ? '族群长老' : '任务专员'}</div>
           </div>
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">类型</div>
-            <div className="text-sm mt-0.5 text-stone-800">{otter.type === 'big' ? '大獭' : '小獭'}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center">
+              等级 <HelpIcon text={HELP_TEXT.level} />
+            </div>
+            <div className="text-sm mt-0.5 text-stone-800">Lv.{activeGen}</div>
           </div>
           {otter.role?.name && (
             <div>
@@ -341,13 +389,17 @@ function OtterDetailModal(props: ModalsProps) {
             </div>
           )}
         </div>
-        <div className="flex-1 space-y-3">
-          {!!otter.role?.resp?.length && (
+        <div className="space-y-2.5">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">在线状态</div>
+            <div className="text-sm mt-0.5 text-stone-800">{statusEmoji} {statusText}</div>
+          </div>
+          {activeSession && (
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">职责列表</div>
-              <ul className="text-sm mt-0.5 list-disc pl-4 text-stone-800">
-                {otter.role.resp.map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">本世启程</div>
+              <div className="text-sm mt-0.5 text-stone-800">
+                第{activeGen}世 · {activeSession.startedAt}
+              </div>
             </div>
           )}
           <div>
@@ -357,8 +409,19 @@ function OtterDetailModal(props: ModalsProps) {
         </div>
       </div>
 
+      {/* ═══ 装备区占位（PR-2 扩展） ═══ */}
+      <div className="mb-5 p-3 rounded-xl border border-dashed border-stone-300/60">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 text-center">
+          装备区 · 武器 / 技能槽 / 工具袋 / 心法
+        </div>
+        <div className="text-[10px] text-stone-400 text-center mt-0.5">PR-2 实现</div>
+      </div>
+
+      {/* ═══ 历练区：转世履历（改名自 Session Chain） ═══ */}
       <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5">Session Chain</div>
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5 flex items-center">
+          转世履历 <HelpIcon text={HELP_TEXT.sessionChain} />
+        </div>
         {chain.length === 0 ? (
           <div className="text-xs text-stone-500">暂无 session 记录</div>
         ) : (
@@ -394,7 +457,6 @@ function OtterDetailModal(props: ModalsProps) {
                 {s.archiveReason && (
                   <div className="text-xs text-stone-600 mt-1">归档原因：{s.archiveReason}</div>
                 )}
-                {/* F20260805rsto：active 行的 summary 是注入新獭生的「前情」，不是封存摘要，标注区分 */}
                 {s.summary && (
                   <div className="text-xs text-stone-700 mt-1.5 leading-relaxed">
                     {s.status === 'active' ? `前情：${s.summary}` : s.summary}
