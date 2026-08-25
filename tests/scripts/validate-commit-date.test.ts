@@ -6,6 +6,21 @@
  */
 import { describe, it, expect } from 'vitest';
 import { validateCommitDate } from '../../scripts/validate-commit-date.mjs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT = path.resolve(__dirname, '../../scripts/validate-commit-date.mjs');
+
+function runCLI(args: string[]): { exitCode: number; stdout: string; stderr: string } {
+  try {
+    const stdout = execFileSync('node', [SCRIPT, ...args], { encoding: 'utf-8' });
+    return { exitCode: 0, stdout, stderr: '' };
+  } catch (err: any) {
+    return { exitCode: err.status ?? 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
+  }
+}
 
 // 固定基准时间：2026-08-25 12:00 Asia/Shanghai（正午，避开午夜边界干扰）
 const NOW = new Date('2026-08-25T12:00:00+08:00');
@@ -132,14 +147,30 @@ describe('validateCommitDate', () => {
 
   describe('CLI 退出码（集成）', () => {
     it('should exit 0 for valid F-type commit', () => {
-      const result = validateCommitDate('[F20260825abcd][agent][Feature Update] 测试', NOW);
-      expect(result.valid).toBe(true);
+      const { exitCode } = runCLI(['[F20260825abcd][agent][Feature Update] 测试']);
+      expect(exitCode).toBe(0);
     });
 
-    it('should exit 1 for rejected F-type commit', () => {
-      const result = validateCommitDate('[F20260818abcd][agent][Feature Update] 测试', NOW);
-      expect(result.valid).toBe(false);
-      expect(result.status).toBe('fail');
+    it('should exit 1 for rejected F-type commit (偏差 > 2 天)', () => {
+      const { exitCode, stderr } = runCLI(['[F20260818abcd][agent][Feature Update] 测试']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('偏差');
+    });
+
+    it('should exit 1 for bad_date (month 13)', () => {
+      const { exitCode, stderr } = runCLI(['[F20261325abcd][agent][Feature Update] 测试']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('非法');
+    });
+
+    it('should exit 1 for bad_date (day 40)', () => {
+      const { exitCode } = runCLI(['[F20260840abcd][agent][Feature Update] 测试']);
+      expect(exitCode).toBe(1);
+    });
+
+    it('should exit 0 for R-type commit (skip)', () => {
+      const { exitCode } = runCLI(['[R20260818c5xt][research] 研究文档']);
+      expect(exitCode).toBe(0);
     });
   });
 });

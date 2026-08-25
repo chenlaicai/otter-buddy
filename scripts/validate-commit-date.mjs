@@ -14,8 +14,8 @@
  *   或:  echo "[F20260825abcd]..." | node scripts/validate-commit-date.mjs
  *
  * 退出码：
- *   0 = 通过（ok / skip / bad_date_after_parse 不触发拒绝）
- *   1 = 日期偏差 > 2 天
+ *   0 = 通过（ok / skip）
+ *   1 = 日期偏差 > 2 天 或 非法日期（bad_date）
  */
 
 /**
@@ -93,20 +93,22 @@ export function validateCommitDate(firstLine, now = new Date()) {
 
 // CLI 入口：仅直接执行时运行，被 import 时不触发
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
-const isDirectRun = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/.*\//, ''));
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   const input = process.argv[2] || readFileSync(0, 'utf-8');
   const firstLine = input.split('\n')[0].trim();
   if (!firstLine) process.exit(0);
 
   const result = validateCommitDate(firstLine);
-  if (!result.valid && result.status === 'fail') {
-    process.stderr.write(
-      `错误：特性 ID 日期与系统日期不符（偏差 ${result.diffDays} 天）。\n` +
-      `  ID 日期: ${result.idDate}  系统日期: ${result.systemDate}\n` +
-      `请跑 date 确认今天日期，修正 F 类特性 ID 后重新提交。\n`
-    );
+  if (!result.valid) {
+    const msg = result.status === 'bad_date'
+      ? `错误：特性 ID 日期非法（如 13 月/40 日/Feb 30）。请检查特性 ID 日期部分。\n`
+      : `错误：特性 ID 日期与系统日期不符（偏差 ${result.diffDays} 天）。\n` +
+        `  ID 日期: ${result.idDate}  系统日期: ${result.systemDate}\n` +
+        `请跑 date 确认今天日期，修正 F 类特性 ID 后重新提交。\n`;
+    process.stderr.write(msg);
     process.exit(1);
   }
 }

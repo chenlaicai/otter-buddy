@@ -81,11 +81,11 @@ PR #435（已合入）实现了三层日期校验方案，其中工具层的日�
 
 ## 验证
 
-- [x] 新增 18 条测试全通过：F 类今天/±1/±2 通过、±3/±7 拒绝、R 类跳过、无 ID 跳过、Merge 跳过、非法日期（月 13/日 40/Feb 30）拒绝、DST 边界正确
-- [x] 全量测试 134 文件 1605 用例通过（含新增 18 条）
+- [x] 新增 21 条测试全通过：F 类今天/±1/±2 通过、±3/±7 拒绝、R 类跳过、无 ID 跳过、Merge 跳过、非法日期（月 13/日 40/Feb 30）拒绝、DST 边界正确、CLI 真跑验证（exit 0/1/bad_date 三态）
+- [x] 全量测试 134 文件 1608 用例通过（含新增 21 条）
 - [x] `npm run check`（tsc + eslint）通过
 - [x] lint（skills/tool-manifest/tests/capability-docs）通过
-- [x] CLI 手动验证：F 类通过（exit 0）、F 类 7 天前拒绝（exit 1）、R 类跳过（exit 0）
+- [x] CLI 手动验证：F 类通过（exit 0）、F 类 7 天前拒绝（exit 1）、R 类跳过（exit 0）、非法日期拒绝（exit 1）
 
 ## Discovered Issues
 
@@ -94,3 +94,4 @@ PR #435（已合入）实现了三层日期校验方案，其中工具层的日�
 ## 决策史
 
 - 2026-08-25：初始实现（开发獭-442，mimo）。issue #442 由检视獭-435 在 PR #435 delta 复核时创建；模块化+测试+TZ 根除范围由大獭任务简报确定；非法日期显式范围校验由 vitest 实测发现（Date 滚转行为）
+- 2026-08-25：检视獭-453 delta 复核发现 bad_date CLI 出口静默放行 + isDirectRun guard 脆弱 + CLI 测试未真跑 CLI。全部修复：CLI 改 `if (!result.valid)` 统一拦截、guard 改 pathToFileURL 精确匹配、CLI 测试改 execFileSync 真跑
