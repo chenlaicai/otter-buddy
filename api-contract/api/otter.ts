@@ -47,3 +47,28 @@ export interface OtterSessionDTO {
   isNegativeCase: boolean;
   summary: string | null;
 }
+
+/** Otter 面板 Profile DTO（聚合端点 GET /api/otters/:id/profile） */
+export interface OtterProfileDTO {
+  id: string;
+  name: string;
+  type: 'big' | 'small';
+  roleName: string | null;
+  modelAlias: string | null;
+  modelDescriptor: {
+    alias: string;
+    description?: string;
+    strengths?: string[];
+    weaknesses?: string[];
+    contextWindow?: number;
+  } | null;
+  /** Otter 级系统提示词（不含平台 base 和身份注入）；大獭通常为 null */
+  systemPrompt: string | null;
+  skills: Array<{ name: string; description: string; category: string }>;
+  tools: Array<{ name: string; description: string; group?: string }>;
+  stats: {
+    messageCount: number;
+    artifactCount: number;
+    conversationCount: number;
+  };
+}
