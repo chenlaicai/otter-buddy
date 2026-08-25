@@ -41,7 +41,7 @@ category: technique
 
 7. **文档**：将实现要点、变更说明追加到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
-8. **提交**：按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
+8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 
 > ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。

@@ -45,6 +45,34 @@ jobs:
           fi
           echo "✅ PR 标题格式正确"
 
+      # F20260825m422a: 特性 ID 日期语义校验（#422 钩子层兜底）
+      - name: Check PR title feature ID date
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          ID_DATE=$(echo "$PR_TITLE" | sed -n 's/^\[F\([0-9]\{8\}\).*/\1/p')
+          if [ -z "$ID_DATE" ]; then
+            echo "⚠️ 无法提取特性 ID 日期，跳过日期校验"
+            exit 0
+          fi
+          # 三层时区口径统一为 Asia/Shanghai：与 identity-builder 注入层、commit-msg 钩子一致
+          TODAY=$(TZ=Asia/Shanghai date +%Y%m%d)
+          ID_EPOCH=$(date -d "${ID_DATE:0:4}-${ID_DATE:4:2}-${ID_DATE:6:2}" +%s 2>/dev/null)
+          TODAY_EPOCH=$(date -d "${TODAY:0:4}-${TODAY:4:2}-${TODAY:6:2}" +%s 2>/dev/null)
+          if [ -z "$ID_EPOCH" ] || [ -z "$TODAY_EPOCH" ]; then
+            echo "❌ 日期解析失败（非法日期），拒绝通过"
+            exit 1
+          fi
+          DIFF_DAYS=$(( (ID_EPOCH - TODAY_EPOCH) / 86400 ))
+          ABS_DIFF=${DIFF_DAYS#-}
+          if [ "$ABS_DIFF" -gt 2 ]; then
+            echo "❌ 特性 ID 日期与当前日期偏差 ${ABS_DIFF} 天（ID: ${ID_DATE}，今天: ${TODAY}）"
+            echo "请跑 date 确认今天日期，修正 F 类特性 ID 后重新提交。"
+            exit 1
+          fi
+          echo "✅ 特性 ID 日期校验通过（偏差 ${ABS_DIFF} 天）"
+
       - name: Check if PR is up to date with main
         if: github.event_name == 'pull_request'
         run: |
