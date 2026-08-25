@@ -391,6 +391,8 @@ export interface TestDeps {
   manageScheduledTask: any;
   schedulerService: any;
   cronParser: any;
+  /** 可选：注入后 OtterController 读 modelAlias 写入 OtterDTO */
+  otterConfigProvider?: any;
 }
 
 export function createTestApp(deps: TestDeps): Hono {
@@ -431,6 +433,7 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.manageSession,
     deps.queryOtter,
     logger,
+    deps.otterConfigProvider,
   );
   const memoryCtrl = new MemoryController(
     deps.searchMemory,

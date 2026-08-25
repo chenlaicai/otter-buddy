@@ -8,6 +8,8 @@ export interface LocalOtter {
   createdAt: string
   role?: { name: string; resp: string[] }
   parentOtterId?: string
+  /** 模型别名（多模型路由，如 "mimo"）；未配置时不展示 */
+  modelAlias?: string
 }
 
 /** 前端本地 Conversation 类型 */
@@ -102,6 +104,7 @@ export function mapOtterDTO(dto: OtterDTO): LocalOtter {
     createdAt: dto.createdAt.split('T')[0],
     role: dto.role ? { name: dto.role.name, resp: dto.role.responsibilities } : undefined,
     parentOtterId: dto.parentOtterId ?? undefined,
+    ...(dto.modelAlias !== undefined && { modelAlias: dto.modelAlias }),
   }
 }
 
@@ -139,7 +142,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
   }
 }
 
-/** 参与者 DTO → LocalOtter（ParticipantDTO 投影已含 type/roleName） */
+/** 参与者 DTO → LocalOtter（ParticipantDTO 投影已含 type/roleName/modelAlias） */
 export function mapParticipantDTO(p: ParticipantDTO): LocalOtter {
   return {
     id: p.otterId,
@@ -147,6 +150,7 @@ export function mapParticipantDTO(p: ParticipantDTO): LocalOtter {
     type: (p.otterType as 'big' | 'small') ?? 'small',
     createdAt: '',
     role: p.roleName ? { name: p.roleName, resp: [] } : undefined,
+    ...(p.modelAlias !== undefined && { modelAlias: p.modelAlias }),
   }
 }
 

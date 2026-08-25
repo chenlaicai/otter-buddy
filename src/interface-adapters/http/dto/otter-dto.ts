@@ -8,7 +8,7 @@ import type {
 export type { OtterDTO, OtterSessionDTO };
 export type { CreateOtterRequestDTO } from "@contract/api/otter";
 
-export function toOtterDTO(otter: Otter): OtterDTO {
+export function toOtterDTO(otter: Otter, modelAlias?: string): OtterDTO {
   return {
     id: otter.id,
     name: otter.name,
@@ -18,6 +18,7 @@ export function toOtterDTO(otter: Otter): OtterDTO {
     parentOtterId: otter.parentOtterId,
     createdAt: otter.createdAt,
     dissolvedAt: otter.dissolvedAt,
+    ...(modelAlias !== undefined && { modelAlias }),
   };
 }
 

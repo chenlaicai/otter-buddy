@@ -24,6 +24,26 @@ describe("Otter API", () => {
       expect(body.id).toBe("otter-1");
     });
 
+    it("注入 configProvider 时返回 modelAlias，未配置时字段缺省", async () => {
+      deps.queryOtter.getById.mockResolvedValue(makeOtter());
+      deps.otterConfigProvider = {
+        getConfig: (id: string) => id === "otter-1" ? { otterType: "small", modelAlias: "kimi" } : null,
+        setConfig: () => {}, deleteConfig: () => {}, hasConfig: () => false,
+      };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/otters/otter-1");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.modelAlias).toBe("kimi");
+
+      deps.otterConfigProvider = undefined;
+      app = createTestApp(deps);
+      const res2 = await app.request("/api/otters/otter-1");
+      const body2 = await json(res2);
+      expect("modelAlias" in body2).toBe(false);
+    });
+
     it("returns 404 when not found", async () => {
       deps.queryOtter.getById.mockResolvedValue(null);
 
@@ -57,6 +77,35 @@ describe("Otter API", () => {
         systemPrompt: undefined,
         context: undefined,
       });
+    });
+
+    it("create 响应注入 configProvider 时返回 modelAlias，未配置时字段缺省（F20260825vrqh 发现 1）", async () => {
+      const otter = makeOtter({ id: "new-otter" });
+      deps.createOtterUseCase.execute.mockResolvedValue(otter);
+      deps.otterConfigProvider = {
+        getConfig: (id: string) => id === "new-otter" ? { otterType: "small", modelAlias: "glm" } : null,
+        setConfig: () => {}, deleteConfig: () => {}, hasConfig: () => false,
+      };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/otters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "New Friend", type: "small" }),
+      });
+      expect(res.status).toBe(201);
+      const body = await json(res);
+      expect(body.modelAlias).toBe("glm");
+
+      deps.otterConfigProvider = undefined;
+      app = createTestApp(deps);
+      const res2 = await app.request("/api/otters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "New Friend", type: "small" }),
+      });
+      const body2 = await json(res2);
+      expect("modelAlias" in body2).toBe(false);
     });
 
     it("passes all optional fields", async () => {

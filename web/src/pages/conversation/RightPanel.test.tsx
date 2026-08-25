@@ -29,9 +29,8 @@ function makeResource(overrides: Partial<LinkedResource> = {}): LinkedResource {
   }
 }
 
-function renderPanel(resources: LinkedResource[]) {
+function renderPanel(resources: LinkedResource[], otters: Otter[] = []) {
   const conversation = { id: 'c1', title: '测试对话', createdAt: '' } as unknown as Conversation
-  const otters: Otter[] = []
   const sessions: Record<string, OtterSession[]> = {}
   const noop = () => {}
   act(() => {
@@ -125,5 +124,39 @@ describe('LinkedResourceItem', () => {
     expect(truncated).not.toBeNull()
     expect(truncated!.getAttribute('title')).toBe(longTitle)
     expect(truncated!.textContent).toBe(longTitle)
+  })
+})
+
+describe('OtterParticipantCard 模型标签（web-model-display）', () => {
+  function makeOtter(overrides: Partial<Otter> = {}): Otter {
+    return {
+      id: 'o1', name: '小獭', type: 'small', createdAt: '2026-08-25',
+      ...overrides,
+    } as Otter
+  }
+
+  it('有 modelAlias 时渲染模型 badge', () => {
+    renderPanel([], [makeOtter({ modelAlias: 'mimo' })])
+    const badge = container.querySelector('[data-testid="model-badge"]')
+    expect(badge).not.toBeNull()
+    expect(badge!.textContent).toBe('mimo')
+  })
+
+  it('无 modelAlias 时不渲染模型 badge（不留空占位，也不渲染 undefined 字面串）', () => {
+    renderPanel([], [makeOtter()])
+    expect(container.querySelector('[data-testid="model-badge"]')).toBeNull()
+  })
+
+  it('未知新 alias 原样渲染（不依赖已知 alias 白名单）', () => {
+    renderPanel([], [makeOtter({ modelAlias: 'claude-future' })])
+    const badge = container.querySelector('[data-testid="model-badge"]')
+    expect(badge!.textContent).toBe('claude-future')
+  })
+
+  it('大獭 badge 与模型 badge 可同卡片共存', () => {
+    renderPanel([], [makeOtter({ id: 'big-1', name: '大獭', type: 'big', modelAlias: 'glm' })])
+    const texts = Array.from(container.querySelectorAll('span.rounded-full')).map(el => el.textContent)
+    expect(texts).toContain('大獭')
+    expect(container.querySelector('[data-testid="model-badge"]')!.textContent).toBe('glm')
   })
 })

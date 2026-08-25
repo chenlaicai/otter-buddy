@@ -193,7 +193,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     identityPromptDir: options.identityPromptDir,
     workspaceGateway,
   });
-  const uc = initUseCases({ repos, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway });
+  const uc = initUseCases({ repos, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider });
   // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
   // 审视三轮 A-10：rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
   resolveOtterToolClient(buildOtterToolClient(uc, {
@@ -229,6 +229,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // ── HTTP 层 ──
   const controllers = initControllers({
     uc, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
+    otterConfigProvider,
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
     featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService,
     processInboundRecruit, inboundApiKey, getBridgeStatus,

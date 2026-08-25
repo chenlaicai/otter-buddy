@@ -216,6 +216,21 @@ describe("Conversation API", () => {
       expect(body[1].otterName).toBe("Small Otter");
     });
 
+    it("modelAlias 在 HTTP 响应中正确透传，未配置时字段缺省（防字段在边界脱落）", async () => {
+      deps.manageParticipant.getActiveParticipants.mockResolvedValue([
+        { participant: makeParticipant({ otterId: "otter-1" }), otterName: "Small Otter", otterType: "small", modelAlias: "mimo" },
+        { participant: makeParticipant({ id: "part-2", otterId: "otter-2" }), otterName: "Big Otter", otterType: "big" },
+      ]);
+
+      const res = await app.request("/api/conversations/conv-1/participants");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body).toHaveLength(2);
+      expect(body[0].modelAlias).toBe("mimo");
+      /** 未配置时不返回该字段（JSON 中不存在 key），前端不渲染占位 */
+      expect("modelAlias" in body[1]).toBe(false);
+    });
+
     it("returns empty array when no participants", async () => {
       deps.manageParticipant.getActiveParticipants.mockResolvedValue([]);
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { mapSessionDTO } from './mappers'
-import type { OtterSessionDTO } from '@contract/api'
+import { mapSessionDTO, mapOtterDTO, mapParticipantDTO } from './mappers'
+import type { OtterSessionDTO, OtterDTO, ParticipantDTO } from '@contract/api'
 
 function makeDTO(overrides: Partial<OtterSessionDTO> = {}): OtterSessionDTO {
   return {
@@ -31,5 +31,47 @@ describe('mapSessionDTO (F20260805rsto)', () => {
   it('summary 透传（active 行前情标注依赖）', () => {
     const s = mapSessionDTO(makeDTO({ summary: '前情' }))
     expect(s.summary).toBe('前情')
+  })
+})
+
+describe('mapOtterDTO modelAlias（web-model-display）', () => {
+  function makeOtterDTO(overrides: Partial<OtterDTO> = {}): OtterDTO {
+    return {
+      id: 'o1', name: '小獭', type: 'small', status: 'active',
+      role: null, parentOtterId: null,
+      createdAt: '2026-08-25T00:00:00Z', dissolvedAt: null,
+      ...overrides,
+    } as OtterDTO
+  }
+
+  it('DTO 带 modelAlias 时映射到 LocalOtter', () => {
+    const o = mapOtterDTO(makeOtterDTO({ modelAlias: 'kimi' }))
+    expect(o.modelAlias).toBe('kimi')
+  })
+
+  it('DTO 无 modelAlias 时 LocalOtter 不携带该字段（前端不渲染占位）', () => {
+    const o = mapOtterDTO(makeOtterDTO())
+    expect('modelAlias' in o).toBe(false)
+  })
+})
+
+describe('mapParticipantDTO modelAlias（web-model-display）', () => {
+  function makeParticipantDTO(overrides: Partial<ParticipantDTO> = {}): ParticipantDTO {
+    return {
+      id: 'p1', conversationId: 'c1', otterId: 'o1', otterName: '小獭',
+      joinedAtTurnNumber: 1, leftAtTurnNumber: null,
+      status: 'active', createdAt: '2026-08-25T00:00:00Z', leftAt: null,
+      ...overrides,
+    } as ParticipantDTO
+  }
+
+  it('DTO 带 modelAlias 时映射到 LocalOtter', () => {
+    const o = mapParticipantDTO(makeParticipantDTO({ modelAlias: 'mimo' }))
+    expect(o.modelAlias).toBe('mimo')
+  })
+
+  it('DTO 无 modelAlias 时 LocalOtter 不携带该字段', () => {
+    const o = mapParticipantDTO(makeParticipantDTO())
+    expect('modelAlias' in o).toBe(false)
   })
 })

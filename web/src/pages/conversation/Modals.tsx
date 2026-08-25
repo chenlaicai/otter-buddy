@@ -334,6 +334,12 @@ function OtterDetailModal(props: ModalsProps) {
               <div className="text-sm mt-0.5 text-stone-800">{otter.role.name}</div>
             </div>
           )}
+          {otter.modelAlias && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">模型</div>
+              <div className="text-sm mt-0.5 text-stone-800">{otter.modelAlias}</div>
+            </div>
+          )}
         </div>
         <div className="flex-1 space-y-3">
           {!!otter.role?.resp?.length && (

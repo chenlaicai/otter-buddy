@@ -9,6 +9,7 @@ import type { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
 import type { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import type { UseCases } from "./types";
@@ -46,6 +47,8 @@ export interface ControllerDeps {
   appConfig: AppConfig;
   modelPool: ModelPool;
   settingsRepo: SettingsRepository;
+  /** Otter 配置提供方（读 modelAlias 注入 OtterDTO） */
+  otterConfigProvider: OtterConfigProvider;
   schedulerService: SchedulerService;
   cronParser: SimpleCronParser;
   dispatchChainEngine: DispatchChainEngine;
@@ -63,7 +66,7 @@ export interface ControllerDeps {
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
-  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo } = deps;
+  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo } = deps;
 
   const settings: SettingsConfig = {
     port: appConfig.server.port,
@@ -78,7 +81,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
 
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
-    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger),
+    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider),
     message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
