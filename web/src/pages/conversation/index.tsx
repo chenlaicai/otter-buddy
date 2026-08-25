@@ -111,9 +111,16 @@ function ConversationPage() {
   // F20260814qswp 三轮：materialize 在 setState 函数式 updater 内调用（prev=队列最新值），
   // 消除 allMessagesRef 镜像在 commit→passive-effect 间隙的引用比较盲区
   const BATCH_WINDOW_MS = 50
+  /** F20260825scrf：弹窗打开期间冻结 SSE 批量应用——backdrop-filter 重算由 scrim
+   *  背后像素变化驱动（非 React re-render，上轮 memo 修复无效的根因），流式期间
+   *  50ms 一批的文本追加使模糊采样持续失效。暂存链完整保留，关窗后 flush() 一次性
+   *  追上（流式内容零丢失、视觉无损） */
+  const modalOpenRef = useRef(false)
+  const [modalOpen, setModalOpen] = useState(false)
   const batcher = useMemo(() => new MessageBatcher({
     windowMs: BATCH_WINDOW_MS,
     getBase: (convId) => allMessagesRef.current[convId] ?? [],
+    getShouldDefer: () => modalOpenRef.current,
     apply: (updates) => {
       setAllMessages(prev => {
         let next: Record<string, LocalMessage[]> | null = null
@@ -130,6 +137,12 @@ function ConversationPage() {
   useEffect(() => () => {
     batcher.dispose()
   }, [batcher])
+  /** F20260825scrf：同步 ref（batcher 回调读最新值）+ 关窗时 flush 冻结期间攒下的
+   *  流式更新（下次打开前背景已追上真实状态；手动 flush 后 timer 自然空转，无害） */
+  useEffect(() => {
+    modalOpenRef.current = modalOpen
+    if (!modalOpen) batcher.flush()
+  }, [modalOpen, batcher])
   const batchUpdateMessages = useCallback((convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) => {
     batcher.update(convId, updater)
   }, [batcher])
@@ -144,6 +157,13 @@ function ConversationPage() {
     task?: LocalScheduledTask
   }>({ type: 'none' })
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
+  /** F20260825scrf：modalOpen 派生（8 种 ConversationModals + 定时任务/执行历史 modal）。
+   *  下沉到 index 顶层供 batcher/轮询冻结用；setModalOpen 仅在此处同步 */
+  const isAnyModalOpen = modal.type !== 'none' || scheduledTaskModal.type !== 'none' || executionHistoryTaskId !== null
+  useEffect(() => {
+    setModalOpen(isAnyModalOpen)
+  }, [isAnyModalOpen])
+
 
   // 定时任务 Hook
   const {
@@ -191,8 +211,10 @@ function ConversationPage() {
     // urlConvId 源自 window.location.pathname，MPA 模式下 mount 后不变，行为等价
   }, [urlConvId])
 
-  // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）
-  useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations)
+  // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）。
+  // F20260825scrf：弹窗打开期间暂停——mergeConversations 每次产出新引用（流式期间
+  //  lastMessagePreview 持续变化），轮询会驱动 scrim 背后像素变化；关窗后 interval 立即重建
+  useConversationListPolling(pageState !== 'loading' && pageState !== 'error' && !modalOpen, setConversations)
 
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
@@ -356,6 +378,10 @@ function ConversationPage() {
     if (!activeId) return
     const msgs = allMessages[activeId]
     if (!msgs || !msgs.some(isInFlight)) return
+    /** F20260825scrf：弹窗打开期间冻结轮询——refreshMessages 直接 setAllMessages（绕过
+     *  batcher），轮询快照同样会驱动 scrim 背后像素变化。关窗后 allMessages 变化自然
+     *  重跑本 effect，轮询链自动接续，不漏终态收敛 */
+    if (modalOpenRef.current) return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     const scheduleNext = () => {

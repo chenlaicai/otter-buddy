@@ -37,6 +37,10 @@ export interface MessageBatcherOptions {
    *  用返回值更新 state。materialize(current) 语义：current 与 staging 基线同引用
    *  → 直接返回暂存结果；否则把 updater 链重放到 current（外部写入保留） */
   apply: (updates: ReadonlyMap<string, (current: LocalMessage[] | undefined) => LocalMessage[]>) => void
+  /** F20260825scrf：返回 true 时暂停 flush（窗口到期也不产出）——弹窗打开期间冻结
+   *  scrim 背后像素（backdrop-filter 闪烁根治，见特性文档）。暂存链完整保留，
+   *  调用方在解冻时机手动 flush() 追上，流式更新零丢失 */
+  getShouldDefer?: () => boolean
 }
 
 interface PendingChain {
@@ -76,8 +80,11 @@ export class MessageBatcher {
   }
 
   /** 立即产出全部暂存更新的 materialize 闭包并交给 apply（窗口到期时调用）。
-   *  materialize 必须在 React setState 的函数式 updater 内调用（current 取队列最新值） */
+   *  materialize 必须在 React setState 的函数式 updater 内调用（current 取队列最新值）。
+   *  F20260825scrf：getShouldDefer 为真时（弹窗打开）暂存保留、跳过产出——背景冻结期
+   *  流式更新零丢失、零渲染；解冻由调用方 flush() 或下个窗口自然恢复 */
   flush(): void {
+    if (this.opts.getShouldDefer?.()) return
     if (this.pending.size === 0) return
     const updates = new Map<string, (current: LocalMessage[] | undefined) => LocalMessage[]>()
     for (const [convId, chain] of this.pending) {

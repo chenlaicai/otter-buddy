@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 /**
  * ScheduledTaskModal restartBeforeInvoke toggle 测试
+ *
+ * F20260825scrf 适配：Modal 改 createPortal 后内容渲染到 document.body，
+ * 查询范围从 container 改为 document（container 里只剩挂载占位）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
@@ -51,14 +54,14 @@ function renderModal(
 function findToggle(): HTMLButtonElement {
   // restartBeforeInvoke toggle 是表单区域内最后一个没有 type="button" 的按钮，
   // 但实际有 type="button"。通过文本定位。
-  const buttons = container.querySelectorAll('button[type="button"]')
+  const buttons = document.querySelectorAll('button[type="button"]')
   for (const btn of buttons) {
     if (btn.textContent === '' && btn.className.includes('rounded-full') && btn.closest('.bg-stone-50\\/50')) {
       return btn as HTMLButtonElement
     }
   }
   // fallback: 在 "每次触发前重启獭生" 文本附近的 button
-  const label = Array.from(container.querySelectorAll('div')).find(d => d.textContent?.includes('每次触发前重启獭生'))
+  const label = Array.from(document.querySelectorAll('div')).find(d => d.textContent?.includes('每次触发前重启獭生'))
   if (label) {
     const parent = label.closest('.flex.items-center.justify-between')
     if (parent) {
@@ -70,7 +73,7 @@ function findToggle(): HTMLButtonElement {
 }
 
 function fillRequiredFields() {
-  const nameInput = container.querySelector('input[type="text"]') as HTMLInputElement
+  const nameInput = document.querySelector('input[type="text"]') as HTMLInputElement
   act(() => {
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     nativeInputValueSetter.call(nameInput, '测试任务')
@@ -78,7 +81,7 @@ function fillRequiredFields() {
     nameInput.dispatchEvent(new Event('change', { bubbles: true }))
   })
 
-  const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+  const textarea = document.querySelector('textarea') as HTMLTextAreaElement
   act(() => {
     const nativeTextareaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
     nativeTextareaSetter.call(textarea, '测试消息内容')
@@ -107,7 +110,7 @@ describe('ScheduledTaskModal restartBeforeInvoke toggle', () => {
     const onSave = vi.fn()
     renderModal(onSave)
     fillRequiredFields()
-    const submitBtn = Array.from(container.querySelectorAll('button')).find(
+    const submitBtn = Array.from(document.querySelectorAll('button')).find(
       b => b.textContent?.includes('创建')
     )!
     await act(async () => { submitBtn.click() })
@@ -122,7 +125,7 @@ describe('ScheduledTaskModal restartBeforeInvoke toggle', () => {
     fillRequiredFields()
     const toggle = findToggle()
     act(() => { toggle.click() })
-    const submitBtn = Array.from(container.querySelectorAll('button')).find(
+    const submitBtn = Array.from(document.querySelectorAll('button')).find(
       b => b.textContent?.includes('创建')
     )!
     await act(async () => { submitBtn.click() })
