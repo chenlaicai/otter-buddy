@@ -68,6 +68,8 @@
 
 ### 2.3 件② 文件轨迹
 
+> **Phase 1 降级声明**：件②在 Phase 1 仅包含工作区存量文件列表（通过 fs.readdirSync 机械提取）。SDK session entries 不可直接从 agent-invoker 层访问，bash 正则文件提取暂不可用。Phase 2 将通过 readOnly invoke 获取完整文件轨迹。
+
 **两层提取**：
 - Layer 1（精确）：SDK 的 read/write/edit 工具 → 直接提取 path
 - Layer 2（启发式）：bash 命令正则匹配写操作模式（cat >, sed -i, tee, heredoc, cp, mv）
@@ -77,6 +79,8 @@
 **工作区存量**：`workspaceGateway.getWorkspacePath` + `fs.readdirSync` 列根目录一层。
 
 ### 2.4 件③ 近期原文
+
+> **Phase 1 降级声明**：件③在 Phase 1 通过 queryMessage.getMessages 获取应用层消息（非 SDK session entries）。这意味着工具调用细节和内部推理不可见，仅包含 speak 输出的文本。Phase 2 将通过 readOnly invoke 获取完整 session entries。
 
 **切取规则**：
 - 从 session 末尾往前取满 8k token
