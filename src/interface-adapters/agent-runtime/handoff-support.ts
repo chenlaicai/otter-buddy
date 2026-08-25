@@ -6,7 +6,6 @@
  */
 
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
-import type { ManageSession } from "@usecases/otter/manage-session";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { Logger } from "@usecases/ports/logger";
 
@@ -90,10 +89,9 @@ export async function restoreHandoffContext(
       const result = await manageContext.get(otterId, keys[i]);
       const value = result[keys[i]];
       if (value) {
-        // D4b 修复：先删后写，防止 delete 失败时幽灵泄漏
-        await manageContext.delete(otterId, keys[i]);
         (ctx as Record<string, unknown>)[targets[i]] = value;
-        logger?.debug('[handoff] Restored and consumed context key', { otterId, key: keys[i] });
+        await manageContext.delete(otterId, keys[i]);
+        _logger?.debug('[handoff] Restored and consumed context key', { otterId, key: keys[i] });
       }
     } catch {
       // 非致命

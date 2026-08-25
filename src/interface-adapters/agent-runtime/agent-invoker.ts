@@ -30,7 +30,7 @@ import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
 // eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
-import type { buildHandoffPackage, HandoffPackageOptions } from "@frameworks/agent/handoff-package-builder";
+import type { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { HandoffState, shouldTriggerHandoff, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
@@ -500,7 +500,7 @@ export class AgentInvoker implements AgentTurnPort {
    * 检测到 ctxTokens 超阈值后，构建四件套上下文包，重启 session。
    * 件①写入 session.summary（已有路径），件路径），件②③④写入 otter_context（借用式）。
    */
-  // eslint-disable-next-line complexity -- 交接触发+降级链+写context+重启
+  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- 交接触发+补偿删除+降级链
   private async handleHandoff(otterId: string, conversationId: string): Promise<void> {
     // 防重入
     if (this.handoffState.isInProgress(otterId)) {
@@ -512,8 +512,9 @@ export class AgentInvoker implements AgentTurnPort {
     try {
       const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
 
-      // 构建四件套
+      // 构建四件套（D9：显式守卫，永不阻塞 restart）
       if (!this.buildHandoffPkg) { this.logger.warn("[handoff] buildHandoffPkg not injected, skipping"); return; }
+      if (!this.conversationRepo) { this.logger.warn("[handoff] conversationRepo not injected, skipping"); return; }
       const pkg = await this.buildHandoffPkg(
         conversationId,
         otterId,
@@ -521,7 +522,7 @@ export class AgentInvoker implements AgentTurnPort {
           recencyTokens: 8000,
           stateInventoryDeps: {
             queryMessage: this.queryMessage,
-            conversationRepo: this.conversationRepo!,
+            conversationRepo: this.conversationRepo,
             scheduledTaskRepo: this.scheduledTaskRepo,
             healingRepo: this.healingRepo ?? undefined,
             listArtifacts: this.listArtifacts ? () => this.listArtifacts!(conversationId) : (async () => []),
@@ -555,6 +556,12 @@ export class AgentInvoker implements AgentTurnPort {
           totalTokens: pkg.totalTokenEstimate,
         });
       } catch (restartErr) {
+        // D8 补偿删除：restart 失败时清理已写入的 context，防止幽灵上下文泄漏到旧 session
+        if (this.manageContext) {
+          for (const key of ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory']) {
+            await this.manageContext.delete(otterId, key).catch(() => {});
+          }
+        }
         this.logger.error("[handoff] Restart failed, continuing with old session",
           restartErr instanceof Error ? restartErr : new Error(String(restartErr)),
           { otterId });
