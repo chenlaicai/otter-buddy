@@ -15,6 +15,7 @@ task_name: 每日对话健康检查
 3. **GitHub PRs**：用 `gh pr list --state all --limit 50` 获取最近 PR，筛选昨天创建/合入的 — 用户自建的 PR 说明遇到了需要修复的问题
 4. **self-healing events**：用 `manage_healing_events(action: query)` 查看系统自愈记录 — 工具故障、检索缺失、格式异常都在这里，注意 otterId 字段可定位到具体海獭
 5. **memory**：用 `search_memory` 检索昨天的记录（created_after 过滤）— 跨会话的问题脉络、未闭环的任务状态
+6. **RHI 健康信号（F20260825rweb #404）**：用 `curl -s http://localhost:<port>/api/health/overview` 与 `/api/health/signals` 拉取 — critical 信号（bug 反复/链滞留/僵尸链）是日报的优先素材；RHI 的 critical 信号已自动写入记忆系统，也可用 `search_memory` 检索 `[RHI信号]` 前缀条目
 
 ## 分析纪律（issue #352 教训）
 
@@ -33,6 +34,7 @@ task_name: 每日对话健康检查
 [ ] 3. GitHub PRs — 已查/发现：…
 [ ] 4. self-healing events — 已查/发现：…
 [ ] 5. memory — 已查/发现：…
+[ ] 6. RHI 健康信号 — 已查/发现：…（overview 指标 + open signals；无新信号可写"无变化"）
 ```
 
 每项"发现"注明具体来源（issue 编号/对话 ID/事件 ID），无法定位的数据不上报。清单全部勾选后才写分析结论。

@@ -1,11 +1,12 @@
-import { MessageCircle, Search, Package, Settings, Link2 } from 'lucide-react'
+import { MessageCircle, Search, Package, Settings, Link2, Activity } from 'lucide-react'
 
-type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings' | 'connections'
+type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings' | 'connections' | 'health'
 
 const tabs: { key: ViewKey; label: string; href: string; icon: typeof MessageCircle }[] = [
   { key: 'conversation', label: '对话', href: '/', icon: MessageCircle },
   { key: 'memory', label: '记忆搜索', href: '/memory', icon: Search },
   { key: 'skills', label: '能力库', href: '/skills', icon: Package },
+  { key: 'health', label: '健康面板', href: '/health', icon: Activity },
   { key: 'connections', label: '连接', href: '/connections', icon: Link2 },
   { key: 'settings', label: '设置', href: '/settings', icon: Settings },
 ]

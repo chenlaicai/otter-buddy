@@ -49,6 +49,8 @@ import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
 import { countFidMentions } from "@frameworks/db/health/fid-mention-counter";
+import { SignalRepository } from "@usecases/health/signal-repository";
+import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -230,6 +232,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
     featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService,
     processInboundRecruit, inboundApiKey, getBridgeStatus,
+    // F20260825rweb（#402）：RHI 面板 API 依赖
+    rhiScanWorker,
+    signalRepo: new SignalRepository(db),
+    healthSnapshotRepo: new HealthSnapshotRepository(db),
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");

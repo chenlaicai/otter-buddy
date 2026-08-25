@@ -14,6 +14,7 @@ export default defineConfig({
         skills: resolve(__dirname, 'skills.html'),
         settings: resolve(__dirname, 'settings.html'),
         connections: resolve(__dirname, 'connections.html'),
+        health: resolve(__dirname, 'health.html'),
       },
     },
   },
