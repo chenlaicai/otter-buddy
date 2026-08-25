@@ -8,7 +8,7 @@ summary: |
   对抗审视两轮收敛：4 严重修复（老库迁移路径、bugfixRatio 分支偏差 ref 默认 main、
   文档口径对齐、快照同日 DELETE+INSERT 去重）。
 change_type: feature
-status: active
+status: development
 capability_test: "tests/usecases/health/commit-parser.test.ts"
 created_in_conversation: 9e709aca-dd74-42fa-9fe1-4e7bbaf24bdb
 ---
