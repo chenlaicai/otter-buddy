@@ -48,6 +48,7 @@ import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-sc
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
+import { countFidMentions } from "@frameworks/db/health/fid-mention-counter";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -88,6 +89,8 @@ export interface BuildAppOptions {
   enableFeishu?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
+  /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
+  startRhiWorker?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
@@ -125,7 +128,11 @@ function createRhiScanWorker(deps: {
   // healing 事件源：open 状态全部取（behavior_defect 检测数据面）
   const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
 
-  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger);
+  // FID 提及计数源（zombie 判定，审视发现 2：messages_fts 近 30 天窗口计数）
+  const fidMentionSource = async (fids: string[], windowDays: number) =>
+    countFidMentions(deps.db, fids, windowDays);
+
+  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, { fidMentionSource });
 }
 
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑
@@ -163,11 +170,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
 
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
+  // 审视发现 1：对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
     db, repos, embeddingService, logger,
     rootDir: options.rootDir ?? process.cwd(),
   });
-  rhiScanWorker.start();
+  if (options.startRhiWorker ?? true) {
+    rhiScanWorker.start();
+  }
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
   

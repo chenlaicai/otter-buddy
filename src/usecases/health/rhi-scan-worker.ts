@@ -21,6 +21,8 @@ import { detectSignals } from "./detect-signals";
 import type { DetectedSignal } from "./detect-signals";
 import type { SignalPipeline, CriticalSignalWakeup } from "./signal-pipeline";
 import type { CollectedHealingEvent } from "./healing-collector";
+import type { ParsedCommit } from "./commit-parser";
+import type { CollectedFeatureDoc } from "./feature-doc-collector";
 
 /** healing 事件数据源端口（由 bootstrap 注入 DB 查询；worker 不直接依赖 healing repository 细节） */
 export type HealingEventSource = () => Promise<CollectedHealingEvent[]>;
@@ -34,6 +36,13 @@ export interface RhiScanWorkerOptions {
   windowDays?: number;
   /** critical 信号唤醒回调（SignalPipeline 用） */
   wakeup?: CriticalSignalWakeup;
+  /** FID 提及计数源（zombie 判定数据源，F20260825sgnw 审视发现 2：
+   *  未注入时 zombie 不判（降级 stalled），注入后对 stalled 候选二次判定） */
+  fidMentionSource?: (fids: string[], windowDays: number) => Promise<Map<string, number>>;
+  /** zombie 判定的提及窗口天数（默认 30，母文档口径） */
+  mentionWindowDays?: number;
+  /** zombie 阈值天数（透传 buildFeatureChains，默认 30） */
+  zombieDays?: number;
 }
 
 export interface RhiScanResult {
@@ -112,8 +121,8 @@ export class RhiScanWorker {
       }),
     ]);
 
-    // 5. 链构建 + 信号检测
-    const chains = buildFeatureChains(signalInputs, docs);
+    // 5. 链构建（两阶段 zombie 判定，F20260825sgnw 审视发现 2）+ 信号检测
+    const chains = await this.buildChainsWithZombieJudging(signalInputs, docs);
     const signals: DetectedSignal[] = detectSignals(signalInputs, chains, healingEvents, {
       windowDays: this.options.windowDays,
     });
@@ -131,6 +140,39 @@ export class RhiScanWorker {
       wakeupsTriggered: pipelineResult.wakeupsTriggered,
       errors: pipelineResult.errors,
     };
+  }
+
+  /** 两阶段链构建：先无提及数据粗筛，再对 stalled≥zombieDays 候选查提及重判。
+   *  未注入源 / 查询失败 → zombie 不判（降级 stalled，冷启动安全）；
+   *  查询成功 → 候选全部进 Map（缺 key 兜底 0），isZombie 的 has(fid) 语义成立。 */
+  private async buildChainsWithZombieJudging(
+    signalInputs: Array<{ sha: string; date: string; message: string; parsed: ParsedCommit; filesChanged: string[] }>,
+    docs: CollectedFeatureDoc[],
+  ): Promise<ReturnType<typeof buildFeatureChains>> {
+    const zombieDays = this.options.zombieDays ?? 30;
+    const mentionWindow = this.options.mentionWindowDays ?? 30;
+    const firstPass = buildFeatureChains(signalInputs, docs, { zombieDays });
+    if (!this.options.fidMentionSource) return firstPass;
+
+    const candidates = firstPass.filter(c => c.state === "stalled" && (c.daysSinceLastCommit ?? 0) >= zombieDays);
+    if (candidates.length === 0) return firstPass;
+
+    const mentions = await this.options
+      .fidMentionSource(candidates.map(c => c.featureId), mentionWindow)
+      .catch(err => {
+        this.logger.warn("fidMentionSource failed, zombie judging degraded to stalled-only", {
+          action: "rhi_worker_mention_source_error",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
+    if (!mentions) return firstPass;
+
+    const filled = new Map(mentions);
+    for (const c of candidates) {
+      if (!filled.has(c.featureId)) filled.set(c.featureId, 0);
+    }
+    return buildFeatureChains(signalInputs, docs, { zombieDays, fidMentionCounts: filled });
   }
 
   private async tickSafely(): Promise<void> {

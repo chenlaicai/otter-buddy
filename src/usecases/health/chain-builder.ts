@@ -166,9 +166,9 @@ function appendDocOnlyChains(
     if (chains.has(doc.id)) continue;
     const chain = newEmptyChain(doc.id, doc);
     chain.firstSeenAt = doc.createdAt ? new Date(doc.createdAt) : null;
-    chain.daysSinceLastCommit = doc.createdAt
-      ? Math.floor((ctx.now.getTime() - new Date(doc.createdAt).getTime()) / DAY_MS)
-      : null;
+    // 审视发现 3：doc-only 链无 commit，daysSinceLastCommit=null（语义准确）；
+    // stalled/zombie 判定用 createdAt 自算的间隔（classifyDocOnly 内部），不经过此字段
+    chain.daysSinceLastCommit = null;
     chain.state = classifyDocOnly(doc, ctx);
     chains.set(doc.id, chain);
   }
@@ -200,12 +200,14 @@ function idleOver(days: number | null, threshold: number): boolean {
   return idle > threshold;
 }
 
-/** zombie：在途 ∧ ≥zombieDays 无 commit ∧ 提及数显式为 0（未传 mentions 不判，冷启动安全） */
+/** zombie：在途 ∧ ≥zombieDays 无 commit ∧ 提及 Map 显式记录为 0（未传 Map / Map 无此 key = 未查询，不判——冷启动安全） */
 function isZombie(chain: FeatureChain, ctx: ChainCtx): boolean {
   if (!ACTIVE_DOC_STATUSES.has(chain.doc?.status ?? "draft")) return false;
   const idle = chain.daysSinceLastCommit ?? Number.POSITIVE_INFINITY;
-  const mentions = ctx.fidMentionCounts?.get(chain.featureId) ?? null;
-  return idle >= ctx.zombieDays && mentions === 0;
+  if (idle < ctx.zombieDays) return false;
+  const counts = ctx.fidMentionCounts;
+  if (!counts?.has(chain.featureId)) return false;  // 未查询不判（区分"查过 0 次"与"没查"）
+  return counts.get(chain.featureId) === 0;
 }
 
 /** regressed：最新 commit 是 BugFix 且它触碰的文件在本链更早 commit 中出现过（窄门：文件交集即证据） */
@@ -225,9 +227,11 @@ function classifyDocOnly(doc: CollectedFeatureDoc, ctx: ChainCtx): ChainState {
   const createdDays = doc.createdAt
     ? Math.floor((ctx.now.getTime() - new Date(doc.createdAt).getTime()) / DAY_MS)
     : 0;
-  const mentions = ctx.fidMentionCounts?.get(doc.id) ?? null;
+  const counts = ctx.fidMentionCounts;
+  const queried = counts?.has(doc.id) ?? false;  // 区分"查过 0 次"与"没查"
+  const zeroMention = queried && counts!.get(doc.id) === 0;
 
-  if (createdDays >= ctx.zombieDays && mentions === 0) return "zombie";
+  if (createdDays >= ctx.zombieDays && zeroMention) return "zombie";
   if (createdDays > ctx.stalledDays) return "stalled";
   return "active";
 }

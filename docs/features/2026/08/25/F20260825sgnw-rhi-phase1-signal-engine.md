@@ -49,12 +49,21 @@ git-log-collector 扩展：`%aI` 日期字段（GitCommitWithFiles.date），链
 
 ## 验证
 
-- 1565 tests / 132 files 全绿（Phase 1 新增 34 个：chain-builder 13 + detect-signals 8 + signal-repository 7 + signal-pipeline 4 + rhi-scan-worker 2 端到端冒烟）
-- rhi-scan-worker 冒烟：临时 git 仓库构造 3 次同文件 bugfix → bug_recurrence 触发并落库 → 重复扫描 occurrences 累加
+- 1566 tests / 132 files 全绿（Phase 1 新增 35 个：chain-builder 13 + detect-signals 8 + signal-repository 7 + signal-pipeline 4 + rhi-scan-worker 3 端到端冒烟）
+- rhi-scan-worker 冒烟：临时 git 仓库构造 3 次同文件 bugfix → bug_recurrence 触发并落库 → 重复扫描 occurrences 累加；zombie 端到端（旧日期 commit + 在途文档 + fidMentionSource 注入空 Map → 僵尸链判定生效）
 - 端到端断言：信号 evidence 含文件路径、severity 分级正确、记忆通道仅在 critical 触发
+
+## 对抗审视处置（检视獭SGN，mimo）
+
+| 发现 | 级别 | 处置 |
+|------|------|------|
+| RhiScanWorker 无条件 start，测试/CI 无开关 | 严重 | ✅ BuildAppOptions.startRhiWorker（默认 true，对齐 startScheduler 模式） |
+| zombie 判定死代码（fidMentionCounts 无注入路径，五态实为四态） | 严重 | ✅ 全链路修复：countFidMentions（messages_fts 窗口计数）+ worker fidMentionSource 端口 + 两阶段判定（粗筛→候选重判）+ isZombie 语义改为 has(fid)（区分"查过 0 次"与"没查"） |
+| doc-only 链 daysSinceLastCommit 用 createdAt 算，字段撒谎 | 建议 | ✅ 方案 (a)：doc-only 置 null，判定用 classifyDocOnly 内部 createdDays |
 
 ## 已知限制
 
 - eval_regression / intent_drop / review_debt 三类信号挂起（原因见注册表 pendingReason），intent 数据按增量积累
 - critical 唤醒的 create_scheduled_task 桥尚未接（Phase 2 与 Web 面板一起接——唤醒需要对话上下文）
 - hotspot_imbalance 的"持续 2 周"口径用单窗口（30 天）近似，Phase 2 引入双窗口对比
+- 审视后 zombie 已激活，但 messages_fts 计数含全部对话（未区分 agent/用户），提及语义较宽

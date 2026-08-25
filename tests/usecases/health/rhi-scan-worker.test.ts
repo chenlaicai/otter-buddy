@@ -96,4 +96,37 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const after = pipeline.listOpen().find(s => s.signal_type === "bug_recurrence")!.occurrences;
     expect(after).toBe(before + 1);
   });
+
+  it("fidMentionSource 注入后 zombie 判定生效（审视发现 2 的端到端验证）", async () => {
+    // 构造一条 35 天前的在途链：旧日期 commit + 对应 F 文档（无文档判 orphan 不判 stalled）
+    const oldDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+    const oldDocDir = path.join(repoDir, "docs/features/2026/07/01");
+    await mkdir(oldDocDir, { recursive: true });
+    await writeFile(
+      path.join(oldDocDir, "F20260701zzzz.md"),
+      "---\nid: F20260701zzzz\ntitle: 旧链\nsummary: zombie 测试\nchange_type: feature\nstatus: development\n---\n\nbody\n",
+      "utf-8",
+    );
+    execFileSync("git", ["-C", repoDir, "add", "docs/"], { stdio: "pipe" });
+    execFileSync("git", ["-C", repoDir, "commit", "-m", "[F20260701zzzz][agent][Feature Update] 旧链文档", "--date", oldDate], { stdio: "pipe" });
+
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+
+    // 未注入 fidMentionSource：zombie 不判（降级 stalled）
+    const workerNoMention = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    await workerNoMention.scanOnce();
+    const stalled = pipeline.listOpen().find(s => s.evidence.includes("F20260701zzzz"));
+    expect(stalled?.evidence).toContain("滞留");
+
+    // 注入提及源（空 Map = 查过全部 0 提及）：zombie 判定生效
+    const workerWithMention = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      fidMentionSource: async () => new Map(),
+    });
+    await workerWithMention.scanOnce();
+    const zombie = pipeline.listOpen().find(s => s.evidence.includes("F20260701zzzz"));
+    expect(zombie?.evidence).toContain("僵尸链");
+  });
 });
