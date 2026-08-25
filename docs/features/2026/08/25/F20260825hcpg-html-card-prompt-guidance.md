@@ -14,6 +14,7 @@ modules:
   - web/src/pages/conversation/HtmlCard.tsx
 from: [F20260728htar, F20260810ka23, F20260804hcob]
 supersedes: []
+capability_test: tests/capability/html-card-proactive.capability.test.ts
 created_in_conversation: 096693e2-e3f2-4a19-b2cd-640ae6ca132a
 ---
 
