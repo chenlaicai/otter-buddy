@@ -46,9 +46,10 @@ describe("collectGitLogWithFiles（临时仓库 fixture）", () => {
     expect(commits[1].message).toContain("tst1");
   });
 
-  it("commit 记录结构完整：40 位 sha / message / filesChanged", async () => {
+  it("commit 记录结构完整：40 位 sha / ISO 日期 / message / filesChanged", async () => {
     const [first] = await collectGitLogWithFiles(repoDir);
     expect(first.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(first.date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(first.message).toContain("tst2");
     expect(Array.isArray(first.filesChanged)).toBe(true);
   });

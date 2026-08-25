@@ -42,6 +42,13 @@ import { initMetricsRegistry } from "@frameworks/metrics/registry";
 import { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
 import { AgentMetrics } from "@frameworks/metrics/agent-metrics";
 import type { Repositories, UseCases } from "./bootstrap/types";
+import type DatabaseType from "better-sqlite3";
+import type { Logger as LoggerType } from "@usecases/ports/logger";
+import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-scan-worker";
+import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
+import { SignalPipeline } from "@usecases/health/signal-pipeline";
+import { collectHealingEvents } from "@usecases/health/healing-collector";
+import { countFidMentions } from "@frameworks/db/health/fid-mention-counter";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -82,6 +89,8 @@ export interface BuildAppOptions {
   enableFeishu?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
+  /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
+  startRhiWorker?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
@@ -104,6 +113,26 @@ export interface BuiltApp {
   retryWorker: { stopSync(): void; stop(): Promise<void> } | null;
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
   dispose(): Promise<void>;
+}
+
+/** F20260825sgnw（#401）：装配 RhiScanWorker（依赖注入集中在此，app.ts 主体只调 start/stop） */
+function createRhiScanWorker(deps: {
+  db: DatabaseType.Database;
+  repos: Repositories;
+  embeddingService: EmbeddingGateway;
+  logger: LoggerType;
+  rootDir: string;
+}): RhiScanWorkerType {
+  const pipeline = new SignalPipeline(deps.db, deps.repos.memoryWriter, deps.repos.memoryQueue, deps.embeddingService, deps.logger);
+
+  // healing 事件源：open 状态全部取（behavior_defect 检测数据面）
+  const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
+
+  // FID 提及计数源（zombie 判定，审视发现 2：messages_fts 近 30 天窗口计数）
+  const fidMentionSource = async (fids: string[], windowDays: number) =>
+    countFidMentions(deps.db, fids, windowDays);
+
+  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, { fidMentionSource });
 }
 
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑
@@ -139,6 +168,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
   const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
+
+  // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
+  // 审视发现 1：对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
+  const rhiScanWorker = createRhiScanWorker({
+    db, repos, embeddingService, logger,
+    rootDir: options.rootDir ?? process.cwd(),
+  });
+  if (options.startRhiWorker ?? true) {
+    rhiScanWorker.start();
+  }
 
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
@@ -220,6 +259,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
+      // F20260825sgnw（#401）：RHI worker 同样先停再关 DB
+      await rhiScanWorker.stop();
       // await metric flush 到文件，确保进程退出前数据落盘
       try {
         await metricsRegistry.dispose();
