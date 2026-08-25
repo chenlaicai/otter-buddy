@@ -94,8 +94,8 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
         <span className="font-medium truncate flex-1">{title || '未命名卡片'}</span>
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-otter-400/15 text-otter-600 flex-shrink-0">HTML 卡片</span>
         {oversize && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0" title="卡片超出 4KB 体积预算">
-            超 4KB
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0" title={`卡片超出 ${CARD_MAX_BYTES / 1024}KB 体积预算`}>
+            超 {CARD_MAX_BYTES / 1024}KB
           </span>
         )}
         {view === 'invalid' ? (

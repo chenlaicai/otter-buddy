@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, memo } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { OTTER_GRADIENT } from '../lib/otter-colors'
 
@@ -23,9 +24,24 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
     }
   }, [isOpen, onClose])
 
+  /** F20260825scrf：body.modal-open 声明期 = Modal 打开期——配合 globals.css 冻结
+   *  shimmer 动画；配合 index.tsx 的渲染冻结（SSE batch/轮询暂停）使 scrim 的
+   *  backdrop 采样源准静态，根治流式期间清晰↔模糊交替。多重弹窗共存安全：
+   *  仅当 body 里无其它 scrim 时才移除 */
+  useEffect(() => {
+    if (!isOpen) return
+    document.body.classList.add('modal-open')
+    return () => {
+      if (!document.querySelector('body > .scrim')) document.body.classList.remove('modal-open')
+    }
+  }, [isOpen])
+
   if (!isOpen) return null
 
-  return (
+  /** F20260825scrf：Portal 挂 body——scrim 脱离页面组件树（事件冒泡与布局上下文
+   *  解耦）。注：backdrop-filter 的采样语义跨 DOM 子树（scrim 仍采样页面内容位图），
+   *  冻结闪烁的真正机制是弹窗期三源渲染冻结，Portal 是结构清理（检视 A-1 更正） */
+  return createPortal(
     <div
       className="fixed inset-0 scrim flex items-center justify-center z-[100]"
       onClick={onClose}
@@ -53,7 +69,8 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 })
 

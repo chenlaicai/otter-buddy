@@ -18,6 +18,7 @@ import type {
   UpdateSettingsRequestDTO,
   LinkedResourceDTO,
   ParticipantDTO,
+  OtterProfileDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -154,6 +155,11 @@ export function getSessionHistory(otterId: string): Promise<OtterSessionDTO[]> {
 
 export function restartOtter(otterId: string, summary?: string): Promise<OtterSessionDTO> {
   return request(`/otters/${otterId}/restart`, { method: 'POST', body: summary ? JSON.stringify({ summary }) : undefined })
+}
+
+/** PR-2: Otter 面板 profile（聚合端点） */
+export function fetchOtterProfile(otterId: string): Promise<OtterProfileDTO> {
+  return request(`/otters/${otterId}/profile`)
 }
 
 // ── Key Resources ──

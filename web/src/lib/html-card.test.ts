@@ -111,9 +111,9 @@ describe('countCardFences（围栏存在性判据）', () => {
 })
 
 describe('常量与工具', () => {
-  it('预算常量符合设计文档（2 张 / 4KB / 500 字符 / 2KB）', () => {
+  it('预算常量符合设计文档（2 张 / 8KB / 500 字符 / 2KB）', () => {
     expect(CARD_MAX_PER_MESSAGE).toBe(2)
-    expect(CARD_MAX_BYTES).toBe(4096)
+    expect(CARD_MAX_BYTES).toBe(8192)
     expect(CARD_SUMMARY_MAX_CHARS).toBe(500)
     expect(CARD_DATA_MAX_BYTES).toBe(2048)
   })

@@ -59,6 +59,7 @@ function registerOtterRoutes(app: Hono, c: Controllers): void {
   app.delete("/api/otters/:id", (ctx) => c.otter.dissolve(ctx));
   app.get("/api/otters/:id/sessions", (ctx) => c.otter.getSessionHistory(ctx));
   app.post("/api/otters/:id/restart", (ctx) => c.otter.restart(ctx));
+  app.get("/api/otters/:id/profile", (ctx) => c.otter.getProfile(ctx));
 }
 
 function registerDataRoutes(app: Hono, c: Controllers): void {

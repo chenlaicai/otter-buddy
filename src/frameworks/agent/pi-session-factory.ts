@@ -158,6 +158,11 @@ export class PiSessionFactory implements AgentGateway {
     this.logger.info("PiSessionFactory warmup completed");
   }
 
+  /** 获取 ResourceLoader（profile 端点用；需 warmup 完成后调用） */
+  getResourceLoader() {
+    return this.modelRuntimeRegistry.getResourceLoader();
+  }
+
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
   private async ensurePiCodingAgent(): Promise<PiCodingAgentModule> {
     return await this.modelRuntimeRegistry.ensurePiCodingAgent();

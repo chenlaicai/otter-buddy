@@ -30,6 +30,8 @@ import {
 } from "./bootstrap/database";
 import { createMemoryIndex, syncDocuments, createAndStartRetryWorker } from "./bootstrap/memory";
 import { initUseCases } from "./bootstrap/usecases";
+import { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
+import { SqliteStatsQuery } from "@frameworks/db/stats/sqlite-stats-query";
 import { buildOtterToolClient } from "./bootstrap/clients";
 import {
   createAgentGateway, createDispatchChainEngine, initAgentAndScheduler,
@@ -227,9 +229,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger });
 
   // ── HTTP 层 ──
+  // PR-2：创建 profile 聚合 use case（warmup 后 ResourceLoader 可用）
+  const resourceLoader = agentGateway.getResourceLoader();
+  const statsQuery = new SqliteStatsQuery(db);
+  const queryOtterProfile = new QueryOtterProfile(repos.otter, otterConfigProvider, modelPool, logger, { resourceLoader: resourceLoader as any, statsQuery });
+
   const controllers = initControllers({
     uc, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
     otterConfigProvider,
+    queryOtterProfile,
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
     featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService,
     processInboundRecruit, inboundApiKey, getBridgeStatus,

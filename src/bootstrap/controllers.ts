@@ -10,6 +10,7 @@ import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
 import type { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
 import type { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import type { UseCases } from "./types";
@@ -59,6 +60,8 @@ export interface ControllerDeps {
   processInboundRecruit?: ProcessInboundRecruit;
   inboundApiKey?: string;
   getBridgeStatus?: GetBridgeStatus;
+  /** PR-2：面板 profile 聚合端点 */
+  queryOtterProfile?: QueryOtterProfile;
   /** F20260825rweb（#402）：RHI 面板 API 依赖（worker + 两个 repo） */
   rhiScanWorker: RhiScanWorker;
   signalRepo: SignalRepository;
@@ -81,7 +84,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
 
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
-    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider),
+    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile),
     message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),

@@ -217,6 +217,15 @@ body {
   -webkit-backdrop-filter: var(--scrim-blur);
 }
 
+/* F20260825scrf：Modal 打开期间冻结流光动画——backdrop-filter 重算由背后像素变化驱动，
+ *  shimmer 每帧扫过会使模糊采样持续失效（清晰↔模糊交替的直接来源之一）。
+ *  与 index.tsx 的渲染冻结（SSE batch/轮询暂停）配合，使 scrim 采样源准静态 */
+body.modal-open .stream-shimmer::after { animation: none; }
+
+/* F20260825scrf 降级开关：若 backdrop 路线在目标环境回归失败，取消下行注释
+ *  切纯色遮罩（reduced-transparency 同款），永久消除闪烁（视觉降级 ~70%） */
+/* body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; } */
+
 /* 嵌套激活态：面板玻璃里的选中项，半透纯色不叠玻璃 */
 .conv-active {
   background: var(--active-bg);
