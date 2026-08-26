@@ -11,9 +11,11 @@ interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   width?: string
+  /** 窄屏（<640px）时全屏抽屉式布局 */
+  fullScreenOnMobile?: boolean
 }
 
-export const Modal = memo(function Modal({ isOpen = true, onClose, title, children, footer, width = '440px' }: ModalProps) {
+export const Modal = memo(function Modal({ isOpen = true, onClose, title, children, footer, width = '440px', fullScreenOnMobile }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       const handler = (e: KeyboardEvent) => {
@@ -42,13 +44,28 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
    *  解耦）。注：backdrop-filter 的采样语义跨 DOM 子树（scrim 仍采样页面内容位图），
    *  冻结闪烁的真正机制是弹窗期三源渲染冻结，Portal 是结构清理（检视 A-1 更正） */
   return createPortal(
+    <>
+    {fullScreenOnMobile && <style>{`
+      @media (max-width: 639px) {
+        .modal-fs-mobile {
+          width: 100vw !important;
+          height: 100dvh !important;
+          max-height: 100dvh !important;
+          margin: 0 !important;
+          border-radius: 0 !important;
+        }
+        .modal-fs-mobile .modal-fs-content {
+          max-height: calc(100dvh - 104px) !important;
+        }
+      }
+    `}</style>}
     <div
       className="fixed inset-0 scrim flex items-center justify-center z-[100]"
       onClick={onClose}
     >
       <div
-        className="glass-overlay rounded-3xl overflow-hidden"
-        style={{ width, maxHeight: '80vh' }}
+        className={`glass-overlay rounded-3xl overflow-hidden ${fullScreenOnMobile ? 'modal-fs-mobile' : ''}`}
+        style={{ width, maxHeight: fullScreenOnMobile ? undefined : '80vh' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-white/40 flex justify-between items-center">
@@ -60,7 +77,7 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-5 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 120px)' }}>
+        <div className={`p-5 overflow-y-auto ${fullScreenOnMobile ? 'modal-fs-content' : ''}`} style={fullScreenOnMobile ? undefined : { maxHeight: 'calc(80vh - 120px)' }}>
           {children}
         </div>
         {footer && (
@@ -69,7 +86,8 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
           </div>
         )}
       </div>
-    </div>,
+    </div>
+    </>,
     document.body
   )
 })

@@ -251,3 +251,25 @@ mimo 发现 1（"modelAlias 不在 DTO、零新接口不成立"）在 main 快�
 
 - kimi 主稿 v1 → mimo 技术深化+对抗审视 → 大獭核验 8 条发现（1 条反转）→ 本文档
 - 状态：方案定稿，待搭档终审后进入实现阶段（PR-1 → PR-2 → PR-3）
+
+### 2026-08-26 PR-3 实现（mimo-面板工程师）
+
+**变更内容**：
+
+1. **Modal fullScreenOnMobile**：Modal.tsx 新增 `fullScreenOnMobile` 可选属性，窄屏（<640px）时详情弹窗改全屏抽屉式布局（顶部标题栏保留、内容区占满、圆角去掉）。使用 CSS `<style>` 标签 + 媒体查询实现，不引入 JS 尺寸监听库。OtterDetailModal 启用该属性。
+2. **EXP 条动效**：详情弹窗新增经验条（EXP = 发言×1 + 产物×10，上限100），使用 CSS `transition-all duration-500 ease-out` 实现平滑填充动效。采用 rAF 双帧技术确保从0到目标值的动画可见。配备 HelpIcon 说明文案。
+3. **时序测试补齐**：OtterProfileCard.test.tsx 新增 5 个 debounce 时序测试（vitest fake timers），覆盖：停留≥400ms触发、快速滑过不触发、移出后重新计时、鼠标快速来回不触发、精确400ms触发一次。
+
+**文件变更**：
+
+| 文件 | 操作 | 说明 |
+|---|---|---|
+| web/src/components/Modal.tsx | 修改 | 新增 fullScreenOnMobile 属性 + 媒体查询全屏抽屉 |
+| web/src/pages/conversation/Modals.tsx | 修改 | EXP 进度条 + 动效 + HelpIcon + fullScreenOnMobile 启用 |
+| web/src/components/OtterProfileCard.test.tsx | 修改 | 5 个 debounce 时序测试（fake timers） |
+
+**测试结果**：
+- Web 测试：21 文件 / 174 测试全绿
+- 后端测试：136 文件 / 1633 测试全绿
+- Build：通过（tsc + vite build）
+- Lint：0 errors，1 warning（PR-2 遗留的 useEffect 依赖警告，非 PR-3 引入）
