@@ -218,6 +218,28 @@ function createMemoryTables(db: Database.Database): void {
     );
   `);
 
+  // F20260826rcmm Phase 0：检索埋点——search_memory 真实调用记录。
+  // 评估基线数据源：查询 + top 命中 + 对话上下文快照（标注者还原意图用）。
+  // 上下文与 top ID 用 JSON 存 TEXT（一次性评估流程，不做关系型拆表）。
+  // 只增不删（评估期结束后可整表 DROP）。无 FK——埋点是旁路观测，不与主数据耦合。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS search_query_logs (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      caller_id TEXT,
+      detail_level TEXT,
+      library TEXT,
+      limit_count INTEGER,
+      top_entry_ids TEXT NOT NULL,
+      total INTEGER NOT NULL,
+      context_messages TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_query_logs_created
+      ON search_query_logs (created_at);
+  `);
+
   // F20260812mrcq Part 1：embedding 失败重试队列。
   // store-memory.ts 的 fire-and-forget embedding 失败后入队，
   // 由 EmbeddingRetryWorker tick 消费（指数退避），3 次失败转 dead-letter。

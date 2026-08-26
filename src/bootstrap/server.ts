@@ -35,6 +35,7 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
     app.get("/skills", serveStatic({ root: staticRoot, path: "skills.html" }));
     app.get("/connections", serveStatic({ root: staticRoot, path: "connections.html" }));
     app.get("/settings", serveStatic({ root: staticRoot, path: "settings.html" }));
+    app.get("/health", serveStatic({ root: staticRoot, path: "health.html" }));
 
     app.use("/*", serveStatic({ root: staticRoot }));
   }
