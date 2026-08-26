@@ -33,10 +33,12 @@ import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
 import { attachGuards, checkSessionError, buildPromptResult } from "./circuit-breaker-helpers";
 import { checkOrchestrationGuard } from "@usecases/conversation/dispatch-guard";
+import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { IdentityBuilder } from "./identity-builder";
@@ -94,6 +96,10 @@ export interface AgentSessionFactoryConfig {
   createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
   /** Healing event 仓库（可选，由 Composition Root 注入） */
   healingRepo?: HealingEventRepository;
+  /** F20260826mwrd C1：signal_events 仓库（halt 落账） */
+  signalRepo?: SignalEventRepository;
+  /** F20260826mwrd C1：halt 首次注入回调（进程级 ModelRuntimeRegistry 单次注册） */
+  onHaltFirstBlock?: (directive: HaltDirective) => void;
   /** Otter 配置持久化（由 Composition Root 注入） */
   otterConfigProvider: OtterConfigProvider;
   /** Otter Repository（由 Composition Root 注入，替代直接 DB 查询） */
@@ -127,6 +133,8 @@ export class PiSessionFactory implements AgentGateway {
       identityPromptDir?: string;
       createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
       healingRepo?: HealingEventRepository;
+      signalRepo?: SignalEventRepository;
+      onHaltFirstBlock?: (directive: HaltDirective) => void;
       resourceLoader?: ResourceLoader;
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
@@ -138,7 +146,7 @@ export class PiSessionFactory implements AgentGateway {
     this.sessionStore = createAgentSessionStore(cfg.db);
     this.sessionRestore = new SessionRestore(this.sessionStore, cfg.otterConfigProvider, logger, cfg.db);
     this.identityBuilder = new IdentityBuilder(cfg.otterRepo, cfg.settingsRepo, cfg.modelPool, logger, cfg.identityPromptDir);
-    this.modelRuntimeRegistry = new ModelRuntimeRegistry(cfg.modelPool, logger, cfg.resourceLoader);
+    this.modelRuntimeRegistry = new ModelRuntimeRegistry(cfg.modelPool, logger, cfg.resourceLoader, cfg.onHaltFirstBlock);
     this.circuitBreakerConfig = {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
       ...getConfig().circuitBreaker,
@@ -381,7 +389,8 @@ export class PiSessionFactory implements AgentGateway {
     // S1：整个 createAgentSession + prompt 包在 ALS scope 内，
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
     return await otterInvokeStorage.run(
-      { otterPromptConfig, identityPrefix },
+      // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
+      { otterPromptConfig, identityPrefix, otterId },
       // eslint-disable-next-line max-statements -- F20260815rstrt pendingRestart 检查增加语句数
       async () => {
         // 1. 构建工具配置并创建 AgentSession
@@ -433,6 +442,9 @@ export class PiSessionFactory implements AgentGateway {
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
           this.activeSessions.delete(sessionKey);
+          // F20260826mwrd C1：invoke 生命周期结束，清理 halt 持续 block 状态——
+          // 改派后新 invoke 不受旧 halt 影响（halt 指令已随本 invoke 的 block 注入达成使命）
+          haltRegistry.endInvoke(otterId);
           session.dispose();
         }
       },
@@ -446,7 +458,7 @@ export class PiSessionFactory implements AgentGateway {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType, undefined, process.cwd(), this.logger);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, logger: this.logger });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, logger: this.logger });
     const codingTools = getCodingToolsForOtterType(otterType);
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
@@ -529,6 +541,8 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     identityPromptDir: config.identityPromptDir,
     createTools: config.createTools,
     healingRepo: config.healingRepo,
+    signalRepo: config.signalRepo,
+    onHaltFirstBlock: config.onHaltFirstBlock,
     otterConfigProvider: config.otterConfigProvider,
     otterRepo: config.otterRepo,
     settingsRepo: config.settingsRepo,

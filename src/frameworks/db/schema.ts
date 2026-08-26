@@ -30,6 +30,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createUserReadStateTable(db);
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
+    createSignalEventsTable(db);
     createRestartPendingResumesTable(db);
 
     db.exec("COMMIT");
@@ -37,10 +38,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     // 记录 Schema 初始化完成日志
     if (logger) {
       const duration = Date.now() - startTime;
-      // 28 regular tables + 5 virtual tables (FTS/vec) = 33 total
+      // 29 regular tables + 5 virtual tables (FTS/vec) = 34 total
       logger.info('Schema initialized', {
         duration,
-        tables: 33,
+        tables: 34,
       });
     }
   } catch (error) {
@@ -732,6 +733,33 @@ function createSignalsTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
     CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
     CREATE INDEX IF NOT EXISTS idx_signals_feature ON signals(feature_id);
+  `);
+}
+
+/** Signal events 表（F20260826mwrd C1：獭间结构化信号台账，halt 落账 + C2 objection/blocked）。
+ *  注意与 health 域的 signals 表（healing 去重聚合）无关——命名区分见特性文档「为什么不复用」节。 */
+function createSignalEventsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS signal_events (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      from_otter_id TEXT NOT NULL,
+      target_otter_id TEXT,
+      type TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      resolution TEXT,
+      resolved_by TEXT,
+      resolved_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_signal_events_conv ON signal_events(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_signal_events_status ON signal_events(status);
+    CREATE INDEX IF NOT EXISTS idx_signal_events_type ON signal_events(type);
+    CREATE INDEX IF NOT EXISTS idx_signal_events_target ON signal_events(target_otter_id, created_at);
   `);
 }
 

@@ -74,6 +74,18 @@ export async function createAgentGateway(options: {
       return tools;
     },
     healingRepo: repos.healingEvent,
+    signalRepo: repos.signalEvent,
+    // F20260826mwrd C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
+    // （resolvedBy=系统，resolution=指令已到达目标獭——halt 无待裁决事项，落账即闭环）。
+    // 回调在 tool_call handler 栈内执行（同步语义），resolve 走 fire-and-forget + catch。
+    onHaltFirstBlock: (directive) => {
+      repos.signalEvent.resolve(
+        directive.id,
+        "resolved",
+        `halt 指令已在目标獭下一个工具调用边界注入（发起者 ${directive.fromOtterName}）`,
+        "system",
+      ).catch(err => logger.error("Failed to mark halt signal as resolved", err instanceof Error ? err : new Error(String(err))));
+    },
     otterConfigProvider,
     otterRepo: repos.otter,
     settingsRepo: repos.settings,

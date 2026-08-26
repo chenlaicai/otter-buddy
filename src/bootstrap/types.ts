@@ -15,6 +15,7 @@ import type { ResearchRepository } from "@usecases/document/research-repository"
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
 import type { ConnectionRepository } from "@usecases/im/connection-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -55,6 +56,8 @@ export interface Repositories {
   scheduledTask: ScheduledTaskRepository;
   connection: ConnectionRepository;
   healingEvent: HealingEventRepository;
+  /** F20260826mwrd C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */
+  signalEvent: SignalEventRepository;
 }
 
 export interface UseCases {
