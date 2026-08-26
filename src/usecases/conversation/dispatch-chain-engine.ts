@@ -266,8 +266,22 @@ export class DispatchChainEngine {
     }
     const names = await this.resolveSenderNames(unreadMessages);
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
+    // F20260826fuid：user 消息优先用持久化快照名（飞书群聊多人识别）。
+    //  当前 sender（触发本次派发的人）无快照时回退 partnerLabel；
+    //  其他 user 发言者无快照时保留裸 ID，避免冒充「搭档」造成身份误解
     const formatted = unreadMessages
-      .map(m => `[${m.senderType === 'system' ? '系统' : m.senderId === senderId ? partnerLabel : (names.get(m.senderId) ?? m.senderId)}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}`)
+      .map(m => {
+        let label: string;
+        if (m.senderType === 'system') {
+          label = '系统';
+        } else if (m.senderType === 'user') {
+          label = m.senderName?.trim()
+            || (m.senderId === senderId ? partnerLabel : m.senderId);
+        } else {
+          label = (names.get(m.senderId) ?? m.senderId);
+        }
+        return `[${label}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}`;
+      })
       .join('\n');
 
     let result = `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
