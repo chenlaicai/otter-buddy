@@ -80,6 +80,6 @@ F20260825vrqh（PR #445）交付「模型展示」：参与者卡片模型 badge
 
 - [x] web 全量测试绿（185/185）
 - [x] tsc + vite build 通过
-- [ ] CI 绿（PR 推送后 `gh run watch` 确认）
+- [x] CI 绿（PR #480，run 32928734778 rerun 后 pass；首跑失败为后端 flaky 时序测试 #481，与本 PR 无关）
 - [ ] 对抗审视通过（异体检视獭，由大獭编排）
 - [ ] 搭档终审
