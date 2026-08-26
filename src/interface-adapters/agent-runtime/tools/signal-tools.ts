@@ -116,13 +116,13 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
 
     return textResponse(
       `[halt] 已对 ${target.otterName}（${target.otterId}）发出停手指令（台账 ${signalId}）。\n` +
-      `它会在下一个工具调用边界收到指令并停下（正在执行中的调用不打断）。最坏延迟 = 单个工具调用时长。\n` +
+      `它会在下一个非 speak 工具调用边界收到指令并停下（正在执行中的调用不打断；speak 豁免——它可用 speak 报告进度快照）。最坏延迟 = 单个工具调用时长。\n` +
       `停手报告将随其 yield 返回。`,
     );
   };
   return {
     name: "halt_otter",
-    description: "对运行中的小獭发出停手指令（halt）. When: 发现派工方向错误/需求变更/需要中止当前工作但不想丢上下文（restart 是核弹，halt 是刹车）. Not for: 停自己（直接收尾即可）/ 对搭档（无意义）. Output: 打标确认 + 台账 ID. 语义: 目标獭在下一个工具调用边界收到指令，收尾当前调用后停止新增副作用，报告进度快照并 yield 回你. 上下文完整保留，改派后可续干. GOTCHA: 打标后最坏延迟=单个工具调用时长（如长 bash），期间 UI 显示 halt 待生效.",
+    description: "对运行中的小獭发出停手指令（halt）. When: 发现派工方向错误/需求变更/需要中止当前工作但不想丢上下文（restart 是核弹，halt 是刹车）. Not for: 停自己（直接收尾即可）/ 对搭档（无意义）. Output: 打标确认 + 台账 ID. 语义: 目标獭在下一个非 speak 工具调用边界收到指令（speak 豁免供报告进度），收尾当前调用后停止新增副作用，报告进度快照并交回行动权. 上下文完整保留，改派后可续干. GOTCHA: 打标后最坏延迟=单个工具调用时长（如长 bash），期间 UI 显示 halt 待生效.",
     parameters: {
       type: "object",
       properties: {
