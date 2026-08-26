@@ -17,7 +17,7 @@ causal_links:
   to: []
 
 # 元数据
-status: draft
+status: reviewed
 change_type: feature
 capability_test: "n/a: HTTP 契约与 UI 表单变更为主，无 LLM 行为变更；验证走 vitest 单测（契约透传/血缘解析/头像持久化/UI 交互）"
 tags: [otter-creation, api-contract, web-ui, avatar, model-routing]
@@ -75,7 +75,7 @@ created_in_conversation: 60a89cc6-f61e-4e5c-a034-bb0570bf4735
 api-contract/api/otter.ts          T1: CreateOtterRequestDTO + modelAlias?, avatar?
 src/usecases/otter/create-otter.ts T1/T4: input 加字段；parentOtterId 服务端解析
 src/interface-adapters/http/
-  controllers/otter-controller.ts  T1/T4: 透传 + 血缘解析 + modelAlias 校验
+  controllers/otter-controller.ts  T1: 透传 conversationId + modelAlias/avatar 校验（血缘已上收 usecase）
 src/entities/otter/otter.ts        T2: Otter 实体加 avatar?: string | null
 src/frameworks/db/schema.ts        T2: otters 表加 avatar 列（幂等 ALTER）
 src/frameworks/db/otter/
@@ -122,7 +122,7 @@ controller `create()`：body.modelAlias → input.modelAlias，body.avatar → i
 
 **依赖注入**（审视发现 1/2 处置：数据通路缺口补齐）：`CreateOtter` 构造函数新增注入 `ConversationRepository`（repo 接口，非 usecase——`create-otter.ts:57` 已有先例论证：注入 repo + 实体工厂不形成组装环，注入 usecase 才会）。`getActiveParticipants()`（`conversation-repository.ts:149`）现成可用。血缘解析与重名兜底**统一在 usecase 层**做，controller 只透传 `conversationId`、不新增注入——原方案"血缘放 controller"的取舍因此反转：两处需求同一数据源，usecase 一处注入覆盖两个，controller 再建一份是重复（见设计取舍表更新）。
 
-1. **血缘服务端解析**：`CreateOtterInput` 新增 `conversationId?: string`。有值时：查该对话 active participants 中 type='big' 的獭取其 id 作 parentOtterId；多个大獭取 joinedAtTurnNumber 最小者（对话主大獭）；无大獭时 parentOtterId 落 null 并继续（允许纯 UI 场景无血缘）。**controller 强制传 conversationId（UI 入口必填），前端传的 parentOtterId 一律忽略**。
+1. **血缘服务端解析**：`CreateOtterInput` 新增 `conversationId?: string`。有值时：查该对话 active participants 中 type='big' 的獭取其 id 作 parentOtterId；多个大獭取 joinedAtTurnNumber 最小者（对话主大獭）；无大獭时 parentOtterId 落 null 并继续（允许纯 UI 场景无血缘）。**controller 强制传 conversationId（UI 入口必填），前端传的 parentOtterId 一律忽略**。注意：`ConversationParticipant` 实体不含 otterType（`conversation.ts:68`，检视獭补充观察），实现需两步查询——`getActiveParticipants(conversationId)` 后逐个 `otterRepo.getById(p.otterId)` 检查 type。
 2. **重名兜底**：创建前用同一 `getActiveParticipants(conversationId)` 查在场同名 active 小獭，命中抛 DomainError（409）。错误信息附在场同名者 ID，与大獭工具链措辞对齐。
 3. `avatar` 进 otter 实体（见 B）。
 
@@ -179,8 +179,8 @@ controller `create()` 变更收窄为：`body.conversationId → input.conversat
 
 ```
 UI Modal ──POST /api/otters {name, type, role?, modelAlias?, avatar?, systemPrompt, conversationId}──▶
-controller：校验 modelAlias（modelPool）+ avatar（白名单）+ 解析血缘（conversationId → big otter）──▶
-CreateOtter.execute()：重名兜底 → repo.createOtter（含 avatar）→ agentGateway.create（含 modelAlias）→ 首世 session
+controller：校验 modelAlias（modelPool）+ avatar（白名单）+ 透传 conversationId ──▶
+CreateOtter.execute()：血缘解析（participants → big otter）→ 重名兜底 → repo.createOtter（含 avatar）→ agentGateway.create（含 modelAlias）→ 首世 session
 ```
 
 ## 影响范围
