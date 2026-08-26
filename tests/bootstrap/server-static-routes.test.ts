@@ -59,6 +59,16 @@ describe("buildHttpApp MPA 静态路由（F20260826hfix）", () => {
     expect(await res.text()).toContain(page);
   });
 
+  /**
+   * 尾斜杠行为快照：显式路由不匹配 /health/，catch-all 在 staticRoot 下找不到目录也 404。
+   * 这是全部 7 个页面的既有一致行为（TopBar 链接均无尾斜杠，正常导航不触达）。
+   * 如需支持尾斜杠重定向，是独立改进，不属本 BugFix 范围。
+   */
+  it("尾斜杠路径 404（行为快照，全部页面一致）", async () => {
+    expect((await app.request("/health/")).status).toBe(404);
+    expect((await app.request("/memory/")).status).toBe(404);
+  });
+
   it("未注册路径不落入页面兜底（404）", async () => {
     const res = await app.request("/not-a-page");
     expect(res.status).toBe(404);
