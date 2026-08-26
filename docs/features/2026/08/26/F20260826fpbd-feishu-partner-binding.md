@@ -222,7 +222,7 @@ if (text.startsWith("/")) {
 - bootstrap 两处组装：createDispatchChainEngine（appConfig.feishu?.partnerOpenId）+ setupFeishu
 - 手册新增「搭档身份绑定」小节（open_id 获取三途径）+ 访客权限说明 + 2 条 FAQ
 
-**测试**：新增 13 个（PartnerResolver 5 + 门禁 4 + engine 静态/降级/roster 7，含调整）；全量 144 文件 1701 用例全过，tsc/lint 绿。
+**测试**：新增 16 个（PartnerResolver 5 + 门禁 4 + engine 静态/降级/roster 7，含调整）；全量 144 文件 1701 用例全过，tsc/lint 绿。（审视发现 1 修正：原文计数 13 为分项加法笔误，5+4+7=16）
 
 ## 对抗审视记录
 
