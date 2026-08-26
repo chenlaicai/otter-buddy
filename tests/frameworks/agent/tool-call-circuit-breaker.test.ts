@@ -83,6 +83,33 @@ describe("buildToolSignature", () => {
     expect(buildToolSignature("speak")).toBe("speak");
     expect(buildToolSignature("speak", {})).toBe("speak");
   });
+
+  it("dissolve_otter 签名含 otterId——不同 otter 不算重复", () => {
+    expect(buildToolSignature("dissolve_otter", { otterId: "otter-1" })).toBe("dissolve_otter: otter-1");
+    expect(buildToolSignature("dissolve_otter", { otterId: "otter-2" })).toBe("dissolve_otter: otter-2");
+    expect(buildToolSignature("dissolve_otter", { otterId: "otter-1" })).toBe("dissolve_otter: otter-1");
+  });
+
+  it("dissolve_otter 无 otterId 时退化为工具名", () => {
+    expect(buildToolSignature("dissolve_otter")).toBe("dissolve_otter");
+    expect(buildToolSignature("dissolve_otter", {})).toBe("dissolve_otter");
+  });
+
+  it("restart_otter 签名含 otterId——不同 otter 不算重复", () => {
+    expect(buildToolSignature("restart_otter", { otterId: "otter-A" })).toBe("restart_otter: otter-A");
+    expect(buildToolSignature("restart_otter", { otterId: "otter-B" })).toBe("restart_otter: otter-B");
+  });
+
+  it("create_otter 签名含 name——不同名字不算重复", () => {
+    expect(buildToolSignature("create_otter", { name: "小獭甲" })).toBe("create_otter: 小獭甲");
+    expect(buildToolSignature("create_otter", { name: "小獭乙" })).toBe("create_otter: 小獭乙");
+    expect(buildToolSignature("create_otter", { name: "小獭甲" })).toBe("create_otter: 小獭甲");
+  });
+
+  it("create_otter 无 name 时退化为工具名", () => {
+    expect(buildToolSignature("create_otter")).toBe("create_otter");
+    expect(buildToolSignature("create_otter", {})).toBe("create_otter");
+  });
 });
 
 describe("ToolCallCircuitBreaker", () => {
@@ -178,6 +205,35 @@ describe("ToolCallCircuitBreaker", () => {
 
     // Can call tool_a again without triggering
     expect(cb.check("tool_a").action).toBe("allow");
+  });
+
+  it("批量解散 8 只 otter 不误报重复——每只 otterId 不同，签名各异 (#464)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig(),
+      "big-otter",
+      createTestLogger(),
+    );
+
+    // 模拟大獭批量解散 8 只小獭
+    for (let i = 1; i <= 8; i++) {
+      const result = cb.check("dissolve_otter", { otterId: `small-otter-${i}` });
+      expect(result.action).toBe("allow");
+    }
+  });
+
+  it("真正重复解散同一只 otter 仍能检测 (#464 边界)", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({ maxConsecutiveIdentical: 3 }),
+      "big-otter",
+      createTestLogger(),
+    );
+
+    const retry = () => cb.check("dissolve_otter", { otterId: "small-otter-1" });
+    expect(retry().action).toBe("allow");
+    expect(retry().action).toBe("allow");
+    expect(retry().action).toBe("allow");
+    // 第 4 次重复解散同一只 → steer
+    expect(retry().action).toBe("steer");
   });
 });
 
