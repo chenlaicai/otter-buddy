@@ -16,8 +16,10 @@ causal_links:
     - F20260811mrpy   # 记忆召回链路三项核心优化（本 F 在其基础上补漏 + 收敛）
     - R20260811rclo   # clowder 召回对比调研（4 个预留值的源头）
 
-status: draft
+status: implemented
 change_type: feature
+# 状态修正（2026-08-26，R20260826rcmm Phase 0+）：功能已实际落地（验收表 17/18 ✅，全量测试 1154/1154），
+# draft 属文档滞后，同批修正 F20260811mrpy。
 tags: [memory, retrieval, dark-entries, context-expand, anchor, contract-cleanup]
 modules:
   - src/usecases/memory/search-memory.ts
