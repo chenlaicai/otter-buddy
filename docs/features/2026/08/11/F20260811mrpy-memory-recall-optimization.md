@@ -14,8 +14,12 @@ causal_links:
   from:
     - R20260811rclo
 
-status: draft
+status: implemented
 change_type: feature
+# 状态修正（2026-08-26，R20260826rcmm Phase 0+）：功能已于 2026-08-24 前随 #375 批次实际落地
+# （source 标记/vecCoverage/暗化扫描/extractSnippet/drillDown/版本锚均有代码+测试+运行时证据），
+# draft 状态属文档滞后。对拉讨论中 kimi 曾误读此状态为「功能未落地」——本修正是 R20260826rcmm
+# 文档状态债清理项。验收表已补证据。
 tags: [memory, retrieval, observability, snippet, embedding, safety]
 modules:
   - src/usecases/memory/search-memory.ts
@@ -466,29 +470,29 @@ Part 2 (Snippet+下钻)             → 召回响应里 snippet 含匹配词 + d
 
 ### 测试结果
 
-[实现阶段填写]
+实现已合入（2026-08-24 前，随 #375 批次入库）。证据：各 Part 均有针对性测试且在跑——Part 1 暗化/覆盖率 + Part 3 embedding_meta（tests/frameworks/db/memory/scan-dark-entries-and-coverage.test.ts）、Part 2 extractSnippet（tests/frameworks/db/memory/extract-snippet.test.ts）、Part 3 版本锚三分支（tests/bootstrap/verify-embedding-version.test.ts）。运行时证据：search 响应默认携带 vecCoverage、drillDown（F20260812mrcq 后持续在用），本对话 2026-08-26 的检索返回实测可见。
 
 ### 证据判定
 
 | Part | 需求 | 证据状态 | 判定 |
 |------|------|---------|------|
-| Part 1 | 路径标记 | 待验证 | ❓ |
-| Part 1 | 覆盖率默认返回 | 待验证 | ❓ |
-| Part 1 | 暗化比例准确 | 待验证 | ❓ |
-| Part 1 | debug 中间分值 | 待验证 | ❓ |
-| Part 1 | 暗化扫描可用 | 待验证 | ❓ |
-| Part 1 | vec0 anti-join 兼容 | 待验证 | ❓ |
-| Part 2 | snippet 含匹配 | 待验证 | ❓ |
-| Part 2 | fallback 正常 | 待验证 | ❓ |
-| Part 2 | 性能可控 | 待验证 | ❓ |
-| Part 2 | drillDown 填充 | 待验证 | ❓ |
-| Part 2 | 向后兼容 | 待验证 | ❓ |
-| Part 3 | 表存在 | 待验证 | ❓ |
-| Part 3 | getMeta 可用 | 待验证 | ❓ |
-| Part 3 | worker 协议 | 待验证 | ❓ |
-| Part 3 | 初次基线 | 待验证 | ❓ |
-| Part 3 | 不一致降级 | 待验证 | ❓ |
-| Part 3 | 降级召回可用 | 待验证 | ❓ |
+| Part 1 | 路径标记 | search-memory.test.ts source 断言；运行时 vecCoverage 持续返回 | ✅ |
+| Part 1 | 覆盖率默认返回 | scan-dark-entries-and-coverage.test.ts + 运行时实测 | ✅ |
+| Part 1 | 暗化比例准确 | scan-dark-entries-and-coverage.test.ts | ✅ |
+| Part 1 | debug 中间分值 | search-memory.test.ts debug 参数用例 | ✅ |
+| Part 1 | 暗化扫描可用 | scan-dark-entries.test.ts | ✅ |
+| Part 1 | vec0 anti-join 兼容 | scan-dark-entries-and-coverage.test.ts（sqlite-vec 环境） | ✅ |
+| Part 2 | snippet 含匹配 | extract-snippet.test.ts 高亮用例 | ✅ |
+| Part 2 | fallback 正常 | extract-snippet.test.ts 边界用例 | ✅ |
+| Part 2 | 性能可控 | 应用层后处理，无额外查询，全量回归通过 | ✅ |
+| Part 2 | drillDown 填充 | search-memory.test.ts + agent 实际下钻行为（get_memory_detail 调用） | ✅ |
+| Part 2 | 向后兼容 | 全量回归通过 | ✅ |
+| Part 3 | 表存在 | scan-dark-entries-and-coverage.test.ts embedding_meta describe 块 | ✅ |
+| Part 3 | getMeta 可用 | 同上 | ✅ |
+| Part 3 | worker 协议 | embedding-service.ts ready 消息携带 meta（运行时） | ✅ |
+| Part 3 | 初次基线 | verify-embedding-version.test.ts 初次分支 | ✅ |
+| Part 3 | 不一致降级 | verify-embedding-version.test.ts 不一致分支 | ✅ |
+| Part 3 | 降级召回可用 | verify-embedding-version.test.ts + vecCoverage 告警链路 | ✅ |
 
 ---
 
