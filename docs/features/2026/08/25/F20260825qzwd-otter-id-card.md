@@ -35,7 +35,7 @@ created_in_conversation: d1ac0eee-6e02-469e-af1b-dd4d8c30fe3e
 - 不做 per-獭 skills/tools 定制（当前所有獭 skills 相同、tools 相同，差异在 systemPrompt 与 modelAlias——如实呈现）
 - 不做等级/EXP 的升级逻辑或游戏机制（进度条纯视觉，无升级触发）
 - 不做对外投影脱敏（Web 前端本地可信，systemPrompt 原文展示；不进任何对外接口）
-- 不做移动端全屏抽屉（PR-3 范围，视前两期效果决定是否做）
+- 不做移动端全屏抽屉（已拆至独立特性 F20260826ybx6）
 
 ## 方案设计
 
@@ -174,7 +174,7 @@ mimo 发现 1（"modelAlias 不在 DTO、零新接口不成立"）在 main 快�
 |---|---|---|
 | PR-1 | 后端 ParticipantDTO modelAlias（若 #445 已合入则跳过）+ 前端 hover 快览卡 + 详情弹窗形象区/称号/等级 | #445 |
 | PR-2 | profile 聚合端点 + 装备四槽 + 战绩统计 + sender_id 索引 | PR-1 |
-| PR-3 | 移动端全屏抽屉、EXP 动效、徽章规则调优 | PR-2 |
+| PR-3 | 移动端全屏抽屉、EXP 动效、徽章规则调优 | PR-2 | 已拆至独立特性 F20260826ybx6 |
 
 ## 影响范围
 
@@ -250,4 +250,4 @@ mimo 发现 1（"modelAlias 不在 DTO、零新接口不成立"）在 main 快�
 ### 2026-08-25 方案定稿（大獭）
 
 - kimi 主稿 v1 → mimo 技术深化+对抗审视 → 大獭核验 8 条发现（1 条反转）→ 本文档
-- 状态：方案定稿，待搭档终审后进入实现阶段（PR-1 → PR-2 → PR-3）
+- 状态：方案定稿，PR-1/PR-2 已合入 main，PR-3 已拆至独立特性 F20260826ybx6

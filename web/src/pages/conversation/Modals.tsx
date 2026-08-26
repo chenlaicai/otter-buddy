@@ -291,6 +291,7 @@ const HELP_TEXT = {
   tools: '运行时注册的工具全集；部分工具按獭类型/大獭身份门控（注册全量≠都能用）。',
   systemPrompt: '海獭级系统提示词（任务书）。实际生效 prompt 为三层叠加：平台 base + 本心法 + 身份注入；本槽只展示中间层。',
   stats: '发言=消息段数（一段 speak 计 1）；产出=名下链接资源数；对话=参与过的对话数。',
+  exp: '经验 = 发言段数 ×1 + 产物数 ×10。纯活跃度参考，不触发任何升级；权重为展示层常量。',
 }
 
 /** 装备槽组件（PR-2） */
@@ -318,15 +319,16 @@ function OtterDetailModal(props: ModalsProps) {
   const [toolsExpanded, setToolsExpanded] = useState(false)
   const [promptExpanded, setPromptExpanded] = useState(false)
   const otter = modal.type === 'otter-detail' ? props.otters.find(o => o.id === modal.otterId) : null
+  const otterId = otter?.id
 
   useEffect(() => {
-    if (!otter) return
+    if (!otterId) return
     setProfileLoading(true)
-    fetchOtterProfile(otter.id)
+    fetchOtterProfile(otterId)
       .then(setProfile)
       .catch(() => setProfile(null))
       .finally(() => setProfileLoading(false))
-  }, [otter?.id])
+  }, [otterId])
 
   if (!otter) return null
 
@@ -364,6 +366,7 @@ function OtterDetailModal(props: ModalsProps) {
       onClose={props.onClose}
       title="海獭面板"
       width="580px"
+      fullScreenOnMobile
       footer={
         <>
           <ModalButton onClick={props.onClose}>关闭</ModalButton>
@@ -413,6 +416,29 @@ function OtterDetailModal(props: ModalsProps) {
               等级 <HelpIcon text={HELP_TEXT.level} />
             </div>
             <div className="text-sm mt-0.5 text-stone-800">Lv.{activeGen}</div>
+            {profile && !profileLoading && (() => {
+              const exp = profile.stats.messageCount * 1 + profile.stats.artifactCount * 10
+              if (exp === 0) return null
+              const pct = Math.min(exp, 100)
+              return (
+                <div className="mt-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center mb-0.5">
+                    EXP <HelpIcon text={HELP_TEXT.exp} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-stone-200/60 overflow-hidden">
+                      {/* Why: scaleX + CSS animation —— transform 不触发 layout，GPU 加速；
+                       *  每次弹窗打开（profile 重新拉取）组件重新挂载，动画自然重播 */}
+                      <div
+                        className="h-full rounded-full bg-otter-400 exp-fill"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-stone-400 tabular-nums">{exp}{exp > 100 ? '（满格）' : ''}</span>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
           {otter.role?.name && (
             <div>

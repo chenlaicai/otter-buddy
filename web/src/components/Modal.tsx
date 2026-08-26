@@ -11,9 +11,11 @@ interface ModalProps {
   children: ReactNode
   footer?: ReactNode
   width?: string
+  /** 窄屏（<640px）时全屏抽屉式布局 */
+  fullScreenOnMobile?: boolean
 }
 
-export const Modal = memo(function Modal({ isOpen = true, onClose, title, children, footer, width = '440px' }: ModalProps) {
+export const Modal = memo(function Modal({ isOpen = true, onClose, title, children, footer, width = '440px', fullScreenOnMobile }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       const handler = (e: KeyboardEvent) => {
@@ -47,8 +49,8 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
       onClick={onClose}
     >
       <div
-        className="glass-overlay rounded-3xl overflow-hidden"
-        style={{ width, maxHeight: '80vh' }}
+        className={`glass-overlay rounded-3xl overflow-hidden ${fullScreenOnMobile ? 'modal-fs-mobile' : ''}`}
+        style={{ width, maxHeight: fullScreenOnMobile ? undefined : '80vh' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-white/40 flex justify-between items-center">
@@ -60,11 +62,11 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-5 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 120px)' }}>
+        <div className={`p-5 overflow-y-auto ${fullScreenOnMobile ? 'modal-fs-content' : ''}`} style={fullScreenOnMobile ? undefined : { maxHeight: 'calc(80vh - 120px)' }}>
           {children}
         </div>
         {footer && (
-          <div className="px-5 py-3 border-t border-white/40 flex justify-end gap-2">
+          <div className={`px-5 py-3 border-t border-white/40 flex justify-end gap-2 ${fullScreenOnMobile ? 'modal-fs-footer' : ''}`}>
             {footer}
           </div>
         )}
