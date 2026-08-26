@@ -127,6 +127,19 @@ function fileToolSignature(toolName: string, a: Record<string, unknown>): string
   return digest ? `${toolName}: ${path}#${digest}` : `${toolName}: ${path}`;
 }
 
+/** Otter 管理工具签名：dissolve/restart 取 otterId；create 取 name。F20260826d464 */
+function otterToolSignature(toolName: string, a: Record<string, unknown>): string | null {
+  if (toolName === "dissolve_otter" || toolName === "restart_otter") {
+    const id = a.otterId;
+    return typeof id === "string" && id ? `${toolName}: ${id}` : toolName;
+  }
+  if (toolName === "create_otter") {
+    const name = a.name;
+    return typeof name === "string" && name ? `${toolName}: ${name}` : toolName;
+  }
+  return null;
+}
+
 /**
  * 构建工具调用的行为签名（"连续相同"的判据）。
  * 同名工具不同行为不算重复：bash 看命令词、read 看目标路径、edit/write 看路径+内容指纹；
@@ -150,14 +163,8 @@ export function buildToolSignature(toolName: string, args?: unknown): string {
     return `speak#${digest}`;
   }
   // F20260826d464：otter 管理工具签名含实体标识——批量解散/重启不同 otter 不算重复
-  if (toolName === "dissolve_otter" || toolName === "restart_otter") {
-    const id = a.otterId;
-    return typeof id === "string" && id ? `${toolName}: ${id}` : toolName;
-  }
-  if (toolName === "create_otter") {
-    const name = a.name;
-    return typeof name === "string" && name ? `${toolName}: ${name}` : toolName;
-  }
+  const otterSig = otterToolSignature(toolName, a);
+  if (otterSig !== null) return otterSig;
   return toolName;
 }
 

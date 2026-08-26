@@ -10,7 +10,7 @@ summary: |
   导致批量操作被连续相同签名计数器误判为卡壳循环。
 tags: [circuit-breaker, tool-signature, dissolve, batch-ops]
 modules: [src/frameworks/agent/tool-call-circuit-breaker.ts, tests/frameworks/agent/tool-call-circuit-breaker.test.ts]
-status: development
+status: draft
 created_at: 2026-08-26
 ---
 
@@ -121,3 +121,24 @@ Tests  33 passed (33)
 - 测试覆盖：批量解散 8 只 + 真重复检测 + 无参数退化
 - 不改变现有签名逻辑：bash/read/write/edit/speak 签名不变
 - 熔断阈值和行为不变
+
+## 6. 已知残留与边界（贝壳 #471 审视提出）
+
+### 6.1 参数缺失退化路径
+
+当 LLM 连续发送缺失 `otterId` 的 `dissolve_otter` 调用时，签名退化为工具名（`"dissolve_otter"`），仍会触发连续相同检测。
+
+**概率评估**：低——LLM 工具定义要求 `otterId` 必填，缺失属于模型违规。
+**处置**：接受现状，不额外加防御逻辑。若未来出现此场景，属模型质量问题而非本修复范畴。
+
+### 6.2 滑动窗口检测的独立触发
+
+`detectSlidingWindowRepeat`（windowSize=6/repeat=3）与连续相同签名检测是两套独立机制。
+批量操作中，即使签名不同，滑动窗口仍可能检测到模式重复（如 `A-B-C-A-B-C`）。
+
+**实测验证**：批量 8 只 dissolve（签名各异）+ 交替 dissolve+restart 18 次，均未触发滑动窗口警告。
+**残留风险**：理论上存在特定批量序列可触发，但当前场景安全。
+
+### 6.3 打地鼠问题（本 PR 不承载）
+
+`get_active_participants`、`list_messages`、`manage_healing_events` 等仍走「签名=工具名」兜底，存在同类批量误报口子。已建 issue #475 追踪机制性方案。
