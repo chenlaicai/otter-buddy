@@ -16,6 +16,8 @@ Stock CLI — A 股数据查询工具 (akshare 封装)
     finance <code> [--quarter N=4]
     news <code> [--limit N=10]
     northflow
+    hkline <code> [--days N=120] [--raw]
+    hvaluation <code>
     selftest
 
 通用选项：
@@ -40,6 +42,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 CODE_RE = re.compile(r"^\d{6}$")
+HK_CODE_RE = re.compile(r"^\d{5}$")
+ANY_CODE_RE = re.compile(r"^\d{5,6}$")
 DEFAULT_CACHE_DIR = os.environ.get("STOCK_CACHE_DIR", ".cache/stock")
 DEFAULT_CACHE_MAX_AGE = 300  # seconds
 
@@ -55,9 +59,15 @@ def die(msg: str, code: int = 1) -> None:
 
 
 def validate_code(code: str) -> None:
-    """Validate stock code format; die on invalid."""
+    """Validate A-share stock code format; die on invalid."""
     if not CODE_RE.match(code):
         die(f"Invalid stock code: {code!r}. Must be exactly 6 digits (e.g. 600519)")
+
+
+def validate_hk_code(code: str) -> None:
+    """Validate HK stock code format; die on invalid."""
+    if not HK_CODE_RE.match(code):
+        die(f"Invalid HK stock code: {code!r}. Must be exactly 5 digits (e.g. 01810)")
 
 
 def cache_key(cmd: str, **kwargs) -> str:
@@ -427,6 +437,151 @@ def cmd_northflow(args) -> dict:
                        {}, fetch)
 
 
+def cmd_hkline(args) -> dict:
+    """Fetch HK stock daily kline data with summary."""
+    import akshare as ak
+
+    code = args.code
+    days = args.days
+    raw = getattr(args, "raw", False)
+
+    def fetch():
+        try:
+            df = ak.stock_hk_daily(symbol=code)
+        except Exception as e:
+            return structured_error(f"stock_hk_daily({code})", e)
+
+        if df is None or df.empty:
+            return {"error": f"No HK kline data for {code}", "code": code}
+
+        # stock_hk_daily returns: date, open, high, low, close, volume, amount
+        # Convert types for consistency
+        for col in ["open", "high", "low", "close", "volume", "amount"]:
+            if col in df.columns:
+                df[col] = df[col].astype(float)
+
+        # Take last N trading days
+        df = df.tail(days).reset_index(drop=True)
+
+        if raw:
+            records = df.to_dict(orient="records")
+            for r in records:
+                for k, v in r.items():
+                    if hasattr(v, "isoformat"):
+                        r[k] = v.isoformat()
+                    elif hasattr(v, "item"):
+                        r[k] = v.item()
+            return {"code": code, "market": "HK", "adjust": "", "count": len(records), "data": records}
+
+        # Summary mode: last 30 trading days + stats
+        summary_df = df.tail(30).reset_index(drop=True)
+        ohlcv = summary_df.to_dict(orient="records")
+        for r in ohlcv:
+            for k, v in r.items():
+                if hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+                elif hasattr(v, "item"):
+                    r[k] = v.item()
+
+        # Compute stats (same logic as A-share kline)
+        stats = {}
+        if len(df) > 0:
+            highs = df["high"]
+            lows = df["low"]
+            closes = df["close"]
+            volumes = df["volume"]
+
+            last_row = df.iloc[-1]
+            stats["last_close"] = float(last_row["close"])
+            stats["last_date"] = str(last_row["date"])
+            if "change_pct" in df.columns:
+                stats["last_change_pct"] = float(last_row["change_pct"])
+            stats["period_high"] = float(highs.max())
+            stats["period_low"] = float(lows.min())
+
+            # Moving averages
+            for ma in [5, 20, 60]:
+                if len(closes) >= ma:
+                    stats[f"ma{ma}"] = round(float(closes.tail(ma).mean()), 2)
+
+            # Volatility (annualized, 20-day)
+            if len(closes) >= 20:
+                returns = closes.pct_change().dropna().tail(20)
+                stats["volatility_20d"] = round(float(returns.std() * (252 ** 0.5) * 100), 2)
+
+            # Volume trend: compare last 5 vs previous 5
+            if len(volumes) >= 10:
+                recent_5 = float(volumes.tail(5).mean())
+                prev_5 = float(volumes.tail(10).head(5).mean())
+                if prev_5 > 0:
+                    ratio = recent_5 / prev_5
+                    if ratio > 1.3:
+                        stats["volume_trend"] = "放量"
+                    elif ratio < 0.7:
+                        stats["volume_trend"] = "缩量"
+                    else:
+                        stats["volume_trend"] = "平稳"
+                    stats["volume_ratio"] = round(ratio, 2)
+
+        return {
+            "code": code,
+            "market": "HK",
+            "adjust": "",
+            "summary_days": len(ohlcv),
+            "ohlcv": ohlcv,
+            "stats": stats,
+        }
+
+    return with_cache("hkline", args.cache_dir, args.max_age, args.no_cache,
+                       {"code": code, "days": days}, fetch)
+
+
+def cmd_hvaluation(args) -> dict:
+    """Fetch HK stock valuation with percentile ranking (PE-TTM, PB)."""
+    import akshare as ak
+
+    code = args.code
+
+    def fetch():
+        result = {"code": code, "market": "HK", "indicators": {}}
+        errors = []
+
+        for indicator, label in [("市盈率(TTM)", "pe_ttm"), ("市净率", "pb")]:
+            try:
+                df = ak.stock_hk_valuation_baidu(
+                    symbol=code, indicator=indicator, period="近三年"
+                )
+                if df is not None and not df.empty:
+                    values = df["value"].astype(float)
+                    current = float(values.iloc[-1])
+                    three_year_min = float(values.min())
+                    three_year_max = float(values.max())
+                    # Percentile: % of historical values <= current
+                    percentile = round(float((values <= current).sum() / len(values) * 100), 1)
+                    result["indicators"][label] = {
+                        "current": round(current, 2),
+                        "three_year_min": round(three_year_min, 2),
+                        "three_year_max": round(three_year_max, 2),
+                        "percentile": percentile,
+                        "data_date": str(df["date"].iloc[-1]),
+                    }
+                else:
+                    errors.append(f"{indicator}: empty result")
+            except Exception as e:
+                errors.append(f"{indicator}: {type(e).__name__}: {e}")
+
+        if errors:
+            result["warnings"] = errors
+
+        if not result["indicators"]:
+            return structured_error(f"No valuation data for HK {code}", Exception("; ".join(errors)))
+
+        return result
+
+    return with_cache("hvaluation", args.cache_dir, args.max_age, args.no_cache,
+                       {"code": code}, fetch)
+
+
 def cmd_selftest(args) -> dict:
     """Run self-diagnostic: test each API endpoint and report status."""
     import akshare as ak
@@ -503,6 +658,30 @@ def cmd_selftest(args) -> dict:
     except Exception as e:
         results["northflow"] = {"status": "error", "function": "stock_hsgt_fund_flow_summary_em", "error": str(e)}
 
+    # Test HK kline (if available)
+    hk_test_code = "01810"  # Xiaomi
+    try:
+        df = ak.stock_hk_daily(symbol=hk_test_code)
+        results["hkline"] = {
+            "status": "ok" if df is not None and not df.empty else "empty",
+            "function": "stock_hk_daily",
+            "columns": list(df.columns) if df is not None else [],
+            "rows": len(df) if df is not None else 0,
+        }
+    except Exception as e:
+        results["hkline"] = {"status": "error", "function": "stock_hk_daily", "error": str(e)}
+
+    # Test HK valuation (PE-TTM)
+    try:
+        df = ak.stock_hk_valuation_baidu(symbol=hk_test_code, indicator="市盈率(TTM)", period="近三年")
+        results["hvaluation"] = {
+            "status": "ok" if df is not None and not df.empty else "empty",
+            "function": "stock_hk_valuation_baidu",
+            "rows": len(df) if df is not None else 0,
+        }
+    except Exception as e:
+        results["hvaluation"] = {"status": "error", "function": "stock_hk_valuation_baidu", "error": str(e)}
+
     # Summary
     ok_count = sum(1 for r in results.values() if r.get("status") == "ok")
     err_count = sum(1 for r in results.values() if r.get("status") == "error")
@@ -510,6 +689,7 @@ def cmd_selftest(args) -> dict:
 
     return {
         "test_stock": test_code,
+        "test_hk_stock": hk_test_code,
         "akshare_version": ak.__version__,
         "timestamp": datetime.now().isoformat(),
         "summary": {"ok": ok_count, "error": err_count, "total": total},
@@ -561,6 +741,16 @@ def build_parser() -> argparse.ArgumentParser:
     # northflow
     sub.add_parser("northflow", help="Northbound capital flow summary")
 
+    # hkline
+    p_hkline = sub.add_parser("hkline", help="HK stock daily kline (OHLCV)")
+    p_hkline.add_argument("code", help="5-digit HK stock code (e.g. 01810)")
+    p_hkline.add_argument("--days", type=int, default=120, help="Trading days to fetch (default: 120)")
+    p_hkline.add_argument("--raw", action="store_true", help="Output full data (default: summary)")
+
+    # hvaluation
+    p_hval = sub.add_parser("hvaluation", help="HK stock valuation (PE-TTM/PB 3-year percentile)")
+    p_hval.add_argument("code", help="5-digit HK stock code (e.g. 01810)")
+
     # selftest
     sub.add_parser("selftest", help="Run self-diagnostic")
 
@@ -582,6 +772,8 @@ def main():
         "finance": cmd_finance,
         "news": cmd_news,
         "northflow": cmd_northflow,
+        "hkline": cmd_hkline,
+        "hvaluation": cmd_hvaluation,
         "selftest": cmd_selftest,
     }
 
@@ -590,8 +782,12 @@ def main():
         die(f"Unknown command: {args.command}")
 
     # Validate code for commands that require it
+    hk_commands = {"hkline", "hvaluation"}
     if hasattr(args, "code") and args.code:
-        validate_code(args.code)
+        if args.command in hk_commands:
+            validate_hk_code(args.code)
+        elif args.command not in {"northflow", "selftest"}:
+            validate_code(args.code)
 
     # Validate numeric parameters (B6: boundary校验)
     if hasattr(args, "days") and args.days is not None and args.days < 1:

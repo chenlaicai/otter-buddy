@@ -225,4 +225,59 @@ describe("stock_data tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("无输出");
   });
+
+  // ── 港股命令测试 ──
+
+  it("hkline：5 位代码合法", async () => {
+    const tool = createStockDataTool(createMockCtx());
+
+    let spawnCalls = 0;
+    mockSpawn.mockImplementation(() => {
+      spawnCalls++;
+      if (spawnCalls === 1) return createMockProcess("", "", 0);
+      return createMockProcess(JSON.stringify({ code: "01810", market: "HK", summary_days: 5, ohlcv: [], stats: {} }), "", 0);
+    });
+
+    const result = await tool.execute("id", { command: "hkline", code: "01810", days: 5 });
+    expect(result.isError).toBeFalsy();
+
+    // 验证 CLI 参数
+    const spawnArgs = mockSpawn.mock.calls[1];
+    expect(spawnArgs[1]).toContain("01810");
+    expect(spawnArgs[1]).toContain("--days");
+    expect(spawnArgs[1]).toContain("5");
+  });
+
+  it("hkline：6 位代码拒绝（港股需 5 位）", async () => {
+    const tool = createStockDataTool(createMockCtx());
+    const result = await tool.execute("id", { command: "hkline", code: "600519" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("港股代码");
+  });
+
+  it("hvaluation：5 位代码合法", async () => {
+    const tool = createStockDataTool(createMockCtx());
+
+    let spawnCalls = 0;
+    mockSpawn.mockImplementation(() => {
+      spawnCalls++;
+      if (spawnCalls === 1) return createMockProcess("", "", 0);
+      return createMockProcess(JSON.stringify({ code: "01810", market: "HK", indicators: { pe_ttm: { current: 19.3, percentile: 22.5 } } }), "", 0);
+    });
+
+    const result = await tool.execute("id", { command: "hvaluation", code: "01810" });
+    expect(result.isError).toBeFalsy();
+
+    // hvaluation 不需要 days/adjust 等参数
+    const spawnArgs = mockSpawn.mock.calls[1];
+    expect(spawnArgs[1]).toContain("01810");
+    expect(spawnArgs[1]).not.toContain("--days");
+  });
+
+  it("hvaluation：缺 code 返回错误", async () => {
+    const tool = createStockDataTool(createMockCtx());
+    const result = await tool.execute("id", { command: "hvaluation" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("需要 code 参数");
+  });
 });
