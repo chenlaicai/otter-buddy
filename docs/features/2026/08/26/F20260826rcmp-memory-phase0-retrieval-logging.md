@@ -30,7 +30,20 @@ R20260826rcmm（三獭对抗讨论终版方案）确立「评估基线 → 召�
 
 - 不做 HTTP 路径埋点（MemoryController）——agent 工具路径是评估对象主路径；HTTP 留待有需求再补
 - 不做读取接口——标注/统计阶段直接 SQL 查表（一次性评估流程）
-- 不做埋点开关配置——INSERT 成本极低，评估期常开；评估结束可整表 DROP
+- 不做埋点开关配置——INSERT 成本极低，评估期常开；评估结束可整表 DROP 或加 TTL——不在本 F 范围，由 Phase 0 收尾时处理（mimo 审视建议 2）
+
+## 审视处置记录（两轮对抗审视，2026-08-26）
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| kimi：context 快照含触发检索的当前消息，自问自答污染标注 | 🔴 必修 | ✅ logSearch 新增 beforeMessageId 参数，tool 层传 ctx.currentMessageId；usecase 快照排除该消息；补测试「不含触发消息」 |
+| kimi：total 记 entries.length 非检索真值，失败分类归因精度受损 | 🟡 建议 | ✅ client search 透传 result.total，埋点记真值；测试断言 total=42 ≠ entries.length=1 |
+| kimi：caller_id/conversation_id 无 FK 未在文档说明 | 🟢 可选 | ✅ 决策表补一行（有意无 FK：对话删了日志还在，DROP 干脆） |
+| kimi：F 文档「非目标」范围裁剪正确（HTTP 无埋点） | ✅ 确认 | 无需改动 |
+| mimo：tool 层接线无测试（同步 TypeError 逃逸风险） | 🔴 必修 | ✅ search-memory-tool.test.ts 补接线用例：logSearch 被调用 + 参数正确 + 同步抛错不影响返回 |
+| mimo：aggregateBody 对 tool 结果消息预览质量存疑 | 🟡 建议 | 纳入 Phase 0 分析期检查清单（快照质量抽查；必要时对 tool segment 摘要）——不改代码，评估期验证后决定 |
+| mimo：无清理策略假设未显式声明 | 🟡 建议 | ✅ 非目标补一行（见上） |
+| mimo：double-catch 防御性冗余 | 🟢 观察 | 有意保留（防外层不信任 usecase 保证），不改 |
 
 ## 方案设计
 
@@ -69,8 +82,11 @@ search_query_logs (
 | 挂 tool 层而非 client 层 | OtterToolClient 是单例，拿不到 per-request 上下文；tool 的 ToolContext 才有 conversationId/otterId |
 | fire-and-forget（usecase 内 catch + warn） | 埋点失败只丢评估数据，不可影响检索可用性 |
 | 上下文 5 条 × 160 字符预览 | 意图还原够用 + 控制行体积；不存全文（messages 表有） |
+| 上下文快照排除触发消息（beforeMessageId） | 取「查询发起前」的上下文才是真实意图；含 agent 检索动作自身的发言会自问自答污染标注（kimi 审视发现 1） |
 | topEntryIds 截前 5 | recall@5 是核心基线指标；@10 可后续重放（查询可复现） |
+| total 记检索真值非 entries.length | 区分「系统只找到 N 条」vs「命中多但返回 top-k」，保失败分类归因精度（kimi 审视发现 2） |
 | JSON 存 TEXT 不拆表 | 一次性评估流程，避免过度设计 |
+| conversation_id/caller_id 有意不挂 FK | 一次性评估表：对话删了日志还在，评估结束 DROP 也干脆（kimi 审视建议 3） |
 
 ## 影响范围
 
@@ -89,8 +105,9 @@ search_query_logs (
 
 ## 验证
 
-- 集成测试：落表 + JSON 序列化、上下文快照（最近 5 条正序 + 截断 160）、topEntryIds 截前 5、fire-and-forget 不抛、空上下文
-- 全量回归：138 files / 1640 tests 通过
+- 集成测试：落表 + JSON 序列化、上下文快照（最近 5 条正序 + 截断 160 + **排除触发消息**）、topEntryIds 截前 5、fire-and-forget 不抛、空上下文
+- tool 层接线测试：logSearch 被调用 + 参数正确（beforeMessageId/total 真值）+ 同步抛错不影响工具返回（mimo 必修）
+- 全量回归：138 files / 1640 tests 通过（修订后重跑）
 - tsc --noEmit 通过
 
 ## 验收（Phase 0 数据侧）

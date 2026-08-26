@@ -13,7 +13,7 @@ import { createTestLogger } from "../../../helpers/logger";
 
 let db: DatabaseType.Database;
 let repo: SqliteSearchQueryLogRepository;
-let queryMessage: { getMessages: (convId: string, opts: { limit: number }) => Promise<Array<{ id: string; senderId: string; senderType: string; segments: Array<{ body: string }> }>> };
+let queryMessage: { getMessages: (convId: string, opts: { limit: number; before?: string }) => Promise<Array<{ id: string; senderId: string; senderType: string; segments: Array<{ body: string }> }>> };
 
 const logger = createTestLogger();
 
@@ -30,8 +30,11 @@ afterAll(() => {
 function makeRecorder(contextMessages: Array<{ id: string; body: string }>) {
   queryMessage = {
     getMessages: async (_convId, opts) => {
-      // 模拟 repo 行为：DESC 取最近 N 条
-      const sorted = [...contextMessages].reverse().slice(0, opts.limit);
+      // 模拟 repo 行为：DESC 取最近 N 条；before 存在时只取该消息之前的（kimi 发现 1：快照不含触发消息）
+      const sorted = [...contextMessages]
+        .filter((m) => !opts.before || m.id !== opts.before)
+        .reverse()
+        .slice(0, opts.limit);
       return sorted.map((m) => ({
         id: m.id, senderId: "otter-1", senderType: "assistant",
         segments: [{ body: m.body }],
@@ -91,6 +94,25 @@ describe("RecordSearchQuery.record", () => {
     expect(ctx.find((c) => c.id === "m3")!.preview.length).toBe(160);
     // topEntryIds 截前 5（recall@5 标注够用）
     expect(JSON.parse(row.top_entry_ids)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("上下文快照排除触发检索的当前消息（beforeMessageId，kimi 发现 1）", async () => {
+    const recorder = makeRecorder([
+      { id: "m1", body: "第一条" },
+      { id: "m2", body: "第二条" },
+      { id: "m-cur", body: "让我查一下记忆系统的方案" }, // 触发检索的当前消息，应被排除
+    ]);
+
+    await recorder.record({
+      query: "记忆系统方案", conversationId: "conv-exc", callerId: "otter-1",
+      beforeMessageId: "m-cur",
+      topEntryIds: ["e1"], total: 1,
+    });
+
+    const row = db.prepare("SELECT context_messages FROM search_query_logs WHERE conversation_id = ?").get("conv-exc") as Record<string, string>;
+    const ctx = JSON.parse(row.context_messages) as Array<{ id: string }>;
+    // 快照 = 查询发起前的上下文：m1、m2，不含 m-cur
+    expect(ctx.map((c) => c.id)).toEqual(["m1", "m2"]);
   });
 
   it("fire-and-forget：repo 抛错时不外抛", async () => {

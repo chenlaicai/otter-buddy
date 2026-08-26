@@ -30,11 +30,15 @@ export class RecordSearchQuery {
   /**
    * 记录一次检索调用。不抛错——内部 catch 后 warn（fire-and-forget）。
    * @param callerId 发起方 Otter ID（agent 路径）；HTTP 路径传 null
+   * @param beforeMessageId 上下文快照上界（不含）：触发检索的当前消息 ID。
+   *        传入后快照取「查询发起前」的上下文，避免 agent 检索动作自身的发言
+   *        混入快照污染意图还原（kimi 审视发现 1）。
    */
   async record(input: {
     query: string;
     conversationId: string;
     callerId: string | null;
+    beforeMessageId?: string | null;
     detailLevel?: string;
     library?: string;
     limitCount?: number;
@@ -42,7 +46,7 @@ export class RecordSearchQuery {
     total: number;
   }): Promise<void> {
     try {
-      const contextMessages = await this.buildContextPreview(input.conversationId);
+      const contextMessages = await this.buildContextPreview(input.conversationId, input.beforeMessageId);
       await this.repo.insert({
         query: input.query,
         conversationId: input.conversationId,
@@ -61,10 +65,17 @@ export class RecordSearchQuery {
     }
   }
 
-  /** 取查询前最近 5 条消息的预览快照（标注者还原查询意图用） */
-  private async buildContextPreview(conversationId: string): Promise<SearchQueryContextMessage[]> {
+  /** 取查询前最近 5 条消息的预览快照（标注者还原查询意图用）。
+   * beforeMessageId 存在时排除该消息及之后的消息——快照 = 查询发起前的上下文。 */
+  private async buildContextPreview(
+    conversationId: string,
+    beforeMessageId?: string | null,
+  ): Promise<SearchQueryContextMessage[]> {
     // DESC 取最近 5 条再正序还原（上下文阅读顺序）
-    const messages = await this.queryMessage.getMessages(conversationId, { limit: CONTEXT_MESSAGE_COUNT });
+    const messages = await this.queryMessage.getMessages(conversationId, {
+      limit: CONTEXT_MESSAGE_COUNT,
+      ...(beforeMessageId ? { before: beforeMessageId } : {}),
+    });
     return messages
       .reverse()
       .map((m) => ({
