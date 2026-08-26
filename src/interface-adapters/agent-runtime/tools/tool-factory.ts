@@ -133,6 +133,7 @@ function createYieldTool(ctx: ToolContext): AgentTool {
 }
 
 /** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由 + 时间过滤） */
+// eslint-disable-next-line max-lines-per-function -- F20260826rcmm Phase 0 加埋点后超 60 行
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
@@ -173,7 +174,7 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
     execute: async (_id: string, params: Record<string, unknown>) => {
       const detailLevel = (params.detail_level as "summary" | "snippet" | "full") ?? "summary";
       const contentType = params.content_type as MemoryContentType[] | undefined;
-      const { entries, contextEntries, vecCoverage } = await ctx.client.memory.search(
+      const { entries, contextEntries, vecCoverage, total } = await ctx.client.memory.search(
         params.query as string,
         (params.limit as number) ?? 10,
         detailLevel,
@@ -182,6 +183,26 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         contentType,
         params.expand_context as boolean | undefined,
       );
+      // F20260826rcmm Phase 0：检索埋点（fire-and-forget，失败不影响工具返回）。
+      // 挂在 tool 层而非 client 层：此处才有 per-request 的 conversationId/otterId。
+      // total 用检索系统真值（非 entries.length）：区分「只找到 N 条」和「命中很多但返回 top-k」。
+      // beforeMessageId = ctx.currentMessageId：上下文快照排除检索动作自身的消息（防自问自答污染标注）。
+      // 同步 try/catch：client 实现内部同步抛错（如装配遗漏的 TypeError）也不得打挂工具（mimo 审视必修，测试实证）
+      try {
+        ctx.client.memory.logSearch({
+          query: params.query as string,
+          conversationId: ctx.conversationId,
+          callerId: ctx.otterId,
+          beforeMessageId: ctx.currentMessageId,
+          detailLevel,
+          library: params.library as string | undefined,
+          limitCount: (params.limit as number) ?? 10,
+          topEntryIds: entries.map((e) => e.id),
+          total,
+        });
+      } catch {
+        // 埋点任何形态的失败（含同步抛错）都不影响检索可用性
+      }
       // F20260812mrcq Part 2: 透传 contextEntries 给 agent（不混入 entries，避免评分断层）
       // F20260821evaf 二轮审视: 透传 vecCoverage——兑现 description 承诺，agent 感知降级/暗化
       return textResponse(JSON.stringify({
