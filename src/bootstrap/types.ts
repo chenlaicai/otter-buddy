@@ -5,6 +5,8 @@ import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { MemoryReader } from "@usecases/memory/memory-reader";
 import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
+import type { SearchQueryLogRepository } from "@usecases/memory/search-query-log-repository";
+import type { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import type { TerminologyRepository } from "@usecases/memory/terminology-repository";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
@@ -43,6 +45,8 @@ export interface Repositories {
   memoryReader: MemoryReader;
   memoryWriter: MemoryWriter;
   memoryQueue: MemoryQueue;
+  /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
+  searchQueryLog: SearchQueryLogRepository;
   terminology: TerminologyRepository;
   conversation: ConversationRepository;
   settings: SettingsRepository;
@@ -65,6 +69,8 @@ export interface UseCases {
   getDocProvenance: GetDocProvenance;
   sendMessage: SendMessage;
   queryMessage: QueryMessage;
+  /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
+  recordSearchQuery: RecordSearchQuery;
   manageReadState: ManageReadState;
   manageParticipant: ManageParticipant;
   manageKeyInfo: ManageKeyInfo;
