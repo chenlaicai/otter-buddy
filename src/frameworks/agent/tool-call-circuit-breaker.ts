@@ -149,6 +149,15 @@ export function buildToolSignature(toolName: string, args?: unknown): string {
     const digest = contentDigest(a.body);
     return `speak#${digest}`;
   }
+  // F20260826d464：otter 管理工具签名含实体标识——批量解散/重启不同 otter 不算重复
+  if (toolName === "dissolve_otter" || toolName === "restart_otter") {
+    const id = a.otterId;
+    return typeof id === "string" && id ? `${toolName}: ${id}` : toolName;
+  }
+  if (toolName === "create_otter") {
+    const name = a.name;
+    return typeof name === "string" && name ? `${toolName}: ${name}` : toolName;
+  }
   return toolName;
 }
 
