@@ -17,6 +17,8 @@ import type { ModelConfig } from "@frameworks/config";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { buildOtterPrompt } from "./session-helpers";
+import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
+import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 
 /** pi-coding-agent 模块类型（动态加载） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -45,6 +47,8 @@ export class ModelRuntimeRegistry {
     private readonly modelPool: ModelPool | undefined,
     private readonly logger: Logger,
     private readonly resourceLoaderOverride?: ResourceLoader,
+    /** F20260826mwrd C1：halt 首次注入回调（signal_events 落账更新 + 外部监听） */
+    private readonly onHaltFirstBlock?: (directive: HaltDirective) => void,
   ) {}
 
   /** 获取 ModelRuntime */
@@ -95,6 +99,13 @@ export class ModelRuntimeRegistry {
               pi.on("context", (event: { messages: any[] }) => {
                 return { messages: stripHistoricalThinking(event.messages) };
               });
+              // F20260826mwrd C1：halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
+              // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result
+              // （reason 正文）返回 LLM。读 ALS store 拿当前 invoke 的 otterId（fail-open：
+              // 读不到 store 时放行，见 haltToolCallGuard 注释）。
+              pi.on("tool_call", (_event: unknown) => {
+                return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry);
+              });
               // S1（R20260810piab）：otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
               // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
@@ -121,6 +132,12 @@ export class ModelRuntimeRegistry {
           }],
         });
         await this.resourceLoader.reload();
+        // F20260826mwrd C1：halt 首次注入回调——落账更新（指令已到达）+ 日志。
+        // 注册在 resourceLoader 就绪后（首次 halt 必然晚于 session 创建，而 session 依赖 resourceLoader）。
+        haltRegistry.onFirstBlock(directive => {
+          this.logger.info('Halt directive first block injected', { targetOtterId: directive.targetOtterId, signalId: directive.id, fromOtterId: directive.fromOtterId });
+          try { this.onHaltFirstBlock?.(directive); } catch { /* 回调失败不影响 block */ }
+        });
         const { skills } = this.resourceLoader.getSkills();
         if (skills.length === 0) {
           this.logger.warn(`ResourceLoader discovered 0 skills from .pi/skills — check if directory exists and contains SKILL.md files`);
@@ -259,6 +276,30 @@ export interface OtterInvokeContext {
   otterPromptConfig: string | OtterPromptConfig | undefined;
   /** 首次 invoke 的身份前缀（名称/ID/类型/身份文案/模型指南/搭档名）；非首次为空串 */
   identityPrefix: string;
+  /** F20260826mwrd C1：当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
+  otterId: string;
 }
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
+
+/**
+ * F20260826mwrd C1：halt tool_call handler 的 block 判定（纯函数，测试可独立覆盖）。
+ *
+ * SDK 语义链：tool_call 扩展事件 → ToolCallEventResult{ block, reason } →
+ * agent-loop 对 block 生成 isError tool result（reason 正文）返回 LLM。
+ *
+ * 为什么不是拦截器内闭包直接取 store：ALS store 读不到（如 handler 在异步边界后执行）时
+ * 无法区分「无 halt」与「读不到」——独立成纯函数后，读不到返回 undefined（放行），
+ * 语义与「无 halt」一致（fail-open），不会误伤正常工具流。
+ */
+export function haltToolCallGuard(
+  store: OtterInvokeContext | undefined,
+  haltRegistryLike: { takeForBlock(otterId: string): HaltDirective[]; isHalted(otterId: string): boolean },
+): { block: true; reason: string } | undefined {
+  const otterId = store?.otterId;
+  if (!otterId) return undefined;
+  const directives = haltRegistryLike.takeForBlock(otterId);
+  if (directives.length === 0) return undefined;
+  const reason = buildHaltBlockReason(directives);
+  return reason ? { block: true, reason } : undefined;
+}

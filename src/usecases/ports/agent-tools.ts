@@ -11,6 +11,7 @@
  * 语义（由 session 工厂消费/维护）——换 SDK 时需修订本 port，字段注释有警示。
  */
 import type { OtterToolClient } from "./otter-tool-client";
+import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { ModelPoolLike } from "./model-pool-like";
 import type { OtterConfigProvider } from "./otter-config-provider";
 
@@ -139,5 +140,7 @@ export interface ToolContext {
   dispatchWarningShown?: boolean;
   /** F20260821i336：本轮是否已展示过编排守卫提醒。二次放行——首次提醒后再次调用 write/edit/bash 放行。 */
   orchestrationWarningShown?: boolean;
+  /** F20260826mwrd C1：signal_events 仓库（halt_otter/query_signals 注册条件；invoke 级注入） */
+  signalRepo?: SignalEventRepository;
 
 }
