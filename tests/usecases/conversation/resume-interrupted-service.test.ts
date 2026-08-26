@@ -203,6 +203,9 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     expect(rows[0]?.status).toBe("exhausted");
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
     expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("自动恢复失败")))).toBe(true);
+    // 失败路径同样保留半截内容（prepareForRetry preserveSegments 已执行），与基础恢复用例对称
+    const stored = await repo.getMessageById(msgId);
+    expect(stored?.segments.some(seg => seg.body === "半截")).toBe(true);
   });
 
   it("无 pending 记录：静默返回，无系统消息无链调用", async () => {
