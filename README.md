@@ -35,11 +35,20 @@ Otter Buddy（海獭）是一个以 Agent 为本、Chat as Substrate、记忆系
 ### 安装依赖
 
 ```bash
-# 后端依赖
+# 后端依赖（prepare 脚本会自动设置 git hooks 路径）
 npm install
 
 # 前端依赖
 cd web && npm install && cd ..
+```
+
+#### 验证 git hooks 已激活
+
+`npm install` 的 `prepare` 脚本会执行 `git config core.hooksPath .githooks`，将钩子指向仓库内的 `.githooks/`（commit-msg / pre-commit / pre-push / pre-merge-commit）。若该配置被外部工具或环境重置覆盖，全部钩子会**静默失效**（#476、F20260821kgts 在案多次踩坑），提交规范只能靠 CI 兜底。安装完成后验证一次：
+
+```bash
+git config core.hooksPath
+# 预期输出: .githooks（相对路径；若为其他值或指向不存在的目录，重新执行 npm run prepare）
 ```
 
 ### 配置
