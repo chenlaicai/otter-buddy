@@ -587,7 +587,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       senderId: row.sender_id, status: 'completed' as const, segments: [] as MessageSegment[],
       sequenceNum: row.sequence_num, turnId: '', talkingStonePassedTo: null,
       contextTokens: null, contextTokensMax: null, source: 'web' as const,
-      senderName: '',
+      senderName: row.sender_name ?? '',
       createdAt: '', completedAt: null,
     }));
     this.attachSegments(messages);
