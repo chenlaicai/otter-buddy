@@ -44,21 +44,6 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
    *  解耦）。注：backdrop-filter 的采样语义跨 DOM 子树（scrim 仍采样页面内容位图），
    *  冻结闪烁的真正机制是弹窗期三源渲染冻结，Portal 是结构清理（检视 A-1 更正） */
   return createPortal(
-    <>
-    {fullScreenOnMobile && <style>{`
-      @media (max-width: 639px) {
-        .modal-fs-mobile {
-          width: 100vw !important;
-          height: 100dvh !important;
-          max-height: 100dvh !important;
-          margin: 0 !important;
-          border-radius: 0 !important;
-        }
-        .modal-fs-mobile .modal-fs-content {
-          max-height: calc(100dvh - 104px) !important;
-        }
-      }
-    `}</style>}
     <div
       className="fixed inset-0 scrim flex items-center justify-center z-[100]"
       onClick={onClose}
@@ -81,13 +66,12 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
           {children}
         </div>
         {footer && (
-          <div className="px-5 py-3 border-t border-white/40 flex justify-end gap-2">
+          <div className={`px-5 py-3 border-t border-white/40 flex justify-end gap-2 ${fullScreenOnMobile ? 'modal-fs-footer' : ''}`}>
             {footer}
           </div>
         )}
       </div>
-    </div>
-    </>,
+    </div>,
     document.body
   )
 })

@@ -252,24 +252,28 @@ mimo 发现 1（"modelAlias 不在 DTO、零新接口不成立"）在 main 快�
 - kimi 主稿 v1 → mimo 技术深化+对抗审视 → 大獭核验 8 条发现（1 条反转）→ 本文档
 - 状态：方案定稿，待搭档终审后进入实现阶段（PR-1 → PR-2 → PR-3）
 
-### 2026-08-26 PR-3 实现（mimo-面板工程师）
+### 2026-08-26 PR-3 delta 处置（mimo-面板工程师）
 
-**变更内容**：
+**kimi 审视处置（3 严重 + 4 建议）**：
 
-1. **Modal fullScreenOnMobile**：Modal.tsx 新增 `fullScreenOnMobile` 可选属性，窄屏（<640px）时详情弹窗改全屏抽屉式布局（顶部标题栏保留、内容区占满、圆角去掉）。使用 CSS `<style>` 标签 + 媒体查询实现，不引入 JS 尺寸监听库。OtterDetailModal 启用该属性。
-2. **EXP 条动效**：详情弹窗新增经验条（EXP = 发言×1 + 产物×10，上限100），使用 CSS `transition-all duration-500 ease-out` 实现平滑填充动效。采用 rAF 双帧技术确保从0到目标值的动画可见。配备 HelpIcon 说明文案。
-3. **时序测试补齐**：OtterProfileCard.test.tsx 新增 5 个 debounce 时序测试（vitest fake timers），覆盖：停留≥400ms触发、快速滑过不触发、移出后重新计时、鼠标快速来回不触发、精确400ms触发一次。
+| # | 发现 | 级别 | 处置 |
+|---|---|---|---|
+| S1 | 假时序测试（纯函数未引用实现） | 严重 | 接受修复：重写为 @testing-library/react 组件级测试，渲染真实 RightPanel |
+| S2 | 降级理由不成立（裸 createRoot 问题非 React 19 已知缺陷） | 严重 | 接受修复：移除错误降级注释，改用 fireEvent + act 方案 |
+| S3 | EXP 首开动画被 React 批处理合并 | 严重 | 接受修复：rAF 方案改为 CSS @keyframes scaleX 方案 |
+| A1 | 满格后数值无说明 | 建议 | 接受：exp > 100 时显示“（满格）” |
+| A2 | !important 六连 | 建议 | 接受：样式移入 globals.css，移除内联 style 标签 |
+| A3 | iOS 安全区 footer 危险按钮 | 建议 | 接受：添加 modal-fs-footer + env(safe-area-inset-bottom) |
+| A4 | PR-2 遗留 lint warning 顺手修 | 建议 | 接受：提取 otterId 变量消除 exhaustive-deps 警告 |
 
-**文件变更**：
-
-| 文件 | 操作 | 说明 |
-|---|---|---|
-| web/src/components/Modal.tsx | 修改 | 新增 fullScreenOnMobile 属性 + 媒体查询全屏抽屉 |
-| web/src/pages/conversation/Modals.tsx | 修改 | EXP 进度条 + 动效 + HelpIcon + fullScreenOnMobile 启用 |
-| web/src/components/OtterProfileCard.test.tsx | 修改 | 5 个 debounce 时序测试（fake timers） |
+**变更文件**：
+- `web/src/styles/globals.css` — 新增 .exp-fill 动画 + .modal-fs-mobile 全屏抽屉 + .modal-fs-footer iOS 安全区
+- `web/src/components/Modal.tsx` — 移除内联 style 标签，footer 加 modal-fs-footer class
+- `web/src/pages/conversation/Modals.tsx` — EXP rAF→CSS animation，提取 otterId 修 lint warning，加“（满格）”溢出说明
+- `web/src/components/OtterProfileCard.test.tsx` — 纯函数测试→@testing-library/react 组件级测试（3 debounce + 4 渲染）
 
 **测试结果**：
-- Web 测试：21 文件 / 174 测试全绿
+- Web 测试：21 文件 / 172 测试全绿（原 174 → 纯函数 5 测试替换为组件级 3 测试）
 - 后端测试：136 文件 / 1633 测试全绿
 - Build：通过（tsc + vite build）
-- Lint：0 errors，1 warning（PR-2 遗留的 useEffect 依赖警告，非 PR-3 引入）
+- Lint：0 errors，0 warnings（PR-2 遗留 warning 已修）

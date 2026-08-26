@@ -366,3 +366,29 @@ body.modal-open .stream-shimmer::after { animation: none; }
 
 /* 透明度滑杆 */
 .glass-range { accent-color: #97734C; }
+
+/* EXP 经验条填充动画（PR-3）：scaleX 从 0 到 1，transform 不触发 layout，GPU 加速 */
+@keyframes expFill { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+.exp-fill {
+  transform-origin: left;
+  animation: expFill 500ms ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) { .exp-fill { animation: none; } }
+
+/* Modal 全屏抽屉（PR-3）：窄屏 <640px 时弹窗占满屏幕 */
+@media (max-width: 639px) {
+  .modal-fs-mobile {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+  .modal-fs-mobile .modal-fs-content {
+    max-height: calc(100dvh - 104px);
+  }
+  /* iOS 安全区：footer 危险按钮不被系统手势遮挡 */
+  .modal-fs-mobile .modal-fs-footer {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  }
+}

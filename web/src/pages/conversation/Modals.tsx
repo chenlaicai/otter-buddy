@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Check, Copy, ChevronDown, ChevronRight } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import { OtterAvatar } from '../../components/OtterAvatar'
@@ -318,31 +318,17 @@ function OtterDetailModal(props: ModalsProps) {
   const [profileLoading, setProfileLoading] = useState(false)
   const [toolsExpanded, setToolsExpanded] = useState(false)
   const [promptExpanded, setPromptExpanded] = useState(false)
-  const [expWidth, setExpWidth] = useState(0)
-  const expRef = useRef<HTMLDivElement>(null)
   const otter = modal.type === 'otter-detail' ? props.otters.find(o => o.id === modal.otterId) : null
+  const otterId = otter?.id
 
   useEffect(() => {
-    if (!otter) return
+    if (!otterId) return
     setProfileLoading(true)
-    fetchOtterProfile(otter.id)
+    fetchOtterProfile(otterId)
       .then(setProfile)
       .catch(() => setProfile(null))
       .finally(() => setProfileLoading(false))
-  }, [otter?.id])
-
-  // EXP 条动效：从 0 平滑填充到目标值（D3 公式：发言×1 + 产出×10）
-  useEffect(() => {
-    if (!profile) { setExpWidth(0); return }
-    setExpWidth(0)
-    const exp = profile.stats.messageCount * 1 + profile.stats.artifactCount * 10
-    const pct = Math.min(exp, 100)
-    // Why: rAF 双帧 —— 首帧渲染 width:0，次帧更新触发 CSS transition
-    const raf = requestAnimationFrame(() => {
-      requestAnimationFrame(() => setExpWidth(pct))
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [profile])
+  }, [otterId])
 
   if (!otter) return null
 
@@ -433,19 +419,22 @@ function OtterDetailModal(props: ModalsProps) {
             {profile && !profileLoading && (() => {
               const exp = profile.stats.messageCount * 1 + profile.stats.artifactCount * 10
               if (exp === 0) return null
+              const pct = Math.min(exp, 100)
               return (
                 <div className="mt-1">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center mb-0.5">
                     EXP <HelpIcon text={HELP_TEXT.exp} />
                   </div>
                   <div className="flex items-center gap-2">
-                    <div ref={expRef} className="flex-1 h-1.5 rounded-full bg-stone-200/60 overflow-hidden">
+                    <div className="flex-1 h-1.5 rounded-full bg-stone-200/60 overflow-hidden">
+                      {/* Why: scaleX + CSS animation —— transform 不触发 layout，GPU 加速；
+                       *  每次弹窗打开（profile 重新拉取）组件重新挂载，动画自然重播 */}
                       <div
-                        className="h-full rounded-full bg-otter-400 transition-all duration-500 ease-out"
-                        style={{ width: `${expWidth}%` }}
+                        className="h-full rounded-full bg-otter-400 exp-fill"
+                        style={{ width: `${pct}%` }}
                       />
                     </div>
-                    <span className="text-[10px] text-stone-400 tabular-nums">{exp}</span>
+                    <span className="text-[10px] text-stone-400 tabular-nums">{exp}{exp > 100 ? '（满格）' : ''}</span>
                   </div>
                 </div>
               )
