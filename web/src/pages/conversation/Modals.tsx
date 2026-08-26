@@ -318,6 +318,10 @@ function OtterDetailModal(props: ModalsProps) {
   const [profileLoading, setProfileLoading] = useState(false)
   const [toolsExpanded, setToolsExpanded] = useState(false)
   const [promptExpanded, setPromptExpanded] = useState(false)
+  /** 历史世前情摘要展开态（受控，默认全折叠，不持久化）。
+   * Why: 多世海獭的长交接词全文渲染会把弹窗内容撑爆（能滚但找不到重点），
+   * 折叠后一屏能扫完世数链，需要细看时逐世展开 */
+  const [expandedSummaries, setExpandedSummaries] = useState<Record<string, boolean>>({})
   const otter = modal.type === 'otter-detail' ? props.otters.find(o => o.id === modal.otterId) : null
   const otterId = otter?.id
 
@@ -635,9 +639,28 @@ function OtterDetailModal(props: ModalsProps) {
                 {s.archiveReason && (
                   <div className="text-xs text-stone-600 mt-1">归档原因：{s.archiveReason}</div>
                 )}
-                {s.summary && (
-                  <div className="text-xs text-stone-700 mt-1.5 leading-relaxed">
-                    {s.status === 'active' ? `前情：${s.summary}` : s.summary}
+                {s.summary && s.status === 'active' && (
+                  <div data-testid="session-summary" className="text-xs text-stone-700 mt-1.5 leading-relaxed">
+                    {`前情：${s.summary}`}
+                  </div>
+                )}
+                {s.summary && s.status !== 'active' && (
+                  <div className="mt-1.5">
+                    <div
+                      data-testid="session-summary"
+                      className={`text-xs text-stone-700 leading-relaxed ${expandedSummaries[s.id] ? '' : 'line-clamp-3'}`}
+                    >
+                      {s.summary}
+                    </div>
+                    {/* 展开切换：风格同心法区（Chevron + 展开/收起）。
+                        短摘要不足 3 行时按钮无视觉变化，保留统一交互不搞溢出检测（jsdom 无真实布局，保持简单） */}
+                    <button
+                      onClick={() => setExpandedSummaries(cur => ({ ...cur, [s.id]: !cur[s.id] }))}
+                      className="mt-0.5 text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
+                    >
+                      {expandedSummaries[s.id] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                      {expandedSummaries[s.id] ? '收起' : '展开'}
+                    </button>
                   </div>
                 )}
               </div>
