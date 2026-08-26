@@ -13,7 +13,10 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
   constructor(private readonly dataDir: string) {}
 
   private workspaceRoot(conversationId: string): string {
-    return path.join(this.dataDir, "workspaces", conversationId);
+    // dataDir 可能是相对路径（app.ts 默认 "./data"），必须归一化为绝对路径：
+    // resolveSafe 中 path.resolve() 的结果恒为绝对路径，与相对 root 做 startsWith
+    // 比较恒为 false，会导致所有正常读写被误判为 path traversal（2026-08-26 故障）
+    return path.resolve(this.dataDir, "workspaces", conversationId);
   }
 
   /** 解析相对路径并校验不穿越工作区边界（含 symlink 真实路径校验） */
