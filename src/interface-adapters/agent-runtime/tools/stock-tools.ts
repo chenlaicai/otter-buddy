@@ -1,8 +1,8 @@
 /**
- * stock_data 工具——聚合式 A 股数据查询工具。
+ * stock_data 工具——聚合式 A 股+港股数据查询工具。
  *
  * 封装 scripts/stock-cli.py（PR1 桥脚本），通过 child_process.spawn 调用。
- * 单工具聚合五命令，防 tool-factory 膨胀。
+ * 单工具聚合七命令（A 股五 + 港股二），防 tool-factory 膨胀。
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -14,11 +14,11 @@ import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 const STOCK_CLI_REL = "scripts/stock-cli.py";
 
 /** 合法命令枚举 */
-const VALID_COMMANDS = ["kline", "overview", "finance", "news", "northflow", "selftest"] as const;
+const VALID_COMMANDS = ["kline", "overview", "finance", "news", "northflow", "hkline", "hvaluation", "selftest"] as const;
 type StockCommand = (typeof VALID_COMMANDS)[number];
 
 /** 需要 code 参数的命令 */
-const COMMANDS_NEEDING_CODE = new Set(["kline", "overview", "finance", "news"]);
+const COMMANDS_NEEDING_CODE = new Set(["kline", "overview", "finance", "news", "hkline", "hvaluation"]);
 
 /** 默认超时 60 秒 */
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -105,28 +105,40 @@ function executeStockCli(
   });
 }
 
+/** HK 命令集合——code 校验规则不同 */
+const HK_COMMANDS = new Set(["hkline", "hvaluation"]);
+
 /** 校验参数，返回错误消息或 null */
 function validateParams(command: string, code?: string): string | null {
   if (!VALID_COMMANDS.includes(command as StockCommand)) {
     return `未知命令: ${command}。合法命令: ${VALID_COMMANDS.join(", ")}`;
   }
   if (COMMANDS_NEEDING_CODE.has(command)) {
-    if (!code) return `命令 ${command} 需要 code 参数（6 位数字）`;
-    if (!/^\d{6}$/.test(code)) return `非法股票代码: ${code}。必须为 6 位数字（如 600519）`;
+    if (!code) return `命令 ${command} 需要 code 参数`;
+    if (HK_COMMANDS.has(command)) {
+      if (!/^\d{5}$/.test(code)) return `非法港股代码: ${code}。必须为 5 位数字（如 01810）`;
+    } else {
+      if (!/^\d{6}$/.test(code)) return `非法股票代码: ${code}。必须为 6 位数字（如 600519）`;
+    }
   }
   return null;
 }
+
+/** 命令到可选参数的映射——驱动 buildCliArgs，降低分支复杂度 */
+const COMMAND_PARAM_MAP: Record<string, [string, string][]> = {
+  kline: [["days", "--days"], ["adjust", "--adjust"]],
+  hkline: [["days", "--days"]],
+  finance: [["quarter", "--quarter"]],
+  news: [["limit", "--limit"]],
+};
 
 /** 从 params 构造 CLI 参数数组 */
 function buildCliArgs(command: string, params: Record<string, unknown>): string[] {
   const args: string[] = [];
   if (params.code && COMMANDS_NEEDING_CODE.has(command)) args.push(params.code as string);
-  if (command === "kline") {
-    if (params.days) args.push("--days", String(params.days));
-    if (params.adjust) args.push("--adjust", params.adjust as string);
+  for (const [paramKey, cliFlag] of COMMAND_PARAM_MAP[command] ?? []) {
+    if (params[paramKey]) args.push(cliFlag, String(params[paramKey]));
   }
-  if (command === "finance" && params.quarter) args.push("--quarter", String(params.quarter));
-  if (command == "news" && params.limit) args.push("--limit", String(params.limit));
   if (params.no_cache) args.push("--no-cache");
   return args;
 }
@@ -190,11 +202,11 @@ export function createStockDataTool(_ctx: ToolContext): AgentTool {
         },
         code: {
           type: "string",
-          description: "6 位股票代码（如 600519）。kline/overview/finance/news 必填，northflow/selftest 不需要。",
+          description: "股票代码。A 股：6 位数字（如 600519）。港股：5 位数字（如 01810）。kline/overview/finance/news/hkline/hvaluation 必填，northflow/selftest 不需要。",
         },
         days: {
           type: "number",
-          description: "kline 命令：获取最近 N 个交易日数据（默认 120）",
+          description: "kline/hkline 命令：获取最近 N 个交易日数据（默认 120)",
         },
         adjust: {
           type: "string",
