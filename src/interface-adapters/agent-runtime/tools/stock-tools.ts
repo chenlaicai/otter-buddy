@@ -211,7 +211,7 @@ export function createStockDataTool(_ctx: ToolContext): AgentTool {
         adjust: {
           type: "string",
           enum: ["qfq", "hfq", ""],
-          description: "kline 命令：复权方式。qfq=前复权（默认），hfq=后复权，空字符串=不复权。",
+          description: "kline 命令：复权方式。qfq=前复权（默认），hfq=后复权，空字符串=不复权。港股 hkline 不支持此参数（新浪港股源当前返回未复权价）。",
         },
         quarter: {
           type: "number",

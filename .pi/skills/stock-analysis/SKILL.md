@@ -35,7 +35,7 @@ category: technique
 | `finance` | A 股财务指标 | `code`(6位), `quarter`(默认4), `no_cache` | 基本面：营收/净利/ROE/毛利率 |
 | `news` | 个股新闻（A/港股通用） | `code`(6位或5位), `limit`(默认10), `no_cache` | 消息面：公告/事件/舆情 |
 | `northflow` | 北向资金汇总 | `no_cache` | 资金面：外资动向 |
-| `hkline` | 港股日 K 线数据 | `code`(5位如01810), `days`(默认120), `no_cache` | 技术面：趋势、位置、量能 |
+| `hkline` | 港股日 K 线数据（新浪港股源，当前返回未复权价） | `code`(5位如01810), `days`(默认120), `no_cache` | 技术面：趋势、位置、量能 |
 | `hvaluation` | 港股估值（PE-TTM/PB 三年百分位） | `code`(5位), `no_cache` | 基本面：估值分位 |
 
 **调用策略**：

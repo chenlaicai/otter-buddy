@@ -471,7 +471,7 @@ def cmd_hkline(args) -> dict:
                         r[k] = v.isoformat()
                     elif hasattr(v, "item"):
                         r[k] = v.item()
-            return {"code": code, "market": "HK", "count": len(records), "data": records}
+            return {"code": code, "market": "HK", "adjust": "", "count": len(records), "data": records}
 
         # Summary mode: last 30 trading days + stats
         summary_df = df.tail(30).reset_index(drop=True)
@@ -526,6 +526,7 @@ def cmd_hkline(args) -> dict:
         return {
             "code": code,
             "market": "HK",
+            "adjust": "",
             "summary_days": len(ohlcv),
             "ohlcv": ohlcv,
             "stats": stats,
