@@ -220,6 +220,11 @@ function OtterParticipantCard({
             </div>
           )}
         </div>
+        {/* 模型标签（F20260825vrqh）：未配置不渲染，与「大獭」badge 同行同视觉权重。
+            F20260826 身份证重构曾把它挤出卡片外（mt-1 w-fit 挂在玻璃卡下方缝隙里视觉隐形），本 PR 挪回原位 */}
+        {o.modelAlias && (
+          <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500">{o.modelAlias}</span>
+        )}
         {isBig ? (
           <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-otter-400/15 text-otter-500">大獭</span>
         ) : (
@@ -241,10 +246,6 @@ function OtterParticipantCard({
           </button>
         )}
       </div>
-      {/* 模型标签（#445）：未配置不渲染 */}
-      {o.modelAlias && (
-        <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500 mt-1 w-fit">{o.modelAlias}</span>
-      )}
       {/* hover 快览卡：向左弹出（右栏贴屏幕右缘），overflow hidden 防底部溢出 */}
       {hovering && (
         <div className="absolute right-full bottom-0 mr-2 z-50">
