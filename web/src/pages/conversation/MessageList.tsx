@@ -7,6 +7,8 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw } from 'lucide-react'
 import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
+import { getUserAvatar } from '../../lib/otter-avatars'
+import { OtterAvatar } from '../../components/OtterAvatar'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
@@ -395,7 +397,6 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const userDisplayName = userName?.trim() || '我'
   const name = isUser ? userDisplayName : resolveDisplayName(m, otters)
   const color = isUser ? null : getOtterColor(m.si)
-  const bgGrad = isUser ? 'linear-gradient(135deg,#8B7E72,#6B6157)' : color?.gradient
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
   const sideBar: CSSProperties = !isUser
     ? { borderLeft: `3px solid ${color?.border || '#8B6F47'}`, '--otter-tint': color?.border || '#8B6F47' } as CSSProperties
@@ -405,12 +406,18 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
 
   return (
     <div className={`flex gap-2.5 mx-auto mb-4 px-1 animate-slideIn ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5 msg-avatar"
-        style={{ background: bgGrad }}
-      >
-        {name.charAt(0)}
-      </div>
+      {isUser ? (
+        <img
+          src={getUserAvatar()}
+          alt={name}
+          className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 msg-avatar shadow-bubble object-cover"
+          style={{ border: '2px solid #6B6157' }}
+        />
+      ) : (
+        <div className="mt-0.5">
+          <OtterAvatar otterId={m.si} name={name} type={otters.find(o => o.id === m.si)?.type} />
+        </div>
+      )}
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>
         <div className="flex items-center gap-1.5 mb-1 px-1">
           <span className={`text-xs font-semibold ${nameColor}`}>{name}</span>

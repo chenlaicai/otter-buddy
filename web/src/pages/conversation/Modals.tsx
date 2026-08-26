@@ -381,7 +381,7 @@ function OtterDetailModal(props: ModalsProps) {
     >
       {/* ═══ 形象区：头像 + 名称 + 称号徽章 ═══ */}
       <div className="flex items-center gap-4 mb-5">
-        <OtterAvatar otterId={otter.id} name={otter.name} size={48} />
+        <OtterAvatar otterId={otter.id} name={otter.name} size={48} type={otter.type} />
         <div className="flex-1 min-w-0">
           <div className="text-lg font-semibold text-stone-800">{otter.name}</div>
           {badges.length > 0 && (

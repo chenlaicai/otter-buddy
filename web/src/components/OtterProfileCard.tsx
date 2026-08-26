@@ -33,7 +33,7 @@ export function OtterProfileCard({
     <div className="w-[280px] glass-overlay rounded-2xl p-4 shadow-bubble pointer-events-none select-none">
       {/* 形象区 */}
       <div className="flex items-center gap-3 mb-3">
-        <OtterAvatar otterId={otter.id} name={otter.name} size={36} />
+        <OtterAvatar otterId={otter.id} name={otter.name} size={36} type={otter.type} />
         <div className="min-w-0">
           <div className="text-sm font-semibold text-stone-700">{otter.name}</div>
           {badges.length > 0 && (
