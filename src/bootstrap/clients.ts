@@ -30,6 +30,11 @@ export function buildMemoryClient(uc: UseCases) {
       const entry = await uc.manageMemory.getById(id);
       return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
     },
+    // F20260826rcmm Phase 0：检索埋点（fire-and-forget）。调用方（search_memory 工具）注入
+    // conversationId/callerId——client 是单例，拿不到 per-request 上下文，故由 tool 层传。
+    logSearch: (p: { query: string; conversationId: string; callerId: string | null; detailLevel?: string; library?: string; limitCount?: number; topEntryIds: string[]; total: number }) => {
+      uc.recordSearchQuery.record(p).catch(() => undefined); // usecase 内已 catch+warn，这里只防 Promise 外漏
+    },
     // eslint-disable-next-line max-params -- 合并 main 分支 contentType + recruiting createdAfter + F20260812mrcq expandContext 参数
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean) => {
       const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType, expandContext });

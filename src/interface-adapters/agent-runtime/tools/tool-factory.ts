@@ -133,6 +133,7 @@ function createYieldTool(ctx: ToolContext): AgentTool {
 }
 
 /** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由 + 时间过滤） */
+// eslint-disable-next-line max-lines-per-function -- F20260826rcmm Phase 0 加埋点后超 60 行
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
@@ -182,6 +183,18 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         contentType,
         params.expand_context as boolean | undefined,
       );
+      // F20260826rcmm Phase 0：检索埋点（fire-and-forget，失败不影响工具返回）。
+      // 挂在 tool 层而非 client 层：此处才有 per-request 的 conversationId/otterId。
+      ctx.client.memory.logSearch({
+        query: params.query as string,
+        conversationId: ctx.conversationId,
+        callerId: ctx.otterId,
+        detailLevel,
+        library: params.library as string | undefined,
+        limitCount: (params.limit as number) ?? 10,
+        topEntryIds: entries.map((e) => e.id),
+        total: entries.length,
+      });
       // F20260812mrcq Part 2: 透传 contextEntries 给 agent（不混入 entries，避免评分断层）
       // F20260821evaf 二轮审视: 透传 vecCoverage——兑现 description 承诺，agent 感知降级/暗化
       return textResponse(JSON.stringify({

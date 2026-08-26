@@ -84,6 +84,12 @@ export interface OtterToolClient {
   memory: {
     getById(id: string): Promise<MemorySearchEntry | null>;
     search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean): Promise<{ entries: MemorySearchEntry[]; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
+    /**
+     * F20260826rcmm Phase 0：检索埋点（fire-and-forget）。
+     * search_memory 工具 execute 后调用——记录查询 + top 命中 + 对话上下文，供评估基线标注。
+     * 实现在 bootstrap/clients.ts（指向 RecordSearchQuery use case）。
+     */
+    logSearch(params: { query: string; conversationId: string; callerId: string | null; detailLevel?: string; library?: string; limitCount?: number; topEntryIds: string[]; total: number }): void;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
     /** F20260813mren: 声明两个记忆条目之间的关系（LLM 自主判断） */
