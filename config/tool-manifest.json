@@ -29,6 +29,10 @@
     "workspace": {
       "description": "工作区文件操作",
       "tools": ["workspace_info", "workspace_list", "workspace_read", "workspace_write"]
+    },
+    "stock": {
+      "description": "A 股数据查询",
+      "tools": ["stock_data"]
     }
   },
   "types": {
@@ -38,7 +42,7 @@
     },
     "small": {
       "description": "小獭 - 去除 otter 管理类",
-      "groups": ["memory", "conversation", "context", "terminology", "artifacts", "system", "workspace"],
+      "groups": ["memory", "conversation", "context", "terminology", "artifacts", "system", "workspace", "stock"],
       "tools": ["speak", "yield", "restart_otter"]
     }
   }

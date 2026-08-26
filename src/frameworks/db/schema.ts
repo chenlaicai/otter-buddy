@@ -30,16 +30,17 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createUserReadStateTable(db);
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
+    createRestartPendingResumesTable(db);
 
     db.exec("COMMIT");
 
     // 记录 Schema 初始化完成日志
     if (logger) {
       const duration = Date.now() - startTime;
-      // 27 regular tables + 5 virtual tables (FTS/vec) = 32 total
+      // 28 regular tables + 5 virtual tables (FTS/vec) = 33 total
       logger.info('Schema initialized', {
         duration,
-        tables: 32,
+        tables: 33,
       });
     }
   } catch (error) {
@@ -215,6 +216,28 @@ function createMemoryTables(db: Database.Database): void {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+  `);
+
+  // F20260826rcmm Phase 0：检索埋点——search_memory 真实调用记录。
+  // 评估基线数据源：查询 + top 命中 + 对话上下文快照（标注者还原意图用）。
+  // 上下文与 top ID 用 JSON 存 TEXT（一次性评估流程，不做关系型拆表）。
+  // 只增不删（评估期结束后可整表 DROP）。无 FK——埋点是旁路观测，不与主数据耦合。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS search_query_logs (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      caller_id TEXT,
+      detail_level TEXT,
+      library TEXT,
+      limit_count INTEGER,
+      top_entry_ids TEXT NOT NULL,
+      total INTEGER NOT NULL,
+      context_messages TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_query_logs_created
+      ON search_query_logs (created_at);
   `);
 
   // F20260812mrcq Part 1：embedding 失败重试队列。
@@ -709,6 +732,25 @@ function createSignalsTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
     CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
     CREATE INDEX IF NOT EXISTS idx_signals_feature ON signals(feature_id);
+  `);
+}
+
+/** 服务重启自动恢复队列（F20260826rsme）：
+ *  reconcile 阶段识别可恢复中断写入，启动完成后 ResumeInterruptedService 消费。
+ *  message_id 主键幂等；attempts 原子自增守卫防二次重启循环恢复（8/24 自重启循环教训）。 */
+function createRestartPendingResumesTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS restart_pending_resumes (
+      message_id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
   `);
 }
 

@@ -38,6 +38,9 @@ export interface SendMessageInput {
   body: string;
   /** 用户消息来源（"web" | "feishu"），默认 "web"。agent/系统消息不需要此字段 */
   source?: MessageSource;
+  /** F20260826fuid：user 消息发送者显示名（飞书群聊多人场景，open_id 换来的姓名快照）。
+   *  为空时保持原行为（层 3 前端 fallback）。otter/system 消息不使用此字段。 */
+  senderDisplayName?: string | null;
   /** F20260805rbrg：外部元数据（招聘桥接查重用，外部消息才填） */
   metadata?: MessageMetadata | null;
 }
@@ -136,7 +139,9 @@ export class SendMessage {
       contextTokensMax: null,
       source,
       metadata: input.metadata ?? null,
-      senderName: '',  // user/system 消息的显示名由层 3 前端处理
+      // F20260826fuid：user 消息优先取外部渠道快照名（飞书群聊多人识别）；
+      // 无快照时空串，显示名由层 3 前端 fallback（同单聊场景）
+      senderName: senderType === "user" ? (input.senderDisplayName?.trim() ?? "") : "",
       createdAt: now,
       completedAt: now,
     };

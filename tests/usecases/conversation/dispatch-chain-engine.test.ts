@@ -265,3 +265,68 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     expect(result).not.toContain("系统提示");
   });
 });
+
+describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群聊多人识别）", () => {
+  it("user 消息带 senderName 快照时用快照名渲染", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_zhangsan", senderName: "张三", segments: [{ body: "我是张三的消息" }] },
+    ]);
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+
+    expect(result).toContain("[张三] 我是张三的消息");
+  });
+
+  it("多条 user 消息不同快照名可区分", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_zhangsan", senderName: "张三", segments: [{ body: "第一条" }] },
+      { senderType: "user", senderId: "ou_lisi", senderName: "李四", segments: [{ body: "第二条" }] },
+    ]);
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+
+    expect(result).toContain("[张三] 第一条");
+    expect(result).toContain("[李四] 第二条");
+  });
+
+  it("当前 sender 无快照时回退「搭档」标签", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_lisi", senderName: "", segments: [{ body: "在吗" }] },
+    ]);
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+
+    expect(result).toContain("[搭档] 在吗");
+  });
+
+  it("其他 user 发言者无快照时保留裸 open_id（不冒充搭档）", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_zhangsan", senderName: "", segments: [{ body: "我是谁" }] },
+    ]);
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+
+    expect(result).toContain("[ou_zhangsan] 我是谁");
+    expect(result).not.toContain("[搭档] 我是谁");
+  });
+
+  it("快照名仅空白时视为无快照", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_lisi", senderName: "   ", segments: [{ body: "在吗" }] },
+    ]);
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
+
+    expect(result).toContain("[搭档] 在吗");
+  });
+});

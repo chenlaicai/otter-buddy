@@ -30,6 +30,17 @@ export function buildMemoryClient(uc: UseCases) {
       const entry = await uc.manageMemory.getById(id);
       return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
     },
+    // F20260826rcmm Phase 0：检索埋点（fire-and-forget）。调用方（search_memory 工具）注入
+    // conversationId/callerId——client 是单例，拿不到 per-request 上下文，故由 tool 层传。
+    logSearch: (p: { query: string; conversationId: string; callerId: string | null; beforeMessageId?: string | null; detailLevel?: string; library?: string; limitCount?: number; topEntryIds: string[]; total: number }) => {
+      // 双层防护：catch 防 Promise rejection，try/catch 防 uc 未装配时的同步 TypeError 逃逸
+      // （mimo 审视：后者的工具层接线测试已实证会打挂 execute——这里一并堵死）
+      try {
+        uc.recordSearchQuery.record(p).catch(() => undefined); // usecase 内已 catch+warn，这里只防 Promise 外漏
+      } catch {
+        // 装配遗漏等同步错误同样不得影响检索主流程
+      }
+    },
     // eslint-disable-next-line max-params -- 合并 main 分支 contentType + recruiting createdAfter + F20260812mrcq expandContext 参数
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean) => {
       const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType, expandContext });
@@ -39,6 +50,8 @@ export function buildMemoryClient(uc: UseCases) {
       });
       return {
         entries: result.entries.map(mapEntry),
+        // F20260826rcmp 审视修正：透传检索真值 total——埋点/失败分类用（区分「只找到 N 条」vs「命中多返回 top-k」）
+        total: result.total,
         // F20260812mrcq Part 2 审视二轮 B1: agent 路径透传 contextEntries
         ...(result.contextEntries ? { contextEntries: result.contextEntries.map(mapEntry) } : {}),
         // F20260821evaf 二轮审视: agent 路径透传 vecCoverage——移除 otter_context 降级告警后，

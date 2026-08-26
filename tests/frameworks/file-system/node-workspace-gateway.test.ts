@@ -126,6 +126,38 @@ describe("NodeWorkspaceGateway", () => {
     expect(names).toContain("sub");
   });
 
+  // ── 相对 dataDir 回归（2026-08-26 故障复现：全量误报 Path traversal）──
+
+  describe("相对 dataDir（app.ts 默认 ./data）", () => {
+    let originalCwd: string;
+
+    beforeEach(() => {
+      originalCwd = process.cwd();
+      process.chdir(tmpDir); // dataDir="./data" 相对于 cwd 解析
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+    });
+
+    it("writeFile/readFile/listDir 用相对 dataDir 正常工作", async () => {
+      const relativeGw = new NodeWorkspaceGateway("./data");
+      await relativeGw.ensureWorkspace(convId);
+      await relativeGw.writeFile(convId, "probe.txt", "ok");
+      expect(await relativeGw.readFile(convId, "probe.txt")).toBe("ok");
+      const entries = await relativeGw.listDir(convId);
+      expect(entries.map((e) => e.name)).toContain("probe.txt");
+    });
+
+    it("相对 dataDir 下 .. 穿越仍被拒绝", async () => {
+      const relativeGw = new NodeWorkspaceGateway("./data");
+      await relativeGw.ensureWorkspace(convId);
+      await expect(relativeGw.readFile(convId, "../../../etc/passwd")).rejects.toThrow(
+        "Path traversal",
+      );
+    });
+  });
+
   // ── getWorkspacePath ──
 
   it("getWorkspacePath 返回正确路径", () => {

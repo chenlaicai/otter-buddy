@@ -20,6 +20,7 @@ import type { SchedulerMetrics } from "@frameworks/metrics/scheduler-metrics";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { FeishuConfig } from "@frameworks/feishu/types";
 import { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
+import { FeishuUserInfoClient } from "@frameworks/feishu/user-info-client";
 import { FeishuClient } from "@frameworks/feishu/client";
 import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-client";
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
@@ -174,6 +175,8 @@ export function setupFeishu(options: {
     sendMessage: uc.sendMessage,
     commandDispatcher,
     feishuGateway: feishu.client,
+    // F20260826fuid：飞书群聊多人识别——open_id → 姓名快照
+    feishuUserInfo: new FeishuUserInfoClient(feishu.tokenManager, logger),
     agentDispatchService,
     messageBroadcaster,
     logger,

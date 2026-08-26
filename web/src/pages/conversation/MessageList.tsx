@@ -395,7 +395,9 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const isUser = m.st === 'user'
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const userDisplayName = userName?.trim() || '我'
-  const name = isUser ? userDisplayName : resolveDisplayName(m, otters)
+  // F20260826fuid：user 消息优先用快照名（飞书群聊多人识别），无快照回退全局名（单聊不变）
+  const snapshotName = isUser ? (m.sn || '').trim() : ''
+  const name = isUser ? (snapshotName || userDisplayName) : resolveDisplayName(m, otters)
   const color = isUser ? null : getOtterColor(m.si)
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
   const sideBar: CSSProperties = !isUser

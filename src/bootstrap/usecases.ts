@@ -17,6 +17,7 @@ import { DeleteEdge } from "@usecases/memory/delete-edge";
 import { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
 import { SendMessage } from "@usecases/conversation/send-message";
 import { QueryMessage } from "@usecases/conversation/query-message";
+import { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
 import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
@@ -55,6 +56,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const getDocProvenance = new GetDocProvenance(repos.memoryReader, repos.feature, repos.research);
   const sendMessage = new SendMessage(repos.conversation, repos.otter, memoryIndex, logger);
   const queryMessage = new QueryMessage(repos.conversation);
+  // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
+  const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, queryMessage, logger);
   const manageReadState = new ManageReadState(repos.conversation);
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
@@ -70,7 +73,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
-    sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo,
+    sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
     createEdge, getRelated, deleteEdge, getDocProvenance,

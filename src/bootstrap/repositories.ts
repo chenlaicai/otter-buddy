@@ -3,6 +3,7 @@ import type { Repositories } from "./types";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-context-repository";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
+import { SqliteSearchQueryLogRepository } from "@frameworks/db/memory/sqlite-search-query-log-repository";
 import { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-terminology-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-settings-repository";
@@ -21,6 +22,7 @@ export function initRepositories(db: Database.Database): Repositories {
     memoryReader: memoryRepo,
     memoryWriter: memoryRepo,
     memoryQueue: memoryRepo,
+    searchQueryLog: new SqliteSearchQueryLogRepository(db),
     terminology: new SqliteTerminologyRepository(db),
     conversation: new SqliteConversationRepository(db),
     settings: new SqliteSettingsRepository(db),

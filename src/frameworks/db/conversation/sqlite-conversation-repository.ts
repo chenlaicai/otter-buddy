@@ -301,9 +301,11 @@ export class SqliteConversationRepository implements ConversationRepository {
     })();
   }
 
-  async failInFlightMessages(failedAt: string, noticeBody: string): Promise<number> {
+  async failInFlightMessages(failedAt: string, noticeBody: string, skipNoticeIds?: ReadonlySet<string>): Promise<number> {
     /** streaming 无 segments 时插入中断说明 segment；speaking 已有 segments 则追加中断标记前缀。
-     *  避免半截内容被其它 otter 当作完整发言读入上下文（F5）。 */
+     *  避免半截内容被其它 otter 当作完整发言读入上下文（F5）。
+     *  F20260826rsme：skipNoticeIds 内的消息即将被自动恢复重置回 streaming，不插 notice——
+     *  notice 会成为 segments 前缀混入续写内容。 */
     return this.db.transaction(() => {
       const rows = this.db.prepare(
         "SELECT id FROM messages WHERE status IN ('streaming', 'speaking')",
@@ -319,9 +321,11 @@ export class SqliteConversationRepository implements ConversationRepository {
         "UPDATE message_segments SET sequence_num = sequence_num + 1 WHERE message_id = ?",
       );
       for (const row of rows) {
-        // Insert notice as prefix (sequence_num=0): bump existing segments first
-        bumpSeq.run(row.id);
-        segStmt.run(crypto.randomUUID(), row.id, noticeBody, 0, failedAt);
+        if (!skipNoticeIds?.has(row.id)) {
+          // Insert notice as prefix (sequence_num=0): bump existing segments first
+          bumpSeq.run(row.id);
+          segStmt.run(crypto.randomUUID(), row.id, noticeBody, 0, failedAt);
+        }
         update.run(failedAt, row.id);
         this.refreshMessageFts(row.id);
       }
@@ -366,6 +370,57 @@ export class SqliteConversationRepository implements ConversationRepository {
         this.refreshMessageFts(messageId);
       }
     })();
+  }
+
+  /** F20260826rsme：指定 senderType 的最新消息（恢复前并发窗口检查） */
+  async getLastMessageBySenderType(conversationId: string, senderType: "user" | "otter" | "system"): Promise<Message | null> {
+    const message = mixins.getLastMessageBySenderType(this.db, conversationId, senderType);
+    if (!message) return null;
+    this.attachSegments([message]);
+    return message;
+  }
+
+  /** F20260826rsme：遗留的 otter streaming/speaking 消息，reconcile 恢复资格判定用。
+   *  Why: 只查 otter 消息——用户消息原子写入无中间态，system 消息即时 completed，均不存在恢复语义。 */
+  async listInFlightOtterMessages(): Promise<Array<{ id: string; conversationId: string; senderId: string }>> {
+    const rows = this.db.prepare(
+      "SELECT id, conversation_id, sender_id FROM messages WHERE status IN ('streaming', 'speaking') AND sender_type = 'otter'",
+    ).all() as Array<{ id: string; conversation_id: string; sender_id: string }>;
+    return rows.map(r => ({ id: r.id, conversationId: r.conversation_id, senderId: r.sender_id }));
+  }
+
+  // ── 重启自动恢复队列（F20260826rsme）──
+
+  /** Why: 原子守卫用 UPDATE ... WHERE attempts < MAX 而非读后写——
+   *  恢复进行中再次重启时（并发窗口），读后写会把 attempts=1 当作 0 再恢复一次，
+   *  复刻 8/24 自重启无限循环。SQL 层单语句原子性消除该竞态。 */
+  private static readonly MAX_RESUME_ATTEMPTS = 1;
+
+  async claimResume(messageId: string, conversationId: string, otterId: string, now: string): Promise<boolean> {
+    return this.db.transaction(() => {
+      this.db.prepare(
+        `INSERT OR IGNORE INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at)
+         VALUES (?, ?, ?, 0, 'pending', ?)`,
+      ).run(messageId, conversationId, otterId, now);
+      const result = this.db.prepare(
+        `UPDATE restart_pending_resumes SET attempts = attempts + 1, updated_at = ?
+         WHERE message_id = ? AND attempts < ?`,
+      ).run(now, messageId, SqliteConversationRepository.MAX_RESUME_ATTEMPTS);
+      return result.changes === 1;
+    })();
+  }
+
+  async getPendingResumes(): Promise<Array<{ messageId: string; conversationId: string; otterId: string }>> {
+    const rows = this.db.prepare(
+      "SELECT message_id, conversation_id, otter_id FROM restart_pending_resumes WHERE status = 'pending' ORDER BY created_at ASC",
+    ).all() as Array<{ message_id: string; conversation_id: string; otter_id: string }>;
+    return rows.map(r => ({ messageId: r.message_id, conversationId: r.conversation_id, otterId: r.otter_id }));
+  }
+
+  async updateResumeStatus(messageId: string, status: "done" | "exhausted", now: string): Promise<void> {
+    this.db.prepare(
+      "UPDATE restart_pending_resumes SET status = ?, updated_at = ? WHERE message_id = ?",
+    ).run(status, now, messageId);
   }
 
   async updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void> {
@@ -532,7 +587,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       senderId: row.sender_id, status: 'completed' as const, segments: [] as MessageSegment[],
       sequenceNum: row.sequence_num, turnId: '', talkingStonePassedTo: null,
       contextTokens: null, contextTokensMax: null, source: 'web' as const,
-      senderName: '',
+      senderName: row.sender_name ?? '',
       createdAt: '', completedAt: null,
     }));
     this.attachSegments(messages);
