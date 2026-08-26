@@ -1,4 +1,5 @@
 import { getOtterColor } from '../lib/otter-colors'
+import { getOtterAvatar } from '../lib/otter-avatars'
 
 /** Otter avatar with color tag (← D-UI-1: multi-otter color differentiation) */
 export function OtterAvatar({
@@ -11,19 +12,16 @@ export function OtterAvatar({
   size?: number
 }) {
   const color = getOtterColor(otterId)
-  const initial = name.charAt(0)
+  const avatar = getOtterAvatar(otterId)
 
   return (
-    <div
-      className="rounded-full flex items-center justify-center font-bold text-white shadow-bubble flex-shrink-0"
-      style={{
-        width: size,
-        height: size,
-        fontSize: size * 0.375,
-        background: color.gradient,
-      }}
-    >
-      {initial}
-    </div>
+    <img
+      src={avatar}
+      alt={name}
+      width={size}
+      height={size}
+      className="rounded-full flex-shrink-0 shadow-bubble object-cover"
+      style={{ width: size, height: size, border: `2px solid ${color.border}` }}
+    />
   )
 }
