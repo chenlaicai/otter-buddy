@@ -16,6 +16,7 @@ causal_links:
 # 元数据
 status: development
 change_type: feature
+capability_test: "n/a: 纯前端 UI 组件变更（头像渲染），无 LLM 参与行为；逻辑验证走 web 单测（vitest）"
 tags: [avatar, web-ui, pixel-art, otter-identity]
 modules: [web/src, web/public]
 
@@ -57,7 +58,8 @@ created_in_conversation: c16c990b-cd3a-4516-9171-ec8268a8919e
 
 `web/src/lib/otter-avatars.ts`：
 
-- 大獭（ID ∈ {o1, big-otter}）→ `/avatars/datu.svg` 固定
+- 大獭：优先 `otter.type === 'big'` 判断（生产 otterId 为 UUID，无法枚举硬编码；检视发现 2）；
+  历史大獭 ID（o1/big-otter）仅在 type 不可得时兜底 → `/avatars/datu.svg` 固定
 - 用户 → `/avatars/user.svg` 固定
 - 小獭 → `fnv1a(otterId) % 9` 确定性 hash 落入九款池。
   确定性设计：同一 otterId 刷新不变（避免「换页换脸」），不同 ID 分布均匀
@@ -66,9 +68,11 @@ created_in_conversation: c16c990b-cd3a-4516-9171-ec8268a8919e
 ### UI 改造
 
 - `OtterAvatar.tsx`：首字母渐变圆 → `<img src=avatar>` 圆形裁切 +
-  2px 颜色系统边框（保留多獭色彩区分能力，← D-UI-1）
-- `MessageList.tsx` MessageItem：内联头像同上改造，用户消息用 user.svg
-- RightPanel / Modals / OtterProfileCard 使用 OtterAvatar 组件，自动继承新头像
+  2px 颜色系统边框（保留多獭色彩区分能力，← D-UI-1）；加载失败降级回
+  首字母渐变圆（检视发现 3）；新增可选 `type` 参数透传大獭身份
+- `MessageList.tsx` MessageItem：内联 img 改为复用 `OtterAvatar` 组件
+  （检视发现 4，消除双路径），用户消息用 user.svg
+- RightPanel / Modals / OtterProfileCard：调用点透传 `otter.type`
 
 ## 验证
 

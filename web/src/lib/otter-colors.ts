@@ -21,9 +21,9 @@ const smallOtterColorMap = new Map<string, typeof SMALL_OTTER_COLORS[0]>()
 let nextColorIndex = 0
 
 /** Otter 颜色系统 */
-export function getOtterColor(otterId: string) {
-  // 大獭固定颜色
-  if (otterId === 'o1' || otterId === 'big-otter') return BIG_OTTER_COLOR
+export function getOtterColor(otterId: string, type?: 'big' | 'small') {
+  // 大獭固定颜色：优先 type 判断（生产 ID 为 UUID），历史 ID 池作兜底
+  if (type === 'big' || (!type && (otterId === 'o1' || otterId === 'big-otter'))) return BIG_OTTER_COLOR
 
   // 小獭动态分配颜色
   if (!smallOtterColorMap.has(otterId)) {
