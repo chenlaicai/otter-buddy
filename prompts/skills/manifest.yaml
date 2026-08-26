@@ -71,6 +71,13 @@ skills:
     not_for: [companion]
     notes: "编排层。Precondition: MUST 先 search_memory 检查已有结论——有则用、无则召唤，不重复召唤（F20260811sktp D12）。"
 
+  # ── 领域能力 ──
+  - name: stock-analysis
+    category: technique
+    next: [companion]   # 分析完成后讨论/深入
+    not_for: [core-workflow, companion]
+    notes: A 股个股分析。数据整理与结构化呈现，不构成投资建议。
+
   # ── 元规范 ──
   - name: writing-skills
     category: technique
