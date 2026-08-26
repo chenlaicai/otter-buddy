@@ -8,6 +8,7 @@ import type { SettingsRepository } from "@usecases/settings/settings-repository"
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
+import type { PartnerResolver } from "@usecases/im/partner-resolver";
 
 export interface ChainHopResult {
   otterReply?: string;
@@ -48,6 +49,8 @@ export class DispatchChainEngine {
       settingsRepo?: SettingsRepository;
       /** F20260814mtrc：链级指标（hop 分布/触顶计数），可选 */
       metrics?: AgentMetricsPort;
+      /** F20260826fpbd：搭档身份静态判定（未注入/未配置时降级动态推断） */
+      partnerResolver?: PartnerResolver;
     },
   ) {}
 
@@ -117,7 +120,7 @@ export class DispatchChainEngine {
     targets: string[],
     invokeFn: InvokeFn,
   ): Promise<ChainHopResult> {
-    const roster = await this.buildRoster(conversationId);
+    const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
       const messageWithContext = await this.buildMessageWithContext(
@@ -181,8 +184,9 @@ export class DispatchChainEngine {
     };
   }
 
-  /** 在场成员名册：name 映射注入，speak 决策时免费在场（F20260803trrf: 去 otterId，speak 改用名字） */
-  async buildRoster(conversationId: string): Promise<string> {
+  /** 在场成员名册：name 映射注入，speak 决策时免费在场（F20260803trrf: 去 otterId，speak 改用名字）
+   *  F20260826fpbd：senderId 透传——飞书非搭档触发时追加访客提示，海獭知道「当前说话者不是我的搭档」 */
+  async buildRoster(conversationId: string, senderId?: string): Promise<string> {
     const participants = await this.deps.conversationRepo.getActiveParticipants(conversationId);
     const lines = await Promise.all(participants.map(async p => {
       const otter = await this.deps.queryOtter.getById(p.otterId);
@@ -190,6 +194,12 @@ export class DispatchChainEngine {
     }));
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     lines.push(`- ${partnerLabel}（传 'user' 即交还行动权给搭档）`);
+    // F20260826fpbd：静态绑定后，非搭档的飞书发言者（访客）触发时明示身份——
+    // 避免海獭把「当前说话的人」误当成搭档（动态推断时代的田病）
+    if (senderId && this.deps.partnerResolver?.configured && !this.deps.partnerResolver.isPartner(senderId)) {
+      lines.push('');
+      lines.push(`## 当前说话者\n非你的搭档（访客，飞书 open_id: ${senderId}）；你的搭档是 ${partnerLabel}`);
+    }
     return `## 在场成员\n${lines.join('\n')}`;
   }
 
@@ -267,16 +277,26 @@ export class DispatchChainEngine {
     const names = await this.resolveSenderNames(unreadMessages);
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     // F20260826fuid：user 消息优先用持久化快照名（飞书群聊多人识别）。
-    //  当前 sender（触发本次派发的人）无快照时回退 partnerLabel；
-    //  其他 user 发言者无快照时保留裸 ID，避免冒充「搭档」造成身份误解
+    // F20260826fpbd：搭档判定改静态——partnerLabel 只属于配置锚定的搭档（含 Web 'user'），
+    //  非搭档即使触发本次派发也不再显示 partnerLabel（动态推断时代的冒名旧病）。
+    //  降级：未配置 partnerOpenId 时回退 #488 行为（当前 sender 无快照→partnerLabel）
+    const resolver = this.deps.partnerResolver;
+    const staticMode = !!resolver?.configured;
     const formatted = unreadMessages
       .map(m => {
         let label: string;
         if (m.senderType === 'system') {
           label = '系统';
         } else if (m.senderType === 'user') {
-          label = m.senderName?.trim()
-            || (m.senderId === senderId ? partnerLabel : m.senderId);
+          if (staticMode) {
+            label = resolver!.isPartner(m.senderId)
+              ? partnerLabel
+              : (m.senderName?.trim() || m.senderId);  // 访客：快照名，无则裸 ID 不冒充
+          } else {
+            // 降级（未配置 partnerOpenId）：维持 #488 行为
+            label = m.senderName?.trim()
+              || (m.senderId === senderId ? partnerLabel : m.senderId);
+          }
         } else {
           label = (names.get(m.senderId) ?? m.senderId);
         }

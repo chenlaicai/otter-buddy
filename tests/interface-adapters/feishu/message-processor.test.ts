@@ -5,6 +5,7 @@ import type { SendMessage } from "@usecases/conversation/send-message";
 import type { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuUserInfoGateway } from "@usecases/im/feishu-user-info-gateway";
+import { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
@@ -95,6 +96,69 @@ describe("FeishuMessageProcessor senderName 快照（F20260826fuid）", () => {
 
     expect(m.getUserName.mock.calls.length).toBe(0);
     expect(m.send.mock.calls.length).toBe(0);
+    expect(dispatch.mock.calls.length).toBe(1);
+  });
+});
+
+describe("FeishuMessageProcessor 命令门禁（F20260826fpbd 方案B）", () => {
+  function makeGateMocks(partnerOpenId: string | undefined) {
+    const m = makeMocks();
+    const dispatch = vi.fn().mockResolvedValue(undefined);
+    const deps = {
+      ...m.deps,
+      commandDispatcher: { dispatch } as unknown as CommandDispatcher,
+      partnerResolver: new PartnerResolver(partnerOpenId),
+    };
+    return { m, deps, dispatch, replyText: m.deps.feishuGateway.replyText as ReturnType<typeof vi.fn> };
+  }
+
+  it("已配置 + 搭档发命令 → 放行到 dispatcher", async () => {
+    const { deps, dispatch, replyText } = makeGateMocks("ou_partner");
+    const processor = new FeishuMessageProcessor(deps);
+
+    await processor.process({ chatId: "oc_1", text: "/list", senderId: "ou_partner", messageId: "om_1" });
+
+    expect(dispatch.mock.calls.length).toBe(1);
+    expect(replyText.mock.calls.length).toBe(0);
+  });
+
+  it("已配置 + 访客发命令 → 拒绝（中性文案），不进 dispatcher", async () => {
+    const { deps, dispatch, replyText } = makeGateMocks("ou_partner");
+    const processor = new FeishuMessageProcessor(deps);
+
+    await processor.process({ chatId: "oc_1", text: "/list", senderId: "ou_joy", messageId: "om_1" });
+
+    expect(dispatch.mock.calls.length).toBe(0);
+    expect(replyText.mock.calls.length).toBe(1);
+    const text = replyText.mock.calls[0][1] as string;
+    expect(text).toContain("暂时不对所有人开放");
+    // 中性文案：不暴露「搭档/主人」所有权模型
+    expect(text).not.toContain("搭档");
+  });
+
+  it("未配置 partnerOpenId → 不拦（降级，存量实例无感）", async () => {
+    const { deps, dispatch, replyText } = makeGateMocks(undefined);
+    const processor = new FeishuMessageProcessor(deps);
+
+    await processor.process({ chatId: "oc_1", text: "/list", senderId: "ou_anyone", messageId: "om_1" });
+
+    expect(dispatch.mock.calls.length).toBe(1);
+    expect(replyText.mock.calls.length).toBe(0);
+  });
+
+  it("未注入 resolver → 不拦（老调用方兼容）", async () => {
+    const m = makeMocks();
+    const dispatch = vi.fn().mockResolvedValue(undefined);
+    const { partnerResolver: _unused, ...rest } = m.deps as Record<string, unknown>;
+    void _unused;
+    const deps = {
+      ...rest,
+      commandDispatcher: { dispatch } as unknown as CommandDispatcher,
+    } as unknown as ConstructorParameters<typeof FeishuMessageProcessor>[0];
+    const processor = new FeishuMessageProcessor(deps);
+
+    await processor.process({ chatId: "oc_1", text: "/list", senderId: "ou_anyone", messageId: "om_1" });
+
     expect(dispatch.mock.calls.length).toBe(1);
   });
 });

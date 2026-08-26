@@ -81,8 +81,30 @@ feishu:
 
 - **机器人入群**：把机器人拉进群后，群里任意成员发消息即触发（需已开 `im:message` 权限并发布生效）
 - **多人识别**：开通 `contact:user.base:readonly` 后，海獭能识别群成员姓名（如 `[张三] 你好`）；未开通时以匿名 open_id 区分
+- **搭档身份绑定**：配置 `feishu.partnerOpenId` 后，海獭的「搭档」静态锚定为配置的主人（见下节），群内其他成员发言时海獭知道「这是访客，不是我的搭档」
+- **命令权限**：配置 partnerOpenId 后，`/list` `/in` `/out` `/history` `/help` 等命令仅搭档可用——访客发命令会收到友好提示，普通聊天不受影响
 - **一人一绑定**：每个飞书会话（群或私聊）对应一个 Connection，同一时间进入一个对话
 - **Web 同步**：飞书侧发的消息会实时同步到 Web 端（含发送者姓名显示）
+
+### 搭档身份绑定（F20260826fpbd）
+
+海獭系统的「搭档/主人」是部署级概念——谁部署的实例，谁是一生不变的搭档。多人群聊场景下需要把这个身份静态绑定，否则海獭会把「当前说话的人」误当成搭档。
+
+**配置方法**：`config.yaml` 的 `feishu` 段加：
+
+```yaml
+feishu:
+  appId: "cli_xxx"
+  appSecret: "xxx"
+  partnerOpenId: "ou_xxx"   # 你的飞书 open_id
+```
+
+**获取 open_id 的三种途径**：
+1. **开放平台调试器**：飞书开放平台 → 开发调试 → API 调试台，用 `contact:user.base:readonly` 权限查自己
+2. **系统日志**：给机器人发一条消息，服务日志 `Feishu message parsed` 条目的 senderId 字段
+3. **数据库**：`sqlite3 otter-buddy.db "SELECT DISTINCT sender_id FROM messages WHERE source='feishu' AND sender_type='user';"`（多人已发过消息时需结合日志甄别）
+
+**未配置时的降级行为**：海獭按「当前说话者=搭档」动态推断（历史行为）；命令不拦。单机自用可不开，多人场景建议必配。
 
 ## 八、常见问题
 
@@ -92,3 +114,5 @@ feishu:
 | 群里显示匿名 ID 而非姓名 | 未开 `contact:user.base:readonly` | 开通该权限；历史消息的姓名快照不回填，新消息生效 |
 | 完全收不到消息 | 事件未订阅或长连接未建立 | 检查事件订阅含 `im.message.receive_v1`；看服务日志 `Feishu long connection started` |
 | 发消息机器人无回复但提示"未进入对话" | Connection 未绑定对话 | 群里发 `/list` + `/in <对话ID>`，或 Web 端绑定 |
+| 配置了 partnerOpenId 后自己的命令也被拒 | open_id 填错（被判为访客） | 按上文三途径核对；检查有无多余空格 |
+| 群里非搭档成员能用命令 | 未配置 partnerOpenId（降级模式不拦） | 配置 `feishu.partnerOpenId` 并重启服务 |

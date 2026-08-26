@@ -3,6 +3,7 @@ import type { SendMessage } from "@usecases/conversation/send-message";
 import type { CommandDispatcher } from "./command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
 import type { FeishuUserInfoGateway } from "@usecases/im/feishu-user-info-gateway";
+import type { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
@@ -23,6 +24,8 @@ export class FeishuMessageProcessor {
       feishuGateway: FeishuGateway;
       /** F20260826fuid：可选注入。未注入或解析失败时 senderName 快照为空，不影响主链路 */
       feishuUserInfo?: FeishuUserInfoGateway;
+      /** F20260826fpbd：可选注入。命令门禁（方案B）；未注入或未配置时不拦 */
+      partnerResolver?: PartnerResolver;
       agentDispatchService: AgentDispatchService;
       messageBroadcaster: MessageBroadcaster;
       logger: Logger;
@@ -42,6 +45,16 @@ export class FeishuMessageProcessor {
 
     // 判断是否是命令
     if (text.startsWith("/")) {
+      // F20260826fpbd（方案B）：会话管理命令仅搭档可用。拦截在消息入口而非 CommandDispatcher——
+      // 命令分发器保持无身份概念，权限判定集中在 PartnerResolver 消费点；
+      // 未配置 partnerOpenId 时不拦（降级，存量实例无感升级）
+      if (this.deps.partnerResolver?.configured && !this.deps.partnerResolver.isPartner(senderId)) {
+        await this.deps.feishuGateway.replyText(
+          chatId,
+          "这些命令暂时不对所有人开放哦～直接聊天就行 🦦",
+        );
+        return;
+      }
       await this.deps.commandDispatcher.dispatch(connection.id, text, chatId);
       return;
     }

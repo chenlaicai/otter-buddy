@@ -136,6 +136,11 @@ circuitBreaker:
 #   appSecret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 #   # 事件加密密钥（可选，用于解密飞书加密事件）
 #   encryptKey: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#   # 搭档（本实例主人）的飞书 open_id（F20260826fpbd）
+#   # 搭档身份静态锚定：海獭的「搭档」始终是这个人，不随消息发送者变化；
+#   # 未配置时降级为动态推断（当前说话者视为搭档）
+#   # 获取方式见 docs/user-guide/feishu-setup.md「搭档身份绑定」
+#   partnerOpenId: "ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 # === 飞书集成使用说明 ===
 # 详细步骤见 docs/user-guide/feishu-setup.md
