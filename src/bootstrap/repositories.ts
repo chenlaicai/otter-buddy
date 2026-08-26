@@ -12,6 +12,7 @@ import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-researc
 import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
+import { SqliteSignalEventRepository } from "@frameworks/db/signal/sqlite-signal-repository";
 
 export function initRepositories(db: Database.Database): Repositories {
   const memoryRepo = new SqliteMemoryRepository(db);
@@ -31,5 +32,6 @@ export function initRepositories(db: Database.Database): Repositories {
     scheduledTask: new SqliteScheduledTaskRepository(db),
     connection: new SqliteConnectionRepository(db),
     healingEvent: new SqliteHealingEventRepository(db),
+    signalEvent: new SqliteSignalEventRepository(db),
   };
 }

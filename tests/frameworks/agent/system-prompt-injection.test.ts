@@ -29,7 +29,7 @@ describe("buildBeforeAgentStartResult（S1 system prompt 注入纯函数）", ()
   it("base + otterPrompt + identity 三段拼接，返回完整 systemPrompt", () => {
     const ctx: OtterInvokeContext = {
       otterPromptConfig: OTTER_PROMPT_STRING,
-      identityPrefix: IDENTITY_BIG,
+      identityPrefix: IDENTITY_BIG, otterId: "otter-big",
     };
     const result = buildBeforeAgentStartResult({ systemPrompt: BASE_PROMPT }, ctx);
 
@@ -44,7 +44,7 @@ describe("buildBeforeAgentStartResult（S1 system prompt 注入纯函数）", ()
   it("OtterPromptConfig（含 reminders）：systemPrompt + reminders 按优先级拼接", () => {
     const ctx: OtterInvokeContext = {
       otterPromptConfig: OTTER_PROMPT_CONFIG,
-      identityPrefix: IDENTITY_SMALL,
+      identityPrefix: IDENTITY_SMALL, otterId: "otter-small",
     };
     const result = buildBeforeAgentStartResult({ systemPrompt: BASE_PROMPT }, ctx);
 
@@ -58,7 +58,7 @@ describe("buildBeforeAgentStartResult（S1 system prompt 注入纯函数）", ()
   it("只有 base（无 otterPrompt、无 identity）→ 返回 undefined（不覆盖 SDK base）", () => {
     const ctx: OtterInvokeContext = {
       otterPromptConfig: undefined,
-      identityPrefix: "",
+      identityPrefix: "", otterId: "otter-test",
     };
     const result = buildBeforeAgentStartResult({ systemPrompt: BASE_PROMPT }, ctx);
     expect(result).toBeUndefined();
@@ -72,7 +72,7 @@ describe("buildBeforeAgentStartResult（S1 system prompt 注入纯函数）", ()
   it("base 为空串时仍拼接 otterPrompt + identity", () => {
     const ctx: OtterInvokeContext = {
       otterPromptConfig: OTTER_PROMPT_STRING,
-      identityPrefix: IDENTITY_BIG,
+      identityPrefix: IDENTITY_BIG, otterId: "otter-big",
     };
     const result = buildBeforeAgentStartResult({ systemPrompt: "" }, ctx);
 
@@ -83,7 +83,7 @@ describe("buildBeforeAgentStartResult（S1 system prompt 注入纯函数）", ()
   it("只有 otterPrompt 无 identity → base + otterPrompt 两段", () => {
     const ctx: OtterInvokeContext = {
       otterPromptConfig: OTTER_PROMPT_STRING,
-      identityPrefix: "",
+      identityPrefix: "", otterId: "otter-test",
     };
     const result = buildBeforeAgentStartResult({ systemPrompt: BASE_PROMPT }, ctx);
 
@@ -100,7 +100,7 @@ describe("身份信息每轮注入（对抗检视 BUG-1 回归锁）", () => {
     // 这里验证 buildBeforeAgentStartResult 收到非空 identityPrefix 时正确注入
     const ctxInvoke2: OtterInvokeContext = {
       otterPromptConfig: OTTER_PROMPT_STRING,
-      identityPrefix: IDENTITY_BIG, // 修复后每次都构建，invoke 2+ 也有值
+      identityPrefix: IDENTITY_BIG, otterId: "otter-big", // 修复后每次都构建，invoke 2+ 也有值
     };
     const result = buildBeforeAgentStartResult({ systemPrompt: BASE_PROMPT }, ctxInvoke2);
 
@@ -111,11 +111,11 @@ describe("身份信息每轮注入（对抗检视 BUG-1 回归锁）", () => {
   it("两个不同身份的 otter 产生的 systemPrompt 不同（身份不会串）", () => {
     const ctxBig: OtterInvokeContext = {
       otterPromptConfig: undefined,
-      identityPrefix: IDENTITY_BIG,
+      identityPrefix: IDENTITY_BIG, otterId: "otter-big",
     };
     const ctxSmall: OtterInvokeContext = {
       otterPromptConfig: undefined,
-      identityPrefix: IDENTITY_SMALL,
+      identityPrefix: IDENTITY_SMALL, otterId: "otter-small",
     };
 
     const resultBig = buildBeforeAgentStartResult({ systemPrompt: BASE_PROMPT }, ctxBig);
@@ -133,10 +133,12 @@ describe("AsyncLocalStorage 并发隔离", () => {
     const ctxA: OtterInvokeContext = {
       otterPromptConfig: "otterA prompt",
       identityPrefix: "## 身份A\n- 名称：大獭A",
+      otterId: "otter-a",
     };
     const ctxB: OtterInvokeContext = {
       otterPromptConfig: "otterB prompt",
       identityPrefix: "## 身份B\n- 名称：小獭B",
+      otterId: "otter-b",
     };
 
     // 模拟两个并发 invoke：各自 ALS scope 内调用 handler
@@ -182,10 +184,12 @@ describe("AsyncLocalStorage 并发隔离", () => {
     const outer: OtterInvokeContext = {
       otterPromptConfig: "outer",
       identityPrefix: "outer-identity",
+      otterId: "otter-outer",
     };
     const inner: OtterInvokeContext = {
       otterPromptConfig: "inner",
       identityPrefix: "inner-identity",
+      otterId: "otter-inner",
     };
 
     await otterInvokeStorage.run(outer, async () => {

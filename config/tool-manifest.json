@@ -23,8 +23,8 @@
       "tools": ["list_artifacts", "update_artifact_status"]
     },
     "system": {
-      "description": "系统工具（参与者/卡片/定时/自愈）",
-      "tools": ["get_active_participants", "get_html_card_contract", "create_scheduled_task", "manage_healing_events"]
+      "description": "系统工具（参与者/卡片/定时/自愈/信号台账）",
+      "tools": ["get_active_participants", "get_html_card_contract", "create_scheduled_task", "manage_healing_events", "query_signals"]
     },
     "workspace": {
       "description": "工作区文件操作",
