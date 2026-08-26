@@ -66,13 +66,28 @@ export interface ConversationRepository {
     contextTokensMax?: number;
   }): Promise<void>;
   failMessage(messageId: string, failedAt: string, body?: string, talkingStonePassedTo?: string[]): Promise<void>;
-  /** 服务重启兜底：将所有遗留 streaming/speaking 消息标记为 failed，插入系统提示 segment，返回处理条数 */
-  failInFlightMessages(failedAt: string, noticeBody: string): Promise<number>;
+  /** 服务重启兜底：将所有遗留 streaming/speaking 消息标记为 failed，插入系统提示 segment，返回处理条数。
+   *  F20260826rsme：skipNoticeIds 内的消息只置 failed 不插 notice（恢复流程会重置回 streaming 续写，
+   *  notice 会污染续写内容）；其余消息保留现状语义。 */
+  failInFlightMessages(failedAt: string, noticeBody: string, skipNoticeIds?: ReadonlySet<string>): Promise<number>;
   /** 服务重启兜底：关闭不再有进行中消息的 open turn（配合 failInFlightMessages），返回关闭条数 */
   closeOrphanedTurns(closedAt: string): Promise<number>;
   /** 重置 failed 消息为 streaming（yield 重试专用）。默认清空 segments。preserveSegments=true 时保留 segments（no_yield 重试专用：speak 内容有效，不应被删除）。status 非 failed 时抛 DomainError。 */
   // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）
   resetForStreaming(messageId: string, turnId: string, preserveSegments?: boolean): Promise<void>;
+
+  // ── 重启自动恢复队列（F20260826rsme）──
+  /** 原子守卫：为中断消息登记恢复资格。INSERT OR IGNORE 后 UPDATE attempts+1 WHERE attempts<上限，
+   *  返回是否成功获得资格（二次重启时 attempts 已满 → false → 走现状 fail+notice，防循环恢复）。 */
+  claimResume(messageId: string, conversationId: string, otterId: string, now: string): Promise<boolean>;
+  /** F20260826rsme：指定 senderType 的最新消息（恢复前并发窗口检查：窗口内有新 user 消息则跳过恢复） */
+  getLastMessageBySenderType(conversationId: string, senderType: "user" | "otter" | "system"): Promise<Message | null>;
+  /** F20260826rsme：遗留的 otter streaming/speaking 消息（含 conversationId/senderId），恢复资格判定用 */
+  listInFlightOtterMessages(): Promise<Array<{ id: string; conversationId: string; senderId: string }>>;
+  /** 查询待恢复记录（status=pending），按 created_at 升序 */
+  getPendingResumes(): Promise<Array<{ messageId: string; conversationId: string; otterId: string }>>;
+  /** 恢复结果流转：done（成功）| exhausted（超限/失败，不再重试） */
+  updateResumeStatus(messageId: string, status: "done" | "exhausted", now: string): Promise<void>;
   /** 更新消息的 token 使用量（yield complete 后补充写入） */
   updateTokenUsage(messageId: string, contextTokens: number, contextTokensMax: number): Promise<void>;
   /** 中止消息：streaming -> aborted（body + talkingStonePassedTo 同一事务写入） */
