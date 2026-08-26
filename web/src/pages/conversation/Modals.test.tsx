@@ -68,6 +68,13 @@ function querySummaries() {
   return Array.from(document.querySelectorAll('[data-testid="session-summary"]'))
 }
 
+/** F20260826mwbc 布局改版：内容双栏容器查询——左=身份信息，右=世代交接 */
+function queryColumns() {
+  const cols = document.querySelector('[data-testid="detail-columns"]')
+  const [identity, generations] = Array.from(cols?.children ?? [])
+  return { cols, identity, generations }
+}
+
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -80,6 +87,25 @@ afterEach(() => {
 })
 
 describe('OtterDetailModal 世数链摘要折叠', () => {
+  it('内容双栏：左=身份信息、右=世代交接，为 columns 容器的直接子节点（含响应式类）', () => {
+    renderDetailModal([
+      makeSession({ id: 's1', status: 'active', previousSessionId: null, summary: '第一世剧情' }),
+    ])
+    const { cols, identity, generations } = queryColumns()
+    // 容器存在且恰好两栏：桌面 sm: 双栏、默认单列（移动端全屏抽屉降级，#465）
+    expect(cols).not.toBeNull()
+    expect(cols!.className).toContain('sm:grid-cols-2')
+    expect(cols!.className).toContain('grid-cols-1')
+    expect(cols!.children.length).toBe(2)
+    expect((identity as HTMLElement).dataset.testid).toBe('detail-column-identity')
+    expect((generations as HTMLElement).dataset.testid).toBe('detail-column-generations')
+    // 布局语义：身份信息在前（移动端堆叠在上），世代交接在后；
+    // 世代交接包含世数链标题，身份栏包含属性区（类型字段）
+    expect((generations as HTMLElement).textContent).toContain('转世履历')
+    expect((identity as HTMLElement).textContent).toContain('类型')
+    expect((identity as HTMLElement).textContent).not.toContain('转世履历')
+  })
+
   it('历史世摘要默认折叠（line-clamp-3），当前世摘要完整展示不带 clamp 类', () => {
     renderDetailModal([
       makeSession({ id: 's1', status: 'restarted', previousSessionId: null, summary: LONG_SUMMARY, archivedAt: '2026-08-25 12:00:00' }),

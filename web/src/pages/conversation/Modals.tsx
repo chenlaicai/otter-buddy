@@ -406,267 +406,278 @@ function OtterDetailModal(props: ModalsProps) {
         </div>
       </div>
 
-      {/* ═══ 属性区 + 状态区 ═══ */}
-      <div className="grid grid-cols-2 gap-4 mb-5">
-        <div className="space-y-2.5">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center">
-              类型 <HelpIcon text={HELP_TEXT.type} />
-            </div>
-            <div className="text-sm mt-0.5 text-stone-800">{isBig ? '族群长老' : '任务专员'}</div>
-          </div>
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center">
-              等级 <HelpIcon text={HELP_TEXT.level} />
-            </div>
-            <div className="text-sm mt-0.5 text-stone-800">Lv.{activeGen}</div>
-            {profile && !profileLoading && (() => {
-              const exp = profile.stats.messageCount * 1 + profile.stats.artifactCount * 10
-              if (exp === 0) return null
-              const pct = Math.min(exp, 100)
-              return (
-                <div className="mt-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center mb-0.5">
-                    EXP <HelpIcon text={HELP_TEXT.exp} />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 rounded-full bg-stone-200/60 overflow-hidden">
-                      {/* Why: scaleX + CSS animation —— transform 不触发 layout，GPU 加速；
-                       *  每次弹窗打开（profile 重新拉取）组件重新挂载，动画自然重播 */}
-                      <div
-                        className="h-full rounded-full bg-otter-400 exp-fill"
-                        style={{ width: `${pct}%` }}
-                      />
+      {/* ═══ 内容双栏（F20260826mwbc 布局改版）：左=身份信息，右=世代交接 ═══
+       * Why sm: —— 与 Modal fullScreenOnMobile 的 639px 断点严格互补：
+       *  <640px 全屏抽屉必然单列堆叠（世代交接在身份信息下方）；
+       *  ≥640px modal 580px 定宽，内容区 540px，两栏各 ~260px。
+       *  比 lg: 稳——640~1024px 的分屏/小平板窗口也能享受两栏，且不存在
+       *  「全屏抽屉却分栏 / 定宽弹窗却单列」的矛盾中间态。 */}
+      <div data-testid="detail-columns" className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start">
+        {/* ── 左栏：身份信息（属性 + 装备 + 战绩） ── */}
+        <div data-testid="detail-column-identity" className="space-y-5">
+          {/* 属性区 + 状态区 */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2.5">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center">
+                  类型 <HelpIcon text={HELP_TEXT.type} />
+                </div>
+                <div className="text-sm mt-0.5 text-stone-800">{isBig ? '族群长老' : '任务专员'}</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center">
+                  等级 <HelpIcon text={HELP_TEXT.level} />
+                </div>
+                <div className="text-sm mt-0.5 text-stone-800">Lv.{activeGen}</div>
+                {profile && !profileLoading && (() => {
+                  const exp = profile.stats.messageCount * 1 + profile.stats.artifactCount * 10
+                  if (exp === 0) return null
+                  const pct = Math.min(exp, 100)
+                  return (
+                    <div className="mt-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 flex items-center mb-0.5">
+                        EXP <HelpIcon text={HELP_TEXT.exp} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 rounded-full bg-stone-200/60 overflow-hidden">
+                          {/* Why: scaleX + CSS animation —— transform 不触发 layout，GPU 加速；
+                           *  每次弹窗打开（profile 重新拉取）组件重新挂载，动画自然重播 */}
+                          <div
+                            className="h-full rounded-full bg-otter-400 exp-fill"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-stone-400 tabular-nums">{exp}{exp > 100 ? '（满格）' : ''}</span>
+                      </div>
                     </div>
-                    <span className="text-[10px] text-stone-400 tabular-nums">{exp}{exp > 100 ? '（满格）' : ''}</span>
+                  )
+                })()}
+              </div>
+              {otter.role?.name && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">角色</div>
+                  <div className="text-sm mt-0.5 text-stone-800">{otter.role.name}</div>
+                </div>
+              )}
+              {otter.modelAlias && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">模型</div>
+                  <div className="text-sm mt-0.5 text-stone-800">{otter.modelAlias}</div>
+                </div>
+              )}
+            </div>
+            <div className="space-y-2.5">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">在线状态</div>
+                <div className="text-sm mt-0.5 text-stone-800">{statusEmoji} {statusText}</div>
+              </div>
+              {activeSession && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">本世启程</div>
+                  <div className="text-sm mt-0.5 text-stone-800">
+                    第{activeGen}世 · {activeSession.startedAt}
                   </div>
                 </div>
-              )
-            })()}
-          </div>
-          {otter.role?.name && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">角色</div>
-              <div className="text-sm mt-0.5 text-stone-800">{otter.role.name}</div>
-            </div>
-          )}
-          {otter.modelAlias && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">模型</div>
-              <div className="text-sm mt-0.5 text-stone-800">{otter.modelAlias}</div>
-            </div>
-          )}
-        </div>
-        <div className="space-y-2.5">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">在线状态</div>
-            <div className="text-sm mt-0.5 text-stone-800">{statusEmoji} {statusText}</div>
-          </div>
-          {activeSession && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">本世启程</div>
-              <div className="text-sm mt-0.5 text-stone-800">
-                第{activeGen}世 · {activeSession.startedAt}
+              )}
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">创建时间</div>
+                <div className="text-sm mt-0.5 text-stone-800">{otter.createdAt}</div>
               </div>
             </div>
-          )}
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">创建时间</div>
-            <div className="text-sm mt-0.5 text-stone-800">{otter.createdAt}</div>
           </div>
-        </div>
-      </div>
 
-      {/* ═══ 装备区（PR-2） ═══ */}
-      {profileLoading ? (
-        <div className="mb-5 space-y-2">
-          <div className="h-8 bg-white/20 rounded-xl animate-pulse" />
-          <div className="h-8 bg-white/20 rounded-xl animate-pulse" />
-        </div>
-      ) : profile && (
-        <div className="mb-5 space-y-3">
-          {/* ⚔️ 武器：模型描述 + 强项 */}
-          {profile.modelAlias && (
-            <EquipmentSlot
-              icon="⚔️"
-              label="武器"
-              helpText={HELP_TEXT.weapon}
-            >
-              <div className="text-sm font-medium text-stone-800">{profile.modelAlias}</div>
-              {profile.modelDescriptor?.description && (
-                <div className="text-xs text-stone-500 mt-0.5">{profile.modelDescriptor.description}</div>
-              )}
-              {profile.modelDescriptor?.strengths && profile.modelDescriptor.strengths.length > 0 && (
-                <div className="flex gap-1 mt-1 flex-wrap">
-                  {profile.modelDescriptor.strengths.map(s => (
-                    <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-600">{s}</span>
-                  ))}
-                </div>
-              )}
-            </EquipmentSlot>
-          )}
-
-          {/* ✨ 技能槽：skills chips 云 */}
-          {profile.skills.length > 0 && (
-            <EquipmentSlot
-              icon="✨"
-              label="技能槽"
-              helpText={HELP_TEXT.skills}
-              extra={<span className="text-[9px] text-stone-400">族群共享心法库</span>}
-            >
-              <div className="flex gap-1 flex-wrap">
-                {profile.skills.map(s => (
-                  <span key={s.name} className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600" title={s.description}>
-                    {s.name}
-                  </span>
-                ))}
-              </div>
-            </EquipmentSlot>
-          )}
-
-          {/* 🎒 工具袋：分组折叠 */}
-          <EquipmentSlot
-            icon="🎒"
-            label="工具袋"
-            helpText={HELP_TEXT.tools}
-            extra={<span className="text-[9px] text-stone-400">{profile.tools.length} 件</span>}
-          >
-            <button
-              onClick={() => setToolsExpanded(!toolsExpanded)}
-              className="text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
-            >
-              {toolsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              {toolsExpanded ? '收起' : '展开'}
-            </button>
-            {toolsExpanded && (
-              <div className="mt-1.5 space-y-1.5">
-                {Object.entries(
-                  profile.tools.reduce((acc, t) => {
-                    const g = t.group || '其他'
-                    ;(acc[g] ??= []).push(t)
-                    return acc
-                  }, {} as Record<string, typeof profile.tools>)
-                ).map(([group, tools]) => (
-                  <div key={group}>
-                    <div className="text-[9px] font-semibold text-stone-400 uppercase">{group}</div>
-                    <div className="flex gap-1 flex-wrap mt-0.5">
-                      {tools.map(t => (
-                        <span key={t.name} className="text-[9px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500" title={t.description}>
-                          {t.name}
-                        </span>
+          {/* 装备区（PR-2） */}
+          {profileLoading ? (
+            <div className="space-y-2">
+              <div className="h-8 bg-white/20 rounded-xl animate-pulse" />
+              <div className="h-8 bg-white/20 rounded-xl animate-pulse" />
+            </div>
+          ) : profile && (
+            <div className="space-y-3">
+              {/* ⚔️ 武器：模型描述 + 强项 */}
+              {profile.modelAlias && (
+                <EquipmentSlot
+                  icon="⚔️"
+                  label="武器"
+                  helpText={HELP_TEXT.weapon}
+                >
+                  <div className="text-sm font-medium text-stone-800">{profile.modelAlias}</div>
+                  {profile.modelDescriptor?.description && (
+                    <div className="text-xs text-stone-500 mt-0.5">{profile.modelDescriptor.description}</div>
+                  )}
+                  {profile.modelDescriptor?.strengths && profile.modelDescriptor.strengths.length > 0 && (
+                    <div className="flex gap-1 mt-1 flex-wrap">
+                      {profile.modelDescriptor.strengths.map(s => (
+                        <span key={s} className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-400/15 text-teal-600">{s}</span>
                       ))}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </EquipmentSlot>
-
-          {/* 📜 心法：systemPrompt 折叠 */}
-          {profile.systemPrompt && (
-            <EquipmentSlot
-              icon="📜"
-              label="心法"
-              helpText={HELP_TEXT.systemPrompt}
-              extra={<span className="text-[9px] text-stone-400">约 {profile.systemPrompt.length} 字</span>}
-            >
-              <button
-                onClick={() => setPromptExpanded(!promptExpanded)}
-                className="text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
-              >
-                {promptExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                {promptExpanded ? '收起' : '展开'}
-              </button>
-              {promptExpanded && (
-                <pre className="mt-1.5 text-xs text-stone-600 bg-stone-50 rounded-lg p-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
-                  {profile.systemPrompt}
-                </pre>
+                  )}
+                </EquipmentSlot>
               )}
-            </EquipmentSlot>
+
+              {/* ✨ 技能槽：skills chips 云 */}
+              {profile.skills.length > 0 && (
+                <EquipmentSlot
+                  icon="✨"
+                  label="技能槽"
+                  helpText={HELP_TEXT.skills}
+                  extra={<span className="text-[9px] text-stone-400">族群共享心法库</span>}
+                >
+                  <div className="flex gap-1 flex-wrap">
+                    {profile.skills.map(s => (
+                      <span key={s.name} className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600" title={s.description}>
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                </EquipmentSlot>
+              )}
+
+              {/* 🎒 工具袋：分组折叠 */}
+              <EquipmentSlot
+                icon="🎒"
+                label="工具袋"
+                helpText={HELP_TEXT.tools}
+                extra={<span className="text-[9px] text-stone-400">{profile.tools.length} 件</span>}
+              >
+                <button
+                  onClick={() => setToolsExpanded(!toolsExpanded)}
+                  className="text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
+                >
+                  {toolsExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  {toolsExpanded ? '收起' : '展开'}
+                </button>
+                {toolsExpanded && (
+                  <div className="mt-1.5 space-y-1.5">
+                    {Object.entries(
+                      profile.tools.reduce((acc, t) => {
+                        const g = t.group || '其他'
+                        ;(acc[g] ??= []).push(t)
+                        return acc
+                      }, {} as Record<string, typeof profile.tools>)
+                    ).map(([group, tools]) => (
+                      <div key={group}>
+                        <div className="text-[9px] font-semibold text-stone-400 uppercase">{group}</div>
+                        <div className="flex gap-1 flex-wrap mt-0.5">
+                          {tools.map(t => (
+                            <span key={t.name} className="text-[9px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500" title={t.description}>
+                              {t.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </EquipmentSlot>
+
+              {/* 📜 心法：systemPrompt 折叠 */}
+              {profile.systemPrompt && (
+                <EquipmentSlot
+                  icon="📜"
+                  label="心法"
+                  helpText={HELP_TEXT.systemPrompt}
+                  extra={<span className="text-[9px] text-stone-400">约 {profile.systemPrompt.length} 字</span>}
+                >
+                  <button
+                    onClick={() => setPromptExpanded(!promptExpanded)}
+                    className="text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
+                  >
+                    {promptExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    {promptExpanded ? '收起' : '展开'}
+                  </button>
+                  {promptExpanded && (
+                    <pre className="mt-1.5 text-xs text-stone-600 bg-stone-50 rounded-lg p-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
+                      {profile.systemPrompt}
+                    </pre>
+                  )}
+                </EquipmentSlot>
+              )}
+            </div>
+          )}
+
+          {/* ═══ 战绩统计行 ═══ */}
+          {profile && !profileLoading && (
+            <div className="flex items-center gap-3 text-[11px] text-stone-500 flex-wrap">
+              <span className="font-semibold uppercase tracking-wider text-[10px] text-stone-400 flex items-center">
+                战绩 <HelpIcon text={HELP_TEXT.stats} />
+              </span>
+              <span>发言 <strong className="text-stone-700">{profile.stats.messageCount}</strong> 段</span>
+              <span>产出 <strong className="text-stone-700">{profile.stats.artifactCount}</strong> 件</span>
+              <span>对话 <strong className="text-stone-700">{profile.stats.conversationCount}</strong> 场</span>
+            </div>
           )}
         </div>
-      )}
 
-      {/* ═══ 战绩统计行 ═══ */}
-      {profile && !profileLoading && (
-        <div className="mb-5 flex items-center gap-3 text-[11px] text-stone-500 flex-wrap">
-          <span className="font-semibold uppercase tracking-wider text-[10px] text-stone-400 flex items-center">
-            战绩 <HelpIcon text={HELP_TEXT.stats} />
-          </span>
-          <span>发言 <strong className="text-stone-700">{profile.stats.messageCount}</strong> 段</span>
-          <span>产出 <strong className="text-stone-700">{profile.stats.artifactCount}</strong> 件</span>
-          <span>对话 <strong className="text-stone-700">{profile.stats.conversationCount}</strong> 场</span>
-        </div>
-      )}
-
-      {/* ═══ 历练区：转世履历 ═══ */}
-      <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5 flex items-center">
-          转世履历 <HelpIcon text={HELP_TEXT.sessionChain} />
-        </div>
-        {chain.length === 0 ? (
-          <div className="text-xs text-stone-500">暂无 session 记录</div>
-        ) : (
-          <div className="space-y-2">
-            {chain.map((s, i) => (
-              <div
-                key={s.id}
-                className={`rounded-xl border px-3 py-2 ${
-                  s.status === 'active'
-                    ? 'border-otter-400/50 bg-otter-400/10'
-                    : 'border-stone-300/50 bg-white/40'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-stone-800">第{i + 1}世</span>
-                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                    s.status === 'active' ? 'bg-otter-400/20 text-otter-500' : 'bg-stone-400/15 text-stone-500'
-                  }`}>
-                    {s.status === 'active' ? '当前' : s.status === 'restarted' ? '已重启' : '已归档'}
-                  </span>
-                  <button
-                    onClick={() => copySessionId(s.id)}
-                    title={`${s.id}\n点击复制`}
-                    className="ml-auto flex items-center gap-1 text-[11px] font-mono text-stone-500 hover:text-stone-700 transition"
-                  >
-                    {copiedId === s.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    {s.id.length > 12 ? `${s.id.slice(0, 8)}…` : s.id}
-                  </button>
-                </div>
-                <div className="text-[11px] text-stone-500 mt-1">
-                  开始 {s.startedAt}{s.archivedAt ? ` · 归档 ${s.archivedAt}` : ''}
-                </div>
-                {s.archiveReason && (
-                  <div className="text-xs text-stone-600 mt-1">归档原因：{s.archiveReason}</div>
-                )}
-                {s.summary && s.status === 'active' && (
-                  <div data-testid="session-summary" className="text-xs text-stone-700 mt-1.5 leading-relaxed">
-                    {`前情：${s.summary}`}
-                  </div>
-                )}
-                {s.summary && s.status !== 'active' && (
-                  <div className="mt-1.5">
-                    <div
-                      data-testid="session-summary"
-                      className={`text-xs text-stone-700 leading-relaxed ${expandedSummaries[s.id] ? '' : 'line-clamp-3'}`}
-                    >
-                      {s.summary}
-                    </div>
-                    {/* 展开切换：风格同心法区（Chevron + 展开/收起）。
-                        短摘要不足 3 行时按钮无视觉变化，保留统一交互不搞溢出检测（jsdom 无真实布局，保持简单） */}
+        {/* ═══ 历练区：转世履历（右栏） ═══ */}
+        <div data-testid="detail-column-generations">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500 mb-1.5 flex items-center">
+            转世履历 <HelpIcon text={HELP_TEXT.sessionChain} />
+          </div>
+          {chain.length === 0 ? (
+            <div className="text-xs text-stone-500">暂无 session 记录</div>
+          ) : (
+            <div className="space-y-2">
+              {chain.map((s, i) => (
+                <div
+                  key={s.id}
+                  className={`rounded-xl border px-3 py-2 ${
+                    s.status === 'active'
+                      ? 'border-otter-400/50 bg-otter-400/10'
+                      : 'border-stone-300/50 bg-white/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-stone-800">第{i + 1}世</span>
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                      s.status === 'active' ? 'bg-otter-400/20 text-otter-500' : 'bg-stone-400/15 text-stone-500'
+                    }`}>
+                      {s.status === 'active' ? '当前' : s.status === 'restarted' ? '已重启' : '已归档'}
+                    </span>
                     <button
-                      onClick={() => setExpandedSummaries(cur => ({ ...cur, [s.id]: !cur[s.id] }))}
-                      className="mt-0.5 text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
+                      onClick={() => copySessionId(s.id)}
+                      title={`${s.id}\n点击复制`}
+                      className="ml-auto flex items-center gap-1 text-[11px] font-mono text-stone-500 hover:text-stone-700 transition"
                     >
-                      {expandedSummaries[s.id] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                      {expandedSummaries[s.id] ? '收起' : '展开'}
+                      {copiedId === s.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      {s.id.length > 12 ? `${s.id.slice(0, 8)}…` : s.id}
                     </button>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+                  <div className="text-[11px] text-stone-500 mt-1">
+                    开始 {s.startedAt}{s.archivedAt ? ` · 归档 ${s.archivedAt}` : ''}
+                  </div>
+                  {s.archiveReason && (
+                    <div className="text-xs text-stone-600 mt-1">归档原因：{s.archiveReason}</div>
+                  )}
+                  {s.summary && s.status === 'active' && (
+                    <div data-testid="session-summary" className="text-xs text-stone-700 mt-1.5 leading-relaxed">
+                      {`前情：${s.summary}`}
+                    </div>
+                  )}
+                  {s.summary && s.status !== 'active' && (
+                    <div className="mt-1.5">
+                      <div
+                        data-testid="session-summary"
+                        className={`text-xs text-stone-700 leading-relaxed ${expandedSummaries[s.id] ? '' : 'line-clamp-3'}`}
+                      >
+                        {s.summary}
+                      </div>
+                      {/* 展开切换：风格同心法区（Chevron + 展开/收起）。
+                          短摘要不足 3 行时按钮无视觉变化，保留统一交互不搞溢出检测（jsdom 无真实布局，保持简单） */}
+                      <button
+                        onClick={() => setExpandedSummaries(cur => ({ ...cur, [s.id]: !cur[s.id] }))}
+                        className="mt-0.5 text-xs text-otter-500 hover:text-otter-600 flex items-center gap-0.5"
+                      >
+                        {expandedSummaries[s.id] ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        {expandedSummaries[s.id] ? '收起' : '展开'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   )
