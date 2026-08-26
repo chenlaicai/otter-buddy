@@ -26,6 +26,7 @@ import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-c
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
+import { PartnerResolver } from "@usecases/im/partner-resolver";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
@@ -106,6 +107,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
     settingsRepo: repos.settings,
     metrics: agentMetrics,
+    // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
+    partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId),
   });
 }
 
@@ -175,6 +178,8 @@ export function setupFeishu(options: {
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
+  // F20260826fpbd：命令门禁（方案B）——setupFeishu 入口有 !appConfig.feishu 早退，此处必存在；partnerOpenId 仍可选
+  const partnerResolver = new PartnerResolver(appConfig.feishu?.partnerOpenId);
   const agentDispatchService = new AgentDispatchService({
     dispatchChainEngine: feishu.dispatchChainEngine,
     queryMessage: uc.queryMessage,
@@ -189,6 +194,8 @@ export function setupFeishu(options: {
     feishuGateway: feishu.client,
     // F20260826fuid：飞书群聊多人识别——open_id → 姓名快照
     feishuUserInfo: new FeishuUserInfoClient(feishu.tokenManager, logger),
+    // F20260826fpbd：命令门禁用（方案B）
+    partnerResolver,
     agentDispatchService,
     messageBroadcaster,
     logger,

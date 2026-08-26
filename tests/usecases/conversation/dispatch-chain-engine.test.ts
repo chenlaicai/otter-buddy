@@ -5,6 +5,7 @@ import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { Turn } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
 
@@ -328,5 +329,109 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
     const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_lisi", "## 在场成员");
 
     expect(result).toContain("[搭档] 在吗");
+  });
+});
+
+describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => {
+  function makeEngine(m: ReturnType<typeof makeMocks>, partnerOpenId: string | undefined) {
+    return new DispatchChainEngine({
+      conversationRepo: m.conversationRepo,
+      queryMessage: m.queryMessage,
+      queryOtter: m.queryOtter,
+      logger: m.logger,
+      partnerResolver: new PartnerResolver(partnerOpenId),
+    });
+  }
+
+  it("静态模式：配置的搭档 open_id → partnerLabel，即使非本次 sender", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_chen", senderName: "", segments: [{ body: "看看这个" }] },
+    ]);
+
+    // joy 触发本次派发，但历史里 chen 的消息仍标搭档（静态锚定，不随说话者变）
+    const engine = makeEngine(m, "ou_chen");
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+
+    expect(result).toContain("[搭档] 看看这个");
+  });
+
+  it("静态模式：访客触发本次派发也无 partnerLabel（动态推断旧病修复）", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_joy", senderName: "", segments: [{ body: "我也觉得行" }] },
+    ]);
+
+    const engine = makeEngine(m, "ou_chen");
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+
+    expect(result).toContain("[ou_joy] 我也觉得行");
+    expect(result).not.toContain("[搭档] 我也觉得行");
+  });
+
+  it("静态模式：访客有快照名时显示真名", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_joy", senderName: "Joy", segments: [{ body: "哈哈" }] },
+    ]);
+
+    const engine = makeEngine(m, "ou_chen");
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+
+    expect(result).toContain("[Joy] 哈哈");
+  });
+
+  it("静态模式：Web 'user' 恒为搭档", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "user", senderName: "", segments: [{ body: "Web 来的" }] },
+    ]);
+
+    const engine = makeEngine(m, "ou_chen");
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user", "## 在场成员");
+
+    expect(result).toContain("[搭档] Web 来的");
+  });
+
+  it("降级（未配置）：维持 #488 行为——当前 sender 无快照仍标搭档", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "user", senderId: "ou_joy", senderName: "", segments: [{ body: "在吗" }] },
+    ]);
+
+    const engine = makeEngine(m, undefined);
+    const result = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "ou_joy", "## 在场成员");
+
+    expect(result).toContain("[搭档] 在吗");
+  });
+
+  it("buildRoster：静态模式下访客触发时追加「当前说话者非搭档」提示", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { otterId: "otter-1", status: "active", lastActiveTurnNumber: 1, lastReadTurnNumber: 0 },
+    ]);
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "大獭" });
+
+    const engine = makeEngine(m, "ou_chen");
+    const roster = await engine.buildRoster("conv-1", "ou_joy");
+
+    expect(roster).toContain("非你的搭档");
+    expect(roster).toContain("ou_joy");
+  });
+
+  it("buildRoster：搭档触发时不追加访客提示；降级模式下也不追加", async () => {
+    const m = makeMocks();
+    (m.conversationRepo.getActiveParticipants as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { otterId: "otter-1", status: "active", lastActiveTurnNumber: 1, lastReadTurnNumber: 0 },
+    ]);
+    (m.queryOtter.getById as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "大獭" });
+
+    const engine = makeEngine(m, "ou_chen");
+    const partnerRoster = await engine.buildRoster("conv-1", "ou_chen");
+    expect(partnerRoster).not.toContain("非你的搭档");
+
+    const degraded = makeEngine(m, undefined);
+    const degradedRoster = await degraded.buildRoster("conv-1", "ou_joy");
+    expect(degradedRoster).not.toContain("非你的搭档");
   });
 });

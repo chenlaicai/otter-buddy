@@ -105,3 +105,62 @@ describe('MessageList 流式过程面板事件渲染', () => {
     expect(header).toBeUndefined()
   })
 })
+
+describe('F20260826fpbd user 消息发送者名回退（Web/飞书同步）', () => {
+  /**
+   * 场景：飞书群聊多人 + Web 端同步查看（#488 快照链路的降级分支）。
+   * 后端对 user 消息无快照时 sn 缺失（不冒充），冒充风险在前端回退逻辑：
+   * 远程消息（src='feishu'）无快照必须显示中性标签，不得回退全局名——
+   * 否则 joy 在权限未开/快照失败时会被 Web 端标成「chen」。
+   */
+
+  /** user 消息发送者名 span 选择器（text-stone-600 仅 user 消息使用） */
+  const userNameSpan = () => container.querySelector('span.text-stone-600')
+
+  function renderWithUser(msg: LocalMessage, name: string) {
+    act(() => {
+      root.render(
+        <MessageList
+          messages={[msg]}
+          state="normal"
+          onStopStream={() => {}}
+          onRetryMessage={() => {}}
+          onRetry={() => {}}
+          onGoToSettings={() => {}}
+          otters={[]}
+          conversationId="conv-1"
+          isAtBottomRef={{ current: true }}
+          userName={name}
+        />,
+      )
+    })
+  }
+
+  it('飞书 user 消息有快照名 → 显示快照名（joy）', () => {
+    renderWithUser(msg({ st: 'user', si: 'ou_joy', sn: 'joy', src: 'feishu' }), 'chen')
+    expect(userNameSpan()?.textContent).toBe('joy')
+  })
+
+  it('飞书 user 消息无快照（src=feishu）→ 显示中性标签「飞书成员」，不冒充全局名', () => {
+    renderWithUser(msg({ st: 'user', si: 'ou_joy', sn: undefined, src: 'feishu' }), 'chen')
+    expect(userNameSpan()?.textContent).toBe('飞书成员')
+  })
+
+  it('未知渠道（src 非 web/feishu）无快照 → 「外部成员」兑底（运行时防御未来渠道）', () => {
+    // 类型层 src 暂为窄联合；后端 DTO src 为宽松 string，未来新增渠道时此分支兜底
+    const future: LocalMessage = msg({ st: 'user', si: 'ding_user', sn: undefined, src: 'feishu' })
+    ;(future as { src?: string }).src = 'dingtalk'
+    renderWithUser(future, 'chen')
+    expect(userNameSpan()?.textContent).toBe('外部成员')
+  })
+
+  it('Web 本地 user 消息（无 src）无快照 → 回退全局名（chen，单聊不变）', () => {
+    renderWithUser(msg({ st: 'user', si: 'user', sn: undefined }), 'chen')
+    expect(userNameSpan()?.textContent).toBe('chen')
+  })
+
+  it('Web 本地 user 消息且未设全局名 → 回退「我」（原行为保留）', () => {
+    renderWithUser(msg({ st: 'user', si: 'user', sn: undefined }), '')
+    expect(userNameSpan()?.textContent).toBe('我')
+  })
+})
