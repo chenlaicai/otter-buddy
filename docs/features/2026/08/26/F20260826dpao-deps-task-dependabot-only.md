@@ -19,7 +19,7 @@ created_in_conversation: a3758263-dfac-4396-93ee-37d89efb5b0e
 
 时间线还原：
 
-| 时间（8/25） | 事件 |
+| 时间（8/25 UTC） | 事件 |
 |---|---|
 | 01:08 | 搭档关闭 PR #419，评论：「依搭档决策关闭：本 PR 升级无 Dependabot 信号支撑，定时任务改为只处理 Dependabot PR。依赖升级后续由 Dependabot 触发再统一处理。」 |
 | 01:14 | PR #428 创建，模板内容 = 原 DB body 逐字节（旧 npm update 流程） |
