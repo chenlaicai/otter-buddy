@@ -50,6 +50,12 @@ export interface DynamicContext {
   sessionSummary?: string;
   /** 对话工作区绝对路径 */
   workspacePath?: string;
+  /** F20260825hndf：件②文件轨迹（机械提取，借用式） */
+  fileTrail?: string;
+  /** F20260825hndf：件③近期原文片段（借用式，消费即删） */
+  recencyWindow?: string;
+  /** F20260825hndf：件④活状态盘点（机械 checklist，借用式） */
+  stateInventory?: string;
 }
 
 /** invoke() 选项 */

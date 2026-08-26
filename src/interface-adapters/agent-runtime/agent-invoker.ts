@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Phase 1 新增触发链路；后续可拆分为 handoff-support.ts */
 /**
  * AgentInvoker - SDK 调用适配器
  *
@@ -24,7 +25,14 @@ import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
+import type { ManageContext } from "@usecases/otter/manage-context";
+import type { LinkedResource } from "@entities/conversation/conversation";
+// eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
+import type { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
+import { HandoffState, shouldTriggerHandoff, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
@@ -37,6 +45,8 @@ export class AgentInvoker implements AgentTurnPort {
   private readonly orchestrator: AgentTurnOrchestrator;
   /** F20260818cbkr：熔断执行器（healingRepo 未注入时为 null，熔断禁用） */
   private readonly circuitBreak: CircuitBreakSupport | null;
+  /** F20260825hndf：handoff 状态管理 */
+  private readonly handoffState = new HandoffState();
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -53,6 +63,16 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly metrics?: AgentMetricsPort,
     /** F20260818cbkr：可选注入，缺省禁用熔断（不破坏既有测试） */
     private readonly healingRepo?: HealingEventRepository,
+    /** F20260825hndf：可选注入，用于活状态盘点（不破坏既有测试） */
+    private readonly conversationRepo?: ConversationRepository,
+    /** F20260825hndf：可选注入，用于调度任务盘点（不破坏既有测试） */
+    private readonly scheduledTaskRepo?: ScheduledTaskRepository,
+    /** F20260825hndf：可选注入，用于产物盘点（不破坏既有测试） */
+    private readonly listArtifacts?: (conversationId: string) => Promise<LinkedResource[]>,
+    /** F20260825hndf：可选注入，用于 otter_context 读写（借用式交接上下文） */
+    private readonly manageContext?: ManageContext,
+    /** F20260825hndf：可选注入，四件套构建器（从 bootstrap 注入，避免 interface-adapters→frameworks 直接依赖） */
+    private readonly buildHandoffPkg?: typeof buildHandoffPackage,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo
@@ -86,6 +106,7 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
   }
 
+  // eslint-disable-next-line max-lines-per-function -- 触发链路+熔断+自重启集成点，拆分降低可读性
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -112,6 +133,13 @@ export class AgentInvoker implements AgentTurnPort {
       messageLength: userMessageContent.length,
       ...(retryCount > 0 && { retryCount }),
     });
+
+    /** F20260825hndf Pre-invoke 检查：上轮 ctxTokens 超 70% 阈值 → 先 handoff 再处理本轮消息 */
+    const ctxMax = await this.getCtxMax(otterId) ?? DEFAULT_CTX_MAX;
+    if (shouldTriggerHandoff(otterId, this.handoffState, ctxMax)) {
+      this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, ctxMax });
+      await this.handleHandoff(otterId, conversationId);
+    }
 
     this.logger.debug('Building dynamic context', { otterId });
     /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
@@ -147,6 +175,9 @@ export class AgentInvoker implements AgentTurnPort {
 
       // 委托给 orchestrator 执行
       const turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
+
+      /** F20260825hndf Post-turn 记录 */
+      await recordPostTurnTokens(otterId, message.id, this.queryMessage, this.handoffState, this.logger);
 
       /**
        * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
@@ -430,6 +461,9 @@ export class AgentInvoker implements AgentTurnPort {
       });
     }
 
+    // F20260825hndf：从 otter_context 恢复交接上下文（借用式，消费即删）
+    await restoreHandoffContext(otterId, ctx, this.manageContext, this.logger);
+
     return ctx;
   }
 
@@ -461,6 +495,92 @@ export class AgentInvoker implements AgentTurnPort {
       ctx.workspacePath = this.workspaceGateway.getWorkspacePath(conversationId);
     }
   }
+  /**
+   * F20260825hndf：优雅上下文交接。
+   * 检测到 ctxTokens 超阈值后，构建四件套上下文包，重启 session。
+   * 件①写入 session.summary（已有路径），件路径），件②③④写入 otter_context（借用式）。
+   */
+  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- 交接触发+补偿删除+降级链
+  private async handleHandoff(otterId: string, conversationId: string): Promise<void> {
+    // 防重入
+    if (this.handoffState.isInProgress(otterId)) {
+      this.logger.warn("[handoff] Already in progress, skipping", { otterId });
+      return;
+    }
+    this.handoffState.setInProgress(otterId, true);
+
+    try {
+      const workspacePath = this.workspaceGateway?.getWorkspacePath(conversationId);
+
+      // 构建四件套（D9：显式守卫，永不阻塞 restart）
+      if (!this.buildHandoffPkg) { this.logger.warn("[handoff] buildHandoffPkg not injected, skipping"); return; }
+      if (!this.conversationRepo) { this.logger.warn("[handoff] conversationRepo not injected, skipping"); return; }
+      const pkg = await this.buildHandoffPkg(
+        conversationId,
+        otterId,
+        {
+          recencyTokens: 8000,
+          stateInventoryDeps: {
+            queryMessage: this.queryMessage,
+            conversationRepo: this.conversationRepo,
+            scheduledTaskRepo: this.scheduledTaskRepo,
+            healingRepo: this.healingRepo ?? undefined,
+            listArtifacts: this.listArtifacts ? () => this.listArtifacts!(conversationId) : (async () => []),
+            workspacePath,
+            logger: this.logger,
+          },
+          queryMessage: this.queryMessage,
+          logger: this.logger,
+        },
+      );
+
+      // 件件②③④写入 otter_context（借用式，首次 invoke 后删除）
+      if (this.manageContext) {
+        try {
+          await this.manageContext.set(otterId, "handoff_file_trail", pkg.fileTrail);
+          await this.manageContext.set(otterId, "handoff_recency_window", pkg.recencyWindow);
+          await this.manageContext.set(otterId, "handoff_state_inventory", pkg.stateInventory);
+        } catch (ctxErr) {
+          this.logger.warn("[handoff] Failed to write context, continuing with summary only", {
+            otterId, error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
+          });
+        }
+      }
+
+      // 件①写入 session.summary（重启 session）
+      try {
+        await this.manageSession.restartSession(otterId, pkg.summary);
+        this.handoffState.clearLastCtxTokens(otterId);
+        this.logger.info("[handoff] Session restarted with handoff package", {
+          otterId,
+          totalTokens: pkg.totalTokenEstimate,
+        });
+      } catch (restartErr) {
+        // D8 补偿删除：restart 失败时清理已写入的 context，防止幽灵上下文泄漏到旧 session
+        if (this.manageContext) {
+          for (const key of ['handoff_file_trail', 'handoff_recency_window', 'handoff_state_inventory']) {
+            await this.manageContext.delete(otterId, key).catch(() => {});
+          }
+        }
+        this.logger.error("[handoff] Restart failed, continuing with old session",
+          restartErr instanceof Error ? restartErr : new Error(String(restartErr)),
+          { otterId });
+      }
+    } catch (err) {
+      this.logger.error("[handoff] Unexpected error",
+        err instanceof Error ? err : new Error(String(err)),
+        { otterId });
+    } finally {
+      this.handoffState.setInProgress(otterId, false);
+    }
+  }
+
+  /** F20260825hndf：获取 otter 的 context window 大小 */
+  private async getCtxMax(_otterId: string): Promise<number | undefined> {
+    // Phase 1：用默认值 128k；Phase 2 通过 modelPool.getContextWindow 获取精确值
+    return DEFAULT_CTX_MAX;
+  }
+
 
   /**
    * F20260818cbkr：熔断信号处理。restart 成功 → 全新 invoke 的结果；未触发或降级返回 null。
