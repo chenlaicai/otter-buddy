@@ -479,13 +479,13 @@ Part 2 (Snippet+下钻)             → 召回响应里 snippet 含匹配词 + d
 | Part 1 | 路径标记 | search-memory.test.ts source 断言；运行时 vecCoverage 持续返回 | ✅ |
 | Part 1 | 覆盖率默认返回 | scan-dark-entries-and-coverage.test.ts + 运行时实测 | ✅ |
 | Part 1 | 暗化比例准确 | scan-dark-entries-and-coverage.test.ts | ✅ |
-| Part 1 | debug 中间分值 | search-memory.test.ts debug 参数用例 | ✅ |
+| Part 1 | debug 中间分值 | 源码实现（search-memory.ts:523 参数声明、:563-571 中间分值注入）；无专项测试用例（2026-08-26 审视复核确认），由全量回归 + 运行时诊断链路保障 | ✅ |
 | Part 1 | 暗化扫描可用 | scan-dark-entries.test.ts | ✅ |
 | Part 1 | vec0 anti-join 兼容 | scan-dark-entries-and-coverage.test.ts（sqlite-vec 环境） | ✅ |
 | Part 2 | snippet 含匹配 | extract-snippet.test.ts 高亮用例 | ✅ |
 | Part 2 | fallback 正常 | extract-snippet.test.ts 边界用例 | ✅ |
 | Part 2 | 性能可控 | 应用层后处理，无额外查询，全量回归通过 | ✅ |
-| Part 2 | drillDown 填充 | search-memory.test.ts + agent 实际下钻行为（get_memory_detail 调用） | ✅ |
+| Part 2 | drillDown 填充 | 源码实现（search-memory.ts:559-561 主路径、:243 anchor 路径、:291 context-expand 路径）+ 运行时实测（检索返回 drillDown 持续可见，agent 下钻即 get_memory_detail） | ✅ |
 | Part 2 | 向后兼容 | 全量回归通过 | ✅ |
 | Part 3 | 表存在 | scan-dark-entries-and-coverage.test.ts embedding_meta describe 块 | ✅ |
 | Part 3 | getMeta 可用 | 同上 | ✅ |
