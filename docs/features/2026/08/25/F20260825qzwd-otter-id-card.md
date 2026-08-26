@@ -35,7 +35,7 @@ created_in_conversation: d1ac0eee-6e02-469e-af1b-dd4d8c30fe3e
 - 不做 per-獭 skills/tools 定制（当前所有獭 skills 相同、tools 相同，差异在 systemPrompt 与 modelAlias——如实呈现）
 - 不做等级/EXP 的升级逻辑或游戏机制（进度条纯视觉，无升级触发）
 - 不做对外投影脱敏（Web 前端本地可信，systemPrompt 原文展示；不进任何对外接口）
-- 不做移动端全屏抽屉（PR-3 范围，视前两期效果决定是否做）
+- 不做移动端全屏抽屉（已拆至独立特性 F20260826ybx6）
 
 ## 方案设计
 
@@ -174,7 +174,7 @@ mimo 发现 1（"modelAlias 不在 DTO、零新接口不成立"）在 main 快�
 |---|---|---|
 | PR-1 | 后端 ParticipantDTO modelAlias（若 #445 已合入则跳过）+ 前端 hover 快览卡 + 详情弹窗形象区/称号/等级 | #445 |
 | PR-2 | profile 聚合端点 + 装备四槽 + 战绩统计 + sender_id 索引 | PR-1 |
-| PR-3 | 移动端全屏抽屉、EXP 动效、徽章规则调优 | PR-2 |
+| PR-3 | 移动端全屏抽屉、EXP 动效、徽章规则调优 | PR-2 | 已拆至独立特性 F20260826ybx6 |
 
 ## 影响范围
 
@@ -250,30 +250,4 @@ mimo 发现 1（"modelAlias 不在 DTO、零新接口不成立"）在 main 快�
 ### 2026-08-25 方案定稿（大獭）
 
 - kimi 主稿 v1 → mimo 技术深化+对抗审视 → 大獭核验 8 条发现（1 条反转）→ 本文档
-- 状态：方案定稿，待搭档终审后进入实现阶段（PR-1 → PR-2 → PR-3）
-
-### 2026-08-26 PR-3 delta 处置（mimo-面板工程师）
-
-**kimi 审视处置（3 严重 + 4 建议）**：
-
-| # | 发现 | 级别 | 处置 |
-|---|---|---|---|
-| S1 | 假时序测试（纯函数未引用实现） | 严重 | 接受修复：重写为 @testing-library/react 组件级测试，渲染真实 RightPanel |
-| S2 | 降级理由不成立（裸 createRoot 问题非 React 19 已知缺陷） | 严重 | 接受修复：移除错误降级注释，改用 fireEvent + act 方案 |
-| S3 | EXP 首开动画被 React 批处理合并 | 严重 | 接受修复：rAF 方案改为 CSS @keyframes scaleX 方案 |
-| A1 | 满格后数值无说明 | 建议 | 接受：exp > 100 时显示“（满格）” |
-| A2 | !important 六连 | 建议 | 接受：样式移入 globals.css，移除内联 style 标签 |
-| A3 | iOS 安全区 footer 危险按钮 | 建议 | 接受：添加 modal-fs-footer + env(safe-area-inset-bottom) |
-| A4 | PR-2 遗留 lint warning 顺手修 | 建议 | 接受：提取 otterId 变量消除 exhaustive-deps 警告 |
-
-**变更文件**：
-- `web/src/styles/globals.css` — 新增 .exp-fill 动画 + .modal-fs-mobile 全屏抽屉 + .modal-fs-footer iOS 安全区
-- `web/src/components/Modal.tsx` — 移除内联 style 标签，footer 加 modal-fs-footer class
-- `web/src/pages/conversation/Modals.tsx` — EXP rAF→CSS animation，提取 otterId 修 lint warning，加“（满格）”溢出说明
-- `web/src/components/OtterProfileCard.test.tsx` — 纯函数测试→@testing-library/react 组件级测试（3 debounce + 4 渲染）
-
-**测试结果**：
-- Web 测试：21 文件 / 172 测试全绿（原 174 → 纯函数 5 测试替换为组件级 3 测试）
-- 后端测试：136 文件 / 1633 测试全绿
-- Build：通过（tsc + vite build）
-- Lint：0 errors，0 warnings（PR-2 遗留 warning 已修）
+- 状态：方案定稿，PR-1/PR-2 已合入 main，PR-3 已拆至独立特性 F20260826ybx6
