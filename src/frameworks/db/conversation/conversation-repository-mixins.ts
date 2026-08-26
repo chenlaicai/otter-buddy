@@ -234,6 +234,14 @@ export function getLastMessageBySender(db: Database.Database, conversationId: st
   return row ? rowToMessage(row) : null;
 }
 
+/** F20260826rsme：指定 senderType 的最新消息（恢复前并发窗口检查用） */
+export function getLastMessageBySenderType(db: Database.Database, conversationId: string, senderType: string): Message | null {
+  const row = db.prepare(
+    `SELECT * FROM messages WHERE conversation_id = ? AND sender_type = ? ORDER BY sequence_num DESC LIMIT 1`,
+  ).get(conversationId, senderType) as MessageRow | undefined;
+  return row ? rowToMessage(row) : null;
+}
+
 /** F20260803trrf: 标记 participant 已离开（dissolve_otter 顺带修，不要求 active turn） */
 export function markParticipantLeft(db: Database.Database, conversationId: string, otterId: string): void {
   db.prepare(
