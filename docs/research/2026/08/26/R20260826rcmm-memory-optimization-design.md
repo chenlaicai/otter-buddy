@@ -31,8 +31,9 @@ conclusion: 优先级翻转——评估基线 > 召回加固 > 提炼；digest �
 
 - **T1**: 建立记忆检索评估基线——真实查询标注 + recall@5/10 + MRR + 失败分类，让后续优化可度量
 - **T2**: 按失败分类定向加固召回管线，每项改动对基线验收
-- **T3**: 用预加载式 digest 增强会话前情摘要质量，替代低质量占位文案（"前情都已完成"）
+- **T3**: 用预加载式 digest 增强会话前情摘要质量，替代当前占位级摘要（实测新对话注入「前情都已完成，现在开始新对话」——平台运行时注入行为，非仓库代码）
 - **T4**: 修复文档状态与实现脱节（F20260811mrpy/F20260812mrcq 已落地但 status 仍 draft）
+- **T5**: 搭档可感知性——前情摘要从占位级升级为可读 digest，记忆优化不再是对搭档的黑盒（R7 溯源行继续保留）
 
 ## 非目标
 
@@ -56,15 +57,16 @@ Phase 2 精益提炼（在不漏的桶里装水）——预加载式 digest
 
 三 Phase 串行，每 Phase 有独立验收，未达标不进入下一 Phase。
 
-### Phase 0 · 评估基线（预计 3 天）
+### Phase 0 · 评估基线（埋点上线 + 7-14 天数据积累 + 标注 2-3 天）
 
 **输入**：近 14 天 search_memory 真实调用（查询 + 返回结果），去重后 50-100 条。
 
-**步骤**：
-1. **查询收集**：从调用日志提取查询文本 + top 结果。日志来源：SQLite 查询 memory_weights / 检索日志表；无现成日志表时，先加最小埋点（见改动范围）
-2. **人工标注**：每条查询标注「理想应召回的条目 ID 集合」——标注人 = 搭档 + 大獭（大獭可依据对话上下文预标，搭档复核）
-3. **指标计算**：recall@5 / recall@10 / MRR
-4. **失败分类**：recall@10 < 1.0 的查询逐条归因——FTS 未匹配 / vec 未命中 / 排序问题 / 暗化条目缺失
+**步骤**（埋点是必经路径而非可选——现状无任何查询日志基建：memory_weights 仅含 retrieval_count/last_retrieved_at/user_flagged 三列（schema.ts:178），不含查询文本，无法回溯真实查询）：
+1. **检索埋点**：新增最小埋点表——查询文本 + top 结果 + **查询发起时的对话上下文（最近 3-5 条消息）**。记录上下文是为了标注者还原查询意图，规避「测的是标注者记忆而非系统召回」的选择偏差（mimo B2）
+2. **数据积累**：埋点上线后等 7-14 天，取真实查询去重后 50-100 条
+3. **双人独立标注**：大獭 + mimo（或 kimi）各自先看上下文推断意图，再标注「理想应召回的条目 ID 集合」；Cohen's Kappa ≥ 0.6 才认可基线，低于 0.6 复核分歧条目对齐标准后重标；搭档只仲裁无法收敛的分歧条目
+4. **指标计算**：recall@5 / recall@10 / MRR
+5. **失败分类**：recall@10 < 1.0 的查询逐条归因——FTS 未匹配 / vec 未命中 / 排序问题 / 暗化条目缺失（允许多标签，主因单选）
 
 **决策规则**（失败分类 → Phase 1 顺序）：
 | 失败主因占比 | 优先动作 |
@@ -74,11 +76,19 @@ Phase 2 精益提炼（在不漏的桶里装水）——预加载式 digest
 | 排序问题 ≥ 40% | SemanticReranker / 权重调优最优先 |
 | 暗化缺失显著 | FTS-vec 一致性对账最优先 |
 
-**风险预案**：若 14 天内查询量不足 30 条，扩展窗口至 30 天或放宽去重粒度；仍不足则说明系统使用模式无需高频检索，Phase 1 降级为只做基础卫生项（对账 + 补扫）。
+**风险预案**：若积累窗口内查询量不足 30 条，扩展窗口至 30 天或放宽去重粒度；仍不足则说明系统使用模式无需高频检索，Phase 1 降级为只做基础卫生项（对账 + 补扫）。
 
 ### Phase 1 · 召回加固（候选池，按分类激活）
 
-候选按激活顺序排列，未命中失败分类的候选不实施：
+候选按「ROI（预期 recall 提升 / 工程工时）× Phase 0 失败分类」双条件激活，未命中失败分类或 ROI 不达标的候选不实施：
+
+| 候选 | 预期 ROI | 工时参考 | 激活条件 |
+|---|---|---|---|
+| 查询改写 | 极高（一段 prompt 解决模糊查询） | 0.5 天 | FTS 未匹配占比高 |
+| 暗化补扫定时任务 | 高（复用 scanDarkEntries + 补 embed） | 1-2 天 | vec 未命中 / 暗化缺失 |
+| FTS 一致性对账 | 中（收益取决于实际不一致率） | 1 天 | 对账实测有差异 |
+| 权重 source 可信度因子 | 中（收益取决于通道间质量差异） | 0.5 天 | 排序问题占比高 |
+| SemanticReranker | 低-中（新组件需评估+调参，收益不确定） | 3-5 天 | 排序问题为主因且轻量项已做 |
 
 1. **查询改写**：对模糊查询（「上次那个方案」「之前讨论的」）做 LLM query expansion 后再入管线。成本一段 prompt；验收 = 该类查询 recall@10 提升
 2. **暗化条目自动补扫**：scanDarkEntries + 补 embedding 做成定时任务（复用 create_scheduled_task 基建）；验收 = vecCoverage ratio → 1.0 且 vec 类失败率下降
@@ -91,7 +101,7 @@ Phase 2 精益提炼（在不漏的桶里装水）——预加载式 digest
 **核心决策：digest 不入检索池，增强既有 DynamicContext 预加载机制。**
 
 论据：
-- 「预加载概览 + 主动检索细节」本就是系统设计哲学（agent-invoker.ts:425 注释 + F20260713c7p2 session 架构）
+- 「预加载概览 + 主动检索细节」本就是系统设计哲学（src/interface-adapters/agent-runtime/agent-invoker.ts:425 注释 + F20260713c7p2 session 架构；sessionSummary 赋值点 :456）
 - digest（coarse 概览）与原始消息（fine 细节）服务不同粒度查询，同池竞争会导致 digest 挤占 top-k（mimo 推演：digest 新生成 time_decay 占优，fine 查询命中它挤掉原始消息）
 - 预加载的代价是 digest 质量常驻污染每次对话 → 验收标准因此更严
 
@@ -99,19 +109,23 @@ Phase 2 精益提炼（在不漏的桶里装水）——预加载式 digest
 - 触发：session 归档事件 → 写「待 dream」记录入队列表（复用 embedding_tasks 的 claimPendingTasks 模式）→ 后台 worker 消化（事件 + 异步队列，非 cron 非同步钩子）
 - 输入：单 session 全部消息（working→historical 转换后）
 - 输出：该 session 的结构化 digest（决策/结论/待办/领域知识点，格式在 Phase 2 设计文档细化）
-- 归属：存 memory_entries 之外的新表 or session 元数据字段（Phase 2 细化，倾向 session 元数据——digest 是 session 的属性而非独立记忆实体）
+- 归属：**独立新表 session_digests（本文档拍板，不留到 Phase 2）**——digest_id / session_id / content / created_at / watermark，session_id 建索引。理由：schema.ts:7 硬约束「所有 CREATE 使用 IF NOT EXISTS，禁止 ALTER TABLE」，sessions 表加列需重建库；独立新表零迁移成本，且天然支持同 session 多版本 digest 与水位追踪。digest 是 session 的派生属性，不入 memory_entries 统一索引表
 
 **增量与预算**：
 - 水位线：只处理上次 dream 时间戳之后的归档
-- 预算上限：单 digest 输入 ≤ 40K token，超限先做消息分段预压缩
-- 新对话预加载最近 N 个 digest（N 由 token 预算反推，初值 3-5）
+- token 成本推算（占位估值，按当前消息密度，Phase 2 复核）：单 session ≈ 100 条消息 × 200 token = 20K input + ~2K 输出 → 单 digest 约 ¥0.03（小模型定价量级）；单用户日均 3-5 session → 月成本 < ¥5，可控
+- 预算上限：单 digest 输入 ≤ 40K token（占位估值），超限先做消息分段预压缩；预加载 ≤ 3K token/对话（占位估值）；N 初值 3-5（按 3 × ~500 token/digest 由预算反推）
+- 预加载窗口按归档时间 LIFO 取最近 N 个。超龄/被挤出窗口的 digest **不是暗数据**：仍存 session_digests 表，经 session 维度路径可达（session 历史 / provenance），只是不进 search_memory 检索池——细节查询永远走原始消息，不依赖 digest
 
 **验收门**（放量前必过）：
-1. 人工抽查 10 条 digest：无幻觉（每个论断可回溯到源消息）、关键决策无遗漏、时序关系正确
+1. 人工抽查 **20 条** digest，幻觉率 ≤ 5%（≤1 条）才放量（10 条抽样的置信区间宽到无决策价值，[0.3%, 45%]）。幻觉定义（从严）：「digest 包含原始对话中不存在的事实性断言」——省略信息属有损压缩不计为幻觉；关键决策遗漏、时序错乱单独记为质量问题
 2. 预加载 token 成本 ≤ 预算（如 3K token/对话）
-3. 抽查通过率 ≥ 8/10 才放量；不达标回炉生成 prompt，连续两轮不达标暂停项目复议
+3. 放量后每周抽检 10 条持续监控，幻觉率 > 5% 触发回查
+4. 不达标回炉生成 prompt，连续两轮不达标暂停项目复议
 
-**回滚**：digest 走 session 元数据时，预加载开关可随时关闭回退到现有占位摘要；原始消息全程不动（append-only）。
+**agent 行为引导**（prompt 层，防「摘要替代检索」）：sessionSummary 是概览，搭档追问具体细节（「具体怎么说的」「原话是什么」）时必须 search_memory 下钻原始消息，不得仅凭摘要回答具体事实。
+
+**回滚**：预加载开关可随时关闭回退到现有 sessionSummary 行为；原始消息全程不动（append-only）。
 
 ### Phase 0+ · 文档状态修复（与 Phase 0 并行，半天）
 
@@ -123,7 +137,8 @@ F20260811mrpy / F20260812mrcq 功能已落地（anchor 短路/context-expand/vec
 |---|---|---|
 | src/usecases/memory/ | Phase 1 各候选的实施点；Phase 0 埋点 | 0/1 |
 | src/usecases/otter/manage-session.ts | Phase 2 归档钩子挂载点（:168 updateLayer 处） | 2 |
-| src/frameworks/agent/session-helpers.ts | DynamicContext 构建预加载 digest | 2 |
+| src/interface-adapters/agent-runtime/agent-invoker.ts | DynamicContext 构建处（buildDynamicContext :426 起，sessionSummary 赋值 :456）——Phase 2 预加载组装点 | 2 |
+| src/frameworks/agent/session-helpers.ts | prompt 组装（:254 会话摘要注入格式） | 2 |
 | src/frameworks/db/schema.ts | Phase 2 队列表/session digest 字段（按归属决策） | 2 |
 | docs/features/ | mrpy/mrcq 状态修复 | 0+ |
 
@@ -145,7 +160,7 @@ F20260811mrpy / F20260812mrcq 功能已落地（anchor 短路/context-expand/vec
 | 取舍 | 决策 | 替代方案 | 理由 |
 |---|---|---|---|
 | 优先级 | 评估→召回→提炼 | 提炼优先（原方案） | 无基线的优化是盲飞；召回债不清单纯加 digest 收益无法度量（kimi 批判 3 + mimo 一致） |
-| digest 归属 | 预加载层（session 元数据倾向） | 入 memory_entries 检索池 | 系统哲学本就是「预加载概览+主动检索细节」；同池竞争挤占 top-k（mimo 分歧 1）；预加载成本可控可关 |
+| digest 归属 | 预加载层 + 独立 session_digests 新表 | 入 memory_entries 检索池 / sessions 表加列 | 系统哲学本就是「预加载概览+主动检索细节」；同池竞争挤占 top-k（mimo 分歧 1）；schema 禁 ALTER（schema.ts:7）使加列=重建库，新表零迁移（kimi B2） |
 | digest 调度 | 事件+异步队列 | cron 定时批量 | 归档事件本就是自然时间点（kimi 批判 4）；避免无差别批量的成本前置；异步避免阻塞归档（mimo 修正） |
 | write_memory | 不做（连别名不做） | 新通道/别名 | 四通道语义清晰是优势；自由通道制造去重债务+检索污染（kimi 批判 1 + mimo 补充）；prompt 层引导既有通道即可 |
 | 提炼范围 | 单 session digest 起步 | 跨对话聚合/insight | 跨对话聚合无验收手段前是空中楼阁（kimi）；insight ROI 最低（mimo）；增量验证后再议 |
@@ -156,7 +171,7 @@ F20260811mrpy / F20260812mrcq 功能已落地（anchor 短路/context-expand/vec
 
 - **Phase 0 验收**：基线报告产出（recall@5/10、MRR、失败分类分布）+ 搭档确认标注质量
 - **Phase 1 验收**：每项候选对基线的量化提升（如查询改写上线后模糊类查询 recall@10 从 X→Y）；未达标项回炉或下架
-- **Phase 2 验收**：抽查门 8/10 通过 + 预算达标 + 关闭开关可回滚验证
+- **Phase 2 验收**：抽查门 20 条幻觉率 ≤5% + 预算达标 + 关闭开关可回滚验证 + 搭档可感知（新对话前情摘要可读性提升，不再注入占位文案）
 - **回归**：Phase 1 每项改动跑既有 memory 检索测试套件；Phase 2 不动检索路径（digest 不入池）天然低风险
 
 ## 改动范围
@@ -166,8 +181,9 @@ F20260811mrpy / F20260812mrcq 功能已落地（anchor 短路/context-expand/vec
 | docs/research/2026/08/R20260826mopt-*.md | 新增 | 本文档 |
 | src/usecases/memory/（具体文件按候选激活定） | 修改 | Phase 1 各候选；Phase 0 最小埋点（如检索日志表） |
 | src/usecases/otter/manage-session.ts | 修改 | Phase 2 归档入队 |
-| src/frameworks/agent/session-helpers.ts | 修改 | Phase 2 预加载组装 |
-| src/frameworks/db/schema.ts | 修改 | Phase 2 队列表/digest 字段 |
+| src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | Phase 2 预加载组装（buildDynamicContext） |
+| src/frameworks/agent/session-helpers.ts | 修改 | Phase 2 摘要注入格式 |
+| src/frameworks/db/schema.ts | 修改 | Phase 2 队列表 + session_digests 新表（CREATE IF NOT EXISTS，遵守 schema.ts:7 禁 ALTER 约束） + Phase 0 埋点表 |
 | docs/features/2026/08/11/F20260811mrpy-*.md, 08/12/F20260812mrcq-*.md | 修改 | status 修复 |
 
 Phase 1/2 的具体文件在各自 Phase 启动时补细案——本文档定方向与验收，不预写实现细节。
