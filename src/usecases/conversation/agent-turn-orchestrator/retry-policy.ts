@@ -48,6 +48,26 @@ export function buildAutoRetryMsg(reason: string): string {
   return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
 }
 
+/**
+ * F20260826rsme：服务重启自动恢复的系统提醒（注入给被恢复的 otter）。
+ * Why: pi session 延迟落盘（首条 assistant 消息后才写文件）可能丢失上下文尾部几步——
+ * 末句引导 otter 主动查阅消息历史，把恢复质量从「依赖 session 记忆」拉到「基于可见证据续写」。
+ */
+export function buildRestartResumeMsg(): string {
+  return '[系统提醒] 服务重启导致你的发言中断，系统已自动恢复。你之前 speak 的内容已保留在本条消息中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。';
+}
+
+/** F20260826rsme：恢复开始前的用户可见系统消息 */
+export function buildRestartResumeSystemMsg(count: number): string {
+  return `[系统] 服务重启导致 ${count} 条发言中断，正在自动恢复。`;
+}
+
+/** F20260826rsme：恢复失败/跳过时的用户可见提示 */
+export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_concurrent"): string {
+  if (reason === "skipped_concurrent") return "[系统] 检测到恢复窗口内有新消息进入，跳过自动恢复，请手动重试该消息。";
+  return "[系统] 服务重启自动恢复失败，请手动重试该消息。";
+}
+
 /** Build abort body: user abort vs guard abort */
 export function buildGuardAbortBody(guardReason: string | undefined): string {
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';
