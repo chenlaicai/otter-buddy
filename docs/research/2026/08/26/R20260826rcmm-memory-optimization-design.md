@@ -31,7 +31,7 @@ conclusion: 优先级翻转——评估基线 > 召回加固 > 提炼；digest �
 
 - **T1**: 建立记忆检索评估基线——真实查询标注 + recall@5/10 + MRR + 失败分类，让后续优化可度量
 - **T2**: 按失败分类定向加固召回管线，每项改动对基线验收
-- **T3**: 用预加载式 digest 增强会话前情摘要质量，替代当前占位级摘要（实测新对话注入「前情都已完成，现在开始新对话」——平台运行时注入行为，非仓库代码）
+- **T3**: 用预加载式 digest 增强会话前情摘要质量，替代当前占位级摘要（实测新对话注入「前情都已完成，现在开始新对话」——实测运行时行为，来源待查，非仓库代码；仓库内正常摘要来源为 handoff 摘要生成（agent-invoker.ts:550）或 restart 参数）
 - **T4**: 修复文档状态与实现脱节（F20260811mrpy/F20260812mrcq 已落地但 status 仍 draft）
 - **T5**: 搭档可感知性——前情摘要从占位级升级为可读 digest，记忆优化不再是对搭档的黑盒（R7 溯源行继续保留）
 
@@ -59,7 +59,7 @@ Phase 2 精益提炼（在不漏的桶里装水）——预加载式 digest
 
 ### Phase 0 · 评估基线（埋点上线 + 7-14 天数据积累 + 标注 2-3 天）
 
-**输入**：近 14 天 search_memory 真实调用（查询 + 返回结果），去重后 50-100 条。
+**输入**：埋点上线后 7-14 天积累的 search_memory 真实调用（查询 + 返回结果 + 对话上下文），去重后 50-100 条。
 
 **步骤**（埋点是必经路径而非可选——现状无任何查询日志基建：memory_weights 仅含 retrieval_count/last_retrieved_at/user_flagged 三列（schema.ts:178），不含查询文本，无法回溯真实查询）：
 1. **检索埋点**：新增最小埋点表——查询文本 + top 结果 + **查询发起时的对话上下文（最近 3-5 条消息）**。记录上下文是为了标注者还原查询意图，规避「测的是标注者记忆而非系统召回」的选择偏差（mimo B2）
@@ -178,7 +178,7 @@ F20260811mrpy / F20260812mrcq 功能已落地（anchor 短路/context-expand/vec
 
 | 文件 | 操作 | 说明 |
 |---|---|---|
-| docs/research/2026/08/R20260826mopt-*.md | 新增 | 本文档 |
+| docs/research/2026/08/26/R20260826rcmm-memory-optimization-design.md | 新增 | 本文档 |
 | src/usecases/memory/（具体文件按候选激活定） | 修改 | Phase 1 各候选；Phase 0 最小埋点（如检索日志表） |
 | src/usecases/otter/manage-session.ts | 修改 | Phase 2 归档入队 |
 | src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | Phase 2 预加载组装（buildDynamicContext） |
