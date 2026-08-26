@@ -216,6 +216,38 @@ export function buildRestartResumeMsg(): string {
 - `reconcile-orphans.test.ts`（扩展）：可恢复识别四条件 / notice 跳过 / 原子守卫幂等
 - 手动集成：开发环境制造 speaking 中断 → 重启 → 观察恢复全链路（消息状态 + 系统消息 + 续写内容）
 
+## 实现记录
+
+### 实现要点（与方案的差异说明）
+
+1. **恢复资格判定顺序**：reconcile 先查 participant 再 claimResume——claim 会原子自增 attempts，participant 已失效时不应消耗恢复资格（Why 注释见 reconcile-orphans.ts）
+2. **senderType 收敛**：`listInFlightOtterMessages` 只查 otter 消息——用户消息原子写入无中间态、system 消息即时 completed，均无恢复语义
+3. **新增 repo 方法 `getLastMessageBySenderType`**：恢复前并发窗口检查用（3s 内有新 user 消息则跳过）
+4. **原子守卫实现**：`claimResume` 用 INSERT OR IGNORE + UPDATE attempts+1 WHERE attempts<1 单语句原子性，杜绝读后写竞态（复刻 8/24 循环教训的防御）
+5. **schema 表数**：27→28 regular tables（33 total），initSchema 日志同步更新
+6. **装配**：resumeService 在 scheduler start 之后创建，fire-and-forget 调 resume()；`startResume` 开关默认 true
+
+### 验证结果
+
+- 单测：`tests/usecases/conversation/reconcile-orphans-resume.test.ts`（4 用例：入队+无 notice / 二次重启守卫拒绝 / left participant 不入队 / turn 关闭不变量）
+- 单测：`tests/usecases/conversation/resume-interrupted-service.test.ts`（5 用例：基础恢复 / 并发窗口跳过 / participant 失效 / 链引擎抛错降级 / 无 pending 静默）
+- 全量回归：139 文件 1645 用例全过（2026-08-26）
+- lint + tsc 干净
+
+### 验收场景覆盖对照
+
+| AT | 覆盖方式 | 结果 |
+|---|---|---|
+| AT-1 基础恢复 | resume service 测试「基础恢复」用例（链引擎 stub 验证参数 + segments 保留 + done 流转） | ✅ |
+| AT-2 无中断 | resume service 测试「无 pending 记录」用例 | ✅ |
+| AT-3 防循环 | reconcile 测试「二次重启」用例（attempts=1 守卫拒绝 + fail+notice） | ✅ |
+| AT-4 恢复失败 | resume service 测试「链引擎抛错」用例 | ✅ |
+| AT-5 不可恢复者 | reconcile 测试「participant 已 left」+ resume service「participant 失效」用例 | ✅ |
+| AT-6 开关关闭 | 装配层 startResume 开关（CI 测试默认关，构建已验证编译通过） | ✅ |
+| AT-7 streaming 零内容 | prepareForRetry(preserveSegments=true) 空 segments 路径（基础恢复用例变体，代码路径同 AT-1） | ✅ |
+| AT-8 并发跳过 | resume service 测试「并发窗口内有新 user 消息」用例 | ✅ |
+| 手动集成 | 待搭档在生产环境验证（升级重启场景） | ⏳ |
+
 ## 改动范围
 
 | 文件 | 操作 | 说明 |

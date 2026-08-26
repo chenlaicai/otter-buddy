@@ -21,6 +21,7 @@ import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
+import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
 import {
@@ -95,6 +96,10 @@ export interface BuildAppOptions {
   startScheduler?: boolean;
   /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startRhiWorker?: boolean;
+  /** F20260826rsme：重启自动恢复启动开关（对齐 startScheduler 模式；测试/CI 可关）。
+   *  只在 resume 层生效，reconcile 侧不联动——reconcile 在 postInitDatabase 调用无 options 上下文，
+   *  且统一入队在测试库中无副作用（记录不触发任何行为），行为开关收敛一处。 */
+  startResume?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
 }
@@ -111,6 +116,7 @@ export interface BuiltApp {
   agentGateway: PiSessionFactory;
   agentInvoker: AgentInvoker;
   schedulerService: SchedulerService;
+  resumeService: ResumeInterruptedService;
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
   /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null） */
@@ -263,10 +269,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     });
   }
 
+  // ── F20260826rsme 重启自动恢复：装配在 agentInvoker 诞生之后（initAgentAndScheduler），闭包捕获无循环依赖 ──
+  const resumeService = new ResumeInterruptedService({
+    conversationRepo: repos.conversation,
+    queryMessage: uc.queryMessage,
+    sendMessage: uc.sendMessage,
+    dispatchChainEngine,
+    invokeFn: (params) => agentInvoker.invokeConversation(params),
+    logger,
+  });
+  if (options.startResume ?? true) {
+    // fire-and-forget：resume 内部自带延迟，不阻塞也不吞启动错误
+    void resumeService.resume().catch((err) => {
+      logger.error(`Failed to resume interrupted messages: ${err}`);
+    });
+  }
+
   let disposed = false;
   return {
     app, db, config, logger, controllers,
-    usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
+    usecases: uc, repos, agentGateway, agentInvoker, schedulerService, resumeService,
     embeddingService, modelPool, retryWorker,
     dispose: async () => {
       if (disposed) return;
