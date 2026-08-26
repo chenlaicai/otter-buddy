@@ -103,8 +103,8 @@ export class ModelRuntimeRegistry {
               // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result
               // （reason 正文）返回 LLM。读 ALS store 拿当前 invoke 的 otterId（fail-open：
               // 读不到 store 时放行，见 haltToolCallGuard 注释）。
-              pi.on("tool_call", (_event: unknown) => {
-                return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry);
+              pi.on("tool_call", (event: { toolName?: string }) => {
+                return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, event.toolName);
               });
               // S1（R20260810piab）：otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
@@ -295,9 +295,14 @@ export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
 export function haltToolCallGuard(
   store: OtterInvokeContext | undefined,
   haltRegistryLike: { takeForBlock(otterId: string): HaltDirective[]; isHalted(otterId: string): boolean },
+  toolName?: string,
 ): { block: true; reason: string } | undefined {
   const otterId = store?.otterId;
   if (!otterId) return undefined;
+  // speak 豁免（检视发现 1 处置）：被 halt 的獭需要 speak 报告进度快照（注入文本义务 2）。
+  // 豁免期间不消费 pending（takeForBlock 不触发）——注入到下一个非 speak 调用边界才发生，
+  // 落账闭环不受影响（首次 block 时 resolve）。speak 无副作用，halt 的目的是停副作用。
+  if (toolName === 'speak') return undefined;
   const directives = haltRegistryLike.takeForBlock(otterId);
   if (directives.length === 0) return undefined;
   const reason = buildHaltBlockReason(directives);

@@ -85,12 +85,30 @@ describe('haltToolCallGuard（ALS 集成）', () => {
   it('ALS scope 内：halt 打标时返回 block + reason', async () => {
     haltRegistry.mark(makeDirective());
     const result = await otterInvokeStorage.run({ otterPromptConfig: undefined, identityPrefix: '', otterId: 'otter-small-1' }, async () => {
-      return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry);
+      return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'bash');
     });
     expect(result?.block).toBe(true);
     expect(result?.reason).toContain('halt 指令');
     expect(result?.reason).toContain('方向理解反了');
     expect(result?.reason).toContain('大獭');
+  });
+
+  it('speak 豁免：被 halt 的獭可用 speak 报告进度快照（检视发现 1）', async () => {
+    haltRegistry.mark(makeDirective());
+    const result = await otterInvokeStorage.run({ otterPromptConfig: undefined, identityPrefix: '', otterId: 'otter-small-1' }, async () => {
+      return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'speak');
+    });
+    expect(result).toBeUndefined();
+    // 豁免期间 pending 未被消费：注入发生在下一个非 speak 调用边界，落账时序不变
+    expect(haltRegistry.peekPending('otter-small-1')).toHaveLength(1);
+  });
+
+  it('豁免后第一个非 speak 调用仍被 block（speak 不解除 halt）', async () => {
+    haltRegistry.mark(makeDirective());
+    await otterInvokeStorage.run({ otterPromptConfig: undefined, identityPrefix: '', otterId: 'otter-small-1' }, async () => {
+      expect(haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'speak')).toBeUndefined();
+      expect(haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'edit')?.block).toBe(true);
+    });
   });
 
   it('ALS store 读不到时 fail-open（放行，不误伤）', () => {
@@ -116,11 +134,12 @@ describe('haltToolCallGuard（ALS 集成）', () => {
 });
 
 describe('buildHaltBlockReason（注入文本）', () => {
-  it('包含行为义务三要素：不重试/报告进度/yield', () => {
+  it('包含行为义务：不重试/报告进度/停止即交回/speak 豁免说明', () => {
     const reason = buildHaltBlockReason([makeDirective()])!;
     expect(reason).toContain('不重试');
     expect(reason).toContain('进度快照');
-    expect(reason).toContain('yield');
+    expect(reason).toContain('停止即完成');
+    expect(reason).toContain('speak 是唯一被豁免');
     expect(reason).toContain('上下文完整保留');
   });
 

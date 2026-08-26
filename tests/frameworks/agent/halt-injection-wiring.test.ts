@@ -26,9 +26,9 @@ async function buildLoader() {
       name: 'otter-hooks',
       hidden: true,
       factory: (pi: any) => {
-        pi.on('tool_call', () => {
+        pi.on('tool_call', (event: { toolName?: string }) => {
           // 与 model-runtime-registry 的 handler 体等价（顶部 import 替代运行时 require）
-          return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry);
+          return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, event.toolName);
         });
       },
     }],
@@ -67,6 +67,26 @@ describe('halt 注入链路（ResourceLoader 装配）', () => {
     );
     expect(result?.block).toBe(true);
     expect(result?.reason).toContain('集成测试停手理由');
+  });
+
+  it('模拟 runner 调用：ALS 内 + halt 打标 + speak 调用 → 放行（报告豁免，检视发现 1）', async () => {
+    const loader = await buildLoader();
+    const ext = (loader.getExtensions() as unknown as { extensions: Array<{ handlers: Map<string, Array<(e: unknown) => unknown>> }> }).extensions
+      .find(e => e.handlers.has('tool_call'))!;
+    const handler = ext.handlers.get('tool_call')![0];
+
+    haltRegistry.mark({
+      id: 'sig-it-3', targetOtterId: 'otter-target', fromOtterId: 'otter-big', fromOtterName: '大獭',
+      conversationId: 'conv-it', reason: '报告豁免验证', issuedAt: new Date().toISOString(),
+    });
+
+    const result = await otterInvokeStorage.run(
+      { otterPromptConfig: undefined, identityPrefix: '', otterId: 'otter-target' },
+      async () => handler({ type: 'tool_call', toolCallId: 'tc3', toolName: 'speak', input: {} }) as Promise<{ block?: boolean; reason?: string }>,
+    );
+    expect(result).toBeUndefined();
+    // 豁免未消费 pending：下一个非 speak 边界才注入
+    expect(haltRegistry.peekPending('otter-target')).toHaveLength(1);
   });
 
   it('模拟 runner 调用：ALS 外 → undefined（fail-open 不误伤）', async () => {

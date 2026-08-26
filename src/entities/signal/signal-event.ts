@@ -24,7 +24,8 @@ export type SignalStatus = 'pending' | 'resolved' | 'dismissed';
  * halt 的状态语义说明：
  * 方案文档 Part 3 规定 halt 事件落账 status=completed——本实现以 'resolved' 表达
  * 「指令已投递、无待裁决事项」（复用现有状态枚举，不为 halt 单造 completed 态，
- * 避免 C2 状态机分叉）。resolvedBy=发起者，resolution=halt 指令摘要。
+ * 避免 C2 状态机分叉）。resolvedBy=system（首次注入回调自动落账，非发起者手动裁决）——
+ * resolution=halt 指令摘要。
  */
 
 /** Signal event 实体 */
