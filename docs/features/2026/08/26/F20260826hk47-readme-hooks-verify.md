@@ -30,7 +30,7 @@ README.md「快速开始 → 安装依赖」章节：
 ## #476 核查结论（前置，非本 PR 改动）
 
 - 主仓及全部 6 个 worktree 的 `core.hooksPath` 已为 `.githooks`（prepare 脚本在 npm install 时自愈）
-- `run/_` 来源排查：仓库代码无引用、其他仓库无污染、shell 历史无记录——一次性污染，无复发机制
+- `run/_` 来源排查：仓库代码无引用、其他仓库无污染、shell 历史无记录——来源未定位，暂按一次性污染处置（8/21、8/24 两次来源不明的 hooksPath 覆盖在案 F20260821kgts，5 天内三次异常，不能断言无复发机制；README 验证步骤即复发兜底）
 - 钩子实测：pre-commit 提交时实际触发、commit-msg 拦截坏消息（exit=1）、放行合规消息（exit=0）
 
 ## 验证 [required]
