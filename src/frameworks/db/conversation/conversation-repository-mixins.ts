@@ -201,7 +201,7 @@ export function getUnreadMessages(
   db: Database.Database,
   conversationId: string,
   otterId: string,
-): Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number }> {
+): Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null }> {
   const participant = db.prepare(`
     SELECT last_read_turn_number FROM conversation_participants
     WHERE conversation_id = ? AND otter_id = ? AND status = 'active'
@@ -209,15 +209,16 @@ export function getUnreadMessages(
 
   if (!participant) return [];
 
-  /** 排除 streaming/speaking 半成品（不应注入其它 otter 上下文，F5） */
+  /** 排除 streaming/speaking 半成品（不应注入其它 otter 上下文，F5）。
+   *  F20260826fuid：携带 sender_name（user 消息的飞书姓名快照，群聊多人识别用） */
   return db.prepare(`
-    SELECT m.id, m.sender_id, m.sender_type, m.sequence_num
+    SELECT m.id, m.sender_id, m.sender_type, m.sequence_num, m.sender_name
     FROM messages m
     JOIN turns t ON m.turn_id = t.id
     WHERE m.conversation_id = ? AND t.turn_number >= ? AND m.sender_id != ?
       AND m.status NOT IN ('streaming', 'speaking')
     ORDER BY m.sequence_num ASC
-  `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number }>;
+  `).all(conversationId, participant.last_read_turn_number, otterId) as Array<{ id: string; sender_id: string; sender_type: string; sequence_num: number; sender_name: string | null }>;
 }
 
 /** F20260803trrf: 按 id 查 turn（不论 status，markBatchRead 在 turn 关闭后反查 turn_number） */

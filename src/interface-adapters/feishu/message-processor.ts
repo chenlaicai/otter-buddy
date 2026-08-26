@@ -2,6 +2,7 @@ import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { CommandDispatcher } from "./command-dispatcher";
 import type { FeishuGateway } from "@usecases/im/feishu-gateway";
+import type { FeishuUserInfoGateway } from "@usecases/im/feishu-user-info-gateway";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
@@ -20,6 +21,8 @@ export class FeishuMessageProcessor {
       sendMessage: SendMessage;
       commandDispatcher: CommandDispatcher;
       feishuGateway: FeishuGateway;
+      /** F20260826fuid：可选注入。未注入或解析失败时 senderName 快照为空，不影响主链路 */
+      feishuUserInfo?: FeishuUserInfoGateway;
       agentDispatchService: AgentDispatchService;
       messageBroadcaster: MessageBroadcaster;
       logger: Logger;
@@ -53,7 +56,8 @@ export class FeishuMessageProcessor {
       return;
     }
 
-    // 存消息
+    // 存消息（F20260826fuid：飞书消息带 senderDisplayName 快照，群聊多人可识别）
+    const senderDisplayName = await this.resolveSenderName(senderId);
     const { message, mentionFeedback } = await this.deps.sendMessage.send({
       conversationId: conversation.id,
       senderId,
@@ -61,6 +65,7 @@ export class FeishuMessageProcessor {
       talkingStonePassedTo: [],
       body: text,
       source: "feishu",
+      senderDisplayName,
     });
 
     this.deps.logger.info("Message saved to conversation", {
@@ -88,6 +93,16 @@ export class FeishuMessageProcessor {
 
     // 异步触发 Agent 派发
     this.triggerAgentDispatch(conversation.id, text, senderId);
+  }
+
+  /** F20260826fuid：open_id → 姓名。网关未注入/解析失败返回 null，永不阻塞消息入库 */
+  private async resolveSenderName(senderId: string): Promise<string | null> {
+    if (!this.deps.feishuUserInfo) return null;
+    try {
+      return await this.deps.feishuUserInfo.getUserName(senderId);
+    } catch {
+      return null;
+    }
   }
 
   private triggerAgentDispatch(
