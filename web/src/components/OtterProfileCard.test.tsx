@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, fireEvent, cleanup } from '@testing-library/react'
 import { OtterProfileCard } from './OtterProfileCard'
-import type { LocalOtter, LocalOtterSession } from '../lib/mappers'
+import type { LocalOtter, LocalOtterSession, LocalConversation } from '../lib/mappers'
 
 function makeOtter(overrides: Partial<LocalOtter> = {}): LocalOtter {
   return {
@@ -25,6 +25,17 @@ function makeSession(overrides: Partial<LocalOtterSession> = {}): LocalOtterSess
     archiveReason: null,
     isNegativeCase: false,
     summary: null,
+    ...overrides,
+  }
+}
+
+function makeConversation(overrides: Partial<LocalConversation> = {}): LocalConversation {
+  return {
+    id: 'conv-test',
+    title: '测试对话',
+    status: 'active',
+    pinned: false,
+    otterIds: ['o-test'],
     ...overrides,
   }
 }
@@ -87,6 +98,7 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
   function renderPanel() {
     return render(
       <RightPanel
+        conversation={makeConversation()}
         otters={[makeOtter()]}
         sessions={{ 'o-test': [makeSession()] }}
         linkedResources={[]}
@@ -170,5 +182,22 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
     // 再等 200ms（第二次进入后 400ms）→ 应出现
     act(() => { vi.advanceTimersByTime(200) })
     expect(container.textContent).toContain('Lv.')
+  })
+
+  it('停留精确 400ms 触发一次且不重复触发', async () => {
+    const { container } = renderPanel()
+    const card = container.querySelector('.relative')!
+
+    await act(async () => {
+      fireEvent.mouseEnter(card)
+    })
+
+    // 精确 400ms → 触发
+    act(() => { vi.advanceTimersByTime(400) })
+    expect(container.textContent).toContain('Lv.')
+
+    // 再推进 400ms → 不应重复触发（setTimeout 一次性）
+    act(() => { vi.advanceTimersByTime(400) })
+    expect(container.textContent).toContain('Lv.') // 仍在（只有一个定时器）
   })
 })
