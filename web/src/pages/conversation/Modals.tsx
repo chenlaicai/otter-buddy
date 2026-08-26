@@ -53,7 +53,7 @@ export function ConversationModals(props: ModalsProps) {
       {modal.type === 'create-otter' && <CreateOtterModal {...props} />}
       {modal.type === 'dissolve' && <DissolveModal {...props} />}
       {modal.type === 'restart' && <RestartModal {...props} />}
-      {modal.type === 'otter-detail' && <OtterDetailModal {...props} />}
+      {modal.type === 'otter-detail' && modal.otterId && <OtterDetailModal key={modal.otterId} {...props} />}
       {modal.type === 'link-resource' && <LinkResourceModal {...props} />}
     </>
   )
@@ -369,7 +369,7 @@ function OtterDetailModal(props: ModalsProps) {
       isOpen
       onClose={props.onClose}
       title="海獭面板"
-      width="580px"
+      width="min(580px, 92vw)"
       fullScreenOnMobile
       footer={
         <>

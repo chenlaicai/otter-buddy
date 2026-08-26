@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
@@ -187,11 +188,18 @@ function OtterParticipantCard({
   const activeGen = activeS ? sortSessionChain(sessions).indexOf(activeS) + 1 : 0
   const [hovering, setHovering] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  /** F20260826pfix：trigger rect 快照，hover 展开时供 portal 定位 */
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
 
-  // Why: 400ms 延迟 + useRef 手写 debounce —— 快速滑过不触发，停留才弹出
+  // Why: 400ms 延迟 + useRef 手写 debounce —— 快速滑过不触发，停留才弹出；
+  // 弹出前抓取 row rect 快照供 portal 定位
   const handleMouseEnter = useCallback(() => {
     if (isTouchDevice()) return
-    hoverTimer.current = setTimeout(() => setHovering(true), 400)
+    hoverTimer.current = setTimeout(() => {
+      if (rowRef.current) setTriggerRect(rowRef.current.getBoundingClientRect())
+      setHovering(true)
+    }, 400)
   }, [])
   const handleMouseLeave = useCallback(() => {
     clearTimeout(hoverTimer.current)
@@ -202,6 +210,7 @@ function OtterParticipantCard({
 
   return (
     <div
+      ref={rowRef}
       className="relative"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -246,11 +255,21 @@ function OtterParticipantCard({
           </button>
         )}
       </div>
-      {/* hover 快览卡：向左弹出（右栏贴屏幕右缘），overflow hidden 防底部溢出 */}
-      {hovering && (
-        <div className="absolute right-full bottom-0 mr-2 z-50">
+      {/* hover 快览卡：F20260826pfix 改 Portal + fixed 按 trigger 坐标定位。
+       *  Why: 原 absolute right-full bottom-0 在 aside overflow-y-auto 内，列表长时
+       *  （卡片滚到 panel 底部）快览卡向上延伸被 panel 顶缘剪裁/视觉贴屏顶。
+       *  Portal 脱离 aside 的 overflow 上下文，坐标按 trigger rect 实时计算并 clamp。 */}
+      {hovering && triggerRect && createPortal(
+        <div
+          className="fixed z-50"
+          style={{
+            left: Math.max(8, Math.min(triggerRect.left - 292, window.innerWidth - 300)),
+            top: Math.min(triggerRect.top, window.innerHeight - 220),
+          }}
+        >
           <OtterProfileCard otter={o} sessions={sessions} modelAlias={o.modelAlias} />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
