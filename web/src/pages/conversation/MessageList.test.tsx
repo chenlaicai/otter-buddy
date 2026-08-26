@@ -146,6 +146,14 @@ describe('F20260826fpbd user 消息发送者名回退（Web/飞书同步）', ()
     expect(userNameSpan()?.textContent).toBe('飞书成员')
   })
 
+  it('未知渠道（src 非 web/feishu）无快照 → 「外部成员」兑底（运行时防御未来渠道）', () => {
+    // 类型层 src 暂为窄联合；后端 DTO src 为宽松 string，未来新增渠道时此分支兜底
+    const future: LocalMessage = msg({ st: 'user', si: 'ding_user', sn: undefined, src: 'feishu' })
+    ;(future as { src?: string }).src = 'dingtalk'
+    renderWithUser(future, 'chen')
+    expect(userNameSpan()?.textContent).toBe('外部成员')
+  })
+
   it('Web 本地 user 消息（无 src）无快照 → 回退全局名（chen，单聊不变）', () => {
     renderWithUser(msg({ st: 'user', si: 'user', sn: undefined }), 'chen')
     expect(userNameSpan()?.textContent).toBe('chen')
