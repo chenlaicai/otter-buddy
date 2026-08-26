@@ -12,6 +12,7 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
+import { createStockDataTool } from "./stock-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
@@ -771,5 +772,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   if (manageScheduledTask) {
     tools.push(createCreateScheduledTaskTool(ctx, manageScheduledTask));
   }
+  // stock_data: 无外部依赖，直接注册
+  tools.push(createStockDataTool(ctx));
   return tools;
 }

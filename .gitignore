@@ -85,3 +85,9 @@ models/
 
 # Golden 场景结果沉淀（本地数据，非 git 追踪）
 tests/capability/golden/results.jsonl
+
+# Python venv (stock-cli)
+.venv-stock/
+
+# stock-cli cache
+.cache/stock/
