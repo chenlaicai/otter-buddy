@@ -380,12 +380,15 @@ body.modal-open .stream-shimmer::after { animation: none; }
   .modal-fs-mobile {
     width: 100vw;
     height: 100dvh;
-    max-height: 100dvh;
+    /* F20260826pfix 审视发现1：!important 压过 inline style 的 80vh 兑底。
+       Modal.tsx 现在桌面上限恒给 80vh（修展开无滚动 bug），
+       但 inline 优先级高于 class，窄屏全屏 100dvh 必须用 !important 才能生效 */
+    max-height: 100dvh !important;
     margin: 0;
     border-radius: 0;
   }
   .modal-fs-mobile .modal-fs-content {
-    max-height: calc(100dvh - 104px);
+    max-height: calc(100dvh - 104px) !important;
   }
   /* iOS 安全区：footer 危险按钮不被系统手势遮挡 */
   .modal-fs-mobile .modal-fs-footer {

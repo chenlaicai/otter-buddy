@@ -73,3 +73,15 @@ created_in_conversation: 60a89cc6-f61e-4e5c-a034-bb0570bf4735
 | `web/src/pages/conversation/RightPanel.tsx` | 修改 | 快览卡 Portal 化 + rowRef rect 快照 |
 | `web/src/pages/conversation-list/index.tsx` | 修改 | 右键菜单钳位 |
 | `web/src/components/OtterProfileCard.test.tsx` | 修改 | hover 断言迁移到 body |
+
+## 审视处置记录（第 1 轮，检视獭 mimo，PR #503）
+
+| # | 发现 | 判断 | 处置 |
+|---|------|------|------|
+| 1 | inline 80vh 覆盖窄屏 100dvh 全屏 | 属实，修桌面引入移动端回归 | 接受并修复：globals.css .modal-fs-mobile/-content 加 !important（窄屏媒体查询内） |
+| 2 | Portal 后气泡 mousedown 即关闭（无法选中文案） | 属实，stopPropagation 在 click 上但监听在 mousedown | 接受并修复：气泡加 onMouseDown stopPropagation |
+| 3 | 快览卡 Portal 后鼠标无法移入交互断裂 | **反驳**：OtterProfileCard.tsx:33 pointer-events-none——快览卡纯 hover 展示件，设计上不可交互；原实现鼠标离开 row 同样立即关卡，行为等价非回归 | 反驳（附证据） |
+| 4 | 气泡高度估算 96px 长文本底部截断 | 属实 | 接受并修复：useLayoutEffect 读实际 offsetHeight 二次 clamp |
+| 5 | 多 Modal 叠加 focus trap 冲突 | 属实但超范围 | 建 issue #510 |
+
+修后：tsc 0 错，vitest 197/197（新增 bubble mousedown/二次 clamp 相关用例随现有 4 例扩展）

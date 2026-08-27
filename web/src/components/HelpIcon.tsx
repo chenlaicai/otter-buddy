@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { HelpCircle } from 'lucide-react'
 
@@ -27,7 +27,9 @@ export function HelpIcon({ text }: { text: string }) {
     return () => document.removeEventListener('mousedown', handleOutside)
   }, [open])
 
-  /** 打开时计算气泡位置：按钮上方居中，视口四边 clamp（含安全边距 8px） */
+  /** 打开时计算气泡位置：按钮上方居中，视口四边 clamp（含安全边距 8px）。
+   *  F20260826pfix 审视发现4：高度不用估算值——首帧渲染后 useLayoutEffect
+   *  读实际 offsetHeight 二次 clamp，长文本气泡底部不会被视口截断 */
   useEffect(() => {
     if (!open || !ref.current) return
     const rect = ref.current.getBoundingClientRect()
@@ -37,12 +39,25 @@ export function HelpIcon({ text }: { text: string }) {
       Math.max(rect.left + rect.width / 2 - BUBBLE_W / 2, MARGIN),
       window.innerWidth - BUBBLE_W - MARGIN,
     )
-    // 默认按钮上方（mb-2 语义保留为 8px 间距）；顶部放不下时翻到下方
+    // 默认按钮上方；顶部放不下时翻到下方
     const above = rect.top - 8
-    const BUBBLE_EST_H = 96
-    const top = above - BUBBLE_EST_H < MARGIN ? rect.bottom + 8 : above
+    const top = above < MARGIN ? rect.bottom + 8 : above
     setPos({ left, top })
   }, [open])
+
+  const bubbleRef = useRef<HTMLDivElement>(null)
+  /** 二次 clamp：按实际高度修正（首帧已渲染但未 paint，视觉无跳动） */
+  useLayoutEffect(() => {
+    if (!open || !pos || !bubbleRef.current) return
+    const h = bubbleRef.current.offsetHeight
+    const MARGIN = 8
+    setPos(p => {
+      if (!p) return p
+      return p.top + h > window.innerHeight - MARGIN
+        ? { left: p.left, top: Math.max(MARGIN, window.innerHeight - h - MARGIN) }
+        : p
+    })
+  }, [open, pos])
 
   const bubbleId = ref.current ? `help-${ref.current.dataset.hid ?? (ref.current.dataset.hid = Math.random().toString(36).slice(2, 8))}` : undefined
 
@@ -60,10 +75,14 @@ export function HelpIcon({ text }: { text: string }) {
       </button>
       {open && pos && createPortal(
         <div
+          ref={bubbleRef}
           id={bubbleId}
           role="tooltip"
           className="fixed w-60 glass-overlay rounded-xl p-3 text-xs text-stone-600 leading-relaxed z-[120] shadow-bubble"
           style={{ left: pos.left, top: pos.top }}
+          /* 审视发现2：Portal 后气泡不在 ref 子树内，mousedown 必须在气泡上阻止冒泡，
+             否则 document 级 handleOutside 先于 click 关闭气泡——用户无法选中复制文案 */
+          onMouseDown={e => e.stopPropagation()}
           onClick={e => e.stopPropagation()}
         >
           {text}
