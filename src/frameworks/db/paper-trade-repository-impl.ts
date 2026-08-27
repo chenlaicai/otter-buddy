@@ -175,15 +175,27 @@ export class PaperTradeRepositoryImpl implements PaperTradeRepository {
 
   /**
    * 过期扫描：pending 超过 5 个交易日的订单 → expired
-   * 使用 trading_calendar 计算从 created_at 到 tradeDate 之间的交易日数
+   * N4' 修复：使用 trading_calendar 计算真实交易日数（替代 7 自然日近似）
+   *
+   * SQL 语义：从 created_at 下一个交易日到 tradeDate（含），交易日数 >= 6
+   *   = 订单有 5 次撮合机会（T1..T5）后，第 6 次机会时 expired
+   *
+   * 国庆/春节场景验证：
+   *   9-30 下单 → 10-9 首次撮合（count=1）→ 不过期 ✓
+   *   正常场景：8-19 下单 → 8-26 第 5 次机会（count=5）→ 不过期 ✓
+   *   恰好第 6 个交易日：count=6 → expired ✓
    */
   async expireOldPendingOrders(accountId: string, tradeDate: string): Promise<number> {
-    // 查找所有 pending 订单中，created_at 所在日期距 tradeDate 超过 5 个自然日的
-    // （5 个自然日 ≈ 3-4 个交易日，作为保守估计的下界）
     const result = this.db.prepare(`
-      UPDATE paper_orders SET status = 'expired', reject_reason = 'expired_5_trading_days'
+      UPDATE paper_orders SET status = 'expired',
+        reject_reason = 'expired_5_trading_days'
       WHERE account_id = ? AND status = 'pending'
-        AND julianday(?) - julianday(date(created_at)) >= 7
+        AND (
+          SELECT COUNT(*) FROM trading_calendar
+          WHERE is_trading_day = 1
+            AND date > date(paper_orders.created_at)
+            AND date <= ?
+        ) >= 6
     `).run(accountId, tradeDate);
     return result.changes;
   }

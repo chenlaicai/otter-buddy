@@ -6,8 +6,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve } from "node:path";
+import { resolvePython } from "@frameworks/stock/python";
 import type { StockQuoteGateway, DailyQuote } from "@usecases/paper-trading/stock-quote-gateway";
 
 /** stock-cli.py 相对仓库根的路径 */
@@ -16,19 +16,23 @@ const STOCK_CLI_REL = "scripts/stock-cli.py";
 /** 默认超时 60 秒 */
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-/**
- * 探测 Python 解释器路径。
- * 优先级：STOCK_PYTHON 环境变量 > <repo>/.venv-stock/bin/python > 系统 python3
- */
-function resolvePython(repoRoot: string): string {
-  const envPython = process.env.STOCK_PYTHON;
-  if (envPython && existsSync(envPython)) return envPython;
-  const venvPython = join(repoRoot, ".venv-stock", "bin", "python");
-  if (existsSync(venvPython)) return venvPython;
-  return "python3";
+/** 最大重试次数（东财接口不稳定，章鱼实测 3 连 2 败） */
+const MAX_RETRIES = 2;
+
+/** 重试退避间隔（ms） */
+const RETRY_DELAY_MS = 1_000;
+
+/** 延迟 ms */
+function delay(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
 }
 
-/** 执行 stock-cli.py kline 命令 */
+/**
+ * 执行 stock-cli.py kline 命令（带重试）
+ *
+ * N3 修复：东财接口不稳定（章鱼实测 3 连 2 败），加 2 次退避重试。
+ * 重试间隔 1s/2s（指数退避）。
+ */
 async function executeKline(
   repoRoot: string,
   code: string,
@@ -40,36 +44,45 @@ async function executeKline(
   // --raw 返回完整记录列表；adjust="" 不复权
   const fullArgs = [scriptPath, "kline", code, "--days", String(days), "--adjust", "", "--raw"];
 
-  return new Promise((res) => {
-    const proc = spawn(pythonPath, fullArgs, {
-      cwd: repoRoot,
-      timeout: timeoutMs,
-      shell: false, // 参数数组传递不经 shell，防注入
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await delay(RETRY_DELAY_MS * attempt); // 1s, 2s
+    }
 
-    let stdout = "";
-    let _stderr = "";
-    proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    proc.stderr.on("data", (chunk: Buffer) => { _stderr += chunk.toString(); });
-    proc.on("close", (code_) => {
-      if (code_ !== 0) {
-        // 执行失败返回 null
-        res(null);
-        return;
-      }
-      try {
-        const parsed = JSON.parse(stdout.trim()) as { error?: string; data?: Record<string, unknown>[] };
-        if (parsed.error || !parsed.data) {
+    const result = await new Promise<Record<string, unknown>[] | null>((res) => {
+      const proc = spawn(pythonPath, fullArgs, {
+        cwd: repoRoot,
+        timeout: timeoutMs,
+        shell: false, // 参数数组传递不经 shell，防注入
+      });
+
+      let stdout = "";
+      let _stderr = "";
+      proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+      proc.stderr.on("data", (chunk: Buffer) => { _stderr += chunk.toString(); });
+      proc.on("close", (code_) => {
+        if (code_ !== 0) {
           res(null);
           return;
         }
-        res(parsed.data);
-      } catch {
-        res(null);
-      }
+        try {
+          const parsed = JSON.parse(stdout.trim()) as { error?: string; data?: Record<string, unknown>[] };
+          if (parsed.error || !parsed.data) {
+            res(null);
+            return;
+          }
+          res(parsed.data);
+        } catch {
+          res(null);
+        }
+      });
+      proc.on("error", () => res(null));
     });
-    proc.on("error", () => res(null));
-  });
+
+    if (result) return result;
+  }
+
+  return null; // 全部重试失败
 }
 
 /** 从 kline 记录中提取 DailyQuote */

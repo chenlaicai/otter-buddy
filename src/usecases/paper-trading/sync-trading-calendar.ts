@@ -16,6 +16,8 @@ const STOCK_CLI_REL = "scripts/stock-cli.py";
 /**
  * 探测 Python 解释器路径。
  * 优先级：STOCK_PYTHON 环境变量 > <repo>/.venv-stock/bin/python > 系统 python3
+ * N3 注意：此函数与 stock-quote-gateway-impl.ts 中的实现完全一致，
+ * 单边修改时需同步另一处。原因：usecases 层不能导入 frameworks 层。
  */
 function resolvePython(repoRoot: string): string {
   const envPython = process.env.STOCK_PYTHON;
@@ -95,7 +97,11 @@ function generateFallbackCalendar(year: number): Array<{ date: string; isTrading
 
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     const day = d.getDay();
-    const dateStr = d.toISOString().split('T')[0];
+    // N1 修复：用本地时区组件拼接，禁用 toISOString()（UTC 导致 +8 时区偏移一天）
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${dd}`;
     // 周一到周五 + 不在节假日中 = 交易日
     const isTradingDay = day >= 1 && day <= 5 && !holidays.has(dateStr);
     entries.push({ date: dateStr, isTradingDay });
