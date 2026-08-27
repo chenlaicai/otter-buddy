@@ -44,7 +44,7 @@ export class CircuitBreakSupport {
   }) {}
 
   /**
-   * F20260827helf: healing_repo 健康探针——启动时调用一次，验证 DB 可达且表存在且列完整。
+   * F20260827he2f: healing_repo 健康探针——启动时调用一次，验证 DB 可达且表存在且列完整。
    * 失败仅 warn（不阻塞启动），但日志可作为「healing_events 写入盲区」的诊断入口。
    * Why: issue #508——熔断重启已发生但事件未落库，健康检查链路对此失明。
    * 根因是 healingRepo.create() 抛错被静默吞掉，无可观测信号。
@@ -129,7 +129,7 @@ export class CircuitBreakSupport {
         resolvedAt: null,
       });
     } catch (err) {
-      // F20260827helf: 记录完整上下文，让健康检查链路可观测
+      // F20260827he2f: 记录完整上下文，让健康检查链路可观测
       this.deps.logger.error('healing_event write FAILED — circuit breaker data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         {
@@ -180,7 +180,7 @@ export class CircuitBreakSupport {
      * 二级预检的 startedAt 过滤兜底防循环（重启前的退化事件不属于新 session 生命周期）。
      */
     await this.writeCircuitBreakEvent(info, { newSessionId: session.id, trigger: 'primary' }).catch(err => {
-      // F20260827helf: error 级别 + 完整上下文——让健康检查链路可观测
+      // F20260827he2f: error 级别 + 完整上下文——让健康检查链路可观测
       this.deps.logger.error('circuit_break event write failed after successful restart — healing_events data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         {
@@ -225,7 +225,7 @@ export class CircuitBreakSupport {
         { otterId, conversationId, failedMessageId: inWindow.firstMessageId },
         { newSessionId: newSession.id, trigger: 'secondary' },
       ).catch(err => {
-        // F20260827helf: error 级别 + 完整上下文
+        // F20260827he2f: error 级别 + 完整上下文
         this.deps.logger.error('circuit_break event write failed after secondary restart — healing_events data source degraded',
           err instanceof Error ? err : new Error(String(err)),
           {
@@ -328,7 +328,7 @@ export class CircuitBreakSupport {
         context: { newSessionId },
       });
     } catch (err) {
-      // F20260827helf: error 级别 + 完整上下文
+      // F20260827he2f: error 级别 + 完整上下文
       this.deps.logger.error('self_restart event write failed — healing_events data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         {

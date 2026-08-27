@@ -575,7 +575,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
-  /** F20260827helf：healing_repo 健康探针——外部健康检查可调用，验证熔断事件落库能力 */
+  /** F20260827he2f：healing_repo 健康探针——外部健康检查可调用，验证熔断事件落库能力 */
   async probeHealingRepo(): Promise<boolean> {
     return this.circuitBreak ? this.circuitBreak.probeHealingRepo() : false;
   }

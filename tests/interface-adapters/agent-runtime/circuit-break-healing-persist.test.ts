@@ -1,5 +1,5 @@
 /**
- * F20260827helf：healing_events 熔断落库集成测试
+ * F20260827he2f：healing_events 熔断落库集成测试
  *
  * Why: issue #508——熔断重启已发生但 healing events 未落库，健康检查链路对此失明。
  * 本测试用真实 SQLite（非 mock）验证：
@@ -47,7 +47,7 @@ function createCircuitBreakSupport(db: Database.Database) {
   };
 }
 
-describe("F20260827helf: healing_events 熔断落库集成（真实 SQLite）", () => {
+describe("F20260827he2f: healing_events 熔断落库集成（真实 SQLite）", () => {
   let db: Database.Database;
 
   beforeEach(() => { db = createTestDb(); });

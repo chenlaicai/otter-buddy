@@ -36,7 +36,20 @@ issue #508：8-26 02:33 熔断重启已发生（对话 3241317b seq 241/242）�
 
 ### 根因分析
 
-healing_events 写入链路有两层静默吞错：
+**底层根因（珊瑚 delta 复核实锤）：**
+
+PR #386（F20260824ax376）引入 `introduced_by_pr` 列的 ALTER TABLE 迁移，写在 `createHealingEventTables()` 中，
+而该函数只被 `initSchema` 调用、`initSchema` 只在 `isNewDb` 时执行——**存量库永远跑不到这段迁移**。
+
+生产库 `data/otter-buddy.db` 的 `healing_events` 表只有 13 列、无 `introduced_by_pr`，
+而 `sqlite-healing-event-repository.ts` 的 INSERT 列清单包含该列 → 8-24 起每次写入 100% 抛「no such column」，
+与 probe、日志、DB 可达性全无关。
+
+修复路径：把 ALTER 移入 `migrateDatabase`（幂等 PRAGMA 模式，与 session_file 等历史补丁列一致）。
+
+**表层断点（三层静默吞错）：**
+
+healing_events 写入链路有三层静默吞错：
 
 **断点 1（orchestrator.ts `recordDegenerateHealingEvent`）：**
 degenerate guard 触发时调用 `callbacks.recordHealingEvent()`，若 `healingRepo.create()` 抛错，

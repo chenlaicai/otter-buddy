@@ -332,7 +332,7 @@ export class AgentTurnOrchestrator {
         context: { retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
       });
     } catch (err) {
-      // F20260827helf: error 级别 + 完整上下文——让健康检查链路可观测
+      // F20260827he2f: error 级别 + 完整上下文——让健康检查链路可观测
       // 原 warn 级别在生产日志中容易被淹没，健康检查对此失明
       ctx.callbacks.logger.error('degenerate healing_event write FAILED — circuit breaker data source degraded',
         err instanceof Error ? err : new Error(String(err)),
