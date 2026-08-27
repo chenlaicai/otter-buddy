@@ -7,6 +7,7 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
 import type { CreateOtterInput } from "@usecases/otter/create-otter";
 import type { Logger } from "@usecases/ports/logger";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { handleError, param } from "../http-error";
 import { toOtterDTO, toOtterSessionDTO } from "../dto/otter-dto";
@@ -24,6 +25,9 @@ export class OtterController {
     private readonly configProvider?: OtterConfigProvider,
     /** 可选：profile 聚合端点（PR-2） */
     private readonly queryOtterProfile?: QueryOtterProfile,
+    /** F20260827ucrt：可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
+     *  可选注入保持测试兼容；大獭工具链不走此 controller，不受影响 */
+    private readonly modelPool?: ModelPoolLike,
   ) {}
 
   async getById(c: Context): Promise<Response> {
@@ -42,11 +46,25 @@ export class OtterController {
   async create(c: Context): Promise<Response> {
     try {
       const body = await c.req.json<CreateOtterRequestDTO>();
+
+      /** F20260827ucrt T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
+       *  未注入 modelPool 时跳过校验（测试/降级场景），usecase 层缺省走默认模型 */
+      if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
+        const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
+        throw new DomainError(
+          `[错误] 未知的模型别名「${body.modelAlias}」。可用模型：${available}`,
+          "validation",
+        );
+      }
+
+      /** F20260827ucrt T4：血缘诚实化——不再透传 body.parentOtterId。
+       *  UI 创建的小獭没有獭召唤者（召唤者是人类用户），血缘如实落 null（usecase 既有 ?? null 逻辑），
+       *  与大獭工具链的「系统注入真实召唤者」（tool-factory.ts，不经此 controller）对齐 */
       const input: CreateOtterInput = {
         name: body.name,
         type: body.type,
         role: body.role,
-        parentOtterId: body.parentOtterId,
+        modelAlias: body.modelAlias,
         systemPrompt: body.systemPrompt,
         context: body.context,
       };

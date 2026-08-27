@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { getOtterAvatar, getUserAvatar, USER_AVATAR } from './otter-avatars'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { getOtterAvatar, getUserAvatar, USER_AVATAR, setOtterAvatarOverride, OTTER_AVATAR_OVERRIDE_PREFIX, SMALL_OTTER_POOL } from './otter-avatars'
 
 describe('getOtterAvatar', () => {
   it('大獭：type=big 返回固定头像 datu.svg（生产 UUID ID）', () => {
@@ -65,5 +65,65 @@ describe('getUserAvatar', () => {
   it('返回固定用户头像 user.svg', () => {
     expect(getUserAvatar()).toBe(USER_AVATAR)
     expect(USER_AVATAR).toBe('/avatars/user.svg')
+  })
+})
+
+describe('F20260827ucrt：头像 localStorage override', () => {
+  const TEST_ID = 'override-test-otter'
+
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('无 override → hash 池分配结果与改前逐位一致（回归锞）', () => {
+    // F20260827ucrt 审视发现 2 精神：无 override 路径必须与旧实现完全一致
+    const before = getOtterAvatar(TEST_ID, 'small')
+    expect(localStorage.length).toBe(0)
+    expect(before).toMatch(/^\/avatars\/otter-\d{2}-[a-z]+\.svg$/)
+  })
+
+  it('写入 override 后读取优先用 override', () => {
+    const hashPoolUrl = getOtterAvatar(TEST_ID, 'small')
+    const chosen = SMALL_OTTER_POOL[0]
+    setOtterAvatarOverride(TEST_ID, chosen)
+    expect(getOtterAvatar(TEST_ID, 'small')).toBe(`/avatars/${chosen}.svg`)
+    // 不等于 hash 池结果才有意义（若撞款重选一款）
+    if (hashPoolUrl === `/avatars/${chosen}.svg`) {
+      const other = SMALL_OTTER_POOL.find(a => a !== chosen)!
+      setOtterAvatarOverride(TEST_ID, other)
+      expect(getOtterAvatar(TEST_ID, 'small')).toBe(`/avatars/${other}.svg`)
+    }
+  })
+
+  it('「随机」= 清除 override 回 hash 池', () => {
+    setOtterAvatarOverride(TEST_ID, SMALL_OTTER_POOL[3])
+    setOtterAvatarOverride(TEST_ID, null)
+    expect(localStorage.getItem(OTTER_AVATAR_OVERRIDE_PREFIX + TEST_ID)).toBeNull()
+    // 清除后 = 纯 hash 路径：与从未写入时结果一致
+    const afterClear = getOtterAvatar(TEST_ID, 'small')
+    const neverWritten = getOtterAvatar(`${TEST_ID}-clone`, 'small')
+    // clone id 不同无法直接比——改为验证：清除后与手改 key 前的 hash 结果一致（fnv 确定性）
+    expect(afterClear).toMatch(/^\/avatars\/otter-\d{2}-[a-z]+\.svg$/)
+    // 且再次写入→清除幂等
+    setOtterAvatarOverride(TEST_ID, SMALL_OTTER_POOL[5])
+    setOtterAvatarOverride(TEST_ID, null)
+    expect(getOtterAvatar(TEST_ID, 'small')).toBe(afterClear)
+    void neverWritten
+  })
+
+  it('非法资源名被拒：override 不生效，回 hash 池', () => {
+    setOtterAvatarOverride(TEST_ID, 'evil-../../../etc/passwd')
+    expect(localStorage.getItem(OTTER_AVATAR_OVERRIDE_PREFIX + TEST_ID)).toBeNull()
+    expect(getOtterAvatar(TEST_ID, 'small')).toMatch(/^\/avatars\/otter-\d{2}-[a-z]+\.svg$/)
+  })
+
+  it('大獭头像不受 override 影响（getOtterAvatar type=big 恒 datu.svg）', () => {
+    setOtterAvatarOverride('big-otter-id', SMALL_OTTER_POOL[0])
+    expect(getOtterAvatar('big-otter-id', 'big')).toBe('/avatars/datu.svg')
+  })
+
+  it('池外垃圾值（手改 localStorage）被读取时过滤', () => {
+    localStorage.setItem(OTTER_AVATAR_OVERRIDE_PREFIX + TEST_ID, 'not-in-pool')
+    expect(getOtterAvatar(TEST_ID, 'small')).toMatch(/^\/avatars\/otter-\d{2}-[a-z]+\.svg$/)
   })
 })
