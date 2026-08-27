@@ -20,6 +20,19 @@ export interface MemoryEntryInput {
   metadata?: Record<string, unknown>;
 }
 
+/** #509: 污染判定的 trim 阈值（<10 字符的 chunk 无检索价值，写入即污染） */
+const MIN_VALID_CONTENT_CHARS = 10;
+
+/** #509: trim 后内容低于阈值时拒绝入库（空/超短 content 占召回坑位，稀释信噪比） */
+export class PollutedContentError extends Error {
+  constructor(content: string) {
+    super(
+      `Refusing to store polluted memory entry: trimmed content length ${content.trim().length} < ${MIN_VALID_CONTENT_CHARS}`,
+    );
+    this.name = "PollutedContentError";
+  }
+}
+
 export class StoreMemory {
   /** F20260803fbit: bge-m3 8192 tokens 上限的 ~75%，中英文混合留余量 */
   private static readonly EMBED_MAX_CHARS = 6000;
@@ -40,6 +53,7 @@ export class StoreMemory {
 
   async execute(rawInput: MemoryEntryInput): Promise<string> {
     const input = this.redactInput(rawInput);
+    this.assertValidContent(input);
     const id = crypto.randomUUID();
 
     const entry = {
@@ -97,6 +111,7 @@ export class StoreMemory {
    */
   async replaceBySource(rawInput: MemoryEntryInput): Promise<string> {
     const input = this.redactInput(rawInput);
+    this.assertValidContent(input);
     const id = crypto.randomUUID();
     const entry = {
       id,
@@ -128,8 +143,33 @@ export class StoreMemory {
   async replaceChunksBySource(rawInputs: MemoryEntryInput[]): Promise<string[]> {
     if (rawInputs.length === 0) return [];
     const inputs = rawInputs.map((raw) => this.redactInput(raw));
+    // #509: 逐条过滤污染 chunk（拒绝而非降级入库）——batch 内部分污染不拖累健康 chunk，但调用方需感知
+    const validInputs = inputs.filter((input) => {
+      if (input.content.trim().length < MIN_VALID_CONTENT_CHARS) {
+        this.logger.warn(
+          `Dropping polluted chunk (${input.sourceTable}/${input.sourceId}, contentType=${input.contentType}): trimmed length ${input.content.trim().length} < ${MIN_VALID_CONTENT_CHARS}`,
+          { action: "polluted_chunk_dropped" },
+        );
+        return false;
+      }
+      // #509: 一致性告警——metadata.char_count（raw markdown）与实际入库 content（cleaned 后）显著偏离时告警
+      // 历史缺陷（833391fa：char_count=933 但 content=`2.`）表明提取层可能截断，此处兜底感知
+      const charCount = input.metadata?.char_count;
+      if (
+        typeof charCount === "number" &&
+        charCount > MIN_VALID_CONTENT_CHARS &&
+        input.content.trim().length < charCount * 0.2
+      ) {
+        this.logger.warn(
+          `Chunk char_count mismatch (${input.sourceTable}/${input.sourceId}): metadata char_count=${charCount} but cleaned content length=${input.content.trim().length}`,
+          { action: "chunk_char_count_mismatch" },
+        );
+      }
+      return true;
+    });
+    if (validInputs.length === 0) return [];
     const now = new Date().toISOString();
-    const entries = inputs.map((input) => ({
+    const entries = validInputs.map((input) => ({
       id: crypto.randomUUID(),
       layer: input.layer,
       contentType: input.contentType,
@@ -176,5 +216,15 @@ export class StoreMemory {
   /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
   async deleteChunksBySource(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void> {
     await this.writer.deleteBySourceAndType(sourceTable, sourceId, contentType);
+  }
+
+  /** #509: 入库前 content 有效性拦截——trim 后空 content 无检索价值，写入即污染。
+   *  阈值只拦“空”（0 字符）：短消息（如“继续”）是合法内容，不可误伤；
+   *  超短阈值（<10）拦截只在 chunk 批量路径（replaceChunksBySource）生效——
+   *  文档段落 <10 字符无检索价值，但消息/fact 类不适用。 */
+  private assertValidContent(input: MemoryEntryInput): void {
+    if (input.content.trim().length === 0) {
+      throw new PollutedContentError(input.content);
+    }
   }
 }
