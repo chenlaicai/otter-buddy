@@ -1539,6 +1539,59 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       vi.useRealTimers();
     }
   });
+
+  it('链在探测期间无消息 settle（DB 异常路径）→ 透传成功而非误抛 timeout（对抗审视发现 1/3）', async () => {
+    // 场景：静默窗到，isChainStillActive 查询期间（async 空隙）链恰好 settle 且锚点后无可见消息
+    // （消息写入失败的 DB 异常路径）。修复后应透传链成功结果，不误杀。
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+      const cronParser = createMockCronParser(new Date());
+
+      let resolveChain: (v: { otterReply?: string }) => void = () => {};
+      const dispatchChainEngine = {
+        executeChain: vi.fn(() => new Promise(r => { resolveChain = r; })),
+      };
+
+      const task = makeTask({ id: 'task-settled-during-probe', timeoutMinutes: 1 });
+      taskRepo._store.set(task.id, task);
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 链 settle 后活性探测才返回（无新消息）——模拟探测 async 空隙内链 settle
+      (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockImplementation(
+        async () => await new Promise<boolean[]>(resolve => {
+          resolveChain({ otterReply: 'settled while probing' });
+          // 微任务清空后再返回探测结果，确保 chainSettled 已赋值
+          setTimeout(() => resolve([]), 10);
+        }),
+      );
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+        dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+      });
+
+      const triggerPromise = service.trigger('task-settled-during-probe');
+      // 推进 1 个静默窗触发探测（探测内部链 settle）+ 探测返回延时
+      await vi.advanceTimersByTimeAsync(61_000);
+      const result = await triggerPromise;
+
+      // 修复后：链已 settle 且成功 → 透传成功，execution 记 completed
+      expect(result.executionId).toBeTruthy();
+      const execution = taskRepo._executions.get(result.executionId);
+      expect(execution!.status).toBe('completed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('#517: invoke 失败时 execution 不得记 completed', () => {
@@ -1656,6 +1709,63 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     expect(err).toBeInstanceOf(Error);
     const execs = [...taskRepo._executions.values()];
     expect(execs[execs.length - 1].status).toBe('failed');
+  });
+
+  it('消息量超过 100 条分页拉取：failed 在 100 条之后 → 仍被检出（对抗审视发现 2）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+    const dispatchChainEngine = {
+      executeChain: vi.fn(async () => ({ otterReply: 'ok' })),
+    };
+
+    const task = makeTask({ id: 'task-deepfail' });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 第 1 页 100 条全部 completed，第 2 页第 101 条是 failed 的 otter 消息
+    // 旧实现单页 limit=100 会漏检，分页修复后应检出
+    const completedMsgs = Array.from({ length: 100 }, (_, i) => ({
+      id: `m-ok-${i}`, conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
+      senderId: 'otter-1', talkingStonePassedTo: null, status: 'completed',
+      segments: [], sequenceNum: i + 2, contextTokens: null, contextTokensMax: null,
+      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    }));
+    const deepFailedMsg = {
+      id: 'm-deep-failed', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
+      senderId: 'otter-1', talkingStonePassedTo: null, status: 'failed',
+      segments: [{ id: 's-deep', messageId: 'm-deep-failed', body: 'deep failure', sequenceNum: 1, createdAt: '2025-01-01T00:00:00Z' }],
+      sequenceNum: 102, contextTokens: null, contextTokensMax: null,
+      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    };
+    // getMessagesAfter(cursor, count)：第 1 次（锚点=msg-1）返回满页 100 条，第 2 次（游标=末条 id）返回第 101 条 failed，第 3 次返回空
+    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockImplementation(
+      async (cursor: string) => {
+        if (cursor === 'msg-1') return completedMsgs;
+        if (cursor === 'm-ok-99') return [deepFailedMsg];
+        return [];
+      },
+    );
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+    });
+
+    const err = await service.trigger('task-deepfail').catch(e => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toContain('m-deep-failed');
+    const execs = [...taskRepo._executions.values()];
+    expect(execs[execs.length - 1].status).toBe('failed');
+    // 分页推进被触发（至少 3 次查询：满页→failed 页→空页）
+    expect((convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 });
 

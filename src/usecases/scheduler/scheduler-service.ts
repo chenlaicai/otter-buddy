@@ -482,9 +482,8 @@ export class SchedulerService {
     if (!anchorMessageId) {
       // 防御：无锚点无法探测活性，退化为静默窗一刀切（不应发生——createSystemMessage 必有 id）
       await Promise.race([settled, new Promise(r => setTimeout(r, this.resolveChainSilenceMs(task)))]);
-      if (chainSettled && !chainSettled.ok) throw chainSettled.error;
-      if (!chainSettled) throw new Error('Agent invocation timeout');
-      return;
+      if (this.settleOutcome(chainSettled)) return;
+      throw new Error('Agent invocation timeout');
     }
 
     const silenceMs = this.resolveChainSilenceMs(task);
@@ -498,15 +497,31 @@ export class SchedulerService {
       if (timer) clearTimeout(timer);
       if (winner === 'chain') {
         // 链已 settle：透传（失败原样上抛，走 execution failure 记账）
-        if (chainSettled && !chainSettled.ok) throw chainSettled.error;
+        this.settleOutcome(chainSettled);
         return;
       }
-      // 静默窗到：探测链活性，死亡即抛 timeout
+      // 静默窗到：探测链活性
       const alive = await this.isChainStillActive(anchorMessageId);
-      if (!alive) throw new Error('Agent invocation timeout');
+      if (!alive) {
+        // 对抗审视发现 1/3（审砚）：探测是 async 的，探测期间链可能恰好 settle
+        // （含消息写入失败的 DB 异常路径——链正常结束但锚点后无可见消息）。
+        // 此时透传链结果而非误抛 timeout。
+        if (this.settleOutcome(chainSettled)) return;
+        throw new Error('Agent invocation timeout');
+      }
       // 链活跃，续期等待下一个静默窗口
     }
     throw new Error(`Agent invocation timeout (chain exceeded hard limit ${MAX_CHAIN_TIMEOUT_MS / 3_600_000}h)`);
+  }
+
+  /** 链 settle 结果透传：未 settle → false；settle 成功 → true（调用方正常返回）；
+   *  settle 失败 → 原样上抛（走 execution failure 记账） */
+  private settleOutcome(
+    chainSettled: { ok: true; value: unknown } | { ok: false; error: unknown } | undefined,
+  ): boolean {
+    if (!chainSettled) return false;
+    if (!chainSettled.ok) throw chainSettled.error;
+    return true;
   }
 
   /** #516: 链活性探测——锚点之后有任意新消息（任何状态）即活跃。
@@ -533,14 +548,32 @@ export class SchedulerService {
     // 防御：查询抛错/返回异常值不阻塞记账（校验失败视为通过，交给既有 failure 路径兜底）
     let after: Message[] = [];
     try {
-      const res = await this.convRepo.getMessagesAfter(anchorMessageId, 100);
-      if (Array.isArray(res)) after = res;
+      after = await this.fetchMessagesAfterPaged(anchorMessageId);
     } catch { /* best-effort */ }
     const failed = after.find(m => m.senderType === 'otter' && m.status === 'failed');
     if (failed) {
       const preview = failed.segments.map(s => s.body).join('').slice(0, 200);
       throw new Error(`Agent invocation failed: otter message ${failed.id} terminated as failed${preview ? ` (${preview})` : ''}`);
     }
+  }
+
+  /** #517: 分页拉取锚点后全部消息。对抗审视发现 2（审砚）：单页 100 条上限
+   *  会漏检深层失败（消息量 >100 且 failed 在 100 条之后时误记 completed）。
+   *  getMessagesAfter 按 sequence_num 升序返回，以最后一条消息 id 为游标推进直到取空。 */
+  private async fetchMessagesAfterPaged(anchorMessageId: string): Promise<Message[]> {
+    const out: Message[] = [];
+    let cursorId = anchorMessageId;
+    const pageSize = 100;
+    // 防御性硬上限 100 页（1 万条）：链受 24h 硬上限约束，单窗口消息量远低于此，超限属异常现场
+    for (let page = 0; page < 100; page++) {
+      const res = await this.convRepo.getMessagesAfter(cursorId, pageSize);
+      if (!Array.isArray(res) || res.length === 0) break;
+      out.push(...res);
+      const next = res[res.length - 1].id;
+      if (next === cursorId) break; // 防御：游标未推进（异常数据），避免死循环
+      cursorId = next;
+    }
+    return out;
   }
 
   private async completeExecution(executionId: string, conversationId: string, messageId: string): Promise<void> {
