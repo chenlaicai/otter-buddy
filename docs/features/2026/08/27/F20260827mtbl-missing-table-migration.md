@@ -119,7 +119,7 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 
 ### 遗留观察项（非本 PR 范围）
 
-- **同型缺陷第三次发生**（evaf→rhib→本次），约定只存在于 migration.ts 注释里。根治手段（如 initSchema/migrateDatabase 单一来源生成、或 lint 校验 initSchema 新表必须同步登记 migrateDatabase）值得独立立项。
+- **同型缺陷第三次发生**（evaf→rhib→本次），约定只存在于 migration.ts 注释里。根治手段（如 initSchema/migrateDatabase 单一来源生成、或 lint 校验 initSchema 新表必须同步登记 migrateDatabase）已立项跟踪：#506。
 - **隔日续写语义**：副本演练确认 3 条 8-26 的孤儿消息在部署后会被自动恢复（恢复队列已登记）。F20260826rsme 设计无中断时效窗口，隔天旧发言会被续写。是否加时效上限待产品判断。
 
 ## 设计决策
