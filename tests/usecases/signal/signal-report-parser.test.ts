@@ -212,6 +212,38 @@ describe('parseSignalReport（F20260827c2sg 审视处置：发现 4 重写为 to
     const clean = stripSignalReport('正文里引用 <signal 字样但无闭合形态');
     expect(clean).toContain('<signal 字样');
   });
+
+  it('发现 6 R2/R3 对偶：畸形外层闭合时内层真实信号同样上达（语义不依赖外层闭合位置）', () => {
+    // R2：外层闭合但 type 畸形——内层真实信号下钻上达，不再被埋葬
+    const r2 = '<signal type="bogus" severity="low">外层写歪 <signal type="blocked" severity="low">真实信号</signal> 外层尾</signal>';
+    const r2Signals = parseSignalReport(r2).signals;
+    // R3：同一畸形 type、外层未闭合——内层独立落账（第 3 轮已认可的行为）
+    const r3 = '<signal type="bogus" severity="low">外层写歪 <signal type="blocked" severity="low">真实信号</signal>';
+    const r3Signals = parseSignalReport(r3).signals;
+    // 对偶断言：两种形态的内层结果一致
+    expect(r2Signals).toEqual(r3Signals);
+    expect(r2Signals).toHaveLength(1);
+    expect(r2Signals[0].type).toBe('blocked');
+    expect(r2Signals[0].payload).toBe('真实信号');
+  });
+
+  it('合法外层的内层块仍不冒名落账（递归只下钻畸形块）', () => {
+    // 外层合法：内层是 payload 的一部分，不落账（发现 4 场景 B 防冒名不变）
+    const body = '<signal type="objection" severity="low">格式示例：<signal type="blocked" severity="low">x</signal> 诸如此类</signal>';
+    const { signals } = parseSignalReport(body);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('objection');
+    expect(signals[0].payload).toContain('格式示例');
+  });
+
+  it('畸形嵌套畸形：合法内核层层下钻上达', () => {
+    const body = '<signal type="x1" severity="low">A<signal type="x2" severity="low">B<signal type="objection" severity="high">真实异议</signal></signal></signal>';
+    const { signals } = parseSignalReport(body);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('objection');
+    expect(signals[0].severity).toBe('high');
+    expect(signals[0].payload).toBe('真实异议');
+  });
 });
 
 describe('stripSignalReport（剥离）', () => {

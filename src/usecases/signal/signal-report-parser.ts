@@ -131,6 +131,34 @@ function topLevelBlocks(paired: PairedBlock[]): PairedBlock[] {
   return paired.filter(b => !paired.some(o => o !== b && o.start <= b.start && b.end <= o.end));
 }
 
+/**
+ * 收集落账候选（发现 6 递归下钻）：合法块直接转为 ParsedSignal；畸形块（属性非法/
+ * 空 payload）递归下钻其 payload 内的子块——畸形外层不埋葬合法内层。
+ * 坐标系：每层递归用自己的局部 text 切片（子串坐标系内重新 tokenize/配对），
+ * 不跨层引用全局 offset。
+ * 语义自洽性：内层真实信号能否上达不取决于外层写没写闭合标签（R2/R3 对偶）；
+ * 合法外层的内层块是 payload 的一部分不单独落账（发现 4 场景 B 防冒名不变）。
+ */
+function collectCandidates(text: string, blocks: PairedBlock[], out: ParsedSignal[]): void {
+  for (const block of blocks) {
+    const typeMatch = TYPE_ATTR_RE.exec(block.attrs);
+    const severityMatch = SEVERITY_ATTR_RE.exec(block.attrs);
+    const payload = validatePayload(text.slice(block.payloadStart, block.payloadEnd));
+    if (typeMatch && severityMatch && payload) {
+      out.push({
+        type: typeMatch[2].toLowerCase() as ParsedSignalType,
+        severity: severityMatch[2].toLowerCase() as ParsedSignal['severity'],
+        payload,
+      }); // 合法块：本块落账，嵌套块是 payload 的一部分，不下钻（防内层冒名）
+      continue;
+    }
+    // 畸形块：递归下钻内部子块（子串坐标系内重新 tokenize/配对）
+    const inner = text.slice(block.payloadStart, block.payloadEnd);
+    const { paired } = pairSignalBlocks(tokenizeSignals(inner));
+    collectCandidates(inner, topLevelBlocks(paired), out);
+  }
+}
+
 /** type 属性：白名单不含 halt（小獭不可伪造 halt 入台账） */
 const TYPE_ATTR_RE = /\btype\s*=\s*(["']?)(objection|blocked)\1/i;
 /** severity 属性 */
@@ -154,21 +182,13 @@ export function parseSignalReport(body: string): ParsedSignalReport {
   const tops = topLevelBlocks(paired);
 
   const signals: ParsedSignal[] = [];
-  for (const block of tops) {
-    const typeMatch = TYPE_ATTR_RE.exec(block.attrs);
-    const severityMatch = SEVERITY_ATTR_RE.exec(block.attrs);
-    if (!typeMatch || !severityMatch) continue; // 属性缺失/非法 = 畸形，静默剥离不落账
-    const payload = validatePayload(normalized.slice(block.payloadStart, block.payloadEnd));
-    if (!payload) continue; // 空 payload = 畸形，不落账
-    signals.push({
-      type: typeMatch[2].toLowerCase() as ParsedSignalType,
-      severity: severityMatch[2].toLowerCase() as ParsedSignal['severity'],
-      payload,
-    });
-    if (signals.length >= MAX_SIGNALS_PER_MESSAGE) break;
+  collectCandidates(normalized, tops, signals);
+  // 超上限的部分丢弃（与逐块 break 等价）
+  if (signals.length > MAX_SIGNALS_PER_MESSAGE) {
+    signals.length = MAX_SIGNALS_PER_MESSAGE;
   }
 
-  // 剥离文本 = 顶层块全文 + 未闭合开标签/孤儿闭标签（供日志）
+  // 剥离文本 = 顶层块全文 + 未闭合开标签/孤儿闭标签（供日志；畸形块内层已递归上达，不丢信息）
   const strippedBlocks = [
     ...tops.map(b => normalized.slice(b.start, b.end)),
     ...leftovers.map(t => normalized.slice(t.start, t.end)),
