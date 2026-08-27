@@ -109,6 +109,72 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260824rhib: RHI 健康监控——health_snapshots + signals 表。
    *  initSchema 仅新库执行，老库升级路径必须在此补建（否则 server 集成后写入直接 no such table）。 */
   ensureRhiTables(db, logger);
+
+  /** F20260827mtbl: F20260826mwrd signal_events 表（halt 信号台账）。
+   *  原实现只写进 initSchema，存量库升级路径漏建——halt_otter/query_signals 落账直接 no such table。 */
+  ensureSignalEventsTable(db, logger);
+
+  /** F20260827mtbl: F20260826rsme restart_pending_resumes 表（重启自动恢复队列）。
+   *  原实现只写进 initSchema，存量库缺表导致 reconcileOrphans 在 claimResume 抛错、
+   *  failInFlightMessages 清理夭折，streaming 孤儿永久残留（会话永久显示"运行中"）。 */
+  ensureRestartPendingResumesTable(db, logger);
+}
+
+/**
+ * F20260827mtbl: signal_events 表（F20260826mwrd C1）。
+ * 与 schema.ts 的 createSignalEventsTable 同构。CREATE IF NOT EXISTS 幂等——
+ * 新库 initSchema 已建，老库走这里补建。
+ */
+function ensureSignalEventsTable(db: Database.Database, logger: Logger): void {
+  const existed = (db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'signal_events'",
+  ).get() !== undefined);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS signal_events (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      from_otter_id TEXT NOT NULL,
+      target_otter_id TEXT,
+      type TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      resolution TEXT,
+      resolved_by TEXT,
+      resolved_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_signal_events_conv ON signal_events(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_signal_events_status ON signal_events(status);
+    CREATE INDEX IF NOT EXISTS idx_signal_events_type ON signal_events(type);
+    CREATE INDEX IF NOT EXISTS idx_signal_events_target ON signal_events(target_otter_id, created_at);
+  `);
+  // 只在真正补建时打日志，让日志可作为"老库升级发生"的证据（同 ensureEmbeddingMetaTable）
+  if (!existed) logger.info('Ensured signal_events table exists');
+}
+
+/**
+ * F20260827mtbl: restart_pending_resumes 表（F20260826rsme）。
+ * 与 schema.ts 的 createRestartPendingResumesTable 同构。CREATE IF NOT EXISTS 幂等。
+ */
+function ensureRestartPendingResumesTable(db: Database.Database, logger: Logger): void {
+  const existed = (db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'restart_pending_resumes'",
+  ).get() !== undefined);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS restart_pending_resumes (
+      message_id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      otter_id TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
+  `);
+  if (!existed) logger.info('Ensured restart_pending_resumes table exists');
 }
 
 /**

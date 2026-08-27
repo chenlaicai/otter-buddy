@@ -12,6 +12,10 @@ import type { Logger } from "@usecases/ports/logger";
  * 重置回 streaming 续写）；守卫拒绝（二次重启 attempts 已满）或不可恢复
  * （非 otter 消息/对话已删/参与者已离开）的消息走现状 fail+notice 语义。
  * 显式 if/else 分流保证所有 streaming/speaking 消息都被处理，无悬挂。
+ *
+ * F20260827mtbl：恢复登记逐条 try/catch 隔离——登记链路异常只降级该条
+ * 为 fail+notice，不得中断 failInFlightMessages 清理（增强功能的故障
+ * 不能带崩核心清理）。
  */
 export async function reconcileOrphans(repo: ConversationRepository, logger: Logger): Promise<void> {
   try {
@@ -23,14 +27,25 @@ export async function reconcileOrphans(repo: ConversationRepository, logger: Log
       return participant?.status === "active";
     };
     for (const row of claimed) {
-      // Why: 顺序先查参与者再 claim——claim 会原子自增 attempts，
-      //  participant 已失效时不应消耗恢复资格（留给真正可恢复的窗口）
-      const active = await checkParticipant(row.conversationId, row.senderId);
-      if (active && await repo.claimResume(row.id, row.conversationId, row.senderId, now)) {
-        skipNoticeIds.add(row.id);
-        logger.info(`Interrupted message queued for auto-resume`, { messageId: row.id, conversationId: row.conversationId, otterId: row.senderId });
+      // F20260827mtbl: 恢复登记逐条隔离——claim 链路任何异常（如恢复队列表缺失）
+      //  只降级该条为 fail+notice 现状路径，不得中断 failInFlightMessages 清理。
+      //  否则增强功能（自动恢复）的故障会让核心清理（孤儿置 failed）整体夭折，
+      //  streaming 孤儿跨重启永久残留（会话永久显示"运行中"且无法中断）。
+      try {
+        // Why: 顺序先查参与者再 claim——claim 会原子自增 attempts，
+        //  participant 已失效时不应消耗恢复资格（留给真正可恢复的窗口）
+        const active = await checkParticipant(row.conversationId, row.senderId);
+        if (active && await repo.claimResume(row.id, row.conversationId, row.senderId, now)) {
+          skipNoticeIds.add(row.id);
+          logger.info(`Interrupted message queued for auto-resume`, { messageId: row.id, conversationId: row.conversationId, otterId: row.senderId });
+        }
+        // else：守卫拒绝或不可恢复 → 留在 fail+notice 现状路径（else 分支即「什么都不做」）
+      } catch (err) {
+        logger.warn(`Resume claim failed, degrading to fail+notice path`, {
+          messageId: row.id, conversationId: row.conversationId, otterId: row.senderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
-      // else：守卫拒绝或不可恢复 → 留在 fail+notice 现状路径（else 分支即「什么都不做」）
     }
     const failed = await repo.failInFlightMessages(now, "[服务重启，发言中断]", skipNoticeIds);
     const closedTurns = await repo.closeOrphanedTurns(now);
