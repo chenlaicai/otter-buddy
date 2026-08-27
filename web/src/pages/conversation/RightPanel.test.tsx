@@ -160,3 +160,32 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
     expect(container.querySelector('[data-testid="model-badge"]')!.textContent).toBe('glm')
   })
 })
+
+describe('OtterParticipantCard memo（#502 轮询引用稳定）', () => {
+  function makeOtter(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'o1', name: '小獭', type: 'small', createdAt: '2026-08-25',
+      ...overrides,
+    } as Otter
+  }
+
+  it('otter prop 引用不变时重渲染父组件，参与者卡片 DOM 节点保持同一引用', () => {
+    const otter = makeOtter()
+    renderPanel([], [otter])
+    const before = container.querySelector('.glass-card')
+    expect(before).not.toBeNull()
+    // 模拟轮询：父组件以相同 otter 引用重新渲染
+    renderPanel([], [otter])
+    const after = container.querySelector('.glass-card')
+    // memo 生效时 React 复用 fiber，DOM 节点引用不变（不重建 = 无视觉抖动）
+    expect(after).toBe(before)
+  })
+
+  it('otter prop 内容变化时卡片正常更新', () => {
+    renderPanel([], [makeOtter({ name: '旧名' })])
+    expect(container.textContent).toContain('旧名')
+    renderPanel([], [makeOtter({ name: '新名' })])
+    expect(container.textContent).toContain('新名')
+    expect(container.textContent).not.toContain('旧名')
+  })
+})
