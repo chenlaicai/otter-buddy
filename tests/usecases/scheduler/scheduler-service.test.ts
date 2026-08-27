@@ -38,6 +38,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     consecutiveFailures: 0,
     lastTriggeredAt: null,
     restartBeforeInvoke: false,
+    timeoutMinutes: null,
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
     ...overrides,
@@ -1427,5 +1428,328 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
     expect(execs.length).toBeGreaterThanOrEqual(1);
     const lastExec = execs[execs.length - 1];
     expect(lastExec.status).toBe('failed');
+  });
+});
+
+// ─── #516/#517: 链看门狗 + 记账校验 + error 通知 ────────────────────
+
+describe('#516: 任务级超时配置（timeoutMinutes）', () => {
+  it('create 时 timeoutMinutes 传入并持久化，校验非法值抛 DomainError', async () => {
+    // 实体层校验函数单测见 tests/entities/scheduled-task/scheduled-task.test.ts
+    // 此处验证 scheduler 链路取值：timeoutMinutes=1 → 静默窗 1 分钟
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    // 链 promise 永不 settle（模拟长编排任务）
+    let neverResolve: (v: unknown) => void = () => {};
+    const dispatchChainEngine = {
+      executeChain: vi.fn(() => new Promise(r => { neverResolve = r; })),
+    };
+
+    const task = makeTask({
+      id: 'task-silence',
+      timeoutMinutes: 1,
+      talkingStonePassedTo: ['otter-1'],
+    });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+    // 静默探测：锚点后无新消息 → 1 分钟静默窗后判死
+    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+    });
+
+    vi.useFakeTimers();
+    try {
+      const triggerPromise = service.trigger('task-silence');
+      const errPromise = triggerPromise.catch(e => e);
+      // 推进 1 分钟静默窗（timeoutMinutes=1）→ 探测无新消息 → 判死
+      await vi.advanceTimersByTimeAsync(61_000);
+      const err = await errPromise;
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toBe('Agent invocation timeout');
+    } finally {
+      vi.useRealTimers();
+      neverResolve(undefined); // 清理
+    }
+  });
+
+  it('链活跃（静默窗内有新消息）→ 不误杀，续期等待', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendMessage = createMockSendMessage();
+      const agentInvoke = createMockAgentInvoke();
+      const cronParser = createMockCronParser(new Date());
+
+      // 链在 2 个静默窗后正常 settle（模拟 8-26 现场跑了 16h 的长链）
+      let resolveChain: (v: { otterReply?: string }) => void = () => {};
+      const dispatchChainEngine = {
+        executeChain: vi.fn(() => new Promise(r => { resolveChain = r; })),
+      };
+
+      const task = makeTask({ id: 'task-alive', timeoutMinutes: 1 });
+      taskRepo._store.set(task.id, task);
+      convRepo._addConversation('conv-1', { status: 'active' });
+
+      // 每次探测都返回一条新消息（链活跃）
+      const activeMsg = {
+        id: 'm-new', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
+        senderId: 'otter-1', talkingStonePassedTo: null, status: 'completed',
+        segments: [], sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+        source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+      };
+      (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([activeMsg]);
+
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendMessage: sendMessage as unknown as SendMessage,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: cronParser as unknown as CronParser,
+        logger: mockLogger,
+        dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+      });
+
+      const triggerPromise = service.trigger('task-alive');
+
+      // 推进 3 个静默窗（链一直活跃续期），第 3 窗中段链 settle
+      await vi.advanceTimersByTimeAsync(60 * 1000 * 3);
+      resolveChain({ otterReply: 'done' });
+
+      const result = await triggerPromise;
+      expect(result.executionId).toBeTruthy();
+      const execution = taskRepo._executions.get(result.executionId);
+      expect(execution!.status).toBe('completed');
+      // 至少 3 次活性探测都被续期
+      expect((convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('#517: invoke 失败时 execution 不得记 completed', () => {
+  it('链正常 resolve 但 anchor 后存在 failed 的 otter 消息 → execution 记 failed', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    // 链引擎正常 resolve（模拟 orchestrator 内部消化了 agent 异常——8-27 现场）
+    const dispatchChainEngine = {
+      executeChain: vi.fn(async () => ({ otterReply: undefined })),
+    };
+
+    const task = makeTask({ id: 'task-swallow' });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 锚点后有一条 failed 的 otter 消息（invoke 失败现场：锁超时 → 消息 failed，但链 resolve）
+    const failedMsg = {
+      id: 'm-failed', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
+      senderId: 'otter-1', talkingStonePassedTo: null, status: 'failed',
+      segments: [{ id: 's1', messageId: 'm-failed', body: 'Lock acquire timeout', sequenceNum: 1, createdAt: '2025-01-01T00:00:00Z' }],
+      sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    };
+    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([failedMsg]);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+    });
+
+    const err = await service.trigger('task-swallow').catch(e => e);
+
+    // 记账校验抛错 → execution failed（不再盲目 completed）
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toContain('Agent invocation failed');
+    expect(err.message).toContain('Lock acquire timeout');
+    const execs = [...taskRepo._executions.values()];
+    expect(execs[execs.length - 1].status).toBe('failed');
+    expect(execs[execs.length - 1].errorMessage).toBeTruthy();
+    // 连续失败计数走起（熔断保护恢复生效）
+    expect(taskRepo._getFailureCount()).toBe(1);
+  });
+
+  it('锚点前（旧轮次）的 failed 消息不牵连本次执行', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+    const dispatchChainEngine = {
+      executeChain: vi.fn(async () => ({ otterReply: 'ok' })),
+    };
+
+    const task = makeTask({ id: 'task-oldfail' });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 锚点后无消息（旧 failed 在锚点前，getMessagesAfter 查不到）
+    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      dispatchChainEngine: dispatchChainEngine as unknown as DispatchChainEngine,
+    });
+
+    const result = await service.trigger('task-oldfail');
+    expect(result.executionId).toBeTruthy();
+    const execution = taskRepo._executions.get(result.executionId);
+    expect(execution!.status).toBe('completed');
+  });
+
+  it('非链降级路径同样记账校验：invoke 后 anchor 有 failed 消息 → failed', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    const task = makeTask({ id: 'task-direct' });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const failedMsg = {
+      id: 'm-failed-2', conversationId: 'conv-1', turnId: 't1', senderType: 'otter',
+      senderId: 'otter-1', talkingStonePassedTo: null, status: 'failed',
+      segments: [], sequenceNum: 2, contextTokens: null, contextTokensMax: null,
+      source: 'web', senderName: '', createdAt: '2025-01-01T00:00:00Z', completedAt: null,
+    };
+    (convRepo.getMessagesAfter as ReturnType<typeof vi.fn>).mockResolvedValue([failedMsg]);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    const err = await service.trigger('task-direct').catch(e => e);
+    expect(err).toBeInstanceOf(Error);
+    const execs = [...taskRepo._executions.values()];
+    expect(execs[execs.length - 1].status).toBe('failed');
+  });
+});
+
+describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', () => {
+  it('第 3 次连续失败 → status=error + 系统消息 + healing event', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    agentInvoke._setShouldFail(true);
+
+    const task = makeTask({ id: 'task-notify' });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const healingEvents: Array<Record<string, unknown>> = [];
+    const healingRepo = {
+      create: vi.fn(async (e: Record<string, unknown>) => { healingEvents.push(e); }),
+      findById: vi.fn(async () => null),
+      findOpen: vi.fn(async () => []),
+      findAll: vi.fn(async () => []),
+      findByConversation: vi.fn(async () => []),
+      findRecentByOtter: vi.fn(async () => []),
+      updateStatus: vi.fn(async () => {}),
+      resolve: vi.fn(async () => {}),
+      getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
+      autoStaleDismiss: vi.fn(async () => 0),
+      batchResolveByFilter: vi.fn(async () => ({ matched: 0, resolved: 0, resolvedIds: [] })),
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+    });
+
+    // 连续触发 3 次（每次都失败）
+    for (let i = 0; i < 3; i++) {
+      // claimTask 60s 窗口：mock 直接放行
+      (taskRepo.claimTask as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      await service.trigger('task-notify').catch(() => {});
+    }
+
+    // 第 3 次失败后：status=error
+    expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
+    // 系统消息已注入任务所属对话（含任务名与停跑提示）
+    const sysCalls = (sendMessage.send as ReturnType<typeof vi.fn>).mock.calls;
+    const notifyCall = sysCalls.find(c => typeof c[0]?.body === 'string' && c[0].body.includes('[定时任务错误]'));
+    expect(notifyCall).toBeTruthy();
+    expect(notifyCall![0].conversationId).toBe('conv-1');
+    expect(notifyCall![0].body).toContain('每日问候');
+    // healing event 已落（open、high、含 taskId）
+    expect(healingEvents.length).toBe(1);
+    expect(healingEvents[0].status).toBe('open');
+    expect(healingEvents[0].severity).toBe('high');
+    expect(healingEvents[0].context).toMatchObject({ taskId: 'task-notify' });
+  });
+
+  it('通知失败（sendMessage 抛错）不阻塞 error 状态变更', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    agentInvoke._setShouldFail(true);
+    // 系统消息发送失败
+    (sendMessage.send as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('db down'));
+
+    const task = makeTask({ id: 'task-notify2' });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    for (let i = 0; i < 3; i++) {
+      (taskRepo.claimTask as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      await service.trigger('task-notify2').catch(() => {});
+    }
+
+    // sendMessage.send 抛错不阻塞：status 仍然 error
+    expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
   });
 });

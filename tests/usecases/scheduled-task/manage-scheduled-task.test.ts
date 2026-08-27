@@ -375,3 +375,93 @@ describe("ManageScheduledTask", () => {
     });
   });
 });
+
+// ─── #516: timeoutMinutes 任务级超时配置 ────────────────────
+
+describe("#516: timeoutMinutes 任务级超时配置", () => {
+  it("create 传入 timeoutMinutes -> 持久化到任务", async () => {
+    const repo = mockRepo();
+    const uc = new ManageScheduledTask(repo);
+
+    const task = await uc.create({
+      conversationId: "conv-1",
+      name: "每日 issue 处理",
+      cron: "30 10 * * *",
+      body: "处理 issue",
+      timeoutMinutes: 240,
+      talkingStonePassedTo: ["otter-1"],
+    });
+
+    expect(task.timeoutMinutes).toBe(240);
+  });
+
+  it("create 未传 timeoutMinutes -> 默认 null（用调度器默认 15 分钟）", async () => {
+    const repo = mockRepo();
+    const uc = new ManageScheduledTask(repo);
+
+    const task = await uc.create({
+      conversationId: "conv-1",
+      name: "健康检查",
+      cron: "0 10 * * *",
+      body: "检查",
+      talkingStonePassedTo: ["otter-1"],
+    });
+
+    expect(task.timeoutMinutes).toBeNull();
+  });
+
+  it("create timeoutMinutes 非法（0/负数/小数/超 1440）-> 抛 DomainError", async () => {
+    const repo = mockRepo();
+    const uc = new ManageScheduledTask(repo);
+
+    for (const bad of [0, -5, 1.5, 1441]) {
+      const err = await uc.create({
+        conversationId: "conv-1",
+        name: "t",
+        cron: "0 9 * * *",
+        body: "b",
+        timeoutMinutes: bad,
+        talkingStonePassedTo: ["otter-1"],
+      }).catch(e => e);
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.kind).toBe("validation");
+    }
+  });
+
+  it("update 修改 timeoutMinutes -> 生效；传 null 清除回默认", async () => {
+    const repo = mockRepo();
+    const uc = new ManageScheduledTask(repo);
+
+    const task = await uc.create({
+      conversationId: "conv-1",
+      name: "t",
+      cron: "0 9 * * *",
+      body: "b",
+      timeoutMinutes: 120,
+      talkingStonePassedTo: ["otter-1"],
+    });
+
+    const updated = await uc.update(task.id, { timeoutMinutes: 480 });
+    expect(updated.timeoutMinutes).toBe(480);
+
+    const cleared = await uc.update(task.id, { timeoutMinutes: null });
+    expect(cleared.timeoutMinutes).toBeNull();
+  });
+
+  it("update 不传 timeoutMinutes -> 保留原值", async () => {
+    const repo = mockRepo();
+    const uc = new ManageScheduledTask(repo);
+
+    const task = await uc.create({
+      conversationId: "conv-1",
+      name: "t",
+      cron: "0 9 * * *",
+      body: "b",
+      timeoutMinutes: 90,
+      talkingStonePassedTo: ["otter-1"],
+    });
+
+    const updated = await uc.update(task.id, { name: "renamed" });
+    expect(updated.timeoutMinutes).toBe(90);
+  });
+});

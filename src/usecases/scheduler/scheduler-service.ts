@@ -1,5 +1,5 @@
-/* eslint-disable max-lines -- 452 行 vs 450 上限：本文件聚合调度核心路径（触发/重试/healing 注入/指标），
-   拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#416 增加 ~30 行模板化逻辑已尽量精简 */
+/* eslint-disable max-lines -- 调度核心路径（触发/重试/healing 注入/指标/链看门狗）聚合于本文件，
+   拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#516/#517 增加活跃看门狗与记账校验已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendMessage } from '@usecases/conversation/send-message';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
@@ -7,6 +7,7 @@ import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
+import type { Message } from '@entities/conversation/message';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
@@ -18,6 +19,16 @@ import { resolve } from 'node:path';
 /** once 任务重试参数 */
 const ONCE_MAX_RETRIES = 3;
 const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
+
+/** #516: 链超时参数。语义从「一刀切墙钟」改为「静默容忍窗 + 硬上限」：
+ *  静默窗内链无任何新消息 → 判死；有新消息（流式/终态均算）→ 链活跃，续期等待。
+ *  背景：8-24/25/26《每日 issue 处理》被 15 分钟一刀切误杀——链实际跑到 18:47 正常收尾，
+ *  底层工作完成但账面记 failed，3 次熔断后 status=error 静默停跑。
+ *  默认静默窗 15 分钟（resolveChainSilenceMs 内联），任务级 timeoutMinutes 可覆盖。 */
+/** 硬上限：无论链是否活跃，总时长超过即判死（防真死循环占住调度器） */
+const MAX_CHAIN_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+/** 非链降级路径（未注入 dispatchChainEngine）：单次 invoke 5 分钟一刀切（旧语义保留） */
+const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Cron 解析接口（由 frameworks 层实现） */
 export interface CronParser {
@@ -246,6 +257,8 @@ export class SchedulerService {
     if (retriesLeft <= 0) {
       this.logger.error(`Once task ${task.id} exhausted all retries, marking as error`);
       await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
+      // #516: once 任务重试耗尽同样落通知，消灭静默死亡
+      await this.notifyTaskErrored(task.id, ONCE_MAX_RETRIES + 1, 'once task exhausted all retries');
       return;
     }
 
@@ -320,7 +333,14 @@ export class SchedulerService {
       executionStartMs = this.now();
       try {
         const message = await this.createSystemMessage(task, effectiveBody);
-        await this.invokeAgentWithTimeout(task, effectiveBody);
+        // Why 传入 anchor 消息 id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
+        await this.invokeAgentWithTimeout(task, effectiveBody, message.id);
+        // #517: invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
+        // 将消息置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
+        // 锁超时/agent 异常无法经由 reject 传递到 scheduler 层。
+        // 以最终消息状态为唯一事实源：anchor 后出现 status='failed' 的 otter 消息 → 抛错走 failure 记账，
+        // 不再盲目记 completed。
+        await this.assertNoFailedMessages(task.conversationId, message.id);
         await this.completeExecution(executionId, task.conversationId, message.id);
         // #251: resetConsecutiveFailures 在 completeExecution 之后执行，
         // 如果抛 DB 错不应覆写已 completed 的 execution record。
@@ -403,40 +423,123 @@ export class SchedulerService {
     return message;
   }
 
-  private async invokeAgentWithTimeout(task: ScheduledTask, body?: string): Promise<void> {
-    // Why: 单次 invoke 5 分钟；链引擎路径覆盖整条链（多 hop 共享），按最大深度 3 放大为 15 分钟。
+  private async invokeAgentWithTimeout(task: ScheduledTask, body?: string, anchorMessageId?: string): Promise<void> {
+    // Why: 有 dispatchChainEngine 时走链引擎消费 aggregatedTargets 续跑发言链（#332），
+    // 否则降级为直接 invoke（兼容未注入的旧装配）。超时语义分路径：
+    // - 链路径（#516）：静默容忍窗 + 硬上限。窗口内链无新消息才判死；有新消息即续期。
+    //   任务级 timeoutMinutes 覆盖静默窗（默认 15 分钟），硬上限恒 24h。链 settle 即返回，
+    //   不与链竞速——短任务不被拖到静默窗满。
+    // - 非链路径：单次 invoke 5 分钟一刀切（旧语义保留，无链可观测）。
     // 链引擎自身有 maxChainDepth 安全限制，超时只是 scheduler 层的兜底防线。
-    const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
-    const CHAIN_TIMEOUT_MS = 15 * 60 * 1000;
+    if (this.dispatchChainEngine) {
+      const chainPromise = this.dispatchChainEngine.executeChain({
+        conversationId: task.conversationId,
+        userMessageContent: body ?? task.body,
+        senderId: task.senderId,
+        initialTargets: task.talkingStonePassedTo,
+        invokeFn: async (params) => this.agentInvokePort.invokeConversation(params),
+      });
+      await this.watchChainWithActivity(task, anchorMessageId, chainPromise);
+      return;
+    }
+
     let timer: NodeJS.Timeout | undefined;
     try {
-      // Why: 有 dispatchChainEngine 时走链引擎消费 aggregatedTargets 续跑发言链，
-      // 否则降级为直接 invoke（兼容未注入的旧装配）。#332 修复。
-      const isChain = !!this.dispatchChainEngine;
-      const invokeAction = this.dispatchChainEngine
-        ? this.dispatchChainEngine.executeChain({
-            conversationId: task.conversationId,
-            userMessageContent: body ?? task.body,
-            senderId: task.senderId,
-            initialTargets: task.talkingStonePassedTo,
-            invokeFn: async (params) => this.agentInvokePort.invokeConversation(params),
-          })
-        : this.agentInvokePort.invokeConversation({
-            otterId: task.talkingStonePassedTo[0],
-            conversationId: task.conversationId,
-            userMessageContent: body ?? task.body,
-            senderId: task.senderId,
-          });
-
-      const timeoutMs = isChain ? CHAIN_TIMEOUT_MS : SINGLE_INVOKE_TIMEOUT_MS;
       await Promise.race([
-        invokeAction,
+        this.agentInvokePort.invokeConversation({
+          otterId: task.talkingStonePassedTo[0],
+          conversationId: task.conversationId,
+          userMessageContent: body ?? task.body,
+          senderId: task.senderId,
+        }),
         new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), timeoutMs);
+          timer = setTimeout(() => reject(new Error('Agent invocation timeout')), SINGLE_INVOKE_TIMEOUT_MS);
         }),
       ]);
     } finally {
       if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** #516: 链活跃看门狗。与链 promise 竞速：链 settle（成功/失败）→ 透传返回/抛错；
+   *  静默窗（silenceMs）到 → 探测锚点消息之后是否有新消息（任一状态都算链活跃）：
+   *  - 有 → 链活跃，续期等待下一个静默窗口
+   *  - 无（含探测失败）→ 判死，抛 Agent invocation timeout
+   *  总时长恒受 MAX_CHAIN_TIMEOUT_MS 硬上限约束，防真死循环占住调度器。
+   *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
+  private async watchChainWithActivity(
+    task: ScheduledTask,
+    anchorMessageId: string | undefined,
+    chainPromise: Promise<unknown>,
+  ): Promise<void> {
+    // 链 settle 观察者：settle 后 chainSettled 有值，race 立即胜出
+    let chainSettled: { ok: true; value: unknown } | { ok: false; error: unknown } | undefined;
+    const settled = chainPromise.then(
+      value => { chainSettled = { ok: true, value }; },
+      error => { chainSettled = { ok: false, error }; },
+    );
+
+    if (!anchorMessageId) {
+      // 防御：无锚点无法探测活性，退化为静默窗一刀切（不应发生——createSystemMessage 必有 id）
+      await Promise.race([settled, new Promise(r => setTimeout(r, this.resolveChainSilenceMs(task)))]);
+      if (chainSettled && !chainSettled.ok) throw chainSettled.error;
+      if (!chainSettled) throw new Error('Agent invocation timeout');
+      return;
+    }
+
+    const silenceMs = this.resolveChainSilenceMs(task);
+    const deadline = Date.now() + MAX_CHAIN_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      let timer: NodeJS.Timeout | undefined;
+      const silence = new Promise<'silence'>(r => {
+        timer = setTimeout(() => r('silence'), silenceMs);
+      });
+      const winner = await Promise.race([settled.then(() => 'chain' as const), silence]);
+      if (timer) clearTimeout(timer);
+      if (winner === 'chain') {
+        // 链已 settle：透传（失败原样上抛，走 execution failure 记账）
+        if (chainSettled && !chainSettled.ok) throw chainSettled.error;
+        return;
+      }
+      // 静默窗到：探测链活性，死亡即抛 timeout
+      const alive = await this.isChainStillActive(anchorMessageId);
+      if (!alive) throw new Error('Agent invocation timeout');
+      // 链活跃，续期等待下一个静默窗口
+    }
+    throw new Error(`Agent invocation timeout (chain exceeded hard limit ${MAX_CHAIN_TIMEOUT_MS / 3_600_000}h)`);
+  }
+
+  /** #516: 链活性探测——锚点之后有任意新消息（任何状态）即活跃。
+   *  探测失败（DB 异常）视为死亡：链产出无从验证，继续等待只会永远占位。 */
+  private async isChainStillActive(anchorMessageId: string): Promise<boolean> {
+    try {
+      const msgs = await this.convRepo.getMessagesAfter(anchorMessageId, 1);
+      return Array.isArray(msgs) && msgs.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** #516: 任务级静默窗取值——timeoutMinutes 配置优先，缺省 15 分钟 */
+  private resolveChainSilenceMs(task: ScheduledTask): number {
+    return (task.timeoutMinutes ?? 15) * 60 * 1000;
+  }
+
+  /** #517: 执行窗口记账校验。anchor 消息之后存在 status='failed' 的 otter 消息时抛错，
+   *  将「agent 真失败但 execution 记 completed」的记账错位纠正为 failed。
+   *  Why 只看 otter 消息：failed 的发出者必为执行链上的獭；用户消息不存在 failed 生命周期。
+   *  Why 局限于锚点之后：同一会话旧轮次的 failed 消息（已熔断/已人工处理）不应牵连本次执行。 */
+  private async assertNoFailedMessages(conversationId: string, anchorMessageId: string): Promise<void> {
+    // 防御：查询抛错/返回异常值不阻塞记账（校验失败视为通过，交给既有 failure 路径兜底）
+    let after: Message[] = [];
+    try {
+      const res = await this.convRepo.getMessagesAfter(anchorMessageId, 100);
+      if (Array.isArray(res)) after = res;
+    } catch { /* best-effort */ }
+    const failed = after.find(m => m.senderType === 'otter' && m.status === 'failed');
+    if (failed) {
+      const preview = failed.segments.map(s => s.body).join('').slice(0, 200);
+      throw new Error(`Agent invocation failed: otter message ${failed.id} terminated as failed${preview ? ` (${preview})` : ''}`);
     }
   }
 
@@ -463,6 +566,65 @@ export class SchedulerService {
     const failures = await this.taskRepo.incrementConsecutiveFailures(taskId, now);
     if (failures >= 3) {
       await this.taskRepo.updateStatus(taskId, 'error', now);
+      // #516: error 不再静默——置 error 的同时在任务所属对话注入系统消息 + 写 healing event，
+      // 消灭「3 次熔断停跑、用户看板偶遇才发现」的静默死亡。通知失败不阻塞状态变更本身。
+      await this.notifyTaskErrored(taskId, failures, errorMessage);
+    }
+  }
+
+  /** #516: 任务进入 error 状态的通知（系统消息 + healing event，均 best-effort）。
+   *  Why sendMessage.send 而非 sendSystem：sendSystem 不支持指定 conversationId 的 sender 参数组，
+   *  而 scheduler 的 createSystemMessage 一直走 sendMessage.send（senderType='system'），保持一致。 */
+  private async notifyTaskErrored(taskId: string, failures: number, errorMessage: string): Promise<void> {
+    const task = await this.taskRepo.getById(taskId).catch(() => null);
+    if (!task) {
+      this.logger.warn('notifyTaskErrored: task not found, skipping notification', { taskId });
+      return;
+    }
+    const now = new Date().toISOString();
+    const body = `[定时任务错误] 「${task.name}」连续 ${failures} 次执行失败，已自动停跑（status=error）。最近错误：${errorMessage}。请检查任务配置或手动恢复（update status='active'）后重试。`;
+
+    // 1) 系统消息注入任务所属对话
+    try {
+      await this.sendMessage.send({
+        conversationId: task.conversationId,
+        senderType: 'system',
+        senderId: task.senderId,
+        body,
+        // 系统消息豁免发言石校验，但接口要求必填——传空数组占位（createSystemMessage 同款语义）
+        talkingStonePassedTo: [],
+      });
+    } catch (err) {
+      this.logger.warn('notifyTaskErrored: system message failed (non-fatal)', {
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // 2) healing event（errorType='performance'：调度健康问题，进入 self-healing 分析视野）
+    if (this.healingRepo) {
+      try {
+        await this.healingRepo.create({
+          id: crypto.randomUUID(),
+          messageId: '',
+          conversationId: task.conversationId,
+          otterId: task.talkingStonePassedTo[0] ?? '',
+          errorType: 'performance',
+          severity: 'high',
+          description: `定时任务「${task.name}」连续 ${failures} 次失败停跑（#516）`,
+          suggestion: `检查任务执行日志与错误「${errorMessage}」，修复后手动恢复 active`,
+          context: { taskId, executionError: errorMessage, consecutiveFailures: failures },
+          status: 'open',
+          resolution: null,
+          createdAt: now,
+          resolvedAt: null,
+        });
+      } catch (err) {
+        this.logger.warn('notifyTaskErrored: healing event write failed (non-fatal)', {
+          taskId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 
