@@ -26,8 +26,8 @@ modules: [src/entities/document, scripts, .pi, docs]
 
 | 文件 | 改动 |
 |------|------|
-| `.pi/SYSTEM.md` R1 第 4 条 | `git push --force` 从一刀切列表移出，新增按分支类型区分的子句：受保护分支（main / develop / 生产分支 / PR 目标分支）永远禁止、征得搭档同意也不放行；本期创建未合入的 feature 分支 rebase 后允许 `--force-with-lease`（远端被他人推进时拒绝的保险保留）；整段历史重写（filter-branch / rebase -i 改根提交）仍需确认 |
-| `.pi/skills/worktree-isolation/SKILL.md` 步骤 4 | push 指引补充 force-with-lease 场景说明（引用 #468，与 SYSTEM.md 双源一致） |
+| `.pi/SYSTEM.md` R1 第 4 条 | `git push --force` 从一刀切列表移出，新增按分支类型区分的子句：受保护分支（main / develop / 生产分支 / PR 目标分支）永远禁止、征得搭档同意也不放行；自己创建、未合入的 feature 分支 rebase 后允许 `--force-with-lease`，无需征得搭档同意（远端被他人推进时拒绝的保险保留）；整段历史重写（filter-branch / rebase -i 改根提交）仍需确认 |
+| `.pi/skills/worktree-isolation/SKILL.md` 步骤 4 | push 指引补充 force-with-lease 场景说明（指向 SYSTEM.md R1 真相源，出处 #468） |
 
 ### #455：SKILL-TEMPLATE 字段清单对齐现行约定
 
@@ -66,3 +66,9 @@ modules: [src/entities/document, scripts, .pi, docs]
 ## Discovered Issues
 
 - 存量 38 篇旧 change_type（bugfix/design 等历史值）与 2 篇旧 status（review/reviewed）在 ratchet 内逐步治理，未单独开 issue——属存量数据清理非规则缺口
+
+## 对抗审视处置（磨石：4 建议 0 严重）
+
+- **发现 1+2（接受并修复）**：R1 第 4 条「本期工作创建」歧义（session 窗口 vs 分支归属）与「是否仍需搭档确认」未显式声明——改为「自己创建、未合入」，子句内显式加「无需征得搭档同意」。行为依据：分支归属看创建者而非 session 边界（重启后分支仍是自己创建的）；免确认是 #468 搭档原话的意图（「那不应该受这条约束的」）；force-with-lease 自身保险（远端被他人推进时拒绝）兑住误用风险
+- **发现 3（接受并修复）**：worktree-isolation 步骤 4 只引 issue 未指真相源——补「R1 第 4 条对此放行且无需确认（出处 #468）」，skill 读者可直达红线真相源
+- **发现 4（反驳，附证据）**：特性文档改动明细实际含 `### #455：SKILL-TEMPLATE 字段清单对齐现行约定`独立小节（本文件原 32-37 行，核心/可选字段清单完整），非「散落在 #470 描述中」——检视者可能被小节内 title 规则的交叉引用（#470）误导读偏。未改动

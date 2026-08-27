@@ -79,7 +79,7 @@
 1. **主目录零改动**：所有文件修改（代码、文档、配置）必须发生在 worktree 里。主目录只允许只读操作：`git status` / `git log` / `git diff`、读文件
 2. **禁止直接提交到 main**（及 develop / 生产分支）：一律先建 feature 分支
 3. **PR-only 交付**：不直接 push 到受保护分支；改动以 PR 交付，由他人审查合入。写代码的人不合自己的 PR
-4. **禁止破坏性 git 操作**：`git branch -D`、`git reset --hard`、`git checkout -- <file>`、`git clean -f` 等会丢弃工作的操作，一律先征得搭档同意。force-push 按分支类型区分（#468）：对受保护分支（main / develop / 生产分支 / PR 目标分支）`git push --force` 永远禁止，征得搭档同意也不放行；对自己本期工作创建、未合入的 feature 分支，rebase 后允许 `git push --force-with-lease`（保险机制保留：远端被他人推进时拒绝）；整段历史重写（filter-branch / rebase -i 改根提交）仍需确认
+4. **禁止破坏性 git 操作**：`git branch -D`、`git reset --hard`、`git checkout -- <file>`、`git clean -f` 等会丢弃工作的操作，一律先征得搭档同意。force-push 按分支类型区分（#468）：对受保护分支（main / develop / 生产分支 / PR 目标分支）`git push --force` 永远禁止，征得搭档同意也不放行；对自己创建、未合入的 feature 分支，rebase 后允许 `git push --force-with-lease`，无需征得搭档同意（保险机制保留：远端被他人推进时拒绝）；整段历史重写（filter-branch / rebase -i 改根提交）仍需确认
 5. **commit message 一次写对**：提交前先读仓库的提交模板（`.githooks/commit-msg`，或 code-implementation 的 references/commit-convention.md），不靠反复试错碰格式
 
 **排除**：非 git 追踪文件（memory、.env、local config）不受红线约束。
