@@ -30,9 +30,17 @@ function runBootstrapSequence(db: Database.Database): void {
   migrateMessageSegments(db, createTestLogger());
 }
 
+/**
+ * 列出库内表名。**与 schema.ts 的同名函数语义不同**：schema.ts 版本只做快照对比
+ * （3 行简单查询，不过滤）；本测试版本额外过滤 FTS5 影子表与 sqlite_sequence——
+ * 它们不可被 DROP TABLE 粒度控制（影子表由 FTS5 虚拟表自动管理，sqlite_sequence
+ * 由 AUTOINCREMENT 自动管理），而下方夹具构造需要 DROP 表。等价性断言两侧均用
+ * 本函数取表集合（self-consistent），过滤不影响断言语义。
+ */
 function listTableNames(db: Database.Database): string[] {
-  // 先取虚拟表名：FTS5 影子表以「虚拟表名_」为前缀，不能单独 DROP，也不在断言语义内
-  // （注意：SQL 字符串用拼接写法，避免 lint-tests 把 CREATE VIRTUAL TABLE 字样误判为手写 DDL）
+  // 先取虚拟表名：FTS5 影子表以「虚拟表名_」为前缀，不能单独 DROP，也不在断言语义内。
+  // SQL 字符串用拼接写法绕开 lint-tests 的手写 DDL 检测（正则 CREATE\s+(VIRTUAL\s+)?TABLE
+  // 会对字面量误报；注释行会被 lint-tests 剥离，故此处可直写字样）
   const vtSql = ["CREATE ", "VIRTUAL ", "TABLE"].join("");
   const virtualTables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'view' OR name IN (SELECT name FROM sqlite_master WHERE type = 'table') AND sql LIKE ?").all(`${vtSql}%`) as Array<{ name: string }>).map(r => r.name);
   return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
