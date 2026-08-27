@@ -13,6 +13,7 @@ import type { LocalOtter as Otter, LocalOtterSession as OtterSession } from '../
 
 vi.mock('../../api/client', () => ({
   fetchOtterProfile: vi.fn().mockRejectedValue(new Error('test: profile 不加载')),
+  getSettings: vi.fn(),
 }))
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
@@ -146,5 +147,114 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
     expect(toggleBtns.length).toBe(1)
     const summaries = querySummaries()
     expect(summaries[1].textContent).toBe('前情：第二世正在进行的剧情')
+  })
+})
+
+// ═══ F20260827ucrt：CreateOtterModal 重做测试 ═══
+// getSettings 在文件头 vi.mock 工厂中导出，这里 import 后按需 mock 返回值
+import { getSettings } from '../../api/client'
+import { fireEvent } from '@testing-library/react'
+const getSettingsMock = vi.mocked(getSettings)
+
+function renderCreateModal(onConfirm: (form: unknown) => void) {
+  const noop = () => {}
+  act(() => {
+    root.render(
+      <ConversationModals
+        modal={{ type: 'create-otter' }}
+        otters={[]}
+        sessions={{}}
+        onClose={noop}
+        onConfirmNewConv={noop}
+        onConfirmChild={noop}
+        onConfirmArchive={noop}
+        onConfirmCreateOtter={onConfirm as () => void}
+        onConfirmDissolve={noop}
+        onConfirmRestart={noop}
+        onConfirmLinkResource={noop}
+        onOpenRestart={noop}
+        onOpenDissolve={noop}
+      />
+    )
+  })
+}
+
+describe('F20260827ucrt CreateOtterModal', () => {
+  beforeEach(() => {
+    getSettingsMock.mockReset()
+    getSettingsMock.mockResolvedValue({
+      models: [
+        { alias: 'glm', provider: 'zhipu', model: 'glm-5' },
+        { alias: 'kimi', provider: 'moonshot', model: 'kimi-k3' },
+      ],
+      defaultModelAlias: 'glm',
+      userName: '',
+      port: 3000,
+    } as unknown as Parameters<typeof getSettingsMock.mockResolvedValue>[0])
+  })
+
+  it('渲染模型下拉（settings 数据源）+ 头像「随机」与九宫格', async () => {
+    renderCreateModal(() => {})
+    // 等下拉数据加载
+    await act(async () => { await Promise.resolve() })
+    const select = document.querySelector('select') as HTMLSelectElement
+    expect(select).toBeTruthy()
+    expect(select.options.length).toBe(2)
+    expect(select.value).toBe('glm') // 默认选中 defaultModelAlias
+
+    // 头像：随机独立项（radio）+ 3×3 九宫格（9 个按钮）
+    const radio = document.querySelector('input[type="radio"]') as HTMLInputElement
+    expect(radio?.checked).toBe(true) // 随机默认选中
+    const gridButtons = Array.from(document.querySelectorAll('button[title]')) as HTMLButtonElement[]
+    const gridButtonsTitled = gridButtons.filter((b): b is HTMLButtonElement => Boolean(b.title))
+    expect(gridButtonsTitled.length).toBe(9)
+  })
+
+  it('mockSkills 与上下文注入摆设控件已删除', () => {
+    renderCreateModal(() => {})
+    expect(document.body.textContent).not.toContain('code-review')
+    expect(document.body.textContent).not.toContain('上下文注入')
+    expect(document.body.textContent).not.toContain('大獭将从记忆系统中提取')
+  })
+
+  it('提交组装表单对象（含 modelAlias/avatarName/systemPrompt 引导生成）', async () => {
+    let submitted: unknown = null
+    renderCreateModal(form => { submitted = form })
+    await act(async () => { await Promise.resolve() })
+
+    const inputs = Array.from(document.querySelectorAll('input')) as HTMLInputElement[]
+    const nameInput = inputs[0]
+    act(() => { fireEvent.change(nameInput, { target: { value: '分析獭' } }) })
+
+    // 选第三款头像
+    const gridButtons = (Array.from(document.querySelectorAll('button[title]')) as HTMLButtonElement[]).filter(b => b.title)
+    act(() => { fireEvent.click(gridButtons[2]) })
+
+    const createBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '创建')
+    act(() => { fireEvent.click(createBtn!) })
+
+    expect(submitted).toBeTruthy()
+    const form = submitted as Record<string, unknown>
+    expect(form.name).toBe('分析獭')
+    expect(typeof form.systemPrompt).toBe('string')
+    expect(form.systemPrompt).toContain('你是分析獭')
+    expect(form.modelAlias).toBe('glm')
+    expect(form.avatarName).toBeTruthy()
+  })
+
+  it('高级编辑：开启预填当前生成内容', async () => {
+    renderCreateModal(() => {})
+    await act(async () => { await Promise.resolve() })
+
+    const inputs = Array.from(document.querySelectorAll('input')) as HTMLInputElement[]
+    act(() => { fireEvent.change(inputs[0], { target: { value: '高级獭' } }) })
+
+    const advCheckbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement
+    act(() => { fireEvent.click(advCheckbox) })
+
+    await act(async () => { await Promise.resolve() })
+    const textarea = document.querySelector('textarea.font-mono') as HTMLTextAreaElement
+    expect(textarea).toBeTruthy()
+    expect(textarea.value).toContain('你是高级獭')
   })
 })

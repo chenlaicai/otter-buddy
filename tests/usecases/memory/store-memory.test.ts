@@ -5,7 +5,7 @@ import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
-import { createTestLogger } from "../../helpers/logger";
+import { createCapturingLogger, createTestLogger } from "../../helpers/logger";
 
 /** 创建带状态捕获的 MemoryWriter + MemoryQueue mock */
 function statefulRepo(): MemoryWriter & MemoryQueue & {
@@ -226,13 +226,16 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
     expect(embedding.receivedContents[0].length).toBe(6000);
   });
 
-  it("空字符串不截断不抛异常", async () => {
+  it("空字符串：#509 防线拦截（原“不截断不抛异常”语义已被污染防线取代）", async () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
     const store = new StoreMemory(repo, repo, embedding, createTestLogger());
-    await store.execute({ ...SAMPLE_INPUT, content: "" });
-    await new Promise(r => setTimeout(r, 10));
-    expect(embedding.receivedContents[0]).toBe("");
+    // 原断言：空字符串走完 execute 不抛异常（F20260803fbit 截断边界用例）。
+    // #509 后：空 content 是污染信号（962c4b80/707ac5c3 实证），execute 入口直接拒绝。
+    await expect(store.execute({ ...SAMPLE_INPUT, content: "" })).rejects.toThrow(
+      "Refusing to store polluted memory entry",
+    );
+    expect(embedding.receivedContents).toHaveLength(0);
   });
 });
 
@@ -327,5 +330,154 @@ describe("StoreMemory - F20260821scrt secrets 脱敏", () => {
 
     expect(repo.storedEntries[0].content).toBe("用户询问了天气情况");
     expect(repo.storedEntries[0].metadata).toBe(metadata);
+  });
+});
+
+describe("StoreMemory - issue #509 污染防线", () => {
+  function capturingEmbedGateway(): EmbeddingGateway & { receivedContents: string[] } {
+    const receivedContents: string[] = [];
+    return {
+      receivedContents,
+      available: true,
+      embed: async (content: string) => {
+        receivedContents.push(content);
+        return new Float32Array([0.1, 0.2]);
+      },
+    };
+  }
+
+  const CHUNK_INPUT: MemoryEntryInput = {
+    layer: "document",
+    contentType: "feature_chunk",
+    sourceId: "F20260827xxxx",
+    sourceTable: "features",
+    granularity: "fine",
+    content: "正常 chunk 内容，长度足够",
+    metadata: { char_count: 20 },
+  };
+
+  it("execute：trim 后空 content 拒绝入库（PollutedContentError）", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+
+    await expect(
+      store.execute({ ...SAMPLE_INPUT, content: "" }),
+    ).rejects.toThrow("Refusing to store polluted memory entry");
+    expect(repo.storedEntries).toHaveLength(0);
+  });
+
+  it("execute：空白/纯换行 content 同样拒绝", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+
+    await expect(
+      store.execute({ ...SAMPLE_INPUT, content: "\n\n  \n" }),
+    ).rejects.toThrow("Refusing to store polluted memory entry");
+    expect(repo.storedEntries).toHaveLength(0);
+  });
+
+  it("execute：短消息（如“继续”）是合法内容，不拦截", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+
+    await store.execute({ ...SAMPLE_INPUT, content: "继续" });
+    expect(repo.storedEntries).toHaveLength(1);
+  });
+
+  it("replaceBySource：summary 路径拦截空 content", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+
+    await expect(
+      store.replaceBySource({ ...SAMPLE_INPUT, content: "" }),
+    ).rejects.toThrow("Refusing to store polluted memory entry");
+  });
+
+  it("replaceChunksBySource：污染 chunk 被过滤，健康 chunk 正常入库", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+    const replaceCalls: MemoryEntry[][] = [];
+    repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
+      replaceCalls.push(entries);
+    };
+
+    await store.replaceChunksBySource([
+      { ...CHUNK_INPUT, content: "健康的 chunk 内容一" },
+      { ...CHUNK_INPUT, content: "." },
+      { ...CHUNK_INPUT, content: "健康的 chunk 内容二" },
+    ]);
+
+    expect(replaceCalls[0]).toHaveLength(2);
+    expect(replaceCalls[0].map(e => e.content)).toEqual(["健康的 chunk 内容一", "健康的 chunk 内容二"]);
+  });
+
+  it("replaceChunksBySource：全部污染时返回空数组且不写库", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+    let replaceCalled = false;
+    repo.replaceEntriesBySource = async () => {
+      replaceCalled = true;
+    };
+
+    const ids = await store.replaceChunksBySource([
+      { ...CHUNK_INPUT, content: "." },
+      { ...CHUNK_INPUT, content: "\n" },
+    ]);
+
+    expect(ids).toEqual([]);
+    expect(replaceCalled).toBe(false);
+  });
+
+  it("replaceChunksBySource：metadata.char_count 与实际 content 严重偏离时告警（不拦截）", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+    const replaceCalls: MemoryEntry[][] = [];
+    repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
+      replaceCalls.push(entries);
+    };
+
+    // char_count=933 但 cleaned content 只剩 100 字符（<20% 阈值）——833391fa 型缺陷兜底感知
+    await store.replaceChunksBySource([
+      { ...CHUNK_INPUT, content: "x".repeat(100), metadata: { char_count: 933 } },
+    ]);
+
+    expect(replaceCalls[0]).toHaveLength(1); // 不拦截，只告警
+  });
+
+  it("execute：前后包裹空白的合法内容 trim 后判定，正常入库（PR #519 审视补充）", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+
+    // "  hello  " trim 后 5 字符 > 0，execute 路径只拦「空」——前后空白不构成污染
+    const id = await store.execute({ ...SAMPLE_INPUT, content: "  hello  " });
+    expect(id).toBeTruthy();
+    expect(repo.storedEntries).toHaveLength(1);
+    // 入库保留原文（trim 只用于判定，不改写 content）
+    expect(repo.storedEntries[0].content).toBe("  hello  ");
+  });
+
+  it("replaceChunksBySource：char_count 偏离告警写入日志（PR #519 审视补充）", async () => {
+    const repo = statefulRepo();
+    const logger = createCapturingLogger();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), logger);
+
+    // char_count=933 但 cleaned content 只剩 100 字符（<20% 阈值）——833391fa 型缺陷兜底感知
+    await store.replaceChunksBySource([
+      { ...CHUNK_INPUT, content: "x".repeat(100), metadata: { char_count: 933 } },
+    ]);
+
+    expect(logger.captured.warns.some((m) => m.includes("char_count mismatch") && m.includes("933"))).toBe(true);
+  });
+
+  it("replaceChunksBySource：char_count 与 content 匹配时不告警", async () => {
+    const repo = statefulRepo();
+    const logger = createCapturingLogger();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), logger);
+
+    await store.replaceChunksBySource([
+      { ...CHUNK_INPUT, content: "x".repeat(100), metadata: { char_count: 100 } },
+    ]);
+
+    expect(logger.captured.warns).toHaveLength(0);
   });
 });
