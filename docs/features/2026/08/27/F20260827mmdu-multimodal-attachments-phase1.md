@@ -1,6 +1,6 @@
 ---
 id: F20260827mmdu
-title: multimodal-attachments-phase1
+title: 多模态附件支持 Phase 1：数据层+上传管线+投影层+vision 注入
 doc_type: feature
 
 # 记忆索引

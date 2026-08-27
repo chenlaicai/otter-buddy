@@ -332,11 +332,19 @@ export class AgentTurnOrchestrator {
         context: { retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
       });
     } catch (err) {
-      ctx.callbacks.logger.warn('degenerate healing event record failed (non-fatal)', {
-        messageId: ctx.input.messageId,
-        otterId: ctx.input.otterId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      // F20260827he2f: error 级别 + 完整上下文——让健康检查链路可观测
+      // 原 warn 级别在生产日志中容易被淹没，健康检查对此失明
+      ctx.callbacks.logger.error('degenerate healing_event write FAILED — circuit breaker data source degraded',
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          component: 'AgentTurnOrchestrator',
+          errorType: 'degenerate',
+          otterId: ctx.input.otterId,
+          messageId: ctx.input.messageId,
+          conversationId: ctx.input.conversationId,
+          retryCount: ctx.input.retryCount,
+        },
+      );
     }
   }
 
@@ -489,11 +497,18 @@ export class AgentTurnOrchestrator {
 
     try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
 
-    // message.failed 事件：auto-retry 路径发此事件通知前端消息失败（no_yield 路径不发，两条路径前端感知语义不同——见 A1）
+    // message.failed 事件：auto-retry 路径发此事件通知前端消息失败
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+    const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.failed',
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, body: failBody },
+    });
+    // #440: failed 是暂态——紧跟补发 message.retry，前端据此回退 streaming 投影，消除「failed 复活」无事件跳变
+    // attempt = retryCount + 1：本轮结束后即将进入第 retryCount+1 次重试（当前策略 retryCount===0 才触发，值为 1）
+    this.safeEmitEvent(ctx.callbacks, {
+      event: 'message.retry',
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, reason: buildRetryFailBody(reason), attempt: ctx.input.retryCount + 1 },
     });
 
     // F20260825rtmx: 重置消息生命周期，使重试轮输出可 append（否则消息卡在 failed 状态，输出全部丢失）
@@ -516,6 +531,15 @@ export class AgentTurnOrchestrator {
     if (ctx.input.retryCount === 0) {
       const failBody = "[系统] 未调用 yield 工具交回行动权";
       try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
+
+      // #440: no_yield 首轮 fail 后同样补发 message.retry（与 timeout 路径对齐——
+      // failMessage 是事实，但「正在重试」也是事实；前端可统一订阅此事件回退 streaming 投影）
+      const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+      const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
+      this.safeEmitEvent(ctx.callbacks, {
+        event: 'message.retry',
+        data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, reason: 'no_yield', attempt: ctx.input.retryCount + 1 },
+      });
 
       try {
         // F20260821fix: no_yield 重试时保留 segments（speak 内容有效，不应被删除）

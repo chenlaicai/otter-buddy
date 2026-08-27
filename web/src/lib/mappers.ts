@@ -199,6 +199,7 @@ export interface LocalScheduledTask {
   consecutiveFailures: number
   lastTriggeredAt: string | null
   restartBeforeInvoke: boolean
+  timeoutMinutes: number | null
   nextTriggerAt: string | null
   createdAt: string
   updatedAt: string
@@ -231,6 +232,7 @@ export interface ScheduledTaskDTO {
   consecutiveFailures: number
   lastTriggeredAt: string | null
   restartBeforeInvoke: boolean
+  timeoutMinutes: number | null
   nextTriggerAt: string | null
   createdAt: string
   updatedAt: string
@@ -263,6 +265,7 @@ export function mapScheduledTaskDTO(dto: ScheduledTaskDTO): LocalScheduledTask {
     consecutiveFailures: dto.consecutiveFailures,
     lastTriggeredAt: dto.lastTriggeredAt,
     restartBeforeInvoke: dto.restartBeforeInvoke,
+    timeoutMinutes: dto.timeoutMinutes,
     nextTriggerAt: dto.nextTriggerAt,
     createdAt: dto.createdAt,
     updatedAt: dto.updatedAt,

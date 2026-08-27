@@ -579,6 +579,11 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
+  /** F20260827he2f：healing_repo 健康探针——外部健康检查可调用，验证熔断事件落库能力 */
+  async probeHealingRepo(): Promise<boolean> {
+    return this.circuitBreak ? this.circuitBreak.probeHealingRepo() : false;
+  }
+
   /** F20260825hndf：获取 otter 的 context window 大小 */
   private async getCtxMax(_otterId: string): Promise<number | undefined> {
     // Phase 1：用默认值 128k；Phase 2 通过 modelPool.getContextWindow 获取精确值

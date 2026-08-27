@@ -29,6 +29,7 @@ function makeTask(overrides: Partial<LocalScheduledTask> = {}): LocalScheduledTa
     consecutiveFailures: 0,
     lastTriggeredAt: null,
     restartBeforeInvoke: false,
+    timeoutMinutes: null,
     nextTriggerAt: null,
     createdAt: '2025-01-01T00:00:00Z',
     updatedAt: '2025-01-01T00:00:00Z',

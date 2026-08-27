@@ -26,6 +26,9 @@ export interface ScheduledTask {
   lastTriggeredAt: string | null;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
   restartBeforeInvoke: boolean;
+  /** #516: 任务级链超时配置（分钟）。null = 用调度器默认（15 分钟）。
+   *  语义：链静默容忍窗——窗口内链无任何活跃消息即视为死亡；链活跃则续期等待，直至硬上限。 */
+  timeoutMinutes: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,4 +88,9 @@ export function isValidTimezone(tz: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** #516: 任务级超时配置校验（分钟）。允许 1-1440（1 分钟到 24 小时）。 */
+export function isValidTimeoutMinutes(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 1440;
 }

@@ -39,6 +39,26 @@ export class SqliteOtterRepository implements OtterRepository {
     return row ? rowToOtter(row) : null;
   }
 
+  /**
+   * #446: 单条 IN 查询批量取，消除循环内逐个 getById 的 N+1（存量行为，issue 建议顺手治）。
+   * 空数组直接返回空 Map（避免 `IN ()` 语法错）；重复 id 自动去重。
+   */
+  async getByIds(ids: string[]): Promise<Map<string, Otter>> {
+    if (ids.length === 0) return new Map();
+    const uniqueIds = [...new Set(ids)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const rows = this.db.prepare(
+      `SELECT * FROM otters WHERE id IN (${placeholders})`
+    ).all(...uniqueIds) as OtterRow[];
+
+    const result = new Map<string, Otter>();
+    for (const row of rows) {
+      const otter = rowToOtter(row);
+      result.set(otter.id, otter);
+    }
+    return result;
+  }
+
   async dissolve(otterId: string, dissolvedAt: string): Promise<void> {
     this.db.prepare(`
       UPDATE otters SET status = 'dissolved', dissolved_at = ?

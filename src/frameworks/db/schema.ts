@@ -577,6 +577,7 @@ function createScheduledTaskTables(db: Database.Database): void {
       consecutive_failures INTEGER NOT NULL DEFAULT 0,
       last_triggered_at TEXT,
       restart_before_invoke INTEGER NOT NULL DEFAULT 0,
+      timeout_minutes INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );

@@ -263,6 +263,7 @@ export interface CreateScheduledTaskRequestDTO {
   talkingStonePassedTo: string[]
   senderId?: string
   restartBeforeInvoke?: boolean
+  timeoutMinutes?: number | null
 }
 
 export interface UpdateScheduledTaskRequestDTO {
@@ -273,6 +274,7 @@ export interface UpdateScheduledTaskRequestDTO {
   talkingStonePassedTo?: string[]
   status?: 'active' | 'disabled' | 'error'
   restartBeforeInvoke?: boolean
+  timeoutMinutes?: number | null
 }
 
 export interface ScheduledTaskDTO {
@@ -290,6 +292,7 @@ export interface ScheduledTaskDTO {
   consecutiveFailures: number
   lastTriggeredAt: string | null
   restartBeforeInvoke: boolean
+  timeoutMinutes: number | null
   nextTriggerAt: string | null
   createdAt: string
   updatedAt: string

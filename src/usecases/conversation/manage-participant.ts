@@ -9,7 +9,7 @@ import { isValidTalkingStonePass } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
-import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { OtterConfig, OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { tryCloseTurn } from "./turn-utils";
 
 export interface ParticipantWithOtter {
@@ -204,11 +204,16 @@ export class ManageParticipant {
     conversationId: string,
   ): Promise<ParticipantWithOtter[]> {
     const participants = await this.repo.getActiveParticipants(conversationId);
+    // #446: 批量预取消除循环内 N+1——otterRepo.getById + configProvider.getConfig 原本每参与者各一次 DB 查询
+    const ottersById = await this.otterRepo.getByIds(participants.map(p => p.otterId));
+    const configsByOtterId = this.configProvider
+      ? this.configProvider.getConfigs(participants.map(p => p.otterId))
+      : new Map<string, OtterConfig>();
     const result: ParticipantWithOtter[] = [];
     for (const participant of participants) {
-      const otter = await this.otterRepo.getById(participant.otterId);
+      const otter = ottersById.get(participant.otterId);
       const otterName = otter?.name ?? `Otter ${participant.otterId.slice(0, 8)}`;
-      const modelAlias = this.configProvider?.getConfig(participant.otterId)?.modelAlias;
+      const modelAlias = configsByOtterId.get(participant.otterId)?.modelAlias;
       result.push({ participant, otterName, otterType: otter?.type, roleName: otter?.role?.name, modelAlias });
     }
     return result;

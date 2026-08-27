@@ -196,9 +196,13 @@ export class DispatchChainEngine {
       }
     }
 
+    /** #474: 只滤 'user'——人类不参与链调度（web 路径 senderId 恒为 'user'，等价回声，照旧滤除）。
+     *  禁止再滤 senderId：scheduler 路径（AgentDispatchService / SchedulerService / resume）的 sender
+     *  是任务属主 otter，小獭 yield 回属主是设计内交棒，被滤掉即行动权悬空（石砧 8-26 实证：链在
+     *  yield 大獭后正常结束，大獭永不唤醒，需用户手动接棒）。 */
     return {
       otterReply,
-      nextTargets: [...nextTargets].filter(id => id !== senderId && id !== "user"),
+      nextTargets: [...nextTargets].filter(id => id !== "user"),
     };
   }
 

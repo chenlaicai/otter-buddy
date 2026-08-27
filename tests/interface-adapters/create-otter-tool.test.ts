@@ -216,6 +216,7 @@ describe("create_otter 工具", () => {
           if (otterId === "new-otter-id") return { otterType: "small", modelAlias: "fast" };
           return null;
         },
+        getConfigs: () => new Map(),
         setConfig: () => {},
         deleteConfig: () => {},
         hasConfig: () => true,
@@ -242,6 +243,7 @@ describe("create_otter 工具", () => {
           if (otterId === "new-otter-id") return { otterType: "small" };
           return null;
         },
+        getConfigs: () => new Map(),
         setConfig: () => {},
         deleteConfig: () => {},
         hasConfig: () => true,
@@ -267,6 +269,7 @@ describe("create_otter 工具", () => {
           if (otterId === "new-otter-id") return { otterType: "small" };
           return null;
         },
+        getConfigs: () => new Map(),
         setConfig: () => {},
         deleteConfig: () => {},
         hasConfig: () => true,
