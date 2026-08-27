@@ -332,11 +332,19 @@ export class AgentTurnOrchestrator {
         context: { retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
       });
     } catch (err) {
-      ctx.callbacks.logger.warn('degenerate healing event record failed (non-fatal)', {
-        messageId: ctx.input.messageId,
-        otterId: ctx.input.otterId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      // F20260827he2f: error 级别 + 完整上下文——让健康检查链路可观测
+      // 原 warn 级别在生产日志中容易被淹没，健康检查对此失明
+      ctx.callbacks.logger.error('degenerate healing_event write FAILED — circuit breaker data source degraded',
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          component: 'AgentTurnOrchestrator',
+          errorType: 'degenerate',
+          otterId: ctx.input.otterId,
+          messageId: ctx.input.messageId,
+          conversationId: ctx.input.conversationId,
+          retryCount: ctx.input.retryCount,
+        },
+      );
     }
   }
 
