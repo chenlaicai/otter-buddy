@@ -288,3 +288,52 @@ describe("migrateDatabase - F20260821evaf embedding_meta 表", () => {
     }
   });
 });
+
+/**
+ * F20260827mtbl：signal_events（F20260826mwrd）+ restart_pending_resumes（F20260826rsme）
+ * 表老库补建。原实现只写进 initSchema（仅新库执行），存量库漏建导致：
+ * reconcileOrphans claimResume 抛 no such table → 清理夭折 → streaming 孤儿永久残留；
+ * halt_otter/query_signals 落账同样直接 no such table。
+ */
+describe("migrateDatabase - F20260827mtbl signal_events + restart_pending_resumes 表", () => {
+  it("老库缺两表：migrate 补建后可读写", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      // 模拟早于 F20260826 两特性时代的存量库
+      db.exec("DROP TABLE signal_events");
+      db.exec("DROP TABLE restart_pending_resumes");
+
+      migrateDatabase(db, createTestLogger());
+
+      // restart_pending_resumes 可读写（claimResume 语义）
+      db.prepare(
+        "INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at) VALUES ('msg-1', 'conv-1', 'otter-1', 0, 'pending', '2026-08-27T00:00:00Z')"
+      ).run();
+      const claimed = db.prepare(
+        "UPDATE restart_pending_resumes SET attempts = attempts + 1 WHERE message_id = 'msg-1' AND attempts < 1"
+      ).run();
+      expect(claimed.changes).toBe(1);
+
+      // signal_events 可读写
+      db.prepare(
+        "INSERT INTO signal_events (id, conversation_id, message_id, from_otter_id, type, severity, payload, status, created_at) VALUES ('se-1', 'conv-1', 'msg-1', 'otter-1', 'halt', 'high', '{}', 'pending', '2026-08-27T00:00:00Z')"
+      ).run();
+      const se = db.prepare("SELECT type FROM signal_events WHERE id = 'se-1'").get() as { type: string };
+      expect(se.type).toBe("halt");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("幂等：已有表的库跑 migrate 不报错", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      migrateDatabase(db, createTestLogger());
+    } finally {
+      db.close();
+    }
+  });
+});
