@@ -42,7 +42,7 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
    *  滚动上限已 token 化（--modal-scroll-max-h / --modal-content-max-h），
    *  值定义在 globals.css @theme 块，此处通过 CSS 变量引用。
    *  fullScreenOnMobile=true 时 JS 侧不设 maxHeight（由 modal-fs-content
-   *  CSS 类在 <640px 覆盖为 100dvh 全屏抽屉）。 */'
+   *  CSS 类在 <640px 覆盖为 100dvh 全屏抽屉）。 */
 
   /** F20260826pfix：焦点管理（可及性）——打开时焦点进入弹窗（关闭按钮），
    *  关闭时归还触发元素。简单 focus trap：Tab 循环限制在 dialog 内。 */
