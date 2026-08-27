@@ -34,7 +34,7 @@ from: ["#506"]
 |------|------|------|------|----------|
 | 1 | F20260821evaf | `embedding_meta` | `getEmbeddingMeta` 抛 no such table，版本锚静默失效 10 天 | 事后排查 |
 | 2 | F20260824rhib | `health_snapshots` / `signals` | server 集成后写入直接 no such table | 集成即爆 |
-| 3 | F20260826mwrd + rsme | `signal_events` / `restart_pending_resumes` | halt 落账炸裂；孤儿跨重启永久残留（#505 修复） | 事后排查 |
+| 3 | F20260826mwrd + rsme | `signal_events` / `restart_pending_resumes` | halt 落账炸裂；孤儿跨重启永久残留（#505 / F20260827mtbl 修复） | 事后排查 |
 | **4（新发现）** | F20260826rcmm（PR #482，8/26） | **`search_query_logs`** | 埋点 INSERT 抛 no such table，被 `clients.ts:39` 的 `.catch(() => undefined)` 静默吞掉——**未爆雷但评估埋点数据在存量库上静默丢失** | 本次方案核查（机械比对两文件 CREATE TABLE 集合） |
 
 第 4 案证明 issue 的判断成立：这不是个别疏忽，是结构必然——只要誊抄模式存在，漏登会继续发生，且 fire-and-forget 类消费方会让它**静默无声**。
