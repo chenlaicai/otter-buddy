@@ -662,6 +662,34 @@ def cmd_index(args) -> dict:
     return result
 
 
+def cmd_calendar(args) -> dict:
+    """Sync trading calendar from akshare."""
+    import akshare as ak
+
+    year = args.year
+
+    try:
+        df = ak.tool_trade_date_hist_sina()
+        if df is None or df.empty:
+            return {"error": "tool_trade_date_hist_sina returned empty", "year": year}
+
+        # Column is 'trade_date', values are datetime-like
+        col = df.columns[0]  # Usually 'trade_date'
+        dates = []
+        for v in df[col]:
+            d = str(v)[:10]  # YYYY-MM-DD
+            if d.startswith(str(year)):
+                dates.append(d)
+
+        return {
+            "year": year,
+            "count": len(dates),
+            "trading_dates": sorted(dates),
+        }
+    except Exception as e:
+        return structured_error(f"tool_trade_date_hist_sina({year})", e)
+
+
 def cmd_selftest(args) -> dict:
     """Run self-diagnostic: test each API endpoint and report status."""
     import akshare as ak
@@ -840,6 +868,11 @@ def build_parser() -> argparse.ArgumentParser:
     # selftest
     sub.add_parser("selftest", help="Run self-diagnostic")
 
+    # calendar
+    p_cal = sub.add_parser("calendar", help="Trading calendar sync (akshare)")
+    p_cal.add_argument("--year", type=int, default=datetime.now().year,
+                       help="Year to sync (default: current year)")
+
     return parser
 
 
@@ -861,6 +894,7 @@ def main():
         "hkline": cmd_hkline,
         "hvaluation": cmd_hvaluation,
         "index": cmd_index,
+        "calendar": cmd_calendar,
         "selftest": cmd_selftest,
     }
 
@@ -870,10 +904,11 @@ def main():
 
     # Validate code for commands that require it
     hk_commands = {"hkline", "hvaluation"}
+    non_code_commands = {"northflow", "selftest", "calendar"}
     if hasattr(args, "code") and args.code:
         if args.command in hk_commands:
             validate_hk_code(args.code)
-        elif args.command not in {"northflow", "selftest"}:
+        elif args.command not in non_code_commands:
             validate_code(args.code)
 
     # Validate numeric parameters (B6: boundary校验)

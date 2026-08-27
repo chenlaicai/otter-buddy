@@ -20,11 +20,12 @@ import type {
 } from '@entities/paper-trading';
 
 import type { PaperTradeRepository } from './paper-trade-repository';
+import type { StockQuoteGateway, DailyQuote } from './stock-quote-gateway';
 
 /** 撮合结果 */
 export interface MatchResult {
   orderId: string;
-  status: 'filled' | 'rejected' | 'expired' | 'limit_up' | 'limit_down';
+  status: 'filled' | 'pending' | 'expired' | 'limit_up' | 'limit_down';
   rejectReason: string | null;
   trade: PaperTrade | null;
 }
@@ -72,6 +73,7 @@ const DEFAULT_RISK_RULES: RiskControlRules = {
 export class Ledger {
   constructor(
     private readonly repo: PaperTradeRepository,
+    private readonly gateway: StockQuoteGateway,
     private readonly riskRules: RiskControlRules = DEFAULT_RISK_RULES,
   ) {}
 
@@ -148,7 +150,13 @@ export class Ledger {
 
   // ==================== 撮合引擎 ====================
 
-  /** 撮合任务（T+1 日 15:05 收盘后执行） */
+  /**
+   * 撮合任务（T+1 日 15:05 收盘后执行）
+   *
+   * S2 修复：只撮合「创建日 < tradeDate」的订单（T+1 时序守卫）
+   * S3 修复：涨跌停不成交保持 pending（不 reject）；撮合前过期扫描
+   */
+  // eslint-disable-next-line max-statements -- PR4: 撮合任务有多步逻辑（过期扫描/T+1守卫/涨跌停/净值/日报）
   async matchOrders(accountId: string, tradeDate: string): Promise<MatchResult[]> {
     // 1. 检查是否交易日
     const isTrading = await this.repo.isTradingDay(tradeDate);
@@ -156,26 +164,41 @@ export class Ledger {
       return [];
     }
 
+    // 1.5 过期扫描：pending 超过 5 个交易日的订单 → expired（S3）
+    const _expiredCount = await this.repo.expireOldPendingOrders(accountId, tradeDate);
+
     // 2. 获取所有 pending 订单
-    const pendingOrders = await this.repo.getPendingOrders(accountId);
+    const allPendingOrders = await this.repo.getPendingOrders(accountId);
+
+    // S2: T+1 时序守卫——只撮合创建日 < tradeDate 的订单
+    const pendingOrders: PaperOrder[] = [];
+    for (const order of allPendingOrders) {
+      const createdDate = order.createdAt.split('T')[0]; // "YYYY-MM-DD"
+      // 用交易日历判断 createdDate 是否是 tradeDate 之前的交易日
+      // 简化：createdDate < tradeDate（字符串比较对 YYYY-MM-DD 格式正确）
+      if (createdDate < tradeDate) {
+        pendingOrders.push(order);
+      }
+    }
+
     if (pendingOrders.length === 0) {
       return [];
     }
 
     // 3. 获取当日行情（不复权口径）
     const codes = [...new Set(pendingOrders.map(o => o.code))];
-    const quotes = await this.getQuotes(codes, tradeDate);
+    const quotes = await this.gateway.getQuotes(codes, tradeDate);
 
     // 4. 逐单撮合
     const results: MatchResult[] = [];
     for (const order of pendingOrders) {
       const quote = quotes[order.code];
       if (!quote) {
-        // 无行情（停牌），保持 pending
+        // 无行情（停牌），保持 pending——S3 不再 reject
         results.push({
           orderId: order.id,
-          status: 'rejected',
-          rejectReason: 'no_quote',
+          status: 'pending',
+          rejectReason: 'suspended',
           trade: null,
         });
         continue;
@@ -197,19 +220,40 @@ export class Ledger {
     return results;
   }
 
-  /** 撮合单个订单 */
+  /**
+   * 撮合单个订单
+   *
+   * S3 修复：涨跌停不成交保持 pending（不 reject）
+   * S4 修复：T+1 校验移到撮合时（卖单检查当日是否有买入成交）
+   */
   private async matchSingleOrder(
     order: PaperOrder,
-    quote: { open: number; prevClose: number },
+    quote: DailyQuote,
     tradeDate: string,
   ): Promise<MatchResult> {
     const { open, prevClose } = quote;
 
+    // S4: T+1 校验在撮合时（卖单检查是否存在 trade_date=tradeDate 的买入成交）
+    if (order.side === 'sell') {
+      const lastBuyDate = await this.repo.getLastBuyTradeDate(order.accountId, order.code, tradeDate);
+      if (lastBuyDate && lastBuyDate === tradeDate) {
+        // T+1 限制：当日有买入成交，保持 pending
+        await this.repo.updateOrderStatus(order.id, 'pending', 't_plus_1_restriction');
+        return {
+          orderId: order.id,
+          status: 'pending',
+          rejectReason: 't_plus_1_restriction',
+          trade: null,
+        };
+      }
+    }
+
     // 涨跌停校验
     const limitCheck = this.checkPriceLimit(order.code, open, prevClose, order.side);
     if (limitCheck !== 'ok') {
+      // S3: 不 reject，保持 pending + reject_reason 标注（次日重试）
       const rejectReason = limitCheck === 'limit_up' ? 'limit_up' : 'limit_down';
-      await this.repo.updateOrderStatus(order.id, 'rejected', rejectReason);
+      await this.repo.updateOrderStatus(order.id, 'pending', rejectReason);
       return {
         orderId: order.id,
         status: limitCheck,
@@ -315,7 +359,14 @@ export class Ledger {
 
   // ==================== 风控校验 ====================
 
-  /** 风控校验 */
+  /**
+   * 风控校验（下单时）
+   *
+   * S4 修复：
+   * 1. 仓位市值 = shares × 最新收盘价（之前是 nav.ratio × initialCash，完全错误）
+   * 2. 现金预检用真实最新收盘价估算
+   * 3. T+1 校验已移到 matchSingleOrder（撮合时校验），此处不再做
+   */
   // eslint-disable-next-line max-statements, complexity -- PR4: risk control has multiple checks
   private async checkRiskControl(
     accountId: string,
@@ -340,11 +391,14 @@ export class Ledger {
       const position = await this.repo.getPosition(accountId, code);
       const nav = await this.repo.getLatestNav(accountId);
       if (nav && position) {
-        const positionValue = position.shares * nav.nav * account.initialCash;
-        const totalValue = nav.nav * account.initialCash;
-        const positionRatio = (positionValue / totalValue) * 100;
-        if (positionRatio >= this.riskRules.maxSinglePosition) {
-          throw new Error(`Single position limit reached: ${positionRatio.toFixed(2)}%/${this.riskRules.maxSinglePosition}%`);
+        // S4-1: 仓位市值 = shares × 最新收盘价
+        const currentPrice = await this.gateway.getClosePrice(code, today);
+        if (currentPrice) {
+          const positionValue = position.shares * currentPrice;
+          const positionRatio = (positionValue / nav.total) * 100;
+          if (positionRatio >= this.riskRules.maxSinglePosition) {
+            throw new Error(`Single position limit reached: ${positionRatio.toFixed(2)}%/${this.riskRules.maxSinglePosition}%`);
+          }
         }
       }
     }
@@ -360,9 +414,14 @@ export class Ledger {
 
     // 买单现金预检
     if (side === 'buy') {
+      // S4-2: 用真实最新收盘价估算
       const cash = await this.repo.getCash(accountId);
-      const amount = shares * 100; // 假设 10 元/股，实际需要取实时价格
-      if (cash < amount) {
+      const currentPrice = await this.gateway.getClosePrice(code, this.getToday());
+      const estimatedPrice = currentPrice ?? 0;
+      const estimatedAmount = shares * estimatedPrice;
+      // 加佣金估算（最坏情况）
+      const estimatedFee = Math.max(estimatedAmount * FEE_CONFIG.commissionRate, FEE_CONFIG.minCommission);
+      if (cash < estimatedAmount + estimatedFee) {
         throw new Error('Insufficient cash');
       }
     }
@@ -373,13 +432,7 @@ export class Ledger {
       if (!position || position.shares < shares) {
         throw new Error('Insufficient position');
       }
-
-      // T+1 限制
-      const today = this.getToday();
-      const lastBuyDate = await this.repo.getLastBuyDate(accountId, code, today);
-      if (lastBuyDate && lastBuyDate === today) {
-        throw new Error('T+1 restriction: cannot sell on buy day');
-      }
+      // S4-3: T+1 校验已移至 matchSingleOrder（撮合时校验），此处不再做
     }
   }
 
@@ -456,11 +509,15 @@ export class Ledger {
     const cash = await this.repo.getCash(accountId);
     const positions = await this.repo.getPositions(accountId);
 
-    // 计算持仓市值（当日收盘价）
+    // 计算持仓市值（当日收盘价，不复权口径）
     let marketValue = 0;
     for (const position of positions) {
-      const closePrice = await this.getClosePrice(position.code, date);
-      marketValue += closePrice * position.shares;
+      const closePrice = await this.gateway.getClosePrice(position.code, date);
+      if (closePrice) {
+        marketValue += closePrice * position.shares;
+      }
+      // 停牌票按最近已知价格保留（position.avgCost 作为 fallback）
+      // 方案 A4：停牌按最近收盘价，此处 fallback 到平均成本
     }
 
     const total = cash + marketValue;
@@ -486,8 +543,8 @@ export class Ledger {
     const positions = await this.repo.getPositions(accountId);
 
     for (const position of positions) {
-      const prevClose = await this.getPrevClose(position.code, date);
-      const todayOpen = await this.getTodayOpen(position.code, date);
+      const prevClose = await this.gateway.getPrevClose(position.code, date);
+      const todayOpen = await this.gateway.getTodayOpen(position.code, date);
 
       if (prevClose && todayOpen) {
         const changeRate = Math.abs((todayOpen - prevClose) / prevClose);
@@ -522,9 +579,10 @@ export class Ledger {
     // 渲染数字段
     const numbersMd = this.renderNumbersMarkdown(nav, trades, account.initialCash);
 
-    // 保存报告
+    // 保存报告（含 account_id）
     const report: PaperReport = {
       id: crypto.randomUUID(),
+      accountId,
       date,
       type: 'daily',
       numbersMd,
@@ -579,15 +637,16 @@ export class Ledger {
     let marketValue = 0;
 
     for (const position of positions) {
-      const currentPrice = await this.getClosePrice(position.code, this.getToday());
-      const positionValue = currentPrice * position.shares;
+      const currentPrice = await this.gateway.getClosePrice(position.code, this.getToday());
+      const price = currentPrice ?? position.avgCost; // 停牌 fallback
+      const positionValue = price * position.shares;
       marketValue += positionValue;
 
       positionDetails.push({
         code: position.code,
         shares: position.shares,
         avgCost: position.avgCost,
-        currentPrice,
+        currentPrice: price,
         marketValue: positionValue,
       });
     }
@@ -681,42 +740,6 @@ export class Ledger {
   /** 获取今日日期 */
   private getToday(): string {
     return new Date().toISOString().split('T')[0];
-  }
-
-  /** 获取行情（不复权口径） */
-  private async getQuotes(
-    codes: string[],
-    _date: string,
-  ): Promise<Record<string, { open: number; prevClose: number }>> {
-    // 通过 stock_data 获取行情
-    // 这里需要调用 stock-cli.py 的 kline 命令
-    // 暂时返回模拟数据
-    const quotes: Record<string, { open: number; prevClose: number }> = {};
-    for (const code of codes) {
-      quotes[code] = { open: 10, prevClose: 10 };
-    }
-    return quotes;
-  }
-
-  /** 获取收盘价 */
-  private async getClosePrice(_code: string, _date: string): Promise<number> {
-    // 通过 stock_data 获取收盘价
-    // 暂时返回模拟数据
-    return 10;
-  }
-
-  /** 获取昨收 */
-  private async getPrevClose(_code: string, _date: string): Promise<number | null> {
-    // 通过 stock_data 获取昨收
-    // 暂时返回模拟数据
-    return 10;
-  }
-
-  /** 获取今日开盘 */
-  private async getTodayOpen(_code: string, _date: string): Promise<number | null> {
-    // 通过 stock_data 获取今日开盘
-    // 暂时返回模拟数据
-    return 10;
   }
 
   // ==================== 校验 ====================

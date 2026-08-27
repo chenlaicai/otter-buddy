@@ -880,6 +880,7 @@ function createPaperTradingTables(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS paper_reports (
       id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL DEFAULT '',
       date TEXT NOT NULL,
       type TEXT NOT NULL CHECK(type IN ('daily', 'weekly')),
       numbers_md TEXT NOT NULL,
@@ -887,6 +888,7 @@ function createPaperTradingTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_paper_reports_date ON paper_reports(date);
+    CREATE INDEX IF NOT EXISTS idx_paper_reports_account ON paper_reports(account_id, date);
 
     CREATE TABLE IF NOT EXISTS trading_calendar (
       date TEXT PRIMARY KEY,

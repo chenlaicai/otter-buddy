@@ -71,6 +71,7 @@ export interface PaperNavHistory {
 /** 日报/周报存档 */
 export interface PaperReport {
   id: string;
+  accountId: string;
   date: string;
   type: ReportType;
   numbersMd: string;

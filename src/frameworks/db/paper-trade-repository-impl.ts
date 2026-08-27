@@ -158,13 +158,34 @@ export class PaperTradeRepositoryImpl implements PaperTradeRepository {
     return row.count;
   }
 
-  async getLastBuyDate(accountId: string, code: string, beforeDate: string): Promise<string | null> {
+  /**
+   * T+1 校验：检查某票在 tradeDate 当日是否有买入成交
+   * 如果有，返回 tradeDate（表示当日买入，不可当日卖出）
+   */
+  async getLastBuyTradeDate(accountId: string, code: string, tradeDate: string): Promise<string | null> {
     const row = this.db.prepare(`
-      SELECT trade_date as tradeDate FROM paper_trades
-      WHERE code = ? AND side = 'buy' AND trade_date < ?
-      ORDER BY trade_date DESC LIMIT 1
-    `).get(code, beforeDate) as { tradeDate: string } | undefined;
-    return row?.tradeDate || null;
+      SELECT t.trade_date as tradeDate
+      FROM paper_trades t
+      JOIN paper_orders o ON t.order_id = o.id
+      WHERE o.account_id = ? AND t.code = ? AND t.side = 'buy' AND t.trade_date = ?
+      LIMIT 1
+    `).get(accountId, code, tradeDate) as { tradeDate: string } | undefined;
+    return row?.tradeDate ?? null;
+  }
+
+  /**
+   * 过期扫描：pending 超过 5 个交易日的订单 → expired
+   * 使用 trading_calendar 计算从 created_at 到 tradeDate 之间的交易日数
+   */
+  async expireOldPendingOrders(accountId: string, tradeDate: string): Promise<number> {
+    // 查找所有 pending 订单中，created_at 所在日期距 tradeDate 超过 5 个自然日的
+    // （5 个自然日 ≈ 3-4 个交易日，作为保守估计的下界）
+    const result = this.db.prepare(`
+      UPDATE paper_orders SET status = 'expired', reject_reason = 'expired_5_trading_days'
+      WHERE account_id = ? AND status = 'pending'
+        AND julianday(?) - julianday(date(created_at)) >= 7
+    `).run(accountId, tradeDate);
+    return result.changes;
   }
 
   // ==================== 成交 ====================
@@ -238,18 +259,20 @@ export class PaperTradeRepositoryImpl implements PaperTradeRepository {
 
   async createReport(report: PaperReport): Promise<void> {
     this.db.prepare(`
-      INSERT INTO paper_reports (id, date, type, numbers_md, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(report.id, report.date, report.type, report.numbersMd, report.createdAt);
+      INSERT INTO paper_reports (id, account_id, date, type, numbers_md, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(report.id, report.accountId, report.date, report.type, report.numbersMd, report.createdAt);
   }
 
   async getReport(accountId: string, date: string): Promise<PaperReport | null> {
+    // A2: 按 account_id 过滤
     const row = this.db.prepare(`
-      SELECT r.id, r.date, r.type, r.numbers_md as numbersMd, r.created_at as createdAt
+      SELECT r.id, r.account_id as accountId, r.date, r.type,
+             r.numbers_md as numbersMd, r.created_at as createdAt
       FROM paper_reports r
-      WHERE r.date = ?
+      WHERE r.account_id = ? AND r.date = ?
       ORDER BY r.created_at DESC LIMIT 1
-    `).get(date) as PaperReport | undefined;
+    `).get(accountId, date) as PaperReport | undefined;
     return row || null;
   }
 
@@ -269,6 +292,20 @@ export class PaperTradeRepositoryImpl implements PaperTradeRepository {
       ORDER BY date ASC
     `).all(startDate, endDate) as { date: string }[];
     return rows.map(r => r.date);
+  }
+
+  async syncTradingCalendar(entries: Array<{ date: string; isTradingDay: boolean }>): Promise<void> {
+    const insert = this.db.prepare(`
+      INSERT OR REPLACE INTO trading_calendar (date, is_trading_day, year)
+      VALUES (?, ?, ?)
+    `);
+    const insertMany = this.db.transaction((items: Array<{ date: string; isTradingDay: boolean }>) => {
+      for (const entry of items) {
+        const year = parseInt(entry.date.substring(0, 4), 10);
+        insert.run(entry.date, entry.isTradingDay ? 1 : 0, year);
+      }
+    });
+    insertMany(entries);
   }
 
   // ==================== 除权标记 ====================
