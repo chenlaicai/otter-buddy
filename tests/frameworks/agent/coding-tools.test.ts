@@ -4,6 +4,7 @@
  * A 类测试：验证工具列表的正确性
  */
 import { describe, it, expect } from "vitest";
+import { join } from "node:path";
 import { getCodingToolsForOtterType, getOtterToolNamesForType } from "@frameworks/agent/session-helpers";
 
 describe("getCodingToolsForOtterType", () => {
@@ -82,7 +83,8 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("yield");
     expect(tools).toContain("query_dispatch_ledger");
     expect(tools).toContain("query_signals"); // F20260826mwrd C1
-    expect(tools).toHaveLength(33);
+    expect(tools).toContain("resolve_signal"); // F20260826mwrd C2：裁决写路径（big）
+    expect(tools).toHaveLength(35);
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
@@ -117,12 +119,39 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("get_related");
     expect(tools).toContain("unlink_memory");
     expect(tools).toContain("query_signals"); // F20260826mwrd C1：小獭可查信号台账
+    expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2：裁决仅 big
     expect(tools).toHaveLength(30);
-    // halt_otter 是编排动作，仅 big 型
+    // halt_otter / resolve_signal 是编排/裁决动作，仅 big 型
     expect(tools).not.toContain("halt_otter");
+    expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2
     // 管理类工具不包含
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
+  });
+
+  // F20260827c2sg 审视处置（严重发现 1）：生产环境走 manifest 路径（pi-session-factory 传 process.cwd()），
+  // 此前断言未传 projectRoot 走的是 fallback——断言面与生产面不是同一个面，隔离在生产失效。
+  // 本组断言走真实 manifest（仓库根 config/tool-manifest.json），与生产同构。
+  it("生产路径（manifest）：small 型不得含 halt_otter/resolve_signal（编排/裁决仅 big）", () => {
+    const projectRoot = join(import.meta.dirname, "../../../../"); // worktree 根
+    const tools = getOtterToolNamesForType("small", undefined, projectRoot);
+    expect(tools).toContain("query_signals"); // 信号台账查询开放给 small
+    expect(tools).not.toContain("halt_otter");
+    expect(tools).not.toContain("resolve_signal");
+    expect(tools).not.toContain("create_otter");
+    expect(tools).not.toContain("dissolve_otter");
+  });
+
+  it("生产路径（manifest）：big 型应含编排/裁决工具", () => {
+    const projectRoot = join(import.meta.dirname, "../../../../"); // worktree 根
+    const allToolNames = [
+      "speak", "yield", "halt_otter", "resolve_signal", "query_signals",
+      "create_otter", "dissolve_otter", "search_memory",
+    ];
+    const tools = getOtterToolNamesForType("big", allToolNames, projectRoot);
+    expect(tools).toContain("halt_otter");
+    expect(tools).toContain("resolve_signal");
+    expect(tools).toEqual(allToolNames); // "*" 展开为全部
   });
 
   it("undefined otterType 应按 big otter 处理", () => {
@@ -133,6 +162,6 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("yield");
     expect(tools).toContain("query_dispatch_ledger");
     expect(tools).toContain("query_signals"); // F20260826mwrd C1
-    expect(tools).toHaveLength(33);
+    expect(tools).toHaveLength(35);
   });
 });

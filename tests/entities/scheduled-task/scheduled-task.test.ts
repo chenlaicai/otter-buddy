@@ -3,6 +3,7 @@ import {
   canTransitionTaskStatus,
   isValidCronExpression,
   isValidTimezone,
+  isValidTimeoutMinutes,
   isValidTriggerAt,
 } from "../../../src/entities/scheduled-task/scheduled-task";
 
@@ -127,5 +128,23 @@ describe("isValidTimezone", () => {
 
   it("empty string is invalid", () => {
     expect(isValidTimezone("")).toBe(false);
+  });
+});
+
+// ─── #516: isValidTimeoutMinutes ────────────────────
+
+describe("isValidTimeoutMinutes (#516)", () => {
+  it("1-1440 整数合法", () => {
+    expect(isValidTimeoutMinutes(1)).toBe(true);
+    expect(isValidTimeoutMinutes(15)).toBe(true);
+    expect(isValidTimeoutMinutes(240)).toBe(true);
+    expect(isValidTimeoutMinutes(1440)).toBe(true);
+  });
+  it("0/负数/小数/超界非法", () => {
+    expect(isValidTimeoutMinutes(0)).toBe(false);
+    expect(isValidTimeoutMinutes(-1)).toBe(false);
+    expect(isValidTimeoutMinutes(1.5)).toBe(false);
+    expect(isValidTimeoutMinutes(1441)).toBe(false);
+    expect(isValidTimeoutMinutes(NaN)).toBe(false);
   });
 });

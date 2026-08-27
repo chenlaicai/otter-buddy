@@ -337,3 +337,55 @@ describe("migrateDatabase - F20260827mtbl signal_events + restart_pending_resume
     }
   });
 });
+
+/**
+ * F20260827he2f：healing_events 表添加 introduced_by_pr 列（存量库迁移）。
+ * PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
+ * 此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。
+ */
+describe("migrateDatabase - F20260827he2f healing_events.introduced_by_pr 列", () => {
+  it("老库无 introduced_by_pr 列：migrate 补列后可读写", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      // 模拟早于 F20260824ax376 时代的存量库：healing_events 表无 introduced_by_pr 列
+      db.exec("ALTER TABLE healing_events DROP COLUMN introduced_by_pr");
+      
+      // 验证列不存在
+      const beforeCols = db.prepare("PRAGMA table_info(healing_events)").all() as Array<{ name: string }>;
+      expect(beforeCols.some(c => c.name === 'introduced_by_pr')).toBe(false);
+      
+      migrateDatabase(db, createTestLogger());
+      
+      // 验证列已添加
+      const afterCols = db.prepare("PRAGMA table_info(healing_events)").all() as Array<{ name: string }>;
+      expect(afterCols.some(c => c.name === 'introduced_by_pr')).toBe(true);
+      
+      // 验证可写入（包含 introduced_by_pr 列）
+      db.prepare(
+        `INSERT INTO healing_events (id, message_id, conversation_id, otter_id, error_type, severity, description, suggestion, context, status, resolution, created_at, resolved_at, introduced_by_pr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run('test-1', 'msg-1', 'conv-1', 'otter-1', 'degenerate', 'low', 'test', '', null, 'open', null, '2026-08-27T00:00:00Z', null, '#386');
+      
+      const row = db.prepare("SELECT introduced_by_pr FROM healing_events WHERE id = 'test-1'").get() as { introduced_by_pr: string | null };
+      expect(row.introduced_by_pr).toBe('#386');
+    } finally {
+      db.close();
+    }
+  });
+  
+  it("幂等：已有 introduced_by_pr 列的库跑 migrate 不报错", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      // initSchema 已创建 introduced_by_pr 列，直接 migrate 不应抛错
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      migrateDatabase(db, createTestLogger());
+      
+      // 验证列仍然存在
+      const columns = db.prepare("PRAGMA table_info(healing_events)").all() as Array<{ name: string }>;
+      expect(columns.some(c => c.name === 'introduced_by_pr')).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+});

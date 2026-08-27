@@ -8,6 +8,7 @@ import {
   canTransitionTaskStatus,
   isValidCronExpression,
   isValidTimezone,
+  isValidTimeoutMinutes,
   isValidTriggerAt,
 } from '@entities/scheduled-task/scheduled-task';
 import type {
@@ -15,8 +16,8 @@ import type {
   ListExecutionsOptions,
 } from './scheduled-task-repository';
 
-/** 校验 CreateScheduledTaskInput，返回错误消息或 null */
-function validateCreateInput(input: CreateScheduledTaskInput): string | null {
+/** 校验调度类型相关字段（cron/triggerAt），返回错误消息或 null */
+function validateScheduleFields(input: CreateScheduledTaskInput): string | null {
   const scheduleType = input.scheduleType ?? 'cron';
 
   if (scheduleType === 'once') {
@@ -26,6 +27,13 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
     if (!input.cron) return 'cron is required for scheduleType=cron';
     if (!isValidCronExpression(input.cron)) return `Invalid cron expression: ${input.cron}`;
   }
+  return null;
+}
+
+/** 校验 CreateScheduledTaskInput，返回错误消息或 null */
+function validateCreateInput(input: CreateScheduledTaskInput): string | null {
+  const scheduleError = validateScheduleFields(input);
+  if (scheduleError) return scheduleError;
 
   const timezone = input.timezone ?? 'Asia/Shanghai';
   if (!isValidTimezone(timezone)) return `Invalid timezone: ${timezone}`;
@@ -34,6 +42,18 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
     return 'talkingStonePassedTo must be non-empty';
   }
 
+  const timeoutError = validateTimeoutMinutes(input.timeoutMinutes);
+  if (timeoutError) return timeoutError;
+
+  return null;
+}
+
+/** #516: timeoutMinutes 校验（create/update 共用）。null/undefined 合法（用默认）。 */
+function validateTimeoutMinutes(value: number | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  if (!isValidTimeoutMinutes(value)) {
+    return `Invalid timeoutMinutes: ${value} (must be integer 1-1440)`;
+  }
   return null;
 }
 
@@ -50,6 +70,8 @@ export interface CreateScheduledTaskInput {
   body: string;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
   restartBeforeInvoke?: boolean;
+  /** #516: 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟）。上限 1440（24h）。 */
+  timeoutMinutes?: number | null;
   talkingStonePassedTo: string[];
   senderId?: string;
 }
@@ -65,6 +87,8 @@ export interface UpdateScheduledTaskInput {
   status?: ScheduledTaskStatus;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
   restartBeforeInvoke?: boolean;
+  /** #516: 任务级链超时配置（分钟）。null = 回退调度器默认。 */
+  timeoutMinutes?: number | null;
 }
 
 export type TaskChangeCallback = (taskId: string, action: 'created' | 'updated' | 'deleted') => void;
@@ -108,6 +132,7 @@ export class ManageScheduledTask {
       consecutiveFailures: 0,
       lastTriggeredAt: null,
       restartBeforeInvoke: input.restartBeforeInvoke ?? false,
+      timeoutMinutes: input.timeoutMinutes ?? null,
       createdAt: now,
       updatedAt: now,
     };
@@ -145,6 +170,7 @@ export class ManageScheduledTask {
       talkingStonePassedTo: input.talkingStonePassedTo ?? task.talkingStonePassedTo,
       status: input.status ?? task.status,
       restartBeforeInvoke: input.restartBeforeInvoke ?? task.restartBeforeInvoke,
+      timeoutMinutes: input.timeoutMinutes !== undefined ? input.timeoutMinutes : task.timeoutMinutes,
       updatedAt: now,
     };
 
@@ -169,6 +195,15 @@ export class ManageScheduledTask {
       }
     }
 
+    this.validateUpdateFieldFormats(input);
+
+    if (input.body && input.body.length > 10000) {
+      throw new DomainError('body must be 10000 characters or less', 'validation');
+    }
+  }
+
+  /** 单字段格式校验（cron/triggerAt/timezone/timeoutMinutes） */
+  private validateUpdateFieldFormats(input: UpdateScheduledTaskInput): void {
     if (input.cron && !isValidCronExpression(input.cron)) {
       throw new DomainError(`Invalid cron expression: ${input.cron}`, 'validation');
     }
@@ -181,8 +216,10 @@ export class ManageScheduledTask {
       throw new DomainError(`Invalid timezone: ${input.timezone}`, 'validation');
     }
 
-    if (input.body && input.body.length > 10000) {
-      throw new DomainError('body must be 10000 characters or less', 'validation');
+    // #516: 任务级超时配置校验（null 表示清除配置，合法）
+    const timeoutError = validateTimeoutMinutes(input.timeoutMinutes);
+    if (timeoutError) {
+      throw new DomainError(timeoutError, 'validation');
     }
   }
 

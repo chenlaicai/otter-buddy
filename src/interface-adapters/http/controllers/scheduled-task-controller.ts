@@ -43,6 +43,7 @@ export class ScheduledTaskController {
         timezone: body.timezone,
         body: body.body,
         restartBeforeInvoke: body.restartBeforeInvoke,
+        timeoutMinutes: body.timeoutMinutes,
         talkingStonePassedTo: body.talkingStonePassedTo,
         senderId: body.senderId,
       });
@@ -98,6 +99,7 @@ export class ScheduledTaskController {
         talkingStonePassedTo: body.talkingStonePassedTo,
         status: body.status,
         restartBeforeInvoke: body.restartBeforeInvoke,
+        timeoutMinutes: body.timeoutMinutes,
       });
 
       return c.json(toScheduledTaskDTO(task, this.getNextTriggerAt(task)));

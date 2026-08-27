@@ -41,6 +41,7 @@ function makeHealingTask(): ScheduledTask {
     consecutiveFailures: 0,
     lastTriggeredAt: null,
     restartBeforeInvoke: false,
+    timeoutMinutes: null,
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
   };

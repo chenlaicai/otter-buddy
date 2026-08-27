@@ -11,6 +11,7 @@ import type { ToolContext, AgentTool } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
+import { parseSignalReport, stripSignalReport } from "@usecases/signal/signal-report-parser";
 import type { Logger } from "@usecases/ports/logger";
 import type { SignalQueryFilter, SignalType, SignalEvent } from "@entities/signal/signal-event";
 
@@ -169,6 +170,139 @@ export function createQuerySignalsTool(ctx: ToolContext, signalRepo: SignalEvent
         targetOtterId: { type: "string", description: "按目标筛选" },
         limit: { type: "number", description: "返回条数上限（默认 30）" },
       },
+    },
+    execute: exec,
+  };
+}
+
+/**
+ * F20260826mwrd C2：speak 入口信号拦截（仿 interceptHealingReport 先例）。
+ * 解析 <signal> 块 → signal_events 落账（fire-and-forget，不阻断发言）→ 返剥离后 cleanBody。
+ * halt 类型不经此路（只能经 halt_otter 工具，type 白名单不含 halt）。
+ */
+export async function interceptSignalReport(
+  rawBody: string,
+  ctx: ToolContext,
+  repo: SignalEventRepository,
+  logger?: Logger,
+): Promise<string> {
+  const cleanBody = stripSignalReport(rawBody);
+  const { signals } = parseSignalReport(rawBody);
+  if (signals.length > 0) {
+    const now = new Date().toISOString();
+    for (const sig of signals) {
+      const event: SignalEvent = {
+        id: crypto.randomUUID(),
+        conversationId: ctx.conversationId,
+        messageId: ctx.currentMessageId,
+        fromOtterId: ctx.otterId,
+        targetOtterId: null,
+        type: sig.type,
+        severity: sig.severity,
+        payload: sig.payload,
+        status: 'pending',
+        resolution: null,
+        resolvedBy: null,
+        resolvedAt: null,
+        createdAt: now,
+      };
+      // fire-and-forget：信号落库失败不阻断发言（台账是审计面，不是发言前置条件）
+      repo.create(event).catch(err =>
+        logger?.error('Failed to persist signal event', err instanceof Error ? err : new Error(String(err))),
+      );
+    }
+  }
+  return cleanBody;
+}
+
+/** 短 ID 解析：非完整 UUID 时前缀匹配本对话 pending 信号（query_signals 回显为短 ID）。只搜 pending——已裁决信号有幂等路径，无需短 ID 再次触达 */
+async function resolveSignalId(
+  ctx: ToolContext,
+  signalRepo: SignalEventRepository,
+  signalId: string,
+): Promise<{ id: string } | { error: string }> {
+  const fullId = signalId.trim();
+  if (/^[0-9a-f]{8}-/i.test(fullId)) return { id: fullId };
+  const candidates = await signalRepo.findByConversation(ctx.conversationId, { status: 'pending' }, 50);
+  const hit = candidates.filter(e => e.id.startsWith(fullId));
+  if (hit.length === 0) {
+    return { error: `前缀「${fullId}」在本对话 pending 信号中无匹配。用 query_signals(status=pending) 确认 ID。` };
+  }
+  if (hit.length > 1) {
+    return { error: `前缀「${fullId}」命中 ${hit.length} 条，请用完整 ID。` };
+  }
+  return { id: hit[0].id };
+}
+
+/** 存在性/跨对话/幂等三重校验，拆出控制主函数复杂度 */
+async function checkResolvable(
+  ctx: ToolContext,
+  signalRepo: SignalEventRepository,
+  id: string,
+): Promise<{ event: SignalEvent } | { error: string } | { idempotent: string }> {
+  const existing = await signalRepo.findById(id);
+  if (!existing) {
+    return { error: `[错误] 信号 ${id} 不存在。用 query_signals 确认。` };
+  }
+  // 跨对话越权裁决拒绝（防御纵深：同 conversation 才允许）
+  if (existing.conversationId !== ctx.conversationId) {
+    return { error: "[错误] 该信号不属于当前对话，拒绝裁决。" };
+  }
+  if (existing.status !== 'pending') {
+    return {
+      idempotent: `[幂等] 信号 ${existing.id} 已是 ${existing.status}（resolvedBy=${existing.resolvedBy}），无需重复裁决。原处置：${existing.resolution ?? '（无）'}`,
+    };
+  }
+  return { event: existing };
+}
+
+/**
+ * F20260826mwrd C2：resolve_signal 裁决工具（big 专用）。
+ * 「程序化裁决义务」的代码落点：裁决 = 本工具调用落库，speak 里的裁决文本仅作展示。
+ * 状态迁移以此为唯一数据源（UI 徽章 resolved/dismissed 渲染同源）。
+ */
+export function createResolveSignalTool(ctx: ToolContext, signalRepo: SignalEventRepository): AgentTool {
+  const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
+    const signalId = params.signalId as string | undefined;
+    const status = params.status as string | undefined;
+    const resolution = (params.resolution as string | undefined) ?? '';
+
+    if (!signalId || !signalId.trim()) {
+      return errorResponse("[错误] signalId 必填——用 query_signals(status=pending) 查台账拿 ID（回显为短 ID）。");
+    }
+    if (status !== 'resolved' && status !== 'dismissed') {
+      return errorResponse("[错误] status 必须是 resolved（采纳/已处理）或 dismissed（驳回）。");
+    }
+    if (!resolution.trim()) {
+      return errorResponse("[错误] resolution 必填——裁决理由是台账的一部分（驳回写为何驳、采纳写怎么改派），空裁决等于没裁决。");
+    }
+
+    const resolved = await resolveSignalId(ctx, signalRepo, signalId);
+    if ('error' in resolved) return errorResponse(`[错误] ${resolved.error}`);
+
+    const verdict = await checkResolvable(ctx, signalRepo, resolved.id);
+    if ('error' in verdict) return errorResponse(verdict.error);
+    if ('idempotent' in verdict) return textResponse(verdict.idempotent);
+
+    const updated = await signalRepo.resolve(resolved.id, status, resolution.trim(), ctx.otterId);
+    if (!updated) {
+      return errorResponse(`[错误] 裁决落库失败（信号 ${resolved.id}）。请重试或查日志。`);
+    }
+    return textResponse(
+      `[裁决完成] 信号 ${resolved.id}（${verdict.event.type}）→ ${status}。理由：${resolution.trim()}`,
+    );
+  };
+  return {
+    name: "resolve_signal",
+    description: "裁决一条獭间信号（objection/blocked）. When: 小獭发了 <signal> 异议或 blocked 信号后，你（大獭）必须显式裁决——采纳/resolved 或驳回/dismissed，不得悬置. Not for: halt 信号（系统自动落账 resolved，无需裁决）/ 查询（用 query_signals）. Output: 裁决确认（状态迁移 + 台账留痕）. GOTCHA: 裁决必须带理由（resolution），空裁决等于没裁决；ID 支持 query_signals 回显的短 ID（前 8 位）.",
+    parameters: {
+      type: "object",
+      properties: {
+        signalId: { type: "string", description: "信号 ID（query_signals 回显的短 ID 或完整 UUID）" },
+        status: { type: "string", enum: ["resolved", "dismissed"], description: "resolved=采纳/已处理；dismissed=驳回（写明为何驳）" },
+        resolution: { type: "string", description: "裁决理由（必填）：驳回写为何驳（如'当时否的是全量迁移，本次只迁搜索路径'）；采纳写怎么处理（改派/给资源/砍需求）" },
+      },
+      required: ["signalId", "status", "resolution"],
     },
     execute: exec,
   };

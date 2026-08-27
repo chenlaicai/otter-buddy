@@ -10,7 +10,7 @@ import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecase
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
-import { createHaltOtterTool, createQuerySignalsTool } from "./signal-tools";
+import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, interceptSignalReport } from "./signal-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createStockDataTool } from "./stock-tools";
@@ -41,9 +41,13 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
-      const cleanBody = healingRepo && rawBody
+      // F20260826mwrd C2：信号块拦截（仿 healing 先例，在 cleanBody 入库前剥离+落账）
+      const afterHealing = healingRepo && rawBody
         ? interceptHealingReport(rawBody, ctx, healingRepo, logger)
         : rawBody;
+      const cleanBody = ctx.signalRepo && afterHealing
+        ? await interceptSignalReport(afterHealing, ctx, ctx.signalRepo, logger)
+        : afterHealing;
 
       /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
       const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
@@ -708,17 +712,15 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
     },
     execute: async (_id: string, _params: Record<string, unknown>) => {
       const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
-      // F20260824aibd: 返回 modelAlias，让大獭编排时知道每只獭用什么模型
-      const result = participants.map(p => {
-        const config = ctx.otterConfigProvider?.getConfig(p.otterId);
-        return {
-          otterId: p.otterId,
-          otterName: p.otterName,
-          status: p.status,
-          joinedAtTurnNumber: p.joinedAtTurnNumber,
-          ...(config?.modelAlias ? { modelAlias: config.modelAlias } : {}),
-        };
-      });
+      // F20260824aibd: modelAlias 由 usecase 批量预取后经 HTTP DTO 透传（#446 后不再在 tool 层二次查询，
+      // 原循环内逐个 getConfig 是 PR #445 填充 DTO 前的旧路径，已冗余）
+      const result = participants.map(p => ({
+        otterId: p.otterId,
+        otterName: p.otterName,
+        status: p.status,
+        joinedAtTurnNumber: p.joinedAtTurnNumber,
+        ...(p.modelAlias ? { modelAlias: p.modelAlias } : {}),
+      }));
       return textResponse(JSON.stringify(result));
     },
   };
@@ -803,6 +805,9 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   if (signalRepo) {
     tools.push(createHaltOtterTool(ctx, signalRepo, logger));
     tools.push(createQuerySignalsTool(ctx, signalRepo));
+    // F20260826mwrd C2：裁决写路径——resolve_signal 仅 big 型（裁决权在大獭，
+    // 方案 Part 2「程序化裁决义务」的代码落点）
+    tools.push(createResolveSignalTool(ctx, signalRepo));
   }
   return tools;
 }
