@@ -120,8 +120,10 @@ describe('parseSignalReport（F20260827c2sg 审视处置：嵌套守卫与属性
   it('未闭合块仍被剥离（stripSignalReport 不泄漏控制语法）', () => {
     const body = '前言 <signal type="objection" severity="low">写到一半被截断 <signal type="blocked" severity="low">合法B</signal> 后文';
     const clean = stripSignalReport(body);
-    expect(clean).toBe('前言  后文');
+    // 控制语法（标签）全部剥离，不泄漏 <signal / </signal>；未闭合块的普通正文（写到一半被截断）保留——不吞内容
+    expect(clean).toBe('前言 写到一半被截断  后文');
     expect(clean).not.toContain('<signal');
+    expect(clean).not.toContain('</signal>');
     expect(clean).not.toContain('合法B');
   });
 
@@ -138,6 +140,61 @@ describe('parseSignalReport（F20260827c2sg 审视处置：嵌套守卫与属性
     expect(signals).toHaveLength(1);
     expect(signals[0].type).toBe('blocked');
     expect(signals[0].severity).toBe('high');
+  });
+});
+
+describe('parseSignalReport（F20260827c2sg 审视处置：发现 4 重写为 tokenizer 栈式配对）', () => {
+  it('payload 含未闭合 <signal 字样：外层块正常落账，不因字样丢块（发现 4 探针场景 A）', () => {
+    const body = '<signal type="objection" severity="low">嵌入了 <signal 这样的字样但故意不闭合</signal>';
+    const { signals } = parseSignalReport(body);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('objection');
+    expect(signals[0].payload).toContain('<signal');
+  });
+
+  it('payload 含反引号包裹的完整示例：外层落账、内层不冒名、strip 无残留（发现 4 探针场景 B）', () => {
+    // 外层闭合的完整变体：normalize 剥反引号后内层示例也是完整闭合形态，但它是外层 payload 的一部分
+    const crafted = '<signal type="objection" severity="low">格式示例：<signal type="blocked" severity="low">x</signal> 诸如此类</signal>';
+    const { signals } = parseSignalReport(crafted);
+    // 内层嵌套块是外层 payload 的一部分，不得冒名落账
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('objection');
+    expect(signals[0].payload).toContain('格式示例');
+    expect(signals[0].payload).toContain('诸如此类');
+    // parse/strip 同步：顶层块整体剥离，无 </signal> 残留
+    const clean = stripSignalReport('前言 ' + crafted + ' 后文');
+    expect(clean).toBe('前言  后文');
+    expect(clean).not.toContain('</signal>');
+  });
+
+  it('完整嵌套（内外均闭合）：只有外层落账，内层是 payload 的一部分', () => {
+    const body = '<signal type="objection" severity="low">外层理由，内附格式示例：<signal type="blocked" severity="low">示例x</signal>完</signal>';
+    const { signals } = parseSignalReport(body);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('objection');
+    expect(signals[0].payload).toContain('示例x');
+  });
+
+  it('孤儿闭标签剥离，不残留闭合语法', () => {
+    const clean = stripSignalReport('正文一</signal>正文二');
+    expect(clean).toBe('正文一正文二');
+    expect(clean).not.toContain('</signal>');
+  });
+
+  it('未闭合块 + 后续合法块：合法块正常落账（发现 2 场景在 tokenizer 下的回归防护）', () => {
+    const body = '<signal type="objection" severity="low">写到一半被截断 <signal type="blocked" severity="low">合法B</signal>';
+    const { signals } = parseSignalReport(body);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('blocked');
+    expect(signals[0].payload).toBe('合法B');
+  });
+
+  it('双层未闭合 + 尾部合法块：栈式配对不吃后续合法块的闭合标签', () => {
+    const body = '<signal type="objection" severity="low">A <signal type="objection" severity="low">B <signal type="blocked" severity="low">合法C</signal>';
+    const { signals } = parseSignalReport(body);
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('blocked');
+    expect(signals[0].payload).toBe('合法C');
   });
 });
 
