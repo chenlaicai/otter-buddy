@@ -1,14 +1,26 @@
 ---
 id: F20260827mgux
-title: initSchema/migrateDatabase 漏登机制性根治——幂等复用消灭誊抄 + 老库升级等价性守卫
-summary: 新表漏登 migrateDatabase 已三次发生（本次核查发现第四次：search_query_logs），根因是「同构 DDL 两处誊抄」。方案：bootstrap 无条件跑幂等 initSchema 消灭誊抄机会 + 表级等价性守卫测试防退化，删除 migration.ts 中 6 个誊抄 ensure 函数及 1 段内联 CREATE
+title: initSchema 幂等复用根治新表漏登——誊抄消灭与老库等价性守卫（#506）
+summary: |
+  新表漏登 migrateDatabase 已四次发生（第四次：search_query_logs 被埋点吞错静默丢数据），
+  根因是「同构 DDL 两处誊抄」。实现：bootstrap 无条件跑幂等 initSchema 消灭誊抄机会，
+  删除 migration.ts 中 6 个誊抄 ensure 函数及 1 段内联 CREATE（净 -200 行），
+  新增表级等价性守卫测试防退化（8/5 基线夹具），第 4 案随机制自动修复。
 change_type: refactor
+status: implemented
 created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
+tags: [database, migration, idempotent-schema, guard-test, single-source-of-truth]
+modules:
+  - src/bootstrap/database.ts
+  - src/frameworks/db/schema.ts
+  - src/frameworks/db/migration.ts
+  - tests/frameworks/db/
+from: ["#506"]
 ---
 
 # F20260827mgux: initSchema/migrateDatabase 漏登机制性根治
 
-> 状态：**设计稿，待对抗审视 + 搭档拍板**。关联 issue：[#506](https://github.com/…)（[meta] initSchema 新表漏登 migrateDatabase 已三次发生）。
+> 状态：**已实现**（本文档由设计稿升级为实现记录）。关联 issue：[#506](https://github.com/…)
 
 ## 背景
 
@@ -212,8 +224,55 @@ logger.info(`Schema init: ${created.length} tables created on existing database`
 
 > 处置小结：4/4 接受，无反驳项。严重发现源于初稿计数粗心（把 otter_configs 和 message_segments 内联 CREATE 误计入 ensure 函数数），暴露的事实表述风险已在修订中根治。
 
-## 需搭档决策点
+## 实现记录
 
-1. **根治机制选型**：推荐候选 A（无条件幂等 initSchema）+ B（守卫测试）组合；若倾向保守（不动 bootstrap 时序），可单用 B，但誊抄模式仍在、第 5 次漏登只是时间问题——**不推荐**
-2. **search_query_logs 窗口期**：等本方案落地自动修复（推荐，埋点容忍丢失）vs 先在 main 补一行 #505 同款 ensure（需额外小 PR）
-3. **列级守卫是否立项二期**：本方案只覆盖表级（历史全部事故形态）；列级漏登是否值得追加守卫，取决于搭档对「新列漏登」风险的评估
+> 设计稿正文（背景/目标/非目标/方案设计/候选对比/核心改动/风险）见下方原稿，已全部落地。
+> 本节记录实现与设计的差异、验证结果与审视留痕。
+
+## 与设计的差异
+
+零方案偏差，以下为实现细节补充：
+
+1. **夹具构造的表名清单过滤**（设计未预见的实现细节）：sqlite_master 里 FTS5 虚拟表的影子表
+   （`memory_fts_jieba_data/config/...`）不能单独 DROP（SqliteError），`sqlite_sequence`（AUTOINCREMENT
+   伴生）同样不可 DROP——夹具的 `listTableNames` 排除这两类（虚拟表名前缀匹配 + sqlite_ 内部表）。
+2. **migration.ts 无用 eslint-disable 清理**（设计验证节预设项）：删 150 行后 `max-lines` 与
+   `max-lines-per-function` 的 disable 成为 unused directive（lint warning），已移除并留恢复指引注释；
+   `max-statements` disable 保留（仍需要）。
+3. **守卫自证的具体退化模拟**：临时把升级序列改回「跳过 initSchema」（等价于改回 isNewDb 分支且新表
+   只进 schema.ts）→ 第一个断言精确变红（缺失表被列出）；恢复后绿。
+
+## 实现清单（对设计「改动范围」表的逐项落实）
+
+| 文件 | 操作 | 实现说明 |
+|------|------|--------|
+| src/bootstrap/database.ts | ✅ | 删 isNewDb 分支，initSchema 无条件执行（含 #506 根因注释）；migrateExistingData 的 isNewDb 条件未动（设计显式声明） |
+| src/frameworks/db/schema.ts | ✅ | initSchema 差集日志（tablesBefore 快照 + 补建列表）；顶部注释更新为双职责约束声明 |
+| src/frameworks/db/migration.ts | ✅ | 删 6 个 ensure 誊抄函数及调用（净 -207 行）；migrateMessageSegments 去 CREATE 段（数据搬移保留）；otter_configs 加「仅此一处定义」注释；unused eslint-disable 清理 |
+| tests/fixtures/baseline-2026-08-05-tables.ts | ✅ 新增 | 28 表基线名单（git show 6acac0ee 提取，与独立复核一致），顶部「历史快照勿更新」实现注意 |
+| tests/frameworks/db/migration-equivalence.guard.test.ts | ✅ 新增 | 3 用例：等价性断言（全集动态取得不硬编码）/ 第 4 案回归（search_query_logs 补建可 INSERT）/ 幂等 |
+| tests/frameworks/db/migration.test.ts | ✅ | embedding_meta、signal_events+restart_pending_resumes 两个 describe 块改为 initSchema 补建语义（补建职责移交后验证新机制），其余补丁测试不动 |
+
+## 验证结果（设计验证节逐项执行）
+
+1. **守卫自证** ✅：临时退化（升级路径跳过 initSchema）→ 断言红（缺失表精确列出）；恢复 → 绿
+2. **第 4 案回归** ✅：守卫夹具老库升级后 search_query_logs 存在且可 INSERT（测试 + 真实库冒烟双重验证）
+3. **全量测试** ✅：155 文件 / 1857 用例全绿（含新增 3 守卫用例；migration.test.ts 改造后无悬空引用）
+4. **双库启动冒烟** ✅：新库路径 = 全部测试的 createTestDb；老库路径 = 本仓真实 data/otter-buddy.db（290MB
+   含 WAL 清理）副本跑新升级序列——补建差集 `[search_query_logs]`，差集日志正确输出，等价性缺失为空，
+   第 4 案 INSERT 成功，无任何报错
+5. **tsc + eslint** ✅：0 error；migration.ts 清理后自身零警告（余 3 warning 为存量 React Hook）
+
+## 效果
+
+- **净删约 200 行誊抄 DDL**，新表从此只写 schema.ts 一处，「漏登 migrateDatabase」物理上不可能再发生
+- 存量库（含本仓生产库）下次启动自动补建 search_query_logs，埋点数据停止丢失
+- 守卫测试常驻拦截「把机制改回去」的退化，且全集动态取得——未来新增表自动纳入断言，无需维护
+
+---
+
+# 附：设计阶段待拍板点（已由搭档 8/27 拍板，存档）
+
+1. **根治机制选型**：拍板采用候选 A（无条件幂等 initSchema）+ B（守卫测试）组合
+2. **search_query_logs 窗口期**：拍板等本方案落地自动修复（埋点容忍丢失）
+3. **列级守卫是否立项二期**：未拍板，留待后续评估（本方案只覆盖表级）
