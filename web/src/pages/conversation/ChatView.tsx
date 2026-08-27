@@ -103,7 +103,7 @@ export function ChatView(props: ChatViewProps) {
           {props.cardPreview.dataJson !== null && (
             <details open className="mb-2">
               <summary className="text-[11px] text-stone-500 cursor-pointer select-none">数据 JSON（全文）</summary>
-              <pre className="mt-1 text-[11px] text-stone-500 bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap break-all max-h-[240px] overflow-y-auto">{props.cardPreview.dataJson}</pre>
+              <pre className="mt-1 text-[11px] text-stone-500 bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap break-all max-h-[var(--preview-scroll-max-h)] overflow-y-auto">{props.cardPreview.dataJson}</pre>
             </details>
           )}
           <div className="flex gap-2">

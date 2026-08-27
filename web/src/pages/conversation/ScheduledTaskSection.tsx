@@ -28,9 +28,9 @@ function formatNextTrigger(isoString: string | null): string {
 
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { bg: string; text: string; label: string }> = {
-    active: { bg: 'bg-green-100', text: 'text-green-700', label: '运行中' },
-    disabled: { bg: 'bg-stone-100', text: 'text-stone-500', label: '已暂停' },
-    error: { bg: 'bg-red-100', text: 'text-red-700', label: '错误' },
+    active: { bg: 'bg-status-success', text: 'text-green-700', label: '运行中' },
+    disabled: { bg: 'bg-skeleton', text: 'text-stone-500', label: '已暂停' },
+    error: { bg: 'bg-status-error', text: 'text-red-700', label: '错误' },
   }
   const c = config[status] || config.disabled
   return (
@@ -80,7 +80,7 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
             <Clock size={12} />
             {task.scheduleType === 'once' ? (
               <>
-                <span className="px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">一次性</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-status-running text-blue-700 text-[10px] font-medium">一次性</span>
                 {task.triggerAt ? (
                   <span>{new Date(task.triggerAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })}</span>
                 ) : (
@@ -111,7 +111,7 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
           )}
 
           {/* 消息内容预览 */}
-          <div className="text-xs text-stone-600 mb-3 line-clamp-2 bg-stone-50/50 rounded-lg px-2 py-1.5">
+          <div className="text-xs text-stone-600 mb-3 line-clamp-2 bg-glass-surface rounded-lg px-2 py-1.5">
             {task.body}
           </div>
 
