@@ -73,7 +73,6 @@ describe("Otter API", () => {
         name: "New Friend",
         type: "small",
         role: undefined,
-        parentOtterId: undefined,
         systemPrompt: undefined,
         context: undefined,
       });
@@ -108,7 +107,7 @@ describe("Otter API", () => {
       expect("modelAlias" in body2).toBe(false);
     });
 
-    it("passes all optional fields", async () => {
+    it("F20260827ucrt T1/T4：透传 modelAlias；parentOtterId 一律忽略（血缘诚实化，UI 创建无獭召唤者）", async () => {
       const otter = makeOtter();
       deps.createOtterUseCase.execute.mockResolvedValue(otter);
 
@@ -119,6 +118,7 @@ describe("Otter API", () => {
           name: "Child Otter",
           type: "small",
           role: { name: "coder", responsibilities: ["write code"] },
+          modelAlias: "main",
           parentOtterId: "parent-1",
           systemPrompt: "You are a coder",
           context: { project: "test" },
@@ -130,12 +130,33 @@ describe("Otter API", () => {
         name: "Child Otter",
         type: "small",
         role: { name: "coder", responsibilities: ["write code"] },
-        parentOtterId: "parent-1",
+        modelAlias: "main",
+        parentOtterId: undefined,
         systemPrompt: "You are a coder",
         context: { project: "test" },
       });
     });
 
+    it("F20260827ucrt T1：非法 modelAlias 返回 400 且附可用列表（措辞与大獭工具链 tool-factory 一致）", async () => {
+      const otter = makeOtter();
+      deps.createOtterUseCase.execute.mockResolvedValue(otter);
+
+      const res = await app.request("/api/otters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Bad Alias Otter",
+          type: "small",
+          modelAlias: "nonexistent-model",
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await json(res);
+      expect(body.error).toContain("未知的模型别名「nonexistent-model」");
+      expect(body.error).toContain("main"); // 测试 helpers 的 modelPool 含 alias "main"
+      expect(deps.createOtterUseCase.execute).not.toHaveBeenCalled();
+    });
   });
 
   // ─── DELETE /api/otters/:id ───

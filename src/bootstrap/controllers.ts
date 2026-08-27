@@ -84,7 +84,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
 
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
-    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile),
+    otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
     message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
