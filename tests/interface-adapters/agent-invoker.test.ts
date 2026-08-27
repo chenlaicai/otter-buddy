@@ -551,6 +551,61 @@ function mockQueryMessageSequence(statuses: Array<"streaming" | "speaking">): Qu
   } as unknown as QueryMessage & { callCount: number };
 }
 
+describe("AgentInvoker message.retry 事件（#440: timeout/no_yield 重试的前端感知语义统一）", () => {
+  it("streaming_timeout 自动重试：message.failed 后紧跟 message.retry（attempt/reason 字段齐全）", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    /** 第一次 streaming_timeout（触发 auto-retry），第二次 speaking（重试成功） */
+    const qm = mockQueryMessageSequence(["streaming", "speaking"]);
+    let call = 0;
+    const agentInvoke = {
+      invoke: async () => {
+        call++;
+        if (call === 1) return Object.assign({ text: "" }, { _guardAbortReason: "streaming_timeout" });
+        return { text: "Response" };
+      },
+      abort: () => {},
+      getInternalAbortReason: () => undefined,
+      getToolCallCount: () => 0,
+    };
+    const invoker = new AgentInvoker(
+      agentInvoke as unknown as SdkInvokePort,
+      msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
+    );
+    const result = await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+    expect(result.messageId).toBeDefined();
+    const retryEvents = events.filter((e) => e.event === "message.retry");
+    expect(retryEvents).toHaveLength(1);
+    expect(retryEvents[0].data.messageId).toBe("msg-streaming");
+    expect(retryEvents[0].data.reason).toBe("生成过程超时");
+    expect(retryEvents[0].data.attempt).toBe(1);
+    /** 事件顺序：message.failed 在前，message.retry 紧随 */
+    const types = events.map((e) => e.event);
+    expect(types.indexOf("message.failed")).toBeLessThan(types.indexOf("message.retry"));
+  });
+
+  it("no_yield 重试：fail 后同样补发 message.retry（reason=no_yield）", async () => {
+    const events: { event: string; data: Record<string, unknown> }[] = [];
+    const msg = mockSendMessage();
+    const qm = mockQueryMessageSequence(["streaming", "speaking"]);
+    const invoker = new AgentInvoker(
+      mockAgentInvoke({ result: { text: "Response" } }),
+      msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger(),
+    );
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1",
+      onSSEEvent: (e) => events.push(e),
+    });
+    const retryEvents = events.filter((e) => e.event === "message.retry");
+    expect(retryEvents).toHaveLength(1);
+    expect(retryEvents[0].data.reason).toBe("no_yield");
+    expect(retryEvents[0].data.attempt).toBe(1);
+  });
+});
+
 describe("AgentInvoker yield retry", () => {
   it("retries once when agent does not call speak (first failure → system message → retry)", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];

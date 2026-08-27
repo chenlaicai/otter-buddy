@@ -712,17 +712,15 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
     },
     execute: async (_id: string, _params: Record<string, unknown>) => {
       const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
-      // F20260824aibd: 返回 modelAlias，让大獭编排时知道每只獭用什么模型
-      const result = participants.map(p => {
-        const config = ctx.otterConfigProvider?.getConfig(p.otterId);
-        return {
-          otterId: p.otterId,
-          otterName: p.otterName,
-          status: p.status,
-          joinedAtTurnNumber: p.joinedAtTurnNumber,
-          ...(config?.modelAlias ? { modelAlias: config.modelAlias } : {}),
-        };
-      });
+      // F20260824aibd: modelAlias 由 usecase 批量预取后经 HTTP DTO 透传（#446 后不再在 tool 层二次查询，
+      // 原循环内逐个 getConfig 是 PR #445 填充 DTO 前的旧路径，已冗余）
+      const result = participants.map(p => ({
+        otterId: p.otterId,
+        otterName: p.otterName,
+        status: p.status,
+        joinedAtTurnNumber: p.joinedAtTurnNumber,
+        ...(p.modelAlias ? { modelAlias: p.modelAlias } : {}),
+      }));
       return textResponse(JSON.stringify(result));
     },
   };

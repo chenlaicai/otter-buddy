@@ -15,12 +15,15 @@ export const KNOWN_CHANGE_TYPES = [
   "feature-update",
 ] as const;
 
-/** Feature 文档状态（工作流生命周期）。 */
+/** Feature 文档状态（工作流生命周期）。
+ *  active：F20260827spcs（#455）补录——存量 33 篇在用（lint 长期误报 Unknown），
+ *  语义为「已上线生效中」，介于 implemented 与 final 之间使用。 */
 export const KNOWN_FEATURE_STATUSES = [
   "draft",
   "proposed",
   "design",
   "development",
+  "active",
   "locked",
   "final",
   "implemented",

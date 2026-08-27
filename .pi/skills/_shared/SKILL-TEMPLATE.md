@@ -146,7 +146,7 @@ frontmatter 必填字段：`name / description / co_loads / category`。
 - **协调**：首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选），所有参与者通过 `list_artifacts` 发现并追加
 - **时机**：当有需要记录的内容时就记录——各 skill 中的「写入特性文档」步骤是建议性的（"当有内容需要记录时"），不是强制检查点
 - **角色**：任何参与者（大獭/小獭）都可以创建和更新特性文档，无角色约束
-- **格式**：参考 worktree 中的 `docs/features/` 下已有文档的 frontmatter 格式（id、title、doc_type、summary、causal_links、status、change_type、tags、modules、created_at、created_in_conversation）
+- **格式**：参考 worktree 中的 `docs/features/` 下已有文档的 frontmatter 格式。核心字段：`id`、`title`（人类可读描述，不用英文 slug——slug 放文件名，#470）、`summary`、`change_type`、`status`（枚举见 `src/entities/document/known-values.ts`）+ `capability_test`（change_type 为 feature/prompt 时声明，指向 `tests/capability/` 用例或 `n/a: 理由`）+ `created_in_conversation`。可选：`doc_type`、`causal_links`、`tags`、`modules`、`created_at`（使用率低，按需选用）
 - **入库与关系**（F20260813mren）：写完/改完文档后调 `sync_docs` 立即入库（否则要等系统重启才可被 search_memory 检索）；并用 `link_memory` 声明关系——典型是"当前讨论 produced 本文档"（from=当前对话中的关键消息 entry，to=文档 summary entry），让"这文档怎么来的"可被 get_related 拼出链。`created_in_conversation` 填当前对话 ID（身份注入中有）。
 
 ## 当前 skill 到模板的映射

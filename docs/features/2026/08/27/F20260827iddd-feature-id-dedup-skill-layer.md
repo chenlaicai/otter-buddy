@@ -1,6 +1,6 @@
 ---
 id: F20260827iddd
-title: feature-id-dedup-skill-layer
+title: skill 层特性 ID 生成前查重，防跨 worktree 文档撞车（#524）
 summary: |
   修复流程层缺陷：LLM 自编号特性 ID 时无查重机制，同一文档跨 worktree 演进时生成新 ID，
   旧 ID 的 chunk 残留 memory 库形成重复污染（#524）。根因不在代码层——replaceEntriesBySource

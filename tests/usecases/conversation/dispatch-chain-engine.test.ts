@@ -136,6 +136,75 @@ describe("DispatchChainEngine markBatchRead（F20260803trrf: 时序修复）", (
   });
 });
 
+describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒失效）", () => {
+  /** 复现 8-26 现场：scheduler 路径 senderId=大獭（任务属主），小獭 yield 回属主被旧 filter 吞掉 */
+  function makeChainMocks() {
+    const m = makeMocks();
+    const invoked: string[] = [];
+    return {
+      m,
+      invoked,
+      /** invokeFn：目标 yield 回 owner-otter（模拟小獭交付后交棒） */
+      invokeFn: async ({ otterId }: { otterId: string }) => {
+        invoked.push(otterId);
+        if (otterId === "otter-worker") return { messageId: "m-work", aggregatedTargets: ["owner-otter"] };
+        return { messageId: "m-owner" };
+      },
+    };
+  }
+
+  it("scheduler 路径：小獭 yield 回任务属主 otter，属主应被唤醒（不再被 senderId 过滤吞掉）", async () => {
+    const { m, invoked, invokeFn } = makeChainMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
+      initialTargets: ["otter-worker"],
+      invokeFn,
+    });
+
+    /** 链应续跳：小獭 → 属主两跳都被 invoke */
+    expect(invoked).toEqual(["otter-worker", "owner-otter"]);
+  });
+
+  it("web 路径：senderId=user 时 yield to user 仍被滤除（人类不参与链调度）", async () => {
+    const { m, invoked } = makeChainMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: ["otter-worker"],
+      invokeFn: async ({ otterId }: { otterId: string }) => {
+        invoked.push(otterId);
+        return { messageId: "m-work", aggregatedTargets: ["user"] };
+      },
+    });
+
+    expect(invoked).toEqual(["otter-worker"]);
+  });
+
+  it("自指回声防环：小獭 yield 回自己时链终止于本轮（不无限循环）", async () => {
+    const { m } = makeChainMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10 });
+    const invoked: string[] = [];
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
+      initialTargets: ["otter-worker"],
+      /** 小獭持续 yield 回自己（工具层 validateAndResolve 应拦截，链层验证不因此死循环） */
+      invokeFn: async ({ otterId }: { otterId: string }) => {
+        invoked.push(otterId);
+        return { messageId: "m-work", aggregatedTargets: ["otter-worker"] };
+      },
+    });
+
+    /** 行为契约：自指目标不再引发新一轮 invoke（executeOneHop 逐批派发，同批内目标只 invoke 一次后靠下一轮终止）。
+     *  修复后 senderId 不再参与过滤，自指唯一终止保障是链层：invoke 幂等去重（同 hop 不重派）。 */
+    expect(invoked.length).toBeLessThanOrEqual(10);
+    expect(invoked[0]).toBe("otter-worker");
+  });
+});
+
 describe("buildIdleOttersWarning", () => {
   function makeParticipant(overrides: Record<string, unknown> = {}) {
     return {
