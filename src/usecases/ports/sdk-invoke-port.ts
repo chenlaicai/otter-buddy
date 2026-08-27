@@ -56,6 +56,8 @@ export interface DynamicContext {
   recencyWindow?: string;
   /** F20260825hndf：件④活状态盘点（机械 checklist，借用式） */
   stateInventory?: string;
+  /** F20260826mwrd C3（Part 4）：高危 healing 事件提醒（渲染好的文本，借用式，消费即删） */
+  healingAlerts?: string;
 }
 
 /** invoke() 选项 */

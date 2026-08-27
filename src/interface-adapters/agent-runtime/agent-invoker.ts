@@ -32,6 +32,8 @@ import type { LinkedResource } from "@entities/conversation/conversation";
 // eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
 import type { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
+// F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
+import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
 import { HandoffState, shouldTriggerHandoff, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
@@ -106,7 +108,7 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
   }
 
-  // eslint-disable-next-line max-lines-per-function -- 触发链路+熔断+自重启集成点，拆分降低可读性
+  // eslint-disable-next-line max-lines-per-function, complexity -- 触发链路+熔断+自重启集成点（F20260826mwrd C3：+healing 高危路由消费），拆分降低可读性
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -145,6 +147,17 @@ export class AgentInvoker implements AgentTurnPort {
     /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
     await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
     const dynamicContext = await this.buildDynamicContext(otterId);
+    // F20260826mwrd C3（Part 4）：高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
+    // small 獭 invoke 不取队列（队列滞留，大獭下轮补提醒）。失败不阻断主流程（台账在，提醒可再等）。
+    // otterType 查询与下方 otter 复用：此处仅取 type，会话中 otter 主体仍在 streaming 消息创建后取。
+    const otterType = (await this.queryOtter.getById(otterId))?.type;
+    if (otterType === 'big') {
+      const alerts = healingAlertRegistry.takeAll(conversationId);
+      if (alerts.length > 0) {
+        dynamicContext.healingAlerts = renderHealingAlerts(alerts);
+        this.logger.info('Healing high alerts injected', { otterId, conversationId, count: alerts.length });
+      }
+    }
     await this.injectWorkspacePath(dynamicContext, conversationId);
     this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary, hasWorkspace: !!dynamicContext.workspacePath });
 
