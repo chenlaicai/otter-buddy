@@ -144,4 +144,24 @@ describe("reconcileOrphans 恢复队列分流（F20260826rsme）", () => {
     const history = await repo.getTurnHistory("conv-1");
     expect(history.every(t => t.turn.status === "closed")).toBe(true);
   });
+
+  // F20260827mtbl：复现生产现场——存量库缺 restart_pending_resumes 表时
+  // claimResume 抛 no such table，旧实现整个 reconcile 夭折，streaming 孤儿永久残留。
+  it("缺恢复队列表：claim 异常降级 fail+notice，清理不中断（F20260827mtbl）", async () => {
+    await otterRepo.createOtter(otterFixture());
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedStreamingMessage(repo, "otter-big");
+    // 模拟未跑过补表迁移的存量库
+    db.exec("DROP TABLE restart_pending_resumes");
+
+    await expect(reconcileOrphans(repo, createTestLogger())).resolves.toBeUndefined();
+
+    // 核心：消息必须到达 failed 终态（带 notice），不能因 claim 失败残留 streaming
+    const stored = await repo.getMessageById(msgId);
+    expect(stored?.status).toBe("failed");
+    expect(stored?.segments.some(seg => seg.body.includes("[服务重启，发言中断]"))).toBe(true);
+    // turn 关闭不变量同样保持
+    const history = await repo.getTurnHistory("conv-1");
+    expect(history.every(t => t.turn.status === "closed")).toBe(true);
+  });
 });
