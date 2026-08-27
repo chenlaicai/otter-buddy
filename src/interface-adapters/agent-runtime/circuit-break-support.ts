@@ -43,23 +43,58 @@ export class CircuitBreakSupport {
     logger: Logger;
   }) {}
 
+  /**
+   * F20260827helf: healing_repo 健康探针——启动时调用一次，验证 DB 可达且表存在。
+   * 失败仅 warn（不阻塞启动），但日志可作为「healing_events 写入盲区」的诊断入口。
+   * Why: issue #508——熔断重启已发生但事件未落库，健康检查链路对此失明。
+   * 根因是 healingRepo.create() 抛错被静默吞掉，无可观测信号。
+   */
+  async probeHealingRepo(): Promise<boolean> {
+    try {
+      // 最轻量查询：读一条记录验证表存在且 DB 可达
+      await this.deps.healingRepo.findOpen(1);
+      return true;
+    } catch (err) {
+      this.deps.logger.error('healing_repo probe failed — circuit breaker events will NOT be persisted',
+        err instanceof Error ? err : new Error(String(err)),
+        { component: 'CircuitBreakSupport', check: 'healing_repo_probe' },
+      );
+      return false;
+    }
+  }
+
   /** degenerate guard 触发点回调：组装完整 HealingEvent 写库 */
   async recordHealingEvent(input: HealingEventInput): Promise<void> {
-    await this.deps.healingRepo.create({
-      id: crypto.randomUUID(),
-      messageId: input.messageId,
-      conversationId: input.conversationId,
-      otterId: input.otterId,
-      errorType: input.errorType,
-      severity: input.severity,
-      description: input.description,
-      suggestion: input.suggestion ?? '',
-      context: input.context ?? null,
-      status: 'open',
-      resolution: null,
-      createdAt: new Date().toISOString(),
-      resolvedAt: null,
-    });
+    try {
+      await this.deps.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: input.messageId,
+        conversationId: input.conversationId,
+        otterId: input.otterId,
+        errorType: input.errorType,
+        severity: input.severity,
+        description: input.description,
+        suggestion: input.suggestion ?? '',
+        context: input.context ?? null,
+        status: 'open',
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      });
+    } catch (err) {
+      // F20260827helf: 记录完整上下文，让健康检查链路可观测
+      this.deps.logger.error('healing_event write FAILED — circuit breaker data source degraded',
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          component: 'CircuitBreakSupport',
+          errorType: input.errorType,
+          otterId: input.otterId,
+          messageId: input.messageId,
+          conversationId: input.conversationId,
+        },
+      );
+      throw err; // 重新抛出：调用方需要知道写入失败
+    }
   }
 
   /** 当前 active session 是否由熔断创建（circuit_break 事件 context.newSessionId 指向它） */
@@ -98,10 +133,17 @@ export class CircuitBreakSupport {
      * 二级预检的 startedAt 过滤兜底防循环（重启前的退化事件不属于新 session 生命周期）。
      */
     await this.writeCircuitBreakEvent(info, { newSessionId: session.id, trigger: 'primary' }).catch(err => {
-      this.deps.logger.error('circuit_break event write failed after successful restart (marker missing, non-fatal)', err instanceof Error ? err : new Error(String(err)), {
-        otterId: info.otterId,
-        newSessionId: session.id,
-      });
+      // F20260827helf: error 级别 + 完整上下文——让健康检查链路可观测
+      this.deps.logger.error('circuit_break event write failed after successful restart — healing_events data source degraded',
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          component: 'CircuitBreakSupport',
+          otterId: info.otterId,
+          newSessionId: session.id,
+          failedMessageId: info.failedMessageId,
+          conversationId: info.conversationId,
+        },
+      );
     });
     this.deps.logger.info('Circuit break restart executed', {
       otterId: info.otterId,
@@ -136,10 +178,17 @@ export class CircuitBreakSupport {
         { otterId, conversationId, failedMessageId: inWindow.firstMessageId },
         { newSessionId: newSession.id, trigger: 'secondary' },
       ).catch(err => {
-        this.deps.logger.error('circuit_break event write failed after secondary restart (marker missing, non-fatal)', err instanceof Error ? err : new Error(String(err)), {
-          otterId,
-          newSessionId: newSession.id,
-        });
+        // F20260827helf: error 级别 + 完整上下文
+        this.deps.logger.error('circuit_break event write failed after secondary restart — healing_events data source degraded',
+          err instanceof Error ? err : new Error(String(err)),
+          {
+            component: 'CircuitBreakSupport',
+            otterId,
+            newSessionId: newSession.id,
+            conversationId,
+            trigger: 'secondary',
+          },
+        );
       });
       this.deps.logger.info('Secondary circuit break executed', {
         otterId,
@@ -221,15 +270,31 @@ export class CircuitBreakSupport {
    * 复用 writeCircuitBreakEvent 模式，区别仅在 errorType 和描述语义。
    */
   async writeSelfRestartEvent(otterId: string, conversationId: string, newSessionId: string, messageId: string): Promise<void> {
-    await this.recordHealingEvent({
-      messageId,
-      conversationId,
-      otterId,
-      errorType: 'self_restart',
-      severity: 'medium',
-      description: '海獭自重启执行（F20260824srst）',
-      context: { newSessionId },
-    });
+    try {
+      await this.recordHealingEvent({
+        messageId,
+        conversationId,
+        otterId,
+        errorType: 'self_restart',
+        severity: 'medium',
+        description: '海獭自重启执行（F20260824srst）',
+        context: { newSessionId },
+      });
+    } catch (err) {
+      // F20260827helf: error 级别 + 完整上下文
+      this.deps.logger.error('self_restart event write failed — healing_events data source degraded',
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          component: 'CircuitBreakSupport',
+          errorType: 'self_restart',
+          otterId,
+          newSessionId,
+          messageId,
+          conversationId,
+        },
+      );
+      throw err;
+    }
   }
 
   /** 熔断前情摘要：原始消息 + 失败 turn 的工具调用序列；素材查询失败降级短摘要 */

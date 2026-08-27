@@ -129,6 +129,12 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     buildHandoffPackage,
   );
 
+  // F20260827helf：启动时探针——验证 healing_repo 可达，熔断事件落库能力正常
+  // 失败仅 warn（不阻塞启动），但日志可作为诊断入口
+  agentInvoker.probeHealingRepo().catch((err: unknown) => {
+    logger.warn('healing_repo startup probe failed', { error: err instanceof Error ? err.message : String(err) });
+  });
+
   const cronParser = new SimpleCronParser();
   const schedulerService = new SchedulerService({
     taskRepo: repos.scheduledTask,
