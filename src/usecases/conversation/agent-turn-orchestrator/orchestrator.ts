@@ -505,9 +505,10 @@ export class AgentTurnOrchestrator {
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, body: failBody },
     });
     // #440: failed 是暂态——紧跟补发 message.retry，前端据此回退 streaming 投影，消除「failed 复活」无事件跳变
+    // attempt = retryCount + 1：本轮结束后即将进入第 retryCount+1 次重试（当前策略 retryCount===0 才触发，值为 1）
     this.safeEmitEvent(ctx.callbacks, {
       event: 'message.retry',
-      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, reason: buildRetryFailBody(reason), attempt: 1 },
+      data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, reason: buildRetryFailBody(reason), attempt: ctx.input.retryCount + 1 },
     });
 
     // F20260825rtmx: 重置消息生命周期，使重试轮输出可 append（否则消息卡在 failed 状态，输出全部丢失）
@@ -537,7 +538,7 @@ export class AgentTurnOrchestrator {
       const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
       this.safeEmitEvent(ctx.callbacks, {
         event: 'message.retry',
-        data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, reason: 'no_yield', attempt: 1 },
+        data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName, reason: 'no_yield', attempt: ctx.input.retryCount + 1 },
       });
 
       try {

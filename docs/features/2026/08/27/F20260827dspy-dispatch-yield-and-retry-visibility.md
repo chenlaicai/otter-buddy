@@ -105,3 +105,18 @@ nextTargets: [...nextTargets].filter(id => id !== "user")
 - Fixes #474、Fixes #440
 - PR #437（#440 来源）、PR #522（#516/#517，scheduler 看门狗——同链路相邻修复，无代码重叠）
 - F20260818sgmt（speak-yield 拆分协议）、F20260821rtmx（prepareForRetry 无缝重试）
+
+## 对抗审视记录（2026-08-27）
+
+### 首轮（审砚，mimo × 实现者石锛 glm，异模型）
+
+**基础维度**：B1 CI 绿 / B2 文档完整 / B3 全链路验证独立复跑通过 / B4 标识一致。**0 严重 + 2 建议**。
+
+| 发现 | 分级 | 处置 | 理由 |
+|---|---|---|---|
+| 1. message.retry 的 attempt 硬编码为 1（orchestrator.ts:502） | 建议 | **接受并修复** | 当前策略（retryCount===0 才触发）下语义正确但属隐含假设；改为 `ctx.input.retryCount + 1` 消除假设且零成本。同款问题在 no_yield 路径（:532，本 PR 新增代码）一并修复。两处守卫均为 `retryCount === 0`，运行时值不变（仍为 1），现有断言 `attempt).toBe(1)` 无需改动 |
+| 2. self-yield 防环仅剩 maxChainDepth=100 兜底 | 建议 | **建 issue #530** | 认同审砚判断：filter 收窄是正确的语义修复，self-loop 加固是独立的防线增强，合并会稀释 #474 修复焦点。issue 内注明方向 A（processHopResults 内区分 self-yield 与 owner-yield 的提前终止）与方向 B（降 scheduler maxChainDepth 配置） |
+
+### 验证补充
+
+- agent-invoker.test.ts 35 用例全绿（含 2 个 message.retry 用例）
