@@ -1,6 +1,6 @@
 ---
 id: F20260827rsux
-title: resource-item-hover-card-ux
+title: 关键资源悬浮详情卡与快速复制
 doc_type: feature
 
 # 记忆索引
