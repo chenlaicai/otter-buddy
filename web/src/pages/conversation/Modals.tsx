@@ -23,7 +23,7 @@ const AVATAR_IMAGERY: Record<string, string> = {
   'otter-09-hulu': '葫芦',
 }
 
-/** 创建小獭表单提交对象（F20260826ucrt：替代三个散参数）。
+/** 创建小獭表单提交对象（F20260827ucrt：替代三个散参数）。
  *  avatarName 仅用于前端 localStorage override 写入，不进 POST body */
 export interface CreateOtterFormValue {
   name: string
@@ -167,13 +167,13 @@ function CreateOtterModal(props: ModalsProps) {
   const [name, setName] = useState('')
   const [role, setRole] = useState('')
   const [resp, setResp] = useState('')
-  /** 头像：null = 随机（hash 池），否则池内资源名（F20260826ucrt） */
+  /** 头像：null = 随机（hash 池），否则池内资源名（F20260827ucrt） */
   const [avatar, setAvatar] = useState<string | null>(null)
   /** 模型：空串 = 默认模型；下拉数据源 GET /api/settings */
   const [models, setModels] = useState<ModelInfoDTO[]>([])
   const [defaultAlias, setDefaultAlias] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
-  /** prompt 双档：引导生成（默认）/高级编辑（F20260826ucrt 审视定义：
+  /** prompt 双档：引导生成（默认）/高级编辑（F20260827ucrt 审视定义：
    *  开高级预填当前生成；关高级编辑保留 state 不生效；引导档始终展示最新生成） */
   const [advanced, setAdvanced] = useState(false)
   const [manualPrompt, setManualPrompt] = useState('')

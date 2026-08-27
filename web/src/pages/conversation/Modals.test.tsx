@@ -150,7 +150,7 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
   })
 })
 
-// ═══ F20260826ucrt：CreateOtterModal 重做测试 ═══
+// ═══ F20260827ucrt：CreateOtterModal 重做测试 ═══
 // getSettings 在文件头 vi.mock 工厂中导出，这里 import 后按需 mock 返回值
 import { getSettings } from '../../api/client'
 import { fireEvent } from '@testing-library/react'
@@ -179,7 +179,7 @@ function renderCreateModal(onConfirm: (form: unknown) => void) {
   })
 }
 
-describe('F20260826ucrt CreateOtterModal', () => {
+describe('F20260827ucrt CreateOtterModal', () => {
   beforeEach(() => {
     getSettingsMock.mockReset()
     getSettingsMock.mockResolvedValue({

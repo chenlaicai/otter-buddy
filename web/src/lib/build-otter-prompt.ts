@@ -1,5 +1,5 @@
 /**
- * F20260826ucrt：创建小獭 UI 的 systemPrompt 引导生成模板。
+ * F20260827ucrt：创建小獭 UI 的 systemPrompt 引导生成模板。
  *
  * 纯函数（无 React 依赖），便于单测锁结构。
  * 定位：UI 弹窗「引导生成」档的骨架——与大獭召唤时精心编写的 prompt 无法同日而语，

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { buildOtterSystemPrompt } from './build-otter-prompt'
 
 /**
- * F20260826ucrt：引导生成模板结构断言。
+ * F20260827ucrt：引导生成模板结构断言。
  * 只锁结构（三段式：身份/职责/协作约定）不锁措辞——文案实现时细化。
  */
 describe('buildOtterSystemPrompt', () => {

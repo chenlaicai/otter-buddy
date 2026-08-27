@@ -29,11 +29,11 @@ export interface CreateOtterRequestDTO {
   name: string;
   type: "big" | "small";
   role?: { name: string; responsibilities: string[] };
-  /** F20260826ucrt：UI 入口模型自选。与大獭工具链同源语义——须为 config.yaml models[] 合法 alias，
+  /** F20260827ucrt：UI 入口模型自选。与大獭工具链同源语义——须为 config.yaml models[] 合法 alias，
    *  缺省用默认模型；controller 层校验（settings-controller hasModel 同层先例）。
    *  注：大獭工具入口走 otter-tool-client（modelAlias 存 otter_configs），不经此 DTO */
   modelAlias?: string;
-  /** F20260826ucrt T4：UI 入口（POST /api/otters）忽略此字段，血缘诚实落 null；
+  /** F20260827ucrt T4：UI 入口（POST /api/otters）忽略此字段，血缘诚实落 null；
    *  大獭工具链走 otter-tool-client 系统注入，不经此 DTO */
   parentOtterId?: string;
   /** Otter 级系统提示词（可选，与平台 prompt 叠加） */

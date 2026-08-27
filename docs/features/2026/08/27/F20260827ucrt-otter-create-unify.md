@@ -1,5 +1,5 @@
 ---
-id: F20260826ucrt
+id: F20260827ucrt
 title: otter-create-unify
 doc_type: feature
 
@@ -25,7 +25,7 @@ tags: [otter-creation, api-contract, web-ui, model-routing]
 modules: [api-contract, src/interface-adapters/http, web/src]
 
 # 时间
-created_at: 2026-08-26
+created_at: 2026-08-27
 created_in_conversation: 60a89cc6-f61e-4e5c-a034-bb0570bf4735
 ---
 

@@ -107,7 +107,7 @@ describe("Otter API", () => {
       expect("modelAlias" in body2).toBe(false);
     });
 
-    it("F20260826ucrt T1/T4：透传 modelAlias；parentOtterId 一律忽略（血缘诚实化，UI 创建无獭召唤者）", async () => {
+    it("F20260827ucrt T1/T4：透传 modelAlias；parentOtterId 一律忽略（血缘诚实化，UI 创建无獭召唤者）", async () => {
       const otter = makeOtter();
       deps.createOtterUseCase.execute.mockResolvedValue(otter);
 
@@ -137,7 +137,7 @@ describe("Otter API", () => {
       });
     });
 
-    it("F20260826ucrt T1：非法 modelAlias 返回 400 且附可用列表（措辞与大獭工具链 tool-factory 一致）", async () => {
+    it("F20260827ucrt T1：非法 modelAlias 返回 400 且附可用列表（措辞与大獭工具链 tool-factory 一致）", async () => {
       const otter = makeOtter();
       deps.createOtterUseCase.execute.mockResolvedValue(otter);
 

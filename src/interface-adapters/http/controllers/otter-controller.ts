@@ -25,7 +25,7 @@ export class OtterController {
     private readonly configProvider?: OtterConfigProvider,
     /** 可选：profile 聚合端点（PR-2） */
     private readonly queryOtterProfile?: QueryOtterProfile,
-    /** F20260826ucrt：可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
+    /** F20260827ucrt：可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
      *  可选注入保持测试兼容；大獭工具链不走此 controller，不受影响 */
     private readonly modelPool?: ModelPoolLike,
   ) {}
@@ -47,7 +47,7 @@ export class OtterController {
     try {
       const body = await c.req.json<CreateOtterRequestDTO>();
 
-      /** F20260826ucrt T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
+      /** F20260827ucrt T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
        *  未注入 modelPool 时跳过校验（测试/降级场景），usecase 层缺省走默认模型 */
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
@@ -57,7 +57,7 @@ export class OtterController {
         );
       }
 
-      /** F20260826ucrt T4：血缘诚实化——不再透传 body.parentOtterId。
+      /** F20260827ucrt T4：血缘诚实化——不再透传 body.parentOtterId。
        *  UI 创建的小獭没有獭召唤者（召唤者是人类用户），血缘如实落 null（usecase 既有 ?? null 逻辑），
        *  与大獭工具链的「系统注入真实召唤者」（tool-factory.ts，不经此 controller）对齐 */
       const input: CreateOtterInput = {

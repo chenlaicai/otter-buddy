@@ -68,7 +68,7 @@ describe('getUserAvatar', () => {
   })
 })
 
-describe('F20260826ucrt：头像 localStorage override', () => {
+describe('F20260827ucrt：头像 localStorage override', () => {
   const TEST_ID = 'override-test-otter'
 
   beforeEach(() => {
@@ -76,7 +76,7 @@ describe('F20260826ucrt：头像 localStorage override', () => {
   })
 
   it('无 override → hash 池分配结果与改前逐位一致（回归锞）', () => {
-    // F20260826ucrt 审视发现 2 精神：无 override 路径必须与旧实现完全一致
+    // F20260827ucrt 审视发现 2 精神：无 override 路径必须与旧实现完全一致
     const before = getOtterAvatar(TEST_ID, 'small')
     expect(localStorage.length).toBe(0)
     expect(before).toMatch(/^\/avatars\/otter-\d{2}-[a-z]+\.svg$/)

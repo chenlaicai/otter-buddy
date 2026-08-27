@@ -1158,7 +1158,7 @@ function ConversationPage() {
     } catch { showToast('操作失败', 'error') }
   }
 
-  /** F20260826ucrt：创建小獭重写——重名前端预检 + 模型/头像自选 + 血缘交服务端诚实落 null */
+  /** F20260827ucrt：创建小獭重写——重名前端预检 + 模型/头像自选 + 血缘交服务端诚实落 null */
   async function confirmCreateOtter(form: CreateOtterFormValue) {
     if (!activeId) return
     try {
