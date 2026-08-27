@@ -53,6 +53,26 @@ describe('scanStopWords 形态 2：片段独立成词（两侧为边界）', () 
   it('中英混排「stop！停下！now」命中', () => {
     expect(scanStopWords('stop！停下！now').matched).toEqual(['停下']);
   });
+
+  it('零宽/变体字符后侧命中（F20260827c3hr 审视建议 2）——VS16/ZWSP/ZWNJ/组合重音符', () => {
+    // 真实键盘/剪贴板夹带：iOS emoji 键盘带 VS16（U+FE0F）、网页复制带 ZWSP（U+200B）/
+    // ZWNJ（U+200C）、macOS 长按带组合重音符（U+0301）——用户不可见、不构成词义，归边界类
+    const cases: Array<[string, string]> = [
+      ['停下\uFE0F', 'VS16（emoji 变体选择符）'],
+      ['停下\u200B', 'ZWSP（零宽空格）'],
+      ['停下\u200C', 'ZWNJ（零宽非连接符）'],
+      ['停下\u0301', '组合重音符（macOS 长按）'],
+    ];
+    for (const [msg, label] of cases) {
+      expect(scanStopWords(msg).matched, label).toEqual(['停下']);
+    }
+  });
+
+  it('「⛔停下」形态 1 不命中（trim 不剥 emoji——emoji 属内容字符）但形态 2 命中（F20260827c3hr 审视发现 1）', () => {
+    // 形态 1：trim 只剥标点/空白/组合记号/格式控制，emoji 不在 trim 范围——「⛔停下」≠「停下」
+    // 形态 2 兑底：后侧消息尾是硬边界 → 命中。emoji 包裹的消息一律走形态 2 边界判定。
+    expect(scanStopWords('⛔停下').matched).toEqual(['停下']);
+  });
 });
 
 describe('scanStopWords 负例：讨论/引用形态不命中', () => {

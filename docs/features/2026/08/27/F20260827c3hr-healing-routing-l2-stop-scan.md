@@ -18,7 +18,7 @@ from: [F20260826mwrd]
 
 | 层 | 文件 | 内容 |
 |---|---|---|
-| L2 扫描器 | `src/usecases/signal/stop-word-scanner.ts`（新） | 「停下」独立成词检测：形态 1（去首尾标点/空白后完全相等）+ 形态 2（片段后侧为硬边界——标点/空白/emoji/消息尾）；显式字符类（`\p{P}\p{Zs}\s\p{Extended_Pictographic}`），不用分词；不硬拦，产出 reminder 文本（指令执行/讨论引用二分支引导 + halt_otter 引导） |
+| L2 扫描器 | `src/usecases/signal/stop-word-scanner.ts`（新） | 「停下」独立成词检测：形态 1（去首尾标点/空白/组合记号/格式控制后完全相等；**emoji 不在 trim 范围——emoji 属内容字符**，emoji 包裹的消息走形态 2 边界判定）+ 形态 2（片段后侧为硬边界——标点/空白/emoji/组合记号/格式控制/消息尾）；显式字符类（`\p{P}\p{Zs}\s\p{Extended_Pictographic}\p{Mn}\p{Mc}\p{Cf}`，零宽/变体字符——VS16/ZWSP/ZWNJ/组合重音符——归边界类收窄漏报面），不用分词；不硬拦，产出 reminder 文本（语境确认二分支引导 + halt_otter 引导，不对语境做预判断言） |
 | L2 接线 | `dispatch-chain-engine.ts` | `executeChainInner` 扫一次原文 → reminder 附在每个 hop 的 `messageWithContext` 末尾（首 hop 附加，链上所有獭可见——防注意力稀释漏判）；扫描异常降级为无 reminder（退化纯 L1，失效方向安全） |
 | 高危路由·登记 | `src/usecases/healing/healing-alert-registry.ts`（新） | 进程级单例（同 haltRegistry 模式）：对话粒度队列，`interceptHealingReport` 在 severity:high 落台账同时 `enqueue`（台账照旧 healing_events，队列是「未送达的提醒」内存态，送达即删）；单对话积压上限 20（超限丢最旧，台账有全量）；大獭不在场则滞留到下一轮，不丢 |
 | 高危路由·消费 | `agent-invoker.ts` | invoke 前 `queryOtter.getById` 判型，仅 big 獭 `takeAll` → `renderHealingAlerts` → `DynamicContext.healingAlerts`（新字段）→ `buildMessageWithContext` 渲染（位置在 workspacePath 后、用户消息前——环境情报而非任务本体）；small 獭 invoke 不取队列 |
@@ -41,16 +41,28 @@ from: [F20260826mwrd]
 | ① 形态 2 前侧不设硬边界（母方案例句校准） | 母方案自身例句「快停下」「都停下」命中——前侧「快」「都」是文字不是标点。中文命令形态「快/都/给我+停下」前侧恒为副词文字，前侧硬边界 = 把母方案的正例全部拒掉。后侧硬边界已排除「停下手头工作」（动词短语粘连）。前侧放宽的误报面（如「这个词叫停下」）由不硬拦设计兜底：reminder 引导 LLM 语境确认，讨论语境不急停——这正是母方案「检测+reminder 注入，LLM 确认」取舍的本意。失效方向安全（R3） |
 | ② healing 高危路由不落 signal_events（内存队列而非台账） | 母方案 Part 4 未要求落 signal_events；healing_events 主台账已是持久化真相源（每日健康检查消费），内存队列是「未送达的提醒」不是审计数据。进程重启丢队列 = 大獭错过一次即时提醒，台账数据完整、每日批处理兜底——与 haltRegistry 同款取舍 |
 
+## 审视处置记录（检视獭-535，kimi 异模型）
+
+首轮 1 严重 / 4 建议，全部本 PR 处置：
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| 形态 1 trim 行为文档未声明 emoji 语义 | 严重 | 交付内容表 L2 扫描器行补「emoji 不在 trim 范围——emoji 属内容字符，emoji 包裹的消息走形态 2 边界判定」+ 形态 2 兑底测试钉死 |
+| reminder 首句「非讨论/引用形态」过度断言 | 建议 | 首句改为「形态：后侧为硬边界」——扫描器只断形态断不了语境，语境判定完全交给第二句（前侧放开的兑底前提） |
+| 零宽/变体字符后侧全 MISS | 建议 | 边界字符类扩 `\p{Mn}\p{Mc}\p{Cf}`（trim 同步），4 断言钉死 VS16/ZWSP/ZWNJ/组合重音符 |
+| registry 注释「5 秒内到大獭」实时性错觉 | 建议 | 注释改为「下一个 invoke 边界送达，大獭 invoke 中途 enqueue 的事件顺延到下下轮」 |
+| #534 行为等价性 | 无发现 | — |
+
 ## 测试
 
 | 面 | 文件 | 覆盖 |
 |---|---|---|
-| L2 扫描器 | `tests/usecases/signal/stop-word-scanner.test.ts` | 形态枚举 16 例：完全相等（纯词/尾标点/首尾混合/中文标点）、片段独立（快停下/居中标点/emoji 边界/中英混排）、负例（停下手头工作/两侧文字/不含完整词/空消息）、reminder 语义（引导文本/零开销） |
+| L2 扫描器 | `tests/usecases/signal/stop-word-scanner.test.ts` | 形态枚举 18 例：完全相等（纯词/尾标点/首尾混合/中文标点）、片段独立（快停下/居中标点/emoji 边界/中英混排/零宽变体后侧/emoji 前缀形态 2 兑底）、负例（停下手头工作/两侧文字/不含完整词/空消息）、reminder 语义（引导文本/零开销） |
 | L2 接线 | `tests/usecases/conversation/dispatch-chain-engine.test.ts`（+4 例） | 独立成词注入 reminder + 原文保留；命令形态注入；讨论语境零注入；普通消息零注入 |
 | 高危路由 | `tests/usecases/healing/healing-alert-registry.test.ts` | registry 纯逻辑 4 例（送达即删/对话隔离/滞留补提醒/上限丢最旧）+ intercept 集成 3 例（high 登记且台账照落/low 不路由/多条逐条登记）+ render 2 例（引导文本/截断） |
 | #534 防回归 | `tests/interface-adapters/agent-runtime/tools/tool-dedup-registration.test.ts` | 工具名零重复断言（任何注册路径回归即红）+ healingRepo 缺省不注册 |
 
-全量 1865/1865 绿（本 PR 新增 25 用例），tsc/eslint 零错。
+全量 1887/1887 绿（实现者首报 1865 为笔误，检视者独立实测 1885；本 PR 新增 27 用例：初始 25 + 审视处置追加 2——零宽/变体字符 4 断言合并 1 例、trim 不剥 emoji 形态 2 兑底 1 例），tsc/eslint 零错。
 
 ## 后续动作
 

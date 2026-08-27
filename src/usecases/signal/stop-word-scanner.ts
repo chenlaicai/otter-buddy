@@ -19,17 +19,23 @@
 const STOP_WORDS = ['停下'] as const;
 
 /**
- * 硬边界字符类（后侧判定用）：标点（中西文）、空白、emoji、消息尾。
+ * 硬边界字符类（后侧判定用）：标点（中西文）、空白、emoji、组合记号、格式控制字符。
  * emoji 判定用 Unicode 扩展区段（\p{Extended_Pictographic}），需 u flag。
+ * 组合记号（\p{Mn}\p{Mc}）与格式控制（\p{Cf}）归入边界类（F20260827c3hr 审视建议 2）：
+ * 零宽/变体字符（VS16、ZWSP、ZWNJ、组合重音符）是 emoji 键盘与复制粘贴的
+ * 常见夹带，用户不可见、不构成词义——按边界处理收窄漏报面（漏报方向安全：
+ * 退化纯 L1，但 L2 的存在价值是保底，失效面该收窄）。
  */
-const HARD_BOUNDARY_CHAR_RE = /[\p{P}\p{Zs}\s\p{Extended_Pictographic}]/u;
+const HARD_BOUNDARY_CHAR_RE = /[\p{P}\p{Zs}\s\p{Extended_Pictographic}\p{Mn}\p{Mc}\p{Cf}]/u;
 
-/** 去除首尾标点/空白（emoji 是内容的一部分，不剥） */
+/** trim 字符类 = 硬边界类减去 emoji（emoji 是内容的一部分，不剥——F20260827c3hr 审视发现 1） */
+const TRIM_CHAR_RE = /[\p{P}\p{Zs}\s\p{Mn}\p{Mc}\p{Cf}]/u;
+
 function trimPunctuationAndSpace(text: string): string {
   let start = 0;
   let end = text.length;
-  while (start < end && /[\p{P}\p{Zs}\s]/u.test(text[start])) start++;
-  while (end > start && /[\p{P}\p{Zs}\s]/u.test(text[end - 1])) end--;
+  while (start < end && TRIM_CHAR_RE.test(text[start])) start++;
+  while (end > start && TRIM_CHAR_RE.test(text[end - 1])) end--;
   return text.slice(start, end);
 }
 
@@ -42,7 +48,7 @@ export interface StopWordScanResult {
 
 /** reminder 文本（SYSTEM.md Magic Words「停下」条目的执行引导） */
 function buildReminder(matched: string[]): string {
-  return `[L2 安全词检测] 用户消息命中安全词「${matched.join('」「')}」（独立成词，非讨论/引用形态）。`
+  return `[L2 安全词检测] 用户消息命中安全词「${matched.join('」「')}」（形态：后侧为硬边界）。`
     + '请确认这是安全指令还是讨论/引用：\n'
     + '- 若是指令：立即按 SYSTEM.md Magic Words 执行——停止当前所有动作（不发新工具调用、不写新文件），'
     + '如场上有运行中小獭，用 halt_otter 对其打标，然后等搭档指示；\n'

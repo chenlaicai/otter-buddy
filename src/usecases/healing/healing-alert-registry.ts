@@ -3,8 +3,9 @@
  *
  * 现状：severity:high 事件写入后仅 logger.warn——大獭要等每日批处理才知道。
  * 增强：high 事件写入时在此登记，大獭下一次 invoke 的 buildDynamicContext 消费
- * （拼进 DynamicContext.healingAlerts 注入 reminder）——「5 秒内到大獭」的效果
- * 由「下一个 invoke 边界」保证，无需轮询。
+ * （拼进 DynamicContext.healingAlerts 注入 reminder）——送达时点由「下一个 invoke
+ * 边界」保证：大獭空闲时几乎即时；大獭 invoke 中途 enqueue 的事件顺延到下下轮
+ * （本轮 invoke 的 DynamicContext 已构建完成）。无需轮询。
  *
  * 内存态而非落库：这是「未送达的提醒」队列，送达即删；healing_events 主台账
  * 仍是持久化真相源（本模块不重复持久化）。进程重启丢队列的代价 = 大獭错过一次
