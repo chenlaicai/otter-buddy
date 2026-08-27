@@ -29,9 +29,11 @@ export function validateFeatureFrontmatter(
   validateSummary(fm.summary, errors);
   validateFeatureStatus(fm.status, warnings);
   validateChangeType(fm.change_type, warnings);
+  validateTitleReadability(fm.title, warnings);
   validateSupersedesPrefix(fm.supersedes, "F", errors);
   if (filePath) {
     validateFilePath(fm.id as string, filePath, errors);
+    validateFilenameSlug(filePath, warnings);
   }
 
   return { valid: errors.length === 0, errors, warnings };
@@ -102,6 +104,35 @@ function validateFeatureStatus(status: unknown, warnings: string[]): void {
 function validateChangeType(changeType: unknown, warnings: string[]): void {
   if (changeType && typeof changeType === "string" && !isKnownChangeType(changeType as string)) {
     warnings.push(`Unknown change_type: ${changeType}`);
+  }
+}
+
+/** 是否包含 CJK 字符（含扩展 A 区）。
+ *  用于 title 可读性判定：纯英文 slug 形态（连字符连接、无空格、无 CJK）不算可读 title。 */
+const CJK_RE = /[\u3400-\u4dbf\u4e00-\u9fff]/;
+
+/** F20260827spcs（#470）: title 可读性校验。
+ *  主流惯例：title 是人类可读描述（如「commit-msg 钩子类型白名单与 commit-convention.md 对齐」），
+ *  slug 应放文件名而非 title。纯 slug 形态（无 CJK 且无空白的连写串）报 warning，不阻断。
+ *  存量 slug title 较多（过渡期），由 lint:docs 的 ratchet 上限约束只减不增。 */
+export function validateTitleReadability(title: unknown, warnings: string[]): void {
+  if (typeof title !== "string") return;
+  const t = title.trim();
+  if (!t) return;
+  if (!CJK_RE.test(t) && !/\s/.test(t)) {
+    warnings.push(
+      `Title looks like a slug ("${t}"): use a human-readable description; slugs belong in the filename`
+    );
+  }
+}
+
+/** F20260827spcs（#470）: 特性文档文件名 slug 后缀校验。
+ *  主流命名：F<date><id>-<slug>.md（存量 271/292）；缺 slug 后缀报 warning（#470 评论升级为必查项），
+ *  与存量兼容，逐步收紧。仅对 feature 文档生效。 */
+export function validateFilenameSlug(filePath: string, warnings: string[]): void {
+  const base = filePath.split("/").pop() ?? "";
+  if (/^F\d{8}[a-z0-9]{3,10}\.md$/.test(base)) {
+    warnings.push(`Filename "${base}" missing slug suffix: prefer F<date><id>-<slug>.md`);
   }
 }
 

@@ -30,7 +30,7 @@ category: technique
 1. **验证环境**：`git rev-parse --show-toplevel` + `pwd`，确认是否已在 `.claude/worktrees/` 下。已在则跳到 step 2。
 2. **创建 worktree**：`git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。worktree 是特性开发的独立空间，特性文档（`docs/features/`）也在这里。
 3. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染（#524）。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名见 `_shared/signature-convention.md`。**特性文档（docs/features/F*.md）是默认交付物**（#443）：与改动同 worktree 提交，格式参考 docs/features/ 下已有文档，frontmatter 至少含 id/title/summary/change_type/created_in_conversation，详见 `_shared/SKILL-TEMPLATE.md` 全局约定「特性文档」。
-4. **推送并创建 PR**：`git push -u origin <branch>` + `gh pr create`，PR 链接交给搭档。
+4. **推送并创建 PR**：`git push -u origin <branch>` + `gh pr create`，PR 链接交给搭档。本期创建的 feature 分支 rebase 后需重写推送时，用 `git push --force-with-lease`（#468：R1 红线对这类分支放行 force-with-lease；受保护分支的 force push 仍禁止）。
 
 > 红线在 SYSTEM.md "仓库安全红线" 中全局定义，本流程严格遵守。
 

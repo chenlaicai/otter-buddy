@@ -28,6 +28,12 @@ ID `R20260716x2k9` → 必须 `docs/research/2026/07/16/R20260716x2k9-*.md`。
 
 `status`、`change_type`、`exploration_type` 的未知值不阻断，但会被校验器记入 warnings。已知值见 `src/entities/document/known-values.ts`。
 
+`title` 与文件名 slug（F20260827spcs，#470）：
+
+- `title` 应为人类可读描述（中英文皆可，含空格分隔多词），不应是英文 slug 形态（连字符连接、无空格、无 CJK）——slug 放文件名；纯 slug 形态报 warning
+- 文件名建议 `F<date><id>-<slug>.md`（主流 271/292）；裸 ID 无 slug 后缀报 warning
+- 存量告警由 lint:docs ratchet 约束只减不增，逐步治理
+
 ### 能力测试约定（F20260806tstr Part 5，lint-capability-docs.mjs 校验）
 
 `change_type` 为 `feature` 或 `prompt` 的 F 文档，frontmatter 应声明 `capability_test`：
@@ -138,7 +144,7 @@ causal_links:
   from:
     - F20260803m9q2   # 因果上游（sync 读取，存入 DB metadata）
 
-status: development      # draft / proposed / design / development / locked / final / implemented / archived
+status: development      # draft / proposed / design / development / active / locked / final / implemented / archived
 change_type: feature     # feature / refactor / fix / prompt / feature-update
 tags: [area, concept]
 modules:

@@ -66,13 +66,22 @@ for (const file of files) {
     errors++;
     console.error(`✗ ${rel}\n    ${v.errors.join("\n    ")}`);
   } else if (v.warnings.length > 0) {
-    warnings++;
+    warnings += v.warnings.length;
     console.warn(`⚠ ${frontmatter.id || rel}\n    ${v.warnings.join("\n    ")}`);
   }
 }
 
+/** Ratchet（#470，#455）: 警告数只许减不许增——与 lint:capability 的 MAX_WARNINGS 同模式。
+ *  当前基线构成（F20260827spcs 建立时）：221 title slug + 7 缺 slug 文件名 + 38 旧 change_type
+ *  + 2 旧 status（review/reviewed）+ 1 旧 exploration_type。存量文档补齐后可下调本数值。 */
+const MAX_WARNINGS = 269;
+
+if (warnings > MAX_WARNINGS) {
+  errors++;
+  console.error(`✗ [lint:docs] 警告数 ${warnings} 超过上限 ${MAX_WARNINGS}（ratchet：新文档必须用人类可读 title + 文件名带 slug 后缀 + 已知枚举值）`);
+}
 if (warnings > 0) {
-  console.warn(`\n[lint:docs] ${warnings} warnings（不阻断 commit）`);
+  console.warn(`\n[lint:docs] ${warnings} warnings（不阻断 commit，上限 ${MAX_WARNINGS}）`);
 }
 if (errors > 0) {
   console.error(`\n[lint:docs] ${errors} errors（阻断 commit）`);
