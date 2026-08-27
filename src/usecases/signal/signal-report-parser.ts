@@ -54,10 +54,17 @@ function normalizeSignalSyntax(body: string): string {
 }
 
 /**
- * 抽取合法信号块。仅匹配 type 属性为合法值的块（畸形块由 stripSignalReport 兜底剥离）。
- * 属性引号容忍双引号/单引号（normalize 后无全角）。
+ * 抽取信号块（合法与畸形都匹配，属性在 parseSignalReport 里逐项校验）。
+ * F20260827c2sg 审视处置：
+ * - 属性顺序不再硬编码（type 在前/severity 在前均容忍）——LLM 高频合法变体，整块静默剥离会无声断问责链
+ * - payload 带 <signal 起始守卫（(?!<signal\b)）：未闭合块不会跨块吞噬后续合法块（此前外层未闭合块会吃到内层块的闭合标签，合法信号以错误类型落账）
+ * 属性引号容忍双引号/单引号/无引号（normalize 后无全角）。
  */
-const SIGNAL_BLOCK_RE = /<signal\s+type\s*=\s*(["']?)(objection|blocked)\1\s+severity\s*=\s*(["']?)(low|medium|high)\3\s*>([\s\S]*?)<\/signal>/gi;
+const SIGNAL_BLOCK_RE = /<signal\b([^>]*)>((?:(?!<signal\b)[\s\S])*?)<\/signal>/gi;
+/** type 属性：白名单不含 halt（小獭不可伪造 halt 入台账） */
+const TYPE_ATTR_RE = /\btype\s*=\s*(["']?)(objection|blocked)\1/i;
+/** severity 属性 */
+const SEVERITY_ATTR_RE = /\bseverity\s*=\s*(["']?)(low|medium|high)\1/i;
 
 /** 全部 signal 块（含畸形）：剥离用。type 白名单外的块也剥离——不让控制语法泄漏进 UI 正文 */
 const ANY_SIGNAL_BLOCK_RE = /<signal\b[^>]*>[\s\S]*?<\/signal>/gi;
@@ -87,11 +94,16 @@ export function parseSignalReport(body: string): ParsedSignalReport {
 
   const signals: ParsedSignal[] = [];
   for (const m of normalized.matchAll(SIGNAL_BLOCK_RE)) {
-    const payload = validatePayload(m[5]);
+    // 属性逐项校验：type/severity 缺失或值非法 = 畸形块，静默剥离不落账
+    const attrs = m[1] ?? "";
+    const typeMatch = TYPE_ATTR_RE.exec(attrs);
+    const severityMatch = SEVERITY_ATTR_RE.exec(attrs);
+    if (!typeMatch || !severityMatch) continue;
+    const payload = validatePayload(m[2]);
     if (!payload) continue; // 空 payload = 畸形，不落账
     signals.push({
-      type: m[2] as ParsedSignalType,
-      severity: m[4] as ParsedSignal['severity'],
+      type: typeMatch[2].toLowerCase() as ParsedSignalType,
+      severity: severityMatch[2].toLowerCase() as ParsedSignal['severity'],
       payload,
     });
     if (signals.length >= MAX_SIGNALS_PER_MESSAGE) break;

@@ -107,6 +107,40 @@ describe('parseSignalReport（normalize 鲁棒性，对齐 healing 先例）', (
   });
 });
 
+describe('parseSignalReport（F20260827c2sg 审视处置：嵌套守卫与属性顺序）', () => {
+  it('未闭合块不得吞噬后续合法块：未闭合块剥离、合法 blocked 块正常落账（审视发现 2 探针场景）', () => {
+    const body = '<signal type="objection" severity="low">写到一半被截断 <signal type="blocked" severity="low">合法B</signal>';
+    const { signals } = parseSignalReport(body);
+    // 未闭合块不再跨块吃到内层闭合标签——合法 B 正常以 blocked 落账，不再被吞
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('blocked');
+    expect(signals[0].payload).toBe('合法B');
+  });
+
+  it('未闭合块仍被剥离（stripSignalReport 不泄漏控制语法）', () => {
+    const body = '前言 <signal type="objection" severity="low">写到一半被截断 <signal type="blocked" severity="low">合法B</signal> 后文';
+    const clean = stripSignalReport(body);
+    expect(clean).toBe('前言  后文');
+    expect(clean).not.toContain('<signal');
+    expect(clean).not.toContain('合法B');
+  });
+
+  it('属性顺序颠倒（severity 在 type 前）容忍（审视发现 3 探针场景）', () => {
+    const { signals } = parseSignalReport('<signal severity="low" type="objection">内容</signal>');
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('objection');
+    expect(signals[0].severity).toBe('low');
+    expect(signals[0].payload).toBe('内容');
+  });
+
+  it('属性顺序颠倒 + 引号变体叠加容忍', () => {
+    const { signals } = parseSignalReport("<signal severity='high' type='blocked'>内容</signal>");
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('blocked');
+    expect(signals[0].severity).toBe('high');
+  });
+});
+
 describe('stripSignalReport（剥离）', () => {
   it('剥离合法块保留正文', () => {
     const body = '前言\n<signal type="objection" severity="low">异议内容</signal>\n结论';

@@ -23,8 +23,12 @@
       "tools": ["list_artifacts", "update_artifact_status"]
     },
     "system": {
-      "description": "系统工具（参与者/卡片/定时/自愈/信号台账）",
-      "tools": ["get_active_participants", "get_html_card_contract", "create_scheduled_task", "manage_healing_events", "query_signals", "halt_otter", "resolve_signal"]
+      "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询）",
+      "tools": ["get_active_participants", "get_html_card_contract", "create_scheduled_task", "manage_healing_events", "query_signals"]
+    },
+    "orchestration": {
+      "description": "编排/裁决工具（halt 停獭、signal 裁决）——仅 big 型引用，small 不得持有",
+      "tools": ["halt_otter", "resolve_signal"]
     },
     "workspace": {
       "description": "工作区文件操作",
