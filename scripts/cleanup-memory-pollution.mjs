@@ -28,6 +28,10 @@ const __filename = fileURLToPath(import.meta.url);
 const rootDir = path.resolve(path.dirname(__filename), "..");
 
 function parseArgs(argv) {
+  // 路径假设：脚本固定从 <repo>/scripts/ 解析，rootDir = 仓库根，默认 DB 在 data/otter-buddy.db。
+  // 这是一次性运维脚本（dry-run 默认 + --db 可覆盖），不接 AppConfig——主应用 DB 路径
+  // 由 AppConfig.db.path 决定（默认同为 data/otter-buddy.db，见 src/bootstrap/config）。
+  // 若项目结构调整导致默认路径失效，用 --db=/path/to.db 显式指定即可，不必改脚本。
   const args = { apply: false, pruneOrphans: false, db: path.join(rootDir, "data", "otter-buddy.db") };
   for (const arg of argv) {
     if (arg === "--apply") args.apply = true;
@@ -52,6 +56,10 @@ const db = new Database(args.db, args.apply ? undefined : { readonly: true });
 // ---------- 扫描 ----------
 
 // A 类：空/纯空白 content
+// 已知局限（PR #519 审视测试实证）：SQLite trim() 只去空格不去 \n/\t，纯换行条目
+// length(trim(content))=1 抓不到。入库层防线（StoreMemory 用 JS trim，覆盖全部空白）
+// 已阻断新增，存量纯换行条目如存在需手工 SQL（trim(content, char(10)||char(13)||char(9)||' ')）——
+// 一次性脚本不为罕见边界加复杂度，在此声明。
 const emptyEntries = db.prepare(`
   SELECT id, content_type, source_id, created_at
   FROM memory_entries

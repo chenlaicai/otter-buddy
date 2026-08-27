@@ -20,7 +20,14 @@ export interface MemoryEntryInput {
   metadata?: Record<string, unknown>;
 }
 
-/** #509: 污染判定的 trim 阈值（<10 字符的 chunk 无检索价值，写入即污染） */
+/** #509: 污染判定的 trim 阈值（<10 字符的 chunk 无检索价值，写入即污染）
+ *  双阈值设计（PR #519 审视发现 1 的回应）：
+ *  - execute/replaceBySource 只拦「空」（trim 后 0 字符）——初版曾用 <10 阈值，
+ *    误伤了存量测试里的 9 字符合法短消息（"用户询问了天气情况"），故收窄；
+ *    消息/fact 类内容的短文本（如「继续」）是合法记忆，不可误伤。
+ *  - chunk 批量路径（replaceChunksBySource）用 <10 阈值——文档段落 <10 字符
+ *    无检索价值（历史污染实证：8-26 入库 43% 为 `.` / `\n` / `2.` 类碎片）。
+ *  语义根源：两类内容的价值下限不同，阈值故意不统一。 */
 const MIN_VALID_CONTENT_CHARS = 10;
 
 /** #509: trim 后内容低于阈值时拒绝入库（空/超短 content 占召回坑位，稀释信噪比） */

@@ -5,7 +5,7 @@ import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
-import { createTestLogger } from "../../helpers/logger";
+import { createCapturingLogger, createTestLogger } from "../../helpers/logger";
 
 /** 创建带状态捕获的 MemoryWriter + MemoryQueue mock */
 function statefulRepo(): MemoryWriter & MemoryQueue & {
@@ -442,5 +442,42 @@ describe("StoreMemory - issue #509 污染防线", () => {
     ]);
 
     expect(replaceCalls[0]).toHaveLength(1); // 不拦截，只告警
+  });
+
+  it("execute：前后包裹空白的合法内容 trim 后判定，正常入库（PR #519 审视补充）", async () => {
+    const repo = statefulRepo();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), createTestLogger());
+
+    // "  hello  " trim 后 5 字符 > 0，execute 路径只拦「空」——前后空白不构成污染
+    const id = await store.execute({ ...SAMPLE_INPUT, content: "  hello  " });
+    expect(id).toBeTruthy();
+    expect(repo.storedEntries).toHaveLength(1);
+    // 入库保留原文（trim 只用于判定，不改写 content）
+    expect(repo.storedEntries[0].content).toBe("  hello  ");
+  });
+
+  it("replaceChunksBySource：char_count 偏离告警写入日志（PR #519 审视补充）", async () => {
+    const repo = statefulRepo();
+    const logger = createCapturingLogger();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), logger);
+
+    // char_count=933 但 cleaned content 只剩 100 字符（<20% 阈值）——833391fa 型缺陷兜底感知
+    await store.replaceChunksBySource([
+      { ...CHUNK_INPUT, content: "x".repeat(100), metadata: { char_count: 933 } },
+    ]);
+
+    expect(logger.captured.warns.some((m) => m.includes("char_count mismatch") && m.includes("933"))).toBe(true);
+  });
+
+  it("replaceChunksBySource：char_count 与 content 匹配时不告警", async () => {
+    const repo = statefulRepo();
+    const logger = createCapturingLogger();
+    const store = new StoreMemory(repo, repo, capturingEmbedGateway(), logger);
+
+    await store.replaceChunksBySource([
+      { ...CHUNK_INPUT, content: "x".repeat(100), metadata: { char_count: 100 } },
+    ]);
+
+    expect(logger.captured.warns).toHaveLength(0);
   });
 });
