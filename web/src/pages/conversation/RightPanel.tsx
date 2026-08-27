@@ -313,7 +313,7 @@ function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResourc
   return (
     <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group">
       {/* 与 FactItem 统一为 stone 色系：链接类资源加类型色块，长标题截断 + tooltip 显示全文（含 url） */}
-      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-stone-100 text-stone-500 uppercase flex-shrink-0">{r.type}</span>
+      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-skeleton text-stone-500 uppercase flex-shrink-0">{r.type}</span>
       <span className="text-xs text-stone-600 truncate flex-1" title={r.url || r.title || undefined}>
         {r.title || r.url || '(无标题)'}
       </span>

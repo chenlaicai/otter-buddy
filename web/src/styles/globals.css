@@ -26,6 +26,14 @@
   --color-lavender-400: #9B8AC8;
   --color-lavender-500: #8B7AB8;
   --color-lavender-600: #6B5A98;
+
+  /* F20260827abcd: 玻璃色/状态色/骨架色 token（@theme 生成 bg-* utility） */
+  --color-glass-surface: rgba(245, 245, 244, 0.5); /* stone-50/50 */
+  --color-status-success: rgba(220, 252, 231, 1); /* green-100 */
+  --color-status-error: rgba(254, 226, 226, 1); /* red-100 */
+  --color-status-running: rgba(219, 234, 254, 1); /* blue-100 */
+  --color-status-stalled: rgba(254, 243, 199, 1); /* amber-100 */
+  --color-skeleton: rgba(231, 229, 228, 1); /* stone-100 */
 }
 
 /* ============================================================
@@ -45,6 +53,15 @@
    ============================================================ */
 :root {
   --bg-base: #E7DDCF;
+
+  /* F20260827abcd: 滚动上限 token（用 max-h-[var(...)] 任意值语法引用） */
+  --modal-scroll-max-h: 80vh;
+  --modal-content-max-h: calc(80vh - 120px);
+  --section-scroll-max-h: 10rem;
+  --list-scroll-max-h: 400px;
+  --compact-scroll-max-h: 300px;
+  --input-scroll-max-h: 140px;
+  --preview-scroll-max-h: 240px;
 
   /* 玻璃不透明度全局系数（设置页滑杆可调 0.45~1.0，越低越透；
      各层 token 用 calc 按系数缩放，reduced-transparency 兜底直接

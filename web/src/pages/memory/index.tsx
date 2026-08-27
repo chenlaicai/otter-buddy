@@ -67,7 +67,7 @@ function TerminologyCard({ entry }: { entry: MemoryEntryDTO }) {
         </div>
       )}
       {meta.category && (
-        <span className="text-[10px] bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded-full">{meta.category}</span>
+        <span className="text-[10px] bg-skeleton text-stone-500 px-1.5 py-0.5 rounded-full">{meta.category}</span>
       )}
     </div>
   )
@@ -194,7 +194,7 @@ function MemorySearchPage() {
             <span className="text-amber-600">搜索结果可能不完整</span>
           </div>
           {health.gapReasons && health.gapReasons.length > 0 && (
-            <ul className="text-xs text-amber-700 space-y-0.5 mt-1 max-h-40 overflow-y-auto">
+            <ul className="text-xs text-amber-700 space-y-0.5 mt-1 max-h-[var(--section-scroll-max-h)] overflow-y-auto">
               {health.gapReasons.map(r => (
                 <li key={r.id} className="font-mono">
                   <span className="font-semibold">{r.id}</span>

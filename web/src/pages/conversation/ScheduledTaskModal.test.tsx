@@ -58,7 +58,7 @@ function findToggle(): HTMLButtonElement {
   // 但实际有 type="button"。通过文本定位。
   const buttons = document.querySelectorAll('button[type="button"]')
   for (const btn of buttons) {
-    if (btn.textContent === '' && btn.className.includes('rounded-full') && btn.closest('.bg-stone-50\\/50')) {
+    if (btn.textContent === '' && btn.className.includes('rounded-full') && btn.closest('.bg-glass-surface')) {
       return btn as HTMLButtonElement
     }
   }
