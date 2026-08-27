@@ -37,6 +37,7 @@ function createTaskFixture(overrides: Partial<ScheduledTask> = {}): ScheduledTas
     consecutiveFailures: 0,
     lastTriggeredAt: null,
     restartBeforeInvoke: false,
+    timeoutMinutes: null,
     createdAt: "2026-07-22T00:00:00Z",
     updatedAt: "2026-07-22T00:00:00Z",
     ...overrides,
@@ -92,6 +93,7 @@ describe("SqliteScheduledTaskRepository - 任务 CRUD", () => {
       expect(result!.status).toBe("active");
       expect(result!.consecutiveFailures).toBe(0);
       expect(result!.lastTriggeredAt).toBeNull();
+      expect(result!.timeoutMinutes).toBeNull();
       expect(result!.createdAt).toBe("2026-07-22T00:00:00Z");
       expect(result!.updatedAt).toBe("2026-07-22T00:00:00Z");
     });
@@ -392,5 +394,38 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
       expect(results[0].status).toBe("failed");
       expect(results[0].errorMessage).toBe("执行超时");
     });
+  });
+});
+
+// ─── #516: timeout_minutes 列持久化 ────────────────────
+
+describe("timeout_minutes 持久化 (#516)", () => {
+  let db: Database.Database;
+  let repo: SqliteScheduledTaskRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteScheduledTaskRepository(db);
+    insertConversation(db, "conv-1");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("create 240 -> getById 读回 240；update 清 null 往返一致", async () => {
+    await repo.create(createTaskFixture({ id: "task-tmo", timeoutMinutes: 240 }));
+    let task = await repo.getById("task-tmo");
+    expect(task?.timeoutMinutes).toBe(240);
+
+    await repo.update({ ...task!, timeoutMinutes: null });
+    task = await repo.getById("task-tmo");
+    expect(task?.timeoutMinutes).toBeNull();
+  });
+
+  it("未配置（null）-> 读回 null 不抛错", async () => {
+    await repo.create(createTaskFixture({ id: "task-legacy", timeoutMinutes: null }));
+    const task = await repo.getById("task-legacy");
+    expect(task?.timeoutMinutes).toBeNull();
   });
 });

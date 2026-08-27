@@ -22,6 +22,7 @@ export interface ScheduledTaskRow {
   consecutive_failures: number;
   last_triggered_at: string | null;
   restart_before_invoke: number;
+  timeout_minutes: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -64,6 +65,7 @@ export function rowToScheduledTask(row: ScheduledTaskRow): ScheduledTask {
     consecutiveFailures: row.consecutive_failures,
     lastTriggeredAt: row.last_triggered_at,
     restartBeforeInvoke: row.restart_before_invoke === 1,
+    timeoutMinutes: row.timeout_minutes ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -99,6 +101,7 @@ export function taskToRow(task: ScheduledTask): ScheduledTaskRow {
     consecutive_failures: task.consecutiveFailures,
     last_triggered_at: task.lastTriggeredAt,
     restart_before_invoke: task.restartBeforeInvoke ? 1 : 0,
+    timeout_minutes: task.timeoutMinutes,
     created_at: task.createdAt,
     updated_at: task.updatedAt,
   };
