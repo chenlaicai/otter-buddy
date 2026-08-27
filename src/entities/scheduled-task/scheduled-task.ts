@@ -7,6 +7,9 @@ export type ScheduleType = 'cron' | 'once';
 /** 执行记录状态 */
 export type ExecutionStatus = 'running' | 'completed' | 'failed';
 
+/** 执行器类型 */
+export type ExecutorType = 'agent' | 'function';
+
 /** 定时任务实体 */
 export interface ScheduledTask {
   id: string;
@@ -26,6 +29,10 @@ export interface ScheduledTask {
   lastTriggeredAt: string | null;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
   restartBeforeInvoke: boolean;
+  /** PR4: 执行器类型（agent=LLM 会话，function=纯代码） */
+  executorType: ExecutorType;
+  /** PR4: function executor 时注册的函数名 */
+  functionName?: string;
   createdAt: string;
   updatedAt: string;
 }

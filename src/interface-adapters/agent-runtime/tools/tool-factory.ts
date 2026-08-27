@@ -14,10 +14,12 @@ import { createHaltOtterTool, createQuerySignalsTool } from "./signal-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createStockDataTool } from "./stock-tools";
+import { createPaperTradeTool } from "./paper-trade-tool";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
+import type { Ledger } from "@usecases/paper-trading/ledger";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 // R20260817arnt PR-B：领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
@@ -754,7 +756,8 @@ function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
   };
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
+// eslint-disable-next-line max-params -- PR4: paperLedger needs injection to avoid frameworks dependency
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask, paperLedger?: { ledger: Ledger; getAccountId: () => string | undefined }): AgentTool[] {
   // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
   const signalRepo = ctx.signalRepo;
   const tools: AgentTool[] = [
@@ -798,6 +801,10 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   }
   // stock_data: 无外部依赖，直接注册
   tools.push(createStockDataTool(ctx));
+  // paper_trade: 纸面交易工具（注入 Ledger，避免 interface-adapters 直接依赖 frameworks）
+  if (paperLedger) {
+    tools.push(createPaperTradeTool(ctx, paperLedger.ledger, paperLedger.getAccountId));
+  }
   // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
   // small 型 whitelist 不含 halt_otter，天然隔离；query_signals 两型均可用）
   if (signalRepo) {

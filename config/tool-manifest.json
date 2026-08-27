@@ -33,6 +33,10 @@
     "stock": {
       "description": "A 股数据查询",
       "tools": ["stock_data"]
+    },
+    "paper-trading": {
+      "description": "纸面交易模拟系统",
+      "tools": ["paper_trade"]
     }
   },
   "types": {
@@ -42,7 +46,7 @@
     },
     "small": {
       "description": "小獭 - 去除 otter 管理类",
-      "groups": ["memory", "conversation", "context", "terminology", "artifacts", "system", "workspace", "stock"],
+      "groups": ["memory", "conversation", "context", "terminology", "artifacts", "system", "workspace", "stock", "paper-trading"],
       "tools": ["speak", "yield", "restart_otter"]
     }
   }
