@@ -19,7 +19,6 @@ modules:
   - src/frameworks/db/migration.ts
   - src/usecases/conversation/reconcile-orphans.ts
 capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
-created_in_conversation: 7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d
 ---
 
 # F20260827mtbl: 存量库缺表迁移补丁 + reconcile 异常隔离
@@ -93,12 +92,35 @@ created_in_conversation: 7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d
 - `npx vitest run tests/frameworks/db/migration.test.ts tests/usecases/conversation/reconcile-orphans-resume.test.ts` → 21 passed
 - `npx vitest run tests/usecases/conversation/resume-interrupted-service.test.ts tests/frameworks/db/schema.test.ts` → 11 passed（相邻面回归）
 - `npx tsc --noEmit` → exit 0
+- `npx eslint`（四个改动文件）→ 0 error 0 warning
+- **生产库副本演练（AT-4 前置证据）**：拷贝生产库（含 WAL）至隔离路径，跑 `migrateDatabase` + `reconcileOrphans` + 幂等复跑。结果：两表补建成功；3 条 streaming 孤儿全部置 failed；3 个孤儿 turn 全部关闭；恢复队列登记 3 条 pending（attempts=1）；streaming 残留归零；二次执行不报错。
 
 ### 证据判定
 | 需求 | 证据状态 | 判定 |
 |------|---------|------|
-| T1/T2/T3 | 测试通过 + 行为符合预期 | ✅ |
-| T4（生产） | 待合并部署后复验 | ❓ |
+| T1（补表） | 测试通过 + 生产库副本演练通过 | ✅ |
+| T2（隔离降级） | 测试通过 + 副本演练清理未中断 | ✅ |
+| T3（盲区覆盖） | 新增 3 个用例覆盖缺表老库场景 | ✅ |
+| T4（生产收敛） | 副本演练通过；生产部署重启后复验会话状态 | ❓（待部署） |
+
+## 对抗审视记录
+
+### 自检（2026-08-27，PR #505 提交后一轮）
+
+| 检查项 | 结论 |
+|--------|------|
+| migration.ts 新增 DDL 与 schema.ts 逐列/逐索引机械比对 | 完全一致 |
+| bootstrap 执行顺序：migrateDatabase（app.ts:163）先于 reconcileOrphans（app.ts:165） | 正确，补表必先于清理 |
+| 全库缺表排查：initSchema 全部建表函数 vs 生产库 sqlite_master | 仅缺本 PR 两表，无其他漏网 |
+| claimResume 事务原子性：抛错即回滚，不会出现"半登记"状态 | 无风险 |
+| causal_links 上游文档存在性（rsme/mwrd/evaf） | 三者均存在 |
+| CI 首跑失败：migration.ts 468 行超 max-lines 450 | 修复：文件级 eslint-disable + 理由注释（schema.ts 先例） |
+| frontmatter 元数据 | 移除误填的 created_in_conversation（本工作非产自该对话） |
+
+### 遗留观察项（非本 PR 范围）
+
+- **同型缺陷第三次发生**（evaf→rhib→本次），约定只存在于 migration.ts 注释里。根治手段（如 initSchema/migrateDatabase 单一来源生成、或 lint 校验 initSchema 新表必须同步登记 migrateDatabase）值得独立立项。
+- **隔日续写语义**：副本演练确认 3 条 8-26 的孤儿消息在部署后会被自动恢复（恢复队列已登记）。F20260826rsme 设计无中断时效窗口，隔天旧发言会被续写。是否加时效上限待产品判断。
 
 ## 设计决策
 

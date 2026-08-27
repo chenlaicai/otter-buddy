@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 补丁集合文件，行数由历史补丁数决定（同 schema.ts 先例） */
 /**
  * 数据库迁移：Session 复用机制
  */
