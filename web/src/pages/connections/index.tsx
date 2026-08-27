@@ -116,7 +116,7 @@ function ConnectionsPage() {
               <div className="flex gap-2 justify-end">
                 <button
                   onClick={() => setShowCreate(false)}
-                  className="px-3 py-1.5 text-sm text-stone-600 hover:bg-stone-100 rounded-lg transition"
+                  className="px-3 py-1.5 text-sm text-stone-600 hover:bg-skeleton rounded-lg transition"
                 >
                   取消
                 </button>
@@ -212,7 +212,7 @@ function ConnectionCard({ connection, onLeave, onRefresh }: {
                 已连接
               </span>
             ) : (
-              <span className="text-xs px-2 py-1 rounded-full bg-stone-100 text-stone-500">
+              <span className="text-xs px-2 py-1 rounded-full bg-skeleton text-stone-500">
                 未连接
               </span>
             )}
@@ -266,7 +266,7 @@ function ConnectionCard({ connection, onLeave, onRefresh }: {
           ) : conversations.length === 0 ? (
             <div className="text-xs text-stone-400">暂无可用对话</div>
           ) : (
-            <div className="space-y-1 max-h-40 overflow-y-auto">
+            <div className="space-y-1 max-h-[var(--section-scroll-max-h)] overflow-y-auto">
               {conversations.map(conv => (
                 <button
                   key={conv.id}

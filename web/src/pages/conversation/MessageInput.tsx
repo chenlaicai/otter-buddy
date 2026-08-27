@@ -137,7 +137,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder={placeholder}
-            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[140px] leading-relaxed disabled:opacity-50 overflow-y-auto"
+            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[var(--input-scroll-max-h)] leading-relaxed disabled:opacity-50 overflow-y-auto"
           />
           <button
             onClick={handleSend}

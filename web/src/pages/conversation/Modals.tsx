@@ -525,7 +525,7 @@ function OtterDetailModal(props: ModalsProps) {
                 >
                   <div className="flex gap-1 flex-wrap">
                     {profile.skills.map(s => (
-                      <span key={s.name} className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600" title={s.description}>
+                      <span key={s.name} className="text-[10px] px-2 py-0.5 rounded-full bg-skeleton text-stone-600" title={s.description}>
                         {s.name}
                       </span>
                     ))}
@@ -560,7 +560,7 @@ function OtterDetailModal(props: ModalsProps) {
                         <div className="text-[9px] font-semibold text-stone-400 uppercase">{group}</div>
                         <div className="flex gap-1 flex-wrap mt-0.5">
                           {tools.map(t => (
-                            <span key={t.name} className="text-[9px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500" title={t.description}>
+                            <span key={t.name} className="text-[9px] px-1.5 py-0.5 rounded bg-skeleton text-stone-500" title={t.description}>
                               {t.name}
                             </span>
                           ))}
@@ -587,7 +587,7 @@ function OtterDetailModal(props: ModalsProps) {
                     {promptExpanded ? '收起' : '展开'}
                   </button>
                   {promptExpanded && (
-                    <pre className="mt-1.5 text-xs text-stone-600 bg-stone-50 rounded-lg p-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
+                    <pre className="mt-1.5 text-xs text-stone-600 bg-stone-50 rounded-lg p-2 max-h-[var(--section-scroll-max-h)] overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
                       {profile.systemPrompt}
                     </pre>
                   )}
