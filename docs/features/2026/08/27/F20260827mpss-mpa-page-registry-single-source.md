@@ -86,6 +86,8 @@ export const MPA_PAGES: readonly MpaPage[] = [
 
 字段设计的取舍逻辑：4 个消费方的方言差异（vite 的 main key、TopBar 的 / 映射、测试的 :abc）由**缺省派生规则**消化，特殊形态（index 页）才显式声明——清单主体保持声明式简洁。
 
+**「conversation → index」映射等价性说明（对抗审视后补）**：当前 TopBar 的 `{ key: 'conversation', label: '对话', href: '/' }` 与清单的 `{ entry: 'index', pattern: '/', label: '对话', nav: '/' }` 语义完全等价——TopBar 的 conversation 项指向的一直是 index.html 首页（列表页），而 conversation.html 是详情页（不在 TopBar 导航中，路由 `/conversation/:id`）。收敛后这一方言由清单的 `nav` 字段显式承载，不再依赖读者自行推断。`web/src/pages/conversation-list/` 无独立 html 入口（被 index 页复用为组件），不属清单管辖（见非目标 3）。
+
 ### 消费方 1：web/vite.config.ts
 
 ```ts
@@ -104,7 +106,7 @@ export default defineConfig(() => ({
 }))
 ```
 
-要点：vite.config 改**函数式** `defineConfig(() => ...)`；import 用相对路径（vite config 内 alias 不可用，esbuild 直接转译无碍）；入口 key 从方言 main 统一为 index（对 vite 而言 key 只是产物 chunk 名，行为等价）。
+要点：入口 key 从方言 main 统一为 index（对 vite 而言 key 只是产物 chunk 名，行为等价）。配置形式上 object 形式同样可以直接 import MPA_PAGES 生成 input（函数式非必需）；本方案选函数式 `defineConfig(() => ...)` 是为留 env/mode 扩展点（如未来按环境裁剪页面），实现时可按团队偏好二选一，不影响清单收敛目标。import 用相对路径（vite config 内 alias 不可用，esbuild 直接转译无碍）。
 
 ### 消费方 2：src/bootstrap/server.ts
 
@@ -140,7 +142,13 @@ const tabs = MPA_PAGES.map(p => ({
 }))
 ```
 
-TopBar 现有 `ViewKey` 类型改为 `MPA_PAGES[number]['entry']`（从清单派生，编译期穷尽）。icon 缺省 fallback `MessageCircle` 使「新增页面忘了配 icon」不编译失败只视觉降级——配 icon 仍是新增页面时的第 2 个改动点（纯视觉，见取舍表）。
+TopBar 现有 `ViewKey` 类型改为 `MPA_PAGES[number]['entry']`（从清单派生，编译期穷尽）。icon 缺省 fallback `MessageCircle` 使「新增页面忘了配 icon」不编译失败只视觉降级，并在 fallback 分支加 `console.warn` 提示开发者补 icon 映射——配 icon 仍是新增页面时的第 2 个改动点（纯视觉，见取舍表）。
+
+**ViewKey 变更影响面（对抗审视后补，grep 全仓核实）**——entry 从 `'conversation'` 改为 `'index'` 标识首页，不是 TopBar 单文件内改，同步点共 3 类：
+
+1. `web/src/components/AppLayout.tsx:6` 存在一份**手写重复的 union 类型副本**（`activeView: 'conversation' | 'memory' | ...`，未 import ViewKey）——本次改为从清单派生（或 re-export TopBar 的 ViewKey），顺带消除这第 6 处副本
+2. 页面字面量传参共 5 处：`conversation-list/index.tsx:110,124,165`（×3 传 `"conversation"`）与 `conversation/index.tsx:1289,1302`（×2 传 `"conversation"`）——全部改为传 `"index"`
+3. **详情页高亮行为（实质风险，实现时勿漏）**：当前 conversation 详情页传 `activeView="conversation"` 命中 TopBar 的 conversation tab → 「对话」高亮；方案后 ViewKey 派生自 entry，首页 tab key 变为 `'index'`，若详情页仍传 `'conversation'` 则无 tab 命中 → TopBar 无高亮，**行为回归**。处置：5 处字面量统一改 `'index'`——对话域页面（列表/详情）高亮「对话」tab 是正确行为，改后语义不变
 
 ### 消费方 4：tests/bootstrap/server-static-routes.test.ts
 
@@ -205,9 +213,26 @@ it("web 目录 html 文件与清单一一对应", () => {
 | api-contract/web/pages.ts | 新增 | MPA_PAGES 清单 + MpaPage 类型 |
 | web/vite.config.ts | 修改 | 函数式配置，input 从清单生成 |
 | src/bootstrap/server.ts | 修改 | 循环注册替代 7 行手写 |
-| web/src/components/TopBar.tsx | 修改 | tabs 从清单派生，icon 映射局部保留 |
+| web/src/components/TopBar.tsx | 修改 | tabs 从清单派生，icon 映射局部保留（fallback 加 warn） |
+| web/src/components/AppLayout.tsx | 修改 | 手写 union 副本改为清单派生（消除第 6 处副本） |
+| conversation-list + conversation 页面 | 修改 | 5 处 activeView 字面量 "conversation"→"index"（保高亮行为） |
 | tests/bootstrap/server-static-routes.test.ts | 修改 | it.each 生成化 + html 集合守卫 |
 | GitHub issue #479 | 关闭（建议） | 检查对象消失，守卫已覆盖意图 |
+
+## 对抗审视记录
+
+### 第一轮（2026-08-27，磨石，mimo 异体）
+
+**焦点**：4 处副本盘点准确性核验、跨包共享机制可行性。两焦点均核验成立（副本内容/方言确认；@contract alias 三处 tsconfig 确认）。0 严重 + 4 建议。
+
+| 发现 | 分级 | 处置（决策树） | 理由 |
+|------|------|----------------|------|
+| 1. ViewKey 'conversation'→'index' 影响范围未盘点 | 建议 | 接受并扩展：grep 全仓核实后发现比审视报告更广——AppLayout.tsx:6 有一份**手写重复的 union 副本**（第 6 处副本！），页面字面量传参 5 处；且详情页高亮行为是实质风险（不改则 TopBar 无高亮，行为回归）。已补「ViewKey 变更影响面」专节 + 改动范围表扩充 | 审视者方向正确，实际影响面更大；这不是纯类型改动，含行为风险 |
+| 2. 函数式 defineConfig 未说明理由 | 建议 | 接受：补一句「object 形式同样可 import 清单，函数式非必需，选它是留 env/mode 扩展点」 | 消除读者疑问；如实声明非必需 |
+| 3. icon fallback 需 console.warn | 建议 | 接受：写入方案（fallback 分支加 warn），落在消费方 3 代码示例与改动范围表 | 开发者可发现遗漏 |
+| 4. conversation→index 映射等价性未显式声明 | 建议 | 接受：清单设计节补等价性说明段（TopBar conversation 项一直指向 index.html 首页，清单 nav 字段显式承载方言） | 消除读者疑虑 |
+
+> 处置小结：4/4 接受。发现 1 经作者 grep 扩展后揭示：盘点时遗漏了 AppLayout 的类型副本与 5 处字面量同步点——印证了收敛方案本身的价值（副本比肉眼可见的还多一处）。
 
 ## 需搭档决策点
 

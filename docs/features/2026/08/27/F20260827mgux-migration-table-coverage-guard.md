@@ -1,7 +1,7 @@
 ---
 id: F20260827mgux
 title: initSchema/migrateDatabase 漏登机制性根治——幂等复用消灭誊抄 + 老库升级等价性守卫
-summary: 新表漏登 migrateDatabase 已三次发生（本次核查发现第四次：search_query_logs），根因是「同构 DDL 两处誊抄」。方案：bootstrap 无条件跑幂等 initSchema 消灭誊抄机会 + 表级等价性守卫测试防退化，删除 migration.ts 中 8 个誊抄 ensure 函数
+summary: 新表漏登 migrateDatabase 已三次发生（本次核查发现第四次：search_query_logs），根因是「同构 DDL 两处誊抄」。方案：bootstrap 无条件跑幂等 initSchema 消灭誊抄机会 + 表级等价性守卫测试防退化，删除 migration.ts 中 6 个誊抄 ensure 函数及 1 段内联 CREATE
 change_type: refactor
 created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
 ---
@@ -30,7 +30,7 @@ created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
 ### 结构根因（代码事实）
 
 1. **两条建库路径分叉于 8/5**：F20260805codx（PR #155）把「无条件 initSchema」改成 `if (isNewDb) initSchema else migrateDatabase` 互斥分支。此后老库只依赖 `migrateDatabase` 的手工 `ensureXxxTable` 补建。
-2. **ensure 函数 = 手工誊抄**：migration.ts 里 8 个 `ensureXxx` 函数的 DDL 与 schema.ts 同构（PR #505 审视时做过逐列机械比对确认一致）。新增表 = schema.ts 写 DDL + migration.ts 誊抄一份，漏一处不报错、不测出（fixtures 全走 `createTestDb()` = initSchema + migrateDatabase 的**新库**路径，「缺表老库」永远测不到）。
+2. **ensure 函数 = 手工誊抄**：migration.ts 里 6 个 `ensureXxx` 函数（signal_events:129 / restart_pending_resumes:162 / RHI 两表:186 / embedding_tasks:281 / embedding_meta:299 / memory_edges:318）的 DDL 与 schema.ts 同构（PR #505 审视时做过逐列机械比对确认一致），另有 `migrateMessageSegments` 内 1 段 message_segments 的 CREATE 与 `migrateDatabase` 函数体内 otter_configs 的 CREATE（后者非 schema.ts 誊抄，见核心改动 1）。新增表 = schema.ts 写 DDL + migration.ts 誊抄一份，漏一处不报错、不测出（fixtures 全走 `createTestDb()` = initSchema + migrateDatabase 的**新库**路径，「缺表老库」永远测不到）。
 3. **initSchema 本身就是幂等的**：全部 DDL 使用 `IF NOT EXISTS`（schema.ts:9 注释「幂等，可重复调用」）。这是本方案成立的物理基础——**它对已有表的库重复执行是安全的**。
 
 ### 关键事实：风险集界定（本次核查）
@@ -45,7 +45,7 @@ created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
 
 - **T1**：消灭「新表需要两处登记」的结构本身——新增表只写 schema.ts 一处，老库自动获得，不存在「登记 migrateDatabase」这个可遗忘的动作
 - **T2**：建立守卫不变量「任何能启动的老库，跑完 bootstrap 升级路径后，表集合与全新库等价」，且该不变量有测试常驻拦截（防未来有人把机制改回去）
-- **T3**：顺带消除存量重复——migration.ts 中 8 个同构誊抄 ensure 函数（约 150 行重复 DDL）删除，search_query_logs 漏登随机制自动修复
+- **T3**：顺带消除存量重复——migration.ts 中 6 个同构誊抄 ensure 函数 + `migrateMessageSegments` 内 1 段 CREATE（合计 7 个删除目标，约 150 行重复 DDL）删除，search_query_logs 漏登随机制自动修复
 
 ## 非目标
 
@@ -88,11 +88,13 @@ migrateDatabase(db, logger);   // 真·迁移：ALTER 补丁列、一次性 rebu
 migrateMessageSegments(db, logger);
 ```
 
-`migrateDatabase` 保持「历史补丁」纯语义（ALTER ADD COLUMN、表重建、数据迁移），**删除其中 8 个 `ensureXxxTable` 誊抄函数及 migrateDatabase 内对应调用**：
+`migrateDatabase` 保持「历史补丁」纯语义（ALTER ADD COLUMN、表重建、数据迁移）。**删除目标共 7 个：6 个 `ensureXxx` 誊抄函数 + `migrateMessageSegments` 内的 CREATE 段**（数据搬移段保留）；**otter_configs 的 CREATE（migration.ts:41）保留不动**——该表不在 schema.ts 中（历史原因），不是誊抄，详见下方说明：
 
-- `ensureEmbeddingTasksTable`、`ensureEmbeddingMetaTable`、`ensureMemoryEdgesTable`、`ensureRhiTables`、`ensureSignalEventsTable`、`ensureRestartPendingResumesTable`（以上补建职责由 initSchema 接管）
-- `message_segments` 的 CREATE 段在 `migrateMessageSegments` 内（独立函数，非 ensure 誊抄）——CREATE 段可删（initSchema 已建），数据搬移段保留
+- `ensureSignalEventsTable`、`ensureRestartPendingResumesTable`、`ensureRhiTables`、`ensureEmbeddingTasksTable`、`ensureEmbeddingMetaTable`、`ensureMemoryEdgesTable`（以上 6 个 ensure 补建职责由 initSchema 接管）
+- `migrateMessageSegments` 内 message_segments 的 CREATE 段可删（initSchema 已建），数据搬移段保留
 - `otter_configs` 的 CREATE（migration.ts:41）特殊：该表不在 schema.ts 中（历史原因），**保留原样**并在其上补注释「此表未纳入 schema.ts，仅此一处定义」（后续可考虑迁入 schema.ts，非本方案范围）
+
+另显式声明：`migrateExistingData` 的 `if (isNewDb)` 分支**不受本方案影响、保持原样**——它是新库种子数据迁移（数据语义），与 schema 建表路径无关，本方案只删 initSchema 前面的同款分支。
 
 **安全性逐项复核（initSchema 对老库执行）**——这是本方案最大的风险点，逐条过了一遍 schema.ts 全部 785 行：
 
@@ -126,7 +128,9 @@ logger.info(`Schema init: ${created.length} tables created on existing database`
 ```ts
 // 1. 内存库跑 initSchema + migrateDatabase（全量新库）
 // 2. DROP「8/5 基线之外」的表——基线名单固化在 tests/fixtures/baseline-2026-08-05-tables.ts
-//    （28 张表名常量。名单由 git show 6acac0ee 的 schema.ts 提取，历史不可变，永不漂移）
+//    （28 张表名常量。名单由 git show 6acac0ee 的 schema.ts 提取）
+//    【实现注意】文件顶部须加注释：「此名单是 8/5 分叉点的历史快照，不需要也不应该更新——
+//    名单语义 = 历史不可变，新表永远落在 DROP 差集中」，防止未来读者误当过期快照维护
 // 3. 得到「8/5 基线老库」——模拟最老的、能启动的存量库形态
 // 4. 跑完整 bootstrap 升级序列（initSchema + migrateDatabase + migrateMessageSegments）
 // 5. 断言：sqlite_master 表集合 ⊇ initSchema 建表全集
@@ -191,6 +195,22 @@ logger.info(`Schema init: ${created.length} tables created on existing database`
 | tests/fixtures/baseline-2026-08-05-tables.ts | 新增 | 8/5 基线 28 表名单 |
 | tests/frameworks/db/migration-equivalence.guard.test.ts | 新增 | 表级等价性守卫 |
 | tests/frameworks/db/migration.test.ts | 修改 | 删 ensureXxx describe 块 |
+
+## 对抗审视记录
+
+### 第一轮（2026-08-27，磨石，mimo 异体）
+
+**焦点**：方案地基声明核验（785 行幂等性抽查）、第 4 次漏登声明核验、ensure 函数数量。
+**地基核验结论**：幂等性逐项抽查成立；第 4 次漏登（search_query_logs）grep 实锤成立。
+
+| 发现 | 分级 | 处置（决策树） | 理由 |
+|------|------|----------------|------|
+| 1. 「8 个 ensure 函数」计数错误（实际 6 ensure + 1 内联 CREATE + 1 保留项） | 严重（事实错误） | 接受并修订：全文统一为「6 ensure + 1 CREATE 段 = 7 个删除目标」，带行号 | grep 复核确认 6 个（:129/:162/:186/:281/:299/:318）；影响范围节原文与背景节自相矛盾，事实错误必须修 |
+| 2. otter_configs 保留决定应前置 | 建议 | 接受：删除清单开头改为「共 7 个删除目标 + otter_configs 保留」边界声明 | 读者不需读到最后才理解边界，改了更好 |
+| 3. 基线名单文件需「历史快照勿更新」注释 | 建议 | 接受：写入夹具代码注释块【实现注意】 | 防未来读者误当过期快照维护 |
+| 4. migrateExistingData 的 isNewDb 条件未显式声明 | 建议 | 接受：核心改动 1 末尾补显式声明（不受影响、保持原样） | 消除读者疑问，声明成本低 |
+
+> 处置小结：4/4 接受，无反驳项。严重发现源于初稿计数粗心（把 otter_configs 和 message_segments 内联 CREATE 误计入 ensure 函数数），暴露的事实表述风险已在修订中根治。
 
 ## 需搭档决策点
 
