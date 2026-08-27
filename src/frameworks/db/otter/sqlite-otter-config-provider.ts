@@ -12,6 +12,30 @@ export class SqliteOtterConfigProvider implements OtterConfigProvider {
 
     if (!row) return null;
 
+    return this.rowToConfig(row);
+  }
+
+  /**
+   * #446: 单条 IN 查询批量取配置，消除循环内逐个 getConfig 的 N+1。
+   * 空数组直接返回空 Map（避免 `IN ()` 语法错）；重复 id 自动去重。
+   */
+  getConfigs(otterIds: string[]): Map<string, OtterConfig> {
+    if (otterIds.length === 0) return new Map();
+    const uniqueIds = [...new Set(otterIds)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const rows = this.db.prepare(
+      `SELECT otter_id, system_prompt, otter_type, model_alias FROM otter_configs WHERE otter_id IN (${placeholders})`
+    ).all(...uniqueIds) as Array<{ otter_id: string; system_prompt: string | null; otter_type: string; model_alias: string | null }>;
+
+    const result = new Map<string, OtterConfig>();
+    for (const row of rows) {
+      result.set(row.otter_id, this.rowToConfig(row));
+    }
+    return result;
+  }
+
+  /** 行 → OtterConfig 公共映射（getConfig / getConfigs 共用，避免两份复制粘贴） */
+  private rowToConfig(row: { system_prompt: string | null; otter_type: string; model_alias: string | null }): OtterConfig {
     let systemPrompt: string | OtterPromptConfig | undefined;
     if (row.system_prompt) {
       try {
