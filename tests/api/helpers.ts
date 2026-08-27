@@ -434,6 +434,8 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.queryOtter,
     logger,
     deps.otterConfigProvider,
+    undefined,
+    deps.modelPool,
   );
   const memoryCtrl = new MemoryController(
     deps.searchMemory,

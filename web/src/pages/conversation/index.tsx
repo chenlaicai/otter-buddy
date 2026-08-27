@@ -14,7 +14,8 @@ import { showToast } from '../../components/Toast'
 import { LeftPanel } from './LeftPanel'
 import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
-import { ConversationModals, type ModalState } from './Modals'
+import { ConversationModals, type ModalState, type CreateOtterFormValue } from './Modals'
+import { setOtterAvatarOverride } from '../../lib/otter-avatars'
 import { mergeOttersIfChanged } from '../../lib/shallow-equal-otters'
 import { useMediaQuery } from '../../hooks/use-media-query'
 import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
@@ -1174,19 +1175,33 @@ function ConversationPage() {
     } catch { showToast('操作失败', 'error') }
   }
 
-  async function confirmCreateOtter(name: string, role: string, resp: string[]) {
+  /** F20260827ucrt：创建小獭重写——重名前端预检 + 模型/头像自选 + 血缘交服务端诚实落 null */
+  async function confirmCreateOtter(form: CreateOtterFormValue) {
     if (!activeId) return
     try {
-      const convOtters = allOtters[activeId] || []
+      // T5：提交前预检在场同名（同名在场 toast 阻断，不发 POST；服务端无兜底，直接 API 调用不属目标场景）
+      const participants = await api.getParticipants(activeId)
+      const dup = participants.find(p => p.otterName === form.name)
+      if (dup) {
+        showToast(`在场已有同名小獭「${form.name}」，请换一个名字`, 'error')
+        return
+      }
+      // T1：modelAlias 自选（空串 = 默认模型，不下发字段）；T4：不传 parentOtterId——
+      // UI 创建的小獭没有獭召唤者，服务端血缘诚实落 null，前端不再猜测
       const dto = await api.createOtter({
-        name, type: 'small',
-        role: { name: role, responsibilities: resp },
-        parentOtterId: convOtters[0]?.id,
-        systemPrompt: `你是${name}，角色：${role}。职责：${resp.join('、')}`,
+        name: form.name,
+        type: 'small',
+        role: form.roleName || form.responsibilities.length > 0
+          ? { name: form.roleName, responsibilities: form.responsibilities }
+          : undefined,
+        modelAlias: form.modelAlias || undefined,
+        systemPrompt: form.systemPrompt,
       })
+      // T2（前端版）：自选头像写 localStorage override（随机 = 不写，走 hash 池）
+      if (form.avatarName) setOtterAvatarOverride(dto.id, form.avatarName)
       const otter = mapOtterDTO(dto)
       setAllOtters(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), otter] }))
-      setModal({ type: 'none' }); showToast(`小獭 ${name} 已创建`, 'success')
+      setModal({ type: 'none' }); showToast(`小獭 ${form.name} 已创建`, 'success')
     } catch { showToast('创建小獭失败', 'error') }
   }
 

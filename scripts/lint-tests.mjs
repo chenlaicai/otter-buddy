@@ -29,7 +29,9 @@ function walk(dir) {
 let violations = 0;
 const allowDdlFiles = [];
 // F20260821kgts: 豁免 ratchet——新增 allow-ddl 豁免必须显式上调此上限
-const MAX_ALLOW_DDL_FILES = 2;
+// 2→3（F20260827mpcg）：tests/scripts/cleanup-memory-pollution.test.ts——运维脚本对任意 DB 的
+// 行为测试，被测脚本不读生产 schema 迁移链，临时库手写 DDL 无漂移风险（与 migration 测试同类）
+const MAX_ALLOW_DDL_FILES = 3;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);
