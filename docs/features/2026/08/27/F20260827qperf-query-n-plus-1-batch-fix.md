@@ -98,6 +98,18 @@ issue 挂着未关的原因：PR #408 description 使用中文「关闭 #370」�
 - [x] #370 零代码改动，裁决结论如上
 - [x] 接口扩展向后兼容：OtterRepository mock 全为 `as unknown as`（无需补方法）；OtterConfigProvider 字面量 mock 6 处已补 getConfigs
 
+## 对抗审视记录
+
+### 首轮（审砚，2026-08-27，异模型 MiMo × GLM）
+
+焦点：批量 IN 查询边界（空数组/重复 id/缺席 id）+ DTO 透传完整性。两焦点均经代码追踪 + 测试验证确认正确，0 严重 3 建议。
+
+| # | 发现 | 分级 | 决策树判断 | 处置 |
+|---|------|------|------------|------|
+| 1 | getConfigs 同步签名与 getByIds async 形成对比，未来换异步实现需改签名，建议 JSDoc 注明 | 建议 | 改了更好——一行 JSDoc 消除未来维护者疑惑 | 接受并修复：接口 JSDoc 补同步语义说明 |
+| 2 | tests/api/helpers.ts TestDeps.otterConfigProvider 为 any，mock 静默漏 getConfigs | 建议 | 本 PR 不修更好——any 类型是存量技术债（5 处），不应混入性能修复 PR | 建 issue #528 独立修 |
+| 3 | clients.ts 条件展开可用可选链简化 | 建议 | 改了更差——审砚自判反驳：现写法与 toParticipantDTO 的 extra?.modelAlias !== undefined 风格一致，且 !== undefined 语义更精确（空串仍展开） | 确认保持现状 |
+
 ## 影响范围
 
 - 参与者列表查询：Web 端（HTTP controller）+ agent tool（get_active_participants）+ bootstrap 客户端
