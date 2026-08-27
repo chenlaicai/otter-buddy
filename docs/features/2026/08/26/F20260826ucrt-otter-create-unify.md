@@ -18,7 +18,7 @@ causal_links:
   to: []
 
 # 元数据
-status: draft   # 第 2 轮修订版，待复核獭 delta 复核
+status: implemented   # 代码已实现（测试全绿），待对抗审视
 change_type: feature
 capability_test: "n/a: HTTP 契约与 UI 表单变更为主，无 LLM 行为变更；验证走 vitest 单测（契约透传/血缘忽略/头像 override/UI 交互）"
 tags: [otter-creation, api-contract, web-ui, model-routing]
@@ -248,3 +248,24 @@ UI 拿到响应 →（可选）setOtterAvatarOverride(otterId, 头像名)  [纯�
 | 6 | 验证清单缺「工具链零改动」回归 | 建议 | **采纳并升级**——砍除后 src 侧零 usecase 改动，「零改动」成静态事实（改动文件清单可证），仍保留现有 usecase 单测全绿作为回归线 |
 
 决策记录：发现 5 的产品取舍由技术侧（大獭，架构决策权）拍板砍除——依据：单人本地系统 + 搭档「有bug就修，你在问我啥」的授权语境（方案级取舍不逐条上报）。跨设备头像持久化记 issue 追踪。
+
+## 实现记录（2026-08-27）
+
+按第 2 轮修订版 7 文件清单实现完毕：
+
+| 文件 | 实际改动 |
+|------|----------|
+| `api-contract/api/otter.ts` | CreateOtterRequestDTO + `modelAlias?`（含语义注释） |
+| `src/interface-adapters/http/controllers/otter-controller.ts` | modelPool 可选注入（第 8 参）；modelAlias 校验（400 附可用列表，措辞与 tool-factory 一致）；删 parentOtterId 透传（血缘诚实化） |
+| `src/bootstrap/controllers.ts` | OtterController 装配行追加 modelPool（复核獭提醒的装配项） |
+| `web/src/lib/otter-avatars.ts` | localStorage override 层（setOtterAvatarOverride + 白名单校验 + 池导出）；getOtterAvatar 小獭优先 override |
+| `web/src/lib/build-otter-prompt.ts` | 新增：三段式引导生成纯函数 |
+| `web/src/pages/conversation/Modals.tsx` | CreateOtterModal 重做（模型下拉/随机+3×3 九宫格/prompt 双档）；删 mockSkills 与上下文注入；ModalsProps.onConfirmCreateOtter 签名改表单对象 |
+| `web/src/pages/conversation/index.tsx` | confirmCreateOtter 重写（预检同名/组装 body 不含 parentOtterId/写 avatar override） |
+
+实现备注：
+- 装配验证（复核獭 delta 提醒项）：`controllers.ts:87` OtterController 追加 modelPool——`deps.modelPool` 现成（settings-controller 同源），未新增文件，7 文件边界保持
+- modelAlias 持久化链路核实：controller → usecase → agentGateway.create → `session-restore.ts:167` setConfig 落 otter_configs → OtterDTO 经 configProvider 读回——与大獭工具链同源，无需新表
+- 测试更新：`tests/api/otter.test.ts` 旧「passes all optional fields」断言过时（parentOtterId 透传→忽略），改写为 T1/T4 新契约断言 + 新增非法 alias 400 用例；web 侧新增 override 回归（无 override → hash 池逐位一致）6 例、prompt 模板结构 5 例、Modal 渲染/提交/高级切换 4 例
+- 验证结果：src 侧 vitest 1686/1686 全绿；web 侧 vitest 205/205 全绿；双侧 tsc --noEmit 0 错
+- 发现并处理：web worktree 无 node_modules（主仓软链解决，不提交）；测试 helpers 的 modelPool 只含 alias "main"，测试用例数据对齐

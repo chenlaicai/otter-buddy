@@ -1,19 +1,41 @@
 import { useState, useEffect } from 'react'
-import { Check, Copy, ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, Copy, ChevronDown, ChevronRight, Dices } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { HelpIcon } from '../../components/HelpIcon'
-import { fetchOtterProfile } from '../../api/client'
-import type { OtterProfileDTO } from '@contract/api'
+import { fetchOtterProfile, getSettings } from '../../api/client'
+import type { OtterProfileDTO, ModelInfoDTO } from '@contract/api'
 import type { LocalOtter as Otter, LocalOtterSession as OtterSession } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
+import { SMALL_OTTER_POOL, smallOtterAvatarUrl } from '../../lib/otter-avatars'
+import { buildOtterSystemPrompt } from '../../lib/build-otter-prompt'
 
-interface Skill { id: string; name: string; desc: string; type: string; assignedTo: string[] }
-const mockSkills: Skill[] = [
-  { id: 'sk1', name: 'code-review', desc: '代码审查能力', type: 'tool', assignedTo: [] },
-  { id: 'sk2', name: 'deep-research', desc: '深度研究能力', type: 'workflow', assignedTo: [] },
-  { id: 'sk3', name: 'summary-template', desc: '摘要模板', type: 'prompt_template', assignedTo: [] },
-]
+/** 九款池意象名标注（与 otter-avatars.ts 池顺序对应，仅展示用） */
+const AVATAR_IMAGERY: Record<string, string> = {
+  'otter-01-yu': '獭祭鱼',
+  'otter-02-zhuli': '竹笠',
+  'otter-03-zhujie': '朱结',
+  'otter-04-mianyue': '眠月',
+  'otter-05-baobei': '抱贝',
+  'otter-06-xianzhu': '衔竹',
+  'otter-07-mohen': '墨痕',
+  'otter-08-lianye': '莲叶',
+  'otter-09-hulu': '葫芦',
+}
+
+/** 创建小獭表单提交对象（F20260826ucrt：替代三个散参数）。
+ *  avatarName 仅用于前端 localStorage override 写入，不进 POST body */
+export interface CreateOtterFormValue {
+  name: string
+  roleName: string
+  responsibilities: string[]
+  /** 选中的模型 alias；空串 = 默认模型 */
+  modelAlias: string
+  /** 选中的头像资源名；null = 随机（hash 池） */
+  avatarName: string | null
+  /** 最终提交的 systemPrompt（引导生成或高级编辑产物） */
+  systemPrompt: string
+}
 
 export type ModalState =
   | { type: 'none' }
@@ -34,7 +56,7 @@ interface ModalsProps {
   onConfirmNewConv: (title: string) => void
   onConfirmChild: (title: string) => void
   onConfirmArchive: () => void
-  onConfirmCreateOtter: (name: string, role: string, resp: string[]) => void
+  onConfirmCreateOtter: (form: CreateOtterFormValue) => void
   onConfirmDissolve: (summary: string) => void
   onConfirmRestart: (summary: string) => void
   onConfirmLinkResource: (type: string, url: string, title: string) => void
@@ -145,6 +167,58 @@ function CreateOtterModal(props: ModalsProps) {
   const [name, setName] = useState('')
   const [role, setRole] = useState('')
   const [resp, setResp] = useState('')
+  /** 头像：null = 随机（hash 池），否则池内资源名（F20260826ucrt） */
+  const [avatar, setAvatar] = useState<string | null>(null)
+  /** 模型：空串 = 默认模型；下拉数据源 GET /api/settings */
+  const [models, setModels] = useState<ModelInfoDTO[]>([])
+  const [defaultAlias, setDefaultAlias] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  /** prompt 双档：引导生成（默认）/高级编辑（F20260826ucrt 审视定义：
+   *  开高级预填当前生成；关高级编辑保留 state 不生效；引导档始终展示最新生成） */
+  const [advanced, setAdvanced] = useState(false)
+  const [manualPrompt, setManualPrompt] = useState('')
+  const [showGenerated, setShowGenerated] = useState(false)
+
+  const responsibilities = resp ? resp.split('\n').map(s => s.trim()).filter(Boolean) : []
+  const generatedPrompt = name.trim()
+    ? buildOtterSystemPrompt({ name, roleName: role, responsibilities })
+    : ''
+  const finalPrompt = advanced ? manualPrompt : generatedPrompt
+
+  useEffect(() => {
+    // 下拉数据加载失败时降级为只有默认项（不阻断创建流程）
+    getSettings()
+      .then((s: import('@contract/api').SettingsDTO) => {
+        setModels(s.models)
+        setDefaultAlias(s.defaultModelAlias)
+        setSelectedModel(s.defaultModelAlias)
+      })
+      .catch(() => console.warn('[CreateOtterModal] Failed to load models for dropdown'))
+  }, [])
+
+  function toggleAdvanced() {
+    if (!advanced) {
+      // 开启：预填当前生成内容（所见即所得起点）
+      setManualPrompt(generatedPrompt)
+    }
+    // 关闭：manualPrompt 保留在 state 不丢弃，但不生效；引导档始终用最新生成
+    setAdvanced(!advanced)
+  }
+
+  function submit() {
+    if (!name.trim() || !finalPrompt.trim()) return
+    props.onConfirmCreateOtter({
+      name: name.trim(),
+      roleName: role.trim(),
+      responsibilities,
+      modelAlias: selectedModel,
+      avatarName: avatar,
+      systemPrompt: finalPrompt,
+    })
+    // 重置（manualPrompt 也清——下次开高级重新预填，避免串到下一只獭）
+    setName(''); setRole(''); setResp(''); setAvatar(null)
+    setSelectedModel(defaultAlias); setAdvanced(false); setManualPrompt(''); setShowGenerated(false)
+  }
 
   return (
     <Modal
@@ -155,13 +229,7 @@ function CreateOtterModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="primary" onClick={() => {
-            if (!name.trim()) return
-            props.onConfirmCreateOtter(name, role, resp ? resp.split('\n').filter(Boolean) : [])
-            setName(''); setRole(''); setResp('')
-          }}>
-            创建
-          </ModalButton>
+          <ModalButton variant="primary" onClick={submit} disabled={!name.trim() || !finalPrompt.trim()}>创建</ModalButton>
         </>
       }
     >
@@ -172,25 +240,67 @@ function CreateOtterModal(props: ModalsProps) {
         </div>
         <div>
           <label className="block text-xs font-medium text-stone-600 mb-1.5">角色名称</label>
-          <input value={role} onChange={e => setRole(e.target.value)} className="form-input w-full" placeholder="如：方案A视角" />
+          <input value={role} onChange={e => setRole(e.target.value)} className="form-input w-full" placeholder="如：审查獭" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1.5">角色职责（每行一条）</label>
-          <textarea value={resp} onChange={e => setResp(e.target.value)} className="form-input w-full resize-none min-h-[60px]" placeholder="从用户体验角度分析&#10;关注易用性" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1.5">能力选择</label>
-          <div className="glass-card rounded-xl p-2.5 space-y-1.5">
-            {mockSkills.map(s => (
-              <label key={s.id} className="flex items-center gap-2 text-xs cursor-pointer text-stone-600">
-                <input type="checkbox" className="rounded" /> {s.name} ({s.type})
-              </label>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">头像</label>
+          <label className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer mb-2 text-xs ${avatar === null ? 'border-teal-500 bg-teal-400/10' : 'border-stone-200'}`}>
+            <input type="radio" name="otter-avatar" className="accent-teal-600" checked={avatar === null} onChange={() => setAvatar(null)} />
+            <Dices size={14} className="text-stone-500" />
+            <span className="text-stone-600">随机（按 otterId 命中九款池，创建后固定）</span>
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {SMALL_OTTER_POOL.map(a => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setAvatar(a)}
+                className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${avatar === a ? 'border-teal-500 bg-teal-400/10 scale-105' : 'border-stone-200 hover:border-stone-300'}`}
+                title={AVATAR_IMAGERY[a] ?? a}
+              >
+                <img src={smallOtterAvatarUrl(a)} alt={AVATAR_IMAGERY[a] ?? a} className={`rounded-lg ${avatar === a ? 'w-14 h-14' : 'w-10 h-10'}`} />
+                <span className="text-[10px] text-stone-500">{AVATAR_IMAGERY[a] ?? a}</span>
+              </button>
             ))}
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1.5">上下文注入（大獭自动提取，可编辑）</label>
-          <textarea className="form-input w-full resize-none min-h-[60px]" placeholder="大獭将从记忆系统中提取相关上下文注入小獭..." />
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">模型</label>
+          <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)} className="form-input w-full">
+            {models.length === 0 && <option value="">（默认模型）</option>}
+            {models.map(m => (
+              <option key={m.alias} value={m.alias}>
+                {m.alias === defaultAlias ? `${m.alias}（默认）` : m.alias}{m.description ? ` — ${m.description}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-stone-600 mb-1.5">职责（每行一条）</label>
+          <textarea value={resp} onChange={e => setResp(e.target.value)} className="form-input w-full resize-none min-h-[60px]" placeholder="从用户体验角度分析&#10;关注易用性" />
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-medium text-stone-600">系统提示词</label>
+            <div className="flex items-center gap-3">
+              {!advanced && generatedPrompt && (
+                <button type="button" className="text-[11px] text-teal-600 hover:underline" onClick={() => setShowGenerated(v => !v)}>
+                  {showGenerated ? '收起' : '预览生成结果'}
+                </button>
+              )}
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer text-stone-600">
+                <input type="checkbox" className="rounded" checked={advanced} onChange={toggleAdvanced} />
+                高级编辑
+              </label>
+            </div>
+          </div>
+          {advanced ? (
+            <textarea value={manualPrompt} onChange={e => setManualPrompt(e.target.value)} className="form-input w-full resize-none min-h-[120px] font-mono text-xs" placeholder="自由编辑完整 systemPrompt" />
+          ) : showGenerated ? (
+            <pre className="glass-card rounded-xl p-2.5 text-[11px] whitespace-pre-wrap text-stone-600 max-h-40 overflow-y-auto">{generatedPrompt || '（填写名称后自动生成）'}</pre>
+          ) : (
+            <p className="text-[11px] text-stone-400">由名称+角色+职责自动组装三段式提示词（身份/职责/协作约定），可展开预览</p>
+          )}
         </div>
       </div>
     </Modal>
