@@ -41,7 +41,7 @@ category: technique
 
 7. **文档**：将实现要点、变更说明追加（不存在则创建）到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
-8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**（同 title/语义相同的特性文档直接复用原 ID，跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回，#524）。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
+8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 
 > ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。

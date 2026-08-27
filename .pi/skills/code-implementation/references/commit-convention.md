@@ -6,7 +6,7 @@
 [FYYYYMMDDxxxx][module][type] 描述
 ```
 
-- `FYYYYMMDDxxxx`: Feature number (immutable once assigned)。生成新 ID 前必须查重：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同文档则复用其 ID——跨 worktree 自编新 ID 会致旧 ID chunk 残留 memory 库（#524）
+- `FYYYYMMDDxxxx`: Feature number (immutable once assigned)。生成新 ID 前必须查重：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同文档则复用其 ID——跨 worktree 自编新 ID 会致旧 ID chunk 残留 memory 库（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编
 - `module`: Affected module name (e.g., `skills`, `agent-runtime`, `conversation`)
 - `type`: One of `New Feature`, `Feature Update`, `BugFix`, `Refactor`, `Design`（与 Type Tags 表及 .githooks/commit-msg 白名单一致；`Feature` 为 `New Feature` 的历史别名，2026-08-25 起不再收录，存量提交见 #432）
 - `描述`: Chinese description of the change
