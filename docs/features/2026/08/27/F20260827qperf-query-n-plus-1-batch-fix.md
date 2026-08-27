@@ -1,6 +1,6 @@
 ---
 id: F20260827qperf
-title: query-n-plus-1-batch-fix
+title: getActiveParticipants 批量预取消除 N+1 与 #370 考古关闭（#446 #370）
 summary: |
   双 issue 修复：#370 memory_fts trigram 表只写不查的裁决（已被 PR #408 按"删除"路线修复，本次零代码关闭）+
   #446 getActiveParticipants 循环内 N+1 查询消除（批量接口 + 全链路 modelAlias 透传）。
