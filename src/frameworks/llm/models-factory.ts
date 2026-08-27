@@ -22,6 +22,9 @@ interface CustomProviderOptions {
   contextWindow?: number;
   /** 最大输出 tokens（缺省回退 provider 模板值；SDK Model 接口必填，缺了请求负载 max_tokens 为 null） */
   maxTokens?: number;
+  /** 模型输入能力（多模态 Phase 1）：显式声明时覆盖 provider 模板 input，
+   *  消除 anthropic 模板隐式继承 ["text","image"] 的静默风险（如 glm-5.3 无 vision 需声明 ["text"]） */
+  input?: Array<"text" | "image">;
 }
 
 /** pi-ai 动态加载后的模块句柄（单例，避免重复 import） */
@@ -134,7 +137,8 @@ async function loadCustomProvider(
         // 不继承 compat 和 thinkingLevelMap，避免意外行为
         compat: {},
         thinkingLevelMap: {},
-        input: template.input,
+        // 多模态 Phase 1：config 显式 input 优先，缺省回退 provider 模板值
+        input: options.input ?? template.input,
         cost: (template as Record<string, unknown>).cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         /** F20260808ctxw：contextWindow 缺省时 SDK 视为 0，shouldCompact 恒真（每轮白跑摘要调用） */
         ...(options.contextWindow !== undefined && { contextWindow: options.contextWindow }),
@@ -207,6 +211,7 @@ async function initModelPool(
       apiBaseUrl: mc.apiBaseUrl,
       contextWindow: mc.contextWindow,
       maxTokens: mc.maxTokens,
+      input: mc.input,
     });
     models.setProvider(providerModule);
 

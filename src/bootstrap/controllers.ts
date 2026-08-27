@@ -13,7 +13,8 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import type { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
 import type { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
 import type { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
-import type { UseCases } from "./types";
+import type { UseCases, Repositories } from "./types";
+import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { updateDefaultModelInYaml } from "@frameworks/config-service";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
@@ -30,6 +31,7 @@ import { SettingsController } from "@interface-adapters/http/controllers/setting
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
+import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
@@ -44,6 +46,7 @@ class NoopInboundController {
 
 export interface ControllerDeps {
   uc: UseCases;
+  repos: Repositories;
   agentInvoker: AgentInvoker;
   appConfig: AppConfig;
   modelPool: ModelPool;
@@ -66,10 +69,13 @@ export interface ControllerDeps {
   rhiScanWorker: RhiScanWorker;
   signalRepo: SignalRepository;
   healthSnapshotRepo: HealthSnapshotRepository;
+  /** 多模态 Phase 1：附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
+  attachmentRepo?: AttachmentRepository;
+  attachmentStorageRoot?: string;
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
-  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo } = deps;
+  const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo } = deps;
 
   const settings: SettingsConfig = {
     port: appConfig.server.port,
@@ -85,7 +91,12 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
     otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
-    message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster),
+    message: new MessageController(
+      uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
+      dispatchChainEngine, messageBroadcaster,
+      deps.attachmentRepo ?? repos.attachment,
+      deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+    ),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),
@@ -101,5 +112,14 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
           logger,
         )
       : new NoopInboundController(),
+    // 多模态 Phase 1：附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments
+    ...(deps.attachmentRepo && {
+      attachment: new AttachmentController(
+        uc.attachmentUpload,
+        deps.attachmentRepo,
+        deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+        logger,
+      ),
+    }),
   };
 }

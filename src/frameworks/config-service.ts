@@ -22,6 +22,10 @@ export interface ModelConfig {
   contextWindow?: number;
   /** 最大输出 tokens（自定义模型注入 SDK 时携带，缺省回退 provider 模板值，F20260808ctxw） */
   maxTokens?: number;
+  /** 模型输入能力（多模态 Phase 1）：["text"] 或 ["text","image"]。
+   *  显式声明后经 models-factory 覆盖 provider 模板默认值（消除隐式继承的静默变更风险）。
+   *  SDK downgradeUnsupportedImages 按 Model.input 自动降级非 vision 模型的图片。 */
+  input?: Array<"text" | "image">;
 }
 
 /** 应用配置结构（与原 config.ts 同构） */
@@ -100,6 +104,15 @@ export interface AppConfig {
   web?: {
     baseUrl?: string;
   };
+  /** 附件配置（多模态 Phase 1）。缺省全部用内置默认值 */
+  attachments?: {
+    /** 存储根目录（相对仓库根或绝对路径，默认 ./data/attachments） */
+    storageRoot?: string;
+    /** 图片大小上限（字节，默认 10MB）——Content-Length 预检 + 流式计数双重限制 */
+    maxImageBytes?: number;
+    /** 文档大小上限（字节，默认 20MB） */
+    maxDocumentBytes?: number;
+  };
 }
 
 /**
@@ -159,6 +172,7 @@ interface RawConfig {
       weaknesses?: string[];
       contextWindow?: number;
       maxTokens?: number;
+      input?: Array<"text" | "image">;
     }>;
   };
   memory?: {
@@ -211,6 +225,11 @@ interface RawConfig {
   };
   web?: {
     baseUrl?: string;
+  };
+  attachments?: {
+    storageRoot?: string;
+    maxImageBytes?: number;
+    maxDocumentBytes?: number;
   };
 }
 
@@ -353,6 +372,14 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
+function buildAttachmentsConfig(raw: RawConfig): AppConfig["attachments"] {
+  return {
+    storageRoot: raw.attachments?.storageRoot ?? "./data/attachments",
+    maxImageBytes: raw.attachments?.maxImageBytes ?? 10 * 1024 * 1024,
+    maxDocumentBytes: raw.attachments?.maxDocumentBytes ?? 20 * 1024 * 1024,
+  };
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }): AppConfig {
   return {
@@ -380,12 +407,14 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
         weaknesses: m.weaknesses ?? undefined,
         contextWindow: m.contextWindow ?? undefined,
         maxTokens: m.maxTokens ?? undefined,
+        input: m.input ?? undefined,
       })),
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
     inbound: buildInboundConfig(raw),
     web: buildWebConfig(raw),
+    attachments: buildAttachmentsConfig(raw),
   };
 }
 

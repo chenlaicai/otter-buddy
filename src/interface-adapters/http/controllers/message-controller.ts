@@ -7,12 +7,17 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { SSEEvent } from "@contract/sse/events";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
+import { MAX_IMAGES_PER_TURN } from "@usecases/conversation/dispatch-chain-engine";
+import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 export class MessageController {
   // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定
@@ -25,6 +30,9 @@ export class MessageController {
     private readonly queryOtter: QueryOtter,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly messageBroadcaster?: MessageBroadcaster,
+    /** 多模态 Phase 1：附件 repo + 存储根（vision 注入读盘；未注入时 attachmentIds 仍可落库但无真图） */
+    private readonly attachmentResolver?: AttachmentRepository,
+    private readonly attachmentStorageRoot?: string,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -180,12 +188,17 @@ export class MessageController {
         return c.json({ error: "body is required" }, 400);
       }
 
+      /** 多模态 Phase 1：附件前置校验（存在性 + 每轮 ≤2 图硬限制） */
+      const attachmentError = await this.validateAttachmentIds(body.attachmentIds);
+      if (attachmentError) return attachmentError;
+
       /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
       const { message: userMessage, mentionFeedback } = await this.sendMessageUseCase.send({
         conversationId,
         senderId: body.senderId,
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         body: body.body,
+        ...(body.attachmentIds && body.attachmentIds.length > 0 && { attachmentIds: body.attachmentIds }),
       });
 
       // 广播用户消息到外部渠道（飞书等）
@@ -205,32 +218,15 @@ export class MessageController {
       const allTargets = new Set(firstTurnTargets);
       const { response, push, close } = streamEvents(c);
 
-      // F20260820i333: 发送 @提及解析 feedback 给用户
-      if (mentionFeedback) {
-        push({
-          event: 'mention.feedback',
-          data: { feedback: mentionFeedback },
-        });
-      }
-
-      /** 5. 订阅 broadcaster：统一接收 agent streaming 事件和完成消息 */
-      let unsubscribe: (() => void) | undefined;
-      if (this.messageBroadcaster) {
-        unsubscribe = this.messageBroadcaster.subscribe(
-          conversationId,
-          // onMessage 为空：POST SSE 流仅接收当前请求触发的 agent 事件（通过 onEvent）。
-          // 其他消息（飞书用户消息等）通过 GET SSE 订阅接收，避免重复推送。
-          () => {},
-          // onEvent：streaming 事件 → 推送到 POST SSE 流
-          (event) => {
-            push(event);
-          },
-        );
-      }
+      // F20260820i333 + 广播订阅收口（自 sendMessage 拆出）
+      const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
 
       /** 6. 启动调度循环（异常时通知前端并收尾，不静默悬挂 SSE） */
       const allTargetsRef = allTargets;
-      this.dispatchTurnLoop(firstTurnTargets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets: allTargetsRef })
+      // 多模态 Phase 1：当前任务消息带图 → 读盘 base64 组装 ImageContent（策略层在 controller）。
+      // 每轮 ≤2 图已在上方硬限制；未读历史统一文本投影在 dispatch-chain-engine 内做。
+      const images = await this.loadImagesForDispatch(body.attachmentIds);
+      this.dispatchTurnLoop(firstTurnTargets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets: allTargetsRef, images })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
           this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
@@ -249,12 +245,71 @@ export class MessageController {
     }
   }
 
+  /** POST SSE 流的 broadcaster 订阅 + mentionFeedback 推送（自 sendMessage 拆出） */
+  private subscribeBroadcasterForPostStream(
+    conversationId: string,
+    push: (event: SSEEvent) => void,
+    mentionFeedback?: string,
+  ): (() => void) | undefined {
+    // F20260820i333: 发送 @提及解析 feedback 给用户
+    if (mentionFeedback) {
+      push({ event: 'mention.feedback', data: { feedback: mentionFeedback } });
+    }
+    if (!this.messageBroadcaster) return undefined;
+    return this.messageBroadcaster.subscribe(
+      conversationId,
+      // onMessage 为空：POST SSE 流仅接收当前请求触发的 agent 事件（通过 onEvent）。
+      // 其他消息（飞书用户消息等）通过 GET SSE 订阅接收，避免重复推送。
+      () => {},
+      // onEvent：streaming 事件 → 推送到 POST SSE 流
+      (event) => { push(event); },
+    );
+  }
+
+  /** 多模态 Phase 1：附件前置校验（存在性 + 图片数硬限制）。返回 Response 时表示拒绝 */
+  private async validateAttachmentIds(attachmentIds?: string[]): Promise<Response | null> {
+    if (!attachmentIds || attachmentIds.length === 0) return null;
+    if (!this.attachmentResolver) return null; // 附件未装配：透传给 usecase 层报 validation
+    const atts = await this.attachmentResolver.getByIds(attachmentIds);
+    const foundIds = new Set(atts.map(a => a.id));
+    if (atts.length === 0 || attachmentIds.some(aid => !foundIds.has(aid))) {
+      return Response.json({ error: "attachmentIds 含不存在的附件" }, { status: 400 });
+    }
+    const imageCount = atts.filter(a => a.kind === "image").length;
+    if (imageCount > MAX_IMAGES_PER_TURN) {
+      return Response.json({ error: `图片附件超过每轮上限（${MAX_IMAGES_PER_TURN} 张），请减少后重试` }, { status: 400 });
+    }
+    return null;
+  }
+
+  /** 多模态 Phase 1：读盘 base64 组装 ImageContent（每张图读一次盘；多獭同收图 = 各自注入）。
+   *  读盘失败降级为空（文本投影占位仍在——附件信息不丢，仅真图缺席）。 */
+  private async loadImagesForDispatch(attachmentIds?: string[]): Promise<Array<{ type: "image"; data: string; mimeType: string }> | undefined> {
+    if (!attachmentIds || attachmentIds.length === 0) return undefined;
+    if (!this.attachmentResolver || !this.attachmentStorageRoot) return undefined;
+    try {
+      const atts = await this.attachmentResolver.getByIds(attachmentIds);
+      const images = atts.filter(a => a.kind === "image").slice(0, MAX_IMAGES_PER_TURN);
+      if (images.length === 0) return undefined;
+      return images.map(a => ({
+        type: "image" as const,
+        data: fs.readFileSync(path.join(this.attachmentStorageRoot!, a.filePath)).toString("base64"),
+        mimeType: a.mimeType,
+      }));
+    } catch (err) {
+      this.logger.warn("Failed to load images for dispatch, degrading to text-only", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
   /** Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
   private async dispatchTurnLoop(
     targets: string[],
-    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string> },
+    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }> },
   ): Promise<void> {
-    const { conversationId, userMessageContent, senderId, allTargets } = ctx;
+    const { conversationId, userMessageContent, senderId, allTargets, images } = ctx;
 
     // 使用 DispatchChainEngine 执行发言链（事件通过 broadcastEvent 统一推送到订阅者）
     await this.dispatchChainEngine.executeChain({
@@ -262,6 +317,7 @@ export class MessageController {
       userMessageContent,
       senderId,
       initialTargets: targets,
+      ...(images && { images }),
       invokeFn: async (params) => {
         for (const id of params.otterId ? [params.otterId] : []) allTargets.add(id);
         return this.agentInvoker.invokeConversation({
@@ -269,6 +325,7 @@ export class MessageController {
           conversationId: params.conversationId,
           userMessageContent: params.userMessageContent,
           senderId: params.senderId,
+          ...(params.images && { images: params.images }),
         });
       },
       callbacks: {

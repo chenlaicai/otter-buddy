@@ -99,6 +99,8 @@ export class AgentInvoker implements AgentTurnPort {
     retryCount?: number;
     /** F20260814mtrc：Web 手动重试标识（retry label 区分 manual/auto） */
     manualRetry?: boolean;
+    /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，dispatch-chain 透传） */
+    images?: Array<{ type: "image"; data: string; mimeType: string }>;
   }): Promise<AgentTurnResult> {
     if (getTraceContext().traceId) {
       return this.invokeConversationInner(params);
@@ -115,8 +117,9 @@ export class AgentInvoker implements AgentTurnPort {
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     manualRetry?: boolean;
+    images?: Array<{ type: "image"; data: string; mimeType: string }>;
   }): Promise<AgentTurnResult> {
-    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0 } = params;
+    const { otterId, conversationId, userMessageContent, senderId, onSSEEvent, retryCount = 0, images } = params;
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -168,7 +171,7 @@ export class AgentInvoker implements AgentTurnPort {
       let pendingSelfRestart: { otterId: string; summary?: string } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; } });
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images });
       const callbacks = this.createTurnCallbacks(emitEvent);
 
       const turnInput = this.buildTurnInput(params, message.id, startTime);
@@ -212,7 +215,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts?: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void },
+    opts?: { otterName?: string; onSelfRestart?: (signal: { otterId: string; summary?: string }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }> },
   ): AttemptDriver {
     return {
       invoke: async (input: TurnInput, onEvent: (event: AgentStreamEvent) => void) => {
@@ -224,6 +227,7 @@ export class AgentInvoker implements AgentTurnPort {
           dynamicContext,
           conversationId: input.conversationId,
           messageId: input.messageId,
+          ...(opts?.images && { images: opts.images }),
           onEvent: (e: AgentStreamEvent) => {
             this.logger.debug('Agent event received', { messageId: input.messageId, eventType: e.type, toolName: e.name ?? e.toolName });
             this.recordStreamEventMetrics(e, toolStarts);

@@ -119,6 +119,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  原实现只写进 initSchema，存量库缺表导致 reconcileOrphans 在 claimResume 抛错、
    *  failInFlightMessages 清理夭折，streaming 孤儿永久残留（会话永久显示"运行中"）。 */
   ensureRestartPendingResumesTable(db, logger);
+
+  /** 多模态 Phase 1：attachments + message_attachments 表。与 schema.ts 同构，
+   *  CREATE IF NOT EXISTS 幂等——新库 initSchema 已建，老库走这里补建。 */
+  ensureAttachmentTables(db, logger);
 }
 
 /**
@@ -153,6 +157,45 @@ function ensureSignalEventsTable(db: Database.Database, logger: Logger): void {
   `);
   // 只在真正补建时打日志，让日志可作为"老库升级发生"的证据（同 ensureEmbeddingMetaTable）
   if (!existed) logger.info('Ensured signal_events table exists');
+}
+
+/**
+ * 多模态 Phase 1：附件表（attachments + message_attachments）。
+ * 与 schema.ts 的 createAttachmentTables 同构。CREATE IF NOT EXISTS 幂等。
+ */
+function ensureAttachmentTables(db: Database.Database, logger: Logger): void {
+  const existed = (db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'attachments'",
+  ).get() !== undefined);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      sha256 TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('image', 'document')),
+      size_bytes INTEGER NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      caption TEXT,
+      uploader_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
+    CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
+
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      message_id TEXT NOT NULL,
+      attachment_id TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (message_id, attachment_id),
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachment_id) REFERENCES attachments(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment ON message_attachments(attachment_id);
+  `);
+  if (!existed) logger.info('Ensured attachments tables (attachments, message_attachments) exist');
 }
 
 /**

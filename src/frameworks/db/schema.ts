@@ -32,6 +32,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createSignalsTable(db);
     createSignalEventsTable(db);
     createRestartPendingResumesTable(db);
+    createAttachmentTables(db);
 
     db.exec("COMMIT");
 
@@ -39,9 +40,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     if (logger) {
       const duration = Date.now() - startTime;
       // 29 regular tables + 5 virtual tables (FTS/vec) = 34 total
+      // 多模态 Phase 1 新增 attachments + message_attachments 后：31 regular = 36 total
       logger.info('Schema initialized', {
         duration,
-        tables: 34,
+        tables: 36,
       });
     }
   } catch (error) {
@@ -783,3 +785,39 @@ function createRestartPendingResumesTable(db: Database.Database): void {
 }
 
 
+
+/** 附件表（多模态 Phase 1）：attachments + message_attachments。
+ *  附件与消息解耦（先上传拿 ID 再随消息引用）；sha256+uploader 唯一索引支持去重
+ *  （撞唯一索引返回已有行 id）。F20260728htar 死字段教训：每字段消费方见特性文档。 */
+function createAttachmentTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      sha256 TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('image', 'document')),
+      size_bytes INTEGER NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      caption TEXT,
+      uploader_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
+    CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
+
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      message_id TEXT NOT NULL,
+      attachment_id TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (message_id, attachment_id),
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachment_id) REFERENCES attachments(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment ON message_attachments(attachment_id);
+  `);
+}

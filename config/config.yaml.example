@@ -35,6 +35,9 @@ llm:
       strengths: ["强推理", "代码能力优秀", "长上下文"]
       weaknesses: ["价格较高"]
       contextWindow: 128000
+      # 模型输入能力（可选，多模态支持）
+      # 显式声明时覆盖 provider 模板默认值；支持图片的模型声明 ["text", "image"]
+      # input: ["text", "image"]
 
     # 示例：添加第二个模型
     # - alias: "fast"
@@ -172,3 +175,13 @@ circuitBreaker:
 # 不配置时，飞书侧 html-card 占位符只显示标题、不带可点击链接
 # web:
 #   baseUrl: "https://your-otter-instance.example.com"
+
+# === 附件配置（可选，多模态支持）===
+# 缺省全部用内置默认值；存储根目录随 data/ 一起备份
+# attachments:
+#   # 存储根目录（默认 ./data/attachments）
+#   storageRoot: "./data/attachments"
+#   # 图片大小上限（字节，默认 10MB）
+#   maxImageBytes: 10485760
+#   # 文档大小上限（字节，默认 20MB）
+#   maxDocumentBytes: 20971520

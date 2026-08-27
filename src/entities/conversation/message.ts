@@ -1,6 +1,9 @@
 /** 发送者类型（system 用于系统消息：Otter 进场/退场等事件通知） */
 export type SenderType = "user" | "otter" | "system";
 
+// 附件引用（见 attachment.ts；消息携带的附件最小投影）
+import type { AttachmentRef } from "./attachment";
+
 /**
  * 用户消息来源（标识消息从哪个前端接入点发送）。
  * 仅用户消息有意义；agent/系统消息不需要——它们广播给所有已连接前端。
@@ -56,6 +59,10 @@ export interface Message {
   senderName: string;
   createdAt: string;
   completedAt: string | null;
+  /** 消息携带的附件（多模态 Phase 1）。可选字段：广播链路走 entities 不经 DTO，
+   *  附件要流到 egress 通道可及处，实体须挂此字段（repository 加载/send 内存构造/发送入库三处回填）。
+   *  声明可选避免测试 fixture 编译波及。 */
+  attachments?: AttachmentRef[];
 }
 
 /** 消息流式事件实体 */

@@ -13,6 +13,7 @@ import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sql
 import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { SqliteSignalEventRepository } from "@frameworks/db/signal/sqlite-signal-repository";
+import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-attachment-repository";
 
 export function initRepositories(db: Database.Database): Repositories {
   const memoryRepo = new SqliteMemoryRepository(db);
@@ -33,5 +34,7 @@ export function initRepositories(db: Database.Database): Repositories {
     connection: new SqliteConnectionRepository(db),
     healingEvent: new SqliteHealingEventRepository(db),
     signalEvent: new SqliteSignalEventRepository(db),
+    /** 多模态 Phase 1：附件 repo */
+    attachment: new SqliteAttachmentRepository(db),
   };
 }

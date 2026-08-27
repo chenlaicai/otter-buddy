@@ -241,7 +241,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const queryOtterProfile = new QueryOtterProfile(repos.otter, otterConfigProvider, modelPool, logger, { resourceLoader: resourceLoader as any, statsQuery });
 
   const controllers = initControllers({
-    uc, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
+    uc, repos, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
     otterConfigProvider,
     queryOtterProfile,
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,

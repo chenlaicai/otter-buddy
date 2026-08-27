@@ -25,6 +25,8 @@ export interface MessageDTO {
   src?: string;
   /** 消息分段数组（多 speak 气泡），仅 agent 消息且 segments 非空时携带 */
   segments?: MessageSegmentDTO[];
+  /** 多模态 Phase 1：消息携带的附件（仅 attachments 非空时携带） */
+  atts?: AttachmentDTO[];
   events?: MessageEventDTO[];
 }
 
@@ -38,12 +40,30 @@ export interface MessageEventDTO {
   createdAt: string;
 }
 
+/** 附件 DTO（多模态 Phase 1，消息携带的附件透出） */
+export interface AttachmentDTO {
+  id: string;
+  kind: "image" | "document";
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number | null;
+  height?: number | null;
+}
+
+/** 上传响应 DTO（多模态 Phase 1） */
+export interface UploadAttachmentResponseDTO {
+  attachments: AttachmentDTO[];
+}
+
 /** 发送消息请求 DTO */
 export interface SendMessageRequestDTO {
   senderId: string;
   /** 发言石目标（@ 指定的 otter）。缺省或空数组表示未指定，由后端按默认规则解析（回复最后发言者，兜底大獭） */
   talkingStonePassedTo?: string[];
   body: string;
+  /** 多模态 Phase 1：随消息引用的附件 ID（上传 API 先返回；可选，向后兼容） */
+  attachmentIds?: string[];
 }
 
 /** 消息列表响应（包裹对象，含 hasMore 分页标识） */

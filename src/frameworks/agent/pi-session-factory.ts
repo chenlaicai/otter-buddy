@@ -79,6 +79,15 @@ export interface InvokeOptions {
   messageId?: string;
   /** 首次 invoke 标志（内部使用，注入身份信息） */
   isFirstInvoke?: boolean;
+  /** 多模态 Phase 1：当前任务消息携带的图片，透传给 session.prompt(text, { images })。
+   *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级（otter 层不自判）。 */
+  images?: Array<{ type: "image"; data: string; mimeType: string }>;
+}
+
+/** 多模态 Phase 1：把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
+function buildPromptOptions(options: InvokeOptions | undefined): { images?: Array<{ type: "image"; data: string; mimeType: string }> } | undefined {
+  if (options?.images && options.images.length > 0) return { images: options.images };
+  return undefined;
 }
 
 /** initAgentSessionFactory 配置 */
@@ -411,7 +420,9 @@ export class PiSessionFactory implements AgentGateway {
         try {
           /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
-          await session.prompt(fullMessage);
+          /** 多模态 Phase 1：images 透传（机制层不做策略；SDK 按模型 input 自动降级）。
+   *  空对象省略：undefined 与 {images:[]} 等价走纯文本路径 */
+          await session.prompt(fullMessage, buildPromptOptions(options));
           checkSessionError(session, otterId, this.logger);
           const result = buildPromptResult({ otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, model: this.cfg.model, logger: this.logger, getModelAliasForLog: this.getModelAliasForLog.bind(this) });
 

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 多模态 Phase 1 加入附件组装点②③后超行（拆方法已用尽，余下为既有逻辑） */
 import { DomainError } from "@entities/errors";
 import type {
   Message,
@@ -19,8 +20,11 @@ import {
   aggregateBody,
 } from "@entities/conversation/message";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
+import { projectAttachments } from "@entities/conversation/attachment-projection";
+import type { AttachmentRef } from "@entities/conversation/attachment";
 import { canAddMessageToTurn } from "@entities/conversation/conversation";
 import type { ConversationRepository } from "./conversation-repository";
+import type { AttachmentRepository } from "./attachment-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import { resolveSpeakerName } from "./speaker-resolver";
 import { tryCloseTurn } from "./turn-utils";
@@ -43,6 +47,8 @@ export interface SendMessageInput {
   senderDisplayName?: string | null;
   /** F20260805rbrg：外部元数据（招聘桥接查重用，外部消息才填） */
   metadata?: MessageMetadata | null;
+  /** 多模态 Phase 1：随消息引用的附件 ID（上传 API 先返回；通道无关的统一入消息接口） */
+  attachmentIds?: string[];
 }
 
 /** Otter 开始流式消息输入 */
@@ -92,6 +98,9 @@ export class SendMessage {
     private readonly otterRepo: OtterRepository,
     private readonly memoryIndex: MemoryIndexGateway,
     private readonly logger: Logger,
+    /** 多模态 Phase 1：附件 repo（组装点③发送时入库关联 + ②内存构造回填）。
+     *  可选注入：未注入时 attachmentIds 被拒（validation），旧调用方行为不变 */
+    private readonly attachmentRepo?: AttachmentRepository,
   ) {}
 
   /** 用户发送消息（立即 completed） */
@@ -99,58 +108,24 @@ export class SendMessage {
     const senderType = input.senderType ?? "user";
     const source = input.source ?? "web";
 
-    /** 用户消息统一走目标解析：空目标按领域规则解析默认派发；
-     *  显式目标（@ / 卡片回执路由）校验"在场 + otter 未解散"，不合法退默认派发（F20260728htar）。
-     *  system 消息豁免校验（定时任务链：目标獭解散后任务消息不应被静默改派）。
-     *  F20260820i333：支持从文本解析 @提及 + 解析失败时返回 feedback。 */
-    let mentionFeedback: string | undefined
-    let talkingStonePassedTo: string[]
-    if (senderType === "user") {
-      const result = await this.resolveUserTargets(input.conversationId, input.talkingStonePassedTo, input.body)
-      talkingStonePassedTo = result.targets
-      mentionFeedback = result.feedback
-    } else {
-      talkingStonePassedTo = input.talkingStonePassedTo
-    }
+    /** 用户消息统一走目标解析（见 resolveTargetsForSend）；system 直接用入参目标 */
+    const { targets: talkingStonePassedTo, feedback: mentionFeedback } =
+      await this.resolveTargetsForSend(senderType, input);
 
     /** UA-8: completed 消息必须传递发言石（system 豁免） */
     if (!isValidTalkingStonePass(talkingStonePassedTo, "completed", senderType)) {
       throw new DomainError("talkingStonePassedTo must be non-empty for completed messages", "validation");
     }
 
-    /** 确保活跃 Turn 存在 */
+    /** 确保活跃 Turn 存在 + 多模态 Phase 1 组装点③前置（附件引用解析） */
     const turn = await this.ensureActiveTurn(input.conversationId);
+    const attachmentRefs = await this.resolveAttachmentRefs(input.conversationId, input.attachmentIds);
+    const { id, now, sequenceNum } = this.allocMessageKeys(input.conversationId);
 
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const sequenceNum = (await this._repo.getMaxSequenceNum(input.conversationId)) + 1;
-
-    const message: Message = {
-      id,
-      conversationId: input.conversationId,
-      turnId: turn.id,
-      senderType,
-      senderId: input.senderId,
-      talkingStonePassedTo,
-      status: "completed",
-      segments: [],
-      sequenceNum,
-      contextTokens: null,
-      contextTokensMax: null,
-      source,
-      metadata: input.metadata ?? null,
-      // F20260826fuid：user 消息优先取外部渠道快照名（飞书群聊多人识别）；
-      // 无快照时空串，显示名由层 3 前端 fallback（同单聊场景）
-      senderName: senderType === "user" ? (input.senderDisplayName?.trim() ?? "") : "",
-      createdAt: now,
-      completedAt: now,
-    };
-
-    await this._repo.createCompletedMessage(message);
-    await this._repo.appendSegment(message.id, input.body);
-
-    /** B11: 索引消息内容到记忆系统（html-card 剥离投影，与 FTS 一致） */
-    await this.memoryIndex.indexMessage(message.id, message.conversationId, stripHtmlCardFences(input.body));
+    const message = await this.persistUserMessage(input, {
+      turnId: turn.id, senderType, source, talkingStonePassedTo,
+      attachmentRefs, id, now, sequenceNum,
+    });
 
     /** 尝试关闭 Turn */
     await tryCloseTurn(this._repo, turn.id);
@@ -164,9 +139,108 @@ export class SendMessage {
       source,
       action: 'send',
       ...(mentionFeedback ? { mentionFeedback } : {}),
+      ...(attachmentRefs && { attachmentCount: attachmentRefs.length }),
     });
 
     return { message, mentionFeedback };
+  }
+
+  /** 多模态 Phase 1：附件引用解析（组装点③前置）——存在性校验 + 按请求顺序挂载。
+   *  attachmentRepo 未注入时报 validation（旧调用方不传 attachmentIds 不受影响）。 */
+  private async resolveAttachmentRefs(conversationId: string, attachmentIds?: string[]): Promise<AttachmentRef[] | undefined> {
+    if (!attachmentIds || attachmentIds.length === 0) return undefined;
+    if (!this.attachmentRepo) {
+      throw new DomainError("attachments not configured (attachmentRepo missing)", "validation");
+    }
+    const atts = await this.attachmentRepo.getByIds(attachmentIds);
+    const foundIds = new Set(atts.map(a => a.id));
+    const missing = attachmentIds.filter(aid => !foundIds.has(aid));
+    if (missing.length > 0) {
+      throw new DomainError(`attachmentIds 不存在: ${missing.join(", ")}`, "not_found");
+    }
+    void conversationId;
+    // 按请求顺序挂载（去重防御：重复 ID 只挂一次）
+    const ordered = attachmentIds
+      .filter((v, i, arr) => arr.indexOf(v) === i)
+      .map(aid => atts.find(a => a.id === aid)!);
+    return ordered.map(a => ({
+      id: a.id, kind: a.kind, originalName: a.originalName, mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes, width: a.width, height: a.height, caption: a.caption,
+    }));
+  }
+
+  /** 消息键分配（id/时间戳/序号，自 send 拆出） */
+  private allocMessageKeys(conversationId: string): { id: string; now: string; sequenceNum: Promise<number> } {
+    return {
+      id: crypto.randomUUID(),
+      now: new Date().toISOString(),
+      sequenceNum: this._repo.getMaxSequenceNum(conversationId).then(n => n + 1),
+    };
+  }
+
+  /** 用户消息构造 + 落库（组装点②内存构造回填 + 组装点③关联入库 + 记忆索引，自 send 拆出） */
+  private async persistUserMessage(
+    input: SendMessageInput,
+    ctx: {
+      turnId: string; senderType: "user" | "system"; source: MessageSource;
+      talkingStonePassedTo: string[]; attachmentRefs: AttachmentRef[] | undefined;
+      id: string; now: string; sequenceNum: Promise<number>;
+    },
+  ): Promise<Message> {
+    const message: Message = {
+      id: ctx.id,
+      conversationId: input.conversationId,
+      turnId: ctx.turnId,
+      senderType: ctx.senderType,
+      senderId: input.senderId,
+      talkingStonePassedTo: ctx.talkingStonePassedTo,
+      status: "completed",
+      segments: [],
+      sequenceNum: await ctx.sequenceNum,
+      contextTokens: null,
+      contextTokensMax: null,
+      source: ctx.source,
+      metadata: input.metadata ?? null,
+      // F20260826fuid：user 消息优先取外部渠道快照名（飞书群聊多人识别）；
+      // 无快照时空串，显示名由层 3 前端 fallback（同单聊场景）
+      senderName: ctx.senderType === "user" ? (input.senderDisplayName?.trim() ?? "") : "",
+      createdAt: ctx.now,
+      completedAt: ctx.now,
+      // 多模态 Phase 1 组装点②：内存构造回填（广播链路走实体不经 DTO）
+      ...(ctx.attachmentRefs && { attachments: ctx.attachmentRefs }),
+    };
+
+    await this._repo.createCompletedMessage(message);
+    await this._repo.appendSegment(message.id, input.body);
+
+    /** 多模态 Phase 1 组装点③：消息-附件关联入库 */
+    if (ctx.attachmentRefs && ctx.attachmentRefs.length > 0) {
+      await this.attachmentRepo!.linkMessageAttachments(message.id, ctx.attachmentRefs.map(a => a.id));
+    }
+
+    /** B11: 索引消息内容到记忆系统（html-card 剥离投影 + 附件占位投影，与 FTS 一致） */
+    await this.memoryIndex.indexMessage(message.id, message.conversationId, this.buildIndexBody(input.body, ctx.attachmentRefs));
+    return message;
+  }
+
+  /** 目标解析收口（自 send 拆出控复杂度）：
+   *  用户消息统一走目标解析：空目标按领域规则解析默认派发；
+   *  显式目标（@ / 卡片回执路由）校验"在场 + otter 未解散"，不合法退默认派发（F20260728htar）。
+   *  system 消息豁免校验（定时任务链：目标獭解散后任务消息不应被静默改派）。
+   *  F20260820i333：支持从文本解析 @提及 + 解析失败时返回 feedback。 */
+  private async resolveTargetsForSend(
+    senderType: "user" | "system",
+    input: SendMessageInput,
+  ): Promise<{ targets: string[]; feedback?: string }> {
+    if (senderType !== "user") return { targets: input.talkingStonePassedTo };
+    return this.resolveUserTargets(input.conversationId, input.talkingStonePassedTo, input.body);
+  }
+
+  /** 多模态 Phase 1：索引/检索出口统一 body——正文剥离投影 + 附件占位投影（出口统一调用投影层） */
+  private buildIndexBody(body: string, attachmentRefs?: AttachmentRef[]): string {
+    const projection = projectAttachments(attachmentRefs ?? []);
+    const stripped = stripHtmlCardFences(body);
+    return projection ? `${stripped}\n${projection}` : stripped;
   }
 
   /** Otter 开始流式消息（status="streaming"） */
