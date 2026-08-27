@@ -33,6 +33,8 @@ export interface CreateOtterRequestDTO {
    *  缺省用默认模型；controller 层校验（settings-controller hasModel 同层先例）。
    *  注：大獭工具入口走 otter-tool-client（modelAlias 存 otter_configs），不经此 DTO */
   modelAlias?: string;
+  /** F20260826ucrt T4：UI 入口（POST /api/otters）忽略此字段，血缘诚实落 null；
+   *  大獭工具链走 otter-tool-client 系统注入，不经此 DTO */
   parentOtterId?: string;
   /** Otter 级系统提示词（可选，与平台 prompt 叠加） */
   systemPrompt?: string | OtterPromptConfig;

@@ -10,7 +10,7 @@ summary: |
   能力/上下文控件是摆设。第 2 轮审视（复核獭 kimi）后收缩：契约只补 modelAlias（controller 校验+透传）；
   parentOtterId 诚实落 null（UI 创建无獭召唤者，不伪造血缘，controller 停透传）；
   头像自选降为纯前端 localStorage override（不落库）；表单重做 + 前端重名预检照做。
-  13 文件 → 7 文件，src 侧仅改 1 个 controller，大獭工具链零文件改动（静态事实）。
+  13 文件 → 8 文件（原砍半估 7，实现时装配追加 modelPool 落在 controllers.ts 既有构造行内），src 侧仅改 1 个 controller，大獭工具链零文件改动（静态事实）。
 
 # 因果链路
 causal_links:
@@ -218,7 +218,7 @@ UI 拿到响应 →（可选）setOtterAvatarOverride(otterId, 头像名)  [纯�
 - **回归**：大獭 create_otter 零文件改动（静态事实）；usecase 单测零改动全绿。
 - **手工验收**：UI 选模型+头像创建小獭 → 模型生效 + 头像显示所选；刷新页面头像仍在（localStorage）；「随机」创建 → hash 池分配。
 
-## 改动范围（7 文件）
+## 改动范围（8 文件）
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
@@ -229,6 +229,7 @@ UI 拿到响应 →（可选）setOtterAvatarOverride(otterId, 头像名)  [纯�
 | `web/src/lib/build-otter-prompt.ts` | 新增 | prompt 引导生成模板纯函数 |
 | `web/src/pages/conversation/Modals.tsx` | 重做 | CreateOtterModal（T3 字段结构）；ModalsProps 签名改表单对象 |
 | `web/src/pages/conversation/index.tsx` | 修改 | confirmCreateOtter 重写（预检+override 写入+body 组装） |
+| `src/bootstrap/controllers.ts` | 修改 | OtterController 装配追加 modelPool（第 8 参，settings-controller 同源） |
 
 ## 审视历史
 
@@ -251,7 +252,7 @@ UI 拿到响应 →（可选）setOtterAvatarOverride(otterId, 头像名)  [纯�
 
 ## 实现记录（2026-08-27）
 
-按第 2 轮修订版 7 文件清单实现完毕：
+按第 2 轮修订版清单实现完毕（计 8 文件：7 方案文件 + 装配追加点）：
 
 | 文件 | 实际改动 |
 |------|----------|
@@ -264,7 +265,7 @@ UI 拿到响应 →（可选）setOtterAvatarOverride(otterId, 头像名)  [纯�
 | `web/src/pages/conversation/index.tsx` | confirmCreateOtter 重写（预检同名/组装 body 不含 parentOtterId/写 avatar override） |
 
 实现备注：
-- 装配验证（复核獭 delta 提醒项）：`controllers.ts:87` OtterController 追加 modelPool——`deps.modelPool` 现成（settings-controller 同源），未新增文件，7 文件边界保持
+- 装配验证（复核獭 delta 提醒项）：`controllers.ts:87` OtterController 追加 modelPool——`deps.modelPool` 现成（settings-controller 同源），未新增文件
 - modelAlias 持久化链路核实：controller → usecase → agentGateway.create → `session-restore.ts:167` setConfig 落 otter_configs → OtterDTO 经 configProvider 读回——与大獭工具链同源，无需新表
 - 测试更新：`tests/api/otter.test.ts` 旧「passes all optional fields」断言过时（parentOtterId 透传→忽略），改写为 T1/T4 新契约断言 + 新增非法 alias 400 用例；web 侧新增 override 回归（无 override → hash 池逐位一致）6 例、prompt 模板结构 5 例、Modal 渲染/提交/高级切换 4 例
 - 验证结果：src 侧 vitest 1686/1686 全绿；web 侧 vitest 205/205 全绿；双侧 tsc --noEmit 0 错

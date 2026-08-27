@@ -73,7 +73,6 @@ describe("Otter API", () => {
         name: "New Friend",
         type: "small",
         role: undefined,
-        parentOtterId: undefined,
         systemPrompt: undefined,
         context: undefined,
       });
