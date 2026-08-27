@@ -72,3 +72,10 @@ modules: [src/entities/document, scripts, .pi, docs]
 - **发现 1+2（接受并修复）**：R1 第 4 条「本期工作创建」歧义（session 窗口 vs 分支归属）与「是否仍需搭档确认」未显式声明——改为「自己创建、未合入」，子句内显式加「无需征得搭档同意」。行为依据：分支归属看创建者而非 session 边界（重启后分支仍是自己创建的）；免确认是 #468 搭档原话的意图（「那不应该受这条约束的」）；force-with-lease 自身保险（远端被他人推进时拒绝）兑住误用风险
 - **发现 3（接受并修复）**：worktree-isolation 步骤 4 只引 issue 未指真相源——补「R1 第 4 条对此放行且无需确认（出处 #468）」，skill 读者可直达红线真相源
 - **发现 4（反驳，附证据）**：特性文档改动明细实际含 `### #455：SKILL-TEMPLATE 字段清单对齐现行约定`独立小节（本文件原 32-37 行，核心/可选字段清单完整），非「散落在 #470 描述中」——检视者可能被小节内 title 规则的交叉引用（#470）误导读偏。未改动
+
+### 合入期基线调整（8/27，大獭）
+
+Rebase 到最新 main 时撞上基线漂移（PR 预警场景成真）：8/27 白天其他 PR 合入的 6 份新文档（npmhvs/he2f/iddd/rspt/ttmr/dspy）在 lint 新规则下新增 8 条警告。处置：
+- 6 条可修警告就地修复：5 份文档 title 从 slug 改为人类可读中文、dspy 的 change_type BugFix→fix（有效枚举 feature/refactor/fix/prompt/feature-update）
+- 2 条不可修警告（npmhvs/ttmr 文件名缺 slug 后缀）——**不改文件名**（#485：memory 库 file_path 唯一约束，改名会造重复条目）
+- `MAX_WARNINGS` 269 → 271，仅吸收 2 条不可修项，可修项零带入基线

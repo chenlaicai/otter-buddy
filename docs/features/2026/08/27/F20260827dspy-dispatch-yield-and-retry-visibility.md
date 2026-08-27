@@ -2,7 +2,7 @@
 id: F20260827dspy
 title: 小獭 yield 回任务属主被链引擎吞掉（熔断重启后行动权悬空）+ message.retry 事件统一重试感知语义
 summary: "#474：dispatch-chain-engine 的 nextTargets 过滤误把「scheduler 路径任务属主」当回声吞掉，小獭交付后 yield 回属主永不唤醒；改为只滤 'user'。#440：timeout 自动重试与 no_yield 重试在前端感知语义分叉，新增 message.retry SSE 事件统一告知「failed 是暂态」"
-change_type: BugFix
+change_type: fix
 created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
 capability_test: "n/a: 纯 A 类改动——链路由过滤与 SSE 事件发射均为代码决定，无 LLM 行为变量（断言失败用户可感知，行为契约测试覆盖）"
 ---
