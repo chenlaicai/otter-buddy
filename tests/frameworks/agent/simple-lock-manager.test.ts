@@ -229,8 +229,10 @@ describe("SimpleLockManager", () => {
       queueLength: 0,
       activeLocks: 1,
     });
-    expect(context.waitedMs).toBeGreaterThanOrEqual(60);
-    expect(context.holderHeldForMs).toBeGreaterThanOrEqual(30);
+    // Why(#F20260827clk): Node 计时器在负载下可早触发（实测 59ms 醒），精确边界断言会 CI flake，
+    // 下界放宽 5ms 容差。超时行为本身由 rejects.toThrow 覆盖，这里只验证量级。
+    expect(context.waitedMs).toBeGreaterThanOrEqual(55);
+    expect(context.holderHeldForMs).toBeGreaterThanOrEqual(25);
 
     holderRelease();
   });
