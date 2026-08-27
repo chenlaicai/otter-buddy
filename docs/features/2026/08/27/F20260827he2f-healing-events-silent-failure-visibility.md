@@ -24,7 +24,7 @@ modules:
 capability_test: "tests/interface-adapters/agent-runtime/circuit-break-healing-persist.test.ts"
 ---
 
-# F20260827helf: healing_events 熔断落库失明修复
+# F20260827he2f: healing_events 熔断落库失明修复
 
 ## 背景与需求
 
@@ -69,11 +69,12 @@ error 级别有但日志措辞误导（"marker missing"暗示只是标记丢失�
 ### 技术方案
 
 1. `CircuitBreakSupport.recordHealingEvent` 增加 try-catch + error 级别日志（含完整上下文：otterId/messageId/conversationId/errorType），捕获后重新抛出
-2. `CircuitBreakSupport` 新增 `probeHealingRepo()` 健康探针——启动时调用一次，验证 DB 可达且 healing_events 表存在
+2. `CircuitBreakSupport` 新增 `probeHealingRepo()` 健康探针——启动时调用一次，验证 DB 可达且 healing_events 表存在且列完整
 3. `AgentInvoker` 暴露 `probeHealingRepo()` 公共方法，供外部健康检查调用
 4. `initAgentAndScheduler` 启动时调用探针，失败仅 warn（不阻塞启动）
 5. orchestrator.ts `recordDegenerateHealingEvent` warn→error 级别升级 + 完整上下文
 6. 集成测试用真实 SQLite（非 mock）验证事件落库
+7. **存量库迁移**：在 `migrateDatabase` 中添加 `ensureHealingEventsIntroducedByPrColumn` 补丁——用 PRAGMA table_info 检测 `introduced_by_pr` 列存在性，不存在则 ALTER TABLE ADD COLUMN（与 session_file 等历史补丁列一致）。PR #386 的迁移写在 `initSchema` 中，存量库永远跑不到，导致 INSERT 时 100% 抛「no such column」。
 
 ### 目标
 
@@ -106,16 +107,18 @@ error 级别有但日志措辞误导（"marker missing"暗示只是标记丢失�
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| src/interface-adapters/agent-runtime/circuit-break-support.ts | 修改 | +probeHealingRepo 探针 + recordHealingEvent try-catch + error 日志增强 |
+| src/interface-adapters/agent-runtime/circuit-break-support.ts | 修改 | +probeHealingRepo 探针（含写路径列缺失检测） + recordHealingEvent try-catch + error 日志增强 |
 | src/interface-adapters/agent-runtime/agent-invoker.ts | 修改 | +probeHealingRepo 公共方法 |
 | src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts | 修改 | recordDegenerateHealingEvent warn→error + 完整上下文 |
 | src/bootstrap/platforms.ts | 修改 | initAgentAndScheduler 启动时调用探针 |
+| src/frameworks/db/migration.ts | 修改 | +ensureHealingEventsIntroducedByPrColumn 存量库迁移补丁 |
 | tests/interface-adapters/agent-runtime/circuit-break-healing-persist.test.ts | 新增 | 6 个集成测试（真实 SQLite） |
 
 ### 测试结果
 
 - `npx vitest run tests/interface-adapters/agent-invoker-circuit-break.test.ts` → 8 passed（既有回归）
 - `npx vitest run tests/interface-adapters/agent-runtime/circuit-break-healing-persist.test.ts` → 6 passed（新增集成测试）
+- `npx vitest run tests/frameworks/db/migration.test.ts` → 18 passed（含新增存量库迁移测试）
 - `npx tsc --noEmit` → exit 0
 
 ## 设计决策
@@ -123,3 +126,4 @@ error 级别有但日志措辞误导（"marker missing"暗示只是标记丢失�
 - **probe 失败不阻塞启动**：healing_events 是观测增强，不是核心功能。阻塞启动会导致整个服务不可用。
 - **recordHealingEvent 重新抛出错误**：调用方（orchestrator/circuit-break-support）已有 try-catch 处理，重新抛出让调用方能区分成功/失败。
 - **集成测试用真实 SQLite**：mock 测试只能验证调用关系，无法验证实际 DB 落库（issue #508 的核心痛点）。
+- **存量库迁移**：PR #386 的迁移写在 `initSchema` 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。

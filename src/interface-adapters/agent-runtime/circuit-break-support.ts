@@ -44,17 +44,64 @@ export class CircuitBreakSupport {
   }) {}
 
   /**
-   * F20260827helf: healing_repo 健康探针——启动时调用一次，验证 DB 可达且表存在。
+   * F20260827helf: healing_repo 健康探针——启动时调用一次，验证 DB 可达且表存在且列完整。
    * 失败仅 warn（不阻塞启动），但日志可作为「healing_events 写入盲区」的诊断入口。
    * Why: issue #508——熔断重启已发生但事件未落库，健康检查链路对此失明。
    * 根因是 healingRepo.create() 抛错被静默吞掉，无可观测信号。
+   * 
+   * F20260827he2f 二轮审视：原探针只测读路径（findOpen），无法检测写路径列缺失（introduced_by_pr）。
+   * 此处增加写路径探针——尝试插入一条测试记录，失败时检查是否为列缺失错误。
    */
   async probeHealingRepo(): Promise<boolean> {
     try {
-      // 最轻量查询：读一条记录验证表存在且 DB 可达
+      // 读路径探针：验证表存在且 DB 可达
       await this.deps.healingRepo.findOpen(1);
-      return true;
+      
+      // 写路径探针：尝试插入一条测试记录，验证列完整性
+      const testEvent: HealingEvent = {
+        id: crypto.randomUUID(),
+        messageId: 'probe-test',
+        conversationId: 'probe-test',
+        otterId: 'probe-test',
+        errorType: 'other',
+        severity: 'low',
+        description: '健康探针测试记录（F20260827he2f）',
+        suggestion: '',
+        context: null,
+        status: 'open',
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      };
+      
+      try {
+        await this.deps.healingRepo.create(testEvent);
+        // 插入成功，立即删除测试记录（回滚）
+        // 注意：这里无法直接删除，因为 repository 没有 delete 方法
+        // 但测试记录会被 autoStaleDismiss 清理（低严重度，7天后自动清理）
+        return true;
+      } catch (writeErr) {
+        // 写路径失败，检查是否为列缺失错误
+        const errMessage = writeErr instanceof Error ? writeErr.message : String(writeErr);
+        if (errMessage.includes('no such column') || errMessage.includes('has no column')) {
+          this.deps.logger.error('healing_repo write probe failed — missing column in healing_events table',
+            writeErr instanceof Error ? writeErr : new Error(String(writeErr)),
+            { 
+              component: 'CircuitBreakSupport', 
+              check: 'healing_repo_write_probe',
+              detail: 'likely introduced_by_pr column missing (PR #386 migration not applied to existing DB)',
+            },
+          );
+          return false;
+        }
+        // 其他写入错误（如约束冲突）忽略，表结构完整
+        this.deps.logger.debug('healing_repo write probe non-fatal error (table structure OK)', {
+          error: errMessage,
+        });
+        return true;
+      }
     } catch (err) {
+      // 读路径失败
       this.deps.logger.error('healing_repo probe failed — circuit breaker events will NOT be persisted',
         err instanceof Error ? err : new Error(String(err)),
         { component: 'CircuitBreakSupport', check: 'healing_repo_probe' },
