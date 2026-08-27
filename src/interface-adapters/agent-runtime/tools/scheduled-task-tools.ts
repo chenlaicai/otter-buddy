@@ -40,6 +40,7 @@ export function createCreateScheduledTaskTool(
         timezone: { type: "string", description: "时区，默认 Asia/Shanghai" },
         body: { type: "string", description: "触发时发送给海獭的消息内容。写任务清单 + 判断委托（如「今日有 N 个 issue 待处理，请判断如何处理」）。不要写身份文本（如「你是小獭」），不要预设步骤——接收者自行判断处理方式。" },
         restartBeforeInvoke: { type: "boolean", description: "每次触发前是否重启执行獭的 session（默认 false）。适合需要干净上下文的定期任务（如健康检查）。" },
+        timeoutMinutes: { type: "integer", description: "任务级链超时配置（分钟，1-1440）。默认 15 分钟。长编排任务（如每日 issue 处理，需数小时）建议设 240。链活跃时不会误杀——超时窗口内链有新消息即续期等待，直到硬上限。" },
       },
       required: ["name", "body"],
     },
@@ -58,6 +59,7 @@ export function createCreateScheduledTaskTool(
           timezone: params.timezone as string | undefined,
           body: (params.body as string).trim(),
           restartBeforeInvoke: (params.restartBeforeInvoke as boolean) ?? false,
+          timeoutMinutes: params.timeoutMinutes != null ? Number(params.timeoutMinutes) : undefined,
           talkingStonePassedTo: [ctx.otterId],
           senderId: ctx.otterId,
         });
@@ -65,7 +67,8 @@ export function createCreateScheduledTaskTool(
         const scheduleDesc = scheduleType === "once"
           ? `一次性，触发时间: ${task.triggerAt}`
           : `周期性，cron: ${task.cron}`;
-        return textResponse(`定时任务已创建：${task.id}（${task.name}，${scheduleDesc}，时区: ${task.timezone}）`);
+        const timeoutDesc = task.timeoutMinutes ? `，链超时: ${task.timeoutMinutes} 分钟` : '';
+        return textResponse(`定时任务已创建：${task.id}（${task.name}，${scheduleDesc}，时区: ${task.timezone}${timeoutDesc}）`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         return errorResponse(`[错误] 创建定时任务失败：${msg}`);

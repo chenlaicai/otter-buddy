@@ -90,6 +90,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260815rstrt：scheduled_tasks 表添加 restart_before_invoke 列 */
   addRestartBeforeInvokeColumn(db, logger);
+  addTimeoutMinutesColumn(db, logger);
 
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
@@ -520,6 +521,16 @@ function addRestartBeforeInvokeColumn(db: Database.Database, logger: Logger): vo
 
   db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN restart_before_invoke INTEGER NOT NULL DEFAULT 0").run();
   logger.info('Added restart_before_invoke column to scheduled_tasks table');
+}
+
+/** #516: scheduled_tasks 表添加 timeout_minutes 列（任务级链超时配置）。PRAGMA 探测幂等。 */
+function addTimeoutMinutesColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  const hasTimeoutMinutes = columns.some(col => col.name === 'timeout_minutes');
+  if (hasTimeoutMinutes) return;
+
+  db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN timeout_minutes INTEGER").run();
+  logger.info('Added timeout_minutes column to scheduled_tasks table (#516)');
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

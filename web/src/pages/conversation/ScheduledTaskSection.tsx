@@ -121,6 +121,13 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
               <span className="px-1.5 py-0.5 rounded-full bg-otter-100 text-otter-700 text-[10px] font-medium">重启獭生</span>
             </div>
           )}
+          {task.timeoutMinutes && (
+            <div className="text-xs text-otter-600 mb-2 flex items-center gap-1">
+              <span className="px-1.5 py-0.5 rounded-full bg-otter-100 text-otter-700 text-[10px] font-medium" title="链静默超时：链无新消息超过此时长才判超时（默认 15 分钟）">
+                链超时 {task.timeoutMinutes} 分钟
+              </span>
+            </div>
+          )}
 
           {/* 操作按钮 */}
           <div className="flex items-center gap-1.5">
