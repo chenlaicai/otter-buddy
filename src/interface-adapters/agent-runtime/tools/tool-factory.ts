@@ -10,6 +10,7 @@ import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecase
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
+import { createHaltOtterTool, createQuerySignalsTool } from "./signal-tools";
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createStockDataTool } from "./stock-tools";
@@ -754,6 +755,8 @@ function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
 }
 
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
+  // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
+  const signalRepo = ctx.signalRepo;
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createYieldTool(ctx),
@@ -795,5 +798,11 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   }
   // stock_data: 无外部依赖，直接注册
   tools.push(createStockDataTool(ctx));
+  // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
+  // small 型 whitelist 不含 halt_otter，天然隔离；query_signals 两型均可用）
+  if (signalRepo) {
+    tools.push(createHaltOtterTool(ctx, signalRepo, logger));
+    tools.push(createQuerySignalsTool(ctx, signalRepo));
+  }
   return tools;
 }

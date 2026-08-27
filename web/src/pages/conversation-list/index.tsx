@@ -72,7 +72,10 @@ export default function ConversationListPage() {
 
   const handleContextMenu = useCallback((e: React.MouseEvent, cid: string) => {
     e.preventDefault()
-    setCtxMenu({ x: e.clientX, y: e.clientY, cid })
+    // F20260826pfix：视口钳位——贴边右键时菜单不出屏（与会话页 index.tsx:1110 同款防护）
+    const x = Math.min(e.clientX, window.innerWidth - 168)
+    const y = Math.min(e.clientY, window.innerHeight - 90)
+    setCtxMenu({ x, y, cid })
   }, [])
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), [])

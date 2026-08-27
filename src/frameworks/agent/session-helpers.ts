@@ -52,6 +52,7 @@ export function getOtterToolNamesForType(
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
     "query_dispatch_ledger", // F20260821i336：派工台账查询工具
+    "query_signals", // F20260826mwrd C1：信号台账查询（halt 是编排动作，仅 big 型）
   ];
 
   // 尝试从 manifest 加载
@@ -68,7 +69,8 @@ export function getOtterToolNamesForType(
   }
 
   /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理 + 自身重启，不含 Otter 管理类工具（create_otter/dissolve_otter）。
-   *  restart_otter 工具内部有访问控制：小獭只能重启自己。 */
+   *  restart_otter 工具内部有访问控制：小獭只能重启自己。
+   *  F20260826mwrd C1：query_signals 开放（复盘自己的 halt/信号）；halt_otter 仅 big。 */
   return [
     "speak", "yield", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages", "get_turn_history",
@@ -81,6 +83,7 @@ export function getOtterToolNamesForType(
     "workspace_info", "workspace_list", "workspace_read", "workspace_write",
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
+    "query_signals", // F20260826mwrd C1：小獭可查信号台账（halt_otter 仅 big 型）
   ];
 }
 

@@ -396,8 +396,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const userDisplayName = userName?.trim() || '我'
   // F20260826fuid：user 消息优先用快照名（飞书群聊多人识别），无快照回退全局名（单聊不变）
+  // F20260826fpbd：远程消息（飞书等）无快照时显示中性标签，不回退全局名——避免快照缺失时把访客冒充成搭档
   const snapshotName = isUser ? (m.sn || '').trim() : ''
-  const name = isUser ? (snapshotName || userDisplayName) : resolveDisplayName(m, otters)
+  const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : m.src ? '外部成员' : ''
+  const name = isUser ? (snapshotName || remoteFallbackName || userDisplayName) : resolveDisplayName(m, otters)
   const color = isUser ? null : getOtterColor(m.si)
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
   const sideBar: CSSProperties = !isUser
@@ -560,7 +562,7 @@ function StreamingProcess({ events, duration, status }: { events: LocalMessageEv
         </span>
       </div>
       {!collapsed && (
-        <div className="streaming-body border-t border-otter-200/20 max-h-[400px] overflow-y-auto">
+        <div className="streaming-body border-t border-otter-200/20 max-h-[var(--list-scroll-max-h)] overflow-y-auto">
           {events.map((evt, i) => <EventItem key={i} event={evt} prevTs={i > 0 ? events[i - 1].ts : undefined} />)}
         </div>
       )}
@@ -596,7 +598,7 @@ function EventItem({ event, prevTs }: { event: LocalMessageEvent; prevTs?: strin
         </div>
         {expanded && paramsStr && (
           <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
+            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--compact-scroll-max-h)] overflow-y-auto whitespace-pre-wrap break-all">
               {paramsStr}
             </div>
           </div>
@@ -627,7 +629,7 @@ function EventItem({ event, prevTs }: { event: LocalMessageEvent; prevTs?: strin
         </div>
         {expanded && resultText && (
           <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
+            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--compact-scroll-max-h)] overflow-y-auto whitespace-pre-wrap break-all">
               {resultText}
             </div>
           </div>
@@ -657,7 +659,7 @@ function EventItem({ event, prevTs }: { event: LocalMessageEvent; prevTs?: strin
         </div>
         {expanded && str && (
           <div className="px-3 pb-2 pl-8">
-            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[400px] overflow-y-auto prose prose-xs max-w-none">
+            <div className="text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 max-h-[var(--list-scroll-max-h)] overflow-y-auto prose prose-xs max-w-none">
               <MarkdownContent variant="event-log">{str}</MarkdownContent>
             </div>
           </div>

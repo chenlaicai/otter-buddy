@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, memo } from 'react'
+import { type ReactNode, useEffect, memo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { OTTER_GRADIENT } from '../lib/otter-colors'
@@ -38,6 +38,41 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
     }
   }, [isOpen])
 
+  /* F20260826pfix + F20260827abcd：桌面高度上限不因 fullScreenOnMobile 丢失。
+   *  滚动上限已 token 化（--modal-scroll-max-h / --modal-content-max-h），
+   *  值定义在 globals.css @theme 块，此处通过 CSS 变量引用。
+   *  fullScreenOnMobile=true 时 JS 侧不设 maxHeight（由 modal-fs-content
+   *  CSS 类在 <640px 覆盖为 100dvh 全屏抽屉）。 */
+
+  /** F20260826pfix：焦点管理（可及性）——打开时焦点进入弹窗（关闭按钮），
+   *  关闭时归还触发元素。简单 focus trap：Tab 循环限制在 dialog 内。 */
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!isOpen) return
+    const prevActive = document.activeElement as HTMLElement | null
+    closeBtnRef.current?.focus()
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Tab' || !dialogRef.current) return
+      const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      prevActive?.focus()
+    }
+  }, [isOpen])
+
   if (!isOpen) return null
 
   /** F20260825scrf：Portal 挂 body——scrim 脱离页面组件树（事件冒泡与布局上下文
@@ -49,20 +84,25 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className={`glass-overlay rounded-3xl overflow-hidden ${fullScreenOnMobile ? 'modal-fs-mobile' : ''}`}
-        style={{ width, maxHeight: fullScreenOnMobile ? undefined : '80vh' }}
+        style={{ width, maxHeight: fullScreenOnMobile ? undefined : 'var(--modal-scroll-max-h)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-white/40 flex justify-between items-center">
           <span className="text-sm font-semibold text-stone-700">{title}</span>
           <button
+            ref={closeBtnRef}
             onClick={onClose}
             className="text-stone-400 hover:text-stone-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/40 transition"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className={`p-5 overflow-y-auto ${fullScreenOnMobile ? 'modal-fs-content' : ''}`} style={fullScreenOnMobile ? undefined : { maxHeight: 'calc(80vh - 120px)' }}>
+        <div className={`p-5 overflow-y-auto ${fullScreenOnMobile ? 'modal-fs-content' : ''}`} style={fullScreenOnMobile ? undefined : { maxHeight: 'var(--modal-content-max-h)' }}>
           {children}
         </div>
         {footer && (

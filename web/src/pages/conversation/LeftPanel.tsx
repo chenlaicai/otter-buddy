@@ -46,7 +46,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   }, [])
 
   return (
-    <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
+    <aside className="w-56 h-full glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
       <div className="p-3 flex gap-2 border-b border-white/40">
         <a
           href="/memory"

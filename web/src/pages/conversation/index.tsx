@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
+import { PanelLeft, PanelRight } from 'lucide-react'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalMessageSegment } from '../../lib/mappers'
@@ -15,6 +16,8 @@ import { ChatView } from './ChatView'
 import { RightPanel } from './RightPanel'
 import { ConversationModals, type ModalState, type CreateOtterFormValue } from './Modals'
 import { setOtterAvatarOverride } from '../../lib/otter-avatars'
+import { mergeOttersIfChanged } from '../../lib/shallow-equal-otters'
+import { useMediaQuery } from '../../hooks/use-media-query'
 import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
@@ -74,6 +77,17 @@ function ConversationPage() {
   const [modal, setModal] = useState<ModalState>({ type: 'none' })
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
+
+  /** #500：响应式断点——lg(1024px) 以上三栏全开；md(768px) 以上左栏常驻。
+   *  窄屏时面板抽屉化（悬浮不挤压聊天区），按钮切换展开。 */
+  const isLgUp = useMediaQuery('(min-width: 1024px)')
+  const isMdUp = useMediaQuery('(min-width: 768px)')
+  const [leftDrawerOpen, setLeftDrawerOpen] = useState(false)
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false)
+  /** 跨回宽屏断点时复位抽屉状态（避免 resize 后按钮 aria-expanded 与实际不符） */
+  useEffect(() => {
+    if (isLgUp && isMdUp) { setLeftDrawerOpen(false); setRightDrawerOpen(false) }
+  }, [isLgUp, isMdUp])
 
   // 滚动状态
   const isAtBottomRef = useRef(true)
@@ -186,10 +200,8 @@ function ConversationPage() {
   const refreshParticipantsAfterDissolve = useCallback((toolName: string) => {
     if (toolName !== 'dissolve_otter' || !activeId) return
     api.getParticipants(activeId).then(participants => {
-      setAllOtters(prev => ({
-        ...prev,
-        [activeId]: participants.map(p => mapParticipantDTO(p)),
-      }))
+      // #502：内容未变时保引用，避免 RightPanel 整树 re-render 引发 hover 快览卡微闪
+      setAllOtters(prev => mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p))))
     }).catch(err => console.error('Failed to refresh participants after dissolve:', err))
   }, [activeId])
 
@@ -263,11 +275,8 @@ function ConversationPage() {
         ...prev,
         [convId]: keyInfo.resources.map(mapLinkedResourceDTO),
       }))
-      // 更新 allOtters，按对话存储
-      setAllOtters(prev => ({
-        ...prev,
-        [convId]: participants.map(p => mapParticipantDTO(p)),
-      }))
+      // 更新 allOtters，按对话存储（#502：浅比较保引用，防轮询/重进对话时 hover 卡微闪）
+      setAllOtters(prev => mergeOttersIfChanged(prev, convId, participants.map(p => mapParticipantDTO(p))))
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
       showToast('加载对话详情失败', 'error')
@@ -902,10 +911,8 @@ function ConversationPage() {
         /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭） */
         if (activeId) {
           api.getParticipants(activeId).then(participants => {
-            setAllOtters(prev => ({
-              ...prev,
-              [activeId]: participants.map(p => mapParticipantDTO(p)),
-            }))
+            // #502：浅比较保引用（流结束后参与者多数情况未变，白闪一次不值）
+            setAllOtters(prev => mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p))))
           }).catch(() => {})
         }
       } })
@@ -1308,10 +1315,53 @@ function ConversationPage() {
 
   return (
     <AppLayout activeView="conversation">
-      <div className="flex flex-1 overflow-hidden p-3 gap-3">
-        <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
+      {/* #500：三栏布局响应式降级——外层 relative 为窄屏抽屉提供定位上下文。
+          断点策略（Tailwind 默认）：≥lg(1024px) 三栏全开；md(768px)~lg 右栏折叠为悬浮抽屉；
+          <md 左右栏均抽屉化，聊天区独占。面板组件保持挂载（状态不丢），仅容器显隐。 */}
+      <div className="relative flex flex-1 overflow-hidden p-3 gap-3">
+        {/* 窄屏抽屉开关条：lg 以下显示。fixed 定位不挤压聊天区（issue 核心诉求）。 */}
+        {!(isLgUp && isMdUp) && (
+          <>
+            {!isMdUp && (
+              <button
+                type="button"
+                onClick={() => { setLeftDrawerOpen(o => !o); setRightDrawerOpen(false) }}
+                aria-expanded={leftDrawerOpen}
+                aria-controls="left-panel-drawer"
+                aria-label={leftDrawerOpen ? '收起对话列表面板' : '展开对话列表面板'}
+                className="fixed left-3 bottom-3 z-40 w-9 h-9 rounded-full glass-overlay flex items-center justify-center text-stone-500 hover:text-otter-500 transition shadow-bubble"
+              >
+                <PanelLeft className="w-4 h-4" />
+              </button>
+            )}
+            {!isLgUp && (
+              <button
+                type="button"
+                onClick={() => { setRightDrawerOpen(o => !o); setLeftDrawerOpen(false) }}
+                aria-expanded={rightDrawerOpen}
+                aria-controls="right-panel-drawer"
+                aria-label={rightDrawerOpen ? '收起参与者面板' : '展开参与者面板'}
+                className="fixed right-3 bottom-3 z-40 w-9 h-9 rounded-full glass-overlay flex items-center justify-center text-stone-500 hover:text-otter-500 transition shadow-bubble"
+              >
+                <PanelRight className="w-4 h-4" />
+              </button>
+            )}
+          </>
+        )}
+        {/* 左栏：≥md 常驻；<md 抽屉化（absolute 悬浮，不挤压聊天区） */}
+        <div
+          id="left-panel-drawer"
+          className={`${isMdUp ? 'contents' : `${leftDrawerOpen ? '' : 'hidden '}absolute left-3 top-3 bottom-3 z-50`}`}
+        >
+          <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
+        </div>
         <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
-        <RightPanel
+        {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
+        <div
+          id="right-panel-drawer"
+          className={`${isLgUp ? 'contents' : `${rightDrawerOpen ? '' : 'hidden '}absolute right-3 top-3 bottom-3 z-50`}`}
+        >
+          <RightPanel
           conversation={activeConv || conversations[0]}
           otters={activeOtters}
           sessions={sessions}
@@ -1337,7 +1387,8 @@ function ConversationPage() {
           }}
           onTriggerScheduledTask={triggerScheduledTask}
           onViewScheduledTaskHistory={(taskId) => setExecutionHistoryTaskId(taskId)}
-        />
+          />
+        </div>
       </div>
 
       {ctxMenu && activeConvForMenu && (

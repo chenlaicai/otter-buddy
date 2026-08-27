@@ -28,10 +28,10 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
 
 const CHAIN_STATE_LABELS: Record<string, { label: string; className: string }> = {
   active: { label: '活跃', className: 'bg-emerald-100 text-emerald-700' },
-  stalled: { label: '滞留', className: 'bg-amber-100 text-amber-700' },
+  stalled: { label: '滞留', className: 'bg-status-stalled text-amber-700' },
   regressed: { label: '回退', className: 'bg-orange-100 text-orange-700' },
   zombie: { label: '僵尸', className: 'bg-rose-100 text-rose-700' },
-  orphan: { label: '孤儿', className: 'bg-stone-100 text-stone-500' },
+  orphan: { label: '孤儿', className: 'bg-skeleton text-stone-500' },
 }
 
 function HealthPage() {
@@ -113,7 +113,7 @@ function HealthPage() {
           </div>
 
           {/* Tab 切换 */}
-          <div className="flex gap-1 p-1 rounded-full bg-stone-100/70 w-fit">
+          <div className="flex gap-1 p-1 rounded-full bg-skeleton/70 w-fit">
             {([
               { key: 'overview', label: `总览${overview ? ` · ${overview.openSignals}` : ''}` },
               { key: 'signals', label: `信号${signals.length ? ` · ${signals.length}` : ''}` },

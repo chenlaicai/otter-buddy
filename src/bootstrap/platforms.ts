@@ -26,6 +26,7 @@ import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-c
 import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-connection-handler";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
+import { PartnerResolver } from "@usecases/im/partner-resolver";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
@@ -73,6 +74,18 @@ export async function createAgentGateway(options: {
       return tools;
     },
     healingRepo: repos.healingEvent,
+    signalRepo: repos.signalEvent,
+    // F20260826mwrd C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
+    // （resolvedBy=系统，resolution=指令已到达目标獭——halt 无待裁决事项，落账即闭环）。
+    // 回调在 tool_call handler 栈内执行（同步语义），resolve 走 fire-and-forget + catch。
+    onHaltFirstBlock: (directive) => {
+      repos.signalEvent.resolve(
+        directive.id,
+        "resolved",
+        `halt 指令已在目标獭下一个工具调用边界注入（发起者 ${directive.fromOtterName}）`,
+        "system",
+      ).catch(err => logger.error("Failed to mark halt signal as resolved", err instanceof Error ? err : new Error(String(err))));
+    },
     otterConfigProvider,
     otterRepo: repos.otter,
     settingsRepo: repos.settings,
@@ -94,6 +107,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     maxChainDepth: appConfig.circuitBreaker.maxChainDepth,
     settingsRepo: repos.settings,
     metrics: agentMetrics,
+    // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
+    partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId),
   });
 }
 
@@ -163,6 +178,8 @@ export function setupFeishu(options: {
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
+  // F20260826fpbd：命令门禁（方案B）——setupFeishu 入口有 !appConfig.feishu 早退，此处必存在；partnerOpenId 仍可选
+  const partnerResolver = new PartnerResolver(appConfig.feishu?.partnerOpenId);
   const agentDispatchService = new AgentDispatchService({
     dispatchChainEngine: feishu.dispatchChainEngine,
     queryMessage: uc.queryMessage,
@@ -177,6 +194,8 @@ export function setupFeishu(options: {
     feishuGateway: feishu.client,
     // F20260826fuid：飞书群聊多人识别——open_id → 姓名快照
     feishuUserInfo: new FeishuUserInfoClient(feishu.tokenManager, logger),
+    // F20260826fpbd：命令门禁用（方案B）
+    partnerResolver,
     agentDispatchService,
     messageBroadcaster,
     logger,

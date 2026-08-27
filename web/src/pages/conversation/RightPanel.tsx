@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, memo } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
@@ -51,7 +52,7 @@ export function RightPanel(props: RightPanelProps) {
   }
 
   return (
-    <aside className="w-64 glass rounded-3xl flex flex-col overflow-y-auto flex-shrink-0">
+    <aside className="w-64 h-full glass rounded-3xl flex flex-col overflow-y-auto flex-shrink-0">
       {/* Otter Participants */}
       <div className="p-4 border-b border-white/40">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2">Otter 参与者</h3>
@@ -168,7 +169,13 @@ function isTouchDevice() {
   return _isTouchDevice
 }
 
-function OtterParticipantCard({
+/**
+ * #502：memo 兜底——allOtters 浅比较保住引用后，本组件 props 稳定即不重渲染，
+ * hover 快览卡不再因轮询产生的新对象引用而微闪。
+ * onClick/onDissolve/onRestart 由 RightPanel 内联箭头每次新建——memo 对函数 props 无效，
+ * 但 otter/sessions 两个数据 props 是抖动主源，仍值得包。
+ */
+const OtterParticipantCard = memo(function OtterParticipantCard({
   otter: o,
   sessions,
   onClick,
@@ -187,11 +194,18 @@ function OtterParticipantCard({
   const activeGen = activeS ? sortSessionChain(sessions).indexOf(activeS) + 1 : 0
   const [hovering, setHovering] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  /** F20260826pfix：trigger rect 快照，hover 展开时供 portal 定位 */
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
 
-  // Why: 400ms 延迟 + useRef 手写 debounce —— 快速滑过不触发，停留才弹出
+  // Why: 400ms 延迟 + useRef 手写 debounce —— 快速滑过不触发，停留才弹出；
+  // 弹出前抓取 row rect 快照供 portal 定位
   const handleMouseEnter = useCallback(() => {
     if (isTouchDevice()) return
-    hoverTimer.current = setTimeout(() => setHovering(true), 400)
+    hoverTimer.current = setTimeout(() => {
+      if (rowRef.current) setTriggerRect(rowRef.current.getBoundingClientRect())
+      setHovering(true)
+    }, 400)
   }, [])
   const handleMouseLeave = useCallback(() => {
     clearTimeout(hoverTimer.current)
@@ -202,6 +216,7 @@ function OtterParticipantCard({
 
   return (
     <div
+      ref={rowRef}
       className="relative"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -246,15 +261,25 @@ function OtterParticipantCard({
           </button>
         )}
       </div>
-      {/* hover 快览卡：向左弹出（右栏贴屏幕右缘），overflow hidden 防底部溢出 */}
-      {hovering && (
-        <div className="absolute right-full bottom-0 mr-2 z-50">
+      {/* hover 快览卡：F20260826pfix 改 Portal + fixed 按 trigger 坐标定位。
+       *  Why: 原 absolute right-full bottom-0 在 aside overflow-y-auto 内，列表长时
+       *  （卡片滚到 panel 底部）快览卡向上延伸被 panel 顶缘剪裁/视觉贴屏顶。
+       *  Portal 脱离 aside 的 overflow 上下文，坐标按 trigger rect 实时计算并 clamp。 */}
+      {hovering && triggerRect && createPortal(
+        <div
+          className="fixed z-50"
+          style={{
+            left: Math.max(8, Math.min(triggerRect.left - 292, window.innerWidth - 300)),
+            top: Math.min(triggerRect.top, window.innerHeight - 220),
+          }}
+        >
           <OtterProfileCard otter={o} sessions={sessions} modelAlias={o.modelAlias} />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
-}
+})
 
 function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; onToggleFlag: () => void; onDelete: () => void }) {
   return (
@@ -288,7 +313,7 @@ function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResourc
   return (
     <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group">
       {/* 与 FactItem 统一为 stone 色系：链接类资源加类型色块，长标题截断 + tooltip 显示全文（含 url） */}
-      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-stone-100 text-stone-500 uppercase flex-shrink-0">{r.type}</span>
+      <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-skeleton text-stone-500 uppercase flex-shrink-0">{r.type}</span>
       <span className="text-xs text-stone-600 truncate flex-1" title={r.url || r.title || undefined}>
         {r.title || r.url || '(无标题)'}
       </span>

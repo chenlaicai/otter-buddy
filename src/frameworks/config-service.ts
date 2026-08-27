@@ -88,6 +88,8 @@ export interface AppConfig {
     appId: string;
     appSecret: string;
     encryptKey?: string;
+    /** 搭档（本实例主人）的飞书 open_id（F20260826fpbd）——搭档身份静态锚定，未配置时降级动态推断 */
+    partnerOpenId?: string;
   };
   inbound?: {
     recruiting?: {
@@ -199,6 +201,8 @@ interface RawConfig {
     appId?: string;
     appSecret?: string;
     encryptKey?: string;
+    /** 搭档（本实例主人）的飞书 open_id（F20260826fpbd） */
+    partnerOpenId?: string;
   };
   inbound?: {
     recruiting?: {
@@ -322,6 +326,7 @@ function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
     appId: raw.feishu.appId,
     appSecret: raw.feishu.appSecret,
     encryptKey: raw.feishu.encryptKey ?? undefined,
+    partnerOpenId: raw.feishu.partnerOpenId?.trim() || undefined,
   };
 }
 
