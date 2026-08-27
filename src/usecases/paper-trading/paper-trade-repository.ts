@@ -45,7 +45,18 @@ export interface PaperTradeRepository {
     date: string,
   ): Promise<PaperOrder | null>;
   getTodayOrderCount(accountId: string, date: string): Promise<number>;
-  getLastBuyDate(accountId: string, code: string, beforeDate: string): Promise<string | null>;
+
+  /**
+   * 获取某票在 tradeDate 当日是否有买入成交（T+1 校验用）
+   * 返回 trade_date 或 null
+   */
+  getLastBuyTradeDate(accountId: string, code: string, tradeDate: string): Promise<string | null>;
+
+  /**
+   * 过期扫描：把 pending 超过 5 个交易日的订单置 expired
+   * 返回过期数量
+   */
+  expireOldPendingOrders(accountId: string, tradeDate: string): Promise<number>;
 
   // ==================== 成交 ====================
   createTrade(trade: PaperTrade): Promise<void>;
@@ -65,6 +76,8 @@ export interface PaperTradeRepository {
   // ==================== 交易日历 ====================
   isTradingDay(date: string): Promise<boolean>;
   getTradingDays(startDate: string, endDate: string): Promise<string[]>;
+  /** 同步交易日历（批量写入） */
+  syncTradingCalendar(entries: Array<{ date: string; isTradingDay: boolean }>): Promise<void>;
 
   // ==================== 除权标记 ====================
   markCorporateAction(code: string, date: string): Promise<void>;

@@ -13,6 +13,8 @@ import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-schedu
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { Ledger } from "@usecases/paper-trading/ledger";
 import { PaperTradeRepositoryImpl } from "@frameworks/db/paper-trade-repository-impl";
+import { StockQuoteGatewayImpl } from "@frameworks/stock/stock-quote-gateway-impl";
+import { syncTradingCalendar } from "@usecases/paper-trading/sync-trading-calendar";
 import { registerPaperTradingFunctions } from "@usecases/paper-trading/register-functions";
 import { paperTradingFunctionRegistry } from "@usecases/paper-trading/function-registry";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
@@ -75,7 +77,8 @@ export async function createAgentGateway(options: {
     createTools: (ctx, repo, log) => {
       // PR4: 创建纸面交易 Ledger 注入到工具
       const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-      const paperLedger = new Ledger(paperTradeRepo);
+      const paperGateway = new StockQuoteGatewayImpl(process.cwd());
+      const paperLedger = new Ledger(paperTradeRepo, paperGateway);
       const paperLedgerRef = { ledger: paperLedger, getAccountId: () => {
         const accounts = db.prepare('SELECT id FROM paper_accounts LIMIT 1').get() as { id: string } | undefined;
         return accounts?.id;
@@ -130,8 +133,16 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   // PR4: 注册纸面交易函数（function executor 使用）
   if (db) {
     const paperTradeRepo = new PaperTradeRepositoryImpl(db);
-    const paperLedger = new Ledger(paperTradeRepo);
+    const paperGateway = new StockQuoteGatewayImpl(process.cwd());
+    const paperLedger = new Ledger(paperTradeRepo, paperGateway);
     registerPaperTradingFunctions(paperLedger);
+
+    // A3: 同步交易日历（akshare 或 fallback）
+    syncTradingCalendar(paperTradeRepo, process.cwd()).then((res) => {
+      logger.info(`Trading calendar synced: ${res.count} entries (source: ${res.source})`);
+    }).catch((err) => {
+      logger.error("Trading calendar sync failed", err instanceof Error ? err : new Error(String(err)));
+    });
   }
 
   const agentInvoker = new AgentInvoker(
