@@ -15,6 +15,8 @@ export interface CreateScheduledTaskRequestDTO {
   senderId?: string;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
   restartBeforeInvoke?: boolean;
+  /** #516: 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟） */
+  timeoutMinutes?: number | null;
 }
 
 /** 更新定时任务请求 */
@@ -29,6 +31,8 @@ export interface UpdateScheduledTaskRequestDTO {
   status?: 'active' | 'disabled' | 'error';
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
   restartBeforeInvoke?: boolean;
+  /** #516: 任务级链超时配置（分钟）。null = 回退调度器默认 */
+  timeoutMinutes?: number | null;
 }
 
 /** 定时任务响应 */
@@ -48,6 +52,8 @@ export interface ScheduledTaskDTO {
   lastTriggeredAt: string | null;
   /** F20260815rstrt */
   restartBeforeInvoke: boolean;
+  /** #516: 任务级链超时（分钟）。null = 调度器默认 */
+  timeoutMinutes: number | null;
   nextTriggerAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -90,6 +96,7 @@ export function toScheduledTaskDTO(task: ScheduledTask, nextTriggerAt?: string |
     consecutiveFailures: task.consecutiveFailures,
     lastTriggeredAt: task.lastTriggeredAt,
     restartBeforeInvoke: task.restartBeforeInvoke,
+    timeoutMinutes: task.timeoutMinutes,
     nextTriggerAt: nextTriggerAt ?? null,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

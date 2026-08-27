@@ -14,6 +14,11 @@ export interface ArchiveSessionParams {
 export interface OtterRepository {
   createOtter(otter: Otter): Promise<void>;
   getById(id: string): Promise<Otter | null>;
+  /**
+   * #446: 批量获取（单条 IN 查询），供循环场景消除 N+1。
+   * 不存在的 id 不出现在返回 Map 中。
+   */
+  getByIds(ids: string[]): Promise<Map<string, Otter>>;
   dissolve(otterId: string, dissolvedAt: string): Promise<void>;
   deleteOtter(otterId: string): Promise<void>;
   createSession(session: OtterSession): Promise<void>;

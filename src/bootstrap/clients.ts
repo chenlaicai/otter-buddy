@@ -160,7 +160,8 @@ export function buildOtterToolClient(
         },
         getActive: async (convId) => {
           const participantsWithOtter = await uc.manageParticipant.getActiveParticipants(convId);
-          return participantsWithOtter.map(p => ({ ...p.participant, otterName: p.otterName }));
+          // #446: modelAlias 在 usecase 批量预取，此处从 ParticipantWithOtter 透传
+          return participantsWithOtter.map(p => ({ ...p.participant, otterName: p.otterName, ...(p.modelAlias !== undefined && { modelAlias: p.modelAlias }) }));
         },
         leave: (convId, otterId) => uc.manageParticipant.markLeft(convId, otterId),
       },

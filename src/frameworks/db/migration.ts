@@ -90,6 +90,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20260815rstrt：scheduled_tasks 表添加 restart_before_invoke 列 */
   addRestartBeforeInvokeColumn(db, logger);
+  addTimeoutMinutesColumn(db, logger);
 
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
@@ -119,6 +120,11 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  原实现只写进 initSchema，存量库缺表导致 reconcileOrphans 在 claimResume 抛错、
    *  failInFlightMessages 清理夭折，streaming 孤儿永久残留（会话永久显示"运行中"）。 */
   ensureRestartPendingResumesTable(db, logger);
+
+  /** F20260827he2f: healing_events 表添加 introduced_by_pr 列（存量库迁移）。
+   *  PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
+   *  此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。 */
+  ensureHealingEventsIntroducedByPrColumn(db, logger);
 }
 
 /**
@@ -517,6 +523,16 @@ function addRestartBeforeInvokeColumn(db: Database.Database, logger: Logger): vo
   logger.info('Added restart_before_invoke column to scheduled_tasks table');
 }
 
+/** #516: scheduled_tasks 表添加 timeout_minutes 列（任务级链超时配置）。PRAGMA 探测幂等。 */
+function addTimeoutMinutesColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  const hasTimeoutMinutes = columns.some(col => col.name === 'timeout_minutes');
+  if (hasTimeoutMinutes) return;
+
+  db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN timeout_minutes INTEGER").run();
+  logger.info('Added timeout_minutes column to scheduled_tasks table (#516)');
+}
+
 /** 迁移现有数据：为现有 session 创建 OtterConfig */
 export function migrateExistingData(
   db: Database.Database,
@@ -600,6 +616,20 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
   });
   migrate();
   logger.info('Migrated feature_body/research_body entries to chunk model (chunking_v1_migrated=done)');
+}
+
+/**
+ * F20260827he2f: healing_events 表添加 introduced_by_pr 列（存量库迁移）。
+ * PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
+ * 此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。
+ */
+function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(healing_events)").all() as Array<{ name: string }>;
+  const hasIntroducedByPr = columns.some(col => col.name === 'introduced_by_pr');
+  if (!hasIntroducedByPr) {
+    db.prepare("ALTER TABLE healing_events ADD COLUMN introduced_by_pr TEXT").run();
+    logger.info('Added introduced_by_pr column to healing_events table');
+  }
 }
 
 /**

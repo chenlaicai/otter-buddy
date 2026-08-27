@@ -586,6 +586,17 @@ function ConversationPage() {
         liveText.delete(messageId)
         clearSegments(messageId)
       },
+      /** #440: 暂态 failed 后自动重试——回退 streaming 投影，重建 live 跟踪（同常驻通道 handler） */
+      'message.retry': (data) => {
+        const { messageId } = data as { messageId: string }
+        if (!liveEventsMap.has(messageId)) {
+          liveEventsMap.set(messageId, [])
+          liveMeta.set(messageId, { otterId: (data as { otterId?: string }).otterId || '', otterName: (data as { otterName?: string }).otterName || '', createdAt: nowTs() })
+        }
+        batchUpdateMessages(activeId!, (list) => list.map(m => m.id === messageId
+          ? { ...m, status: 'streaming' as const, dur: null }
+          : m))
+      },
       /** F20260805abpp：常驻通道必须处理 message.aborted——MPA 整页刷新后随发送请求建立的
        *  SSE 流已死，abort 终态只能经此通道到达；缺失时 streaming 占位消息永久卡在生成中 */
       'message.aborted': (data) => {
@@ -903,6 +914,19 @@ function ConversationPage() {
           liveMeta.delete(messageId)
           liveText.delete(messageId)
         },
+        /** #440: timeout 类自动重试通知——failed 是暂态，重试内容将流回同一条消息。
+         *  回退 streaming 投影 + 重建 live 跟踪状态，后续 speak.intermediate / message.complete 照常接管。
+         *  无此 handler 时靠轮询才能感知状态回退（体验跳变），处理时长尾消息会长时间停留 failed 观感 */
+        'message.retry': (data) => {
+          const { messageId } = data as { messageId: string }
+          if (!liveEventsMap.has(messageId)) {
+            liveEventsMap.set(messageId, [])
+            liveMeta.set(messageId, { otterId: (data as { otterId?: string }).otterId || '', otterName: (data as { otterName?: string }).otterName || '', createdAt: nowTs() })
+          }
+          batchUpdateMessages(activeId!, (list) => list.map(m => m.id === messageId
+            ? { ...m, status: 'streaming' as const, dur: null }
+            : m))
+        },
         'system.message': (data) => {
           const sysMsg: LocalMessage = {
             id: data.messageId, st: 'system', si: 'system',
@@ -1104,6 +1128,13 @@ function ConversationPage() {
           const meta = liveMeta.get(msgId)
           batchUpdateMessages(activeId, (list) =>
             list.map(m => m.id === msgId ? { ...m, status: 'failed' as const, content: data.body || m.content || '[未完成]', sn: m.sn || meta?.otterName || data.otterName } : m))
+        },
+        /** #440: 手动重试流内也可能再遇自动重试（如同一条消息二次超时），同样回退 streaming */
+        'message.retry': (data) => {
+          const { messageId: msgId } = data
+          batchUpdateMessages(activeId, (list) => list.map(m => m.id === msgId
+            ? { ...m, status: 'streaming' as const, dur: null }
+            : m))
         },
         'message.aborted': (data) => {
           const { messageId: msgId } = data

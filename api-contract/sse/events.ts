@@ -10,6 +10,9 @@ export type SSEEventMap = {
   "speak.intermediate": { messageId: string; body: string; otterId?: string; otterName?: string; segmentId?: string; sequenceNum?: number };
   "message.complete": { messageId: string; otterId: string; otterName: string; body: string; turnId: string; duration: string; ctx?: number; ctxMax?: number; segments?: Array<{ id: string; body: string; sequenceNum: number }> };
   "message.failed": { messageId: string; otterId: string; otterName: string; body?: string };
+  /** #440: 消息级自动重试中通知——紧跟 message.failed 发出，告知前端「failed 是暂态，重试内容将流回同一条消息」。
+   *  与 agent.retry_*（SDK 层 LLM 网络重试）分属不同层级；不感兴趣的客户端可安全忽略 */
+  "message.retry": { messageId: string; otterId: string; otterName: string; reason: string; attempt: number };
   "message.aborted": { messageId: string; body?: string; otterId?: string; otterName?: string };
   "system.message": { messageId: string; content: string; seq: number };
   "turn.complete": Record<string, never>;

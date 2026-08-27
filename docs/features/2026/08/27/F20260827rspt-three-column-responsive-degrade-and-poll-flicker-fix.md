@@ -1,6 +1,6 @@
 ---
 id: F20260827rspt
-title: three-column-responsive-degrade-and-poll-flicker-fix
+title: 三栏布局响应式断点降级与轮询 hover 快览卡微抖修复（#500 #502）
 summary: |
   修复 F20260826pfix 三路审视遗留的两项 UI 技术债：#500（P1）三栏布局无响应式断点降级——
   LeftPanel w-56 + RightPanel w-64 均 flex-shrink-0，<1024px 窗口聊天区被挤 <500px、
