@@ -31,7 +31,10 @@ const allowDdlFiles = [];
 // F20260821kgts: 豁免 ratchet——新增 allow-ddl 豁免必须显式上调此上限
 // 2→3（F20260827mpcg）：tests/scripts/cleanup-memory-pollution.test.ts——运维脚本对任意 DB 的
 // 行为测试，被测脚本不读生产 schema 迁移链，临时库手写 DDL 无漂移风险（与 migration 测试同类）
-const MAX_ALLOW_DDL_FILES = 3;
+// 3→4（F20260829ppta）：tests/frameworks/db/paper-trade-repository-impl-expiry.test.ts——
+// 仓储实现测试需要手写 DDL 建立最小表结构（测试 expireOldPendingOrders 的 SQL 行为，
+// 不走生产 schema 迁移链，隔离内存 SQLite 无漂移风险）
+const MAX_ALLOW_DDL_FILES = 4;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

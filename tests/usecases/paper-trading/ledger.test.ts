@@ -264,6 +264,82 @@ describe('Ledger', () => {
       expect(results[0].status).toBe('pending');
       expect(results[0].rejectReason).toBe('t_plus_1_restriction');
     });
+
+    it('should reject buy order at match time if cash insufficient due to gap (N2 fix)', async () => {
+      (mockRepo.isTradingDay as any).mockResolvedValue(true);
+      (mockRepo.expireOldPendingOrders as any).mockResolvedValue(0);
+
+      // 两笔买单，预检时收盘价 60 元各 1000 股 → 各需 6 万元，总 12 万，现金 10 万
+      // 但两笔都预检通过（分别检查时各 6 万 < 10 万）
+      const buyOrder1 = {
+        id: 'order-1', accountId: 'test-account', code: '600519',
+        side: 'buy' as const, shares: 1000, reason: 'test reason long enough for validation thirty chars',
+        createdAt: '2026-08-26T15:30:00.000Z', status: 'pending' as const, rejectReason: null,
+      };
+      const buyOrder2 = {
+        id: 'order-2', accountId: 'test-account', code: '000001',
+        side: 'buy' as const, shares: 1000, reason: 'test reason long enough for validation thirty chars',
+        createdAt: '2026-08-26T15:30:00.000Z', status: 'pending' as const, rejectReason: null,
+      };
+
+      (mockRepo.getPendingOrders as any).mockResolvedValue([buyOrder1, buyOrder2]);
+      // T+1 开盘跳空 65 元（+8.3%），两笔都按 65 元成交
+      (mockGateway.getQuotes as any).mockResolvedValue({
+        '600519': mockQuote('600519', 65, 60),
+        '000001': mockQuote('000001', 65, 60),
+      });
+
+      // getCash 序列：order-1 validation(100000) → order-1 updateCash(100000) → order-2 validation(34984)
+      (mockRepo.getCash as any)
+        .mockResolvedValueOnce(100000)  // order-1 validation → passes
+        .mockResolvedValueOnce(100000)  // order-1 updateCash → reads current cash
+        .mockResolvedValueOnce(34984);  // order-2 validation → 34984 < 65016.25 → REJECTED
+      (mockRepo.getPosition as any).mockResolvedValue(null);
+      (mockRepo.getPositions as any).mockResolvedValue([]);
+      (mockRepo.getNavHistory as any).mockResolvedValue(null);
+      (mockRepo.getLatestNav as any).mockResolvedValue(null);
+      (mockRepo.getTradesByDate as any).mockResolvedValue([]);
+      (mockRepo.getAccount as any).mockResolvedValue({ id: 'test-account', initialCash: 1000000 });
+
+      const results = await ledger.matchOrders('test-account', '2026-08-27');
+
+      expect(results).toHaveLength(2);
+      // 第一笔成交
+      expect(results[0].status).toBe('filled');
+      // 第二笔因现金不足被拒（N2: insufficient_cash_at_match）
+      expect(results[1].status).toBe('pending');
+      expect(results[1].rejectReason).toBe('insufficient_cash_at_match');
+
+      // 负现金断言：updateCash 不应写入负数
+      const updateCashCalls = (mockRepo.updateCash as any).mock.calls;
+      for (const call of updateCashCalls) {
+        expect(call[1]).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+
+  describe('submitOrder (N2 null→0 bypass fix)', () => {
+    it('should reject buy order when market data unavailable (null→0 fix)', async () => {
+      const mockAccount = {
+        id: 'test-account',
+        initialCash: 1000000,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      };
+      (mockRepo.getAccount as any).mockResolvedValue(mockAccount);
+      (mockRepo.findExistingOrder as any).mockResolvedValue(null);
+      (mockRepo.getTodayOrderCount as any).mockResolvedValue(0);
+      (mockRepo.getCash as any).mockResolvedValue(100000);
+      (mockRepo.getPositions as any).mockResolvedValue([]);
+      (mockRepo.getLatestNav as any).mockResolvedValue(null);
+      // 行情不可得 → null（停牌/无数据）
+      (mockGateway.getClosePrice as any).mockResolvedValue(null);
+
+      await expect(
+        ledger.submitOrder('test-account', '600519', 'buy', 100,
+          '贵州茅台业绩持续增长，技术面突破关键阻力位，计划分批建仓观察发展')
+      ).rejects.toThrow('Market data unavailable');
+    });
   });
 
   describe('getPerformance', () => {

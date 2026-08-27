@@ -235,17 +235,8 @@ export class Ledger {
 
     // S4: T+1 校验在撮合时（卖单检查是否存在 trade_date=tradeDate 的买入成交）
     if (order.side === 'sell') {
-      const lastBuyDate = await this.repo.getLastBuyTradeDate(order.accountId, order.code, tradeDate);
-      if (lastBuyDate && lastBuyDate === tradeDate) {
-        // T+1 限制：当日有买入成交，保持 pending
-        await this.repo.updateOrderStatus(order.id, 'pending', 't_plus_1_restriction');
-        return {
-          orderId: order.id,
-          status: 'pending',
-          rejectReason: 't_plus_1_restriction',
-          trade: null,
-        };
-      }
+      const t1Result = await this.checkT1Restriction(order, tradeDate);
+      if (t1Result) return t1Result;
     }
 
     // 涨跌停校验
@@ -265,29 +256,73 @@ export class Ledger {
     // 计算费用
     const fee = this.calculateFee(order.side, open, order.shares);
 
+    // N2 修复：撮合时现金终验
+    if (order.side === 'buy') {
+      const cashResult = await this.checkCashAtMatch(order, open, fee);
+      if (cashResult) return cashResult;
+    }
+
+    return await this.executeMatch(order, open, fee, tradeDate);
+  }
+
+  /** T+1 校验：卖单检查当日是否有买入成交 */
+  private async checkT1Restriction(order: PaperOrder, tradeDate: string): Promise<MatchResult | null> {
+    const lastBuyDate = await this.repo.getLastBuyTradeDate(order.accountId, order.code, tradeDate);
+    if (lastBuyDate && lastBuyDate === tradeDate) {
+      await this.repo.updateOrderStatus(order.id, 'pending', 't_plus_1_restriction');
+      return {
+        orderId: order.id,
+        status: 'pending',
+        rejectReason: 't_plus_1_restriction',
+        trade: null,
+      };
+    }
+    return null;
+  }
+
+  /** N2 修复：撮合时现金终验——预检用 T 日收盘价估算，撮合用 T+1 开盘价成交，跳空后多单累加可击穿现金 */
+  private async checkCashAtMatch(order: PaperOrder, open: number, fee: number): Promise<MatchResult | null> {
+    const currentCash = await this.repo.getCash(order.accountId);
+    const requiredCash = open * order.shares + fee;
+    if (currentCash < requiredCash) {
+      // 真实券商行为：废单，终止不重试
+      await this.repo.updateOrderStatus(order.id, 'rejected', 'insufficient_cash_at_match');
+      return {
+        orderId: order.id,
+        status: 'pending',
+        rejectReason: 'insufficient_cash_at_match',
+        trade: null,
+      };
+    }
+    return null;
+  }
+
+  /** 执行撮合：创建成交记录 + 更新持仓 + 更新现金 */
+  private async executeMatch(
+    order: PaperOrder,
+    price: number,
+    fee: number,
+    tradeDate: string,
+  ): Promise<MatchResult> {
     // 创建成交记录
     const trade: PaperTrade = {
       orderId: order.id,
       code: order.code,
       side: order.side,
       shares: order.shares,
-      price: open,
+      price: price,
       fee,
       tradeDate,
       executedAt: new Date().toISOString(),
     };
 
-    // 更新订单状态
-    await this.repo.updateOrderStatus(order.id, 'filled', null);
-
-    // 保存成交记录
     await this.repo.createTrade(trade);
 
     // 更新持仓
-    await this.updatePosition(order.accountId, order.code, order.side, order.shares, open);
+    await this.updatePosition(order.accountId, order.code, order.side, order.shares, price);
 
     // 更新现金
-    await this.updateCash(order.accountId, order.side, open, order.shares, fee);
+    await this.updateCash(order.accountId, order.side, price, order.shares, fee);
 
     return {
       orderId: order.id,
@@ -417,8 +452,11 @@ export class Ledger {
       // S4-2: 用真实最新收盘价估算
       const cash = await this.repo.getCash(accountId);
       const currentPrice = await this.gateway.getClosePrice(code, this.getToday());
-      const estimatedPrice = currentPrice ?? 0;
-      const estimatedAmount = shares * estimatedPrice;
+      // N2 修复：行情不可得时不接受下单（null→0 绕过漏洞）
+      if (currentPrice === null) {
+        throw new Error('Market data unavailable: cannot place order without current price');
+      }
+      const estimatedAmount = shares * currentPrice;
       // 加佣金估算（最坏情况）
       const estimatedFee = Math.max(estimatedAmount * FEE_CONFIG.commissionRate, FEE_CONFIG.minCommission);
       if (cash < estimatedAmount + estimatedFee) {
