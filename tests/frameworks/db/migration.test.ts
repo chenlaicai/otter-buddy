@@ -256,18 +256,21 @@ describe("migrateDatabase - F20260803fbit body_hash 列", () => {
 });
 
 /**
- * F20260821evaf：embedding_meta 表老库补建。
- * initSchema 仅新库执行——存量库若只靠 initSchema，embedding_meta 永远不存在，
+ * F20260821evaf：embedding_meta 表老库补建（#506 后由无条件 initSchema 承担）。
+ * 原语境：initSchema 仅新库执行——存量库若只靠 initSchema，embedding_meta 永远不存在，
  * getEmbeddingMeta 的 SELECT 直接抛 no such table。
+ * #506 后：bootstrap 无条件跑幂等 initSchema，补建语义由
+ * tests/frameworks/db/migration-equivalence.guard.test.ts 的等价性守卫整体覆盖，
+ * 此处仅保留独立补建行为的直接验证。
  */
-describe("migrateDatabase - F20260821evaf embedding_meta 表", () => {
-  it("老库无 embedding_meta：migrate 补建后可读写", () => {
+describe("#506 initSchema 补建：embedding_meta 表", () => {
+  it("老库无 embedding_meta：initSchema 补建后可读写", () => {
     const db = new Database(":memory:");
     try {
       initSchema(db);
       db.exec("DROP TABLE embedding_meta"); // 模拟 initSchema 早于该表时代的存量库
 
-      migrateDatabase(db, createTestLogger());
+      initSchema(db, createTestLogger()); // 老库升级路径：无条件重跑幂等 initSchema
 
       db.prepare("INSERT INTO embedding_meta (key, value, updated_at) VALUES ('model_id', 'bge-m3', '2026-08-21T00:00:00Z')").run();
       const row = db.prepare("SELECT value FROM embedding_meta WHERE key = 'model_id'").get() as { value: string };
@@ -277,12 +280,12 @@ describe("migrateDatabase - F20260821evaf embedding_meta 表", () => {
     }
   });
 
-  it("幂等：已有表的库跑 migrate 不报错", () => {
+  it("幂等：已有表的库重跑 initSchema 不报错", () => {
     const db = new Database(":memory:");
     try {
       initSchema(db);
-      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
-      migrateDatabase(db, createTestLogger());
+      expect(() => initSchema(db, createTestLogger())).not.toThrow();
+      initSchema(db, createTestLogger());
     } finally {
       db.close();
     }
@@ -291,19 +294,20 @@ describe("migrateDatabase - F20260821evaf embedding_meta 表", () => {
 
 /**
  * F20260827mtbl：signal_events（F20260826mwrd）+ restart_pending_resumes（F20260826rsme）
- * 表老库补建。原实现只写进 initSchema（仅新库执行），存量库漏建导致：
- * reconcileOrphans claimResume 抛 no such table → 清理夭折 → streaming 孤儿永久残留；
- * halt_otter/query_signals 落账同样直接 no such table。
+ * 表老库补建（#506 后由无条件 initSchema 承担，等价性由守卫测试整体覆盖）。
  */
-describe("migrateDatabase - F20260827mtbl signal_events + restart_pending_resumes 表", () => {
-  it("老库缺两表：migrate 补建后可读写", () => {
+describe("#506 initSchema 补建：signal_events + restart_pending_resumes 表", () => {
+  it("老库缺两表：升级序列补建后可读写", () => {
     const db = new Database(":memory:");
     try {
       initSchema(db);
+      migrateDatabase(db, createTestLogger());
       // 模拟早于 F20260826 两特性时代的存量库
       db.exec("DROP TABLE signal_events");
       db.exec("DROP TABLE restart_pending_resumes");
 
+      // 老库升级路径：幂等 initSchema 无条件重跑
+      initSchema(db, createTestLogger());
       migrateDatabase(db, createTestLogger());
 
       // restart_pending_resumes 可读写（claimResume 语义）
@@ -326,12 +330,12 @@ describe("migrateDatabase - F20260827mtbl signal_events + restart_pending_resume
     }
   });
 
-  it("幂等：已有表的库跑 migrate 不报错", () => {
+  it("幂等：已有表的库重跑不报错", () => {
     const db = new Database(":memory:");
     try {
       initSchema(db);
-      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
-      migrateDatabase(db, createTestLogger());
+      expect(() => initSchema(db, createTestLogger())).not.toThrow();
+      initSchema(db, createTestLogger());
     } finally {
       db.close();
     }

@@ -1,6 +1,6 @@
-/* eslint-disable max-lines -- 补丁集合文件，行数由历史补丁数决定（同 schema.ts 先例） */
 /**
- * 数据库迁移：Session 复用机制
+ * 数据库迁移：Session 复用机制。#506 后未达 max-lines 阈值——若未来补丁增长再次超限，
+ * 可按 schema.ts 先例恢复 eslint-disable max-lines（补丁集合文件，行数由历史补丁数决定）。
  */
 
 import type Database from "better-sqlite3";
@@ -9,7 +9,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句/行数由历史补丁数决定
+// eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定（max-lines-per-function #506 后未超限）
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   // 检查 session_file 字段是否存在
   const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
@@ -36,7 +36,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added sender_name column to messages table');
   }
 
-  // 创建 otter_configs 表
+  // 创建 otter_configs 表。
+  // #506 注：此表未纳入 schema.ts（历史原因），仅此一处定义——
+  // CREATE IF NOT EXISTS 幂等，bootstrap 每次启动都会跑到，老库缺表会被补建。
   db.prepare(`
     CREATE TABLE IF NOT EXISTS otter_configs (
       otter_id TEXT PRIMARY KEY,
@@ -47,7 +49,6 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `).run();
-  logger.info('Ensured otter_configs table exists');
 
   // 检查 model_alias 列是否存在（为已存在的表添加列）
   const otterConfigColumns = db.prepare("PRAGMA table_info(otter_configs)").all() as Array<{ name: string }>;
@@ -98,131 +99,18 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** schedule_type + trigger_at 列：支持一次性定时任务 */
   addScheduleTypeColumns(db, logger);
 
-  /** F20260812mrcq：embedding_tasks 表（embedding 重试队列） */
-  ensureEmbeddingTasksTable(db, logger);
+  // F20260827mgux（#506）：原此处的 6 个 ensureXxxTable 誊抄补建（embedding_tasks /
+  //  embedding_meta / memory_edges / RHI 两表 / signal_events / restart_pending_resumes）
+  // 已删除——bootstrap 无条件跑幂等 initSchema 后老库自动补建，新表只写 schema.ts 一处。
+  // 表级等价性由 tests/frameworks/db/migration-equivalence.guard.test.ts 守卫。
 
-  /** F20260821evaf：embedding 版本锚表。老库 initSchema 不再执行，须在此补建（否则 getEmbeddingMeta 直接抛 no such table） */
-  ensureEmbeddingMetaTable(db, logger);
-
-  /** F20260813mren: 记忆关系层——memory_edges 表 + 文档 provenance 列 */
-  ensureMemoryEdgesTable(db, logger);
+  /** F20260813mren Part 2: features/research 表加 created_in_conversation_id 列。*/
   addDocProvenanceColumns(db, logger);
-
-  /** F20260824rhib: RHI 健康监控——health_snapshots + signals 表。
-   *  initSchema 仅新库执行，老库升级路径必须在此补建（否则 server 集成后写入直接 no such table）。 */
-  ensureRhiTables(db, logger);
-
-  /** F20260827mtbl: F20260826mwrd signal_events 表（halt 信号台账）。
-   *  原实现只写进 initSchema，存量库升级路径漏建——halt_otter/query_signals 落账直接 no such table。 */
-  ensureSignalEventsTable(db, logger);
-
-  /** F20260827mtbl: F20260826rsme restart_pending_resumes 表（重启自动恢复队列）。
-   *  原实现只写进 initSchema，存量库缺表导致 reconcileOrphans 在 claimResume 抛错、
-   *  failInFlightMessages 清理夭折，streaming 孤儿永久残留（会话永久显示"运行中"）。 */
-  ensureRestartPendingResumesTable(db, logger);
 
   /** F20260827he2f: healing_events 表添加 introduced_by_pr 列（存量库迁移）。
    *  PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
    *  此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。 */
   ensureHealingEventsIntroducedByPrColumn(db, logger);
-}
-
-/**
- * F20260827mtbl: signal_events 表（F20260826mwrd C1）。
- * 与 schema.ts 的 createSignalEventsTable 同构。CREATE IF NOT EXISTS 幂等——
- * 新库 initSchema 已建，老库走这里补建。
- */
-function ensureSignalEventsTable(db: Database.Database, logger: Logger): void {
-  const existed = (db.prepare(
-    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'signal_events'",
-  ).get() !== undefined);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS signal_events (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      message_id TEXT NOT NULL,
-      from_otter_id TEXT NOT NULL,
-      target_otter_id TEXT,
-      type TEXT NOT NULL,
-      severity TEXT NOT NULL DEFAULT 'medium',
-      payload TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      resolution TEXT,
-      resolved_by TEXT,
-      resolved_at TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_signal_events_conv ON signal_events(conversation_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_signal_events_status ON signal_events(status);
-    CREATE INDEX IF NOT EXISTS idx_signal_events_type ON signal_events(type);
-    CREATE INDEX IF NOT EXISTS idx_signal_events_target ON signal_events(target_otter_id, created_at);
-  `);
-  // 只在真正补建时打日志，让日志可作为"老库升级发生"的证据（同 ensureEmbeddingMetaTable）
-  if (!existed) logger.info('Ensured signal_events table exists');
-}
-
-/**
- * F20260827mtbl: restart_pending_resumes 表（F20260826rsme）。
- * 与 schema.ts 的 createRestartPendingResumesTable 同构。CREATE IF NOT EXISTS 幂等。
- */
-function ensureRestartPendingResumesTable(db: Database.Database, logger: Logger): void {
-  const existed = (db.prepare(
-    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'restart_pending_resumes'",
-  ).get() !== undefined);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS restart_pending_resumes (
-      message_id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      otter_id TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'exhausted')),
-      created_at TEXT NOT NULL,
-      updated_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
-  `);
-  if (!existed) logger.info('Ensured restart_pending_resumes table exists');
-}
-
-/**
- * F20260824rhib: RHI 表（health_snapshots + signals）。
- * 与 schema.ts 的 createHealthSnapshotsTable/createSignalsTable 同构。
- * CREATE IF NOT EXISTS 幂等——新库 initSchema 已建，老库走这里补建。
- */
-function ensureRhiTables(db: Database.Database, logger: Logger): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS health_snapshots (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      snapshot_date TEXT NOT NULL,
-      metric_type TEXT NOT NULL,
-      metric_key TEXT NOT NULL,
-      metric_value REAL NOT NULL,
-      metadata TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_snapshots_date_type ON health_snapshots(snapshot_date, metric_type);
-    CREATE INDEX IF NOT EXISTS idx_snapshots_key ON health_snapshots(metric_key);
-
-    CREATE TABLE IF NOT EXISTS signals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      signal_type TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      feature_id TEXT,
-      file_path TEXT,
-      evidence TEXT,
-      first_seen TEXT NOT NULL,
-      last_seen TEXT NOT NULL,
-      occurrences INTEGER DEFAULT 1,
-      status TEXT DEFAULT 'open',
-      suggested_action TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      resolved_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
-    CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
-    CREATE INDEX IF NOT EXISTS idx_signals_feature ON signals(feature_id);
-  `);
-  logger.info('Ensured RHI tables (health_snapshots, signals) exist');
 }
 
 /**
@@ -281,66 +169,6 @@ function addScheduleTypeColumns(db: Database.Database, logger: Logger): void {
     db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN trigger_at TEXT").run();
     logger.info('Added trigger_at column to scheduled_tasks table');
   }
-}
-
-/** F20260812mrcq：embedding_tasks 表（embedding 重试队列）。CREATE IF NOT EXISTS 幂等。 */
-function ensureEmbeddingTasksTable(db: Database.Database, logger: Logger): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS embedding_tasks (
-      entry_id TEXT PRIMARY KEY,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      last_error TEXT,
-      last_attempt_at TEXT,
-      next_retry_at TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dead')),
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry
-      ON embedding_tasks (status, next_retry_at);
-  `);
-  logger.info('Ensured embedding_tasks table exists');
-}
-
-/** F20260821evaf：embedding_meta 表（版本锚，schema.ts 同构）。老库补建——initSchema 仅新库执行。 */
-function ensureEmbeddingMetaTable(db: Database.Database, logger: Logger): void {
-  const existed = (db.prepare(
-    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'embedding_meta'",
-  ).get() !== undefined);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS embedding_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-  `);
-  // 只在真正补建时打日志，让日志可作为"老库升级发生"的证据（F20260821evaf 审视项）
-  if (!existed) logger.info('Ensured embedding_meta table exists');
-}
-
-/**
- * F20260813mren: memory_edges 表（记忆关系层）。
- * CREATE IF NOT EXISTS 幂等——新库 initSchema 已建，老库走这里补建。
- */
-function ensureMemoryEdgesTable(db: Database.Database, logger: Logger): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memory_edges (
-      id TEXT PRIMARY KEY,
-      from_entry_id TEXT NOT NULL,
-      to_entry_id TEXT NOT NULL,
-      edge_type TEXT NOT NULL CHECK (edge_type IN ('produced','references','supersedes','relates-to')),
-      metadata TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_by TEXT,
-      CHECK (from_entry_id != to_entry_id),
-      FOREIGN KEY (from_entry_id) REFERENCES memory_entries(id),
-      FOREIGN KEY (to_entry_id) REFERENCES memory_entries(id)
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_edges_unique
-      ON memory_edges(from_entry_id, to_entry_id, edge_type);
-    CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_entry_id, edge_type);
-    CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge_type);
-  `);
-  logger.info('Ensured memory_edges table exists');
 }
 
 /**
@@ -634,27 +462,16 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
 
 /**
  * F20260818segs: message_segments 子表迁移。
- * 1. 创建 message_segments 表（幂等）
- * 2. 将存量 messages.body 迁移到 message_segments（一条 body → 一个 segment，sequence_num=0）
- * 3. 移除 messages.body 列（SQLite 3.35+ DROP COLUMN，降级时跳过）
+ * （#506 后建表职责由 initSchema 无条件承担，此函数只做存量数据搬移与 body 列移除：
+ *  1. 将存量 messages.body 迁移到 message_segments（一条 body → 一个 segment，sequence_num=0）
+ *  2. 移除 messages.body 列（SQLite 3.35+ DROP COLUMN，降级时跳过））
  */
 export function migrateMessageSegments(db: Database.Database, logger: Logger): void {
   const done = db.prepare("SELECT value FROM settings WHERE key = 'message_segments_migrated'").get() as { value: string } | undefined;
   if (done?.value === 'done') return;
 
   const migrate = db.transaction(() => {
-    // 1. 创建 message_segments 表（幂等）
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS message_segments (
-        id TEXT PRIMARY KEY,
-        message_id TEXT NOT NULL,
-        body TEXT NOT NULL,
-        sequence_num INTEGER NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
-      );
-      CREATE INDEX IF NOT EXISTS idx_message_segments_message_seq ON message_segments(message_id, sequence_num);
-    `);
+    // 1. 建表职责已移交 initSchema（#506），此处不重复 CREATE
 
     // 2. 存量迁移：messages.body → message_segments
     const hasBody = (db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).some(c => c.name === 'body');
