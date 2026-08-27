@@ -190,7 +190,7 @@ describe('F20260826ucrt CreateOtterModal', () => {
       defaultModelAlias: 'glm',
       userName: '',
       port: 3000,
-    })
+    } as unknown as Parameters<typeof getSettingsMock.mockResolvedValue>[0])
   })
 
   it('渲染模型下拉（settings 数据源）+ 头像「随机」与九宫格', async () => {
@@ -205,8 +205,9 @@ describe('F20260826ucrt CreateOtterModal', () => {
     // 头像：随机独立项（radio）+ 3×3 九宫格（9 个按钮）
     const radio = document.querySelector('input[type="radio"]') as HTMLInputElement
     expect(radio?.checked).toBe(true) // 随机默认选中
-    const gridButtons = Array.from(document.querySelectorAll('button[title]')).filter(b => b.title)
-    expect(gridButtons.length).toBe(9)
+    const gridButtons = Array.from(document.querySelectorAll('button[title]')) as HTMLButtonElement[]
+    const gridButtonsTitled = gridButtons.filter((b): b is HTMLButtonElement => Boolean(b.title))
+    expect(gridButtonsTitled.length).toBe(9)
   })
 
   it('mockSkills 与上下文注入摆设控件已删除', () => {
@@ -217,8 +218,8 @@ describe('F20260826ucrt CreateOtterModal', () => {
   })
 
   it('提交组装表单对象（含 modelAlias/avatarName/systemPrompt 引导生成）', async () => {
-    let submitted: Record<string, unknown> | null = null
-    renderCreateModal(form => { submitted = form as Record<string, unknown> })
+    let submitted: unknown = null
+    renderCreateModal(form => { submitted = form })
     await act(async () => { await Promise.resolve() })
 
     const inputs = Array.from(document.querySelectorAll('input')) as HTMLInputElement[]
@@ -226,18 +227,19 @@ describe('F20260826ucrt CreateOtterModal', () => {
     act(() => { fireEvent.change(nameInput, { target: { value: '分析獭' } }) })
 
     // 选第三款头像
-    const gridButtons = Array.from(document.querySelectorAll('button[title]')).filter(b => b.title)
+    const gridButtons = (Array.from(document.querySelectorAll('button[title]')) as HTMLButtonElement[]).filter(b => b.title)
     act(() => { fireEvent.click(gridButtons[2]) })
 
     const createBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '创建')
     act(() => { fireEvent.click(createBtn!) })
 
     expect(submitted).toBeTruthy()
-    expect((submitted as Record<string, unknown>).name).toBe('分析獭')
-    expect(typeof (submitted as Record<string, unknown>).systemPrompt).toBe('string')
-    expect((submitted as Record<string, unknown>).systemPrompt).toContain('你是分析獭')
-    expect((submitted as Record<string, unknown>).modelAlias).toBe('glm')
-    expect((submitted as Record<string, unknown>).avatarName).toBeTruthy()
+    const form = submitted as Record<string, unknown>
+    expect(form.name).toBe('分析獭')
+    expect(typeof form.systemPrompt).toBe('string')
+    expect(form.systemPrompt).toContain('你是分析獭')
+    expect(form.modelAlias).toBe('glm')
+    expect(form.avatarName).toBeTruthy()
   })
 
   it('高级编辑：开启预填当前生成内容', async () => {
