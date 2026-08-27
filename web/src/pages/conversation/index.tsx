@@ -18,6 +18,7 @@ import { ConversationModals, type ModalState } from './Modals'
 import { mergeOttersIfChanged } from '../../lib/shallow-equal-otters'
 import { useMediaQuery } from '../../hooks/use-media-query'
 import { useConversationListPolling } from '../../hooks/use-conversation-list-polling'
+import { useDeferredOps } from './hooks/useDeferredOps'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
 import { ExecutionHistoryModal } from './ExecutionHistoryModal'
 import { useScheduledTasks } from './hooks/useScheduledTasks'
@@ -155,9 +156,6 @@ function ConversationPage() {
    *  真实状态；手动 flush 后 timer 自然空转，无害）。ref 同步在 render 阶段
    *  （isAnyModalOpen 处）——effect 同步存在 commit→effect 间隙，弹窗打开瞬间
    *  batcher timer 到期会穿透 defer（检视 S-2） */
-  useEffect(() => {
-    if (!modalOpen) batcher.flush()
-  }, [modalOpen, batcher])
   const batchUpdateMessages = useCallback((convId: string, updater: (prev: LocalMessage[]) => LocalMessage[]) => {
     batcher.update(convId, updater)
   }, [batcher])
@@ -175,6 +173,31 @@ function ConversationPage() {
   /** F20260825scrf：modalOpen 派生（8 种 ConversationModals + 定时任务/执行历史 modal）。
    *  下沉到 index 顶层供 batcher/轮询冻结用；setModalOpen 仅在此处同步 */
   const isAnyModalOpen = modal.type !== 'none' || scheduledTaskModal.type !== 'none' || executionHistoryTaskId !== null
+  /** F20260827scrf2（第五源治理）：SSE 回调里的 setAllOtters 直接 setState 绕过全部冻结
+   *  gate（batcher defer / 轮询 gate / refreshMessages 守卫）——多獭流式场景每 turn 的
+   *  message.start/complete/aborted/onDone 都驱动右栏+消息区 re-render，scrim 背景
+   *  像素变化 → 闪烁（8/25 验证环境未复现因当时对话内无小獭增量，fill-only 提前 return）。
+   *  治理：统一入口 upsertOtterIfAbsentDeferred——弹窗期攒进 pendingOtters，关窗 flush。
+   *  fill-only 幂等语义保证延迟更新安全；全量替换（onDone 参与者刷新）跳过后关窗由
+   *  upsert 链补齐参与者，无永久丢失 */
+  const { runOrDefer, flush: flushDeferredOps } = useDeferredOps(() => modalOpenRef.current)
+  const upsertOtterIfAbsentDeferred = useCallback((otterId: string, otterName?: string, convId?: string) => {
+    const apply = (prev: Record<string, LocalOtter[]>) => {
+      const cid = convId || activeId
+      if (!cid || !otterId) return prev
+      const convOtters = prev[cid] || []
+      if (convOtters.some(o => o.id === otterId)) return prev
+      const newOtter: LocalOtter = { id: otterId, name: otterName || '', type: 'small', createdAt: '' }
+      return { ...prev, [cid]: [...convOtters, newOtter] }
+    }
+    runOrDefer(() => setAllOtters(apply))
+  }, [activeId, runOrDefer])
+
+  /** F20260827scrf2：关窗 flush——batcher（流式 batch）与 deferred ops（参与者/徽标）
+   *  同窗口重放，背景一次性追上真实状态 */
+  useEffect(() => {
+    if (!modalOpen) { batcher.flush(); flushDeferredOps() }
+  }, [modalOpen, batcher, flushDeferredOps])
   /** F20260825scrf 检视 S-2 修复：render 阶段同步 ref（镜像最新值模式）——useEffect
    *  同步存在 commit→effect 间隙，弹窗打开瞬间的 batcher timer 到期会读到旧值 false，
    *  flush 穿透 defer 产生单帧闪烁。render 赋值幂等，StrictMode 双 render 无害 */
@@ -193,16 +216,19 @@ function ConversationPage() {
     update: updateScheduledTask,
     remove: deleteScheduledTask,
     trigger: triggerScheduledTask,
-  } = useScheduledTasks(activeId)
+  } = useScheduledTasks(activeId, !modalOpen)
 
   /** dissolve_otter 工具执行完成后刷新参与者列表（DRY 提取，检视獭 review F1） */
   const refreshParticipantsAfterDissolve = useCallback((toolName: string) => {
     if (toolName !== 'dissolve_otter' || !activeId) return
     api.getParticipants(activeId).then(participants => {
       // #502：内容未变时保引用，避免 RightPanel 整树 re-render 引发 hover 快览卡微闪
-      setAllOtters(prev => mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p))))
+      // F20260827scrf2：弹窗期延迟到关窗 flush（runOrDefer），不驱动背景像素变化
+      const apply = (prev: Record<string, LocalOtter[]>) =>
+        mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p)))
+      runOrDefer(() => setAllOtters(apply))
     }).catch(err => console.error('Failed to refresh participants after dissolve:', err))
-  }, [activeId])
+  }, [activeId, runOrDefer])
 
   useEffect(() => {
     loadInitialData()
@@ -457,7 +483,9 @@ function ConversationPage() {
           return [...current, message]
         })
         // BUG-FIX: 仅在消息确实新增（非重复/去重替换）时计数，防止重复广播事件虚增
-        if (added && !isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+        /** F20260827scrf2：捕获事件时刻的 isAtBottom（defer 重放时用户可能已滚到底，
+         *  按到达时刻判断与原语义一致） */
+        if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
       },
       'message.start': (data) => {
         const { messageId, otterId, otterName } = data as { messageId: string; otterId: string; otterName: string }
@@ -475,13 +503,11 @@ function ConversationPage() {
           return insertBySeq(current, placeholder)
         })
         if (otterId && activeId) {
-          setAllOtters(prev => {
-            const convOtters = prev[activeId] || []
-            if (convOtters.some(o => o.id === otterId)) return prev
-            return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
-          })
+          upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
         }
-        if (added && !isAtBottomRef.current) setNewMessagesCount(c => c + 1)
+        /** F20260827scrf2：捕获事件时刻的 isAtBottom（defer 重放时用户可能已滚到底，
+         *  按到达时刻判断与原语义一致） */
+        if (added) { const atBottom = isAtBottomRef.current; runOrDefer(() => { if (!atBottom) setNewMessagesCount(c => c + 1) }) }
       },
       'assistant_text': (data) => {
         const liveEvents = liveEventsMap.get(data.messageId as string)
@@ -570,11 +596,7 @@ function ConversationPage() {
         const otterName = dataOtterName ?? meta?.otterName
         /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
         if (otterId && otterName && activeId) {
-          setAllOtters(prev => {
-            const convOtters = prev[activeId] || []
-            if (convOtters.some(o => o.id === otterId)) return prev
-            return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
-          })
+          upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
         }
         /** upsertTerminalMessage 与已有投影合并保留 events/seq/ts 等字段（第四轮检视 S4-1） */
         const abortedMsg: LocalMessage = {
@@ -671,7 +693,7 @@ function ConversationPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (xhr) xhr.abort()
     }
-  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
 
   useEffect(() => {
     for (const otter of Object.values(allOtters).flat()) {
@@ -742,11 +764,7 @@ function ConversationPage() {
           batchUpdateMessages(activeId!, (list) => insertBySeq(list, placeholder))
           /** 确保发言者在参与者列表中（流中途 create_otter 的新獭）；fill-only，不覆盖已有条目 */
           if (otterId && activeId) {
-            setAllOtters(prev => {
-              const convOtters = prev[activeId] || []
-              if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
-            })
+            upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
           }
           // message.start 计数由 GET 订阅统一处理，POST 流不重复计数
         },
@@ -851,11 +869,7 @@ function ConversationPage() {
           const otterName = data.otterName ?? meta?.otterName
           /** 确保 otter 在 allOtters 中（chain 创建的新 otter 可能还没加入） */
           if (otterId && otterName && activeId) {
-            setAllOtters(prev => {
-              const convOtters = prev[activeId] || []
-              if (convOtters.some(o => o.id === otterId)) return prev
-              return { ...prev, [activeId]: [...convOtters, { id: otterId, name: otterName, type: 'small', createdAt: '' }] }
-            })
+            upsertOtterIfAbsentDeferred(otterId, otterName, activeId)
           }
           const abortedMsg: LocalMessage = {
             id: messageId, st: 'otter', si: otterId, sn: otterName,
@@ -907,11 +921,14 @@ function ConversationPage() {
         /** SSE 中断不代表发言停止（刷新≠停止）：拉取快照播种进行中消息，让轮询续看接管 */
         if (activeId) refreshMessages(activeId)
       }, onDone: () => {
-        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭） */
+        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭）。
+         *  F20260827scrf2：弹窗打开期间不 setState——结果延迟到关窗 flush（与 batcher
+         *  同窗口）；非弹窗期行为不变（#502 浅比较保引用） */
         if (activeId) {
           api.getParticipants(activeId).then(participants => {
-            // #502：浅比较保引用（流结束后参与者多数情况未变，白闪一次不值）
-            setAllOtters(prev => mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p))))
+            const apply = (prev: Record<string, LocalOtter[]>) =>
+              mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p)))
+            runOrDefer(() => setAllOtters(apply))
           }).catch(() => {})
         }
       } })
@@ -920,7 +937,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
+  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1100,7 +1117,7 @@ function ConversationPage() {
     } catch {
       showToast('重试请求失败', 'error')
     }
-  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment])
+  }, [activeId, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
 
   const handleSelectConv = useCallback((id: string) => {
     // 混合架构：切换对话时整页刷新
