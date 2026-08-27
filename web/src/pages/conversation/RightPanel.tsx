@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
+import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock, Check, Copy } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
@@ -169,6 +169,80 @@ function isTouchDevice() {
   return _isTouchDevice
 }
 
+/** F20260827rsux：资源详情悬浮卡——取代原生 title tooltip。
+ *  Why: ①条目截断后 value 只能悬停看原生灰条，无样式且超长不换行不可复制；
+ *  ②快速复制是硬需求（PR 号、路径、事实文本都是要贴到别处用的）。
+ *  How: Portal + fixed 定位摆脱 aside overflow-y-auto 剪裁（F20260826pfix 同模式）。
+ *  卡内文本 wrap 不截断可选中；右上角一键复制（clipboard API + execCommand 降级）。 */
+function ResourceHoverCard({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
+  const [copied, setCopied] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const copy = () => {
+    const t = bodyRef.current?.innerText ?? ''
+    if (!t) return
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1500) }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(t).then(done).catch(() => { if (legacyCopy(t)) done() })
+    } else if (legacyCopy(t)) done()
+  }
+  return createPortal(
+    <div
+      className="fixed z-50"
+      style={{ left: Math.max(8, Math.min(x, window.innerWidth - 296)), top: Math.min(y, window.innerHeight - 160) }}
+    >
+      <div className="relative glass-strong rounded-2xl p-3 w-[280px] shadow-bubble">
+        <button
+          onClick={copy}
+          title="复制全文"
+          className="absolute top-2 right-2 p-1 rounded-md text-stone-400 hover:text-otter-500 hover:bg-white/40 transition"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-teal-500" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+        <div ref={bodyRef} className="text-xs text-stone-600 leading-relaxed break-all whitespace-pre-wrap pr-6 select-text">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/** 非安全上下文（局域网 IP 访问 dev server 等）无 clipboard API 时的降级复制。
+ *  F20260827rsux：与 Modals.tsx 同实现（该处为未导出的私有函数，这里内联一份，待后续统一提取） */
+function legacyCopy(text: string): boolean {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { /* 降级也失败则静默，hover 卡仍展示全文 */ }
+  document.body.removeChild(ta)
+  return ok
+}
+
+/** F20260827rsux：资源条目 hover 态（400ms debounce + rect 快照，与 OtterParticipantCard 快览卡同节奏） */
+function useResourceHover() {
+  const [hovering, setHovering] = useState(false)
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const onEnter = useCallback(() => {
+    if (isTouchDevice()) return
+    timer.current = setTimeout(() => {
+      if (rowRef.current) setRect(rowRef.current.getBoundingClientRect())
+      setHovering(true)
+    }, 400)
+  }, [])
+  const onLeave = useCallback(() => {
+    clearTimeout(timer.current)
+    setHovering(false)
+  }, [])
+  useEffect(() => () => clearTimeout(timer.current), [])
+  return { rowRef, hovering, rect, onEnter, onLeave }
+}
+
 /**
  * #502：memo 兜底——allOtters 浅比较保住引用后，本组件 props 稳定即不重渲染，
  * hover 快览卡不再因轮询产生的新对象引用而微闪。
@@ -282,8 +356,14 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
 })
 
 function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; onToggleFlag: () => void; onDelete: () => void }) {
+  const h = useResourceHover()
   return (
-    <div className="flex items-start gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group">
+    <div
+      ref={h.rowRef}
+      onMouseEnter={h.onEnter}
+      onMouseLeave={h.onLeave}
+      className="flex items-start gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group"
+    >
       <span
         onClick={onToggleFlag}
         className={`cursor-pointer mt-0.5 ${f.flagged ? 'text-amber-400' : 'text-stone-300'}`}
@@ -291,8 +371,8 @@ function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; o
         <Star className="w-3.5 h-3.5" fill={f.flagged ? 'currentColor' : 'none'} />
       </span>
       <span className="text-xs text-stone-600 flex-1 min-w-0 flex flex-col gap-1">
-        {/* 长事实截断，悬停原生 tooltip 显示全文（沿用项目 title 属性惯例） */}
-        <span className="truncate" title={f.content ?? undefined}>{f.content}</span>
+        {/* F20260827rsux：原生 title tooltip 升级为悬浮详情卡（全文 + 一键复制） */}
+        <span className="truncate">{f.content}</span>
         {f.category && (
           <span className="text-[9px] text-stone-400 bg-white/30 px-1.5 py-0.5 rounded-full w-fit">
             {f.category}
@@ -305,16 +385,28 @@ function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; o
       >
         <X className="w-3 h-3" />
       </span>
+      {h.hovering && h.rect && (
+        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4}>
+          {f.category && <span className="inline-block text-[9px] text-stone-400 bg-white/40 px-1.5 py-0.5 rounded-full mr-1">{f.category}</span>}
+          {f.content}
+        </ResourceHoverCard>
+      )}
     </div>
   )
 }
 
 function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResource; onDelete: () => void }) {
+  const h = useResourceHover()
   return (
-    <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group">
-      {/* 与 FactItem 统一为 stone 色系：链接类资源加类型色块，长标题截断 + tooltip 显示全文（含 url） */}
+    <div
+      ref={h.rowRef}
+      onMouseEnter={h.onEnter}
+      onMouseLeave={h.onLeave}
+      className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-white/30 transition group"
+    >
+      {/* 与 FactItem 统一为 stone 色系：链接类资源加类型色块，长标题截断（F20260827rsux：详情看悬浮卡） */}
       <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-skeleton text-stone-500 uppercase flex-shrink-0">{r.type}</span>
-      <span className="text-xs text-stone-600 truncate flex-1" title={r.url || r.title || undefined}>
+      <span className="text-xs text-stone-600 truncate flex-1">
         {r.title || r.url || '(无标题)'}
       </span>
       {r.auto && (
@@ -326,6 +418,13 @@ function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResourc
       >
         <X className="w-3 h-3" />
       </span>
+      {h.hovering && h.rect && (
+        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4}>
+          {r.title && <span className="block font-semibold text-stone-700 mb-1">{r.title}</span>}
+          {r.url && <span className="block text-teal-600 break-all">{r.url}</span>}
+          {!r.title && !r.url && <span className="text-stone-400">(无内容)</span>}
+        </ResourceHoverCard>
+      )}
     </div>
   )
 }
