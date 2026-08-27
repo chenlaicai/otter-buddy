@@ -70,11 +70,11 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
 
   return (
     <Modal title="执行历史" onClose={onClose} width="640px">
-      <div className="max-h-[60vh] overflow-y-auto">
+      <div className="max-h-[var(--modal-scroll-max-h)] overflow-y-auto">
         {loading && executions.length === 0 ? (
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-16 bg-stone-100 rounded-xl animate-pulse" />
+              <div key={i} className="h-16 bg-skeleton rounded-xl animate-pulse" />
             ))}
           </div>
         ) : executions.length === 0 ? (
@@ -122,10 +122,10 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
                 <div className="flex items-center gap-2">
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     ex.status === 'completed'
-                      ? 'bg-green-100 text-green-700'
+                      ? 'bg-status-success text-green-700'
                       : ex.status === 'failed'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-blue-100 text-blue-700'
+                        ? 'bg-status-error text-red-700'
+                        : 'bg-status-running text-blue-700'
                   }`}>
                     {ex.status === 'completed' ? '成功' : ex.status === 'failed' ? '失败' : '执行中'}
                   </span>

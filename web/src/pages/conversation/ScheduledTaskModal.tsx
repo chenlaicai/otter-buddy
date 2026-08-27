@@ -77,7 +77,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
 
   return (
     <Modal title={mode === 'create' ? '新建定时任务' : '编辑定时任务'} onClose={onClose}>
-      <div className="space-y-4 max-h-[60vh] overflow-y-auto px-1">
+      <div className="space-y-4 max-h-[var(--modal-scroll-max-h)] overflow-y-auto px-1">
         {/* 任务名称 */}
         <div>
           <label className="block text-sm font-medium text-stone-700 mb-1.5">
@@ -186,7 +186,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
         </div>
 
         {/* 每次触发前重启獭生 */}
-        <div className="flex items-center justify-between p-3 rounded-lg bg-stone-50/50">
+        <div className="flex items-center justify-between p-3 rounded-lg bg-glass-surface">
           <div>
             <div className="text-sm font-medium text-stone-700">每次触发前重启獭生</div>
             <div className="text-xs text-stone-400 mt-0.5">适合需要干净上下文的定期任务（如健康检查、依赖升级）</div>

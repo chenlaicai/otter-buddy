@@ -82,7 +82,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
           <AlertTriangle className="w-3 h-3" />
           超出单消息卡片上限（{CARD_MAX_PER_MESSAGE} 张），已降级为源码
         </div>
-        <pre className="px-3 pb-3 text-[11px] text-stone-500 whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">{code}</pre>
+        <pre className="px-3 pb-3 text-[11px] text-stone-500 whitespace-pre-wrap break-all max-h-[var(--compact-scroll-max-h)] overflow-y-auto">{code}</pre>
       </div>
     )
   }
@@ -94,7 +94,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
         <span className="font-medium truncate flex-1">{title || '未命名卡片'}</span>
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-otter-400/15 text-otter-600 flex-shrink-0">HTML 卡片</span>
         {oversize && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0" title={`卡片超出 ${CARD_MAX_BYTES / 1024}KB 体积预算`}>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-status-stalled text-amber-700 flex-shrink-0" title={`卡片超出 ${CARD_MAX_BYTES / 1024}KB 体积预算`}>
             超 {CARD_MAX_BYTES / 1024}KB
           </span>
         )}
@@ -136,7 +136,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
         </>
       )}
       {view === 'source' && (
-        <pre className="px-3 pb-3 text-[11px] text-stone-500 whitespace-pre-wrap break-all max-h-[400px] overflow-y-auto">{code}</pre>
+        <pre className="px-3 pb-3 text-[11px] text-stone-500 whitespace-pre-wrap break-all max-h-[var(--list-scroll-max-h)] overflow-y-auto">{code}</pre>
       )}
     </div>
   )
