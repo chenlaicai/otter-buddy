@@ -1,6 +1,6 @@
 ---
 id: F20260827cbdg
-title: html-card-badge-copy
+title: HTML卡片徽标文案修正：沙箱隔离语义保留信任错位去除
 doc_type: feature
 
 # 记忆索引
