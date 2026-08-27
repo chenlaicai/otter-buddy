@@ -1,0 +1,111 @@
+/**
+ * Signal report 解析器（F20260826mwrd C2）。
+ *
+ * 小獭在 speak body 中嵌入 <signal type="objection|blocked" severity="...">正文</signal>，
+ * 本模块抽取进 signal_events 台账（仿 healing-report-parser 先例）。
+ *
+ * 与 healing 块的分界：healing = 系统自愈（工具故障/格式异常），signal = 协作协调
+ * （异议/卡住升级）。语义池独立、传输管道模式共享（方案 Part 2「为什么不复用
+ * healing_events 表」）。
+ *
+ * 鲁棒性（对齐 healing parser 踩坑防御 + 审视发现 6 增补）：
+ * - normalize：转义写法（\< \>）、反引号包裹、属性引号全角/单引号
+ * - 白名单校验 type（objection/blocked——halt 只能经 halt_otter 工具，不走 speak）
+ * - 截断防滥用：正文 ≤1000 字符；每条消息信号数上限 5
+ * - 畸形类型显式枚举（C2 单测验收）：无 type / type 白名单外 / 空 payload /
+ *   超长 / 属性引号异常 / 正文未闭合——非法块静默剥离不落账（fail-open，
+ *   不阻断正常发言）
+ */
+
+export type ParsedSignalType = 'objection' | 'blocked';
+
+export interface ParsedSignal {
+  type: ParsedSignalType;
+  severity: 'low' | 'medium' | 'high';
+  payload: string;
+}
+
+export interface ParsedSignalReport {
+  signals: ParsedSignal[];
+  /** 被剥离的原始块（含畸形块）——调用方日志用 */
+  strippedBlocks: string[];
+}
+
+export const MAX_SIGNALS_PER_MESSAGE = 5;
+export const MAX_PAYLOAD_CHARS = 1000;
+
+// 全角引号 → 半角（在 signal 标签头部区域；“ ” ‘ ’）
+function normalizeTagQuotes(body: string): string {
+  // 逐次扫描：<signal 后到首个 > 之间的引号替换（避免误伤正文书容——正文中全角引号合法）
+  return body.replace(/<signal\b[^>]*>/gi, tag => tag.replace(/[“”‘’]/g, '"'));
+}
+
+/** normalize：LLM 常见变体 → 标准形态 */
+function normalizeSignalSyntax(body: string): string {
+  return normalizeTagQuotes(
+    body
+      // 转义写法 \<signal / \< / \>
+      .replace(/\\</g, '<')
+      .replace(/\\>/g, '>')
+      // 反引号包裹的标签（讨论协议本身时避免误解析）
+      .replace(/`(<signal)/gi, '$1')
+      .replace(/(<\/signal>)`/gi, '$1'),
+  );
+}
+
+/**
+ * 抽取合法信号块。仅匹配 type 属性为合法值的块（畸形块由 stripSignalReport 兜底剥离）。
+ * 属性引号容忍双引号/单引号（normalize 后无全角）。
+ */
+const SIGNAL_BLOCK_RE = /<signal\s+type\s*=\s*(["']?)(objection|blocked)\1\s+severity\s*=\s*(["']?)(low|medium|high)\3\s*>([\s\S]*?)<\/signal>/gi;
+
+/** 全部 signal 块（含畸形）：剥离用。type 白名单外的块也剥离——不让控制语法泄漏进 UI 正文 */
+const ANY_SIGNAL_BLOCK_RE = /<signal\b[^>]*>[\s\S]*?<\/signal>/gi;
+/** 未闭合块（有开无合）——尾部残留也剥离 */
+const UNCLOSED_SIGNAL_RE = /<signal\b[^>]*>(?![\s\S]*<\/signal>)/gi;
+
+function validatePayload(payload: string): string | null {
+  const trimmed = payload.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, MAX_PAYLOAD_CHARS);
+}
+
+/**
+ * 解析 speak body 中的信号块。
+ * 非法/畸形块不计入 signals（静默剥离），合法块超上限的部分丢弃。
+ */
+export function parseSignalReport(body: string): ParsedSignalReport {
+  const normalized = normalizeSignalSyntax(body);
+  const strippedBlocks: string[] = [];
+
+  for (const m of normalized.matchAll(ANY_SIGNAL_BLOCK_RE)) {
+    strippedBlocks.push(m[0]);
+  }
+  for (const m of normalized.matchAll(UNCLOSED_SIGNAL_RE)) {
+    strippedBlocks.push(m[0]);
+  }
+
+  const signals: ParsedSignal[] = [];
+  for (const m of normalized.matchAll(SIGNAL_BLOCK_RE)) {
+    const payload = validatePayload(m[5]);
+    if (!payload) continue; // 空 payload = 畸形，不落账
+    signals.push({
+      type: m[2] as ParsedSignalType,
+      severity: m[4] as ParsedSignal['severity'],
+      payload,
+    });
+    if (signals.length >= MAX_SIGNALS_PER_MESSAGE) break;
+  }
+
+  return { signals, strippedBlocks };
+}
+
+/** 从 speak body 剥离全部信号块（合法 + 畸形），返回 cleanBody */
+export function stripSignalReport(body: string): string {
+  const normalized = normalizeSignalSyntax(body);
+  return normalized
+    .replace(ANY_SIGNAL_BLOCK_RE, '')
+    .replace(UNCLOSED_SIGNAL_RE, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
