@@ -51,7 +51,8 @@ export class AttachmentInjectionService {
   }
 
   /**
-   * 前置校验 + 组装一次完成（controller sendMessage 入口用）。
+   * 前置校验 + 组装（controller sendMessage 入口用）。注：校验与组装各自 getByIds
+   * 查一次（共两次查询，数据量微小不合并）。
    * @returns 错误消息字符串（拒绝）或注入载荷（undefined 表示无附件/未装配）
    */
   async validateAndBuild(attachmentIds?: string[]): Promise<string | InjectionPayload | undefined> {

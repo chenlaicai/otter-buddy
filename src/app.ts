@@ -251,6 +251,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     rhiScanWorker,
     signalRepo: new SignalRepository(db),
     healthSnapshotRepo: new HealthSnapshotRepository(db),
+    // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
+    attachmentRepo: repos.attachment,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");

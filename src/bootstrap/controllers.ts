@@ -122,14 +122,14 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       : new NoopInboundController(),
     // 多模态 Phase 1：附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments；
     // 审视修复 R10：上传时校验会话存在（隔离语义）
-    ...(deps.attachmentRepo && {
-      attachment: new AttachmentController(
-        uc.attachmentUpload,
-        deps.attachmentRepo,
-        deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
-        logger,
-        repos.conversation,
-      ),
-    }),
+    // D1 修复：fallback repos.attachment（与上方 MessageController 同模式）——
+    // 此前硬性 `deps.attachmentRepo &&` 条件在装配根未显式传参时恒 false，附件路由生产 404
+    attachment: new AttachmentController(
+      uc.attachmentUpload,
+      deps.attachmentRepo ?? repos.attachment,
+      deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+      logger,
+      repos.conversation,
+    ),
   };
 }

@@ -9,8 +9,8 @@ summary: |
   上传管线（MIME 双路径校验排除 SVG/流式计数/sharp resize 2048px）；上传/下载 API（nosniff+
   会话存在性校验+竞态修复）；投影纯函数统一五出口（FTS/记忆/未读/DTO/egress，egress 附件块
   truncate 前注入且预留截断预算）；vision 注入（usecases 层策略：真图+document 提取 16KB 截断，
-  ≤2 图硬限制，retry 带原附件）；FTS 写入时序修复；models[] 可选 input。41 文件 +2600/-310，
-  153 测试文件 1814 用例全绿。
+  ≤2 图硬限制，retry 带原附件）；FTS 写入时序修复；models[] 可选 input。42 文件 +2901/-214，
+  153 测试文件 1815 用例全绿。
 
 # 因果链路
 causal_links:
@@ -154,7 +154,7 @@ PR（紧随，上传交互/附件渲染，后端契约已就绪）。Web 前端�
   真图注入 dispatch 链（base64 ImageContent 断言）/document 注入内容断言/**FTS 时序**
   （带附件消息落库后 messages_fts.body 含附件占位——直接查 FTS 表断言）
 
-全量：153 测试文件 1814 用例全绿（首轮 1802 + 修复轮新增 12）；eslint 0 error；tsc 干净。
+全量：153 测试文件 1815 用例全绿（首轮 1802 + 修复轮 12 + Delta 轮装配回归 1）；eslint 0 error；tsc 干净。
 
 ## 关键实现决策（与方案对齐处）
 
@@ -185,7 +185,7 @@ PR（紧随，上传交互/附件渲染，后端契约已就绪）。Web 前端�
 | 严重3 | FTS 出口时序断（appendSegment 先于 link） | ✅ link 提前到 appendSegment 之前（组装点③内）；FTS 时序测试（直接查 messages_fts 断言附件占位） |
 | 严重4 | document 注入缺失 + 文档伪称方案非目标 | ✅ 实现 plain-text extractor + 16KB 截断（方案 §3.4①）；文档如本文档修正 |
 | 严重5 | Web 前端零改动 + 文档不实理由 | ✅ 大獭拍板拆分：Web 前端紧随第二 PR，Phase 1 完成以两 PR 都合入为准（文档如实声明） |
-| 严重6 | 文档数字失实（25 文件 vs 37） | ✅ 本文档按实际重写（41 文件 +2600/-310，含修复轮） |
+| 严重6 | 文档数字失实（25 文件 vs 37） | ✅ 本文档按实际重写（git 实测 42 文件 +2901/-214，含三轮 commit；后续以 `git diff main...HEAD --stat` 为准） |
 | 建议7 | 策略落 controller 违反分层 | ✅ AttachmentInjectionService 上移 usecases（见 §7） |
 | 建议8 | 吞错 catch | ✅ repository 两处降级路径改 logger.warn 留痕（SqliteConversationRepository 构造器加可选 logger） |
 | 建议9 | retry 丢图 | ✅ loadRetryInjection 从原 user 消息 attachments 重载（见 §7） |
@@ -205,7 +205,7 @@ PR（紧随，上传交互/附件渲染，后端契约已就绪）。Web 前端�
 
 ## 影响范围
 
-41 文件 +2600/-310（两轮合计）。新增源文件：attachment.ts / attachment-projection.ts /
+42 文件 +2901/-214（三轮合计，git diff main...HEAD --stat 实测）。新增源文件：attachment.ts / attachment-projection.ts /
 attachment-repository.ts / sqlite-attachment-repository.ts / upload-validation.ts /
 attachment-upload-service.ts / attachment-injection-service.ts / attachment-controller.ts +
 5 测试文件。依赖新增：sharp（升为直接依赖）、busboy（multipart 流式解析）。
