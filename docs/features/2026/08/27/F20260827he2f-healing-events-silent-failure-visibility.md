@@ -1,6 +1,6 @@
 ---
 id: F20260827he2f
-title: healing-events-silent-failure-visibility
+title: 熔断重启后 healing events 未落库的静默失明修复（#508）
 summary: |
   修复熔断重启后 healing events 未落库但健康检查链路失明的缺陷。
   根因：healingRepo.create() 抛错被 recordDegenerateHealingEvent 和 writeCircuitBreakEvent
