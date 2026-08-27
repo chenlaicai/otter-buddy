@@ -196,6 +196,22 @@ describe('parseSignalReport（F20260827c2sg 审视处置：发现 4 重写为 to
     expect(signals[0].type).toBe('blocked');
     expect(signals[0].payload).toBe('合法C');
   });
+
+  it('属性段含裸 < 的畸形开标签：残文剥离不泄漏进 UI 正文（发现 5 探针场景）', () => {
+    const body = '正文一 <signal a<b type="objection" severity="low">x</signal> 正文二';
+    const clean = stripSignalReport(body);
+    // 控制语法全部剥离（含 tokenizer 认不出的畸形开标签残文）
+    expect(clean).not.toContain('<signal');
+    expect(clean).not.toContain('</signal>');
+    // 落账行为不变：畸形块不落账
+    const { signals } = parseSignalReport(body);
+    expect(signals).toHaveLength(0);
+  });
+
+  it('无 > 的纯文字引用保留（剥语法不吞内容）——兑底正则不误伤内容', () => {
+    const clean = stripSignalReport('正文里引用 <signal 字样但无闭合形态');
+    expect(clean).toContain('<signal 字样');
+  });
 });
 
 describe('stripSignalReport（剥离）', () => {

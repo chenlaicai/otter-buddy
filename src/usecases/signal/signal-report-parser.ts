@@ -74,6 +74,16 @@ interface SignalToken {
 /** 开/闭标签统一切 token（normalize 后无全角引号）。开标签属性段不含 <（避免 payload 中的裸 <signal 字样把闭合标签吞进开标签 token） */
 const SIGNAL_TOKEN_RE = /<signal\b[^<>]*>|<\/signal>/gi;
 
+/**
+ * 疑似开标签残文（F20260827c2sg 审视发现 5 兜底，仅 strip 侧用）：
+ * 属性段容忍裸 <（[^>]*）——tokenizer 认不出的畸形开标签（如 <signal a<b type=...>）
+ * 由这里兑底剥离，「<signal 开头的标签形态不应出现在 UI 正文」。
+ * 与 SIGNAL_TOKEN_RE 的分工：token 化保严格（[^<>]* 防裸字样吞闭合标签），
+ * 清理保宽容（残文宁可剥掉）。无 > 的纯文字引用（如「写到 <signal 字样」）不匹配，
+ * 作为内容保留——剥语法不吞内容。
+ */
+const SUSPECT_OPEN_TAG_RE = /<signal\b[^>]*>/gi;
+
 function tokenizeSignals(text: string): SignalToken[] {
   const tokens: SignalToken[] = [];
   for (const m of text.matchAll(SIGNAL_TOKEN_RE)) {
@@ -192,6 +202,8 @@ export function stripSignalReport(body: string): string {
 
   return parts
     .join('')
+    // 发现 5 兑底：tokenizer 认不出的疑似开标签残文（属性段含裸 <）——控制语法不泄漏进 UI 正文
+    .replace(SUSPECT_OPEN_TAG_RE, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
