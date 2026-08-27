@@ -20,6 +20,8 @@ import { updateDefaultModelInYaml } from "@frameworks/config-service";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
+/** 多模态 Phase 1（审视修复 R4/R7）：注入服务（usecases 层策略） */
+import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
@@ -88,14 +90,20 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   const nodeFs = new NodeFileSystem();
   const rootDir = process.cwd();
 
+  /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
+  const attachmentInjection = new AttachmentInjectionService({
+    attachmentRepo: deps.attachmentRepo ?? repos.attachment,
+    storageRoot: deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+    logger,
+  });
+
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
     otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
     message: new MessageController(
       uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
       dispatchChainEngine, messageBroadcaster,
-      deps.attachmentRepo ?? repos.attachment,
-      deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+      attachmentInjection,
     ),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
@@ -112,13 +120,15 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
           logger,
         )
       : new NoopInboundController(),
-    // 多模态 Phase 1：附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments
+    // 多模态 Phase 1：附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments；
+    // 审视修复 R10：上传时校验会话存在（隔离语义）
     ...(deps.attachmentRepo && {
       attachment: new AttachmentController(
         uc.attachmentUpload,
         deps.attachmentRepo,
         deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
         logger,
+        repos.conversation,
       ),
     }),
   };

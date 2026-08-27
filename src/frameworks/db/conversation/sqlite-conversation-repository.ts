@@ -33,13 +33,20 @@ import * as mixins from "./conversation-repository-mixins";
 
 import { escapeFtsQuery } from "../fts-utils";
 import { SqliteAttachmentRepository } from "../attachment/sqlite-attachment-repository";
+import type { Logger } from "@usecases/ports/logger";
 
 export class SqliteConversationRepository implements ConversationRepository {
   /** 多模态 Phase 1：附件 repo（消息组装点①——repository 加载回填 attachments） */
   private readonly attachmentRepo: SqliteAttachmentRepository;
+  /** 审视修复 R8：附件 JOIN 降级时留痕（不再吞错——真实 DB 故障须可观测） */
+  private readonly logger?: Logger;
 
-  constructor(private readonly db: Database.Database) {
+  constructor(
+    private readonly db: Database.Database,
+    logger?: Logger,
+  ) {
     this.attachmentRepo = new SqliteAttachmentRepository(db);
+    this.logger = logger;
   }
 
   /**
@@ -77,8 +84,12 @@ export class SqliteConversationRepository implements ConversationRepository {
         mimeType: "", sizeBytes: r.size_bytes, width: null, height: null, caption: r.caption,
       })));
       return projection ? `${body}\n${projection}` : body;
-    } catch {
-      // 老库无附件表等异常不阻断 FTS 主路径（附件缺席投影为空）
+    } catch (err) {
+      // 审视修复 R8：降级留痕（migrate 启动即补表，此处异常几乎必为真实 DB 故障）
+      this.logger?.warn("Attachment projection join failed, FTS body degraded to no-attachment", {
+        messageId,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return body;
     }
   }
@@ -115,8 +126,12 @@ export class SqliteConversationRepository implements ConversationRepository {
         const atts = byMsgId.get(msg.id);
         if (atts && atts.length > 0) msg.attachments = atts;
       }
-    } catch {
-      // 老库无表等异常不阻断消息读主路径（附件缺席投影为空，跨通道仅少一行占位）
+    } catch (err) {
+      // 审视修复 R8：降级留痕（同上——不再静默吞错）
+      this.logger?.warn("Attachment refs load failed, message degraded to no-attachment", {
+        messageCount: messages.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

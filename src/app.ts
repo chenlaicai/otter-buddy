@@ -161,7 +161,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // ── 数据层初始化 ──
   const { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding } =
     await initDatabaseAndModels(config, logger, options.models);
-  const repos = initRepositoriesWithDb(db);
+  const repos = initRepositoriesWithDb(db, logger);
   await postInitDatabase(db, repos, logger);
 
   // F20260811mrpy Part 3：Embedding 版本锚校验（在 memory index 写入前完成）

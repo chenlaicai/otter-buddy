@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
+import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 
@@ -33,6 +34,8 @@ export class AttachmentController {
     private readonly attachmentRepo: AttachmentRepository,
     private readonly storageRoot: string,
     private readonly logger: Logger,
+    /** 审视修复 R10：上传时校验会话存在（API 形态 /conversations/:id/attachments 的隔离语义）；可选注入 */
+    private readonly conversationRepo?: ConversationRepository,
   ) {}
 
   /** multipart 上传：Content-Type/Length 预检 + 流式解析（不全量读内存） */
@@ -41,18 +44,19 @@ export class AttachmentController {
       const conversationId = param(c, "id");
       const uploaderId = c.req.query("uploaderId") ?? "user";
 
-      // Content-Type 预检
-      const contentType = c.req.header("Content-Type") ?? "";
-      if (!contentType.startsWith("multipart/form-data")) {
-        return c.json({ error: "Content-Type 必须是 multipart/form-data" }, 400);
-      }
-      // Content-Length 预检（busboy 流式计数是第二道防线）
-      const declaredLength = Number(c.req.header("Content-Length") ?? "0");
-      if (Number.isFinite(declaredLength) && declaredLength > 120 * 1024 * 1024) {
-        return c.json({ error: "请求体过大" }, 413);
+      /** 审视修复 R10：会话存在性校验（不存在/已归档→404）——附件虽不落会话归属列，
+       *  但上传入口的会话隔离语义必须成立（防止向任意 ID 上传垃圾）。 */
+      if (this.conversationRepo) {
+        const conv = await this.conversationRepo.getById(conversationId);
+        if (!conv) {
+          return c.json({ error: "Conversation not found" }, 404);
+        }
       }
 
-      const { results, errors } = await this.parseMultipart(c, contentType, uploaderId);
+      const precheck = this.precheckRequest(c);
+      if (precheck) return precheck;
+
+      const { results, errors } = await this.parseMultipart(c, c.req.header("Content-Type") ?? "", uploaderId);
 
       if (results.length === 0 && errors.length > 0) {
         return c.json({ error: errors[0].error, errors }, 400);
@@ -68,10 +72,26 @@ export class AttachmentController {
     }
   }
 
-  /** busboy 流式解析 multipart：逐文件走上传管线（MIME 校验/大小限制/sha256 去重在管线内） */
+  /** 请求预检：Content-Type 必须 multipart；Content-Length 超限 413（busboy 流式计数是第二道防线） */
+  private precheckRequest(c: Context): Response | null {
+    const contentType = c.req.header("Content-Type") ?? "";
+    if (!contentType.startsWith("multipart/form-data")) {
+      return c.json({ error: "Content-Type 必须是 multipart/form-data" }, 400);
+    }
+    const declaredLength = Number(c.req.header("Content-Length") ?? "0");
+    if (Number.isFinite(declaredLength) && declaredLength > 120 * 1024 * 1024) {
+      return c.json({ error: "请求体过大" }, 413);
+    }
+    return null;
+  }
+
+  /** busboy 流式解析 multipart：逐文件走上传管线（MIME 校验/大小限制/sha256 去重在管线内）。
+   *  审视修复 R2（竞态）：file handler 内的 upload promise 必须收集，close 后 await 全部
+   *  in-flight 再返回——否则 sharp 异步处理未完成时 resolve，响应几乎必然返回空列表（主链路断）。 */
   private async parseMultipart(c: Context, contentType: string, uploaderId: string): Promise<UploadOutcome> {
     const results: Array<Record<string, unknown>> = [];
     const errors: Array<{ originalName: string; error: string }> = [];
+    const inFlight: Array<Promise<void>> = [];
 
     await new Promise<void>((resolve, reject) => {
       const busboy = Busboy({
@@ -81,28 +101,31 @@ export class AttachmentController {
 
       busboy.on("file", (_name, stream, info) => {
         const originalName = info.filename || "file";
-        this.uploadService
-          .upload({
-            stream: Readable.from(stream),
-            originalName,
-            declaredMimeType: info.mimeType || "application/octet-stream",
-            uploaderId,
-          })
-          .then(att => {
-            results.push({
-              id: att.id, kind: att.kind, mimeType: att.mimeType,
-              originalName: att.originalName, sizeBytes: att.sizeBytes,
-              ...(att.width != null && { width: att.width }),
-              ...(att.height != null && { height: att.height }),
-            });
-          })
-          .catch(err => {
-            errors.push({ originalName, error: err instanceof Error ? err.message : String(err) });
-          });
+        // 收集 upload promise（close 后统一 await，防竞态）
+        inFlight.push(
+          this.uploadService
+            .upload({
+              stream: Readable.from(stream),
+              originalName,
+              declaredMimeType: info.mimeType || "application/octet-stream",
+              uploaderId,
+            })
+            .then(att => {
+              results.push({
+                id: att.id, kind: att.kind, mimeType: att.mimeType,
+                originalName: att.originalName, sizeBytes: att.sizeBytes,
+                ...(att.width != null && { width: att.width }),
+                ...(att.height != null && { height: att.height }),
+              });
+            })
+            .catch(err => {
+              errors.push({ originalName, error: err instanceof Error ? err.message : String(err) });
+            }),
+        );
       });
 
       busboy.on("error", reject);
-      busboy.on("close", () => resolve());
+      busboy.on("close", () => { resolve(); });
 
       // 原始 body 流喂给 busboy（流式，不缓冲）
       const nodeStream = c.req.raw.body
@@ -110,6 +133,9 @@ export class AttachmentController {
         : Readable.from([]);
       nodeStream.pipe(busboy);
     });
+
+    // 竞态修复核心：全部文件处理完成（含 sharp resize）后才返回
+    await Promise.all(inFlight);
 
     return { results, errors };
   }

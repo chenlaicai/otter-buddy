@@ -211,12 +211,15 @@ export class SendMessage {
     };
 
     await this._repo.createCompletedMessage(message);
-    await this._repo.appendSegment(message.id, input.body);
 
-    /** 多模态 Phase 1 组装点③：消息-附件关联入库 */
+    /** 多模态 Phase 1 组装点③：消息-附件关联入库（审视修复 R3：必须在 appendSegment 之前——
+     *  appendSegment 内 refreshMessageFts 会 JOIN message_attachments 组装附件投影，
+     *  先写关联才能保证附件占位进 FTS 索引；顺序颠倒则 JOIN 时无关联行，附件永不进 FTS） */
     if (ctx.attachmentRefs && ctx.attachmentRefs.length > 0) {
       await this.attachmentRepo!.linkMessageAttachments(message.id, ctx.attachmentRefs.map(a => a.id));
     }
+
+    await this._repo.appendSegment(message.id, input.body);
 
     /** B11: 索引消息内容到记忆系统（html-card 剥离投影 + 附件占位投影，与 FTS 一致） */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, this.buildIndexBody(input.body, ctx.attachmentRefs));

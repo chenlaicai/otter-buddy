@@ -14,10 +14,8 @@ import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
-import { MAX_IMAGES_PER_TURN } from "@usecases/conversation/dispatch-chain-engine";
-import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
-import * as fs from "node:fs";
-import * as path from "node:path";
+/** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
+import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 
 export class MessageController {
   // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定
@@ -30,9 +28,8 @@ export class MessageController {
     private readonly queryOtter: QueryOtter,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly messageBroadcaster?: MessageBroadcaster,
-    /** 多模态 Phase 1：附件 repo + 存储根（vision 注入读盘；未注入时 attachmentIds 仍可落库但无真图） */
-    private readonly attachmentResolver?: AttachmentRepository,
-    private readonly attachmentStorageRoot?: string,
+    /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务（usecases 层策略——校验+真图+document 文本）；可选装配 */
+    private readonly attachmentInjection?: AttachmentInjectionService,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -181,16 +178,13 @@ export class MessageController {
 
       /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息）。
        *  talkingStonePassedTo 允许为空：无 @ 时由 usecase 层按领域规则解析默认目标 */
-      if (!body.senderId) {
-        return c.json({ error: "senderId is required" }, 400);
-      }
-      if (!body.body) {
-        return c.json({ error: "body is required" }, 400);
-      }
+      const requestError = this.validateSendMessageRequest(body);
+      if (requestError) return requestError;
 
-      /** 多模态 Phase 1：附件前置校验（存在性 + 每轮 ≤2 图硬限制） */
-      const attachmentError = await this.validateAttachmentIds(body.attachmentIds);
-      if (attachmentError) return attachmentError;
+      /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制）。
+       *  R4/R7 同步组装注入载荷（一次 getByIds，避免二次查询）。 */
+      const payload = await this.attachmentInjection?.validateAndBuild(body.attachmentIds);
+      if (typeof payload === "string") return c.json({ error: payload }, 400);
 
       /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
       const { message: userMessage, mentionFeedback } = await this.sendMessageUseCase.send({
@@ -202,47 +196,149 @@ export class MessageController {
       });
 
       // 广播用户消息到外部渠道（飞书等）
-      if (this.messageBroadcaster) {
-        this.messageBroadcaster.broadcast(userMessage).catch(err => {
-          this.logger.error("Failed to broadcast user message", err instanceof Error ? err : undefined, {
-            conversationId,
-            messageId: userMessage.id,
-          });
-        });
-      }
+      this.broadcastUserMessage(userMessage, conversationId);
 
-      /** 3. 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
-      const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
-
-      /** 4. 创建 SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
-      const allTargets = new Set(firstTurnTargets);
-      const { response, push, close } = streamEvents(c);
-
-      // F20260820i333 + 广播订阅收口（自 sendMessage 拆出）
-      const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
-
-      /** 6. 启动调度循环（异常时通知前端并收尾，不静默悬挂 SSE） */
-      const allTargetsRef = allTargets;
-      // 多模态 Phase 1：当前任务消息带图 → 读盘 base64 组装 ImageContent（策略层在 controller）。
-      // 每轮 ≤2 图已在上方硬限制；未读历史统一文本投影在 dispatch-chain-engine 内做。
-      const images = await this.loadImagesForDispatch(body.attachmentIds);
-      this.dispatchTurnLoop(firstTurnTargets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets: allTargetsRef, images })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
-          push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
-        })
-        .finally(() => {
-          // 清理订阅，防止内存泄漏
-          unsubscribe?.();
-          // 兜底：如果 subscribe 回调没有关闭流（如无 agent 事件），在此关闭
-          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
-        });
-
-      return response;
+      return this.streamDispatchResponse(c, { conversationId, body, userMessage, mentionFeedback, payload });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
+  }
+
+  /** 广播用户消息到外部渠道（fire-and-forget，自 sendMessage 拆出） */
+  private broadcastUserMessage(userMessage: Message, conversationId: string): void {
+    if (!this.messageBroadcaster) return;
+    this.messageBroadcaster.broadcast(userMessage).catch(err => {
+      this.logger.error("Failed to broadcast user message", err instanceof Error ? err : undefined, {
+        conversationId,
+        messageId: userMessage.id,
+      });
+    });
+  }
+
+  /** POST SSE 流 + 调度循环启动（自 sendMessage 拆出）。
+   *  多模态 Phase 1（审视修复 R4/R7）：注入载荷已随前置校验组装（validateAndBuild）——
+   *  image 真图 + document 文本块；≤2 图硬限制已拒绝；未读历史统一文本投影在 dispatch-chain-engine 内做。 */
+  private streamDispatchResponse(
+    c: Context,
+    ctx: {
+      conversationId: string;
+      body: SendMessageRequestDTO;
+      userMessage: Message;
+      mentionFeedback?: string;
+      payload?: Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>>;
+    },
+  ): Response {
+    const { conversationId, body, userMessage, mentionFeedback, payload } = ctx;
+    /** 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
+    const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
+
+    /** SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
+    const allTargets = new Set(firstTurnTargets);
+    const { response, push, close } = streamEvents(c);
+
+    // F20260820i333 + 广播订阅收口
+    const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
+
+    const injection = payload && typeof payload !== "string" ? payload : undefined;
+    this.dispatchTurnLoop(firstTurnTargets, {
+      conversationId, userMessageContent: this.withDocumentBlock(body.body, injection?.documentBlock),
+      senderId: body.senderId, allTargets, images: injection?.images,
+    })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
+        push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
+      })
+      .finally(() => {
+        // 清理订阅，防止内存泄漏
+        unsubscribe?.();
+        // 兜底：如果 subscribe 回调没有关闭流（如无 agent 事件），在此关闭
+        setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+      });
+
+    return response;
+  }
+
+  /** sendMessage 请求体校验（自 sendMessage 拆出控复杂度） */
+  private validateSendMessageRequest(body: SendMessageRequestDTO): Response | null {
+    if (!body.senderId) {
+      return Response.json({ error: "senderId is required" }, { status: 400 });
+    }
+    if (!body.body) {
+      return Response.json({ error: "body is required" }, { status: 400 });
+    }
+    return null;
+  }
+
+  /** document 提取块追加在正文之后（多模态 Phase 1 审视修复 R9：方案 §3.4① 注入格式） */
+  private withDocumentBlock(body: string, documentBlock?: string): string {
+    return documentBlock ? `${body}\n\n${documentBlock}` : body;
+  }
+
+  /** retry 目标前置校验（自 retry 拆出控复杂度）：otter 消息 + 可重试状态（存在性已查） */
+  private precheckRetryTarget(msg: { status: string; senderType: string }): Response | null {
+    if (msg.senderType !== "otter") {
+      return Response.json({ error: "Can only retry otter messages" }, { status: 400 });
+    }
+    if (msg.status !== "failed" && msg.status !== "aborted") {
+      return Response.json({ error: `Message is not in a retryable status: ${msg.status}` }, { status: 409 });
+    }
+    return null;
+  }
+
+  /** retry 链启动（自 retry 拆出控复杂度）：SSE 流 + broadcaster 订阅 + executeChain */
+  private startRetryChain(
+    c: Context,
+    ctx: { conversationId: string; otterId: string; messageId: string; userMessageContent: string; senderId: string; images?: Array<{ type: "image"; data: string; mimeType: string }> },
+  ): Response {
+    const { conversationId, otterId, messageId, userMessageContent, senderId, images } = ctx;
+    const { response, push, close } = streamEvents(c);
+
+    let unsubscribe: (() => void) | undefined;
+    if (this.messageBroadcaster) {
+      unsubscribe = this.messageBroadcaster.subscribe(
+        conversationId,
+        () => {},
+        (event) => { push(event); },
+      );
+    }
+
+    // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
+    // 链引擎消费 aggregatedTargets 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332）
+    this.dispatchChainEngine.executeChain({
+      conversationId,
+      userMessageContent,
+      senderId,
+      initialTargets: [otterId],
+      ...(images && { images }),
+      invokeFn: async (params) => this.agentInvoker.invokeConversation({
+        otterId: params.otterId,
+        conversationId: params.conversationId,
+        userMessageContent: params.userMessageContent,
+        senderId: params.senderId,
+        ...(params.images && { images: params.images }),
+        retryCount: 1,
+        manualRetry: true,
+      }),
+    })
+      .catch((err: unknown) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error('重试调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId });
+        push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId, otterId } });
+      })
+      .finally(() => {
+        unsubscribe?.();
+        setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+      });
+
+    return response;
+  }
+
+  /** 重试路径注入载荷：从原 user 消息 attachments 重新组装（审视修复 R9；无附件/未装配时 undefined） */
+  private async loadRetryInjection(attachments?: Array<{ id: string }>): Promise<Awaited<ReturnType<AttachmentInjectionService["buildInjectionPayload"]>>> {
+    if (!attachments || attachments.length === 0) return undefined;
+    if (!this.attachmentInjection?.available) return undefined;
+    return this.attachmentInjection.buildInjectionPayload(attachments.map(a => a.id));
   }
 
   /** POST SSE 流的 broadcaster 订阅 + mentionFeedback 推送（自 sendMessage 拆出） */
@@ -264,44 +360,6 @@ export class MessageController {
       // onEvent：streaming 事件 → 推送到 POST SSE 流
       (event) => { push(event); },
     );
-  }
-
-  /** 多模态 Phase 1：附件前置校验（存在性 + 图片数硬限制）。返回 Response 时表示拒绝 */
-  private async validateAttachmentIds(attachmentIds?: string[]): Promise<Response | null> {
-    if (!attachmentIds || attachmentIds.length === 0) return null;
-    if (!this.attachmentResolver) return null; // 附件未装配：透传给 usecase 层报 validation
-    const atts = await this.attachmentResolver.getByIds(attachmentIds);
-    const foundIds = new Set(atts.map(a => a.id));
-    if (atts.length === 0 || attachmentIds.some(aid => !foundIds.has(aid))) {
-      return Response.json({ error: "attachmentIds 含不存在的附件" }, { status: 400 });
-    }
-    const imageCount = atts.filter(a => a.kind === "image").length;
-    if (imageCount > MAX_IMAGES_PER_TURN) {
-      return Response.json({ error: `图片附件超过每轮上限（${MAX_IMAGES_PER_TURN} 张），请减少后重试` }, { status: 400 });
-    }
-    return null;
-  }
-
-  /** 多模态 Phase 1：读盘 base64 组装 ImageContent（每张图读一次盘；多獭同收图 = 各自注入）。
-   *  读盘失败降级为空（文本投影占位仍在——附件信息不丢，仅真图缺席）。 */
-  private async loadImagesForDispatch(attachmentIds?: string[]): Promise<Array<{ type: "image"; data: string; mimeType: string }> | undefined> {
-    if (!attachmentIds || attachmentIds.length === 0) return undefined;
-    if (!this.attachmentResolver || !this.attachmentStorageRoot) return undefined;
-    try {
-      const atts = await this.attachmentResolver.getByIds(attachmentIds);
-      const images = atts.filter(a => a.kind === "image").slice(0, MAX_IMAGES_PER_TURN);
-      if (images.length === 0) return undefined;
-      return images.map(a => ({
-        type: "image" as const,
-        data: fs.readFileSync(path.join(this.attachmentStorageRoot!, a.filePath)).toString("base64"),
-        mimeType: a.mimeType,
-      }));
-    } catch (err) {
-      this.logger.warn("Failed to load images for dispatch, degrading to text-only", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return undefined;
-    }
   }
 
   /** Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
@@ -406,12 +464,8 @@ export class MessageController {
       if (!msg) {
         return c.json({ error: "Message not found" }, 404);
       }
-      if (msg.senderType !== "otter") {
-        return c.json({ error: "Can only retry otter messages" }, 400);
-      }
-      if (msg.status !== "failed" && msg.status !== "aborted") {
-        return c.json({ error: `Message is not in a retryable status: ${msg.status}` }, 409);
-      }
+      const precheck = this.precheckRetryTarget(msg);
+      if (precheck) return precheck;
 
       const conversationId = msg.conversationId;
       const otterId = msg.senderId;
@@ -425,46 +479,16 @@ export class MessageController {
       const turnUserMsgs = await this.queryMessage.getMessages(conversationId, { turnId: msg.turnId, senderType: "user", limit: 1 });
       const senderId = turnUserMsgs[0]?.senderId ?? "user";
 
-      // 创建 SSE 流
-      const { response, push, close } = streamEvents(c);
+      /** 多模态 Phase 1（审视修复 R9）：重试路径从原 user 消息 attachments 重新组装注入载荷——
+       *  session 历史未重启时图仍在，但 self-restart/换 session 后当前任务图不缺席 */
+      const retryPayload = await this.loadRetryInjection(turnUserMsgs[0]?.attachments);
+      const contentWithDocs = this.withDocumentBlock(userMessageContent, retryPayload?.documentBlock);
 
-      // 订阅 broadcaster 接收 streaming 事件
-      let unsubscribe: (() => void) | undefined;
-      if (this.messageBroadcaster) {
-        unsubscribe = this.messageBroadcaster.subscribe(
-          conversationId,
-          () => {},
-          (event) => { push(event); },
-        );
-      }
-
-      // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
-      // 链引擎消费 aggregatedTargets 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332）
-      this.dispatchChainEngine.executeChain({
-        conversationId,
-        userMessageContent,
-        senderId,
-        initialTargets: [otterId],
-        invokeFn: async (params) => this.agentInvoker.invokeConversation({
-          otterId: params.otterId,
-          conversationId: params.conversationId,
-          userMessageContent: params.userMessageContent,
-          senderId: params.senderId,
-          retryCount: 1,
-          manualRetry: true,
-        }),
-      })
-        .catch((err: unknown) => {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          this.logger.error('重试调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId: id });
-          push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId: id, otterId } });
-        })
-        .finally(() => {
-          unsubscribe?.();
-          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
-        });
-
-      return response;
+      return this.startRetryChain(c, {
+        conversationId, otterId, messageId: id,
+        userMessageContent: contentWithDocs, senderId,
+        images: retryPayload?.images,
+      });
     } catch (err) {
       return handleError(c, err, this.logger);
     }

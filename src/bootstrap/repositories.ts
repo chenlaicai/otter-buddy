@@ -14,8 +14,9 @@ import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { SqliteSignalEventRepository } from "@frameworks/db/signal/sqlite-signal-repository";
 import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-attachment-repository";
+import type { Logger } from "@usecases/ports/logger";
 
-export function initRepositories(db: Database.Database): Repositories {
+export function initRepositories(db: Database.Database, logger?: Logger): Repositories {
   const memoryRepo = new SqliteMemoryRepository(db);
   return {
     otter: new SqliteOtterRepository(db),
@@ -26,7 +27,7 @@ export function initRepositories(db: Database.Database): Repositories {
     memoryQueue: memoryRepo,
     searchQueryLog: new SqliteSearchQueryLogRepository(db),
     terminology: new SqliteTerminologyRepository(db),
-    conversation: new SqliteConversationRepository(db),
+    conversation: new SqliteConversationRepository(db, logger),
     settings: new SqliteSettingsRepository(db),
     feature: new SqliteFeatureRepository(db),
     research: new SqliteResearchRepository(db),
