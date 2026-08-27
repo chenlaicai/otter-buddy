@@ -173,12 +173,15 @@ function isTouchDevice() {
  *  Why: ①条目截断后 value 只能悬停看原生灰条，无样式且超长不换行不可复制；
  *  ②快速复制是硬需求（PR 号、路径、事实文本都是要贴到别处用的）。
  *  How: Portal + fixed 定位摆脱 aside overflow-y-auto 剪裁（F20260826pfix 同模式）。
- *  卡内文本 wrap 不截断可选中；右上角一键复制（clipboard API + execCommand 降级）。 */
-function ResourceHoverCard({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
+ *  卡内文本 wrap 不截断可选中；右上角一键复制（clipboard API + execCommand 降级）。
+ *  copyText 显式传入要复制的纯文本（检视发现 2：fact 卡的 category 徽章是展示元数据，
+ *  不得混入剪贴板——innerText 方案对链接类碰巧对，对 fact 类是噪音，改为调用方声明式传入）。 */
+function ResourceHoverCard({ x, y, copyText, children }: { x: number; y: number; copyText: string; children: React.ReactNode }) {
   const [copied, setCopied] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const copy = () => {
-    const t = bodyRef.current?.innerText ?? ''
+    // 优先 copyText；防御性回退 innerText（调用方未传时兜底，不应对外暴露）
+    const t = copyText || bodyRef.current?.innerText || ''
     if (!t) return
     const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1500) }
     if (navigator.clipboard) {
@@ -386,7 +389,7 @@ function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; o
         <X className="w-3 h-3" />
       </span>
       {h.hovering && h.rect && (
-        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4}>
+        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4} copyText={f.content ?? ''}>
           {f.category && <span className="inline-block text-[9px] text-stone-400 bg-white/40 px-1.5 py-0.5 rounded-full mr-1">{f.category}</span>}
           {f.content}
         </ResourceHoverCard>
@@ -419,7 +422,7 @@ function LinkedResourceItem({ resource: r, onDelete }: { resource: LinkedResourc
         <X className="w-3 h-3" />
       </span>
       {h.hovering && h.rect && (
-        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4}>
+        <ResourceHoverCard x={h.rect.left} y={h.rect.bottom + 4} copyText={[r.title, r.url].filter(Boolean).join('\n')}>
           {r.title && <span className="block font-semibold text-stone-700 mb-1">{r.title}</span>}
           {r.url && <span className="block text-teal-600 break-all">{r.url}</span>}
           {!r.title && !r.url && <span className="text-stone-400">(无内容)</span>}

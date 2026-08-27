@@ -240,4 +240,58 @@ describe('ResourceHoverCard（F20260827rsux）', () => {
     act(() => { vi.advanceTimersByTime(500) })
     expect(document.querySelector('.glass-strong')).toBeNull()
   })
+
+  /** 检视发现 2：复制内容不含 category 徽章文本——copyText 声明式传入，
+   *  fact 类只复制正文；徽章仅作展示元数据。 */
+  it('点击复制按钮：writeText 收到 fact 正文（不含分类徽章），成功后 ✓', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    try {
+      renderPanel([makeResource({ type: 'fact', content: '事实A的完整内容', category: '决策' })])
+      act(() => { fireEvent.mouseEnter(factRow()) })
+      act(() => { vi.advanceTimersByTime(400) })
+      const card = document.querySelector('.glass-strong')!
+      const copyBtn = card.querySelector('button[title="复制全文"]')! as HTMLButtonElement
+      await act(async () => { fireEvent.click(copyBtn) })
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(writeText).toHaveBeenCalledWith('事实A的完整内容')
+      // ✓ 态：icon 切换，1.5s 后回落
+      expect(card.querySelector('.text-teal-500')).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(1600) })
+      expect(card.querySelector('.text-teal-500')).toBeNull()
+    } finally {
+      // @ts-expect-error 测试注入的 clipboard 需清理，避免泄漏到其他用例
+      delete navigator.clipboard
+    }
+  })
+
+  it('链接类复制：writeText 收到「标题\nurl」两行', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    try {
+      renderPanel([makeResource({ type: 'pr', url: 'https://github.com/x/y/pull/9', title: 'PR 九号' })])
+      const row = Array.from(container.querySelectorAll('.group'))
+        .find(el => el.textContent?.includes('PR 九号')) as HTMLElement
+      act(() => { fireEvent.mouseEnter(row) })
+      act(() => { vi.advanceTimersByTime(400) })
+      const copyBtn = document.querySelector('.glass-strong button[title="复制全文"]')! as HTMLButtonElement
+      await act(async () => { fireEvent.click(copyBtn) })
+      expect(writeText).toHaveBeenCalledWith('PR 九号\nhttps://github.com/x/y/pull/9')
+    } finally {
+      // @ts-expect-error 测试注入的 clipboard 需清理，避免泄漏到其他用例
+      delete navigator.clipboard
+    }
+  })
+
+  /** 检视发现 3：hover 计时器 pending 时 unmount，effect 清理路径不炸、不弹出 */
+  it('hover 计时器 pending 时卸载组件，不报错且不弹出悬浮卡', () => {
+    renderPanel([makeResource({ type: 'fact', content: '事实A', category: null })])
+    act(() => { fireEvent.mouseEnter(factRow()) })
+    act(() => { vi.advanceTimersByTime(150) }) // timer 仍 pending
+    expect(() => {
+      act(() => { root.unmount() })
+    }).not.toThrow()
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(document.querySelector('.glass-strong')).toBeNull()
+  })
 })
