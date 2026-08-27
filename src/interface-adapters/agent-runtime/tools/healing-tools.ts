@@ -5,6 +5,7 @@
 import type { HealingEventRepository, HealingEventBatchFilter } from "@usecases/healing/healing-event-repository";
 import type { HealingResolutionAction, HealingEventStatus, HealingErrorType } from "@entities/healing/healing-event";
 import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
+import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { Logger } from "@usecases/ports/logger";
 import type { ToolContext, AgentTool, ToolResponse } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
@@ -17,7 +18,22 @@ export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: 
     const now = new Date().toISOString();
     const meta = { otterId: ctx.otterId, conversationId: ctx.conversationId, messageId: ctx.currentMessageId };
     for (const issue of issues) {
-      if (issue.severity === 'high') logger?.warn('High severity healing event', { type: issue.type, description: issue.description });
+      if (issue.severity === 'high') {
+        logger?.warn('High severity healing event', { type: issue.type, description: issue.description });
+        // F20260826mwrd C3（Part 4）：high 事件不再止步于日志——登记待提醒，
+        // 大獭下一次 invoke 的 dynamicContext 注入（台账照旧落 healing_events）。
+        // 键用 conversationId（对话粒度队列）：消费侧（agent-invoker）按对话取全部，
+        // 大獭不在场则滞留到下一轮，不丢。eventId 先行生成、与台账 create 同源
+        // （fire-and-forget 双写各自失败不阻塞对方，审计面以 healing_events 为准）。
+        healingAlertRegistry.enqueue(ctx.conversationId, {
+          eventId: crypto.randomUUID(),
+          conversationId: ctx.conversationId,
+          otterId: ctx.otterId,
+          errorType: issue.type,
+          description: issue.description,
+          createdAt: now,
+        });
+      }
       repo.create({
         id: crypto.randomUUID(), messageId: ctx.currentMessageId, conversationId: ctx.conversationId,
         otterId: ctx.otterId, errorType: issue.type, severity: issue.severity,
