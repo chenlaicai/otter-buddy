@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
@@ -52,7 +52,7 @@ export function RightPanel(props: RightPanelProps) {
   }
 
   return (
-    <aside className="w-64 glass rounded-3xl flex flex-col overflow-y-auto flex-shrink-0">
+    <aside className="w-64 h-full glass rounded-3xl flex flex-col overflow-y-auto flex-shrink-0">
       {/* Otter Participants */}
       <div className="p-4 border-b border-white/40">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2">Otter 参与者</h3>
@@ -169,7 +169,13 @@ function isTouchDevice() {
   return _isTouchDevice
 }
 
-function OtterParticipantCard({
+/**
+ * #502：memo 兜底——allOtters 浅比较保住引用后，本组件 props 稳定即不重渲染，
+ * hover 快览卡不再因轮询产生的新对象引用而微闪。
+ * onClick/onDissolve/onRestart 由 RightPanel 内联箭头每次新建——memo 对函数 props 无效，
+ * 但 otter/sessions 两个数据 props 是抖动主源，仍值得包。
+ */
+const OtterParticipantCard = memo(function OtterParticipantCard({
   otter: o,
   sessions,
   onClick,
@@ -273,7 +279,7 @@ function OtterParticipantCard({
       )}
     </div>
   )
-}
+})
 
 function FactItem({ fact: f, onToggleFlag, onDelete }: { fact: LinkedResource; onToggleFlag: () => void; onDelete: () => void }) {
   return (
