@@ -131,9 +131,9 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
       fireEvent.mouseEnter(card)
     })
 
-    // ≥400ms：快览卡应出现
+    // ≥400ms：快览卡应出现（F20260826pfix 后 portal 挂 body，断言 body）
     act(() => { vi.advanceTimersByTime(400) })
-    expect(container.textContent).toContain('Lv.')
+    expect(document.body.textContent).toContain('Lv.')
   })
 
   it('快速滑过（<400ms 移出）不弹出快览卡', async () => {
@@ -152,11 +152,11 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
     })
 
     // 快览卡不应出现
-    expect(container.textContent).not.toContain('Lv.')
+    expect(document.body.textContent).not.toContain('Lv.')
 
     // 推进到 400ms+，确认仍未出现
     act(() => { vi.advanceTimersByTime(200) })
-    expect(container.textContent).not.toContain('Lv.')
+    expect(document.body.textContent).not.toContain('Lv.')
   })
 
   it('移出后重新进入需重新计时', async () => {
@@ -177,11 +177,11 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
       fireEvent.mouseEnter(card)
     })
     act(() => { vi.advanceTimersByTime(200) })
-    expect(container.textContent).not.toContain('Lv.')
+    expect(document.body.textContent).not.toContain('Lv.')
 
     // 再等 200ms（第二次进入后 400ms）→ 应出现
     act(() => { vi.advanceTimersByTime(200) })
-    expect(container.textContent).toContain('Lv.')
+    expect(document.body.textContent).toContain('Lv.')
   })
 
   it('停留精确 400ms 触发一次且不重复触发', async () => {
@@ -194,10 +194,10 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
 
     // 精确 400ms → 触发
     act(() => { vi.advanceTimersByTime(400) })
-    expect(container.textContent).toContain('Lv.')
+    expect(document.body.textContent).toContain('Lv.')
 
     // 再推进 400ms → 不应重复触发（setTimeout 一次性）
     act(() => { vi.advanceTimersByTime(400) })
-    expect(container.textContent).toContain('Lv.') // 仍在（只有一个定时器）
+    expect(document.body.textContent).toContain('Lv.') // 仍在（只有一个定时器）
   })
 })
