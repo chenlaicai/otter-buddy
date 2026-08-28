@@ -1,7 +1,9 @@
 /**
  * F20260828gssf: selftest 机制单元测试。
  *
- * 验证 runSelftest 的判别力校验逻辑（A 类：纯代码逻辑，零 LLM）。
+ * 直接 import 真实 runSelftest 测试（检视獭实验证伪了"A 类环境导入会解析失败"的论断：
+ * vitest.config.ts 的 exclude 只作用于测试文件发现，不阻止模块解析）。
+ *
  * 覆盖场景：
  *   - good 过 + bad 拦 → 放行采样
  *   - good 失败 → fail fast
@@ -9,17 +11,18 @@
  *   - 两个都拦 / 两个都过 → fail fast（判别力缺失）
  *   - 无 selftest 定义 → 跳过 selftest
  *   - factory 函数形式的 selftest
+ *   - bad 数组形式（多条 bad 轨迹）
  */
 import { describe, it, expect } from "vitest";
-import type { GoldenModule, GoldenSelftest, SelftestResult } from "./capability/golden/golden.runner";
+import type { GoldenModule, GoldenSelftest } from "./capability/golden/golden.runner";
 import type { GoldenAssert, GoldenAssertCtx } from "./capability/golden/golden.runner";
-
+import { runSelftest } from "./capability/golden/golden.runner";
 
 // ──── 最小 mock ────
 
 /** 最小 CapabilityContext mock——runSelftest 只传给 assert，不调用 ctx 方法 */
 function mockCtx() {
-  return { built: { db: { prepare: () => ({ get: () => undefined }) } } } as any;
+  return { built: {} } as any;
 }
 
 /** 构造最小 GoldenModule */
@@ -42,55 +45,11 @@ function makeModule(opts: {
   };
 }
 
-/** 构造最小 selftest 定义 */
+/** 构造最小 selftest 定义（单条 bad） */
 function makeSelftest(goodOk: boolean, badOk: boolean): GoldenSelftest {
   return {
     good: { messages: [{ id: "g1", st: "user", si: "u", content: "good", status: "completed", seq: 1 }], expectedOk: goodOk },
     bad: { messages: [{ id: "b1", st: "user", si: "u", content: "bad", status: "completed", seq: 1 }], expectedOk: badOk },
-  };
-}
-
-// ──── 直接测试 runSelftest 逻辑（从 runner 导入） ────
-// runSelftest 是 exported 函数，可直接测。但 capability 模块用 ESM + path alias，
-// A 类 vitest config 不含 capability，直接导入会解析失败。
-// 因此内联复刻核心逻辑测试——断言逻辑与 runSelftest 一致。
-
-/** 复刻 runSelftest 的核心判定逻辑（A 类测试不需要 boot ctx） */
-async function runSelftestLogic(
-  ctx: any,
-  mod: { selftest?: GoldenSelftest | ((ctx: any) => Promise<GoldenSelftest>); assert: GoldenAssert },
-): Promise<SelftestResult> {
-  if (!mod.selftest) return { passed: true };
-
-  const selftestDef = typeof mod.selftest === "function"
-    ? await mod.selftest(ctx)
-    : mod.selftest;
-
-  const defaultConvId = `selftest:test`;
-
-  const goodResult = await mod.assert({
-    ctx,
-    convId: selftestDef.good.convId ?? defaultConvId,
-    messages: selftestDef.good.messages,
-  });
-
-  const badResult = await mod.assert({
-    ctx,
-    convId: selftestDef.bad.convId ?? defaultConvId,
-    messages: selftestDef.bad.messages,
-  });
-
-  const goodOk = goodResult.ok === selftestDef.good.expectedOk;
-  const badOk = badResult.ok === selftestDef.bad.expectedOk;
-  const passed = goodOk && badOk;
-
-  return {
-    passed,
-    goodOk: goodResult.ok,
-    badOk: badResult.ok,
-    reason: passed
-      ? undefined
-      : `判别力不足：good.ok=${goodResult.ok}(expect ${selftestDef.good.expectedOk}) bad.ok=${badResult.ok}(expect ${selftestDef.bad.expectedOk})`,
   };
 }
 
@@ -99,9 +58,6 @@ async function runSelftestLogic(
 describe("golden selftest 机制", () => {
   describe("runSelftest 判别力校验", () => {
     it("good 过 + bad 拦 → passed=true（正常放行）", async () => {
-      // assert 函数被两组不同消息调用，这里用同一个函数模拟区分行为：
-      // 实际 runSelftest 用同一个 assert 函数，消息不同导致结果不同。
-      // 单测中我们用一个统一 assert 来模拟：如果消息 content="good" 则 ok=true
       const unifiedAssert: GoldenAssert = async (ac: GoldenAssertCtx) => ({
         ok: ac.messages[0]?.content === "good",
         detail: "",
@@ -115,7 +71,7 @@ describe("golden selftest 机制", () => {
         assert: unifiedAssert,
       });
 
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(true);
       expect(result.goodOk).toBe(true);
       expect(result.badOk).toBe(false);
@@ -128,9 +84,9 @@ describe("golden selftest 机制", () => {
         assert: async () => ({ ok: false, detail: "always fail" }),
       });
 
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(false);
-      expect(result.goodOk).toBe(false); // good 期望 true 但拿到 false
+      expect(result.goodOk).toBe(false);
       expect(result.reason).toContain("判别力不足");
     });
 
@@ -140,9 +96,9 @@ describe("golden selftest 机制", () => {
         assert: async () => ({ ok: true, detail: "always pass" }),
       });
 
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(false);
-      expect(result.badOk).toBe(true); // bad 期望 false 但拿到 true
+      expect(result.badOk).toBe(true);
       expect(result.reason).toContain("判别力不足");
     });
 
@@ -152,9 +108,8 @@ describe("golden selftest 机制", () => {
         assert: async () => ({ ok: false, detail: "never pass" }),
       });
 
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(false);
-      // good 期望 true 但拿到 false → goodOk=false
       expect(result.goodOk).toBe(false);
     });
 
@@ -164,22 +119,21 @@ describe("golden selftest 机制", () => {
         assert: async () => ({ ok: true, detail: "always pass" }),
       });
 
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(false);
-      // bad 期望 false 但拿到 true → badOk=true
       expect(result.badOk).toBe(true);
     });
 
     it("无 selftest 定义 → passed=true（跳过 selftest）", async () => {
       const mod = makeModule({});
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(true);
       expect(result.reason).toBeUndefined();
     });
 
     it("factory 函数形式的 selftest 也能正确校验", async () => {
       const factorySelftest = async (ctx: unknown): Promise<GoldenSelftest> => {
-        void ctx; // 模拟 DB 依赖场景的 factory 函数
+        void ctx;
         return {
           good: {
             messages: [{ id: "g1", st: "user", si: "u", content: "factory-good", status: "completed", seq: 1 }],
@@ -200,7 +154,54 @@ describe("golden selftest 机制", () => {
       });
 
       const mod = makeModule({ selftest: factorySelftest, assert: unifiedAssert });
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
+      expect(result.passed).toBe(true);
+    });
+
+    it("bad 数组形式——多条 bad 轨迹独立校验", async () => {
+      // 两条 bad，第一条 expectedOk=false 但 assert 返回 true（不匹配），
+      // 第二条 expectedOk=false 且 assert 返回 false（匹配）。
+      // 任一 bad 失败即判别力不足。
+      const unifiedAssert: GoldenAssert = async (ac: GoldenAssertCtx) => {
+        // "bad-always-pass" → ok=true, 其他 → ok=false
+        return { ok: ac.messages[0]?.content === "bad-always-pass", detail: "" };
+      };
+
+      const mod = makeModule({
+        selftest: {
+          good: { messages: [{ id: "g1", st: "user", si: "u", content: "good", status: "completed", seq: 1 }], expectedOk: true },
+          bad: [
+            { messages: [{ id: "b1", st: "user", si: "u", content: "bad-always-pass", status: "completed", seq: 1 }], expectedOk: false },
+            { messages: [{ id: "b2", st: "user", si: "u", content: "bad-other", status: "completed", seq: 1 }], expectedOk: false },
+          ],
+        },
+        assert: unifiedAssert,
+      });
+
+      const result = await runSelftest(mockCtx(), mod);
+      // 第一条 bad: assert 返回 true, expectedOk=false → 不匹配 → 判别力不足
+      expect(result.passed).toBe(false);
+      expect(result.reason).toContain("判别力不足");
+    });
+
+    it("bad 数组全部通过 → passed=true", async () => {
+      const unifiedAssert: GoldenAssert = async (ac: GoldenAssertCtx) => ({
+        ok: ac.messages[0]?.content === "good",
+        detail: "",
+      });
+
+      const mod = makeModule({
+        selftest: {
+          good: { messages: [{ id: "g1", st: "user", si: "u", content: "good", status: "completed", seq: 1 }], expectedOk: true },
+          bad: [
+            { messages: [{ id: "b1", st: "user", si: "u", content: "bad1", status: "completed", seq: 1 }], expectedOk: false },
+            { messages: [{ id: "b2", st: "user", si: "u", content: "bad2", status: "completed", seq: 1 }], expectedOk: false },
+          ],
+        },
+        assert: unifiedAssert,
+      });
+
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(true);
     });
   });
@@ -211,12 +212,11 @@ describe("golden selftest 机制", () => {
         selftest: makeSelftest(true, false),
         assert: async (ac: GoldenAssertCtx) => ({ ok: ac.messages[0]?.content === "good", detail: "" }),
       });
-      // 用带区分消息的 selftest
       mod.selftest = {
         good: { messages: [{ id: "g1", st: "user", si: "u", content: "good", status: "completed", seq: 1 }], expectedOk: true },
         bad: { messages: [{ id: "b1", st: "user", si: "u", content: "bad", status: "completed", seq: 1 }], expectedOk: false },
       };
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(true);
       expect(result.reason).toBeUndefined();
     });
@@ -226,7 +226,7 @@ describe("golden selftest 机制", () => {
         selftest: makeSelftest(true, false),
         assert: async () => ({ ok: false, detail: "broken" }),
       });
-      const result = await runSelftestLogic(mockCtx(), mod);
+      const result = await runSelftest(mockCtx(), mod);
       expect(result.passed).toBe(false);
       expect(result.reason).toContain("good.ok=false");
       expect(result.reason).toContain("expect true");
@@ -234,13 +234,13 @@ describe("golden selftest 机制", () => {
   });
 
   describe("assert 异常不穿透 selftest", () => {
-      it("assert 抛异常时 runSelftestLogic 应抛出（不吞异常）", async () => {
+    it("assert 抛异常时 runSelftest 应抛出（不吞异常）", async () => {
       const mod = makeModule({
         selftest: makeSelftest(true, false),
         assert: async () => { throw new Error("assert crashed"); },
       });
 
-      await expect(runSelftestLogic(mockCtx(), mod)).rejects.toThrow("assert crashed");
+      await expect(runSelftest(mockCtx(), mod)).rejects.toThrow("assert crashed");
     });
   });
 });

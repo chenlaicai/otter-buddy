@@ -84,7 +84,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
  * 先通过 API 创建会话，再往 DB 插入测试 otter 记录，然后构造带正确 senderId 的消息。
  *
  * good = 子獭 tsp 指向大獭（正确路由）
- * bad  = 子獭 tsp 指向 'user'（伤疤复现：误传 user）
+ * bad  = 子獭 tsp 指向 'user'（伤疤复现：误传 user）+ tsp 同时含大獭和 'user'（混合路由）
  */
 export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext) => {
   const bigOtterId = "selftest-big-otter-id";
@@ -96,6 +96,10 @@ export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext)
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: "selftest:talking-stone-routing", title: "selftest" }),
   });
+  if (convRes.status !== 201) {
+    const body = await convRes.text().catch(() => "(无法读取响应体)");
+    throw new Error(`selftest 会话创建失败：HTTP ${convRes.status} ${body}`);
+  }
   const { id: convId } = (await convRes.json()) as { id: string };
 
   // 插入测试 otter 记录（schema: id, name, type, status, parent_otter_id）
@@ -137,16 +141,29 @@ export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext)
     status: "completed", seq: 3, tsp: ["user"],
   };
 
+  // 退化盲区：tsp 同时包含大獭和 'user'——断言必须拒绝（passedToUser=true）
+  const smallOtterMsgBadMixed: MessageDto = {
+    id: "st-o2c", st: "otter", si: smallOtterId, content: "报告獭已到岗，听候差遣。",
+    status: "completed", seq: 3, tsp: [bigOtterId, "user"],
+  };
+
   return {
     good: {
       messages: [userMsg, bigOtterMsg, smallOtterMsgGood],
       expectedOk: true,
       convId,
     },
-    bad: {
-      messages: [userMsg, bigOtterMsg, smallOtterMsgBad],
-      expectedOk: false,
-      convId,
-    },
+    bad: [
+      {
+        messages: [userMsg, bigOtterMsg, smallOtterMsgBad],
+        expectedOk: false,
+        convId,
+      },
+      {
+        messages: [userMsg, bigOtterMsg, smallOtterMsgBadMixed],
+        expectedOk: false,
+        convId,
+      },
+    ],
   };
 };

@@ -63,14 +63,16 @@ export interface GoldenSelftestRef {
   messages: MessageDto[];
   /** 期望断言结果：true=应 ok（good 行为），false=应 !ok（bad 行为） */
   expectedOk: boolean;
-  /** 覆盖默认 convId（DB 依赖场景需要匹配 selftestSetup 插入的 convId） */
+  /** 覆盖默认 convId（factory 场景创建会话后回传的 convId，见 talking-stone-routing） */
   convId?: string;
 }
 
-/** F20260828gssf: selftest 定义——每个场景配 good/bad 两套参考 */
+/** F20260828gssf: selftest 定义——每个场景配 good/bad 参考。
+ *  bad 支持数组：多条 bad 轨迹覆盖不同退化形态（如 r4 缺 search_memory + 顺序颠倒）。
+ *  runner 对每条 bad 独立校验，任一通过（expectedOk 匹配失败）即判别力不足。 */
 export interface GoldenSelftest {
   good: GoldenSelftestRef;
-  bad: GoldenSelftestRef;
+  bad: GoldenSelftestRef | GoldenSelftestRef[];
 }
 
 export interface GoldenModule {
@@ -78,7 +80,8 @@ export interface GoldenModule {
   assert: GoldenAssert;
   /** manualReview 场景的判定提示（供检视獭参考，复用源测试既有判据） */
   manualReviewHint?: string;
-  /** F20260828gssf: selftest 参考。静态对象或 factory 函数（DB 依赖场景） */
+  /** F20260828gssf: selftest 参考。静态对象或 factory 函数（DB 依赖场景）。
+   *  bad 支持数组——多条 bad 轨迹覆盖不同退化形态，runner 独立校验每条。 */
   selftest?: GoldenSelftest | ((ctx: CapabilityContext) => Promise<GoldenSelftest>);
 }
 
@@ -134,23 +137,37 @@ export async function runSelftest(
     messages: selftestDef.good.messages,
   });
 
-  const badResult = await mod.assert({
-    ctx,
-    convId: selftestDef.bad.convId ?? defaultConvId,
-    messages: selftestDef.bad.messages,
-  });
-
   const goodOk = goodResult.ok === selftestDef.good.expectedOk;
-  const badOk = badResult.ok === selftestDef.bad.expectedOk;
-  const passed = goodOk && badOk;
+
+  // bad 支持数组：多条 bad 轨迹独立校验，任一失败即判别力不足
+  const badRefs = Array.isArray(selftestDef.bad) ? selftestDef.bad : [selftestDef.bad];
+  let allBadOk = true;
+  let firstBadActualOk: boolean | undefined;
+  let firstBadFailure: { actual: boolean; expected: boolean } | undefined;
+
+  for (const badRef of badRefs) {
+    const badResult = await mod.assert({
+      ctx,
+      convId: badRef.convId ?? defaultConvId,
+      messages: badRef.messages,
+    });
+    const badOk = badResult.ok === badRef.expectedOk;
+    if (firstBadActualOk === undefined) firstBadActualOk = badResult.ok;
+    if (!badOk && allBadOk) {
+      allBadOk = false;
+      firstBadFailure = { actual: badResult.ok, expected: badRef.expectedOk };
+    }
+  }
+
+  const passed = goodOk && allBadOk;
 
   return {
     passed,
     goodOk: goodResult.ok,
-    badOk: badResult.ok,
+    badOk: firstBadActualOk ?? false,
     reason: passed
       ? undefined
-      : `判别力不足：good.ok=${goodResult.ok}(expect ${selftestDef.good.expectedOk}) bad.ok=${badResult.ok}(expect ${selftestDef.bad.expectedOk})`,
+      : `判别力不足：good.ok=${goodResult.ok}(expect ${selftestDef.good.expectedOk})${firstBadFailure ? ` bad.ok=${firstBadFailure.actual}(expect ${firstBadFailure.expected})` : ""}`,
   };
 }
 
