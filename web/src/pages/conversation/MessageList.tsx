@@ -4,15 +4,17 @@ import remarkGfm from 'remark-gfm'
 import type { Element as HastElement } from 'hast'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw } from 'lucide-react'
-import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent } from '../../lib/mappers'
+import { AlertTriangle, Square, Copy, Check, Clock, RotateCcw, FileText } from 'lucide-react'
+import type { LocalMessage as Message, LocalOtter as Otter, LocalMessageEvent, LocalAttachment } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { getUserAvatar } from '../../lib/otter-avatars'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
+import { fmtBytes } from '../../lib/attachments'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
+import { SignalBadge } from './SignalBadge'
 import { resolveDisplayName } from './display-name'
 
 
@@ -374,6 +376,48 @@ export function MessageList({
   )
 }
 
+/** 多模态 Phase 1：消息内附件渲染。图片网格缩略图（点击新窗口看原图）+
+ *  document 文件卡（点击下载）。同一端点 /api/attachments/:id，image inline / document attachment。
+ *  为什么用后端端点而非 base64 内嵌：DTO 只带引用（id/尺寸），消息体积不变，缓存友好（immutable） */
+function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: boolean }) {
+  const images = atts.filter(a => a.kind === 'image')
+  const docs = atts.filter(a => a.kind === 'document')
+  return (
+    <div className="mt-2 space-y-2">
+      {images.length > 0 && (
+        <div className={`grid gap-1.5 ${images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {images.map(a => (
+            <a key={a.id} href={`/api/attachments/${a.id}`} target="_blank" rel="noopener noreferrer" className="block">
+              <img
+                src={`/api/attachments/${a.id}`}
+                alt={a.originalName}
+                loading="lazy"
+                className={`rounded-xl object-cover cursor-zoom-in hover:opacity-90 transition ${images.length > 1 ? 'w-full aspect-square' : 'max-w-[260px] max-h-[260px]'} ${isUser ? 'border border-white/60' : 'border border-black/5'}`}
+              />
+            </a>
+          ))}
+        </div>
+      )}
+      {docs.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {docs.map(a => (
+            <a
+              key={a.id}
+              href={`/api/attachments/${a.id}`}
+              className="inline-flex items-center gap-2 glass-card rounded-xl px-3 py-1.5 text-xs text-stone-600 hover:bg-white/50 transition max-w-full"
+              title={a.originalName}
+            >
+              <FileText className="w-4 h-4 text-stone-400 flex-shrink-0" />
+              <span className="truncate">{a.originalName}</span>
+              <span className="text-stone-400 flex-shrink-0">{fmtBytes(a.sizeBytes)}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
@@ -451,6 +495,14 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
+          {/* F20260826mwrd C4: 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
+          {!isUser && m.signals && m.signals.length > 0 && (
+            <div className="mb-1.5">
+              {m.signals.map(sig => (
+                <SignalBadge key={sig.id} signal={sig} fromName={otters.find(o => o.id === sig.fromOtterId)?.name} />
+              ))}
+            </div>
+          )}
           {/* F-multi-speak-bubble: 分段渲染 */}
           {m.segments && m.segments.length > 0 ? (
             <div className="space-y-2">
@@ -481,6 +533,8 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
               </div>
             </div>
           )}
+          {/* 多模态 Phase 1：附件块（图片网格 + 文件卡），正文后渲染 */}
+          {m.atts && m.atts.length > 0 && <AttachmentBlock atts={m.atts} isUser={isUser} />}
           {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
           {inFlight && (
             <div className="mt-1.5">

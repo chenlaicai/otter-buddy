@@ -19,6 +19,7 @@ import type {
   LinkedResourceDTO,
   ParticipantDTO,
   OtterProfileDTO,
+  UploadAttachmentResponseDTO,
 } from '@contract/api'
 
 const BASE = '/api'
@@ -121,6 +122,18 @@ export function sendMessage(conversationId: string, body: SendMessageRequestDTO)
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+/** 多模态 Phase 1：附件上传（multipart）——后端返回 { attachments: AttachmentDTO[] }（含服务端分配的 id）。
+ *  用原生 fetch 不走 request()：multipart 禁止手动设 Content-Type（boundary 由浏览器生成） */
+export function uploadAttachments(conversationId: string, files: File[], uploaderId = 'user'): Promise<UploadAttachmentResponseDTO> {
+  const form = new FormData()
+  for (const f of files) form.append('files', f, f.name)
+  return request(`/conversations/${conversationId}/attachments?uploaderId=${encodeURIComponent(uploaderId)}`, {
+    method: 'POST',
+    body: form,
+    headers: {}, // 覆盖默认 Content-Type，让浏览器带 boundary
   })
 }
 
