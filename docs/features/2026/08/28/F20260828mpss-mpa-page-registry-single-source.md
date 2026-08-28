@@ -1,12 +1,12 @@
 ---
-id: F20260827mpss
+id: F20260828mpss
 title: MPA 页面清单单一真相源——4 处副本收敛为 1
 summary: 同一页面清单散落在 vite.config/server.ts/TopBar/测试 4 处靠人工同步，两次 404 事故。方案：清单落 api-contract/web/pages.ts（现成跨包共享先例），4 个消费方全部改为从清单生成，另加 html 文件集合守卫封住第 5 处漂移点
 change_type: refactor
 created_in_conversation: 02e892ea-b291-4108-bacf-0d6148790511
 ---
 
-# F20260827mpss: MPA 页面清单单一真相源
+# F20260828mpss: MPA 页面清单单一真相源
 
 > 状态：**已实现**（2026-08-28，三决策点已拍板：清单落 api-contract/web/pages.ts / label 进清单 / #479 随方案关闭）。实现记录见文末「实现记录」节。关联 issue：[#487](https://github.com/…)（[架构] MPA 页面清单单一真相源：4 处副本收敛为 1，根治漏注册）。
 
