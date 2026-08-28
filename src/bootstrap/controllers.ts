@@ -34,6 +34,7 @@ import { ScheduledTaskController } from "@interface-adapters/http/controllers/sc
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
+import { WorkspaceController } from "@interface-adapters/http/controllers/workspace-controller";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
@@ -135,5 +136,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       logger,
       repos.conversation,
     ),
+    // 工作区文件浏览（只读）——manageWorkspace 可选注入
+    workspace: uc.manageWorkspace ? new WorkspaceController(uc.manageWorkspace, logger) : undefined,
   };
 }
