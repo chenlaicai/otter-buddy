@@ -53,7 +53,8 @@ PR（紧随，上传交互/附件渲染，后端契约已就绪）。Web 前端�
 
 - `src/frameworks/db/schema.ts`：`createAttachmentTables`——attachments + message_attachments 两表
   （结构与消费方声明按方案 §3.1；caption Phase 2 worker 回填，上线前恒 NULL）
-- `src/frameworks/db/migration.ts`：`ensureAttachmentTables`——老库升级路径补建（CREATE IF NOT EXISTS 幂等）
+- `src/frameworks/db/schema.ts`：`createAttachmentTables`（多模态两表，CREATE IF NOT EXISTS）。
+  老库补建：merge #540（F20260827mgux）后跟随其架构——bootstrap 无条件跑幂等 initSchema 自动补建，不再誊抄 ensure 到 migration.ts（表级等价性由 migration-equivalence.guard.test.ts 动态快照覆盖）
 - `src/entities/conversation/attachment.ts`：Attachment / AttachmentRef / MessageAttachmentLink 实体
 - `src/entities/conversation/message.ts`：Message 加可选 `attachments?: AttachmentRef[]`（声明可选，
   测试 fixture 不受编译波及——方案 R2 轮 kimi Y3）
