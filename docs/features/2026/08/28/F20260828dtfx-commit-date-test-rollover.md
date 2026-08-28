@@ -2,7 +2,7 @@
 id: F20260828dtfx
 title: "测试日期滚动缺陷修复：validate-commit-date 集成用例动态生成日期"
 summary: "CLI 集成测试硬编码 F20260825/F20260818 日期，8/28 起偏差超 ±2 天容忍必然失败，阻塞全仓所有分支 CI。改为运行时动态生成今天/3 天前日期，测试永不随时间衰减"
-change_type: bugfix
+change_type: fix
 created_in_conversation: "7df22e6e-caba-4fc9-a3ab-1e9e2a3ff02d"
 status: development
 capability_test: "tests/scripts/validate-commit-date.test.ts（21/21 绿）"
