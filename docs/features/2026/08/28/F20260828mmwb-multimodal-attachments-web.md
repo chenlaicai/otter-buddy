@@ -18,7 +18,7 @@ causal_links:
   to: []
 
 # 元数据
-status: implemented   # 代码已实现（web 267 用例全绿 + 根仓 1958 全绿），待对抗审视
+status: implemented   # 代码已实现（web 272 用例全绿 + 根仓 1958 全绿），首轮审视 1🔴2🟡 处置完毕待 delta 复核
 change_type: feature
 capability_test: "n/a: 纯前端 UI 交互（上传状态机/渲染/校验），无 LLM 行为；验证走 vitest + jsdom（28 个新用例覆盖校验纯函数/状态机/渲染三件套）"
 tags: [multimodal, attachments, web, upload, ui]
@@ -67,7 +67,11 @@ created_in_conversation: 57491055-4242-493b-902c-e1626c748ed2
 - **每轮 ≤2 图前端兜底**：takeForSend 时校验（后端 AttachmentInjectionService
   仍是硬限制真相源）；拒绝后中转区保留，用户可自行移除
 - **会话切换即清空**：与草稿跨会话保留不同——附件上传有服务端落盘副作用，
-  遗留状态容易误发（刻意决策）
+  遗留状态容易误发（刻意决策）。**首轮审视发现 1（🔴）后落地**：清空逻辑收进
+  hook 内部 effect（ref 比较防挂载误清空），不再依赖调用方调 clearAll——
+  原实现 clearAll 无生产调用方（死代码），ChatView 无 key 不重挂载导致会话 A
+  附件泄漏到会话 B。同时上传错误结构化为 `UploadErrorInfo { message, status }`
+  （审视发现 3：ApiError 的 HTTP status 语义保留，网络错误 status=null）
 
 ### 4. 输入框（MessageInput.tsx）
 
@@ -99,12 +103,12 @@ created_in_conversation: 57491055-4242-493b-902c-e1626c748ed2
 - `LocalAttachment` 本地类型（与 AttachmentDTO 同构）
 - `LocalMessage.atts?` 可选字段 + `mapMessageDTO` 透出（历史消息路径）
 
-## 测试（28 新用例）
+## 测试（33 新用例）
 
 | 文件 | 覆盖 |
 |---|---|
 | lib/attachments.test.ts（12） | 白名单分类（含 SVG 排除/accept 不含 svg）/大小边界（10MB 含/超）/混合批次拆分/字节格式化 |
-| hooks/useAttachmentStaging.test.ts（8） | 占位→DTO 替换/预览 URL 释放/失败回滚/白名单拒发/提取清空/≤2 图兜底（拒绝后保留）/移除/清空 |
+| hooks/useAttachmentStaging.test.ts（13） | 占位→DTO 替换/预览 URL 释放（断言具体 URL，审视发现 2a）/失败回滚/白名单拒发/提取清空/≤2 图兜底（拒绝后保留）/移除/手动清空/**同实例 rerender 换 conversationId 自动清空×2（发现 1 回归，含上传中占位的 blob 释放）**/同 id rerender 不误清空/**ApiError→status=413 结构化/网络错误 status=null（发现 3）** |
 | attachments-render.test.tsx（5） | 图片 src 指向端点/文件卡含文件名+大小/多图/混合/无附件不受影响 |
 
 测试设施说明：hook 测试用 `vi.mock` 模块级拦截 api/client——`vi.spyOn` 拦截不到
@@ -113,8 +117,26 @@ hook 闭包内 `import * as api` 的命名空间调用（5 个通过用例恰是
 
 ## 验证
 
-- web：31 文件 267 用例全绿（28 新增）；tsc 干净；vite build 通过
-- 根仓：163 文件 1958 用例全绿（后端契约未动，零回归）；eslint 0 error
+- web：31 文件 272 用例全绿（33 新增）；tsc 干净；vite build 通过；eslint 0 error
+- 根仓：163 文件 1958 用例全绿（后端契约未动，零回归）
+- 注：检视报告提到的根仓 1 失败经查不在本 PR 基线——失败于主目录本地 main（缺 #532
+  搭车的时间炸弹修复，硬编码 F20260825abcd 用例 08-28 起必炸），实际失败文件是
+  tests/scripts/validate-commit-date.test.ts（报告中的 tests/extensions/loader.test.ts
+  不存在）。本 PR 分支（=origin/main+本 PR）实测 1958 全绿
+
+## 审视处置记录
+
+首轮（检视獭mimo，异模型）：1🔴 2🟡 + B2 文档校准，处置如下：
+
+1. 🔴 会话切换未清空（clearAll 死代码）→ 已修：清空逻辑收进 hook 内部 effect
+   （mimo 建议方案 A 变体：ref 比较防挂载误清空），回归测试用同实例 rerender
+   换 conversationId 断言（原测试盲区：只测 clearAll 函数本身未测触发链）
+2. 🟡 revokeObjectURL 断言升级 → 已修：`toHaveBeenCalledWith('blob:preview-1')`
+   精确断言；上传中占位被清空的用例同样断言具体 blob URL
+3. 🟡 4xx status 丢弃 → 直接修（低成本）：ApiError 已带 status 字段，hook 暴露
+   `UploadErrorInfo { message, status }`，UI 错误条展示 status 徽标（413 等），
+   网络错误 status=null 不伪造 HTTP 语义
+4. B2 自报数字校准：见上方验证段注释
 
 ## 与后端契约的对接点（本 PR 消费不修改）
 

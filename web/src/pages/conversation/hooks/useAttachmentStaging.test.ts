@@ -65,7 +65,7 @@ describe('useAttachmentStaging', () => {
     await act(async () => { await result.current.addFiles([pngFile()]) })
 
     expect(result.current.staged).toHaveLength(0)
-    expect(result.current.uploadError).toContain('上传失败')
+    expect(result.current.uploadError?.message).toContain('上传失败')
   })
 
   it('白名单外文件不发起上传且给出拒绝原因', async () => {
@@ -76,7 +76,7 @@ describe('useAttachmentStaging', () => {
 
     expect(uploadMock).not.toHaveBeenCalled()
     expect(result.current.staged).toHaveLength(0)
-    expect(result.current.uploadError).toContain('evil.zip')
+    expect(result.current.uploadError?.message).toContain('evil.zip')
   })
 
   it('takeForSend：提取后清空中转区；附件内容为纯数据（无预览 URL/uploading 字段）', async () => {
@@ -128,5 +128,80 @@ describe('useAttachmentStaging', () => {
     act(() => { result.current.clearAll() })
     expect(result.current.staged).toHaveLength(0)
     expect(result.current.uploadError).toBeNull()
+  })
+
+  // 发现 1（严重）回归：原实现 clearAll 是死代码——生产链路（ChatView 无 key 不重挂载）
+  // 从不触发。必须用同实例 rerender 换 conversationId 断言自动清空（而非只测 clearAll 函数本身）。
+  it('会话切换自动清空：同实例 rerender 换 conversationId 后中转区清空（生产链路行为）', async () => {
+    uploadMock.mockResolvedValue({ attachments: [dto('srv-1', 'a.png')] })
+    const { result, rerender } = renderHook(
+      ({ convId }: { convId: string }) => useAttachmentStaging(convId),
+      { initialProps: { convId: 'conv-A' } }
+    )
+    await act(async () => { await result.current.addFiles([pngFile()]) })
+    expect(result.current.staged).toHaveLength(1)
+    expect(result.current.staged[0].id).toBe('srv-1')
+
+    // 切到会话 B：同实例 rerender（模拟 ChatView 不重挂载的真实路径）
+    rerender({ convId: 'conv-B' })
+
+    expect(result.current.staged).toHaveLength(0)
+    expect(result.current.uploadError).toBeNull()
+  })
+
+  it('会话切换自动清空：上传中的占位（带 blob 预览）被清空且 blob URL 释放', async () => {
+    // 不 resolve 的 promise：占位停在上传中状态
+    uploadMock.mockReturnValue(new Promise(() => {}) as never)
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pending-1')
+    const { result, rerender } = renderHook(
+      ({ convId }: { convId: string }) => useAttachmentStaging(convId),
+      { initialProps: { convId: 'conv-A' } }
+    )
+    await act(async () => { void result.current.addFiles([pngFile()]) })
+    expect(result.current.staged).toHaveLength(1)
+    expect(result.current.staged[0].uploading).toBe(true)
+
+    rerender({ convId: 'conv-B' })
+
+    expect(result.current.staged).toHaveLength(0)
+    expect(revokeSpy).toHaveBeenCalledWith('blob:pending-1')
+    revokeSpy.mockRestore()
+    createSpy.mockRestore()
+  })
+
+  it('挂载时不误清空：首次 render 无 conversationId 变化，同 id rerender 保留既有 staged（ref 比较防误触）', async () => {
+    uploadMock.mockResolvedValue({ attachments: [dto('srv-1', 'a.png')] })
+    const { result, rerender } = renderHook(
+      ({ convId }: { convId: string }) => useAttachmentStaging(convId),
+      { initialProps: { convId: 'conv-1' } }
+    )
+    await act(async () => { await result.current.addFiles([pngFile()]) })
+
+    rerender({ convId: 'conv-1' }) // 同 id rerender
+
+    expect(result.current.staged).toHaveLength(1)
+  })
+
+  it('上传失败：uploadError 结构化携带 HTTP status（ApiError 语义保留，发现 3）', async () => {
+    const { ApiError } = await import('../../../api/client')
+    uploadMock.mockRejectedValue(new ApiError('文件过大', 413))
+    const { result } = renderHook(() => useAttachmentStaging('conv-1'))
+
+    await act(async () => { await result.current.addFiles([pngFile()]) })
+
+    expect(result.current.staged).toHaveLength(0)
+    expect(result.current.uploadError?.message).toBe('文件过大')
+    expect(result.current.uploadError?.status).toBe(413)
+  })
+
+  it('上传失败：网络/未知错误 status 为 null（非 ApiError 不伪造 HTTP 语义）', async () => {
+    uploadMock.mockRejectedValue(new Error('network down'))
+    const { result } = renderHook(() => useAttachmentStaging('conv-1'))
+
+    await act(async () => { await result.current.addFiles([pngFile()]) })
+
+    expect(result.current.uploadError?.message).toBe('network down')
+    expect(result.current.uploadError?.status).toBeNull()
   })
 })

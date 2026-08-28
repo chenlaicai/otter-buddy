@@ -4,10 +4,13 @@
  * 独立 hook 而非塞进 useDraftCache：草稿是纯文本可 localStorage 持久化，
  * 附件含 File 对象（不可序列化）且上传后就是服务端 id 引用——生命周期不同，不混存。
  * 会话切换即清空（未发送的附件选择不跨会话保留，与草稿行为差异是刻意决策：
- * 附件上传有服务端落盘副作用，遗留状态容易误发）。
+ * 附件上传有服务端落盘副作用，遗留状态容易误发——PR #546 审视发现 1 后落地：
+ * 清空逻辑收进 hook 内部 effect，调用方（ChatView 不重挂载）免费获得，
+ * 不依赖调用方记得调 clearAll）。
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import * as api from '../../../api/client'
+import { ApiError } from '../../../api/client'
 import type { AttachmentDTO } from '@contract/api'
 import type { LocalAttachment } from '../../../lib/mappers'
 import { pickValidFiles, MAX_FILES_PER_UPLOAD, MAX_IMAGES_PER_SEND, type RejectedFile } from '../../../lib/attachments'
@@ -19,9 +22,16 @@ export interface StagedAttachment extends LocalAttachment {
   uploading: boolean
 }
 
+/** 上传错误结构化透出（PR #546 审视发现 3）：status 保留 HTTP 语义（400 MIME/413 超限/415 类型），
+ *  供 UI 层按需分流展示；网络/未知错误 status 为 null */
+export interface UploadErrorInfo {
+  message: string
+  status: number | null
+}
+
 export function useAttachmentStaging(conversationId: string | null) {
   const [staged, setStaged] = useState<StagedAttachment[]>([])
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadError, setUploadError] = useState<UploadErrorInfo | null>(null)
 
   /** 选择并立即上传；部分失败不阻塞其余（后端逐文件走管线，单个 400 不影响整批） */
   const addFiles = useCallback(async (files: File[]) => {
@@ -29,7 +39,7 @@ export function useAttachmentStaging(conversationId: string | null) {
     setUploadError(null)
     const [valid, rejected] = pickValidFiles(files)
     if (rejected.length > 0) {
-      setUploadError(rejected.map(r => `${r.name}：${r.reason}`).join('；'))
+      setUploadError({ message: rejected.map(r => `${r.name}：${r.reason}`).join('；'), status: null })
     }
     if (valid.length === 0) return
 
@@ -68,7 +78,9 @@ export function useAttachmentStaging(conversationId: string | null) {
         for (const p of placeholders) if (p.localPreviewUrl) URL.revokeObjectURL(p.localPreviewUrl)
         return prev.filter(s => !placeholders.some(p => p.id === s.id))
       })
-      setUploadError(err instanceof Error ? err.message : '上传失败')
+      setUploadError(err instanceof ApiError
+        ? { message: err.message, status: err.status }
+        : { message: err instanceof Error ? err.message : '上传失败', status: null })
     }
   }, [conversationId])
 
@@ -95,7 +107,8 @@ export function useAttachmentStaging(conversationId: string | null) {
     return { attachments }
   }, [staged])
 
-  /** 会话切换清空中转区（useEffect 放调用方，避免本 hook 依赖抖动） */
+  /** 全量清空中转区（释放所有预览 blob + 错误置空）：由下方会话切换 effect 自动触发，
+   *  也保留手动调用能力（如未来需要“清空草稿”类操作） */
   const clearAll = useCallback(() => {
     setStaged(prev => {
       for (const p of prev) if (p.localPreviewUrl) URL.revokeObjectURL(p.localPreviewUrl)
@@ -103,6 +116,17 @@ export function useAttachmentStaging(conversationId: string | null) {
     })
     setUploadError(null)
   }, [])
+
+  /** 会话切换即清空（发现 1 修复）：ref 比较只在 id 真变化时触发（挂载不清空，
+   *  避免无谓 rerender）；ChatView 不重挂载，靠本 effect 隔离会话 A/B 的中转状态。
+   *  进行中的上传完成回调（DTO 替换遍历 uploading 条目）在清空后的空列表上空转，不会复活条目。 */
+  const prevConversationIdRef = useRef(conversationId)
+  useEffect(() => {
+    if (prevConversationIdRef.current !== conversationId) {
+      prevConversationIdRef.current = conversationId
+      clearAll()
+    }
+  }, [conversationId, clearAll])
 
   return { staged, uploadError, addFiles, remove, takeForSend, clearAll, setUploadError }
 }

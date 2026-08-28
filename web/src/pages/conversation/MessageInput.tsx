@@ -4,7 +4,7 @@ import type { LocalOtter as Otter } from '../../lib/mappers'
 import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { useDraftCache } from '../../hooks/use-draft-cache'
 import { ATTACHMENT_ACCEPT, MAX_IMAGES_PER_SEND, MAX_FILES_PER_UPLOAD, fmtBytes } from '../../lib/attachments'
-import type { StagedAttachment } from './hooks/useAttachmentStaging'
+import type { StagedAttachment, UploadErrorInfo } from './hooks/useAttachmentStaging'
 
 interface MessageInputProps {
   onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[]) => void
@@ -16,7 +16,7 @@ interface MessageInputProps {
   staged: StagedAttachment[]
   onRemoveAttachment: (id: string) => void
   onPickFiles: (files: File[]) => void
-  uploadError?: string | null
+  uploadError?: UploadErrorInfo | null
   onDismissUploadError?: () => void
 }
 
@@ -177,8 +177,9 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
               </div>
             ))}
             {uploadError && (
-              <div className="flex items-center gap-2 rounded-xl bg-red-50/80 border border-red-200/60 px-3 py-1.5 text-[11px] text-red-600 max-w-full">
-                <span className="truncate" title={uploadError}>{uploadError}</span>
+              <div className="flex items-center gap-2 rounded-xl bg-red-50/80 border border-red-200/60 px-3 py-1.5 text-[11px] text-red-600 max-w-full" title={uploadError.message}>
+                {uploadError.status !== null && <span className="flex-shrink-0 font-mono text-[10px] text-red-400">{uploadError.status}</span>}
+                <span className="truncate">{uploadError.message}</span>
                 {onDismissUploadError && (
                   <button onClick={onDismissUploadError} className="flex-shrink-0 font-medium hover:text-red-700">
                     <X className="w-3 h-3" />
