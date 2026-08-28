@@ -25,8 +25,9 @@ created_in_conversation: 08a924c4-9c68-43b4-9360-56f9b251e84f
 | `docs/user-guide/feishu-setup.md` | 5+1 | 权限表/多人识别提示/调试器指引/FAQ 各处权限名订正；FAQ 新增一行「开了权限仍不显示姓名」排查路径（核对权限名 → 发版 → 日志验证 `Feishu user name resolved`） |
 | `docs/features/2026/08/26/F20260826fuid-feishu-user-identity.md` | 3 | 历史特性文档中的权限名订正（记录性文档同步勘误，避免后人按旧文档再踩） |
 | `src/frameworks/feishu/user-info-client.ts` | 1 | 头注释权限名订正 + 注明笔误来源与实测必需清单（代码逻辑零改动） |
+| `config/config.yaml.example` | 1 | 权限清单注释订正（审视修复：首轮漏改，grep --include="*.yaml" 不匹配 .yaml.example 后缀所致） |
 
-总计 10 处 `contact:user.base:readonly` → `contact:contact.base:readonly`（sed 后 grep 残留 0）。
+总计 10 处订正（含审视修复补的 config.yaml.example 1 处）。
 
 ## 排除项
 
@@ -35,7 +36,7 @@ created_in_conversation: 08a924c4-9c68-43b4-9360-56f9b251e84f
 
 ## 验证
 
-- [x] `grep -rn "contact:user.base:readonly"` 全仓残留 0
+- [x] `grep -rn "contact:user.base:readonly"` 全仓仅余合理引用（FAQ/特性文档/注释中作为对比展示「不要用」的旧名）
 - [x] 权限名以实测 API 错误返回为准（log_id 20260828100352479CBCCFE0AF8E4E49A9 可复查）
 - [ ] 搭档侧验证：开通 `contact:contact.base:readonly` + 发布版本后，发一条飞书消息，日志出现 `Feishu user name resolved`
 
