@@ -146,20 +146,24 @@ describe('validateCommitDate', () => {
   });
 
   describe('CLI 退出码（集成）', () => {
-    // 动态生成「今天」的 F 类 ID——原硬编码 F20260825 随系统时钟漂移必然红（存量时间炸弹，
-    // C3 合入后第 3 天现形）；CLI 无 now 注入参数，用真实今天保证「今天=0 偏差」恒成立
+    // Why: CLI 集成用例走真实脚本，脚本用系统当前日期判定偏差（±2 天）。
+    // 硬编码日期会在日期滚动后必然失败（#422 同源教训：禁止凭印象标日期）。
+    // 动态生成「今天/3 天前」的日期，测试永不随时间衰减。
     const today = new Date();
-    const todayId = `F${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}abcd`;
+    const ymd = (d: Date) =>
+      `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(
+        d.getDate(),
+      ).padStart(2, '0')}`;
+    // 本地时区近似即可：±2 天容忍下 UTC/Shanghai 差 1 天不影响结论
+    const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 3600 * 1000);
 
     it('should exit 0 for valid F-type commit', () => {
-      // 时间炸弹修复：动态生成今天的 F 类 ID（原硬编码 F20260825 随时钟漂移必红）——
-      // C4 合入时与 #532 的 F20260827rsux CI 处置同题收敛，保持集成语义不变（今天=0 偏差）。
-      const { exitCode } = runCLI([`[${todayId}][agent][Feature Update] 测试`]);
+      const { exitCode } = runCLI([`[F${ymd(today)}abcd][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(0);
     });
 
     it('should exit 1 for rejected F-type commit (偏差 > 2 天)', () => {
-      const { exitCode, stderr } = runCLI(['[F20260818abcd][agent][Feature Update] 测试']);
+      const { exitCode, stderr } = runCLI([`[F${ymd(threeDaysAgo)}abcd][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(1);
       expect(stderr).toContain('偏差');
     });
