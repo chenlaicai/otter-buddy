@@ -55,7 +55,7 @@ describe('collapse→re-expand 回归（loadCount 进入 expanded 即重置）',
     fireIframeLoad()
     // 修复前：loadCount 沿用旧值 1，重展开 load 计为 2 → 误判导航逃逸
     expect(container.textContent).not.toContain('已失效')
-    expect(container.textContent).toContain('沙箱隔离')
+    expect(container.textContent).toContain('沙箱渲染中')
   })
 
   it('otter 卡片（interactive=true）重展开后同样不降级', () => {
