@@ -112,6 +112,23 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     setMentionQuery(null)
   }
 
+  /** 多模态 Phase 2：剪贴板粘贴文件（微信式体验）——从 paste 事件提取文件走同一上传管线。
+   *  仅拦截含文件的粘贴；纯文本粘贴（含截图工具自动写入的文本 URL）走原生行为不打断。 */
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(e.clipboardData?.files ?? [])
+    if (files.length === 0) return // 纯文本粘贴：原生行为
+    e.preventDefault()
+    onPickFiles(files)
+  }
+
+  /** 多模态 Phase 2：拖拽文件进输入框（与粘贴同管线）。拖文本/链接走原生 */
+  function handleDrop(e: React.DragEvent<HTMLTextAreaElement>) {
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length === 0) return
+    e.preventDefault()
+    onPickFiles(files)
+  }
+
   /** 按 ID 去重，避免同名 otter 重复显示 */
   const seen = new Set<string>()
   const uniqueOtters = otters.filter(o => { if (seen.has(o.id)) return false; seen.add(o.id); return true })
@@ -219,6 +236,12 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             value={draft}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onDrop={handleDrop}
+            onDragOver={(e) => {
+              // 拖文件时允许 drop（阻止浏览器默认打开文件）；纯文本拖拽不影响
+              if (e.dataTransfer?.types?.includes('Files')) e.preventDefault()
+            }}
             disabled={disabled}
             placeholder={placeholder}
             className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[var(--input-scroll-max-h)] leading-relaxed disabled:opacity-50 overflow-y-auto"

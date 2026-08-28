@@ -261,7 +261,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   if (feishu) {
-    setupFeishu({ appConfig: config, uc, agentInvoker, feishu, messageBroadcaster, logger });
+    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger });
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。

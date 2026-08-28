@@ -28,6 +28,8 @@ import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-proce
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { PartnerResolver } from "@usecases/im/partner-resolver";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
+import { FeishuResourceClient } from "@frameworks/feishu/resource-client";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
@@ -176,12 +178,13 @@ export function createFeishuBundle(options: {
 export function setupFeishu(options: {
   appConfig: AppConfig;
   uc: UseCases;
+  repos: Repositories;
   agentInvoker: AgentInvoker;
   feishu: FeishuBundle;
   messageBroadcaster: MessageBroadcaster;
   logger: Logger;
 }): void {
-  const { appConfig, uc, agentInvoker, feishu, messageBroadcaster, logger } = options;
+  const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger } = options;
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
@@ -194,6 +197,15 @@ export function setupFeishu(options: {
     logger,
   });
 
+  // 多模态 Phase 2：飞书 ingress 附件三件套——资源下载客户端 + 注入服务与 controllers.ts 同构
+  // （storageRoot 缺省 ./data/attachments，与 AttachmentController 一致）
+  const feishuResource = new FeishuResourceClient(feishu.tokenManager, logger);
+  const attachmentInjection = new AttachmentInjectionService({
+    attachmentRepo: repos.attachment,
+    storageRoot: appConfig.attachments?.storageRoot ?? "./data/attachments",
+    logger,
+  });
+
   const messageProcessor = new FeishuMessageProcessor({
     manageConnection: uc.manageConnection,
     sendMessage: uc.sendMessage,
@@ -203,6 +215,10 @@ export function setupFeishu(options: {
     feishuUserInfo: new FeishuUserInfoClient(feishu.tokenManager, logger),
     // F20260826fpbd：命令门禁用（方案B）
     partnerResolver,
+    // 多模态 Phase 2：飞书 ingress 收图/收文件（下载 + 上传管线 + 注入组装）
+    feishuResource,
+    attachmentUpload: uc.attachmentUpload,
+    attachmentInjection,
     agentDispatchService,
     messageBroadcaster,
     logger,
