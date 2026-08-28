@@ -1,9 +1,11 @@
 import type { Message, MessageEvent } from "@entities/conversation/message";
 import { aggregateBody } from "@entities/conversation/message";
+import type { SignalEvent } from "@entities/signal/signal-event";
 import type {
   MessageDTO,
   MessageSegmentDTO,
   MessageEventDTO,
+  MessageSignalDTO,
 } from "@contract/api/message";
 
 export type { MessageDTO, MessageSegmentDTO, MessageEventDTO };
@@ -49,6 +51,22 @@ export function toMessageEventDTO(evt: MessageEvent): MessageEventDTO {
     eventType: evt.eventType,
     payload: evt.payload,
     sequenceNum: evt.sequenceNum,
+    createdAt: evt.createdAt,
+  };
+}
+
+/** F20260826mwrd C4：signal_events → 徽章 DTO（徽章在消息原位渲染的数据源） */
+export function toMessageSignalDTO(evt: SignalEvent): MessageSignalDTO {
+  return {
+    id: evt.id,
+    type: evt.type,
+    severity: evt.severity,
+    status: evt.status,
+    payload: evt.payload,
+    fromOtterId: evt.fromOtterId,
+    ...(evt.targetOtterId !== null && { targetOtterId: evt.targetOtterId }),
+    ...(evt.resolution !== null && { resolution: evt.resolution }),
+    ...(evt.resolvedBy !== null && { resolvedBy: evt.resolvedBy }),
     createdAt: evt.createdAt,
   };
 }

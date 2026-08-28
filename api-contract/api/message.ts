@@ -25,7 +25,28 @@ export interface MessageDTO {
   src?: string;
   /** 消息分段数组（多 speak 气泡），仅 agent 消息且 segments 非空时携带 */
   segments?: MessageSegmentDTO[];
+  /** 消息关联的獭间信号（F20260826mwrd C4）——徽章在消息原位渲染，仅 otter 消息且有关联信号时携带 */
+  signals?: MessageSignalDTO[];
   events?: MessageEventDTO[];
+}
+
+/** 消息关联的獭间信号（F20260826mwrd C4：UI 徽章数据源） */
+export interface MessageSignalDTO {
+  id: string;
+  type: "objection" | "blocked" | "halt";
+  severity: "low" | "medium" | "high";
+  /** 实体状态机三态（halt 落账即 resolved，resolvedBy=system——见 signal-event.ts 状态说明） */
+  status: "pending" | "resolved" | "dismissed";
+  /** 信号正文（事实依据/已试清单/halt 理由），前端点击展开用 */
+  payload: string;
+  /** 发起獭 ID（UI 展示发起者，可映射名字） */
+  fromOtterId: string;
+  /** halt 目标獭（type=halt 时携带） */
+  targetOtterId?: string | null;
+  /** 裁决文本（resolved/dismissed 后携带，徽章显示摘要） */
+  resolution?: string | null;
+  resolvedBy?: string | null;
+  createdAt: string;
 }
 
 /** 消息事件 DTO */

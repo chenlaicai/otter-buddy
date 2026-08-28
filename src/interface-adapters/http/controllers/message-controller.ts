@@ -8,9 +8,10 @@ import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
-import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
+import { toMessageDTO, toMessageEventDTO, toMessageSignalDTO } from "../dto/message-dto";
 import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 
@@ -25,6 +26,8 @@ export class MessageController {
     private readonly queryOtter: QueryOtter,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly messageBroadcaster?: MessageBroadcaster,
+    /** F20260826mwrd C4：消息 DTO signals 挂载（徽章数据源） */
+    private readonly signalRepo?: SignalEventRepository,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -39,7 +42,7 @@ export class MessageController {
     return names;
   }
 
-  /** 批量构建 MessageDTO（含 events + 发送者名），list/listAfter/expand 复用，避免 N+1 */
+  /** 批量构建 MessageDTO（含 events + 发送者名 + signals），list/listAfter/expand 复用，避免 N+1 */
   private async buildMessageDTOs(messages: Message[]): Promise<MessageDTO[]> {
     const messageIds = messages.filter((m) => m.senderType === "otter").map((m) => m.id);
     const allEvents = messageIds.length > 0
@@ -51,6 +54,16 @@ export class MessageController {
       arr.push(evt);
       eventsByMsg.set(evt.messageId, arr);
     }
+    // F20260826mwrd C4：徽章数据（消息原位渲染，与 events 同挂载面）
+    const allSignals = this.signalRepo && messageIds.length > 0
+      ? await this.signalRepo.findByMessageIds(messageIds)
+      : [];
+    const signalsByMsg = new Map<string, typeof allSignals>();
+    for (const sig of allSignals) {
+      const arr = signalsByMsg.get(sig.messageId) ?? [];
+      arr.push(sig);
+      signalsByMsg.set(sig.messageId, arr);
+    }
     const senderNames = await this.resolveSenderNames(messages);
     return messages.map((msg) => {
       const dto = toMessageDTO(msg, senderNames.get(msg.senderId));
@@ -58,8 +71,24 @@ export class MessageController {
       if (evts && evts.length > 0) {
         dto.events = evts.map(toMessageEventDTO);
       }
+      const sigs = signalsByMsg.get(msg.id);
+      if (sigs && sigs.length > 0) {
+        dto.signals = sigs.map(toMessageSignalDTO);
+      }
       return dto;
     });
+  }
+
+  /** F20260826mwrd C4：SSE 单条消息推送前挂载 signals（otter 消息才查，失败不阻断推送） */
+  private async decorateWithSignals(dto: MessageDTO, message: Message): Promise<MessageDTO> {
+    if (!this.signalRepo || message.senderType !== "otter") return dto;
+    try {
+      const sigs = await this.signalRepo.findByMessageIds([message.id]);
+      if (sigs.length > 0) dto.signals = sigs.map(toMessageSignalDTO);
+    } catch (err) {
+      this.logger.warn("[decorateWithSignals] signal 挂载失败，推送裸 DTO", { messageId: message.id, error: err instanceof Error ? err.message : String(err) });
+    }
+    return dto;
   }
 
   /** 订阅消息广播（SSE 长连接） */
@@ -97,15 +126,22 @@ export class MessageController {
           }
           push({
             event: "message",
-            data: toMessageDTO(message, senderName) as unknown as Record<string, unknown>,
+            data: (await this.decorateWithSignals(toMessageDTO(message, senderName), message)) as unknown as Record<string, unknown>,
           });
         } catch (err) {
           this.logger.error("[subscribe] Failed to broadcast message", err instanceof Error ? err : undefined, { messageId: message.id });
-          // 降级：名称解析失败也要推送消息（前端回退到 otterId/其他名称解析）
-          push({
-            event: "message",
-            data: toMessageDTO(message) as unknown as Record<string, unknown>,
-          });
+          // 降级：名称解析失败也要推送消息（前端回退到 otterId/其他名称解析）；信号挂载失败不阻断推送（徽章缺失可由前端刷新拉齐）
+          try {
+            push({
+              event: "message",
+              data: (await this.decorateWithSignals(toMessageDTO(message), message)) as unknown as Record<string, unknown>,
+            });
+          } catch {
+            push({
+              event: "message",
+              data: toMessageDTO(message) as unknown as Record<string, unknown>,
+            });
+          }
         }
       },
       // 事件回调：agent streaming 事件（message.start, assistant_text, message.complete 等）

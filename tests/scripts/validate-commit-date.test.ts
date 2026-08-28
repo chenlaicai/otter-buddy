@@ -146,8 +146,13 @@ describe('validateCommitDate', () => {
   });
 
   describe('CLI 退出码（集成）', () => {
+    // 动态生成「今天」的 F 类 ID——原硬编码 F20260825 随系统时钟漂移必然红（存量时间炸弹，
+    // C3 合入后第 3 天现形）；CLI 无 now 注入参数，用真实今天保证「今天=0 偏差」恒成立
+    const today = new Date();
+    const todayId = `F${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}abcd`;
+
     it('should exit 0 for valid F-type commit', () => {
-      const { exitCode } = runCLI(['[F20260825abcd][agent][Feature Update] 测试']);
+      const { exitCode } = runCLI([`[${todayId}][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(0);
     });
 

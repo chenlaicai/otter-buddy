@@ -32,6 +32,7 @@ import { ConnectionController } from "@interface-adapters/http/controllers/conne
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
+import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 
 
@@ -66,10 +67,12 @@ export interface ControllerDeps {
   rhiScanWorker: RhiScanWorker;
   signalRepo: SignalRepository;
   healthSnapshotRepo: HealthSnapshotRepository;
+  /** F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分） */
+  signalEventRepo: SignalEventRepository;
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
-  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo } = deps;
+  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo } = deps;
 
   const settings: SettingsConfig = {
     port: appConfig.server.port,
@@ -85,7 +88,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
     otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
-    message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster),
+    message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster, signalEventRepo),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),

@@ -13,6 +13,7 @@ import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
+import { SignalBadge } from './SignalBadge'
 import { resolveDisplayName } from './display-name'
 
 
@@ -451,6 +452,14 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
+          {/* F20260826mwrd C4: 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
+          {!isUser && m.signals && m.signals.length > 0 && (
+            <div className="mb-1.5">
+              {m.signals.map(sig => (
+                <SignalBadge key={sig.id} signal={sig} fromName={otters.find(o => o.id === sig.fromOtterId)?.name} />
+              ))}
+            </div>
+          )}
           {/* F-multi-speak-bubble: 分段渲染 */}
           {m.segments && m.segments.length > 0 ? (
             <div className="space-y-2">

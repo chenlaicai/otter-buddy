@@ -251,6 +251,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     rhiScanWorker,
     signalRepo: new SignalRepository(db),
     healthSnapshotRepo: new HealthSnapshotRepository(db),
+    // F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分）
+    signalEventRepo: repos.signalEvent,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");
