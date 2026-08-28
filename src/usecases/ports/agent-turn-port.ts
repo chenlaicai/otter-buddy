@@ -28,6 +28,8 @@ export interface AgentTurnPort {
     retryCount?: number;
     /** Web 手动重试标识（metrics retry label 区分 manual/auto） */
     manualRetry?: boolean;
+    /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent；≤2 图由服务端硬限制把关） */
+    images?: Array<{ type: "image"; data: string; mimeType: string }>;
   }): Promise<AgentTurnResult>;
 
   /** 中止 Agent 生成 */
