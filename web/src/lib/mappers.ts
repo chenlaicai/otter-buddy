@@ -63,6 +63,17 @@ export interface LocalMessageSegment {
   sequenceNum: number
 }
 
+/** 前端本地附件（多模态 Phase 1）——与 AttachmentDTO 同构，历史/乐观两条路径共用 */
+export interface LocalAttachment {
+  id: string
+  kind: 'image' | 'document'
+  originalName: string
+  mimeType: string
+  sizeBytes: number
+  width?: number | null
+  height?: number | null
+}
+
 /** 前端本地 Message 类型 */
 export interface LocalMessage {
   id: string
@@ -87,6 +98,8 @@ export interface LocalMessage {
   segments?: LocalMessageSegment[]
   /** 消息关联信号（F20260826mwrd C4 徽章）；历史消息可能无此字段 */
   signals?: LocalMessageSignal[]
+  /** 多模态 Phase 1：随消息携带的附件 */
+  atts?: LocalAttachment[]
 }
 
 /** 前端本地 LinkedResource 类型（统一产物模型）
@@ -160,6 +173,8 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     segments: dto.segments,
     // F20260826mwrd C4: 消息关联信号（徽章数据）
     signals: dto.signals?.map(s => ({ ...s })),
+    // 多模态 Phase 1：附件透出（仅非空时携带）
+    ...(dto.atts && { atts: dto.atts }),
   }
 }
 

@@ -4,12 +4,13 @@ import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessa
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
+import { useAttachmentStaging, type StagedAttachment } from './hooks/useAttachmentStaging'
 
 interface ChatViewProps {
   conversation: Conversation | null
   messages: Message[]
   state: 'normal' | 'empty' | 'loading' | 'error' | 'no-llm'
-  onSend: (text: string, mentionOtterIds?: string[]) => void
+  onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[]) => void
   onStopStream: (messageId: string) => void
   onRetryMessage: (messageId: string) => void
   onRetry: () => void
@@ -37,6 +38,7 @@ interface ChatViewProps {
 
 export function ChatView(props: ChatViewProps) {
   const { conversation: c } = props
+  const staging = useAttachmentStaging(props.conversationId || null)
 
   return (
     <main className="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
@@ -130,6 +132,11 @@ export function ChatView(props: ChatViewProps) {
         disabled={c?.status === 'archived'}
         otters={props.otters}
         conversationId={props.conversationId}
+        staged={staging.staged}
+        onRemoveAttachment={staging.remove}
+        onPickFiles={staging.addFiles}
+        uploadError={staging.uploadError}
+        onDismissUploadError={() => staging.setUploadError(null)}
       />
     </main>
   )
