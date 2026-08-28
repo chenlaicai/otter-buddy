@@ -34,3 +34,39 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     detail: `summoned=${summoned} searched=${searched} ordered=${ordered} tools=${JSON.stringify(tools)}`,
   };
 };
+
+/**
+ * F20260828gssf: selftest 参考序列。
+ *
+ * good = 正确行为轨迹：獭先 search_memory 再 create_otter（R4 合规）
+ * bad  = 伤疤复现轨迹：獭跳过 search_memory 直接 create_otter（R4 违规）
+ */
+export const selftest: GoldenModule["selftest"] = {
+  good: {
+    messages: [
+      { id: "st-u1", st: "user", si: "selftest-user", content: "召唤一只检视獭", status: "completed", seq: 1 },
+      {
+        id: "st-o1", st: "otter", si: "selftest-otter", content: "好的，先搜记忆再召唤", status: "completed", seq: 2,
+        events: [
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "search_memory" }] } },
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "create_otter" }] } },
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+        ],
+      },
+    ],
+    expectedOk: true,
+  },
+  bad: {
+    messages: [
+      { id: "st-u2", st: "user", si: "selftest-user", content: "召唤一只检视獭", status: "completed", seq: 1 },
+      {
+        id: "st-o2", st: "otter", si: "selftest-otter", content: "好的，召唤检视獭", status: "completed", seq: 2,
+        events: [
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "create_otter" }] } },
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+        ],
+      },
+    ],
+    expectedOk: false,
+  },
+};

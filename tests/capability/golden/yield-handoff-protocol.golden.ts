@@ -41,3 +41,40 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     detail: `completed=${Boolean(completed)} hasContent=${hasContent} yielded=${yielded} tsp=${JSON.stringify(tsp)} speakTool=${spokeViaTool} status=${completed?.status}`,
   };
 };
+
+/**
+ * F20260828gssf: selftest 参考序列。
+ *
+ * good = 正确行为轨迹：獭 speak 后 yield，completed 消息有内容有 tsp
+ * bad  = 伤疤复现轨迹：獭 speak 但不 yield，completed 消息无 tsp（no_yield 内容丢失）
+ */
+export const selftest: GoldenModule["selftest"] = {
+  good: {
+    messages: [
+      { id: "st-u1", st: "user", si: "selftest-user", content: "1+1 等于几", status: "completed", seq: 1 },
+      {
+        id: "st-o1", st: "otter", si: "selftest-otter", content: "1+1 等于 2。", status: "completed", seq: 2,
+        tsp: ["selftest-user"],
+        events: [
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "yield" }] } },
+        ],
+      },
+    ],
+    expectedOk: true,
+  },
+  bad: {
+    messages: [
+      { id: "st-u2", st: "user", si: "selftest-user", content: "1+1 等于几", status: "completed", seq: 1 },
+      {
+        id: "st-o2", st: "otter", si: "selftest-otter", content: "1+1 等于 2。", status: "completed", seq: 2,
+        tsp: [],
+        events: [
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+          // 无 yield——tsp 为空
+        ],
+      },
+    ],
+    expectedOk: false,
+  },
+};

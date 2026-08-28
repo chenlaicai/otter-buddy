@@ -15,6 +15,7 @@ import {
   type MessageDto,
 } from "../helpers/assert-behavior";
 import type { GoldenModule } from "./golden.runner";
+import type { CapabilityContext } from "../helpers/boot";
 
 export const golden: GoldenModule["golden"] = {
   id: "talking-stone-routing",
@@ -73,5 +74,79 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
   return {
     ok: passedToBigOtter && !passedToUser,
     detail: `子獭=${smallOtter.name} tsp=${JSON.stringify(tsp)} match=${passedToBigOtter} body="${smallMsg.content.slice(0, 60)}"`,
+  };
+};
+
+/**
+ * F20260828gssf: selftest 参考序列（DB 依赖场景——factory 函数）。
+ *
+ * 本场景断言需要查 DB（conversation_otters JOIN otters），所以 selftest 是 factory 函数：
+ * 先通过 API 创建会话，再往 DB 插入测试 otter 记录，然后构造带正确 senderId 的消息。
+ *
+ * good = 子獭 tsp 指向大獭（正确路由）
+ * bad  = 子獭 tsp 指向 'user'（伤疤复现：误传 user）
+ */
+export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext) => {
+  const bigOtterId = "selftest-big-otter-id";
+  const smallOtterId = "selftest-small-otter-id";
+
+  // 通过 API 创建会话（安全，不依赖表结构细节）
+  const convRes = await ctx.built.app.request("/api/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "selftest:talking-stone-routing", title: "selftest" }),
+  });
+  const { id: convId } = (await convRes.json()) as { id: string };
+
+  // 插入测试 otter 记录（schema: id, name, type, status, parent_otter_id）
+  ctx.built.db
+    .prepare("INSERT OR REPLACE INTO otters (id, name, type, status, parent_otter_id) VALUES (?, ?, ?, 'active', ?)")
+    .run(bigOtterId, "selftest-大獭", "big", null);
+  ctx.built.db
+    .prepare("INSERT OR REPLACE INTO otters (id, name, type, status, parent_otter_id) VALUES (?, ?, ?, 'active', ?)")
+    .run(smallOtterId, "selftest-报告獭", "small", bigOtterId);
+
+  // 关联到会话
+  ctx.built.db
+    .prepare("INSERT OR REPLACE INTO conversation_otters (conversation_id, otter_id) VALUES (?, ?)")
+    .run(convId, bigOtterId);
+  ctx.built.db
+    .prepare("INSERT OR REPLACE INTO conversation_otters (conversation_id, otter_id) VALUES (?, ?)")
+    .run(convId, smallOtterId);
+
+  const userMsg: MessageDto = {
+    id: "st-u1", st: "user", si: "selftest-user", content: "召唤小獭", status: "completed", seq: 1,
+  };
+
+  const bigOtterMsg: MessageDto = {
+    id: "st-o1", st: "otter", si: bigOtterId, content: "召唤报告獭", status: "completed", seq: 2,
+    tsp: [smallOtterId],
+    events: [
+      { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "search_memory" }] } },
+      { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "create_otter" }] } },
+    ],
+  };
+
+  const smallOtterMsgGood: MessageDto = {
+    id: "st-o2", st: "otter", si: smallOtterId, content: "报告獭已到岗，听候差遣。",
+    status: "completed", seq: 3, tsp: [bigOtterId],
+  };
+
+  const smallOtterMsgBad: MessageDto = {
+    id: "st-o2b", st: "otter", si: smallOtterId, content: "报告獭已到岗，听候差遣。",
+    status: "completed", seq: 3, tsp: ["user"],
+  };
+
+  return {
+    good: {
+      messages: [userMsg, bigOtterMsg, smallOtterMsgGood],
+      expectedOk: true,
+      convId,
+    },
+    bad: {
+      messages: [userMsg, bigOtterMsg, smallOtterMsgBad],
+      expectedOk: false,
+      convId,
+    },
   };
 };

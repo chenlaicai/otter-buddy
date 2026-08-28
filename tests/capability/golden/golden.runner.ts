@@ -5,6 +5,10 @@
  * 场景自带命令式断言）→ 经 expectSampledBehavior 断言 → 每场景采样结束 append 一行到
  * results.jsonl（写入点在 runner，不动 expectSampledBehavior 本身）。
  *
+ * F20260828gssf: selftest 层——跑真 LLM 采样之前，先把 good/bad 参考序列喂给断言函数
+ * 离线校验判别力（good 必过 + bad 必拦）。selftest 不过直接 fail，不进入采样。
+ * 零 LLM 依赖——参考消息序列纯构造，不发真实请求。
+ *
  * 与现有 capability test 的关系：capability test = 源（详细断言/多采样/调试视图），
  * golden = PR gate 精简视图（精简采样 + 来源元数据 + 结果沉淀）。断言分叉时以 capability
  * test 为准，golden 跟随更新（见各场景 originTest 锚点）。
@@ -14,7 +18,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, it, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { bootCapabilityApp, type CapabilityContext } from "../helpers/boot";
 import {
   createConversation,
@@ -53,11 +57,29 @@ export interface GoldenAssertCtx {
 /** 命令式断言：返回 SampleResult 契约 */
 export type GoldenAssert = (ac: GoldenAssertCtx) => Promise<SampleResult>;
 
+/** F20260828gssf: selftest 参考序列——一条 good/bad 的完整定义 */
+export interface GoldenSelftestRef {
+  /** 构造的参考消息序列（零 LLM 调用，纯数据构造） */
+  messages: MessageDto[];
+  /** 期望断言结果：true=应 ok（good 行为），false=应 !ok（bad 行为） */
+  expectedOk: boolean;
+  /** 覆盖默认 convId（DB 依赖场景需要匹配 selftestSetup 插入的 convId） */
+  convId?: string;
+}
+
+/** F20260828gssf: selftest 定义——每个场景配 good/bad 两套参考 */
+export interface GoldenSelftest {
+  good: GoldenSelftestRef;
+  bad: GoldenSelftestRef;
+}
+
 export interface GoldenModule {
   golden: GoldenScenario;
   assert: GoldenAssert;
   /** manualReview 场景的判定提示（供检视獭参考，复用源测试既有判据） */
   manualReviewHint?: string;
+  /** F20260828gssf: selftest 参考。静态对象或 factory 函数（DB 依赖场景） */
+  selftest?: GoldenSelftest | ((ctx: CapabilityContext) => Promise<GoldenSelftest>);
 }
 
 /** results.jsonl 写入点（非 git 追踪，本地数据沉淀） */
@@ -78,6 +100,58 @@ function currentPr(): number | undefined {
   const ref = process.env.GITHUB_REF ?? "";
   const m = ref.match(/refs\/pull\/(\d+)\//);
   return m ? Number(m[1]) : undefined;
+}
+
+/** F20260828gssf: selftest 结果 */
+export interface SelftestResult {
+  passed: boolean;
+  reason?: string;
+  goodOk?: boolean;
+  badOk?: boolean;
+}
+
+/**
+ * F20260828gssf: 运行 selftest——校验断言函数对 good/bad 参考序列的判别力。
+ * 零 LLM 调用，纯离线校验。判别力不足（两个都过或两个都拦）直接 fail。
+ */
+export async function runSelftest(
+  ctx: CapabilityContext,
+  mod: GoldenModule,
+): Promise<SelftestResult> {
+  if (!mod.selftest) {
+    return { passed: true };
+  }
+
+  const selftestDef = typeof mod.selftest === "function"
+    ? await mod.selftest(ctx)
+    : mod.selftest;
+
+  const defaultConvId = `selftest:${mod.golden.id}`;
+
+  const goodResult = await mod.assert({
+    ctx,
+    convId: selftestDef.good.convId ?? defaultConvId,
+    messages: selftestDef.good.messages,
+  });
+
+  const badResult = await mod.assert({
+    ctx,
+    convId: selftestDef.bad.convId ?? defaultConvId,
+    messages: selftestDef.bad.messages,
+  });
+
+  const goodOk = goodResult.ok === selftestDef.good.expectedOk;
+  const badOk = badResult.ok === selftestDef.bad.expectedOk;
+  const passed = goodOk && badOk;
+
+  return {
+    passed,
+    goodOk: goodResult.ok,
+    badOk: badResult.ok,
+    reason: passed
+      ? undefined
+      : `判别力不足：good.ok=${goodResult.ok}(expect ${selftestDef.good.expectedOk}) bad.ok=${badResult.ok}(expect ${selftestDef.bad.expectedOk})`,
+  };
 }
 
 /**
@@ -101,6 +175,28 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
       const label = `golden:${golden.id}`;
 
       it(`${golden.id}（n=${golden.sampling.n} ≥${golden.sampling.minSuccess}，源 ${golden.originTest}）`, async (t) => {
+        /** F20260828gssf: selftest 前置校验——不依赖 LLM，无论 LLM 是否可用都跑。
+         *  判别力不足时直接 fail，不进入采样（"仪器先证明可靠才花钱"）。 */
+        if (mod.selftest) {
+          const selftestResult = await runSelftest(ctx, mod);
+
+          appendResult({
+            ts: new Date().toISOString(),
+            golden_id: `${golden.id}:selftest`,
+            selftest: true,
+            passed: selftestResult.passed,
+            good_ok: selftestResult.goodOk,
+            bad_ok: selftestResult.badOk,
+            pr: currentPr(),
+            ...(selftestResult.reason ? { reason: selftestResult.reason } : {}),
+          });
+
+          expect(
+            selftestResult.passed,
+            `selftest 失败：${golden.id} 断言函数判别力不足——${selftestResult.reason}`,
+          ).toBe(true);
+        }
+
         if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
         /** manualReview 场景不自动断言——跑完输出标记，由检视獭按 manualReviewHint 人工判定 */
