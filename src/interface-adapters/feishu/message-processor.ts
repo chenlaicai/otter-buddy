@@ -193,12 +193,14 @@ export class FeishuMessageProcessor {
       const ids = [att.id];
 
       // 注入载荷：与 Web 路径同一份策略（复用 AttachmentInjectionService 组装）。
-      // 先 validateForSend 把关（≤2 图硬限制；飞书单消息单媒体本不会超，防御未来多媒体消息）
-      const validateErr = await this.deps.attachmentInjection?.validateForSend(ids) ?? null;
+      // 先 validateForSend 把关（≤2 图硬限制；飞书单消息单媒体本不会超，防御未来多媒体消息）。
+      // attachmentInjection 与 feishuResource/attachmentUpload 在 platforms.ts 同块无条件装配，
+      // 上方早退守卫已挡住未装配场景，这里用非空断言与 L237 统一风格
+      const validateErr = await this.deps.attachmentInjection!.validateForSend(ids);
       if (validateErr) {
         return { attachmentIds: [], degradeNote: `[附件被拒：${validateErr}]` };
       }
-      const injection = await this.deps.attachmentInjection?.buildInjectionPayload(ids);
+      const injection = await this.deps.attachmentInjection!.buildInjectionPayload(ids);
 
       this.deps.logger.info("Feishu media ingested", {
         chatId: msg.chatId,

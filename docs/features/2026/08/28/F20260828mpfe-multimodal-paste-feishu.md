@@ -11,8 +11,8 @@ summary: |
   随消息入库 + 注入载荷透传 dispatch（vision 真图进当轮 LLM）；③飞书 file 消息同理
   （file_key + file_name）。四类降级路径消息不丢（未装配/下载失败/校验拒绝/上传异常→可见
   文本占位）。AgentDispatchService 扩展 injection 透传（documentBlock 拼 message、images 走
-  executeChain→invokeConversation，与 Web 路径同一份注入策略）。根仓 167 文件 1985 用例 +
-  web 33 文件 284 用例全绿（21 新增）。
+  executeChain→invokeConversation，与 Web 路径同一份注入策略）。根仓 167 文件 1991 用例 +
+  web 33 文件 284 用例全绿（本特性新增 27：根仓 21 + web 6）。
 
 # 因果链路
 causal_links:
@@ -104,13 +104,13 @@ setupFeishu 加 repos 参数：FeishuResourceClient（tokenManager 复用飞书 
 AttachmentInjectionService（storageRoot 与 controllers.ts 同构缺省）+
 attachmentUpload（uc.attachmentUpload）注入 messageProcessor。
 
-## 3. 测试（21 新用例）
+## 3. 测试（27 新用例：根仓 21 + web 6）
 
 | 文件 | 覆盖 |
 |---|---|
 | web message-input-paste.test.tsx（6） | 粘贴文件走管线/纯文本不打断/拖拽走管线/拖文本不拦截/多文件混合/非白名单照样进管线 |
 | tests/frameworks/feishu/resource-client.test.ts（6） | 成功字节透传/HTTP 错误 null/空体 null/网络异常 null/空参数防御/URL 转义 |
-| tests/frameworks/feishu/long-connection-client-media.test.ts（7） | image 放行+载荷/file 放行+载荷/audio/sticker 仍忽略/text 不回归/非法 content 透传无 media/bot 仍忽略 |
+| tests/frameworks/feishu/long-connection-client-media.test.ts（6） | image 放行+载荷/file 放行+载荷/audio、sticker 仍忽略/text 不回归/非法 content 透传无 media/bot 仍忽略 |
 | tests/interface-adapters/feishu/message-processor-media.test.ts（9） | image 入库 attachmentIds/file fileName 透传/注入载荷透传 dispatch/下载失败降级/上传拒绝降级/未装配降级/超限防御降级/图文混合/纯文本不回归 |
 
 测试设施说明：
@@ -122,9 +122,20 @@ attachmentUpload（uc.attachmentUpload）注入 messageProcessor。
 
 ## 4. 验证
 
-- 根仓：167 文件 1985 用例全绿（167 = 原 163 + 4 新文件）
-- web：33 文件 284 用例全绿（33 = 原 31 + 2，含 6 新增 paste 用例）
+- 根仓：167 文件 1991 用例全绿（含本特性 3 个新测试文件 21 用例；其余增量来自
+  合入的 main 新 PR）
+- web：33 文件 284 用例全绿（含本特性 1 个新测试文件 6 用例 paste；其余增量来自合入的 main 新 PR）
 - tsc（根仓+web）/ eslint / vite build 全干净
+
+### 审视处置记录（2026-08-28，PR #555 首轮，检视珇mimo）
+
+- 🔴 文档测试计数失实（声称 1985，实测 1991；另有「21 新增」漏计 web 6 例、
+  long-connection 表格多写 1 例）→ 全部改为实测口径：根仓 1991 / web 284 / 新增 27
+  （根仓 21 + web 6），并注明其余增量来自合入的 main 新 PR
+- 🟡 可选链风格不一致（message-processor.ts validateForSend/buildInjectionPayload 用 `?.` 而
+  ingestThroughPipeline 用 `!`）→ 统一为非空断言：attachmentInjection 在 platforms.ts:206
+  与 feishuResource/attachmentUpload 同块无条件装配，processMedia 入口早退守卫已挡未装配
+  场景，走到此处服务必在，行为等价零回归（1991/284 复跑全绿）
 
 ## 5. 已知边界
 
