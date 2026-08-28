@@ -105,6 +105,25 @@ describe("buildApp 组装根启动", () => {
     expect(res.status).toBe(404);
   });
 
+  it("多模态 D1 回归：附件端点经全栈装配可达（路由挂载 + controller 构造）", async () => {
+    // POST：不存在的会话 → controller 的会话校验返回 404 JSON "Conversation not found"。
+    //   D1 故障模式（controller 未装配 → router 条件挂载跳过）下这里是 Hono 默认纯文本 404，
+    //   json() 解析即炸——本断言正是从装配层盲区漏出 D1 后补的回归。
+    const postRes = await built.app.request("/api/conversations/00000000-0000-4000-8000-000000000000/attachments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(postRes.status).toBe(404);
+    const postBody = await postRes.json() as { error: string };
+    expect(postBody.error).toBe("Conversation not found");
+
+    // GET：不存在的附件 → 同理区分 route-level 404
+    const getRes = await built.app.request("/api/attachments/00000000-0000-4000-8000-000000000000");
+    expect(getRes.status).toBe(404);
+    const getBody = await getRes.json() as { error: string };
+    expect(getBody.error).toBe("Attachment not found");
+  });
+
   it("F20260814mtrc：/metrics 端点含 agent 域指标（装配完成即注册）", async () => {
     const res = await built.app.request("/metrics");
     expect(res.status).toBe(200);

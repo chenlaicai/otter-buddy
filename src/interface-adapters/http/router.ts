@@ -12,6 +12,7 @@ import type { ScheduledTaskController } from "./controllers/scheduled-task-contr
 import type { ConnectionController } from "./controllers/connection-controller";
 import type { HealthController } from "./controllers/health-controller";
 import type { RhiController } from "./controllers/rhi-controller";
+import type { AttachmentController } from "./controllers/attachment-controller";
 
 
 export interface Controllers {
@@ -25,6 +26,8 @@ export interface Controllers {
   connection: ConnectionController;
   health: HealthController;
   rhi: RhiController;
+  /** 多模态 Phase 1：附件端点（上传 + 文件流） */
+  attachment?: AttachmentController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -142,6 +145,12 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   registerScheduledTaskRoutes(app, ctrl);
   registerConnectionRoutes(app, ctrl);
   registerInboundRoutes(app, ctrl);
+
+  /** 多模态 Phase 1：附件端点（可选装配——未注入时不暴露路由） */
+  if (ctrl.attachment) {
+    app.post("/api/conversations/:id/attachments", (ctx) => ctrl.attachment!.upload(ctx));
+    app.get("/api/attachments/:id", (ctx) => ctrl.attachment!.getById(ctx));
+  }
 
   return app;
 }

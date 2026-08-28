@@ -5,10 +5,17 @@ import type { Logger } from "@usecases/ports/logger";
 /**
  * 初始化全部 Schema（幂等，可重复调用）。
  * 所有 CREATE 使用 IF NOT EXISTS，禁止 ALTER TABLE。单事务内执行。
+ *
+ * F20260827mgux（#506）后本函数承担双职责：新库建全表 + 老库补缺失表（bootstrap 无条件执行）。
+ * ⚠️ 由此产生的约束：破坏性 schema 变更（改列类型/删列）不能只改这里的 CREATE——
+ * 老库表已存在不会重建，必须同时在 migration.ts 写补丁。表级漏登的强制力由
+ * tests/frameworks/db/migration-equivalence.guard.test.ts 守卫，此处约定只是人类提示。
  */
 // eslint-disable-next-line max-statements -- 多表初始化，语句数由表数量决定
 export function initSchema(db: Database.Database, logger?: Logger): void {
   const startTime = Date.now();
+  /** #506: 执行前表快照——老库升级时差集日志可作为「补建发生」的可观测证据 */
+  const tablesBefore = listTableNames(db);
   db.exec("BEGIN");
 
   try {
@@ -32,6 +39,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createSignalsTable(db);
     createSignalEventsTable(db);
     createRestartPendingResumesTable(db);
+    createAttachmentTables(db);
 
     db.exec("COMMIT");
 
@@ -39,10 +47,16 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     if (logger) {
       const duration = Date.now() - startTime;
       // 29 regular tables + 5 virtual tables (FTS/vec) = 34 total
+      // 多模态 Phase 1 新增 attachments + message_attachments 后：31 regular = 36 total
       logger.info('Schema initialized', {
         duration,
-        tables: 34,
+        tables: 36,
       });
+      /** #506: 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
+      const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
+      if (created.length > 0) {
+        logger.info(`Schema init: ${created.length} tables created on existing database`, { created });
+      }
     }
   } catch (error) {
     db.exec("ROLLBACK");
@@ -54,6 +68,12 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
 
     throw error;
   }
+}
+
+/** #506: sqlite_master 表名清单（type='table'）。守卫测试与差集日志共用。 */
+function listTableNames(db: Database.Database): string[] {
+  return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+    .all() as Array<{ name: string }>).map(r => r.name);
 }
 
 /** 对话上下文：conversations + messages + message_events + conversation_otters */
@@ -784,3 +804,39 @@ function createRestartPendingResumesTable(db: Database.Database): void {
 }
 
 
+
+/** 附件表（多模态 Phase 1）：attachments + message_attachments。
+ *  附件与消息解耦（先上传拿 ID 再随消息引用）；sha256+uploader 唯一索引支持去重
+ *  （撞唯一索引返回已有行 id）。F20260728htar 死字段教训：每字段消费方见特性文档。 */
+function createAttachmentTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS attachments (
+      id TEXT PRIMARY KEY,
+      sha256 TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('image', 'document')),
+      size_bytes INTEGER NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      caption TEXT,
+      uploader_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
+    CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
+
+    CREATE TABLE IF NOT EXISTS message_attachments (
+      message_id TEXT NOT NULL,
+      attachment_id TEXT NOT NULL,
+      sequence_num INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (message_id, attachment_id),
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachment_id) REFERENCES attachments(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment ON message_attachments(attachment_id);
+  `);
+}

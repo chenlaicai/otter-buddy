@@ -38,9 +38,12 @@ export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEve
 
     const senderLabel = await this.resolveSenderLabel(message);
     const body = aggregateBody(message.segments) || "(空消息)";
+    // 多模态 Phase 1：附件投影进 projectForChannel 流水线（truncate 前注入，跨通道不丢）。
+    // 广播链路传 entities Message，attachments 由 repository 加载回填（组装点①）。
     const markdown = projectForChannel(body, {
       webBaseUrl: this.webBaseUrl,
       conversationId: message.conversationId,
+      attachments: message.attachments,
     });
 
     try {

@@ -152,6 +152,8 @@ describe('validateCommitDate', () => {
     const todayId = `F${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}abcd`;
 
     it('should exit 0 for valid F-type commit', () => {
+      // 时间炸弹修复：动态生成今天的 F 类 ID（原硬编码 F20260825 随时钟漂移必红）——
+      // C4 合入时与 #532 的 F20260827rsux CI 处置同题收敛，保持集成语义不变（今天=0 偏差）。
       const { exitCode } = runCLI([`[${todayId}][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(0);
     });

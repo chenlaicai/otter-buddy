@@ -84,6 +84,23 @@ llm:
 | `OTTER_BUDDY_PORT` | `server.port` |
 | `OTTER_BUDDY_DB_PATH` | `database.path` |
 
+#### 模型输入能力声明（多模态，必读）
+
+`llm.models[]` 支持可选 `input` 字段显式声明模型输入能力，**这是图片注入降级的唯一真相源**：
+
+```yaml
+llm:
+  models:
+    - alias: glm
+      provider: anthropic
+      model: glm-5.3
+      input: ["text"]        # 该模型看不见图——不声明则模板隐式继承 ["text","image"]，图注入后会静默幻觉
+    - alias: glm-flash
+      input: ["text", "image"]  # 支持 vision
+```
+
+规则（F20260827mmdu 实测坐实）：**不支持 vision 的模型必须显式声明 `input: ["text"]`**——anthropic provider 模板默认隐式继承 `input: ["text","image"]`，缺省时 SDK 会把图片注入到看不见图的模型，产生幻觉（glm-5.3 返回 200 但 thinking 自述「看不见图」）。声明后 SDK `downgradeUnsupportedImages` 自动降级为文本占位符。
+
 ### 构建前端
 
 ```bash

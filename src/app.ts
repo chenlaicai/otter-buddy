@@ -161,7 +161,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // ── 数据层初始化 ──
   const { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding } =
     await initDatabaseAndModels(config, logger, options.models);
-  const repos = initRepositoriesWithDb(db);
+  const repos = initRepositoriesWithDb(db, logger);
   await postInitDatabase(db, repos, logger);
 
   // F20260811mrpy Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
@@ -241,7 +241,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const queryOtterProfile = new QueryOtterProfile(repos.otter, otterConfigProvider, modelPool, logger, { resourceLoader: resourceLoader as any, statsQuery });
 
   const controllers = initControllers({
-    uc, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
+    uc, repos, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
     otterConfigProvider,
     queryOtterProfile,
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
@@ -253,6 +253,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     healthSnapshotRepo: new HealthSnapshotRepository(db),
     // F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分）
     signalEventRepo: repos.signalEvent,
+    // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
+    attachmentRepo: repos.attachment,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");

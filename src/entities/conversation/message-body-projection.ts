@@ -20,6 +20,8 @@
 import { remark } from "remark";
 import remarkGfm from "remark-gfm";
 import type { Code, Nodes } from "mdast";
+import type { AttachmentRef } from "./attachment";
+import { projectAttachments } from "./attachment-projection";
 
 /**
  * 解析管线必须与前端渲染（react-markdown 挂 remarkGfm singleTilde:false）逐字节对齐：
@@ -146,6 +148,8 @@ export interface ProjectForChannelOptions {
   maxBytes?: number;
   /** 截断时追加的提示文本。缺省 `…(已截断,完整内容见 Web 端)` */
   truncationHint?: string;
+  /** 多模态 Phase 1：消息携带的附件（占位投影在 truncate 之前注入，跨通道不丢） */
+  attachments?: AttachmentRef[];
 }
 
 const DEFAULT_MAX_BYTES = 25000;
@@ -168,6 +172,21 @@ function humanizePlaceholders(text: string, options: ProjectForChannelOptions): 
   text = text.replace(new RegExp(`${PLACEHOLDER_MARK}\\[html-card-reply:\\s*[^\\]]*\\]`, "g"), "[已提交交互卡片]");
 
   return text;
+}
+
+/** 附件占位块：projectAttachments 产出 + 对话页链接（复用 html-card 占位符同机制）。
+ *  webBaseUrl 缺失时降级为无链接纯文本（与 cardUrl null 语义先例一致，不拼 undefined）。
+ *  链接形态 = 对话页链接（非附件直链）：附件 ID 不进 IM 侧，用户进 Web 后在鉴权体系内看原图。 */
+function humanizeAttachmentPlaceholders(options: ProjectForChannelOptions): string {
+  if (!options.attachments || options.attachments.length === 0) return "";
+  const projection = projectAttachments(options.attachments);
+  if (!projection) return "";
+  const convUrl =
+    options.webBaseUrl && options.conversationId
+      ? `${options.webBaseUrl.replace(/\/+$/, "")}/conversations/${options.conversationId}`
+      : null;
+  // 链接只附加一次（多附件共享同一对话页链接）
+  return convUrl ? `${projection}\n👉 ${convUrl}` : projection;
 }
 
 /** UTF-8 安全字节切片：在 maxBytes 内不切断多字节字符 */
@@ -215,13 +234,19 @@ function truncateByBytes(text: string, maxBytes: number, hint: string): string {
 /**
  * 把消息体投影到信道可渲染的 Markdown 文本（飞书 post + md 出口）。
  *
- * 流水线：stripHtmlCardFences → 占位符人化（带 Web 链接）→ 字节级截断。
+ * 流水线：stripHtmlCardFences → 占位符人化（带 Web 链接）→ 附件占位注入 → 字节级截断。
+ *
+ * 多模态 Phase 1：附件占位必须在 truncateByBytes **之前**注入（顺序写死）——
+ * 若在投影返回后追加，25KB 截断会恰好裁掉附件行，跨通道不丢目标失效。
+ * 截断预算权收投影层：附件块作为受保护尾部，从 maxBytes 中预留预算，
+ * 正文按剩余预算截断，附件块强制存活（附件行 ≤几行字节，预留代价可忽略）。
  *
  * @param body 消息原文（Markdown + html-card 围栏）
  * @param options.webBaseUrl Web 端 base URL，缺省时卡片占位符不带链接
  * @param options.conversationId 当前会话 ID
  * @param options.maxBytes 投影文本字节上限，缺省 25000
  * @param options.truncationHint 截断提示，缺省 `…(已截断,完整内容见 Web 端)`
+ * @param options.attachments 消息附件（占位投影在截断前注入流水线）
  */
 export function projectForChannel(body: string, options: ProjectForChannelOptions = {}): string {
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
@@ -233,5 +258,16 @@ export function projectForChannel(body: string, options: ProjectForChannelOption
   // markPlaceholders:true 让占位符带零宽前缀,避免误匹配 body 原文里 LLM 手写字面量(审视 R5)
   const stripped = stripHtmlCardFences(bomStripped, { markPlaceholders: true });
   const humanized = humanizePlaceholders(stripped, options);
-  return truncateByBytes(humanized, maxBytes, truncationHint);
+
+  // 多模态 Phase 1：附件块在截断前注入流水线；预算权收投影层——
+  // 附件块预留后正文按剩余预算截断，附件块在截断后仍存活（跨通道不丢）
+  const attachmentBlock = humanizeAttachmentPlaceholders(options);
+  if (!attachmentBlock) {
+    return truncateByBytes(humanized, maxBytes, truncationHint);
+  }
+  const attachmentBytes = Buffer.byteLength(attachmentBlock, "utf8");
+  // 正文剩余预算 = 总预算 - 附件块 - 分隔符（"\n"）；保底 0（极端小预算下附件块优先存活）
+  const bodyBudget = Math.max(0, maxBytes - attachmentBytes - 1);
+  const truncatedBody = truncateByBytes(humanized, bodyBudget, truncationHint);
+  return truncatedBody.trim() ? `${truncatedBody}\n${attachmentBlock}` : attachmentBlock;
 }

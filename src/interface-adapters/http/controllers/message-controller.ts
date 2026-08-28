@@ -7,13 +7,17 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import type { SSEEvent } from "@contract/sse/events";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
-import { toMessageDTO, toMessageEventDTO, toMessageSignalDTO } from "../dto/message-dto";
-import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
+import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
+import { buildMessageDTOs, decorateWithSignals, resolveSenderNames, type MessageDtoBuilderDeps } from "../dto/message-dto-builder";
+import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
+/** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
+import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 
 export class MessageController {
   // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定
@@ -28,67 +32,14 @@ export class MessageController {
     private readonly messageBroadcaster?: MessageBroadcaster,
     /** F20260826mwrd C4：消息 DTO signals 挂载（徽章数据源） */
     private readonly signalRepo?: SignalEventRepository,
+    /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务（usecases 层策略——校验+真图+document 文本）；可选装配 */
+    private readonly attachmentInjection?: AttachmentInjectionService,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
-  private async resolveSenderNames(messages: Array<{ senderType: string; senderId: string }>): Promise<Map<string, string>> {
-    const names = new Map<string, string>();
-    const otterSenderIds = [...new Set(messages.filter(m => m.senderType === "otter").map(m => m.senderId))];
-    await Promise.all(otterSenderIds.map(async id => {
-      const otter = await this.queryOtter.getById(id);
-      const resolved = resolveSpeakerName("otter", id, otter?.name);
-      if (resolved) names.set(id, resolved);
-    }));
-    return names;
-  }
-
-  /** 批量构建 MessageDTO（含 events + 发送者名 + signals），list/listAfter/expand 复用，避免 N+1 */
-  private async buildMessageDTOs(messages: Message[]): Promise<MessageDTO[]> {
-    const messageIds = messages.filter((m) => m.senderType === "otter").map((m) => m.id);
-    const allEvents = messageIds.length > 0
-      ? await this.queryMessage.getMessageEventsByMessageIds(messageIds)
-      : [];
-    const eventsByMsg = new Map<string, typeof allEvents>();
-    for (const evt of allEvents) {
-      const arr = eventsByMsg.get(evt.messageId) ?? [];
-      arr.push(evt);
-      eventsByMsg.set(evt.messageId, arr);
-    }
-    // F20260826mwrd C4：徽章数据（消息原位渲染，与 events 同挂载面）
-    const allSignals = this.signalRepo && messageIds.length > 0
-      ? await this.signalRepo.findByMessageIds(messageIds)
-      : [];
-    const signalsByMsg = new Map<string, typeof allSignals>();
-    for (const sig of allSignals) {
-      const arr = signalsByMsg.get(sig.messageId) ?? [];
-      arr.push(sig);
-      signalsByMsg.set(sig.messageId, arr);
-    }
-    const senderNames = await this.resolveSenderNames(messages);
-    return messages.map((msg) => {
-      const dto = toMessageDTO(msg, senderNames.get(msg.senderId));
-      const evts = eventsByMsg.get(msg.id);
-      if (evts && evts.length > 0) {
-        dto.events = evts.map(toMessageEventDTO);
-      }
-      const sigs = signalsByMsg.get(msg.id);
-      if (sigs && sigs.length > 0) {
-        dto.signals = sigs.map(toMessageSignalDTO);
-      }
-      return dto;
-    });
-  }
-
-  /** F20260826mwrd C4：SSE 单条消息推送前挂载 signals（otter 消息才查，失败不阻断推送） */
-  private async decorateWithSignals(dto: MessageDTO, message: Message): Promise<MessageDTO> {
-    if (!this.signalRepo || message.senderType !== "otter") return dto;
-    try {
-      const sigs = await this.signalRepo.findByMessageIds([message.id]);
-      if (sigs.length > 0) dto.signals = sigs.map(toMessageSignalDTO);
-    } catch (err) {
-      this.logger.warn("[decorateWithSignals] signal 挂载失败，推送裸 DTO", { messageId: message.id, error: err instanceof Error ? err.message : String(err) });
-    }
-    return dto;
+  /** DTO 组装 helper 依赖包（F20260828c4sg 合并适配：从本类拆出，见 message-dto-builder.ts） */
+  private get dtoBuilder(): MessageDtoBuilderDeps {
+    return { queryOtter: this.queryOtter, queryMessage: this.queryMessage, signalRepo: this.signalRepo, logger: this.logger };
   }
 
   /** 订阅消息广播（SSE 长连接） */
@@ -126,7 +77,7 @@ export class MessageController {
           }
           push({
             event: "message",
-            data: (await this.decorateWithSignals(toMessageDTO(message, senderName), message)) as unknown as Record<string, unknown>,
+            data: (await decorateWithSignals(toMessageDTO(message, senderName), message, this.dtoBuilder)) as unknown as Record<string, unknown>,
           });
         } catch (err) {
           this.logger.error("[subscribe] Failed to broadcast message", err instanceof Error ? err : undefined, { messageId: message.id });
@@ -134,7 +85,7 @@ export class MessageController {
           try {
             push({
               event: "message",
-              data: (await this.decorateWithSignals(toMessageDTO(message), message)) as unknown as Record<string, unknown>,
+              data: (await decorateWithSignals(toMessageDTO(message), message, this.dtoBuilder)) as unknown as Record<string, unknown>,
             });
           } catch {
             push({
@@ -174,7 +125,7 @@ export class MessageController {
         limit,
         before,
       });
-      const dtos = await this.buildMessageDTOs(messages);
+      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
       const hasMore = messages.length === limit
         && messages.length > 0
         && messages[messages.length - 1].sequenceNum > 1;
@@ -194,7 +145,7 @@ export class MessageController {
         return c.json({ error: "after parameter is required" }, 400);
       }
       const messages = await this.queryMessage.getMessagesAfter(after, limit);
-      const dtos = await this.buildMessageDTOs(messages);
+      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
       const hasMore = messages.length === limit;
       return c.json({ messages: dtos, hasMore });
     } catch (err) {
@@ -209,12 +160,13 @@ export class MessageController {
 
       /** 1. 校验请求体（在写入 DB 之前，避免孤儿消息）。
        *  talkingStonePassedTo 允许为空：无 @ 时由 usecase 层按领域规则解析默认目标 */
-      if (!body.senderId) {
-        return c.json({ error: "senderId is required" }, 400);
-      }
-      if (!body.body) {
-        return c.json({ error: "body is required" }, 400);
-      }
+      const requestError = this.validateSendMessageRequest(body);
+      if (requestError) return requestError;
+
+      /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制）。
+       *  R4/R7 同步组装注入载荷（一次 getByIds，避免二次查询）。 */
+      const payload = await this.attachmentInjection?.validateAndBuild(body.attachmentIds);
+      if (typeof payload === "string") return c.json({ error: payload }, 400);
 
       /** 2. 创建用户消息（completed 状态），空目标会被解析为默认派发对象 */
       const { message: userMessage, mentionFeedback } = await this.sendMessageUseCase.send({
@@ -222,75 +174,182 @@ export class MessageController {
         senderId: body.senderId,
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         body: body.body,
+        ...(body.attachmentIds && body.attachmentIds.length > 0 && { attachmentIds: body.attachmentIds }),
       });
 
       // 广播用户消息到外部渠道（飞书等）
-      if (this.messageBroadcaster) {
-        this.messageBroadcaster.broadcast(userMessage).catch(err => {
-          this.logger.error("Failed to broadcast user message", err instanceof Error ? err : undefined, {
-            conversationId,
-            messageId: userMessage.id,
-          });
-        });
-      }
+      this.broadcastUserMessage(userMessage, conversationId);
 
-      /** 3. 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
-      const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
-
-      /** 4. 创建 SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
-      const allTargets = new Set(firstTurnTargets);
-      const { response, push, close } = streamEvents(c);
-
-      // F20260820i333: 发送 @提及解析 feedback 给用户
-      if (mentionFeedback) {
-        push({
-          event: 'mention.feedback',
-          data: { feedback: mentionFeedback },
-        });
-      }
-
-      /** 5. 订阅 broadcaster：统一接收 agent streaming 事件和完成消息 */
-      let unsubscribe: (() => void) | undefined;
-      if (this.messageBroadcaster) {
-        unsubscribe = this.messageBroadcaster.subscribe(
-          conversationId,
-          // onMessage 为空：POST SSE 流仅接收当前请求触发的 agent 事件（通过 onEvent）。
-          // 其他消息（飞书用户消息等）通过 GET SSE 订阅接收，避免重复推送。
-          () => {},
-          // onEvent：streaming 事件 → 推送到 POST SSE 流
-          (event) => {
-            push(event);
-          },
-        );
-      }
-
-      /** 6. 启动调度循环（异常时通知前端并收尾，不静默悬挂 SSE） */
-      const allTargetsRef = allTargets;
-      this.dispatchTurnLoop(firstTurnTargets, { conversationId, userMessageContent: body.body, senderId: body.senderId, allTargets: allTargetsRef })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
-          push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
-        })
-        .finally(() => {
-          // 清理订阅，防止内存泄漏
-          unsubscribe?.();
-          // 兜底：如果 subscribe 回调没有关闭流（如无 agent 事件），在此关闭
-          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
-        });
-
-      return response;
+      return this.streamDispatchResponse(c, { conversationId, body, userMessage, mentionFeedback, payload });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
   }
 
+  /** 广播用户消息到外部渠道（fire-and-forget，自 sendMessage 拆出） */
+  private broadcastUserMessage(userMessage: Message, conversationId: string): void {
+    if (!this.messageBroadcaster) return;
+    this.messageBroadcaster.broadcast(userMessage).catch(err => {
+      this.logger.error("Failed to broadcast user message", err instanceof Error ? err : undefined, {
+        conversationId,
+        messageId: userMessage.id,
+      });
+    });
+  }
+
+  /** POST SSE 流 + 调度循环启动（自 sendMessage 拆出）。
+   *  多模态 Phase 1（审视修复 R4/R7）：注入载荷已随前置校验组装（validateAndBuild）——
+   *  image 真图 + document 文本块；≤2 图硬限制已拒绝；未读历史统一文本投影在 dispatch-chain-engine 内做。 */
+  private streamDispatchResponse(
+    c: Context,
+    ctx: {
+      conversationId: string;
+      body: SendMessageRequestDTO;
+      userMessage: Message;
+      mentionFeedback?: string;
+      payload?: Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>>;
+    },
+  ): Response {
+    const { conversationId, body, userMessage, mentionFeedback, payload } = ctx;
+    /** 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
+    const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
+
+    /** SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
+    const allTargets = new Set(firstTurnTargets);
+    const { response, push, close } = streamEvents(c);
+
+    // F20260820i333 + 广播订阅收口
+    const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
+
+    const injection = payload && typeof payload !== "string" ? payload : undefined;
+    this.dispatchTurnLoop(firstTurnTargets, {
+      conversationId, userMessageContent: this.withDocumentBlock(body.body, injection?.documentBlock),
+      senderId: body.senderId, allTargets, images: injection?.images,
+    })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error('发言链调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
+        push({ event: "error", data: { message: `发言链调度失败: ${msg}`, messageId: "", otterId: "" } });
+      })
+      .finally(() => {
+        // 清理订阅，防止内存泄漏
+        unsubscribe?.();
+        // 兜底：如果 subscribe 回调没有关闭流（如无 agent 事件），在此关闭
+        setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+      });
+
+    return response;
+  }
+
+  /** sendMessage 请求体校验（自 sendMessage 拆出控复杂度） */
+  private validateSendMessageRequest(body: SendMessageRequestDTO): Response | null {
+    if (!body.senderId) {
+      return Response.json({ error: "senderId is required" }, { status: 400 });
+    }
+    if (!body.body) {
+      return Response.json({ error: "body is required" }, { status: 400 });
+    }
+    return null;
+  }
+
+  /** document 提取块追加在正文之后（多模态 Phase 1 审视修复 R9：方案 §3.4① 注入格式） */
+  private withDocumentBlock(body: string, documentBlock?: string): string {
+    return documentBlock ? `${body}\n\n${documentBlock}` : body;
+  }
+
+  /** retry 目标前置校验（自 retry 拆出控复杂度）：otter 消息 + 可重试状态（存在性已查） */
+  private precheckRetryTarget(msg: { status: string; senderType: string }): Response | null {
+    if (msg.senderType !== "otter") {
+      return Response.json({ error: "Can only retry otter messages" }, { status: 400 });
+    }
+    if (msg.status !== "failed" && msg.status !== "aborted") {
+      return Response.json({ error: `Message is not in a retryable status: ${msg.status}` }, { status: 409 });
+    }
+    return null;
+  }
+
+  /** retry 链启动（自 retry 拆出控复杂度）：SSE 流 + broadcaster 订阅 + executeChain */
+  private startRetryChain(
+    c: Context,
+    ctx: { conversationId: string; otterId: string; messageId: string; userMessageContent: string; senderId: string; images?: Array<{ type: "image"; data: string; mimeType: string }> },
+  ): Response {
+    const { conversationId, otterId, messageId, userMessageContent, senderId, images } = ctx;
+    const { response, push, close } = streamEvents(c);
+
+    let unsubscribe: (() => void) | undefined;
+    if (this.messageBroadcaster) {
+      unsubscribe = this.messageBroadcaster.subscribe(
+        conversationId,
+        () => {},
+        (event) => { push(event); },
+      );
+    }
+
+    // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
+    // 链引擎消费 aggregatedTargets 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332）
+    this.dispatchChainEngine.executeChain({
+      conversationId,
+      userMessageContent,
+      senderId,
+      initialTargets: [otterId],
+      ...(images && { images }),
+      invokeFn: async (params) => this.agentInvoker.invokeConversation({
+        otterId: params.otterId,
+        conversationId: params.conversationId,
+        userMessageContent: params.userMessageContent,
+        senderId: params.senderId,
+        ...(params.images && { images: params.images }),
+        retryCount: 1,
+        manualRetry: true,
+      }),
+    })
+      .catch((err: unknown) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error('重试调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId });
+        push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId, otterId } });
+      })
+      .finally(() => {
+        unsubscribe?.();
+        setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+      });
+
+    return response;
+  }
+
+  /** 重试路径注入载荷：从原 user 消息 attachments 重新组装（审视修复 R9；无附件/未装配时 undefined） */
+  private async loadRetryInjection(attachments?: Array<{ id: string }>): Promise<Awaited<ReturnType<AttachmentInjectionService["buildInjectionPayload"]>>> {
+    if (!attachments || attachments.length === 0) return undefined;
+    if (!this.attachmentInjection?.available) return undefined;
+    return this.attachmentInjection.buildInjectionPayload(attachments.map(a => a.id));
+  }
+
+  /** POST SSE 流的 broadcaster 订阅 + mentionFeedback 推送（自 sendMessage 拆出） */
+  private subscribeBroadcasterForPostStream(
+    conversationId: string,
+    push: (event: SSEEvent) => void,
+    mentionFeedback?: string,
+  ): (() => void) | undefined {
+    // F20260820i333: 发送 @提及解析 feedback 给用户
+    if (mentionFeedback) {
+      push({ event: 'mention.feedback', data: { feedback: mentionFeedback } });
+    }
+    if (!this.messageBroadcaster) return undefined;
+    return this.messageBroadcaster.subscribe(
+      conversationId,
+      // onMessage 为空：POST SSE 流仅接收当前请求触发的 agent 事件（通过 onEvent）。
+      // 其他消息（飞书用户消息等）通过 GET SSE 订阅接收，避免重复推送。
+      () => {},
+      // onEvent：streaming 事件 → 推送到 POST SSE 流
+      (event) => { push(event); },
+    );
+  }
+
   /** Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
   private async dispatchTurnLoop(
     targets: string[],
-    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string> },
+    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }> },
   ): Promise<void> {
-    const { conversationId, userMessageContent, senderId, allTargets } = ctx;
+    const { conversationId, userMessageContent, senderId, allTargets, images } = ctx;
 
     // 使用 DispatchChainEngine 执行发言链（事件通过 broadcastEvent 统一推送到订阅者）
     await this.dispatchChainEngine.executeChain({
@@ -298,6 +357,7 @@ export class MessageController {
       userMessageContent,
       senderId,
       initialTargets: targets,
+      ...(images && { images }),
       invokeFn: async (params) => {
         for (const id of params.otterId ? [params.otterId] : []) allTargets.add(id);
         return this.agentInvoker.invokeConversation({
@@ -305,6 +365,7 @@ export class MessageController {
           conversationId: params.conversationId,
           userMessageContent: params.userMessageContent,
           senderId: params.senderId,
+          ...(params.images && { images: params.images }),
         });
       },
       callbacks: {
@@ -338,7 +399,7 @@ export class MessageController {
       if (!msg) {
         return c.json({ error: "Message not found" }, 404);
       }
-      const senderNames = await this.resolveSenderNames([msg]);
+      const senderNames = await resolveSenderNames([msg], this.queryOtter);
       return c.json(toMessageDTO(msg, senderNames.get(msg.senderId)));
     } catch (err) {
       return handleError(c, err, this.logger);
@@ -385,12 +446,8 @@ export class MessageController {
       if (!msg) {
         return c.json({ error: "Message not found" }, 404);
       }
-      if (msg.senderType !== "otter") {
-        return c.json({ error: "Can only retry otter messages" }, 400);
-      }
-      if (msg.status !== "failed" && msg.status !== "aborted") {
-        return c.json({ error: `Message is not in a retryable status: ${msg.status}` }, 409);
-      }
+      const precheck = this.precheckRetryTarget(msg);
+      if (precheck) return precheck;
 
       const conversationId = msg.conversationId;
       const otterId = msg.senderId;
@@ -404,46 +461,16 @@ export class MessageController {
       const turnUserMsgs = await this.queryMessage.getMessages(conversationId, { turnId: msg.turnId, senderType: "user", limit: 1 });
       const senderId = turnUserMsgs[0]?.senderId ?? "user";
 
-      // 创建 SSE 流
-      const { response, push, close } = streamEvents(c);
+      /** 多模态 Phase 1（审视修复 R9）：重试路径从原 user 消息 attachments 重新组装注入载荷——
+       *  session 历史未重启时图仍在，但 self-restart/换 session 后当前任务图不缺席 */
+      const retryPayload = await this.loadRetryInjection(turnUserMsgs[0]?.attachments);
+      const contentWithDocs = this.withDocumentBlock(userMessageContent, retryPayload?.documentBlock);
 
-      // 订阅 broadcaster 接收 streaming 事件
-      let unsubscribe: (() => void) | undefined;
-      if (this.messageBroadcaster) {
-        unsubscribe = this.messageBroadcaster.subscribe(
-          conversationId,
-          () => {},
-          (event) => { push(event); },
-        );
-      }
-
-      // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
-      // 链引擎消费 aggregatedTargets 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332）
-      this.dispatchChainEngine.executeChain({
-        conversationId,
-        userMessageContent,
-        senderId,
-        initialTargets: [otterId],
-        invokeFn: async (params) => this.agentInvoker.invokeConversation({
-          otterId: params.otterId,
-          conversationId: params.conversationId,
-          userMessageContent: params.userMessageContent,
-          senderId: params.senderId,
-          retryCount: 1,
-          manualRetry: true,
-        }),
-      })
-        .catch((err: unknown) => {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          this.logger.error('重试调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId: id });
-          push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId: id, otterId } });
-        })
-        .finally(() => {
-          unsubscribe?.();
-          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
-        });
-
-      return response;
+      return this.startRetryChain(c, {
+        conversationId, otterId, messageId: id,
+        userMessageContent: contentWithDocs, senderId,
+        images: retryPayload?.images,
+      });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -485,7 +512,7 @@ export class MessageController {
       const rawCount = Number(c.req.query("count") ?? "25");
       const count = Number.isFinite(rawCount) && rawCount > 0 ? rawCount : 25;
       const messages = await this.queryMessage.expandMessage(messageId, direction, count);
-      const dtos = await this.buildMessageDTOs(messages);
+      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
       return c.json(dtos);
     } catch (err) {
       return handleError(c, err, this.logger);

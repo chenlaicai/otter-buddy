@@ -13,12 +13,15 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import type { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
 import type { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
 import type { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
-import type { UseCases } from "./types";
+import type { UseCases, Repositories } from "./types";
+import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { updateDefaultModelInYaml } from "@frameworks/config-service";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
+/** 多模态 Phase 1（审视修复 R4/R7）：注入服务（usecases 层策略） */
+import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
@@ -30,6 +33,7 @@ import { SettingsController } from "@interface-adapters/http/controllers/setting
 import { ScheduledTaskController } from "@interface-adapters/http/controllers/scheduled-task-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
+import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
@@ -45,6 +49,7 @@ class NoopInboundController {
 
 export interface ControllerDeps {
   uc: UseCases;
+  repos: Repositories;
   agentInvoker: AgentInvoker;
   appConfig: AppConfig;
   modelPool: ModelPool;
@@ -69,10 +74,13 @@ export interface ControllerDeps {
   healthSnapshotRepo: HealthSnapshotRepository;
   /** F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分） */
   signalEventRepo: SignalEventRepository;
+  /** 多模态 Phase 1：附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
+  attachmentRepo?: AttachmentRepository;
+  attachmentStorageRoot?: string;
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
-  const { uc, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo } = deps;
+  const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo } = deps;
 
   const settings: SettingsConfig = {
     port: appConfig.server.port,
@@ -85,10 +93,22 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   const nodeFs = new NodeFileSystem();
   const rootDir = process.cwd();
 
+  /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
+  const attachmentInjection = new AttachmentInjectionService({
+    attachmentRepo: deps.attachmentRepo ?? repos.attachment,
+    storageRoot: deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+    logger,
+  });
+
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
     otter: new OtterController(uc.createOtter, uc.dissolveOtter, uc.manageSession, uc.queryOtter, logger, otterConfigProvider, deps.queryOtterProfile, modelPool),
-    message: new MessageController(uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter, dispatchChainEngine, messageBroadcaster, signalEventRepo),
+    message: new MessageController(
+      uc.sendMessage, uc.queryMessage, uc.manageReadState, agentInvoker, logger, uc.queryOtter,
+      dispatchChainEngine, messageBroadcaster,
+      signalEventRepo,
+      attachmentInjection,
+    ),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),
@@ -104,5 +124,16 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
           logger,
         )
       : new NoopInboundController(),
+    // 多模态 Phase 1：附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments；
+    // 审视修复 R10：上传时校验会话存在（隔离语义）
+    // D1 修复：fallback repos.attachment（与上方 MessageController 同模式）——
+    // 此前硬性 `deps.attachmentRepo &&` 条件在装配根未显式传参时恒 false，附件路由生产 404
+    attachment: new AttachmentController(
+      uc.attachmentUpload,
+      deps.attachmentRepo ?? repos.attachment,
+      deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+      logger,
+      repos.conversation,
+    ),
   };
 }

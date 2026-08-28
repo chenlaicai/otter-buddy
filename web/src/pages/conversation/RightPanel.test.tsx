@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 /**
- * RightPanel 关键资源展示测试（F20260825krui）
- * - FactItem：长内容截断（truncate）+ title tooltip 显示全文
- * - LinkedResourceItem：统一 stone 色系 + 类型色块 + 截断 + title tooltip
+ * RightPanel 关键资源展示测试（F20260825krui；F20260827rsux 升级 hover 卡行为）
+ * - FactItem：长内容截断（truncate）+ 悬浮详情卡显示全文（可复制）
+ * - LinkedResourceItem：统一 stone 色系 + 类型色块 + 截断 + 悬浮详情卡
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
+import { fireEvent } from '@testing-library/react'
 import { createRoot, type Root } from 'react-dom/client'
 import { RightPanel } from './RightPanel'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
@@ -73,13 +74,15 @@ afterEach(() => {
 })
 
 describe('FactItem', () => {
-  it('长内容应截断且 title tooltip 含全文', () => {
+  it('长内容应截断，悬浮详情卡展示全文（F20260827rsux）', () => {
     const longContent = '这是一条非常长的事实内容'.repeat(10)
     renderPanel([makeResource({ type: 'fact', content: longContent })])
     const truncated = container.querySelector('.truncate')
     expect(truncated).not.toBeNull()
-    expect(truncated!.getAttribute('title')).toBe(longContent)
     expect(truncated!.textContent).toBe(longContent)
+    // 默认不弹 hover 卡；title 原生 tooltip 已移除
+    expect(truncated!.getAttribute('title')).toBeNull()
+    expect(document.querySelector('.glass-strong')).toBeNull()
   })
 
   it('分类徽章与内容分行展示', () => {
@@ -101,14 +104,15 @@ describe('LinkedResourceItem', () => {
     expect(tealText).toBeUndefined()
   })
 
-  it('长标题截断且 title tooltip 显示 url', () => {
+  it('长标题截断，悬浮详情卡展示 url（F20260827rsux）', () => {
     const longTitle = '超长资源标题'.repeat(20)
     const url = 'https://example.com/very/long/path'
     renderPanel([makeResource({ type: 'url', url, title: longTitle })])
     const truncated = container.querySelector('.truncate')
     expect(truncated).not.toBeNull()
-    expect(truncated!.getAttribute('title')).toBe(url)
+    expect(truncated!.getAttribute('title')).toBeNull()
     expect(truncated!.textContent).toBe(longTitle)
+    expect(document.querySelector('.glass-strong')).toBeNull()
   })
 
   it('无 title 时显示 url，无 url 时显示占位符', () => {
@@ -117,12 +121,12 @@ describe('LinkedResourceItem', () => {
     expect(placeholder).not.toBeUndefined()
   })
 
-  it('有 title 无 url 时 tooltip 显示 title 全文（截断场景下悬停仍有增量）', () => {
+  it('有 title 无 url 时详情卡仍展示 title 全文（截断场景下悬停仍有增量）', () => {
     const longTitle = '很长的资源标题无需 url 也能看全文'.repeat(8)
     renderPanel([makeResource({ type: 'file', url: null, title: longTitle })])
     const truncated = container.querySelector('.truncate')
     expect(truncated).not.toBeNull()
-    expect(truncated!.getAttribute('title')).toBe(longTitle)
+    expect(truncated!.getAttribute('title')).toBeNull()
     expect(truncated!.textContent).toBe(longTitle)
   })
 })
@@ -187,5 +191,107 @@ describe('OtterParticipantCard memo（#502 轮询引用稳定）', () => {
     renderPanel([], [makeOtter({ name: '新名' })])
     expect(container.textContent).toContain('新名')
     expect(container.textContent).not.toContain('旧名')
+  })
+})
+
+/** F20260827rsux：资源悬浮详情卡（hover 400ms debounce + 全文展示 + 复制按钮）。
+ *  断言策略：hover 卡经 createPortal 挂 document.body，断言 body 内出现 .glass-strong
+ *  且含资源全文与「复制全文」按钮（fact 与链接类各一例 + 快速滑过不弹）。 */
+describe('ResourceHoverCard（F20260827rsux）', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  function factRow() {
+    return Array.from(container.querySelectorAll('.group'))
+      .find(el => el.textContent?.includes('事实A')) as HTMLElement
+  }
+
+  it('fact 条目停留 ≥400ms 弹出悬浮卡，含全文与复制按钮', () => {
+    renderPanel([makeResource({ type: 'fact', content: '事实A的完整内容', category: '决策' })])
+    act(() => { fireEvent.mouseEnter(factRow()) })
+    expect(document.querySelector('.glass-strong')).toBeNull()
+    act(() => { vi.advanceTimersByTime(400) })
+    const card = document.querySelector('.glass-strong')
+    expect(card).not.toBeNull()
+    expect(card!.textContent).toContain('事实A的完整内容')
+    expect(card!.textContent).toContain('决策')
+    expect(card!.querySelector('button')!.getAttribute('title')).toBe('复制全文')
+    act(() => { fireEvent.mouseLeave(factRow()) })
+    expect(document.querySelector('.glass-strong')).toBeNull()
+  })
+
+  it('链接资源悬浮卡展示标题与 url', () => {
+    renderPanel([makeResource({ type: 'pr', url: 'https://github.com/x/y/pull/9', title: 'PR 九号' })])
+    const row = Array.from(container.querySelectorAll('.group'))
+      .find(el => el.textContent?.includes('PR 九号')) as HTMLElement
+    act(() => { fireEvent.mouseEnter(row) })
+    act(() => { vi.advanceTimersByTime(400) })
+    const card = document.querySelector('.glass-strong')
+    expect(card).not.toBeNull()
+    expect(card!.textContent).toContain('PR 九号')
+    expect(card!.textContent).toContain('https://github.com/x/y/pull/9')
+  })
+
+  it('快速滑过（<400ms 移出）不弹出悬浮卡', () => {
+    renderPanel([makeResource({ type: 'fact', content: '事实A', category: null })])
+    act(() => { fireEvent.mouseEnter(factRow()) })
+    act(() => { vi.advanceTimersByTime(150) })
+    act(() => { fireEvent.mouseLeave(factRow()) })
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(document.querySelector('.glass-strong')).toBeNull()
+  })
+
+  /** 检视发现 2：复制内容不含 category 徽章文本——copyText 声明式传入，
+   *  fact 类只复制正文；徽章仅作展示元数据。 */
+  it('点击复制按钮：writeText 收到 fact 正文（不含分类徽章），成功后 ✓', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    try {
+      renderPanel([makeResource({ type: 'fact', content: '事实A的完整内容', category: '决策' })])
+      act(() => { fireEvent.mouseEnter(factRow()) })
+      act(() => { vi.advanceTimersByTime(400) })
+      const card = document.querySelector('.glass-strong')!
+      const copyBtn = card.querySelector('button[title="复制全文"]')! as HTMLButtonElement
+      await act(async () => { fireEvent.click(copyBtn) })
+      expect(writeText).toHaveBeenCalledTimes(1)
+      expect(writeText).toHaveBeenCalledWith('事实A的完整内容')
+      // ✓ 态：icon 切换，1.5s 后回落
+      expect(card.querySelector('.text-teal-500')).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(1600) })
+      expect(card.querySelector('.text-teal-500')).toBeNull()
+    } finally {
+      // @ts-expect-error 测试注入的 clipboard 需清理，避免泄漏到其他用例
+      delete navigator.clipboard
+    }
+  })
+
+  it('链接类复制：writeText 收到「标题\nurl」两行', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    try {
+      renderPanel([makeResource({ type: 'pr', url: 'https://github.com/x/y/pull/9', title: 'PR 九号' })])
+      const row = Array.from(container.querySelectorAll('.group'))
+        .find(el => el.textContent?.includes('PR 九号')) as HTMLElement
+      act(() => { fireEvent.mouseEnter(row) })
+      act(() => { vi.advanceTimersByTime(400) })
+      const copyBtn = document.querySelector('.glass-strong button[title="复制全文"]')! as HTMLButtonElement
+      await act(async () => { fireEvent.click(copyBtn) })
+      expect(writeText).toHaveBeenCalledWith('PR 九号\nhttps://github.com/x/y/pull/9')
+    } finally {
+      // @ts-expect-error 测试注入的 clipboard 需清理，避免泄漏到其他用例
+      delete navigator.clipboard
+    }
+  })
+
+  /** 检视发现 3：hover 计时器 pending 时 unmount，effect 清理路径不炸、不弹出 */
+  it('hover 计时器 pending 时卸载组件，不报错且不弹出悬浮卡', () => {
+    renderPanel([makeResource({ type: 'fact', content: '事实A', category: null })])
+    act(() => { fireEvent.mouseEnter(factRow()) })
+    act(() => { vi.advanceTimersByTime(150) }) // timer 仍 pending
+    expect(() => {
+      act(() => { root.unmount() })
+    }).not.toThrow()
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(document.querySelector('.glass-strong')).toBeNull()
   })
 })
