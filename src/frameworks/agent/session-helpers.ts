@@ -244,6 +244,7 @@ export function buildOtterPrompt(config: string | OtterPromptConfig | undefined)
  * before_agent_start handler 注入 system role，不再拼在 user message 里。
  * staticPrompt 参数保留但调用方传空串（向后兼容签名，后续可清理）。
  */
+// eslint-disable-next-line complexity -- F20260826mwrd C3：+healingAlerts 渲染分支（借用式注入面汇聚处，拆分反而降低内聚）
 export function buildMessageWithContext(
   staticPrompt: string,
   message: string,
@@ -272,6 +273,12 @@ export function buildMessageWithContext(
   // F20260825hndf：件④活状态盘点（借用式，消费即删）
   if (dynamicContext?.stateInventory) {
     parts.push(dynamicContext.stateInventory);
+  }
+
+  // F20260826mwrd C3（Part 4）：高危 healing 事件提醒（借用式，消费即删）。
+  // 位置在 workspacePath 之后、用户消息之前——提醒属环境情报而非任务本体。
+  if (dynamicContext?.healingAlerts) {
+    parts.push(dynamicContext.healingAlerts);
   }
 
   if (dynamicContext?.workspacePath) {

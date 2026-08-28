@@ -131,7 +131,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId 
           />
           <div className="flex items-center gap-1 px-3 py-1 text-[10px] text-stone-400">
             <ShieldCheck className="w-3 h-3" />
-            沙箱隔离 · 内容不可信
+            沙箱渲染中
           </div>
         </>
       )}

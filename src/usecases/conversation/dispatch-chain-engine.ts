@@ -11,6 +11,8 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
+// F20260826mwrd C3（Part 6）：L2 安全词扫描
+import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 
 export interface ChainHopResult {
   otterReply?: string;
@@ -86,6 +88,7 @@ export class DispatchChainEngine {
     return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
   }
 
+  // eslint-disable-next-line complexity -- F20260826mwrd C3：+安全词扫描分支（退化路径，不拆分）
   private async executeChainInner(
     params: {
       conversationId: string;
@@ -103,10 +106,18 @@ export class DispatchChainEngine {
     let lastOtterReply: string | undefined;
     const maxDepth = this.deps.maxChainDepth ?? 100;
 
+    // F20260826mwrd C3（Part 6）：L2 安全词扫描——用户原始消息命中独立成词「停下」时
+    // 生成 reminder，附在每个 hop 的消息末尾（首 hop 原文扫描；不硬拦，LLM 语境确认）。
+    // 扫描失败不影响主流程（退化纯 L1 prompt 检测，与现状等价）。
+    let stopWordReminder: string | null = null;
+    try {
+      stopWordReminder = scanStopWords(userMessageContent).reminder;
+    } catch { /* 扫描器异常降级为无 reminder */ }
+
     while (targets.length > 0 && depth < maxDepth) {
       depth++;
       const result = await this.executeOneHop({
-        conversationId, userMessageContent, senderId, targets, invokeFn, images,
+        conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
       targets = result.nextTargets;
@@ -134,14 +145,21 @@ export class DispatchChainEngine {
     targets: string[];
     invokeFn: InvokeFn;
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
+    /** F20260826mwrd C3：「停下」等安全词 reminder（与链上下文同生命周期，随 params 传入） */
+    stopWordReminder?: string | null;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
-      const messageWithContext = await this.buildMessageWithContext(
+      let messageWithContext = await this.buildMessageWithContext(
         conversationId, otterId, userMessageContent, senderId, roster
       );
+      // F20260826mwrd C3：安全词 reminder 附在消息末尾——链上每个 hop 都能看到，
+      // 防注意力稀释漏判（母方案 T6）。位置在末尾：靠近生成点，注意力权重最高。
+      if (stopWordReminder) {
+        messageWithContext += `\n\n${stopWordReminder}`;
+      }
 
       this.deps.logger.info('发言链调用', {
         otterId,

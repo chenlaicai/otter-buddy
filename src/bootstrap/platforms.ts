@@ -4,6 +4,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
+// F20260826mwrd C3（#534）：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
@@ -11,7 +12,6 @@ import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
@@ -69,9 +69,10 @@ export async function createAgentGateway(options: {
     sessionDir: options.sessionDir,
     identityPromptDir: options.identityPromptDir ?? "./prompts/identity",
     createTools: (ctx, repo, log) => {
-      const tools = createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined);
-      if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
-      return tools;
+      // F20260826mwrd C3（#534）：manage_healing_events 只在 tool-factory 内注册，
+      // 此处不再二次 push（双注册曾浪费上下文 token 且注册路径分歧）。
+      // manifest 归 system block，big/small 均可见——行为不变，只去重。
+      return createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined);
     },
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
