@@ -35,6 +35,15 @@ export class SqliteSignalEventRepository implements SignalEventRepository {
     return rows.map(rowToSignalEvent);
   }
 
+  async findByMessageIds(messageIds: string[]): Promise<SignalEvent[]> {
+    if (messageIds.length === 0) return [];
+    const placeholders = messageIds.map(() => '?').join(', ');
+    const rows = this.db.prepare(
+      `SELECT * FROM signal_events WHERE message_id IN (${placeholders}) ORDER BY created_at ASC`,
+    ).all(...messageIds) as SignalEventRow[];
+    return rows.map(rowToSignalEvent);
+  }
+
   async resolve(id: string, status: 'resolved' | 'dismissed', resolution: string, resolvedBy: string): Promise<SignalEvent | null> {
     const now = new Date().toISOString();
     const result = this.db.prepare(

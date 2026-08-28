@@ -29,6 +29,23 @@ export interface LocalConversation {
   activityStatus?: 'processing' | 'awaiting_user' | 'idle'
 }
 
+/** 前端本地消息信号（F20260826mwrd C4：徽章数据，后端 MessageSignalDTO 投影） */
+export interface LocalMessageSignal {
+  id: string
+  type: 'objection' | 'blocked' | 'halt'
+  severity: 'low' | 'medium' | 'high'
+  status: 'pending' | 'resolved' | 'dismissed'
+  payload: string
+  fromOtterId: string
+  targetOtterId?: string | null
+  resolution?: string | null
+  resolvedBy?: string | null
+  createdAt: string
+  /** 渲染时由在场獭名映射补全（DTO 不携带名字，避免后端二次查询） */
+  fromName?: string
+  targetName?: string
+}
+
 /** 前端本地消息事件 */
 export interface LocalMessageEvent {
   ts: string
@@ -79,6 +96,8 @@ export interface LocalMessage {
   src?: 'web' | 'feishu'
   /** 消息分段（F-multi-speak-bubble）；历史消息可能无此字段 */
   segments?: LocalMessageSegment[]
+  /** 消息关联信号（F20260826mwrd C4 徽章）；历史消息可能无此字段 */
+  signals?: LocalMessageSignal[]
   /** 多模态 Phase 1：随消息携带的附件 */
   atts?: LocalAttachment[]
 }
@@ -152,6 +171,8 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     src: dto.src as 'web' | 'feishu' | undefined,
     // F-multi-speak-bubble: 历史消息分段数据
     segments: dto.segments,
+    // F20260826mwrd C4: 消息关联信号（徽章数据）
+    signals: dto.signals?.map(s => ({ ...s })),
     // 多模态 Phase 1：附件透出（仅非空时携带）
     ...(dto.atts && { atts: dto.atts }),
   }
