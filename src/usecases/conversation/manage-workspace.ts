@@ -1,4 +1,5 @@
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
+import { DomainError } from "@entities/errors";
 
 /** 工作区文件条目 */
 export interface WorkspaceEntry {
@@ -60,22 +61,39 @@ export class ManageWorkspace {
     // 检查工作区是否存在
     const exists = await this.workspaceGateway.exists(conversationId);
     if (!exists) {
-      throw new Error('工作区不存在');
+      throw new DomainError('工作区不存在', 'not_found');
     }
 
     // 读取文件内容（WorkspaceGateway 已有 1MB 大小限制）
     const content = await this.workspaceGateway.readFile(conversationId, relativePath);
 
-    // 检查是否需要截断（显示层限制）
-    const truncated = Buffer.byteLength(content, 'utf-8') > MAX_DISPLAY_FILE_SIZE_BYTES;
-    const displayContent = truncated
-      ? content.slice(0, MAX_DISPLAY_FILE_SIZE_BYTES) + '\n\n... [文件过大，已截断显示]'
-      : content;
+    // 检查是否需要截断（显示层限制，基于字节）
+    const contentBytes = Buffer.byteLength(content, 'utf-8');
+    if (contentBytes > MAX_DISPLAY_FILE_SIZE_BYTES) {
+      // 按字节截断，确保不在多字节 UTF-8 字符中间切开：
+      // 1. 先取前 N 字节
+      const buf = Buffer.from(content, 'utf-8');
+      const truncatedBuf = buf.subarray(0, MAX_DISPLAY_FILE_SIZE_BYTES);
+      // 2. 往回退到最近的 UTF-8 字符边界（continuation byte 0x80..0xBF 不是字符起始）
+      let end = truncatedBuf.length;
+      while (end > 0 && (truncatedBuf[end - 1] & 0xC0) === 0x80) {
+        end--;
+      }
+      // 3. 如果截断点落在多字节序列起始字节上但序列不完整，也退掉该字节
+      if (end > 0 && (truncatedBuf[end - 1] & 0xC0) === 0xC0) {
+        end--;
+      }
+      return {
+        path: relativePath,
+        content: truncatedBuf.subarray(0, end).toString('utf-8') + '\n\n... [文件过大，已截断显示]',
+        truncated: true,
+      };
+    }
 
     return {
       path: relativePath,
-      content: displayContent,
-      truncated,
+      content,
+      truncated: false,
     };
   }
 

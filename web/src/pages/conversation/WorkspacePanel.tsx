@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronRight, File, Folder, FolderOpen, ArrowLeft, Loader2 } from 'lucide-react'
+import { ChevronRight, File, Folder, ArrowLeft, Loader2 } from 'lucide-react'
 
 /** 工作区文件条目 */
 interface WorkspaceEntry {
@@ -26,7 +26,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
+
 
   /** 加载目录内容 */
   const loadDir = useCallback(async (path?: string) => {
@@ -81,17 +81,6 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   /** 点击目录项 */
   const handleDirClick = useCallback((entry: WorkspaceEntry) => {
     if (entry.isDirectory) {
-      // 切换展开状态
-      setExpandedDirs(prev => {
-        const next = new Set(prev)
-        if (next.has(entry.path)) {
-          next.delete(entry.path)
-        } else {
-          next.add(entry.path)
-        }
-        return next
-      })
-      // 加载子目录内容
       loadDir(entry.path)
     } else if (entry.isFile) {
       loadFile(entry.path)
@@ -108,9 +97,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   /** 渲染文件图标 */
   const renderIcon = (entry: WorkspaceEntry) => {
     if (entry.isDirectory) {
-      return expandedDirs.has(entry.path)
-        ? <FolderOpen className="w-4 h-4 text-amber-500" />
-        : <Folder className="w-4 h-4 text-amber-500" />
+      return <Folder className="w-4 h-4 text-amber-500" />
     }
     return <File className="w-4 h-4 text-stone-400" />
   }
