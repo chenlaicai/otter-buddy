@@ -147,7 +147,12 @@ describe('validateCommitDate', () => {
 
   describe('CLI 退出码（集成）', () => {
     it('should exit 0 for valid F-type commit', () => {
-      const { exitCode } = runCLI(['[F20260825abcd][agent][Feature Update] 测试']);
+      // 时间炸弹修复（F20260827rsux CI 处置）：原用例硬编码 F20260825abcd（写于 08-25），
+      // 08-28 起偏差 >2 天必炸且 main 同挂。改为动态生成今天的日期，用例永不过期。
+      // 单元用例均注入固定 NOW，唯 CLI 集成走真实时钟，此修复保持集成语义不变。
+      const now = new Date();
+      const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+      const { exitCode } = runCLI([`[F${today}abcd][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(0);
     });
 
