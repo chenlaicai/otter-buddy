@@ -1353,7 +1353,7 @@ function ConversationPage() {
 
   if (pageState === 'loading') {
     return (
-      <AppLayout activeView="conversation">
+      <AppLayout activeView="index">
         <div className="flex flex-1 items-center justify-center">
           <div className="flex gap-1">
             <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" />
@@ -1366,7 +1366,7 @@ function ConversationPage() {
   }
 
   return (
-    <AppLayout activeView="conversation">
+    <AppLayout activeView="index">
       {/* #500：三栏布局响应式降级——外层 relative 为窄屏抽屉提供定位上下文。
           断点策略（Tailwind 默认）：≥lg(1024px) 三栏全开；md(768px)~lg 右栏折叠为悬浮抽屉；
           <md 左右栏均抽屉化，聊天区独占。面板组件保持挂载（状态不丢），仅容器显隐。 */}

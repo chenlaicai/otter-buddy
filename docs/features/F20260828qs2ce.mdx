@@ -1,0 +1,20 @@
+---
+title: ESLint 忽略 data/ 目录修复启动报错
+date: 2026-08-28
+category: Bugfix
+scope: [eslint]
+type: feature
+status: draft
+---
+
+## Summary
+
+ESLint 配置未忽略 `data/` 目录，导致 `data/workspaces/` 下的运行时脚本被扫描，产生 13 个 error 阻断 `npm run build` / `npm start`。
+
+## Root Cause
+
+`eslint.config.mjs` 的 `ignores` 列表缺少 `"data/**"`。`data/workspaces/` 下有 `.cjs` 和 `.ts` 文件（运行时产物），被 ESLint 当作源码检查。
+
+## Fix
+
+在 `ignores` 中追加 `"data/**"`。

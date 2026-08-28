@@ -146,13 +146,15 @@ describe('validateCommitDate', () => {
   });
 
   describe('CLI 退出码（集成）', () => {
+    // 动态生成「今天」的 F 类 ID——原硬编码 F20260825 随系统时钟漂移必然红（存量时间炸弹，
+    // C3 合入后第 3 天现形）；CLI 无 now 注入参数，用真实今天保证「今天=0 偏差」恒成立
+    const today = new Date();
+    const todayId = `F${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}abcd`;
+
     it('should exit 0 for valid F-type commit', () => {
-      // 时间炸弹修复（F20260827rsux CI 处置）：原用例硬编码 F20260825abcd（写于 08-25），
-      // 08-28 起偏差 >2 天必炸且 main 同挂。改为动态生成今天的日期，用例永不过期。
-      // 单元用例均注入固定 NOW，唯 CLI 集成走真实时钟，此修复保持集成语义不变。
-      const now = new Date();
-      const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-      const { exitCode } = runCLI([`[F${today}abcd][agent][Feature Update] 测试`]);
+      // 时间炸弹修复：动态生成今天的 F 类 ID（原硬编码 F20260825 随时钟漂移必红）——
+      // C4 合入时与 #532 的 F20260827rsux CI 处置同题收敛，保持集成语义不变（今天=0 偏差）。
+      const { exitCode } = runCLI([`[${todayId}][agent][Feature Update] 测试`]);
       expect(exitCode).toBe(0);
     });
 

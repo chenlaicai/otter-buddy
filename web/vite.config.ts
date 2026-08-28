@@ -2,20 +2,17 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
+// #487（F20260827mpss）：MPA 构建入口从单一清单生成。
+// 注意：vite.config 内 @contract alias 不可用（alias 定义在本文件中，esbuild 转译时直接相对路径 import）
+import { MPA_PAGES } from '../api-contract/web/pages'
 
-export default defineConfig({
+export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        conversation: resolve(__dirname, 'conversation.html'),
-        memory: resolve(__dirname, 'memory.html'),
-        skills: resolve(__dirname, 'skills.html'),
-        settings: resolve(__dirname, 'settings.html'),
-        connections: resolve(__dirname, 'connections.html'),
-        health: resolve(__dirname, 'health.html'),
-      },
+      input: Object.fromEntries(
+        MPA_PAGES.map(p => [p.entry, resolve(__dirname, `${p.entry}.html`)])
+      ),
     },
   },
   resolve: {
@@ -36,4 +33,4 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
   },
-})
+}))

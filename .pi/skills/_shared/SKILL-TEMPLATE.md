@@ -138,6 +138,8 @@ frontmatter 必填字段：`name / description / co_loads / category`。
 - 搭档说"跳过审视" → 显式决策，记录后放行
 - 安全红线不可弹性，但搭档可以喊停任何流程（记录决策后放行）
 
+> 注：本段为 SYSTEM.md R3 的镜像（真相源在彼）。"行了"/"就这样"在此是流程行为描述，非 Magic Words 词表（C4 后词表仅 2 词，决策史见 SYSTEM.md）。
+
 ### 特性文档
 
 特性文档（`docs/features/` 下的 markdown 文件）是特性开发的全流程载体，贯穿探索、分析、设计、实现、审视等各阶段。
