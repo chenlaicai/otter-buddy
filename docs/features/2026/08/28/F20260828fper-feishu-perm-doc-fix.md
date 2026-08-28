@@ -23,15 +23,14 @@ created_in_conversation: 08a924c4-9c68-43b4-9360-56f9b251e84f
 | 文件 | 处数 | 内容 |
 |------|------|------|
 | `docs/user-guide/feishu-setup.md` | 5+1 | 权限表/多人识别提示/调试器指引/FAQ 各处权限名订正；FAQ 新增一行「开了权限仍不显示姓名」排查路径（核对权限名 → 发版 → 日志验证 `Feishu user name resolved`） |
-| `docs/features/2026/08/26/F20260826fuid-feishu-user-identity.md` | 3 | 历史特性文档中的权限名订正（记录性文档同步勘误，避免后人按旧文档再踩） |
 | `src/frameworks/feishu/user-info-client.ts` | 1 | 头注释权限名订正 + 注明笔误来源与实测必需清单（代码逻辑零改动） |
 | `config/config.yaml.example` | 1 | 权限清单注释订正（审视修复：首轮漏改，grep --include="*.yaml" 不匹配 .yaml.example 后缀所致） |
 
-总计 10 处订正（含审视修复补的 config.yaml.example 1 处）。
+总计 8 处订正（手册 5 + FAQ 1 新增 + 代码注释 1 + config.example 1；历史特性文档不改，见排除项）。
 
 ## 排除项
 
-- `feat/feishu-sync-fix` 分支（PR #549）的特性文档有 1 处旧权限名——该分支未合入，合入后已在本文档记录，避免两分支交叉污染（本 PR 不动 #549 的文件）
+- **历史特性文档（F20260826fuid）不改**（搭档终审意见）：特性文档是「来时路」——当时写错了就保留错误，本次新建 F20260828fper 订正正是特性 chain 的存在意义。曾同步勘误 3 处已回退。
 - 代码逻辑零改动：`user-info-client.ts` 只改注释，不发版不影响行为
 
 ## 验证

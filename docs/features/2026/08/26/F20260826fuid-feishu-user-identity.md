@@ -41,7 +41,7 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 - 前端 `MessageList.tsx:398`：user 消息统一显示全局 userDisplayName
 - 飞书 `im.message.receive_v1` 事件只带 open_id，不带姓名
 
-需求：走正路——开 `contact:contact.base:readonly` 权限，open_id → 姓名快照入库，agent 历史与 Web 前端贯通显示真实姓名。同时交付飞书用户手册（含权限清单）。
+需求：走正路——开 `contact:user.base:readonly` 权限，open_id → 姓名快照入库，agent 历史与 Web 前端贯通显示真实姓名。同时交付飞书用户手册（含权限清单）。
 
 ## 方案设计
 
@@ -49,7 +49,7 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 
 ### D1 — 姓名解析（新增）
 - `FeishuUserInfoGateway`（usecases 端口）+ `FeishuUserInfoClient`（frameworks 实现）
-- 调 `GET /open-apis/contact/v3/users/{open_id}`，需权限 `contact:contact.base:readonly`
+- 调 `GET /open-apis/contact/v3/users/{open_id}`，需权限 `contact:user.base:readonly`
 - 进程内缓存 10min TTL；仅缓存正结果（权限开通后自动恢复，无需重启）
 - API 失败返回 null + warn 日志，**永不阻塞消息主链路**
 
@@ -67,7 +67,7 @@ capability_test: "n/a: 纯代码逻辑改动（A 类），无 LLM 参与行为"
 ### D4 — 用户手册（docs/user-guide/feishu-setup.md）
 完整权限清单（从代码 API 调用盘点推导）：
 - `im:message`（必选——只开 p2p 子集是群聊不通的常见根因）
-- `contact:contact.base:readonly`（推荐——本特性的多人识别依赖）
+- `contact:user.base:readonly`（推荐——本特性的多人识别依赖）
 - `im:chat:readonly`（可选预留）
 含配置步骤、命令表、群聊要点、FAQ。`config.yaml.example` 使用说明同步更新。
 
