@@ -107,7 +107,7 @@ export default function ConversationListPage() {
 
   if (loading) {
     return (
-      <AppLayout activeView="conversation">
+      <AppLayout activeView="index">
         <div className="flex flex-1 items-center justify-center">
           <div className="flex gap-1">
             <span className="w-2 h-2 rounded-full bg-otter-400 animate-dot" />
@@ -121,7 +121,7 @@ export default function ConversationListPage() {
 
   if (conversations.length === 0) {
     return (
-      <AppLayout activeView="conversation">
+      <AppLayout activeView="index">
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
             <div className="text-4xl mb-4">🦦</div>
@@ -162,7 +162,7 @@ export default function ConversationListPage() {
   }
 
   return (
-    <AppLayout activeView="conversation">
+    <AppLayout activeView="index">
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
         <LeftPanel
           conversations={conversations}
