@@ -722,14 +722,17 @@ function ConversationPage() {
   const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
   const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
 
-  const handleSend = useCallback(async (text: string, mentionOtterIds?: string[]) => {
+  const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[]) => {
     if (!activeId) return
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
     const targetOtterIds = mentionOtterIds ?? []
+    /** 多模态 Phase 1：附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
+    const attachmentIds = attachments?.map(a => a.id)
 
     const userMsg: LocalMessage = {
       id: 'tmp-' + Date.now(), st: 'user', si: 'user',
       content: text, ts: nowTs(), dur: null,
+      ...(attachments && attachments.length > 0 && { atts: attachments.map(({ localPreviewUrl: _u, uploading: _up, ...a }) => a) }),
     }
     setAllMessages(prev => ({
       ...prev,
@@ -744,6 +747,7 @@ function ConversationPage() {
     try {
       const response = await api.sendMessage(activeId, {
         senderId: 'user', talkingStonePassedTo: targetOtterIds, body: text,
+        ...(attachmentIds && attachmentIds.length > 0 && { attachmentIds }),
       })
       if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); return }
 
