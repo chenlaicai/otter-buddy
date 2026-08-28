@@ -70,8 +70,19 @@ from: [F20260826mwrd]
 
 （结果待补：转 PR 前填入实测数据）
 
+## 审视处置记录
+
+检视獭-545（mimo 异模型）首轮：1 严重 + 2 建议。处置 commit 见 PR（含 merge main 解冲突）。
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| requirement-analysis 与 SYSTEM.md R3 措辞不一致（"就这样"行为描述） | 严重 | 已修：SKILL.md L46 统一为 R3 同源措辞（"行了"/"就这样"→提前终止，记录决策后执行不翻案） |
+| SKILL-TEMPLATE.md 残留"就这样"引用无防混淆说明 | 建议 | 已修：弹性约定段末加注（行为描述非词表，C4 后词表仅 2 词）；SYSTEM.md R3 同步加注 |
+| capability 真跑记录待补（mimo 端点 401） | 建议 | 建 issue 追踪（外部资源故障非代码问题，本 PR 无法承载）——见「后续动作」 |
+
 ## 后续动作
 
 - 母方案五剧本手测（剧本 A-E，L210-214）——代码级管道已由单测覆盖，手测在搭档日常使用中自然验收
 - issue #533 关闭：C4 合入后母方案分期全部完成，追踪 issue 可关
 - 前端徽章 severity 视觉分档（当前三态分档已够用，severity high 的 healing 上浮 toast 是 P2 可选项，母方案明示「先保徽章」）
+- capability 真跑补录（替代原「结果待补」占位）：mimo 测试端点 401 阻塞，待搭档续费/换 key（`config/config.test.local.yaml`）后执行 `npx vitest run --config vitest.capability.config.ts tests/capability/magic-words-signal.capability.test.ts` 补录——已建 issue 追踪
