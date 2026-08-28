@@ -1,15 +1,36 @@
-import { MessageCircle, Search, Package, Settings, Link2, Activity } from 'lucide-react'
+import { MessageCircle, Search, Package, Settings, Link2, Activity, type LucideIcon } from 'lucide-react'
+import { MPA_PAGES } from '@contract/web/pages'
 
-type ViewKey = 'conversation' | 'memory' | 'skills' | 'settings' | 'connections' | 'health'
+/** #487（F20260827mpss）：ViewKey 从清单派生（编译期穷尽），不再手写 union */
+export type ViewKey = (typeof MPA_PAGES)[number]['entry']
 
-const tabs: { key: ViewKey; label: string; href: string; icon: typeof MessageCircle }[] = [
-  { key: 'conversation', label: '对话', href: '/', icon: MessageCircle },
-  { key: 'memory', label: '记忆搜索', href: '/memory', icon: Search },
-  { key: 'skills', label: '能力库', href: '/skills', icon: Package },
-  { key: 'health', label: '健康面板', href: '/health', icon: Activity },
-  { key: 'connections', label: '连接', href: '/connections', icon: Link2 },
-  { key: 'settings', label: '设置', href: '/settings', icon: Settings },
-]
+/** icon 是纯视觉实现细节，留在组件层维护（entry → icon 组件映射）。
+ *  fallback + console.warn：新增页面忘配 icon 只视觉降级不编译失败，开发者可在控制台发现遗漏 */
+const ICONS: Record<string, LucideIcon> = {
+  index: MessageCircle,
+  memory: Search,
+  skills: Package,
+  settings: Settings,
+  connections: Link2,
+  health: Activity,
+}
+
+/** #487：tabs 从单一清单派生。
+ *  排除规则：带路径参数且未声明 nav 的页面（conversation 详情页）不进入导航——
+ *  设计稿示例直接 map 会把详情页渲染成导航项，此处为偏差修正（见特性文档「与设计的差异」）。
+ *  href 缺省 = pattern 去路径参数（index 页的 nav: '/' 显式声明） */
+const tabs: { key: ViewKey; label: string; href: string; icon: LucideIcon }[] = MPA_PAGES
+  .filter(p => p.nav !== undefined || !p.pattern.includes(':'))
+  .map(p => {
+    const configured = ICONS[p.entry]
+    if (!configured) console.warn(`[TopBar] 页面 "${p.entry}" 未配置 icon，已回退默认 icon——请在 ICONS 映射中补充`)
+    return {
+      key: p.entry,
+      label: p.label,
+      href: p.nav ?? p.pattern.replace(/\/:[^/]+/g, ''),
+      icon: configured ?? MessageCircle,
+    }
+  })
 
 /** Global unified TopBar - same component on all pages (← UA-10, UA-12) */
 export function TopBar({ activeView }: { activeView: ViewKey }) {
