@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import type { Logger } from "@usecases/ports/logger";
 import { createRouter } from "@interface-adapters/http/router";
 import { getMetricsRegistry } from "@frameworks/metrics/registry";
+import { MPA_PAGES } from "@contract/web/pages";
 import type { initControllers } from "./controllers";
 
 type Controllers = ReturnType<typeof initControllers>;
@@ -29,13 +30,10 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
   app.route("/", createRouter(controllers, logger));
 
   if (staticRoot !== false) {
-    app.get("/", serveStatic({ root: staticRoot, path: "index.html" }));
-    app.get("/conversation/:id", serveStatic({ root: staticRoot, path: "conversation.html" }));
-    app.get("/memory", serveStatic({ root: staticRoot, path: "memory.html" }));
-    app.get("/skills", serveStatic({ root: staticRoot, path: "skills.html" }));
-    app.get("/connections", serveStatic({ root: staticRoot, path: "connections.html" }));
-    app.get("/settings", serveStatic({ root: staticRoot, path: "settings.html" }));
-    app.get("/health", serveStatic({ root: staticRoot, path: "health.html" }));
+    // #487（F20260827mpss）：静态路由从单一清单生成（防 PR #116/#444 类漏注册）
+    for (const page of MPA_PAGES) {
+      app.get(page.pattern, serveStatic({ root: staticRoot, path: `${page.entry}.html` }));
+    }
 
     app.use("/*", serveStatic({ root: staticRoot }));
   }
