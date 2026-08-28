@@ -1,5 +1,7 @@
 import { aggregateBody } from "@entities/conversation/message";
 import { stripHtmlCardsOnly } from "@entities/conversation/message-body-projection";
+import { projectAttachments } from "@entities/conversation/attachment-projection";
+import type { AttachmentRef } from "@entities/conversation/attachment";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -17,6 +19,11 @@ export interface ChainHopResult {
   nextTargets: string[];
 }
 
+/** 多模态 Phase 1：每轮真图上限（服务端硬限制，超出拒绝）。
+ *  依据：SDK estImageChars 按图 1200 tokens 估算，实测 GLM 2048px 图 ≈5500 input tokens
+ *  （差 4.6 倍），图片多时 compaction 触发严重偏晚。 */
+export const MAX_IMAGES_PER_TURN = 2;
+
 export interface ChainCallbacks {
   /** 深度耗尽时的额外处理（MC 发系统消息，ADS 仅日志） */
   onDepthExceeded?: (pendingTargets: string[], depth: number) => void | Promise<void>;
@@ -27,6 +34,10 @@ export interface InvokeFnParams {
   conversationId: string;
   userMessageContent: string;
   senderId: string;
+  /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent：base64 + mimeType）。
+   *  每轮 ≤2 图服务端硬限制（compaction 低估 4.6 倍实测后的预算控制）；
+   *  未读历史统一文本投影不按獭分叉，分叉只发生在当前任务消息。 */
+  images?: Array<{ type: "image"; data: string; mimeType: string }>;
 }
 
 export interface InvokeFnResult {
@@ -70,6 +81,8 @@ export class DispatchChainEngine {
       initialTargets: string[];
       invokeFn: InvokeFn;
       callbacks?: ChainCallbacks;
+      /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，超出在 controller 层已拒绝） */
+      images?: Array<{ type: "image"; data: string; mimeType: string }>;
     },
   ): Promise<{ otterReply?: string }> {
     return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
@@ -84,9 +97,10 @@ export class DispatchChainEngine {
       initialTargets: string[];
       invokeFn: InvokeFn;
       callbacks?: ChainCallbacks;
+      images?: Array<{ type: "image"; data: string; mimeType: string }>;
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks } = params;
+    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -102,9 +116,9 @@ export class DispatchChainEngine {
 
     while (targets.length > 0 && depth < maxDepth) {
       depth++;
-      const result = await this.executeOneHop(
-        conversationId, userMessageContent, senderId, targets, invokeFn, stopWordReminder,
-      );
+      const result = await this.executeOneHop({
+        conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
+      });
       lastOtterReply = result.otterReply ?? lastOtterReply;
       targets = result.nextTargets;
     }
@@ -124,15 +138,17 @@ export class DispatchChainEngine {
     return { otterReply: lastOtterReply };
   }
 
-  // eslint-disable-next-line max-params -- F20260826mwrd C3：+stopWordReminder（与链上下文同生命周期，不单独包装对象）
-  private async executeOneHop(
-    conversationId: string,
-    userMessageContent: string,
-    senderId: string,
-    targets: string[],
-    invokeFn: InvokeFn,
-    stopWordReminder?: string | null,
-  ): Promise<ChainHopResult> {
+  private async executeOneHop(params: {
+    conversationId: string;
+    userMessageContent: string;
+    senderId: string;
+    targets: string[];
+    invokeFn: InvokeFn;
+    images?: Array<{ type: "image"; data: string; mimeType: string }>;
+    /** F20260826mwrd C3：「停下」等安全词 reminder（与链上下文同生命周期，随 params 传入） */
+    stopWordReminder?: string | null;
+  }): Promise<ChainHopResult> {
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
@@ -149,12 +165,14 @@ export class DispatchChainEngine {
         otterId,
         messageLength: messageWithContext.length,
         messagePreview: messageWithContext.substring(0, 200),
+        ...(images && { imageCount: images.length }),
       });
 
       return invokeFn({
         otterId, conversationId,
         userMessageContent: messageWithContext,
         senderId,
+        ...(images && { images }),
       });
     });
 
@@ -322,7 +340,7 @@ export class DispatchChainEngine {
         } else {
           label = (names.get(m.senderId) ?? m.senderId);
         }
-        return `[${label}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}`;
+        return `[${label}] ${m.segments.length ? stripHtmlCardsOnly(aggregateBody(m.segments)) : ''}${this.appendUnreadAttachmentLine(m.attachments)}`;
       })
       .join('\n');
 
@@ -331,6 +349,13 @@ export class DispatchChainEngine {
       result += `\n\n${idleWarning}`;
     }
     return result;
+  }
+
+  /** 多模态 Phase 1：未读历史统一文本投影（不按目标獭分叉——last_read 保证未读皆近，
+   *  历史图"知道是什么"即可；分叉只发生在当前任务消息的真图注入） */
+  private appendUnreadAttachmentLine(attachments?: AttachmentRef[]): string {
+    const projection = projectAttachments(attachments ?? []);
+    return projection ? `\n${projection}` : "";
   }
 
   private async resolveSenderNames(messages: Array<{ senderType: string; senderId: string }>): Promise<Map<string, string>> {

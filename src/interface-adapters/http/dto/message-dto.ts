@@ -4,9 +4,10 @@ import type {
   MessageDTO,
   MessageSegmentDTO,
   MessageEventDTO,
+  AttachmentDTO,
 } from "@contract/api/message";
 
-export type { MessageDTO, MessageSegmentDTO, MessageEventDTO };
+export type { MessageDTO, MessageSegmentDTO, MessageEventDTO, AttachmentDTO };
 export type { SendMessageRequestDTO, MessageListResponseDTO, UnreadStateDTO, MarkReadResponseDTO, MarkReadRequestDTO } from "@contract/api/message";
 
 /** 计算消息持续时间 */
@@ -35,10 +36,26 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),
     ...(msg.source && msg.source !== "web" && { src: msg.source }),
-    // F-multi-speak-bubble: 透传分段数组（向后兼容，不带则前端 fallback 到 content）
-    ...(msg.segments.length > 0 && {
-      segments: msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })),
-    }),
+    ...segmentsField(msg),
+    // 多模态 Phase 1：透出附件引用（仅非空时携带）
+    ...attachmentsField(msg),
+  };
+}
+
+/** 分段数组字段（多 speak 气泡；空则不携带，前端 fallback 到 content） */
+function segmentsField(msg: Message): Pick<MessageDTO, "segments"> | Record<string, never> {
+  if (msg.segments.length === 0) return {};
+  return { segments: msg.segments.map(s => ({ id: s.id, body: s.body, sequenceNum: s.sequenceNum })) };
+}
+
+/** 附件字段（多模态 Phase 1；空则不携带，向后兼容） */
+function attachmentsField(msg: Message): Pick<MessageDTO, "atts"> | Record<string, never> {
+  if (!msg.attachments || msg.attachments.length === 0) return {};
+  return {
+    atts: msg.attachments.map(a => ({
+      id: a.id, kind: a.kind, originalName: a.originalName,
+      mimeType: a.mimeType, sizeBytes: a.sizeBytes, width: a.width, height: a.height,
+    } satisfies AttachmentDTO)),
   };
 }
 

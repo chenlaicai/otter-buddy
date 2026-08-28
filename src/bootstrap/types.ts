@@ -16,6 +16,7 @@ import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled
 import type { ConnectionRepository } from "@usecases/im/connection-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
+import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import type { ManageConversation } from "@usecases/conversation/manage-conversation";
 import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { ManageTerminology } from "@usecases/memory/manage-terminology";
@@ -37,6 +38,7 @@ import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import type { ManageConnection } from "@usecases/im/manage-connection";
+import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 
 export interface Repositories {
   otter: OtterRepository;
@@ -58,6 +60,8 @@ export interface Repositories {
   healingEvent: HealingEventRepository;
   /** F20260826mwrd C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */
   signalEvent: SignalEventRepository;
+  /** 多模态 Phase 1：附件 repo（上传管线 + 消息组装共用） */
+  attachment: AttachmentRepository;
 }
 
 export interface UseCases {
@@ -84,4 +88,6 @@ export interface UseCases {
   manageContext: ManageContext;
   manageScheduledTask: ManageScheduledTask;
   manageConnection: ManageConnection;
+  /** 多模态 Phase 1：附件上传服务 */
+  attachmentUpload: AttachmentUploadService;
 }

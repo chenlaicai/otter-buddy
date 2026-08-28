@@ -11,6 +11,7 @@ import type {
 import type { Message, MessageEvent, MessageSegment } from "@entities/conversation/message";
 import { DomainError } from "@entities/errors";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
+import { projectAttachments } from "@entities/conversation/attachment-projection";
 import type {
   ConversationRepository,
   GetMessagesOptions,
@@ -31,13 +32,26 @@ import {
 import * as mixins from "./conversation-repository-mixins";
 
 import { escapeFtsQuery } from "../fts-utils";
+import { SqliteAttachmentRepository } from "../attachment/sqlite-attachment-repository";
+import type { Logger } from "@usecases/ports/logger";
 
 export class SqliteConversationRepository implements ConversationRepository {
-  constructor(private readonly db: Database.Database) {}
+  /** 多模态 Phase 1：附件 repo（消息组装点①——repository 加载回填 attachments） */
+  private readonly attachmentRepo: SqliteAttachmentRepository;
+  /** 审视修复 R8：附件 JOIN 降级时留痕（不再吞错——真实 DB 故障须可观测） */
+  private readonly logger?: Logger;
+
+  constructor(
+    private readonly db: Database.Database,
+    logger?: Logger,
+  ) {
+    this.attachmentRepo = new SqliteAttachmentRepository(db);
+    this.logger = logger;
+  }
 
   /**
    * 应用层 FTS upsert（F20260728htar：废触发器后由 repository 接管）。
-   * messages_fts.body 存 html-card 剥离投影。
+   * messages_fts.body 存 html-card 剥离投影 + 附件占位投影（多模态 Phase 1）。
    * 调用方必须在 db.transaction() 内使用（写消息 + FTS 同事务，中间崩溃不漂移）。
    */
   private upsertMessageFts(messageId: string, body: string): void {
@@ -46,17 +60,42 @@ export class SqliteConversationRepository implements ConversationRepository {
       .run(messageId, stripHtmlCardFences(body));
   }
 
-  /** 从 segments 聚合 body 并刷新 FTS（调用方须在事务内） */
+  /** 从 segments 聚合 body 并刷新 FTS（调用方须在事务内）。
+   *  多模态 Phase 1：附件占位投影追加进 FTS body（出口统一调用 projectAttachments）。 */
   private refreshMessageFts(messageId: string): void {
     const rows = this.db.prepare(
       "SELECT body FROM message_segments WHERE message_id = ? ORDER BY sequence_num ASC",
     ).all(messageId) as { body: string }[];
     const body = rows.map(r => r.body).join("\n\n");
-    this.upsertMessageFts(messageId, body);
+    this.upsertMessageFts(messageId, this.appendAttachmentProjection(messageId, body));
   }
 
-  /** 批量加载 segments 并挂载到已映射的 messages */
-  private attachSegments(messages: Message[]): void {
+  /** 多模态 Phase 1：按 message_attachments 组装附件投影行，追加在 body 之后（同步读，可在事务内） */
+  private appendAttachmentProjection(messageId: string, body: string): string {
+    try {
+      const attRows = this.db.prepare(`
+        SELECT a.kind, a.original_name, a.size_bytes, a.caption
+        FROM message_attachments ma JOIN attachments a ON a.id = ma.attachment_id
+        WHERE ma.message_id = ? ORDER BY ma.sequence_num ASC
+      `).all(messageId) as Array<{ kind: string; original_name: string; size_bytes: number; caption: string | null }>;
+      if (attRows.length === 0) return body;
+      const projection = projectAttachments(attRows.map(r => ({
+        id: "", kind: r.kind as "image" | "document", originalName: r.original_name,
+        mimeType: "", sizeBytes: r.size_bytes, width: null, height: null, caption: r.caption,
+      })));
+      return projection ? `${body}\n${projection}` : body;
+    } catch (err) {
+      // 审视修复 R8：降级留痕（migrate 启动即补表，此处异常几乎必为真实 DB 故障）
+      this.logger?.warn("Attachment projection join failed, FTS body degraded to no-attachment", {
+        messageId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return body;
+    }
+  }
+
+  /** 批量加载 segments 并挂载到已映射的 messages（多模态 Phase 1 起 async：附件挂载 await 在内） */
+  private async attachSegments(messages: Message[]): Promise<void> {
     if (messages.length === 0) return;
     const ids = messages.map(m => m.id);
     const placeholders = ids.map(() => "?").join(",");
@@ -72,6 +111,27 @@ export class SqliteConversationRepository implements ConversationRepository {
     }
     for (const msg of messages) {
       msg.segments = byMsgId.get(msg.id) ?? [];
+    }
+    await this.attachAttachments(messages);
+  }
+
+  /** 多模态 Phase 1：批量加载附件引用并挂载到已映射的 messages（JOIN message_attachments）。
+   *  await 而非 fire-and-forget：消息读路径是 async 方法，必须保证返回时附件已挂上
+   *  （否则 egress 广播/未读注入拿到的是竞态中的空附件）。 */
+  private async attachAttachments(messages: Message[]): Promise<void> {
+    if (messages.length === 0) return;
+    try {
+      const byMsgId = await this.attachmentRepo.getAttachmentRefsByMessageIds(messages.map(m => m.id));
+      for (const msg of messages) {
+        const atts = byMsgId.get(msg.id);
+        if (atts && atts.length > 0) msg.attachments = atts;
+      }
+    } catch (err) {
+      // 审视修复 R8：降级留痕（同上——不再静默吞错）
+      this.logger?.warn("Attachment refs load failed, message degraded to no-attachment", {
+        messageCount: messages.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -182,7 +242,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     const rows = this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC")
       .all(turnId) as MessageRow[];
     const messages = rows.map(rowToMessage);
-    this.attachSegments(messages);
+    await this.attachSegments(messages);
     return messages;
   }
 
@@ -376,7 +436,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getLastMessageBySenderType(conversationId: string, senderType: "user" | "otter" | "system"): Promise<Message | null> {
     const message = mixins.getLastMessageBySenderType(this.db, conversationId, senderType);
     if (!message) return null;
-    this.attachSegments([message]);
+    await this.attachSegments([message]);
     return message;
   }
 
@@ -486,7 +546,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     const row = this.db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as MessageRow | undefined;
     if (!row) return null;
     const message = rowToMessage(row);
-    this.attachSegments([message]);
+    await this.attachSegments([message]);
     return message;
   }
 
@@ -502,7 +562,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     params.push(limit);
     const rows = this.db.prepare(sql).all(...params) as MessageRow[];
     const messages = rows.map(rowToMessage);
-    this.attachSegments(messages);
+    await this.attachSegments(messages);
     return messages;
   }
 
@@ -514,7 +574,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       ORDER BY sequence_num DESC LIMIT ?
     `).all(messageId, messageId, count) as MessageRow[];
     const messages = rows.map(rowToMessage);
-    this.attachSegments(messages);
+    await this.attachSegments(messages);
     return messages;
   }
 
@@ -526,7 +586,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       ORDER BY sequence_num ASC LIMIT ?
     `).all(messageId, messageId, count) as MessageRow[];
     const messages = rows.map(rowToMessage);
-    this.attachSegments(messages);
+    await this.attachSegments(messages);
     return messages;
   }
 
@@ -590,14 +650,14 @@ export class SqliteConversationRepository implements ConversationRepository {
       senderName: row.sender_name ?? '',
       createdAt: '', completedAt: null,
     }));
-    this.attachSegments(messages);
+    await this.attachSegments(messages);
     return messages;
   }
 
   async getLastMessageBySender(conversationId: string, senderId: string): Promise<Message | null> {
     const message = mixins.getLastMessageBySender(this.db, conversationId, senderId);
     if (!message) return null;
-    this.attachSegments([message]);
+    await this.attachSegments([message]);
     return message;
   }
 
@@ -633,7 +693,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     `).get(conversationId, userId, conversationId) as MessageRow | undefined;
     if (!row) return null;
     const message = rowToMessage(row);
-    this.attachSegments([message]);
+    await this.attachSegments([message]);
     return message;
   }
 
@@ -655,7 +715,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     ).get(conversationId) as MessageRow | undefined;
     if (!row) return null;
     const message = rowToMessage(row);
-    this.attachSegments([message]);
+    await this.attachSegments([message]);
     return message;
   }
 
@@ -751,7 +811,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       ORDER BY rank LIMIT ?
     `).all(conversationId, escaped, limit) as MessageRow[];
     const messages = rows.map(rowToMessage);
-    this.attachSegments(messages);
+    await this.attachSegments(messages);
     return messages;
   }
 
@@ -767,7 +827,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     `).get(externalId, externalId) as MessageRow | undefined;
     if (!row) return null;
     const message = rowToMessage(row);
-    this.attachSegments([message]);
+    await this.attachSegments([message]);
     return message;
   }
 
@@ -776,13 +836,17 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getTurnHistory(conversationId: string, includeMessages = false): Promise<TurnHistoryEntry[]> {
     const turnRows = this.db.prepare("SELECT * FROM turns WHERE conversation_id = ? ORDER BY turn_number ASC")
       .all(conversationId) as TurnRow[];
-    return turnRows.map(row => {
+    // 多模态 Phase 1：附件挂载需要 await（异步 JOIN），map 改两段式；turn history 非广播主路径，
+    // 但 get_turn_history 工具会透出消息——保持附件回填一致性
+    const result: TurnHistoryEntry[] = [];
+    for (const row of turnRows) {
       const turn = rowToTurn(row);
-      if (!includeMessages) return { turn, messages: [] };
+      if (!includeMessages) { result.push({ turn, messages: [] }); continue; }
       const messages = (this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY sequence_num ASC")
         .all(turn.id) as MessageRow[]).map(rowToMessage);
-      this.attachSegments(messages);
-      return { turn, messages };
-    });
+      await this.attachSegments(messages);
+      result.push({ turn, messages });
+    }
+    return result;
   }
 }

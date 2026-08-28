@@ -67,6 +67,10 @@ export interface InvokeOptions {
   /** 当前 streaming 消息 ID（speak 工具需要） */
   messageId?: string;
   onEvent?: (event: AgentStreamEvent) => void;
+  /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent：base64 data + mimeType）。
+   *  策略在 usecases 组装（读盘 base64）；本 port 只透传机制。
+   *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级占位符，otter 层不自判。 */
+  images?: Array<{ type: "image"; data: string; mimeType: string }>;
 }
 
 export interface SdkInvokePort {

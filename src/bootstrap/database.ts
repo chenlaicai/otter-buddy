@@ -73,8 +73,8 @@ export async function initDatabaseAndModels(
   return { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding };
 }
 
-export function initRepositoriesWithDb(db: Database.Database): Repositories {
-  return initRepositories(db);
+export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): Repositories {
+  return initRepositories(db, logger);
 }
 
 /** DB 初始化后的种子数据 + 孤儿修复 + ledger 回填 */
