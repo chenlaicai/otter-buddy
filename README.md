@@ -4,6 +4,10 @@
 
 Otter Buddy（海獭）是一个以 Agent 为本、Chat as Substrate、记忆系统为核心的 Agentic System 项目。
 
+![对话界面](docs/images/conversation.jpg)
+
+主对话界面：多 Agent 协作场景——大獭编排，小獭按 skill 执行，行动权在参与者之间流转。
+
 ## 设计哲学
 
 - **Agent 为本**：系统围绕 Agent 设计，Agent 是第一公民

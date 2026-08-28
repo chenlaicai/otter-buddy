@@ -27,6 +27,7 @@ import { FeishuLongConnectionHandler } from "@interface-adapters/feishu/long-con
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 import { CommandDispatcher } from "@interface-adapters/feishu/command-dispatcher";
 import { PartnerResolver } from "@usecases/im/partner-resolver";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { FeishuResourceClient } from "@frameworks/feishu/resource-client";
@@ -164,11 +165,13 @@ export function createFeishuBundle(options: {
   logger: Logger;
   webBaseUrl: string | undefined;
   messageBroadcaster: MessageBroadcaster;
+  /** F20260828fsyc：出站标签解析用户全局名（可选,不传时 FeishuMessageChannel 回退「用户」） */
+  settingsRepo?: SettingsRepository;
 }): FeishuBundle {
-  const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster } = options;
+  const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  messageBroadcaster.registerOutboundChannel(new FeishuMessageChannel(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl));
+  messageBroadcaster.registerOutboundChannel(new FeishuMessageChannel(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl, settingsRepo));
   if (!webBaseUrl) {
     logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
   }
