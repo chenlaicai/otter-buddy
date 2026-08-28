@@ -3,6 +3,7 @@
  * RightPanel 关键资源展示测试（F20260825krui；F20260827rsux 升级 hover 卡行为）
  * - FactItem：长内容截断（truncate）+ 悬浮详情卡显示全文（可复制）
  * - LinkedResourceItem：统一 stone 色系 + 类型色块 + 截断 + 悬浮详情卡
+ * - F20260828tab：tab 切换逻辑
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
@@ -30,10 +31,11 @@ function makeResource(overrides: Partial<LinkedResource> = {}): LinkedResource {
   }
 }
 
+const noop = () => {}
+
 function renderPanel(resources: LinkedResource[], otters: Otter[] = []) {
   const conversation = { id: 'c1', title: '测试对话', createdAt: '' } as unknown as Conversation
   const sessions: Record<string, OtterSession[]> = {}
-  const noop = () => {}
   act(() => {
     root.render(
       <RightPanel
@@ -62,6 +64,13 @@ function renderPanel(resources: LinkedResource[], otters: Otter[] = []) {
   })
 }
 
+/** 切换到指定 tab（通过 data-testid 定位） */
+function switchTab(tabId: string) {
+  const btn = container.querySelector(`[data-testid="tab-${tabId}"]`) as HTMLButtonElement
+  expect(btn).not.toBeNull()
+  act(() => { fireEvent.click(btn) })
+}
+
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -73,10 +82,48 @@ afterEach(() => {
   container.remove()
 })
 
+describe('RightPanel tab 切换', () => {
+  it('默认激活参与者 tab', () => {
+    renderPanel([], [])
+    // 参与者 tab 按钮存在且内容区显示参与者
+    const participantTab = container.querySelector('[data-testid="tab-participants"]')
+    expect(participantTab).not.toBeNull()
+    expect(container.textContent).toContain('Otter 参与者')
+  })
+
+  it('点击切换 tab 应显示对应内容', () => {
+    renderPanel([], [])
+    switchTab('resources')
+    expect(container.textContent).toContain('暂无关键资源')
+
+    switchTab('tasks')
+    expect(container.textContent).toContain('定时任务')
+
+    switchTab('workspace')
+    expect(container.textContent).toContain('工作区根目录')
+  })
+
+  it('切换 tab 时应保持各 tab 的状态', () => {
+    const resources = [makeResource({ type: 'fact', content: '测试事实' })]
+    renderPanel(resources, [])
+
+    switchTab('resources')
+    expect(container.textContent).toContain('测试事实')
+
+    switchTab('tasks')
+    expect(container.textContent).not.toContain('测试事实')
+
+    switchTab('resources')
+    expect(container.textContent).toContain('测试事实')
+  })
+})
+
 describe('FactItem', () => {
   it('长内容应截断，悬浮详情卡展示全文（F20260827rsux）', () => {
     const longContent = '这是一条非常长的事实内容'.repeat(10)
     renderPanel([makeResource({ type: 'fact', content: longContent })])
+    // 事实内容在 resources tab 下，需要先切换
+    switchTab('resources')
     const truncated = container.querySelector('.truncate')
     expect(truncated).not.toBeNull()
     expect(truncated!.textContent).toBe(longContent)
@@ -87,6 +134,7 @@ describe('FactItem', () => {
 
   it('分类徽章与内容分行展示', () => {
     renderPanel([makeResource({ type: 'fact', content: '短事实', category: '决策' })])
+    switchTab('resources')
     const badges = Array.from(container.querySelectorAll('.rounded-full')).filter(el => el.textContent === '决策')
     expect(badges.length).toBe(1)
   })
@@ -95,6 +143,7 @@ describe('FactItem', () => {
 describe('LinkedResourceItem', () => {
   it('链接资源应有类型色块且不再使用 teal 正文色', () => {
     renderPanel([makeResource({ type: 'pr', url: 'https://github.com/x/y/pull/1', title: 'PR: 修复登录' })])
+    switchTab('resources')
     const badge = Array.from(container.querySelectorAll('span')).find(el => el.textContent === 'pr')
     expect(badge).not.toBeUndefined()
     // 正文统一 stone 色系（不再 teal-500 正文）
@@ -108,6 +157,7 @@ describe('LinkedResourceItem', () => {
     const longTitle = '超长资源标题'.repeat(20)
     const url = 'https://example.com/very/long/path'
     renderPanel([makeResource({ type: 'url', url, title: longTitle })])
+    switchTab('resources')
     const truncated = container.querySelector('.truncate')
     expect(truncated).not.toBeNull()
     expect(truncated!.getAttribute('title')).toBeNull()
@@ -117,6 +167,7 @@ describe('LinkedResourceItem', () => {
 
   it('无 title 时显示 url，无 url 时显示占位符', () => {
     renderPanel([makeResource({ type: 'file', url: null, title: '' })])
+    switchTab('resources')
     const placeholder = Array.from(container.querySelectorAll('.truncate')).find(el => el.textContent === '(无标题)')
     expect(placeholder).not.toBeUndefined()
   })
@@ -124,6 +175,7 @@ describe('LinkedResourceItem', () => {
   it('有 title 无 url 时详情卡仍展示 title 全文（截断场景下悬停仍有增量）', () => {
     const longTitle = '很长的资源标题无需 url 也能看全文'.repeat(8)
     renderPanel([makeResource({ type: 'file', url: null, title: longTitle })])
+    switchTab('resources')
     const truncated = container.querySelector('.truncate')
     expect(truncated).not.toBeNull()
     expect(truncated!.getAttribute('title')).toBeNull()
@@ -208,6 +260,7 @@ describe('ResourceHoverCard（F20260827rsux）', () => {
 
   it('fact 条目停留 ≥400ms 弹出悬浮卡，含全文与复制按钮', () => {
     renderPanel([makeResource({ type: 'fact', content: '事实A的完整内容', category: '决策' })])
+    switchTab('resources')
     act(() => { fireEvent.mouseEnter(factRow()) })
     expect(document.querySelector('.glass-strong')).toBeNull()
     act(() => { vi.advanceTimersByTime(400) })
@@ -222,6 +275,7 @@ describe('ResourceHoverCard（F20260827rsux）', () => {
 
   it('链接资源悬浮卡展示标题与 url', () => {
     renderPanel([makeResource({ type: 'pr', url: 'https://github.com/x/y/pull/9', title: 'PR 九号' })])
+    switchTab('resources')
     const row = Array.from(container.querySelectorAll('.group'))
       .find(el => el.textContent?.includes('PR 九号')) as HTMLElement
     act(() => { fireEvent.mouseEnter(row) })
@@ -234,6 +288,7 @@ describe('ResourceHoverCard（F20260827rsux）', () => {
 
   it('快速滑过（<400ms 移出）不弹出悬浮卡', () => {
     renderPanel([makeResource({ type: 'fact', content: '事实A', category: null })])
+    switchTab('resources')
     act(() => { fireEvent.mouseEnter(factRow()) })
     act(() => { vi.advanceTimersByTime(150) })
     act(() => { fireEvent.mouseLeave(factRow()) })
@@ -248,6 +303,7 @@ describe('ResourceHoverCard（F20260827rsux）', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     try {
       renderPanel([makeResource({ type: 'fact', content: '事实A的完整内容', category: '决策' })])
+      switchTab('resources')
       act(() => { fireEvent.mouseEnter(factRow()) })
       act(() => { vi.advanceTimersByTime(400) })
       const card = document.querySelector('.glass-strong')!
@@ -270,6 +326,7 @@ describe('ResourceHoverCard（F20260827rsux）', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     try {
       renderPanel([makeResource({ type: 'pr', url: 'https://github.com/x/y/pull/9', title: 'PR 九号' })])
+      switchTab('resources')
       const row = Array.from(container.querySelectorAll('.group'))
         .find(el => el.textContent?.includes('PR 九号')) as HTMLElement
       act(() => { fireEvent.mouseEnter(row) })
@@ -286,6 +343,7 @@ describe('ResourceHoverCard（F20260827rsux）', () => {
   /** 检视发现 3：hover 计时器 pending 时 unmount，effect 清理路径不炸、不弹出 */
   it('hover 计时器 pending 时卸载组件，不报错且不弹出悬浮卡', () => {
     renderPanel([makeResource({ type: 'fact', content: '事实A', category: null })])
+    switchTab('resources')
     act(() => { fireEvent.mouseEnter(factRow()) })
     act(() => { vi.advanceTimersByTime(150) }) // timer 仍 pending
     expect(() => {

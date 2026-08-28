@@ -30,6 +30,7 @@ import { ManageContext } from "@usecases/otter/manage-context";
 import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
+import { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 
 export interface UseCaseDeps {
   repos: Repositories;
@@ -66,6 +67,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   // 多模态 Phase 1：附件上传服务（storageRoot 等来自 config.attachments）
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
+  // 工作区文件浏览（只读）——workspaceGateway 可选注入
+  const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway) : undefined;
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
@@ -73,6 +76,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     manageScheduledTask, manageConnection,
     createEdge, getRelated, deleteEdge, getDocProvenance,
     attachmentUpload,
+    manageWorkspace,
   };
 }
 
