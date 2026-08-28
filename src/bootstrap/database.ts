@@ -48,11 +48,12 @@ export async function initDatabaseAndModels(
   const isNewDb = !fs.existsSync(dbPath);
   const db = initDatabase(appConfig.db, logger);
 
-  if (isNewDb) {
-    logger.info("New database detected, running schema initialization");
-    initSchema(db, logger);
-  }
-  /** initSchema 只建基础表结构，不含历史补丁列（如 agent_sessions.session_file）。
+  /** F20260827mgux（#506）：initSchema 无条件执行（幂等，全 IF NOT EXISTS）——
+   *  新库建全表，老库补缺失表。消灭「新表需在 initSchema + migrateDatabase 两处登记」
+   *  的誊抄结构（历史四案：embedding_meta / RHI 两表 / signal_events+restart_pending_resumes /
+   *  search_query_logs 漏登，最后一例被 fire-and-forget 吞错静默丢数据）。 */
+  initSchema(db, logger);
+  /** initSchema 不含历史补丁列（如 agent_sessions.session_file）。
    *  migrateDatabase 幂等（PRAGMA 检查 + IF NOT EXISTS），新库也必须跑到最新结构——
    *  否则下方 migrateExistingData 读 session_file 直接崩（F20260805codx 曾把两者做成互斥分支，新库无法启动）。 */
   migrateDatabase(db, logger);
