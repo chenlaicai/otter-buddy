@@ -39,6 +39,7 @@ import type { ManageContext } from "@usecases/otter/manage-context";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
+import type { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 
 export interface Repositories {
   otter: OtterRepository;
@@ -90,4 +91,6 @@ export interface UseCases {
   manageConnection: ManageConnection;
   /** 多模态 Phase 1：附件上传服务 */
   attachmentUpload: AttachmentUploadService;
+  /** 工作区文件浏览（只读） */
+  manageWorkspace?: ManageWorkspace;
 }
