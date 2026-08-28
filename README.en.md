@@ -4,6 +4,10 @@
 
 Otter Buddy is an Agentic System built with Agent-first design, Chat as Substrate, and a memory system at its core.
 
+![Conversation UI](docs/images/conversation.jpg)
+
+The main conversation view: a multi-agent collaboration scene — the Lead Otter orchestrates while sub-otters execute skills, with the talking stone passing between participants.
+
 ## Design Philosophy
 
 - **Agent-first**: The system is designed around agents as first-class citizens

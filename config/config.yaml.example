@@ -152,7 +152,7 @@ circuitBreaker:
 # 3. 开通权限（权限管理页搜索开通并发布版本）：
 #    - im:message（必选，接收单聊+群聊消息事件推送；只开 p2p 子集会导致群聊不通）
 #    - im:message:send_as_bot（必选，发送消息；与 im:message 任开其一可发送，建议都开）
-#    - contact:user.base:readonly（推荐，群聊多人识别：发送者 open_id → 姓名）
+#    - contact:contact.base:readonly（推荐，群聊多人识别：发送者 open_id → 姓名；注意不是 contact:user.base:readonly，该名不存在）
 # 4. 获取 App ID 和 App Secret，填入上方配置
 # 5. 在 Web 端创建 Connection，绑定飞书群
 # 6. 在飞书群中使用命令：
