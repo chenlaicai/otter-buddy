@@ -87,7 +87,7 @@ DI 链：`app.ts createFeishuBundle` → `platforms.ts` → `FeishuMessageChanne
   - 旧用例「user 消息 senderLabel 为 [用户]」补 `senderName: ''` + `source: 'web'` 覆盖（原 fixture 默认 senderName="Test Otter"，会命中快照分支）
   - 新用例 mock 需唯一 messageId（#241 广播幂等去重 LRU 会撞掉重复 id 的断言）
 
-全量 163 文件 / 1963 用例通过（含 busboy 依赖 npm install 后恢复的两文件）。
+全量 163 文件 / 1963 用例通过（含 busboy 依赖 npm install 后恢复的两文件）。审视处置后新增 1 降级用例，全量 1964。
 
 ## 影响范围
 
@@ -102,10 +102,17 @@ DI 链：`app.ts createFeishuBundle` → `platforms.ts` → `FeishuMessageChanne
 - **出站标签不引入 PartnerResolver**：出站语义是「显示什么名」而非「是否搭档」（门禁语义）。Web 消息恒为搭档本人，全局名即正解；引入 resolver 反而是过度设计
 - **问题③不在本 PR**：权限开通是根因，代码无可修；中性标签「飞书成员」已是 #495 设计的正确降级
 
+## 对抗审视（mimo 异体，2026-08-28）
+
+结论：0 严重 + 2 建议，处置闭环（commit 032884f9，CI 绿 1m56s，delta 复核通过）：
+
+- **R1 settingsRepo.get 异常吞广播**（属实）：调用点在 replyMarkdown 的 try-catch 之外，异步 DB 读失败会让广播静默中断——与旧版硬编码「永不失败」相比是防御性回退。修：resolveSenderLabel 加 try-catch 降级回「用户」+ warn 留痕 + 降级用例（db down 下标签「用户」且正文不丢）
+- **R2 补 segments.length 断言**（部分重复：该断言首 commit 已有，检视时看漏）：处置为补强——修正错位注释（「senderName 快照」语义挂在 segments 断言上）+ 补 senderName 空串断言（出站标签依赖该字段决定全局名回退）
+
 ## 验证
 
 - [x] 单元：send-message / message-broadcaster-feishu 全过
-- [x] 全量 vitest 163 files / 1963 tests
+- [x] 全量 vitest 163 files / 1963 tests（审视处置后 1964）
 - [x] tsc --noEmit 干净（busboy 预存类型问题与本次无关，npm install 后消除）
 - [x] eslint 干净（max-params 按项目约定 disable 注释）
 - [ ] 搭档验收：web 发消息 → 飞书显示「[chen] 正文」；飞书发消息 → Web 实时显示正文 + 真名（权限开通后）
