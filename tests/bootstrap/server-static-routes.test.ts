@@ -1,13 +1,15 @@
 /**
  * F20260826hfix：buildHttpApp MPA 静态路由注册测试。
  * 防 PR #444 类遗漏再犯——TopBar 加了页面入口、vite 加了入口、但 server.ts 漏注册路由 → 404。
+ * #487（F20260827mpss）：用例与夹具页面集合改从单一清单（api-contract/web/pages.ts）派生；新增清单外 html 的守卫。
  * Proxy mock controllers（静态路由命中前不触达 API 层），tmp 目录伪造 dist 页面文件。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildHttpApp } from "../../src/bootstrap/server";
+import { MPA_PAGES } from "@contract/web/pages";
 import type { initControllers } from "../../src/bootstrap/controllers";
 import type { Logger } from "../../src/usecases/ports/logger";
 
@@ -34,8 +36,8 @@ describe("buildHttpApp MPA 静态路由（F20260826hfix）", () => {
 
   beforeAll(() => {
     staticRoot = mkdtempSync(path.join(tmpdir(), "static-root-"));
-    for (const page of ["index", "conversation", "memory", "skills", "settings", "connections", "health"]) {
-      writeFileSync(path.join(staticRoot, `${page}.html`), `<html>${page}</html>`);
+    for (const page of MPA_PAGES) {
+      writeFileSync(path.join(staticRoot, `${page.entry}.html`), `<html>${page.entry}</html>`);
     }
     app = buildHttpApp(minimalControllers(), logger, staticRoot);
   });
@@ -45,15 +47,10 @@ describe("buildHttpApp MPA 静态路由（F20260826hfix）", () => {
   });
 
   /** 每个已交付 MPA 页面都必须有路由 → 200。新增页面时在此追加 */
-  it.each([
-    ["/", "index"],
-    ["/conversation/abc", "conversation"],
-    ["/memory", "memory"],
-    ["/skills", "skills"],
-    ["/settings", "settings"],
-    ["/connections", "connections"],
-    ["/health", "health"],
-  ])("%s 返回对应页面", async (route, page) => {
+  /** #487（F20260827mpss）：用例从单一清单派生（testUrl 缺省 = pattern 中 :param 替换为 abc），新增页面自动纳入断言 */
+  it.each(
+    MPA_PAGES.map(p => [p.testUrl ?? p.pattern.replace(/:[^/]+/g, "abc"), p.entry])
+  )("%s 返回对应页面", async (route, page) => {
     const res = await app.request(route);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain(page);
@@ -72,6 +69,17 @@ describe("buildHttpApp MPA 静态路由（F20260826hfix）", () => {
   it("未注册路径不落入页面兜底（404）", async () => {
     const res = await app.request("/not-a-page");
     expect(res.status).toBe(404);
+  });
+
+  /** #487 第 5 处漂移点守卫：web/ 目录 html 文件集合 === 清单 entry 集合。
+   *  新增一个 html 却不登记清单（或反之）→ 本守卫红。 */
+  it("web 目录 html 文件与清单一一对应", () => {
+    const htmlFiles = readdirSync(path.join(__dirname, "../../web"))
+      .filter(f => f.endsWith(".html"))
+      .map(f => f.replace(/\.html$/, ""))
+      .sort();
+    const registryEntries = [...new Set(MPA_PAGES.map(p => p.entry))].sort();
+    expect(htmlFiles).toEqual(registryEntries);
   });
 
   it("staticRoot=false 时不挂任何页面路由", async () => {

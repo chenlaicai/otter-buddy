@@ -152,6 +152,28 @@ describe("SendMessage（真 sqlite）", () => {
       expect(record!.content).toContain("前文");
       expect(record!.content).toContain("后文");
     });
+
+    it("F20260828fsyc：send 返回的内存对象携带内容段（广播链路直接消费返回值）", async () => {
+      await seedOtter(otterFixture());
+      await joinParticipant("otter-big");
+
+      const { message: msg } = await sm.send({
+        conversationId: "conv-1", senderId: "user-1", body: "Web 发的消息",
+        talkingStonePassedTo: [],
+      });
+
+      /** 回归锁定：旧 bug 是 send() 先落库后 appendSegment、返回对象 segments=[]，
+       *  广播（SSE 首推/飞书出站）拿到空串 → Web 空气泡 / 飞书「(空消息)」 */
+      expect(aggregateBody(msg.segments)).toBe("Web 发的消息");
+      // 与持久层一致（双保险：内存对象与 DB 不是两套真相）
+      const stored = await repo.getMessageById(msg.id);
+      expect(aggregateBody(stored!.segments)).toBe("Web 发的消息");
+      // 审视修复 R2：显式断言段数与段归属（原 aggregateBody 断言已锁内容，此处锁结构意图）
+      expect(msg.segments.length).toBe(1);
+      expect(msg.segments[0].messageId).toBe(msg.id);
+      // Web 消息无外部快照，senderName 为空串——出站标签依赖该字段决定是否走全局名回退
+      expect(msg.senderName).toBe("");
+    });
   });
 
   describe("显式目标校验（F20260728htar：在场 + otter 未解散）", () => {

@@ -52,6 +52,20 @@ describe('SqliteSignalEventRepository', () => {
     expect(objection!.targetOtterId).toBeNull();
   });
 
+  it('findByMessageIds 批量查询：message_id 分组 + created_at 升序 + 空数组零查询（F20260826mwrd C4）', async () => {
+    // 两条消息各带不同数量信号，created_at 逆序写入验证升序返回
+    await repo.create(makeEvent({ id: 's1', messageId: 'msg-A', createdAt: '2026-08-26T10:00:03.000Z' }));
+    await repo.create(makeEvent({ id: 's2', messageId: 'msg-A', createdAt: '2026-08-26T10:00:01.000Z' }));
+    await repo.create(makeEvent({ id: 's3', messageId: 'msg-B', type: 'objection', targetOtterId: null, createdAt: '2026-08-26T10:00:02.000Z' }));
+    await repo.create(makeEvent({ id: 's4', messageId: 'msg-C', type: 'objection', targetOtterId: null, createdAt: '2026-08-26T10:00:00.000Z' }));
+
+    const found = await repo.findByMessageIds(['msg-A', 'msg-B']);
+    // created_at 全局升序：s2(01) < s3(02) < s1(03)——分组语义由调用方 map 处理，这里验证全序正确
+    expect(found.map(e => e.id)).toEqual(['s2', 's3', 's1']);
+    const empty = await repo.findByMessageIds([]);
+    expect(empty).toEqual([]);
+  });
+
   it('findByConversation 过滤组合：type + status + target', async () => {
     await repo.create(makeEvent({ id: 'a' }));
     await repo.create(makeEvent({ id: 'b', status: 'resolved', resolution: '已处置' }));

@@ -3,6 +3,8 @@ import { aggregateBody } from "@entities/conversation/message";
 import type { ManageConnection } from "./manage-connection";
 import type { FeishuGateway } from "./feishu-gateway";
 import type { QueryOtter } from "@usecases/otter/query-otter";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 import type { OutboundMessageChannel, OutboundEventChannel } from "./message-broadcaster";
@@ -17,6 +19,7 @@ import { projectForChannel } from "@entities/conversation/message-body-projectio
  * - 降级: replyMarkdown 失败时由 client.ts 自动降级到 replyText 带 [纯文本降级] 前缀
  */
 export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEventChannel {
+  // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定（同 message-controller 约定）
   constructor(
     private readonly manageConnection: ManageConnection,
     private readonly feishuGateway: FeishuGateway,
@@ -24,6 +27,9 @@ export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEve
     private readonly logger: Logger,
     /** Web 端 base URL,用于飞书侧 html-card 占位符拼接跳转链接 */
     private readonly webBaseUrl?: string,
+    /** F20260828fsyc：可选注入。Web 消息出站标签显示全局名而非硬编码「用户」;
+     *  未注入时保持原行为（回退「用户」） */
+    private readonly settingsRepo?: Pick<SettingsRepository, "get">,
   ) {}
 
   /** broadcast 出站：投影 + markdown 投递到绑定的飞书会话 */
@@ -113,9 +119,32 @@ export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEve
     }
   }
 
-  /** 解析发送者显示标签(用于飞书 post title) */
+  /** 解析发送者显示标签(用于飞书 post title)
+   *  F20260828fsyc：user 消息显示搭档全局名而非硬编码「用户」（与 Web 端渲染语义对齐）。
+   *  注：防回环（shouldBroadcastToFeishu）保证走到这里的 user 消息只来自 Web——
+   *  source=feishu 在入口已拦截，故无需渠逈分叉；快照优先分支是防御性保留
+   *  （未来若开跨群转发，飞书快照名可直接生效） */
   private async resolveSenderLabel(message: Message): Promise<string> {
-    if (message.senderType === "user") return "用户";
+    if (message.senderType === "user") {
+      const snapshot = message.senderName?.trim();
+      if (snapshot) return snapshot;
+      // Web 消息无快照：显示全局名（本机即搭档本人,PartnerResolver.isPartner('user') 恒真）。
+      // 审视修复 R1：settings 读取失败时降级回「用户」——标签解析异常不应吞掉整个广播
+      // （旧实现「用户」是同步硬编码永不失败，本调用是异步 DB 读，防御语义对齐旧版）
+      try {
+        const globalName = this.settingsRepo
+          ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
+          : undefined;
+        return globalName || "用户";
+      } catch (err) {
+        this.logger.warn("Failed to read global display name, fall back to default label", {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return "用户";
+      }
+    }
     if (message.senderType === "otter") {
       const otter = await this.queryOtter.getById(message.senderId);
       return otter?.name ?? message.senderId;

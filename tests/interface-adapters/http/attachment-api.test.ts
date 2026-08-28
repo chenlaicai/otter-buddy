@@ -280,6 +280,9 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
       { getById: async () => null } as unknown as QueryOtter,
       dispatchChainEngine,
       new MessageBroadcaster(logger) as never,
+      // F20260826mwrd C4 合并适配：MessageController 新增 signalRepo 位（signals 徽章数据源），
+// 本测试不涉信号，传 undefined 占位，attachmentInjection 仍在末位
+      undefined,
       injection,
     );
 
