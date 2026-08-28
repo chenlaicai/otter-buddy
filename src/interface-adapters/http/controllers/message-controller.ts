@@ -9,10 +9,12 @@ import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SSEEvent } from "@contract/sse/events";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
 import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
-import type { SendMessageRequestDTO, MarkReadRequestDTO, MessageDTO } from "../dto/message-dto";
+import { buildMessageDTOs, decorateWithSignals, resolveSenderNames, type MessageDtoBuilderDeps } from "../dto/message-dto-builder";
+import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
 /** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
@@ -28,43 +30,16 @@ export class MessageController {
     private readonly queryOtter: QueryOtter,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly messageBroadcaster?: MessageBroadcaster,
+    /** F20260826mwrd C4：消息 DTO signals 挂载（徽章数据源） */
+    private readonly signalRepo?: SignalEventRepository,
     /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务（usecases 层策略——校验+真图+document 文本）；可选装配 */
     private readonly attachmentInjection?: AttachmentInjectionService,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
-  private async resolveSenderNames(messages: Array<{ senderType: string; senderId: string }>): Promise<Map<string, string>> {
-    const names = new Map<string, string>();
-    const otterSenderIds = [...new Set(messages.filter(m => m.senderType === "otter").map(m => m.senderId))];
-    await Promise.all(otterSenderIds.map(async id => {
-      const otter = await this.queryOtter.getById(id);
-      const resolved = resolveSpeakerName("otter", id, otter?.name);
-      if (resolved) names.set(id, resolved);
-    }));
-    return names;
-  }
-
-  /** 批量构建 MessageDTO（含 events + 发送者名），list/listAfter/expand 复用，避免 N+1 */
-  private async buildMessageDTOs(messages: Message[]): Promise<MessageDTO[]> {
-    const messageIds = messages.filter((m) => m.senderType === "otter").map((m) => m.id);
-    const allEvents = messageIds.length > 0
-      ? await this.queryMessage.getMessageEventsByMessageIds(messageIds)
-      : [];
-    const eventsByMsg = new Map<string, typeof allEvents>();
-    for (const evt of allEvents) {
-      const arr = eventsByMsg.get(evt.messageId) ?? [];
-      arr.push(evt);
-      eventsByMsg.set(evt.messageId, arr);
-    }
-    const senderNames = await this.resolveSenderNames(messages);
-    return messages.map((msg) => {
-      const dto = toMessageDTO(msg, senderNames.get(msg.senderId));
-      const evts = eventsByMsg.get(msg.id);
-      if (evts && evts.length > 0) {
-        dto.events = evts.map(toMessageEventDTO);
-      }
-      return dto;
-    });
+  /** DTO 组装 helper 依赖包（F20260828c4sg 合并适配：从本类拆出，见 message-dto-builder.ts） */
+  private get dtoBuilder(): MessageDtoBuilderDeps {
+    return { queryOtter: this.queryOtter, queryMessage: this.queryMessage, signalRepo: this.signalRepo, logger: this.logger };
   }
 
   /** 订阅消息广播（SSE 长连接） */
@@ -102,15 +77,22 @@ export class MessageController {
           }
           push({
             event: "message",
-            data: toMessageDTO(message, senderName) as unknown as Record<string, unknown>,
+            data: (await decorateWithSignals(toMessageDTO(message, senderName), message, this.dtoBuilder)) as unknown as Record<string, unknown>,
           });
         } catch (err) {
           this.logger.error("[subscribe] Failed to broadcast message", err instanceof Error ? err : undefined, { messageId: message.id });
-          // 降级：名称解析失败也要推送消息（前端回退到 otterId/其他名称解析）
-          push({
-            event: "message",
-            data: toMessageDTO(message) as unknown as Record<string, unknown>,
-          });
+          // 降级：名称解析失败也要推送消息（前端回退到 otterId/其他名称解析）；信号挂载失败不阻断推送（徽章缺失可由前端刷新拉齐）
+          try {
+            push({
+              event: "message",
+              data: (await decorateWithSignals(toMessageDTO(message), message, this.dtoBuilder)) as unknown as Record<string, unknown>,
+            });
+          } catch {
+            push({
+              event: "message",
+              data: toMessageDTO(message) as unknown as Record<string, unknown>,
+            });
+          }
         }
       },
       // 事件回调：agent streaming 事件（message.start, assistant_text, message.complete 等）
@@ -143,7 +125,7 @@ export class MessageController {
         limit,
         before,
       });
-      const dtos = await this.buildMessageDTOs(messages);
+      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
       const hasMore = messages.length === limit
         && messages.length > 0
         && messages[messages.length - 1].sequenceNum > 1;
@@ -163,7 +145,7 @@ export class MessageController {
         return c.json({ error: "after parameter is required" }, 400);
       }
       const messages = await this.queryMessage.getMessagesAfter(after, limit);
-      const dtos = await this.buildMessageDTOs(messages);
+      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
       const hasMore = messages.length === limit;
       return c.json({ messages: dtos, hasMore });
     } catch (err) {
@@ -417,7 +399,7 @@ export class MessageController {
       if (!msg) {
         return c.json({ error: "Message not found" }, 404);
       }
-      const senderNames = await this.resolveSenderNames([msg]);
+      const senderNames = await resolveSenderNames([msg], this.queryOtter);
       return c.json(toMessageDTO(msg, senderNames.get(msg.senderId)));
     } catch (err) {
       return handleError(c, err, this.logger);
@@ -530,7 +512,7 @@ export class MessageController {
       const rawCount = Number(c.req.query("count") ?? "25");
       const count = Number.isFinite(rawCount) && rawCount > 0 ? rawCount : 25;
       const messages = await this.queryMessage.expandMessage(messageId, direction, count);
-      const dtos = await this.buildMessageDTOs(messages);
+      const dtos = await buildMessageDTOs(messages, this.dtoBuilder);
       return c.json(dtos);
     } catch (err) {
       return handleError(c, err, this.logger);

@@ -13,6 +13,8 @@ export interface SignalEventRepository {
   findById(id: string): Promise<SignalEvent | null>;
   /** 按对话查询（可选 type/status/from/to 过滤），created_at 倒序 */
   findByConversation(conversationId: string, filter?: SignalQueryFilter, limit?: number): Promise<SignalEvent[]>;
+  /** 按消息 ID 批量查询（C4 UI DTO 挂载用），message_id 分组，组内 created_at 升序（与剥离前原文顺序一致） */
+  findByMessageIds(messageIds: string[]): Promise<SignalEvent[]>;
   /**
    * 裁决写路径（F20260826mwrd 审视发现 2 的代码落点）：
    * resolve_signal 工具调用此方法落库，状态迁移以本方法为唯一数据源。
