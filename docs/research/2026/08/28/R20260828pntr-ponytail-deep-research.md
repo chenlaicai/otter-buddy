@@ -40,13 +40,14 @@ LLM 训练偏差导致的过度建设（"我要一个函数，它给我一个框
 | skills/（7 个 SKILL.md） | 383 | 价值核心——prompt 本体 |
 | benchmarks/ | 4077 | 评测体系（本文主角） |
 | tests/ | 1709 | 胶水层 UT（15 个测试文件） |
-| hooks/ + pi-extension/ | 1275 | 20 个 agent 平台适配胶水 |
+| hooks/ + pi-extension/ | 1275 | 20 个 agent 平台适配胶水（README 徽章自称 20；行数只计 .js/.md/.py/.ts，含 json 等全文件为 1413） |
 | ponytail-mcp/ | 146 | MCP 封装 |
 
 README 声称 -54% LOC / -20% cost / -27% faster / 100% safe。数字有水分但方法论扎实
 （§2-3 展开）：-54% 被前端任务（原生 input 替代组件）拉低，后端 CRUD ≈0；n=4、单模型
-（Haiku 4.5）、单仓库；"100% safe" 的 Wilson 95% CI 下界仅 83%，与 yagni 臂 19/20 无
-统计显著差异（Fisher exact p≈0.3）。
+（Haiku 4.5）、单仓库；“100% safe” 的 Wilson 95% CI 下界仅 83%，与 yagni 臂 19/20
+无统计显著差异（Fisher exact p≈0.3。注：区间与检验为我们基于其公开
+20/20、19/20 数据的估算，非 ponytail 原文）。
 
 ## 1. 历史考古：git 历史是被切断的
 
@@ -107,6 +108,19 @@ Colin Eberhardt 四点批评（单次生成不公平 / 基线是话痨模型 / �
 
 **把尖锐批评转化为永久测试场景，比十篇反驳文章有价值。**
 
+### 2.6 评测要能证伪自己：“The fix that wasn't”
+
+最典型的案例是 `results/2026-06-16-robustness-audit.md` 记录的“失败的修复”：email 验证在
+OpenAI 模型上 ~4-5% 失败（模型偏爱 `parseaddr` 而非 regex），作者尝试了 **8 种不同的
+SKILL.md 编辑**（counter-pressure 措辞、check-mandate、few-shot 示例、三种放置位置……），
+结果每一次得分都 ≤ 当前版本，有一次崩到 78%，且全部推高中位 LOC。最终决策：**一个都
+不发布**——“添加不起作用的 skill 文本是 ponytail 自己所反对的 cargo-cult 行为”。
+
+agentic benchmark 的 README 说得更直白：“It is built to be able to disprove the skill's
+value, not only to confirm it.” benchmark 的价值在于能证伪，不在宣传。加上
+SUPERSEDED 保留旧结论（§2.4）与公开修正史（correctness gate bug → 污染 → 质量轴，
+至少 3 次重大方法论修正），这套评测的“不装哲学”贯穿始终。
+
 ## 3. Prompt 工艺：383 行里的 know-how
 
 - **失败模式预防性命名**："dresses up as efficiency and ships a confident wrong fix"（跳过
@@ -131,8 +145,8 @@ Colin Eberhardt 四点批评（单次生成不公平 / 基线是话痨模型 / �
 | # | 差距 | 现状 | ponytail 的答案 |
 |---|---|---|---|
 | 1 | **对照组设计** | 只有守底线（纵向），无量提升（横向 A/B） | 四臂对照 + 混淆变量隔离臂（caveman） |
-| 2 | **good/bad 自检层** | 伤疤场景有 bad（真实翻车），无系统化"good 必过 + bad 必拦"自检 | selftest-first：仪器先证明判别力 |
-| 3 | **完整度 judge** | 断言轨迹/信号词，无整体质量裁判 | complete.py 式 LLM judge + 防作弊 |
+| 2 | **good/bad 自检层** | 伤疤场景有 bad（真实翻车），无系统化"good 必过 + bad 必拦"自检 | selftest-first：仪器先证明判别力（run.py 强制 --selftest，零 API 花费） |
+| 3 | **完整度 judge** | 断言轨迹/信号词，无整体质量裁判 | complete.py 式 LLM judge（rubric 逼问"缺失的最重要一块"）+ judge 自身 selftest + under-delivered 清单 |
 | 4 | 可复现性 | 需起整个 runtime，结果只活在内部文档 | promptfoo 可复跑 + 结果公开 |
 
 ## 5. 可迁移思想（记录，不着急做）
