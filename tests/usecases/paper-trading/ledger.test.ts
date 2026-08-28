@@ -306,8 +306,8 @@ describe('Ledger', () => {
       expect(results).toHaveLength(2);
       // 第一笔成交
       expect(results[0].status).toBe('filled');
-      // 第二笔因现金不足被拒（N2: insufficient_cash_at_match）
-      expect(results[1].status).toBe('pending');
+      // 第二笔因现金不足被拒（N2/X2: insufficient_cash_at_match）
+      expect(results[1].status).toBe('rejected');
       expect(results[1].rejectReason).toBe('insufficient_cash_at_match');
 
       // 负现金断言：updateCash 不应写入负数

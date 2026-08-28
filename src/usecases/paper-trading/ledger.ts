@@ -25,7 +25,7 @@ import type { StockQuoteGateway, DailyQuote } from './stock-quote-gateway';
 /** 撮合结果 */
 export interface MatchResult {
   orderId: string;
-  status: 'filled' | 'pending' | 'expired' | 'limit_up' | 'limit_down';
+  status: 'filled' | 'pending' | 'expired' | 'rejected' | 'limit_up' | 'limit_down';
   rejectReason: string | null;
   trade: PaperTrade | null;
 }
@@ -161,6 +161,10 @@ export class Ledger {
     // 1. 检查是否交易日
     const isTrading = await this.repo.isTradingDay(tradeDate);
     if (!isTrading) {
+      // T2: 日历跨年缺口警告——撮合日超出 trading_calendar 覆盖范围时静默空转
+      // eslint-disable-next-line no-console -- T2: 运行时诊断警告，生产环境需要 operator 感知
+      console.warn(`[Ledger] matchOrders: ${tradeDate} not in trading_calendar. ` +
+        'If this date should be a trading day, the calendar may need re-sync (year-end gap).');
       return [];
     }
 
@@ -289,7 +293,7 @@ export class Ledger {
       await this.repo.updateOrderStatus(order.id, 'rejected', 'insufficient_cash_at_match');
       return {
         orderId: order.id,
-        status: 'pending',
+        status: 'rejected',
         rejectReason: 'insufficient_cash_at_match',
         trade: null,
       };
@@ -323,6 +327,9 @@ export class Ledger {
 
     // 更新现金
     await this.updateCash(order.accountId, order.side, price, order.shares, fee);
+
+    // X1 修复：恢复成交状态写入——否则订单在 DB 里永远是 pending
+    await this.repo.updateOrderStatus(order.id, 'filled', null);
 
     return {
       orderId: order.id,

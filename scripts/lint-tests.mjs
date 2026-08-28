@@ -34,7 +34,10 @@ const allowDdlFiles = [];
 // 3→4（F20260829ppta）：tests/frameworks/db/paper-trade-repository-impl-expiry.test.ts——
 // 仓储实现测试需要手写 DDL 建立最小表结构（测试 expireOldPendingOrders 的 SQL 行为，
 // 不走生产 schema 迁移链，隔离内存 SQLite 无漂移风险）
-const MAX_ALLOW_DDL_FILES = 4;
+// 4→5（F20260829ppta）：tests/frameworks/db/paper-trade-repository-impl-ledger-integration.test.ts——
+// X1 P0 集成测试，使用真实 Ledger + 真实 SQLite 验证成交订单 DB 状态落库，
+// 全 mock 测试结构上不可能发现 X1 缺陷，需要隔离内存 SQLite 真实写入
+const MAX_ALLOW_DDL_FILES = 5;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

@@ -185,8 +185,8 @@ describe('expireOldPendingOrders (N4 交易日过期扫描)', () => {
     // 8-26 周二（第 5 次撮合机会）
     const expired = await repo.expireOldPendingOrders('acc1', '2026-08-26');
 
-    // count = 6 (8-20,8-21,8-22,8-25,8-26) 但 created_at = 8-19，所以 > 8-19 的交易日有 5 个
-    // 修正：8-20,8-21,8-22,8-25,8-26 = 5 个交易日，count=5 < 6，不过期
+    // 8-20,8-21,8-22,8-25,8-26 = 5 个交易日（created_at > 8-19 的区间），count=5 < 6，不过期
+    // T1 修复：原注释误写 count=6，实际应为 5
     expect(expired).toBe(0);
     const order = await repo.getOrder('order-5th-opportunity');
     expect(order?.status).toBe('pending');
