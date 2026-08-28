@@ -6,7 +6,10 @@ import type { FeishuAccessTokenManager } from "./access-token-manager";
  * 飞书用户信息客户端（F20260826fuid）。
  *
  * 调用 GET /open-apis/contact/v3/users/{open_id}?user_id_type=open_id，
- * 需要「通过手机号或邮箱获取用户 ID」同级权限：contact:user.base:readonly。
+ * 需权限 contact:contact.base:readonly（获取通讯录基本信息；注意不是
+ * contact:user.base:readonly——该名称不存在，是 #488 时期文档笔误，实测
+ * API 权限拒绝时飞书返回的必需清单为 contact:contact.base:readonly /
+ * contact:contact:access_as_app / contact:contact:readonly 系列）。
  *
  * 设计要点：
  * - 进程内 Map 缓存 open_id → name，命中不出网；未命中 TTL 过期后重查一次

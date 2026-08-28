@@ -36,12 +36,12 @@
 |---------|------|------|------|
 | `im:message` | 获取与发送单聊、群组消息 | **必选** | 接收私聊和群聊消息（事件推送） |
 | `im:message:send_as_bot` | 以应用身份发消息 | **必选** | 发送消息（发消息 API 的专用权限，与 `im:message` 任开其一即可发送，建议两个都开避免遗漏） |
-| `contact:user.base:readonly` | 获取用户基本信息 | 推荐 | 群聊多人识别：把消息发送者 open_id 换成姓名 |
+| `contact:contact.base:readonly` | 获取用户基本信息 | 推荐 | 群聊多人识别：把消息发送者 open_id 换成姓名 |
 | `im:chat:readonly` | 获取群信息 | 可选 | 排查群绑定问题、群名解析（暂未依赖，预留下步扩展） |
 
 > ⚠️ **群聊不通的最常见原因**：只开了私聊相关权限（如 `im:message.p2p` 子集），群消息事件不会被推送。开 `im:message`（全量）可同时覆盖私聊与群聊。
 
-> ⚠️ **群聊多人识别**：不开 `contact:user.base:readonly` 时，海獭仍能区分"是不同的人在说话"（open_id 唯一），但只能显示匿名 ID，无法显示姓名。开通后消息入库时自动快照发送者姓名。
+> ⚠️ **群聊多人识别**：不开 `contact:contact.base:readonly` 时，海獭仍能区分"是不同的人在说话"（open_id 唯一），但只能显示匿名 ID，无法显示姓名。开通后消息入库时自动快照发送者姓名。
 
 权限开通后需**创建版本并发布**（或按提示发布生效），部分权限需管理员审批。
 
@@ -80,7 +80,7 @@ feishu:
 ## 七、群聊使用要点
 
 - **机器人入群**：把机器人拉进群后，群里任意成员发消息即触发（需已开 `im:message` 权限并发布生效）
-- **多人识别**：开通 `contact:user.base:readonly` 后，海獭能识别群成员姓名（如 `[张三] 你好`）；未开通时以匿名 open_id 区分
+- **多人识别**：开通 `contact:contact.base:readonly` 后，海獭能识别群成员姓名（如 `[张三] 你好`）；未开通时以匿名 open_id 区分
 - **搭档身份绑定**：配置 `feishu.partnerOpenId` 后，海獭的「搭档」静态锚定为配置的主人（见下节），群内其他成员发言时海獭知道「这是访客，不是我的搭档」
 - **命令权限**：配置 partnerOpenId 后，`/list` `/in` `/out` `/history` `/help` 等命令仅搭档可用——访客发命令会收到友好提示，普通聊天不受影响
 - **一人一绑定**：每个飞书会话（群或私聊）对应一个 Connection，同一时间进入一个对话
@@ -100,7 +100,7 @@ feishu:
 ```
 
 **获取 open_id 的三种途径**：
-1. **开放平台调试器**：飞书开放平台 → 开发调试 → API 调试台，用 `contact:user.base:readonly` 权限查自己
+1. **开放平台调试器**：飞书开放平台 → 开发调试 → API 调试台，用 `contact:contact.base:readonly` 权限查自己
 2. **系统日志**：给机器人发一条消息，服务日志 `Feishu message parsed` 条目的 senderId 字段
 3. **数据库**：`sqlite3 otter-buddy.db "SELECT DISTINCT sender_id FROM messages WHERE source='feishu' AND sender_type='user';"`（多人已发过消息时需结合日志甄别）
 
@@ -111,7 +111,8 @@ feishu:
 | 现象 | 原因 | 处理 |
 |------|------|------|
 | 私聊正常、群聊无响应 | 应用未开 `im:message` 群消息权限 | 权限管理开通 `im:message` 并发布版本 |
-| 群里显示匿名 ID 而非姓名 | 未开 `contact:user.base:readonly` | 开通该权限；历史消息的姓名快照不回填，新消息生效 |
+| 群里显示匿名 ID 而非姓名 | 未开 `contact:contact.base:readonly` | 开通该权限；历史消息的姓名快照不回填，新消息生效 |
+| 开了权限仍不显示姓名 | 权限开通后未发布版本，或开错权限名（注意是 `contact:contact.base:readonly`，不是 `contact:user.base:readonly`） | 权限管理页核对权限名 → 发布版本 → 新发一条飞书消息验证；服务日志搜 `Feishu user name resolved`（成功）或 `Feishu user info query failed`（失败，附飞书错误码，99991672=权限拒绝） |
 | 完全收不到消息 | 事件未订阅或长连接未建立 | 检查事件订阅含 `im.message.receive_v1`；看服务日志 `Feishu long connection started` |
 | 发消息机器人无回复但提示"未进入对话" | Connection 未绑定对话 | 群里发 `/list` + `/in <对话ID>`，或 Web 端绑定 |
 | 配置了 partnerOpenId 后自己的命令也被拒 | open_id 填错（被判为访客） | 按上文三途径核对；检查有无多余空格 |
