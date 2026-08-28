@@ -227,6 +227,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     ? createFeishuBundle({
       feishuConfig: config.feishu, uc, dispatchChainEngine, logger,
       webBaseUrl: config.web?.baseUrl, messageBroadcaster,
+      // F20260828fsyc：出站标签解析用户全局名（settingsRepo 可选注入,web-only 部署不传也不炸）
+      settingsRepo: repos.settings,
     })
     : undefined;
 

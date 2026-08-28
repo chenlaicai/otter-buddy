@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import type { Message } from "@entities/conversation/message";
+import type { SettingsRepository } from "@usecases/settings/settings-repository";
+
 
 function mockMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -26,7 +28,7 @@ function mockMessage(overrides: Partial<Message> = {}): Message {
 
 /** issue #281：broadcaster 拆为纯总线 + FeishuMessageChannel 出站通道。
  *  测试装配与生产一致：总线注册飞书通道，行为断言全部沿用 */
-function createBroadcaster(webBaseUrl?: string) {
+function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepository, "get">) {
   const manageConnection = {
     getSessionByConversation: vi.fn().mockResolvedValue(null),
     getConnection: vi.fn().mockResolvedValue(null),
@@ -39,7 +41,7 @@ function createBroadcaster(webBaseUrl?: string) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
   const broadcaster = new MessageBroadcaster(logger);
   broadcaster.registerOutboundChannel(
-    new FeishuMessageChannel(manageConnection, feishuGateway, queryOtter, logger, webBaseUrl),
+    new FeishuMessageChannel(manageConnection, feishuGateway, queryOtter, logger, webBaseUrl, settingsRepo),
   );
   return { broadcaster, manageConnection, feishuGateway, queryOtter, logger };
 }
@@ -68,7 +70,7 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
     expect(sent[0].markdown).toBe("你好");
   });
 
-  it("user 消息 senderLabel 为 [用户]", async () => {
+  it("user 消息 senderLabel 为 [用户]（无 settingsRepo 注入时保持原行为）", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster();
     bindFeishu(broadcaster);
     const sent: Array<{ senderLabel: string }> = [];
@@ -76,7 +78,7 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
       sent.push({ senderLabel });
     });
 
-    await broadcaster.broadcast(mockMessage({ senderType: "user", senderId: "user-1", segments: [{ id: "seg-1", messageId: "msg-1", body: "hi", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
+    await broadcaster.broadcast(mockMessage({ senderType: "user", senderId: "user-1", senderName: "", source: "web", segments: [{ id: "seg-1", messageId: "msg-1", body: "hi", sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }] }));
 
     expect(sent[0].senderLabel).toBe("用户");
   });
@@ -137,6 +139,64 @@ describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => 
     await broadcaster.broadcast(mockMessage());
 
     expect(feishuGateway.replyMarkdown).not.toHaveBeenCalled();
+  });
+});
+
+describe("MessageBroadcaster 飞书出站 user 标签（F20260828fsyc）", () => {
+  /** 防回环（shouldBroadcastToFeishu）保证飞书出站的 user 消息只来自 Web——
+   *  故标签语义 = 快照名（防御性,当前 web 消息恒无快照）> 搭档全局名 > 「用户」。
+   *  飞书消息不出站（已有防回环用例覆盖），无渠道分叉分支 */
+  function bindAndCapture(broadcaster: MessageBroadcaster, feishuGateway: any): Array<{ senderLabel: string; markdown: string }> {
+    bindFeishu(broadcaster);
+    const sent: Array<{ senderLabel: string; markdown: string }> = [];
+    feishuGateway.replyMarkdown.mockImplementation(async (_c: string, senderLabel: string, markdown: string) => {
+      sent.push({ senderLabel, markdown });
+    });
+    return sent;
+  }
+  const seg = (body: string) => [{ id: "seg-fsyc", messageId: "msg-fsyc", body, sequenceNum: 0, createdAt: "2026-07-31T00:00:00Z" }];
+  /** #241 幂等去重：broadcast 用 mockMessage 默认 id="msg-1" 会被 LRU 撞掉——每条用例给唯一 id */
+  let dedupSeq = 0;
+  function nextMock(overrides: Partial<Message> = {}): Message {
+    dedupSeq += 1;
+    return mockMessage({ id: `msg-fsyc-${dedupSeq}`, ...overrides });
+  }
+
+  it("Web user 消息 → 显示搭档全局名（原硬编码「用户」）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockResolvedValue("chen") });
+    const sent = bindAndCapture(broadcaster, feishuGateway);
+
+    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("网页发的") }));
+
+    expect(sent[0].senderLabel).toBe("chen");
+    expect(sent[0].markdown).toBe("网页发的");
+  });
+
+  it("Web user 消息未设全局名 → 回退「用户」", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockResolvedValue(null) });
+    const sent = bindAndCapture(broadcaster, feishuGateway);
+
+    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("网页发的") }));
+
+    expect(sent[0].senderLabel).toBe("用户");
+  });
+
+  it("未注入 settingsRepo → Web 消息回退「用户」（老调用方兼容）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app");
+    const sent = bindAndCapture(broadcaster, feishuGateway);
+
+    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("网页发的") }));
+
+    expect(sent[0].senderLabel).toBe("用户");
+  });
+
+  it("user 消息带快照名 → 快照优先（防御性分支,当前链路 web 消息恒无快照）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockResolvedValue("chen") });
+    const sent = bindAndCapture(broadcaster, feishuGateway);
+
+    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "自定义名", segments: seg("x") }));
+
+    expect(sent[0].senderLabel).toBe("自定义名");
   });
 });
 

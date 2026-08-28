@@ -219,7 +219,11 @@ export class SendMessage {
       await this.attachmentRepo!.linkMessageAttachments(message.id, ctx.attachmentRefs.map(a => a.id));
     }
 
-    await this._repo.appendSegment(message.id, input.body);
+    const seg = await this._repo.appendSegment(message.id, input.body);
+    // 回填内存对象：广播链路（SSE 首推/飞书出站）直接消费 send() 的返回值,
+    // 不回填则 aggregateBody([]) 得空串——Web 首推空气泡、飞书显示「(空消息)」。
+    // 与 sendSystem 的回填模式对齐（存量 bug,F20260828fsyc）
+    message.segments = [seg];
 
     /** B11: 索引消息内容到记忆系统（html-card 剥离投影 + 附件占位投影，与 FTS 一致） */
     await this.memoryIndex.indexMessage(message.id, message.conversationId, this.buildIndexBody(input.body, ctx.attachmentRefs));
