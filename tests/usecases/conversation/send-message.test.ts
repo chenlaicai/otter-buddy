@@ -168,9 +168,11 @@ describe("SendMessage（真 sqlite）", () => {
       // 与持久层一致（双保险：内存对象与 DB 不是两套真相）
       const stored = await repo.getMessageById(msg.id);
       expect(aggregateBody(stored!.segments)).toBe("Web 发的消息");
-      // senderName 快照也应在内存对象上可见（飞书出站标签依赖它）
+      // 审视修复 R2：显式断言段数与段归属（原 aggregateBody 断言已锁内容，此处锁结构意图）
       expect(msg.segments.length).toBe(1);
       expect(msg.segments[0].messageId).toBe(msg.id);
+      // Web 消息无外部快照，senderName 为空串——出站标签依赖该字段决定是否走全局名回退
+      expect(msg.senderName).toBe("");
     });
   });
 

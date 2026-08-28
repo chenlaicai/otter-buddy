@@ -190,6 +190,16 @@ describe("MessageBroadcaster 飞书出站 user 标签（F20260828fsyc）", () =>
     expect(sent[0].senderLabel).toBe("用户");
   });
 
+  it("审视修复 R1：settings 读取抛异常 → 降级「用户」且广播不中断（标签解析失败不应吞掉投递）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockRejectedValue(new Error("db down")) });
+    const sent = bindAndCapture(broadcaster, feishuGateway);
+
+    await broadcaster.broadcast(nextMock({ senderType: "user", senderId: "user", source: "web", senderName: "", segments: seg("正文不应丢") }));
+
+    expect(sent[0].senderLabel).toBe("用户");
+    expect(sent[0].markdown).toBe("正文不应丢");
+  });
+
   it("user 消息带快照名 → 快照优先（防御性分支,当前链路 web 消息恒无快照）", async () => {
     const { broadcaster, feishuGateway } = createBroadcaster("https://otter.app", { get: vi.fn().mockResolvedValue("chen") });
     const sent = bindAndCapture(broadcaster, feishuGateway);

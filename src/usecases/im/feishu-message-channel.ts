@@ -128,11 +128,22 @@ export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEve
     if (message.senderType === "user") {
       const snapshot = message.senderName?.trim();
       if (snapshot) return snapshot;
-      // Web 消息无快照：显示全局名（本机即搭档本人,PartnerResolver.isPartner('user') 恒真）
-      const globalName = this.settingsRepo
-        ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
-        : undefined;
-      return globalName || "用户";
+      // Web 消息无快照：显示全局名（本机即搭档本人,PartnerResolver.isPartner('user') 恒真）。
+      // 审视修复 R1：settings 读取失败时降级回「用户」——标签解析异常不应吞掉整个广播
+      // （旧实现「用户」是同步硬编码永不失败，本调用是异步 DB 读，防御语义对齐旧版）
+      try {
+        const globalName = this.settingsRepo
+          ? (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim()
+          : undefined;
+        return globalName || "用户";
+      } catch (err) {
+        this.logger.warn("Failed to read global display name, fall back to default label", {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return "用户";
+      }
     }
     if (message.senderType === "otter") {
       const otter = await this.queryOtter.getById(message.senderId);
