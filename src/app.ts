@@ -54,6 +54,7 @@ import { collectHealingEvents } from "@usecases/health/healing-collector";
 import { countFidMentions } from "@frameworks/db/health/fid-mention-counter";
 import { SignalRepository } from "@usecases/health/signal-repository";
 import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
+import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
 export function createLogger(logDir: string): PinoLogger {
@@ -142,7 +143,12 @@ function createRhiScanWorker(deps: {
   const fidMentionSource = async (fids: string[], windowDays: number) =>
     countFidMentions(deps.db, fids, windowDays);
 
-  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, { fidMentionSource });
+  // 指标快照落库端口（F20260829hviz Fix A）：scanOnce 计算指标写 health_snapshots
+  const snapshotRepo = new HealthSnapshotRepository(deps.db);
+  const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
+    snapshotRepo.replaceForDate(snapshotDate, rows);
+
+  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, { fidMentionSource, snapshotSink });
 }
 
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑

@@ -23,9 +23,16 @@ import type { SignalPipeline, CriticalSignalWakeup } from "./signal-pipeline";
 import type { CollectedHealingEvent } from "./healing-collector";
 import type { ParsedCommit } from "./commit-parser";
 import type { CollectedFeatureDoc } from "./feature-doc-collector";
+import { calculateMetrics } from "./metrics-calculator";
+import { buildOverviewSnapshotRows } from "./snapshot-rows";
+import type { CreateSnapshotRow } from "./snapshot-rows";
 
 /** healing 事件数据源端口（由 bootstrap 注入 DB 查询；worker 不直接依赖 healing repository 细节） */
 export type HealingEventSource = () => Promise<CollectedHealingEvent[]>;
+
+/** 指标快照落库端口（F20260829hviz Fix A）：接收快照日期 + 行集，同日覆盖写入。
+ *  由 bootstrap 注入 HealthSnapshotRepository.replaceForDate；测试可注入内存实现。 */
+export type SnapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) => void;
 
 export interface RhiScanWorkerOptions {
   /** 扫描间隔（默认 1h） */
@@ -43,6 +50,11 @@ export interface RhiScanWorkerOptions {
   mentionWindowDays?: number;
   /** zombie 阈值天数（透传 buildFeatureChains，默认 30） */
   zombieDays?: number;
+  /** 指标快照落库端口（F20260829hviz Fix A）：注入后 scanOnce 会计算指标并写入 health_snapshots。
+   *  未注入时跳过（向后兼容，旧测试/CLI 直调不受影响）。 */
+  snapshotSink?: SnapshotSink;
+  /** 指标计算滚动窗口天数（默认 60：趋势图 30 天 + 前后各 15 天缓冲） */
+  metricsWindowDays?: number;
 }
 
 export interface RhiScanResult {
@@ -54,6 +66,8 @@ export interface RhiScanResult {
   memoryIndexed: number;
   wakeupsTriggered: number;
   errors: string[];
+  /** 写入 health_snapshots 的指标行数（F20260829hviz；未注入 sink 时为 0） */
+  metricsStored: number;
 }
 
 export class RhiScanWorker {
@@ -149,6 +163,10 @@ export class RhiScanWorker {
     // 6. 管道：落库 + 记忆 + 唤醒
     const pipelineResult = await this.pipeline.process(signals, this.options.wakeup);
 
+    // 7. 指标计算 + 快照落库（F20260829hviz Fix A：修「面板扫描不写指标」断链）
+    //    独立窗口重采（60 天滚动）而非复用信号窗口——趋势口径要稳定，链构建余量会污染分子分母
+    const metricsStored = this.persistSnapshot(signalInputs, chains);
+
     return {
       scannedAt,
       commitCount: commitsWithFiles.length,
@@ -158,7 +176,56 @@ export class RhiScanWorker {
       memoryIndexed: pipelineResult.memoryIndexed,
       wakeupsTriggered: pipelineResult.wakeupsTriggered,
       errors: pipelineResult.errors,
+      metricsStored,
     };
+  }
+
+  /** 指标快照写入：60 天滚动窗口重算 + 11 标准行 + chain_states 行，同日覆盖。
+   *  与链/信号共用 signalInputs 采集结果但窗口独立（metricsWindowDays）。 */
+  private persistSnapshot(
+    signalInputs: Array<{ sha: string; date: string; message: string; parsed: ParsedCommit; filesChanged: string[] }>,
+    chains: ReturnType<typeof buildFeatureChains>,
+  ): number {
+    const sink = this.options.snapshotSink;
+    if (!sink) return 0;
+    try {
+      const windowDays = this.options.metricsWindowDays ?? 60;
+      const windowStart = this.isoDaysAgo(windowDays);
+      const windowInputs = signalInputs.filter(c => c.date >= windowStart);
+      const metrics = calculateMetrics(
+        windowInputs.map(c => c.parsed),
+        windowInputs.map(c => ({ sha: c.sha, date: c.date, message: c.message, filesChanged: c.filesChanged })),
+      );
+
+      // 特性链五态分布行（链构建的独有产物，CLI 不写这行——它不建链）
+      const stateCounts: Record<string, number> = {};
+      for (const ch of chains) {
+        stateCounts[ch.state] = (stateCounts[ch.state] ?? 0) + 1;
+      }
+      const snapshotDate = new Date().toISOString().slice(0, 10);
+      const chainStatesRow: CreateSnapshotRow = {
+        snapshotDate, // 行内日期必须真实填写：replaceForDate 的 INSERT 用行内字段，空串会插出无日期行
+        metricType: "distribution",
+        metricKey: "chain_states",
+        metricValue: chains.length,
+        metadata: JSON.stringify(stateCounts),
+      };
+
+      const rows = buildOverviewSnapshotRows({
+        snapshotDate,
+        metrics,
+        extraRows: [chainStatesRow],
+      });
+      sink(snapshotDate, rows);
+      return rows.length;
+    } catch (err) {
+      // 快照失败不阻断信号管道（传感器分离：指标是旁路，不是主路）
+      this.logger.warn("RHI metrics snapshot failed, signals already stored", {
+        action: "rhi_worker_snapshot_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return 0;
+    }
   }
 
   /** 两阶段链构建：先无提及数据粗筛，再对 stalled≥zombieDays 候选查提及重判。
