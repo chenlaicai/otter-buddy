@@ -44,7 +44,7 @@ issue #580 二选一中的**方案 A（工具层校验）**，搭档拍板执行
 | 文件 | 改动 |
 |---|---|
 | `src/usecases/conversation/manage-key-info.ts` | `GROUP_ID_REQUIRED_TYPES` 常量 + `validateGroupIdRequired` 函数；`linkResource` 强制校验；`supersedeResource` 校验 effective groupId（新输入 ?? 旧资源组） |
-| `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | 工具层镜像校验（错误消息含指引 + #580 锚点）；`groupId` 参数描述标注必填类型；工具 description 加 GOTCHA |
+| `src/interface-adapters/agent-runtime/tools/tool-factory.ts` | 工具层镜像校验（错误消息含指引 + #580 锚点 + 查找方法提示）；`groupId` 参数描述标注必填类型；工具 description 加 GOTCHA |
 | `tests/usecases/conversation/manage-key-info.test.ts` | +6 用例：worktree/branch 拒绝、pr 通过、fact/url/file 可选、supersede 继承放行、supersede 双无组拒绝 |
 | `tests/interface-adapters/create-linked-resource-tool.test.ts` | +4 用例：缺 groupId 报错、空白视为漏传、带 groupId 通过、url 可选 |
 

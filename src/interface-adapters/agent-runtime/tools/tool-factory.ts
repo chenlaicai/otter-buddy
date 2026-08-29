@@ -417,7 +417,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       if (GROUP_ID_REQUIRED_TYPES.has(resourceType)) {
         const groupId = params.groupId as string | undefined;
         if (!groupId || groupId.trim().length === 0) {
-          return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（gssf/ptun 两次案例，#580）。`);
+          return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（gssf/ptun 两次案例，#580）。请先用 list_artifacts 或 search_memory 查找当前对话对应的特性文档编号。`);
         }
       }
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
