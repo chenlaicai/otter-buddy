@@ -418,6 +418,47 @@ export function listActiveConversations(): Promise<Array<{ id: string; title: st
   return request('/connections/any/conversations')
 }
 
+// ── 微信连接管理（issue #566）──
+
+export interface WeixinLoginSessionDTO {
+  id: string
+  status: 'pending' | 'waiting_scan' | 'scaned' | 'success' | 'expired' | 'error' | 'cancelled'
+  qrcodePng?: string
+  qrcodeUrl?: string
+  accountId?: string
+  ilinkUserId?: string
+  error?: string
+  createdAt: string
+}
+
+export interface WeixinAccountDTO {
+  id: string
+  ilinkBotId?: string
+  ilinkUserId?: string
+  addedAt: string
+  hasToken: boolean
+}
+
+export function startWeixinLogin(): Promise<WeixinLoginSessionDTO> {
+  return request('/weixin/login', { method: 'POST' })
+}
+
+export function getWeixinLogin(id: string): Promise<WeixinLoginSessionDTO> {
+  return request(`/weixin/login/${id}`)
+}
+
+export function cancelWeixinLogin(id: string): Promise<{ status: string }> {
+  return request(`/weixin/login/${id}/cancel`, { method: 'POST' })
+}
+
+export function listWeixinAccounts(): Promise<WeixinAccountDTO[]> {
+  return request('/weixin/accounts')
+}
+
+export function deleteWeixinAccount(id: string): Promise<{ status: string }> {
+  return request(`/weixin/accounts/${id}`, { method: 'DELETE' })
+}
+
 // ── RHI 健康面板（F20260825rweb #402/#403；F20260829hviz 增补 trends）──
 
 export interface RhiOverviewDTO {

@@ -14,6 +14,7 @@ import type { HealthController } from "./controllers/health-controller";
 import type { RhiController } from "./controllers/rhi-controller";
 import type { AttachmentController } from "./controllers/attachment-controller";
 import type { WorkspaceController } from "./controllers/workspace-controller";
+import type { WeixinConnectionController } from "./controllers/weixin-connection-controller";
 
 
 export interface Controllers {
@@ -31,6 +32,8 @@ export interface Controllers {
   attachment?: AttachmentController;
   /** 工作区文件浏览端点（只读） */
   workspace?: WorkspaceController;
+  /** 微信连接管理端点（issue #566） */
+  weixin?: WeixinConnectionController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -122,6 +125,15 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
   if (c.workspace) {
     app.get("/api/conversations/:id/workspace", (ctx) => c.workspace!.listDir(ctx));
     app.get("/api/conversations/:id/workspace/file", (ctx) => c.workspace!.readFile(ctx));
+  }
+
+  // 微信连接管理（issue #566）：扫码登录 + 多账号
+  if (c.weixin) {
+    app.post("/api/weixin/login", (ctx) => c.weixin!.startLogin(ctx));
+    app.get("/api/weixin/login/:id", (ctx) => c.weixin!.getLogin(ctx));
+    app.post("/api/weixin/login/:id/cancel", (ctx) => c.weixin!.cancelLogin(ctx));
+    app.get("/api/weixin/accounts", (ctx) => c.weixin!.listAccounts(ctx));
+    app.delete("/api/weixin/accounts/:id", (ctx) => c.weixin!.deleteAccount(ctx));
   }
 }
 
