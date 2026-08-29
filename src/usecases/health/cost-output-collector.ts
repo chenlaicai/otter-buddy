@@ -114,11 +114,6 @@ interface OtterIdentity {
 
 /**
  * 从第一个 user message 的 system prompt 中提取 otterId/otterName/otterType。
- *
- * system prompt 包含如下格式：
- * - 名称：<name>
- * - ID：<uuid>
- * - 类型：<type>
  */
 function parseOtterIdentityFromContent(
   content: Array<{ type: string; [k: string]: unknown }>,
@@ -143,20 +138,62 @@ function parseOtterIdentityFromContent(
   return null;
 }
 
-/**
- * 解析单个 session JSONL 文件，提取 assistant 消息的 usage 记录和工具调用计数。
- *
- * Finding 2 修复：从 user message 内容中提取 otterId，不依赖 agent_sessions 映射。
- * Finding 3 修复：使用每条消息的 timestamp 确定日期，而非文件名前缀。
- */
+/** 从 session ID 找映射，或从文件内容提取 otter 身份 */
+async function resolveOtterIdentity(
+  sessionId: string,
+  mappingBySession: Map<string, AgentSessionMapping>,
+  filePath: string,
+): Promise<OtterIdentity> {
+  const mapping = mappingBySession.get(sessionId);
+  if (mapping) {
+    return { otterId: mapping.otterId, otterName: mapping.otterName, otterType: mapping.otterType };
+  }
+  return extractIdentityFromFile(filePath);
+}
+
+/** 从文件第一个 user message 提取 otter 身份 */
+async function extractIdentityFromFile(filePath: string): Promise<OtterIdentity> {
+  const fileContent = await readFile(filePath, "utf-8").catch(() => "");
+  if (!fileContent) return UNKNOWN_IDENTITY;
+
+  for (const line of fileContent.split("\n").filter(Boolean)) {
+    const identity = tryExtractIdentityFromLine(line);
+    if (identity) return identity;
+  }
+  return UNKNOWN_IDENTITY;
+}
+
+/** 尝试从单行 JSON 提取 otter 身份（仅 user message） */
+function tryExtractIdentityFromLine(line: string): OtterIdentity | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>;
+    if (obj.type !== "message") return null;
+    const msg = obj as SessionMessageLine;
+    if (msg.message.role !== "user" || !Array.isArray(msg.message.content)) return null;
+    return parseOtterIdentityFromContent(msg.message.content);
+  } catch {
+    return null;
+  }
+}
+
+const UNKNOWN_IDENTITY: OtterIdentity = { otterId: "unknown", otterName: "unknown", otterType: "unknown" };
+
+/** 从文件名提取 session ID */
+function extractSessionId(fileName: string): string {
+  return fileName.replace(/\.jsonl$/, "").split("_").pop() ?? "";
+}
+
+/** 从文件名提取 session 开始日期（粗筛用） */
+function extractFileDate(fileName: string): string {
+  return fileName.slice(0, 10);
+}
+
+/** 读取 JSONL 文件，按消息 timestamp 过滤，提取 assistant 消息数据 */
 async function parseSessionFile(
   filePath: string,
   otterIdentity: OtterIdentity,
   sinceDate?: string,
-): Promise<{
-  costRecords: Array<OtterCostRecord & { _key: string }>;
-  toolCallCount: number;
-}> {
+): Promise<{ costRecords: Array<OtterCostRecord & { _key: string }>; toolCallCount: number }> {
   const content = await readFile(filePath, "utf-8").catch(() => "");
   if (!content) return { costRecords: [], toolCallCount: 0 };
 
@@ -173,56 +210,58 @@ async function parseSessionFile(
     }
 
     if (obj.type === "model_change") {
-      const mc = obj as unknown as SessionModelChangeLine;
-      currentModel = mc.modelId ?? "unknown";
+      currentModel = (obj as unknown as SessionModelChangeLine).modelId ?? "unknown";
       continue;
     }
-
     if (obj.type !== "message") continue;
+
     const msg = obj as unknown as SessionMessageLine;
     if (msg.message.role !== "assistant") continue;
 
-    // Finding 3 修复：使用消息级 timestamp 确定日期
     const date = msg.timestamp.slice(0, 10);
     if (sinceDate && date < sinceDate) continue;
 
-    // 统计工具调用（type=toolCall 的 content block）
-    const msgContent = msg.message.content;
-    if (Array.isArray(msgContent)) {
-      for (const block of msgContent) {
-        if (block.type === "toolCall") {
-          toolCallCount++;
-        }
-      }
-    }
-
+    toolCallCount += countToolCalls(msg.message.content);
     if (!msg.message.usage) continue;
 
-    const usage = msg.message.usage;
-    const model = msg.message.model ?? currentModel;
-
-    costRecords.push({
-      _key: `${date}|${otterIdentity.otterId}|${model}`,
-      date,
-      otterId: otterIdentity.otterId,
-      otterName: otterIdentity.otterName,
-      otterType: otterIdentity.otterType,
-      model,
-      inputTokens: usage.input,
-      outputTokens: usage.output,
-      cacheReadTokens: usage.cacheRead,
-      cacheWriteTokens: usage.cacheWrite,
-      totalTokens: usage.totalTokens,
-      costInput: usage.cost.input,
-      costOutput: usage.cost.output,
-      costCacheRead: usage.cost.cacheRead,
-      costCacheWrite: usage.cost.cacheWrite,
-      costTotal: usage.cost.total,
-      callCount: 1,
-      cacheHitRate: 0,
-    });
+    costRecords.push(buildCostRecord(date, otterIdentity, msg.message.model ?? currentModel, msg.message.usage));
   }
   return { costRecords, toolCallCount };
+}
+
+/** 统计 content 中 toolCall block 数 */
+function countToolCalls(content?: Array<{ type: string; [k: string]: unknown }>): number {
+  if (!Array.isArray(content)) return 0;
+  return content.filter(b => b.type === "toolCall").length;
+}
+
+/** 构建单条 cost 记录 */
+function buildCostRecord(
+  date: string,
+  identity: OtterIdentity,
+  model: string,
+  usage: SessionUsage,
+): OtterCostRecord & { _key: string } {
+  return {
+    _key: `${date}|${identity.otterId}|${model}`,
+    date,
+    otterId: identity.otterId,
+    otterName: identity.otterName,
+    otterType: identity.otterType,
+    model,
+    inputTokens: usage.input,
+    outputTokens: usage.output,
+    cacheReadTokens: usage.cacheRead,
+    cacheWriteTokens: usage.cacheWrite,
+    totalTokens: usage.totalTokens,
+    costInput: usage.cost.input,
+    costOutput: usage.cost.output,
+    costCacheRead: usage.cost.cacheRead,
+    costCacheWrite: usage.cost.cacheWrite,
+    costTotal: usage.cost.total,
+    callCount: 1,
+    cacheHitRate: 0,
+  };
 }
 
 /** 按 key 聚合并计算 cache hit rate */
@@ -256,12 +295,21 @@ function aggregateUsageRecords(
   return [...aggregate.values()];
 }
 
-/**
- * 从文件名提取 session 开始日期（粗筛用）。
- * 文件名格式：YYYY-MM-DDTHH-MM-SS-MMMZ_<session_id>.jsonl
- */
-function extractFileDate(fileName: string): string {
-  return fileName.slice(0, 10);
+/** 加载 JSONL 文件列表，按 since 日期粗筛 */
+async function listSessionFiles(sessionsDir: string, since?: string): Promise<string[]> {
+  let files: string[];
+  try {
+    files = (await readdir(sessionsDir)).filter(f => f.endsWith(".jsonl"));
+  } catch {
+    return [];
+  }
+  if (!since) return files;
+
+  // 放宽 2 天以覆盖跨日 session
+  const sinceDate = new Date(since.slice(0, 10));
+  sinceDate.setDate(sinceDate.getDate() - 2);
+  const fileFilterDate = sinceDate.toISOString().slice(0, 10);
+  return files.filter(f => extractFileDate(f) >= fileFilterDate);
 }
 
 export async function collectLlmCalls(
@@ -271,61 +319,15 @@ export async function collectLlmCalls(
 ): Promise<OtterCostRecord[]> {
   const mappings = await agentSessionSource();
   const mappingBySession = new Map(mappings.map(m => [m.piSessionId, m]));
-
-  let files: string[];
-  try {
-    files = (await readdir(sessionsDir)).filter(f => f.endsWith(".jsonl"));
-  } catch {
-    return [];
-  }
-
-  // Finding 3 修复：放宽文件级过滤，since 前 2 天的文件也读入（跨日 session 可能跨多天）
-  // 精确过滤在 parseSessionFile 内按消息 timestamp 执行
-  if (options?.since) {
-    const sinceDate = new Date(options.since.slice(0, 10));
-    sinceDate.setDate(sinceDate.getDate() - 2);
-    const fileFilterDate = sinceDate.toISOString().slice(0, 10);
-    files = files.filter(f => extractFileDate(f) >= fileFilterDate);
-  }
-
+  const files = await listSessionFiles(sessionsDir, options?.since);
   const allCostRecords: Array<OtterCostRecord & { _key: string }> = [];
 
   for (const file of files) {
-    // 从文件名提取 session ID，尝试 agent_sessions 映射
-    const sessionId = file.replace(/\.jsonl$/, "").split("_").pop() ?? "";
-    const mapping = mappingBySession.get(sessionId);
-
-    // Finding 2 修复：优先使用行内 otterId，其次 agent_sessions 映射，最后 unknown 桶
-    let otterIdentity: OtterIdentity;
-    if (mapping) {
-      otterIdentity = { otterId: mapping.otterId, otterName: mapping.otterName, otterType: mapping.otterType };
-    } else {
-      // 从文件第一个 user message 提取 otterId
-      const fileContent = await readFile(join(sessionsDir, file), "utf-8").catch(() => "");
-      const firstLine = fileContent.split("\n").find(l => l.trim());
-      let extracted: OtterIdentity | null = null;
-      if (firstLine) {
-        try {
-          const firstObj = JSON.parse(firstLine) as Record<string, unknown>;
-          // 第一行可能是 session header，需要跳过找到 user message
-          for (const line of fileContent.split("\n").filter(Boolean)) {
-            const obj = JSON.parse(line) as Record<string, unknown>;
-            if (obj.type === "message") {
-              const msg = obj as SessionMessageLine;
-              if (msg.message.role === "user" && Array.isArray(msg.message.content)) {
-                extracted = parseOtterIdentityFromContent(msg.message.content);
-                break;
-              }
-            }
-          }
-        } catch { /* skip parse errors */ }
-      }
-      otterIdentity = extracted ?? { otterId: "unknown", otterName: "unknown", otterType: "unknown" };
-    }
-
+    const sessionId = extractSessionId(file);
+    const identity = await resolveOtterIdentity(sessionId, mappingBySession, join(sessionsDir, file));
     const { costRecords } = await parseSessionFile(
       join(sessionsDir, file),
-      otterIdentity,
+      identity,
       options?.since?.slice(0, 10),
     );
     allCostRecords.push(...costRecords);
@@ -338,11 +340,7 @@ export async function collectLlmCalls(
 
 /**
  * 从 messages 表采集 per-otter per-day 的发言计数。
- * 同时采集 session JSONL 中的工具调用计数。
- *
- * v1 口径：
- * - message_count: sender_type='otter' 的消息按 sender_id + date 聚合
- * - tool_call_count: session JSONL 中 assistant 消息的 toolCall content block 数
+ * 同时合并 session JSONL 中的工具调用计数。
  */
 export function collectOtterOutput(
   db: Database.Database,
@@ -374,11 +372,57 @@ export function collectOtterOutput(
   }));
 }
 
+/** 从单个 JSONL 文件统计 toolCall，返回 per-date per-otter 计数 */
+async function countToolCallsInFile(
+  filePath: string,
+  identity: OtterIdentity,
+  sinceDate?: string,
+): Promise<Map<string, Map<string, number>>> {
+  const content = await readFile(filePath, "utf-8").catch(() => "");
+  if (!content) return new Map();
+
+  const result = new Map<string, Map<string, number>>();
+  for (const line of content.split("\n").filter(Boolean)) {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (obj.type !== "message") continue;
+
+    const msg = obj as SessionMessageLine;
+    if (msg.message.role !== "assistant") continue;
+
+    const date = msg.timestamp.slice(0, 10);
+    if (sinceDate && date < sinceDate) continue;
+
+    const tcCount = countToolCalls(msg.message.content);
+    if (tcCount === 0) continue;
+
+    if (!result.has(date)) result.set(date, new Map());
+    const dateMap = result.get(date)!;
+    dateMap.set(identity.otterId, (dateMap.get(identity.otterId) ?? 0) + tcCount);
+  }
+  return result;
+}
+
+/** 合并多个文件的 toolCall 计数 */
+function mergeToolCallCounts(
+  target: Map<string, Map<string, number>>,
+  source: Map<string, Map<string, number>>,
+): void {
+  for (const [date, dateMap] of source) {
+    if (!target.has(date)) target.set(date, new Map());
+    const targetDate = target.get(date)!;
+    for (const [otterId, count] of dateMap) {
+      targetDate.set(otterId, (targetDate.get(otterId) ?? 0) + count);
+    }
+  }
+}
+
 /**
  * 从 session JSONL 目录采集 per-otter per-day 的工具调用计数。
- *
- * Finding 2/3 修复同 LLMCallCollector：行内 otterId + 消息级 timestamp。
- * 返回结构：Map<date, Map<otterId, count>>
  */
 export async function collectToolCallCounts(
   sessionsDir: string,
@@ -387,83 +431,15 @@ export async function collectToolCallCounts(
 ): Promise<Map<string, Map<string, number>>> {
   const mappings = await agentSessionSource();
   const mappingBySession = new Map(mappings.map(m => [m.piSessionId, m]));
-
-  let files: string[];
-  try {
-    files = (await readdir(sessionsDir)).filter(f => f.endsWith(".jsonl"));
-  } catch {
-    return new Map();
-  }
-
-  // Finding 3 修复：放宽文件级过滤（同 collectLlmCalls）
-  if (options?.since) {
-    const sinceDate = new Date(options.since.slice(0, 10));
-    sinceDate.setDate(sinceDate.getDate() - 2);
-    const fileFilterDate = sinceDate.toISOString().slice(0, 10);
-    files = files.filter(f => extractFileDate(f) >= fileFilterDate);
-  }
-
+  const files = await listSessionFiles(sessionsDir, options?.since);
   const result = new Map<string, Map<string, number>>();
+  const sinceDate = options?.since?.slice(0, 10);
 
   for (const file of files) {
-    const sessionId = file.replace(/\.jsonl$/, "").split("_").pop() ?? "";
-    const mapping = mappingBySession.get(sessionId);
-
-    let otterIdentity: OtterIdentity;
-    if (mapping) {
-      otterIdentity = { otterId: mapping.otterId, otterName: mapping.otterName, otterType: mapping.otterType };
-    } else {
-      const fileContent = await readFile(join(sessionsDir, file), "utf-8").catch(() => "");
-      let extracted: OtterIdentity | null = null;
-      if (fileContent) {
-        for (const line of fileContent.split("\n").filter(Boolean)) {
-          try {
-            const obj = JSON.parse(line) as Record<string, unknown>;
-            if (obj.type === "message") {
-              const msg = obj as SessionMessageLine;
-              if (msg.message.role === "user" && Array.isArray(msg.message.content)) {
-                extracted = parseOtterIdentityFromContent(msg.message.content);
-                break;
-              }
-            }
-          } catch { continue; }
-        }
-      }
-      otterIdentity = extracted ?? { otterId: "unknown", otterName: "unknown", otterType: "unknown" };
-    }
-
-    const content = await readFile(join(sessionsDir, file), "utf-8").catch(() => "");
-    if (!content) continue;
-
-    const sinceDate = options?.since?.slice(0, 10);
-
-    for (const line of content.split("\n").filter(Boolean)) {
-      let obj: Record<string, unknown>;
-      try {
-        obj = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-
-      if (obj.type !== "message") continue;
-      const msg = obj as SessionMessageLine;
-      if (msg.message.role !== "assistant") continue;
-
-      // Finding 3：消息级 timestamp 归属
-      const date = msg.timestamp.slice(0, 10);
-      if (sinceDate && date < sinceDate) continue;
-
-      const msgContent = msg.message.content;
-      if (!Array.isArray(msgContent)) continue;
-
-      for (const block of msgContent) {
-        if (block.type === "toolCall") {
-          if (!result.has(date)) result.set(date, new Map());
-          const dateMap = result.get(date)!;
-          dateMap.set(otterIdentity.otterId, (dateMap.get(otterIdentity.otterId) ?? 0) + 1);
-        }
-      }
-    }
+    const sessionId = extractSessionId(file);
+    const identity = await resolveOtterIdentity(sessionId, mappingBySession, join(sessionsDir, file));
+    const fileCounts = await countToolCallsInFile(join(sessionsDir, file), identity, sinceDate);
+    mergeToolCallCounts(result, fileCounts);
   }
 
   return result;
@@ -497,7 +473,6 @@ export async function collectPrCounts(
 
     const counts = new Map<string, number>();
     for (const line of stdout.trim().split("\n").filter(Boolean)) {
-      // %aI format: 2026-08-28T10:30:00+08:00
       const date = line.slice(0, 10);
       counts.set(date, (counts.get(date) ?? 0) + 1);
     }
@@ -518,7 +493,6 @@ export interface FdocCountRecord {
 
 /**
  * 通过 docs/features/ 目录中的 .md 文件名提取日期，统计每日 F 文档数。
- * F 文档文件名格式：FYYYYMMDDxxxx-*.md
  */
 export async function collectFdocCounts(repoPath: string): Promise<FdocCountRecord[]> {
   const { collectFeatureDocs } = await import("./feature-doc-collector");
@@ -526,20 +500,19 @@ export async function collectFdocCounts(repoPath: string): Promise<FdocCountReco
 
   const counts = new Map<string, number>();
   for (const doc of docs) {
-    // 使用 frontmatter 中的 created_at 字段，格式 YYYY-MM-DD
-    if (doc.createdAt) {
-      const date = doc.createdAt.slice(0, 10);
-      counts.set(date, (counts.get(date) ?? 0) + 1);
-    } else {
-      // fallback: 从文件名提取日期（FYYYYMMDD）
-      const match = doc.id?.match(/^F(\d{8})/);
-      if (match) {
-        const d = match[1];
-        const date = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
-        counts.set(date, (counts.get(date) ?? 0) + 1);
-      }
-    }
+    const date = doc.createdAt
+      ? doc.createdAt.slice(0, 10)
+      : extractDateFromId(doc.id);
+    if (date) counts.set(date, (counts.get(date) ?? 0) + 1);
   }
 
   return [...counts.entries()].map(([date, fdocCount]) => ({ date, fdocCount }));
+}
+
+/** 从 F 文档 ID 提取日期（FYYYYMMDDxxxx） */
+function extractDateFromId(id: string): string | null {
+  const match = id?.match(/^F(\d{8})/);
+  if (!match) return null;
+  const d = match[1];
+  return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
 }
