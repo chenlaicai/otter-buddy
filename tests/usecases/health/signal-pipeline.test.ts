@@ -76,4 +76,51 @@ describe("SignalPipeline", () => {
     expect(open).toHaveLength(1);
     expect(open[0].occurrences).toBe(2);
   });
+
+  it("自动 resolve：不再触发的信号标记为 resolved", async () => {
+    const { pipeline } = makePipeline();
+    
+    // 第一次扫描：检测到两个信号
+    const signal1 = signal("warning", "hotspot");
+    const signal2 = signal("critical", "chain_stall");
+    await pipeline.process([signal1, signal2]);
+    
+    let open = pipeline.listOpen();
+    expect(open).toHaveLength(2);
+    
+    // 第二次扫描：只检测到 signal1，signal2 不再触发
+    await pipeline.process([signal1]);
+    
+    open = pipeline.listOpen();
+    expect(open).toHaveLength(1);
+    expect(open[0].signal_type).toBe("hotspot");
+  });
+
+  it("自动 resolve：多次扫描后信号收敛", async () => {
+    const { pipeline } = makePipeline();
+    
+    // 第一次扫描：3 个信号
+    const s1 = signal("warning", "hotspot");
+    const s2 = signal("critical", "chain_stall");
+    const s3: DetectedSignal = {
+      type: "bug_recurrence",
+      name: "bug 反复出现",
+      severity: "critical",
+      featureId: "F20260801tstw",
+      filePath: null,
+      evidence: "test 3 次",
+      suggestedAction: "强制根因分析",
+    };
+    await pipeline.process([s1, s2, s3]);
+    expect(pipeline.listOpen()).toHaveLength(3);
+    
+    // 第二次扫描：只剩 s1 和 s3
+    await pipeline.process([s1, s3]);
+    expect(pipeline.listOpen()).toHaveLength(2);
+    
+    // 第三次扫描：只剩 s1
+    await pipeline.process([s1]);
+    expect(pipeline.listOpen()).toHaveLength(1);
+    expect(pipeline.listOpen()[0].signal_type).toBe("hotspot");
+  });
 });

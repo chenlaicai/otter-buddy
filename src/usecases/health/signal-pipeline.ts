@@ -54,6 +54,9 @@ export class SignalPipeline {
   ): Promise<SignalPipelineResult> {
     const result: SignalPipelineResult = { stored: 0, memoryIndexed: 0, wakeupsTriggered: 0, errors: [] };
 
+    // Track detected signal keys for auto-resolve
+    const detectedKeys = new Set<string>();
+
     for (const signal of signals) {
       try {
         const record = this.signalRepo.upsert({
@@ -65,6 +68,9 @@ export class SignalPipeline {
           suggestedAction: signal.suggestedAction,
         });
         result.stored++;
+
+        // Track key for auto-resolve
+        detectedKeys.add(`${signal.type}\u0000${signal.featureId ?? ""}\u0000${signal.filePath ?? ""}`);
 
         if (signal.severity === "critical") {
           await this.storeMemory.execute({
@@ -98,15 +104,36 @@ export class SignalPipeline {
       }
     }
 
+    // Auto-resolve: signals that are open but weren't detected in this scan
+    const resolvedCount = this.resolveStaleSignals(detectedKeys);
+
     this.logger.info("Signal pipeline processed", {
       action: "signal_pipeline_complete",
       stored: result.stored,
       memoryIndexed: result.memoryIndexed,
       wakeups: result.wakeupsTriggered,
+      resolved: resolvedCount,
       errors: result.errors.length,
     });
 
     return result;
+  }
+
+  /**
+   * 自动 resolve 不再触发的信号：
+   * 信号生命周期应与实际问题状态一致——问题消失后信号应自动关闭，而非永久 open。
+   */
+  private resolveStaleSignals(detectedKeys: Set<string>): number {
+    const openSignals = this.signalRepo.findOpen();
+    let resolvedCount = 0;
+    for (const open of openSignals) {
+      const key = `${open.signal_type}\u0000${open.feature_id ?? ""}\u0000${open.file_path ?? ""}`;
+      if (!detectedKeys.has(key)) {
+        this.signalRepo.resolve(open.id);
+        resolvedCount++;
+      }
+    }
+    return resolvedCount;
   }
 
   /** 查询 open 信号（面板/CLI 消费） */
