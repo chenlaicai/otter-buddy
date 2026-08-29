@@ -74,6 +74,10 @@ export interface CreateScheduledTaskInput {
   timeoutMinutes?: number | null;
   talkingStonePassedTo: string[];
   senderId?: string;
+  /** PR4: 执行器类型（agent=LLM 会话，function=纯代码） */
+  executorType?: 'agent' | 'function';
+  /** PR4: function executor 时注册的函数名 */
+  functionName?: string;
 }
 
 export interface UpdateScheduledTaskInput {
@@ -89,6 +93,10 @@ export interface UpdateScheduledTaskInput {
   restartBeforeInvoke?: boolean;
   /** #516: 任务级链超时配置（分钟）。null = 回退调度器默认。 */
   timeoutMinutes?: number | null;
+  /** PR4: 执行器类型（agent=LLM 会话，function=纯代码） */
+  executorType?: 'agent' | 'function';
+  /** PR4: function executor 时注册的函数名 */
+  functionName?: string;
 }
 
 export type TaskChangeCallback = (taskId: string, action: 'created' | 'updated' | 'deleted') => void;
@@ -133,6 +141,8 @@ export class ManageScheduledTask {
       lastTriggeredAt: null,
       restartBeforeInvoke: input.restartBeforeInvoke ?? false,
       timeoutMinutes: input.timeoutMinutes ?? null,
+      executorType: input.executorType ?? 'agent',
+      functionName: input.functionName,
       createdAt: now,
       updatedAt: now,
     };
@@ -150,6 +160,7 @@ export class ManageScheduledTask {
     return this.repo.getByConversationId(conversationId);
   }
 
+  // eslint-disable-next-line complexity -- PR4: update method handles many fields
   async update(id: string, input: UpdateScheduledTaskInput): Promise<ScheduledTask> {
     const task = await this.repo.getById(id);
     if (!task) {
@@ -171,6 +182,8 @@ export class ManageScheduledTask {
       status: input.status ?? task.status,
       restartBeforeInvoke: input.restartBeforeInvoke ?? task.restartBeforeInvoke,
       timeoutMinutes: input.timeoutMinutes !== undefined ? input.timeoutMinutes : task.timeoutMinutes,
+      executorType: input.executorType ?? task.executorType,
+      functionName: input.functionName ?? task.functionName,
       updatedAt: now,
     };
 

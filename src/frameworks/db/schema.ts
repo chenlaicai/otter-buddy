@@ -40,17 +40,18 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createSignalEventsTable(db);
     createRestartPendingResumesTable(db);
     createAttachmentTables(db);
+    createPaperTradingTables(db);
 
     db.exec("COMMIT");
 
     // 记录 Schema 初始化完成日志
     if (logger) {
       const duration = Date.now() - startTime;
-      // 29 regular tables + 5 virtual tables (FTS/vec) = 34 total
-      // 多模态 Phase 1 新增 attachments + message_attachments 后：31 regular = 36 total
+      // 40 regular tables + 5 virtual tables (FTS/vec) = 45 total
+      // (含多模态 attachments 2表 + PR4 paper trading 9表)
       logger.info('Schema initialized', {
         duration,
-        tables: 36,
+        tables: 45,
       });
       /** #506: 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
       const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
@@ -596,6 +597,8 @@ function createScheduledTaskTables(db: Database.Database): void {
       last_triggered_at TEXT,
       restart_before_invoke INTEGER NOT NULL DEFAULT 0,
       timeout_minutes INTEGER,
+      executor_type TEXT NOT NULL DEFAULT 'agent' CHECK (executor_type IN ('agent', 'function')),
+      function_name TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -800,6 +803,107 @@ function createRestartPendingResumesTable(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);
+  `);
+}
+
+/** 纸面交易账户表（PR4 账本引擎） */
+function createPaperTradingTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS paper_accounts (
+      id TEXT PRIMARY KEY,
+      initial_cash REAL NOT NULL DEFAULT 1000000,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'suspended')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS paper_positions (
+      account_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      shares INTEGER NOT NULL,
+      avg_cost REAL NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, code),
+      FOREIGN KEY (account_id) REFERENCES paper_accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS paper_cash (
+      account_id TEXT PRIMARY KEY,
+      cash REAL NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (account_id) REFERENCES paper_accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS paper_orders (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      side TEXT NOT NULL CHECK(side IN ('buy', 'sell')),
+      shares INTEGER NOT NULL,
+      reason TEXT NOT NULL CHECK(length(reason) >= 30),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'filled', 'rejected', 'expired')),
+      reject_reason TEXT,
+      FOREIGN KEY (account_id) REFERENCES paper_accounts(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_paper_orders_account ON paper_orders(account_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_paper_orders_status ON paper_orders(status);
+    CREATE INDEX IF NOT EXISTS idx_paper_orders_code ON paper_orders(code);
+
+    CREATE TABLE IF NOT EXISTS paper_trades (
+      order_id TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      side TEXT NOT NULL CHECK(side IN ('buy', 'sell')),
+      shares INTEGER NOT NULL,
+      price REAL NOT NULL,
+      fee REAL NOT NULL,
+      trade_date TEXT NOT NULL,
+      executed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (order_id) REFERENCES paper_orders(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_paper_trades_date ON paper_trades(trade_date);
+    CREATE INDEX IF NOT EXISTS idx_paper_trades_code ON paper_trades(code);
+
+    CREATE TABLE IF NOT EXISTS paper_nav_history (
+      account_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      cash REAL NOT NULL,
+      market_value REAL NOT NULL,
+      total REAL NOT NULL,
+      nav REAL NOT NULL,
+      PRIMARY KEY (account_id, date),
+      FOREIGN KEY (account_id) REFERENCES paper_accounts(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_paper_nav_date ON paper_nav_history(account_id, date);
+
+    CREATE TABLE IF NOT EXISTS paper_reports (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL DEFAULT '',
+      date TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('daily', 'weekly')),
+      numbers_md TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_paper_reports_date ON paper_reports(date);
+    CREATE INDEX IF NOT EXISTS idx_paper_reports_account ON paper_reports(account_id, date);
+
+    CREATE TABLE IF NOT EXISTS trading_calendar (
+      date TEXT PRIMARY KEY,
+      is_trading_day INTEGER NOT NULL DEFAULT 1,
+      year INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_trading_calendar_year ON trading_calendar(year);
+
+    CREATE TABLE IF NOT EXISTS paper_corporate_actions (
+      code TEXT NOT NULL,
+      date TEXT NOT NULL,
+      detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (code, date)
+    );
   `);
 }
 
