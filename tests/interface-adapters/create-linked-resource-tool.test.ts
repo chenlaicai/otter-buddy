@@ -83,3 +83,60 @@ describe("create_linked_resource 工具层 fact content 长度校验", () => {
     expect(linkCalls).toHaveLength(1);
   });
 });
+
+describe("create_linked_resource 工具层 F20260829gvid groupId 必填校验（#580）", () => {
+  it("worktree 类型缺 groupId 时返回错误，且不调用 resource.link", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", {
+      resourceType: "worktree",
+      url: "/wt/feature-x",
+      title: "无组 worktree",
+    });
+
+    const text = res.content[0].text;
+    expect(text).toContain("[错误]");
+    expect(text).toContain("必须提供 groupId");
+    expect(text).toContain("F20260829");
+    expect(linkCalls).toHaveLength(0);
+  });
+
+  it("branch 类型纯空白 groupId 视为漏传", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", {
+      resourceType: "branch",
+      url: "feature/x",
+      groupId: "  ",
+    });
+
+    expect(res.content[0].text).toContain("[错误]");
+    expect(res.content[0].text).toContain("必须提供 groupId");
+    expect(linkCalls).toHaveLength(0);
+  });
+
+  it("pr 类型带 groupId 正常创建", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", {
+      resourceType: "pr",
+      url: "https://github.com/x/y/pull/1",
+      groupId: "F20260829gvid",
+    });
+
+    expect(res.content[0].text).toContain("Linked resource created: res-1");
+    expect(linkCalls).toHaveLength(1);
+  });
+
+  it("url 类型不带 groupId 仍可创建（散点资源维持可选）", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", {
+      resourceType: "url",
+      url: "https://example.com",
+    });
+
+    expect(res.content[0].text).toContain("Linked resource created: res-1");
+    expect(linkCalls).toHaveLength(1);
+  });
+});
