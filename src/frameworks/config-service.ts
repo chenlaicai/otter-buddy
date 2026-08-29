@@ -95,6 +95,15 @@ export interface AppConfig {
     /** 搭档（本实例主人）的飞书 open_id（F20260826fpbd）——搭档身份静态锚定，未配置时降级动态推断 */
     partnerOpenId?: string;
   };
+  /** 微信通道（issue #565）——协议直连 ilink，无需 appId/Secret（扫码授权） */
+  weixin?: {
+    /** ilink 网关 base URL（默认 https://ilinkai.weixin.qq.com） */
+    baseUrl?: string;
+    /** 账号/游标持久化目录（默认 ./data/weixin） */
+    stateDir?: string;
+    /** 搭档的微信 ilink_user_id（命令门禁锚定，同 feishu.partnerOpenId 语义） */
+    partnerUserId?: string;
+  };
   inbound?: {
     recruiting?: {
       apiKey: string;
@@ -218,6 +227,14 @@ interface RawConfig {
     /** 搭档（本实例主人）的飞书 open_id（F20260826fpbd） */
     partnerOpenId?: string;
   };
+  weixin?: {
+    /** ilink 网关（默认 https://ilinkai.weixin.qq.com） */
+    baseUrl?: string;
+    /** 账号/游标持久化目录（默认 ./data/weixin） */
+    stateDir?: string;
+    /** 搭档的微信 ilink_user_id（命令门禁，同 feishu.partnerOpenId 语义） */
+    partnerUserId?: string;
+  };
   inbound?: {
     recruiting?: {
       apiKey?: string;
@@ -233,6 +250,7 @@ interface RawConfig {
   };
 }
 
+// eslint env 说明：mjs 无 TS 环境，btoa 在 node 22+ 全局可用
 const CONFIG_PATH = path.resolve(process.cwd(), "config/config.yaml");
 
 const VALID_PROVIDERS = ["openai", "anthropic", "kimi-coding"];
@@ -349,6 +367,19 @@ function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
   };
 }
 
+/** 微信通道配置（issue #565）：有账号状态目录即启用（token 由 CLI 扫码落盘） */
+function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
+  const seg = raw.weixin ?? {};
+  // 三字段全空 → 未启用；任一有值 → 给出完整默认（baseUrl/stateDir 有内置缺省）
+  const anyConfigured = Boolean(seg.baseUrl || seg.stateDir || seg.partnerUserId);
+  if (!anyConfigured) return undefined;
+  return {
+    baseUrl: seg.baseUrl?.trim() || "https://ilinkai.weixin.qq.com",
+    stateDir: seg.stateDir?.trim() || "./data/weixin",
+    partnerUserId: seg.partnerUserId?.trim() || undefined,
+  };
+}
+
 function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
   if (!raw.inbound?.recruiting?.apiKey) {
     return undefined;
@@ -412,6 +443,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),
+    weixin: buildWeixinConfig(raw),
     inbound: buildInboundConfig(raw),
     web: buildWebConfig(raw),
     attachments: buildAttachmentsConfig(raw),

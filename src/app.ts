@@ -234,7 +234,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit } =
-    await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger });
+    await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
 
   // ── HTTP 层 ──
   // PR-2：创建 profile 聚合 use case（warmup 后 ResourceLoader 可用）

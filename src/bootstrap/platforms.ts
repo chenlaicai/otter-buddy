@@ -33,6 +33,13 @@ import { AttachmentInjectionService } from "@usecases/conversation/attachment-in
 import { FeishuResourceClient } from "@frameworks/feishu/resource-client";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
+import { WeixinApiClient } from "@frameworks/weixin/api-client";
+import { WeixinAccountStore } from "@frameworks/weixin/account-store";
+import { WeixinPollingChannel } from "@frameworks/weixin/polling-channel";
+
+import { WeixinMessageChannel } from "@usecases/im/weixin-message-channel";
+import { WeixinGatewayAdapter } from "@interface-adapters/weixin/weixin-gateway-adapter";
+import { WeixinMessageProcessor } from "@interface-adapters/weixin/message-processor";
 import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
 import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
 import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
@@ -247,9 +254,74 @@ export interface PlatformBootstrapResult {
   getBridgeStatus?: GetBridgeStatus;
   healingInit: Promise<void>;
   recruitingInit: Promise<void>;
+  /** 微信通道轮询句柄（app 关停时统一 stop） */
+  weixinPollers?: WeixinPollingChannel[];
 }
 
-export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; logger: Logger }): Promise<PlatformBootstrapResult> {
+/** 微信通道启动（issue #565）：每个已登录账号拉一条轮询 + 注册出站通道 */
+export function startWeixinChannels(options: {
+  appConfig: AppConfig;
+  repos: Repositories;
+  uc: UseCases;
+  agentInvoker: AgentInvoker;
+  dispatchChainEngine: DispatchChainEngine;
+  messageBroadcaster: MessageBroadcaster;
+  logger: Logger;
+}): WeixinPollingChannel[] {
+  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger } = options;
+  const weixinConfig = appConfig.weixin;
+  if (!weixinConfig) return [];
+
+  const accountStore = new WeixinAccountStore(weixinConfig);
+  const accounts = accountStore.listAccounts();
+  if (accounts.length === 0) {
+    logger.info("Weixin channel enabled but no logged-in account — run `npm run weixin:login` to start QR login");
+    return [];
+  }
+
+  const pollers: WeixinPollingChannel[] = [];
+  for (const account of accounts) {
+    try {
+      const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token });
+      const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger });
+      // 出站：广播总线注册（与飞书同模式）
+      messageBroadcaster.registerOutboundChannel(
+        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings),
+      );
+      // ingress：入站处理器 + 轮询循环
+      const processor = new WeixinMessageProcessor({
+        manageConnection: uc.manageConnection,
+        sendMessage: uc.sendMessage,
+        queryMessage: uc.queryMessage,
+        weixinGateway: gateway,
+        partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
+        agentDispatchService: new AgentDispatchService({
+          dispatchChainEngine,
+          queryMessage: uc.queryMessage,
+          agentInvokePort: agentInvoker,
+          logger,
+        }),
+        messageBroadcaster,
+        logger,
+      });
+      const poller = new WeixinPollingChannel({
+        api,
+        accountStore,
+        accountId: account.id,
+        onMessage: (msg) => processor.process(msg),
+        logger,
+      });
+      poller.start();
+      pollers.push(poller);
+      logger.info("Weixin polling channel started", { accountId: account.id, ilinkUserId: account.ilinkUserId });
+    } catch (err) {
+      logger.error("Failed to start Weixin account poller", err instanceof Error ? err : undefined, { accountId: account.id });
+    }
+  }
+  return pollers;
+}
+
+export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger } = options;
   const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
@@ -289,5 +361,8 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
       .catch(err => logger.warn("Recruiting init failed", { error: err instanceof Error ? err.message : String(err) }));
   }
 
-  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit };
+  // ── 微信通道（issue #565）：每个已登录账号拉起轮询 + 出站注册 ──
+  const weixinPollers = startWeixinChannels(options);
+
+  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers };
 }
