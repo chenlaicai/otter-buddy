@@ -71,6 +71,7 @@ export class WeixinLoginSessionManager {
       accountStore: this.deps.accountStore,
       // web 场景不支持交互式配对码输入（风控场景请走 CLI）
       onQrCode: (qrUrl) => {
+        if (session.status === "cancelled") return; // QR 异步到达时可能已取消——不覆写终态
         session.qrcodeUrl = qrUrl;
         session.status = "waiting_scan";
         qrcode

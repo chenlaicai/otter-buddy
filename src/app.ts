@@ -277,15 +277,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     baseUrl: config.weixin?.baseUrl,
     accountStore: weixinAccountStore,
     logger,
-    onSuccess: (accountId) => {
-      ensureWeixinConfig({ stateDir: config.weixin?.stateDir, logger });
+    onSuccess: (accountId, ilinkUserId) => {
+      // partnerUserId = 命令门禁锚定的扫码人（命令重启后仍生效）；config 无 weixin 段时兜底注入
+      ensureWeixinConfig({ stateDir: config.weixin?.stateDir, ilinkUserId, logger });
       const account = weixinAccountStore.getAccount(accountId);
       if (!account) return;
       const poller = hotStartWeixinAccount({
         appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger,
         accountStore: weixinAccountStore,
         // config 无 weixin 段时用默认配置 + 扫码人作为 partner（命令门禁锚定）
-        weixinConfig: config.weixin ?? { partnerUserId: account.ilinkUserId },
+        weixinConfig: config.weixin ?? { partnerUserId: account.ilinkUserId ?? ilinkUserId },
         account,
       });
       if (poller) extraWeixinPollers.push(poller);

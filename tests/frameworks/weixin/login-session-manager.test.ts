@@ -161,4 +161,20 @@ describe("WeixinLoginSessionManager", () => {
     await vi.waitFor(() => expect(mgr.get(id)!.status).toBe("expired"));
     expect(mgr.cancel(id)).toBe(false);
   });
+
+  it("pending 态取消后 QR 迟到：状态保持 cancelled，不被覆写回 waiting_scan（检视修复回归）", async () => {
+    const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+    // script 耗尽后回 expired，让后台 flow 走终态退出，不残留轮询
+    restore = scriptFetch([{ ret: 0, qrcode: "qr", qrcode_img_content: "https://qr.example/x" }]);
+    mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
+    const { id } = mgr.start();
+    // fetch 有 10ms 网络延迟——立即取消，制造「QR 迟到于 cancel」的确定竞态窗口
+    expect(mgr.cancel(id)).toBe(true);
+    expect(mgr.get(id)!.status).toBe("cancelled");
+
+    await new Promise((r) => setTimeout(r, 60)); // 等 QR 到达 + onQrCode 回调触发
+    const s = mgr.get(id)!;
+    expect(s.status).toBe("cancelled"); // 会话不复活
+    expect(s.qrcodeUrl).toBeUndefined(); // QR 不写入已取消会话
+  });
 });
