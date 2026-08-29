@@ -27,7 +27,7 @@ import type { CollectedFeatureDoc } from "./feature-doc-collector";
 import { calculateMetrics } from "./metrics-calculator";
 import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import type { CreateSnapshotRow } from "./snapshot-rows";
-import { collectLlmCalls, collectOtterOutput } from "./cost-output-collector";
+import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts } from "./cost-output-collector";
 import type { AgentSessionSource } from "./cost-output-collector";
 import { buildCostOutputSnapshotRows } from "./cost-output-rows";
 import type { CreateCostOutputRow } from "./cost-output-rows";
@@ -213,12 +213,15 @@ export class RhiScanWorker {
       const snapshotDate = new Date().toISOString().slice(0, 10);
       const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-      const [costRecords, outputRecords] = await Promise.all([
+      const [costRecords, toolCallCounts, prRecords, fdocRecords] = await Promise.all([
         collectLlmCalls(sessionsDir, agentSource, { since }),
-        Promise.resolve(collectOtterOutput(db, { since })),
+        collectToolCallCounts(sessionsDir, agentSource, { since }),
+        collectPrCounts(this.repoPath),
+        collectFdocCounts(this.repoPath),
       ]);
 
-      const rows = buildCostOutputSnapshotRows(snapshotDate, costRecords, outputRecords);
+      const outputRecords = collectOtterOutput(db, toolCallCounts, { since });
+      const rows = buildCostOutputSnapshotRows(snapshotDate, costRecords, outputRecords, prRecords, fdocRecords);
       if (rows.length > 0) {
         sink(snapshotDate, rows);
       }

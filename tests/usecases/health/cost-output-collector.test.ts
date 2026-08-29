@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createTestDb } from "../../helpers/db";
-import { collectLlmCalls, collectOtterOutput } from "@usecases/health/cost-output-collector";
+import {
+  collectLlmCalls,
+  collectOtterOutput,
+  collectToolCallCounts,
+  collectPrCounts,
+  collectFdocCounts,
+} from "@usecases/health/cost-output-collector";
 import type { AgentSessionMapping } from "@usecases/health/cost-output-collector";
 
 const FIXTURES_DIR = resolve(__dirname, "../../fixtures/sessions");
@@ -50,20 +56,31 @@ describe("collectLlmCalls", () => {
     expect(bigOtter829.cacheHitRate).toBe(0); // 0/(0+8000)
   });
 
-  it("未知 session 映射跳过", async () => {
+  it("Finding 2: 未知 session 映射通过行内 otterId 归属（不再静默丢弃）", async () => {
     const emptySource = async () => [];
     const records = await collectLlmCalls(FIXTURES_DIR, emptySource);
-    expect(records).toEqual([]);
+    // 无 agent_sessions 映射 → 从 user message 内容提取 otterId
+    // session-001 的 user message 含 ID：otter-aaa，session-002 含 ID：otter-bbb
+    expect(records.length).toBe(3);
+
+    const bigOtter828 = records.find(r => r.date === "2026-08-28" && r.otterId === "otter-aaa");
+    expect(bigOtter828).toBeDefined();
+    expect(bigOtter828!.otterName).toBe("大獭");
+
+    const smallOtter828 = records.find(r => r.date === "2026-08-28" && r.otterId === "otter-bbb");
+    expect(smallOtter828).toBeDefined();
+    expect(smallOtter828!.otterName).toBe("小獭甲");
   });
 
-  it("since 过滤：只处理 >= since 日期的文件", async () => {
+  it("Finding 3: since 按消息 timestamp 过滤，跨日 session 的后续日期数据保留", async () => {
+    // session-001 有消息在 8/28 和 8/29，文件名前缀是 2026-08-28
+    // since=2026-08-29 → 按消息 timestamp 过滤，8/29 的消息应保留
     const records = await collectLlmCalls(FIXTURES_DIR, agentSource, { since: "2026-08-29" });
-    // 只有 8/28 和 8/29 的文件，since=2026-08-29 匹配文件名前缀 2026-08-28（8/28 < 8/29），所以只有 8/29 数据
-    // 但文件名前缀是 "2026-08-28..." 和 "2026-08-28..."，since 按文件名前 10 位过滤
-    // 2026-08-28 >= 2026-08-29 为 false，所以两个文件都被过滤掉
-    // Wait, let me re-check: since "2026-08-29" means file prefix >= "2026-08-29"
-    // Both files start with "2026-08-28" which is < "2026-08-29", so both filtered out
-    expect(records).toEqual([]);
+    // 只有 8/29 的消息（session-001 的 msg4）
+    expect(records.length).toBe(1);
+    expect(records[0]!.date).toBe("2026-08-29");
+    expect(records[0]!.otterId).toBe("otter-aaa");
+    expect(records[0]!.inputTokens).toBe(8000);
   });
 
   it("空目录返回空数组", async () => {
@@ -111,31 +128,99 @@ describe("collectOtterOutput", () => {
     db.close();
   });
 
-  it("按 otter + date 聚合发言计数", () => {
-    const results = collectOtterOutput(db, { since: "2026-08-01" });
+  it("按 otter + date 聚合发言计数（含 tool call 计数）", () => {
+    const toolCallCounts = new Map([
+      ["2026-08-28", new Map([["otter-aaa", 2], ["otter-bbb", 1]])],
+      ["2026-08-29", new Map([["otter-aaa", 1]])],
+    ]);
+    const results = collectOtterOutput(db, toolCallCounts, { since: "2026-08-01" });
     expect(results.length).toBe(3); // (8/28, otter-aaa), (8/28, otter-bbb), (8/29, otter-aaa)
 
     const big828 = results.find(r => r.date === "2026-08-28" && r.otterId === "otter-aaa")!;
     expect(big828.messageCount).toBe(2);
+    expect(big828.toolCallCount).toBe(2);
     expect(big828.otterName).toBe("大獭");
 
     const small828 = results.find(r => r.date === "2026-08-28" && r.otterId === "otter-bbb")!;
     expect(small828.messageCount).toBe(1);
+    expect(small828.toolCallCount).toBe(1);
 
     const big829 = results.find(r => r.date === "2026-08-29" && r.otterId === "otter-aaa")!;
     expect(big829.messageCount).toBe(1);
+    expect(big829.toolCallCount).toBe(1);
   });
 
   it("不计入 user 消息", () => {
-    const results = collectOtterOutput(db, { since: "2026-08-01" });
-    // 没有 user 类型的记录
+    const results = collectOtterOutput(db, new Map(), { since: "2026-08-01" });
     const userRecord = results.find(r => r.otterId === "user-1");
     expect(userRecord).toBeUndefined();
   });
 
   it("since 过滤", () => {
-    const results = collectOtterOutput(db, { since: "2026-08-29" });
+    const results = collectOtterOutput(db, new Map(), { since: "2026-08-29" });
     expect(results.length).toBe(1);
     expect(results[0]!.date).toBe("2026-08-29");
+  });
+
+  it("toolCallCounts 缺失 key 时 toolCallCount 默认 0", () => {
+    const results = collectOtterOutput(db, new Map(), { since: "2026-08-01" });
+    expect(results.every(r => r.toolCallCount === 0)).toBe(true);
+  });
+});
+
+describe("collectToolCallCounts", () => {
+  const mockMappings: AgentSessionMapping[] = [
+    { piSessionId: "test-session-001", otterId: "otter-aaa", otterName: "大獭", otterType: "big" },
+    { piSessionId: "test-session-002", otterId: "otter-bbb", otterName: "小獭甲", otterType: "small" },
+  ];
+  const agentSource = async () => mockMappings;
+
+  it("正确统计 per-date per-otter 的 tool call 数", async () => {
+    const result = await collectToolCallCounts(FIXTURES_DIR, agentSource);
+    // session-001: msg2 有 2 个 toolCall (8/28), msg4 有 1 个 toolCall (8/29)
+    // session-002: msg6 有 1 个 toolCall (8/28)
+    expect(result.get("2026-08-28")?.get("otter-aaa")).toBe(2);
+    expect(result.get("2026-08-28")?.get("otter-bbb")).toBe(1);
+    expect(result.get("2026-08-29")?.get("otter-aaa")).toBe(1);
+  });
+
+  it("空目录返回空 Map", async () => {
+    const result = await collectToolCallCounts("/nonexistent/path", agentSource);
+    expect(result.size).toBe(0);
+  });
+});
+
+describe("collectPrCounts", () => {
+  it("返回 per-date PR 数数组（仓库真实数据）", async () => {
+    const repoPath = resolve(__dirname, "../../../");
+    const results = await collectPrCounts(repoPath, 30);
+    // 仓库有 merge commit，结果应为非空数组
+    expect(Array.isArray(results)).toBe(true);
+    if (results.length > 0) {
+      expect(results[0]).toHaveProperty("date");
+      expect(results[0]).toHaveProperty("prCount");
+      expect(typeof results[0]!.date).toBe("string");
+      expect(typeof results[0]!.prCount).toBe("number");
+    }
+  });
+
+  it("空仓库路径返回空数组", async () => {
+    const results = await collectPrCounts("/nonexistent/path", 30);
+    expect(results).toEqual([]);
+  });
+});
+
+describe("collectFdocCounts", () => {
+  it("返回 per-date F 文档数数组（仓库真实数据）", async () => {
+    const repoPath = resolve(__dirname, "../../../");
+    const results = await collectFdocCounts(repoPath);
+    // 仓库有 F 文档，结果应为非空数组
+    expect(Array.isArray(results)).toBe(true);
+    if (results.length > 0) {
+      expect(results[0]).toHaveProperty("date");
+      expect(results[0]).toHaveProperty("fdocCount");
+      expect(typeof results[0]!.date).toBe("string");
+      expect(typeof results[0]!.fdocCount).toBe("number");
+    }
   });
 });

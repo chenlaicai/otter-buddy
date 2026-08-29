@@ -63,7 +63,7 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 
 | 模块 | 职责 |
 |------|------|
-| `cost-output-collector.ts` | LLMCallCollector：解析 session JSONL，join agent_sessions+otters 表，按 date+otter+model 聚合 token/cost/cacheHitRate；OtterOutputCollector：查询 messages 表按 otter+date 聚合发言计数 |
+| `cost-output-collector.ts` | LLMCallCollector：解析 session JSONL，join agent_sessions+otters 表，按 date+otter+model 聚合 token/cost/cacheHitRate；OtterOutputCollector：查询 messages 表按 otter+date 聚合发言计数；新增 collectToolCallCounts（session JSONL 统计 toolCall content block）、collectPrCounts（git log merge commit 统计）、collectFdocCounts（docs/features/ frontmatter 统计） |
 | `cost-output-rows.ts` | 将采集结果转为 health_snapshots 的 CreateSnapshotRow 格式（metric_type=cost_output，12 个指标键 per cost 记录 + 1 个 per output 记录） |
 
 ### 修改模块
@@ -94,6 +94,12 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 | llm_call_count | LLM 调用次数 |
 | cache_hit_rate | 缓存命中率（cacheRead / (cacheRead + input)） |
 | message_count | 獭发言计数 |
+| tool_call_count | 工具调用计数（session JSONL 中 toolCall content block 统计） |
+| pr_count | PR 数（git log merge commit 统计，per-date 全局） |
+| fdoc_count | F 文档数（docs/features/ frontmatter 统计，per-date 全局） |
+| tool_call_count | 工具调用计数（session JSONL 中 toolCall content block 统计） |
+| pr_count | PR 数（git log merge commit 统计，per-date 全局） |
+| fdoc_count | F 文档数（docs/features/ frontmatter 统计，per-date 全局） |
 
 ### 设计红线
 
@@ -106,8 +112,8 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 
 ### 测试覆盖
 
-- `cost-output-collector.test.ts`：13 个用例（JSONL 解析/聚合/cache hit rate/日期过滤/空目录 + messages 表聚合/过滤）
-- `cost-output-rows.test.ts`：7 个用例（行数/metadata JSON/指标映射/空输入）
+- `cost-output-collector.test.ts`：15 个用例（JSONL 解析/聚合/cache hit rate/日期过滤/行内 otterId 提取/跨日数据保留/tool call 统计/PR 数/F 文档数 + messages 表聚合/过滤/tool call 计数）
+- `cost-output-rows.test.ts`：9 个用例（行数/metadata JSON/指标映射/PR 数行/F 文档数行/空输入）
 - `rhi-scan-worker.test.ts` 新增 2 个用例：costOutputSink 集成写入 + 向后兼容
 
 ### 最简实现检查
@@ -116,6 +122,27 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 - 仓库已有 `HealthSnapshotRepository.replaceForDate()` → 复用（不新建落库逻辑）
 - session JSONL 的 usage.cost 已由 SDK 折算 → 直接取用（不自建价格表）
 - 现有 RHI 管道 + recharts 面板 → 按模式扩展（不新建系统）
+
+## 审视修复（PR #598 review findings）
+
+F20260829cstd 审视发现 3 严重 + 4 建议，全部处置完毕（2026-08-29）。
+
+### 严重发现修复
+
+| # | 发现 | 修复 |
+|---|------|------|
+| S1 | L1 scope 缺口：产出只实现发言数，issue 要求 5 项 | 新增 tool_call_count（session JSONL 统计 toolCall content block）、pr_count（git log 统计 merge commit）、fdoc_count（docs/features/ frontmatter 统计）。dispatch 任务完成数无持久化数据源，显式声明 v2 |
+| S2 | ~480/670 历史 session 静默丢弃（agent_sessions 表每 otter 只保留最新 pi_session_id） | 三级 otterId 解析：行内提取（user message system prompt 中的 ID 字段）→ agent_sessions 映射 → unknown 桶兜底，不再静默丢弃 |
+| S3 | 跨日 session 当日数据丢失（文件名前缀过滤导致） | 行级 timestamp 精确归属替代文件名粗过滤；放宽文件级过滤为 since-2天，精确过滤在 parseSessionFile 内按消息 timestamp 执行 |
+
+### 建议发现处置
+
+| # | 发现 | 处置 |
+|---|------|------|
+| 1 | 契约风格分裂（series snake_case vs otters camelCase） | 部分接受：沿用 overview 先例，不引入新风格分裂；#448 仍 OPEN 待统一 |
+| 2 | cache_hit_rate 单位不一致 | 接受修复：统一为 0-1 小数 |
+| 3 | 已解散獭发言计入产出但无对应成本 | 记录为已知限制，v2 改进 |
+| 4 | UTC 日期口径未声明 | 接受修复：特性文档声明 UTC 口径 |
 
 ## 影响范围
 

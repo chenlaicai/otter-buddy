@@ -11,7 +11,12 @@
  * Goodhart 防线：成本/产出只作信号不作 KPI——行内不含任何排名/评分/百分位。
  */
 
-import type { OtterCostRecord, OtterOutputRecord } from "./cost-output-collector";
+import type {
+  OtterCostRecord,
+  OtterOutputRecord,
+  PrCountRecord,
+  FdocCountRecord,
+} from "./cost-output-collector";
 
 /** 与 HealthSnapshotRepository.CreateHealthSnapshot 同构 */
 export interface CreateCostOutputRow {
@@ -45,19 +50,24 @@ export const COST_OUTPUT_KEYS = {
   LLM_CALL_COUNT: "llm_call_count",
   CACHE_HIT_RATE: "cache_hit_rate",
   MESSAGE_COUNT: "message_count",
+  TOOL_CALL_COUNT: "tool_call_count",
+  PR_COUNT: "pr_count",
+  FDOC_COUNT: "fdoc_count",
 } as const;
 
 /**
  * 构建 cost_output 快照行集。
  *
  * 每条 OtterCostRecord 生成 12 行（12 个指标键），
- * 每条 OtterOutputRecord 生成 1 行（message_count），
- * 按 OtterOutputRecord 匹配的 cost 记录不再重复生成 message_count（避免覆盖）。
+ * 每条 OtterOutputRecord 生成 3 行（message_count + tool_call_count + 旧 message_count 避免覆盖），
+ * PR 数和 F 文档数各生成 1 行（全局 per-date，无 per-otter 维度）。
  */
 export function buildCostOutputSnapshotRows(
   snapshotDate: string,
   costRecords: OtterCostRecord[],
   outputRecords: OtterOutputRecord[],
+  prRecords?: PrCountRecord[],
+  fdocRecords?: FdocCountRecord[],
 ): CreateCostOutputRow[] {
   const rows: CreateCostOutputRow[] = [];
 
@@ -87,12 +97,31 @@ export function buildCostOutputSnapshotRows(
     );
   }
 
-  // 2. Per-otter output 行（message_count）
+  // 2. Per-otter output 行（message_count + tool_call_count）
   for (const rec of outputRecords) {
     const meta: OtterMeta = { otterId: rec.otterId, otterName: rec.otterName };
     rows.push(
       makeRow(snapshotDate, COST_OUTPUT_KEYS.MESSAGE_COUNT, rec.messageCount, JSON.stringify(meta)),
+      makeRow(snapshotDate, COST_OUTPUT_KEYS.TOOL_CALL_COUNT, rec.toolCallCount, JSON.stringify(meta)),
     );
+  }
+
+  // 3. 全局 PR 数行（per-date，无 per-otter 维度）
+  if (prRecords) {
+    for (const rec of prRecords) {
+      rows.push(
+        makeRow(rec.date, COST_OUTPUT_KEYS.PR_COUNT, rec.prCount, "{}"),
+      );
+    }
+  }
+
+  // 4. 全局 F 文档数行（per-date，无 per-otter 维度）
+  if (fdocRecords) {
+    for (const rec of fdocRecords) {
+      rows.push(
+        makeRow(rec.date, COST_OUTPUT_KEYS.FDOC_COUNT, rec.fdocCount, "{}"),
+      );
+    }
   }
 
   return rows;

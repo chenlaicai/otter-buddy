@@ -216,7 +216,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
       [
         `{"type":"session","version":3,"id":"test-sess-001","timestamp":"2026-08-28T10:00:00.000Z"}`,
         `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
-        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
+        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"tc1","name":"speak","arguments":"{}"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
       ].join("\n"),
       "utf-8",
     );
@@ -269,6 +269,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(keys.has("cost_total")).toBe(true);
     expect(keys.has("cache_hit_rate")).toBe(true);
     expect(keys.has("message_count")).toBe(true);
+    expect(keys.has("tool_call_count")).toBe(true);
 
     // 验证 metadata 含 otter 信息
     const firstRow = costRows[0]!;
