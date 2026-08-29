@@ -16,6 +16,7 @@ import { calculateMetrics } from "./metrics-calculator";
 import type { Metrics } from "./metrics-calculator";
 import { HealthSnapshotRepository } from "./health-snapshot-repository";
 import { buildOverviewSnapshotRows } from "./snapshot-rows";
+import { computeHealthScore, buildHealthIndexRows } from "./health-score";
 import { generateReport } from "./cli-report";
 import type { ReportFormat } from "./cli-report";
 
@@ -77,13 +78,33 @@ export class HealthReport {
 
     // 5. 持久化（同日 DELETE+INSERT 覆盖，对抗审视发现 4：消费方无需理解"取最新"）
     if (!options.skipPersistence) {
-      this.snapshotRepo.replaceForDate(
-        options.snapshotDate ?? new Date().toISOString().slice(0, 10),
-        buildOverviewSnapshotRows({
-          snapshotDate: options.snapshotDate ?? new Date().toISOString().slice(0, 10),
-          metrics,
-        }),
-      );
+      const rows = buildOverviewSnapshotRows({
+        snapshotDate: options.snapshotDate ?? new Date().toISOString().slice(0, 10),
+        metrics,
+      });
+      // 健康指标旁路（issue #595 PR1）：CLI/backfill 口径无链数据（D3/D5 无数据不参与加权），
+      // D5 输入用零信号（chainStates=null 时 D5 恒 null，零值不影响）；
+      // worker 当日扫描 replaceForDate 全量覆盖（含链维度），最后写入者口径最全
+      const snapshotDate = options.snapshotDate ?? new Date().toISOString().slice(0, 10);
+      try {
+        const score = computeHealthScore({
+          snapshotDate,
+          bugfixRatio: metrics.bugfixRatio,
+          totalCommits: metrics.totalCommits,
+          compliantCommits: metrics.compliantCommits,
+          hotspotFiles: metrics.fileHotspots,
+          changeTypes: metrics.changeTypeDistribution,
+          chainStates: null,
+          openSignals: { critical: 0, warning: 0 },
+        });
+        rows.push(...buildHealthIndexRows(score));
+      } catch (err) {
+        this.logger.warn("Health index computation failed, overview rows continue", {
+          action: "health_report_score_error",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      this.snapshotRepo.replaceForDate(snapshotDate, rows);
     }
 
     // 6. 生成报告

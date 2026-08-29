@@ -18,12 +18,21 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     execFileSync("git", args, { cwd: repoDir, stdio: "pipe" });
   }
 
+  let commitSeq = 0;
+  /** 日期基点：5 天前，每个 commit 递增 1 小时——避免同秒创建导致秒级日期字符串并列、
+   *  链内排序不稳定（曾致 active/regressed 随机翻转的 flaky，issue #595 PR1 修复） */
+  function nextCommitDate(): string {
+    const d = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 + commitSeq * 60 * 60 * 1000);
+    commitSeq++;
+    return d.toISOString();
+  }
+
   async function commitFile(file: string, content: string, message: string): Promise<void> {
     const fullPath = path.join(repoDir, file);
     await mkdir(path.dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
     git(["add", file]);
-    git(["commit", "-m", message]);
+    git(["commit", "-m", message, "--date", nextCommitDate()]);
   }
 
   beforeAll(async () => {
@@ -50,7 +59,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
       "utf-8",
     );
     git(["add", "docs/"]);
-    git(["commit", "-m", "[F20260801wwww][agent][Feature Update] 加文档"]);
+    git(["commit", "-m", "[F20260801wwww][agent][Feature Update] 加文档", "--date", nextCommitDate()]);
   });
 
   afterAll(async () => {
@@ -143,8 +152,8 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     const result = await worker.scanOnce();
 
-    // 12 行：11 标准行 + 1 chain_states 行
-    expect(result.metricsStored).toBe(12);
+    // 18 行：11 标准行 + 1 chain_states 行 + 6 health_index 行（5 维度 + overall，issue #595 PR1）
+    expect(result.metricsStored).toBe(18);
     expect(sinkCalls).toHaveLength(1);
     const { date, rows } = sinkCalls[0]!;
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -154,6 +163,14 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(byKey.get("bugfix_count")!.metricValue).toBe(3); // 60 天窗口内 3 个 BugFix commit（测试仓库历史全在窗口内）
     const chainStates = byKey.get("chain_states")!;
     expect(JSON.parse(chainStates.metadata!)).toEqual({ stalled: 1, active: 1 });
+
+    // health_index 行：metricType 统一，5 维度 + overall 全在（D5 零信号满分）
+    const hiRows = rows.filter(r => r.metricType === "health_index");
+    expect(hiRows.map(r => r.metricKey).sort()).toEqual(["D1", "D2", "D3", "D4", "D5", "overall"]);
+    const overall = hiRows.find(r => r.metricKey === "overall")!;
+    const meta = JSON.parse(overall.metadata!);
+    expect(meta).toHaveProperty("overallStatus");
+    expect(typeof overall.metricValue).toBe("number");
   });
 
   it("snapshotSink 未注入时快照跳过且不报错（向后兼容）", async () => {

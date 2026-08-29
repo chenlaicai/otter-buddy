@@ -152,7 +152,10 @@ function createRhiScanWorker(deps: {
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
-  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, { fidMentionSource, snapshotSink });
+  // 健康评分 D5 输入：open 信号计数（issue #595 PR1）
+  const signalRepo = new SignalRepository(deps.db);
+
+  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, { fidMentionSource, snapshotSink, signalRepo });
 }
 
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑

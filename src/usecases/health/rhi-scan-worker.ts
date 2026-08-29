@@ -26,6 +26,8 @@ import type { CollectedFeatureDoc } from "./feature-doc-collector";
 import { calculateMetrics } from "./metrics-calculator";
 import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import type { CreateSnapshotRow } from "./snapshot-rows";
+import { computeHealthScore, buildHealthIndexRows } from "./health-score";
+import type { SignalRepository } from "./signal-repository";
 
 /** healing 事件数据源端口（由 bootstrap 注入 DB 查询；worker 不直接依赖 healing repository 细节） */
 export type HealingEventSource = () => Promise<CollectedHealingEvent[]>;
@@ -55,6 +57,8 @@ export interface RhiScanWorkerOptions {
   snapshotSink?: SnapshotSink;
   /** 指标计算滚动窗口天数（默认 60：趋势图 30 天 + 前后各 15 天缓冲） */
   metricsWindowDays?: number;
+  /** 信号仓库（可选，issue #595 PR1）：注入后健康评分 D5 用真实 open 计数；未注入时降级零值 */
+  signalRepo?: SignalRepository;
 }
 
 export interface RhiScanResult {
@@ -74,6 +78,8 @@ export class RhiScanWorker {
   private timer: NodeJS.Timeout | null = null;
   private inflightTick: Promise<void> | null = null;
   private stopped = true;
+  /** 最近一轮扫描后的 open 信号计数（health_index D5 输入；signalRepo 未注入时恒 null） */
+  private lastOpenSignalCounts: { critical: number; warning: number } | null = null;
 
   constructor(
     private readonly repoPath: string,
@@ -82,6 +88,22 @@ export class RhiScanWorker {
     private readonly logger: Logger,
     private readonly options: RhiScanWorkerOptions = {},
   ) {}
+
+  /** open 信号按 severity 计数（D5 输入；repo 未注入返回 null → 评分降级零值） */
+  private countOpenBySeverity(): { critical: number; warning: number } | null {
+    if (!this.options.signalRepo) return null;
+    try {
+      const open = this.options.signalRepo.findOpen();
+      const counts = { critical: 0, warning: 0 };
+      for (const s of open) {
+        if (s.severity === "critical") counts.critical++;
+        else counts.warning++;
+      }
+      return counts;
+    } catch {
+      return null;
+    }
+  }
 
   start(): void {
     if (!this.stopped) return;
@@ -163,6 +185,9 @@ export class RhiScanWorker {
     // 6. 管道：落库 + 记忆 + 唤醒
     const pipelineResult = await this.pipeline.process(signals, this.options.wakeup);
 
+    // 6.5 记录 open 信号计数（health_index D5 输入：本次扫描后的真实余压）
+    this.lastOpenSignalCounts = this.countOpenBySeverity() ?? { critical: 0, warning: 0 };
+
     // 7. 指标计算 + 快照落库（F20260829hviz Fix A：修「面板扫描不写指标」断链）
     //    独立窗口重采（60 天滚动）而非复用信号窗口——趋势口径要稳定，链构建余量会污染分子分母
     const metricsStored = this.persistSnapshot(signalInputs, chains);
@@ -180,7 +205,7 @@ export class RhiScanWorker {
     };
   }
 
-  /** 指标快照写入：60 天滚动窗口重算 + 11 标准行 + chain_states 行，同日覆盖。
+  /** 指标快照写入：60 天滚动窗口重算 + 11 标准行 + chain_states 行 + health_index 行，同日覆盖。
    *  与链/信号共用 signalInputs 采集结果但窗口独立（metricsWindowDays）。 */
   private persistSnapshot(
     signalInputs: Array<{ sha: string; date: string; message: string; parsed: ParsedCommit; filesChanged: string[] }>,
@@ -216,6 +241,28 @@ export class RhiScanWorker {
         metrics,
         extraRows: [chainStatesRow],
       });
+
+      // 健康指标旁路（issue #595）：五维评分纯函数复用同一份 metrics + 链数据，
+      // 输出 health_index 行追加在标准行之后——评分失败与快照失败同降级（传感器分离）
+      try {
+        const score = computeHealthScore({
+          snapshotDate,
+          bugfixRatio: metrics.bugfixRatio,
+          totalCommits: metrics.totalCommits,
+          compliantCommits: metrics.compliantCommits,
+          hotspotFiles: metrics.fileHotspots,
+          changeTypes: metrics.changeTypeDistribution,
+          chainStates: stateCounts,
+          openSignals: this.lastOpenSignalCounts ?? { critical: 0, warning: 0 },
+        });
+        rows.push(...buildHealthIndexRows(score));
+      } catch (scoreErr) {
+        this.logger.warn("RHI health score computation failed, metrics snapshot continues", {
+          action: "rhi_worker_health_score_error",
+          error: scoreErr instanceof Error ? scoreErr.message : String(scoreErr),
+        });
+      }
+
       sink(snapshotDate, rows);
       return rows.length;
     } catch (err) {
