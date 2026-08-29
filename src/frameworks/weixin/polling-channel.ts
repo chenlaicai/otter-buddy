@@ -66,6 +66,11 @@ export class WeixinPollingChannel {
     },
   ) {}
 
+  /** 本轮询通道对应的账号 id（issue #566：账号删除时定位停轮询用） */
+  get accountId(): string {
+    return this.deps.accountId;
+  }
+
   /** 启动轮询循环（幂等：已在跑则直接返回） */
   start(): void {
     if (this.running) return;

@@ -48,15 +48,16 @@ export class WeixinAccountStore {
     return this.listAccounts().find((a) => a.id === id);
   }
 
-  /** upsert 账号（扫码成功后调用） */
+  /** upsert 账号（扫码成功后调用）。?? {}：首次落盘时 accounts.json 尚不存在，
+   * safeRead 返回 null——直接属性赋值会 TypeError（PR① 遗留 bug，web 登录测试暴露） */
   saveAccount(account: WeixinAccount): void {
-    const raw = this.safeRead(this.accountsPath()) as Record<string, WeixinAccount>;
+    const raw = (this.safeRead(this.accountsPath()) as Record<string, WeixinAccount> | null) ?? {};
     raw[account.id] = account;
     this.safeWrite(this.accountsPath(), raw);
   }
 
   removeAccount(id: string): void {
-    const raw = this.safeRead(this.accountsPath()) as Record<string, WeixinAccount>;
+    const raw = (this.safeRead(this.accountsPath()) as Record<string, WeixinAccount> | null) ?? {};
     delete raw[id];
     this.safeWrite(this.accountsPath(), raw);
     // 账号删除时连带清理游标与 context token
