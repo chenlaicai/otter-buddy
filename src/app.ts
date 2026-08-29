@@ -161,6 +161,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (config.llm.cacheLongRetention !== false && !process.env.PI_CACHE_RETENTION) {
     process.env.PI_CACHE_RETENTION = 'long';
   }
+  // 检视建议（PR #573 R1）：记录 1h TTL 实际生效状态，后续排查缓存命中率时有直接证据
+  logger.info('Prompt cache long retention', {
+    piCacheRetention: process.env.PI_CACHE_RETENTION ?? '(sdk-default 5m)',
+  });
 
   if (options.syncAuth ?? true) {
     syncApiKeyToAgentAuth(config.llm, logger);
