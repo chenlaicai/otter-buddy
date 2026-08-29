@@ -16,6 +16,7 @@ import type {
   OtterOutputRecord,
   PrCountRecord,
   FdocCountRecord,
+  DispatchCountRecord,
 } from "./cost-output-collector";
 
 /** 与 HealthSnapshotRepository.CreateHealthSnapshot 同构 */
@@ -53,21 +54,28 @@ export const COST_OUTPUT_KEYS = {
   TOOL_CALL_COUNT: "tool_call_count",
   PR_COUNT: "pr_count",
   FDOC_COUNT: "fdoc_count",
+  DISPATCH_COUNT: "dispatch_count",
 } as const;
+
+/** 全局 per-date 行集（PR/F 文档/dispatch） */
+interface GlobalRecords {
+  prRecords?: PrCountRecord[];
+  fdocRecords?: FdocCountRecord[];
+  dispatchRecords?: DispatchCountRecord[];
+}
 
 /**
  * 构建 cost_output 快照行集。
  *
  * 每条 OtterCostRecord 生成 12 行（12 个指标键），
- * 每条 OtterOutputRecord 生成 3 行（message_count + tool_call_count + 旧 message_count 避免覆盖），
- * PR 数和 F 文档数各生成 1 行（全局 per-date，无 per-otter 维度）。
+ * 每条 OtterOutputRecord 生成 2 行（message_count + tool_call_count），
+ * PR 数、F 文档数、dispatch 任务数各生成 1 行（全局 per-date，无 per-otter 维度）。
  */
 export function buildCostOutputSnapshotRows(
   snapshotDate: string,
   costRecords: OtterCostRecord[],
   outputRecords: OtterOutputRecord[],
-  prRecords?: PrCountRecord[],
-  fdocRecords?: FdocCountRecord[],
+  globalRecords?: GlobalRecords,
 ): CreateCostOutputRow[] {
   const rows: CreateCostOutputRow[] = [];
 
@@ -106,25 +114,33 @@ export function buildCostOutputSnapshotRows(
     );
   }
 
-  // 3. 全局 PR 数行（per-date，无 per-otter 维度）
-  if (prRecords) {
-    for (const rec of prRecords) {
-      rows.push(
-        makeRow(rec.date, COST_OUTPUT_KEYS.PR_COUNT, rec.prCount, "{}"),
-      );
-    }
-  }
-
-  // 4. 全局 F 文档数行（per-date，无 per-otter 维度）
-  if (fdocRecords) {
-    for (const rec of fdocRecords) {
-      rows.push(
-        makeRow(rec.date, COST_OUTPUT_KEYS.FDOC_COUNT, rec.fdocCount, "{}"),
-      );
-    }
-  }
+  // 3. 全局行（PR/F 文档/dispatch）
+  appendGlobalRows(rows, globalRecords);
 
   return rows;
+}
+
+/** 追加全局 per-date 行 */
+function appendGlobalRows(rows: CreateCostOutputRow[], global?: GlobalRecords): void {
+  if (!global) return;
+
+  if (global.prRecords) {
+    for (const rec of global.prRecords) {
+      rows.push(makeRow(rec.date, COST_OUTPUT_KEYS.PR_COUNT, rec.prCount, "{}"));
+    }
+  }
+
+  if (global.fdocRecords) {
+    for (const rec of global.fdocRecords) {
+      rows.push(makeRow(rec.date, COST_OUTPUT_KEYS.FDOC_COUNT, rec.fdocCount, "{}"));
+    }
+  }
+
+  if (global.dispatchRecords) {
+    for (const rec of global.dispatchRecords) {
+      rows.push(makeRow(rec.date, COST_OUTPUT_KEYS.DISPATCH_COUNT, rec.dispatchCount, "{}"));
+    }
+  }
 }
 
 function makeRow(

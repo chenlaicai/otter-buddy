@@ -565,6 +565,7 @@ export interface RhiCostOutputDTO {
     callCount: number
     messageCount: number
     otterCount: number
+    dispatchCount: number
   }
   latestSnapshotDate: string | null
 }

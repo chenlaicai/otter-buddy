@@ -27,7 +27,7 @@ import type { CollectedFeatureDoc } from "./feature-doc-collector";
 import { calculateMetrics } from "./metrics-calculator";
 import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import type { CreateSnapshotRow } from "./snapshot-rows";
-import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts } from "./cost-output-collector";
+import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts, collectDispatchTaskCounts } from "./cost-output-collector";
 import type { AgentSessionSource } from "./cost-output-collector";
 import { buildCostOutputSnapshotRows } from "./cost-output-rows";
 import type { CreateCostOutputRow } from "./cost-output-rows";
@@ -219,9 +219,10 @@ export class RhiScanWorker {
         collectPrCounts(this.repoPath),
         collectFdocCounts(this.repoPath),
       ]);
+      const dispatchRecords = collectDispatchTaskCounts(db, { since });
 
       const outputRecords = collectOtterOutput(db, toolCallCounts, { since });
-      const rows = buildCostOutputSnapshotRows(snapshotDate, costRecords, outputRecords, prRecords, fdocRecords);
+      const rows = buildCostOutputSnapshotRows(snapshotDate, costRecords, outputRecords, { prRecords, fdocRecords, dispatchRecords });
       if (rows.length > 0) {
         sink(snapshotDate, rows);
       }

@@ -87,7 +87,7 @@ function buildCostTrendSeries(
       total_tokens: p.total_tokens ?? 0,
       cost_total: p.cost_total ?? 0,
       llm_call_count: p.llm_call_count ?? 0,
-      cache_hit_rate: p._cache_hit_n ? Number(((p._cache_hit_sum ?? 0) / p._cache_hit_n * 100).toFixed(2)) : 0,
+      cache_hit_rate: p._cache_hit_n ? Number(((p._cache_hit_sum ?? 0) / p._cache_hit_n).toFixed(4)) : 0,
       message_count: p.message_count ?? 0,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -289,6 +289,7 @@ export class RhiController {
         callCount: otters.reduce((s, o) => s + o.callCount, 0),
         messageCount: otters.reduce((s, o) => s + o.messageCount, 0),
         otterCount: otters.length,
+        dispatchCount: costRows.filter(r => r.metric_key === 'dispatch_count').reduce((s, r) => s + r.metric_value, 0),
       };
 
       return c.json({ days, series, otters, totals, latestSnapshotDate: latestDate });

@@ -168,7 +168,7 @@ function tryExtractIdentityFromLine(line: string): OtterIdentity | null {
   try {
     const obj = JSON.parse(line) as Record<string, unknown>;
     if (obj.type !== "message") return null;
-    const msg = obj as SessionMessageLine;
+    const msg = obj as unknown as SessionMessageLine;
     if (msg.message.role !== "user" || !Array.isArray(msg.message.content)) return null;
     return parseOtterIdentityFromContent(msg.message.content);
   } catch {
@@ -391,7 +391,7 @@ async function countToolCallsInFile(
     }
     if (obj.type !== "message") continue;
 
-    const msg = obj as SessionMessageLine;
+    const msg = obj as unknown as SessionMessageLine;
     if (msg.message.role !== "assistant") continue;
 
     const date = msg.timestamp.slice(0, 10);
@@ -489,6 +489,53 @@ export async function collectPrCounts(
 export interface FdocCountRecord {
   date: string;
   fdocCount: number;
+}
+
+// ── Dispatch 任务完成数采集（otter_context 统计） ──
+
+/** per-date 的 dispatch 任务完成数 */
+export interface DispatchCountRecord {
+  date: string;
+  dispatchCount: number;
+}
+
+/**
+ * 从 otter_context 表采集 per-date 的 dispatch 任务完成数。
+ * dispatch 记录存储在 otter_context 中，key 以 'dispatch:' 开头，value 为 JSON 字符串。
+ * 只统计 status='completed' 的记录，按 completedAt 日期聚合。
+ */
+export function collectDispatchTaskCounts(
+  db: Database.Database,
+  options?: { since?: string },
+): DispatchCountRecord[] {
+  const since = options?.since ?? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const rows = db.prepare(`
+    SELECT value
+    FROM otter_context
+    WHERE key LIKE 'dispatch:%'
+  `).all() as Array<{ value: string }>;
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    try {
+      const record = JSON.parse(row.value) as {
+        status?: string;
+        completedAt?: string;
+        createdAt?: string;
+      };
+      // 只统计已完成/失败的任务
+      if (record.status !== 'completed' && record.status !== 'failed') continue;
+      // 使用完成日期，如果没有则使用创建日期
+      const date = (record.completedAt ?? record.createdAt ?? '').slice(0, 10);
+      if (!date || date < since) continue;
+      counts.set(date, (counts.get(date) ?? 0) + 1);
+    } catch {
+      // JSON 解析失败，跳过
+    }
+  }
+
+  return [...counts.entries()].map(([date, dispatchCount]) => ({ date, dispatchCount }));
 }
 
 /**

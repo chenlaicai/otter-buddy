@@ -301,11 +301,12 @@ function HealthPage() {
               {costOutput && costOutput.series.length > 0 ? (
                 <>
                   {/* 汇总指标卡 */}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                     <MetricCard label="总 Cost" value={`$${costOutput.totals.costTotal.toFixed(2)}`} icon={<TrendingUp className="w-4 h-4" />} />
                     <MetricCard label="总 Token" value={fmtLargeNumber(costOutput.totals.totalTokens)} icon={<BarChart3 className="w-4 h-4" />} />
                     <MetricCard label="LLM 调用" value={costOutput.totals.callCount} icon={<RefreshCw className="w-4 h-4" />} />
                     <MetricCard label="獭发言数" value={costOutput.totals.messageCount} icon={<GitBranch className="w-4 h-4" />} />
+                    <MetricCard label="任务完成" value={costOutput.totals.dispatchCount} icon={<Layers className="w-4 h-4" />} />
                     <MetricCard label="活跃獭数" value={costOutput.totals.otterCount} icon={<Activity className="w-4 h-4" />} />
                   </div>
 
@@ -339,12 +340,12 @@ function HealthPage() {
                     {/* 缓存命中率趋势 */}
                     <ChartCard title="缓存命中率" subtitle="加权平均 · cacheRead / (cacheRead + input)" icon={<Activity className="w-4 h-4 text-otter-500" />}>
                       <ResponsiveContainer width="100%" height={220}>
-                        <ComposedChart data={costOutput.series} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                        <ComposedChart data={costOutput.series.map(p => ({ ...p, cache_hit_rate_pct: Number((p.cache_hit_rate * 100).toFixed(2)) }))} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
                           <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
-                          <YAxis tick={{ fontSize: 11, fill: '#78716c' }} domain={[0, 100]} unit="" />
-                          <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} formatter={(v: number) => [`${v}%`, '命中率']} />
-                          <Line type="monotone" dataKey="cache_hit_rate" name="命中率" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                          <YAxis tick={{ fontSize: 11, fill: '#78716c' }} domain={[0, 100]} unit="%" />
+                          <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} formatter={(v: number) => [`${v.toFixed(2)}%`, '命中率']} />
+                          <Line type="monotone" dataKey="cache_hit_rate_pct" name="命中率" stroke="#f59e0b" strokeWidth={2} dot={false} />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </ChartCard>

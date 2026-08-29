@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildCostOutputSnapshotRows } from "@usecases/health/cost-output-rows";
-import type { OtterCostRecord, OtterOutputRecord } from "@usecases/health/cost-output-collector";
+import type { OtterCostRecord, OtterOutputRecord, DispatchCountRecord } from "@usecases/health/cost-output-collector";
 
 function fakeCostRecord(overrides?: Partial<OtterCostRecord>): OtterCostRecord {
   return {
@@ -99,7 +99,7 @@ describe("buildCostOutputSnapshotRows", () => {
       { date: "2026-08-27", prCount: 3 },
       { date: "2026-08-28", prCount: 5 },
     ];
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], prRecords);
+    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], { prRecords });
     expect(rows.length).toBe(2);
     expect(rows[0]!.metricKey).toBe("pr_count");
     expect(rows[0]!.metricValue).toBe(3);
@@ -113,15 +113,29 @@ describe("buildCostOutputSnapshotRows", () => {
       { date: "2026-08-28", fdocCount: 2 },
       { date: "2026-08-29", fdocCount: 1 },
     ];
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], [], fdocRecords);
+    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], { fdocRecords });
     expect(rows.length).toBe(2);
     expect(rows[0]!.metricKey).toBe("fdoc_count");
     expect(rows[0]!.metricValue).toBe(2);
     expect(rows[0]!.metadata).toBe("{}");
   });
 
+  it("dispatch 任务完成数行按日期生成（全局，无 per-otter 维度）", () => {
+    const dispatchRecords: DispatchCountRecord[] = [
+      { date: "2026-08-28", dispatchCount: 3 },
+      { date: "2026-08-29", dispatchCount: 1 },
+    ];
+    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], { dispatchRecords });
+    expect(rows.length).toBe(2);
+    expect(rows[0]!.metricKey).toBe("dispatch_count");
+    expect(rows[0]!.metricValue).toBe(3);
+    expect(rows[0]!.metadata).toBe("{}")
+    expect(rows[1]!.metricKey).toBe("dispatch_count");
+    expect(rows[1]!.metricValue).toBe(1);
+  });
+
   it("空输入返回空数组", () => {
-    const rows = buildCostOutputSnapshotRows("2026-08-28", [], []);
+    const rows = buildCostOutputSnapshotRows("2026-08-28", [], [], {});
     expect(rows).toEqual([]);
   });
 });
