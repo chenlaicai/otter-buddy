@@ -277,7 +277,6 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(meta.otterId).toBe("test-otter-id");
     expect(meta.otterName).toBe("测试獭");
   });
-
   it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
     const writer = { storeEntry: async () => {} };
     const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
