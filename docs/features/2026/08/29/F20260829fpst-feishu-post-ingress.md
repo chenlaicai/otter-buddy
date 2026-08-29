@@ -71,7 +71,8 @@ Phase 2 交付 image/file 两种单类型消息后，飞书侧剩最后一种常
 
 - **白名单**：`SUPPORTED_MESSAGE_TYPES` 加 `post`
 - **正文提取**（extractPostText）：text 段文字拼接——段内连写、段落间 `\n\n`；
-  a 超链接段的文字并入正文（href 丢弃，Web 渲染口径本就是纯 Markdown 流）
+  a 超链接段输出 Markdown 链接 `[文字](href)`（审视处置采纳：Web Markdown 流
+  自动渲染可点击，LLM 可见 URL；href 缺失或含空白时降级只保文字，不丢内容）
 - **媒体项收集**（extractPostMediaItems）：img 段 → `{kind:"image", key:image_key}`；
   media 段 → `{kind:"file", key:file_key, fileName}`；按段落顺序进 `postItems`；
   段缺失 key 跳过该段不整条丢弃
@@ -118,18 +119,18 @@ ids 非空 → 一次性 validateForSend(ids)（≤2 图硬限制，与 Web 同�
 - 防自环：sender_type=app 拦截 + source=feishu 不回传，post 类型不改变任何一侧
 - 上传管线 / MIME magic bytes 探嗅 / sha256 去重 / sharp resize：逐项复用
 
-## 3. 测试（17 新用例）
+## 3. 测试（18 新用例）
 
 | 文件 | 覆盖 |
 |---|---|
-| tests/frameworks/feishu/long-connection-client-post.test.ts（8） | 图文混排正文拼接+a段文字并入+img按序/纯文本post无media/媒体段file_key+file_name/语言体缺失取首个/非法content不炸空text无media/段内img+text交错顺序/text·image·file单类型不回归 |
+| tests/frameworks/feishu/long-connection-client-post.test.ts（9） | 图文混排正文拼接+a段输出Markdown链接+img按序/a段边界href缺失/空串/含空白降级只保文字/纯文本post无media/媒体段file_key+file_name/语言体缺失取首个/非法content不炸空text无media/段内img+text交错顺序/text·image·file单类型不回归 |
 | tests/interface-adapters/feishu/message-processor-post.test.ts（9） | 图+文件有序入库/三项混排一次性validate/单项下载失败其余照常/单项上传拒绝其余继续/注入透传dispatch/纯文本post原路径无attachmentIds/全降级多条提示拼接不丢消息/validate拒绝正文保留/未装配按类别合并降级 |
 
 既有测试不回归：飞书侧 8 文件 62 用例全绿（含 Phase 2 的 media/processor 19 用例）。
 
 ## 4. 验证
 
-- 根仓：171 文件 2034 用例全绿（含本特性 2 个新测试文件 17 用例；其余增量
+- 根仓：171 文件 2035 用例全绿（含本特性 2 个新测试文件 18 用例；其余增量
   来自合入的 main 新 PR，如 #554/#556/#559/#561/#562）
 - web：33 文件 287 用例全绿（本特性 web 零改动；增量 3 来自 main）
 - tsc（根仓+web）零错 / eslint 零新告警（剩 3 个 warning 为 main 存量
@@ -138,8 +139,8 @@ ids 非空 → 一次性 validateForSend(ids)（≤2 图硬限制，与 Web 同�
 ## 5. 已知边界
 
 - post 的 title 字段不入正文（消息列表已展示，避免重复）
-- a 超链接段只保留文字、href 丢弃（Web 渲染口径为纯 Markdown 流；要保链接需
-  渲染层支持行内链接重建，属另一个话题）
+- a 段 Markdown 链接对含空白的 href（如截断的非法 URL）降级只保文字（不产出
+  断裂的 `[文字](https://x y)` 形态）
 - at @提及段不解析（与 text 消息的 mention 处理同界——post 的 mention 映射
   飞书未提供稳定结构）
 - 多语言体只取第一个可用（配置语言优先的精确匹配未做——飞书文档推荐按配置
@@ -148,3 +149,18 @@ ids 非空 → 一次性 validateForSend(ids)（≤2 图硬限制，与 Web 同�
 - 飞书 file/media 段下载仍需 `im:resource` 权限（Phase 2 已知边界延续）
 - 超长 post（>9 张图）全部入库后被 validate 整组拒绝附件——正文保留、提示可见
   （与 Web 超限行为一致；不做「前 2 张放行」的部分接受，语义一致性优先）
+
+## 6. 审视处置记录
+
+**首轮异体审视（检视獭mimo，2026-08-29）**：0 严重 / 2 建议，六焦点全过
+（含「系统侧零改动」声明经 diff 文件清单验证）。
+
+- **建议 2（a 段 href 丢弃是 LLM 信息缺口）→ 已修**：拼正文时 a 段输出
+  Markdown 链接 `[文字](href)`，Web 端 Markdown 流自动渲染可点击。新墁
+  `postSegmentText`（extractPostText 内唯一拼接入口）；href 缺失/空串/含空白
+  时降级只保文字。新用例 1（三项边界合入一条 it），本特性用例 17→18。
+- **建议 1（语言体按配置语言优先）→ 不修**：双语混发用不到，配置化是过度
+  设计（大獭拍板），记入已知边界。
+
+处置后状态：根仓 171 文件 2035 用例全绿（含本特性 18 用例）；tsc/eslint 干净
+（实测口径）。

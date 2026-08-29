@@ -251,11 +251,22 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     for (const para of body) {
       if (!Array.isArray(para)) continue;
       const parts = para
-        .map(seg => (this.isPostTextSegment(seg) && typeof seg.text === "string" ? seg.text : ""))
+        .map(seg => this.postSegmentText(seg))
         .filter(t => t !== "");
       if (parts.length > 0) paragraphs.push(parts.join(""));
     }
     return paragraphs.join("\n\n");
+  }
+
+  /** post 段 → 正文片段。text 段原样；a 段输出 Markdown 链接 [文字](href)
+   *  （Web Markdown 流自动渲染可点击，LLM 可见 URL）；href 缺失或含空白
+   *  （非法 URL 会让 Markdown 链接断裂）时降级只保留文字，不丢内容。 */
+  private postSegmentText(seg: unknown): string {
+    if (!this.isPostTextSegment(seg) || typeof seg.text !== "string") return "";
+    if (seg.tag === "a" && typeof seg.href === "string" && seg.href !== "" && !/\s/.test(seg.href)) {
+      return `[${seg.text}](${seg.href})`;
+    }
+    return seg.text;
   }
 
   /** F20260829fpst：post content → 按段落顺序的媒体项（img→image / media→file）。

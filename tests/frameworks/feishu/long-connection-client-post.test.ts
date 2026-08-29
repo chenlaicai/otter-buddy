@@ -7,7 +7,7 @@ import type { FeishuLongConnectionMessage } from "@usecases/im/feishu-long-conne
 /** F20260829fpst：飞书 post 富文本混排消息解析测试。
  *  锁定：post 放行；text 段拼正文（段落间空行）；img/media 段按序提 key 进 postItems；
  *  纯文本 post 不带 media 载荷（走原文本路径）；非法 content 不炸（空 text 无 media）；
- *  a/at 超链接段跳过；text/image/file 既有行为不回归。 */
+ *  a 超链接段输出 Markdown 链接（href 缺失/含空白时降级只保文字）；text/image/file 既有行为不回归。 */
 
 vi.mock("@larksuiteoapi/node-sdk", () => {
   return {
@@ -73,8 +73,8 @@ describe("FeishuLongConnectionClient post 富文本混排（F20260829fpst）", (
 
     expect(received).toHaveLength(1);
     const msg = received[0];
-    // text 段拼接：段内连写、段落间空行；a 段文字并入
-    expect(msg.text).toBe("本周进展：\n\n完成了 方案文档 的初稿\n\n上图是架构草图");
+    // text 段拼接：段内连写、段落间空行；a 段输出 Markdown 链接（Web 可点击，LLM 可见 URL）
+    expect(msg.text).toBe("本周进展：\n\n完成了 [方案文档](https://x) 的初稿\n\n上图是架构草图");
     expect(msg.messageType).toBe("post");
     expect(msg.media?.type).toBe("post");
     expect(msg.media?.postItems).toEqual([
@@ -130,6 +130,33 @@ describe("FeishuLongConnectionClient post 富文本混排（F20260829fpst）", (
 
     const msg = received[0];
     expect(msg.text).toBe("只是文字\n\n第二段");
+    expect(msg.media).toBeUndefined();
+  });
+
+  it("a 段边界：href 缺失/空串/含空白时降级只保文字，不丢内容", async () => {
+    const { client, dispatcher } = await makeClient();
+    const received: FeishuLongConnectionMessage[] = [];
+    client.onMessage((msg) => { received.push(msg); });
+
+    dispatcher.dispatch("im.message.receive_v1", eventData("post", {
+      content: {
+        zh_cn: {
+          title: "",
+          content: [
+            [
+              { tag: "a", text: "无href链接" },
+              { tag: "a", text: "空href", href: "" },
+              { tag: "a", text: "带空格href", href: "https://x y" },
+              { tag: "text", text: " 尾随文字" },
+            ],
+          ],
+        },
+      },
+    }));
+    await new Promise(r => setTimeout(r, 0));
+
+    const msg = received[0];
+    expect(msg.text).toBe("无href链接空href带空格href 尾随文字");
     expect(msg.media).toBeUndefined();
   });
 
