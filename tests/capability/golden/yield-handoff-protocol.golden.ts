@@ -41,3 +41,60 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     detail: `completed=${Boolean(completed)} hasContent=${hasContent} yielded=${yielded} tsp=${JSON.stringify(tsp)} speakTool=${spokeViaTool} status=${completed?.status}`,
   };
 };
+
+/**
+ * F20260828gssf: selftest 参考序列。
+ *
+ * good = 正确行为轨迹：獭 speak 后 yield，completed 消息有内容有 tsp
+ * bad  = 伤疤复现轨迹（多条）：
+ *   - bad[0]: 獭 speak 但不 yield，completed 消息无 tsp（no_yield 内容丢失）
+ *   - bad[1]: 獭 speak 后 yield 但 tsp 指向错误目标（tsp 非空但指向无关人）——
+ *     堵住“tsp 非空即可”的退化盲区：删掉内容判据后 bad[0] 可能放行，
+ *     bad[1] 确保断言仍校验 tsp 指向正确性。
+ */
+export const selftest: GoldenModule["selftest"] = {
+  good: {
+    messages: [
+      { id: "st-u1", st: "user", si: "selftest-user", content: "1+1 等于几", status: "completed", seq: 1 },
+      {
+        id: "st-o1", st: "otter", si: "selftest-otter", content: "1+1 等于 2。", status: "completed", seq: 2,
+        tsp: ["selftest-user"],
+        events: [
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "yield" }] } },
+        ],
+      },
+    ],
+    expectedOk: true,
+  },
+  bad: [
+    {
+      messages: [
+        { id: "st-u2", st: "user", si: "selftest-user", content: "1+1 等于几", status: "completed", seq: 1 },
+        {
+          id: "st-o2", st: "otter", si: "selftest-otter", content: "1+1 等于 2。", status: "completed", seq: 2,
+          tsp: [],
+          events: [
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+            // 无 yield——tsp 为空
+          ],
+        },
+      ],
+      expectedOk: false,
+    },
+    {
+      messages: [
+        { id: "st-u3", st: "user", si: "selftest-user", content: "1+1 等于几", status: "completed", seq: 1 },
+        {
+          id: "st-o3", st: "otter", si: "selftest-otter", content: "", status: "completed", seq: 2,
+          tsp: ["selftest-user"],
+          events: [
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "yield" }] } },
+          ],
+        },
+      ],
+      expectedOk: false,
+    },
+  ],
+};
