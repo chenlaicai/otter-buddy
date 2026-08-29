@@ -68,34 +68,13 @@ Otter Buddy 是一个多 Agent 协作系统——聊天室形态，记忆为核�
 - npm
 - LLM API Key（OpenAI 或 Anthropic）
 
-### 安装依赖
-
-```bash
-# 后端依赖（prepare 脚本会自动设置 git hooks 路径）
-npm install
-
-# 前端依赖
-cd web && npm install && cd ..
-```
-
-#### 验证 git hooks 已激活
-
-`npm install` 的 `prepare` 脚本会执行 `git config core.hooksPath .githooks`，将钩子指向仓库内的 `.githooks/`（commit-msg / pre-commit / pre-push / pre-merge-commit）。若该配置被外部工具或环境重置覆盖，全部钩子会**静默失效**（#476、F20260821kgts 在案多次踩坑），提交规范只能靠 CI 兜底。安装完成后验证一次：
-
-```bash
-git config core.hooksPath
-# 预期输出: .githooks（相对路径；若为其他值或指向不存在的目录，重新执行 npm run prepare）
-```
-
 ### 配置
-
-复制配置模板并填入实际值：
 
 ```bash
 cp config/config.yaml.example config/config.yaml
 ```
 
-编辑 `config/config.yaml`，至少填写以下必填项：
+编辑 `config/config.yaml`，填写 LLM API Key：
 
 ```yaml
 llm:
@@ -103,12 +82,40 @@ llm:
     - alias: default
       provider: openai      # openai / anthropic / kimi-coding
       model: gpt-4o
-      apiKey: sk-...        # LLM API Key
+      apiKey: sk-...        # 你的 LLM API Key
 ```
 
 > `config/config.yaml` 已加入 `.gitignore`，不会被提交到代码仓库。
 
-#### 从 .env 迁移
+### 启动
+
+```bash
+./scripts/otter-buddy.sh start
+```
+
+启动脚本自动完成：安装依赖 → 构建后端 → 构建前端 → 启动服务。
+
+访问 http://localhost:3000 即可开始对话。
+
+> 自定义端口：`./scripts/otter-buddy.sh start -p 3001`。`stop` / `restart` / `status` 命令同理。
+
+## 进阶配置
+
+### 启动脚本
+
+`scripts/otter-buddy.sh` 提供服务管理命令，支持多 worktree 使用不同端口避免冲突：
+
+```bash
+./scripts/otter-buddy.sh start [-p port]   # 构建并启动
+./scripts/otter-buddy.sh stop [-p port]    # 停止
+./scripts/otter-buddy.sh restart [-p port] # 重启
+./scripts/otter-buddy.sh status            # 查看状态
+```
+
+每个 worktree 独立管理自己的服务，`stop`/`restart` 只影响当前 worktree。
+如果端口被其他 worktree 占用，脚本会提示 PID，由用户决定是否终止。
+
+### 从 .env 迁移
 
 如果之前使用 `.env` 配置，将环境变量迁移到 `config/config.yaml`：
 
@@ -120,7 +127,7 @@ llm:
 | `OTTER_BUDDY_PORT` | `server.port` |
 | `OTTER_BUDDY_DB_PATH` | `database.path` |
 
-#### 模型输入能力声明（多模态，必读）
+### 模型输入能力声明（多模态）
 
 `llm.models[]` 支持可选 `input` 字段显式声明模型输入能力，**这是图片注入降级的唯一真相源**：
 
@@ -137,74 +144,20 @@ llm:
 
 规则（F20260827mmdu 实测坐实）：**不支持 vision 的模型必须显式声明 `input: ["text"]`**——anthropic provider 模板默认隐式继承 `input: ["text","image"]`，缺省时 SDK 会把图片注入到看不见图的模型，产生幻觉（glm-5.3 返回 200 但 thinking 自述「看不见图」）。声明后 SDK `downgradeUnsupportedImages` 自动降级为文本占位符。
 
-### 构建前端
+### 验证 git hooks
+
+`npm install` 的 `prepare` 脚本会执行 `git config core.hooksPath .githooks`，将钩子指向仓库内的 `.githooks/`（commit-msg / pre-commit / pre-push / pre-merge-commit）。若该配置被外部工具或环境重置覆盖，全部钩子会**静默失效**（#476、F20260821kgts 在案多次踩坑），提交规范只能靠 CI 兜底。安装完成后验证一次：
 
 ```bash
-cd web && npm run build && cd ..
+git config core.hooksPath
+# 预期输出: .githooks（相对路径；若为其他值或指向不存在的目录，重新执行 npm run prepare）
 ```
 
-### 启动系统
+### 贡献
 
-```bash
-# 方式一：使用启动脚本（推荐）
-./scripts/otter-buddy.sh start              # 默认端口 3000
-./scripts/otter-buddy.sh start -p 3001      # 指定端口
+欢迎 issue——bug 报告、想法、功能建议都是对项目的贡献。但暂不接受 PR：这是个人研究项目，维护带宽有限。想看到某个改动，请开 issue 描述它。
 
-# 方式二：直接 npm
-npm start
-```
-
-启动后访问 http://localhost:3000 即可开始对话。
-
-#### 启动脚本
-
-`scripts/otter-buddy.sh` 提供服务管理命令，支持多 worktree 使用不同端口避免冲突：
-
-```bash
-./scripts/otter-buddy.sh start [-p port]   # 构建并启动
-./scripts/otter-buddy.sh stop [-p port]    # 停止
-./scripts/otter-buddy.sh restart [-p port] # 重启
-./scripts/otter-buddy.sh status            # 查看状态
-```
-
-多 worktree 示例：
-
-```bash
-# worktree A
-./scripts/otter-buddy.sh start -p 3000
-
-# worktree B（不同端口）
-./scripts/otter-buddy.sh start -p 3001
-```
-
-每个 worktree 独立管理自己的服务，`stop`/`restart` 只影响当前 worktree。
-如果端口被其他 worktree 占用，脚本会提示 PID，由用户决定是否终止。
-
-### 开发模式
-
-前后端分离启动，支持热重载：
-
-```bash
-# 终端 1：后端（TypeScript 编译 + 启动）
-npm start
-
-# 终端 2：前端（Vite dev server，自动代理 /api 到后端）
-cd web && npm run dev
-```
-
-前端 dev server 运行在 http://localhost:5173，自动将 `/api` 请求代理到后端 `http://localhost:3000`。
-
-### 运行测试
-
-```bash
-npm test
-```
-
-### 完整检查（lint + build）
-
-```bash
-npm run check
-```
+内部开发规范见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 系统架构
 
