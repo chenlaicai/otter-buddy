@@ -6,7 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
-import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
+import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
@@ -383,7 +383,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
+    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径；pr/worktree/branch 类型必须带 groupId=特性文档编号（否则报错，#580）. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
     parameters: {
       type: "object",
       properties: {
@@ -392,7 +392,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         content: { type: "string", description: "事实文本内容（fact 必填，≤500 字符的简短摘要）" },
         title: { type: "string", description: "资源标题" },
         category: { type: "string", description: "分类标签（fact 类型可选）" },
-        groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）" },
+        groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）。pr/worktree/branch 类型必填" },
       },
       required: ["resourceType"],
     },
@@ -409,6 +409,15 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       } else {
         if (!params.url || (params.url as string).trim().length === 0) {
           return errorResponse(`[错误] resourceType 为 '${resourceType}' 时，url 不能为空。请提供资源 URL 或路径。`);
+        }
+      }
+      // F20260829gvid（#580）：pr/worktree/branch 是特性交付产物，漏传 groupId 会让 list_artifacts
+      // 按组检索落空（gssf/ptun 两次检视才补的案例）。与 domain 层 validateGroupIdRequired
+      // 同口径（双层校验先例：fact 长度）。纯空白视为漏传。
+      if (GROUP_ID_REQUIRED_TYPES.has(resourceType)) {
+        const groupId = params.groupId as string | undefined;
+        if (!groupId || groupId.trim().length === 0) {
+          return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（gssf/ptun 两次案例，#580）。`);
         }
       }
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
