@@ -155,7 +155,10 @@ git config core.hooksPath
 
 ### Contributing
 
-For development conventions (dev mode, testing, linting, commit format), see [CONTRIBUTING.md](./CONTRIBUTING.md).
+**Issues are welcome** — bug reports, ideas, and feature suggestions are all valuable contributions.
+**Pull requests are not accepted for now.** This is a personal research project; the maintainer's bandwidth is limited. If you'd like to see a change, please open an issue describing it instead.
+
+For internal development conventions, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## System Architecture
 

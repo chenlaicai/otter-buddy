@@ -1,3 +1,8 @@
+> ⚠️ **External PRs are not accepted.** This is a personal research project. Please open an issue instead — bug reports, ideas, and feature suggestions are all welcome.
+> 暂不接受外部 PR，这是个人研究项目。请开 issue 描述你的想法。
+
+---
+
 ## Summary
 
 Describe the intent of this change and the user-visible or system-level impact.

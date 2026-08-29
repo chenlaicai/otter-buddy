@@ -1,0 +1,50 @@
+name: Auto-close external PRs
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  auto-close:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.author_association != 'COLLABORATOR'
+    steps:
+      - name: Close PR and comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: [
+                'Thanks for your interest in this project! 🦦',
+                '',
+                '**This PR has been automatically closed** — this is a personal research project and external pull requests are not accepted at this time.',
+                '',
+                'You\'re very welcome to **open an issue** instead:',
+                '- Bug reports, ideas, and feature suggestions are all valuable contributions.',
+                '- Each issue is read and considered carefully.',
+                '',
+                'If this PR addresses a specific problem, please describe it in a new issue and we\'ll look into it.',
+                '',
+                'Thank you for understanding! 🙏'
+              ].join('\n')
+            });
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              state: 'closed'
+            });
+
+            console.log(`Closed PR #${pr.number} from ${pr.user.login} (association: ${pr.author_association})`);

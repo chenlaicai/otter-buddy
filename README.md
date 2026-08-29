@@ -153,9 +153,11 @@ git config core.hooksPath
 # 预期输出: .githooks（相对路径；若为其他值或指向不存在的目录，重新执行 npm run prepare）
 ```
 
-### 贡献者指南
+### 贡献
 
-更多开发规范（开发模式、测试、Lint、提交规范）见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+欢迎 issue——bug 报告、想法、功能建议都是对项目的贡献。但暂不接受 PR：这是个人研究项目，维护带宽有限。想看到某个改动，请开 issue 描述它。
+
+内部开发规范见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 系统架构
 
