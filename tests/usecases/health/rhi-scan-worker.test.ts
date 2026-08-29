@@ -130,6 +130,60 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(zombie?.evidence).toContain("僵尸链");
   });
 
+  it("snapshotSink 注入后 scanOnce 写入指标快照（F20260829hviz Fix A）", async () => {
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+
+    const sinkCalls: Array<{ date: string; rows: import("@usecases/health/snapshot-rows").CreateSnapshotRow[] }> = [];
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      snapshotSink: (date, rows) => sinkCalls.push({ date, rows }),
+    });
+
+    const result = await worker.scanOnce();
+
+    // 12 行：11 标准行 + 1 chain_states 行
+    expect(result.metricsStored).toBe(12);
+    expect(sinkCalls).toHaveLength(1);
+    const { date, rows } = sinkCalls[0]!;
+    expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const byKey = new Map(rows.map(r => [r.metricKey, r]));
+    expect(byKey.get("total_commits")!.metricValue).toBe(6);
+    expect(byKey.get("bugfix_count")!.metricValue).toBe(3); // 60 天窗口内 3 个 BugFix commit（测试仓库历史全在窗口内）
+    const chainStates = byKey.get("chain_states")!;
+    expect(JSON.parse(chainStates.metadata!)).toEqual({ stalled: 1, active: 1 });
+  });
+
+  it("snapshotSink 未注入时快照跳过且不报错（向后兼容）", async () => {
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+
+    const result = await worker.scanOnce();
+    expect(result.metricsStored).toBe(0);
+    expect(result.signalCount).toBeGreaterThanOrEqual(1); // 主管道不受影响
+  });
+
+  it("snapshotSink 抛异常不影响信号落库（旁路隔离）", async () => {
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      snapshotSink: () => {
+        throw new Error("sink boom");
+      },
+    });
+
+    const result = await worker.scanOnce();
+    expect(result.metricsStored).toBe(0); // 快照失败被吞，返回 0
+    expect(result.stored).toBe(result.signalCount); // 信号正常落库
+  });
+
   it("buildChainsOnce 与 scanOnce 同源且不落库（审视发现 3 补测：/api/health/chains 专用方法）", async () => {
     const writer = { storeEntry: async () => {} };
     const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };

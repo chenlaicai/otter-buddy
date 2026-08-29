@@ -7,6 +7,7 @@
     "prepare": "git config core.hooksPath .githooks",
     "health:report": "node scripts/health-report.mjs",
     "weixin:login": "npm run build --silent && node scripts/weixin-login.mjs",
+    "health:backfill": "node scripts/health-backfill.mjs",
     "build": "npm run lint && node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npx tsc && npx tsc-alias -f && (node scripts/download-bge-m3.mjs || echo \"[bge-m3] 模型下载失败，启动时将重试或降级 FTS-only\")",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

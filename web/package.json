@@ -15,6 +15,7 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.0",
     "react-syntax-highlighter": "^16.1.1",
+    "recharts": "^2.15.4",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5"

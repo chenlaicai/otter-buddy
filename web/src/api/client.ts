@@ -418,13 +418,34 @@ export function listActiveConversations(): Promise<Array<{ id: string; title: st
   return request('/connections/any/conversations')
 }
 
-// ── RHI 健康面板（F20260825rweb #402/#403）──
+// ── RHI 健康面板（F20260825rweb #402/#403；F20260829hviz 增补 trends）──
 
 export interface RhiOverviewDTO {
   metrics: Record<string, number>
   snapshotDate: string | null
   openSignals: number
   openSignalsBySeverity: { critical: number; warning: number }
+}
+
+export interface RhiTrendPointDTO {
+  date: string
+  total_commits?: number
+  bugfix_count?: number
+  bugfix_ratio?: number
+  compliant_commits?: number
+}
+
+export interface RhiTrendsDTO {
+  days: number
+  series: RhiTrendPointDTO[]
+  distributions: {
+    change_types?: Record<string, number>
+    skip_reasons?: Record<string, number>
+    modules?: Array<{ module: string; count: number }>
+    file_hotspots?: Array<{ file: string; count: number }>
+    chain_states?: Record<string, number>
+  }
+  latestSnapshotDate: string | null
 }
 
 export interface RhiSignalDTO {
@@ -462,6 +483,10 @@ export function getRhiSignals(status = 'open', signal?: AbortSignal): Promise<{ 
 
 export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number }> {
   return request('/health/chains', { signal })
+}
+
+export function getRhiTrends(days = 30, signal?: AbortSignal): Promise<RhiTrendsDTO> {
+  return request(`/health/trends?days=${days}`, { signal })
 }
 
 export function triggerRhiScan(): Promise<{ ok: boolean; result: Record<string, unknown> }> {

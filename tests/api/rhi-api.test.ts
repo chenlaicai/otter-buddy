@@ -99,6 +99,61 @@ describe("RHI API（真 sqlite）", () => {
     });
   });
 
+  describe("trends", () => {
+    function makeTrendsCtx(daysQuery?: string): Parameters<RhiController["trends"]>[0] {
+      return {
+        req: { query: () => daysQuery },
+        json: (data: unknown) => new Response(JSON.stringify(data), { status: 200 }),
+      } as never;
+    }
+
+    it("返回日期序列（比率×100）与最新分布", async () => {
+      snapshotRepo.replaceForDate("2026-08-26", [
+        { snapshotDate: "2026-08-26", metricType: "overview", metricKey: "total_commits", metricValue: 100 },
+        { snapshotDate: "2026-08-26", metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.3 },
+      ]);
+      snapshotRepo.replaceForDate("2026-08-27", [
+        { snapshotDate: "2026-08-27", metricType: "overview", metricKey: "total_commits", metricValue: 120 },
+        { snapshotDate: "2026-08-27", metricType: "overview", metricKey: "bugfix_ratio", metricValue: 0.25 },
+        {
+          snapshotDate: "2026-08-27", metricType: "distribution", metricKey: "change_types",
+          metricValue: 120, metadata: JSON.stringify({ Feature: 80, BugFix: 30 }),
+        },
+        {
+          snapshotDate: "2026-08-27", metricType: "distribution", metricKey: "chain_states",
+          metricValue: 5, metadata: JSON.stringify({ active: 3, stalled: 2 }),
+        },
+      ]);
+
+      const res = await makeController().trends(makeTrendsCtx());
+      const body = await res.json() as {
+        series: Array<{ date: string; total_commits: number; bugfix_ratio: number }>;
+        distributions: Record<string, unknown>;
+        latestSnapshotDate: string;
+      };
+
+      expect(body.series).toHaveLength(2);
+      expect(body.series[0]).toMatchObject({ date: "2026-08-26", total_commits: 100, bugfix_ratio: 30 });
+      expect(body.series[1]).toMatchObject({ date: "2026-08-27", total_commits: 120, bugfix_ratio: 25 });
+      expect(body.distributions.change_types).toEqual({ Feature: 80, BugFix: 30 });
+      expect(body.distributions.chain_states).toEqual({ active: 3, stalled: 2 });
+      expect(body.latestSnapshotDate).toBe("2026-08-27");
+    });
+
+    it("空库返回空序列不抛错", async () => {
+      const res = await makeController().trends(makeTrendsCtx());
+      const body = await res.json() as { series: unknown[]; distributions: Record<string, unknown> };
+      expect(body.series).toEqual([]);
+      expect(body.distributions).toEqual({});
+    });
+
+    it("days 越界被钳位（负数→1，超过 90→90）", async () => {
+      const res = await makeController().trends(makeTrendsCtx("999"));
+      const body = await res.json() as { days: number };
+      expect(body.days).toBe(90);
+    });
+  });
+
   describe("scan", () => {
     it("手动扫描返回结果", async () => {
       const res = await makeController([], { commitCount: 42 }).scan(makeCtx());
