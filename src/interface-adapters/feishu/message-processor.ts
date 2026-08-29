@@ -165,81 +165,120 @@ export class FeishuMessageProcessor {
   }
 
   /** 多模态 Phase 2：媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
-   *  任何失败都降级为可见文本（消息不丢），不抛错中断主链路。 */
+   *  F20260829fpst：post 混排消息可能含多个媒体项——逐项下载/入库，单项失败单项降级
+   *  （其余项照常）；全部媒体项走完后一次性 validateForSend（≤2 图硬限制，与 Web
+   *  路径同一份策略）。任何失败都降级为可见文本（消息不丢），不抛错中断主链路。 */
   private async processMedia(
     msg: FeishuIncomingMessage,
     conversationId: string,
     senderId: string,
   ): Promise<FeishuAttachmentOutcome> {
-    const media = msg.media!;
-    const kindLabel = media.type === "image" ? "图片" : "文件";
+    const items = this.mediaItems(msg.media!);
+    const degradeNotes: string[] = [];
 
-    // 管线未装配（旧部署未配 attachments）：降级提示
+    // 管线未装配（旧部署未配 attachments）：降级提示（按媒体类别合并）
     if (!this.deps.feishuResource || !this.deps.attachmentUpload) {
-      return { attachmentIds: [], degradeNote: `[${kindLabel}：服务器未启用附件功能]` };
+      return { attachmentIds: [], degradeNote: this.missingPipelineNote(items) };
     }
 
-    try {
-      const download = await this.deps.feishuResource.downloadMessageResource(
-        msg.messageId,
-        media.type === "image" ? media.imageKey! : media.fileKey!,
-        media.type,
-      );
-      if (!download) {
-        return { attachmentIds: [], degradeNote: `[${kindLabel}：下载失败（可能已过期或权限不足），请在网页端上传]` };
+    const ids: string[] = [];
+    for (const item of items) {
+      try {
+        const download = await this.deps.feishuResource.downloadMessageResource(
+          msg.messageId,
+          item.key,
+          item.kind,
+        );
+        if (!download) {
+          degradeNotes.push(`[${this.kindLabel(item.kind)} ${this.keyTail(item.key)}：下载失败（可能已过期或权限不足），请在网页端上传]`);
+          continue;
+        }
+        const att = await this.ingestThroughPipeline(item, download, senderId);
+        ids.push(att.id);
+      } catch (err) {
+        // 上传管线拒绝（类型白名单/大小超限）或意外异常：单项降级可见文本，其余项继续
+        const reason = err instanceof Error ? err.message : String(err);
+        this.deps.logger.warn("Feishu media ingestion failed", {
+          chatId: msg.chatId,
+          messageId: msg.messageId,
+          resourceKey: item.key,
+          error: reason,
+        });
+        degradeNotes.push(`[${this.kindLabel(item.kind)} ${this.keyTail(item.key)}：附件接收失败：${reason}]`);
       }
+    }
 
-      const att = await this.ingestThroughPipeline(msg, download, senderId);
-      const ids = [att.id];
-
-      // 注入载荷：与 Web 路径同一份策略（复用 AttachmentInjectionService 组装）。
-      // 先 validateForSend 把关（≤2 图硬限制；飞书单消息单媒体本不会超，防御未来多媒体消息）。
-      // attachmentInjection 与 feishuResource/attachmentUpload 在 platforms.ts 同块无条件装配，
-      // 上方早退守卫已挡住未装配场景，这里用非空断言与 L237 统一风格
+    // 注入载荷：与 Web 路径同一份策略（复用 AttachmentInjectionService 组装）。
+    // 先 validateForSend 把关（≤2 图硬限制；超限时整组拒绝附件、保留正文，降级提示可见）。
+    // attachmentInjection 与 feishuResource/attachmentUpload 在 platforms.ts 同块无条件装配，
+    // 早退守卫已挡未装配场景，这里用非空断言统一风格。
+    let injection: FeishuAttachmentOutcome["injection"];
+    if (ids.length > 0) {
       const validateErr = await this.deps.attachmentInjection!.validateForSend(ids);
       if (validateErr) {
-        return { attachmentIds: [], degradeNote: `[附件被拒：${validateErr}]` };
+        return { attachmentIds: [], degradeNote: this.joinNotes(degradeNotes, `[附件被拒：${validateErr}]`) };
       }
-      const injection = await this.deps.attachmentInjection!.buildInjectionPayload(ids);
-
-      this.deps.logger.info("Feishu media ingested", {
-        chatId: msg.chatId,
-        messageId: msg.messageId,
-        conversationId,
-        kind: att.kind,
-        attachmentId: att.id,
-        sizeBytes: att.sizeBytes,
-      });
-      return { attachmentIds: ids, degradeNote: null, injection };
-    } catch (err) {
-      // 上传管线拒绝（类型白名单/大小超限）或意外异常：降级可见文本
-      const reason = err instanceof Error ? err.message : String(err);
-      this.deps.logger.warn("Feishu media ingestion failed", {
-        chatId: msg.chatId,
-        messageId: msg.messageId,
-        error: reason,
-      });
-      return { attachmentIds: [], degradeNote: `[附件接收失败：${reason}]` };
+      injection = await this.deps.attachmentInjection!.buildInjectionPayload(ids);
     }
+
+    this.deps.logger.info("Feishu media ingested", {
+      chatId: msg.chatId,
+      messageId: msg.messageId,
+      conversationId,
+      itemCount: items.length,
+      successCount: ids.length,
+      degradeCount: degradeNotes.length,
+    });
+    return { attachmentIds: ids, degradeNote: this.joinNotes(degradeNotes, null), injection };
   }
 
-  /** 下载字节 → 统一上传管线（校验/resize/去重免费复用） */
+  /** 媒体载荷 → 下载项列表（image/file 单项；post 为段落媒体项列表） */
+  private mediaItems(media: FeishuMediaPayload): Array<{ kind: "image" | "file"; key: string; fileName?: string }> {
+    if (media.type === "post") {
+      return (media.postItems ?? []).map(i => ({ kind: i.kind, key: i.key, fileName: i.fileName }));
+    }
+    if (media.type === "image") return [{ kind: "image", key: media.imageKey! }];
+    return [{ kind: "file", key: media.fileKey!, fileName: media.fileName }];
+  }
+
+  private kindLabel(kind: "image" | "file"): string {
+    return kind === "image" ? "图片" : "文件";
+  }
+
+  /** 资源 key 尾串（降级提示里区分多个媒体项用；无 key 时返回空串） */
+  private keyTail(key: string): string {
+    return key.length > 0 ? key.slice(-8) : "";
+  }
+
+  private missingPipelineNote(items: Array<{ kind: string }>): string {
+    const kinds = new Set(items.map(i => i.kind));
+    const labels = [...kinds].map(k => (k === "image" ? "图片" : "文件"));
+    return `[${labels.join("/")}：服务器未启用附件功能]`;
+  }
+
+  /** 多条降级提示拼接（无提示时 null——composeBodyText 拼接时判空） */
+  private joinNotes(notes: string[], extra: string | null): string | null {
+    const all = extra ? [...notes, extra] : notes;
+    return all.length > 0 ? all.join("\n") : null;
+  }
+
+  /** 下载字节 → 统一上传管线（校验/resize/去重免费复用）。
+   *  F20260829fpst：按媒体项参数化（post 混排逐项复用，image/file 单项同路）。 */
   private async ingestThroughPipeline(
-    msg: FeishuIncomingMessage,
+    item: { kind: "image" | "file"; key: string; fileName?: string },
     download: { buffer: Buffer; fileName: string },
     senderId: string,
   ): Promise<{ id: string; kind: string; sizeBytes: number }> {
-    const media = msg.media!;
     // 飞书不推原始文件名：image 用 image_key 短串、file 用飞书携带的 file_name；
     // 后端上传管线 sanitizeOriginalName 会清洗 + magic bytes 探嗅说了算（声明名仅辅助）
-    const fileName = media.type === "image"
-      ? `feishu-${media.imageKey!.slice(-12)}.png`
-      : (media.fileName || download.fileName || `feishu-file-${media.fileKey!.slice(-8)}`);
+    const fileName = item.kind === "image"
+      ? `feishu-${item.key.slice(-12)}.png`
+      : (item.fileName || download.fileName || `feishu-file-${item.key.slice(-8)}`);
 
     return this.deps.attachmentUpload!.upload({
       stream: Readable.from(download.buffer),
       originalName: fileName,
-      declaredMimeType: media.type === "image" ? "image/png" : "application/octet-stream",
+      declaredMimeType: item.kind === "image" ? "image/png" : "application/octet-stream",
       uploaderId: senderId,
     });
   }
