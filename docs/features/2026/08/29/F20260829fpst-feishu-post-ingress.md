@@ -11,9 +11,9 @@ summary: |
   processor 的 processMedia 泛化为多附件循环——逐项下载（resource-client）、逐项走
   统一上传管线（校验/resize/去重复用）、单项失败单项降级（key 尾串区分）、全部入库后
   一次性 validateForSend（≤2 图硬限制，与 Web 同策略）。纯文本 post 不带 media 载荷
-  走原文本路径（命令 gate 零改动）。语言体定位：content.content.{lang} 取第一个可用
-  语言体（新旧版事件兼容）。根仓 170 文件 2022 用例 + web 33 文件 287 用例全绿
-  （本特性新增 17：根仓 frameworks 8 + processor 9）。
+  走原文本路径（命令 gate 零改动）。语言体定位取首个可用语言体（新旧事件兼容）。
+  根仓 171 文件 2034 用例 + web 33 文件 287 用例全绿（本特性新增 17：根仓
+  frameworks 8 + processor 9；其余增量来自合入的 main 新 PR）。
 
 # 因果链路
 causal_links:
@@ -129,8 +129,8 @@ ids 非空 → 一次性 validateForSend(ids)（≤2 图硬限制，与 Web 同�
 
 ## 4. 验证
 
-- 根仓：170 文件 2022 用例全绿（含本特性 2 个新测试文件 17 用例；其余增量
-  ~31 来自 main 新 PR，如 #554/#559）
+- 根仓：171 文件 2034 用例全绿（含本特性 2 个新测试文件 17 用例；其余增量
+  来自合入的 main 新 PR，如 #554/#556/#559/#561/#562）
 - web：33 文件 287 用例全绿（本特性 web 零改动；增量 3 来自 main）
 - tsc（根仓+web）零错 / eslint 零新告警（剩 3 个 warning 为 main 存量
   web/index.tsx react-hooks，非本次引入）/ 根仓 vite build 同 lint 通过
