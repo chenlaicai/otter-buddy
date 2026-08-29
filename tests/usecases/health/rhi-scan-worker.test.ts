@@ -285,7 +285,6 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
 
     const result = await worker.scanOnce();
-    expect(result.costOutputStored).toBe(0);
-    expect(result.signalCount).toBeGreaterThanOrEqual(1);
+    expect(result.costOutputStored).toBe(0); expect(result.signalCount).toBeGreaterThanOrEqual(1);
   });
 });
