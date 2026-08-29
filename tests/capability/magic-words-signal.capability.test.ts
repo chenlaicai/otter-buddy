@@ -33,6 +33,23 @@ function signalEventsFor(ctx: CapabilityContext, conversationId: string) {
     .all(conversationId) as Array<Record<string, unknown>>;
 }
 
+/** #560：轮询等待 halt signal 到达 resolved（快路径秒回，慢路径最长 timeoutMs）。
+ * 替代原固定 sleep(10s)：落账与大獭 speak 确认几乎同时，但存在小时序窗口（cap-run4 实测 1 次 pending）。
+ * 超时后返回最终态供断言输出诊断信息，不直接 throw——保持原断言语义 */
+async function waitForHaltSignalResolved(
+  ctx: CapabilityContext,
+  conversationId: string,
+  timeoutMs = 60_000,
+): Promise<Record<string, unknown> | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const halt = signalEventsFor(ctx, conversationId).find(s => s.type === "halt");
+    if (halt && halt.status === "resolved") return halt;
+    await new Promise(r => setTimeout(r, 2_000));
+  }
+  return signalEventsFor(ctx, conversationId).find(s => s.type === "halt");
+}
+
 describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () => {
   let ctx: CapabilityContext;
 
@@ -136,13 +153,9 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       // 旧版缺 afterSeq 直接拿陈旧消息返回，随即查 signals 时大獭尚未执行——检查过早恒 false
       const haltAnchor = latestUserSeq(await listMessages(ctx, convId));
       await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000, afterSeq: haltAnchor });
-      // 缓冲：halt signal 落账与大獭 speak 确认几乎同时，再多等一轮确保落账提交
-      await new Promise(r => setTimeout(r, 10_000));
-
-      // 断言：signal_events 落 halt 账 + resolvedBy=system 首次注入闭环
-      const signals = signalEventsFor(ctx, convId);
-      const haltSignal = signals.find(s => s.type === "halt");
-      if (!haltSignal) return { ok: false, detail: `无 halt signal 落账 signals=${JSON.stringify(signals.map(s => s.type))}` };
+      // #560：落账轮询替代固定 sleep(10s)——resolved 即刻返回；超时（60s）后返回最终态供断言诊断
+      const haltSignal = await waitForHaltSignalResolved(ctx, convId);
+      if (!haltSignal) return { ok: false, detail: `无 halt signal 落账 signals=${JSON.stringify(signalEventsFor(ctx, convId).map(s => s.type))}` };
       const resolved = haltSignal.status === "resolved";
       return {
         ok: resolved,
