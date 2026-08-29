@@ -7,6 +7,7 @@ change_type: feature-update
 scope: [readme]
 type: feature
 status: draft
+created_in_conversation: cb80d695-bce9-4b83-9f2a-98618242acd0
 ---
 
 以海獭角色为主轴重写 README 首屏，替换原有的功能列表式开头。新叙事基于两轮头脑风暴收敛的故事架构：定位句「Multi-agent system. They have names.」+ 三支柱（筏/海藻林/手艺）。
@@ -32,7 +33,7 @@ status: draft
 - 海獭集体名词 raft（英文 meme 生态已有认知）
 - 海獭用 kelp 固定幼崽防漂走 → F/R 文档锚点
 - 基石物种（keystone species）→ 记忆系统的重要性
-- 30 种海洋哺乳动物仅海獭会用工具 → skill 稀缺性
+- 海獭是极少数会使用工具的海洋哺乳动物 → skill 稀缺性
 - 妈妈教幼崽砸贝壳 → 转世交接谱系
 
 ## Changes
@@ -55,12 +56,12 @@ status: draft
 | 角度 1（毛密度） | 数字诱人但"信息密度"是虚荣指标，与批 ponytail 注水的立场矛盾 |
 | 角度 3（肚皮工作台） | "浮在工作流上方"与产品形态（独立聊天室）有出入，诚实风险 |
 | 角度 9（排泄物） | 便便梗降为内部玩笑不进正文 |
-| "基石物种"当支柱名 | 对1-star repo 太傲，降调为"海藻林"描述机制效果 |
+| "基石物种"当支柱名 | 对1-star repo 太傲，降调为"海藻林"描述机制效果（保留为海藻林段落的科普背景，拒绝当支柱名） |
 
 ## Converged Quotes
 
 - 「A group of sea otters is called a raft. They hold hands so they don't drift apart. This chat room does too.」
 - 「Multi-agent system. They have names.」
 - 「海獭用 kelp 和手拉手防止筏散开，我们用 talking stone 和记忆锚点防止任务散开。」
-- 「30 种海洋哺乳动物，只有海獭会用工具。能用 ≠ 会用。」
+- 「海獭是极少数会使用工具的海洋哺乳动物。能用 ≠ 会用。」
 - 「它不是更聪明的 AI——它是一种非灵长类的智能组织方式。」

@@ -4,16 +4,17 @@
 
 ---
 
-> A group of sea otters is called a raft. They hold hands so they don't drift apart.
-> This chat room does too.
+> 一群海獭，叫一张筏。它们手拉着手，谁也不漂走。这个聊天室也一样。
 
-**Multi-agent system. They have names.**
+**多 agent 系统，它们有名字。**
+
+*Mustelidae, not a plush toy.*
 
 ![对话界面](docs/images/conversation.jpg)
 
 ## 这是什么
 
-Otter Buddy 是一个多 Agent 协作系统——聊天室形态，记忆为核心，11 个 skill 为骨架。里面的 Agent 不是匿名的 API 调用，是有名字的团队成员：大獭负责编排，mimo 擅长推理，每个小獭按 skill 执行任务。行动权（talking stone）在参与者之间流转，写码的不审自己的码。
+Otter Buddy 是一个多 Agent 协作系统——聊天室形态，记忆为核心，11 个 skill 为骨架。里面的 Agent 不是匿名的 API 调用，是有名字的团队成员：大獭负责编排，每只小獭有自己的名字和专长，按 skill 执行任务。行动权（talking stone）在参与者之间流转，写码的不审自己的码。
 
 ## 为什么是海獭
 
@@ -35,7 +36,7 @@ Otter Buddy 是一个多 Agent 协作系统——聊天室形态，记忆为核�
 
 ### 🪨 手艺（The Craft）
 
-海獭是极少数会用工具的海洋哺乳动物——30 种里只有 1 种。但更关键的是手艺传承：妈妈花数月教幼崽砸贝壳的手艺，不同海域的技术不同。
+海獭是极少数会使用工具的海洋哺乳动物。但更关键的是手艺传承：妈妈花数月教幼崽砸贝壳的手艺，不同海域的技术不同。
 
 我们的 11 个 skill 不是 API 调用的暴露，是封装了 know-how 的行为模式——有前置条件、执行步骤、产出标准、自愈机制。小獭转世时带着前世摘要和交接谱系（gen1→gen2），术语库沉淀团队共享知识。
 

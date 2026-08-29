@@ -9,11 +9,13 @@
 
 **Multi-agent system. They have names.**
 
+*Mustelidae, not a plush toy.*
+
 ![Conversation UI](docs/images/conversation.jpg)
 
 ## What is this
 
-Otter Buddy is a multi-agent collaboration system — chat room format, memory at its core, 11 skills as its skeleton. The agents here aren't anonymous API calls. They're named team members: the Lead Otter orchestrates, mimo specializes in reasoning, and each sub-otter executes tasks by skill. The talking stone passes between participants, and whoever writes code doesn't review their own code.
+Otter Buddy is a multi-agent collaboration system — chat room format, memory at its core, 11 skills as its skeleton. The agents here aren't anonymous API calls. They're named team members: the Lead Otter orchestrates, each sub-otter has its own name and specialty, executing tasks by skill. The talking stone passes between participants, and whoever writes code doesn't review their own code.
 
 ## Why sea otters
 
@@ -35,7 +37,7 @@ The memory system is the kelp forest. Every troubleshooting session, design deci
 
 ### 🪨 The Craft
 
-Sea otters are one of the very few tool-using marine mammals — only 1 out of 30 species. But what matters more is craft transmission: mothers spend months teaching pups to crack shells, and techniques differ by region.
+Sea otters are one of the very few tool-using marine mammals. But what matters more is craft transmission: mothers spend months teaching pups to crack shells, and techniques differ by region.
 
 Our 11 skills aren't exposed API calls — they're behavioral patterns packaged with know-how: prerequisites, execution steps, output standards, self-healing mechanisms. When a sub-otter is reborn, it carries a summary of its previous life and a handoff lineage (gen1→gen2). The terminology library preserves team-wide knowledge.
 
