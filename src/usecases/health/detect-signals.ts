@@ -73,7 +73,7 @@ export function detectSignals(
   const signals: DetectedSignal[] = [];
 
   signals.push(...detectBugRecurrence(inWindow, options, now));
-  signals.push(...detectChainStall(chains));
+  signals.push(...detectChainStall(chains, now));
   signals.push(...detectHotspot(inWindow, options));
   signals.push(...detectBehaviorDefect(healingEvents, options));
   signals.push(...detectHotspotImbalance(inWindow, options));
@@ -129,25 +129,52 @@ function detectBugRecurrence(
   return signals;
 }
 
+/** 从未有关联 commit 的文档状态（零 commit 是常态，不应触发滞留信号） */
+const DOC_NEVER_STARTED_STATUSES = new Set(["draft", "proposed"]);
+
 /** chain_stall：特性链滞留（复用 ChainBuilder 的 stalled/zombie 判定） */
-function detectChainStall(chains: FeatureChain[]): DetectedSignal[] {
+function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
   const reg = SIGNAL_REGISTRY.chain_stall;
   return chains
     .filter(c => c.state === "stalled" || c.state === "zombie")
-    .map(c => ({
-      type: reg.type,
-      name: reg.name,
-      severity: reg.severity,
-      featureId: c.featureId,
-      filePath: null,
-      evidence: c.state === "zombie"
-        ? `${c.featureId} 僵尸链：30 天无 commit 且近 30 天对话零提及（doc status=${c.doc?.status ?? "?"}）`
-        : `${c.featureId} 滞留 ${c.daysSinceLastCommit} 天无 commit（doc status=${c.doc?.status ?? "?"}）`,
-      suggestedAction: reg.suggestedAction,
-    }));
+    // Why: draft/proposed 文档从未有 commit 是常态（孤儿文档），不应触发 critical 信号
+    .filter(c => {
+      if (c.commitCount === 0 && DOC_NEVER_STARTED_STATUSES.has(c.doc?.status ?? "draft")) return false;
+      return true;
+    })
+    .map(c => {
+      // Why: daysSinceLastCommit 为 null 表示从未有 commit（doc-only 链），用 createdAt 代替
+      const stallDays = c.daysSinceLastCommit ?? (
+        c.doc?.createdAt
+          ? Math.floor((now.getTime() - new Date(c.doc.createdAt).getTime()) / DAY_MS)
+          : null
+      );
+      return {
+        type: reg.type,
+        name: reg.name,
+        severity: reg.severity,
+        featureId: c.featureId,
+        filePath: null,
+        evidence: c.state === "zombie"
+          ? `${c.featureId} 僵尸链：30 天无 commit 且近 30 天对话零提及（doc status=${c.doc?.status ?? "?"}）`
+          : `${c.featureId} 滞留 ${stallDays} 天无 commit（doc status=${c.doc?.status ?? "?"}）`,
+        suggestedAction: reg.suggestedAction,
+      };
+    });
 }
 
-/** hotspot：文件修改次数超阈值（窗口内全类型 commit 计数） */
+/**
+ * 测试文件判定：tests/ 目录、__tests__/ 目录、.test./.spec. 后缀。
+ * Why: 测试文件随功能代码联动修改是正常节奏，不等于源码热点。
+ */
+function isTestFile(filePath: string): boolean {
+  return /(^|\/)tests?\//.test(filePath)
+    || /(^|\/)__tests__\//.test(filePath)
+    || /\.test\.[^/]+$/.test(filePath)
+    || /\.spec\.[^/]+$/.test(filePath);
+}
+
+/** hotspot：文件修改次数超阈值（窗口内全类型 commit 计数，排除测试文件） */
 function detectHotspot(
   commits: SignalCommitInput[],
   options: DetectOptions,
@@ -158,6 +185,8 @@ function detectHotspot(
   const fileCounts = new Map<string, number>();
   for (const c of commits) {
     for (const f of c.filesChanged) {
+      // Why: 测试文件联动修改是正常节奏，混入热点会稀释信号质量
+      if (isTestFile(f)) continue;
       fileCounts.set(f, (fileCounts.get(f) ?? 0) + 1);
     }
   }

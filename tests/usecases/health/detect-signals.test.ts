@@ -141,4 +141,59 @@ describe("detectSignals", () => {
     expect(rec.name).toBe("bug 反复出现");
     expect(rec.suggestedAction).toBe("强制根因分析");
   });
+
+  it("chain_stall：draft/proposed 文档从未有 commit 不触发（孤儿文档误报修复）", () => {
+    // Why: draft/proposed 文档从未开工是常态，不应触发 critical 信号
+    const docs = [{
+      id: "F20260801draf", title: "t", changeType: "feature", status: "draft",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains([], docs, { now: NOW });
+    // ChainBuilder 判定为 stalled（>14 天无 commit），但 detectChainStall 应过滤掉
+    expect(chains[0].state).toBe("stalled");
+    const signals = detectSignals([], chains, [], { now: NOW });
+    expect(signals.find(s => s.type === "chain_stall")).toBeUndefined();
+  });
+
+  it("chain_stall：development 文档从未有 commit 仍触发（用 createdAt 计算天数）", () => {
+    // Why: development 状态文档从未有 commit 仍值得关注，但证据应基于 createdAt
+    const docs = [{
+      id: "F20260801dev0", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/y.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains([], docs, { now: NOW });
+    expect(chains[0].state).toBe("stalled");
+    const signals = detectSignals([], chains, [], { now: NOW });
+    const stall = signals.find(s => s.type === "chain_stall");
+    expect(stall).toBeDefined();
+    expect(stall!.evidence).toContain("40 天"); // 基于 createdAt，不是 "null 天"
+  });
+
+  it("hotspot：测试文件不进入热点检测", () => {
+    const testFiles = [
+      "tests/api/helpers.ts",
+      "tests/usecases/health/detect-signals.test.ts",
+      "src/__tests__/foo.ts",
+      "src/bar.spec.ts",
+    ];
+    const commits = Array.from({ length: 12 }, (_, i) =>
+      commit(`t${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, [testFiles[i % testFiles.length]]));
+    const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
+    expect(signals.find(s => s.type === "hotspot")).toBeUndefined();
+  });
+
+  it("hotspot：源码文件仍正常检测（测试文件排除不影响源码）", () => {
+    const commits = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        commit(`ts${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["tests/foo.test.ts"])),
+      ...Array.from({ length: 5 }, (_, i) =>
+        commit(`to${i}`, i + 6, `[F20260801tstw][agent][Feature Update] ${i}`, ["src/core.ts"])),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
+    const hot = signals.find(s => s.type === "hotspot");
+    expect(hot).toBeDefined();
+    expect(hot!.filePath).toBe("src/core.ts");
+  });
 });
