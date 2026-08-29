@@ -98,6 +98,34 @@ describe("D3 交付活力", () => {
     const d3 = r.dimensions.find(d => d.dimension === "D3")!;
     expect(d3.attribution).toContain("zombie");
   });
+
+  it("zombie=0 且 regressed=0 时归因指认 orphan 而非 zombie 0 条（审视发现 1）", () => {
+    const r = computeHealthScore({
+      ...BASE_INPUT,
+      chainStates: { active: 8, orphan: 2 },
+    });
+    const d3 = r.dimensions.find(d => d.dimension === "D3")!;
+    expect(d3.score).toBe(80);
+    expect(d3.attribution).toBe("orphan 链 2 条");
+  });
+
+  it("四级优先级：regressed 压过 orphan（数量小于也优先）", () => {
+    const r = computeHealthScore({
+      ...BASE_INPUT,
+      chainStates: { active: 7, regressed: 1, orphan: 4 },
+    });
+    const d3 = r.dimensions.find(d => d.dimension === "D3")!;
+    expect(d3.attribution).toBe("regressed 链 1 条");
+  });
+
+  it("仅 stalled 时归因指认 stalled", () => {
+    const r = computeHealthScore({
+      ...BASE_INPUT,
+      chainStates: { active: 8, stalled: 2 },
+    });
+    const d3 = r.dimensions.find(d => d.dimension === "D3")!;
+    expect(d3.attribution).toBe("stalled 链 2 条");
+  });
 });
 
 describe("D4 流程合规", () => {

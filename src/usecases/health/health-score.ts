@@ -167,10 +167,9 @@ function dimensionD3(input: HealthScoreInput): DimensionScore {
     return { dimension: "D3", name: DIMENSION_NAMES.D3, score: null, status: null, attribution: null };
   }
   const score = scoreD3(chainStates);
-  const worst =
-    (chainStates["zombie"] ?? 0) >= (chainStates["regressed"] ?? 0)
-      ? `zombie 链 ${chainStates["zombie"] ?? 0} 条`
-      : `regressed 链 ${chainStates["regressed"] ?? 0} 条`;
+  const WORST_ORDER = ["zombie", "regressed", "orphan", "stalled"] as const;
+  const worstState = WORST_ORDER.find((s) => (chainStates[s] ?? 0) > 0);
+  const worst = worstState ? `${worstState} 链 ${chainStates[worstState] ?? 0} 条` : null;
   return {
     dimension: "D3",
     name: DIMENSION_NAMES.D3,
