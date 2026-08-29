@@ -26,9 +26,17 @@ export class WeixinGatewayAdapter implements WeixinGateway {
     return this.deps.accountStore.loadContextTokens(this.deps.accountId)[toUserId];
   }
 
-  async replyText(toUserId: string, text: string): Promise<void> {
+  async replyText(toUserId: string, text: string, options?: { requireContextToken?: boolean }): Promise<void> {
     const contextToken = this.resolveContextToken(toUserId);
     if (!contextToken) {
+      if (options?.requireContextToken) {
+        // F20260829wxch（#213 检视发现3）：thinking 提示消息竞态防护——
+        // 首条消息 dispatch 落盘 context_token 前触发 message.start 时，
+        // 裸发 context_token:undefined 会给微信侧协议带来未知行为，直接跳过
+        // （thinking 是可丢失的体验优化，最终回复不受影响）
+        this.deps.logger.info("Weixin thinking message skipped: no context_token yet (first-message race)", { toUserId });
+        return;
+      }
       this.deps.logger.warn("Weixin reply without context_token (对方需先发一条消息建立会话)", { toUserId });
     }
     await this.deps.api.sendTextMessage({ toUserId, contextToken, text });

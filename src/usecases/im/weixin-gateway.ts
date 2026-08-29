@@ -7,6 +7,6 @@
  *   实现层做 markdown→纯文本投影后按文本发送（协议单一 item type=1）
  */
 export interface WeixinGateway {
-  replyText(toUserId: string, text: string): Promise<void>;
+  replyText(toUserId: string, text: string, options?: { requireContextToken?: boolean }): Promise<void>;
   replyMarkdown(toUserId: string, senderLabel: string, markdown: string): Promise<void>;
 }

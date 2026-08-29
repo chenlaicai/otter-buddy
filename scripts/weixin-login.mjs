@@ -37,9 +37,9 @@ async function main() {
   const { WeixinLoginFlow } = await import("../dist/src/frameworks/weixin/login-flow.js");
 
   const logger = {
-    info: (m: string) => console.log(`[weixin-login] ${m}`),
-    warn: (m: string) => console.warn(`[weixin-login] ${m}`),
-    error: (m: string) => console.error(`[weixin-login] ${m}`),
+    info: (m) => console.log(`[weixin-login] ${m}`),
+    warn: (m) => console.warn(`[weixin-login] ${m}`),
+    error: (m) => console.error(`[weixin-login] ${m}`),
     debug: () => {},
   };
   const accountStore = new WeixinAccountStore({ stateDir });
@@ -59,7 +59,7 @@ async function main() {
     },
     onStatus: (s) => console.log(`[status] ${s}`),
     verifyCodeInput: askVerifyCode,
-    logger: logger as never,
+    logger: logger,
   });
 
   try {

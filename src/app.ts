@@ -233,7 +233,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     : undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine });
-  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit } =
+  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
 
   // ── HTTP 层 ──
@@ -299,6 +299,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dispose: async () => {
       if (disposed) return;
       disposed = true;
+      // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
+      // fetch 挂到超时、notifyStop 不调用、服务端不知客户端已断
+      weixinPollers?.forEach((p) => p.stop());
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
