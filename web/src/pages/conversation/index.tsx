@@ -263,7 +263,7 @@ function ConversationPage() {
   const loadConversationDetail = useCallback(async (convId: string) => {
     try {
       const [listResp, keyInfo, participants] = await Promise.all([
-        api.listMessages(convId, 100),
+        api.listMessages(convId, 30),
         api.getKeyResources(convId),
         api.getParticipants(convId),
       ])
@@ -375,7 +375,7 @@ function ConversationPage() {
     loadingMoreRef.current = true
     setLoadingMore(true)
     try {
-      const resp = await api.listMessages(activeId, 50, oldest.id)
+      const resp = await api.listMessages(activeId, 20, oldest.id)
       if (resp.messages.length === 0) { setHasMoreBefore(false); return }
       const olderMsgs = mapMessageDTOs(resp.messages) // DESC -> 升序
       setHasMoreBefore(resp.hasMore)
