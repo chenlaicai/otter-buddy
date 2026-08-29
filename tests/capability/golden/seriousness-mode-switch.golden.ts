@@ -40,3 +40,41 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
 export const manualReviewHint =
   "复用源测试判据（structuredSignal || structuredTool）：收到「严肃点」后回复中出现结构化信号" +
   "（询问任务 / skill 推荐 / 工具调用），且不再延续 companion 闲聊语调。记录 verdict=pass|fail|skip + judged_by 到 results.jsonl。";
+
+/**
+ * F20260828gssf: selftest 参考序列。
+ *
+ * 设计决策（F 文档记录）：manualReview 场景的 selftest 只校验 assert 函数的结构判别力
+ * （能否区分有/无结构化工具调用），不覆盖软行为判断（语调是否切换到严肃模式）。
+ * selftest 通过仅表示断言逻辑本身可区分信号有无，不表示场景行为已修复。
+ *
+ * good = 有结构化工具调用（如 search_memory）→ assert.ok = true
+ * bad  = 仅 speak/yield，无结构化工具 → assert.ok = false
+ */
+export const selftest: GoldenModule["selftest"] = {
+  good: {
+    messages: [
+      { id: "st-u1", st: "user", si: "selftest-user", content: "严肃点", status: "completed", seq: 1 },
+      {
+        id: "st-o1", st: "otter", si: "selftest-otter", content: "好的，请问需要处理什么任务？", status: "completed", seq: 2,
+        events: [
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "search_terminology" }] } },
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+        ],
+      },
+    ],
+    expectedOk: true,
+  },
+  bad: {
+    messages: [
+      { id: "st-u2", st: "user", si: "selftest-user", content: "严肃点", status: "completed", seq: 1 },
+      {
+        id: "st-o2", st: "otter", si: "selftest-otter", content: "哈哈好的呀～今天天气不错吧！", status: "completed", seq: 2,
+        events: [
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+        ],
+      },
+    ],
+    expectedOk: false,
+  },
+};
