@@ -154,6 +154,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const config = options.config ?? loadConfig(logger, options.configPath);
   initConfig(config);
 
+  // F20260829cach: prompt 缓存长留存。pi-ai 的 anthropic-messages 适配器读
+  // PI_CACHE_RETENTION 环境变量（getProviderEnvValue），值为 "long" 时 cache_control
+  // 携带 ttl="1h"，缓存命中窗口从默认 5 分钟扩到 1 小时（实测 miss 里 47.9% 来自
+  // 5 分钟 TTL 过期）。必须在首个 LLM 调用前注入；显式设 false 时尊重外部环境。
+  if (config.llm.cacheLongRetention !== false && !process.env.PI_CACHE_RETENTION) {
+    process.env.PI_CACHE_RETENTION = 'long';
+  }
+  // 检视建议（PR #573 R1）：记录 1h TTL 实际生效状态，后续排查缓存命中率时有直接证据
+  logger.info('Prompt cache long retention', {
+    piCacheRetention: process.env.PI_CACHE_RETENTION ?? '(sdk-default 5m)',
+  });
+
   if (options.syncAuth ?? true) {
     syncApiKeyToAgentAuth(config.llm, logger);
   }

@@ -293,7 +293,10 @@ export class DispatchChainEngine {
     return `系统提示：现场有小獭（${warnings}），你评估下是否顺手解散。`;
   }
 
-  /** 组装派发上下文：名册 + 具名对话历史 + 当前任务 */
+  /** 组装派发上下文：名册 + 具名对话历史 + 当前任务
+   * F20260829cach: 首部注入分钟级当前时间。原分钟级时间戳在 system prompt 身份段（每 invoke
+   * 重建即变，打断前缀缓存）；改为：system prompt 日粒度锚点（identity-builder）+ 本处
+   * 消息首部分钟级新鲜时间。本段随 user message 持久化、位于历史末尾，不占缓存前缀。 */
   async buildMessageWithContext(
     conversationId: string,
     otterId: string,
@@ -308,9 +311,13 @@ export class DispatchChainEngine {
       idleWarning = await this.buildIdleOttersWarning(conversationId, otterId);
     } catch { /* 预警失败不影响主流程 */ }
 
+    // F20260829cach: 分钟级当前时间（Asia/Shanghai）——补偿 system prompt 日粒度锚点的新鲜度损失
+    const now = new Date();
+    const timeAnchor = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+
     const unreadMessages = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
     if (unreadMessages.length === 0) {
-      let result = `${roster}\n\n## 当前任务\n${userMessageContent}`;
+      let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 当前任务\n${userMessageContent}`;
       if (idleWarning) result += `\n\n${idleWarning}`;
       return result;
     }
@@ -344,7 +351,7 @@ export class DispatchChainEngine {
       })
       .join('\n');
 
-    let result = `${roster}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+    let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
     }

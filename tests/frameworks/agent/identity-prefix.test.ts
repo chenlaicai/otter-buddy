@@ -77,10 +77,18 @@ describe("buildIdentityPrefix 分支", () => {
     expect(prefix).toContain("类型：大獭");
     expect(prefix).toContain("海獭团队的头儿");
     expect(prefix).not.toContain("name: big-otter-identity");
-    // F20260825m422a: 日期锚点注入——格式 YYYY-MM-DD HH:MM（Asia/Shanghai）
+    // F20260825m422a: 日期锚点注入——日粒度 YYYY-MM-DD（F20260829cach 改日粒度保前缀缓存稳定）
     const dateSection = extractDateSection(prefix);
     expect(dateSection).toBeDefined();
-    expect(dateSection).toMatch(/## 当前日期时间\n- 今天是 \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
+    expect(dateSection).toMatch(/## 当前日期时间\n- 今天是 \d{4}-\d{2}-\d{2}（Asia\/Shanghai）/);
+  });
+
+  it("F20260829cach: 同日两次构建结果稳定（日粒度锚点不打断 system prompt 前缀缓存）", async () => {
+    await seedOtter("o-big", "大獭", "big");
+    const p1 = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
+    const p2 = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
+    // 日内两次构建逐字节一致——分钟级时间戳时代这两次必然不同，缓存前缀必断
+    expect(p1).toBe(p2);
   });
 
   it("小獭：以 otterType 参数为准（即使 DB type 字段不一致）", async () => {
