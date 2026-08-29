@@ -35,6 +35,8 @@ import { ConnectionController } from "@interface-adapters/http/controllers/conne
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
 import { WorkspaceController } from "@interface-adapters/http/controllers/workspace-controller";
+import { WeixinConnectionController } from "@interface-adapters/http/controllers/weixin-connection-controller";
+import type { WeixinLoginSessionPort, WeixinAccountStorePort } from "@interface-adapters/http/controllers/weixin-connection-controller";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
@@ -78,10 +80,25 @@ export interface ControllerDeps {
   /** 多模态 Phase 1：附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
   attachmentRepo?: AttachmentRepository;
   attachmentStorageRoot?: string;
+  /** 微信连接管理（issue #566）：登录会话管理 + 账号 store */
+  weixinLoginSessions?: WeixinLoginSessionPort;
+  weixinAccountStore?: WeixinAccountStorePort;
+  onWeixinAccountDeleted?: (accountId: string) => void;
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo } = deps;
+
+  /** issue #566：微信连接控制器（端口注入；拆出降 initControllers 复杂度） */
+  const buildWeixinController = () =>
+    deps.weixinLoginSessions && deps.weixinAccountStore
+      ? new WeixinConnectionController({
+          loginSessions: deps.weixinLoginSessions,
+          accountStore: deps.weixinAccountStore,
+          onAccountDeleted: deps.onWeixinAccountDeleted,
+          logger,
+        })
+      : undefined;
 
   const settings: SettingsConfig = {
     port: appConfig.server.port,
@@ -138,5 +155,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     ),
     // 工作区文件浏览（只读）——manageWorkspace 可选注入
     workspace: uc.manageWorkspace ? new WorkspaceController(uc.manageWorkspace, logger) : undefined,
+    // 微信连接管理（issue #566）——登录会话管理器注入时挂载
+    weixin: buildWeixinController(),
   };
 }

@@ -1,4 +1,6 @@
 import type { AppConfig } from "@frameworks/config";
+import fsSync from "node:fs";
+import yaml from "js-yaml";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";
@@ -41,7 +43,8 @@ import { FeishuResourceClient } from "@frameworks/feishu/resource-client";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import { WeixinApiClient } from "@frameworks/weixin/api-client";
-import { WeixinAccountStore } from "@frameworks/weixin/account-store";
+import { WeixinAccountStore, type WeixinAccount } from "@frameworks/weixin/account-store";
+import type { WeixinConfig } from "@frameworks/weixin/types";
 import { WeixinPollingChannel } from "@frameworks/weixin/polling-channel";
 
 import { WeixinMessageChannel } from "@usecases/im/weixin-message-channel";
@@ -305,13 +308,36 @@ export function startWeixinChannels(options: {
   const accountStore = new WeixinAccountStore(weixinConfig);
   const accounts = accountStore.listAccounts();
   if (accounts.length === 0) {
-    logger.info("Weixin channel enabled but no logged-in account — run `npm run weixin:login` to start QR login");
+    logger.info("Weixin channel enabled but no logged-in account — run `npm run weixin:login` or web UI to start QR login");
     return [];
   }
 
   const pollers: WeixinPollingChannel[] = [];
   for (const account of accounts) {
-    try {
+    const poller = startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account });
+    if (poller) pollers.push(poller);
+  }
+  return pollers;
+}
+
+/** 单账号启动参数（初始启动与热启动共用） */
+interface StartWeixinAccountOptions {
+  appConfig: AppConfig;
+  repos: Repositories;
+  uc: UseCases;
+  agentInvoker: AgentInvoker;
+  dispatchChainEngine: DispatchChainEngine;
+  messageBroadcaster: MessageBroadcaster;
+  logger: Logger;
+  accountStore: WeixinAccountStore;
+  weixinConfig: WeixinConfig;
+  account: WeixinAccount;
+}
+
+/** 单账号启动（初始启动与 web 扫码登录热启动共用，issue #566） */
+function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
+  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account } = options;
+  try {
       const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger });
       // 出站：广播总线注册（与飞书同模式）
@@ -342,13 +368,38 @@ export function startWeixinChannels(options: {
         logger,
       });
       poller.start();
-      pollers.push(poller);
       logger.info("Weixin polling channel started", { accountId: account.id, ilinkUserId: account.ilinkUserId });
+      return poller;
     } catch (err) {
       logger.error("Failed to start Weixin account poller", err instanceof Error ? err : undefined, { accountId: account.id });
+      return undefined;
     }
+}
+
+/**
+ * web 扫码登录成功后热启动单账号（issue #566）：不重启进程把轮询拉起。
+ * 调用方组装 weixinConfig（config 无 weixin 段时用默认值 + 登录回传的 partnerUserId）。
+ */
+export function hotStartWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
+  return startWeixinAccount(options);
+}
+
+export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: string; ilinkUserId?: string; logger?: Logger }): void {
+  const configPath = opts.configPath ?? "./config.yaml";
+  try {
+    const raw = yaml.load(fsSync.readFileSync(configPath, "utf8")) as Record<string, unknown> | null;
+    if (raw?.weixin) return; // 幂等
+    if (raw) {
+      (raw as { weixin?: unknown }).weixin = {
+        ...(opts.stateDir ? { stateDir: opts.stateDir } : {}),
+        ...(opts.ilinkUserId ? { partnerUserId: opts.ilinkUserId } : {}),
+      };
+      fsSync.writeFileSync(configPath, yaml.dump(raw), "utf8");
+      opts.logger?.info("config.yaml weixin section ensured", { configPath });
+    }
+  } catch (err) {
+    opts.logger?.warn("ensureWeixinConfig failed", { error: err instanceof Error ? err.message : String(err) });
   }
-  return pollers;
 }
 
 export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger }): Promise<PlatformBootstrapResult> {

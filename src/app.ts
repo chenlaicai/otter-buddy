@@ -37,8 +37,12 @@ import { buildOtterToolClient } from "./bootstrap/clients";
 import {
   createAgentGateway, createDispatchChainEngine, initAgentAndScheduler,
   createFeishuBundle, initPlatforms, setupFeishu, type FeishuBundle,
+  hotStartWeixinAccount, ensureWeixinConfig,
 } from "./bootstrap/platforms";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
+import { WeixinAccountStore } from "@frameworks/weixin/account-store";
+import { WeixinLoginSessionManager } from "@frameworks/weixin/login-session-manager";
+import type { WeixinPollingChannel } from "@frameworks/weixin/polling-channel";
 import { initControllers } from "./bootstrap/controllers";
 import { buildHttpApp } from "./bootstrap/server";
 import { initMetricsRegistry } from "@frameworks/metrics/registry";
@@ -254,6 +258,41 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
 
+  // ── 微信 web 登录（issue #566）：零配置可用 ──
+  // config 无 weixin 段时也能发起扫码（登录会话用默认网关 + 默认 stateDir）；
+  // 登录成功后：ensureWeixinConfig 补写 config.yaml + 热启动轮询，重启后常驻生效。
+  // 注：账号删除后的轮询停止由 controller 层回调处理（此处闭包注入 stop 逻辑）
+  const weixinAccountStore = new WeixinAccountStore(config.weixin ?? {});
+  const extraWeixinPollers: WeixinPollingChannel[] = [];
+  const stopWeixinPoller = (accountId: string, pool: WeixinPollingChannel[]): boolean => {
+    const idx = pool.findIndex((p) => p.accountId === accountId);
+    if (idx >= 0) {
+      pool[idx].stop();
+      pool.splice(idx, 1);
+      return true;
+    }
+    return false;
+  };
+  const weixinLoginSessions = new WeixinLoginSessionManager({
+    baseUrl: config.weixin?.baseUrl,
+    accountStore: weixinAccountStore,
+    logger,
+    onSuccess: (accountId, ilinkUserId) => {
+      // partnerUserId = 命令门禁锚定的扫码人（命令重启后仍生效）；config 无 weixin 段时兜底注入
+      ensureWeixinConfig({ stateDir: config.weixin?.stateDir, ilinkUserId, logger });
+      const account = weixinAccountStore.getAccount(accountId);
+      if (!account) return;
+      const poller = hotStartWeixinAccount({
+        appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger,
+        accountStore: weixinAccountStore,
+        // config 无 weixin 段时用默认配置 + 扫码人作为 partner（命令门禁锚定）
+        weixinConfig: config.weixin ?? { partnerUserId: account.ilinkUserId ?? ilinkUserId },
+        account,
+      });
+      if (poller) extraWeixinPollers.push(poller);
+    },
+  });
+
   // ── HTTP 层 ──
   // PR-2：创建 profile 聚合 use case（warmup 后 ResourceLoader 可用）
   const resourceLoader = agentGateway.getResourceLoader();
@@ -275,6 +314,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     signalEventRepo: repos.signalEvent,
     // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
     attachmentRepo: repos.attachment,
+    // 微信连接管理（issue #566）
+    weixinLoginSessions,
+    weixinAccountStore,
+    onWeixinAccountDeleted: (accountId) => {
+      // 账号删除：停轮询（热启动池 + 初始启动池都查；初始池删除后无法 splice
+      // 因为 weixinPollers 在别处持有——stop 即可，数组残留无害：进程生命周期内
+      // 它不再拉起新轮询，长轮询 35s 超时后自然停止）
+      const stopped = stopWeixinPoller(accountId, extraWeixinPollers);
+      if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
+      logger.info("Weixin account deleted; poller stopped", { accountId });
+    },
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");
@@ -320,6 +370,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
       // fetch 挂到超时、notifyStop 不调用、服务端不知客户端已断
       weixinPollers?.forEach((p) => p.stop());
+      // issue #566：web 登录热启动的轮询同样要停（dispose 单独数组）
+      extraWeixinPollers.forEach((p) => p.stop());
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();
