@@ -31,6 +31,23 @@ export const FACT_CONTENT_MAX_LENGTH = 500;
 export const FACT_CONTENT_TOO_LONG_MESSAGE =
   "fact 类型资源的 content 不能超过 500 字符。长内容（方案、设计文档等）请先用 write 工具写入文件，再创建 resourceType='file' 的资源指向文件路径。";
 
+/** F20260829gvid（#580）：强制带 groupId 的资源类型。
+ *  这些类型是「一次特性交付」的组成产物（PR/worktree/分支），漏传 groupId 会让
+ *  list_artifacts 按组检索落空——gssf/ptun 两次都是检视抓到才补。fact/url/file 可独立
+ * 存在（散点事实/外部链接/临时文件），维持可选。 */
+export const GROUP_ID_REQUIRED_TYPES = new Set(["pr", "worktree", "branch"]);
+
+export const GROUP_ID_REQUIRED_MESSAGE_PREFIX = "pr/worktree/branch 类型资源必须提供 groupId（特性文档编号，如 F20260829xxxx）";
+
+export function validateGroupIdRequired(resourceType: string, groupId: string | undefined | null): DomainError | null {
+  if (!GROUP_ID_REQUIRED_TYPES.has(resourceType)) return null;
+  if (groupId && groupId.trim().length > 0) return null;
+  return new DomainError(
+    `${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（gssf/ptun 两次案例，#580）`,
+    "validation",
+  );
+}
+
 export class ManageKeyInfo {
   constructor(
     private readonly repo: ConversationRepository,
@@ -84,6 +101,10 @@ export class ManageKeyInfo {
 
   async linkResource(input: LinkedResourceInput, currentTurnNumber = 0): Promise<LinkedResource> {
     this.validateInput(input);
+    // F20260829gvid（#580）：直接创建 pr/worktree/branch 时 groupId 必填。supersede 路径不走
+    // 这里（走 supersedeResource，允许继承旧组）——两条路径分开校验。
+    const groupIdErr = validateGroupIdRequired(input.resourceType, input.groupId);
+    if (groupIdErr) throw groupIdErr;
     const resource = this.buildResource(input, currentTurnNumber);
     await this.repo.linkResource(resource);
     await this.memoryIndex.indexLinkedResource(resource.id, resource.conversationId, this.getIndexContent(resource), resource.resourceType);
@@ -102,6 +123,11 @@ export class ManageKeyInfo {
     if (!canTransitionArtifactStatus(existing.status, "superseded")) {
       throw new DomainError(`Cannot supersede resource in status '${existing.status}'`, "conflict");
     }
+
+    // F20260829gvid（#580）：supersede 校验 effective groupId（新输入优先，缺省继承旧组）。
+    // 「无 groupId 重建 + supersede」是漏传的既定补救路径（ptun 案例实际用过），此处不能一刀切。
+    const groupIdErr = validateGroupIdRequired(newInput.resourceType, newInput.groupId ?? existing.groupId);
+    if (groupIdErr) throw groupIdErr;
 
     const newResource = this.buildResource(newInput, currentTurnNumber, existing.groupId);
     await this.repo.supersedeLinkedResource(existingId, newResource, currentTurnNumber);

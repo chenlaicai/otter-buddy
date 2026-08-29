@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
+import { migrateDatabase } from "@frameworks/db/migration";
+import { createTestLogger } from "../../../helpers/logger";
 import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 import type { ScheduledTask, ScheduledTaskExecution } from "@entities/scheduled-task/scheduled-task";
 
@@ -38,6 +40,7 @@ function createTaskFixture(overrides: Partial<ScheduledTask> = {}): ScheduledTas
     lastTriggeredAt: null,
     restartBeforeInvoke: false,
     timeoutMinutes: null,
+    executorType: 'agent',
     createdAt: "2026-07-22T00:00:00Z",
     updatedAt: "2026-07-22T00:00:00Z",
     ...overrides,
@@ -94,8 +97,20 @@ describe("SqliteScheduledTaskRepository - 任务 CRUD", () => {
       expect(result!.consecutiveFailures).toBe(0);
       expect(result!.lastTriggeredAt).toBeNull();
       expect(result!.timeoutMinutes).toBeNull();
+      expect(result!.executorType).toBe('agent');
+      expect(result!.functionName).toBeUndefined();
       expect(result!.createdAt).toBe("2026-07-22T00:00:00Z");
       expect(result!.updatedAt).toBe("2026-07-22T00:00:00Z");
+    });
+
+    it("function executor 落库后读取 executorType='function' + functionName 正确", async () => {
+      const task = createTaskFixture({ executorType: 'function', functionName: 'match_orders' });
+      await repo.create(task);
+
+      const result = await repo.getById("task-1");
+      expect(result).not.toBeNull();
+      expect(result!.executorType).toBe('function');
+      expect(result!.functionName).toBe('match_orders');
     });
 
     it("不存在的 id 返回 null", async () => {
@@ -427,5 +442,75 @@ describe("timeout_minutes 持久化 (#516)", () => {
     await repo.create(createTaskFixture({ id: "task-legacy", timeoutMinutes: null }));
     const task = await repo.getById("task-legacy");
     expect(task?.timeoutMinutes).toBeNull();
+  });
+});
+
+describe("executor_type / function_name 持久化 (PR4)", () => {
+  let db: Database.Database;
+  let repo: SqliteScheduledTaskRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    insertConversation(db, "conv-1");
+    repo = new SqliteScheduledTaskRepository(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("function executor 落库后读回 executorType='function' + functionName='match_orders'", async () => {
+    await repo.create(createTaskFixture({ executorType: 'function', functionName: 'match_orders' }));
+    const result = await repo.getById("task-1");
+    expect(result!.executorType).toBe('function');
+    expect(result!.functionName).toBe('match_orders');
+  });
+
+  it("update executorType 后读回正确", async () => {
+    await repo.create(createTaskFixture({ executorType: 'agent' }));
+    const task = (await repo.getById("task-1"))!;
+    await repo.update({ ...task, executorType: 'function', functionName: 'sync_data' });
+    const result = await repo.getById("task-1");
+    expect(result!.executorType).toBe('function');
+    expect(result!.functionName).toBe('sync_data');
+  });
+
+  it("老库迁移：无 executor_type/function_name 列 → 跑 migration → 列存在", () => {
+    // 用 initSchema 创建完整库，然后手动 DROP 这两列模拟老库
+    const oldDb = new Database(":memory:");
+    oldDb.pragma("foreign_keys = ON");
+    initSchema(oldDb, createTestLogger());
+
+    // DROP 这两列模拟老库（SQLite 3.35+ 支持 DROP COLUMN）
+    oldDb.exec('ALTER TABLE scheduled_tasks DROP COLUMN executor_type');
+    oldDb.exec('ALTER TABLE scheduled_tasks DROP COLUMN function_name');
+
+    // 确认迁移前无这两列
+    const colsBefore = oldDb.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+    expect(colsBefore.some(c => c.name === 'executor_type')).toBe(false);
+    expect(colsBefore.some(c => c.name === 'function_name')).toBe(false);
+
+    // 跑迁移
+    migrateDatabase(oldDb, createTestLogger());
+
+    // 确认迁移后列存在
+    const colsAfter = oldDb.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+    expect(colsAfter.some(c => c.name === 'executor_type')).toBe(true);
+    expect(colsAfter.some(c => c.name === 'function_name')).toBe(true);
+
+    // 确认默认值正确（老数据应默认为 'agent'）
+    oldDb.prepare(`
+      INSERT INTO conversations (id, title, created_at, updated_at)
+      VALUES ('conv-1', 'test', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+    `).run();
+    oldDb.prepare(`
+      INSERT INTO scheduled_tasks (id, conversation_id, name, cron, body, talking_stone_passed_to, sender_id, created_at, updated_at)
+      VALUES ('old-task', 'conv-1', 'old task', '0 9 * * *', 'test body', '[]', 'user-1', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+    `).run();
+    const row = oldDb.prepare('SELECT executor_type, function_name FROM scheduled_tasks WHERE id = ?').get('old-task') as { executor_type: string; function_name: string | null };
+    expect(row.executor_type).toBe('agent');
+    expect(row.function_name).toBeNull();
+
+    oldDb.close();
   });
 });

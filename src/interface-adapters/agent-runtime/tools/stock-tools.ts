@@ -29,6 +29,8 @@ const MAX_OUTPUT_CHARS = 15_000;
 /**
  * 探测 Python 解释器路径。
  * 优先级：STOCK_PYTHON 环境变量 > <repo>/.venv-stock/bin/python > 系统 python3
+ * N3 注意：此函数与 stock-quote-gateway-impl.ts 中的实现完全一致，
+ * 单边修改时需同步另一处。原因：interface-adapters 层不能导入 frameworks 层。
  */
 function resolvePython(repoRoot: string): string {
   const envPython = process.env.STOCK_PYTHON;

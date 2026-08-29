@@ -39,6 +39,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     lastTriggeredAt: null,
     restartBeforeInvoke: false,
     timeoutMinutes: null,
+    executorType: 'agent',
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
     ...overrides,

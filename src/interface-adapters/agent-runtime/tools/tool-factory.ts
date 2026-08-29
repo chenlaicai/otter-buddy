@@ -6,7 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
-import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE } from "@usecases/conversation/manage-key-info";
+import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
@@ -14,10 +14,12 @@ import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, i
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createStockDataTool } from "./stock-tools";
+import { createPaperTradeTool } from "./paper-trade-tool";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
+import type { Ledger } from "@usecases/paper-trading/ledger";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 // R20260817arnt PR-B：领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
@@ -383,7 +385,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
+    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径；pr/worktree/branch 类型必须带 groupId=特性文档编号（否则报错，#580）. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
     parameters: {
       type: "object",
       properties: {
@@ -392,7 +394,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         content: { type: "string", description: "事实文本内容（fact 必填，≤500 字符的简短摘要）" },
         title: { type: "string", description: "资源标题" },
         category: { type: "string", description: "分类标签（fact 类型可选）" },
-        groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）" },
+        groupId: { type: "string", description: "特性分组 ID（特性文档编号，如 F20260720xxxx）。pr/worktree/branch 类型必填" },
       },
       required: ["resourceType"],
     },
@@ -409,6 +411,15 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       } else {
         if (!params.url || (params.url as string).trim().length === 0) {
           return errorResponse(`[错误] resourceType 为 '${resourceType}' 时，url 不能为空。请提供资源 URL 或路径。`);
+        }
+      }
+      // F20260829gvid（#580）：pr/worktree/branch 是特性交付产物，漏传 groupId 会让 list_artifacts
+      // 按组检索落空（gssf/ptun 两次检视才补的案例）。与 domain 层 validateGroupIdRequired
+      // 同口径（双层校验先例：fact 长度）。纯空白视为漏传。
+      if (GROUP_ID_REQUIRED_TYPES.has(resourceType)) {
+        const groupId = params.groupId as string | undefined;
+        if (!groupId || groupId.trim().length === 0) {
+          return errorResponse(`[错误] ${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（gssf/ptun 两次案例，#580）。请先用 list_artifacts 或 search_memory 查找当前对话对应的特性文档编号。`);
         }
       }
       const turnNumber = await ctx.client.conversation.getActiveTurnNumber(ctx.conversationId);
@@ -756,7 +767,8 @@ function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
   };
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
+// eslint-disable-next-line max-params -- PR4: paperLedger needs injection to avoid frameworks dependency
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask, paperLedger?: { ledger: Ledger; getAccountId: () => string | undefined }): AgentTool[] {
   // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
   const signalRepo = ctx.signalRepo;
   const tools: AgentTool[] = [
@@ -800,6 +812,10 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   }
   // stock_data: 无外部依赖，直接注册
   tools.push(createStockDataTool(ctx));
+  // paper_trade: 纸面交易工具（注入 Ledger，避免 interface-adapters 直接依赖 frameworks）
+  if (paperLedger) {
+    tools.push(createPaperTradeTool(ctx, paperLedger.ledger, paperLedger.getAccountId));
+  }
   // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
   // small 型 whitelist 不含 halt_otter，天然隔离；query_signals 两型均可用）
   if (signalRepo) {

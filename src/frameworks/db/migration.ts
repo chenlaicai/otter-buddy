@@ -92,6 +92,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260815rstrt：scheduled_tasks 表添加 restart_before_invoke 列 */
   addRestartBeforeInvokeColumn(db, logger);
   addTimeoutMinutesColumn(db, logger);
+  addExecutorTypeColumns(db, logger);
 
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
@@ -359,6 +360,19 @@ function addTimeoutMinutesColumn(db: Database.Database, logger: Logger): void {
 
   db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN timeout_minutes INTEGER").run();
   logger.info('Added timeout_minutes column to scheduled_tasks table (#516)');
+}
+
+/** PR4: scheduled_tasks 表添加 executor_type + function_name 列（function executor 支持）。PRAGMA 探测幂等。 */
+function addExecutorTypeColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'executor_type')) {
+    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN executor_type TEXT NOT NULL DEFAULT 'agent'").run();
+    logger.info('Added executor_type column to scheduled_tasks table');
+  }
+  if (!columns.some(col => col.name === 'function_name')) {
+    db.prepare('ALTER TABLE scheduled_tasks ADD COLUMN function_name TEXT').run();
+    logger.info('Added function_name column to scheduled_tasks table');
+  }
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

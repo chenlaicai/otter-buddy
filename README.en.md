@@ -69,34 +69,13 @@ If you're tired of AI that starts from scratch every conversation, AI-generated 
 - npm
 - LLM API Key (OpenAI or Anthropic)
 
-### Install dependencies
-
-```bash
-# Backend dependencies (prepare script auto-sets git hooks path)
-npm install
-
-# Frontend dependencies
-cd web && npm install && cd ..
-```
-
-#### Verify git hooks are active
-
-`npm install`'s `prepare` script runs `git config core.hooksPath .githooks`, pointing hooks at the repo's `.githooks/` (commit-msg / pre-commit / pre-push / pre-merge-commit). If this config gets overridden by external tools or environment, all hooks silently stop working (#476, F20260821kgts). Verify after install:
-
-```bash
-git config core.hooksPath
-# Expected: .githooks (relative path; if other value or missing directory, re-run npm run prepare)
-```
-
 ### Configure
-
-Copy the config template and fill in your values:
 
 ```bash
 cp config/config.yaml.example config/config.yaml
 ```
 
-Edit `config/config.yaml` — at minimum, set these required fields:
+Edit `config/config.yaml` and set your LLM API Key:
 
 ```yaml
 llm:
@@ -104,12 +83,39 @@ llm:
     - alias: default
       provider: openai      # openai / anthropic / kimi-coding
       model: gpt-4o
-      apiKey: sk-...        # LLM API Key
+      apiKey: sk-...        # Your LLM API Key
 ```
 
 > `config/config.yaml` is in `.gitignore` and will not be committed.
 
-#### Migrating from .env
+### Start
+
+```bash
+./scripts/otter-buddy.sh start
+```
+
+The startup script automatically: installs dependencies → builds backend → builds frontend → starts the server.
+
+Open http://localhost:3000 to start chatting.
+
+> Custom port: `./scripts/otter-buddy.sh start -p 3001`. `stop` / `restart` / `status` commands work the same way.
+
+## Advanced Configuration
+
+### Startup script
+
+`scripts/otter-buddy.sh` provides service management commands, supporting multiple worktrees on different ports:
+
+```bash
+./scripts/otter-buddy.sh start [-p port]   # Build and start
+./scripts/otter-buddy.sh stop [-p port]    # Stop
+./scripts/otter-buddy.sh restart [-p port] # Restart
+./scripts/otter-buddy.sh status            # Check status
+```
+
+Each worktree manages its own service independently. `stop`/`restart` only affects the current worktree. If the port is occupied by another worktree, the script shows the PID for you to decide.
+
+### Migrating from .env
 
 If you previously used `.env`, map your environment variables to `config/config.yaml`:
 
@@ -121,7 +127,7 @@ If you previously used `.env`, map your environment variables to `config/config.
 | `OTTER_BUDDY_PORT` | `server.port` |
 | `OTTER_BUDDY_DB_PATH` | `database.path` |
 
-#### Model Input Capability Declaration (multimodal, required reading)
+### Model Input Capability Declaration (multimodal)
 
 `llm.models[]` supports an optional `input` field to explicitly declare model input capabilities — **this is the single source of truth for image injection downgrade**:
 
@@ -138,63 +144,21 @@ llm:
 
 Rule (confirmed by F20260827mmdu): **Models without vision must explicitly declare `input: ["text"]`** — the anthropic provider template defaults to `input: ["text","image"]`. Without declaration, SDK injects images into models that can't see them, producing hallucinations (glm-5.3 returns 200 but thinking says "can't see images"). With declaration, SDK's `downgradeUnsupportedImages` automatically downgrades to text placeholders.
 
-### Build frontend
+### Verify git hooks
+
+`npm install`'s `prepare` script runs `git config core.hooksPath .githooks`, pointing hooks at the repo's `.githooks/` (commit-msg / pre-commit / pre-push / pre-merge-commit). If this config gets overridden by external tools or environment, all hooks silently stop working (#476, F20260821kgts). Verify after install:
 
 ```bash
-cd web && npm run build && cd ..
+git config core.hooksPath
+# Expected: .githooks (relative path; if other value or missing directory, re-run npm run prepare)
 ```
 
-### Start the system
+### Contributing
 
-```bash
-# Option 1: Use startup script (recommended)
-./scripts/otter-buddy.sh start              # Default port 3000
-./scripts/otter-buddy.sh start -p 3001      # Custom port
+**Issues are welcome** — bug reports, ideas, and feature suggestions are all valuable contributions.
+**Pull requests are not accepted for now.** This is a personal research project; the maintainer's bandwidth is limited. If you'd like to see a change, please open an issue describing it instead.
 
-# Option 2: Direct npm
-npm start
-```
-
-Open http://localhost:3000 to start chatting.
-
-#### Startup script
-
-`scripts/otter-buddy.sh` provides service management commands, supporting multiple worktrees on different ports:
-
-```bash
-./scripts/otter-buddy.sh start [-p port]   # Build and start
-./scripts/otter-buddy.sh stop [-p port]    # Stop
-./scripts/otter-buddy.sh restart [-p port] # Restart
-./scripts/otter-buddy.sh status            # Check status
-```
-
-Each worktree manages its own service independently. `stop`/`restart` only affects the current worktree.
-
-### Development mode
-
-Run frontend and backend separately with hot reload:
-
-```bash
-# Terminal 1: Backend (TypeScript compile + start)
-npm start
-
-# Terminal 2: Frontend (Vite dev server, proxies /api to backend)
-cd web && npm run dev
-```
-
-Frontend dev server runs at http://localhost:5173 and automatically proxies `/api` requests to the backend at `http://localhost:3000`.
-
-### Run tests
-
-```bash
-npm test
-```
-
-### Full check (lint + build)
-
-```bash
-npm run check
-```
+For internal development conventions, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## System Architecture
 
