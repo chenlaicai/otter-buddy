@@ -130,7 +130,7 @@ function detectBugRecurrence(
 }
 
 /** 从未有关联 commit 的文档状态（零 commit 是常态，不应触发滞留信号） */
-const DOC_NEVER_STARTED_STATUSES = new Set(["draft", "proposed"]);
+const DOC_NEVER_STARTED_STATUSES = new Set(["draft", "proposed", "design"]);
 
 /** chain_stall：特性链滞留（复用 ChainBuilder 的 stalled/zombie 判定） */
 function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
@@ -168,10 +168,10 @@ function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
  * Why: 测试文件随功能代码联动修改是正常节奏，不等于源码热点。
  */
 function isTestFile(filePath: string): boolean {
-  return /(^|\/)tests?\//.test(filePath)
-    || /(^|\/)__tests__\//.test(filePath)
-    || /\.test\.[^/]+$/.test(filePath)
-    || /\.spec\.[^/]+$/.test(filePath);
+  return /(^|\/)tests?\//i.test(filePath)
+    || /(^|\/)__tests__\//i.test(filePath)
+    || /\.test\.[^/]+$/i.test(filePath)
+    || /\.spec\.[^/]+$/i.test(filePath);
 }
 
 /** hotspot：文件修改次数超阈值（窗口内全类型 commit 计数，排除测试文件） */

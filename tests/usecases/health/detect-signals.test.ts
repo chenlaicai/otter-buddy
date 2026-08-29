@@ -196,4 +196,26 @@ describe("detectSignals", () => {
     expect(hot).toBeDefined();
     expect(hot!.filePath).toBe("src/core.ts");
   });
+
+  it("chain_stall：design 文档从未有 commit 不触发（design 状态过滤）", () => {
+    // Why: design 文档从未开工是常态（项目规划阶段），不应触发 critical 信号
+    const docs = [{
+      id: "F20260801desg", title: "t", changeType: "feature", status: "design",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/z.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains([], docs, { now: NOW });
+    // ChainBuilder 判定为 stalled（>14 天无 commit），但 detectChainStall 应过滤掉
+    expect(chains[0].state).toBe("stalled");
+    const signals = detectSignals([], chains, [], { now: NOW });
+    expect(signals.find(s => s.type === "chain_stall")).toBeUndefined();
+  });
+
+  it("hotspot：大写 Tests/ 目录也排除（大小写不敏感）", () => {
+    // Why: 某些项目使用大写 Tests/ 目录，应同样排除
+    const commits = Array.from({ length: 12 }, (_, i) =>
+      commit(`tc${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["Tests/helpers.ts"]));
+    const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
+    expect(signals.find(s => s.type === "hotspot")).toBeUndefined();
+  });
 });

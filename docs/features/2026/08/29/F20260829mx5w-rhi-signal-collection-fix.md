@@ -29,22 +29,32 @@ tags: [rhi, signal-detection, bugfix]
 
 **修改文件**: `src/usecases/health/detect-signals.ts`
 
-- 新增 `DOC_NEVER_STARTED_STATUSES` 常量（draft, proposed）
-- `detectChainStall` 函数中过滤掉 `commitCount === 0` 且文档状态为 draft/proposed 的链
+- 新增 `DOC_NEVER_STARTED_STATUSES` 常量（draft, proposed, design）
+- `detectChainStall` 函数中过滤掉 `commitCount === 0` 且文档状态为 draft/proposed/design 的链
 - 对于仍有链的 doc-only 链（如 development 状态但无 commit），用 `createdAt` 替代 `daysSinceLastCommit`
 
 **语义说明**：
-- draft/proposed 文档从未有 commit 是常态（项目初始化、文档规划阶段），不应触发 critical 信号
-- development/design 状态文档从未有 commit 仍值得关注（可能是启动后遗忘），但证据应基于 createdAt 而非显示 "null 天"
+- draft/proposed/design 文档从未有 commit 是常态（项目初始化、文档规划阶段），不应触发 critical 信号
+- development 状态文档从未有 commit 仍值得关注（可能是启动后遗忘），但证据应基于 createdAt 而非显示 "null 天"
 
 ### Fix 2: hotspot 测试文件排除
 
 **修改文件**: `src/usecases/health/detect-signals.ts`
 
-- 新增 `isTestFile` 判定函数，匹配 `tests/`、`__tests__/`、`*.test.*`、`*.spec.*` 路径模式
+- 新增 `isTestFile` 判定函数，匹配 `tests/`、`__tests__/`、`*.test.*`、`*.spec.*` 路径模式（大小写不敏感）
 - `detectHotspot` 函数中跳过测试文件的计数
 
 **语义说明**：测试文件随功能修改联动更新是正常节奏，与源码热点语义不同；混入热点会稀释信号质量
+
+### Fix 3: signal-pipeline 自动 resolve 逻辑
+
+**修改文件**: `src/usecases/health/signal-pipeline.ts`
+
+- `process()` 函数在完成信号 upsert 后，检查所有 open 状态信号
+- 对比当前扫描检测到的信号 key（signal_type + feature_id + file_path）
+- 不再触发的信号自动标记为 resolved，避免孤儿信号永久 open
+
+**语义说明**：信号生命周期应与实际问题状态一致——问题消失后信号应自动关闭，而非永久 open。这是 issue #584 验收标准 #4 的明文要求。
 
 ## 测试覆盖
 
@@ -66,7 +76,7 @@ tags: [rhi, signal-detection, bugfix]
 |------|---------|
 | `src/usecases/health/detect-signals.ts` | 修复 chain_stall 过滤 + hotspot 排除 |
 | `tests/usecases/health/detect-signals.test.ts` | 新增 4 个测试用例 |
-| `docs/features/2026/08/29/F202608298slt-rhi-signal-collection-fix.md` | 特性文档（本文件） |
+| `docs/features/2026/08/29/F20260829mx5w-rhi-signal-collection-fix.md` | 特性文档（本文件） |
 
 ## 顺带核实
 
