@@ -65,6 +65,98 @@ function parseLatestDistributions(
   return out;
 }
 
+/** cost_output 趋势序列构建（#583） */
+function buildCostTrendSeries(
+  costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>,
+): Array<Record<string, number | string>> {
+  const AGGREGATE_KEYS = new Set(["total_tokens", "cost_total", "llm_call_count", "message_count"]);
+  const byDate = new Map<string, Record<string, number>>();
+  for (const row of costRows) {
+    const point = byDate.get(row.snapshot_date) ?? {};
+    if (AGGREGATE_KEYS.has(row.metric_key)) {
+      point[row.metric_key] = (point[row.metric_key] ?? 0) + row.metric_value;
+    } else if (row.metric_key === "cache_hit_rate") {
+      point._cache_hit_sum = (point._cache_hit_sum ?? 0) + row.metric_value;
+      point._cache_hit_n = (point._cache_hit_n ?? 0) + 1;
+    }
+    byDate.set(row.snapshot_date, point);
+  }
+  return [...byDate.entries()]
+    .map(([date, p]) => ({
+      date,
+      total_tokens: p.total_tokens ?? 0,
+      cost_total: p.cost_total ?? 0,
+      llm_call_count: p.llm_call_count ?? 0,
+      cache_hit_rate: p._cache_hit_n ? Number(((p._cache_hit_sum ?? 0) / p._cache_hit_n * 100).toFixed(2)) : 0,
+      message_count: p.message_count ?? 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** cost_output per-otter 聚合（#583）：从最新一天的行提取 otter 明细 */
+/** 从最新一天的行提取 otter 明细（#583） */
+function buildCostOtterBreakdown(
+  latestRows: Array<{ metric_key: string; metric_value: number; metadata: string | null }>,
+): Array<{
+  otterId: string; otterName: string; otterType: string;
+  totalTokens: number; costTotal: number; callCount: number;
+  cacheHitRate: number; messageCount: number;
+  models: Array<{ model: string; totalTokens: number; costTotal: number }>;
+}> {
+  const otterMap = new Map<string, OtterAcc>();
+  for (const row of latestRows) {
+    const meta = row.metadata ? JSON.parse(row.metadata) as { otterId?: string; otterName?: string; otterType?: string; model?: string } : {};
+    const entry = getOrInitOtter(otterMap, meta);
+    applyMetricValue(entry, row.metric_key, row.metric_value);
+    if (meta.model && MODEL_COST_KEYS.has(row.metric_key)) {
+      accumulateModel(entry.models, meta.model, row.metric_key, row.metric_value);
+    }
+  }
+  return [...otterMap.values()].map(formatOtterEntry).sort((a, b) => b.costTotal - a.costTotal);
+}
+
+type OtterAcc = {
+  otterId: string; otterName: string; otterType: string;
+  totalTokens: number; costTotal: number; callCount: number;
+  cacheHitRate: number; messageCount: number;
+  models: Map<string, { totalTokens: number; costTotal: number }>;
+};
+const MODEL_COST_KEYS = new Set(["total_tokens", "cost_total"]);
+const KEY_FIELD: Record<string, "totalTokens" | "costTotal" | "callCount" | "cacheHitRate" | "messageCount"> = {
+  total_tokens: "totalTokens", cost_total: "costTotal",
+  llm_call_count: "callCount", cache_hit_rate: "cacheHitRate", message_count: "messageCount",
+};
+function getOrInitOtter(map: Map<string, OtterAcc>, meta: { otterId?: string; otterName?: string; otterType?: string }): OtterAcc {
+  const id = meta.otterId ?? "unknown";
+  let entry = map.get(id);
+  if (!entry) {
+    entry = { otterId: id, otterName: meta.otterName ?? id, otterType: meta.otterType ?? "unknown", totalTokens: 0, costTotal: 0, callCount: 0, cacheHitRate: 0, messageCount: 0, models: new Map() };
+    map.set(id, entry);
+  }
+  return entry;
+}
+function applyMetricValue(entry: OtterAcc, key: string, value: number): void {
+  const field = KEY_FIELD[key];
+  if (!field) return;
+  if (field === "cacheHitRate") { entry.cacheHitRate = value; } else { entry[field] = (entry[field] as number) + value; }
+}
+function accumulateModel(models: Map<string, { totalTokens: number; costTotal: number }>, model: string, key: string, value: number): void {
+  let m = models.get(model);
+  if (!m) { m = { totalTokens: 0, costTotal: 0 }; models.set(model, m); }
+  if (key === "total_tokens") m.totalTokens += value;
+  if (key === "cost_total") m.costTotal += value;
+}
+function formatOtterEntry(e: OtterAcc) {
+  return {
+    otterId: e.otterId, otterName: e.otterName, otterType: e.otterType,
+    totalTokens: e.totalTokens, costTotal: Number(e.costTotal.toFixed(6)),
+    callCount: e.callCount, cacheHitRate: Number(e.cacheHitRate.toFixed(4)), messageCount: e.messageCount,
+    models: [...e.models.entries()].map(([model, m]) => ({
+      model, totalTokens: m.totalTokens, costTotal: Number(m.costTotal.toFixed(6)),
+    })).sort((a, b) => b.costTotal - a.costTotal),
+  };
+}
+
 export class RhiController {
   constructor(
     private readonly snapshotRepo: HealthSnapshotRepository,
@@ -167,6 +259,41 @@ export class RhiController {
       });
     } catch (err) {
       this.logger.error("RHI trends failed", err instanceof Error ? err : undefined);
+      return c.json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** GET /api/health/cost-output?days=30 — 成本/产出趋势序列（#583）
+   *  从 health_snapshots 按日期范围拉取 cost_output 指标，聚合出：
+   *  - per-date 趋势（总 token / 总 cost / 调用数 / 缓存命中率 / 产出数）
+   *  - per-otter 明细（最新一天的 per-otter per-model 拆分）
+   *  - 汇总（最新一天的总计）
+   *  成本/产出只作信号不作 KPI（Goodhart 防线）。 */
+  async costOutput(c: Context): Promise<Response> {
+    try {
+      const days = Math.min(Math.max(Number(c.req.query("days")) || DEFAULT_TREND_DAYS, 1), 90);
+      const startDate = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const endDate = new Date().toISOString().slice(0, 10);
+
+      const costRows = this.snapshotRepo.findByDateRange(startDate, endDate).filter(r => r.metric_type === "cost_output");
+      const series = buildCostTrendSeries(costRows);
+
+      const latestDate = costRows.length > 0
+        ? [...costRows].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))[costRows.length - 1]!.snapshot_date
+        : null;
+      const otters = latestDate ? buildCostOtterBreakdown(costRows.filter(r => r.snapshot_date === latestDate)) : [];
+
+      const totals = {
+        totalTokens: otters.reduce((s, o) => s + o.totalTokens, 0),
+        costTotal: Number(otters.reduce((s, o) => s + o.costTotal, 0).toFixed(6)),
+        callCount: otters.reduce((s, o) => s + o.callCount, 0),
+        messageCount: otters.reduce((s, o) => s + o.messageCount, 0),
+        otterCount: otters.length,
+      };
+
+      return c.json({ days, series, otters, totals, latestSnapshotDate: latestDate });
+    } catch (err) {
+      this.logger.error("RHI cost-output failed", err instanceof Error ? err : undefined);
       return c.json({ error: err instanceof Error ? err.message : String(err) });
     }
   }

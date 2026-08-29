@@ -205,4 +205,87 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     // 纯读：不检测信号不落库（signals 数不变）
     expect(pipeline.listOpen().length).toBe(before);
   });
+
+  it("costOutputSink 注入后 scanOnce 写入成本/产出快照（#583）", async () => {
+    // 准备 session JSONL fixture
+    const sessionsDir = path.join(repoDir, "data", "sessions");
+    await mkdir(sessionsDir, { recursive: true });
+    const sessionFile = `2026-08-28T10-00-00-000Z_test-sess-001.jsonl`;
+    await writeFile(
+      path.join(sessionsDir, sessionFile),
+      [
+        `{"type":"session","version":3,"id":"test-sess-001","timestamp":"2026-08-28T10:00:00.000Z"}`,
+        `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
+        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
+      ].join("\n"),
+      "utf-8",
+    );
+
+    // 插入 otter 数据
+    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("test-otter-id", "测试獭", "big");
+    db.prepare("INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES (?, ?)").run("test-otter-id", "test-sess-001");
+    // 插入 messages 数据（for OtterOutputCollector）
+    db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run("conv-test", "test");
+    db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run("turn-test", "conv-test", 1);
+    db.prepare(`
+      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("msg-out-1", "conv-test", "otter", "test-otter-id", 1, "turn-test", "测试獭", "2026-08-28 10:05:00");
+
+    // 准备快照 repo + sinks
+    const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
+    const snapshotRepo = new HealthSnapshotRepository(db);
+    const overviewSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
+      snapshotRepo.replaceForDate(snapshotDate, rows);
+    const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
+      snapshotRepo.replaceForDate(snapshotDate, rows);
+
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      snapshotSink: overviewSink,
+      costOutputSink,
+      sessionsDir,
+      agentSessionSource: async () => [
+        { piSessionId: "test-sess-001", otterId: "test-otter-id", otterName: "测试獭", otterType: "big" },
+      ],
+      costOutputDb: db,
+    });
+
+    const result = await worker.scanOnce();
+    expect(result.costOutputStored).toBeGreaterThan(0);
+
+    // 验证数据写入 health_snapshots
+    const costRows = db.prepare("SELECT * FROM health_snapshots WHERE metric_type = 'cost_output' AND snapshot_date = ?")
+      .all(new Date().toISOString().slice(0, 10)) as Array<{ metric_key: string; metric_value: number; metadata: string }>;
+    expect(costRows.length).toBeGreaterThan(0);
+
+    // 验证含 expected 指标键
+    const keys = new Set(costRows.map(r => r.metric_key));
+    expect(keys.has("input_tokens")).toBe(true);
+    expect(keys.has("cost_total")).toBe(true);
+    expect(keys.has("cache_hit_rate")).toBe(true);
+    expect(keys.has("message_count")).toBe(true);
+
+    // 验证 metadata 含 otter 信息
+    const firstRow = costRows[0]!;
+    const meta = JSON.parse(firstRow.metadata);
+    expect(meta.otterId).toBe("test-otter-id");
+    expect(meta.otterName).toBe("测试獭");
+  });
+
+  it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+
+    const result = await worker.scanOnce();
+    expect(result.costOutputStored).toBe(0); // 未注入 sink，返回 0
+    expect(result.signalCount).toBeGreaterThanOrEqual(1); // 主管道不受影响
+  });
 });

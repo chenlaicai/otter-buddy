@@ -78,6 +78,7 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/signals", (ctx) => c.rhi.signals(ctx));
   app.get("/api/health/chains", (ctx) => c.rhi.chains(ctx));
   app.get("/api/health/trends", (ctx) => c.rhi.trends(ctx));
+  app.get("/api/health/cost-output", (ctx) => c.rhi.costOutput(ctx));
   app.post("/api/health/scan", (ctx) => c.rhi.scan(ctx));
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
   app.post("/api/memory/search/similar", (ctx) => c.memory.searchSimilar(ctx));
