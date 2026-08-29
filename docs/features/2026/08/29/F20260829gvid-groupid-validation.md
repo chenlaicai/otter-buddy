@@ -10,7 +10,7 @@ intent:
   problem: "create_linked_resource 建产物时 groupId 漏传无校验、事后无 update 接口，只能 supersede+重建补救。gssf（PR #556）/ptun（PR #561）两次连续案例都是检视獭抓到才补，LLM 会忘是实证不是假设。"
   expected_effect: "漏传在创建时即被拦截（带明确指引的错误消息），不再依赖检视环节兜底；B4 变更标识一致性检查的 groupId 维度由工具层守卫。"
   verify_by:
-    type: unit_test
+    type: behavior_check
     detail: "A 类纯代码逻辑（确定性输入输出），双层校验各配单测：domain 层 6 用例（tests/usecases/conversation/manage-key-info.test.ts）+ 工具层 4 用例（tests/interface-adapters/create-linked-resource-tool.test.ts），全量 2073 tests 通过。"
 capability_test: "n/a: 纯 A 类校验逻辑（domain + tool 层确定性输入输出），无 LLM 行为参与"
 tags: [artifact, validation, group-id]
