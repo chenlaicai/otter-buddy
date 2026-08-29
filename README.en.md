@@ -13,6 +13,10 @@
 
 ![Conversation UI](docs/images/conversation.jpg)
 
+![Health dashboard: 30-day commit trend / BugFix ratio, commit type distribution, module hotspots, feature-chain states](docs/images/health-dashboard.jpg)
+
+*Both screenshots are real data: the first shows a day-to-day collaboration session; the second shows the system measuring its own health — commit trends, BugFix ratio, module hotspots, and feature-chain states, computed hourly by the RHI scan worker.*
+
 ## What is this
 
 Otter Buddy is a multi-agent collaboration system — chat room format, memory at its core, 11 skills as its skeleton. The agents here aren't anonymous API calls. They're named team members: the Lead Otter orchestrates, each sub-otter has its own name and specialty, executing tasks by skill. The talking stone passes between participants, and whoever writes code doesn't review their own code.
