@@ -65,6 +65,11 @@ export interface AppConfig {
     default: string;
     /** 模型列表（唯一真相源，至少一条） */
     models: ModelConfig[];
+    /** LLM prompt 缓存长留存（F20260829cach）：true 时 SDK 请求携带
+     *  cache_control.ttl="1h"，缓存命中窗口从默认 5 分钟扩到 1 小时。
+     *  机制：bootstrap 启动时注入环境变量 PI_CACHE_RETENTION=long，
+     *  pi-ai anthropic-messages 适配器读该 env 发 ttl 标记。 */
+    cacheLongRetention?: boolean;
   };
   circuitBreaker: {
     maxConsecutiveIdentical: number;
@@ -170,6 +175,8 @@ interface RawConfig {
   };
   llm?: {
     default?: string;
+    /** LLM prompt 缓存长留存开关（F20260829cach，缺省 true） */
+    cacheLongRetention?: boolean;
     models?: Array<{
       alias?: string;
       provider?: string;
@@ -440,6 +447,8 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
         maxTokens: m.maxTokens ?? undefined,
         input: m.input ?? undefined,
       })),
+      // F20260829cach: 缺省 true（实测 GLM anthropic 兼容端点接受 ttl 字段）
+      cacheLongRetention: raw.llm.cacheLongRetention ?? true,
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
     feishu: buildFeishuConfig(raw),

@@ -70,9 +70,13 @@ export class IdentityBuilder {
     const modelIdentity = this.buildModelIdentity(modelAlias);
 
     // F20260825m422a: 注入当前日期时间——干净 session 无日期锚点导致特性 ID 日期臆断（#422）
+    // F20260829cach: 锚点改日粒度。原分钟级字符串每次 invoke 都变，而本段拼在 system prompt
+    // 前部（身份文案/工具定义之前），一变即打断整个 prompt 前缀缓存（实测 invoke 边界命中率
+    // 从 95%+ 掉到 0-30%，详见 F20260829cach）。分钟级新鲜度不损失——由派发链在每条
+    // user message 注入「当前任务」前缀（见 dispatch-chain-engine），不占缓存前缀。
     const now = new Date();
-    const dateTimeStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-    const dateAnchor = `## 当前日期时间\n- 今天是 ${dateTimeStr}（Asia/Shanghai）`;
+    const dateStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour12: false });
+    const dateAnchor = `## 当前日期时间\n- 今天是 ${dateStr}（Asia/Shanghai）`;
 
     return [
       `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
