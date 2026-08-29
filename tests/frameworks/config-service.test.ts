@@ -104,6 +104,19 @@ describe("loadConfig", () => {
     expect(cfg.circuitBreaker.maxChainDepth).toBe(3);
   });
 
+  it("F20260829cach: cacheLongRetention 缺省 true，可显式关闭", () => {
+    mockExistsSync.mockReturnValue(true);
+    // 缺省
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML);
+    expect(loadConfig().llm.cacheLongRetention).toBe(true);
+    // 显式关闭
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "llm:\n  cacheLongRetention: false\n");
+    // yaml 合并：后写的 llm 块覆盖 default 键但保留 models —— 直接拼接会产生两个 llm 键，
+    // 为避免歧义用完整 yaml 重写
+    mockReadFileSync.mockReturnValue("llm:\n  cacheLongRetention: false\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n");
+    expect(loadConfig().llm.cacheLongRetention).toBe(false);
+  });
+
   it("loads config with custom values", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(

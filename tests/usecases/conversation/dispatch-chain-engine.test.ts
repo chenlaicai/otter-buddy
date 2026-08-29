@@ -318,6 +318,26 @@ describe("buildMessageWithContext 闲置预警集成", () => {
     expect(result).toContain("## 当前任务");
   });
 
+  it("F20260829cach: 两条路径都注入分钟级当前时间（补偿 system prompt 日粒度锚点）", async () => {
+    const m = makeMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+
+    // 路径 1：无未读消息（早返回）
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const noUnread = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
+    expect(noUnread).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
+    expect(noUnread.indexOf("## 当前时间")).toBeGreaterThan(noUnread.indexOf("## 在场成员"));
+    expect(noUnread.indexOf("## 当前任务")).toBeGreaterThan(noUnread.indexOf("## 当前时间"));
+
+    // 路径 2：有未读消息
+    (m.conversationRepo.getUnreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { senderType: "otter", senderId: "otter-1", senderName: "Test Otter", segments: [{ body: "msg" }] },
+    ]);
+    const withUnread = await engine.buildMessageWithContext("conv-1", "user-1", "hi", "user-1", "## 在场成员");
+    expect(withUnread).toMatch(/## 当前时间\n- \d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/);
+    expect(withUnread.indexOf("## 当前任务")).toBeGreaterThan(withUnread.indexOf("## 当前时间"));
+  });
+
   it("buildIdleOttersWarning 抛异常时不影响主流程", async () => {
     const m = makeMocks();
     // getMaxTurnNumber 抛异常触发 buildIdleOttersWarning 的 try-catch
