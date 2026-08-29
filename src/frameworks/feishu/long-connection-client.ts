@@ -6,6 +6,12 @@ import type { FeishuConfig } from "./types";
 
 export type { FeishuConfig };
 
+/** 多模态 Phase 2：非 text 消息类型的结构化载荷（content 原文 JSON 解析后透传）。
+ *  image: { image_key }; file: { file_key, file_name }; post 富文本在 extractPostText 里降级。 */
+export type FeishuMediaPayload =
+  | { type: "image"; imageKey: string }
+  | { type: "file"; fileKey: string; fileName: string };
+
 interface FeishuEventData {
   event_id?: string;
   token?: string;
@@ -150,14 +156,19 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     this.processMessage(data.message, data.sender);
   }
 
+  /** 多模态 Phase 2：放行 text/image/file；其余（audio/media/share_chat/sticker 等）忽略。
+   *  兼容性存量约定保留：非 text 类型原来直接丢弃，本期只扩展这两类（飞书消息类型全集很大，
+   *  逐类适配应在真实需求出现时做，避免为不存在的消息类型写无测试的解析分支）。 */
+  private static readonly SUPPORTED_MESSAGE_TYPES = new Set(["text", "image", "file"]);
+
   private shouldIgnoreEvent(data: FeishuEventData): boolean {
     if (data.sender.sender_type === "app") {
       this.logger.debug("Ignoring bot message", { chatId: data.message.chat_id });
       return true;
     }
 
-    if (data.message.message_type !== "text") {
-      this.logger.debug("Ignoring non-text message", {
+    if (!FeishuLongConnectionClient.SUPPORTED_MESSAGE_TYPES.has(data.message.message_type)) {
+      this.logger.debug("Ignoring unsupported message type", {
         chatId: data.message.chat_id,
         messageType: data.message.message_type,
       });
@@ -172,21 +183,25 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     sender: FeishuEventData["sender"],
   ): void {
     try {
-      const content = JSON.parse(message.content) as { text: string };
+      /** 多模态 Phase 2：image/file 提取结构化载荷；text 走原路径 */
+      const media = this.extractMediaPayload(message.message_type, message.content);
+      const content = JSON.parse(message.content) as { text?: string };
       const feishuMessage: FeishuLongConnectionMessage = {
         chatId: message.chat_id,
         messageId: message.message_id,
-        text: content.text,
+        text: content.text ?? "",
         senderId: sender.sender_id?.open_id ?? "unknown",
         senderType: sender.sender_type,
         messageType: message.message_type,
+        ...(media && { media }),
       };
 
       this.logger.info("Feishu message parsed", {
         chatId: feishuMessage.chatId,
         messageId: feishuMessage.messageId,
+        messageType: feishuMessage.messageType,
         textLength: feishuMessage.text.length,
-        textPreview: feishuMessage.text.substring(0, 50),
+        ...(media && { mediaType: media.type, mediaKey: media.type === "image" ? media.imageKey.slice(0, 16) : media.fileKey.slice(0, 16) }),
       });
 
       if (this.messageHandler) {
@@ -203,6 +218,23 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
       this.logger.error("Failed to parse Feishu message content", err instanceof Error ? err : undefined, {
         rawContent: message.content,
       });
+    }
+  }
+
+  /** 多模态 Phase 2：image/file content JSON → 结构化载荷；其余类型返回 null。
+   *  解析失败（字段缺失/非 JSON）返回 null：调用方按无附件的纯文本消息降级处理。 */
+  private extractMediaPayload(messageType: string, rawContent: string): FeishuMediaPayload | null {
+    try {
+      const parsed = JSON.parse(rawContent) as Record<string, unknown>;
+      if (messageType === "image" && typeof parsed.image_key === "string") {
+        return { type: "image", imageKey: parsed.image_key };
+      }
+      if (messageType === "file" && typeof parsed.file_key === "string") {
+        return { type: "file", fileKey: parsed.file_key, fileName: typeof parsed.file_name === "string" ? parsed.file_name : "file" };
+      }
+      return null;
+    } catch {
+      return null;
     }
   }
 

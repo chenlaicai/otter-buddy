@@ -22,6 +22,7 @@ import {
   sendUserMessage,
   waitForOtterMessage,
   listMessages,
+  latestUserSeq,
   expectSampledBehavior,
 } from "./helpers/assert-behavior";
 
@@ -30,6 +31,23 @@ function signalEventsFor(ctx: CapabilityContext, conversationId: string) {
   return ctx.built.db
     .prepare("SELECT * FROM signal_events WHERE conversation_id = ? ORDER BY created_at ASC")
     .all(conversationId) as Array<Record<string, unknown>>;
+}
+
+/** #560：轮询等待 halt signal 到达 resolved（快路径秒回，慢路径最长 timeoutMs）。
+ * 替代原固定 sleep(10s)：落账与大獭 speak 确认几乎同时，但存在小时序窗口（cap-run4 实测 1 次 pending）。
+ * 超时后返回最终态供断言输出诊断信息，不直接 throw——保持原断言语义 */
+async function waitForHaltSignalResolved(
+  ctx: CapabilityContext,
+  conversationId: string,
+  timeoutMs = 60_000,
+): Promise<Record<string, unknown> | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const halt = signalEventsFor(ctx, conversationId).find(s => s.type === "halt");
+    if (halt && halt.status === "resolved") return halt;
+    await new Promise(r => setTimeout(r, 2_000));
+  }
+  return signalEventsFor(ctx, conversationId).find(s => s.type === "halt");
 }
 
 describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () => {
@@ -79,10 +97,13 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       const convId = await createConversation(ctx, `停词指令${i + 1}`);
       // 场景铺垫：让大獭有「正在做的事」可停
       await sendUserMessage(ctx, convId, "请记住数字 42，一会儿我会用到。简短确认即可。");
-      await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000 });
+      // afterSeq 锚定：只接受铺垫轮之后的回复，防止 waitForOtterMessage 直接拿上一轮陈旧消息当结果
+      const setupAnchor = latestUserSeq(await listMessages(ctx, convId));
+      await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000, afterSeq: setupAnchor });
       // 独立成词「停下」——L2 扫描命中 + reminder 注入 + LLM 确认为指令
       await sendUserMessage(ctx, convId, "停下");
-      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000 });
+      const stopAnchor = latestUserSeq(await listMessages(ctx, convId));
+      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000, afterSeq: stopAnchor });
 
       /** 急停响应：不再发起新动作，表态等待指示（不写文件/不跑命令可从内容侧断言）；错误占位不算 */
       const content = answer.content ?? "";
@@ -109,7 +130,9 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         convId,
         "召唤一只小獭名叫'慢工獭'，任务：逐个数到 10（每数一个数字 speak 一次会太吵，改为在一条消息里列出 1-10 即可）。召唤后把发言权传给它。",
       );
-      const bigMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
+      // afterSeq 锚定：召唤轮之后的消息，防止拿到陈旧回复
+      const summonAnchor = latestUserSeq(await listMessages(ctx, convId));
+      const bigMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000, afterSeq: summonAnchor });
       const smallOtterId = bigMsg.tsp?.[0];
       if (!smallOtterId) return { ok: false, detail: "大獭未派工（无 tsp）" };
 
@@ -126,12 +149,13 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
 
       // 第二步：用户要求大獭 halt 小獭（走用户消息，大獭调 halt_otter 工具）
       await sendUserMessage(ctx, convId, "请立刻用 halt_otter 停掉那只小獭，理由：测试 halt 注入。然后简短告诉我结果。", { talkingStonePassedTo: [] });
-      await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
-
-      // 断言：signal_events 落 halt 账 + resolvedBy=system 首次注入闭环
-      const signals = signalEventsFor(ctx, convId);
-      const haltSignal = signals.find(s => s.type === "halt");
-      if (!haltSignal) return { ok: false, detail: `无 halt signal 落账 signals=${JSON.stringify(signals.map(s => s.type))}` };
+      // afterSeq 锚定 + 处理窗口：halt 请求发出后等大獭本轮真正处理完（调 halt_otter + speak 确认），
+      // 旧版缺 afterSeq 直接拿陈旧消息返回，随即查 signals 时大獭尚未执行——检查过早恒 false
+      const haltAnchor = latestUserSeq(await listMessages(ctx, convId));
+      await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000, afterSeq: haltAnchor });
+      // #560：落账轮询替代固定 sleep(10s)——resolved 即刻返回；超时（60s）后返回最终态供断言诊断
+      const haltSignal = await waitForHaltSignalResolved(ctx, convId);
+      if (!haltSignal) return { ok: false, detail: `无 halt signal 落账 signals=${JSON.stringify(signalEventsFor(ctx, convId).map(s => s.type))}` };
       const resolved = haltSignal.status === "resolved";
       return {
         ok: resolved,

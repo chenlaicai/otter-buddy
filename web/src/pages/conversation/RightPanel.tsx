@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Star, X, MoreHorizontal, RotateCcw, Clock, Check, Copy } from 'lucide-react'
+import { Plus, Star, X, MoreHorizontal, RotateCcw, Check, Copy, Users, Folder, FileText, Timer } from 'lucide-react'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinkedResource as LinkedResource, LocalOtterSession as OtterSession, LocalScheduledTask } from '../../lib/mappers'
 import { sortSessionChain } from '../../lib/session-chain'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { OtterProfileCard } from '../../components/OtterProfileCard'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
+import { WorkspacePanel } from './WorkspacePanel'
 
 interface RightPanelProps {
   conversation: Conversation
@@ -32,7 +33,11 @@ interface RightPanelProps {
   onViewScheduledTaskHistory: (taskId: string) => void
 }
 
+/** 右侧栏 tab 类型 */
+type RightPanelTab = 'participants' | 'resources' | 'tasks' | 'workspace'
+
 export function RightPanel(props: RightPanelProps) {
+  const [activeTab, setActiveTab] = useState<RightPanelTab>('participants')
   const [showKfForm, setShowKfForm] = useState(false)
   const [kfContent, setKfContent] = useState('')
   const [kfCategory, setKfCategory] = useState('')
@@ -51,109 +56,147 @@ export function RightPanel(props: RightPanelProps) {
     props.onAddLinkedResource()
   }
 
+  /** tab 配置 */
+  const tabs: Array<{ id: RightPanelTab; icon: React.ReactNode; label: string }> = [
+    { id: 'participants', icon: <Users className="w-4 h-4" />, label: '参与者' },
+    { id: 'resources', icon: <FileText className="w-4 h-4" />, label: '关键资源' },
+    { id: 'tasks', icon: <Timer className="w-4 h-4" />, label: '定时任务' },
+    { id: 'workspace', icon: <Folder className="w-4 h-4" />, label: '工作区' },
+  ]
+
   return (
-    <aside className="w-64 h-full glass rounded-3xl flex flex-col overflow-y-auto flex-shrink-0">
-      {/* Otter Participants */}
-      <div className="p-4 border-b border-white/40">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2">Otter 参与者</h3>
-        <div>
-          {props.otters.map(o => (
-            <OtterParticipantCard
-              key={o.id}
-              otter={o}
-              sessions={props.sessions[o.id] || []}
-              onClick={() => props.onOpenOtterDetail(o.id)}
-              onDissolve={props.onDissolveOtter}
-              onRestart={props.onRestartOtter}
-            />
-          ))}
+    <aside className="w-64 h-full glass rounded-3xl flex flex-col overflow-hidden flex-shrink-0">
+      {/* Tab 切换条 */}
+      <div className="flex border-b border-white/40">
+        {tabs.map(tab => (
           <button
-            onClick={props.onCreateSmallOtter}
-            className="w-full mt-1.5 py-1.5 text-xs glass-card text-stone-500 rounded-xl hover:bg-white/40 hover:text-otter-500 transition flex items-center justify-center gap-1"
+            key={tab.id}
+            data-testid={`tab-${tab.id}`}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${
+              activeTab === tab.id
+                ? 'text-otter-600 border-b-2 border-otter-500'
+                : 'text-stone-400 hover:text-stone-600'
+            }`}
+            title={tab.label}
           >
-            <Plus className="w-3 h-3" /> 创建小獭
+            {tab.icon}
+            <span className="hidden sm:inline">{tab.label}</span>
           </button>
-        </div>
+        ))}
       </div>
 
-      {/* 关键资源（统一产物模型：fact 为文本事实，其余为 url/pr/file 等链接） */}
-      <div className="p-4 border-b border-white/40">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
-          关键资源
-          <button
-            onClick={() => setShowKfForm(!showKfForm)}
-            className="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        </h3>
-        {showKfForm && (
-          <div className="glass-card rounded-xl p-2.5 mb-2 flex flex-col gap-1.5">
-            <input
-              value={kfContent}
-              onChange={e => setKfContent(e.target.value)}
-              placeholder="事实内容"
-              className="form-input text-xs"
-            />
-            <input
-              value={kfCategory}
-              onChange={e => setKfCategory(e.target.value)}
-              placeholder="分类 (可选)"
-              className="form-input text-xs"
-            />
-            <div className="flex gap-1.5 justify-end">
-              <button onClick={handlePickLink} className="px-2.5 py-1 text-xs text-teal-500">改为添加链接…</button>
-              <button onClick={() => setShowKfForm(false)} className="px-2.5 py-1 text-xs text-stone-500">取消</button>
+      {/* 内容区：根据激活的 tab 渲染 */}
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === 'participants' && (
+          <div className="p-4">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2">Otter 参与者</h3>
+            <div>
+              {props.otters.map(o => (
+                <OtterParticipantCard
+                  key={o.id}
+                  otter={o}
+                  sessions={props.sessions[o.id] || []}
+                  onClick={() => props.onOpenOtterDetail(o.id)}
+                  onDissolve={props.onDissolveOtter}
+                  onRestart={props.onRestartOtter}
+                />
+              ))}
               <button
-                onClick={handleAddFact}
-                className="px-2.5 py-1 text-xs text-white rounded-lg"
-                style={{ background: OTTER_GRADIENT }}
+                onClick={props.onCreateSmallOtter}
+                className="w-full mt-1.5 py-1.5 text-xs glass-card text-stone-500 rounded-xl hover:bg-white/40 hover:text-otter-500 transition flex items-center justify-center gap-1"
               >
-                添加事实
+                <Plus className="w-3 h-3" /> 创建小獭
               </button>
             </div>
           </div>
         )}
-        <div>
-          {props.linkedResources.length === 0 && (
-            <div className="text-[11px] text-stone-400 px-1.5 py-1">暂无关键资源</div>
-          )}
-          {props.linkedResources.map(r => (
-            r.type === 'fact'
-              ? <FactItem key={r.id} fact={r} onToggleFlag={() => props.onToggleResourceFlag(r.id)} onDelete={() => props.onDeleteLinkedResource(r.id)} />
-              : <LinkedResourceItem key={r.id} resource={r} onDelete={() => props.onDeleteLinkedResource(r.id)} />
-          ))}
-        </div>
-      </div>
 
-      {/* Scheduled Tasks */}
-      <div className="p-4">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
-          <span className="flex items-center gap-1">
-            <Clock size={12} />
-            定时任务
-          </span>
-          <button
-            onClick={props.onCreateScheduledTask}
-            className="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        </h3>
-        {props.scheduledTasksLoading ? (
-          <div className="space-y-2">
-            <div className="h-16 bg-white/20 rounded-xl animate-pulse" />
-            <div className="h-16 bg-white/20 rounded-xl animate-pulse" />
+        {activeTab === 'resources' && (
+          <div className="p-4">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
+              关键资源
+              <button
+                onClick={() => setShowKfForm(!showKfForm)}
+                className="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </h3>
+            {showKfForm && (
+              <div className="glass-card rounded-xl p-2.5 mb-2 flex flex-col gap-1.5">
+                <input
+                  value={kfContent}
+                  onChange={e => setKfContent(e.target.value)}
+                  placeholder="事实内容"
+                  className="form-input text-xs"
+                />
+                <input
+                  value={kfCategory}
+                  onChange={e => setKfCategory(e.target.value)}
+                  placeholder="分类 (可选)"
+                  className="form-input text-xs"
+                />
+                <div className="flex gap-1.5 justify-end">
+                  <button onClick={handlePickLink} className="px-2.5 py-1 text-xs text-teal-500">改为添加链接…</button>
+                  <button onClick={() => setShowKfForm(false)} className="px-2.5 py-1 text-xs text-stone-500">取消</button>
+                  <button
+                    onClick={handleAddFact}
+                    className="px-2.5 py-1 text-xs text-white rounded-lg"
+                    style={{ background: OTTER_GRADIENT }}
+                  >
+                    添加事实
+                  </button>
+                </div>
+              </div>
+            )}
+            <div>
+              {props.linkedResources.length === 0 && (
+                <div className="text-[11px] text-stone-400 px-1.5 py-1">暂无关键资源</div>
+              )}
+              {props.linkedResources.map(r => (
+                r.type === 'fact'
+                  ? <FactItem key={r.id} fact={r} onToggleFlag={() => props.onToggleResourceFlag(r.id)} onDelete={() => props.onDeleteLinkedResource(r.id)} />
+                  : <LinkedResourceItem key={r.id} resource={r} onDelete={() => props.onDeleteLinkedResource(r.id)} />
+              ))}
+            </div>
           </div>
-        ) : (
-          <ScheduledTaskSection
-            tasks={props.scheduledTasks}
-            onToggle={props.onToggleScheduledTask}
-            onEdit={props.onEditScheduledTask}
-            onDelete={props.onDeleteScheduledTask}
-            onTrigger={props.onTriggerScheduledTask}
-            onViewHistory={props.onViewScheduledTaskHistory}
-          />
+        )}
+
+        {activeTab === 'tasks' && (
+          <div className="p-4">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-2 flex justify-between items-center">
+              <span className="flex items-center gap-1">
+                <Timer size={12} />
+                定时任务
+              </span>
+              <button
+                onClick={props.onCreateScheduledTask}
+                className="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </h3>
+            {props.scheduledTasksLoading ? (
+              <div className="space-y-2">
+                <div className="h-16 bg-white/20 rounded-xl animate-pulse" />
+                <div className="h-16 bg-white/20 rounded-xl animate-pulse" />
+              </div>
+            ) : (
+              <ScheduledTaskSection
+                tasks={props.scheduledTasks}
+                onToggle={props.onToggleScheduledTask}
+                onEdit={props.onEditScheduledTask}
+                onDelete={props.onDeleteScheduledTask}
+                onTrigger={props.onTriggerScheduledTask}
+                onViewHistory={props.onViewScheduledTaskHistory}
+              />
+            )}
+          </div>
+        )}
+
+        {activeTab === 'workspace' && (
+          <WorkspacePanel conversationId={props.conversation.id} />
         )}
       </div>
     </aside>
