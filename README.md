@@ -12,6 +12,10 @@
 
 ![对话界面](docs/images/conversation.jpg)
 
+![健康面板：30 天提交趋势/BugFix 比率、提交类型分布、模块热区、特性链五态](docs/images/health-dashboard.jpg)
+
+*两张图都是真实数据：上面一张是日常协作现场，下面一张是系统对自身的健康度量——提交趋势、BugFix 比率、模块热区、特性链状态，由 RHI 扫描 worker 每小时自动计算。*
+
 ## 这是什么
 
 Otter Buddy 是一个多 Agent 协作系统——聊天室形态，记忆为核心，11 个 skill 为骨架。里面的 Agent 不是匿名的 API 调用，是有名字的团队成员：大獭负责编排，每只小獭有自己的名字和专长，按 skill 执行任务。行动权（talking stone）在参与者之间流转，写码的不审自己的码。
