@@ -7,6 +7,9 @@ export type ScheduleType = 'cron' | 'once';
 /** 执行记录状态 */
 export type ExecutionStatus = 'running' | 'completed' | 'failed';
 
+/** 执行器类型 */
+export type ExecutorType = 'agent' | 'function';
+
 /** 定时任务实体 */
 export interface ScheduledTask {
   id: string;
@@ -29,6 +32,10 @@ export interface ScheduledTask {
   /** #516: 任务级链超时配置（分钟）。null = 用调度器默认（15 分钟）。
    *  语义：链静默容忍窗——窗口内链无任何活跃消息即视为死亡；链活跃则续期等待，直至硬上限。 */
   timeoutMinutes: number | null;
+  /** PR4: 执行器类型（agent=LLM 会话，function=纯代码） */
+  executorType: ExecutorType;
+  /** PR4: function executor 时注册的函数名 */
+  functionName?: string;
   createdAt: string;
   updatedAt: string;
 }

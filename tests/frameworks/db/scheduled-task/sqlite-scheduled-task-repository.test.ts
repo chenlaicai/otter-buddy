@@ -38,6 +38,7 @@ function createTaskFixture(overrides: Partial<ScheduledTask> = {}): ScheduledTas
     lastTriggeredAt: null,
     restartBeforeInvoke: false,
     timeoutMinutes: null,
+    executorType: 'agent',
     createdAt: "2026-07-22T00:00:00Z",
     updatedAt: "2026-07-22T00:00:00Z",
     ...overrides,

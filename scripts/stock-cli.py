@@ -582,6 +582,86 @@ def cmd_hvaluation(args) -> dict:
                        {"code": code}, fetch)
 
 
+def cmd_index(args) -> dict:
+    """Fetch index daily data (e.g., 沪深300)."""
+    import akshare as ak
+
+    symbol = args.symbol
+    days = args.days
+    raw = args.raw
+
+    def fetch():
+        try:
+            df = ak.stock_zh_index_daily(symbol=symbol)
+        except Exception as e:
+            return structured_error(f"stock_zh_index_daily({symbol})", e)
+
+        if df is None or df.empty:
+            return {"error": f"No index data for {symbol}", "symbol": symbol}
+
+        # Standardize column names
+        col_map = {
+            "date": "date",
+            "open": "open",
+            "close": "close",
+            "high": "high",
+            "low": "low",
+            "volume": "volume",
+        }
+        df = df.rename(columns=col_map)
+
+        # Take last N trading days
+        df = df.tail(days).reset_index(drop=True)
+
+        if raw:
+            records = df.to_dict(orient="records")
+            # Convert numpy types for JSON serialization
+            for r in records:
+                for k, v in r.items():
+                    if hasattr(v, "item"):
+                        r[k] = v.item()
+            return {
+                "symbol": symbol,
+                "days": days,
+                "data": records,
+            }
+        else:
+            # Summary mode
+            if len(df) < 2:
+                return {"error": "Insufficient data for summary", "symbol": symbol}
+
+            # Calculate statistics
+            closes = df["close"].tolist()
+            latest = closes[-1]
+            prev = closes[-2]
+            change_pct = (latest - prev) / prev * 100
+
+            # High/low in period
+            high = df["high"].max()
+            low = df["low"].min()
+
+            # Moving averages (if enough data)
+            ma5 = sum(closes[-5:]) / 5 if len(closes) >= 5 else None
+            ma20 = sum(closes[-20:]) / 20 if len(closes) >= 20 else None
+            ma60 = sum(closes[-60:]) / 60 if len(closes) >= 60 else None
+
+            return {
+                "symbol": symbol,
+                "days": days,
+                "latest_close": latest,
+                "change_pct": round(change_pct, 2),
+                "high": high,
+                "low": low,
+                "ma5": ma5,
+                "ma20": ma20,
+                "ma60": ma60,
+                "data_points": len(df),
+            }
+
+    result = cached_call(args, "index", fetch, symbol=symbol, days=days)
+    return result
+
+
 def cmd_selftest(args) -> dict:
     """Run self-diagnostic: test each API endpoint and report status."""
     import akshare as ak
@@ -751,6 +831,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_hval = sub.add_parser("hvaluation", help="HK stock valuation (PE-TTM/PB 3-year percentile)")
     p_hval.add_argument("code", help="5-digit HK stock code (e.g. 01810)")
 
+    # index
+    p_index = sub.add_parser("index", help="Index daily data (e.g., sh000300 for CSI 300)")
+    p_index.add_argument("symbol", help="Index symbol (e.g., sh000300)")
+    p_index.add_argument("--days", type=int, default=120, help="Trading days (default: 120)")
+    p_index.add_argument("--raw", action="store_true", help="Output full data")
+
     # selftest
     sub.add_parser("selftest", help="Run self-diagnostic")
 
@@ -774,6 +860,7 @@ def main():
         "northflow": cmd_northflow,
         "hkline": cmd_hkline,
         "hvaluation": cmd_hvaluation,
+        "index": cmd_index,
         "selftest": cmd_selftest,
     }
 

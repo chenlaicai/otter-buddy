@@ -12,6 +12,7 @@ import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
+import type { FunctionRegistry } from '@usecases/paper-trading/function-registry';
 import { DomainError } from '@entities/errors';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -53,6 +54,8 @@ export interface SchedulerServiceOptions {
    *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响，对抗审视二轮修复——
    *  首版误用 Date.now 墙钟）；与调度延迟计算的 Date.now 是两条时间线，注入方须保持一致语义 */
   now?: () => number;
+  /** PR4: 函数注册表，用于 function executor */
+  functionRegistry?: FunctionRegistry;
 }
 
 export class SchedulerService {
@@ -68,6 +71,7 @@ export class SchedulerService {
   private readonly dispatchChainEngine?: DispatchChainEngine;
   private readonly now: () => number;
   private readonly manageSession?: ManageSession;
+  private readonly functionRegistry?: FunctionRegistry;
 
   constructor(options: SchedulerServiceOptions) {
     this.taskRepo = options.taskRepo;
@@ -81,6 +85,7 @@ export class SchedulerService {
     this.dispatchChainEngine = options.dispatchChainEngine;
     this.now = options.now ?? (() => performance.now());
     this.manageSession = options.manageSession;
+    this.functionRegistry = options.functionRegistry;
 
     // 注册任务变更回调
     if (options.manageScheduledTask) {
@@ -287,7 +292,7 @@ export class SchedulerService {
   /** 触发单个任务。
    *  @param options.skipConsecutiveFailureTracking - #246: once 任务重试时跳过 consecutiveFailures 追踪，
    *    由 triggerOnceWithRetry 独立控制重试/error 语义，避免两层机制冲突。 */
-  // eslint-disable-next-line max-statements, complexity -- restartBeforeInvoke + #246 skipConsecutiveFailureTracking 增加语句数和复杂度，重构会降低可读性
+  // eslint-disable-next-line max-statements, complexity, max-lines-per-function -- restartBeforeInvoke + #246 skipConsecutiveFailureTracking + PR4 function executor
   private async triggerTask(task: ScheduledTask, options?: { skipConsecutiveFailureTracking?: boolean }): Promise<{ executionId: string }> {
     const now = new Date().toISOString();
     // Why 默认 'failed'：任何路径抛错（resolveEffectiveBody/createExecution DB 错等）
@@ -312,6 +317,46 @@ export class SchedulerService {
 
       const executionId = crypto.randomUUID();
       await this.createExecution(executionId, task.id, now);
+
+      // PR4: function executor 分支——纯代码执行，无 LLM 会话
+      if (task.executorType === 'function') {
+        if (!this.functionRegistry) {
+          throw new DomainError('Function registry not injected', 'validation');
+        }
+        if (!task.functionName) {
+          throw new DomainError('functionName is required for executorType=function', 'validation');
+        }
+
+        executionStartMs = this.now();
+        try {
+          // 解析 body 中的参数（JSON 格式）
+          let params: Record<string, unknown> = {};
+          try {
+            params = JSON.parse(task.body);
+          } catch {
+            this.logger.warn('Failed to parse task body as JSON, using empty params', { taskId: task.id });
+          }
+
+          // 执行函数
+          const result = await this.functionRegistry.execute(task.functionName, params);
+
+          await this.completeExecution(executionId, task.conversationId, '');
+          try {
+            await this.taskRepo.resetConsecutiveFailures(task.id, now);
+          } catch (resetErr) {
+            this.logger.warn('resetConsecutiveFailures failed (non-fatal)', {
+              taskId: task.id,
+              error: resetErr instanceof Error ? resetErr.message : String(resetErr),
+            });
+          }
+          status = 'completed';
+          this.logger.info('Function executor completed', { taskId: task.id, functionName: task.functionName, result });
+          return { executionId };
+        } catch (error) {
+          await this.handleTaskExecutionFailure(executionId, task.id, error, options?.skipConsecutiveFailureTracking);
+          throw error;
+        }
+      }
 
       // F20260815rstrt: 触发前重启执行獭的 session（保持干净上下文）
       if (task.restartBeforeInvoke && task.talkingStonePassedTo.length > 0) {
