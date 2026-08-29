@@ -21,6 +21,50 @@ const OVERVIEW_KEYS = [
   "bugfix_count", "bugfix_ratio", "bugfix_ratio_of_fid",
 ] as const;
 
+/** trends 序列指标键（F20260829hviz）：折线图趋势专用，比率 ×100 转百分比点位 */
+const TREND_KEYS = [
+  "total_commits", "bugfix_count", "bugfix_ratio", "compliant_commits",
+] as const;
+
+const DEFAULT_TREND_DAYS = 30;
+
+/** 趋势序列聚合：{ date → { key → value } }，比率键 ×100 转百分比（F20260829hviz） */
+const RATIO_KEYS = new Set(["bugfix_ratio", "bugfix_ratio_of_fid"]);
+
+function aggregateTrendSeries(rows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>):
+  Array<Record<string, number | string>> {
+  const byDate = new Map<string, Record<string, number>>();
+  for (const row of rows) {
+    if (!TREND_KEYS.includes(row.metric_key as (typeof TREND_KEYS)[number])) continue;
+    const point = byDate.get(row.snapshot_date) ?? {};
+    point[row.metric_key] = RATIO_KEYS.has(row.metric_key)
+      ? Number((row.metric_value * 100).toFixed(2))
+      : row.metric_value;
+    byDate.set(row.snapshot_date, point);
+  }
+  return [...byDate.entries()]
+    .map(([date, values]) => ({ date, ...values }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** 最新一天 distribution 行解析为 { key → parsed JSON }（metadata 坏 JSON 降级 null） */
+function parseLatestDistributions(
+  rows: Array<{ snapshot_date: string; metric_type: string; metric_key: string; metadata: string | null }>,
+  latestDate: string | null,
+): Record<string, unknown> {
+  if (!latestDate) return {};
+  const out: Record<string, unknown> = {};
+  for (const r of rows) {
+    if (r.metric_type !== "distribution" || r.snapshot_date !== latestDate) continue;
+    try {
+      out[r.metric_key] = r.metadata ? JSON.parse(r.metadata) : null;
+    } catch {
+      out[r.metric_key] = null;
+    }
+  }
+  return out;
+}
+
 export class RhiController {
   constructor(
     private readonly snapshotRepo: HealthSnapshotRepository,
@@ -97,6 +141,32 @@ export class RhiController {
       });
     } catch (err) {
       this.logger.error("RHI chains failed", err instanceof Error ? err : undefined);
+      return c.json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** GET /api/health/trends?days=30 — 历史趋势序列（F20260829hviz）
+   *  从 health_snapshots 按日期范围拉取趋势指标 + 最新一天的 distribution 行
+   *  （change_types / modules / chain_states，供环形图/堆叠条/条形图）。 */
+  async trends(c: Context): Promise<Response> {
+    try {
+      const days = Math.min(Math.max(Number(c.req.query("days")) || DEFAULT_TREND_DAYS, 1), 90);
+      const startDate = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000)
+        .toISOString().slice(0, 10);
+
+      const rows = this.snapshotRepo.findByDateRange(startDate, new Date().toISOString().slice(0, 10));
+      const series = aggregateTrendSeries(rows);
+      const latestDate = rows.length > 0 ? rows[rows.length - 1]!.snapshot_date : null;
+      const distributions = parseLatestDistributions(rows, latestDate);
+
+      return c.json({
+        days,
+        series,
+        distributions,
+        latestSnapshotDate: latestDate,
+      });
+    } catch (err) {
+      this.logger.error("RHI trends failed", err instanceof Error ? err : undefined);
       return c.json({ error: err instanceof Error ? err.message : String(err) });
     }
   }

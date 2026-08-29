@@ -1,16 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, Bug, FileCode } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, Bug, FileCode, TrendingUp, PieChart as PieIcon, Layers, BarChart3 } from 'lucide-react'
+import {
+  ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  PieChart, Pie, Cell, Legend,
+} from 'recharts'
 import '../../styles/globals.css'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
-import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO } from '../../api/client'
+import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO } from '../../api/client'
 
 /**
- * F20260825rweb（#403）：RHI 健康面板页面。
- * 三视图一体：总览指标卡 + 信号列表（severity 分组）+ 特性链五态分布。
- * 量级分布参数（排序/分组）按真实数据到来后调整——先实现一版。
+ * F20260825rweb（#403）：RHI 健康面板页面（三视图）。
+ * F20260829hviz：总览从静态数字卡升级为可视化看板——
+ *   提交/BugFix 趋势折线图（30 天快照序列）、change_type 分布环形图、
+ *   模块热区条形图、特性链五态分布堆叠条。
+ * 数据源：scanOnce 已接入指标落库（Fix A）+ GET /api/health/trends。
  */
 
 type Tab = 'overview' | 'signals' | 'chains'
@@ -26,17 +32,24 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   review_debt: '审视债务',
 }
 
-const CHAIN_STATE_LABELS: Record<string, { label: string; className: string }> = {
-  active: { label: '活跃', className: 'bg-emerald-100 text-emerald-700' },
-  stalled: { label: '滞留', className: 'bg-status-stalled text-amber-700' },
-  regressed: { label: '回退', className: 'bg-orange-100 text-orange-700' },
-  zombie: { label: '僵尸', className: 'bg-rose-100 text-rose-700' },
-  orphan: { label: '孤儿', className: 'bg-skeleton text-stone-500' },
+const CHAIN_STATE_LABELS: Record<string, { label: string; className: string; color: string }> = {
+  active: { label: '活跃', className: 'bg-emerald-100 text-emerald-700', color: '#10b981' },
+  stalled: { label: '滞留', className: 'bg-status-stalled text-amber-700', color: '#f59e0b' },
+  regressed: { label: '回退', className: 'bg-orange-100 text-orange-700', color: '#f97316' },
+  zombie: { label: '僵尸', className: 'bg-rose-100 text-rose-700', color: '#f43f5e' },
+  orphan: { label: '孤儿', className: 'bg-skeleton text-stone-500', color: '#a8a29e' },
+}
+
+const CHANGE_TYPE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#f97316', '#64748b']
+const CHANGE_TYPE_LABELS: Record<string, string> = {
+  Feature: '新功能', BugFix: '修复', Refactor: '重构', Docs: '文档',
+  Test: '测试', Chore: '杂务', Experiment: '实验',
 }
 
 function HealthPage() {
   const [tab, setTab] = useState<Tab>('overview')
   const [overview, setOverview] = useState<RhiOverviewDTO | null>(null)
+  const [trends, setTrends] = useState<RhiTrendsDTO | null>(null)
   const [signals, setSignals] = useState<RhiSignalDTO[]>([])
   const [chains, setChains] = useState<RhiChainDTO[]>([])
   const [stateCounts, setStateCounts] = useState<Record<string, number>>({})
@@ -45,13 +58,15 @@ function HealthPage() {
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const [ov, sig, ch] = await Promise.all([
+      const [ov, tr, sig, ch] = await Promise.all([
         api.getRhiOverview(signal),
+        api.getRhiTrends(30, signal),
         api.getRhiSignals('open', signal),
         api.getRhiChains(signal),
       ])
       if (signal?.aborted) return
       setOverview(ov)
+      setTrends(tr)
       setSignals(sig.signals)
       setChains(ch.chains)
       setStateCounts(ch.stateCounts)
@@ -73,7 +88,11 @@ function HealthPage() {
     setLoading(true)
     try {
       const r = await api.triggerRhiScan()
-      showToast(r.ok ? `扫描完成：${(r.result as { commitCount?: number }).commitCount ?? 0} commits` : '扫描失败', r.ok ? 'success' : 'error')
+      const res = r.result as { commitCount?: number; metricsStored?: number }
+      showToast(
+        r.ok ? `扫描完成：${res.commitCount ?? 0} commits · ${res.metricsStored ?? 0} 项指标入库` : '扫描失败',
+        r.ok ? 'success' : 'error',
+      )
       await refresh()
     } catch (err) {
       showToast(err instanceof Error ? err.message : '扫描失败', 'error')
@@ -131,25 +150,97 @@ function HealthPage() {
             ))}
           </div>
 
-          {/* 总览视图 */}
-          {tab === 'overview' && overview && (
+          {/* 总览视图：指标卡 + 可视化看板 */}
+          {tab === 'overview' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <MetricCard label="总提交" value={overview.metrics.total_commits ?? '—'} icon={<GitBranch className="w-4 h-4" />} />
-                <MetricCard label="BugFix 比率" value={fmtPercent(overview.metrics.bugfix_ratio)} icon={<Bug className="w-4 h-4" />} />
-                <MetricCard label="critical 信号" value={overview.openSignalsBySeverity.critical} icon={<ShieldAlert className="w-4 h-4" />} tone={overview.openSignalsBySeverity.critical > 0 ? 'danger' : 'ok'} />
-                <MetricCard label="warning 信号" value={overview.openSignalsBySeverity.warning} icon={<AlertTriangle className="w-4 h-4" />} tone={overview.openSignalsBySeverity.warning > 0 ? 'warn' : 'ok'} />
+                <MetricCard label="总提交（60 天窗口）" value={overview?.metrics.total_commits ?? '—'} icon={<GitBranch className="w-4 h-4" />} />
+                <MetricCard label="BugFix 比率" value={fmtPercent(overview?.metrics.bugfix_ratio)} icon={<Bug className="w-4 h-4" />} />
+                <MetricCard label="critical 信号" value={overview?.openSignalsBySeverity.critical ?? '—'} icon={<ShieldAlert className="w-4 h-4" />} tone={(overview?.openSignalsBySeverity.critical ?? 0) > 0 ? 'danger' : 'ok'} />
+                <MetricCard label="warning 信号" value={overview?.openSignalsBySeverity.warning ?? '—'} icon={<AlertTriangle className="w-4 h-4" />} tone={(overview?.openSignalsBySeverity.warning ?? 0) > 0 ? 'warn' : 'ok'} />
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <MetricCard label="合规提交" value={overview.metrics.compliant_commits ?? '—'} />
-                <MetricCard label="有 FID 提交" value={overview.metrics.commits_with_fid ?? '—'} />
-                <MetricCard label="BugFix 数" value={overview.metrics.bugfix_count ?? '—'} />
-                <MetricCard label="FID 口径比率" value={fmtPercent(overview.metrics.bugfix_ratio_of_fid)} />
-              </div>
+
+              {trends && trends.series.length > 0 ? (
+                <>
+                  {/* 趋势区：提交量 + BugFix 比率双图 */}
+                  <ChartCard title="提交 & BugFix 趋势" subtitle="近 30 天快照 · 柱=提交数，线=BugFix 比率" icon={<TrendingUp className="w-4 h-4 text-otter-500" />}>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <ComposedChart data={trends.series} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                        <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
+                        <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#78716c' }} />
+                        <YAxis yAxisId="right" orientation="right" unit="%" tick={{ fontSize: 11, fill: '#78716c' }} domain={[0, 100]} />
+                        <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Bar yAxisId="left" dataKey="total_commits" name="提交数" fill="#93c5fd" radius={[3, 3, 0, 0]} />
+                        <Line yAxisId="right" type="monotone" dataKey="bugfix_ratio" name="BugFix 比率" stroke="#f43f5e" strokeWidth={2} dot={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* change_type 分布环形图 */}
+                    <ChartCard title="提交类型分布" subtitle={`快照 ${trends.latestSnapshotDate ?? '—'} · 60 天窗口`} icon={<PieIcon className="w-4 h-4 text-otter-500" />}>
+                      {changeTypeData(trends).length > 0 ? (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <PieChart>
+                            <Pie
+                              data={changeTypeData(trends)}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={55}
+                              outerRadius={85}
+                              paddingAngle={2}
+                            >
+                              {changeTypeData(trends).map((_, i) => (
+                                <Cell key={i} fill={CHANGE_TYPE_COLORS[i % CHANGE_TYPE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend wrapperStyle={{ fontSize: 12 }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <EmptyChart text="无分布数据" />
+                      )}
+                    </ChartCard>
+
+                    {/* 模块热区条形图 */}
+                    <ChartCard title="模块热区" subtitle="commit 按 module 聚合 · TOP 8" icon={<BarChart3 className="w-4 h-4 text-otter-500" />}>
+                      {moduleData(trends).length > 0 ? (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <ComposedChart data={moduleData(trends)} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                            <XAxis type="number" tick={{ fontSize: 11, fill: '#78716c' }} allowDecimals={false} />
+                            <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 11, fill: '#78716c' }} />
+                            <Tooltip />
+                            <Bar dataKey="value" name="commits" fill="#0ea5e9" radius={[0, 3, 3, 0]} barSize={14} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <EmptyChart text="无模块数据" />
+                      )}
+                    </ChartCard>
+                  </div>
+
+                  {/* 特性链五态分布堆叠条 */}
+                  <ChartCard title="特性链五态分布" subtitle={`快照 ${trends.latestSnapshotDate ?? '—'} · 共 ${chainTotal(trends)} 条链`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
+                    <ChainStateBar counts={trends.distributions.chain_states ?? {}} />
+                  </ChartCard>
+                </>
+              ) : (
+                <div className="rounded-2xl bg-white/70 border border-stone-200/60 py-16 text-center">
+                  <TrendingUp className="w-10 h-10 mx-auto mb-3 text-stone-300" />
+                  <p className="text-sm text-stone-500">还没有历史快照——点右上角「立即扫描」生成第一份</p>
+                  <p className="text-xs text-stone-400 mt-1">扫描会计算指标并写入快照库，之后每小时自动更新，趋势图逐日长出来</p>
+                </div>
+              )}
             </div>
           )}
 
-          {/* 信号视图 */}
+          {/* 信号视图（列表为主，图表辅助） */}
           {tab === 'signals' && (
             <div className="space-y-4">
               {criticalSignals.length > 0 && (
@@ -168,12 +259,8 @@ function HealthPage() {
           {/* 特性链视图 */}
           {tab === 'chains' && (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(CHAIN_STATE_LABELS).map(([state, cfg]) => (
-                  <span key={state} className={`px-2.5 py-1 rounded-full text-xs font-medium ${cfg.className}`}>
-                    {cfg.label} {stateCounts[state] ?? 0}
-                  </span>
-                ))}
+              <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
+                <ChainStateBar counts={stateCounts} />
               </div>
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 divide-y divide-stone-100">
                 {chains
@@ -208,14 +295,41 @@ function HealthPage() {
   )
 }
 
+// ── 图表数据变换 ──
+
+function fmtDate(iso: string): string {
+  return iso.length >= 10 ? iso.slice(5).replace('-', '/') : iso
+}
+
 function fmtPercent(v: number | undefined): string {
   return v === undefined ? '—' : `${(v * 100).toFixed(1)}%`
+}
+
+function changeTypeData(trends: RhiTrendsDTO): Array<{ name: string; value: number }> {
+  const dist = trends.distributions.change_types
+  if (!dist) return []
+  return Object.entries(dist)
+    .map(([k, v]) => ({ name: CHANGE_TYPE_LABELS[k] ?? k, value: v }))
+    .sort((a, b) => b.value - a.value)
+}
+
+function moduleData(trends: RhiTrendsDTO): Array<{ name: string; value: number }> {
+  const mods = trends.distributions.modules
+  if (!Array.isArray(mods)) return []
+  return mods.slice(0, 8).map(m => ({ name: m.module, value: m.count }))
+}
+
+function chainTotal(trends: RhiTrendsDTO): number {
+  const cs = trends.distributions.chain_states
+  return cs ? Object.values(cs).reduce((s, v) => s + v, 0) : 0
 }
 
 function stateRank(state: string): number {
   const order: Record<string, number> = { zombie: 5, regressed: 4, stalled: 3, orphan: 2, active: 1 }
   return order[state] ?? 0
 }
+
+// ── 组件 ──
 
 function MetricCard({ label, value, icon, tone = 'default' }: {
   label: string
@@ -236,6 +350,71 @@ function MetricCard({ label, value, icon, tone = 'default' }: {
         {label}
       </div>
       <div className={`text-2xl font-bold ${toneClass}`}>{value}</div>
+    </div>
+  )
+}
+
+function ChartCard({ title, subtitle, icon, children }: {
+  title: string
+  subtitle?: string
+  icon?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
+      <div className="flex items-center gap-1.5 text-xs text-stone-500 mb-0.5">
+        {icon}
+        <span className="font-semibold text-stone-600">{title}</span>
+        {subtitle && <span className="text-stone-400">· {subtitle}</span>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function EmptyChart({ text }: { text: string }) {
+  return (
+    <div className="flex items-center justify-center h-[220px] text-sm text-stone-400">{text}</div>
+  )
+}
+
+/** 特性链五态分布：水平堆叠条（各态按占比分宽，hover 显示数值） */
+function ChainStateBar({ counts }: { counts: Record<string, number> }) {
+  const entries = Object.entries(counts).filter(([, v]) => v > 0)
+  const total = entries.reduce((s, [, v]) => s + v, 0)
+  if (total === 0) {
+    return <div className="flex items-center justify-center h-14 text-sm text-stone-400">无特性链数据</div>
+  }
+  return (
+    <div>
+      <div className="flex h-7 rounded-full overflow-hidden bg-skeleton/50">
+        {entries.map(([state, count]) => {
+          const cfg = CHAIN_STATE_LABELS[state]
+          return (
+            <div
+              key={state}
+              className="flex items-center justify-center transition-all"
+              style={{ width: `${(count / total) * 100}%`, backgroundColor: cfg?.color ?? '#a8a29e' }}
+              title={`${cfg?.label ?? state}: ${count}`}
+            >
+              {(count / total) >= 0.12 && (
+                <span className="text-[11px] font-semibold text-white">{count}</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+        {entries.map(([state, count]) => {
+          const cfg = CHAIN_STATE_LABELS[state]
+          return (
+            <span key={state} className="flex items-center gap-1 text-xs text-stone-500">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg?.color ?? '#a8a29e' }} />
+              {cfg?.label ?? state} {count}（{((count / total) * 100).toFixed(0)}%）
+            </span>
+          )
+        })}
+      </div>
     </div>
   )
 }

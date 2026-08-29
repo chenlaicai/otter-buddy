@@ -15,6 +15,7 @@ import { collectFeatureDocs } from "./feature-doc-collector";
 import { calculateMetrics } from "./metrics-calculator";
 import type { Metrics } from "./metrics-calculator";
 import { HealthSnapshotRepository } from "./health-snapshot-repository";
+import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import { generateReport } from "./cli-report";
 import type { ReportFormat } from "./cli-report";
 
@@ -25,6 +26,8 @@ export interface HealthReportOptions {
   maxCount?: number;
   /** 跳过持久化（CI/测试环境无写库需求时） */
   skipPersistence?: boolean;
+  /** 快照日期（默认今天；回填历史用，F20260829hviz） */
+  snapshotDate?: string;
 }
 
 export interface HealthReportResult {
@@ -74,7 +77,13 @@ export class HealthReport {
 
     // 5. 持久化（同日 DELETE+INSERT 覆盖，对抗审视发现 4：消费方无需理解"取最新"）
     if (!options.skipPersistence) {
-      this.persistMetrics(metrics);
+      this.snapshotRepo.replaceForDate(
+        options.snapshotDate ?? new Date().toISOString().slice(0, 10),
+        buildOverviewSnapshotRows({
+          snapshotDate: options.snapshotDate ?? new Date().toISOString().slice(0, 10),
+          metrics,
+        }),
+      );
     }
 
     // 6. 生成报告
@@ -89,52 +98,5 @@ export class HealthReport {
     });
 
     return { report, metrics };
-  }
-
-  /**
-   * 指标持久化到 health_snapshots。
-   * 同日重复运行 DELETE+INSERT 覆盖：findByDate 返回的永远是当日最终快照。
-   */
-  private persistMetrics(metrics: Metrics): void {
-    const snapshotDate = new Date().toISOString().slice(0, 10);
-
-    this.snapshotRepo.replaceForDate(
-      snapshotDate,
-      [      { snapshotDate, metricType: "overview", metricKey: "total_commits", metricValue: metrics.totalCommits },
-      { snapshotDate, metricType: "overview", metricKey: "commits_with_fid", metricValue: metrics.commitsWithFid },
-      { snapshotDate, metricType: "overview", metricKey: "compliant_commits", metricValue: metrics.compliantCommits },
-      { snapshotDate, metricType: "overview", metricKey: "skipped_commits", metricValue: metrics.skippedCommits },
-      { snapshotDate, metricType: "overview", metricKey: "bugfix_count", metricValue: metrics.bugfixCount },
-      { snapshotDate, metricType: "overview", metricKey: "bugfix_ratio", metricValue: metrics.bugfixRatio },
-      { snapshotDate, metricType: "overview", metricKey: "bugfix_ratio_of_fid", metricValue: metrics.bugfixRatioOfFid },
-      {
-        snapshotDate,
-        metricType: "distribution",
-        metricKey: "change_types",
-        metricValue: metrics.compliantCommits,
-        metadata: JSON.stringify(metrics.changeTypeDistribution),
-      },
-      {
-        snapshotDate,
-        metricType: "distribution",
-        metricKey: "skip_reasons",
-        metricValue: metrics.skippedCommits,
-        metadata: JSON.stringify(metrics.skipReasonDistribution),
-      },
-      {
-        snapshotDate,
-        metricType: "distribution",
-        metricKey: "modules",
-        metricValue: metrics.moduleStats.reduce((s, m) => s + m.count, 0),
-        metadata: JSON.stringify(metrics.moduleStats),
-      },
-      {
-        snapshotDate,
-        metricType: "distribution",
-        metricKey: "file_hotspots",
-        metricValue: metrics.fileHotspots.length,
-        metadata: JSON.stringify(metrics.fileHotspots),
-      },
-    ]);
   }
 }

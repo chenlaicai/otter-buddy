@@ -42,8 +42,9 @@ async function main() {
   const { initSchema } = await import(path.join(rootDir, "dist/src/frameworks/db/schema.js"));
   const Database = (await import("better-sqlite3")).default;
 
-  // 数据库路径：环境变量优先，默认 data/otter.db
-  const dbPath = process.env.OTTER_DB_PATH ?? path.join(rootDir, "data/otter.db");
+  // 数据库路径：环境变量优先，默认 data/otter-buddy.db（与服务运行时同库；
+  // F20260829hviz Fix B：曾默认废弃的 data/otter.db，导致指标写进孤儿库、面板永远读不到）
+  const dbPath = process.env.OTTER_DB_PATH ?? path.join(rootDir, "data/otter-buddy.db");
   const db = new Database(dbPath);
   initSchema(db);
 
