@@ -8,7 +8,7 @@ created_in_conversation: a359984d-6069-41ca-bfc9-cd08fc44b53e
 capability_test: "n/a: 纯 A 类改动，安全守卫和状态机修复不涉及 LLM 行为"
 ---
 
-# F20260830bsgr: 8/30 双 Bug 三处修复
+# F20260830bsgr: 8/30 双 Bug 三处修复（含 R2 对抗审视修正）
 
 ## 背景
 
@@ -33,13 +33,19 @@ capability_test: "n/a: 纯 A 类改动，安全守卫和状态机修复不涉及
 **修复**：
 - 新增 `src/frameworks/agent/bash-safety-guard.ts`：解析 bash 命令中的 kill 类操作，检查目标 PID 是否是主进程
 - 集成到 `src/frameworks/agent/circuit-breaker-helpers.ts` 的 `attachCircuitBreaker`：在 `tool_execution_start` 事件中拦截，早于工具实际执行
-- 主进程 PID 从 `.otter-buddy.pid` 实时读取（懒加载，首次检查时读取）
+- 主进程 PID 从 `.otter-buddy.pid` 实时读取（每次检查都读文件，不缓存，支持热重启换 PID）
 - 检测到危险命令时 `session.abort()` 阻断执行
 
-**设计决策**：
-- 只拦截明确针对主进程的 kill 类命令（精确匹配，不误伤）
-- 允许 kill 无关进程（如 ffmpeg、test 子进程等）
-- 允许 otter-buddy.sh restart（通过脚本管理，有安全兜底）
+**设计决策（R2 对抗审视修正）**：
+- 翻转策略（F20260830fabt-r2）：字面量黑名单必输，LLM 可用变量/$()/反引号/xargs/eval/base64 绕过
+- 非字面量 kill 目标（变量/`$()`/反引号/xargs 管道）→ 保守拦截
+- kill 字面量 PID → 放行，除非等于主进程 PID
+- pkill/killall + node/main.js/otter/dist 类模式 → 拦截
+- 命令中出现 `.otter-buddy.pid` 引用 + kill 族 → 跨段拦截
+- 全命令级高危模式：eval+数字参数、管道到 shell、脚本语言 one-liner → 拦截
+- PID 每次检查现读，不缓存（R2 严重3）
+- 文档如实写：这是纵深防御的一层，不是绝对防线（base64 编码等超出文本分析能力）
+- 检视獭的10 个绕过 PoC（9 个拦截+1 个已知局限）全部转为回归测试
 
 ### P0-2: Failed 消息必 Abort（F20260830fabt）
 
@@ -50,20 +56,34 @@ capability_test: "n/a: 纯 A 类改动，安全守卫和状态机修复不涉及
 - 消息标 failed 后立即 abort SDK session，阻止 LLM 在 dead message 上继续运行
 - 不走 `driver.abort()` 以免触发 `userAbortedMessages` 标记（那是用户中断的语义）
 
+**修复（R2 对抗审视修正）**：
+- R2 严重1（F20260830fabt-r2）：`_executeWithSession` 的 finally 块先于 orchestrator 收到 error 执行，
+  session 从 activeSessions 删除后 abort 查表落空（no-op）
+- 修法：在 pi-session-factory 新增 `pendingAborts` Map，invoke 前存入 session.abort() 闭包，
+  finally 块删除后 abort 仍可通过闭包调用已 dispose 的 session
+- `piSessionFactory.abort()` 优先查 activeSessions（session 仍活跃），
+  找不到时查 pendingAborts（session 已 dispose 但闭包仍可调用）
+
 **设计决策**：
 - abort 通过 `this.agentInvoke.abort()` 直接调用，不经过 `driver.abort()` 的 user-aborted 追踪
 - 确保所有 failMessage 路径（auto-retry、yield-retry、degenerate-retry、circuit-break）都自动 abort
+- pendingAborts 在 finally 块中同步清理，防止内存泄漏
 
 ### P1: Resume 容错（F20260830rfto）
 
 **问题**：resume 消费遇到 429 rate limit 后中断，部分消息既未成功也未标记 exhausted，永久停留在 pending 状态。
 
-**修复**：
+**修复（R2 对抗审视修正）**：
 - 修改 `src/usecases/conversation/resume-interrupted-service.ts`：
   - 每个 conversation 独立 try/catch，一条失败不阻塞其余
   - sendSystem 失败不阻塞 resume 消费（恢复可以没有系统提示）
   - 429/限流类错误指数退避重试（最多 3 次，基础延迟 5s）
   - 所有异常路径确保 `updateResumeStatus` 被调用，不允许永久 pending
+- R2 建议1（F20260830rfto-r2）：`resumeOne` 内层 catch 原本吞掉所有错误（含 429），
+  导致 `resumeOneWithRetry` 的 429 退避永远等不到错误——死代码。
+  修复：429/限流错误从内层 catch 向上传播，由 `resumeOneWithRetry` 退避重试；
+  非限流错误仍在内层标记 exhausted（不可重试的失败快速闭环）。
+  同时使退避基础延迟可配置（测试注入小值避免35s+超时）
 
 **设计决策**：
 - 429 重试在 `resumeOneWithRetry` 层包装，不影响 `resumeOne` 内部逻辑
@@ -74,18 +94,18 @@ capability_test: "n/a: 纯 A 类改动，安全守卫和状态机修复不涉及
 
 | 文件 | 变更类型 | 说明 |
 |------|----------|------|
-| `src/frameworks/agent/bash-safety-guard.ts` | 新增 | bash 命令安全守卫核心逻辑 |
-| `src/frameworks/agent/circuit-breaker-helpers.ts` | 修改 | 集成 bash 安全守卫到 tool_execution_start 钩子 |
-| `src/frameworks/agent/pi-session-factory.ts` | 修改 | 传递 projectRoot 给 attachGuards |
+| `src/frameworks/agent/bash-safety-guard.ts` | 新增→重写 | bash 命令安全守卫（v2 对抗设计：保守拦截 + 10 PoC 回归） |
+| `src/frameworks/agent/circuit-breaker-helpers.ts` | 修改 | 集成 bash 安全守卫 + PID 实时读取（去除缓存） |
+| `src/frameworks/agent/pi-session-factory.ts` | 修改 | pendingAborts map 解决 abort no-op + projectRoot 传递 |
 | `src/interface-adapters/agent-runtime/agent-invoker.ts` | 修改 | failMessage 回调增加 abort |
-| `src/usecases/conversation/resume-interrupted-service.ts` | 修改 | resume 消费容错增强 |
-| `tests/frameworks/agent/bash-safety-guard.test.ts` | 新增 | bash 安全守卫测试（23 用例） |
-| `tests/usecases/conversation/resume-interrupted-service.test.ts` | 修改 | resume 容错测试（+2 用例） |
+| `src/usecases/conversation/resume-interrupted-service.ts` | 修改 | resume 容错增强 + 429 传播 + 退避延迟可配置 |
+| `tests/frameworks/agent/bash-safety-guard.test.ts` | 新增→重写 | bash 安全守卫测试（39 用例含10 PoC 回归） |
+| `tests/usecases/conversation/resume-interrupted-service.test.ts` | 修改 | resume 容错测试（+3 用例含 429 传播） |
 
 ## 验证
 
-- 全量测试：2237 passed（0 failed）
-- 新增测试：25 用例（bash-safety-guard 23 + resume-fault-tolerance 2）
+- 全量测试：2254 passed（0 failed）
+- 新增测试：39 用例（bash-safety-guard 39 含 10 PoC 回归 + resume 429 传播）
 - 已过最简检查：bash 安全守卫复用现有 circuit-breaker 钩子，无额外依赖
 
 ## 关联前案

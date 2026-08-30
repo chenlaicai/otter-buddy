@@ -164,14 +164,10 @@ export function attachCircuitBreaker(
   logger: Logger,
   options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
-  // F20260830bsgr：bash 安全守卫——读取主进程 PID（懒加载，首次检查时读取）
-  const mainPidRef: { value: number | null; loaded: boolean } = { value: null, loaded: false };
+  // F20260830bsgr：bash 安全守卫——读取主进程 PID
+  // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
   const getMainPid = (): number | null => {
-    if (!mainPidRef.loaded) {
-      mainPidRef.value = readMainProcessPid(options?.projectRoot ?? process.cwd());
-      mainPidRef.loaded = true;
-    }
-    return mainPidRef.value;
+    return readMainProcessPid(options?.projectRoot ?? process.cwd());
   };
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
   const doAbort = options?.abortOverride ?? (() => { session.abort(); });

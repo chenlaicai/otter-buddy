@@ -304,6 +304,40 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
     expect(rows[0]?.status).toBe("done");
   });
+
+  // F20260830rfto: 429 限流错误从 resumeOne 传播到 resumeOneWithRetry（修复审查建议1）
+  // 核心验证：429 错误不被 resumeOne 内层 catch 吞掉，而是传播到 resumeOneWithRetry 的退避重试
+  it("429 限流错误传播到重试层：链引擎报 429 时触发退避重试", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+
+    // 链引擎始终报429（所有重试都失败 → exhausted）
+    const chain = {
+      executeChain: vi.fn(async () => {
+        throw new Error("429 Too Many Requests");
+      }),
+    } as unknown as DispatchChainEngine;
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      delayMs: 0,
+      rateLimitBaseDelayMs: 1, // 测试用：1ms 退避
+    });
+
+    await service.resume();
+
+    // 429 被传播到重试层：executeChain 被调用多次（初始1次 + 最多3次重试）
+    expect(chain.executeChain).toHaveBeenCalled();
+    // 全部重试失败 → exhausted
+    const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe("exhausted");
+  });
 });
 
 /** 为非默认 conversation seed 中断记录（seedInterrupted 硬编码 conv-1） */

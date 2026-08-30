@@ -38,6 +38,8 @@ export class ResumeInterruptedService {
       logger: Logger;
       /** 测试注入假时钟/立即触发 */
       delayMs?: number;
+      /** F20260830rfto: 429 限流退避基础延迟（ms），测试可注入小值 */
+      rateLimitBaseDelayMs?: number;
     },
   ) {}
 
@@ -104,9 +106,14 @@ export class ResumeInterruptedService {
     }
   }
 
+  private getRateLimitBaseDelayMs(): number {
+    return this.deps.rateLimitBaseDelayMs ?? ResumeInterruptedService.RATE_LIMIT_BASE_DELAY_MS;
+  }
+
   /** F20260830rfto: resumeOne 外层包装——429 限流时指数退避重试 */
   private async resumeOneWithRetry(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {
     let lastErr: unknown;
+    const baseDelay = this.getRateLimitBaseDelayMs();
     for (let attempt = 0; attempt <= ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES; attempt++) {
       try {
         await this.resumeOne(item);
@@ -114,7 +121,7 @@ export class ResumeInterruptedService {
       } catch (err) {
         lastErr = err;
         if (this.isRateLimitError(err) && attempt < ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES) {
-          const delay = ResumeInterruptedService.RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
+          const delay = baseDelay * Math.pow(2, attempt);
           this.deps.logger.warn(`Resume rate limited, retrying after ${delay}ms`, {
             messageId: item.messageId,
             attempt: attempt + 1,
@@ -177,6 +184,11 @@ export class ResumeInterruptedService {
       this.deps.logger.error("Resume one interrupted message failed", err instanceof Error ? err : new Error(String(err)), {
         messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
       });
+      // F20260830rfto: 429/限流类错误向上传播，由 resumeOneWithRetry 退避重试；
+      // 非限流错误在此标记 exhausted 并通知用户（不可重试的失败快速闭环）
+      if (this.isRateLimitError(err)) {
+        throw err;
+      }
       await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
       await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedMsg("invoke_error"));
     }

@@ -123,6 +123,9 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>();
+  /** F20260830fabt-r2: 持久化 abort 函数映射。finally 块从 activeSessions 删除 session 后，
+   * orchestrator failMessage 仍可通过此 map 调用 session.abort()。 */
+  private readonly pendingAborts = new Map<string, () => Promise<void>>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
   private readonly sessionRestore: SessionRestore;
@@ -417,6 +420,8 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
         const unsubscribe = session.subscribe(createEventHandler(activeEntry, options?.onEvent, turnText));
+        // F20260830fabt-r2: 存储 session.abort 到持久化 map，确保 finally 后仍可调用
+        this.pendingAborts.set(sessionKey, () => session.abort());
         try {
           /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
@@ -453,6 +458,7 @@ export class PiSessionFactory implements AgentGateway {
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
           this.activeSessions.delete(sessionKey);
+          this.pendingAborts.delete(sessionKey);
           // F20260826mwrd C1：invoke 生命周期结束，清理 halt 持续 block 状态——
           // 改派后新 invoke 不受旧 halt 影响（halt 指令已随本 invoke 的 block 注入达成使命）
           haltRegistry.endInvoke(otterId);
@@ -515,14 +521,25 @@ export class PiSessionFactory implements AgentGateway {
   /** 构建 invoke 结果 */
 
 
-  /** 中断指定 Otter 的 Agent 生成 */
+  /** 中断指定 Otter 的 Agent 生成。
+   *  F20260830fabt-r2: 优先从 activeSessions 查（session 仍活跃），
+   *  找不到时从 pendingAborts 取（session 已被 finally dispose 但闭包仍可调用）。 */
   abort(otterId: string, messageId?: string): void {
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
     const entry = this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId);
     if (entry) {
-      /** abort 返回 Promise：fire 路径无人 await，catch 防 unhandledRejection（与 _attachGuards 的 guardAbort 同模式） */
       void entry.abort().catch((err: unknown) => {
         this.logger.warn(`[abort] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      return;
+    }
+    // F20260830fabt-r2: session 已从 activeSessions 删除（finally 已执行），
+    // 从 pendingAborts 取持久化的 abort 函数（闭包捕获的 session 对象仍可调用）
+    const pendingAbort = this.pendingAborts.get(sessionKey) ?? this.pendingAborts.get(otterId);
+    if (pendingAbort) {
+      this.logger.info(`[abort] session already disposed, using pending abort fn otter=${otterId}`);
+      void pendingAbort().catch((err: unknown) => {
+        this.logger.warn(`[abort] pending abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
   }
