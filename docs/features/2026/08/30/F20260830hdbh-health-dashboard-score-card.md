@@ -11,7 +11,7 @@ from:
   - F20260829hscx
 references:
   - "https://github.com/chenlaicai/otter-buddy/issues/595"
-capability_test: "tests/api/rhi-api.test.ts（score 端点 3 个新增用例：空态/正常/cost_output 隔离）"
+capability_test: tests/api/rhi-api.test.ts
 ---
 
 # 健康面板综合分卡与五维雷达图
