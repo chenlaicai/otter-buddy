@@ -7,7 +7,7 @@ import { createAgentSession, SessionManager, ModelRuntime } from "@earendil-work
 import { readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 
 const SCENE_SESSION = "/tmp/pi-degenerate-cleaned-memory.jsonl";
 const TIMEOUT_MS = 120_000;
