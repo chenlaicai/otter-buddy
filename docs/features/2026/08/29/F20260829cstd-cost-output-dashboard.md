@@ -64,7 +64,7 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 | 模块 | 职责 |
 |------|------|
 | `cost-output-collector.ts` | LLMCallCollector：解析 session JSONL，join agent_sessions+otters 表，按 date+otter+model 聚合 token/cost/cacheHitRate；OtterOutputCollector：查询 messages 表按 otter+date 聚合发言计数；新增 collectToolCallCounts（session JSONL 统计 toolCall content block）、collectPrCounts（git log merge commit 统计）、collectFdocCounts（docs/features/ frontmatter 统计）、collectDispatchTaskCounts（otter_context 表 dispatch:* key 统计已完成/失败任务） |
-| `cost-output-rows.ts` | 将采集结果转为 health_snapshots 的 CreateSnapshotRow 格式（metric_type=cost_output，11 个指标键 per cost 记录 + 1 个 per output 记录；#602 删除 cache_hit_rate 死键后 13→11） |
+| `cost-output-rows.ts` | 将采集结果转为 health_snapshots 的 CreateSnapshotRow 格式（metric_type=cost_output，11 个指标键 per cost 记录 + 1 个 per output 记录；#602 删除 cache_hit_rate 死键后 12→11） |
 
 ### 修改模块
 
