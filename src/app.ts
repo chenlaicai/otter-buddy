@@ -58,6 +58,7 @@ import { collectHealingEvents } from "@usecases/health/healing-collector";
 import { countFidMentions } from "@frameworks/db/health/fid-mention-counter";
 import { SignalRepository } from "@usecases/health/signal-repository";
 import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
+import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
 import type { CreateSnapshotRow } from "@usecases/health/snapshot-rows";
 
 /** 创建 PinoLogger 实例（stdout + 文件持久化），logDir 不存在时创建 */
@@ -152,7 +153,32 @@ function createRhiScanWorker(deps: {
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
-  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, { fidMentionSource, snapshotSink });
+  // 成本/产出快照落库端口（#583）：同 repo 的 replaceForDate，独立 metric_type
+  const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
+    snapshotRepo.replaceForDate(snapshotDate, rows.map(r => ({
+      snapshotDate: r.snapshotDate,
+      metricType: r.metricType,
+      metricKey: r.metricKey,
+      metricValue: r.metricValue,
+      metadata: r.metadata,
+    })), metricType);
+
+  // session → otter 映射源（#583）：查询 agent_sessions + otters 表
+  const agentSessionSource: AgentSessionSource = async () => {
+    const rows = deps.db.prepare(`
+      SELECT a.pi_session_id AS piSessionId, a.otter_id AS otterId,
+             o.name AS otterName, o.type AS otterType
+      FROM agent_sessions a
+      JOIN otters o ON o.id = a.otter_id
+    `).all() as Array<{ piSessionId: string; otterId: string; otterName: string; otterType: string }>;
+    return rows;
+  };
+
+  const sessionsDir = path.join(deps.rootDir, "data", "sessions");
+
+  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, {
+    fidMentionSource, snapshotSink, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
+  });
 }
 
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑

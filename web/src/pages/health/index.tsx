@@ -9,7 +9,7 @@ import '../../styles/globals.css'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
-import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO } from '../../api/client'
+import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiCostOutputOtterDTO } from '../../api/client'
 
 /**
  * F20260825rweb（#403）：RHI 健康面板页面（三视图）。
@@ -19,7 +19,7 @@ import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO } from '..
  * 数据源：scanOnce 已接入指标落库（Fix A）+ GET /api/health/trends。
  */
 
-type Tab = 'overview' | 'signals' | 'chains'
+type Tab = 'overview' | 'signals' | 'chains' | 'cost'
 
 const SIGNAL_TYPE_LABELS: Record<string, string> = {
   bug_recurrence: 'bug 反复出现',
@@ -46,6 +46,8 @@ const CHANGE_TYPE_LABELS: Record<string, string> = {
   Test: '测试', Chore: '杂务', Experiment: '实验',
 }
 
+const COST_OUTPUT_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#f97316', '#64748b', '#ec4899', '#06b6d4']
+
 function HealthPage() {
   const [tab, setTab] = useState<Tab>('overview')
   const [overview, setOverview] = useState<RhiOverviewDTO | null>(null)
@@ -53,16 +55,18 @@ function HealthPage() {
   const [signals, setSignals] = useState<RhiSignalDTO[]>([])
   const [chains, setChains] = useState<RhiChainDTO[]>([])
   const [stateCounts, setStateCounts] = useState<Record<string, number>>({})
+  const [costOutput, setCostOutput] = useState<RhiCostOutputDTO | null>(null)
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const [ov, tr, sig, ch] = await Promise.all([
+      const [ov, tr, sig, ch, co] = await Promise.all([
         api.getRhiOverview(signal),
         api.getRhiTrends(30, signal),
         api.getRhiSignals('open', signal),
         api.getRhiChains(signal),
+        api.getRhiCostOutput(30, false, signal),
       ])
       if (signal?.aborted) return
       setOverview(ov)
@@ -70,6 +74,7 @@ function HealthPage() {
       setSignals(sig.signals)
       setChains(ch.chains)
       setStateCounts(ch.stateCounts)
+      setCostOutput(co)
     } catch (err) {
       if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) return
       showToast(err instanceof Error ? err.message : '加载失败', 'error')
@@ -137,6 +142,7 @@ function HealthPage() {
               { key: 'overview', label: `总览${overview ? ` · ${overview.openSignals}` : ''}` },
               { key: 'signals', label: `信号${signals.length ? ` · ${signals.length}` : ''}` },
               { key: 'chains', label: `特性链${chains.length ? ` · ${chains.length}` : ''}` },
+              { key: 'cost', label: '成本/产出' },
             ] as { key: Tab; label: string }[]).map(t => (
               <button
                 key={t.key}
@@ -287,6 +293,112 @@ function HealthPage() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+          {/* 成本/产出视图 */}
+          {tab === 'cost' && (
+            <div className="space-y-4">
+              {costOutput && costOutput.series.length > 0 ? (
+                <>
+                  {/* 汇总指标卡 */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <MetricCard label="总 Cost" value={`$${costOutput.totals.costTotal.toFixed(2)}`} icon={<TrendingUp className="w-4 h-4" />} />
+                    <MetricCard label="总 Token" value={fmtLargeNumber(costOutput.totals.totalTokens)} icon={<BarChart3 className="w-4 h-4" />} />
+                    <MetricCard label="LLM 调用" value={costOutput.totals.callCount} icon={<RefreshCw className="w-4 h-4" />} />
+                    <MetricCard label="獭发言数" value={costOutput.totals.messageCount} icon={<GitBranch className="w-4 h-4" />} />
+                    <MetricCard label="任务完成" value={costOutput.totals.dispatchCount} icon={<Layers className="w-4 h-4" />} />
+                    <MetricCard label="活跃獭数" value={costOutput.totals.otterCount} icon={<Activity className="w-4 h-4" />} />
+                  </div>
+
+                  {/* Cost 趋势折线图 */}
+                  <ChartCard title="成本趋势" subtitle="近 30 天 · 日 cost 合计" icon={<TrendingUp className="w-4 h-4 text-otter-500" />}>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <ComposedChart data={costOutput.series} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                        <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
+                        <YAxis tick={{ fontSize: 11, fill: '#78716c' }} tickFormatter={v => `$${v.toFixed(2)}`} />
+                        <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} formatter={(v: number) => [`$${v.toFixed(4)}`, 'cost']} />
+                        <Bar dataKey="costTotal" name="日 cost" fill="#0ea5e9" radius={[3, 3, 0, 0]} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Token 趋势折线图 */}
+                    <ChartCard title="Token 消耗" subtitle="日 token 合计（input + output + cache）" icon={<BarChart3 className="w-4 h-4 text-otter-500" />}>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <ComposedChart data={costOutput.series} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                          <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
+                          <YAxis tick={{ fontSize: 11, fill: '#78716c' }} tickFormatter={fmtLargeNumber} />
+                          <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} />
+                          <Bar dataKey="totalTokens" name="总 Token" fill="#10b981" radius={[3, 3, 0, 0]} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+
+                    {/* 缓存命中率趋势 */}
+                    <ChartCard title="缓存命中率" subtitle="加权平均 · cacheRead / (cacheRead + input)" icon={<Activity className="w-4 h-4 text-otter-500" />}>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <ComposedChart data={costOutput.series.map(p => ({ ...p, cacheHitRatePct: Number((p.cacheHitRate * 100).toFixed(2)) }))} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+                          <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
+                          <YAxis tick={{ fontSize: 11, fill: '#78716c' }} domain={[0, 100]} unit="%" />
+                          <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} formatter={(v: number) => [`${v.toFixed(2)}%`, '命中率']} />
+                          <Line type="monotone" dataKey="cacheHitRatePct" name="命中率" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+                  </div>
+
+                  {/* Per-otter 明细表 */}
+                  <ChartCard title="獭成本明细" subtitle={`最新快照 ${costOutput.latestSnapshotDate ?? '—'} · 按 cost 降序`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
+                    <div className="divide-y divide-stone-100">
+                      {costOutput.otters.map(otter => (
+                        <div key={otter.otterId} className="py-2.5">
+                          <div className="flex items-center gap-3 text-sm">
+                            <span className="font-medium text-stone-700 min-w-[120px]">{otter.otterName}</span>
+                            <span className="px-2 py-0.5 rounded-full text-xs bg-skeleton text-stone-500">{otter.otterType}</span>
+                            <span className="text-stone-500 text-xs ml-auto">
+                              ${otter.costTotal.toFixed(4)} · {fmtLargeNumber(otter.totalTokens)} tok · {otter.callCount} 次
+                            </span>
+                            <span className="text-xs text-amber-600">命中 {(otter.cacheHitRate * 100).toFixed(1)}%</span>
+                            <span className="text-xs text-stone-400">发言 {otter.messageCount}</span>
+                          </div>
+                          {otter.models.length > 1 && (
+                            <div className="flex flex-wrap gap-2 mt-1 ml-2">
+                              {otter.models.map(m => (
+                                <span key={m.model} className="text-xs text-stone-400">
+                                  {m.model}: ${m.costTotal.toFixed(4)} · {fmtLargeNumber(m.totalTokens)} tok
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {costOutput.otters.length === 0 && (
+                        <div className="text-center py-12 text-stone-400">
+                          <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                          无成本/产出数据
+                        </div>
+                      )}
+                    </div>
+                  </ChartCard>
+
+                  {/* Per-otter 成本占比堆叠条 */}
+                  {costOutput.otters.length > 1 && (
+                    <ChartCard title="獭成本占比" subtitle="各獭 cost 合计占比" icon={<PieIcon className="w-4 h-4 text-otter-500" />}>
+                      <OtterCostBar otters={costOutput.otters} />
+                    </ChartCard>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-2xl bg-white/70 border border-stone-200/60 py-16 text-center">
+                  <BarChart3 className="w-10 h-10 mx-auto mb-3 text-stone-300" />
+                  <p className="text-sm text-stone-500">还没有成本/产出数据——点右上角「立即扫描」生成第一份</p>
+                  <p className="text-xs text-stone-400 mt-1">扫描会解析 session JSONL 和消息表，写入 cost_output 快照</p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -446,6 +558,47 @@ function SignalGroup({ title, signals, severity }: {
               <p className="text-xs text-otter-500 mt-0.5">建议：{s.suggested_action}</p>
             )}
           </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 大数字格式化：1234567 → 1.23M */
+function fmtLargeNumber(v: number): string {
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`
+  return String(v)
+}
+
+/** 獭成本占比堆叠条（同 ChainStateBar 模式） */
+function OtterCostBar({ otters }: { otters: RhiCostOutputOtterDTO[] }) {
+  const total = otters.reduce((s, o) => s + o.costTotal, 0)
+  if (total === 0) {
+    return <div className="flex items-center justify-center h-14 text-sm text-stone-400">无成本数据</div>
+  }
+  return (
+    <div>
+      <div className="flex h-7 rounded-full overflow-hidden bg-skeleton/50">
+        {otters.map((otter, i) => (
+          <div
+            key={otter.otterId}
+            className="flex items-center justify-center transition-all"
+            style={{ width: `${(otter.costTotal / total) * 100}%`, backgroundColor: COST_OUTPUT_COLORS[i % COST_OUTPUT_COLORS.length] }}
+            title={`${otter.otterName}: $${otter.costTotal.toFixed(4)}`}
+          >
+            {(otter.costTotal / total) >= 0.12 && (
+              <span className="text-[11px] font-semibold text-white">${otter.costTotal.toFixed(2)}</span>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+        {otters.map((otter, i) => (
+          <span key={otter.otterId} className="flex items-center gap-1 text-xs text-stone-500">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COST_OUTPUT_COLORS[i % COST_OUTPUT_COLORS.length] }} />
+            {otter.otterName} ${otter.costTotal.toFixed(4)}（{((otter.costTotal / total) * 100).toFixed(0)}%）
+          </span>
         ))}
       </div>
     </div>
