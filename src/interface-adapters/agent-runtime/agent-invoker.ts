@@ -185,7 +185,9 @@ export class AgentInvoker implements AgentTurnPort {
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images });
-      const callbacks = this.createTurnCallbacks(emitEvent);
+      // F20260830fabt: failMessage 必须同时 abort SDK session——消息标 failed 后 LLM 不能继续跑
+      // 注意：不走 driver.abort() 以免触发 userAbortedMessages 标记（那是用户中断的语义）
+      const callbacks = this.createTurnCallbacks(emitEvent, () => this.agentInvoke.abort(otterId, message.id));
 
       const turnInput = this.buildTurnInput(params, message.id, startTime);
 
@@ -293,6 +295,8 @@ export class AgentInvoker implements AgentTurnPort {
   /** 创建 TurnCallbacks：消息生命周期 + SSE 事件推送 */
   private createTurnCallbacks(
     emitEvent: (event: SSEEvent) => void,
+    /** F20260830fabt: failMessage 后 abort SDK session，防止 dead message 僵尸运行 */
+    abortFn?: () => void,
   ): TurnCallbacks {
     return {
       completeMessage: async (messageId: string, input?: { contextTokens?: number; contextTokensMax?: number }) => {
@@ -302,6 +306,8 @@ export class AgentInvoker implements AgentTurnPort {
 
       failMessage: async (messageId: string, body?: string, talkingStonePassedTo?: string[]) => {
         await this.sendMessage.fail(messageId, body, talkingStonePassedTo);
+        // F20260830fabt: 消息标 failed 后立即 abort SDK session，阻止 LLM 在 dead message 上继续运行
+        abortFn?.();
       },
 
       abortMessage: async (messageId: string, input: { body: string; talkingStonePassedTo?: string[] }) => {
