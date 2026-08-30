@@ -105,4 +105,12 @@ export class HealthSnapshotRepository {
       .prepare("DELETE FROM health_snapshots WHERE snapshot_date < ?")
       .run(cutoff.toISOString().slice(0, 10)).changes;
   }
+
+  /** 查询 status='active' 的 otter ID 列表（#583 active 过滤用） */
+  findActiveOtterIds(): string[] {
+    return (this.db
+      .prepare("SELECT id FROM otters WHERE status = 'active'")
+      .all() as Array<{ id: string }>)
+      .map(r => r.id);
+  }
 }

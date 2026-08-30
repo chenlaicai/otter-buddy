@@ -536,11 +536,11 @@ export function triggerRhiScan(): Promise<{ ok: boolean; result: Record<string, 
 
 export interface RhiCostOutputTrendPointDTO {
   date: string
-  total_tokens: number
-  cost_total: number
-  llm_call_count: number
-  cache_hit_rate: number
-  message_count: number
+  totalTokens: number
+  costTotal: number
+  callCount: number
+  cacheHitRate: number
+  messageCount: number
 }
 
 export interface RhiCostOutputOtterDTO {
@@ -570,6 +570,6 @@ export interface RhiCostOutputDTO {
   latestSnapshotDate: string | null
 }
 
-export function getRhiCostOutput(days = 30, signal?: AbortSignal): Promise<RhiCostOutputDTO> {
-  return request(`/health/cost-output?days=${days}`, { signal })
+export function getRhiCostOutput(days = 30, includeAllOtters = false, signal?: AbortSignal): Promise<RhiCostOutputDTO> {
+  return request(`/health/cost-output?days=${days}&includeAllOtters=${includeAllOtters}`, { signal })
 }

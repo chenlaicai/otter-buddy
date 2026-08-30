@@ -84,11 +84,11 @@ function buildCostTrendSeries(
   return [...byDate.entries()]
     .map(([date, p]) => ({
       date,
-      total_tokens: p.total_tokens ?? 0,
-      cost_total: p.cost_total ?? 0,
-      llm_call_count: p.llm_call_count ?? 0,
-      cache_hit_rate: p._cache_hit_n ? Number(((p._cache_hit_sum ?? 0) / p._cache_hit_n).toFixed(4)) : 0,
-      message_count: p.message_count ?? 0,
+      totalTokens: p.total_tokens ?? 0,
+      costTotal: p.cost_total ?? 0,
+      callCount: p.llm_call_count ?? 0,
+      cacheHitRate: p._cache_hit_n ? Number(((p._cache_hit_sum ?? 0) / p._cache_hit_n).toFixed(4)) : 0,
+      messageCount: p.message_count ?? 0,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -263,15 +263,16 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/cost-output?days=30 — 成本/产出趋势序列（#583）
+  /** GET /api/health/cost-output?days=30&includeAllOtters=false — 成本/产出趋势序列（#583）
    *  从 health_snapshots 按日期范围拉取 cost_output 指标，聚合出：
-   *  - per-date 趋势（总 token / 总 cost / 调用数 / 缓存命中率 / 产出数）
-   *  - per-otter 明细（最新一天的 per-otter per-model 拆分）
+   *  - per-date 趋势（总 token / 总 cost / 调用数 / 缓存命中率 / 产出数），camelCase 统一响应格式
+   *  - per-otter 明细（最新一天的 per-otter per-model 拆分，默认仅 active 獭）
    *  - 汇总（最新一天的总计）
    *  成本/产出只作信号不作 KPI（Goodhart 防线）。 */
   async costOutput(c: Context): Promise<Response> {
     try {
       const days = Math.min(Math.max(Number(c.req.query("days")) || DEFAULT_TREND_DAYS, 1), 90);
+      const includeAllOtters = c.req.query("includeAllOtters") === "true";
       const startDate = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const endDate = new Date().toISOString().slice(0, 10);
 
@@ -281,7 +282,13 @@ export class RhiController {
       const latestDate = costRows.length > 0
         ? [...costRows].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))[costRows.length - 1]!.snapshot_date
         : null;
-      const otters = latestDate ? buildCostOtterBreakdown(costRows.filter(r => r.snapshot_date === latestDate)) : [];
+      let otters = latestDate ? buildCostOtterBreakdown(costRows.filter(r => r.snapshot_date === latestDate)) : [];
+
+      // 默认只展示 active 獭，includeAllOtters=true 展示全部（#583 建议3）
+      if (!includeAllOtters) {
+        const activeIds = new Set(this.snapshotRepo.findActiveOtterIds());
+        otters = otters.filter(o => activeIds.has(o.otterId));
+      }
 
       const totals = {
         totalTokens: otters.reduce((s, o) => s + o.totalTokens, 0),
