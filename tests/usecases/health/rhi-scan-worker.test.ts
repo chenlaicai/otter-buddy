@@ -10,6 +10,15 @@ import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 
 /** 临时 git 仓库 + 真 sqlite 的端到端冒烟：采集→链→信号→落库 */
+/** 共享 mock pipeline 工厂：writer/queue/embedding 全空实现（各 describe 通用） */
+function makePipeline(db: Database.Database): SignalPipeline {
+  const writer = { storeEntry: async () => {} };
+  const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+  const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+  return new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+}
+
+
 describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   let repoDir: string;
   let db: Database.Database;
@@ -68,10 +77,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("scanOnce 跑通全管道并落库信号", async () => {
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
 
     const result = await worker.scanOnce();
@@ -93,10 +99,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("重复扫描 occurrences 累加不重复开行", async () => {
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
 
     await worker.scanOnce();
@@ -119,10 +122,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     execFileSync("git", ["-C", repoDir, "add", "docs/"], { stdio: "pipe" });
     execFileSync("git", ["-C", repoDir, "commit", "-m", "[F20260701zzzz][agent][Feature Update] 旧链文档", "--date", oldDate], { stdio: "pipe" });
 
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
 
     // 未注入 fidMentionSource：zombie 不判（降级 stalled）
     const workerNoMention = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
@@ -140,10 +140,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("snapshotSink 注入后 scanOnce 写入指标快照（F20260829hviz Fix A）", async () => {
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
 
     const sinkCalls: Array<{ date: string; rows: import("@usecases/health/snapshot-rows").CreateSnapshotRow[] }> = [];
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
@@ -174,10 +171,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("snapshotSink 未注入时快照跳过且不报错（向后兼容）", async () => {
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
 
     const result = await worker.scanOnce();
@@ -186,10 +180,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("snapshotSink 抛异常不影响信号落库（旁路隔离）", async () => {
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
       snapshotSink: () => {
         throw new Error("sink boom");
@@ -202,10 +193,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("buildChainsOnce 与 scanOnce 同源且不落库（审视发现 3 补测：/api/health/chains 专用方法）", async () => {
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
 
     const before = pipeline.listOpen().length;
@@ -257,10 +245,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
       snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
 
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
 
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
       snapshotSink: overviewSink,
@@ -295,10 +280,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(meta.otterName).toBe("测试獭");
   });
   it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
 
     const result = await worker.scanOnce();
@@ -365,10 +347,7 @@ describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
       return snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
     };
 
-    const writer = { storeEntry: async () => {} };
-    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
-    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
-    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const pipeline = makePipeline(db);
 
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
       costOutputSink,
