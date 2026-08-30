@@ -132,7 +132,11 @@ export class ResumeInterruptedService {
       const msg = await this.deps.queryMessage.getMessageById(item.messageId);
       if (msg && canFailMessage(msg.status)) {
         await this.deps.sendMessage.fail(item.messageId, buildRestartResumeTerminalMsg(outcome));
-        await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeTerminalMsg(outcome));
+        // 建议发现1处置（delta 复核）：failed 的系统消息带「可手动重试」操作指引，保留流内可见；
+        // done 路径旧消息 body 已说明去向且紧邻新发言本体，流内系统消息纯冗余，省略
+        if (outcome === "failed") {
+          await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeTerminalMsg(outcome));
+        }
       }
     } catch (guardErr) {
       this.deps.logger.error("Resume terminal guard failed", guardErr instanceof Error ? guardErr : new Error(String(guardErr)), {

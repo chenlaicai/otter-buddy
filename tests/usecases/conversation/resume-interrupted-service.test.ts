@@ -239,9 +239,11 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     // 半截内容保留（fail 不动 segments）
     expect(stored?.segments.some(seg => seg.body === "半截")).toBe(true);
 
-    // 系统消息说明收尾事实（成功口径：恢复已完成，内容见新发言）
+    // 去向说明落在旧消息终态 body 上（fail 会写入）；done 路径不再发流内系统消息
+    // （建议发现1处置：旧消息 body 已可点击查看且紧邻新发言本体，系统消息纯冗余）
+    expect(stored?.segments.some(seg => seg.body.includes("恢复已完成"))).toBe(true);
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
-    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复已完成")))).toBe(true);
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复已完成")))).toBe(false);
 
     // pending 流转不受影响
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
