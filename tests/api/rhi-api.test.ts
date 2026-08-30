@@ -154,6 +154,74 @@ describe("RHI API（真 sqlite）", () => {
     });
   });
 
+  describe("costOutput", () => {
+    function makeCostCtx(query?: string): Parameters<RhiController["costOutput"]>[0] {
+      return {
+        req: { query: () => query },
+        json: (data: unknown) => new Response(JSON.stringify(data), { status: 200 }),
+      } as never;
+    }
+
+    it("多 model 獭 cacheHitRate 为加权平均（非覆盖）", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      // 插入 active 獭
+      db.prepare("INSERT INTO otters (id, name, type, status) VALUES (?, ?, ?, 'active')").run("otter-1", "测试獭", "big");
+      const metaA = JSON.stringify({ otterId: "otter-1", otterName: "测试獭", otterType: "big", model: "model-a" });
+      const metaB = JSON.stringify({ otterId: "otter-1", otterName: "测试獭", otterType: "big", model: "model-b" });
+      // model-a: 900 cacheRead, 100 input → hitRate 0.9
+      // model-b: 0 cacheRead, 1000 input → hitRate 0
+      // 加权: 900/(900+100+0+1000) = 0.45
+      snapshotRepo.replaceForDate(today, [
+        { snapshotDate: today, metricType: "cost_output", metricKey: "cache_read_tokens", metricValue: 900, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "input_tokens", metricValue: 100, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "cache_read_tokens", metricValue: 0, metadata: metaB },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "input_tokens", metricValue: 1000, metadata: metaB },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "total_tokens", metricValue: 2000, metadata: metaA },
+        { snapshotDate: today, metricType: "cost_output", metricKey: "total_tokens", metricValue: 1000, metadata: metaB },
+      ], "cost_output");
+
+      const res = await makeController().costOutput(makeCostCtx());
+      const body = await res.json() as { otters: Array<{ otterId: string; cacheHitRate: number }> };
+      const otter = body.otters.find(o => o.otterId === "otter-1");
+      expect(otter).toBeDefined();
+      expect(otter!.cacheHitRate).toBeCloseTo(0.45, 2);
+    });
+
+    it("series cacheHitRate 为加权平均（非简单平均）", async () => {
+      const d1 = "2026-08-28";
+      const d2 = "2026-08-29";
+      // day1: cacheRead=800, input=200 → hitRate 0.8
+      // day2: cacheRead=100, input=900 → hitRate 0.1
+      // series 加权: (800+100)/(800+200+100+900) = 0.45
+      snapshotRepo.replaceForDate(d1, [
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "cache_read_tokens", metricValue: 800 },
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "input_tokens", metricValue: 200 },
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "total_tokens", metricValue: 1000 },
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "cost_total", metricValue: 0.01 },
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "llm_call_count", metricValue: 5 },
+        { snapshotDate: d1, metricType: "cost_output", metricKey: "message_count", metricValue: 3 },
+      ], "cost_output");
+      snapshotRepo.replaceForDate(d2, [
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "cache_read_tokens", metricValue: 100 },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "input_tokens", metricValue: 900 },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "total_tokens", metricValue: 1000 },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "cost_total", metricValue: 0.02 },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "llm_call_count", metricValue: 10 },
+        { snapshotDate: d2, metricType: "cost_output", metricKey: "message_count", metricValue: 5 },
+      ], "cost_output");
+
+      const res = await makeController().costOutput(makeCostCtx("90"));
+      const body = await res.json() as { series: Array<{ date: string; cacheHitRate: number }> };
+      // 两天的 series 各自的 cacheHitRate 应该分别是 0.8 和 0.1（per-day）
+      const s1 = body.series.find(s => s.date === d1);
+      const s2 = body.series.find(s => s.date === d2);
+      expect(s1).toBeDefined();
+      expect(s1!.cacheHitRate).toBeCloseTo(0.8, 2);
+      expect(s2).toBeDefined();
+      expect(s2!.cacheHitRate).toBeCloseTo(0.1, 2);
+    });
+  });
+
   describe("scan", () => {
     it("手动扫描返回结果", async () => {
       const res = await makeController([], { commitCount: 42 }).scan(makeCtx());

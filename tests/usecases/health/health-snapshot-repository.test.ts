@@ -68,4 +68,36 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
     expect(repo.findByDate(day)).toHaveLength(2);
     db.close();
   });
+
+  it("replaceForDate(metricType) 只删除指定类型的行，不影响其他类型（#583 S1 修复）", () => {
+    const { repo, db } = makeRepo();
+
+    // 写入 overview 行
+    repo.replaceForDate(day, rows(day, 0.21));
+    expect(repo.findByDate(day)).toHaveLength(2);
+
+    // 写入 cost_output 行（指定 metricType）
+    const costRows = [
+      { snapshotDate: day, metricType: "cost_output", metricKey: "input_tokens", metricValue: 1000 },
+      { snapshotDate: day, metricType: "cost_output", metricKey: "cost_total", metricValue: 0.01 },
+    ];
+    repo.replaceForDate(day, costRows, "cost_output");
+
+    // overview 行应保留，cost_output 行应写入
+    const allRows = repo.findByDate(day);
+    expect(allRows).toHaveLength(4); // 2 overview + 2 cost_output
+
+    // 再次写入 cost_output 行（应只替换 cost_output，不删 overview）
+    const costRows2 = [
+      { snapshotDate: day, metricType: "cost_output", metricKey: "input_tokens", metricValue: 2000 },
+    ];
+    repo.replaceForDate(day, costRows2, "cost_output");
+
+    const allRows2 = repo.findByDate(day);
+    expect(allRows2).toHaveLength(3); // 2 overview + 1 cost_output
+    expect(allRows2.filter(r => r.metric_type === "overview")).toHaveLength(2);
+    expect(allRows2.find(r => r.metric_type === "cost_output")?.metric_value).toBe(2000);
+
+    db.close();
+  });
 });

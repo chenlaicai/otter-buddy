@@ -533,3 +533,43 @@ export function getRhiTrends(days = 30, signal?: AbortSignal): Promise<RhiTrends
 export function triggerRhiScan(): Promise<{ ok: boolean; result: Record<string, unknown> }> {
   return request('/health/scan', { method: 'POST' })
 }
+
+export interface RhiCostOutputTrendPointDTO {
+  date: string
+  totalTokens: number
+  costTotal: number
+  callCount: number
+  cacheHitRate: number
+  messageCount: number
+}
+
+export interface RhiCostOutputOtterDTO {
+  otterId: string
+  otterName: string
+  otterType: string
+  totalTokens: number
+  costTotal: number
+  callCount: number
+  cacheHitRate: number
+  messageCount: number
+  models: Array<{ model: string; totalTokens: number; costTotal: number }>
+}
+
+export interface RhiCostOutputDTO {
+  days: number
+  series: RhiCostOutputTrendPointDTO[]
+  otters: RhiCostOutputOtterDTO[]
+  totals: {
+    totalTokens: number
+    costTotal: number
+    callCount: number
+    messageCount: number
+    otterCount: number
+    dispatchCount: number
+  }
+  latestSnapshotDate: string | null
+}
+
+export function getRhiCostOutput(days = 30, includeAllOtters = false, signal?: AbortSignal): Promise<RhiCostOutputDTO> {
+  return request(`/health/cost-output?days=${days}&includeAllOtters=${includeAllOtters}`, { signal })
+}

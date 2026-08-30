@@ -222,4 +222,169 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     // 纯读：不检测信号不落库（signals 数不变）
     expect(pipeline.listOpen().length).toBe(before);
   });
+
+  it("costOutputSink 注入后 scanOnce 写入成本/产出快照（#583）", async () => {
+    // 准备 session JSONL fixture
+    const sessionsDir = path.join(repoDir, "data", "sessions");
+    await mkdir(sessionsDir, { recursive: true });
+    const sessionFile = `2026-08-28T10-00-00-000Z_test-sess-001.jsonl`;
+    await writeFile(
+      path.join(sessionsDir, sessionFile),
+      [
+        `{"type":"session","version":3,"id":"test-sess-001","timestamp":"2026-08-28T10:00:00.000Z"}`,
+        `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
+        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"tc1","name":"speak","arguments":"{}"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
+      ].join("\n"),
+      "utf-8",
+    );
+
+    // 插入 otter 数据
+    db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("test-otter-id", "测试獭", "big");
+    db.prepare("INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES (?, ?)").run("test-otter-id", "test-sess-001");
+    // 插入 messages 数据（for OtterOutputCollector）
+    db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run("conv-test", "test");
+    db.prepare("INSERT INTO turns (id, conversation_id, turn_number) VALUES (?, ?, ?)").run("turn-test", "conv-test", 1);
+    db.prepare(`
+      INSERT INTO messages (id, conversation_id, sender_type, sender_id, sequence_num, turn_id, sender_name, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("msg-out-1", "conv-test", "otter", "test-otter-id", 1, "turn-test", "测试獭", "2026-08-28 10:05:00");
+
+    // 准备快照 repo + sinks
+    const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
+    const snapshotRepo = new HealthSnapshotRepository(db);
+    const overviewSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
+      snapshotRepo.replaceForDate(snapshotDate, rows);
+    const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
+      snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
+
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      snapshotSink: overviewSink,
+      costOutputSink,
+      sessionsDir,
+      agentSessionSource: async () => [
+        { piSessionId: "test-sess-001", otterId: "test-otter-id", otterName: "测试獭", otterType: "big" },
+      ],
+      costOutputDb: db,
+    });
+
+    const result = await worker.scanOnce();
+    expect(result.costOutputStored).toBeGreaterThan(0);
+
+    // 验证数据写入 health_snapshots
+    const costRows = db.prepare("SELECT * FROM health_snapshots WHERE metric_type = 'cost_output' AND snapshot_date = ?")
+      .all(new Date().toISOString().slice(0, 10)) as Array<{ metric_key: string; metric_value: number; metadata: string }>;
+    expect(costRows.length).toBeGreaterThan(0);
+
+    // 验证含 expected 指标键
+    const keys = new Set(costRows.map(r => r.metric_key));
+    expect(keys.has("input_tokens")).toBe(true);
+    expect(keys.has("cost_total")).toBe(true);
+    expect(keys.has("cache_hit_rate")).toBe(true);
+    expect(keys.has("message_count")).toBe(true);
+    expect(keys.has("tool_call_count")).toBe(true);
+
+    // 验证 metadata 含 otter 信息
+    const firstRow = costRows[0]!;
+    const meta = JSON.parse(firstRow.metadata);
+    expect(meta.otterId).toBe("test-otter-id");
+    expect(meta.otterName).toBe("测试獭");
+  });
+  it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+
+    const result = await worker.scanOnce();
+    expect(result.costOutputStored).toBe(0); expect(result.signalCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
+  let repoDir: string;
+  let db: Database.Database;
+
+  beforeAll(async () => {
+    repoDir = await mkdtemp(path.join(tmpdir(), "rhi-assembly-test-"));
+    db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+
+    execFileSync("git", ["init", repoDir], { stdio: "pipe" });
+    execFileSync("git", ["symbolic-ref", "HEAD", "refs/heads/main"], { cwd: repoDir, stdio: "pipe" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir, stdio: "pipe" });
+    execFileSync("git", ["config", "user.name", "RHI Test"], { cwd: repoDir, stdio: "pipe" });
+
+    // 创建一个初始提交（符合仓库模板格式）
+    const testFile = path.join(repoDir, "src", "test.ts");
+    await mkdir(path.dirname(testFile), { recursive: true });
+    await writeFile(testFile, "export const test = 1;", "utf-8");
+    execFileSync("git", ["add", "src/test.ts"], { cwd: repoDir, stdio: "pipe" });
+    execFileSync("git", ["commit", "-m", "[F20260828tstt][health][New Feature] 初始提交"], { cwd: repoDir, stdio: "pipe" });
+  });
+
+  afterAll(async () => {
+    db.close();
+    await rm(repoDir, { recursive: true, force: true });
+  });
+
+  it("metricType 参数必须正确转发（防止 overview 被 cost_output 摧毁）", async () => {
+    // 回归测试：app.ts costOutputSink 必须转发 metricType 参数，否则 replaceForDate 会删除所有类型
+    // 2026-08-30 检视发现：app.ts:157 costOutputSink 只接受 2 参数，第三参被静默丢弃
+    // 导致 overview 看板数据被 cost_output 扫描系统性摧毁
+
+    const sessionsDir = path.join(repoDir, "data", "sessions");
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(
+      path.join(sessionsDir, "2026-08-28T10-00-00-000Z_regression-test.jsonl"),
+      [
+        `{"type":"session","version":3,"id":"regression-test","timestamp":"2026-08-28T10:00:00.000Z"}`,
+        `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
+        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"regression test"}],"model":"mimo-v2.5-pro","usage":{"input":100,"output":10,"cacheRead":50,"cacheWrite":0,"totalTokens":160,"cost":{"input":0.001,"output":0.0005,"cacheRead":0.0001,"cacheWrite":0,"total":0.0016},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
+      ].join("\n"),
+      "utf-8",
+    );
+
+    // 先插入一条 overview 数据，后续验证不会被 cost_output 删除
+    const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
+    const snapshotRepo = new HealthSnapshotRepository(db);
+    snapshotRepo.createBatch([
+      { snapshotDate: "2026-08-28", metricType: "overview", metricKey: "commit_count", metricValue: 5 },
+    ]);
+
+    // 用 spy 捕获 sink 调用参数
+    let capturedMetricType: string | undefined = "NOT_CALLED";
+    const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) => {
+      capturedMetricType = metricType;
+      return snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
+    };
+
+    const writer = { storeEntry: async () => {} };
+    const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };
+    const embedding = { available: false, embed: async () => { throw new Error("mock"); } };
+    const pipeline = new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
+
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      costOutputSink,
+      sessionsDir,
+      agentSessionSource: async () => [],
+      costOutputDb: db,
+    });
+
+    await worker.scanOnce();
+
+    // 验证 metricType 被正确传递（"cost_output"）
+    expect(capturedMetricType).toBe("cost_output");
+
+    // 验证 overview 数据未被删除
+    const overviewRows = snapshotRepo.findByDate("2026-08-28").filter(r => r.metric_type === "overview");
+    expect(overviewRows.length).toBe(1);
+    expect(overviewRows[0]!.metric_key).toBe("commit_count");
+  });
 });

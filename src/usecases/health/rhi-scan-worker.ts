@@ -13,6 +13,7 @@
  */
 
 import type { Logger } from "@usecases/ports/logger";
+import type Database from "better-sqlite3";
 import { collectGitLogWithFiles } from "./git-log-collector";
 import { parseCommits } from "./commit-parser";
 import { collectFeatureDocs } from "./feature-doc-collector";
@@ -28,13 +29,18 @@ import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import type { CreateSnapshotRow } from "./snapshot-rows";
 import { computeHealthScore, buildHealthIndexRows } from "./health-score";
 import type { SignalRepository } from "./signal-repository";
+import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts, collectDispatchTaskCounts } from "./cost-output-collector";
+import type { AgentSessionSource } from "./cost-output-collector";
+import { buildCostOutputSnapshotRows } from "./cost-output-rows";
+import type { CreateCostOutputRow } from "./cost-output-rows";
 
 /** healing 事件数据源端口（由 bootstrap 注入 DB 查询；worker 不直接依赖 healing repository 细节） */
 export type HealingEventSource = () => Promise<CollectedHealingEvent[]>;
 
 /** 指标快照落库端口（F20260829hviz Fix A）：接收快照日期 + 行集，同日覆盖写入。
- *  由 bootstrap 注入 HealthSnapshotRepository.replaceForDate；测试可注入内存实现。 */
-export type SnapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) => void;
+ *  由 bootstrap 注入 HealthSnapshotRepository.replaceForDate；测试可注入内存实现。
+ *  @param metricType 可选，指定后只删除该 metric_type 的行（#583 修复：避免误删其他类型数据）。 */
+export type SnapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[], metricType?: string) => void;
 
 export interface RhiScanWorkerOptions {
   /** 扫描间隔（默认 1h） */
@@ -55,10 +61,20 @@ export interface RhiScanWorkerOptions {
   /** 指标快照落库端口（F20260829hviz Fix A）：注入后 scanOnce 会计算指标并写入 health_snapshots。
    *  未注入时跳过（向后兼容，旧测试/CLI 直调不受影响）。 */
   snapshotSink?: SnapshotSink;
+  /** 成本/产出快照落库端口（#583）：注入后 scanOnce 采集成本/产出数据写入 health_snapshots。
+   *  与 overview snapshotSink 分离，避免类型冲突。未注入时跳过。
+   *  @param metricType 可选，指定后只删除该 metric_type 的行（#583 修复：全局行按历史日期分批写入需类型限定）。 */
+  costOutputSink?: (snapshotDate: string, rows: CreateCostOutputRow[], metricType?: string) => void;
   /** 指标计算滚动窗口天数（默认 60：趋势图 30 天 + 前后各 15 天缓冲） */
   metricsWindowDays?: number;
   /** 信号仓库（可选，issue #595 PR1）：注入后健康评分 D5 用真实 open 计数；未注入时降级零值 */
   signalRepo?: SignalRepository;
+  /** session JSONL 目录路径（#583：LLM 成本采集数据源）。未注入时跳过成本采集。 */
+  sessionsDir?: string;
+  /** agent_sessions → otter 映射数据源（#583）。注入后从 session JSONL 关联到 otterId。 */
+  agentSessionSource?: AgentSessionSource;
+  /** 成本/产出 DB 句柄（#583：OtterOutputCollector 需要查 messages 表）。 */
+  costOutputDb?: Database.Database;
 }
 
 export interface RhiScanResult {
@@ -72,6 +88,8 @@ export interface RhiScanResult {
   errors: string[];
   /** 写入 health_snapshots 的指标行数（F20260829hviz；未注入 sink 时为 0） */
   metricsStored: number;
+  /** 写入 health_snapshots 的成本/产出行数（#583；未注入 costOutputSink 时为 0） */
+  costOutputStored: number;
 }
 
 export class RhiScanWorker {
@@ -192,6 +210,9 @@ export class RhiScanWorker {
     //    独立窗口重采（60 天滚动）而非复用信号窗口——趋势口径要稳定，链构建余量会污染分子分母
     const metricsStored = this.persistSnapshot(signalInputs, chains);
 
+    // 8. 成本/产出快照落库（#583）：与 overview 指标同日写入，独立 sink
+    const costOutputStored = await this.persistCostOutputSnapshot();
+
     return {
       scannedAt,
       commitCount: commitsWithFiles.length,
@@ -202,10 +223,59 @@ export class RhiScanWorker {
       wakeupsTriggered: pipelineResult.wakeupsTriggered,
       errors: pipelineResult.errors,
       metricsStored,
+      costOutputStored,
     };
   }
 
-  /** 指标快照写入：60 天滚动窗口重算 + 11 标准行 + chain_states 行 + health_index 行，同日覆盖。
+  /** 成本/产出快照写入（#583）：解析 session JSONL + 查 messages 表，同日覆盖。
+   *  独立于 overview 快照（metric_type=cost_output），失败不阻断信号管道。 */
+  private async persistCostOutputSnapshot(): Promise<number> {
+    const sink = this.options.costOutputSink;
+    const sessionsDir = this.options.sessionsDir;
+    const agentSource = this.options.agentSessionSource;
+    const db = this.options.costOutputDb;
+    if (!sink || !sessionsDir || !agentSource || !db) return 0;
+
+    try {
+      const snapshotDate = new Date().toISOString().slice(0, 10);
+      const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+      const [costRecords, toolCallCounts, prRecords, fdocRecords] = await Promise.all([
+        collectLlmCalls(sessionsDir, agentSource, { since }),
+        collectToolCallCounts(sessionsDir, agentSource, { since }),
+        collectPrCounts(this.repoPath),
+        collectFdocCounts(this.repoPath),
+      ]);
+      const dispatchRecords = collectDispatchTaskCounts(db, { since });
+
+      const outputRecords = collectOtterOutput(db, toolCallCounts, { since });
+      const rows = buildCostOutputSnapshotRows(snapshotDate, costRecords, outputRecords, { prRecords, fdocRecords, dispatchRecords });
+      if (rows.length > 0) {
+        // 按日期分批写入，每批用 metricType="cost_output" 限定删除范围
+        // 修复 S1：全局行（pr/fdoc/dispatch）按历史日期入库，replaceForDate 需逐日删除再插入
+        // metricType 参数避免误删同日 overview 行
+        const rowsByDate = new Map<string, CreateCostOutputRow[]>();
+        for (const row of rows) {
+          const dateRows = rowsByDate.get(row.snapshotDate) ?? [];
+          dateRows.push(row);
+          rowsByDate.set(row.snapshotDate, dateRows);
+        }
+        for (const [date, dateRows] of rowsByDate) {
+          sink(date, dateRows, "cost_output");
+        }
+      }
+      return rows.length;
+    } catch (err) {
+      // 成本/产出采集失败不阻断信号管道（与 overview 指标相同的传感器分离策略）
+      this.logger.warn("Cost/output snapshot failed, signals already stored", {
+        action: "rhi_worker_cost_output_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return 0;
+    }
+  }
+
+  /** 指标快照写入：60 天滚动窗口重算 + 11 标准行 + chain_states 行，同日覆盖。
    *  与链/信号共用 signalInputs 采集结果但窗口独立（metricsWindowDays）。 */
   private persistSnapshot(
     signalInputs: Array<{ sha: string; date: string; message: string; parsed: ParsedCommit; filesChanged: string[] }>,
