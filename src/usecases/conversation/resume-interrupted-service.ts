@@ -23,6 +23,9 @@ export class ResumeInterruptedService {
   private static readonly RESUME_DELAY_MS = 3_000;
   /** 恢复前的并发检查窗口：该窗口内有新 user 消息则跳过（审视发现 4 修复） */
   private static readonly CONCURRENT_WINDOW_MS = 3_000;
+  /** F20260830rfto: 429 限流重试配置 */
+  private static readonly RATE_LIMIT_MAX_RETRIES = 3;
+  private static readonly RATE_LIMIT_BASE_DELAY_MS = 5_000;
 
   constructor(
     private readonly deps: {
@@ -53,15 +56,86 @@ export class ResumeInterruptedService {
         list.push(item);
         byConversation.set(item.conversationId, list);
       }
+      // F20260830rfto: 每个 conversation 独立 try/catch，一条失败不阻塞其余
       for (const [conversationId, items] of byConversation) {
-        await this.deps.sendMessage.sendSystem(conversationId, buildRestartResumeSystemMsg(items.length));
-        for (const item of items) {
-          await this.resumeOne(item);
-        }
+        await this.resumeConversation(conversationId, items);
       }
     } catch (err) {
       this.deps.logger.error("Resume interrupted messages failed", err instanceof Error ? err : new Error(String(err)));
     }
+  }
+
+  /** F20260830rfto: 单个 conversation 的恢复——sendSystem 失败不阻塞消费 */
+  private async resumeConversation(
+    conversationId: string,
+    items: Array<{ messageId: string; conversationId: string; otterId: string }>,
+  ): Promise<void> {
+    try {
+      await this.deps.sendMessage.sendSystem(conversationId, buildRestartResumeSystemMsg(items.length));
+    } catch (err) {
+      this.deps.logger.warn("Resume sendSystem failed, continuing with resume", {
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    for (const item of items) {
+      await this.resumeItemSafe(item);
+    }
+  }
+
+  /** F20260830rfto: 单条 resume 的安全包装——捕获所有异常确保不崩循环 */
+  private async resumeItemSafe(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {
+    try {
+      await this.resumeOneWithRetry(item);
+    } catch (err) {
+      this.deps.logger.error("Resume item failed after retries", err instanceof Error ? err : new Error(String(err)), {
+        messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
+      });
+      await this.markExhaustedSafe(item.messageId, err);
+    }
+  }
+
+  /** 安全标记 exhausted——updateResumeStatus 失败不阻塞后续 */
+  private async markExhaustedSafe(messageId: string, originalErr: unknown): Promise<void> {
+    try {
+      await this.deps.conversationRepo.updateResumeStatus(messageId, "exhausted", new Date().toISOString());
+    } catch {
+      this.deps.logger.error("Failed to mark resume as exhausted", originalErr instanceof Error ? originalErr : new Error(String(originalErr)), { messageId });
+    }
+  }
+
+  /** F20260830rfto: resumeOne 外层包装——429 限流时指数退避重试 */
+  private async resumeOneWithRetry(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES; attempt++) {
+      try {
+        await this.resumeOne(item);
+        return; // 成功
+      } catch (err) {
+        lastErr = err;
+        if (this.isRateLimitError(err) && attempt < ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES) {
+          const delay = ResumeInterruptedService.RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
+          this.deps.logger.warn(`Resume rate limited, retrying after ${delay}ms`, {
+            messageId: item.messageId,
+            attempt: attempt + 1,
+            maxRetries: ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES,
+          });
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw err; // 非限流错误或重试耗尽
+      }
+    }
+    throw lastErr;
+  }
+
+  /** 检查错误是否为429 限流 */
+  private isRateLimitError(err: unknown): boolean {
+    if (err instanceof Error) {
+      return err.message.includes("429") || err.message.includes("rate_limit") || err.message.includes("rate limit");
+    }
+    const str = String(err);
+    return str.includes("429") || str.includes("rate_limit") || str.includes("rate limit");
   }
 
   private async resumeOne(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {

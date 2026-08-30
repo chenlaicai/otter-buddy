@@ -216,4 +216,116 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 5 });
     expect(sysMsgs).toHaveLength(0);
   });
+
+  // F20260830rfto: 多 conversation 容错测试
+  it("多 conversation 一个失败不阻塞其余：第一个链引擎抛错，第二个正常恢复", async () => {
+    // Setup: 两个 conversation 各有一个 pending
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await otterRepo.createOtter(otterFixture("otter-small"));
+
+    // conv-1 participant
+    await repo.createParticipant(participantFixture("otter-big"));
+
+    // conv-2
+    const conv2: Conversation = {
+      id: "conv-2", title: "测试对话2", status: "active", summary: null, pinned: false, workspaceDir: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      completedAt: null, archivedAt: null,
+    };
+    await repo.create(conv2);
+    const turn2: Turn = {
+      id: "turn-2", conversationId: "conv-2", turnNumber: 1, status: "open",
+      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+    };
+    await repo.createTurn(turn2);
+    db.prepare(`
+      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
+      VALUES (?, 'conv-2', 'user', 'chen', 'completed', 0, 'turn-2', '["otter-small"]', '搭档', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+    `).run(crypto.randomUUID());
+    await repo.createParticipant(participantFixture("otter-small", { id: "p-small", conversationId: "conv-2" }));
+
+    // Seed: conv-1 的 resume 会抛错，conv-2 正常
+    const msgId1 = await seedInterrupted(db, repo, { withSegments: "半截1" });
+    const msgId2 = seedInterruptedConv(db, "conv-2", "otter-small", { withSegments: "半截2" });
+
+    // 链引擎：第一次调用（conv-1）抛错，第二次（conv-2）正常
+    const calls: Array<{ conversationId: string }> = [];
+    const chain = {
+      executeChain: vi.fn(async (params: { conversationId: string; initialTargets: string[]; userMessageContent: string; senderId: string }) => {
+        calls.push({ conversationId: params.conversationId });
+        if (params.conversationId === "conv-1") throw new Error("chain exploded for conv-1");
+        return { otterReply: undefined };
+      }),
+    } as unknown as DispatchChainEngine;
+
+    await buildService(chain as unknown as DispatchChainEngine & { calls: unknown[] }).resume();
+
+    // conv-1: exhausted
+    const rows1 = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId1) as Array<{ status: string }>;
+    expect(rows1[0]?.status).toBe("exhausted");
+
+    // conv-2: done（未被 conv-1 的失败阻塞）
+    const rows2 = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId2) as Array<{ status: string }>;
+    expect(rows2[0]?.status).toBe("done");
+
+    // 两个 conversation 都被处理了
+    expect(calls).toHaveLength(2);
+  });
+
+  it("sendSystem 失败不阻塞 resume 消费：系统消息抛错但链引擎仍执行", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+
+    const chain = stubChainEngine();
+    // sendSystem 抛错
+    const failingSm = {
+      ...sm,
+      sendSystem: vi.fn(async () => { throw new Error("sendSystem exploded"); }),
+      prepareForRetry: sm.prepareForRetry.bind(sm),
+      fail: sm.fail.bind(sm),
+    } as unknown as SendMessage;
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: failingSm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      delayMs: 0,
+    });
+
+    await service.resume();
+
+    // 链引擎仍被调用（sendSystem 失败不阻塞）
+    expect(chain.calls).toHaveLength(1);
+    // resume 正常完成
+    const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe("done");
+  });
 });
+
+/** 为非默认 conversation seed 中断记录（seedInterrupted 硬编码 conv-1） */
+function seedInterruptedConv(
+  db: Database.Database,
+  conversationId: string,
+  otterId: string,
+  opts: { withSegments?: string } = {},
+): string {
+  const msgId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
+    VALUES (?, ?, 'otter', ?, 'failed', 1, ?, NULL, '中断獭', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')
+  `).run(msgId, conversationId, otterId, conversationId === "conv-2" ? "turn-2" : "turn-1");
+  if (opts.withSegments) {
+    db.prepare(
+      "INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, 0, ?)",
+    ).run(crypto.randomUUID(), msgId, opts.withSegments, "2026-01-01T00:00:01Z");
+  }
+  db.prepare(`
+    INSERT INTO restart_pending_resumes (message_id, conversation_id, otter_id, attempts, status, created_at)
+    VALUES (?, ?, ?, 1, 'pending', '2026-01-01T00:00:02Z')
+  `).run(msgId, conversationId, otterId);
+  return msgId;
+}
