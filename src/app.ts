@@ -154,14 +154,14 @@ function createRhiScanWorker(deps: {
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
   // 成本/产出快照落库端口（#583）：同 repo 的 replaceForDate，独立 metric_type
-  const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
+  const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
     snapshotRepo.replaceForDate(snapshotDate, rows.map(r => ({
       snapshotDate: r.snapshotDate,
       metricType: r.metricType,
       metricKey: r.metricKey,
       metricValue: r.metricValue,
       metadata: r.metadata,
-    })));
+    })), metricType);
 
   // session → otter 映射源（#583）：查询 agent_sessions + otters 表
   const agentSessionSource: AgentSessionSource = async () => {
