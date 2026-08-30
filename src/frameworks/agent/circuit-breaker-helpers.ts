@@ -13,6 +13,7 @@ import { getConfig } from "@frameworks/config";
 import type { OutputGuardConfig } from "./output-guard";
 import { attachOutputGuard } from "./output-guard";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { checkBashCommandSafety, readMainProcessPid } from "./bash-safety-guard";
 
 /** 上下文窗口占用警告阈值（超过则记录警告） */
 export const TOKEN_WARNING_THRESHOLD = 100_000;
@@ -27,6 +28,8 @@ export interface AttachGuardsParams {
   logger: Logger;
   /** F20260821i336：编排守卫检查函数（可选） */
   orchestrationCheck?: (toolName: string, args?: unknown) => string | null;
+  /** F20260830bsgr：项目根目录（bash 安全守卫读 .otter-buddy.pid 用） */
+  projectRoot?: string;
 }
 
 /** _attachGuards 返回类型 */
@@ -45,7 +48,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -159,8 +162,13 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
+  // F20260830bsgr：bash 安全守卫——读取主进程 PID
+  // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
+  const getMainPid = (): number | null => {
+    return readMainProcessPid(options?.projectRoot ?? process.cwd());
+  };
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
   const doAbort = options?.abortOverride ?? (() => { session.abort(); });
 
@@ -198,6 +206,25 @@ export function attachCircuitBreaker(
       }
 
       const toolName = e.toolName ?? e.name ?? "unknown";
+
+      // F20260830bsgr：bash 安全守卫——拦截针对主进程的 kill 命令（早于工具执行）
+      if (toolName === "bash") {
+        const args = (e.args ?? {}) as Record<string, unknown>;
+        const command = typeof args.command === "string" ? args.command : "";
+        const mainPid = getMainPid();
+        const safetyBlock = checkBashCommandSafety(command, mainPid, logger);
+        if (safetyBlock) {
+          logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
+            otterId,
+            mainPid,
+            command: command.substring(0, 200),
+          });
+          clearEventTimer(toolCallId);
+          doAbort(`bash_safety:${safetyBlock}`);
+          return;
+        }
+      }
+
       const result = circuitBreaker.check(toolName, e.args);
       if (result.action === "terminate") {
         // terminate 时清除所有计时器（避免其他并行工具的计时器在 abort 后继续运行）
