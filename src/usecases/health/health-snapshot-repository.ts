@@ -62,12 +62,20 @@ export class HealthSnapshotRepository {
     return tx(snapshots);
   }
 
-  /** 同日覆盖写入：单事务内先删当日旧快照再批量插入（对抗审视发现 4）。 */
-  replaceForDate(snapshotDate: string, snapshots: CreateHealthSnapshot[]): HealthSnapshot[] {
+  /** 同日覆盖写入：单事务内先删当日旧快照再批量插入（对抗审视发现 4）。
+   *  @param metricType 可选，指定后只删除该 metric_type 的行（避免误删其他类型数据）。
+   *                   #583 修复：cost_output 全局行按历史日期分批写入，需类型限定删除范围。 */
+  replaceForDate(snapshotDate: string, snapshots: CreateHealthSnapshot[], metricType?: string): HealthSnapshot[] {
     const tx = this.db.transaction((rows: CreateHealthSnapshot[]) => {
-      this.db
-        .prepare("DELETE FROM health_snapshots WHERE snapshot_date = ?")
-        .run(snapshotDate);
+      if (metricType) {
+        this.db
+          .prepare("DELETE FROM health_snapshots WHERE snapshot_date = ? AND metric_type = ?")
+          .run(snapshotDate, metricType);
+      } else {
+        this.db
+          .prepare("DELETE FROM health_snapshots WHERE snapshot_date = ?")
+          .run(snapshotDate);
+      }
       return this.createBatch(rows);
     });
     return tx(snapshots);

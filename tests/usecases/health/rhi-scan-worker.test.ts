@@ -237,8 +237,8 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const snapshotRepo = new HealthSnapshotRepository(db);
     const overviewSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
       snapshotRepo.replaceForDate(snapshotDate, rows);
-    const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>) =>
-      snapshotRepo.replaceForDate(snapshotDate, rows);
+    const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
+      snapshotRepo.replaceForDate(snapshotDate, rows, metricType);
 
     const writer = { storeEntry: async () => {} };
     const queue = { enqueueRetry: async () => {}, claimPendingTasks: async () => [] };

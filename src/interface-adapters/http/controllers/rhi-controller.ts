@@ -65,31 +65,33 @@ function parseLatestDistributions(
   return out;
 }
 
-/** cost_output 趋势序列构建（#583） */
+/** cost_output 趋势序列构建（#583）
+ *  cacheHitRate 从 cache_read_tokens + input_tokens 求和推导（真加权平均），
+ *  不对 per-record cache_hit_rate 做简单平均（#583 第二轮审视修复：三处口径统一）。 */
 function buildCostTrendSeries(
   costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>,
 ): Array<Record<string, number | string>> {
-  const AGGREGATE_KEYS = new Set(["total_tokens", "cost_total", "llm_call_count", "message_count"]);
+  const AGGREGATE_KEYS = new Set(["total_tokens", "cost_total", "llm_call_count", "message_count", "cache_read_tokens", "input_tokens"]);
   const byDate = new Map<string, Record<string, number>>();
   for (const row of costRows) {
+    if (!AGGREGATE_KEYS.has(row.metric_key)) continue;
     const point = byDate.get(row.snapshot_date) ?? {};
-    if (AGGREGATE_KEYS.has(row.metric_key)) {
-      point[row.metric_key] = (point[row.metric_key] ?? 0) + row.metric_value;
-    } else if (row.metric_key === "cache_hit_rate") {
-      point._cache_hit_sum = (point._cache_hit_sum ?? 0) + row.metric_value;
-      point._cache_hit_n = (point._cache_hit_n ?? 0) + 1;
-    }
+    point[row.metric_key] = (point[row.metric_key] ?? 0) + row.metric_value;
     byDate.set(row.snapshot_date, point);
   }
   return [...byDate.entries()]
-    .map(([date, p]) => ({
-      date,
-      totalTokens: p.total_tokens ?? 0,
-      costTotal: p.cost_total ?? 0,
-      callCount: p.llm_call_count ?? 0,
-      cacheHitRate: p._cache_hit_n ? Number(((p._cache_hit_sum ?? 0) / p._cache_hit_n).toFixed(4)) : 0,
-      messageCount: p.message_count ?? 0,
-    }))
+    .map(([date, p]) => {
+      const cacheRead = p.cache_read_tokens ?? 0;
+      const input = p.input_tokens ?? 0;
+      return {
+        date,
+        totalTokens: p.total_tokens ?? 0,
+        costTotal: p.cost_total ?? 0,
+        callCount: p.llm_call_count ?? 0,
+        cacheHitRate: (cacheRead + input) > 0 ? Number((cacheRead / (cacheRead + input)).toFixed(4)) : 0,
+        messageCount: p.message_count ?? 0,
+      };
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 

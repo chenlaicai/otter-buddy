@@ -36,8 +36,9 @@ import type { CreateCostOutputRow } from "./cost-output-rows";
 export type HealingEventSource = () => Promise<CollectedHealingEvent[]>;
 
 /** 指标快照落库端口（F20260829hviz Fix A）：接收快照日期 + 行集，同日覆盖写入。
- *  由 bootstrap 注入 HealthSnapshotRepository.replaceForDate；测试可注入内存实现。 */
-export type SnapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) => void;
+ *  由 bootstrap 注入 HealthSnapshotRepository.replaceForDate；测试可注入内存实现。
+ *  @param metricType 可选，指定后只删除该 metric_type 的行（#583 修复：避免误删其他类型数据）。 */
+export type SnapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[], metricType?: string) => void;
 
 export interface RhiScanWorkerOptions {
   /** 扫描间隔（默认 1h） */
@@ -59,8 +60,9 @@ export interface RhiScanWorkerOptions {
    *  未注入时跳过（向后兼容，旧测试/CLI 直调不受影响）。 */
   snapshotSink?: SnapshotSink;
   /** 成本/产出快照落库端口（#583）：注入后 scanOnce 采集成本/产出数据写入 health_snapshots。
-   *  与 overview snapshotSink 分离，避免类型冲突。未注入时跳过。 */
-  costOutputSink?: (snapshotDate: string, rows: CreateCostOutputRow[]) => void;
+   *  与 overview snapshotSink 分离，避免类型冲突。未注入时跳过。
+   *  @param metricType 可选，指定后只删除该 metric_type 的行（#583 修复：全局行按历史日期分批写入需类型限定）。 */
+  costOutputSink?: (snapshotDate: string, rows: CreateCostOutputRow[], metricType?: string) => void;
   /** 指标计算滚动窗口天数（默认 60：趋势图 30 天 + 前后各 15 天缓冲） */
   metricsWindowDays?: number;
   /** session JSONL 目录路径（#583：LLM 成本采集数据源）。未注入时跳过成本采集。 */
@@ -224,7 +226,18 @@ export class RhiScanWorker {
       const outputRecords = collectOtterOutput(db, toolCallCounts, { since });
       const rows = buildCostOutputSnapshotRows(snapshotDate, costRecords, outputRecords, { prRecords, fdocRecords, dispatchRecords });
       if (rows.length > 0) {
-        sink(snapshotDate, rows);
+        // 按日期分批写入，每批用 metricType="cost_output" 限定删除范围
+        // 修复 S1：全局行（pr/fdoc/dispatch）按历史日期入库，replaceForDate 需逐日删除再插入
+        // metricType 参数避免误删同日 overview 行
+        const rowsByDate = new Map<string, CreateCostOutputRow[]>();
+        for (const row of rows) {
+          const dateRows = rowsByDate.get(row.snapshotDate) ?? [];
+          dateRows.push(row);
+          rowsByDate.set(row.snapshotDate, dateRows);
+        }
+        for (const [date, dateRows] of rowsByDate) {
+          sink(date, dateRows, "cost_output");
+        }
       }
       return rows.length;
     } catch (err) {

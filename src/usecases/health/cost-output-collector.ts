@@ -322,15 +322,25 @@ export async function collectLlmCalls(
   const files = await listSessionFiles(sessionsDir, options?.since);
   const allCostRecords: Array<OtterCostRecord & { _key: string }> = [];
 
+  const unknownSessions: string[] = [];
   for (const file of files) {
     const sessionId = extractSessionId(file);
     const identity = await resolveOtterIdentity(sessionId, mappingBySession, join(sessionsDir, file));
+    if (identity === UNKNOWN_IDENTITY) unknownSessions.push(sessionId);
     const { costRecords } = await parseSessionFile(
       join(sessionsDir, file),
       identity,
       options?.since?.slice(0, 10),
     );
     allCostRecords.push(...costRecords);
+  }
+
+  if (unknownSessions.length > 0) {
+    console.warn(
+      `[cost-output] ${unknownSessions.length} session(s) could not be mapped to otter ` +
+      `(not in agent_sessions, no parseable identity in file). ` +
+      `Token usage attributed to 'unknown' bucket. Sample IDs: ${unknownSessions.slice(0, 5).join(", ")}`,
+    );
   }
 
   return aggregateUsageRecords(allCostRecords);
@@ -435,11 +445,20 @@ export async function collectToolCallCounts(
   const result = new Map<string, Map<string, number>>();
   const sinceDate = options?.since?.slice(0, 10);
 
+  const unknownSessions: string[] = [];
   for (const file of files) {
     const sessionId = extractSessionId(file);
     const identity = await resolveOtterIdentity(sessionId, mappingBySession, join(sessionsDir, file));
+    if (identity === UNKNOWN_IDENTITY) unknownSessions.push(sessionId);
     const fileCounts = await countToolCallsInFile(join(sessionsDir, file), identity, sinceDate);
     mergeToolCallCounts(result, fileCounts);
+  }
+
+  if (unknownSessions.length > 0) {
+    console.warn(
+      `[cost-output] ${unknownSessions.length} session(s) could not be mapped to otter ` +
+      `(tool call counts attributed to 'unknown' bucket). Sample IDs: ${unknownSessions.slice(0, 5).join(", ")}`,
+    );
   }
 
   return result;

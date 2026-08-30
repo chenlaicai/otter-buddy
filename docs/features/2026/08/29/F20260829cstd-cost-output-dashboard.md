@@ -110,9 +110,10 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 
 ### 测试覆盖
 
-- `cost-output-collector.test.ts`：15 个用例（JSONL 解析/聚合/cache hit rate/日期过滤/行内 otterId 提取/跨日数据保留/tool call 统计/PR 数/F 文档数 + messages 表聚合/过滤/tool call 计数）
-- `cost-output-rows.test.ts`：9 个用例（行数/metadata JSON/指标映射/PR 数行/F 文档数行/空输入）
+- `cost-output-collector.test.ts`：19 个用例（JSONL 解析/聚合/cache hit rate/日期过滤/行内 otterId 提取/跨日数据保留/tool call 统计/PR 数/F 文档数 + messages 表聚合/过滤/tool call 计数 + dispatch 任务统计/since 过滤）
+- `cost-output-rows.test.ts`：10 个用例（行数/metadata JSON/指标映射/PR 数行/F 文档数行/dispatch 数行/空输入）
 - `rhi-scan-worker.test.ts` 新增 2 个用例：costOutputSink 集成写入 + 向后兼容
+- `health-snapshot-repository.test.ts` 新增 1 个用例：replaceForDate metricType 类型限定删除
 
 ### 最简实现检查
 
@@ -120,6 +121,10 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 - 仓库已有 `HealthSnapshotRepository.replaceForDate()` → 复用（不新建落库逻辑）
 - session JSONL 的 usage.cost 已由 SDK 折算 → 直接取用（不自建价格表）
 - 现有 RHI 管道 + recharts 面板 → 按模式扩展（不新建系统）
+
+### 自报教训（PR #583 第一轮审视）
+
+第一轮审视发现实现者自报「与 issue 无偏差」与事实不符——产出计数实际只实现了发言数，但 issue L1 明确列 5 项。教训：**自检阶段必须逐条对照 issue 验收标准核对，不能凭印象断言「无偏差」**。此教训已追加为自检步骤的显式检查项。
 
 ## 审视修复（PR #598 review findings）
 
@@ -137,10 +142,21 @@ F20260829cstd 审视发现 3 严重 + 4 建议，全部处置完毕（2026-08-29
 
 | # | 发现 | 处置 |
 |---|------|------|
-| 1 | 契约风格分裂（series snake_case vs otters camelCase） | 部分接受：沿用 overview 先例，不引入新风格分裂；#448 仍 OPEN 待统一 |
+| 1 | 契约风格分裂（series snake_case vs otters camelCase） | 修复：统一 series 为 camelCase（d5d0cd04），与 otters 明细一致 |
 | 2 | cache_hit_rate 单位不一致 | 接受修复：统一为 0-1 小数（API 响应全部返回 0-1，前端乘100显示百分比） |
-| 3 | 已解散獭发言计入产出但无对应成本 | 记录为已知限制，v2 改进 |
+| 3 | 已解散獭发言计入产出但无对应成本 | 修复：新增 includeAllOtters 参数，默认仅展示 active 獭（d5d0cd04） |
 | 4 | UTC 日期口径未声明 | 接受修复：特性文档声明 UTC 口径（见下方「日期口径」节） |
+
+### 第二轮 Delta 复核（检视獭·成本复核，2026-08-30）
+
+7 项修复 6 项正确落实，修复引入 1 个新严重问题 + 3 项建议，全部本 PR 修复。
+
+| # | 发现 | 修复 |
+|---|------|------|
+| S1 | 全局行（pr/fdoc/dispatch）重复累积：`replaceForDate` 只删扫描日，历史日期行每轮 +1 | `replaceForDate` 新增 `metricType` 参数限定删除范围；`persistCostOutputSnapshot` 按日期分批写入 |
+| 建议① | cacheHitRate 三处口径分裂（series 简单平均 vs otters 覆盖写 vs 采集端加权） | `buildCostTrendSeries` 改从 `cache_read_tokens + input_tokens` 求和推导（真加权平均） |
+| 建议② | 特性文档 2 处处置表与实现相反 + 「自报不实教训」未记 | 更新处置表 + 验证节追加自报教训 |
+| 建议③ | unknown 桶无日志 + dispatch javadoc 矛盾 | `collectLlmCalls`/`collectToolCallCounts` 新增 unknown 会话计数+采样日志 |
 
 ## 日期口径
 
