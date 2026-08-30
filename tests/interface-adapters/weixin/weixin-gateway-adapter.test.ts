@@ -75,7 +75,7 @@ describe("WeixinGatewayAdapter", () => {
       expect(items).toHaveLength(2);
       expect(items[0]!.type).toBe(1);
       expect(items[1]!.type).toBe(2);
-      expect(items[1]!.image_item!.media.aes_key).toBe(Buffer.from(uploaded[0]!.aesKeyHex, "hex").toString("base64"));
+      expect(items[1]!.image_item!.media.aes_key).toBe(Buffer.from(uploaded[0]!.aesKeyHex).toString("base64")); // utf8 语义（base64(hex 字符串)），与参考实现 send.ts 一致
       expect(items[1]!.image_item!.media.encrypt_query_param).toBe("dl-0");
     } finally {
       await fs.rm(tmp, { force: true });

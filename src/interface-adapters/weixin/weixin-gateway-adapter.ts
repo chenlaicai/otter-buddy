@@ -74,10 +74,11 @@ export class WeixinGatewayAdapter implements WeixinGateway {
     const mediaType = params.mimeType.startsWith("video/") ? "VIDEO" : params.mimeType.startsWith("image/") ? "IMAGE" : "FILE";
     const uploaded = await this.deps.cdn.uploadFile({ buffer, toUserId, mediaType });
 
-    // aes_key 协议格式：base64(hex 字符串)——与文件/语音/视频入站同编码（见 parseCdnAesKey）
+    // aes_key 协议格式：base64(hex 字符串)——与参考实现 send.ts 一致
+    // （Buffer.from(aesKeyHex) 默认 utf8 语义，编码的是 hex 字符串本身而非 raw bytes）
     const media = {
       encrypt_query_param: uploaded.downloadParam,
-      aes_key: Buffer.from(uploaded.aesKeyHex, "hex").toString("base64"),
+      aes_key: Buffer.from(uploaded.aesKeyHex).toString("base64"),
       encrypt_type: 1,
     };
     let item: WeixinMessageItem;

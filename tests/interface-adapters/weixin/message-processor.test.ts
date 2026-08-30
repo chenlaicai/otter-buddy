@@ -141,7 +141,7 @@ describe("WeixinMessageProcessor", () => {
       body: "",
       raw: {
         item_list: [
-          { type: 4, file_item: { media: { encrypt_query_param: "f1", aes_key: "bad" }, file_name: "a.pdf" } }, // 第 1 项失败（bad key）
+          { type: 2, image_item: { aeskey: Buffer.alloc(16, 1).toString("hex"), media: { encrypt_query_param: "eq-1" } } }, // 第 1 项失败（cdn down）
           { type: 2, image_item: { aeskey: Buffer.alloc(16, 2).toString("hex"), media: { encrypt_query_param: "eq-2" } } }, // 第 2 项成功
         ],
       },

@@ -35,7 +35,7 @@ describe("aes-ecb", () => {
 describe("cdn-url", () => {
   it("下载 URL：encrypt_query_param 需 URL 编码", () => {
     const url = buildCdnDownloadUrl("a b&c=d");
-    expect(url).toContain("https://cdn.weixin.qq.com/download?encrypted_query_param=");
+    expect(url).toContain("https://novac2c.cdn.weixin.qq.com/c2c/download?encrypted_query_param=");
     expect(url).toContain(encodeURIComponent("a b&c=d"));
   });
 

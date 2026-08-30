@@ -257,5 +257,5 @@ export interface WeixinUploadedMedia {
   fileSizeCiphertext: number;
 }
 
-/** CDN base URL（上传/下载 URL 拼接用；与网关同域，协议审计值） */
-export const WEIXIN_CDN_BASE_URL = "https://cdn.weixin.qq.com";
+/** CDN base URL（上传/下载 URL 拼接用；与网关同域，协议审计值：openclaw-weixin auth/accounts.ts CDN_BASE_URL） */
+export const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
