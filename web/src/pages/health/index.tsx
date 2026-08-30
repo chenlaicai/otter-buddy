@@ -66,7 +66,7 @@ function HealthPage() {
         api.getRhiTrends(30, signal),
         api.getRhiSignals('open', signal),
         api.getRhiChains(signal),
-        api.getRhiCostOutput(30, signal),
+        api.getRhiCostOutput(30, false, signal),
       ])
       if (signal?.aborted) return
       setOverview(ov)
