@@ -56,11 +56,11 @@ const SCORE_STATUS_CONFIG: Record<string, { label: string; text: string; bg: str
   red: { label: '告警', text: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200' },
 }
 
-/** 走向箭头配置（trend: up/down/flat/null）*/
-function TrendIcon({ direction }: { direction?: 'up' | 'down' | 'flat' | null }) {
-  if (direction === 'up') return <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />
-  if (direction === 'down') return <ArrowDownRight className="w-3.5 h-3.5 text-rose-500" />
-  if (direction === 'flat') return <Minus className="w-3.5 h-3.5 text-stone-400" />
+/** 走向箭头（后端 TrendDirection：improving/stable/declining，不足 8 点 null）*/
+export function TrendIcon({ direction }: { direction?: 'improving' | 'stable' | 'declining' | null }) {
+  if (direction === 'improving') return <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />
+  if (direction === 'declining') return <ArrowDownRight className="w-3.5 h-3.5 text-rose-500" />
+  if (direction === 'stable') return <Minus className="w-3.5 h-3.5 text-stone-400" />
   return <Minus className="w-3.5 h-3.5 text-stone-300" />
 }
 
@@ -502,7 +502,7 @@ function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
           {score.dimensions.map(d => {
             const dcfg = SCORE_STATUS_CONFIG[d.status ?? 'yellow'] ?? SCORE_STATUS_CONFIG.yellow
             return (
-              <span key={d.dimension} className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${dcfg.text} bg-white/50`} title={d.attribution ?? d.name}>
+              <span key={d.dimension} className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${dcfg.text} bg-white/50`} title={d.name}>
                 {d.name} {d.score === null ? '—' : Math.round(d.score)}
               </span>
             )

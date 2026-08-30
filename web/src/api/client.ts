@@ -580,7 +580,6 @@ export interface RhiScoreDimensionDTO {
   name: string
   score: number | null
   status: 'green' | 'yellow' | 'red' | null
-  attribution: string | null
 }
 
 export interface RhiScoreDTO {
@@ -589,7 +588,8 @@ export interface RhiScoreDTO {
   overall: number | null
   overallStatus: 'green' | 'yellow' | 'red' | null
   dimensions: RhiScoreDimensionDTO[]
-  trend: Partial<Record<string, 'up' | 'down' | 'flat' | null>>
+  /** 后端 TrendDirection：improving/stable/declining；不足 8 数据点为 null */
+  trend: Partial<Record<string, 'improving' | 'stable' | 'declining' | null>>
   attribution: string | null
 }
 
