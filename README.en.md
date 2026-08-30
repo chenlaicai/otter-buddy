@@ -13,9 +13,11 @@
 
 ![Conversation UI](docs/images/conversation.jpg)
 
+![Multi-Agent Orchestration Demo](docs/images/demo-multi-agent.gif)
+
 ![Health dashboard: 30-day commit trend / BugFix ratio, commit type distribution, module hotspots, feature-chain states](docs/images/health-dashboard.jpg)
 
-*Both screenshots are real data: the first shows a day-to-day collaboration session; the second shows the system measuring its own health — commit trends, BugFix ratio, module hotspots, and feature-chain states, computed hourly by the RHI scan worker.*
+*All three visuals are real data: a collaboration session, the multi-agent orchestration loop as a four-act GIF (dispatch → orchestrate → execute → trace & return), and the system measuring its own health — commit trends, BugFix ratio, module hotspots, and feature-chain states, computed hourly by the RHI scan worker.*
 
 ## What is this
 
