@@ -25,7 +25,7 @@ export class WeixinMediaClient implements WeixinMediaGateway {
 
   async downloadMediaItem(item: WeixinMediaGatewayItem): Promise<WeixinDownloadedMedia> {
     if (item.type !== WeixinItemType.IMAGE || !item.image_item) {
-      throw new Error(`unsupported media item type: ${item.type}（本期仅图片入库，见 issue #604）`);
+      throw new Error(`unsupported media item type: ${item.type}（本期仅图片入库，见 issue #608）`);
     }
     const img = item.image_item;
     const aesKeyBase64 = img.aeskey ? Buffer.from(img.aeskey, "hex").toString("base64") : img.media?.aes_key;

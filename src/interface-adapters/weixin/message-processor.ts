@@ -87,7 +87,7 @@ export class WeixinMessageProcessor {
     }
 
     // 媒体消息（issue #567）：本期仅图片入库（检视发现 2 收敛）；语音转写已在 body，
-    // 文件/视频降级为可见提示（kind 扩展见 issue #604）
+    // 文件/视频降级为可见提示（kind 扩展见 issue #608）
     const outcome = await this.composeMediaOutcome(msg.raw?.item_list ?? [], fromUserId);
 
     let bodyText = body.trim();
