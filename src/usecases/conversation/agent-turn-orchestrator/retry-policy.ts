@@ -68,6 +68,18 @@ export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_co
   return "[系统] 服务重启自动恢复失败，请手动重试该消息。";
 }
 
+/**
+ * #599：恢复收尾消息（终态守卫用）。
+ * Why: 恢复路径 invoke 创建的是新消息（新 messageId），prepareForRetry 复位的旧消息
+ * 在链结束后不再有写入者。收尾为 failed + 明确指引，把「悬挂 streaming 等用户中断」
+ * 变成「已归档 + 可在原条目上手动重试」。
+ */
+export function buildRestartResumeTerminalMsg(outcome: "done" | "failed"): string {
+  return outcome === "done"
+    ? "[系统] 恢复已完成：本条为中断前的原始发言（半截内容已保留），恢复后的内容见新发言。"
+    : "[系统] 恢复未完成：本条发言已中止（半截内容已保留），可在本条上手动重试。";
+}
+
 /** Build abort body: user abort vs guard abort */
 export function buildGuardAbortBody(guardReason: string | undefined): string {
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';

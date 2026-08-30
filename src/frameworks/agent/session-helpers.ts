@@ -95,17 +95,27 @@ export function getOtterToolNamesForType(
  * Why: 显式跟踪 held 状态 —— 旧版仅检查 waiters 队列长度，
  * 第一个获取锁的人不入队，导致第二个调用者也看到队列为空而直接获锁，
  * 两个操作并发执行（EEXIST 竞态条件的根因，见 #376）。
+ *
+ * #599：stale 持有强制接管（steal）——invoke 在整个 agent 运行期间持锁
+ * （正常可达数分钟），但持有超过 stealThreshold（默认 5 分钟）只可能来自异常路径
+ * （abort 后 session.run 未 settle 的僵尸持有等）。继续等待必然 30s 超时抛错，
+ * 把恢复失败留给用户手动收拾（#599 现场：10 分钟内 3 次手动中断僵尸发言）。
+ * steal 后旧持有者的 release 对已易主的锁是 no-op（generation 世代号判定）。
  */
 export class SimpleLockManager {
-  private locks = new Map<string, { held: boolean; heldAt: number | null; waiters: Array<() => void> }>();
+  private locks = new Map<string, { held: boolean; heldAt: number | null; generation: number; waiters: Array<() => void> }>();
   private readonly defaultTimeout: number;
+  /** #599：锁持有超龄阈值——超过该时长视为 stale，等待中的 acquire 可强制接管 */
+  private readonly stealThresholdMs: number;
 
   constructor(
     timeoutMs: number = 30000,
     /** 可选日志器：锁获取超时时输出结构化诊断日志（#423 方案 1） */
     private readonly logger?: Logger,
+    stealThresholdMs: number = 300_000,
   ) {
     this.defaultTimeout = timeoutMs;
+    this.stealThresholdMs = stealThresholdMs;
   }
 
   async acquire(key: string, timeoutMs?: number): Promise<() => void> {
@@ -113,64 +123,49 @@ export class SimpleLockManager {
     const waitStartedAt = Date.now();
     let lock = this.locks.get(key);
     if (!lock) {
-      lock = { held: false, heldAt: null, waiters: [] };
+      lock = { held: false, heldAt: null, generation: 0, waiters: [] };
       this.locks.set(key, lock);
     }
 
     // Why: 检查 held（非 waiters.length）—— 第一个获取者不会入队，
     // 旧版检查队列长度导致两个调用者都绕过等待。
     if (lock.held) {
-      // Why: 清理超时等待者 —— 防止 timeout 后 resolve 仍留在队列中被意外唤醒
-      let waiterResolve: (() => void) | undefined;
-      await Promise.race([
-        new Promise<void>(resolve => {
-          waiterResolve = resolve;
-          lock.waiters.push(resolve);
-        }),
-        new Promise<void>((_, reject) =>
-          setTimeout(() => {
-            if (waiterResolve) {
-              const idx = lock.waiters.indexOf(waiterResolve);
-              if (idx !== -1) lock.waiters.splice(idx, 1);
-            }
-            // Why(#423 方案1): 超时是静默故障——错误被抛出后若无调用方记录，
-            // 事故侧只能看到报错文本，无法定位持有者是谁、持有了多久。
-            // 此处落结构化日志，把可得的诊断证据（持有者、持有时长、队列深度）留下。
-            // 边界说明：healing event 上报需要 messageId/conversationId（schema NOT NULL），
-            // 该层不可得，故不上报 healing event——由本日志驱动方案 2 的根因诊断。
-            const now = Date.now();
-            this.logger?.error(
-              `Lock acquire timeout for key: ${key}`,
-              new Error(`Lock acquire timeout for key: ${key}`),
-              {
-                module: 'SimpleLockManager',
-                lockKey: key,
-                /** key 形如 session:<otterId>，解析出 otterId 便于按獭聚合排查 */
-                otterId: key.startsWith('session:') ? key.slice('session:'.length) : undefined,
-                waitedMs: now - waitStartedAt,
-                timeoutMs: timeout,
-                /** 持有者已持有该锁的时长（ms）；null 表示状态不可考（如 destroy 后重建） */
-                holderHeldForMs: lock.heldAt !== null ? now - lock.heldAt : null,
-                /** 超时发生时仍在排队的等待者数量（不含本次） */
-                queueLength: lock.waiters.length,
-                /** 当前活跃锁总数（进程级锁竞争强度信号） */
-                activeLocks: this.locks.size,
-              },
-            );
-            reject(new Error(`Lock acquire timeout for key: ${key}`));
-          }, timeout)
-        ),
-      ]);
+      const holderAgeMs = lock.heldAt !== null ? Date.now() - lock.heldAt : null;
+      if (holderAgeMs !== null && holderAgeMs >= this.stealThresholdMs) {
+        // Why(#599): stale 持有强制接管——holderAge 超阈值说明持有者已异常
+        // （正常 invoke 数分钟内结束；abort 后 session.run 未 settle 会永久持有）。
+        // generation+1 使旧持有者的 release 对易主后的锁 no-op；waiters 保留，
+        // 旧等待者继续排队等新持有者释放（FIFO 语义不破坏）。
+        this.logger?.warn(
+          `Lock stolen from stale holder: ${key}`,
+          {
+            module: 'SimpleLockManager',
+            lockKey: key,
+            otterId: key.startsWith('session:') ? key.slice('session:'.length) : undefined,
+            holderHeldForMs: holderAgeMs,
+            stealThresholdMs: this.stealThresholdMs,
+          },
+        );
+        lock.generation += 1;
+        // fall through：不走等待队列，直接接管（下方 held/heldAt 赋值）
+      } else {
+        await this.waitForLock(key, lock, timeout, waitStartedAt);
+      }
     }
 
     lock.held = true;
     lock.heldAt = Date.now();
+    /** Why(#599): 捕获本次持有世代——release 时世代不匹配（已被 steal）则 no-op */
+    const myGeneration = lock.generation;
 
     // Why: released 标志防止 double release（调用方意外多次调用 release 函数）
     let released = false;
     return () => {
       if (released) return;
       released = true;
+      // Why(#599): 世代不匹配 = 锁已被 stale 接管者夺走。此时动锁状态会
+      // 干扰新持有者（错误释放或错误移交），本次 release 必须是 no-op。
+      if (lock.generation !== myGeneration) return;
 
       const next = lock.waiters.shift();
       if (next) {
@@ -184,6 +179,58 @@ export class SimpleLockManager {
         this.locks.delete(key);
       }
     };
+  }
+
+  /** 等待锁释放或超时（#599 自 acquire 拆出：保持 acquire 主流程可读性） */
+  private async waitForLock(
+    key: string,
+    lock: { heldAt: number | null; waiters: Array<() => void> },
+    timeout: number,
+    waitStartedAt: number,
+  ): Promise<void> {
+    // Why: 清理超时等待者 —— 防止 timeout 后 resolve 仍留在队列中被意外唤醒
+    let waiterResolve: (() => void) | undefined;
+    await Promise.race([
+      new Promise<void>(resolve => {
+        waiterResolve = resolve;
+        lock.waiters.push(resolve);
+      }),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => {
+          if (waiterResolve) {
+            const idx = lock.waiters.indexOf(waiterResolve);
+            if (idx !== -1) lock.waiters.splice(idx, 1);
+          }
+          // Why(#423 方案1): 超时是静默故障——错误被抛出后若无调用方记录，
+          // 事故侧只能看到报错文本，无法定位持有者是谁、持有了多久。
+          // 此处落结构化日志，把可得的诊断证据（持有者、持有时长、队列深度）留下。
+          // 边界说明：healing event 上报需要 messageId/conversationId（schema NOT NULL），
+          // 该层不可得，故不上报 healing event——由本日志驱动方案 2 的根因诊断。
+          const now = Date.now();
+          this.logger?.error(
+            `Lock acquire timeout for key: ${key}`,
+            new Error(`Lock acquire timeout for key: ${key}`),
+            {
+              module: 'SimpleLockManager',
+              lockKey: key,
+              /** key 形如 session:<otterId>，解析出 otterId 便于按獭聚合排查 */
+              otterId: key.startsWith('session:') ? key.slice('session:'.length) : undefined,
+              waitedMs: now - waitStartedAt,
+              timeoutMs: timeout,
+              /** 持有者已持有该锁的时长（ms）；null 表示状态不可考（如 destroy 后重建） */
+              holderHeldForMs: lock.heldAt !== null ? now - lock.heldAt : null,
+              /** #599：steal 阈值——对照 holderHeldForMs 可判断本超时是否本应被 steal 兜住 */
+              stealThresholdMs: this.stealThresholdMs,
+              /** 超时发生时仍在排队的等待者数量（不含本次） */
+              queueLength: lock.waiters.length,
+              /** 当前活跃锁总数（进程级锁竞争强度信号） */
+              activeLocks: this.locks.size,
+            },
+          );
+          reject(new Error(`Lock acquire timeout for key: ${key}`));
+        }, timeout)
+      ),
+    ]);
   }
 
   destroy(): void {
