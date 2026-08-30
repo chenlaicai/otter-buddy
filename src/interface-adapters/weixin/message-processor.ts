@@ -2,14 +2,34 @@ import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { WeixinGateway } from "@usecases/im/weixin-gateway";
+import type { WeixinMediaGateway, WeixinMediaGatewayItem } from "@usecases/im/weixin-media-gateway";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
+import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
+import { Readable } from "node:stream";
 import { parseCommand, formatConversationList, formatMessageHistory, HELP_TEXT } from "@usecases/im/feishu-command-parser";
+
+/** 媒体项类型枚举镜像（协议固定值，port 层不引 frameworks） */
+const WeixinItemTypes = { TEXT: 1, IMAGE: 2, VOICE: 3, FILE: 4, VIDEO: 5 } as const;
 
 /** 命令处理结果：回复文本（各命令产出，统一由外层回发） */
 type CommandReply = string;
+
+/** 媒体处理结果：附件 id + 降级提示（照 FeishuAttachmentOutcome 语义） */
+interface WeixinMediaOutcome {
+  attachmentIds: string[];
+  degradeNote: string | null;
+  injection?: Awaited<ReturnType<AttachmentInjectionService["buildInjectionPayload"]>>;
+}
+
+/** 单个入站媒体项（从 item_list 提取；item 为结构兼容协议投影） */
+interface WeixinMediaItemEntry {
+  kind: "image" | "voice" | "file" | "video";
+  item: WeixinMediaGatewayItem;
+}
 
 /**
  * 微信入站消息处理器（interface-adapters 层，照 FeishuMessageProcessor 模式）。
@@ -29,10 +49,14 @@ export class WeixinMessageProcessor {
       agentDispatchService: AgentDispatchService;
       messageBroadcaster: MessageBroadcaster;
       logger: Logger;
+      /** 媒体支持（issue #567）：媒体下载网关 + 附件上传管线 + 注入服务。未注入时媒体降级为提示文本 */
+      mediaGateway?: WeixinMediaGateway;
+      attachmentUpload?: AttachmentUploadService;
+      attachmentInjection?: AttachmentInjectionService;
     },
   ) {}
 
-  async process(msg: { fromUserId: string; body: string; messageId?: string }): Promise<void> {
+  async process(msg: { fromUserId: string; body: string; messageId?: string; raw?: { item_list?: WeixinMediaGatewayItem[] } }): Promise<void> {
     const { fromUserId, body } = msg;
 
     this.deps.logger.info("Processing Weixin message", {
@@ -49,9 +73,6 @@ export class WeixinMessageProcessor {
       return;
     }
 
-    // 空文本（纯媒体消息，PR③ 扩展）占位防空
-    const bodyText = body.trim() ? body : "[媒体消息（当前版本暂不支持，敬请期待图片/语音支持）]";
-
     const conversation = await this.deps.manageConnection.getCurrentConversation(connection.id);
     if (!conversation) {
       await this.deps.weixinGateway.replyText(
@@ -61,6 +82,18 @@ export class WeixinMessageProcessor {
       return;
     }
 
+    // 媒体消息（issue #567）：CDN 下载解密 → 附件管线入库；单项失败单项降级（照飞书 processMedia 语义）
+    const mediaItems = this.extractMediaItems(msg.raw?.item_list ?? []);
+    const outcome = mediaItems.length > 0 ? await this.processMedia(mediaItems, fromUserId) : { attachmentIds: [], degradeNote: null };
+
+    let bodyText = body.trim();
+    if (outcome.degradeNote) {
+      bodyText = bodyText ? `${bodyText}\n${outcome.degradeNote}` : outcome.degradeNote;
+    }
+    if (outcome.attachmentIds.length === 0 && !bodyText.trim()) {
+      bodyText = "[媒体消息处理失败]";
+    }
+
     const { message } = await this.deps.sendMessage.send({
       conversationId: conversation.id,
       senderId: fromUserId,
@@ -68,6 +101,7 @@ export class WeixinMessageProcessor {
       talkingStonePassedTo: [],
       body: bodyText,
       source: "weixin",
+      ...(outcome.attachmentIds.length > 0 ? { attachmentIds: outcome.attachmentIds } : {}),
     });
 
     // 广播到 Web 端（实时同步；微信侧发送者自己可见，无需回投）
@@ -78,8 +112,8 @@ export class WeixinMessageProcessor {
       });
     });
 
-    // 异步触发 Agent 派发
-    await this.dispatchAgent(conversation.id, bodyText, fromUserId);
+    // 异步触发 Agent 派发（媒体消息带附件注入载荷，与飞书同语义）
+    await this.dispatchAgent(conversation.id, bodyText, fromUserId, outcome.injection);
   }
 
   /** 命令分支：门禁 + 分发（命令集与飞书完全一致），每命令返回回复文本统一回发 */
@@ -125,10 +159,69 @@ export class WeixinMessageProcessor {
     }
   }
 
-  private async dispatchAgent(conversationId: string, bodyText: string, senderId: string): Promise<void> {
-    const result = await this.deps.agentDispatchService.dispatch(conversationId, bodyText, senderId);
+  private async dispatchAgent(conversationId: string, bodyText: string, senderId: string, injection?: WeixinMediaOutcome["injection"]): Promise<void> {
+    const result = await this.deps.agentDispatchService.dispatch(conversationId, bodyText, senderId, injection);
     if (result.error) {
       this.deps.logger.error("Weixin agent dispatch failed", undefined, { conversationId, error: result.error });
     }
+  }
+
+  // ── 媒体支持（issue #567，照飞书 processMedia 语义）──
+
+  /** 从入站消息提取媒体项（image/voice/file/video），无媒体返回空数组 */
+  private extractMediaItems(items: WeixinMediaGatewayItem[]): WeixinMediaItemEntry[] {
+    const out: WeixinMediaItemEntry[] = [];
+    for (const item of items) {
+      if (item.type === WeixinItemTypes.IMAGE && item.image_item) out.push({ kind: "image", item });
+      else if (item.type === WeixinItemTypes.VOICE && item.voice_item) out.push({ kind: "voice", item });
+      else if (item.type === WeixinItemTypes.FILE && item.file_item) out.push({ kind: "file", item });
+      else if (item.type === WeixinItemTypes.VIDEO && item.video_item) out.push({ kind: "video", item });
+    }
+    return out;
+  }
+
+  /** 媒体处理主流程：下载网关 → 附件管线 → id + 注入载荷。单项失败单项降级 */
+  private async processMedia(mediaItems: WeixinMediaItemEntry[], senderId: string): Promise<WeixinMediaOutcome> {
+    // 管线未装配（旧部署未配 attachments / mediaGateway）：降级提示
+    if (!this.deps.mediaGateway || !this.deps.attachmentUpload || !this.deps.attachmentInjection) {
+      return { attachmentIds: [], degradeNote: "[媒体消息：服务器未启用附件功能，请到网页端查看]" };
+    }
+
+    const ids: string[] = [];
+    const degradeNotes: string[] = [];
+    for (const { item } of mediaItems) {
+      try {
+        const media = await this.deps.mediaGateway.downloadMediaItem(item);
+        const att = await this.deps.attachmentUpload!.upload({
+          stream: Readable.from(media.buffer),
+          originalName: media.fileName,
+          declaredMimeType: media.mimeType,
+          uploaderId: senderId,
+        });
+        ids.push(att.id);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        this.deps.logger.warn("Weixin media ingestion failed", { error: reason });
+        degradeNotes.push(`[媒体：接收失败：${reason}]`);
+      }
+    }
+
+    // 注入载荷（与飞书/Web 同一份策略）；超限（>2 图）整组拒绝附件、保留正文
+    let injection: WeixinMediaOutcome["injection"];
+    if (ids.length > 0) {
+      const validateErr = await this.deps.attachmentInjection!.validateForSend(ids);
+      if (validateErr) {
+        return { attachmentIds: [], degradeNote: this.joinNotes(degradeNotes, `[附件被拒：${validateErr}]`) };
+      }
+      injection = await this.deps.attachmentInjection!.buildInjectionPayload(ids);
+    }
+
+    this.deps.logger.info("Weixin media ingested", { itemCount: mediaItems.length, successCount: ids.length, degradeCount: degradeNotes.length });
+    return { attachmentIds: ids, degradeNote: this.joinNotes(degradeNotes, null), injection };
+  }
+
+  private joinNotes(notes: string[], extra: string | null): string | null {
+    const all = extra ? [...notes, extra] : notes;
+    return all.length > 0 ? all.join("\n") : null;
   }
 }
