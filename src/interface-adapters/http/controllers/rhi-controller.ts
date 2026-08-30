@@ -120,19 +120,19 @@ function buildCostOtterBreakdown(
 type OtterAcc = {
   otterId: string; otterName: string; otterType: string;
   totalTokens: number; costTotal: number; callCount: number;
-  cacheHitRate: number; messageCount: number;
+  cacheRead: number; cacheInput: number; messageCount: number;
   models: Map<string, { totalTokens: number; costTotal: number }>;
 };
 const MODEL_COST_KEYS = new Set(["total_tokens", "cost_total"]);
-const KEY_FIELD: Record<string, "totalTokens" | "costTotal" | "callCount" | "cacheHitRate" | "messageCount"> = {
+const KEY_FIELD: Record<string, "totalTokens" | "costTotal" | "callCount" | "cacheRead" | "cacheInput" | "messageCount"> = {
   total_tokens: "totalTokens", cost_total: "costTotal",
-  llm_call_count: "callCount", cache_hit_rate: "cacheHitRate", message_count: "messageCount",
+  llm_call_count: "callCount", cache_read_tokens: "cacheRead", input_tokens: "cacheInput", message_count: "messageCount",
 };
 function getOrInitOtter(map: Map<string, OtterAcc>, meta: { otterId?: string; otterName?: string; otterType?: string }): OtterAcc {
   const id = meta.otterId ?? "unknown";
   let entry = map.get(id);
   if (!entry) {
-    entry = { otterId: id, otterName: meta.otterName ?? id, otterType: meta.otterType ?? "unknown", totalTokens: 0, costTotal: 0, callCount: 0, cacheHitRate: 0, messageCount: 0, models: new Map() };
+    entry = { otterId: id, otterName: meta.otterName ?? id, otterType: meta.otterType ?? "unknown", totalTokens: 0, costTotal: 0, callCount: 0, cacheRead: 0, cacheInput: 0, messageCount: 0, models: new Map() };
     map.set(id, entry);
   }
   return entry;
@@ -140,7 +140,7 @@ function getOrInitOtter(map: Map<string, OtterAcc>, meta: { otterId?: string; ot
 function applyMetricValue(entry: OtterAcc, key: string, value: number): void {
   const field = KEY_FIELD[key];
   if (!field) return;
-  if (field === "cacheHitRate") { entry.cacheHitRate = value; } else { entry[field] = (entry[field] as number) + value; }
+  entry[field] = (entry[field] as number) + value;
 }
 function accumulateModel(models: Map<string, { totalTokens: number; costTotal: number }>, model: string, key: string, value: number): void {
   let m = models.get(model);
@@ -149,10 +149,11 @@ function accumulateModel(models: Map<string, { totalTokens: number; costTotal: n
   if (key === "cost_total") m.costTotal += value;
 }
 function formatOtterEntry(e: OtterAcc) {
+  const denom = e.cacheRead + e.cacheInput;
   return {
     otterId: e.otterId, otterName: e.otterName, otterType: e.otterType,
     totalTokens: e.totalTokens, costTotal: Number(e.costTotal.toFixed(6)),
-    callCount: e.callCount, cacheHitRate: Number(e.cacheHitRate.toFixed(4)), messageCount: e.messageCount,
+    callCount: e.callCount, cacheHitRate: denom > 0 ? Number((e.cacheRead / denom).toFixed(4)) : 0, messageCount: e.messageCount,
     models: [...e.models.entries()].map(([model, m]) => ({
       model, totalTokens: m.totalTokens, costTotal: Number(m.costTotal.toFixed(6)),
     })).sort((a, b) => b.costTotal - a.costTotal),
