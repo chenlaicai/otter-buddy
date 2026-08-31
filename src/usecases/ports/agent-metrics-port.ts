@@ -24,6 +24,7 @@ export type RetryLabel = "0" | "auto" | "manual";
 export type RetryKind =
   | "sdk_auto"
   | "degenerate_output"
+  | "degenerate_detected" // F20260831dgrt：首次退化检测（非实际重试），与 degenerate_output 语义分离
   | "no_yield"
   | "streaming_timeout"
   | "first_byte_timeout"

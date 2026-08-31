@@ -190,17 +190,18 @@ const queryOtter: QueryOtter = { getById: async () => ({ id: "otter-1", name: "�
 
 // eslint-disable-next-line max-lines-per-function -- F20260818cbkr + F20260831cbkw 熔断测试套件，场景多但逻辑内聚
 describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
-  it("AT-1/AT-3：degenerate retry 再退化 → 熔断重启 + 全新 invoke（含前情摘要），自动恢复", async () => {
+  it("AT-1/AT-3：首次退化 → 直接熔断重启（非熔断创建 session），自动恢复", async () => {
     const msg = mockSendMessage();
     const healing = mockHealingRepo();
     const session = mockManageSession(makeSession());
-    const invoke = mockAgentInvoke(2); // 前两次退化，第三次成功
-    /** 工具事件只挂在 retry 前的首条消息(msg-1)——摘要必须合并首条消息的工作进度 */
+    // F20260831dgrt：首次退化直接熔断（session 非熔断创建）——1 次退化触发熔断，重启后成功
+    const invoke = mockAgentInvoke(1); // 1 次退化，重启后成功
+    /** 工具事件只挂在首条消息(msg-1)——摘要必须合并首条消息的工作进度 */
     const toolEvents = [
       { eventType: "assistant_text", payload: { content: [] }, messageIds: ["msg-1"] },
       { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read" }, { type: "toolCall", name: "write" }] }, messageIds: ["msg-1"] },
     ];
-    const qm = mockQueryMessage({ events: toolEvents, speakingAfter: 2 });
+    const qm = mockQueryMessage({ events: toolEvents, speakingAfter: 1 });
     const invoker = new AgentInvoker(
       invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
       healing.repo,
@@ -216,29 +217,86 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     const summary = session.restartCalls[0].summary ?? "";
     expect(summary).toContain("熔断重启");
     expect(summary).toContain("实现小獭闲置预警系统");
-    /** 工具序列来自 retry 前首条消息(retry 消息无事件),验证 firstMessageId 合并 */
     expect(summary).toContain("read");
     expect(summary).toContain("write");
 
-    // 消息序列：自动重试 fail → 熔断 fail；系统消息含熔断说明；无 abort
-    expect(msg._failCalls.map(f => f.body)).toContainEqual(expect.stringContaining("自动重试"));
-    expect(msg._failCalls.map(f => f.body)).toContainEqual(expect.stringContaining("熔断重启獭生"));
+    // F20260831dgrt：首次退化直接走熔断——无重试 fail、无系统重试提醒、一次熔断 fail
+    expect(msg._failCalls).toHaveLength(1);
+    expect(msg._failCalls[0].body).toContain("熔断重启獭生");
     expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("已重启獭生"));
     expect(msg._abortCalls).toHaveLength(0);
 
-    // healing_events：2 条 degenerate（两次退化各一条）+ 1 条 circuit_break（关联新 session）
+    // healing_events：1 条 degenerate（首次退化）+ 1 条 circuit_break（关联新 session）
     const degenerate = healing.events.filter(e => e.errorType === "degenerate");
     const circuitBreaks = healing.events.filter(e => e.errorType === "circuit_break");
-    expect(degenerate).toHaveLength(2);
+    expect(degenerate).toHaveLength(1);
     expect(circuitBreaks).toHaveLength(1);
     expect((circuitBreaks[0].context as { newSessionId?: string })?.newSessionId).toBe("sess-new");
 
-    // 全新 invoke：第 3 次调用的 dynamicContext 携带新 session 的前情摘要
-    expect(invoke._count()).toBe(3);
-    expect(invoke._contexts[2]?.sessionSummary).toContain("实现小獭闲置预警系统");
+    // 全新 invoke：第 2 次调用的 dynamicContext 携带新 session 的前情摘要
+    expect(invoke._count()).toBe(2);
+    expect(invoke._contexts[1]?.sessionSummary).toContain("实现小獭闲置预警系统");
 
     // 最终成功返回（全新 invoke 的消息完成）
     expect(result.messageId).toBeTruthy();
+  });
+
+  it("F20260831dgrt 窗口内保留重试：session 由熔断创建（2h 内）→ 首次退化走重试路径", async () => {
+    const msg = mockSendMessage();
+    /** 当前 active session 由 10 分钟前的熔断创建——仍在 2h 窗口内，应保留重试 */
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const healing = mockHealingRepo([
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-old" }, createdAt: tenMinutesAgo }),
+    ]);
+    const session = mockManageSession(makeSession({ id: "sess-old", startedAt: tenMinutesAgo }));
+    const invoke = mockAgentInvoke(1); // 1 次退化（触发重试），重试后成功
+    const qm = mockQueryMessage({ speakingAfter: 1 });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    // 窗口内保留重试：不重启、不 abort、走重试路径
+    expect(session.restartCalls).toHaveLength(0);
+    expect(msg._abortCalls).toHaveLength(0);
+
+    // 重试路径：fail + 系统提醒（含「忽略」语义）
+    expect(msg._failCalls).toHaveLength(1);
+    expect(msg._failCalls[0].body).toContain("自动重试");
+    expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("忽略"));
+  });
+
+  it("F20260831dgrt 窗口外直接熔断：session 由熔断创建但已超 2h → 首次退化直接熔断", async () => {
+    const msg = mockSendMessage();
+    /** 熔断事件在 8 小时前创建——session 远超 2h 窗口，应直接熔断 */
+    const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
+    const healing = mockHealingRepo([
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-old" }, createdAt: eightHoursAgo }),
+    ]);
+    const session = mockManageSession(makeSession({ id: "sess-old", startedAt: eightHoursAgo }));
+    const invoke = mockAgentInvoke(1); // 1 次退化触发熔断，重启后成功
+    const qm = mockQueryMessage({ speakingAfter: 1 });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    // 窗口外直接熔断：触发重启，不走重试路径
+    expect(session.restartCalls).toHaveLength(1);
+    expect(msg._failCalls).toHaveLength(1);
+    expect(msg._failCalls[0].body).toContain("熔断重启獭生");
+    expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("已重启獭生"));
+    expect(msg._abortCalls).toHaveLength(0);
   });
 
   it("AT-2 熔断上限（窗口内）：session 由熔断创建且在2h窗口内再退化 → abort 终态 + 系统通知", async () => {
@@ -436,8 +494,9 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     const healing = mockHealingRepo();
     const session = mockManageSession(makeSession());
     session.failRestart.value = new Error("archive failed: DB locked");
-    const invoke = mockAgentInvoke(2);
-    const qm = mockQueryMessage({ speakingAfter: Infinity });
+    // F20260831dgrt：首次退化直接熔断（session 非熔断创建）——1 次退化触发熔断
+    const invoke = mockAgentInvoke(1);
+    const qm = mockQueryMessage({ speakingAfter: 1 });
     const invoker = new AgentInvoker(
       invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
       healing.repo,
@@ -447,12 +506,12 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
       otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1",
     });
 
-    // 降级：熔断失败说明 + 留痕；不再发起全新 invoke（共 2 次调用：两次退化）
+    // 降级：熔断失败说明 + 留痕；不再发起全新 invoke（仅 1 次调用：首次退化直接熔断）
     expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("熔断重启执行失败"));
     const circuitBreaks = healing.events.filter(e => e.errorType === "circuit_break");
     expect(circuitBreaks).toHaveLength(1);
     expect((circuitBreaks[0].context as { failed?: boolean })?.failed).toBe(true);
-    expect(invoke._count()).toBe(2);
+    expect(invoke._count()).toBe(1);
   });
 
   it("叠加场景：二级预检重启后本 invoke 再连续退化 → 上限 abort，不再二次 restart", async () => {
@@ -494,8 +553,9 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
       healing.events.push(e);
     };
     const session = mockManageSession(makeSession());
-    const invoke = mockAgentInvoke(2);
-    const qm = mockQueryMessage({ speakingAfter: 2 });
+    // F20260831dgrt：首次退化直接熔断（session 非熔断创建）——1 次退化触发熔断，重启后成功
+    const invoke = mockAgentInvoke(1);
+    const qm = mockQueryMessage({ speakingAfter: 1 });
     const invoker = new AgentInvoker(
       invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
       healing.repo,
@@ -507,7 +567,7 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
 
     /** restart 真实发生，按成功处理：全新 invoke 发生、无"熔断重启执行失败"误导文案 */
     expect(session.restartCalls).toHaveLength(1);
-    expect(invoke._count()).toBe(3);
+    expect(invoke._count()).toBe(2);
     expect(msg._sendSystemBodies).not.toContainEqual(expect.stringContaining("熔断重启执行失败"));
     expect(msg._abortCalls).toHaveLength(0);
   });
@@ -527,5 +587,33 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
 
     expect(session.restartCalls).toHaveLength(0);
     expect(msg._abortCalls).toHaveLength(1);
+  });
+
+  it("fail-open：isSessionCircuitBreakCreated 抛错 → 默认走直接熔断（不阻塞）", async () => {
+    const msg = mockSendMessage();
+    const session = mockManageSession(makeSession());
+    // healingRepo.findRecentByOtter 抛错——isCircuitBreakCreatedSession 抛错 → isSessionCircuitBreakCreated 抛错
+    // orchestrator try-catch 捕获 → isCircuitBreakSession=false → 走直接熔断
+    const failRepo = {
+      create: async () => {}, // 写入不抛（熔断执行需要写事件）
+      findRecentByOtter: async () => { throw new Error("DB connection lost"); },
+    } as unknown as HealingEventRepository;
+    const invoke = mockAgentInvoke(1); // 1 次退化触发熔断，重启后成功
+    const qm = mockQueryMessage({ speakingAfter: 1 });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      failRepo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    // 抛错被捕获 → isCircuitBreakSession=false → 走直接熔断（1 次重启）
+    expect(session.restartCalls).toHaveLength(1);
+    expect(msg._failCalls).toHaveLength(1);
+    expect(msg._failCalls[0].body).toContain("熔断重启獭生");
+    expect(msg._abortCalls).toHaveLength(0);
   });
 });

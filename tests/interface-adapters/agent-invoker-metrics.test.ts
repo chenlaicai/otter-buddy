@@ -225,7 +225,7 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
     expect(spy.invokes[0].model).toBe("mimo"); // err 路径 model 回退（PR 审视 P1 修复）
   });
 
-  it("guard_abort 路径：序列恰为 [guard_abort, guard_abort]，err 路径 model 不落 unknown", async () => {
+  it("guard_abort 路径：序列为 [guard_abort]，首次退化直接 abort（F20260831dgrt），err 路径 model 不落 unknown", async () => {
     const spy = metricsSpy();
     const invoker = makeInvoker({
       metrics: spy.port,
@@ -240,12 +240,12 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
       userMessageContent: "Hi", senderId: "user-1",
     });
 
-    expect(spy.invokes.map(i => i.outcome)).toEqual(["guard_abort", "guard_abort"]);
+    // F20260831dgrt：首次退化直接 abort（session 非熔断创建、无 healingRepo）——仅 1 次 invoke
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["guard_abort"]);
     expect(spy.invokes[0].retry).toBe("0");
-    expect(spy.invokes[1].retry).toBe("auto"); // degenerate 重试轮
     expect(spy.invokes.every(i => i.model === "mimo")).toBe(true);
-    expect(spy.guardAborts.map(g => g.reason)).toEqual(["degenerate_output", "degenerate_output"]);
-    expect(spy.retries).toContain("degenerate_output");
+    expect(spy.guardAborts.map(g => g.reason)).toEqual(["degenerate_output"]);
+    expect(spy.retries).toContain("degenerate_detected");
   });
 
   it("路由阶段抛错 → catch 重入 classifyAndRoute：attempt 去重，不产生虚假 api_error（PR 审视 P0-1）", async () => {
