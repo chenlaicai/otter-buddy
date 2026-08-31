@@ -18,6 +18,8 @@ import { renderRecencyWindow, estimateRecencyTokens } from './recency-window';
 import type { RecencyWindow, TurnFragment } from './recency-window';
 import { collectStateInventory, renderStateInventory } from './state-inventory';
 import type { StateInventory, StateInventoryDeps } from './state-inventory';
+
+export type { StateInventoryDeps };
 import { buildSynthesisPrompt, buildMechanicalDump } from './synthesis-prompt-builder';
 import type { Logger } from '@usecases/ports/logger';
 
@@ -76,8 +78,17 @@ export async function buildHandoffPackage(
     trigger = '70%阈值',
   } = options;
 
+  // 审视 P2：件④只收集一次，渲染文本与合成 prompt 共用同一对象——
+  // 避免双重 6 次 DB 查询，也消除竞态窗口内两次结果不一致的问题（收敛文档设计：一次聚合两用）
+  const inventoryPromise = collectStateInventory(conversationId, otterId, stateInventoryDeps)
+    .then(inv => ({ text: renderStateInventory(inv), inv }) as const)
+    .catch(err => {
+      logger?.warn('[handoff-package] State inventory failed', { error: String(err) });
+      return { text: '## 活状态盘点（生成失败，降级为空）', inv: null } as const;
+    });
+
   // 并行执行件②③④（机械提取，零 LLM 成本）
-  const [fileTrailResult, recencyResult, inventoryResult, inventoryObj] = await Promise.all([
+  const [fileTrailResult, recencyResult, inventoryPair] = await Promise.all([
     // 件②：文件轨迹（Phase 1 降级：仅工作区存量）
     Promise.resolve().then(() => {
       const workspaceFiles = stateInventoryDeps.workspacePath
@@ -93,21 +104,11 @@ export async function buildHandoffPackage(
         logger?.warn('[handoff-package] Recency window failed', { error: String(err) });
         return '';
       }),
-    // 件④：活状态盘点（渲染文本）
-    collectStateInventory(conversationId, otterId, stateInventoryDeps)
-      .then(inv => {
-        const text = renderStateInventory(inv);
-        return { text, inv };
-      })
-      .catch(err => {
-        logger?.warn('[handoff-package] State inventory failed', { error: String(err) });
-        return { text: '## 活状态盘点（生成失败，降级为空）', inv: null };
-      })
-      .then(r => r.text),
-    // 件④原始对象（用于注入合成 prompt）
-    collectStateInventory(conversationId, otterId, stateInventoryDeps)
-      .catch(() => null),
+    // 件④：活状态盘点（一次收集，文本与对象两用）
+    inventoryPromise,
   ]);
+  const inventoryResult = inventoryPair.text;
+  const inventoryObj = inventoryPair.inv;
 
   // 件①：摘要生成（防线① LLM 合成 → 防线② 机械转储）
   const summary = await generateSummary(

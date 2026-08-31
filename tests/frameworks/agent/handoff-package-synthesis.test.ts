@@ -92,9 +92,11 @@ describe("buildHandoffPackage - LLM 合成", () => {
     expect(logger.captured.warns.some(w => w.includes("LLM synthesis failed"))).toBe(true);
   });
 
-  it("防线②：synthesize 超时时降级为机械转储", async () => {
+  it("防线②：synthesize 被拒绝（含 60s 超时 reject）时降级为机械转储", async () => {
     const logger = createCapturingLogger();
-    // 模拟超时行为：synthesize 抛出 timeout 错误（与 Promise.race 超时行为等价）
+    // 审视 P5：本用例 mock 的是 race 已输掉后的 catch 路径（synthesize 被拒绝），
+    // 与 Promise.race 的 60s setTimeout 超时分支在 catch 内汇合到同一段降级逻辑。
+    // 真实定时器分支不在此驱动（vitest 等真 60s 不现实）——定时器代码本身已逐行审阅。
     const synthesize = vi.fn().mockRejectedValue(new Error('Synthesis timeout'));
     const pkg = await buildHandoffPackage("conv-1", "otter-1", {
       stateInventoryDeps: makeStateInventoryDeps(),

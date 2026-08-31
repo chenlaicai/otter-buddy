@@ -48,7 +48,7 @@ handleHandoff
 - **readOnly 模式**：Pi SDK 无原生 read-only 支持，靠 prompt 约束 + 工具白名单（只保留 read）实现
 - **件④注入合成 prompt**：§⑤ 协作状态不许 LLM 回忆，先跑 collectStateInventory 注入机械数据
 - **超时预算 60s**：超时走防线②机械转储，永不阻塞 restart
-- **降级链**：合成失败/超时/空 → 机械转储 → 空 summary 硬重启（防线③，复用 Phase 1）
+- **降级链**：合成失败/超时/空 → 机械转储 → restartSession 失败时补偿删除已写 context、跳过本轮、旧 session 继续（防线③，同 Phase 1 D11 修正后的语义——机械转储是纯字符串拼接不会失败，代码中不存在“空 summary 硬重启”分支）
 
 ### 1.3 kimi 六分区模板
 
@@ -106,3 +106,17 @@ Phase 1 试点（99 次自动交接）的关键发现：
 
 Phase 1 的机械四件套代码保留为防线②。Phase 2 在其上叠加 LLM 合成层，
 不改变触发链路、不改变借用式消费模式、不改变70%阈值。
+
+## 8. 审视处置（kimi R1，5 建议全采纳）
+
+- **P1 红线代码化**：新增 `buildAutoHandoffOptions`（唯一允许携带 synthesize，仅 70% 自动交接路径）
+  与 `buildManualHandoffOptions`（手动/熔断路径，参数类型上就没有 synthesize）两个构造函数——
+  熔断/手动侧从签名层无法接入 LLM 合成，红线不靠纪律维持。`buildStateInventoryDeps` 同步抽取，
+  消除三处重复的 deps 构造
+- **P2 件④单次收集**：`collectStateInventory` 从两次降为一次，渲染文本与合成 prompt 共用同一对象，
+  DB 查询从 12 次降回 6 次，消除竞态窗口内两次结果不一致
+- **P3 手动路径真实测试**：重写为驱动真实链路（SDK 层 `_selfRestart` 信号 → 四件套写入 →
+  restartSession → continuation 递归 invoke），并断言手动路径 options 不携带 synthesize（红线）。
+  测试要点：post-turn 的 contextTokens 需低于 70% 阈值，否则 continuation invoke 会叠加触发自动 handoff
+- **P4 防线③语义修正**：文档对齐实现——restartSession 失败是补偿删除+跳过本轮，非「空 summary 硬重启」
+- **P5 测试名修正**：超时用例改名并注释说明 mock 的是 race 失败后的 catch 汇合路径，真实 60s 定时器分支不在此驱动

@@ -375,12 +375,40 @@ describe("F20260825hndf 优雅上下文交接", () => {
   });
 
   describe("F20260825hndf Phase 2：手动重启统一带四件套", () => {
-    it("handleSelfRestartSignal 时注入件②③④", async () => {
-      // 手动重启需要 self-restart 信号，测试通过 mock 验证四件套注入
-      // 注：handleSelfRestartSignal 内部调用 buildHandoffPkg
-      const sdkInvoke = mockSdkInvoke({ ctxTokens: 100000 });
+    it("handleSelfRestartSignal 驱动真实路径：SDK 层返回 _selfRestart 信号 → 件②③④写入 + restartSession + 递归 invoke，且不携带 synthesize（红线）", async () => {
+      // 审视 P3：旧用例只断言 buildHandoffPkg 被注入（toBeDefined），没驱动真实路径。
+      // 本用例模拟 SDK 层 _selfRestart 信号，走完 handleSelfRestartSignal 全链：
+      // 四件套注入 → restartSession → continuation message 递归 invoke。
+      // 触发链：sdkInvoke.invoke 返回结果带 _selfRestart 字段（见 agent-invoker.ts:274）。
+      const firstCall = {
+        text: "restart",
+        tokenUsage: { input: 1000, output: 500 },
+        ctxTokens: 50000,
+        ctxMax: 128000,
+        _selfRestart: { otterId: "otter-1", summary: "獭自己写的重启摘要" },
+      };
+      const subsequentCalls = {
+        text: "continuation done",
+        tokenUsage: { input: 800, output: 200 },
+        ctxTokens: 20000,
+        ctxMax: 128000,
+      };
+      const invokeImpl = vi.fn()
+        .mockResolvedValueOnce(firstCall)
+        .mockResolvedValue(subsequentCalls);
+      const sdkInvoke = {
+        invoke: invokeImpl,
+        abort: vi.fn(),
+        getToolCallCount: vi.fn().mockReturnValue(0),
+        getInternalAbortReason: vi.fn().mockReturnValue(undefined),
+      } as unknown as SdkInvokePort;
+
       const sendMessage = mockSendMessage();
-      const queryMessage = mockQueryMessage();
+      // 关键：post-turn 记录的 contextTokens 要低于 70% 阈值——否则递归的 continuation invoke
+      // 在 pre-invoke 检查时会再触发一次 70% handoff，与手动重启路径叠加，断言就分不清来源
+      const queryMessage = mockQueryMessage({
+        getMessageById: vi.fn().mockResolvedValue({ ...completedMsg, contextTokens: 50000 }),
+      });
       const manageSession = mockManageSession();
       const queryOtter = mockQueryOtter();
       const conversationRepo = mockConversationRepo();
@@ -394,8 +422,7 @@ describe("F20260825hndf 优雅上下文交接", () => {
         totalTokenEstimate: 3000,
       });
 
-      // 创建 invoker 验证 buildHandoffPkg 注入不崩溃
-      void new AgentInvoker(
+      const invoker = new AgentInvoker(
         sdkInvoke, sendMessage, queryMessage, manageSession,
         queryOtter, createTestLogger(), undefined, undefined, undefined,
         undefined, undefined,
@@ -404,10 +431,24 @@ describe("F20260825hndf 优雅上下文交接", () => {
         manageContext, buildHandoffPkg,
       );
 
-      // 验证 buildHandoffPkg 被注入且可被调用
-      // 手动重启的触发需要 SDK 层返回 self-restart 信号，
-      // 这里验证 buildHandoffPkg 被注入且可被调用
-      expect(buildHandoffPkg).toBeDefined();
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "重启獭生", senderId: "user-1",
+      });
+
+      // 真实路径断言：四件套 context 已写入（D7：状态断言）
+      expect(manageContext._writtenKeys.has("handoff_file_trail")).toBe(true);
+      expect(manageContext._writtenKeys.has("handoff_recency_window")).toBe(true);
+      expect(manageContext._writtenKeys.has("handoff_state_inventory")).toBe(true);
+      // restartSession 被调用
+      expect(manageSession.restartSession).toHaveBeenCalledOnce();
+      // 递归 invoke：SDK 层至少收到两次 invoke（首次 + continuation）
+      expect(invokeImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+      // 红线断言（审视 P1）：手动路径的 buildHandoffPkg options 不携带 synthesize
+      const options = buildHandoffPkg.mock.calls[0]?.[2] as Record<string, unknown> | undefined;
+      expect(options).toBeDefined();
+      expect(options?.synthesize).toBeUndefined();
     });
   });
 

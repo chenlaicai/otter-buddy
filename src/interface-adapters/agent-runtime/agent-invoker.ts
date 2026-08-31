@@ -30,7 +30,7 @@ import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
 // eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
-import type { buildHandoffPackage } from "@frameworks/agent/handoff-package-builder";
+import type { buildHandoffPackage, HandoffPackageOptions, StateInventoryDeps } from "@frameworks/agent/handoff-package-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
@@ -40,6 +40,46 @@ import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchest
 import { CircuitBreakSupport } from "./circuit-break-support";
 import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
+
+/**
+ * 审视 P1 红线代码化：两条路径的 options 构造函数。
+ * buildAutoHandoffOptions 仅限 70% 自动交接路径（唯一允许携带 synthesize）；
+ * buildManualHandoffOptions 供手动/熔断路径使用——参数类型上就没有 synthesize，
+ * LLM 合成在签名层无法接入（红线：已陷复读不做优雅交接）。
+ */
+function buildAutoHandoffOptions(input: {
+  inventoryDeps: StateInventoryDeps;
+  queryMessage: QueryMessage;
+  logger: Logger;
+  synthesize: (prompt: string) => Promise<string>;
+  trigger: HandoffPackageOptions["trigger"];
+}): HandoffPackageOptions {
+  return {
+    recencyTokens: 8000,
+    stateInventoryDeps: input.inventoryDeps,
+    queryMessage: input.queryMessage,
+    logger: input.logger,
+    synthesize: input.synthesize,
+    oldSessionId: undefined, // 将从 session 获取
+    trigger: input.trigger,
+  };
+}
+
+function buildManualHandoffOptions(input: {
+  inventoryDeps: StateInventoryDeps;
+  queryMessage: QueryMessage;
+  logger: Logger;
+  trigger: HandoffPackageOptions["trigger"];
+}): HandoffPackageOptions {
+  // 红线：手动/熔断路径不携带 synthesize，摘要走机械转储或调用者提供的叙事
+  return {
+    recencyTokens: 8000,
+    stateInventoryDeps: input.inventoryDeps,
+    queryMessage: input.queryMessage,
+    logger: input.logger,
+    trigger: input.trigger,
+  };
+}
 
 export class AgentInvoker implements AgentTurnPort {
   /** Messages explicitly aborted by the user (written only by abort()) */
@@ -525,7 +565,7 @@ export class AgentInvoker implements AgentTurnPort {
    * 检测到 ctxTokens 超阈值后，构建四件套上下文包，重启 session。
    * 件①写入 session.summary（已有路径），件路径），件②③④写入 otter_context（借用式）。
    */
-  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- 交接触发+补偿删除+降级链
+  // eslint-disable-next-line max-statements, complexity -- 交接触发+补偿删除+降级链
   private async handleHandoff(otterId: string, conversationId: string): Promise<void> {
     // 防重入
     if (this.handoffState.isInProgress(otterId)) {
@@ -540,30 +580,24 @@ export class AgentInvoker implements AgentTurnPort {
       // 构建四件套（D9：显式守卫，永不阻塞 restart）
       if (!this.buildHandoffPkg) { this.logger.warn("[handoff] buildHandoffPkg not injected, skipping"); return; }
       if (!this.conversationRepo) { this.logger.warn("[handoff] conversationRepo not injected, skipping"); return; }
-      // F20260825hndf Phase 2：构建 LLM 合成函数（readOnly invocation）
+
+      // F20260825hndf Phase 2：构建 LLM 合成函数（readOnly invocation）。
+      // 红线（审视 P1）：synthesize 仅允许出现在 70% 自动交接路径——熔断/手动路径
+      // 绝不走 LLM 合成（已陷复读不做优雅交接）。代码层用 buildAutoHandoffOptions /
+      // buildManualHandoffOptions 两个函数隔离：手动/熔断侧的 options 签名上就传不进
+      // synthesize，违规无法顺手发生，红线不靠纪律维持。
       const synthesize = this.buildSynthesisFunction(otterId, conversationId);
 
       const pkg = await this.buildHandoffPkg(
         conversationId,
         otterId,
-        {
-          recencyTokens: 8000,
-          stateInventoryDeps: {
-            queryMessage: this.queryMessage,
-            conversationRepo: this.conversationRepo,
-            scheduledTaskRepo: this.scheduledTaskRepo,
-            healingRepo: this.healingRepo ?? undefined,
-            listArtifacts: this.listArtifacts ? () => this.listArtifacts!(conversationId) : (async () => []),
-            workspacePath,
-            logger: this.logger,
-          },
+        buildAutoHandoffOptions({
+          inventoryDeps: this.buildStateInventoryDeps(conversationId, workspacePath),
           queryMessage: this.queryMessage,
           logger: this.logger,
           synthesize,
-          otterName: otterId,
-          oldSessionId: undefined, // 将从 session 获取
           trigger: '70%阈值',
-        },
+        }),
       );
 
       // 件件②③④写入 otter_context（借用式，首次 invoke 后删除）
@@ -605,6 +639,21 @@ export class AgentInvoker implements AgentTurnPort {
     } finally {
       this.handoffState.setInProgress(otterId, false);
     }
+  }
+
+  /**
+   * 审视 P2/P1：stateInventoryDeps 的统一构造（三条路径共用，消除重复）。
+   */
+  private buildStateInventoryDeps(conversationId: string, workspacePath?: string): StateInventoryDeps {
+    return {
+      queryMessage: this.queryMessage,
+      conversationRepo: this.conversationRepo!,
+      scheduledTaskRepo: this.scheduledTaskRepo,
+      healingRepo: this.healingRepo ?? undefined,
+      listArtifacts: this.listArtifacts ? () => this.listArtifacts!(conversationId) : (async () => []),
+      workspacePath,
+      logger: this.logger,
+    };
   }
 
   /**
@@ -657,7 +706,7 @@ export class AgentInvoker implements AgentTurnPort {
    * 全新 invoke 是硬约束：sessionSummary 仅在 invokeConversation 入口 buildDynamicContext 注入一次，
    * orchestrator 内 continue 拿不到新 session 的前情摘要（详见 F20260818cbkr 实现红线）。
    */
-  // eslint-disable-next-line max-lines-per-function, complexity -- Phase 2: 熔断路径+四件套注入+补偿删除
+  // eslint-disable-next-line complexity -- Phase 2: 熔断路径+四件套注入+补偿删除
   private async handleCircuitBreakSignal(
     turnResult: { _circuitBreak?: CircuitBreakInfo },
     params: {
@@ -674,27 +723,20 @@ export class AgentInvoker implements AgentTurnPort {
     if (!turnResult._circuitBreak || !this.circuitBreak) return null;
 
     // F20260825hndf Phase 2：熔断重启统一带四件套（机械转储，不走 LLM 合成）
+    // 红线（审视 P1）：用 buildManualHandoffOptions 构建——该函数类型上就不接受
+    // synthesize 参数，熔断路径无法意外（或顺手）接上 LLM 合成。
     if (this.buildHandoffPkg && this.conversationRepo) {
       try {
         const workspacePath = this.workspaceGateway?.getWorkspacePath(params.conversationId);
         const pkg = await this.buildHandoffPkg(
           params.conversationId,
           params.otterId,
-          {
-            recencyTokens: 8000,
-            stateInventoryDeps: {
-              queryMessage: this.queryMessage,
-              conversationRepo: this.conversationRepo,
-              scheduledTaskRepo: this.scheduledTaskRepo,
-              healingRepo: this.healingRepo ?? undefined,
-              listArtifacts: this.listArtifacts ? () => this.listArtifacts!(params.conversationId) : (async () => []),
-              workspacePath,
-              logger: this.logger,
-            },
+          buildManualHandoffOptions({
+            inventoryDeps: this.buildStateInventoryDeps(params.conversationId, workspacePath),
             queryMessage: this.queryMessage,
             logger: this.logger,
             trigger: '熔断',
-          },
+          }),
         );
 
         // 写入件②③④到 otter_context（借用式，首次 invoke 后删除）
@@ -780,24 +822,17 @@ export class AgentInvoker implements AgentTurnPort {
     if (this.buildHandoffPkg && this.conversationRepo) {
       try {
         const workspacePath = this.workspaceGateway?.getWorkspacePath(params.conversationId);
+        // 红线（审视 P1）：同熔断路径——buildManualHandoffOptions 类型上不接受
+        // synthesize，手动重启永不接 LLM 合成（摘要用调用者/獭自己写的叙事）。
         const pkg = await this.buildHandoffPkg(
           params.conversationId,
           otterId,
-          {
-            recencyTokens: 8000,
-            stateInventoryDeps: {
-              queryMessage: this.queryMessage,
-              conversationRepo: this.conversationRepo,
-              scheduledTaskRepo: this.scheduledTaskRepo,
-              healingRepo: this.healingRepo ?? undefined,
-              listArtifacts: this.listArtifacts ? () => this.listArtifacts!(params.conversationId) : (async () => []),
-              workspacePath,
-              logger: this.logger,
-            },
+          buildManualHandoffOptions({
+            inventoryDeps: this.buildStateInventoryDeps(params.conversationId, workspacePath),
             queryMessage: this.queryMessage,
             logger: this.logger,
             trigger: '手动',
-          },
+          }),
         );
 
         // 写入件②③④到 otter_context
