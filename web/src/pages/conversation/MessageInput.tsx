@@ -5,6 +5,7 @@ import { getOtterColor, OTTER_GRADIENT } from '../../lib/otter-colors'
 import { useDraftCache } from '../../hooks/use-draft-cache'
 import { ATTACHMENT_ACCEPT, MAX_IMAGES_PER_SEND, MAX_FILES_PER_UPLOAD, fmtBytes } from '../../lib/attachments'
 import type { StagedAttachment, UploadErrorInfo } from './hooks/useAttachmentStaging'
+import { MagicWordHelp } from './MagicWordHelp'
 
 interface MessageInputProps {
   onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[]) => void
@@ -246,6 +247,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             placeholder={placeholder}
             className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[var(--input-scroll-max-h)] leading-relaxed disabled:opacity-50 overflow-y-auto"
           />
+          <MagicWordHelp />
           <button
             onClick={handleSend}
             disabled={!canSend}
