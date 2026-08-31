@@ -9,7 +9,7 @@
  *
  * 维度口径（审视闭环后的最终版）：
  * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.4-ratio)/0.2))
- * - D2 架构稳定: 100 - hotspot文件数×10 - imbalance触发?20:0（clamp）
+ * - D2 架构稳定: 100 - min(60, hotspot文件数×4) - imbalance触发?20:0（clamp）
  * - D3 交付活力: active占比×100 - regressed占比×150 - zombie占比×100（clamp）
  * - D4 流程合规: compliance_rate×100（线性）
  * - D5 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
@@ -99,9 +99,12 @@ export function scoreD1(bugfixRatio: number): number {
   return clamp(100 * Math.max(0, (0.4 - bugfixRatio) / 0.2));
 }
 
-/** D2 架构稳定：热区文件数 ×10 + bugfix:feature 失衡（≥2 倍）再扣 20 */
+/** D2 架构稳定：热区文件数线性扣分（每个扣 4，总扣封顶 60）+ bugfix:feature 失衡（≥2 倍）再扣 20 */
 export function scoreD2(hotspotCount: number, imbalanceTriggered: boolean): number {
-  return clamp(100 - hotspotCount * 10 - (imbalanceTriggered ? 20 : 0));
+  // Why: 线性 ×10 导致 10 热区即归零，20 热区与 100 热区无区分度
+  // 纯线性×4 + 封顶60（与 issue #630 原方案分段递减的偏差：数值终点一致，20 热区落点 40 分仍在目标区间）
+  const penalty = Math.min(60, hotspotCount * 4);
+  return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
 /** D3 交付活力：active 占比给分，regressed（×1.5）/zombie（×1.0）占比扣分 */

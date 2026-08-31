@@ -56,6 +56,15 @@ const SCORE_STATUS_CONFIG: Record<string, { label: string; text: string; bg: str
   red: { label: '告警', text: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200' },
 }
 
+/** 五维度评分口径（与 health-score.ts 头注释保持一致） */
+const DIMENSION_FORMULAS: Record<string, { formula: string; source: string }> = {
+  D1: { formula: 'ratio ≤ 20% 满分，线性降至 40% 归零', source: 'bugfix 占比（快照行）' },
+  D2: { formula: '100 − min(60, 热区文件数×4) − 失衡?20', source: '热区文件数 + bugfix:feature 失衡（分布）' },
+  D3: { formula: 'active 占比×100 − regressed×150 − zombie×100', source: '五态计数（链状态分布）' },
+  D4: { formula: '合规率×100（线性）', source: '合规提交数 / 总提交数（快照行）' },
+  D5: { formula: '100 − (critical 密度×40 + warning 密度×30)', source: 'open 信号数 / 活跃链数（active+stalled）' },
+}
+
 /** 走向箭头（后端 TrendDirection：improving/stable/declining，不足 8 点 null）*/
 export function TrendIcon({ direction }: { direction?: 'improving' | 'stable' | 'declining' | null }) {
   if (direction === 'improving') return <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />
@@ -273,6 +282,19 @@ function HealthPage() {
           {/* 信号视图（列表为主，图表辅助） */}
           {tab === 'signals' && (
             <div className="space-y-4">
+              {/* 信号说明卡 */}
+              <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
+                <p className="text-sm text-stone-600 font-semibold mb-1.5">信号 = 仓库异常模式自动检测</p>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  系统从提交记录、特性链、文件热区等数据中自动识别 8 种信号类型，反映潜在质量风险。open 状态表示待处置，建议关注 critical 级别信号。
+                </p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {Object.values(SIGNAL_TYPE_LABELS).map(label => (
+                    <span key={label} className="px-2 py-0.5 rounded-full text-xs bg-stone-100 text-stone-600">{label}</span>
+                  ))}
+                </div>
+              </div>
+
               {criticalSignals.length > 0 && (
                 <SignalGroup title="🔴 严重信号（critical）" signals={criticalSignals} severity="critical" />
               )}
@@ -298,16 +320,21 @@ function HealthPage() {
                   .sort((a, b) => stateRank(b.state) - stateRank(a.state) || (b.daysSinceLastCommit ?? 0) - (a.daysSinceLastCommit ?? 0))
                   .slice(0, 50)
                   .map(ch => (
-                    <div key={ch.featureId} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${CHAIN_STATE_LABELS[ch.state]?.className ?? ''}`}>
-                        {CHAIN_STATE_LABELS[ch.state]?.label ?? ch.state}
-                      </span>
-                      <span className="font-mono text-xs text-stone-600 shrink-0">{ch.featureId}</span>
-                      <span className="text-xs text-stone-400 shrink-0">
-                        {ch.commitCount} commits · {ch.bugfixCount} bugfix
-                        {ch.daysSinceLastCommit !== null && ` · 距上次 ${ch.daysSinceLastCommit} 天`}
-                      </span>
-                      {ch.docStatus && <span className="text-xs text-stone-400 ml-auto shrink-0">{ch.docStatus}</span>}
+                    <div key={ch.featureId} className="px-4 py-2.5 text-sm">
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${CHAIN_STATE_LABELS[ch.state]?.className ?? ''}`}>
+                          {CHAIN_STATE_LABELS[ch.state]?.label ?? ch.state}
+                        </span>
+                        <span className="font-medium text-stone-700 truncate">
+                          {ch.docTitle ?? '无文档'}
+                        </span>
+                        <span className="font-mono text-xs text-stone-400 shrink-0">{ch.featureId}</span>
+                        <span className="text-xs text-stone-400 shrink-0 ml-auto">
+                          {ch.commitCount} commits · {ch.bugfixCount} bugfix
+                          {ch.daysSinceLastCommit !== null && ` · 距上次 ${ch.daysSinceLastCommit} 天`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1 ml-14">{ch.stateReason}</p>
                     </div>
                   ))}
                 {chains.length === 0 && (
@@ -469,6 +496,7 @@ function stateRank(state: string): number {
 
 /** 综合健康分大卡：大数字 + 状态色 + 走向箭头 + 归因句（issue #595 PR2 核心交付）*/
 function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
+  const [showFormula, setShowFormula] = useState(false)
   if (!score || !score.available || score.overall === null) {
     return (
       <div className="md:col-span-2 rounded-2xl bg-white/70 border border-stone-200/60 px-5 py-4 flex items-center gap-3">
@@ -493,8 +521,20 @@ function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-stone-700">综合健康分</span>
+          <button
+            onClick={() => setShowFormula(v => !v)}
+            className="w-4 h-4 rounded-full bg-white/60 text-stone-500 flex items-center justify-center hover:bg-white/80 transition-colors"
+            title="查看综合分计算方式"
+          >
+            <span className="text-[10px] font-bold">?</span>
+          </button>
           <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cfg.text} bg-white/60`}>{cfg.label}</span>
         </div>
+        {showFormula && (
+          <div className="mt-1.5 p-2 rounded-lg bg-white/50 text-xs text-stone-600">
+            综合分 = Σ(维度分 × 权重) / Σ(有数据维度权重)。无数据维度不参与加权，权重自动归一。
+          </div>
+        )}
         <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
           {score.attribution ?? '五维均无拖累'}
         </p>
@@ -515,6 +555,7 @@ function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
 
 /** 五维雷达图（issue #595 PR2）：无数据维度以 0 呈现并在图例标注「无数据」*/
 function ScoreRadarCard({ score }: { score: RhiScoreDTO | null }) {
+  const [showFormula, setShowFormula] = useState(false)
   if (!score || !score.available || score.dimensions.length === 0) {
     return (
       <div className="md:col-span-3 rounded-2xl bg-white/70 border border-stone-200/60 flex items-center justify-center h-[200px] text-sm text-stone-400">
@@ -532,8 +573,32 @@ function ScoreRadarCard({ score }: { score: RhiScoreDTO | null }) {
       <div className="flex items-center gap-1.5 text-xs text-stone-500 mb-0.5">
         <Gauge className="w-4 h-4 text-otter-500" />
         <span className="font-semibold text-stone-600">五维雷达</span>
+        <button
+          onClick={() => setShowFormula(v => !v)}
+          className="w-4 h-4 rounded-full bg-stone-200 text-stone-500 flex items-center justify-center hover:bg-stone-300 transition-colors"
+          title="查看评分公式"
+        >
+          <span className="text-[10px] font-bold">?</span>
+        </button>
         <span className="text-stone-400">· 快照 {score.snapshotDate ?? '—'}</span>
       </div>
+      {showFormula && (
+        <div className="mb-2 p-2.5 rounded-lg bg-stone-50 border border-stone-200/60 text-xs text-stone-600 space-y-1.5">
+          <p className="font-medium text-stone-700 mb-1">综合分 = Σ(维度分 × 权重) / Σ(有数据维度权重)</p>
+          {score.dimensions.map(d => {
+            const f = DIMENSION_FORMULAS[d.dimension]
+            if (!f) return null
+            return (
+              <div key={d.dimension} className="flex gap-2">
+                <span className="font-mono font-semibold shrink-0 w-6">{d.dimension}</span>
+                <span className="shrink-0">{d.name}：</span>
+                <span className="text-stone-500">{f.formula}（{f.source}）</span>
+              </div>
+            )
+          })}
+          <p className="text-stone-400 italic">状态：绿 ≥75 / 黄 50-74 / 红 &lt;50</p>
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={200}>
         <ReRadarChart data={radarData} outerRadius="75%">
           <PolarGrid stroke="#e7e5e4" />
@@ -662,7 +727,7 @@ function SignalGroup({ title, signals, severity }: {
         {signals.map(s => (
           <div key={s.id} className="px-4 py-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-sm">{SIGNAL_TYPE_LABELS[s.signal_type] ?? s.signal_type}</span>
+              <span className="font-medium text-sm">{s.signalTypeLabel}</span>
               {s.feature_id && <span className="font-mono text-xs text-stone-500">{s.feature_id}</span>}
               {s.file_path && <span className="font-mono text-xs text-stone-500">{s.file_path}</span>}
               {s.occurrences > 1 && (

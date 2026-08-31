@@ -55,14 +55,26 @@ describe("D2 架构稳定", () => {
   it("无热点无失衡 = 100", () => {
     expect(scoreD2(0, false)).toBe(100);
   });
-  it("3 个热区文件扣 30", () => {
-    expect(scoreD2(3, false)).toBe(70);
+  it("3 个热区文件：每个扣 4，共扣 12", () => {
+    expect(scoreD2(3, false)).toBe(88);
+  });
+  it("5 个热区文件：封顶前边界 = 80", () => {
+    expect(scoreD2(5, false)).toBe(80);
+  });
+  it("10 个热区文件：分段饱和 = 60（不归零）", () => {
+    expect(scoreD2(10, false)).toBe(60);
+  });
+  it("20 个热区文件：封顶 60 扣分 → 40（目标区间）", () => {
+    expect(scoreD2(20, false)).toBe(40);
+  });
+  it("100 个热区文件：仍封顶 60 = 40（与 20 个无区分度）", () => {
+    expect(scoreD2(100, false)).toBe(40);
   });
   it("失衡再扣 20", () => {
     expect(scoreD2(0, true)).toBe(80);
   });
-  it("clamp 下界 0（12 热区 + 失衡 = -140）", () => {
-    expect(scoreD2(12, true)).toBe(0);
+  it("12 热区 + 失衡：100 - 48 - 20 = 32", () => {
+    expect(scoreD2(12, true)).toBe(32);
   });
   it("bugfix:feature ≥2 判失衡（与信号引擎同口径）", () => {
     const r = computeHealthScore({
