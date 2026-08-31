@@ -224,6 +224,21 @@ async function initModelPool(
       throw error;
     }
     modelEntries.push({ config: mc, model: resolvedModel });
+
+    // F20260831vmcf：自定义 provider 模型未显式声明 input 时警告模板继承的静默风险——
+    // anthropic 模板隐式继承 ["text","image"]，非 vision 模型会把图注入给看不见图的端点
+    // （2026-08-31 实测坐实：glm-5.3 返回 200 但 thinking 自述看不见、颜色幻觉；
+    // F20260827mmdu 的 README「合入后运营项」因无提醒从未被执行，防御形同虚设）
+    if (
+      logger && mc.input === undefined &&
+      needsCustomProvider({ apiKey: mc.apiKey, apiBaseUrl: mc.apiBaseUrl }) &&
+      resolvedModel.input?.includes("image")
+    ) {
+      logger.warn(
+        `自定义模型 "${mc.alias}" (${mc.model}) 未显式声明 input，已继承模板值 ${JSON.stringify(resolvedModel.input)}。若该模型不支持 vision，请在 config.yaml 声明 input: ["text"]——否则图片会被注入给看不见图的模型，产生静默幻觉`,
+        { alias: mc.alias, model: mc.model, action: "model_input_undeclared" },
+      );
+    }
   }
 
   const modelPool = buildModelPool(modelConfig.default, modelEntries);
