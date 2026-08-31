@@ -72,6 +72,14 @@ data/*.db
 # Agent sessions
 data/sessions/
 
+# Inbound media attachments (user-uploaded images/voice/files — runtime user data,
+# introduced by multimodal attachments pipeline F20260827mmdu)
+data/attachments/
+
+# Weixin channel runtime state (bot_token credentials, context tokens, sync
+# cursor — credentials must never enter git; introduced by weixin channel #569)
+data/weixin/
+
 # Metrics runtime output (prom-client JSONL snapshots, 7-day rotation)
 data/metrics/
 
