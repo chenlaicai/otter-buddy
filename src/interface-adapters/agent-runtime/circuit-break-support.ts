@@ -28,6 +28,14 @@ import {
 } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
 import type { CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
 
+/**
+ * F20260831cbkw：session 年龄窗口阈值——熔断创建的 session 若正常存活超过此时间,
+ * 视为「已证明健康」，后续退化重新给一次熔断机会。
+ * Why: 8/30 墨鱼案例——session 由 8/29 熔断创建，正常工作 8 小时后新退化，
+ * 退化根因是新上下文污染而非模型缺陷，应允许再次熔断（清空污染上下文重启）。
+ */
+const HEALTHY_SESSION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 /** 二级触发的 turn 窗口推导结果 */
 interface TurnWindowCount {
   count: number;
@@ -41,6 +49,8 @@ export class CircuitBreakSupport {
     sendMessage: SendMessage;
     healingRepo: HealingEventRepository;
     logger: Logger;
+    /** F20260831cbkw：熔断 session 年龄窗口阈值（ms），缺省取硬编码 2h */
+    healthySessionThresholdMs?: number;
   }) {}
 
   /**
@@ -144,11 +154,15 @@ export class CircuitBreakSupport {
     }
   }
 
-  /** 当前 active session 是否由熔断创建（circuit_break 事件 context.newSessionId 指向它） */
+  /**
+   * 当前 active session 是否由熔断创建（circuit_break 事件 context.newSessionId 指向它）。
+   * F20260831cbkw：增加时间窗口——熔断创建的 session 若已正常存活超过阈值（2h）,
+   * 视为「已证明健康」，不计入上限判定，允许再次熔断。
+   */
   async isSessionCircuitBreakCreated(otterId: string): Promise<boolean> {
     const session = await this.deps.manageSession.getActiveSession(otterId).catch(() => null);
     if (!session) return false;
-    return this.isCircuitBreakCreatedSession(otterId, session.id);
+    return this.isCircuitBreakCreatedSession(otterId, session);
   }
 
   /**
@@ -209,7 +223,7 @@ export class CircuitBreakSupport {
     try {
       const session = await this.deps.manageSession.getActiveSession(otterId);
       if (!session) return;
-      if (await this.isCircuitBreakCreatedSession(otterId, session.id)) return;
+      if (await this.isCircuitBreakCreatedSession(otterId, session)) return;
 
       const inWindow = await this.countDegenerateInTurnWindow(otterId, session);
       if (inWindow.count < 2) return;
@@ -288,12 +302,36 @@ export class CircuitBreakSupport {
     return turnIdByMessage;
   }
 
-  /** session 是否被 circuit_break 事件标记为熔断创建 */
-  private async isCircuitBreakCreatedSession(otterId: string, sessionId: string): Promise<boolean> {
+  /**
+   * session 是否被 circuit_break 事件标记为熔断创建，且仍在年龄窗口内。
+   * F20260831cbkw：若 circuit_break 事件距今超过阈值（session 正常存活已久）,
+   * 视为「已证明健康」，不计入上限——后续退化重新给一次熔断机会。
+   * Why: 8/30 墨鱼案例——session 正常工作 8 小时后新退化，根因是新上下文污染，
+   * 不应被当「无药可救」终态。
+   */
+  // F20260831cbkw：用 session.startedAt 而非 circuit_break 事件时间——
+  // session 存活时长才是「证明健康」的依据（事件可能在 session 中间发生）
+  private async isCircuitBreakCreatedSession(otterId: string, session: OtterSession): Promise<boolean> {
     const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'circuit_break', 20);
+    const now = Date.now();
+    const thresholdMs = this.deps.healthySessionThresholdMs ?? HEALTHY_SESSION_THRESHOLD_MS;
     return events.some(e => {
       const ctx = e.context as { newSessionId?: string } | null;
-      return ctx?.newSessionId === sessionId;
+      if (ctx?.newSessionId !== session.id) return false;
+      // F20260831cbkw：session.startedAt 是 session 创建时刻（UTC ISO 8601）——
+      // 用 session 年龄而非事件时间，因为即使事件在 session 中间，
+      // 只要 session 整体存活超过阈值就说明「已经证明健康」
+      const sessionAgeMs = now - new Date(session.startedAt).getTime();
+      if (sessionAgeMs > thresholdMs) {
+        this.deps.logger.info('Session beyond healthy threshold, allowing new circuit break', {
+          otterId,
+          sessionId: session.id,
+          sessionAgeHours: Math.round(sessionAgeMs / 3600000 * 10) / 10,
+          thresholdHours: thresholdMs / 3600000,
+        });
+        return false;
+      }
+      return true;
     });
   }
 

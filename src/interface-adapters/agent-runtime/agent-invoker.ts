@@ -75,10 +75,12 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly manageContext?: ManageContext,
     /** F20260825hndf：可选注入，四件套构建器（从 bootstrap 注入，避免 interface-adapters→frameworks 直接依赖） */
     private readonly buildHandoffPkg?: typeof buildHandoffPackage,
+    /** F20260831cbkw：可选注入，熔断 session 年龄窗口阈值（ms），缺省 2h */
+    private readonly healthySessionThresholdMs?: number,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo
-      ? new CircuitBreakSupport({ manageSession, queryMessage, sendMessage, healingRepo, logger })
+      ? new CircuitBreakSupport({ manageSession, queryMessage, sendMessage, healingRepo, logger, healthySessionThresholdMs })
       : null;
   }
 

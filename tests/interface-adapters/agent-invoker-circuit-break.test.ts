@@ -188,6 +188,7 @@ function mockQueryMessage(overrides?: {
 
 const queryOtter: QueryOtter = { getById: async () => ({ id: "otter-1", name: "大獭", type: "main" }) } as unknown as QueryOtter;
 
+// eslint-disable-next-line max-lines-per-function -- F20260818cbkr + F20260831cbkw 熔断测试套件，场景多但逻辑内聚
 describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
   it("AT-1/AT-3：degenerate retry 再退化 → 熔断重启 + 全新 invoke（含前情摘要），自动恢复", async () => {
     const msg = mockSendMessage();
@@ -240,13 +241,14 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(result.messageId).toBeTruthy();
   });
 
-  it("AT-2 熔断上限：session 已由熔断创建再退化 → abort 终态，不再 restart", async () => {
+  it("AT-2 熔断上限（窗口内）：session 由熔断创建且在2h窗口内再退化 → abort 终态 + 系统通知", async () => {
     const msg = mockSendMessage();
-    /** 当前 active session 正是熔断创建的 sess-new */
+    /** 当前 active session 由 10 分钟前的熔断创建——仍在 2h 窗口内 */
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const healing = mockHealingRepo([
-      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-new" } }),
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-new" }, createdAt: tenMinutesAgo }),
     ]);
-    const session = mockManageSession(makeSession({ id: "sess-new" }));
+    const session = mockManageSession(makeSession({ id: "sess-new", startedAt: tenMinutesAgo }));
     const invoke = mockAgentInvoke(99); // 永远退化
     const qm = mockQueryMessage({ speakingAfter: Infinity });
     const invoker = new AgentInvoker(
@@ -264,6 +266,115 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(msg._abortCalls[0].body).toContain("异常重复");
     // 熔断 fail 文案不应出现（走 abort 终态而非熔断）
     expect(msg._failCalls.map(f => f.body)).not.toContainEqual(expect.stringContaining("熔断重启獭生"));
+    // F20260831cbkw：上限命中时应有系统通知消息
+    expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("熔断上限"));
+  });
+
+  it("AT-2 变体（窗口外）：session 由熔断创建但已正常存活>2h → 允许再次熔断重启", async () => {
+    const msg = mockSendMessage();
+    /** 熔断事件在 8 小时前创建——session 远超 2h 窗口，应允许再次熔断 */
+    const eightHoursAgo = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
+    const healing = mockHealingRepo([
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-new" }, createdAt: eightHoursAgo }),
+    ]);
+    const session = mockManageSession(makeSession({ id: "sess-new", startedAt: eightHoursAgo }));
+    const invoke = mockAgentInvoke(2); // 前两次退化，第三次成功
+    const qm = mockQueryMessage({ speakingAfter: 2 });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    /** session 已证明健康，应再次触发熔断重启而非 abort */
+    expect(session.restartCalls).toHaveLength(1);
+    expect(msg._abortCalls).toHaveLength(0);
+    expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("已重启獭生"));
+  });
+
+  it("边界测试：session 刚好在阈值边界（2h-1s）→ 仍在窗口内，阻塞熔断", async () => {
+    const msg = mockSendMessage();
+    const thresholdMs = 2 * 60 * 60 * 1000;
+    /** 熔断事件刚好在阈值前 1 秒创建——仍在窗口内，应阻塞 */
+    const justInsideWindow = new Date(Date.now() - thresholdMs + 1000).toISOString();
+    const healing = mockHealingRepo([
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-new" }, createdAt: justInsideWindow }),
+    ]);
+    const session = mockManageSession(makeSession({ id: "sess-new", startedAt: justInsideWindow }));
+    const invoke = mockAgentInvoke(99);
+    const qm = mockQueryMessage({ speakingAfter: Infinity });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(session.restartCalls).toHaveLength(0);
+    expect(msg._abortCalls).toHaveLength(1);
+  });
+
+  it("边界测试：session 刚好超过阈值（2h+1s）→ 允许再次熔断", async () => {
+    const msg = mockSendMessage();
+    const thresholdMs = 2 * 60 * 60 * 1000;
+    /** 熔断事件刚好超过阈值 1 秒——应允许再次熔断 */
+    const justOutsideWindow = new Date(Date.now() - thresholdMs - 1000).toISOString();
+    const healing = mockHealingRepo([
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-new" }, createdAt: justOutsideWindow }),
+    ]);
+    const session = mockManageSession(makeSession({ id: "sess-new", startedAt: justOutsideWindow }));
+    const invoke = mockAgentInvoke(2);
+    const qm = mockQueryMessage({ speakingAfter: 2 });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    expect(session.restartCalls).toHaveLength(1);
+    expect(msg._abortCalls).toHaveLength(0);
+  });
+
+  it("config 生效验证：自定义阈值 1h + session 存活 90min → 允许再次熔断（默认 2h 会阻塞）", async () => {
+    const msg = mockSendMessage();
+    const customThresholdMs = 1 * 60 * 60 * 1000; // 1 hour
+    /** session 存活 90 分钟——超过自定义 1h 阈值，但未达默认 2h */
+    const ninetyMinutesAgo = new Date(Date.now() - 90 * 60 * 1000).toISOString();
+    const healing = mockHealingRepo([
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-new" }, createdAt: ninetyMinutesAgo }),
+    ]);
+    const session = mockManageSession(makeSession({ id: "sess-new", startedAt: ninetyMinutesAgo }));
+    const invoke = mockAgentInvoke(2); // 前两次退化，第三次成功
+    const qm = mockQueryMessage({ speakingAfter: 2 });
+    /** 注入自定义阈值 1h（第 17 个参数） */
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, // messageBroadcaster ~ metrics
+      healing.repo,
+      undefined, undefined, undefined, undefined, undefined, // conversationRepo ~ buildHandoffPkg
+      customThresholdMs,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    /** 自定义 1h 阈值生效：90min > 1h → 允许再次熔断（非默认 2h 阻塞路径） */
+    expect(session.restartCalls).toHaveLength(1);
+    expect(msg._abortCalls).toHaveLength(0);
+    expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("已重启獭生"));
   });
 
   it("AT-4 二级触发：invoke 前预检命中（本 session 内 2 turn 各 1 次退化）→ 先 restart 再 invoke", async () => {

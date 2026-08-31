@@ -108,6 +108,10 @@ circuitBreaker:
   # 注意：按"每条用户消息"计数，用户发新消息后重置；并行扇出不额外计跳
   # 触顶时系统向对话注入提示消息，发言石交还用户
   maxChainDepth: 20
+  # 熔断创建的 session 年龄窗口阈值（默认 7200000，即 2 小时，单位毫秒）
+  # 超过此时间视为「session 已证明健康」，后续退化重新给一次熔断机会
+  # 参见 F20260831cbkw
+  healthySessionThresholdMs: 7200000
   # === 文本生成退化检测（OutputGuard，F20260804dglp）===
   outputGuard:
     # 是否启用退化检测（默认 true）
