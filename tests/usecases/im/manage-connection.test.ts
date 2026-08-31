@@ -118,6 +118,19 @@ describe("ManageConnection", () => {
       await expect(manageConnection.createConnection("测试群", "chat-123"))
         .rejects.toThrow("already exists");
     });
+
+    // F20260831xtrt：externalType 可声明，缺省 feishu 保持兼容
+    it("不传 externalType 时缺省 feishu（既有行为兼容）", async () => {
+      const result = await manageConnection.createConnection("测试群", "chat-123");
+
+      expect(result.externalType).toBe("feishu");
+    });
+
+    it("传入 externalType=weixin 时写入连接（微信 ingress 建连）", async () => {
+      const result = await manageConnection.createConnection("测试用户", "wx-user-1", "weixin");
+
+      expect(result.externalType).toBe("weixin");
+    });
   });
 
   describe("ensureConnection", () => {
@@ -138,6 +151,15 @@ describe("ManageConnection", () => {
 
       expect(result.externalId).toBe("chat-123");
       expect(connRepo.create).toHaveBeenCalled();
+    });
+
+    // F20260831xtrt：ensureConnection 透传 externalType（返回值体现）
+    it("ensureConnection 透传 externalType=weixin", async () => {
+      vi.mocked(connRepo.getByExternalId).mockResolvedValue(null);
+
+      const result = await manageConnection.ensureConnection("wx-user-1", "wx-user-1", "weixin");
+
+      expect(result.externalType).toBe("weixin");
     });
   });
 
