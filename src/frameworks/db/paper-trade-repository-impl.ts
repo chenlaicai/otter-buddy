@@ -25,6 +25,12 @@ export class PaperTradeRepositoryImpl implements PaperTradeRepository {
       INSERT INTO paper_accounts (id, initial_cash, status, created_at)
       VALUES (?, ?, ?, ?)
     `).run(account.id, account.initialCash, account.status, account.createdAt);
+
+    // PR5: 初始化现金账户（初始资金 = initialCash）
+    this.db.prepare(`
+      INSERT INTO paper_cash (account_id, cash, updated_at)
+      VALUES (?, ?, ?)
+    `).run(account.id, account.initialCash, account.createdAt);
   }
 
   async getAccount(accountId: string): Promise<PaperAccount | null> {

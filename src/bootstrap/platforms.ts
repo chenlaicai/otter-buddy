@@ -159,6 +159,9 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     }).catch((err) => {
       logger.error("Trading calendar sync failed", err instanceof Error ? err : new Error(String(err)));
     });
+
+    // PR5: seed 定时任务（幂等）
+    await seedPaperTradingTasks(uc.manageScheduledTask, logger);
   }
 
   const agentInvoker = new AgentInvoker(
@@ -459,4 +462,73 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
   const weixinPollers = startWeixinChannels(options);
 
   return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers };
+}
+
+/** PR5: seed 纸面交易定时任务（幂等） */
+async function seedPaperTradingTasks(manageScheduledTask: ManageScheduledTask, logger: Logger): Promise<void> {
+  const TASK_NAMES = {
+    matchOrders: 'paper-trading-match-orders',
+    dailyTrading: 'paper-trading-daily-trading',
+  } as const;
+
+  try {
+    // 获取所有活跃任务，检查是否已存在
+    const existingTasks = await manageScheduledTask.getByConversationId("system");
+    const existingNames = new Set(existingTasks.map(t => t.name));
+
+    // 15:05 撮合任务（function executor）
+    if (!existingNames.has(TASK_NAMES.matchOrders)) {
+      await manageScheduledTask.create({
+        conversationId: 'system', // 系统任务，不属于特定对话
+        name: TASK_NAMES.matchOrders,
+        scheduleType: 'cron',
+        cron: '5 15 * * 1-5', // 工作日 15:05
+        timezone: 'Asia/Shanghai',
+        body: JSON.stringify({ accountId: 'default' }), // 撮合函数参数
+        talkingStonePassedTo: ['system'],
+        executorType: 'function',
+        functionName: 'match_orders',
+        restartBeforeInvoke: false,
+      });
+      logger.info('Seeded paper-trading-match-orders task');
+    }
+
+    // 15:30 操盘獭任务（agent executor）
+    if (!existingNames.has(TASK_NAMES.dailyTrading)) {
+      // 读取操盘獭 prompt 内容
+      const { readFileSync } = await import('node:fs');
+      const { resolve } = await import('node:path');
+      const promptPath = resolve(process.cwd(), 'prompts/scheduled/paper-trading-daily.md');
+      let promptBody = '';
+      try {
+        promptBody = readFileSync(promptPath, 'utf-8');
+      } catch (err) {
+        logger.warn('Failed to read paper-trading-daily.md, using default prompt', { error: err instanceof Error ? err.message : String(err) });
+        promptBody = '你是操盘獭，每日交易日执行操盘循环。详见 prompts/scheduled/paper-trading-daily.md';
+      }
+
+      // PR5: 自选池管理——存定时任务 body，搭档维护+AI 提议确认
+      // 初始自选池：贵州茅台、平安银行、宁德时代（3-5 票起步）
+      const initialWatchlist = ['600519', '000001', '300750'];
+      const taskBody = JSON.stringify({
+        prompt: promptBody,
+        watchlist: initialWatchlist,
+      });
+
+      await manageScheduledTask.create({
+        conversationId: 'system',
+        name: TASK_NAMES.dailyTrading,
+        scheduleType: 'cron',
+        cron: '30 15 * * 1-5', // 工作日 15:30
+        timezone: 'Asia/Shanghai',
+        body: taskBody,
+        talkingStonePassedTo: ['system'], // 实际执行时会分配给操盘獭
+        executorType: 'agent',
+        restartBeforeInvoke: true, // 每日新 session 防上下文污染
+      });
+      logger.info('Seeded paper-trading-daily-trading task', { watchlist: initialWatchlist });
+    }
+  } catch (err) {
+    logger.error('Failed to seed paper-trading tasks', err instanceof Error ? err : new Error(String(err)));
+  }
 }
