@@ -43,6 +43,15 @@ export class WeixinMessageChannel implements OutboundMessageChannel, OutboundEve
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
+    // F20260831xtrt：按 externalType 路由——只投微信连接，飞书会话不进本通道
+    if (connection.externalType !== "weixin") {
+      this.logger.debug("Skipping broadcast to non-weixin connection", {
+        conversationId: message.conversationId,
+        externalType: connection.externalType,
+      });
+      return;
+    }
+
     const senderLabel = await this.resolveSenderLabel(message);
     const body = aggregateBody(message.segments) || "(空消息)";
     const projected = projectForChannel(body, {
@@ -126,6 +135,15 @@ export class WeixinMessageChannel implements OutboundMessageChannel, OutboundEve
     if (!session) return;
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
+
+    // F20260831xtrt 检视R1：onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
+    if (connection.externalType !== "weixin") {
+      this.logger.debug("Skipping thinking message to non-weixin connection", {
+        conversationId,
+        externalType: connection.externalType,
+      });
+      return;
+    }
 
     const otterName = await this.resolveOtterName(event);
     try {
