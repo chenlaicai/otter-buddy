@@ -8,10 +8,11 @@ import { WeixinApiClient } from "@frameworks/weixin/api-client";
  * 协议契约来源：@tencent-weixin/openclaw-weixin@2.4.6 源码审计（issue #564/#565）。
  */
 function captureFetch(respond: () => unknown = () => ({ ret: 0 })) {
-  const calls: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+  const calls: Array<{ url: string; method?: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
   const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
     calls.push({
       url: String(url),
+      method: init?.method,
       headers: (init?.headers as Record<string, string>) ?? {},
       body: JSON.parse((init?.body as string) ?? "{}"),
     });
@@ -52,6 +53,49 @@ describe("WeixinApiClient", () => {
       expect(resp.qrcode).toBe("qr");
     } finally {
       restore();
+    }
+  });
+
+  it("pollQrStatus 用 GET + query 参数（协议例外，回归：POST 会被网关静默吞掉）", async () => {
+    // 2026-08-31 真机验收发现：POST 形式的 get_qrcode_status 被网关静默返回
+    // ret:1 无 status（幽灵响应），扫码事件永远收不到。回归锁定 GET + query。
+    const { calls, restore } = captureFetch(ok({ ret: 0, status: "wait" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test" });
+      const resp = await api.pollQrStatus({ qrcode: "qr 1/特殊" });
+      expect(calls[0].method).toBe("GET");
+      expect(calls[0].url).toBe("https://example.test/ilink/bot/get_qrcode_status?qrcode=qr+1%2F%E7%89%B9%E6%AE%8A");
+      expect(calls[0].body).toEqual({}); // 不携带 JSON body
+      expect(resp.status).toBe("wait");
+    } finally {
+      restore();
+    }
+  });
+
+  it("pollQrStatus 携带配对码时 verify_code 进 query", async () => {
+    const { calls, restore } = captureFetch(ok({ ret: 0, status: "scaned" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test" });
+      await api.pollQrStatus({ qrcode: "qr", verify_code: "1234" });
+      expect(calls[0].url).toContain("verify_code=1234");
+      expect(calls[0].method).toBe("GET");
+    } finally {
+      restore();
+    }
+  });
+
+  it("pollQrStatus 长轮询超时视为 wait 继续（不抛错，与参考实现一致）", async () => {
+    const fetchMock = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test" });
+      const resp = await api.pollQrStatus({ qrcode: "qr" }, 20);
+      expect(resp).toEqual({ status: "wait" });
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 
