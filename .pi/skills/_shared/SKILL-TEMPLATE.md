@@ -150,6 +150,7 @@ frontmatter 必填字段：`name / description / co_loads / category`。
 - **角色**：任何参与者（大獭/小獭）都可以创建和更新特性文档，无角色约束
 - **格式**：参考 worktree 中的 `docs/features/` 下已有文档的 frontmatter 格式。核心字段：`id`、`title`（人类可读描述，不用英文 slug——slug 放文件名，#470）、`summary`、`change_type`、`status`（枚举见 `src/entities/document/known-values.ts`）+ `capability_test`（change_type 为 feature/prompt 时声明，指向 `tests/capability/` 用例或 `n/a: 理由`）+ `created_in_conversation`。可选：`doc_type`、`causal_links`、`tags`、`modules`、`created_at`（使用率低，按需选用）
 - **入库与关系**（F20260813mren）：写完/改完文档后调 `sync_docs` 立即入库（否则要等系统重启才可被 search_memory 检索）；并用 `link_memory` 声明关系——典型是"当前讨论 produced 本文档"（from=当前对话中的关键消息 entry，to=文档 summary entry），让"这文档怎么来的"可被 get_related 拼出链。`created_in_conversation` 填当前对话 ID（身份注入中有）。
+- **历史文档不可变**（铁律 F20260831dgim，搭档多次口头强调后落规）：已合入的特性/研究文档是交付时点的快照，记录变化过程而非最终状态。后续特性更新（续接、修正、演进）一律**追加新文档**，frontmatter `from`/`supersedes` 关联前文；发现历史文档错误 → 在新文档中记录更正，不回改。例外仅限结构性迁移（如 F20260803frmt frontmatter backfill），需 `BYPASS_HISTORICAL_DOC_LINT=1` 并在特性文档记录理由。机械拦截：pre-commit 的 `scripts/lint-historical-docs.mjs`（F20260831dgim）。
 
 ## 当前 skill 到模板的映射
 

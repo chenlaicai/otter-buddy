@@ -23,3 +23,5 @@ node scripts/lint-tests.mjs
 npm run lint:skills
 # F20260821kgts: otter-type 工具路由 manifest 校验（schema / 工具名存在性）
 npm run lint:tool-manifest
+# F20260831dgim: 历史特性文档不可变——已合入的 docs/features|research 文档禁止 M/D
+node scripts/lint-historical-docs.mjs
