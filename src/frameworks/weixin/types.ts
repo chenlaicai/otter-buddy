@@ -200,8 +200,6 @@ export interface WeixinQrStatusResp {
   /** IDC 重定向时的新轮询网关 */
   baseurl?: string;
   redirect_host?: string;
-  /** 状态轮询游标（长轮询续接用） */
-  get_qrcode_status_buf?: string;
 }
 
 /** 服务端 stale token 错误码（session-guard 暂停语义） */
