@@ -40,6 +40,8 @@ const HEALTHY_SESSION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 interface TurnWindowCount {
   count: number;
   firstMessageId: string;
+  /** 最新一条退化事件的 messageId（DESC 排序 inWindow[0]），用于 secondary 路径 failedMessageId */
+  latestMessageId: string;
 }
 
 export class CircuitBreakSupport {
@@ -236,7 +238,7 @@ export class CircuitBreakSupport {
         : buildCircuitBreakFallbackSummary();
       const newSession = await this.deps.manageSession.restartSession(otterId, summary);
       await this.writeCircuitBreakEvent(
-        { otterId, conversationId, failedMessageId: inWindow.firstMessageId },
+        { otterId, conversationId, failedMessageId: inWindow.latestMessageId, firstMessageId: inWindow.firstMessageId },
         { newSessionId: newSession.id, trigger: 'secondary' },
       ).catch(err => {
         // F20260827he2f: error 级别 + 完整上下文
@@ -271,9 +273,7 @@ export class CircuitBreakSupport {
     const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'degenerate', 10);
     /** 只统计本 session 生命周期内的退化（重启前的旧事件属于已清空的上下文） */
     const recent = events.filter(e => e.createdAt >= session.startedAt);
-    if (recent.length < 2) {
-      return { count: recent.length, firstMessageId: recent[0]?.messageId ?? '' };
-    }
+    if (recent.length < 2) return this.buildWindowCount(recent);
 
     const turnIdByMessage = await this.mapMessageTurnIds(recent);
     /** turn 未知的消息不参与窗口：不同 turn 归并进同一 unknown 会造成假阳性，非致命优先不命中 */
@@ -283,12 +283,21 @@ export class CircuitBreakSupport {
       const tid = turnIdByMessage.get(ev.messageId)!;
       if (!orderedTurns.includes(tid)) orderedTurns.push(tid);
     }
-    if (orderedTurns.length === 0) {
-      return { count: 0, firstMessageId: recent[0]?.messageId ?? '' };
-    }
+    if (orderedTurns.length === 0) return { count: 0, firstMessageId: '', latestMessageId: '' };
+
     const window = new Set(orderedTurns.slice(0, 2));
     const inWindow = known.filter(ev => window.has(turnIdByMessage.get(ev.messageId)!));
-    return { count: inWindow.length, firstMessageId: inWindow[0]?.messageId ?? '' };
+    return this.buildWindowCount(inWindow);
+  }
+
+  /** 从窗口事件构建 TurnWindowCount：DESC 排序下 [0]=最新，[length-1]=最老 */
+  private buildWindowCount(inWindow: HealingEvent[]): TurnWindowCount {
+    if (inWindow.length === 0) return { count: 0, firstMessageId: '', latestMessageId: '' };
+    return {
+      count: inWindow.length,
+      firstMessageId: inWindow[inWindow.length - 1]?.messageId ?? '',
+      latestMessageId: inWindow[0]?.messageId ?? '',
+    };
   }
 
   /** messageId → turnId 映射（一次查询；查询失败的消息不写入映射，即不参与窗口） */
@@ -421,7 +430,7 @@ export class CircuitBreakSupport {
 
   /** circuit_break 事件写入（上限判定与二级触发防循环的数据源；失败仅留痕不阻塞） */
   private async writeCircuitBreakEvent(
-    info: Pick<CircuitBreakInfo, 'otterId' | 'conversationId' | 'failedMessageId'>,
+    info: Pick<CircuitBreakInfo, 'otterId' | 'conversationId' | 'failedMessageId' | 'firstMessageId'>,
     context: Record<string, unknown>,
   ): Promise<void> {
     await this.recordHealingEvent({
@@ -431,7 +440,8 @@ export class CircuitBreakSupport {
       errorType: 'circuit_break',
       severity: 'medium',
       description: '连续输出退化触发熔断重启（F20260818cbkr）',
-      context,
+      // F20260831dgcsq: firstMessageId 作为因果链锚——circuit_break(firstMessageId=A) → 对齐 degenerate(preRetryMessageId=A)
+      context: { ...context, firstMessageId: info.firstMessageId },
     });
   }
 }

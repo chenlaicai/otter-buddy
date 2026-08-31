@@ -232,6 +232,8 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(degenerate).toHaveLength(1);
     expect(circuitBreaks).toHaveLength(1);
     expect((circuitBreaks[0].context as { newSessionId?: string })?.newSessionId).toBe("sess-new");
+    // F20260831dgcsq：primary 路径 circuit_break 事件 context 必须携带 firstMessageId
+    expect((circuitBreaks[0].context as { firstMessageId?: string })?.firstMessageId).toBe("msg-1");
 
     // 全新 invoke：第 2 次调用的 dynamicContext 携带新 session 的前情摘要
     expect(invoke._count()).toBe(2);
@@ -271,6 +273,44 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("忽略"));
   });
 
+  it("F20260831dgcsq preRetryMessageId 因果链锁定：保留路径 retry 再退化 → degenerate(retry=1) 的 preRetryMessageId 对齐首条 degenerate 的 messageId", async () => {
+    const msg = mockSendMessage();
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const healing = mockHealingRepo([
+      seedEvent({ errorType: "circuit_break", context: { newSessionId: "sess-old" }, createdAt: tenMinutesAgo }),
+    ]);
+    const session = mockManageSession(makeSession({ id: "sess-old", startedAt: tenMinutesAgo }));
+    const invoke = mockAgentInvoke(2); // 2 次退化：retry 也退化 → 触发 preRetryMessageId 记录
+    const qm = mockQueryMessage({ speakingAfter: Infinity });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      healing.repo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    const degenerate = healing.events.filter(e => e.errorType === "degenerate");
+    expect(degenerate).toHaveLength(2);
+    // retry=0 时无 preRetryMessageId（首条消息无前序锚）
+    expect((degenerate[0].context as { retryCount?: number })?.retryCount).toBe(0);
+    expect((degenerate[0].context as { preRetryMessageId?: string })?.preRetryMessageId).toBeUndefined();
+    // retry=1 时 preRetryMessageId 对齐首条 degenerate 的 messageId（因果链锚）
+    expect((degenerate[1].context as { retryCount?: number })?.retryCount).toBe(1);
+    expect((degenerate[1].context as { preRetryMessageId?: string })?.preRetryMessageId).toBe(degenerate[0].messageId);
+    // 保留路径：retryCount=0 → handleDegenerateRetry（内部 restart，不产生 _circuitBreak 信号）
+    // retryCount=1 → handleCircuitBreak → isCircuitBreakSession=true → 上限 abort（不产生 circuit_break 事件）
+    expect(msg._abortCalls).toHaveLength(1);
+    expect(msg._abortCalls[0].body).toContain("异常重复");
+    // 此路径无新 circuit_break 事件——因果链止于 degenerate 对
+    const cbFromRestart = healing.events.filter(e =>
+      e.errorType === "circuit_break" && (e.context as { newSessionId?: string })?.newSessionId !== "sess-old",
+    );
+    expect(cbFromRestart).toHaveLength(0);
+  });
+
   it("F20260831dgrt 窗口外直接熔断：session 由熔断创建但已超 2h → 首次退化直接熔断", async () => {
     const msg = mockSendMessage();
     /** 熔断事件在 8 小时前创建——session 远超 2h 窗口，应直接熔断 */
@@ -297,6 +337,10 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(msg._failCalls[0].body).toContain("熔断重启獭生");
     expect(msg._sendSystemBodies).toContainEqual(expect.stringContaining("已重启獭生"));
     expect(msg._abortCalls).toHaveLength(0);
+    // F20260831dgcsq：primary 路径 circuit_break 事件 context 含 firstMessageId
+    const newCb = healing.events.filter(e => e.errorType === "circuit_break" && (e.context as { trigger?: string })?.trigger === "primary");
+    expect(newCb).toHaveLength(1);
+    expect((newCb[0].context as { firstMessageId?: string })?.firstMessageId).toBe("msg-1");
   });
 
   it("AT-2 熔断上限（窗口内）：session 由熔断创建且在2h窗口内再退化 → abort 终态 + 系统通知", async () => {
@@ -437,9 +481,10 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
 
   it("AT-4 二级触发：invoke 前预检命中（本 session 内 2 turn 各 1 次退化）→ 先 restart 再 invoke", async () => {
     const msg = mockSendMessage();
+    const earlier = new Date(Date.now() - 1000).toISOString();
     const now = new Date().toISOString();
     const healing = mockHealingRepo([
-      seedEvent({ messageId: "msg-deg-1", createdAt: now }),
+      seedEvent({ messageId: "msg-deg-1", createdAt: earlier }),
       seedEvent({ messageId: "msg-deg-2", createdAt: now }),
     ]);
     const session = mockManageSession(makeSession({ startedAt: "2026-08-01T00:00:00Z" }));
@@ -465,6 +510,10 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(invoke._count()).toBe(1);
     expect(invoke._contexts[0]?.sessionSummary).toContain("二级熔断重启");
     expect(msg._abortCalls).toHaveLength(0);
+    // F20260831dgcsq：secondary 路径 firstMessageId 必须是最老的那条（msg-deg-1），而非最新的（msg-deg-2）
+    const cbEvents = healing.events.filter(e => e.errorType === "circuit_break");
+    expect(cbEvents).toHaveLength(1);
+    expect((cbEvents[0].context as { firstMessageId?: string })?.firstMessageId).toBe("msg-deg-1");
   });
 
   it("二级触发不命中：退化事件跨 session（重启前旧事件）不触发", async () => {
@@ -516,10 +565,11 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
 
   it("叠加场景：二级预检重启后本 invoke 再连续退化 → 上限 abort，不再二次 restart", async () => {
     const msg = mockSendMessage();
+    const earlier = new Date(Date.now() - 1000).toISOString();
     const now = new Date().toISOString();
     /** 预置本 session 内 2 次退化（触发二级预检） */
     const healing = mockHealingRepo([
-      seedEvent({ messageId: "msg-deg-1", createdAt: now }),
+      seedEvent({ messageId: "msg-deg-1", createdAt: earlier }),
       seedEvent({ messageId: "msg-deg-2", createdAt: now }),
     ]);
     const session = mockManageSession(makeSession({ startedAt: "2026-08-01T00:00:00Z" }));

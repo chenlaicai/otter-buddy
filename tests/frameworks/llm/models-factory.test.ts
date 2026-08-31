@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AppConfig } from "../../../src/frameworks/config";
+import type { Logger } from "../../../src/usecases/ports/logger";
 
 // Sentinel objects to distinguish default vs custom provider paths
 const DEFAULT_PROVIDER = { id: "openai-default" };
@@ -208,6 +209,55 @@ describe("initModels — createCustomApiKeyAuth", () => {
     });
 
     expect(result).toEqual({ auth: { apiKey: "sk-config-wins" }, source: "config.yaml" });
+  });
+});
+
+describe("initModels — model input capability warning (F20260831vmcf)", () => {
+  /** 副作用收集器：捕获 warn 调用，避免断言调用参数绑定 mock 实现 */
+  const makeLogger = (): Logger & { warns: unknown[][] } => {
+    const warns: unknown[][] = [];
+    return {
+      info: vi.fn(), error: vi.fn(), debug: vi.fn(),
+      warn: (...args: unknown[]) => { warns.push(args); },
+      child: vi.fn().mockReturnThis(),
+      warns,
+    };
+  };
+  const inputWarnTexts = (logger: ReturnType<typeof makeLogger>): string[] =>
+    logger.warns.map(args => String(args[0])).filter(t => t.includes("未显式声明 input"));
+
+  it("warns when custom model inherits image input without explicit declaration", async () => {
+    const logger = makeLogger();
+    // mock 模板继承 anthropic 默认 ["text","image"]，config 未声明 input
+    mockGetModel.mockReturnValue({ id: "glm-5.3", input: ["text", "image"] });
+    await initModels(makeLlm({ provider: "anthropic", model: "glm-5.3", apiKey: "sk" }), logger);
+    const texts = inputWarnTexts(logger);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain("glm-5.3");
+    expect(texts[0]).toContain("[\"text\",\"image\"]");
+  });
+
+  it("no warning when input explicitly declared", async () => {
+    const logger = makeLogger();
+    mockGetModel.mockReturnValue({ id: "glm-5.3", input: ["text"] });
+    const llm = makeLlm({ provider: "anthropic", model: "glm-5.3", apiKey: "sk" });
+    llm.models[0].input = ["text"];
+    await initModels(llm, logger);
+    expect(inputWarnTexts(logger)).toHaveLength(0);
+  });
+
+  it("no warning when inherited input is text-only", async () => {
+    const logger = makeLogger();
+    mockGetModel.mockReturnValue({ id: "some-text-model", input: ["text"] });
+    await initModels(makeLlm({ provider: "anthropic", model: "some-text-model", apiKey: "sk" }), logger);
+    expect(inputWarnTexts(logger)).toHaveLength(0);
+  });
+
+  it("no warning for default provider models (dict-present, non-custom path)", async () => {
+    const logger = makeLogger();
+    mockGetModel.mockReturnValue({ id: "gpt-4o" });
+    await initModels(makeLlm(), logger);
+    expect(inputWarnTexts(logger)).toHaveLength(0);
   });
 });
 
