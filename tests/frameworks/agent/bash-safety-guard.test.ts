@@ -155,6 +155,18 @@ describe("checkBashCommandSafety", () => {
     expect(result).toContain("主进程 PID");
   });
 
+  it("连续反斜杠拼接（检视 R1 发现2）→ 拦截（单遍贪婪正则会漏此形态）", () => {
+    // k\i\ll 在 shell 中释为 kill；旧正则 /([a-zA-Z])\\([a-zA-Z])/g 贪婪消耗尾部字母，
+    // 首遍归一化为 ki\ll（反斜杠残留）→ 二轮检测仍漏。lookbehind/lookahead 修正后单遍归一化彻底
+    const result = checkBashCommandSafety("k\\i\\ll 42877", mainPid);
+    expect(result).toContain("主进程 PID");
+  });
+
+  it("三重反斜杠拼接 → 拦截（归一化对任意连续形态彻底）", () => {
+    const result = checkBashCommandSafety("k\\i\\l\\l 42877", mainPid);
+    expect(result).toContain("主进程 PID");
+  });
+
   it("无 PID 的拼接查询（如 grep 'ki''ll' file）→ 放行（归一化不扩大误拦面）", () => {
     const result = checkBashCommandSafety("grep 'ki''ll' file.txt", mainPid);
     expect(result).toBeNull();
@@ -168,6 +180,28 @@ describe("checkBashCommandSafety", () => {
   it("拦截文案不含 restart 推荐（终审口径：无 restart 出口）", () => {
     const result = checkBashCommandSafety("pkill -f otter-buddy", mainPid);
     expect(result).not.toContain("otter-buddy.sh restart");
+  });
+
+  // ─── 检视 R1 发现1：无法判断型拦截的误拦退出引导 ───
+
+  it("无法判断型拦截（间接 PID 目标）含误拦退出引导", () => {
+    const result = checkBashCommandSafety("echo x | grep -q p && skill $PID", mainPid);
+    expect(result).toContain("本意安全");
+  });
+
+  it("无法判断型拦截（eval 包装）含误拦退出引导", () => {
+    const result = checkBashCommandSafety("eval \"echo 42877\"", mainPid);
+    expect(result).toContain("本意安全");
+  });
+
+  it("管道到 shell 拦截含误拦退出引导", () => {
+    const result = checkBashCommandSafety("cat note.txt | grep -q kill && bash -c 'true'", mainPid);
+    expect(result).toContain("本意安全");
+  });
+
+  it("直接命中主进程 PID 的拦截不含误拦退出引导（不存在本意安全语义，加了自相矛盾）", () => {
+    const result = checkBashCommandSafety("kill 42877", mainPid);
+    expect(result).not.toContain("本意安全");
   });
 
   // ─── pkill/killall 精确模式匹配 ───

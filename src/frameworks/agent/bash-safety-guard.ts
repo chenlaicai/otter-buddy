@@ -62,10 +62,12 @@ const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
  * `ki''ll 123` / `k\ill 123` 归一化后命中 kill 正则。只影响检测，不改日志留存（日志记原始命令）。
  */
 export function normalizeForDetection(command: string): string {
-  return command
+  const stripped = command
     .replace(/''/g, "")   // 空单引号对（shell 空串拼接）
-    .replace(/""/g, "")   // 空双引号对
-    .replace(/([a-zA-Z])\\([a-zA-Z])/g, "$1$2"); // 字母间反斜杠（k\ill → kill）
+    .replace(/""/g, "");  // 空双引号对
+  // 字母间反斜杠（k\ill → kill）。lookbehind/lookahead 只匹配反斜杠本身、前后字母不消耗——
+  // 单遍即可处理连续转义 k\i\ll → kill（检视 R1 发现2：贪婪消耗式正则会漏连续转义形态）
+  return stripped.replace(/(?<=[a-zA-Z])\\(?=[a-zA-Z])/g, "");
 }
 
 /**
@@ -131,17 +133,17 @@ function checkCommandLevelPatterns(
   // eval 包装 + 数字参数 → 保守拦截（eval "kil""l 42877" 等字符串拼接绕过）
   if (/\beval\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
     logger?.warn("[bash-safety-guard] BLOCKED eval with numeric arguments", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏终止进程的命令。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
+    return "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏终止进程的命令。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   // 管道到 shell 执行且含 kill 关键词
   if (/\|\s*(sh|bash|zsh)\b/.test(command) && /\bkill\b/.test(cmdLower)) {
     logger?.warn("[bash-safety-guard] BLOCKED pipe-to-shell with kill content", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
+    return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   // 脚本语言 one-liner 执行 kill：perl/ruby/python -e '...kill N...'
   if (/(?:perl|ruby|python\d?)\s+.*-e\s/.test(cmdLower) && /\bkill\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
     logger?.warn("[bash-safety-guard] BLOCKED scripting language one-liner with kill", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
+    return "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   return null;
 }
@@ -196,7 +198,7 @@ function checkBashCommandSafetyOnText(
   // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
   if (PID_FILE_REFERENCE.test(text)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill with cross-segment PID file reference", { mainPid, command: text.substring(0, 200) });
-    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
+    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
 
   for (const { segment, isPkill } of killSegments) {
