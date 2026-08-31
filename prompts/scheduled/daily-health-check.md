@@ -46,7 +46,8 @@ task_name: 每日对话健康检查
 分析过的 self-healing events 必须在本次产出内处置完毕，不留"已消费但未标记"的悬空状态：
 
 - **无需修复**（真实退化被自愈机制按设计拦截、单次偶发无聚类）：立即 `manage_healing_events(action: resolve)` 批量处置，resolutionNotes 写明判定依据 + 引用 issue 编号（如"真实退化，重试自愈成功，无额外修复，见 #424"）
-- **需要修复**（转入 daily-review issue 跟踪）：留 open，等修复 PR 合入后再 resolve，resolutionAction 对应实际修复方式（prompt_updated / tool_fixed / config_changed）
+- **需要修复（转 issue 跟踪）——证据快照后立即 resolve（#600 方案 B）**：把事件证据（messageId/时间戳/关键描述）完整写进 daily-review issue body 后，**立即 resolve** 该事件（resolutionAction 对应预期修复方式，resolutionNotes 引用 issue 编号）。**「留 open 等修复」分支废除**——修复进度跟踪是 issue 的职责，healing event 只做发现记录，不留双轨状态
+- **处置权归属（#600 口径协议）**：**首个消费该事件的任务拥有处置权**——本任务（9:00）处置后，后续任务（如 22:00 self-healing 分析）不得推翻；若后续任务发现处置存疑，在对应 issue 评论，不改事件状态
 - **处置前核实范围**：query 默认只返回 50 条 + status 单一——用 errorType 过滤逐一排查，确认覆盖昨日全部新增事件（#424 现场：批量 resolve 漏了 1 起，靠下一个任务补上）
 - 处置完成后重跑一次 query status=open 确认无遗漏，把"昨日事件 N 起 → resolved M 起 / open K 起（留修原因）"写进产出
 
