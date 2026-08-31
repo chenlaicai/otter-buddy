@@ -2,6 +2,7 @@ import { OtterAvatar } from './OtterAvatar'
 import type { LocalOtter } from '../lib/mappers'
 import type { LocalOtterSession } from '../lib/mappers'
 import { sortSessionChain } from '../lib/session-chain'
+import { fmtTime } from '../lib/utils'
 
 /** hover 快览卡（D2，~280px，玻璃拟态，向左弹出）。
  *  全部数据来自现有 props，零新接口。 */
@@ -57,7 +58,7 @@ export function OtterProfileCard({
       <div className="flex items-center gap-2 text-[11px] text-stone-500">
         <span>{statusEmoji} {statusText}</span>
         {activeSession && (
-          <span>第{activeGen}世 · {activeSession.startedAt.split(' ')[1] || activeSession.startedAt}</span>
+          <span>第{activeGen}世 · {fmtTime(activeSession.startedAt)}</span>
         )}
       </div>
     </div>

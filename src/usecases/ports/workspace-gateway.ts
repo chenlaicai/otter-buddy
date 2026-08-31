@@ -18,4 +18,6 @@ export interface WorkspaceGateway {
   listDir(conversationId: string, relativePath?: string): Promise<Array<{ name: string; isDirectory: boolean; isFile: boolean }>>;
   /** 获取工作区绝对路径 */
   getWorkspacePath(conversationId: string): string;
+  /** 获取文件/目录元数据（大小、修改时间等） */
+  statFile(conversationId: string, relativePath: string): Promise<{ size: number; mtime: Date; isFile: boolean; isDirectory: boolean }>;
 }

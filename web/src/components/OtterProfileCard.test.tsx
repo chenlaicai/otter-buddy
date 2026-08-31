@@ -20,7 +20,7 @@ function makeSession(overrides: Partial<LocalOtterSession> = {}): LocalOtterSess
     otterId: 'o-test',
     status: 'active',
     previousSessionId: null,
-    startedAt: '2026-08-25 10:00',
+    startedAt: '2026-08-25T10:00:00.000Z',
     archivedAt: null,
     archiveReason: null,
     isNegativeCase: false,
@@ -69,6 +69,20 @@ describe('OtterProfileCard', () => {
       <OtterProfileCard otter={makeOtter()} sessions={[]} />
     )
     expect(container.textContent).not.toContain('mimo')
+  })
+
+  it('应显示本地时区时间而非 UTC ISO 格式', () => {
+    // startedAt fixture = '2026-08-25T10:00:00.000Z' (UTC)
+    // fmtTime 会转为本地时区显示，格式 yyyy-MM-dd HH:mm:ss
+    const { container } = render(
+      <OtterProfileCard otter={makeOtter()} sessions={[makeSession()]} />
+    )
+    // 应包含日期部分（UTC 和 UTC+8 都是 2026-08-25）
+    expect(container.textContent).toContain('2026-08-25')
+    // 应包含时间格式 HH:mm:ss（fmtTime 输出空格分隔）
+    expect(container.textContent).toMatch(/2026-08-25 \d{2}:\d{2}:\d{2}/)
+    // 不应包含原始 ISO 格式中的 'T' 分隔符（fmtTime 输出空格分隔）
+    expect(container.textContent).not.toMatch(/2026-08-25T10:00:00/)
   })
 })
 

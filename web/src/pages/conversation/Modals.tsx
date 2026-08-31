@@ -40,7 +40,6 @@ export interface CreateOtterFormValue {
 export type ModalState =
   | { type: 'none' }
   | { type: 'new-conv' }
-  | { type: 'child'; parentId: string }
   | { type: 'archive'; cid: string }
   | { type: 'create-otter' }
   | { type: 'dissolve'; otterId: string }
@@ -54,7 +53,6 @@ interface ModalsProps {
   sessions: Record<string, OtterSession[]>
   onClose: () => void
   onConfirmNewConv: (title: string) => void
-  onConfirmChild: (title: string) => void
   onConfirmArchive: () => void
   onConfirmCreateOtter: (form: CreateOtterFormValue) => void
   onConfirmDissolve: (summary: string) => void
@@ -70,7 +68,6 @@ export function ConversationModals(props: ModalsProps) {
   return (
     <>
       {modal.type === 'new-conv' && <NewConvModal {...props} />}
-      {modal.type === 'child' && <ChildModal {...props} />}
       {modal.type === 'archive' && <ArchiveModal {...props} />}
       {modal.type === 'create-otter' && <CreateOtterModal {...props} />}
       {modal.type === 'dissolve' && <DissolveModal {...props} />}
@@ -110,36 +107,6 @@ function NewConvModal(props: ModalsProps) {
         <span className="text-xs font-medium text-stone-600">参与 Otter</span>
         <div className="text-sm text-stone-500 mt-1">大獭 (默认)</div>
       </div>
-    </Modal>
-  )
-}
-
-function ChildModal(props: ModalsProps) {
-  const [title, setTitle] = useState('')
-  return (
-    <Modal
-      isOpen
-      onClose={props.onClose}
-      title="创建子对话"
-      footer={
-        <>
-          <ModalButton onClick={props.onClose}>取消</ModalButton>
-          <ModalButton variant="primary" onClick={() => { if (title.trim()) { props.onConfirmChild(title); setTitle('') } }}>
-            创建
-          </ModalButton>
-        </>
-      }
-    >
-      <label className="block text-xs font-medium text-stone-600 mb-1.5">子对话标题</label>
-      <input
-        value={title}
-        onChange={e => setTitle(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && title.trim()) { props.onConfirmChild(title); setTitle('') } }}
-        className="form-input w-full"
-        placeholder="输入子对话标题"
-        autoFocus
-      />
-      <p className="text-xs text-stone-500 mt-2">子对话将继承父对话的关键资源</p>
     </Modal>
   )
 }

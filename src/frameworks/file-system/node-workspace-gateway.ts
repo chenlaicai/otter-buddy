@@ -107,4 +107,18 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
   getWorkspacePath(conversationId: string): string {
     return this.workspaceRoot(conversationId);
   }
+
+  async statFile(
+    conversationId: string,
+    relativePath: string,
+  ): Promise<{ size: number; mtime: Date; isFile: boolean; isDirectory: boolean }> {
+    const fullPath = await this.resolveSafe(conversationId, relativePath);
+    const stat = await fs.stat(fullPath);
+    return {
+      size: stat.size,
+      mtime: stat.mtime,
+      isFile: stat.isFile(),
+      isDirectory: stat.isDirectory(),
+    };
+  }
 }

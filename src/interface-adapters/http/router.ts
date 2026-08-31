@@ -126,6 +126,7 @@ function registerInboundRoutes(app: Hono, c: Controllers): void {
 function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
   if (c.workspace) {
     app.get("/api/conversations/:id/workspace", (ctx) => c.workspace!.listDir(ctx));
+    app.get("/api/conversations/:id/workspace/stats", (ctx) => c.workspace!.getStats(ctx));
     app.get("/api/conversations/:id/workspace/file", (ctx) => c.workspace!.readFile(ctx));
   }
 
