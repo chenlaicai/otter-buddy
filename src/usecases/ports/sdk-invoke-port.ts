@@ -71,6 +71,9 @@ export interface InvokeOptions {
    *  策略在 usecases 组装（读盘 base64）；本 port 只透传机制。
    *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级占位符，otter 层不自判。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
+   *  Pi SDK 无原生 read-only 支持，靠 prompt 约束 + 工具白名单实现。 */
+  readOnly?: boolean;
 }
 
 export interface SdkInvokePort {

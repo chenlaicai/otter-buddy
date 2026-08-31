@@ -82,6 +82,8 @@ export interface InvokeOptions {
   /** 多模态 Phase 1：当前任务消息携带的图片，透传给 session.prompt(text, { images })。
    *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级（otter 层不自判）。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。 */
+  readOnly?: boolean;
 }
 
 /** 多模态 Phase 1：把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
@@ -438,7 +440,7 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.debug('[execute] Creating session with tools', { otterId });
         /** F20260804hcob: 当前 assistant 消息的文本缓冲（按消息清零/累积），speak 检测"卡片写在 speak 外"用 */
         const turnText = { text: "" };
-        const { session, sessionKey, toolContext } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
+        const { session, sessionKey, toolContext } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText, options?.readOnly);
         this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
         // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 守卫拦截 healing（F20260831aksp T3）
@@ -500,12 +502,15 @@ export class PiSessionFactory implements AgentGateway {
 
 
   /** 创建带工具配置的 AgentSession */
-  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, turnText?: { text: string }) {
+  // eslint-disable-next-line max-params, complexity -- Phase 2: readOnly 参数增加工具过滤
+  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, turnText?: { text: string }, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
     const otterToolNames = getOtterToolNamesForType(otterType, undefined, process.cwd(), this.logger);
     const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, logger: this.logger });
     const codingTools = getCodingToolsForOtterType(otterType);
+    // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
+    const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
     let resolvedModel = this.cfg.model;
@@ -519,9 +524,10 @@ export class PiSessionFactory implements AgentGateway {
 
     this.logger.info('Tools registered for agent session', {
       otterId, otterType, modelAlias: resolvedAlias,
-      codingTools,
+      codingTools: filteredCodingTools,
+      readOnly: readOnly ?? false,
       customToolNames: customTools.map(t => t.name),
-      whitelist: [...codingTools, ...customTools.map(t => t.name)],
+      whitelist: [...filteredCodingTools, ...customTools.map(t => t.name)],
     });
 
     const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
@@ -533,7 +539,7 @@ export class PiSessionFactory implements AgentGateway {
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
-      tools: [...codingTools, ...customTools.map(t => t.name)],
+      tools: [...filteredCodingTools, ...customTools.map(t => t.name)],
       customTools,
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,

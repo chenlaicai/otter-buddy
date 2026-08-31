@@ -2,9 +2,9 @@
  * 四件套编排器（F20260825hndf）
  *
  * 编排交接上下文包的组装：摘要 + 文件轨迹 + 近期原文 + 活状态盘点。
- * Phase 1：摘要使用机械转储（不走 LLM）；Phase 2 将升级为 LLM 合成。
+ * Phase 2：摘要使用 LLM 叙事合成（防线①），降级为机械转储（防线②）。
  *
- * Phase 1 降级声明：
+ * Phase 1 降级声明（仍有效）：
  * - 件②文件轨迹：仅包含工作区存量文件列表（SDK session entries 不可直接访问）
  * - 件③近期原文：通过 queryMessage 拉取应用层消息做近似
  */
@@ -17,7 +17,10 @@ import type { FileTrail } from './file-trail-extractor';
 import { renderRecencyWindow, estimateRecencyTokens } from './recency-window';
 import type { RecencyWindow, TurnFragment } from './recency-window';
 import { collectStateInventory, renderStateInventory } from './state-inventory';
-import type { StateInventoryDeps } from './state-inventory';
+import type { StateInventory, StateInventoryDeps } from './state-inventory';
+
+export type { StateInventoryDeps };
+import { buildSynthesisPrompt, buildMechanicalDump } from './synthesis-prompt-builder';
 import type { Logger } from '@usecases/ports/logger';
 
 /** 四件套完整包 */
@@ -29,6 +32,9 @@ export interface HandoffPackage {
   totalTokenEstimate: number;
 }
 
+/** LLM 合成函数类型 */
+export type SynthesisFunction = (prompt: string) => Promise<string>;
+
 /** 编排选项 */
 export interface HandoffPackageOptions {
   fileTrailMaxEntries?: number;
@@ -36,11 +42,25 @@ export interface HandoffPackageOptions {
   stateInventoryDeps: StateInventoryDeps;
   queryMessage: QueryMessage;
   logger?: Logger;
+  /** Phase 2：LLM 合成函数（readOnly invocation）。未提供时降级为机械转储。 */
+  synthesize?: SynthesisFunction;
+  /** otter 名称（用于摘要 meta 行） */
+  otterName?: string;
+  /** 旧 session ID（用于摘要 meta 行和谱系） */
+  oldSessionId?: string;
+  /** 交接谱系（从旧 summary 继承） */
+  lineage?: string;
+  /** 触发原因 */
+  trigger?: '70%阈值' | '手动' | '熔断';
 }
 
 /**
  * 构建四件套上下文包。
+ *
+ * Phase 2 升级：件①摘要优先使用 LLM 叙事合成（防线①），
+ * 失败/超时时降级为机械转储（防线②）。
  */
+// eslint-disable-next-line max-lines-per-function -- Phase 2: LLM 合成 + 降级链 + 件②③④并行组装
 export async function buildHandoffPackage(
   conversationId: string,
   otterId: string,
@@ -51,9 +71,24 @@ export async function buildHandoffPackage(
     stateInventoryDeps,
     queryMessage,
     logger,
+    synthesize,
+    otterName = otterId,
+    oldSessionId,
+    lineage,
+    trigger = '70%阈值',
   } = options;
 
-  const [fileTrailResult, recencyResult, inventoryResult] = await Promise.all([
+  // 审视 P2：件④只收集一次，渲染文本与合成 prompt 共用同一对象——
+  // 避免双重 6 次 DB 查询，也消除竞态窗口内两次结果不一致的问题（收敛文档设计：一次聚合两用）
+  const inventoryPromise = collectStateInventory(conversationId, otterId, stateInventoryDeps)
+    .then(inv => ({ text: renderStateInventory(inv), inv }) as const)
+    .catch(err => {
+      logger?.warn('[handoff-package] State inventory failed', { error: String(err) });
+      return { text: '## 活状态盘点（生成失败，降级为空）', inv: null } as const;
+    });
+
+  // 并行执行件②③④（机械提取，零 LLM 成本）
+  const [fileTrailResult, recencyResult, inventoryPair] = await Promise.all([
     // 件②：文件轨迹（Phase 1 降级：仅工作区存量）
     Promise.resolve().then(() => {
       const workspaceFiles = stateInventoryDeps.workspacePath
@@ -69,16 +104,24 @@ export async function buildHandoffPackage(
         logger?.warn('[handoff-package] Recency window failed', { error: String(err) });
         return '';
       }),
-    // 件④：活状态盘点
-    collectStateInventory(conversationId, otterId, stateInventoryDeps)
-      .then(inv => renderStateInventory(inv))
-      .catch(err => {
-        logger?.warn('[handoff-package] State inventory failed', { error: String(err) });
-        return '## 活状态盘点（生成失败，降级为空）';
-      }),
+    // 件④：活状态盘点（一次收集，文本与对象两用）
+    inventoryPromise,
   ]);
+  const inventoryResult = inventoryPair.text;
+  const inventoryObj = inventoryPair.inv;
 
-  const summary = buildMechanicalDump(otterId);
+  // 件①：摘要生成（防线① LLM 合成 → 防线② 机械转储）
+  const summary = await generateSummary(
+    otterId,
+    otterName,
+    oldSessionId,
+    lineage,
+    trigger,
+    inventoryObj,
+    inventoryResult,
+    synthesize,
+    logger,
+  );
 
   const estimate = (text: string) => Math.ceil(text.length / 4);
   const totalTokenEstimate = estimate(summary) + estimate(fileTrailResult) +
@@ -93,6 +136,67 @@ export async function buildHandoffPackage(
     stateInventory: inventoryResult,
     totalTokenEstimate,
   };
+}
+
+/**
+ * 生成件①摘要。
+ *
+ * 防线①：LLM 叙事合成（readOnly invocation）
+ * 防线②：机械转储（LLM 失败/超时时降级）
+ */
+// eslint-disable-next-line max-params -- 防线①/②合成链路需要完整上下文参数
+async function generateSummary(
+  otterId: string,
+  otterName: string,
+  oldSessionId: string | undefined,
+  lineage: string | undefined,
+  trigger: string,
+  inventoryObj: StateInventory | null,
+  inventoryText: string,
+  synthesize: SynthesisFunction | undefined,
+  logger?: Logger,
+): Promise<string> {
+  // 防线①：LLM 叙事合成
+  if (synthesize) {
+    try {
+      const prompt = buildSynthesisPrompt({
+        otterName,
+        oldSessionId: oldSessionId ?? otterId,
+        lineage,
+        stateInventory: inventoryObj ?? undefined,
+        stateInventoryText: inventoryText,
+        trigger: trigger as '70%阈值' | '手动' | '熔断',
+      });
+
+      logger?.info('[handoff-package] Starting LLM synthesis', { otterId });
+
+      // 设置超时（60s）
+      const timeoutMs = 60_000;
+      const result = await Promise.race([
+        synthesize(prompt),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error('Synthesis timeout')), timeoutMs)
+        ),
+      ]);
+
+      if (result && result.trim().length > 0) {
+        logger?.info('[handoff-package] LLM synthesis succeeded', {
+          otterId,
+          length: result.length,
+        });
+        return result;
+      }
+      logger?.warn('[handoff-package] LLM synthesis returned empty, falling back to mechanical dump');
+    } catch (err) {
+      logger?.warn('[handoff-package] LLM synthesis failed, falling back to mechanical dump', {
+        otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // 防线②：机械转储
+  return buildMechanicalDump(otterName, trigger, inventoryText);
 }
 
 /**
@@ -152,17 +256,4 @@ function messageToFragment(msg: Message): TurnFragment | null {
   }
 
   return null;
-}
-
-/** Phase 1 机械转储摘要 */
-function buildMechanicalDump(otterId: string): string {
-  const parts: string[] = [
-    '## 交接摘要（机械转储，Phase 1 降级）',
-    `meta: ${otterId} | ${new Date().toISOString()} | 触发: 70% 阈值`,
-    '',
-    '### 说明',
-    '- 这是 Phase 1 机械转储，Phase 2 将替换为 LLM 合成的结构化摘要',
-    '- 完整上下文请查阅：记忆检索（search_messages）、产物（list_artifacts）、上下文（get_context）',
-  ];
-  return parts.join('\n');
 }
