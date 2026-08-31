@@ -55,10 +55,13 @@ describe("isRetryableGuardAbort", () => {
 });
 
 describe("buildGuardAbortBody", () => {
-  it("bash_safety:* 返回危险命令中断文案", () => {
+  it("bash_safety:* 返回不允许命令中断文案（无 restart 出口）", () => {
     const msg = buildGuardAbortBody('bash_safety:kill main process');
-    expect(msg).toContain('危险命令');
-    expect(msg).toContain('otter-buddy.sh restart');
+    expect(msg).toContain('不允许命令');
+    expect(msg).toContain('worktree');
+    // F20260831aksp 终审口径：不提供任何 restart 出口（含转手版）
+    expect(msg).not.toContain('otter-buddy.sh restart');
+    expect(msg).not.toContain('大獭');
   });
 });
 
@@ -82,9 +85,25 @@ describe("buildAutoRetryMsg", () => {
     expect(msg).toContain("检查");
   });
 
+  // F20260831aksp T2：事故 C 回归——bash_safety 拦截后重试提示必须携带拦截原因与替代路径
+  it("bash_safety:* 透传拦截原因（不再落到通用兜底文案）", () => {
+    const msg = buildAutoRetryMsg('bash_safety:bash 命令包含针对主进程 PID 的终止命令');
+    expect(msg).toContain("安全守卫拦截");
+    expect(msg).toContain("bash 命令包含针对主进程 PID 的终止命令");
+    // 四要素：不允许声明 / 无合法场景说明 / worktree 正道 / 重新分析引导
+    expect(msg).toContain("该命令不允许");
+    expect(msg).toContain("不存在需要重启或停止主进程的合法场景");
+    expect(msg).toContain("worktree");
+    expect(msg).toContain("重新分析当前任务");
+    // 无 restart 出口（终审口径）
+    expect(msg).not.toContain("otter-buddy.sh restart");
+  });
+
   it("未知 reason 返回通用异常提醒", () => {
     const msg = buildAutoRetryMsg('unknown_reason');
     expect(msg).toContain("异常");
     expect(msg).toContain("继续");
+    // 通用文案不应泄漏 bash_safety 专项内容
+    expect(msg).not.toContain("安全守卫拦截");
   });
 });

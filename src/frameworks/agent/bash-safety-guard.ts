@@ -58,6 +58,19 @@ const INDIRECT_PID_PATTERNS = [
 const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
 
 /**
+ * F20260831aksp §2c：检测前归一化——塔死引号拼接/字母间反斜杠的文本规避通道。
+ * `ki''ll 123` / `k\ill 123` 归一化后命中 kill 正则。只影响检测，不改日志留存（日志记原始命令）。
+ */
+export function normalizeForDetection(command: string): string {
+  const stripped = command
+    .replace(/''/g, "")   // 空单引号对（shell 空串拼接）
+    .replace(/""/g, "");  // 空双引号对
+  // 字母间反斜杠（k\ill → kill）。lookbehind/lookahead 只匹配反斜杠本身、前后字母不消耗——
+  // 单遍即可处理连续转义 k\i\ll → kill（检视 R1 发现2：贪婪消耗式正则会漏连续转义形态）
+  return stripped.replace(/(?<=[a-zA-Z])\\(?=[a-zA-Z])/g, "");
+}
+
+/**
  * 检查命令是否包含 kill 族操作。
  * 返回匹配的 kill 段（按 shell 操作符分段后逐段扫描）。
  */
@@ -120,17 +133,17 @@ function checkCommandLevelPatterns(
   // eval 包装 + 数字参数 → 保守拦截（eval "kil""l 42877" 等字符串拼接绕过）
   if (/\beval\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
     logger?.warn("[bash-safety-guard] BLOCKED eval with numeric arguments", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏 kill 命令。如需重启服务，请告知搭档使用 otter-buddy.sh restart。";
+    return "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏终止进程的命令。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   // 管道到 shell 执行且含 kill 关键词
   if (/\|\s*(sh|bash|zsh)\b/.test(command) && /\bkill\b/.test(cmdLower)) {
     logger?.warn("[bash-safety-guard] BLOCKED pipe-to-shell with kill content", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令通过管道传入 shell 执行且包含 kill 操作，可能针对主进程。如需重启服务，请告知搭档使用 otter-buddy.sh restart。";
+    return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   // 脚本语言 one-liner 执行 kill：perl/ruby/python -e '...kill N...'
   if (/(?:perl|ruby|python\d?)\s+.*-e\s/.test(cmdLower) && /\bkill\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
     logger?.warn("[bash-safety-guard] BLOCKED scripting language one-liner with kill", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令通过脚本语言执行了 kill 操作，无法判断目标。如需重启服务，请告知搭档使用 otter-buddy.sh restart。";
+    return "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   return null;
 }
@@ -146,22 +159,51 @@ function checkKillSegment(
   if (isPkill) {
     if (pkillTargetsOtter(segment)) {
       logger?.warn("[bash-safety-guard] BLOCKED pkill/killall targeting otter processes", { mainPid, segment: segment.substring(0, 200) });
-      return "bash 命令包含 pkill/killall，可能影响主进程。如需重启服务，请使用 otter-buddy.sh restart 或告知搭档。";
+      return "bash 命令包含按名匹配的批量终止命令（pkill/killall），可能影响主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
     }
     return null;
   }
   if (hasIndirectPidTarget(segment)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill with indirect PID target", { mainPid, segment: segment.substring(0, 200) });
-    return "bash 命令中 kill 目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。如需重启服务，请告知搭档使用 otter-buddy.sh restart。";
+    return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   if (PID_FILE_REFERENCE.test(segment)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill referencing .otter-buddy.pid file", { mainPid, segment: segment.substring(0, 200) });
-    return "bash 命令中 kill 引用了 .otter-buddy.pid（主进程 PID 文件）。主进程不可直接 kill——如需重启服务，请告知搭档使用 otter-buddy.sh restart。";
+    return "bash 命令中终止进程的命令引用了主进程 PID 文件。主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
   }
   const pids = extractLiteralPids(segment);
   if (pids.length > 0 && pids.includes(mainPid)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill targeting main process PID", { mainPid, commandPids: pids, segment: segment.substring(0, 200) });
-    return `bash 命令包含 kill ${mainPid}（主进程 PID）。主进程不可直接 kill——如需重启服务，请告知搭档使用 otter-buddy.sh restart。`;
+    // F20260831aksp：PID 数字脱敏——堵「错误 PID 试探 → 拦截文案回显真实 PID → 精准二次打击」链（结构化日志字段 commandPids 保留数值）
+    return "bash 命令包含针对主进程 PID 的终止命令。主进程是海獭运行环境，任何情况下不得终止——你不存在需要重启或停止主进程的合法场景。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。";
+  }
+  return null;
+}
+
+/**
+ * 在单份文本上执行全量检测（原始与归一化文本各调一次）。
+ */
+function checkBashCommandSafetyOnText(
+  text: string,
+  mainPid: number,
+  logger?: Logger,
+): string | null {
+  // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）
+  const cmdLevelResult = checkCommandLevelPatterns(text, text.toLowerCase(), mainPid, logger);
+  if (cmdLevelResult) return cmdLevelResult;
+
+  const killSegments = findKillSegments(text);
+  if (killSegments.length === 0) return null;
+
+  // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
+  if (PID_FILE_REFERENCE.test(text)) {
+    logger?.warn("[bash-safety-guard] BLOCKED kill with cross-segment PID file reference", { mainPid, command: text.substring(0, 200) });
+    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+  }
+
+  for (const { segment, isPkill } of killSegments) {
+    const result = checkKillSegment(segment, isPkill, mainPid, text, logger);
+    if (result) return result;
   }
   return null;
 }
@@ -175,6 +217,8 @@ function checkKillSegment(
  * 3. kill + 非字面量 PID / .otter-buddy.pid 引用 / 字面量主进程 PID → 拦截
  * 4. PID 文件缺失 → 放行（保守降级）
  *
+ * F20260831aksp §2c：原始与归一化两份文本都过全量正则——塔死 `ki''ll` / `k\\ill` 类文本规避（R1 严重1）。
+ *
  * @returns null 表示安全；字符串表示危险原因
  */
 export function checkBashCommandSafety(
@@ -184,22 +228,12 @@ export function checkBashCommandSafety(
 ): string | null {
   if (!command.trim() || mainPid === null) return null;
 
-  // 全命令级高危模式检测（在分段前检查，防止 eval/pipe-to-shell 绕过分段检测）
-  const cmdLevelResult = checkCommandLevelPatterns(command, command.toLowerCase(), mainPid, logger);
-  if (cmdLevelResult) return cmdLevelResult;
+  const result = checkBashCommandSafetyOnText(command, mainPid, logger);
+  if (result) return result;
 
-  const killSegments = findKillSegments(command);
-  if (killSegments.length === 0) return null;
-
-  // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
-  if (PID_FILE_REFERENCE.test(command)) {
-    logger?.warn("[bash-safety-guard] BLOCKED kill with cross-segment PID file reference", { mainPid, command: command.substring(0, 200) });
-    return "bash 命令中包含 .otter-buddy.pid 引用和 kill 操作，可能针对主进程。如需重启服务，请告知搭档使用 otter-buddy.sh restart。";
-  }
-
-  for (const { segment, isPkill } of killSegments) {
-    const result = checkKillSegment(segment, isPkill, mainPid, command, logger);
-    if (result) return result;
+  const normalized = normalizeForDetection(command);
+  if (normalized !== command) {
+    return checkBashCommandSafetyOnText(normalized, mainPid, logger);
   }
   return null;
 }
