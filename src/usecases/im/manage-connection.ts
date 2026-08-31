@@ -13,7 +13,7 @@ export class ManageConnection {
   ) {}
 
   /** 创建新连接（手动绑定） */
-  async createConnection(name: string, externalId: string): Promise<Connection> {
+  async createConnection(name: string, externalId: string, externalType = "feishu"): Promise<Connection> {
     if (!isValidConnectionName(name)) {
       throw new DomainError("Connection name must be non-empty and <= 200 characters", "validation");
     }
@@ -34,7 +34,8 @@ export class ManageConnection {
       id,
       name,
       externalId,
-      externalType: "feishu",
+      // F20260831xtrt：通道类型可声明（weixin 等）；缺省 feishu 保持既有行为
+      externalType,
       metadata: null,
       status: "active",
       createdAt: now,
@@ -52,14 +53,15 @@ export class ManageConnection {
     return connection;
   }
 
-  /** 首次见到的飞书群自动注册为 Connection（备用方法） */
-  async ensureConnection(externalId: string, name: string): Promise<Connection> {
+  /** 首次见到的外部用户/群自动注册为 Connection（备用方法）
+   *  F20260831xtrt：externalType 透传 createConnection，微信 ingress 传 "weixin" */
+  async ensureConnection(externalId: string, name: string, externalType = "feishu"): Promise<Connection> {
     const existing = await this.connRepo.getByExternalId(externalId);
     if (existing) {
       return existing;
     }
 
-    return this.createConnection(name, externalId);
+    return this.createConnection(name, externalId, externalType);
   }
 
   /** Connection 进入 Conversation（核心操作，使用事务解决竞态条件） */

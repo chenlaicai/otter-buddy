@@ -47,10 +47,10 @@ function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepo
 }
 
 /** 把 manageConnection mock 设置为有飞书绑定 */
-function bindFeishu(broadcaster: MessageBroadcaster, externalId = "chat-123") {
+function bindFeishu(broadcaster: MessageBroadcaster, externalId = "chat-123", externalType = "feishu") {
   const manageConnection = (broadcaster as any).messageChannels[0]["manageConnection"];
   manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
-  manageConnection.getConnection.mockResolvedValue({ externalId });
+  manageConnection.getConnection.mockResolvedValue({ externalId, externalType });
 }
 
 describe("MessageBroadcaster 飞书 replyMarkdown 路径(F20260812fmdr)", () => {
@@ -336,5 +336,31 @@ describe("MessageBroadcaster message.start 触发飞书思考中消息(F20260812
 
     // NaN 应被当作"无 gate 信息",继续发送
     expect(sent).toEqual(["[大獭] 正在思考..."]);
+  });
+});
+
+describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () => {
+  it("externalType=weixin 的连接不投飞书（微信会话误投噪音修复）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster();
+    bindFeishu(broadcaster, "wx-user-1", "weixin");
+
+    await broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+
+    expect(feishuGateway.replyMarkdown).not.toHaveBeenCalled();
+    expect(feishuGateway.replyText).not.toHaveBeenCalled();
+  });
+
+  it("externalType=feishu 的连接正常投递（既有行为不回归）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster();
+    bindFeishu(broadcaster, "chat-123", "feishu");
+    const sent: Array<{ chatId: string; markdown: string }> = [];
+    feishuGateway.replyMarkdown.mockImplementation(async (chatId: string, _l: string, markdown: string) => {
+      sent.push({ chatId, markdown });
+    });
+
+    await broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].chatId).toBe("chat-123");
   });
 });
