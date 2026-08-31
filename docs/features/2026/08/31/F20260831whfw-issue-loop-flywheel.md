@@ -45,15 +45,21 @@ issue 是状态载体不是待办清单，每条 issue 属于一条状态链，�
 ### 3. self-healing-analysis.md：前置处置权检查
 - 处置 open 事件前先查是否已被 9:00 任务处置过口径（关联 issue），命中不推翻、存疑走 issue 评论
 
-### 4. backlog digest 周任务（create_scheduled_task 配置，不在本 PR）
+### 4. self-healing-analysis.md + scheduler-service.ts 回退文案同步
+
+处置权检查同样写入代码内回退文案（HEALING_FALLBACK_PROMPT）——守卫测试 healing-analysis-template.test.ts 锁定双源同步，改模板必须同步改回退文案，否则 CI 挂（本次 rebase 后 CI 实测拦截，已同步修复）。这暴露一个设计事实：**self-healing 模板是双源维护**，后续改它必须两处同步。
+
+### 5. backlog digest 周任务（create_scheduled_task 配置，不在本 PR）
 - 周一 9:30，只读不改：全量 open 按四链分组（年龄+简评）呈搭档勾选本周处理项
 - 搭档排期是产品决策权，只展示不代勾选（飞轮獭反方视角确认）
 
 ## 测试与自检
 
-- prompt 文件无测试覆盖（纯 markdown 配置），验证方式为 3 个 task_name 与 DB scheduled_tasks.name 严格一致（改造后每日任务读新 body 生效）
+- `npx vitest run tests/usecases/scheduler/healing-analysis-template.test.ts` → 6 passed（含双源同步守卫，本次同步修复后全绿）
+- prompt 文件其余部分无测试覆盖（纯 markdown 配置），验证方式为 3 个 task_name 与 DB scheduled_tasks.name 严格一致
 - `grep -c "task_name" prompts/scheduled/*.md` 无重复声明
 - 语义级关闭检查范围限定近 7 天 PR（成本控制，与搭档确认过边界）
+- **pre-existing 声明**：无。CI 首次失败全部由本 PR 引入（PR 标题格式 + 双源不同步），修复均为本 PR 内变更，无需基线复跑证据
 
 ## 取舍
 
