@@ -106,3 +106,12 @@ return handleCircuitBreak(ctx);
 - **问题**：`degenerate_detected` 通过 `as` 断言绕过 tsc——`RetryKind` 封闭枚举（agent-metrics-port.ts:24）无此成员，编译器看不见的走私
 - **处置**：`RetryKind` 联合类型补上 `"degenerate_detected"` 成员（零行为变化——recordRetry 唯一实现是 agent-metrics.ts:235 纯 label 上报）
 - **验证**：tsc --noEmit 无错误 + 全量 2336/2336 通过
+
+### 观测口径说明（检视獭 delta 复核发现）
+
+PR 审视第 3 轮（检视獭 delta 复核）发现：大獭裁决建议 3 的括号条款「真实重试仍记 `degenerate_output`」在当前架构下不可实现（`recordRetryIntent` 在退出分类点调用，先于路由结果，区分不了保留路径/熔断路径；重试轮又被 `retryCount!==0` 早退跳过）。实现不按字面做而是保住防双计设计（F20260814mtrc:103），是正确的工程判断——但口径变化未记录会导致「重试退化占比<10%」验收指标拿错分母。
+
+P1 路由变更后的 retries 指标族口径：
+- **`retries(degenerate_detected)`** = 退化检测总量（新路由口径）——首次退化无论走熔断还是重试，均在此处计数
+- **保留路径真实重试** 不在 retries 族观测——在 attempt 记录族看（`retry=auto` 的 `guard_abort` outcome）
+- **`retries(degenerate_output)`** 为历史 label，新路由后无生产者，读旧数据时用
