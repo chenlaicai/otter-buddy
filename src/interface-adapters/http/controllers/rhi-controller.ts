@@ -43,18 +43,23 @@ function buildChainStateReason(
   }
   const docStatus = chain.doc?.status ?? "draft";
   const inFlight = ["draft", "proposed", "design", "development"].includes(docStatus);
-  const days = chain.daysSinceLastCommit ?? Infinity;
+  // Why: doc-only 链（有文档无 commit）daysSinceLastCommit=null，不能兜底为 Infinity
+  const hasCommits = chain.daysSinceLastCommit !== null;
+  const days = chain.daysSinceLastCommit!;
 
   switch (state) {
     case "active":
+      if (!hasCommits) return `文档状态 ${docStatus}，尚未有提交`;
       return inFlight
         ? `文档状态 ${docStatus}，最近 ${days} 天内有提交（阈值 ${STALLED_DAYS} 天）`
         : `文档已终结（${docStatus}），视为稳定`;
     case "stalled":
+      if (!hasCommits) return `文档状态 ${docStatus}，有文档但无提交记录`;
       return `文档状态 ${docStatus}，已 ${days} 天无提交（超过 ${STALLED_DAYS} 天阈值）`;
     case "regressed":
       return `最新提交为 BugFix（共 ${chain.bugfixCount} 个），且触碰了链内更早引入的文件`;
     case "zombie":
+      if (!hasCommits) return `文档状态 ${docStatus}，有文档但无提交记录，且近期对话中未被提及`;
       return `已 ${days} 天无提交（超过 ${ZOMBIE_DAYS} 天），且近期对话中未被提及`;
     default:
       return "";

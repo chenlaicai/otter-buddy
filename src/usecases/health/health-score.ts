@@ -99,10 +99,10 @@ export function scoreD1(bugfixRatio: number): number {
   return clamp(100 * Math.max(0, (0.4 - bugfixRatio) / 0.2));
 }
 
-/** D2 架构稳定：热区文件数分段扣分（前5每个扣4，之后递减至封顶60）+ bugfix:feature 失衡（≥2 倍）再扣 20 */
+/** D2 架构稳定：热区文件数线性扣分（每个扣 4，总扣封顶 60）+ bugfix:feature 失衡（≥2 倍）再扣 20 */
 export function scoreD2(hotspotCount: number, imbalanceTriggered: boolean): number {
   // Why: 线性 ×10 导致 10 热区即归零，20 热区与 100 热区无区分度
-  // 分段饱和：每个热区扣 4 分，总扣封顶 60；20 热区 ≈ 40-50 区间
+  // 纯线性×4 + 封顶60（与 issue #630 原方案分段递减的偏差：数值终点一致，20 热区落点 40 分仍在目标区间）
   const penalty = Math.min(60, hotspotCount * 4);
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }

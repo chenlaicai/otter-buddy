@@ -38,10 +38,10 @@ describe("RHI API（真 sqlite）", () => {
     return new RhiController(snapshotRepo, signalRepo, worker, console as never);
   }
 
-  const fakeChain = (featureId: string, state: FeatureChain["state"]): FeatureChain => ({
+  const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc?: FeatureChain["doc"]; daysSinceLastCommit?: number | null }): FeatureChain => ({
     featureId, state, commits: [], firstSeenAt: null, lastCommitAt: null,
-    daysSinceLastCommit: null, commitCount: 2, bugfixCount: 1,
-    touchFiles: new Set<string>(), doc: null,
+    daysSinceLastCommit: opts?.daysSinceLastCommit ?? null, commitCount: 2, bugfixCount: 1,
+    touchFiles: new Set<string>(), doc: opts?.doc ?? null,
   });
 
   describe("overview", () => {
@@ -96,6 +96,46 @@ describe("RHI API（真 sqlite）", () => {
       expect(body.total).toBe(2);
       expect(body.stateCounts).toEqual({ active: 1, stalled: 1 });
       expect(body.chains[0]).toMatchObject({ featureId: "F20260801aaaa", state: "active" });
+    });
+
+    it("链响应包含 docTitle 和 stateReason", async () => {
+      const doc = { id: "F20260801aaaa", title: "健康面板综合分卡", status: "development", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
+      const chains = [fakeChain("F20260801aaaa", "active", { doc, daysSinceLastCommit: 3 })];
+      const res = await makeController(chains).chains(makeCtx());
+      const body = await res.json() as { chains: Array<{ docTitle: string | null; stateReason: string }> };
+
+      expect(body.chains[0].docTitle).toBe("健康面板综合分卡");
+      expect(body.chains[0].stateReason).toContain("development");
+      expect(body.chains[0].stateReason).toContain("3 天内有提交");
+    });
+
+    it("doc-only 链（daysSinceLastCommit=null）不显示 Infinity", async () => {
+      const doc = { id: "F20260801cccc", title: "实验性特性", status: "draft", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
+      const chains = [fakeChain("F20260801cccc", "stalled", { doc, daysSinceLastCommit: null })];
+      const res = await makeController(chains).chains(makeCtx());
+      const body = await res.json() as { chains: Array<{ stateReason: string }> };
+
+      expect(body.chains[0].stateReason).not.toContain("Infinity");
+      expect(body.chains[0].stateReason).toContain("无提交记录");
+    });
+
+    it("orphan 链 docTitle=null，stateReason 解释无文档", async () => {
+      const chains = [fakeChain("F20260801dddd", "orphan")];
+      const res = await makeController(chains).chains(makeCtx());
+      const body = await res.json() as { chains: Array<{ docTitle: string | null; stateReason: string }> };
+
+      expect(body.chains[0].docTitle).toBeNull();
+      expect(body.chains[0].stateReason).toContain("未找到对应特性文档");
+    });
+
+    it("zombie doc-only 链 stateReason 不含 Infinity", async () => {
+      const doc = { id: "F20260801eeee", title: "废弃特性", status: "proposed", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
+      const chains = [fakeChain("F20260801eeee", "zombie", { doc, daysSinceLastCommit: null })];
+      const res = await makeController(chains).chains(makeCtx());
+      const body = await res.json() as { chains: Array<{ stateReason: string }> };
+
+      expect(body.chains[0].stateReason).not.toContain("Infinity");
+      expect(body.chains[0].stateReason).toContain("无提交记录");
     });
   });
 
