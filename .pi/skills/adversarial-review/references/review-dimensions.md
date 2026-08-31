@@ -41,7 +41,7 @@ Verification depends on PR type:
 
 End-to-end verification failure must be reported as a 严重发现 in the review report.
 
-**pre-existing 声明核验（#614）**：作者自检报告中的「pre-existing / 与本次变更无关」失败声明，若未附 stash 复跑或基线对照证据，直接打回——无证据 = 未验证（8/30 #599 现场：5 个自引入失败被误报为与己无关）。检视者可自行抽查：stash 或 checkout 基线单跑，验证声明是否成立。
+**pre-existing 声明核验（#614）**：作者自检报告中的「pre-existing / 与本次变更无关」失败声明，若未附 `git stash -u` 复跑或 `origin/main` 基线对照证据，直接打回——无证据 = 未验证（8/30 #599 现场：5 个自引入失败被误报为与己无关）。检视者可自行抽查：`git stash -u` 或 checkout 基线单跑，验证声明是否成立。
 
 ### B4. Change Identity Consistency
 
