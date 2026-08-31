@@ -100,7 +100,7 @@ describe('RightPanel tab 切换', () => {
     expect(container.textContent).toContain('定时任务')
 
     switchTab('workspace')
-    expect(container.textContent).toContain('工作区根目录')
+    expect(container.textContent).toContain('工作区') // 树形视图（F20260831wsui 后无面包屑，断言面板标题即可）
   })
 
   it('切换 tab 时应保持各 tab 的状态', () => {
