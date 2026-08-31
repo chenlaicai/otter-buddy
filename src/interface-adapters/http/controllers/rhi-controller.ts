@@ -18,6 +18,49 @@ import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/health-score";
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
 
+const STALLED_DAYS = 14;
+const ZOMBIE_DAYS = 30;
+
+/** 信号类型中文标签（与前端 SIGNAL_TYPE_LABELS 保持一致） */
+const SIGNAL_TYPE_LABELS: Record<string, string> = {
+  bug_recurrence: 'bug 反复出现',
+  chain_stall: '特性链滞留',
+  hotspot: '热点文件',
+  behavior_defect: '行为缺陷',
+  eval_regression: '效果回退',
+  intent_drop: '意图兑现率下降',
+  hotspot_imbalance: '热区失衡',
+  review_debt: '审视债务',
+};
+
+/** 特性链五态人话解释（基于 chain-builder.ts 五态判定规则） */
+function buildChainStateReason(
+  state: string,
+  chain: { daysSinceLastCommit: number | null; doc: { status: string | null } | null; bugfixCount: number; commitCount: number },
+): string {
+  if (state === "orphan") {
+    return "commit 提到了特性编号但未找到对应特性文档";
+  }
+  const docStatus = chain.doc?.status ?? "draft";
+  const inFlight = ["draft", "proposed", "design", "development"].includes(docStatus);
+  const days = chain.daysSinceLastCommit ?? Infinity;
+
+  switch (state) {
+    case "active":
+      return inFlight
+        ? `文档状态 ${docStatus}，最近 ${days} 天内有提交（阈值 ${STALLED_DAYS} 天）`
+        : `文档已终结（${docStatus}），视为稳定`;
+    case "stalled":
+      return `文档状态 ${docStatus}，已 ${days} 天无提交（超过 ${STALLED_DAYS} 天阈值）`;
+    case "regressed":
+      return `最新提交为 BugFix（共 ${chain.bugfixCount} 个），且触碰了链内更早引入的文件`;
+    case "zombie":
+      return `已 ${days} 天无提交（超过 ${ZOMBIE_DAYS} 天），且近期对话中未被提及`;
+    default:
+      return "";
+  }
+}
+
 const OVERVIEW_KEYS = [
   "total_commits", "commits_with_fid", "compliant_commits", "skipped_commits",
   "bugfix_count", "bugfix_ratio", "bugfix_ratio_of_fid",
@@ -256,7 +299,13 @@ export class RhiController {
       const rows = status === "all"
         ? [...this.signalRepo.findOpen(), ...this.signalRepo.findByStatus("resolved"), ...this.signalRepo.findByStatus("dismissed")]
         : this.signalRepo.findByStatus(status);
-      return c.json({ signals: rows, count: rows.length });
+      return c.json({
+        signals: rows.map(s => ({
+          ...s,
+          signalTypeLabel: SIGNAL_TYPE_LABELS[s.signal_type] ?? s.signal_type,
+        })),
+        count: rows.length,
+      });
     } catch (err) {
       this.logger.error("RHI signals failed", err instanceof Error ? err : undefined);
       return c.json({ error: err instanceof Error ? err.message : String(err) });
@@ -281,6 +330,8 @@ export class RhiController {
           firstSeenAt: ch.firstSeenAt,
           lastCommitAt: ch.lastCommitAt,
           docStatus: ch.doc?.status ?? null,
+          docTitle: ch.doc?.title ?? null,
+          stateReason: buildChainStateReason(ch.state, ch),
         })),
         stateCounts,
         total: chains.length,

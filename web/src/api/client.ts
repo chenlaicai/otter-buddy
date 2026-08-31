@@ -501,6 +501,7 @@ export interface RhiSignalDTO {
   occurrences: number
   status: string
   suggested_action: string | null
+  signalTypeLabel: string
 }
 
 export interface RhiChainDTO {
@@ -512,6 +513,8 @@ export interface RhiChainDTO {
   firstSeenAt: string | null
   lastCommitAt: string | null
   docStatus: string | null
+  docTitle: string | null
+  stateReason: string
 }
 
 export function getRhiOverview(signal?: AbortSignal): Promise<RhiOverviewDTO> {
