@@ -60,7 +60,7 @@ F20260826mwrd 完成了 Magic Words 词表精简（删 3 留 2）和獭间信号
 
 1. **硬编码 vs 动态加载**：2 词不值得 API，硬编码最简。注释标注同步义务。
 2. **位置**：textarea 右侧、send 按钮左侧，视觉平衡且不影响输入流。
-3. **关闭方式**：click-outside 关闭，复用项目既有模式（SignalBadge 同理）。
+3. **关闭方式**：click-outside + Esc 关闭。项目内真实先例：Mention autocomplete（`MessageInput.tsx` 内 `mentionQuery` 状态），点击外区域关闭。SignalBadge 无 click-outside 也无 glass-overlay，不是本组件的先例。
 
 ## 验证
 

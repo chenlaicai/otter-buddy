@@ -12,7 +12,7 @@ import { HelpCircle } from 'lucide-react'
 const MAGIC_WORDS = [
   {
     keyword: '「停下」',
-    behavior: '全场急停：所有海獭停止新增副作用（不发新命令、不写新文件、不 push），当前工具调用收尾后汇报状态，等你指示。',
+    behavior: '全场急停：所有海獭停止新增副作用（不发新命令、不写新文件、不 push），当前工具调用收尾后汇报状态，等你指示。P0 不可逆风险信号同样适用。',
   },
   {
     keyword: '「绕路了」',
@@ -24,7 +24,7 @@ export function MagicWordHelp() {
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
 
-  // 点击外部关闭
+  // 点击外部关闭 + Esc 关闭
   useEffect(() => {
     if (!open) return
     function handleClickOutside(e: MouseEvent) {
@@ -32,8 +32,15 @@ export function MagicWordHelp() {
         setOpen(false)
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [open])
 
   return (
@@ -43,6 +50,7 @@ export function MagicWordHelp() {
         onClick={() => setOpen(v => !v)}
         className="w-8 h-8 rounded-2xl flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-white/40 transition mb-0.5"
         aria-label="Magic Word 帮助"
+        aria-haspopup="true"
         aria-expanded={open}
       >
         <HelpCircle className="w-4 h-4" />

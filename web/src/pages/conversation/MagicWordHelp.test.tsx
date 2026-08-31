@@ -93,4 +93,30 @@ describe('MagicWordHelp 问号弹层（F20260831mmwh）', () => {
     act(() => { btn.click() })
     expect(btn.getAttribute('aria-expanded')).toBe('false')
   })
+
+  it('aria-haspopup 属性存在', () => {
+    renderHelp()
+    const btn = container.querySelector('button[aria-label="Magic Word 帮助"]') as HTMLButtonElement
+    expect(btn.getAttribute('aria-haspopup')).toBe('true')
+  })
+
+  it('Esc 键关闭 popover', () => {
+    renderHelp()
+    const btn = container.querySelector('button[aria-label="Magic Word 帮助"]') as HTMLElement
+    act(() => { btn.click() })
+    expect(container.querySelector('[data-testid="magic-word-popover"]')).not.toBeNull()
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    expect(container.querySelector('[data-testid="magic-word-popover"]')).toBeNull()
+  })
+
+  it('点击 popover 内部不关闭', () => {
+    renderHelp()
+    const btn = container.querySelector('button[aria-label="Magic Word 帮助"]') as HTMLElement
+    act(() => { btn.click() })
+    const popover = container.querySelector('[data-testid="magic-word-popover"]') as HTMLElement
+    act(() => { popover.click() })
+    expect(container.querySelector('[data-testid="magic-word-popover"]')).not.toBeNull()
+  })
 })
