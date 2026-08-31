@@ -4,7 +4,7 @@
  * 模拟 3 个交易日的全链路：
  * - seed 行情数据（gateway mock 真实模式）
  * - 真实撮合任务执行
- * - 断言：日报数字段与 paper_nav_history/paper_orders 表逐日一致
+ * - 断言：日报 numbersMd 数字与 paper_nav_history 表值逐项比对（误差 <0.01）
  * - reason 含数据锚点
  * - 账本不变量（现金+持仓市值=总资产，误差<0.01）
  */
@@ -27,6 +27,23 @@ const MOCK_QUOTES: Record<string, { open: number; close: number; high: number; l
 
 // 模拟 3 个交易日
 const TRADING_DAYS = ['2026-08-25', '2026-08-26', '2026-08-27'];
+
+/** 从 numbersMd 解析数字指标（与 renderNumbersMarkdown 逆过程） */
+function parseNumbersMd(md: string): { cash: number; marketValue: number; total: number; nav: number } {
+  const cashMatch = md.match(/\|\s*现金\s*\|\s*¥([\d.]+)\s*\|/);
+  const mvMatch = md.match(/\|\s*持仓市值\s*\|\s*¥([\d.]+)\s*\|/);
+  const totalMatch = md.match(/\|\s*总资产\s*\|\s*¥([\d.]+)\s*\|/);
+  const navMatch = md.match(/\|\s*净值\s*\|\s*([\d.]+)\s*\|/);
+  if (!cashMatch || !mvMatch || !totalMatch || !navMatch) {
+    throw new Error(`Failed to parse numbersMd:\n${md}`);
+  }
+  return {
+    cash: parseFloat(cashMatch[1]),
+    marketValue: parseFloat(mvMatch[1]),
+    total: parseFloat(totalMatch[1]),
+    nav: parseFloat(navMatch[1]),
+  };
+}
 
 describe('PR5 干跑验证', () => {
   let db: Database.Database;
@@ -63,7 +80,7 @@ describe('PR5 干跑验证', () => {
       },
     });
 
-    registerPaperTradingFunctions(ledger);
+    registerPaperTradingFunctions(ledger, repo);
 
     // 初始化交易日历
     for (const day of TRADING_DAYS) {
@@ -79,7 +96,21 @@ describe('PR5 干跑验证', () => {
     db.close();
   });
 
-  it('模拟 3 个交易日全链路：下单→撮合→日报', async () => {
+  it('getFirstActiveAccountId：返回首个 active 账户', async () => {
+    const id = await repo.getFirstActiveAccountId();
+    expect(id).toBe(accountId);
+  });
+
+  it('getFirstActiveAccountId：无账户时返回 null', async () => {
+    const freshDb = new Database(':memory:');
+    initSchema(freshDb);
+    const freshRepo = new PaperTradeRepositoryImpl(freshDb);
+    const id = await freshRepo.getFirstActiveAccountId();
+    expect(id).toBeNull();
+    freshDb.close();
+  });
+
+  it('模拟 3 个交易日全链路：下单→撮合→日报（强断言）', async () => {
     // Day 1: 下单
     const day1 = TRADING_DAYS[0];
     const order1 = await ledger.submitOrder(accountId, '600519', 'buy', 100,
@@ -101,12 +132,19 @@ describe('PR5 干跑验证', () => {
     // Day 2: 计算净值
     const nav2 = await ledger.calculateNav(accountId, day2);
     expect(nav2.nav).toBeGreaterThan(0);
+    // 账本不变量：现金 + 持仓市值 = 总资产（误差 <0.01）
     expect(Math.abs(nav2.cash + nav2.marketValue - nav2.total)).toBeLessThan(0.01);
 
     // Day 2: 生成日报
     const report2 = await ledger.getReport(accountId, day2);
     expect(report2).toBeDefined();
-    expect(report2!.numbersMd).toContain('600519');
+
+    // F20260829ppta 发现 4 修复：numbersMd 数字逐项 vs 表值（真一致性断言）
+    const parsed2 = parseNumbersMd(report2!.numbersMd);
+    expect(parsed2.cash).toBeCloseTo(nav2.cash, 2);
+    expect(parsed2.marketValue).toBeCloseTo(nav2.marketValue, 2);
+    expect(parsed2.total).toBeCloseTo(nav2.total, 2);
+    expect(parsed2.nav).toBeCloseTo(nav2.nav, 4);
     expect(report2!.id).toBeDefined();
 
     // Day 3: 继续下单
@@ -131,9 +169,15 @@ describe('PR5 干跑验证', () => {
     // Day 3: 生成日报
     const report3 = await ledger.getReport(accountId, day3);
     expect(report3).toBeDefined();
-    expect(report3!.numbersMd).toContain('000001');
 
-    // 验证日报数字段与表记录一致
+    // F20260829ppta 发现 4 修复：numbersMd 数字逐项 vs 表值
+    const parsed3 = parseNumbersMd(report3!.numbersMd);
+    expect(parsed3.cash).toBeCloseTo(nav3.cash, 2);
+    expect(parsed3.marketValue).toBeCloseTo(nav3.marketValue, 2);
+    expect(parsed3.total).toBeCloseTo(nav3.total, 2);
+    expect(parsed3.nav).toBeCloseTo(nav3.nav, 4);
+
+    // 验证日报数字段与表记录逐日一致
     const navHistory = await ledger.getNavHistory(accountId);
     expect(navHistory.length).toBe(2);
     expect(navHistory[0].date).toBe(day2);
@@ -152,7 +196,7 @@ describe('PR5 干跑验证', () => {
     expect(snapshot.positions.find(p => p.code === '000001')?.shares).toBe(200);
   });
 
-  it('函数注册表：match_orders 函数可调用', async () => {
+  it('match_orders 缺省 accountId 自动取首个 active 账户', async () => {
     expect(paperTradingFunctionRegistry.has('match_orders')).toBe(true);
 
     const order = await ledger.submitOrder(accountId, '600519', 'buy', 100,
@@ -161,13 +205,14 @@ describe('PR5 干跑验证', () => {
     db.prepare(`UPDATE paper_orders SET created_at = ? WHERE id = ?`)
       .run(`${TRADING_DAYS[0]}T10:00:00.000Z`, order.id);
 
+    // 不传 accountId，应自动取首个 active 账户
     const result = await paperTradingFunctionRegistry.execute('match_orders', {
-      accountId,
       tradeDate: TRADING_DAYS[1],
     });
 
     expect(result.success).toBe(true);
     expect(result.matchedOrders).toBe(1);
+    expect(result.accountId).toBe(accountId);
   });
 
   it('函数注册表：render_daily_report 函数可调用', async () => {

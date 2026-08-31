@@ -237,26 +237,12 @@ stock-cli 新增 `index` 命令（akshare `stock_zh_index_daily`，symbol=sh0003
 8. **工具注册**：tool-manifest.json 新增 paper-trading capabilityBlock
 9. **单元测试**：ledger.test.ts + paper-trade-tool.test.ts
 
-### 实现状态（PR5）
+### 待完成（PR5）
 
-#### 已完成
-
-1. **定时任务 seed（幂等）**：
-   - 15:05 撮合任务（`executor_type: 'function'`，functionName=match\_orders，cron 工作日 `5 15 * * 1-5`）
-   - 15:30 操盘獭任务（`executor_type: 'agent'`，cron `30 15 * * 1-5`，body 携带 prompt + 自选池）
-   - 启动时幂等创建（按 name 去重）
-2. **操盘獭 prompt**：`prompts/scheduled/paper-trading-daily.md`
-   - 流程：`is_trading_day` → 读自选池 → stock\_data 逐票分析（四层结论）→ `submit_order`（reason ≥30 字符含数据锚点）→ speak 两段式日报
-   - 日报数字段规则：`report` 命令取引擎渲染的 `numbersMd` 原样引用（带 report id），禁止自算
-3. **自选池管理**：存定时任务 body（备选方案，因 otter\_context 按 otterId 隔离）
-   - 初始自选池：600519、000001、300750（3-5 票起步）
-   - 搭档维护：更新定时任务 body 中的 watchlist
-   - AI 提议确认：操盘獭可提议加入，需搭档确认
-4. **干跑验证测试**：`tests/usecases/paper-trading/pr5-dry-run.test.ts`
-   - 模拟 3 个交易日全链路：下单 → 撮合 → 日报
-   - 验证：日报数字段与表记录一致、reason 含数据锚点、账本不变量（现金+持仓市值=总资产，误差<0.01）
-   - 函数注册表测试：match\_orders、render\_daily\_report 函数可调用
-5. **数据模型修复**：`PaperTradeRepositoryImpl.createAccount` 同时初始化 `paper_cash` 表（初始资金 = initialCash）
+1. **操盘循环**：每日 15:05 撮合任务 + 15:30 操盘獭任务
+2. **日报格式**：两段式（引擎渲染数字段 + AI 撰写理由段）
+3. **自选池管理**：搭档维护 + AI 提议确认
+4. **实跑验证**：3 个交易日全链路实跑
 
 ## 改动范围
 
@@ -271,10 +257,6 @@ stock-cli 新增 `index` 命令（akshare `stock_zh_index_daily`，symbol=sh0003
 | scripts/stock-cli.py | 修改 | +index 命令（sh000300） |
 | scripts/paper-adjust-corporate-action.ts | 新增 | 除权因子录入 CLI（运维通道，非 agent 工具） |
 | tests/**/paper-trading/*.test.ts | 新增 | 引擎单测 |
-| src/bootstrap/platforms.ts | 修改 | PR5: seed 定时任务（15:05 撮合 + 15:30 操盘獭） |
-| prompts/scheduled/paper-trading-daily.md | 新增 | PR5: 操盘獭 prompt（两段式日报） |
-| src/frameworks/db/paper-trade-repository-impl.ts | 修改 | PR5: createAccount 同时初始化 paper\_cash 表 |
-| tests/usecases/paper-trading/pr5-dry-run.test.ts | 新增 | PR5: 干跑验证测试（3 个交易日全链路） |
 | prompts/scheduled/paper-trading-daily.md | 新增 | 操盘獭任务文案（PR5） |
 | docs/features/2026/08/29/F20260829ppta*.md | 新增 | 本方案+实现文档 |
 

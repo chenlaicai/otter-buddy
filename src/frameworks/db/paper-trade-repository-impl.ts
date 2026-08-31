@@ -33,6 +33,13 @@ export class PaperTradeRepositoryImpl implements PaperTradeRepository {
     `).run(account.id, account.initialCash, account.createdAt);
   }
 
+  async getFirstActiveAccountId(): Promise<string | null> {
+    const row = this.db.prepare(
+      `SELECT id FROM paper_accounts WHERE status = 'active' ORDER BY created_at LIMIT 1`
+    ).get() as { id: string } | undefined;
+    return row?.id ?? null;
+  }
+
   async getAccount(accountId: string): Promise<PaperAccount | null> {
     const row = this.db.prepare(`
       SELECT id, initial_cash as initialCash, status, created_at as createdAt
