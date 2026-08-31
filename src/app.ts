@@ -380,6 +380,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dispatchChainEngine,
     invokeFn: (params) => agentInvoker.invokeConversation(params),
     logger,
+    // #613：服务重启事件落 healing 台账（观测层闭环，severity 按中断发言数分级）
+    healingRepo: repos.healingEvent,
   });
   if (options.startResume ?? true) {
     // fire-and-forget：resume 内部自带延迟，不阻塞也不吞启动错误
