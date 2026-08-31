@@ -871,7 +871,9 @@ export class AgentTurnOrchestrator {
     }
     if (reason.kind !== 'guard_abort') return;
     if (reason.guardReason === 'degenerate_output') {
-      recordRetrySafe("degenerate_output");
+      // F20260831dgrt：新路由下首次退化直接熔断（不重试），此处记录的是"退化检测"而非"实际重试"
+      // 改用 degenerate_detected 以保持 retries 指标的语义清晰——只计真正的重试意图
+      recordRetrySafe("degenerate_detected");
       return;
     }
     if (isRetryableGuardAbort(reason.guardReason)) {

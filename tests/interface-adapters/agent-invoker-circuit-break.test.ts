@@ -588,4 +588,32 @@ describe("AgentInvoker — 连续退化熔断 (F20260818cbkr)", () => {
     expect(session.restartCalls).toHaveLength(0);
     expect(msg._abortCalls).toHaveLength(1);
   });
+
+  it("fail-open：isSessionCircuitBreakCreated 抛错 → 默认走直接熔断（不阻塞）", async () => {
+    const msg = mockSendMessage();
+    const session = mockManageSession(makeSession());
+    // healingRepo.findRecentByOtter 抛错——isCircuitBreakCreatedSession 抛错 → isSessionCircuitBreakCreated 抛错
+    // orchestrator try-catch 捕获 → isCircuitBreakSession=false → 走直接熔断
+    const failRepo = {
+      create: async () => {}, // 写入不抛（熔断执行需要写事件）
+      findRecentByOtter: async () => { throw new Error("DB connection lost"); },
+    } as unknown as HealingEventRepository;
+    const invoke = mockAgentInvoke(1); // 1 次退化触发熔断，重启后成功
+    const qm = mockQueryMessage({ speakingAfter: 1 });
+    const invoker = new AgentInvoker(
+      invoke, msg, qm, session.mock, queryOtter, createTestLogger(), undefined, undefined, undefined, undefined,
+      failRepo,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "Hi", senderId: "user-1",
+    });
+
+    // 抛错被捕获 → isCircuitBreakSession=false → 走直接熔断（1 次重启）
+    expect(session.restartCalls).toHaveLength(1);
+    expect(msg._failCalls).toHaveLength(1);
+    expect(msg._failCalls[0].body).toContain("熔断重启獭生");
+    expect(msg._abortCalls).toHaveLength(0);
+  });
 });

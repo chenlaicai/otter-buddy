@@ -78,3 +78,26 @@ return handleCircuitBreak(ctx);
 - [x] 文案断言：重试提醒包含「忽略」语义
 - [x] 现有熔断测试回归全绿 + 全量2303测试通过
 - [x] 最简实现检查：已过——路由变更仅在 orchestrator.ts 增加 isSessionCircuitBreakCreated 查询分支，无新文件/新依赖
+
+## PR 审视 delta 处置（检视獭-退化路由）
+
+检视獭 1 严重 + 3 建议，全量处置。
+
+### 严重1：CI 失败（分支落后 main）
+- **处置**：rebase 到最新 main（含 #617/#618）+ 全量回归2336/2336通过
+- **验证**：merge-tree 预判0冲突，#618 碰过熔断路径但 delta 无回归
+
+### 建议1：fail-open 分支零测试覆盖
+- **问题**：`isSessionCircuitBreakCreated` 抛错时 `isCircuitBreakSession` 保持 false → 走直接熔断，但无测试锁定
+- **处置**：新增测试——mock healingRepo.findRecentByOtter 抛错，断言走熔断路径（session.restartCalls=1）
+- **验证**：15/15 电路测试通过
+
+### 建议2：测试名与断言漂移
+- **问题**：`guard_abort 路径：序列恰为 [guard_abort, guard_abort]`，实际断言是单次 `["guard_abort"]`
+- **处置**：改名对齐现状
+- **验证**：8/8 metrics 测试通过
+
+### 建议3：recordRetryIntent 口径漂移
+- **问题**：`retries(degenerate_output)` 在新路由下计的是「退化检测」而非「实际重试」——污染「重试退化占比<10%」观测基线
+- **处置**：intent 类 exit 统一改记 `degenerate_detected`，断言同步更新
+- **验证**：metrics 测试断言 `toContain("degenerate_detected")`
