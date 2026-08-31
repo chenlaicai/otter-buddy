@@ -101,3 +101,8 @@ return handleCircuitBreak(ctx);
 - **问题**：`retries(degenerate_output)` 在新路由下计的是「退化检测」而非「实际重试」——污染「重试退化占比<10%」观测基线
 - **处置**：intent 类 exit 统一改记 `degenerate_detected`，断言同步更新
 - **验证**：metrics 测试断言 `toContain("degenerate_detected")`
+
+### RetryKind 类型契约补全（大獭发现）
+- **问题**：`degenerate_detected` 通过 `as` 断言绕过 tsc——`RetryKind` 封闭枚举（agent-metrics-port.ts:24）无此成员，编译器看不见的走私
+- **处置**：`RetryKind` 联合类型补上 `"degenerate_detected"` 成员（零行为变化——recordRetry 唯一实现是 agent-metrics.ts:235 纯 label 上报）
+- **验证**：tsc --noEmit 无错误 + 全量 2336/2336 通过
