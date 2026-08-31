@@ -115,11 +115,38 @@ describe('WorkspacePanel 树形渲染', () => {
     expect(nestedBtn).not.toBeNull()
     expect(parseInt(nestedBtn.style.paddingLeft)).toBeGreaterThan(parseInt(subBtn.style.paddingLeft))
   })
+
+  it('子目录加载失败时显示错误并可重试（D1）', async () => {
+    // 根目录成功，子目录 fetch 500
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(ROOT_ENTRIES), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(SUBDIR_ENTRIES), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await act(async () => { root.render(<WorkspacePanel conversationId="test" />) })
+
+    // 第一次点击：子目录加载失败
+    const folderBtn = container.querySelector('[data-testid="folder-subdir"]') as HTMLButtonElement
+    await act(async () => { folderBtn.click() })
+
+    // 错误信息可见
+    expect(container.textContent).toContain('加载失败')
+    // 无子级内容
+    expect(container.querySelector('[data-testid="folder-children-subdir"]')).toBeNull()
+
+    // 收起再展开（重试路径）：这次 fetch 成功
+    await act(async () => { folderBtn.click() })  // 收起
+    await act(async () => { folderBtn.click() })  // 再展开 → 重新 fetch
+
+    const children = container.querySelector('[data-testid="folder-children-subdir"]')
+    expect(children).not.toBeNull()
+    expect(children!.textContent).toContain('nested-file.html')
+  })
 })
 
 /**
  * FileContentViewer 内容渲染分发测试（S1 闭环，F20260831wsui）。
- * mock ReactMarkdown 避 jsdom OOM，只验分发正确性：
+ * 验证分发正确性：
  *  .md → ReactMarkdown 组件、.html → sandbox iframe、其他 → pre。
  */
 describe('FileContentViewer 内容渲染分发（S1 闭环）', () => {

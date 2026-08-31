@@ -325,6 +325,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
         setExpandedSet(prev => new Set(prev).add(path))
       } catch (err) {
         setDirErrorMap(prev => new Map(prev).set(path, err instanceof Error ? err.message : '加载失败'))
+        setExpandedSet(prev => new Set(prev).add(path))
       } finally {
         setLoadingPath(null)
       }
