@@ -3,7 +3,10 @@ import type {
   WeixinBaseInfo,
   WeixinGetConfigResp,
   WeixinGetUpdatesResp,
+  WeixinGetUploadUrlReq,
+  WeixinGetUploadUrlResp,
   WeixinMessage,
+  WeixinMessageItem,
   WeixinQrCodeResp,
   WeixinQrStatusResp,
   WeixinSendMessageResp,
@@ -128,6 +131,34 @@ export class WeixinApiClient {
       { ilink_user_id: ilinkUserId, context_token: contextToken, base_info: this.baseInfo() },
       timeoutMs,
     );
+  }
+
+  /** 媒体上传：申请预签名 CDN 上传 URL（issue #567） */
+  getUploadUrl(params: WeixinGetUploadUrlReq, timeoutMs = 15000): Promise<WeixinGetUploadUrlResp> {
+    return this.post("ilink/bot/getuploadurl", { ...params, base_info: this.baseInfo() }, timeoutMs);
+  }
+
+  /** 发送结构化 item 列表（媒体出站用；文本/媒体各一 item，逐 item 独立请求）。ret≠0 抛错 */
+  async sendMessageItems(params: { toUserId: string; contextToken?: string; items: WeixinMessageItem[] }): Promise<void> {
+    for (const item of params.items) {
+      const msg: WeixinMessage = {
+        from_user_id: "",
+        to_user_id: params.toUserId,
+        client_id: randomUUID(),
+        message_type: 2,
+        message_state: 2,
+        item_list: [item],
+        context_token: params.contextToken,
+      };
+      const resp = await this.post(
+        "ilink/bot/sendmessage",
+        { msg, base_info: this.baseInfo() },
+        15000,
+      ) as WeixinSendMessageResp;
+      if (resp.ret !== undefined && resp.ret !== 0) {
+        throw new Error(`weixin sendmessage ret=${resp.ret} errmsg=${resp.errmsg ?? "(none)"}`);
+      }
+    }
   }
 
   /** 发送/取消"正在输入"状态（1=typing 2=cancel） */

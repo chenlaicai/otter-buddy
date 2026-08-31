@@ -27,30 +27,65 @@ export interface WeixinTextItem {
   text?: string;
 }
 
+/** CDN 媒体引用（协议 proto: CDNMedia；入站媒体消息携带，出站上传后回填） */
+export interface WeixinCdnMedia {
+  /** 下载加密参数（拼 CDN 下载 URL） */
+  encrypt_query_param?: string;
+  /** AES-128 key（base64；两种编码见 parseCdnAesKey） */
+  aes_key?: string;
+  /** 加密类型：0=只加密 fileid，1=打包缩略图/中图信息 */
+  encrypt_type?: number;
+  /** 完整下载 URL（服务端直出，优先于 encrypt_query_param 拼接） */
+  full_url?: string;
+}
+
 export interface WeixinImageItem {
-  /** CDN 上传后引用（PR③ 媒体支持使用，此处仅保结构） */
-  cdn_ref?: Record<string, unknown>;
-  width?: number;
-  height?: number;
-  file_size?: number;
+  /** 原图 CDN 引用（入站解密用；出站上传后回填） */
+  media?: WeixinCdnMedia;
+  /** 缩略图 CDN 引用 */
+  thumb_media?: WeixinCdnMedia;
+  /** 入站解密首选 key：hex 字符串（16 字节），优先于 media.aes_key */
+  aeskey?: string;
+  url?: string;
+  /** 中图密文大小（出站上传后回填） */
+  mid_size?: number;
+  thumb_size?: number;
+  thumb_height?: number;
+  thumb_width?: number;
+  hd_size?: number;
 }
 
 export interface WeixinVoiceItem {
-  cdn_ref?: Record<string, unknown>;
-  duration_ms?: number;
+  media?: WeixinCdnMedia;
+  /** 语音编码类型：1=pcm 2=adpcm 3=feature 4=speex 5=amr 6=silk 7=mp3 8=ogg-speex */
+  encode_type?: number;
+  bits_per_sample?: number;
+  /** 采样率 Hz */
+  sample_rate?: number;
+  /** 语音时长 ms */
+  playtime?: number;
   /** 语音转文字内容（服务端 ASR 产物，入站可直接作文本用） */
   text?: string;
 }
 
 export interface WeixinFileItem {
-  cdn_ref?: Record<string, unknown>;
+  media?: WeixinCdnMedia;
   file_name?: string;
+  md5?: string;
+  /** 明文大小（字符串形式的数字） */
+  len?: string;
   file_size?: number;
 }
 
 export interface WeixinVideoItem {
-  cdn_ref?: Record<string, unknown>;
-  thumb_cdn_ref?: Record<string, unknown>;
+  media?: WeixinCdnMedia;
+  thumb_media?: WeixinCdnMedia;
+  video_size?: number;
+  play_length?: number;
+  video_md5?: string;
+  thumb_size?: number;
+  thumb_height?: number;
+  thumb_width?: number;
   duration_ms?: number;
 }
 
@@ -171,3 +206,56 @@ export interface WeixinQrStatusResp {
 
 /** 服务端 stale token 错误码（session-guard 暂停语义） */
 export const WEIXIN_STALE_TOKEN_ERRCODE = -14;
+
+// ── 媒体支持（issue #567，协议平移自 openclaw-weixin cdn/）──
+
+/** getuploadurl media_type 枚举（proto: UploadMediaType） */
+export const WeixinUploadMediaType = {
+  IMAGE: 1,
+  VIDEO: 2,
+  FILE: 3,
+  VOICE: 4,
+} as const;
+
+/** getuploadurl 请求体 */
+export interface WeixinGetUploadUrlReq {
+  filekey: string;
+  media_type: number;
+  to_user_id: string;
+  /** 原文件明文大小 */
+  rawsize: number;
+  /** 原文件明文 MD5（hex） */
+  rawfilemd5: string;
+  /** 密文大小（AES-128-ECB PKCS7 后） */
+  filesize: number;
+  /** 不需要缩略图上传 URL（单图上传用，默认 true） */
+  no_need_thumb?: boolean;
+  /** AES key（hex） */
+  aeskey: string;
+}
+
+/** getuploadurl 响应 */
+export interface WeixinGetUploadUrlResp {
+  ret?: number;
+  errmsg?: string;
+  /** 原图上传加密参数（拼上传 URL） */
+  upload_param?: string;
+  /** 完整上传 URL（服务端直出，优先使用） */
+  upload_full_url?: string;
+}
+
+/** CDN 上传产物：拼发送 item 的全部字段 */
+export interface WeixinUploadedMedia {
+  filekey: string;
+  /** CDN 返回的下载加密参数（→ media.encrypt_query_param） */
+  downloadParam: string;
+  /** AES key hex（→ media.aes_key 需 base64（hex→raw→base64）） */
+  aesKeyHex: string;
+  /** 明文大小 */
+  fileSize: number;
+  /** 密文大小（→ mid_size / video_size / len 语义） */
+  fileSizeCiphertext: number;
+}
+
+/** CDN base URL（上传/下载 URL 拼接用；与网关同域，协议审计值：openclaw-weixin auth/accounts.ts CDN_BASE_URL） */
+export const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
