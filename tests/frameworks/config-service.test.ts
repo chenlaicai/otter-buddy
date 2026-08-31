@@ -194,6 +194,18 @@ describe("loadConfig", () => {
     expect(() => loadConfig()).toThrow(/web\.baseUrl 必须以 http/);
   });
 
+  it("F20260831cbkw: healthySessionThresholdMs 默认 2h，可 YAML 自定义", () => {
+    mockExistsSync.mockReturnValue(true);
+    // 默认值
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML);
+    const cfgDefault = loadConfig();
+    expect(cfgDefault.circuitBreaker.healthySessionThresholdMs).toBe(7200000);
+    // YAML 自定义 1h
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "circuitBreaker:\n  healthySessionThresholdMs: 3600000\n");
+    const cfgCustom = loadConfig();
+    expect(cfgCustom.circuitBreaker.healthySessionThresholdMs).toBe(3600000);
+  });
+
   it("web.baseUrl 缺省时 cfg.web 为 undefined", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(MINIMAL_YAML);
