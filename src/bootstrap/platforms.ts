@@ -43,6 +43,8 @@ import { FeishuResourceClient } from "@frameworks/feishu/resource-client";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import { WeixinApiClient } from "@frameworks/weixin/api-client";
+import { WeixinCdnClient } from "@frameworks/weixin/cdn/cdn-client";
+import { WeixinMediaClient } from "@frameworks/weixin/media-client";
 import { WeixinAccountStore, type WeixinAccount } from "@frameworks/weixin/account-store";
 import type { WeixinConfig } from "@frameworks/weixin/types";
 import { WeixinPollingChannel } from "@frameworks/weixin/polling-channel";
@@ -339,12 +341,20 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account } = options;
   try {
       const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token });
-      const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger });
-      // 出站：广播总线注册（与飞书同模式）
+      // 媒体支持（issue #567）：CDN 客户端同构注入 gateway（出站上传）与媒体下载实现（入站）
+      const cdn = new WeixinCdnClient({ api, logger });
+      const mediaGateway = new WeixinMediaClient({ cdn, logger });
+      const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
+      // 出站：广播总线注册（与飞书同模式；attachmentRepo 供媒体出站查存储路径）
       messageBroadcaster.registerOutboundChannel(
-        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings),
+        new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings, repos.attachment),
       );
-      // ingress：入站处理器 + 轮询循环
+      // ingress：入站处理器 + 轮询循环（媒体三项与飞书同构：注入服务与 controllers.ts 同一块装配）
+      const attachmentInjection = new AttachmentInjectionService({
+        attachmentRepo: repos.attachment,
+        storageRoot: appConfig.attachments?.storageRoot ?? "./data/attachments",
+        logger,
+      });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
         sendMessage: uc.sendMessage,
@@ -359,6 +369,9 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         }),
         messageBroadcaster,
         logger,
+        mediaGateway,
+        attachmentUpload: uc.attachmentUpload,
+        attachmentInjection,
       });
       const poller = new WeixinPollingChannel({
         api,

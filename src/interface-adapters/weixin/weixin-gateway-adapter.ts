@@ -4,6 +4,12 @@ import type { WeixinGateway } from "@usecases/im/weixin-gateway";
 import type { WeixinApiClient } from "@frameworks/weixin/api-client";
 // eslint-disable-next-line no-restricted-imports -- 同上：adapter 本就是 port 的 interface-adapters 实现，需要 account-store 的 context_token 回填
 import type { WeixinAccountStore } from "@frameworks/weixin/account-store";
+// eslint-disable-next-line no-restricted-imports -- 同上：媒体出站需要 CDN 上传客户端与协议 item 类型
+import type { WeixinCdnClient } from "@frameworks/weixin/cdn/cdn-client";
+// eslint-disable-next-line no-restricted-imports -- 同上：出站 item 构建需要协议类型枚举（值导入，WeixinItemType 运行时用）
+import { WeixinItemType } from "@frameworks/weixin/types";
+// eslint-disable-next-line no-restricted-imports -- 同上：item 结构类型仅类型位置使用
+import type { WeixinMessageItem } from "@frameworks/weixin/types";
 
 /**
  * 微信出站网关（interface-adapters 层，实现 usecases 的 WeixinGateway port）。
@@ -19,6 +25,8 @@ export class WeixinGatewayAdapter implements WeixinGateway {
       accountStore: WeixinAccountStore;
       accountId: string;
       logger: Logger;
+      /** CDN 上传客户端（issue #567 媒体出站；未注入时 replyMedia 抛不支持） */
+      cdn?: WeixinCdnClient;
     },
   ) {}
 
@@ -51,6 +59,49 @@ export class WeixinGatewayAdapter implements WeixinGateway {
   async replyMarkdown(toUserId: string, senderLabel: string, markdown: string): Promise<void> {
     const text = `[${senderLabel}] ${WeixinGatewayAdapter.markdownToPlain(markdown)}`;
     await this.replyText(toUserId, text);
+  }
+
+  /** 媒体出站（issue #567）：读本地文件 → CDN 上传（AES-ECB）→ 按 MIME 路由 item 发送。
+   *  平移自 openclaw-weixin send-media.ts 的路由语义：image/* → IMAGE，video/* → VIDEO，
+   *  其余 → FILE。caption 非空时先发文本 item 再发媒体 item（逐 item 独立请求）。 */
+  async replyMedia(toUserId: string, params: { filePath: string; fileName: string; mimeType: string; caption?: string }): Promise<void> {
+    if (!this.deps.cdn) {
+      throw new Error("WeixinGatewayAdapter.replyMedia: cdn client not injected");
+    }
+    const fs = await import("node:fs/promises");
+    const buffer = await fs.readFile(params.filePath);
+
+    const mediaType = params.mimeType.startsWith("video/") ? "VIDEO" : params.mimeType.startsWith("image/") ? "IMAGE" : "FILE";
+    const uploaded = await this.deps.cdn.uploadFile({ buffer, toUserId, mediaType });
+
+    // aes_key 协议格式：base64(hex 字符串)——与参考实现 send.ts 一致
+    // （Buffer.from(aesKeyHex) 默认 utf8 语义，编码的是 hex 字符串本身而非 raw bytes）
+    const media = {
+      encrypt_query_param: uploaded.downloadParam,
+      aes_key: Buffer.from(uploaded.aesKeyHex).toString("base64"),
+      encrypt_type: 1,
+    };
+    let item: WeixinMessageItem;
+    if (mediaType === "IMAGE") {
+      item = { type: WeixinItemType.IMAGE, image_item: { media, mid_size: uploaded.fileSizeCiphertext } };
+    } else if (mediaType === "VIDEO") {
+      item = { type: WeixinItemType.VIDEO, video_item: { media, video_size: uploaded.fileSizeCiphertext } };
+    } else {
+      item = { type: WeixinItemType.FILE, file_item: { media, file_name: params.fileName, len: String(uploaded.fileSize) } };
+    }
+
+    const items: WeixinMessageItem[] = [];
+    if (params.caption?.trim()) {
+      items.push({ type: WeixinItemType.TEXT, text_item: { text: params.caption } });
+    }
+    items.push(item);
+
+    const contextToken = this.resolveContextToken(toUserId);
+    if (!contextToken) {
+      this.deps.logger.warn("Weixin media reply without context_token (对方需先发一条消息建立会话)", { toUserId });
+    }
+    await this.deps.api.sendMessageItems({ toUserId, contextToken, items });
+    this.deps.logger.info("Weixin media message sent", { toUserId, mediaType, filekey: uploaded.filekey });
   }
 
   /** markdown 语法字符降噪（标题/强调/代码/链接→文本）。尽力而为，不追求完美 */

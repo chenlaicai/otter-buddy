@@ -4,6 +4,7 @@ import type { ManageConnection } from "./manage-connection";
 import type { WeixinGateway } from "./weixin-gateway";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
+import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
@@ -28,6 +29,8 @@ export class WeixinMessageChannel implements OutboundMessageChannel, OutboundEve
     private readonly logger: Logger,
     private readonly webBaseUrl?: string,
     private readonly settingsRepo?: Pick<SettingsRepository, "get">,
+    /** 附件仓储（issue #567 媒体出站：AttachmentRef 无 filePath，查实体拿存储路径） */
+    private readonly attachmentRepo?: Pick<AttachmentRepository, "getById">,
   ) {}
 
   /** broadcast 出站：投影 + 纯文本投递到绑定的微信会话 */
@@ -49,7 +52,12 @@ export class WeixinMessageChannel implements OutboundMessageChannel, OutboundEve
     });
 
     try {
-      await this.weixinGateway.replyMarkdown(connection.externalId, senderLabel, projected);
+      // 媒体出站（issue #567）：附件真实文件逐个经 CDN 上传发送；失败降级占位文本（projectForChannel 已注入）不阻塞文本
+      if (message.attachments && message.attachments.length > 0) {
+        await this.sendAttachments(connection.externalId, senderLabel, projected, message.attachments);
+      } else {
+        await this.weixinGateway.replyMarkdown(connection.externalId, senderLabel, projected);
+      }
       this.logger.info("Text message broadcast to Weixin", {
         conversationId: message.conversationId,
         messageId: message.id,
@@ -60,6 +68,41 @@ export class WeixinMessageChannel implements OutboundMessageChannel, OutboundEve
         conversationId: message.conversationId,
         messageId: message.id,
       });
+    }
+  }
+
+  /** 媒体附件出站（issue #567）：逐个查实体拿 filePath 后 CDN 上传发送；单项失败降级占位继续 */
+  private async sendAttachments(
+    toUserId: string,
+    senderLabel: string,
+    text: string,
+    attachments: NonNullable<Message["attachments"]>,
+  ): Promise<void> {
+    // 文本在前（含附件占位投影），媒体在后——单项失败时占位文本已在首条文本里可见（网页链接兜底）
+    await this.weixinGateway.replyMarkdown(toUserId, senderLabel, text);
+    if (!this.attachmentRepo) {
+      this.logger.warn("Weixin attachment send skipped: attachmentRepo not injected", { toUserId });
+      return;
+    }
+    for (const att of attachments) {
+      try {
+        const entity = await this.attachmentRepo.getById(att.id);
+        if (!entity) {
+          this.logger.warn("Weixin attachment not found, skip", { toUserId, attachmentId: att.id });
+          continue;
+        }
+        await this.weixinGateway.replyMedia(toUserId, {
+          filePath: entity.filePath,
+          fileName: att.originalName,
+          mimeType: att.mimeType,
+        });
+      } catch (err) {
+        this.logger.error("Weixin attachment send failed, placeholder remains in text", err instanceof Error ? err : undefined, {
+          toUserId,
+          attachmentId: att.id,
+          fileName: att.originalName,
+        });
+      }
     }
   }
 

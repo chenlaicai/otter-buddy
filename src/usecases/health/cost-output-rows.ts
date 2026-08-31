@@ -49,7 +49,8 @@ export const COST_OUTPUT_KEYS = {
   COST_CACHE_WRITE: "cost_cache_write",
   COST_TOTAL: "cost_total",
   LLM_CALL_COUNT: "llm_call_count",
-  CACHE_HIT_RATE: "cache_hit_rate",
+  // cache_hit_rate 行已删除（#602）：消费端统一从 cache_read_tokens/input_tokens 推导，
+  // 该行成为无消费者死数据——保留只会造成口径分裂陷阱（谁再消费它就绕过统一推导口径）
   MESSAGE_COUNT: "message_count",
   TOOL_CALL_COUNT: "tool_call_count",
   PR_COUNT: "pr_count",
@@ -101,7 +102,6 @@ export function buildCostOutputSnapshotRows(
       makeRow(snapshotDate, COST_OUTPUT_KEYS.COST_CACHE_WRITE, rec.costCacheWrite, metaStr),
       makeRow(snapshotDate, COST_OUTPUT_KEYS.COST_TOTAL, rec.costTotal, metaStr),
       makeRow(snapshotDate, COST_OUTPUT_KEYS.LLM_CALL_COUNT, rec.callCount, metaStr),
-      makeRow(snapshotDate, COST_OUTPUT_KEYS.CACHE_HIT_RATE, rec.cacheHitRate, metaStr),
     );
   }
 
