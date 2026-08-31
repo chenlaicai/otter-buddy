@@ -55,9 +55,18 @@ modules:
 
 - `npx tsc --noEmit`：通过
 - `npx vitest run tests/frameworks/agent/ tests/frameworks/config/`：19 文件 315 测试全过
-- 全量套件：**193 文件 2365 测试全过**（无 pre-existing 失败，无需声明）
+- 全量套件：**193 文件 2365 测试全过**（无 pre-existing 失败，无需声明）；审视处置后 2367 全过
 - `npx eslint`（改动文件）：通过
 - **最简实现检查**：已过——单点改动（一处调用序修正 + 占位 ctx），无新增依赖、无新增文件（测试文件除外），未引入抽象层。
+
+## 对抗审视处置（检视獭tumv，mimo 异体）
+
+| 发现 | 级别 | 处置 | 更好/更差
+|------|------|------|------
+| 1. EMPTY_TOOL_CONTEXT 缺 signalRepo，信号工具（halt_otter/query_signals/resolve_signal）被白名单永久滤除——tool-factory.ts:773 从 ctx.signalRepo 条件注册，占位 ctx 缺该字段时注册全集不含信号工具，真实注册时反被 allowedNames 滤除；manifest 成功路径丢信号工具、失败路径（fallback 硬编码）反而有，路径依赖的巧合 | 严重 | 接受并修复：占位 ctx 拆为 EMPTY_TOOL_CONTEXT_BASE（模块级基础字段）+ buildOtterToolWhitelist 运行时补 signalRepo: this.cfg.signalRepo | 更好（1 处补全，条件注册字段与真实 ctx 同源）
+| 2. 测试未验证信号工具进入白名单，断言面与生产面不同构 | 建议 | 接受并修复：REGISTERED_WITH_SIGNAL 常量 + 2 新断言（含信号工具时进入 big 白名单 / 缺失时也缺——钉住 bug 条件） | 更好
+| 3. projectRoot 4→3 级修正是真修复非掩盖（独立验证 worktree 根 manifest 可加载） | 建议 | 无需额外行动，结论采纳 | —
+| 4. 大獭修复方式优于补 fallback 列表（治本，不引入新反向依赖） | 建议 | 结论采纳；EMPTY_TOOL_CONTEXT 隐患由发现 1 修复消除 | — |
 
 ## 遗留观察（非阻断）
 

@@ -51,15 +51,15 @@ import { createEventHandler } from "./agent-event-utils";
 import type { AgentEvent } from "./agent-event-utils";
 
 /**
- * F20260831tumv：仅用于计算注册工具全集的占位 ToolContext。
+ * F20260831tumv：仅用于计算注册工具全集的占位 ToolContext（模块级基础字段）。
  * Why：createTools 声明上依赖 ToolContext，但实际工厂实现（bootstrap/platforms.ts 注入的
  * tool-factory 路径）只消费 signalRepo / otterId / conversationId 等少数字段，不读实体工具
  * （Ledger 等）。传占位上下文可零副作用获取全部注册工具名，供 manifest "*" 展开使用。
+ * signalRepo 等影响条件注册的字段由 buildOtterToolWhitelist 运行时补充（检视发现 1）。
  * 注：若未来工具工厂改为惰性注册（按 ctx 字段过滤注册集），需改回从 buildCustomTools
  * 内部拿真实全集，见特性文档 F20260831tumv 的遗留观察。
  */
-const EMPTY_TOOL_CONTEXT: ToolContext = {
-  // 占位 client：真实工厂不读该字段；若工具注册逻辑未来消费 client，需改为从 buildCustomTools 内部取全集
+const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
   client: undefined as unknown as ToolContext["client"],
   otterId: "",
   conversationId: "",
@@ -523,7 +523,15 @@ export class PiSessionFactory implements AgentGateway {
     // 保证 tool-factory 新注册的工具（如 PR4/PR5 的 stock_data/paper_trade）自动进入 big 型白名单。
     // 旧序（先白名单后注册）在 "*" 展开时退化为 getOtterToolNamesForType 的 stale 硬编码 fallback，
     // 曾致 stock_data/paper_trade 对 big 型不可见（0831 操盘日报现场）。
-    const registeredTools = this.cfg.createTools(EMPTY_TOOL_CONTEXT, this.cfg.healingRepo, this.logger);
+    //
+    // 占位 ctx 必须携带影响 tool-factory 条件注册的字段（检视发现 1）：
+    // signalRepo 缺失时 halt_otter/query_signals/resolve_signal 不注册 → 不进白名单 →
+    // 真实注册时反被 allowedNames 滤除。client/otterId 等运行时字段工厂不读，可占位。
+    const ctx: ToolContext = {
+      ...EMPTY_TOOL_CONTEXT_BASE,
+      signalRepo: this.cfg.signalRepo,
+    };
+    const registeredTools = this.cfg.createTools(ctx, this.cfg.healingRepo, this.logger);
     return getOtterToolNamesForType(otterType, registeredTools.map(t => t.name), process.cwd(), this.logger);
   }
 

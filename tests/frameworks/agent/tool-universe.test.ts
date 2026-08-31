@@ -20,6 +20,9 @@ import { join } from "node:path";
 describe("F20260831tumv: manifest '*' 展开的工具全集", () => {
   const STALE_FALLBACK = ["speak", "yield", "search_memory"]; // 简化的旧硬编码语义
   const REGISTERED = ["speak", "yield", "search_memory", "stock_data", "paper_trade"];
+  // 检视发现 2：注册全集应含条件注册的工具（signalRepo 注入时 tool-factory 会注册），
+  // 钉住 buildOtterToolWhitelist 占位 ctx 缺 signalRepo 时白名单丢信号工具的 bug 条件
+  const REGISTERED_WITH_SIGNAL = [...REGISTERED, "halt_otter", "query_signals", "resolve_signal"];
 
   const manifest: ToolManifest = {
     schemaVersion: 2,
@@ -45,6 +48,20 @@ describe("F20260831tumv: manifest '*' 展开的工具全集", () => {
     expect(whitelist).toEqual(REGISTERED);
     expect(whitelist).toContain("stock_data");
     expect(whitelist).toContain("paper_trade");
+  });
+
+  it("检视发现 1/2：注册全集含信号工具时，big 型白名单同步含——占位 ctx 必须带 signalRepo", () => {
+    const whitelist = getToolNamesFromManifest(manifest, "big", REGISTERED_WITH_SIGNAL);
+    expect(whitelist).toContain("halt_otter");
+    expect(whitelist).toContain("query_signals");
+    expect(whitelist).toContain("resolve_signal");
+  });
+
+  it("钉住 bug 条件：注册全集缺信号工具（占位 ctx 缺 signalRepo 时），白名单也缺——修复必须防住此路径", () => {
+    const whitelist = getToolNamesFromManifest(manifest, "big", REGISTERED);
+    expect(whitelist).not.toContain("halt_otter");
+    expect(whitelist).not.toContain("query_signals");
+    expect(whitelist).not.toContain("resolve_signal");
   });
 
   it("生产路径（真实 manifest）：注册全集经 getOtterToolNamesForType 后 big 型含 stock_data/paper_trade", () => {
