@@ -144,8 +144,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
   });
 }
 
-export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db } = options;
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig } = options;
   await agentGateway.warmup();
 
   // PR4: 注册纸面交易函数（function executor 使用）
@@ -184,6 +184,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     (conversationId) => repos.conversation.getLinkedResources(conversationId, { status: "active" }),
     uc.manageContext,
     buildHandoffPackage,
+    // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
+    appConfig?.circuitBreaker.healthySessionThresholdMs,
   );
 
   // F20260827he2f：启动时探针——验证 healing_repo 可达，熔断事件落库能力正常

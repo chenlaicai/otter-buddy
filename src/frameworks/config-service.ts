@@ -92,6 +92,8 @@ export interface AppConfig {
     streamingTimeoutMs: number;
     /** 首字节超时（F20260804dglp）：prompt 后无 delta 的挂死保护 */
     firstByteTimeoutMs: number;
+    /** F20260831cbkw：熔断创建的 session 年龄窗口阈值（ms）——超过此时间视为「已证明健康」，允许再次熔断 */
+    healthySessionThresholdMs: number;
   };
   feishu?: {
     appId: string;
@@ -226,6 +228,7 @@ interface RawConfig {
     };
     streamingTimeoutMs?: number;
     firstByteTimeoutMs?: number;
+    healthySessionThresholdMs?: number;
   };
   feishu?: {
     appId?: string;
@@ -359,6 +362,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     outputGuard: buildOutputGuardConfig(raw),
     streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
     firstByteTimeoutMs: d(raw.circuitBreaker?.firstByteTimeoutMs, 300000),
+    healthySessionThresholdMs: d(raw.circuitBreaker?.healthySessionThresholdMs, 2 * 60 * 60 * 1000),
   };
 }
 

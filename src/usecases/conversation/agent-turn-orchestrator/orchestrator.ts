@@ -353,6 +353,7 @@ export class AgentTurnOrchestrator {
    * 当前消息收尾为 failed + 熔断说明；熔断信号跨层上抛（executeTurn 不消费），
    * 由 agent-invoker 执行 restartSession + 写 circuit_break 事件 + 全新 invoke。
    */
+  // eslint-disable-next-line max-lines-per-function -- handleCircuitBreak 是熔断主路径，拆分会破坏控制流内聚性
   private async handleCircuitBreak(ctx: RouteContext): Promise<TurnResult> {
     // 熔断依赖 healing_events 状态载体（上限/二级判定）；不可用时降级为旧 abort 语义
     if (!ctx.callbacks.isCircuitBreakerEnabled()) {
@@ -380,6 +381,20 @@ export class AgentTurnOrchestrator {
         messageId: ctx.input.messageId,
         otterId: ctx.input.otterId,
       });
+      // F20260831cbkw：上限命中时发系统消息通知搭档（现状是静默死，搭档 8 小时后才发现）
+      try {
+        const sysMsg = await ctx.callbacks.sendSystem(
+          ctx.input.conversationId,
+          '[系统保护] 该獭连续输出退化且已达熔断上限，发言已中断。如需恢复请重启该獭。',
+        );
+        // SSE 事件对齐：主熔断路径 sendSystem 后有 system.message 事件，上限分支也要有
+        this.safeEmitEvent(ctx.callbacks, {
+          event: "system.message",
+          data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+        });
+      } catch {
+        // 通知失败不影响 abort 流程
+      }
       return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason: 'degenerate_output' });
     }
 

@@ -283,7 +283,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     })
     : undefined;
 
-  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db });
+  const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
 
