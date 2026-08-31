@@ -64,7 +64,7 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 | 模块 | 职责 |
 |------|------|
 | `cost-output-collector.ts` | LLMCallCollector：解析 session JSONL，join agent_sessions+otters 表，按 date+otter+model 聚合 token/cost/cacheHitRate；OtterOutputCollector：查询 messages 表按 otter+date 聚合发言计数；新增 collectToolCallCounts（session JSONL 统计 toolCall content block）、collectPrCounts（git log merge commit 统计）、collectFdocCounts（docs/features/ frontmatter 统计）、collectDispatchTaskCounts（otter_context 表 dispatch:* key 统计已完成/失败任务） |
-| `cost-output-rows.ts` | 将采集结果转为 health_snapshots 的 CreateSnapshotRow 格式（metric_type=cost_output，11 个指标键 per cost 记录 + 1 个 per output 记录；#602 删除 cache_hit_rate 死键后 12→11） |
+| `cost-output-rows.ts` | 将采集结果转为 health_snapshots 的 CreateSnapshotRow 格式（metric_type=cost_output，12 个指标键 per cost 记录 + 1 个 per output 记录） |
 
 ### 修改模块
 
@@ -92,7 +92,7 @@ messages 表   ──→ OtterOutputCollector ──→ per-otter per-day 发言
 | cost_cache_write | 缓存写入成本 |
 | cost_total | 总成本 |
 | llm_call_count | LLM 调用次数 |
-| ~~cache_hit_rate~~ | 已删（#602）：无消费者死数据，消费端统一从 cache_read_tokens/input_tokens 推导 |
+| cache_hit_rate | 缓存命中率（cacheRead / (cacheRead + input)） |
 | message_count | 獭发言计数 |
 | tool_call_count | 工具调用计数（session JSONL 中 toolCall content block 统计） |
 | pr_count | PR 数（git log merge commit 统计，per-date 全局） |
