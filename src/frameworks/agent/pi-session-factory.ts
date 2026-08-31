@@ -50,6 +50,22 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 import { createEventHandler } from "./agent-event-utils";
 import type { AgentEvent } from "./agent-event-utils";
 
+/**
+ * F20260831tumv：仅用于计算注册工具全集的占位 ToolContext（模块级基础字段）。
+ * Why：createTools 声明上依赖 ToolContext，但实际工厂实现（bootstrap/platforms.ts 注入的
+ * tool-factory 路径）只消费 signalRepo / otterId / conversationId 等少数字段，不读实体工具
+ * （Ledger 等）。传占位上下文可零副作用获取全部注册工具名，供 manifest "*" 展开使用。
+ * signalRepo 等影响条件注册的字段由 buildOtterToolWhitelist 运行时补充（检视发现 1）。
+ * 注：若未来工具工厂改为惰性注册（按 ctx 字段过滤注册集），需改回从 buildCustomTools
+ * 内部拿真实全集，见特性文档 F20260831tumv 的遗留观察。
+ */
+const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
+  client: undefined as unknown as ToolContext["client"],
+  otterId: "",
+  conversationId: "",
+  currentMessageId: "",
+};
+
 /** Agent 执行结果 */
 export interface AgentRunResult {
   text: string;
@@ -501,12 +517,30 @@ export class PiSessionFactory implements AgentGateway {
 
 
 
+  /** F20260831tumv：计算某 otter 类型的自定义工具白名单（manifest 展开以注册全集为 universe） */
+  private buildOtterToolWhitelist(otterType: string): string[] {
+    // 注册工具全集先于白名单计算——manifest "*" 展开以此为全集，
+    // 保证 tool-factory 新注册的工具（如 PR4/PR5 的 stock_data/paper_trade）自动进入 big 型白名单。
+    // 旧序（先白名单后注册）在 "*" 展开时退化为 getOtterToolNamesForType 的 stale 硬编码 fallback，
+    // 曾致 stock_data/paper_trade 对 big 型不可见（0831 操盘日报现场）。
+    //
+    // 占位 ctx 必须携带影响 tool-factory 条件注册的字段（检视发现 1）：
+    // signalRepo 缺失时 halt_otter/query_signals/resolve_signal 不注册 → 不进白名单 →
+    // 真实注册时反被 allowedNames 滤除。client/otterId 等运行时字段工厂不读，可占位。
+    const ctx: ToolContext = {
+      ...EMPTY_TOOL_CONTEXT_BASE,
+      signalRepo: this.cfg.signalRepo,
+    };
+    const registeredTools = this.cfg.createTools(ctx, this.cfg.healingRepo, this.logger);
+    return getOtterToolNamesForType(otterType, registeredTools.map(t => t.name), process.cwd(), this.logger);
+  }
+
   /** 创建带工具配置的 AgentSession */
   // eslint-disable-next-line max-params, complexity -- Phase 2: readOnly 参数增加工具过滤
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, turnText?: { text: string }, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const messageId = options?.messageId;
-    const otterToolNames = getOtterToolNamesForType(otterType, undefined, process.cwd(), this.logger);
+    const otterToolNames = this.buildOtterToolWhitelist(otterType);
     const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, messageId, turnText, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, logger: this.logger });
     const codingTools = getCodingToolsForOtterType(otterType);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
