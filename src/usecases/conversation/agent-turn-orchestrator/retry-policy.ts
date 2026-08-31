@@ -22,6 +22,8 @@ export function buildRetryFailBody(reason: string): string {
   if (reason === "first_byte_timeout") return "模型响应超时";
   if (reason.startsWith("circuit_break:")) return "工具调用异常";
   if (reason === "api_error") return "模型服务异常";
+  // F20260831aksp T2：对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
+  if (reason.startsWith("bash_safety:")) return "检测到针对主进程的不允许命令，已拦截并引导海獭重新分析任务";
   return "执行异常";
 }
 
@@ -36,7 +38,7 @@ export function buildYieldRetryMsg(toolCallCount?: number, hasOrphanText?: boole
     : "[系统提醒] 你上一次行动没有调用 yield 交棒就结束了。请调用 yield(to) 把行动权交给下一位。";
 }
 
-/** 构建自动重试的系统提醒消息（streaming_timeout / first_byte_timeout / circuit_break 重试时注入） */
+/** 构建自动重试的系统提醒消息（streaming_timeout / first_byte_timeout / circuit_break / bash_safety 重试时注入） */
 export function buildAutoRetryMsg(reason: string): string {
   if (reason === 'streaming_timeout') {
     return '[系统提醒] 你上一轮生成过程超时，已被系统自动重试。请从中断处继续完成你的发言，不需要重新开始。';
@@ -46,6 +48,10 @@ export function buildAutoRetryMsg(reason: string): string {
   }
   if (reason.startsWith('circuit_break:')) {
     return '[系统提醒] 你上一轮工具调用异常，已被系统自动重试。请检查工具调用策略后继续。';
+  }
+  // F20260831aksp T2：透传拦截原因 + 无 restart 出口口径（搭档终审：不存在海獭重启主进程的合法场景）
+  if (reason.startsWith('bash_safety:')) {
+    return `[系统提醒] 你刚才的 bash 命令被安全守卫拦截：${reason.slice('bash_safety:'.length)} 该命令不允许：主进程是所有海獭（包括你）的运行环境，任何情况下都不得终止——你不存在需要重启或停止主进程的合法场景。若你的目的是验证代码变更：请在 worktree 中用独立端口启动隔离实例验证；若你观察到服务异常：请报告搭档处理。请基于以上约束重新分析当前任务，调整方案继续执行，不要重复原命令。`;
   }
   return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
 }
@@ -111,7 +117,7 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
     if (guardReason.includes('event_timeout')) return '[系统保护] 单次工具调用超时，已自动中断。';
     return '[系统保护] 检测到工具调用异常循环，已自动中断。';
   }
-  if (guardReason?.startsWith('bash_safety:')) return '[系统保护] 检测到危险命令（如 kill 主进程），已自动中断。请改用 otter-buddy.sh restart 或报告大獭。';
+  if (guardReason?.startsWith('bash_safety:')) return '[系统保护] 检测到针对主进程的不允许命令（主进程是海獭运行环境，任何情况下不得终止），已自动中断。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。';
   return '[系统保护] 输出异常，已自动中断。';
 }
 

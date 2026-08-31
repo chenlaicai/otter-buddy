@@ -62,6 +62,19 @@ export class WeixinApiClient {
     return headers;
   }
 
+  /** GET 语义：目前仅扫码状态轮询使用（见 pollQrStatus 的协议注释） */
+  private async get<T>(endpointWithQuery: string, timeoutMs: number): Promise<T> {
+    const res = await fetch(`${this.baseUrl}/${endpointWithQuery}`, {
+      method: "GET",
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      throw new Error(`weixin api ${endpointWithQuery.split("?")[0]} HTTP ${res.status}`);
+    }
+    return (await res.json()) as T;
+  }
+
   /** POST 语义：非 2xx 抛错；2xx 但 ret≠0 由调用方按业务分支处理（长轮询有专门语义） */
   private async post<T>(endpoint: string, body: Record<string, unknown>, timeoutMs: number): Promise<T> {
     const res = await fetch(`${this.baseUrl}/${endpoint}`, {
@@ -87,10 +100,28 @@ export class WeixinApiClient {
 
   /**
    * 长轮询扫码状态（无需 token）。
-   * 服务端 hold 至扫码事件或超时；scaned_but_redirect 时需换 baseurl 重试。
+   *
+   * ⚠️ 本端点是 ilink API 的 GET 例外：qrcode/verify_code 走 query 参数，
+   * 不走 POST JSON body——POST 会被网关静默吞掉（HTTP 200 + ret:1，无
+   * status 字段），扫码事件永远收不到（2026-08-31 真机验收发现，对照
+   * openclaw-weixin@2.4.6 login-qr.ts pollQRStatus 的 GET 实现修正）。
+   * 参考实现无 get_qrcode_status_buf 游标（该字段在本插件源码中不存在，
+   * 系 PoC 误引），轮询间隔由服务端 hold + 客户端 1s 兜底控制。
+   * 客户端超时（35s 无事件）视为 wait 继续轮询，不当错误处理。
    */
-  pollQrStatus(body: { qrcode: string; get_qrcode_status_buf?: string; verify_code?: string }, timeoutMs = 36000): Promise<WeixinQrStatusResp> {
-    return this.post("ilink/bot/get_qrcode_status", { ...body, base_info: this.baseInfo() }, timeoutMs);
+  async pollQrStatus(params: { qrcode: string; verify_code?: string }, timeoutMs = 35000): Promise<WeixinQrStatusResp> {
+    const qs = new URLSearchParams({ qrcode: params.qrcode });
+    if (params.verify_code) qs.set("verify_code", params.verify_code);
+    try {
+      return await this.get(`ilink/bot/get_qrcode_status?${qs.toString()}`, timeoutMs);
+    } catch (err) {
+      // 长轮询超时/瞬时网络错误 → wait 语义继续轮询（与参考实现一致），
+      // 不让会话直接进 error 终态
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        return { status: "wait" };
+      }
+      throw err;
+    }
   }
 
   /** 长轮询收消息。游标语义：首次空串，服务端返回新游标下轮回传 */

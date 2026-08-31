@@ -6,6 +6,7 @@ import type { LocalConversation as Conversation, LocalOtter as Otter, LocalLinke
 import { sortSessionChain } from '../../lib/session-chain'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { OtterProfileCard } from '../../components/OtterProfileCard'
+import { fmtTime } from '../../lib/utils'
 import { ScheduledTaskSection } from './ScheduledTaskSection'
 import { WorkspacePanel } from './WorkspacePanel'
 
@@ -351,7 +352,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
           <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
           {activeS && (
             <div className="text-[9px] text-stone-400">
-              第{activeGen}世 · {activeS.startedAt.split(' ')[1] || activeS.startedAt}
+              第{activeGen}世 · {fmtTime(activeS.startedAt)}
             </div>
           )}
         </div>

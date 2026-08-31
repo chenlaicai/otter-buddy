@@ -98,6 +98,54 @@ export class ManageWorkspace {
   }
 
   /**
+   * 获取工作区统计信息（文件数、总大小、top N 大文件）。
+   * 用于收尾清理时评估工作区堆积状况。
+   */
+  async getWorkspaceStats(
+    conversationId: string,
+    topN: number = 10,
+  ): Promise<{
+    fileCount: number;
+    totalSize: number;
+    topFiles: Array<{ path: string; size: number }>;
+  }> {
+    const exists = await this.workspaceGateway.exists(conversationId);
+    if (!exists) {
+      return { fileCount: 0, totalSize: 0, topFiles: [] };
+    }
+
+    const allFiles: Array<{ path: string; size: number }> = [];
+
+    // 递归遍历工作区
+    const walk = async (dir: string) => {
+      const entries = await this.workspaceGateway.listDir(conversationId, dir);
+      for (const entry of entries) {
+        const relPath = dir ? `${dir}/${entry.name}` : entry.name;
+        if (entry.isDirectory) {
+          await walk(relPath);
+        } else if (entry.isFile) {
+          try {
+            const stat = await this.workspaceGateway.statFile(conversationId, relPath);
+            allFiles.push({ path: relPath, size: stat.size });
+          } catch {
+            // 文件在遍历过程中被删除等异常，跳过
+          }
+        }
+      }
+    };
+
+    await walk('');
+
+    allFiles.sort((a, b) => b.size - a.size);
+
+    return {
+      fileCount: allFiles.length,
+      totalSize: allFiles.reduce((sum, f) => sum + f.size, 0),
+      topFiles: allFiles.slice(0, topN),
+    };
+  }
+
+  /**
    * 获取工作区根目录路径
    * @param conversationId 对话 ID
    * @returns 工作区绝对路径

@@ -110,6 +110,20 @@ cmd_stop() {
 
   # 有 PID 文件且进程存活：只杀自己的（先 SIGTERM 优雅退出，超时再 SIGKILL）
   if [ -n "$my_pid" ] && kill -0 "$my_pid" 2>/dev/null; then
+    # F20260831aksp T1 杀伐校验：PID 文件里的进程必须确实是 $PORT 的监听者。
+    # 关闭 8/29 事故 A 窗口：主仓目录跑 stop -p 3002 时 PID 文件指向 3000 主服务，-p 参数原先不参与杀伐决策。
+    # lsof 不可用时跳过校验降级放行（增强闸门不做硬依赖）；端口无人监听但进程存活 → 拒杀（正是事故 A 形态）。
+    if command -v lsof >/dev/null 2>&1; then
+      local listen_pids
+      listen_pids=$(lsof -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+      if ! echo "$listen_pids" | grep -qx "$my_pid"; then
+        echo "[error] Refusing to stop: PID file ($PID_FILE) points to PID $my_pid,"
+        echo "        but it is NOT listening on port $PORT (listener: ${listen_pids:-none})."
+        echo "        Likely wrong directory or PID file from another instance."
+        echo "        If you are SURE this process should die:  kill $my_pid"
+        return 1
+      fi
+    fi
     echo -n "Stopping Otter Buddy (PID $my_pid) ..."
     kill -15 "$my_pid" 2>/dev/null || true
     for _ in $(seq 1 5); do

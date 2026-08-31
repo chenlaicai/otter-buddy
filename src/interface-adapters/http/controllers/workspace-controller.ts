@@ -47,6 +47,27 @@ export class WorkspaceController {
   }
 
   /**
+   * GET /api/conversations/:id/workspace/stats
+   * 获取工作区统计信息（文件数、总大小、top N 大文件）
+   * Query params:
+   *   - top?: number - top N 大文件数量，默认 10
+   */
+  async getStats(c: Context): Promise<Response> {
+    try {
+      const conversationId = this.validateConversationId(param(c, "id"));
+      const topN = parseInt(c.req.query("top") || "10", 10);
+
+      const stats = await this.manageWorkspace.getWorkspaceStats(
+        conversationId,
+        isNaN(topN) ? 10 : Math.max(0, Math.min(topN, 50)),
+      );
+      return c.json(stats);
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /**
    * GET /api/conversations/:id/workspace/file
    * 读取工作区文件内容
    * Query params:

@@ -51,7 +51,6 @@ function renderDetailModal(sessions: OtterSession[]) {
         sessions={{ o1: sessions }}
         onClose={noop}
         onConfirmNewConv={noop}
-        onConfirmChild={noop}
         onConfirmArchive={noop}
         onConfirmCreateOtter={noop}
         onConfirmDissolve={noop}
@@ -166,7 +165,6 @@ function renderCreateModal(onConfirm: (form: unknown) => void) {
         sessions={{}}
         onClose={noop}
         onConfirmNewConv={noop}
-        onConfirmChild={noop}
         onConfirmArchive={noop}
         onConfirmCreateOtter={onConfirm as () => void}
         onConfirmDissolve={noop}

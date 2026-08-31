@@ -30,6 +30,8 @@ export interface AttachGuardsParams {
   orchestrationCheck?: (toolName: string, args?: unknown) => string | null;
   /** F20260830bsgr：项目根目录（bash 安全守卫读 .otter-buddy.pid 用） */
   projectRoot?: string;
+  /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
+  onGuardIntercept?: (input: { command: string; reason: string }) => void;
 }
 
 /** _attachGuards 返回类型 */
@@ -48,7 +50,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, onGuardIntercept: params.onGuardIntercept });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -162,7 +164,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   // F20260830bsgr：bash 安全守卫——读取主进程 PID
   // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
@@ -219,6 +221,8 @@ export function attachCircuitBreaker(
             mainPid,
             command: command.substring(0, 200),
           });
+          // F20260831aksp T3：拦截落 healing（框架层 medium 样本；失败不阻断拦截本身）
+          options?.onGuardIntercept?.({ command, reason: safetyBlock });
           clearEventTimer(toolCallId);
           doAbort(`bash_safety:${safetyBlock}`);
           return;
