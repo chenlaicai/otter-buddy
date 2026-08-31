@@ -352,7 +352,12 @@ export class AgentTurnOrchestrator {
         severity: "high",
         description: `检测到输出异常重复（retry=${ctx.input.retryCount}）`,
         suggestion: "连续退化将触发熔断重启（F20260818cbkr）",
-        context: { retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
+        context: {
+          retryCount: ctx.input.retryCount,
+          toolCallCount: ctx.toolCallCount,
+          // F20260831dgcsq: retry 前首条消息 id（因果链锚：degenerate(retry=0,A) ← preRetryMessageId ← degenerate(retry=1,B)）
+          ...(ctx.input.preRetryMessageId ? { preRetryMessageId: ctx.input.preRetryMessageId } : {}),
+        },
       });
     } catch (err) {
       // F20260827he2f: error 级别 + 完整上下文——让健康检查链路可观测
