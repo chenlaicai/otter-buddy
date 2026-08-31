@@ -12,9 +12,11 @@
 
 ![对话界面](docs/images/conversation.jpg)
 
+![多 Agent 协作演示](docs/images/demo-multi-agent.gif)
+
 ![健康面板：30 天提交趋势/BugFix 比率、提交类型分布、模块热区、特性链五态](docs/images/health-dashboard.jpg)
 
-*两张图都是真实数据：上面一张是日常协作现场，下面一张是系统对自身的健康度量——提交趋势、BugFix 比率、模块热区、特性链状态，由 RHI 扫描 worker 每小时自动计算。*
+*三张图都是真实数据：协作现场、多 Agent 编排流转（GIF 四幕：派工→编排→执行→溯源交回）、系统对自身的健康度量——提交趋势、BugFix 比率、模块热区、特性链状态，由 RHI 扫描 worker 每小时自动计算。*
 
 ## 这是什么
 

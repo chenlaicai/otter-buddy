@@ -15,6 +15,8 @@ import type { Logger } from "@usecases/ports/logger";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
+import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/health-score";
+import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
 
 const OVERVIEW_KEYS = [
   "total_commits", "commits_with_fid", "compliant_commits", "skipped_commits",
@@ -63,6 +65,55 @@ function parseLatestDistributions(
     }
   }
   return out;
+}
+
+/** 最新一天 health_index 行 → 维度列表 + overall 归因元数据 */
+function parseLatestHealthIndex(
+  rows: Array<{ snapshot_date: string; metric_key: string; metric_value: number; metadata: string | null }>,
+  latestDate: string,
+): {
+  dims: Array<{ dimension: DimensionId; name: string; score: number; status: string }>;
+  overallScore: number | null;
+  overallMeta: { attribution?: string | null; overallStatus?: string } | null;
+} {
+  const dims: Array<{ dimension: DimensionId; name: string; score: number; status: string }> = [];
+  let overallScore: number | null = null;
+  let overallMeta: { attribution?: string | null; overallStatus?: string } | null = null;
+  for (const r of rows) {
+    if (r.snapshot_date !== latestDate) continue;
+    if (r.metric_key === "overall") {
+      overallScore = r.metric_value;
+      try {
+        overallMeta = r.metadata ? JSON.parse(r.metadata) : null;
+      } catch {
+        overallMeta = null;
+      }
+      continue;
+    }
+    dims.push({
+      dimension: r.metric_key as DimensionId,
+      name: DIMENSION_NAMES[r.metric_key as DimensionId] ?? r.metric_key,
+      score: r.metric_value,
+      status: statusFromScore(r.metric_value),
+    });
+  }
+  return { dims, overallScore, overallMeta };
+}
+
+/** 每维 + overall 的近 14 天序列 → 走向判定 */
+function judgeTrends(
+  rows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>,
+  dimensionKeys: string[],
+): Partial<Record<DimensionId | "overall", TrendDirection | null>> {
+  const trend: Partial<Record<DimensionId | "overall", TrendDirection | null>> = {};
+  for (const key of dimensionKeys) {
+    const series = rows
+      .filter(r => r.metric_key === key)
+      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date))
+      .map(r => r.metric_value);
+    trend[key as DimensionId | "overall"] = judgeTrend(series);
+  }
+  return trend;
 }
 
 /** cost_output 趋势序列构建（#583）
@@ -262,6 +313,38 @@ export class RhiController {
       });
     } catch (err) {
       this.logger.error("RHI trends failed", err instanceof Error ? err : undefined);
+      return c.json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** GET /api/health/score — 健康指标（issue #595 PR1）：最新维度分 + 状态 + 走向 + 拖累归因
+   *  数据源 health_index 行（worker 旁路写入）；未上线路径返回空态（面板显示「—」）。 */
+  async score(c: Context): Promise<Response> {
+    try {
+      const startDate = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const rows = this.snapshotRepo
+        .findByDateRange(startDate, new Date().toISOString().slice(0, 10))
+        .filter(r => r.metric_type === "health_index");
+
+      if (rows.length === 0) {
+        return c.json({ available: false, snapshotDate: null, overall: null, overallStatus: null, dimensions: [], trend: {}, attribution: null });
+      }
+
+      const latestDate = rows[rows.length - 1]!.snapshot_date;
+      const { dims, overallScore, overallMeta } = parseLatestHealthIndex(rows, latestDate);
+      const trend = judgeTrends(rows, [...dims.map(d => d.dimension), "overall"]);
+
+      return c.json({
+        available: true,
+        snapshotDate: latestDate,
+        overall: overallScore,
+        overallStatus: overallMeta?.overallStatus ?? (overallScore !== null ? statusFromScore(overallScore) : null),
+        dimensions: dims,
+        trend,
+        attribution: overallMeta?.attribution ?? null,
+      });
+    } catch (err) {
+      this.logger.error("RHI score failed", err instanceof Error ? err : undefined);
       return c.json({ error: err instanceof Error ? err.message : String(err) });
     }
   }

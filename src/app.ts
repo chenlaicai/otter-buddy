@@ -153,6 +153,9 @@ function createRhiScanWorker(deps: {
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
+  // 健康评分 D5 输入：open 信号计数（issue #595 PR1）
+  const signalRepo = new SignalRepository(deps.db);
+
   // 成本/产出快照落库端口（#583）：同 repo 的 replaceForDate，独立 metric_type
   const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
     snapshotRepo.replaceForDate(snapshotDate, rows.map(r => ({
@@ -177,7 +180,7 @@ function createRhiScanWorker(deps: {
   const sessionsDir = path.join(deps.rootDir, "data", "sessions");
 
   return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, {
-    fidMentionSource, snapshotSink, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
+    fidMentionSource, snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
   });
 }
 

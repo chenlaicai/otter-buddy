@@ -11,6 +11,8 @@ export function isRetryableGuardAbort(reason: string): boolean {
   if (reason === 'streaming_timeout') return true;
   if (reason === 'first_byte_timeout') return true;
   if (reason.startsWith('circuit_break:')) return true;
+  // F20260830bsgr: bash 安全守卫命中后给 LLM 一次自纠机会（R2-1 delta 复核裁决）
+  if (reason.startsWith('bash_safety:')) return true;
   return false;
 }
 
@@ -89,6 +91,7 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
     if (guardReason.includes('event_timeout')) return '[系统保护] 单次工具调用超时，已自动中断。';
     return '[系统保护] 检测到工具调用异常循环，已自动中断。';
   }
+  if (guardReason?.startsWith('bash_safety:')) return '[系统保护] 检测到危险命令（如 kill 主进程），已自动中断。请改用 otter-buddy.sh restart 或报告大獭。';
   return '[系统保护] 输出异常，已自动中断。';
 }
 
