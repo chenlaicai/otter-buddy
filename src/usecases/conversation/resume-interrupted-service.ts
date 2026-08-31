@@ -67,7 +67,7 @@ export class ResumeInterruptedService {
         byConversation.set(item.conversationId, list);
       }
       // F20260830rfto: 每个 conversation 独立 try/catch，一条失败不阻塞其余
-      const results = new Map<string, { resumed: number; failed: number }>();
+      const results = new Map<string, { resumed: number; skipped: number; failed: number }>();
       for (const [conversationId, items] of byConversation) {
         const result = await this.resumeConversation(conversationId, items);
         results.set(conversationId, result);
@@ -84,12 +84,12 @@ export class ResumeInterruptedService {
   /** #613：安全发送恢复完成终态消息——失败不阻塞主流程 */
   private async sendCompletedSafe(
     conversationId: string,
-    result: { resumed: number; failed: number },
+    result: { resumed: number; skipped: number; failed: number },
   ): Promise<void> {
     try {
       await this.deps.sendMessage.sendSystem(
         conversationId,
-        buildRestartResumeCompletedMsg(result.resumed, result.failed),
+        buildRestartResumeCompletedMsg(result.resumed, result.skipped, result.failed),
       );
     } catch (err) {
       this.deps.logger.warn("Resume completed sendSystem failed", {
@@ -130,8 +130,9 @@ export class ResumeInterruptedService {
   private async resumeConversation(
     conversationId: string,
     items: Array<{ messageId: string; conversationId: string; otterId: string }>,
-  ): Promise<{ resumed: number; failed: number }> {
+  ): Promise<{ resumed: number; skipped: number; failed: number }> {
     let resumed = 0;
+    let skipped = 0;
     let failed = 0;
     try {
       await this.deps.sendMessage.sendSystem(conversationId, buildRestartResumeSystemMsg(items.length));
@@ -142,24 +143,30 @@ export class ResumeInterruptedService {
       });
     }
     for (const item of items) {
-      const ok = await this.resumeItemSafe(item);
-      if (ok) resumed++;
+      const outcome = await this.resumeItemSafe(item);
+      // 检视发现1（#617）：skipped（stale 数据清理/并发窗口跳过，消息已 exhausted）
+      // 与 failed（恢复失败，可手动重试）分开统计——「请手动重试」对 stale 数据无操作意义
+      if (outcome === "done") resumed++;
+      else if (outcome === "skipped") skipped++;
       else failed++;
     }
-    return { resumed, failed };
+    return { resumed, skipped, failed };
   }
 
-  /** F20260830rfto: 单条 resume 的安全包装——捕获所有异常确保不崩循环 */
-  private async resumeItemSafe(item: { messageId: string; conversationId: string; otterId: string }): Promise<boolean> {
+  /**
+   * F20260830rfto: 单条 resume 的安全包装——捕获所有异常确保不崩循环。
+   * #617 检视发现1：返回三分类 outcome（done/skipped/failed）而非 boolean，
+   * 让 stale 数据清理路径与真实恢复失败在终态消息中区分呈现。
+   */
+  private async resumeItemSafe(item: { messageId: string; conversationId: string; otterId: string }): Promise<"done" | "skipped" | "failed"> {
     try {
-      const outcome = await this.resumeOneWithRetry(item);
-      return outcome === "done";
+      return await this.resumeOneWithRetry(item);
     } catch (err) {
       this.deps.logger.error("Resume item failed after retries", err instanceof Error ? err : new Error(String(err)), {
         messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
       });
       await this.markExhaustedSafe(item.messageId, err);
-      return false;
+      return "failed";
     }
   }
 

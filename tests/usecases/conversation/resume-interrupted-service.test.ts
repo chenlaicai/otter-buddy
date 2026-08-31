@@ -441,7 +441,7 @@ describe("#613 恢复流终态反馈 + healing 台账落账", () => {
   }
 
 
-  // ── #613 方案 A：恢复完成终态消息 + 方案 B：healing 台账落账 ──
+  // ── #613 方案 A：恢复完成终态消息 ──
 
   it("#613 方案 A：恢复完成后发终态消息「N 条已恢复」", async () => {
     await otterRepo.createOtter(otterFixture("otter-big"));
@@ -494,10 +494,69 @@ describe("#613 恢复流终态反馈 + healing 台账落账", () => {
     // conv-1：1 条已恢复
     const sysMsgs1 = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
     expect(sysMsgs1.some(m => m.segments.some(seg => seg.body.includes("1 条中断发言已恢复")))).toBe(true);
-    // conv-2：0 条恢复、1 条未恢复
+    // conv-2：1 条未能恢复（新文案：失败单独列出，不带「0 条已恢复」前缀）
     const sysMsgs2 = await new QueryMessage(repo).getMessages("conv-2", { senderType: "system", limit: 10 });
-    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("0 条中断发言已恢复")))).toBe(true);
-    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("1 条未能恢复")))).toBe(true);
+    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("1 条未能恢复（请手动重试）")))).toBe(true);
+  });
+
+  it("#617 检视发现1：stale data（participant 失效）被统计为「已跳过」，不带「请手动重试」误导", async () => {
+    // Why: resumeOne 返回 "skipped"（stale 数据清理）此前被计入 "failed"，
+    // 终态消息显示「请手动重试」对已 exhausted 的过期数据无操作指引意义。
+    // 修复后 skipped 与 failed 分开统计，文案精确区分。
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    // participant status=left 模拟 stale 现场（服务重启间隙参与者已离开）
+    await repo.createParticipant(participantFixture("otter-big", { status: "left", leftAt: "2026-01-02T00:00:00Z" }));
+    await seedInterrupted(db, repo);
+    const chain = stubChainEngine();
+
+    await buildService(chain).resume();
+
+    expect(chain.calls).toHaveLength(0); // stale 数据不触发链引擎
+    const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
+    const completedMsg = sysMsgs.find(m => m.segments.some(seg => seg.body.includes("恢复完成")));
+    expect(completedMsg).toBeDefined();
+    const body = completedMsg!.segments.map(s => s.body).join("");
+    // 关键断言：skipped 走「已跳过」分支，不出现「请手动重试」
+    expect(body).toContain("1 条已跳过（过期/并发，无需处理）");
+    expect(body).not.toContain("请手动重试");
+    // pending 记录已被 exhausted 清理（resumeOne 内 updateResumeStatus）
+    const rows = db.prepare("SELECT status FROM restart_pending_resumes").all() as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe("exhausted");
+  });
+});
+
+describe("#613 方案 B：healing 台账落账", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+  let otterRepo: SqliteOtterRepository;
+  let sm: SendMessage;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    otterRepo = new SqliteOtterRepository(db);
+
+    const conv: Conversation = {
+      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      completedAt: null, archivedAt: null,
+    };
+    await repo.create(conv);
+    const turn: Turn = {
+      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
+      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+    };
+    await repo.createTurn(turn);
+    db.prepare(`
+      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
+      VALUES (?, 'conv-1', 'user', 'chen', 'completed', 0, 'turn-1', '["otter-big"]', '搭档', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+    `).run(crypto.randomUUID());
+
+    sm = new SendMessage(repo, otterRepo, stubMemoryIndex(), createTestLogger());
+  });
+
+  afterEach(() => {
+    db.close();
   });
 
   it("#613 方案 B：恢复执行时落一条 healing event（severity=low，1 条中断）", async () => {
@@ -558,6 +617,39 @@ describe("#613 恢复流终态反馈 + healing 台账落账", () => {
     const event = healingRepo.create.mock.calls[0][0];
     expect(event.severity).toBe("medium");
     expect(event.description).toContain("2 条发言中断");
+  });
+
+  it("#617 检视发现2：severity 分级边界 ≥5 条=high（阈值回归锁定）", async () => {
+    // Why: 检视发现 severity=high（≥5 条中断）分支无测试锁定——若阈值被误改为 > 5，
+    // low/medium 测试不会回归。本测试固定 ≥5 → high 的边界行为。
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    // 同一 conversation 5 条中断发言（≥5 触发 high）
+    for (let i = 0; i < 5; i++) {
+      seedInterruptedConv(db, "conv-1", "otter-big", { withSegments: `半截${i}` });
+    }
+    const chain = stubChainEngine();
+    const healingRepo = {
+      create: vi.fn(async () => {}),
+    } as unknown as HealingEventRepository & { create: ReturnType<typeof vi.fn> };
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      healingRepo,
+      delayMs: 0,
+    });
+    await service.resume();
+
+    expect(healingRepo.create).toHaveBeenCalled();
+    expect(healingRepo.create.mock.calls).toHaveLength(1);
+    const event = healingRepo.create.mock.calls[0][0];
+    expect(event.severity).toBe("high");
+    expect(event.description).toContain("5 条发言中断");
   });
 
   it("#613 方案 B：无 pending 记录时不落 healing event", async () => {

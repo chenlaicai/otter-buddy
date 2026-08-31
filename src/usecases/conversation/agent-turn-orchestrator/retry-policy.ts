@@ -74,10 +74,20 @@ export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_co
  * #613：恢复完成的用户可见终态消息（issue #613 方案 A）。
  * Why: 「正在自动恢复」发出后成功路径无终态反馈，用户不知恢复结果（#604 只覆盖失败路径）。
  * 按 conversation 汇总统计——单条恢复的消息粒度太细，用户关心的是「这次重启恢复了几条、没恢复几条」。
+ *
+ * 检视发现1（#617）：三分类 resumed/skipped/failed 分别统计——
+ * skipped 表示 stale 数据清理或并发窗口跳过（对应消息已标记 exhausted），
+ * 用户无操作可做，「请手动重试」对这类数据是误导；failed 才是真正的恢复失败，
+ * 保留可重试的操作指引。
  */
-export function buildRestartResumeCompletedMsg(resumed: number, failed: number): string {
-  if (failed === 0) return `[系统] 恢复完成：${resumed} 条中断发言已恢复。`;
-  return `[系统] 恢复完成：${resumed} 条中断发言已恢复，${failed} 条未能恢复（请手动重试）。`;
+export function buildRestartResumeCompletedMsg(resumed: number, skipped: number, failed: number): string {
+  const parts: string[] = [];
+  if (resumed > 0) parts.push(`${resumed} 条中断发言已恢复`);
+  if (skipped > 0) parts.push(`${skipped} 条已跳过（过期/并发，无需处理）`);
+  if (failed > 0) parts.push(`${failed} 条未能恢复（请手动重试）`);
+  // 全跳过（0 恢复 0 失败）：单条表述避免「0 条中断发言已恢复」的怪味文案
+  if (resumed === 0 && skipped === 0 && failed === 0) parts.push("0 条中断发言已恢复");
+  return `[系统] 恢复完成：${parts.join("，")}。`;
 }
 
 /**

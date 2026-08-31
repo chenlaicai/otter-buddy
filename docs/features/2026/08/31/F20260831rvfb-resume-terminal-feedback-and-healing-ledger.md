@@ -34,10 +34,10 @@ created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 
 | 文件 | 变更 |
 |------|------|
-| `src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts` | 新增 `buildRestartResumeCompletedMsg(resumed, failed)` 消息构建函数 |
-| `src/usecases/conversation/resume-interrupted-service.ts` | `resumeConversation` 返回 `{resumed, failed}` 统计；`resume()` 主流程发终态消息 + 写 healing event；`healingRepo` 注入 deps |
+| `src/usecases/conversation/agent-turn-orchestrator/retry-policy.ts` | 新增 `buildRestartResumeCompletedMsg(resumed, skipped, failed)` 消息构建函数（三分类统计，#617 检视发现1 修复） |
+| `src/usecases/conversation/resume-interrupted-service.ts` | `resumeConversation` 返回 `{resumed, skipped, failed}` 三分类统计（#617 检视发现1：skipped 与 failed 分开，避免「请手动重试」误导 stale 数据）；`resumeItemSafe` 返回三分类 outcome；`resume()` 主流程发终态消息 + 写 healing event；`healingRepo` 注入 deps |
 | `src/app.ts` | 装配 `healingRepo: repos.healingEvent` |
-| `tests/usecases/conversation/resume-interrupted-service.test.ts` | 新增 6 个测试（终态消息 ×2、healing 落账 ×3、non-fatal ×1） |
+| `tests/usecases/conversation/resume-interrupted-service.test.ts` | 新增 8 个测试（终态消息 ×2、stale 统计 skipped ×1、healing 落账 severity low/medium/high ×3、无 pending 不落账 ×1、non-fatal ×1） |
 
 ## 方案设计
 
@@ -51,9 +51,12 @@ resume() 主流程：
     sendSystem(buildRestartResumeCompletedMsg(result.resumed, result.failed))
 ```
 
-消息文案：
+消息文案（#617 检视发现1 修复：三分类精确区分，避免「请手动重试」误导 stale 数据）：
 - 全部成功：`[系统] 恢复完成：N 条中断发言已恢复。`
-- 部分失败：`[系统] 恢复完成：N 条中断发言已恢复，M 条未能恢复（请手动重试）。`
+- 部分跳过（stale 数据清理/并发窗口跳过）：`[系统] 恢复完成：N 条中断发言已恢复，M 条已跳过（过期/并发，无需处理）。`
+- 部分失败：`[系统] 恢复完成：N 条中断发言已恢复，K 条未能恢复（请手动重试）。`
+
+**Why 三分类**：`resumeOne` 返回的 "skipped" 此前被计入 "failed"，终态消息对 stale 数据（participant/message 已失效，消息已 exhausted）显示"请手动重试"——但用户对该数据无可操作路径。三分类让统计与文案一致：skipped=已清理无需处理，failed=真恢复失败可手动重试。
 
 **与 #604 的关系**：#604 的失败路径终态守卫在 `finalizeResumedMessage` 的 done 分支省略了 sendSystem（当时检视建议1 认为旧消息 body 已说明去向）。issue #613 要求成功路径也发终态消息，恢复 done 路径的流内系统消息。**#604 建议1 被本方案方向性覆盖**。
 
@@ -84,7 +87,7 @@ resume() 入口（pending.length > 0 时）：
 
 ## 验证
 
-- `npx vitest run tests/usecases/conversation/` —— 16 文件 227 测试全绿（含本特性新增 6 测试）
+- `npx vitest run tests/usecases/conversation/` —— 16 文件 227 测试全绿（含本特性新增 8 测试）
 - 最简实现检查：已确认——无新增依赖，复用既有 `HealingEventRepository` 接口与 `sendSystem` 通道；severity 分级用简单条件表达式而非引入配置；消息构建函数遵循 `retry-policy.ts` 既有模式
 
 ## 影响范围
@@ -98,3 +101,4 @@ resume() 入口（pending.length > 0 时）：
 - Fixes #613
 - Refs #604（失败路径终态守卫，本方案的对称补充）
 - Refs #599（恢复失败僵尸发言，#604 修复的原始事故）
+- Refs #617 检视发现（skipped/failed 三分类区分 + severity≥5 测试锁定——均在本 PR 承载处置）
