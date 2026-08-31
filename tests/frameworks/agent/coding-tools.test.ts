@@ -132,10 +132,15 @@ describe("getOtterToolNamesForType", () => {
   // F20260827c2sg 审视处置（严重发现 1）：生产环境走 manifest 路径（pi-session-factory 传 process.cwd()），
   // 此前断言未传 projectRoot 走的是 fallback——断言面与生产面不是同一个面，隔离在生产失效。
   // 本组断言走真实 manifest（仓库根 config/tool-manifest.json），与生产同构。
+  // F20260831tumv：原路径多算一级（../../../../ 落在 .claude/worktrees/ 上，无 config/ 目录），
+  // 导致本组「生产路径」断言实际从未走过 manifest，一直在测 fallback（碰巧也绿）。
+  // 修正为 3 级，现在真正走 worktree 根的 config/tool-manifest.json。
   it("生产路径（manifest）：small 型不得含 halt_otter/resolve_signal（编排/裁决仅 big）", () => {
-    const projectRoot = join(import.meta.dirname, "../../../../"); // worktree 根
+    const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根
     const tools = getOtterToolNamesForType("small", undefined, projectRoot);
     expect(tools).toContain("query_signals"); // 信号台账查询开放给 small
+    expect(tools).toContain("stock_data"); // F20260831tumv：small 走 groups 展开，含 stock/paper 块
+    expect(tools).toContain("paper_trade");
     expect(tools).not.toContain("halt_otter");
     expect(tools).not.toContain("resolve_signal");
     expect(tools).not.toContain("create_otter");
@@ -143,7 +148,7 @@ describe("getOtterToolNamesForType", () => {
   });
 
   it("生产路径（manifest）：big 型应含编排/裁决工具", () => {
-    const projectRoot = join(import.meta.dirname, "../../../../"); // worktree 根
+    const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根
     const allToolNames = [
       "speak", "yield", "halt_otter", "resolve_signal", "query_signals",
       "create_otter", "dissolve_otter", "search_memory",
