@@ -116,7 +116,7 @@ describe('MagicWordHelp 问号弹层（F20260831mmwh）', () => {
     const btn = container.querySelector('button[aria-label="Magic Word 帮助"]') as HTMLElement
     act(() => { btn.click() })
     const popover = container.querySelector('[data-testid="magic-word-popover"]') as HTMLElement
-    act(() => { popover.click() })
+    act(() => { popover.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
     expect(container.querySelector('[data-testid="magic-word-popover"]')).not.toBeNull()
   })
 })
