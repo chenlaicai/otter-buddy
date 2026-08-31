@@ -327,7 +327,7 @@ export class RhiController {
         .filter(r => r.metric_type === "health_index");
 
       if (rows.length === 0) {
-        return c.json({ available: false, dimensions: [], trend: {}, attribution: null });
+        return c.json({ available: false, snapshotDate: null, overall: null, overallStatus: null, dimensions: [], trend: {}, attribution: null });
       }
 
       const latestDate = rows[rows.length - 1]!.snapshot_date;

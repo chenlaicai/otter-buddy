@@ -222,6 +222,57 @@ describe("RHI API（真 sqlite）", () => {
     });
   });
 
+  describe("score", () => {
+    it("空库返回 available:false 空态", async () => {
+      const res = await makeController().score(makeCtx());
+      const body = await res.json() as { available: boolean; dimensions: unknown[] };
+      expect(body.available).toBe(false);
+      expect(body.dimensions).toEqual([]);
+    });
+
+    it("有 health_index 行时返回五维 + overall + 归因 + 走向", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const meta = JSON.stringify({ overallStatus: "yellow", attribution: "架构稳定 0 分：热区文件拖累" });
+      snapshotRepo.replaceForDate(today, [
+        { snapshotDate: today, metricType: "health_index", metricKey: "D1", metricValue: 76.1 },
+        { snapshotDate: today, metricType: "health_index", metricKey: "D2", metricValue: 0 },
+        { snapshotDate: today, metricType: "health_index", metricKey: "D3", metricValue: 83.9 },
+        { snapshotDate: today, metricType: "health_index", metricKey: "D4", metricValue: 74.4 },
+        { snapshotDate: today, metricType: "health_index", metricKey: "D5", metricValue: 97.0 },
+        { snapshotDate: today, metricType: "health_index", metricKey: "overall", metricValue: 66.8, metadata: meta },
+      ]);
+
+      const res = await makeController().score(makeCtx());
+      const body = await res.json() as {
+        available: boolean; snapshotDate: string;
+        overall: number; overallStatus: string;
+        dimensions: Array<{ dimension: string; name: string; score: number; status: string }>;
+        trend: Record<string, unknown>; attribution: string;
+      };
+      expect(body.available).toBe(true);
+      expect(body.snapshotDate).toBe(today);
+      expect(body.overall).toBeCloseTo(66.8, 1);
+      expect(body.overallStatus).toBe("yellow");
+      expect(body.attribution).toContain("热区");
+      expect(body.dimensions.map(d => d.dimension)).toEqual(["D1", "D2", "D3", "D4", "D5"]);
+      expect(body.dimensions.find(d => d.dimension === "D2")!.status).toBe("red");
+      expect(body.dimensions.find(d => d.dimension === "D1")!.status).toBe("green");
+      expect(body.dimensions.find(d => d.dimension === "D4")!.status).toBe("yellow");
+      // 单日数据不足 8 点 → 走向全 null（面板显示「—」）
+      expect(body.trend["overall"]).toBeNull();
+    });
+
+    it("仅 cost_output 行时不受污染（available:false）", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      snapshotRepo.replaceForDate(today, [
+        { snapshotDate: today, metricType: "cost_output", metricKey: "total_tokens", metricValue: 100 },
+      ], "cost_output");
+      const res = await makeController().score(makeCtx());
+      const body = await res.json() as { available: boolean };
+      expect(body.available).toBe(false);
+    });
+  });
+
   describe("scan", () => {
     it("手动扫描返回结果", async () => {
       const res = await makeController([], { commitCount: 42 }).scan(makeCtx());

@@ -573,3 +573,26 @@ export interface RhiCostOutputDTO {
 export function getRhiCostOutput(days = 30, includeAllOtters = false, signal?: AbortSignal): Promise<RhiCostOutputDTO> {
   return request(`/health/cost-output?days=${days}&includeAllOtters=${includeAllOtters}`, { signal })
 }
+
+/** F20260830xxxx：健康评分 DTO（GET /api/health/score，issue #595 PR2）*/
+export interface RhiScoreDimensionDTO {
+  dimension: 'D1' | 'D2' | 'D3' | 'D4' | 'D5'
+  name: string
+  score: number | null
+  status: 'green' | 'yellow' | 'red' | null
+}
+
+export interface RhiScoreDTO {
+  available: boolean
+  snapshotDate: string | null
+  overall: number | null
+  overallStatus: 'green' | 'yellow' | 'red' | null
+  dimensions: RhiScoreDimensionDTO[]
+  /** 后端 TrendDirection：improving/stable/declining；不足 8 数据点为 null */
+  trend: Partial<Record<string, 'improving' | 'stable' | 'declining' | null>>
+  attribution: string | null
+}
+
+export function getRhiScore(signal?: AbortSignal): Promise<RhiScoreDTO> {
+  return request('/health/score', { signal })
+}

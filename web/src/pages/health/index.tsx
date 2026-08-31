@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, Bug, FileCode, TrendingUp, PieChart as PieIcon, Layers, BarChart3 } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, Bug, FileCode, TrendingUp, PieChart as PieIcon, Layers, BarChart3, Gauge, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react'
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, Legend,
+  PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, RadarChart as ReRadarChart,
 } from 'recharts'
 import '../../styles/globals.css'
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
-import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiCostOutputOtterDTO } from '../../api/client'
+import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiCostOutputOtterDTO, RhiScoreDTO } from '../../api/client'
 
 /**
  * F20260825rweb（#403）：RHI 健康面板页面（三视图）。
@@ -48,6 +49,21 @@ const CHANGE_TYPE_LABELS: Record<string, string> = {
 
 const COST_OUTPUT_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#f97316', '#64748b', '#ec4899', '#06b6d4']
 
+/** 健康分状态色（issue #595：绿≥75 / 黄 50-74 / 红<50，与后端 statusFromScore 对齐）*/
+const SCORE_STATUS_CONFIG: Record<string, { label: string; text: string; bg: string; border: string }> = {
+  green: { label: '健康', text: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  yellow: { label: '观察', text: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' },
+  red: { label: '告警', text: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200' },
+}
+
+/** 走向箭头（后端 TrendDirection：improving/stable/declining，不足 8 点 null）*/
+export function TrendIcon({ direction }: { direction?: 'improving' | 'stable' | 'declining' | null }) {
+  if (direction === 'improving') return <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />
+  if (direction === 'declining') return <ArrowDownRight className="w-3.5 h-3.5 text-rose-500" />
+  if (direction === 'stable') return <Minus className="w-3.5 h-3.5 text-stone-400" />
+  return <Minus className="w-3.5 h-3.5 text-stone-300" />
+}
+
 function HealthPage() {
   const [tab, setTab] = useState<Tab>('overview')
   const [overview, setOverview] = useState<RhiOverviewDTO | null>(null)
@@ -56,17 +72,19 @@ function HealthPage() {
   const [chains, setChains] = useState<RhiChainDTO[]>([])
   const [stateCounts, setStateCounts] = useState<Record<string, number>>({})
   const [costOutput, setCostOutput] = useState<RhiCostOutputDTO | null>(null)
+  const [score, setScore] = useState<RhiScoreDTO | null>(null)
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const [ov, tr, sig, ch, co] = await Promise.all([
+      const [ov, tr, sig, ch, co, sc] = await Promise.all([
         api.getRhiOverview(signal),
         api.getRhiTrends(30, signal),
         api.getRhiSignals('open', signal),
         api.getRhiChains(signal),
         api.getRhiCostOutput(30, false, signal),
+        api.getRhiScore(signal),
       ])
       if (signal?.aborted) return
       setOverview(ov)
@@ -75,6 +93,7 @@ function HealthPage() {
       setChains(ch.chains)
       setStateCounts(ch.stateCounts)
       setCostOutput(co)
+      setScore(sc)
     } catch (err) {
       if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) return
       showToast(err instanceof Error ? err.message : '加载失败', 'error')
@@ -156,9 +175,14 @@ function HealthPage() {
             ))}
           </div>
 
-          {/* 总览视图：指标卡 + 可视化看板 */}
+          {/* 总览视图：健康分卡 + 雷达图 + 指标卡 + 可视化看板 */}
           {tab === 'overview' && (
             <div className="space-y-4">
+              {/* 健康分区：综合分大卡 + 五维雷达（issue #595 PR2）*/}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                <OverallScoreCard score={score} />
+                <ScoreRadarCard score={score} />
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <MetricCard label="总提交（60 天窗口）" value={overview?.metrics.total_commits ?? '—'} icon={<GitBranch className="w-4 h-4" />} />
                 <MetricCard label="BugFix 比率" value={fmtPercent(overview?.metrics.bugfix_ratio)} icon={<Bug className="w-4 h-4" />} />
@@ -442,6 +466,100 @@ function stateRank(state: string): number {
 }
 
 // ── 组件 ──
+
+/** 综合健康分大卡：大数字 + 状态色 + 走向箭头 + 归因句（issue #595 PR2 核心交付）*/
+function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
+  if (!score || !score.available || score.overall === null) {
+    return (
+      <div className="md:col-span-2 rounded-2xl bg-white/70 border border-stone-200/60 px-5 py-4 flex items-center gap-3">
+        <Gauge className="w-8 h-8 text-stone-300" />
+        <div>
+          <div className="text-sm font-semibold text-stone-600">综合健康分</div>
+          <div className="text-xs text-stone-400 mt-0.5">扫描后生成（需连续 8 天数据出走向）</div>
+        </div>
+      </div>
+    )
+  }
+  const cfg = SCORE_STATUS_CONFIG[score.overallStatus ?? 'yellow'] ?? SCORE_STATUS_CONFIG.yellow
+  return (
+    <div className={`md:col-span-2 rounded-2xl ${cfg.bg} border ${cfg.border} px-5 py-4 flex items-center gap-4`}>
+      <div className="flex flex-col items-center">
+        <div className={`text-5xl font-bold tabular-nums ${cfg.text}`}>{Math.round(score.overall)}</div>
+        <div className="flex items-center gap-1 mt-1">
+          <TrendIcon direction={score.trend.overall} />
+          <span className="text-xs text-stone-400">走向</span>
+        </div>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-stone-700">综合健康分</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cfg.text} bg-white/60`}>{cfg.label}</span>
+        </div>
+        <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
+          {score.attribution ?? '五维均无拖累'}
+        </p>
+        <div className="flex gap-1.5 mt-2 flex-wrap">
+          {score.dimensions.map(d => {
+            const dcfg = SCORE_STATUS_CONFIG[d.status ?? 'yellow'] ?? SCORE_STATUS_CONFIG.yellow
+            return (
+              <span key={d.dimension} className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${dcfg.text} bg-white/50`} title={d.name}>
+                {d.name} {d.score === null ? '—' : Math.round(d.score)}
+              </span>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 五维雷达图（issue #595 PR2）：无数据维度以 0 呈现并在图例标注「无数据」*/
+function ScoreRadarCard({ score }: { score: RhiScoreDTO | null }) {
+  if (!score || !score.available || score.dimensions.length === 0) {
+    return (
+      <div className="md:col-span-3 rounded-2xl bg-white/70 border border-stone-200/60 flex items-center justify-center h-[200px] text-sm text-stone-400">
+        五维雷达待扫描生成
+      </div>
+    )
+  }
+  const radarData = score.dimensions.map(d => ({
+    dim: d.name,
+    score: d.score ?? 0,
+    noData: d.score === null,
+  }))
+  return (
+    <div className="md:col-span-3 rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
+      <div className="flex items-center gap-1.5 text-xs text-stone-500 mb-0.5">
+        <Gauge className="w-4 h-4 text-otter-500" />
+        <span className="font-semibold text-stone-600">五维雷达</span>
+        <span className="text-stone-400">· 快照 {score.snapshotDate ?? '—'}</span>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <ReRadarChart data={radarData} outerRadius="75%">
+          <PolarGrid stroke="#e7e5e4" />
+          <PolarAngleAxis dataKey="dim" tick={{ fontSize: 11, fill: '#78716c' }} />
+          <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#a8a29e' }} angle={90} />
+          <Radar name="健康分" dataKey="score" stroke="#0d9488" fill="#0d9488" fillOpacity={0.25} />
+          <Tooltip formatter={(v: number | string, _n, item) => {
+            const noData = (item?.payload as { noData?: boolean })?.noData
+            return [noData ? '无数据' : v, '健康分']
+          }} />
+        </ReRadarChart>
+      </ResponsiveContainer>
+      <div className="flex justify-center gap-3 -mt-1">
+        {score.dimensions.map(d => {
+          const dcfg = SCORE_STATUS_CONFIG[d.status ?? 'yellow'] ?? SCORE_STATUS_CONFIG.yellow
+          return (
+            <span key={d.dimension} className="flex items-center gap-1 text-[11px] text-stone-500">
+              <TrendIcon direction={score.trend[d.dimension]} />
+              <span className={dcfg.text}>{d.name}</span>
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function MetricCard({ label, value, icon, tone = 'default' }: {
   label: string
