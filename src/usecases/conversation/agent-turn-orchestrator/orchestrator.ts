@@ -674,6 +674,20 @@ export class AgentTurnOrchestrator {
 
     this.terminalMessages.add(messageId);
 
+    // F20260831aksp T3：编排层 high——同消息二拦终态（retry>0）＝ LLM 无视首次引导自纠失败的前兆（事故 C 形态）
+    if (ctx.kind === 'guard' && ctx.guardReason?.startsWith('bash_safety:') && ctx.input.retryCount > 0) {
+      ctx.callbacks.recordHealingEvent({
+        messageId,
+        conversationId: ctx.input.conversationId,
+        otterId,
+        errorType: "guard_intercept",
+        severity: "high",
+        description: `bash 守卫同消息二拦终态（retry=${ctx.input.retryCount}）：LLM 无视首次引导再次尝试，自纠失败`,
+        suggestion: "查看对话定位该 otter 的任务是否涉及进程管理；必要时人工介入",
+        context: { layer: "orchestrator", guardReason: ctx.guardReason },
+      }).catch(() => { /* 观测写入非致命，失败不阻断终态 */ });
+    }
+
     const actualToolCallCount = ctx.toolCallCount || 0;
     const body = ctx.kind === 'guard'
       ? buildGuardAbortBody(ctx.guardReason)

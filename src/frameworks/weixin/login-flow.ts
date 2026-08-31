@@ -41,40 +41,38 @@ export class WeixinLoginFlow {
     if (qr.qrcode_img_content) this.deps.onQrCode(qr.qrcode_img_content);
 
     const deadline = Date.now() + WeixinLoginFlow.MAX_WAIT_MS;
-    let cursor = "";
     while (Date.now() < deadline) {
-      const next = await this.pollRound(qr.qrcode, cursor);
-      if (next.accountId) return { accountId: next.accountId, ilinkUserId: next.ilinkUserId };
-      cursor = next.cursor;
+      const next = await this.pollRound(qr.qrcode);
+      if (next) return { accountId: next.accountId, ilinkUserId: next.ilinkUserId };
     }
     throw new Error("等待扫码超时（5 分钟）");
   }
 
-  /** 一轮状态轮询：返回确认结果或新一轮游标 */
-  private async pollRound(qrcode: string, cursor: string): Promise<{ accountId?: string; ilinkUserId?: string; cursor: string }> {
-    const st = await this.pollOnce(qrcode, cursor);
+  /** 一轮状态轮询：返回确认结果（null = 继续轮询） */
+  private async pollRound(qrcode: string): Promise<{ accountId: string; ilinkUserId?: string } | null> {
+    const st = await this.pollOnce(qrcode);
     this.deps.onStatus?.(st.status ?? "unknown");
-    let nextCursor = st.get_qrcode_status_buf ?? cursor;
 
     if (st.status === "confirmed") {
-      return { ...this.confirm(st), cursor: nextCursor };
+      return this.confirm(st);
     }
-    const outcome = await this.handleNonConfirmed(st, qrcode, nextCursor);
+
+    const outcome = await this.handleNonConfirmed(st, qrcode);
     if (outcome === "abort-loop") {
-      return { cursor: nextCursor }; // wait/scaned 等继续轮询
+      return null; // wait/scaned 等继续轮询
     }
     // verify_code 分支已消费一次带码轮询，可能直接 confirmed
     this.deps.onStatus?.(outcome.status ?? "unknown");
-    if (outcome.get_qrcode_status_buf) nextCursor = outcome.get_qrcode_status_buf;
     if (outcome.status === "confirmed") {
-      return { ...this.confirm(outcome), cursor: nextCursor };
+      return this.confirm(outcome);
     }
-    return { cursor: nextCursor };
+    return null;
   }
 
-  private async pollOnce(qrcode: string, cursor: string): Promise<WeixinQrStatusResp> {
-    return this.deps.api.pollQrStatus({ qrcode, ...(cursor ? { get_qrcode_status_buf: cursor } : {}) });
+  private pollOnce(qrcode: string, verifyCode?: string): Promise<WeixinQrStatusResp> {
+    return this.deps.api.pollQrStatus({ qrcode, ...(verifyCode ? { verify_code: verifyCode } : {}) });
   }
+
 
   /** confirmed 落盘并返回账号信息 */
   private confirm(st: WeixinQrStatusResp): { accountId: string; ilinkUserId?: string } {
@@ -96,7 +94,7 @@ export class WeixinLoginFlow {
    * 非 confirmed 状态处理。
    * 返回："abort-loop"（继续外层轮询）或带码轮询后的新状态（可能 confirmed）。
    */
-  private async handleNonConfirmed(st: WeixinQrStatusResp, qrcode: string, cursor: string): Promise<"abort-loop" | WeixinQrStatusResp> {
+  private async handleNonConfirmed(st: WeixinQrStatusResp, qrcode: string): Promise<"abort-loop" | WeixinQrStatusResp> {
     switch (st.status) {
       case "expired":
         throw new Error("二维码已过期，请重新发起登录");
@@ -107,8 +105,8 @@ export class WeixinLoginFlow {
           throw new Error("微信要求输入配对码验证，当前环境不支持交互输入——请在终端 CLI 执行 npm run weixin:login");
         }
         const code = await this.deps.verifyCodeInput();
-        // 配对码随下一轮状态轮询回传（协议：pendingVerifyCode 模式）
-        return this.deps.api.pollQrStatus({ qrcode, ...(cursor ? { get_qrcode_status_buf: cursor } : {}), verify_code: code });
+        // 配对码随下一轮状态轮询回传（GET query 参数，协议：pendingVerifyCode 模式）
+        return this.pollOnce(qrcode, code);
       }
       default:
         // wait / scaned / scaned_but_redirect（redirect 需换网关重试，当前网关无
