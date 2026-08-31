@@ -39,5 +39,5 @@ Failed to broadcast to Feishu (degradation also failed)
 
 ## 已知边界与迁移
 
-- **遗留连接**：修复前已建的微信用户连接 externalType 仍是 "feishu"（本机实测 1 条：`o9cq8003...@im.wechat`）——新校验会让这类连接**双通道都跳过**（feishu 通道校验 externalType=feishu 通过但 receive_id 无效报错会消失，因为…实际上它会通过校验继续投飞书失败）。处置：部署时手工订正 `UPDATE connections SET external_type='weixin' WHERE external_id LIKE '%@im.wechat'`，或让用户重扫码（现有 token 仍有效，不强制）。已在 PR 描述记录，合入后由大獭执行订正。
+- **遗留连接**：修复前已建的微信用户连接 externalType 仍是 "feishu"（本机实测 1 条：`o9cq8003...@im.wechat`）——新校验下这类连接的行为是「飞书通道继续投递失败（receive_id 无效，日志噪音仍在）+ 微信通道被跳过」，即 invalid receive_id 噪音**不会自动消失**，SQL 订正才是彻底修复。处置：部署时手工订正 `UPDATE connections SET external_type='weixin' WHERE external_id LIKE '%@im.wechat'`，或让用户重扫码（现有 token 仍有效，不强制）。已在 PR 描述记录，合入后由大獭执行订正。
 - externalType 无枚举校验（string 自由值），与既有实体定义一致——枚举收紧属于独立重构，不在本修复范围

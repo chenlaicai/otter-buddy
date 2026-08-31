@@ -136,6 +136,15 @@ export class WeixinMessageChannel implements OutboundMessageChannel, OutboundEve
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
+    // F20260831xtrt 检视R1：onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
+    if (connection.externalType !== "weixin") {
+      this.logger.debug("Skipping thinking message to non-weixin connection", {
+        conversationId,
+        externalType: connection.externalType,
+      });
+      return;
+    }
+
     const otterName = await this.resolveOtterName(event);
     try {
       // F20260829wxch（#213 检视发现3）：thinking 可丢弃，无 context_token 时跳过不裸发

@@ -115,3 +115,37 @@ describe("WeixinMessageChannel 按 externalType 路由（F20260831xtrt）", () =
     expect(ctx.replies[0].to).toBe("wx-user-1");
   });
 });
+
+describe("WeixinMessageChannel onEvent thinking 按 externalType 路由（F20260831xtrt 检视R1）", () => {
+  it("externalType=feishu 的连接 thinking 消息不投微信（飞书会话不进微信通道）", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "chat-123", "feishu");
+
+    ctx.broadcaster.broadcastEvent("conv-1", {
+      event: "message.start",
+      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(ctx.weixinGateway.replyText).not.toHaveBeenCalled();
+  });
+
+  it("externalType=weixin 的连接 thinking 正常发送（不回归）", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "wx-user-1", "weixin");
+    const sent: Array<{ to: string; text: string }> = [];
+    ctx.weixinGateway.replyText.mockImplementation(async (to: string, text: string) => {
+      sent.push({ to, text });
+    });
+
+    ctx.broadcaster.broadcastEvent("conv-1", {
+      event: "message.start",
+      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe("wx-user-1");
+    expect(sent[0].text).toBe("大獭 正在思考...");
+  });
+});

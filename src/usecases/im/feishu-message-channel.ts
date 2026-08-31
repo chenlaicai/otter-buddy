@@ -119,6 +119,16 @@ export class FeishuMessageChannel implements OutboundMessageChannel, OutboundEve
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
+    // F20260831xtrt 检视R1：onEvent（thinking）路径与 onMessage 对称路由——
+    // 遗留微信连接曾因缺省建连被误投飞书（invalid receive_id 噪音），类型不对直接退出
+    if (connection.externalType !== "feishu") {
+      this.logger.debug("Skipping thinking message to non-feishu connection", {
+        conversationId,
+        externalType: connection.externalType,
+      });
+      return;
+    }
+
     try {
       await this.feishuGateway.replyText(connection.externalId, `[${otterName}] 正在思考...`);
       this.logger.info("Feishu thinking message sent", { conversationId, otterName });

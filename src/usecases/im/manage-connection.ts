@@ -54,7 +54,8 @@ export class ManageConnection {
   }
 
   /** 首次见到的外部用户/群自动注册为 Connection（备用方法）
-   *  F20260831xtrt：externalType 透传 createConnection，微信 ingress 传 "weixin" */
+   *  F20260831xtrt：externalType 透传 createConnection，微信 ingress 传 "weixin"
+   *  检视R4：externalType 仅用于新建连接；已有连接直接返回原类型，不覆盖不报错 */
   async ensureConnection(externalId: string, name: string, externalType = "feishu"): Promise<Connection> {
     const existing = await this.connRepo.getByExternalId(externalId);
     if (existing) {

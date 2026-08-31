@@ -363,4 +363,34 @@ describe("FeishuMessageChannel 按 externalType 路由（F20260831xtrt）", () =
     expect(sent).toHaveLength(1);
     expect(sent[0].chatId).toBe("chat-123");
   });
+
+  it("onEvent thinking：externalType=weixin 的连接不投飞书（检视R1）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster();
+    bindFeishu(broadcaster, "wx-user-1", "weixin");
+
+    broadcaster.broadcastEvent("conv-1", {
+      event: "message.start",
+      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(feishuGateway.replyText).not.toHaveBeenCalled();
+  });
+
+  it("onEvent thinking：externalType=feishu 的连接正常发送（不回归）", async () => {
+    const { broadcaster, feishuGateway } = createBroadcaster();
+    bindFeishu(broadcaster, "chat-123", "feishu");
+    const sent: string[] = [];
+    feishuGateway.replyText.mockImplementation(async (_c: string, text: string) => {
+      sent.push(text);
+    });
+
+    broadcaster.broadcastEvent("conv-1", {
+      event: "message.start",
+      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sent).toEqual(["[大獭] 正在思考..."]);
+  });
 });
