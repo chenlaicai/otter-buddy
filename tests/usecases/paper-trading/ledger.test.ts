@@ -36,6 +36,7 @@ const mockRepo: PaperTradeRepository = {
   getTradingDays: vi.fn(),
   syncTradingCalendar: vi.fn(),
   markCorporateAction: vi.fn(),
+  getFirstActiveAccountId: vi.fn(),
 };
 
 // Mock gateway — 默认返回合理行情

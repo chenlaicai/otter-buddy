@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- bootstrap file: init all platforms, legitimately >450 lines */
 import type { AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import * as yaml from "js-yaml";
@@ -13,6 +14,7 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
+import { seedPaperTradingTasks } from "@usecases/paper-trading/ensure-paper-trading-scheduler";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { Ledger } from "@usecases/paper-trading/ledger";
 import { PaperTradeRepositoryImpl } from "@frameworks/db/paper-trade-repository-impl";
@@ -151,13 +153,23 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     const paperTradeRepo = new PaperTradeRepositoryImpl(db);
     const paperGateway = new StockQuoteGatewayImpl(process.cwd());
     const paperLedger = new Ledger(paperTradeRepo, paperGateway);
-    registerPaperTradingFunctions(paperLedger);
+    registerPaperTradingFunctions(paperLedger, paperTradeRepo);
 
     // A3: 同步交易日历（akshare 或 fallback）
     syncTradingCalendar(paperTradeRepo, process.cwd()).then((res) => {
       logger.info(`Trading calendar synced: ${res.count} entries (source: ${res.source})`);
     }).catch((err) => {
       logger.error("Trading calendar sync failed", err instanceof Error ? err : new Error(String(err)));
+    });
+
+    // PR5: seed 定时任务（幂等）
+    await seedPaperTradingTasks({
+      manageScheduledTask: uc.manageScheduledTask,
+      manageConversation: uc.manageConversation,
+      convRepo: repos.conversation,
+      otterRepo: repos.otter,
+      settings: repos.settings,
+      logger,
     });
   }
 

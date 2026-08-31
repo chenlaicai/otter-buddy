@@ -6,13 +6,30 @@
 
 import { paperTradingFunctionRegistry } from './function-registry';
 import type { Ledger } from './ledger';
+import type { PaperTradeRepository } from './paper-trade-repository';
+
+/** 获取 Asia/Shanghai 今日日期（YYYY-MM-DD） */
+function getTodayShanghai(): string {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+}
 
 /** 注册纸面交易函数 */
-export function registerPaperTradingFunctions(ledger: Ledger): void {
+export function registerPaperTradingFunctions(ledger: Ledger, repo?: PaperTradeRepository): void {
   // 注册撮合函数
   paperTradingFunctionRegistry.register('match_orders', async (params) => {
-    const { accountId, tradeDate } = params as { accountId: string; tradeDate: string };
-    
+    const raw = params as { accountId?: string; tradeDate?: string };
+
+    // F20260829ppta 发现 2 修复：accountId 缺省时取首个 active 账户（与工具链同口径）
+    let accountId = raw.accountId;
+    if (!accountId) {
+      if (!repo) throw new Error('match_orders: accountId not provided and repo not available for fallback');
+      accountId = (await repo.getFirstActiveAccountId()) ?? undefined;
+      if (!accountId) throw new Error('match_orders: no active paper account found. Create an account first.');
+    }
+
+    // F20260829ppta 发现 2 修复：tradeDate 缺省取今日 Asia/Shanghai（禁 toISOString，N1 教训）
+    const tradeDate = raw.tradeDate ?? getTodayShanghai();
+
     const results = await ledger.matchOrders(accountId, tradeDate);
     
     return {
