@@ -26,7 +26,7 @@ issue 是状态载体不是待办清单，每条 issue 属于一条状态链，�
 | A 自愈链（healing events） | 定时任务 | resolve/dismiss | 9:00 健康检查 / 22:00 分析 |
 | B 系统改进链（daily-review） | 定时任务 | 修复合入自动关 | 10:30 每日处理 |
 | C 特性链（RHI 总纲+子issue） | 特性对话自身 | 对话内走完 | **跳过**，只看护 |
-| D 排期链（tech-debt/enhancement） | 搭档 | 勾选后转处理 | 周一 backlog digest |
+| D 排期链（tech-debt/enhancement） | 搭档 | 勾选后转处理 | backlog digest（每日，📋 Backlog 排期对话） |
 
 ## 改动清单
 
@@ -49,8 +49,10 @@ issue 是状态载体不是待办清单，每条 issue 属于一条状态链，�
 
 处置权检查同样写入代码内回退文案（HEALING_FALLBACK_PROMPT）——守卫测试 healing-analysis-template.test.ts 锁定双源同步，改模板必须同步改回退文案，否则 CI 挂（本次 rebase 后 CI 实测拦截，已同步修复）。这暴露一个设计事实：**self-healing 模板是双源维护**，后续改它必须两处同步。
 
-### 5. backlog digest 周任务（create_scheduled_task 配置，不在本 PR）
-- 周一 9:30，只读不改：全量 open 按四链分组（年龄+简评）呈搭档勾选本周处理项
+### 5. backlog digest 任务（create_scheduled_task 配置，不在本 PR）
+- **每日 9:30**，挂在独立置顶对话「📋 Backlog 排期」（2026-08-31 搭档拍板：从 Self-Healing 对话的每周一任务迁出并升级为每日，digest 演进史沉淀在固定对话里，不沉底）
+- 只读不改：全量 open 按四链分组（年龄+简评）呈搭档勾选处理项
+- 降噪规则：D 类有变化（新增/关闭/labels 变化）才出全量清单，无变化时一句话报平安——防背景噪音
 - 搭档排期是产品决策权，只展示不代勾选（飞轮獭反方视角确认）
 
 ## 测试与自检
