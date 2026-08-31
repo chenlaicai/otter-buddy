@@ -7,7 +7,9 @@ import {
   buildRestartResumeMsg,
   buildRestartResumeSystemMsg,
   buildRestartResumeFailedMsg,
+  buildRestartResumeTerminalMsg,
 } from "./agent-turn-orchestrator/retry-policy";
+import { canFailMessage } from "@entities/conversation/message";
 
 /**
  * F20260826rsme 服务重启自动恢复：启动完成后消费 reconcile 阶段
@@ -147,6 +149,8 @@ export class ResumeInterruptedService {
 
   private async resumeOne(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {
     const now = new Date().toISOString();
+    /** #599：finally 终态守卫用——try 成功为 done，catch 降级为 failed */
+    let outcome: "done" | "failed" = "done";
     try {
       // 1. 启动间隙可能被清理：conversation/otter/participant 任一失效则放弃
       const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
@@ -181,6 +185,7 @@ export class ResumeInterruptedService {
       });
       await this.deps.conversationRepo.updateResumeStatus(item.messageId, "done", now);
     } catch (err) {
+      outcome = "failed";
       this.deps.logger.error("Resume one interrupted message failed", err instanceof Error ? err : new Error(String(err)), {
         messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
       });
@@ -191,6 +196,38 @@ export class ResumeInterruptedService {
       }
       await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
       await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedMsg("invoke_error"));
+    } finally {
+      await this.finalizeResumedMessage(item, outcome);
+    }
+  }
+
+  /**
+   * #599：终态守卫——链结束后收尾旧消息。
+   * Why: executeChain 是 allSettled 吞错语义（processHopResults 对 invoke 失败只记
+   * 日志不上抛），Lock timeout 等恢复失败不进 catch；而 prepareForRetry 已把旧消息
+   * 复位回 streaming，无人收尾即僵尸发言（#599 现场：用户被迫 3 次手动中断）。
+   * 成功路径同理：invoke 创建的是新消息（sendMessage.start 新 ID），本条 streaming
+   * 消息此后再无写入者，一并收尾归档（半截内容已保留在 segments）。
+   * canFailMessage 守卫确保 completed/aborted 终态不受影响；守卫自身异常不外抛。
+   */
+  private async finalizeResumedMessage(
+    item: { messageId: string; conversationId: string },
+    outcome: "done" | "failed",
+  ): Promise<void> {
+    try {
+      const msg = await this.deps.queryMessage.getMessageById(item.messageId);
+      if (msg && canFailMessage(msg.status)) {
+        await this.deps.sendMessage.fail(item.messageId, buildRestartResumeTerminalMsg(outcome));
+        // 建议发现1处置（delta 复核）：failed 的系统消息带「可手动重试」操作指引，保留流内可见；
+        // done 路径旧消息 body 已说明去向且紧邻新发言本体，流内系统消息纯冗余，省略
+        if (outcome === "failed") {
+          await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeTerminalMsg(outcome));
+        }
+      }
+    } catch (guardErr) {
+      this.deps.logger.error("Resume terminal guard failed", guardErr instanceof Error ? guardErr : new Error(String(guardErr)), {
+        messageId: item.messageId, conversationId: item.conversationId,
+      });
     }
   }
 }

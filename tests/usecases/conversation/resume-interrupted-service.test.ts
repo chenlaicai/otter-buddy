@@ -145,8 +145,10 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     expect((chain.calls[0] as { userMessageContent: string }).userMessageContent).toContain("[系统提醒] 服务重启导致你的发言中断");
 
     // 消息被重置为 streaming（恢复进行中），半截内容保留
+    // #599 终态守卫：链结束后旧消息收尾 failed（恢复后内容写入新消息，
+    // 旧消息悬挂 streaming 无写入者即僵尸发言——旧断言 "streaming" 固化的正是该缺陷）
     const stored = await repo.getMessageById(msgId);
-    expect(stored?.status).toBe("streaming");
+    expect(stored?.status).toBe("failed");
     expect(stored?.segments.some(seg => seg.body === "半截发言内容")).toBe(true);
 
     // pending 记录流转 done
@@ -305,6 +307,37 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     expect(rows[0]?.status).toBe("done");
   });
 
+  it("#599 终态守卫：成功路径旧消息收尾归档，不再悬挂 streaming", async () => {
+    // Why(#599): 恢复路径 invoke 创建的是新消息（新 messageId），prepareForRetry 复位的
+    // 旧消息在链结束后无人写入——悬挂 streaming 等用户手动中断即僵尸发言。
+    // 守卫语义：链正常结束时，旧消息收尾 failed（半截内容保留），系统消息说明去向。
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+    const chain = stubChainEngine();
+
+    await buildService(chain).resume();
+
+    // 链引擎被正常调用（成功路径）
+    expect(chain.calls).toHaveLength(1);
+
+    // 旧消息已收尾：不再是 streaming（僵尸态），而是 failed（可在原条目手动重试）
+    const stored = await repo.getMessageById(msgId);
+    expect(stored?.status).toBe("failed");
+    // 半截内容保留（fail 不动 segments）
+    expect(stored?.segments.some(seg => seg.body === "半截")).toBe(true);
+
+    // 去向说明落在旧消息终态 body 上（fail 会写入）；done 路径不再发流内系统消息
+    // （建议发现1处置：旧消息 body 已可点击查看且紧邻新发言本体，系统消息纯冗余）
+    expect(stored?.segments.some(seg => seg.body.includes("恢复已完成"))).toBe(true);
+    const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复已完成")))).toBe(false);
+
+    // pending 流转不受影响
+    const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe("done");
+  });
+
   // F20260830rfto: 429 限流错误从 resumeOne 传播到 resumeOneWithRetry（修复审查建议1）
   // 核心验证：429 错误不被 resumeOne 内层 catch 吞掉，而是传播到 resumeOneWithRetry 的退避重试
   it("429 限流错误传播到重试层：链引擎报 429 时触发退避重试", async () => {
@@ -337,6 +370,26 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     // 全部重试失败 → exhausted
     const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
     expect(rows[0]?.status).toBe("exhausted");
+  });
+
+  it("#599 终态守卫：消息已被处理到终态时守卫不覆盖（no-clobber）", async () => {
+    // Why(#599): 守卫只收尾仍可 fail 的消息（streaming/speaking）。
+    // 若恢复窗口内用户已手动处理（消息已 completed/aborted），
+    // 守卫不得把终态改写为 failed——状态机只进不退。
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+
+    // 恢复前：用户已手动把该消息处理到终态（模拟手动重试后完成）
+    db.prepare("UPDATE messages SET status = 'completed', completed_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), msgId);
+
+    const chain = stubChainEngine();
+    await buildService(chain).resume();
+
+    // 链正常跑（prepareForRetry 对 completed 抛冲突 → catch 降级，但消息终态不被改写）
+    const stored = await repo.getMessageById(msgId);
+    expect(stored?.status).toBe("completed");
   });
 });
 

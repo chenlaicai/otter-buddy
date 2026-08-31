@@ -262,4 +262,84 @@ describe("SimpleLockManager", () => {
     ).rejects.toThrow("Lock acquire timeout for key: resource-1");
     release();
   });
+
+  it("should steal lock from stale holder instead of timing out (#599)", async () => {
+    // Why(#599): #599 现场——服务重启后恢复路径抢 session 锁，持有者是
+    // abort 后未 settle 的僵尸 invoke，永久持有。等待必超时，恢复失败。
+    // steal 语义：持有超龄（>= stealThreshold）时新 acquire 直接接管。
+    const lock = new SimpleLockManager(30000, undefined, 100); // steal 阈值 100ms
+
+    // 僵尸持有者：获取锁后永不释放
+    await lock.acquire("session:otter-abc");
+    await new Promise(r => setTimeout(r, 120)); // 超过 steal 阈值
+
+    // 新获取者：不等 30s 超时，直接接管（不应 reject、不应长时间阻塞）
+    const stealStart = Date.now();
+    const release2 = await lock.acquire("session:otter-abc");
+    expect(Date.now() - stealStart).toBeLessThan(50); // 立即接管，非等 timeout
+    release2();
+  });
+
+  it("stolen holder's release should be a no-op (#599)", async () => {
+    // Why(#599): 僵尸 invoke 的 finally 迟早会执行（或永不执行）。
+    // 若执行，其 release 不能干扰新持有者——世代号不匹配时静默丢弃。
+    const lock = new SimpleLockManager(30000, undefined, 100);
+
+    const zombieRelease = await lock.acquire("session:otter-abc");
+    await new Promise(r => setTimeout(r, 120));
+
+    // 新持有者接管
+    const newRelease = await lock.acquire("session:otter-abc");
+
+    // 僵尸的 release 迟到到来：不应 crash，也不应释放新持有者的锁
+    expect(() => zombieRelease()).not.toThrow();
+
+    // 新持有者的锁仍然有效：第三次 acquire 应排队等待而非直接获锁
+    // （若僵尸 release 错误地释放了锁，第三次 acquire 会立即成功）
+    const third = lock.acquire("session:otter-abc", 80);
+    await expect(third).rejects.toThrow("Lock acquire timeout");
+
+    newRelease();
+  });
+
+  it("normal holder under steal threshold should not be stolen (#599)", async () => {
+    // Why: steal 是异常究底手段，不能误伤正常持锁（invoke 可合法持锁数分钟）。
+    // 持有时长 < stealThreshold 时，等待者仍走超时路径。
+    const lock = new SimpleLockManager(60, undefined, 5000);
+
+    const release = await lock.acquire("resource-1");
+    await new Promise(r => setTimeout(r, 10));
+
+    // 正常持有时：等待者应超时，而非接管
+    await expect(
+      lock.acquire("resource-1", 40)
+    ).rejects.toThrow("Lock acquire timeout for key: resource-1");
+
+    release();
+  });
+
+  it("steal should log structured warning (#599)", async () => {
+    // Why(#423 同源): steal 是异常事件，必须留诊断证据（谁被接管、持了多久）
+    const warnSpy = vi.fn();
+    const logger = { info: vi.fn(), warn: warnSpy, debug: vi.fn(), error: vi.fn(), child: vi.fn() } as unknown as Logger;
+    const lock = new SimpleLockManager(30000, logger, 50);
+
+    await lock.acquire("session:otter-xyz");
+    await new Promise(r => setTimeout(r, 70));
+
+    const release = await lock.acquire("session:otter-xyz");
+
+    // 值断言而非调用次数断言（lint 规则）：未触发 steal 时 calls[0] 为 undefined，断言自然失败
+    const [message, context] = warnSpy.mock.calls[0] ?? [];
+    expect(message).toBe("Lock stolen from stale holder: session:otter-xyz");
+    expect(context).toMatchObject({
+      module: 'SimpleLockManager',
+      lockKey: "session:otter-xyz",
+      otterId: "otter-xyz",
+      stealThresholdMs: 50,
+    });
+    expect((context as { holderHeldForMs?: number }).holderHeldForMs).toBeGreaterThanOrEqual(50);
+
+    release();
+  });
 });
