@@ -77,12 +77,14 @@ modules:
 
 ### 3. 测试锁定
 
-`tests/lint-historical-docs.test.ts`（4 用例，临时 git 仓库模拟）：
+`tests/lint-historical-docs.test.ts`（6 用例，临时 git 仓库模拟）：
 
 1. 修改已合入历史文档 → exit 1 + 违规路径
 2. 修改本分支新建文档 → 通过（含新建已 commit 后再修改——曾误判场景，锁定）
 3. 非 docs 路径 → 不拦截
 4. BYPASS=1 → exit 0 + stderr 警告
+5. rename 历史文档（git mv + 编辑新路径）→ staged 显示 A 新路径 + D 旧路径：新路径按 A 放行（rename 等价语义），旧路径 D 落入拦截——结构性重排属 BYPASS 场景，锁定该行为（检视建议 1，delta 补）
+6. 本分支新建文档 rename 后再修改 → 通过（迭代载体）
 
 ## 实现记录
 

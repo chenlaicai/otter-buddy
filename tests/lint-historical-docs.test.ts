@@ -109,4 +109,28 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     // 警告在 stderr（console.warn），stdout 为空是正常行为
     expect(r.stderr).toMatch(/BYPASS/);
   });
+
+  it("rename 历史文档（git mv + 编辑新路径）→ 旧路径 D 被拦（rename 等价语义，BYPASS 通道处理）", () => {
+    // 实测：git mv + add 后 staged 显示 A 新路径 + D 旧路径。新路径按 A 放行（rename 等价），
+    // 旧路径 D 落入拦截——结构性重排属于 BYPASS 逃生门场景，本用例锁定该行为
+    const renamed = "docs/features/2026/01/01/F20260101old-renamed.md";
+    git(repo, ["mv", OLD_DOC, renamed]);
+    fs.writeFileSync(path.join(repo, renamed), "# renamed+edited\n");
+    stageOnly(repo, ".");
+    const r = runLint(repo);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(OLD_DOC);
+  });
+
+  it("本分支新建文档 rename 后再修改 → 通过（迭代载体）", () => {
+    const renamed = "docs/features/2026/08/31/F20260831new-renamed.md";
+    git(repo, ["mv", NEW_DOC, renamed]);
+    fs.writeFileSync(path.join(repo, renamed), "# new renamed+edited\n");
+    // 只 stage 本用例涉及的两个路径（新路径 A + 旧路径 D），
+    // 避免把上一用例遗留的 OLD_DOC rename（未清理）staged 进来
+    stageOnly(repo, renamed);
+    git(repo, ["add", "--", NEW_DOC]);
+    const r = runLint(repo);
+    expect(r.status).toBe(0);
+  });
 });
