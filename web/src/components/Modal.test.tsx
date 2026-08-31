@@ -85,7 +85,7 @@ describe('Modal body.modal-open 生命周期（F20260825scrf）', () => {
   })
 })
 
-describe('Modal maxHeight 恒给（F20260831xxxx）', () => {
+describe('Modal maxHeight 恒给（F20260831wsui）', () => {
   it('dialog 层 maxHeight 恒为 --modal-scroll-max-h（无论 fullScreenOnMobile）', async () => {
     await act(async () => {
       root.render(

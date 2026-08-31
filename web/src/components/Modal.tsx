@@ -38,7 +38,7 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
     }
   }, [isOpen])
 
-  /* F20260826pfix + F20260831xxxx：桌面高度上限恒给，不因 fullScreenOnMobile 丢失。
+  /* F20260826pfix + F20260831wsui：桌面高度上限恒给，不因 fullScreenOnMobile 丢失。
    *  滚动上限已 token 化（--modal-scroll-max-h / --modal-content-max-h），
    *  值定义在 globals.css @theme 块，此处通过 CSS 变量恒引用。
    *  窄屏全屏抽屉由 CSS modal-fs-mobile 类 @media (max-width: 639px)

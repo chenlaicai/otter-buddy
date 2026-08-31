@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ComponentProps } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronRight, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
@@ -78,6 +78,7 @@ interface TreeNodeProps {
   conversationId: string
   expandedSet: Set<string>
   dirCache: Map<string, WorkspaceEntry[]>
+  dirErrorMap: Map<string, string>
   onToggleDir: (path: string) => void
   onSelectFile: (entry: WorkspaceEntry) => void
   selectedPath: string | null
@@ -86,11 +87,12 @@ interface TreeNodeProps {
 
 /** 文件夹节点：点击展开/收起，懒加载子目录 */
 function TreeFolderNode({
-  entry, depth, conversationId, expandedSet, dirCache, onToggleDir, onSelectFile, selectedPath, loadingPath,
+  entry, depth, conversationId, expandedSet, dirCache, dirErrorMap, onToggleDir, onSelectFile, selectedPath, loadingPath,
 }: TreeNodeProps) {
   const isExpanded = expandedSet.has(entry.path)
   const children = dirCache.get(entry.path)
   const isLoading = loadingPath === entry.path
+  const dirError = dirErrorMap.get(entry.path)
 
   return (
     <div>
@@ -120,6 +122,7 @@ function TreeFolderNode({
               conversationId={conversationId}
               expandedSet={expandedSet}
               dirCache={dirCache}
+              dirErrorMap={dirErrorMap}
               onToggleDir={onToggleDir}
               onSelectFile={onSelectFile}
               selectedPath={selectedPath}
@@ -134,6 +137,14 @@ function TreeFolderNode({
           style={{ paddingLeft: `${(depth + 1) * 12 + 8 + 20}px` }}
         >
           空目录
+        </div>
+      )}
+      {isExpanded && !children && !isLoading && dirError && (
+        <div
+          className="text-[11px] text-red-500 px-2 py-1"
+          style={{ paddingLeft: `${(depth + 1) * 12 + 8 + 20}px` }}
+        >
+          加载失败：{dirError}
         </div>
       )}
     </div>
@@ -182,12 +193,12 @@ function TreeNode(props: TreeNodeProps) {
 
 // ── 文件内容渲染 ────────────────────────────────────────────────────────────
 
-const MD_PLUGINS = [[remarkGfm, { singleTilde: false }] as const]
+const MD_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [[remarkGfm, { singleTilde: false }] as const]
 
 /** .md / .markdown → ReactMarkdown（GFM） */
 function MarkdownRenderer({ content }: { content: string }) {
   return (
-    <div className="prose prose-xs max-w-none text-stone-700
+    <div data-testid="react-markdown" className="prose prose-xs max-w-none text-stone-700
       [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:mt-3 [&_h1]:mb-1.5
       [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mt-2.5 [&_h2]:mb-1
       [&_h3]:text-xs [&_h3]:font-medium [&_h3]:mt-2 [&_h3]:mb-0.5
@@ -206,7 +217,7 @@ function MarkdownRenderer({ content }: { content: string }) {
       [&_td]:border [&_td]:border-white/30 [&_td]:px-2 [&_td]:py-1
       [&_img]:max-w-full [&_img]:rounded-lg
     ">
-      <ReactMarkdown remarkPlugins={MD_PLUGINS as never}>
+      <ReactMarkdown remarkPlugins={MD_PLUGINS}>
         {content}
       </ReactMarkdown>
     </div>
@@ -230,7 +241,7 @@ function HtmlRenderer({ content }: { content: string }) {
 /** 其他 → 等宽 pre */
 function PlainRenderer({ content }: { content: string }) {
   return (
-    <pre className="text-xs text-stone-700 bg-white/30 rounded-lg p-2 overflow-x-auto max-h-80 overflow-y-auto whitespace-pre-wrap break-all font-mono">
+    <pre data-testid="plain-pre" className="text-xs text-stone-700 bg-white/30 rounded-lg p-2 overflow-x-auto max-h-80 overflow-y-auto whitespace-pre-wrap break-all font-mono">
       {content}
     </pre>
   )
@@ -275,6 +286,8 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   const [dirCache, setDirCache] = useState<Map<string, WorkspaceEntry[]>>(new Map())
   /** 已展开的目录 path 集合 */
   const [expandedSet, setExpandedSet] = useState<Set<string>>(new Set())
+  /** 子目录加载错误（path → 错误信息） */
+  const [dirErrorMap, setDirErrorMap] = useState<Map<string, string>>(new Map())
   /** 当前选中的文件内容 */
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent | null>(null)
   /** 正在加载的目录 path（用于显示 spinner） */
@@ -296,30 +309,29 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
 
   /** 切换目录展开/收起 */
   const handleToggleDir = useCallback(async (path: string) => {
-    setExpandedSet(prev => {
-      const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      return next
-    })
+    if (loadingPath === path) return
 
-    // 首次展开：懒加载
+    if (expandedSet.has(path)) {
+      setExpandedSet(prev => { const n = new Set(prev); n.delete(path); return n })
+      return
+    }
+
     if (!dirCache.has(path)) {
       setLoadingPath(path)
-      setError(null)
+      setDirErrorMap(prev => { const n = new Map(prev); n.delete(path); return n })
       try {
         const children = await fetchDir(conversationId, path)
         setDirCache(prev => new Map(prev).set(path, children))
+        setExpandedSet(prev => new Set(prev).add(path))
       } catch (err) {
-        setError(err instanceof Error ? err.message : '加载失败')
+        setDirErrorMap(prev => new Map(prev).set(path, err instanceof Error ? err.message : '加载失败'))
       } finally {
         setLoadingPath(null)
       }
+    } else {
+      setExpandedSet(prev => new Set(prev).add(path))
     }
-  }, [conversationId, dirCache])
+  }, [conversationId, dirCache, loadingPath, expandedSet])
 
   /** 选中文件 */
   const handleSelectFile = useCallback(async (entry: WorkspaceEntry) => {
@@ -376,6 +388,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
                 conversationId={conversationId}
                 expandedSet={expandedSet}
                 dirCache={dirCache}
+                dirErrorMap={dirErrorMap}
                 onToggleDir={handleToggleDir}
                 onSelectFile={handleSelectFile}
                 selectedPath={selectedPath}
