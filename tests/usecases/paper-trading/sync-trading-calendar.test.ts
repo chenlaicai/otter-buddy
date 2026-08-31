@@ -50,6 +50,7 @@ function createMockRepo() {
     isTradingDay: vi.fn(),
     getTradingDays: vi.fn(),
     markCorporateAction: vi.fn(),
+    getFirstActiveAccountId: vi.fn(),
   };
 }
 

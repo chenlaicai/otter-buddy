@@ -19,6 +19,8 @@ export interface PaperTradeRepository {
   // ==================== 账户 ====================
   createAccount(account: PaperAccount): Promise<void>;
   getAccount(accountId: string): Promise<PaperAccount | null>;
+  /** 获取首个 active 账户 id（seed 撮合缺省时使用，与工具链同口径） */
+  getFirstActiveAccountId(): Promise<string | null>;
 
   // ==================== 持仓 ====================
   createPosition(accountId: string, code: string, shares: number, avgCost: number): Promise<void>;
