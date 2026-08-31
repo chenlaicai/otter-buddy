@@ -298,7 +298,30 @@ export class AgentTurnOrchestrator {
     }
 
     if (guardReason === 'degenerate_output' && retryCount === 0) {
-      return this.handleDegenerateRetry(ctx);
+      // F20260831dgrt：首次退化路由变更——DB 数据 14/16(87.5%) 重试退化走向熔断，
+      // 重试沦为无效中间步骤（每轮 8-14 分钟）。首次退化直接熔断更快更省（清空污染上下文）。
+      // 例外：session 由熔断创建且在 2h 窗口内——直接熔断会撞上限走 abort，保留重试作为唯一自愈机会。
+      let isCircuitBreakSession = false;
+      try {
+        isCircuitBreakSession = await ctx.callbacks.isSessionCircuitBreakCreated(ctx.input.otterId);
+      } catch (err) {
+        ctx.callbacks.logger.warn('isSessionCircuitBreakCreated check failed in routing, assuming false', {
+          otterId: ctx.input.otterId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      if (isCircuitBreakSession) {
+        // 保留路径：熔断创建的 session 在 2h 窗口内——重试是上限保护下唯一的自愈机会
+        return this.handleDegenerateRetry(ctx);
+      }
+
+      // F20260831dgrt：首次退化直接熔断（跳过无效重试，自愈更快更省）
+      this.logger.info('First degenerate output: skip retry, direct circuit break (F20260831dgrt)', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+      });
+      return this.handleCircuitBreak(ctx);
     }
 
     // F20260818cbkr：带污重试再次退化 → 熔断重启（上限判定在 handleCircuitBreak）
@@ -456,11 +479,12 @@ export class AgentTurnOrchestrator {
       data: { messageId: ctx.input.messageId, otterId: ctx.input.otterId, otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId, body: failBody },
     });
 
-    // F20260820d338：改进重试消息——避免 LLM 复述系统消息，给出具体指令
+    // F20260831dgrt：重试文案强化「忽略上文」语义——
+    // 旧文案引导 LLM 复述退化内容（上下文仍有退化输出+系统提醒），重试 87.5% 无效。
+    // 新文案明确指示「从本提醒开始重新组织」，切断 LLM 复述退化内容的诱因。
     const retryMsg =
-      '[系统提醒] 你上一条消息的输出内容出现了重复循环（同一段文字被反复输出）。' +
-      '上下文已包含之前的分析，不需要重新推理。' +
-      '请直接调用 speak 工具输出一次结论，不要重复输出之前已经说过的内容。';
+      '[系统提醒] 忽略上面的消息，从本提醒开始重新组织输出。' +
+      '你之前的消息出现了重复循环，已中断。请忽略上文已检测为退化的内容，直接调用 speak 工具输出一次简短结论。';
     let sysMsg;
     try {
       sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, retryMsg);

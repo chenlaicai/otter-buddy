@@ -7,6 +7,8 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
 import type { OtterSession } from "@entities/otter/otter-session";
+import type { HealingEvent } from "@entities/healing/healing-event";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { DomainError } from "@entities/errors";
 import { createTestLogger } from "../helpers/logger";
 
@@ -91,6 +93,26 @@ function mockManageSession(overrides?: Partial<{
     getActiveSession: overrides?.getActiveSession ?? (async () => null),
     createSession: overrides?.createSession ?? (async (otterId: string) => makeSession({ id: "sess-backfill", otterId })),
   } as unknown as ManageSession;
+}
+
+/** F20260831dgrt：mock healingRepo + session 使 isSessionCircuitBreakCreated 返回 true（保留重试路径） */
+function mockManageSessionForRetry(): ManageSession {
+  const session = makeSession({ id: "sess-cb", startedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() });
+  return { getActiveSession: async () => session, createSession: async (otterId: string) => makeSession({ id: "sess-backfill", otterId }) } as unknown as ManageSession;
+}
+function mockHealingRepoForRetry(): HealingEventRepository {
+  const events: HealingEvent[] = [{
+    id: "he-cb", messageId: "msg-old", conversationId: "conv-1", otterId: "otter-1",
+    errorType: "circuit_break", severity: "medium", description: "",
+    suggestion: "", context: { newSessionId: "sess-cb" }, status: "open",
+    resolution: null, createdAt: new Date().toISOString(), resolvedAt: null,
+  }];
+  return {
+    create: async (e: HealingEvent) => { events.push(e); },
+    findRecentByOtter: async (otterId: string, errorType: string, limit = 10) =>
+      events.filter(e => e.otterId === otterId && e.errorType === errorType).slice(-limit).reverse(),
+    findOpen: async () => [],
+  } as unknown as HealingEventRepository;
 }
 
 function mockQueryOtter(): QueryOtter {
@@ -983,13 +1005,14 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
           : speakingMsg;
       },
     } as unknown as QueryMessage;
-    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
+    // F20260831dgrt：首次退化路由变更——session 非熔断创建时直接熔断（不重试）。
+    // 此测试验证保留路径（熔断创建的 session 在2h窗口内）仍走重试。
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSessionForRetry(), mockQueryOtter(), createTestLogger(), undefined, undefined, undefined, undefined, mockHealingRepoForRetry());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
     expect(msg._sendSystemBodies).toHaveLength(1);
-    expect(msg._sendSystemBodies[0]).toContain("重复循环");
-    expect(msg._sendSystemBodies[0]).toContain("不需要重新推理");
+    expect(msg._sendSystemBodies[0]).toContain("忽略");
     expect(msg._calls.abort).toHaveLength(0);
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.failed");
@@ -1013,13 +1036,11 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
-    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
-    expect(msg._sendSystemBodies).toHaveLength(1);
+    // F20260831dgrt：首次退化直接 abort（session 非熔断创建、无 healingRepo）
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain("[系统保护]");
     expect(msg._calls.abort[0].body).toContain("异常重复");
     const eventTypes = events.map((e) => e.event);
-    expect(eventTypes).toContain("message.failed");
     expect(eventTypes).toContain("message.aborted");
   });
 
@@ -1095,12 +1116,10 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
-    /** fail 已执行，sendSystem 失败后降级为 abort */
-    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
+    // F20260831dgrt：首次退化直接 abort（session 非熔断创建、无 healingRepo）
     expect(msg._calls.abort).toHaveLength(1);
     expect(msg._calls.abort[0].body).toContain("[系统保护]");
     const eventTypes = events.map((e) => e.event);
-    expect(eventTypes).toContain("message.failed");
     expect(eventTypes).toContain("message.aborted");
   });
 
@@ -1125,10 +1144,8 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
     const invoker = new AgentInvoker(mockInvoke, msg, streamingQm, mockManageSession(), mockQueryOtter(), createTestLogger());
     const result = await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
-    /** 第一次：fail + sendSystem 成功 */
-    expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
-    expect(msg._sendSystemBodies).toHaveLength(1);
-    /** 重试抛异常后，error 路径处理 */
+    // F20260831dgrt：首次退化直接 abort（session 非熔断创建、无 healingRepo）
+    expect(msg._calls.abort).toHaveLength(1);
     expect(result.messageId).toBeDefined();
   });
 
@@ -1152,7 +1169,8 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
           : speakingMsg;
       },
     } as unknown as QueryMessage;
-    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
+    // F20260831dgrt：保留重试路径测试需要 session 为熔断创建+2h窗口内
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSessionForRetry(), mockQueryOtter(), createTestLogger(), undefined, undefined, undefined, undefined, mockHealingRepoForRetry());
 
     /** 第一次调用：degenerate_output 重试成功 */
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
@@ -1198,13 +1216,14 @@ describe("AgentInvoker — degenerate_output 梯度介入 (F146)", () => {
         ? { ...speakingMsg, id: "msg-1", status: "streaming", body: null, talkingStonePassedTo: null }
         : { ...speakingMsg, id, status: "speaking", body: "重试成功", talkingStonePassedTo: null },
     } as unknown as QueryMessage;
-    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSession(), mockQueryOtter(), createTestLogger());
+    // F20260831dgrt：保留重试路径测试需要 session 为熔断创建+2h窗口内
+    const invoker = new AgentInvoker(mockInvoke, msg, qm, mockManageSessionForRetry(), mockQueryOtter(), createTestLogger(), undefined, undefined, undefined, undefined, mockHealingRepoForRetry());
     await invoker.invokeConversation({ otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1", onSSEEvent: (e) => events.push(e) });
 
-    /** 走重试路径：fail + sendSystem + 重试成功，不走 abort 终态 */
+    /** 走重试路径：fail + sendSystem（含「忽略」语义）+ 重试成功，不走 abort 终态 */
     expect(msg._calls.fail.length).toBeGreaterThanOrEqual(1);
     expect(msg._sendSystemBodies).toHaveLength(1);
-    expect(msg._sendSystemBodies[0]).toContain("重复循环");
+    expect(msg._sendSystemBodies[0]).toContain("忽略");
     expect(msg._calls.abort).toHaveLength(0);
     const eventTypes = events.map((e) => e.event);
     expect(eventTypes).toContain("message.failed");

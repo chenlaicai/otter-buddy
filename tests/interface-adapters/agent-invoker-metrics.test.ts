@@ -240,11 +240,11 @@ describe("AgentInvoker metrics 埋点（F20260814mtrc）", () => {
       userMessageContent: "Hi", senderId: "user-1",
     });
 
-    expect(spy.invokes.map(i => i.outcome)).toEqual(["guard_abort", "guard_abort"]);
+    // F20260831dgrt：首次退化直接 abort（session 非熔断创建、无 healingRepo）——仅 1 次 invoke
+    expect(spy.invokes.map(i => i.outcome)).toEqual(["guard_abort"]);
     expect(spy.invokes[0].retry).toBe("0");
-    expect(spy.invokes[1].retry).toBe("auto"); // degenerate 重试轮
     expect(spy.invokes.every(i => i.model === "mimo")).toBe(true);
-    expect(spy.guardAborts.map(g => g.reason)).toEqual(["degenerate_output", "degenerate_output"]);
+    expect(spy.guardAborts.map(g => g.reason)).toEqual(["degenerate_output"]);
     expect(spy.retries).toContain("degenerate_output");
   });
 
