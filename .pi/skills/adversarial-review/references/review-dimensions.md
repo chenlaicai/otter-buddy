@@ -21,10 +21,12 @@ Does relevant feature documentation exist and match the implementation?
 - Check if feature documentation exists for the changes
 - Verify documentation matches actual implementation
 - Missing or inconsistent documentation must be reported as a 严重发现 in the review report
+- **历史文档不可变核查（F20260831dgim）**：PR 中对 `docs/features/`、`docs/research/` 已在 main 出现过的文档的 M/D 修改，直接标严重发现（结构性迁移除外：PR 描述或特性文档中记录了 BYPASS 理由）——正确姿势是新建文档记录变更，frontmatter from/supersedes 关联前文
 
 **判断标准（硬规则，不可降级）**：
 - 特性文档存在 → read 文档，检查与实现一致性
 - 特性文档缺失 → **严重发现（B2）**，无论变更类型（代码/prompt/skill/doc），不可降级为「可接受」或「完整」
+- **历史文档被修改 → 严重发现（B2，F20260831dgim）**：`git diff origin/main...HEAD --name-status -- docs/features/ docs/research/` 出现非 A 状态的历史文件（已在 main 出现过），除非 PR 明确声明结构性迁移（BYPASS 留痕）——正确姿势是新文档记录变更
 - 检查步骤：`list_artifacts` 查找特性文档 → 不存在则直接标记严重发现 → 存在则 read 核对一致性
 
 ### B3. End-to-End Verification

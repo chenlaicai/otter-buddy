@@ -41,7 +41,7 @@ category: technique
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
-7. **文档**：将实现要点、变更说明追加（不存在则创建）到特性文档（参见全局约定「特性文档」）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
+7. **文档**：将实现要点、变更说明写入本特性的文档——**新建追加，不改历史**（铁律 F20260831dgim）：本特性已有文档（本分支/本 PR 内创建）则追加；否则新建 `docs/features/` 文档记录，包括「本次变更对旧特性做了什么」也写在新文档里，回改已合入的历史文档一律禁止（参见全局约定「特性文档」；pre-commit 的 lint-historical-docs 会机械拦截）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
 
 8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
