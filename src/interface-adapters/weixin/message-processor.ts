@@ -65,7 +65,8 @@ export class WeixinMessageProcessor {
       textLength: body.length,
     });
 
-    const connection = await this.deps.manageConnection.ensureConnection(fromUserId, fromUserId);
+    // F20260831xtrt：微信用户建连声明 externalType=weixin——出站通道按类型路由的依据
+    const connection = await this.deps.manageConnection.ensureConnection(fromUserId, fromUserId, "weixin");
 
     if (!(await this.handleInbound(fromUserId, connection.id, msg))) return;
   }

@@ -49,9 +49,9 @@ function createBroadcaster() {
   return { broadcaster, manageConnection, weixinGateway, replies, logger };
 }
 
-function bindWeixin(manageConnection: any, externalId = "wx-user-1") {
+function bindWeixin(manageConnection: any, externalId = "wx-user-1", externalType = "weixin") {
   manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
-  manageConnection.getConnection.mockResolvedValue({ id: "conn-1", externalId });
+  manageConnection.getConnection.mockResolvedValue({ id: "conn-1", externalId, externalType });
 }
 
 describe("WeixinMessageChannel（broadcaster 出站）", () => {
@@ -91,5 +91,61 @@ describe("WeixinMessageChannel（broadcaster 出站）", () => {
     ctx.weixinGateway.replyMarkdown.mockRejectedValueOnce(new Error("weixin down"));
     // 不应抛错（broadcaster 逐通道 catch）
     await expect(ctx.broadcaster.broadcast(mockMessage())).resolves.toBeUndefined();
+  });
+});
+
+describe("WeixinMessageChannel 按 externalType 路由（F20260831xtrt）", () => {
+  it("externalType=feishu 的连接不投微信（飞书会话不进微信通道）", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "chat-123", "feishu");
+
+    await ctx.broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+
+    expect(ctx.replies).toHaveLength(0);
+    expect(ctx.weixinGateway.replyText).not.toHaveBeenCalled();
+  });
+
+  it("externalType=weixin 的连接正常投递（既有行为不回归）", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "wx-user-1", "weixin");
+
+    await ctx.broadcaster.broadcast(mockMessage({ senderType: "otter" }));
+
+    expect(ctx.replies).toHaveLength(1);
+    expect(ctx.replies[0].to).toBe("wx-user-1");
+  });
+});
+
+describe("WeixinMessageChannel onEvent thinking 按 externalType 路由（F20260831xtrt 检视R1）", () => {
+  it("externalType=feishu 的连接 thinking 消息不投微信（飞书会话不进微信通道）", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "chat-123", "feishu");
+
+    ctx.broadcaster.broadcastEvent("conv-1", {
+      event: "message.start",
+      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(ctx.weixinGateway.replyText).not.toHaveBeenCalled();
+  });
+
+  it("externalType=weixin 的连接 thinking 正常发送（不回归）", async () => {
+    const ctx = createBroadcaster();
+    bindWeixin(ctx.manageConnection, "wx-user-1", "weixin");
+    const sent: Array<{ to: string; text: string }> = [];
+    ctx.weixinGateway.replyText.mockImplementation(async (to: string, text: string) => {
+      sent.push({ to, text });
+    });
+
+    ctx.broadcaster.broadcastEvent("conv-1", {
+      event: "message.start",
+      data: { messageId: "m1", otterId: "otter-1", otterName: "大獭" },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe("wx-user-1");
+    expect(sent[0].text).toBe("大獭 正在思考...");
   });
 });
