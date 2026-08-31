@@ -3,11 +3,13 @@ import type { QueryMessage } from "./query-message";
 import type { SendMessage } from "./send-message";
 import type { DispatchChainEngine } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import {
   buildRestartResumeMsg,
   buildRestartResumeSystemMsg,
   buildRestartResumeFailedMsg,
   buildRestartResumeTerminalMsg,
+  buildRestartResumeCompletedMsg,
 } from "./agent-turn-orchestrator/retry-policy";
 import { canFailMessage } from "@entities/conversation/message";
 
@@ -38,6 +40,8 @@ export class ResumeInterruptedService {
       /** invokeFn 在装配处闭包捕获 agentInvoker（审视发现 1 修复） */
       invokeFn: (params: { otterId: string; conversationId: string; userMessageContent: string; senderId: string }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
       logger: Logger;
+      /** #613：healing 台账写入（服务重启事件落账，观测层闭环） */
+      healingRepo?: HealingEventRepository;
       /** 测试注入假时钟/立即触发 */
       delayMs?: number;
       /** F20260830rfto: 429 限流退避基础延迟（ms），测试可注入小值 */
@@ -53,6 +57,8 @@ export class ResumeInterruptedService {
       const pending = await this.deps.conversationRepo.getPendingResumes();
       if (pending.length === 0) return;
       this.deps.logger.info(`Resuming interrupted messages after restart`, { count: pending.length });
+      // #613：服务重启事件落 healing 台账（severity 按中断发言数分级）
+      await this.recordRestartHealingEvent(pending.length);
 
       const byConversation = new Map<string, typeof pending>();
       for (const item of pending) {
@@ -61,11 +67,62 @@ export class ResumeInterruptedService {
         byConversation.set(item.conversationId, list);
       }
       // F20260830rfto: 每个 conversation 独立 try/catch，一条失败不阻塞其余
+      const results = new Map<string, { resumed: number; failed: number }>();
       for (const [conversationId, items] of byConversation) {
-        await this.resumeConversation(conversationId, items);
+        const result = await this.resumeConversation(conversationId, items);
+        results.set(conversationId, result);
+      }
+      // #613 方案 A：恢复完成终态消息（成功路径与失败路径的 [错误] 消息对称）
+      for (const [conversationId, result] of results) {
+        await this.sendCompletedSafe(conversationId, result);
       }
     } catch (err) {
       this.deps.logger.error("Resume interrupted messages failed", err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  /** #613：安全发送恢复完成终态消息——失败不阻塞主流程 */
+  private async sendCompletedSafe(
+    conversationId: string,
+    result: { resumed: number; failed: number },
+  ): Promise<void> {
+    try {
+      await this.deps.sendMessage.sendSystem(
+        conversationId,
+        buildRestartResumeCompletedMsg(result.resumed, result.failed),
+      );
+    } catch (err) {
+      this.deps.logger.warn("Resume completed sendSystem failed", {
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** #613：服务重启事件落 healing 台账（try/catch non-fatal，对齐 notifyTaskErrored 模式） */
+  private async recordRestartHealingEvent(pendingCount: number): Promise<void> {
+    if (!this.deps.healingRepo) return;
+    const severity = pendingCount >= 5 ? "high" : pendingCount >= 2 ? "medium" : "low";
+    try {
+      await this.deps.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: "",
+        conversationId: "",
+        otterId: "",
+        errorType: "other",
+        severity,
+        description: `服务重启导致 ${pendingCount} 条发言中断，自动恢复流程已启动（#613）`,
+        suggestion: "确认恢复终态消息是否正常到达对话；若恢复失败请检查 invoke 链路",
+        context: { interruptedCount: pendingCount },
+        status: "open",
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.deps.logger.warn("Resume restart healing event write failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -73,7 +130,9 @@ export class ResumeInterruptedService {
   private async resumeConversation(
     conversationId: string,
     items: Array<{ messageId: string; conversationId: string; otterId: string }>,
-  ): Promise<void> {
+  ): Promise<{ resumed: number; failed: number }> {
+    let resumed = 0;
+    let failed = 0;
     try {
       await this.deps.sendMessage.sendSystem(conversationId, buildRestartResumeSystemMsg(items.length));
     } catch (err) {
@@ -83,19 +142,24 @@ export class ResumeInterruptedService {
       });
     }
     for (const item of items) {
-      await this.resumeItemSafe(item);
+      const ok = await this.resumeItemSafe(item);
+      if (ok) resumed++;
+      else failed++;
     }
+    return { resumed, failed };
   }
 
   /** F20260830rfto: 单条 resume 的安全包装——捕获所有异常确保不崩循环 */
-  private async resumeItemSafe(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {
+  private async resumeItemSafe(item: { messageId: string; conversationId: string; otterId: string }): Promise<boolean> {
     try {
-      await this.resumeOneWithRetry(item);
+      const outcome = await this.resumeOneWithRetry(item);
+      return outcome === "done";
     } catch (err) {
       this.deps.logger.error("Resume item failed after retries", err instanceof Error ? err : new Error(String(err)), {
         messageId: item.messageId, conversationId: item.conversationId, otterId: item.otterId,
       });
       await this.markExhaustedSafe(item.messageId, err);
+      return false;
     }
   }
 
@@ -113,13 +177,12 @@ export class ResumeInterruptedService {
   }
 
   /** F20260830rfto: resumeOne 外层包装——429 限流时指数退避重试 */
-  private async resumeOneWithRetry(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {
+  private async resumeOneWithRetry(item: { messageId: string; conversationId: string; otterId: string }): Promise<"done" | "skipped" | "failed"> {
     let lastErr: unknown;
     const baseDelay = this.getRateLimitBaseDelayMs();
     for (let attempt = 0; attempt <= ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES; attempt++) {
       try {
-        await this.resumeOne(item);
-        return; // 成功
+        return await this.resumeOne(item);
       } catch (err) {
         lastErr = err;
         if (this.isRateLimitError(err) && attempt < ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES) {
@@ -138,7 +201,7 @@ export class ResumeInterruptedService {
     throw lastErr;
   }
 
-  /** 检查错误是否为429 限流 */
+  /** #613 提取：判断是否为 429 限流错误 */
   private isRateLimitError(err: unknown): boolean {
     if (err instanceof Error) {
       return err.message.includes("429") || err.message.includes("rate_limit") || err.message.includes("rate limit");
@@ -147,7 +210,7 @@ export class ResumeInterruptedService {
     return str.includes("429") || str.includes("rate_limit") || str.includes("rate limit");
   }
 
-  private async resumeOne(item: { messageId: string; conversationId: string; otterId: string }): Promise<void> {
+  private async resumeOne(item: { messageId: string; conversationId: string; otterId: string }): Promise<"done" | "skipped" | "failed"> {
     const now = new Date().toISOString();
     /** #599：finally 终态守卫用——try 成功为 done，catch 降级为 failed */
     let outcome: "done" | "failed" = "done";
@@ -157,33 +220,19 @@ export class ResumeInterruptedService {
       const message = await this.deps.queryMessage.getMessageById(item.messageId);
       if (!participant || participant.status !== "active" || !message) {
         await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
-        return;
+        return "skipped";
       }
 
       // 2. 并发防护：窗口内有新 user 消息 → 跳过恢复降级手动（sequence_num 竞态最小防护）
-      const lastUserMsg = await this.deps.queryMessage.getLastMessageBySenderType(item.conversationId, "user");
-      if (lastUserMsg && Date.now() - Date.parse(lastUserMsg.createdAt) < ResumeInterruptedService.CONCURRENT_WINDOW_MS) {
+      if (await this.isConcurrentSkip(item.conversationId)) {
         await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
         await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedMsg("skipped_concurrent"));
-        return;
+        return "skipped";
       }
 
-      // 3. senderId 从原所属 turn 反查（prepareForRetry 会创建全新 turn，新 turn 为空不能作锚——审视发现 3）
-      const turnUserMsgs = await this.deps.queryMessage.getMessages(item.conversationId, { turnId: message.turnId, senderType: "user", limit: 1 });
-      const senderId = turnUserMsgs[0]?.senderId ?? "user";
-
-      // 4. 重置消息：failed→streaming，新 turn，半截 segments 保留（F20260821fix 语义）
-      await this.deps.sendMessage.prepareForRetry(item.messageId, true);
-
-      // 5. 链引擎续跑：消费 aggregatedTargets，恢复后 yield 交棒的链不断（#332）
-      await this.deps.dispatchChainEngine.executeChain({
-        conversationId: item.conversationId,
-        userMessageContent: buildRestartResumeMsg(),
-        senderId,
-        initialTargets: [item.otterId],
-        invokeFn: this.deps.invokeFn,
-      });
+      await this.executeResumeChain(item, message.turnId);
       await this.deps.conversationRepo.updateResumeStatus(item.messageId, "done", now);
+      return "done";
     } catch (err) {
       outcome = "failed";
       this.deps.logger.error("Resume one interrupted message failed", err instanceof Error ? err : new Error(String(err)), {
@@ -196,9 +245,33 @@ export class ResumeInterruptedService {
       }
       await this.deps.conversationRepo.updateResumeStatus(item.messageId, "exhausted", now);
       await this.deps.sendMessage.sendSystem(item.conversationId, buildRestartResumeFailedMsg("invoke_error"));
+      return "failed";
     } finally {
       await this.finalizeResumedMessage(item, outcome);
     }
+  }
+
+  /** #613 提取：单条恢复的核心步骤（senderId 反查 + prepareForRetry + 链引擎续跑） */
+  private async executeResumeChain(item: { messageId: string; conversationId: string; otterId: string }, turnId: string): Promise<void> {
+    // 3. senderId 从原所属 turn 反查（prepareForRetry 会创建全新 turn，新 turn 为空不能作锚——审视发现 3）
+    const turnUserMsgs = await this.deps.queryMessage.getMessages(item.conversationId, { turnId, senderType: "user", limit: 1 });
+    const senderId = turnUserMsgs[0]?.senderId ?? "user";
+    // 4. 重置消息：failed→streaming，新 turn，半截 segments 保留（F20260821fix 语义）
+    await this.deps.sendMessage.prepareForRetry(item.messageId, true);
+    // 5. 链引擎续跑：消费 aggregatedTargets，恢复后 yield 交棒的链不断（#332）
+    await this.deps.dispatchChainEngine.executeChain({
+      conversationId: item.conversationId,
+      userMessageContent: buildRestartResumeMsg(),
+      senderId,
+      initialTargets: [item.otterId],
+      invokeFn: this.deps.invokeFn,
+    });
+  }
+
+  /** #613 提取：并发防护检查（窗口内有新 user 消息则跳过） */
+  private async isConcurrentSkip(conversationId: string): Promise<boolean> {
+    const lastUserMsg = await this.deps.queryMessage.getLastMessageBySenderType(conversationId, "user");
+    return !!(lastUserMsg && Date.now() - Date.parse(lastUserMsg.createdAt) < ResumeInterruptedService.CONCURRENT_WINDOW_MS);
   }
 
   /**

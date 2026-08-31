@@ -71,6 +71,16 @@ export function buildRestartResumeFailedMsg(reason: "invoke_error" | "skipped_co
 }
 
 /**
+ * #613：恢复完成的用户可见终态消息（issue #613 方案 A）。
+ * Why: 「正在自动恢复」发出后成功路径无终态反馈，用户不知恢复结果（#604 只覆盖失败路径）。
+ * 按 conversation 汇总统计——单条恢复的消息粒度太细，用户关心的是「这次重启恢复了几条、没恢复几条」。
+ */
+export function buildRestartResumeCompletedMsg(resumed: number, failed: number): string {
+  if (failed === 0) return `[系统] 恢复完成：${resumed} 条中断发言已恢复。`;
+  return `[系统] 恢复完成：${resumed} 条中断发言已恢复，${failed} 条未能恢复（请手动重试）。`;
+}
+
+/**
  * #599：恢复收尾消息（终态守卫用）。
  * Why: 恢复路径 invoke 创建的是新消息（新 messageId），prepareForRetry 复位的旧消息
  * 在链结束后不再有写入者。收尾为 failed + 明确指引，把「悬挂 streaming 等用户中断」

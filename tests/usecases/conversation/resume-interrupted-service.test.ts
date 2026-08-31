@@ -11,6 +11,7 @@ import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { SendMessage } from "@usecases/conversation/send-message";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
@@ -390,6 +391,222 @@ describe("ResumeInterruptedService（F20260826rsme）", () => {
     // 链正常跑（prepareForRetry 对 completed 抛冲突 → catch 降级，但消息终态不被改写）
     const stored = await repo.getMessageById(msgId);
     expect(stored?.status).toBe("completed");
+  });
+});
+
+describe("#613 恢复流终态反馈 + healing 台账落账", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+  let otterRepo: SqliteOtterRepository;
+  let sm: SendMessage;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+    otterRepo = new SqliteOtterRepository(db);
+
+    const conv: Conversation = {
+      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, workspaceDir: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      completedAt: null, archivedAt: null,
+    };
+    await repo.create(conv);
+    const turn: Turn = {
+      id: "turn-1", conversationId: "conv-1", turnNumber: 1, status: "open",
+      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+    };
+    await repo.createTurn(turn);
+    db.prepare(`
+      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
+      VALUES (?, 'conv-1', 'user', 'chen', 'completed', 0, 'turn-1', '["otter-big"]', '搭档', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+    `).run(crypto.randomUUID());
+
+    sm = new SendMessage(repo, otterRepo, stubMemoryIndex(), createTestLogger());
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function buildService(chain: DispatchChainEngine & { calls: unknown[] }, delayMs = 0): ResumeInterruptedService {
+    return new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      delayMs,
+    });
+  }
+
+
+  // ── #613 方案 A：恢复完成终态消息 + 方案 B：healing 台账落账 ──
+
+  it("#613 方案 A：恢复完成后发终态消息「N 条已恢复」", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    await seedInterrupted(db, repo, { withSegments: "半截" });
+    const chain = stubChainEngine();
+
+    await buildService(chain).resume();
+
+    const sysMsgs = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
+    // 恢复完成终态消息（成功路径与失败路径的 [错误] 消息对称）
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("恢复完成")))).toBe(true);
+    expect(sysMsgs.some(m => m.segments.some(seg => seg.body.includes("1 条中断发言已恢复")))).toBe(true);
+  });
+
+  it("#613 方案 A：部分失败时终态消息含「M 条未能恢复」", async () => {
+    // conv-1 一条成功、conv-2 一条失败（链引擎对 conv-2 抛错）
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await otterRepo.createOtter(otterFixture("otter-small"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const conv2: Conversation = {
+      id: "conv-2", title: "测试对话2", status: "active", summary: null, pinned: false, workspaceDir: null,
+      createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      completedAt: null, archivedAt: null,
+    };
+    await repo.create(conv2);
+    const turn2: Turn = {
+      id: "turn-2", conversationId: "conv-2", turnNumber: 1, status: "open",
+      createdAt: "2026-01-01T00:00:00Z", closedAt: null,
+    };
+    await repo.createTurn(turn2);
+    db.prepare(`
+      INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, sender_name, created_at, completed_at)
+      VALUES (?, 'conv-2', 'user', 'chen', 'completed', 0, 'turn-2', '["otter-small"]', '搭档', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+    `).run(crypto.randomUUID());
+    await repo.createParticipant(participantFixture("otter-small", { id: "p-small", conversationId: "conv-2" }));
+
+    await seedInterrupted(db, repo, { withSegments: "半截1" });
+    seedInterruptedConv(db, "conv-2", "otter-small", { withSegments: "半截2" });
+
+    const chain = {
+      executeChain: vi.fn(async (params: { conversationId: string }) => {
+        if (params.conversationId === "conv-2") throw new Error("chain exploded");
+        return { otterReply: undefined };
+      }),
+    } as unknown as DispatchChainEngine;
+
+    await buildService(chain as unknown as DispatchChainEngine & { calls: unknown[] }).resume();
+
+    // conv-1：1 条已恢复
+    const sysMsgs1 = await new QueryMessage(repo).getMessages("conv-1", { senderType: "system", limit: 10 });
+    expect(sysMsgs1.some(m => m.segments.some(seg => seg.body.includes("1 条中断发言已恢复")))).toBe(true);
+    // conv-2：0 条恢复、1 条未恢复
+    const sysMsgs2 = await new QueryMessage(repo).getMessages("conv-2", { senderType: "system", limit: 10 });
+    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("0 条中断发言已恢复")))).toBe(true);
+    expect(sysMsgs2.some(m => m.segments.some(seg => seg.body.includes("1 条未能恢复")))).toBe(true);
+  });
+
+  it("#613 方案 B：恢复执行时落一条 healing event（severity=low，1 条中断）", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    await seedInterrupted(db, repo, { withSegments: "半截" });
+    const chain = stubChainEngine();
+    const healingRepo = {
+      create: vi.fn(async () => {}),
+    } as unknown as HealingEventRepository & { create: ReturnType<typeof vi.fn> };
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      healingRepo,
+      delayMs: 0,
+    });
+    await service.resume();
+
+    // 落了一条 healing event，severity=low（1 条中断）
+    expect(healingRepo.create).toHaveBeenCalled();
+    expect(healingRepo.create.mock.calls).toHaveLength(1);
+    const event = healingRepo.create.mock.calls[0][0];
+    expect(event.errorType).toBe("other");
+    expect(event.severity).toBe("low");
+    expect(event.description).toContain("1 条发言中断");
+  });
+
+  it("#613 方案 B：severity 按中断发言数分级（≥2 条=medium）", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    // 同一 conversation 两条中断发言
+    await seedInterrupted(db, repo, { withSegments: "半截1" });
+    seedInterruptedConv(db, "conv-1", "otter-big", { withSegments: "半截2" });
+    const chain = stubChainEngine();
+    const healingRepo = {
+      create: vi.fn(async () => {}),
+    } as unknown as HealingEventRepository & { create: ReturnType<typeof vi.fn> };
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      healingRepo,
+      delayMs: 0,
+    });
+    await service.resume();
+
+    expect(healingRepo.create).toHaveBeenCalled();
+    expect(healingRepo.create.mock.calls).toHaveLength(1);
+    const event = healingRepo.create.mock.calls[0][0];
+    expect(event.severity).toBe("medium");
+    expect(event.description).toContain("2 条发言中断");
+  });
+
+  it("#613 方案 B：无 pending 记录时不落 healing event", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    const chain = stubChainEngine();
+    const healingRepo = {
+      create: vi.fn(async () => {}),
+    } as unknown as HealingEventRepository & { create: ReturnType<typeof vi.fn> };
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      healingRepo,
+      delayMs: 0,
+    });
+    await service.resume();
+
+    expect(healingRepo.create).not.toHaveBeenCalled();
+  });
+
+  it("#613 方案 B：healing event 写入失败不阻塞恢复流程（non-fatal）", async () => {
+    await otterRepo.createOtter(otterFixture("otter-big"));
+    await repo.createParticipant(participantFixture("otter-big"));
+    const msgId = await seedInterrupted(db, repo, { withSegments: "半截" });
+    const chain = stubChainEngine();
+    const healingRepo = {
+      create: vi.fn(async () => { throw new Error("healing db exploded"); }),
+    } as unknown as HealingEventRepository & { create: ReturnType<typeof vi.fn> };
+
+    const service = new ResumeInterruptedService({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      sendMessage: sm,
+      dispatchChainEngine: chain,
+      invokeFn: async () => ({ messageId: "invoked-msg" }),
+      logger: createTestLogger(),
+      healingRepo,
+      delayMs: 0,
+    });
+    await service.resume();
+
+    // healing 写入失败但恢复流程正常完成
+    expect(chain.calls).toHaveLength(1);
+    const rows = db.prepare("SELECT status FROM restart_pending_resumes WHERE message_id = ?").all(msgId) as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe("done");
   });
 });
 
