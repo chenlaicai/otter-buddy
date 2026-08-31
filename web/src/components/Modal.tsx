@@ -38,11 +38,11 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
     }
   }, [isOpen])
 
-  /* F20260826pfix + F20260827abcd：桌面高度上限不因 fullScreenOnMobile 丢失。
+  /* F20260826pfix + F20260831xxxx：桌面高度上限恒给，不因 fullScreenOnMobile 丢失。
    *  滚动上限已 token 化（--modal-scroll-max-h / --modal-content-max-h），
-   *  值定义在 globals.css @theme 块，此处通过 CSS 变量引用。
-   *  fullScreenOnMobile=true 时 JS 侧不设 maxHeight（由 modal-fs-content
-   *  CSS 类在 <640px 覆盖为 100dvh 全屏抽屉）。 */
+   *  值定义在 globals.css @theme 块，此处通过 CSS 变量恒引用。
+   *  窄屏全屏抽屉由 CSS modal-fs-mobile 类 @media (max-width: 639px)
+   *  的 !important 100dvh 兜底，无需 JS 侧条件置 undefined。 */
 
   /** F20260826pfix：焦点管理（可及性）——打开时焦点进入弹窗（关闭按钮），
    *  关闭时归还触发元素。简单 focus trap：Tab 循环限制在 dialog 内。 */
@@ -89,7 +89,7 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
         aria-modal="true"
         aria-label={title}
         className={`glass-overlay rounded-3xl overflow-hidden ${fullScreenOnMobile ? 'modal-fs-mobile' : ''}`}
-        style={{ width, maxHeight: fullScreenOnMobile ? undefined : 'var(--modal-scroll-max-h)' }}
+        style={{ width, maxHeight: 'var(--modal-scroll-max-h)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-white/40 flex justify-between items-center">
@@ -102,7 +102,7 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className={`p-5 overflow-y-auto ${fullScreenOnMobile ? 'modal-fs-content' : ''}`} style={fullScreenOnMobile ? undefined : { maxHeight: 'var(--modal-content-max-h)' }}>
+        <div className={`p-5 overflow-y-auto ${fullScreenOnMobile ? 'modal-fs-content' : ''}`} style={{ maxHeight: 'var(--modal-content-max-h)' }}>
           {children}
         </div>
         {footer && (
