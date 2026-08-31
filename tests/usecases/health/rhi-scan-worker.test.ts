@@ -269,7 +269,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const keys = new Set(costRows.map(r => r.metric_key));
     expect(keys.has("input_tokens")).toBe(true);
     expect(keys.has("cost_total")).toBe(true);
-    expect(keys.has("cache_hit_rate")).toBe(true);
+    expect(keys.has("cache_hit_rate")).toBe(false); // #602：死键已删
     expect(keys.has("message_count")).toBe(true);
     expect(keys.has("tool_call_count")).toBe(true);
 

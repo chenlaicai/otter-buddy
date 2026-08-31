@@ -836,9 +836,12 @@ export class AgentTurnOrchestrator {
       return;
     }
     if (isRetryableGuardAbort(reason.guardReason)) {
-      recordRetrySafe(reason.guardReason.startsWith("circuit_break:")
-        ? "circuit_break"
-        : reason.guardReason as "streaming_timeout" | "first_byte_timeout");
+      const kind = reason.guardReason.startsWith('circuit_break:')
+        ? 'circuit_break'
+        : reason.guardReason.startsWith('bash_safety:')
+          ? 'bash_safety'
+          : reason.guardReason as 'streaming_timeout' | 'first_byte_timeout';
+      recordRetrySafe(kind);
     }
   }
 

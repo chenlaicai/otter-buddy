@@ -1,6 +1,6 @@
 import type { AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";

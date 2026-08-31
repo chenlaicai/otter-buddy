@@ -39,12 +39,12 @@ describe("collectLlmCalls", () => {
     expect(bigOtter828.otterName).toBe("大獭");
   });
 
-  it("正确计算 cache hit rate: cacheRead / (cacheRead + input)", async () => {
+  it("cacheRead/input 原始值保留（消费端从此推导 hit rate，#602）", async () => {
     const records = await collectLlmCalls(FIXTURES_DIR, agentSource);
     const bigOtter828 = records.find(r => r.date === "2026-08-28" && r.otterId === "otter-aaa")!;
-    // cacheRead = 3000, input = 8000 → rate = 3000/11000 ≈ 0.2727
-    const expectedRate = 3000 / (3000 + 8000);
-    expect(bigOtter828.cacheHitRate).toBeCloseTo(expectedRate, 4);
+    // cacheRead = 3000, input = 8000 → 消费端推导 rate = 3000/11000 ≈ 0.2727
+    expect(bigOtter828.cacheReadTokens).toBe(3000);
+    expect(bigOtter828.inputTokens).toBe(8000);
   });
 
   it("不同日期分属不同聚合行", async () => {
@@ -53,8 +53,7 @@ describe("collectLlmCalls", () => {
     expect(bigOtter829).toBeDefined();
     expect(bigOtter829.callCount).toBe(1); // msg4
     expect(bigOtter829.inputTokens).toBe(8000);
-    expect(bigOtter829.cacheReadTokens).toBe(0); // 8/29 那条 cacheRead=0
-    expect(bigOtter829.cacheHitRate).toBe(0); // 0/(0+8000)
+    expect(bigOtter829.cacheReadTokens).toBe(0); // 8/29 那条 cacheRead=0（消费端推导 rate=0/(0+8000)=0）
   });
 
   it("Finding 2: 未知 session 映射通过行内 otterId 归属（不再静默丢弃）", async () => {

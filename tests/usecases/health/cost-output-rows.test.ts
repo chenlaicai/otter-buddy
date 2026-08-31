@@ -20,7 +20,6 @@ function fakeCostRecord(overrides?: Partial<OtterCostRecord>): OtterCostRecord {
     costCacheWrite: 0.0002,
     costTotal: 0.1282,
     callCount: 5,
-    cacheHitRate: 0.23,
     ...overrides,
   };
 }
@@ -37,9 +36,9 @@ function fakeOutputRecord(overrides?: Partial<OtterOutputRecord>): OtterOutputRe
 }
 
 describe("buildCostOutputSnapshotRows", () => {
-  it("每条 cost 记录生成 12 行（12 个指标键）", () => {
+  it("每条 cost 记录生成 11 行（#602 删 cache_hit_rate 后 11 个指标键）", () => {
     const rows = buildCostOutputSnapshotRows("2026-08-28", [fakeCostRecord()], []);
-    expect(rows.length).toBe(12);
+    expect(rows.length).toBe(11);
     for (const r of rows) {
       expect(r.metricType).toBe("cost_output");
       expect(r.snapshotDate).toBe("2026-08-28");
@@ -59,8 +58,8 @@ describe("buildCostOutputSnapshotRows", () => {
     const costs = [fakeCostRecord(), fakeCostRecord({ otterId: "otter-bbb", otterName: "小獭甲" })];
     const outputs = [fakeOutputRecord(), fakeOutputRecord({ otterId: "otter-bbb", otterName: "小獭甲", messageCount: 10, toolCallCount: 3 })];
     const rows = buildCostOutputSnapshotRows("2026-08-28", costs, outputs);
-    // 2 cost × 12 + 2 output × 2 = 28
-    expect(rows.length).toBe(28);
+    // 2 cost × 11（#602 删 cache_hit_rate）+ 2 output × 2 = 26
+    expect(rows.length).toBe(26);
   });
 
   it("metadata 是合法 JSON 且含 otter 标识", () => {
@@ -91,7 +90,7 @@ describe("buildCostOutputSnapshotRows", () => {
     expect(byKey.get("total_tokens")).toBe(13700);
     expect(byKey.get("cost_total")).toBeCloseTo(0.1282);
     expect(byKey.get("llm_call_count")).toBe(5);
-    expect(byKey.get("cache_hit_rate")).toBeCloseTo(0.23);
+    expect(byKey.get("cache_hit_rate")).toBeUndefined(); // #602：死键已删，不再写入
   });
 
   it("PR 数行按日期生成（全局，无 per-otter 维度）", () => {

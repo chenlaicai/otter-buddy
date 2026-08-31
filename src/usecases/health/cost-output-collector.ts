@@ -80,7 +80,7 @@ export interface OtterCostRecord {
   costCacheWrite: number;
   costTotal: number;
   callCount: number;
-  cacheHitRate: number;
+  // cacheHitRate 字段已删（#602）：不再单独写入快照，消费端从 cacheReadTokens/inputTokens 推导
 }
 
 /** 聚合结果：per-otter per-day 的产出计数 */
@@ -260,11 +260,11 @@ function buildCostRecord(
     costCacheWrite: usage.cost.cacheWrite,
     costTotal: usage.cost.total,
     callCount: 1,
-    cacheHitRate: 0,
   };
 }
 
-/** 按 key 聚合并计算 cache hit rate */
+/** 按 key 聚合（per-otter per-day per-model）。
+ *  cacheHitRate 不再计算（#602）：消费端统一从 cacheReadTokens+inputTokens 推导。 */
 function aggregateUsageRecords(
   records: Array<OtterCostRecord & { _key: string }>,
 ): OtterCostRecord[] {
@@ -287,10 +287,6 @@ function aggregateUsageRecords(
       const { _key, ...rest } = rec;
       aggregate.set(_key, rest);
     }
-  }
-  for (const record of aggregate.values()) {
-    const denom = record.cacheReadTokens + record.inputTokens;
-    record.cacheHitRate = denom > 0 ? record.cacheReadTokens / denom : 0;
   }
   return [...aggregate.values()];
 }
