@@ -28,6 +28,7 @@ function createTestApp(dataDir: string): Hono {
 
   const app = new Hono();
   app.get("/api/conversations/:id/workspace", (c) => controller.listDir(c));
+  app.get("/api/conversations/:id/workspace/stats", (c) => controller.getStats(c));
   app.get("/api/conversations/:id/workspace/file", (c) => controller.readFile(c));
   return app;
 }
@@ -205,6 +206,95 @@ describe("Workspace HTTP API", () => {
         `/api/conversations/${noWsId}/workspace/file?path=any.txt`,
       );
       expect(res.status).toBe(404);
+    });
+
+    it("stats 返回正确的文件数和总大小", async () => {
+      // 写入额外文件以测试大小统计
+      const wsDir = path.join(tmpDir, "workspaces", VALID_CONV_ID);
+      await fs.writeFile(path.join(wsDir, "big.bin"), "x".repeat(5000), "utf-8");
+
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/stats`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as {
+        fileCount: number;
+        totalSize: number;
+        topFiles: Array<{ path: string; size: number }>;
+      };
+      // 3 个文件：hello.txt(12字节，"你好世界"=4中文×3字节), subdir/nested.txt(12字节), big.bin(5000字节)
+      expect(body.fileCount).toBe(3);
+      expect(body.totalSize).toBe(12 + 12 + 5000);
+      // topFiles 按大小降序
+      expect(body.topFiles[0].path).toBe("big.bin");
+      expect(body.topFiles[0].size).toBe(5000);
+    });
+
+    it("stats 空工作区返回零值", async () => {
+      const emptyWsId = "00000000-0000-4000-8000-000000000002";
+      const wsDir = path.join(tmpDir, "workspaces", emptyWsId);
+      await fs.mkdir(wsDir, { recursive: true });
+
+      const res = await app.request(
+        `/api/conversations/${emptyWsId}/workspace/stats`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { fileCount: number; totalSize: number; topFiles: unknown[] };
+      expect(body.fileCount).toBe(0);
+      expect(body.totalSize).toBe(0);
+      expect(body.topFiles).toEqual([]);
+    });
+
+    it("stats 不存在的工作区返回零值", async () => {
+      const noWsId = "00000000-0000-4000-8000-000000000003";
+      const res = await app.request(
+        `/api/conversations/${noWsId}/workspace/stats`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { fileCount: number };
+      expect(body.fileCount).toBe(0);
+    });
+
+    it("stats top 参数限制返回文件数", async () => {
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/stats?top=1`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { topFiles: unknown[] };
+      expect(body.topFiles.length).toBe(1);
+    });
+
+    it("stats top=0 返回零个 topFiles", async () => {
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/stats?top=0`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { topFiles: unknown[] };
+      expect(body.topFiles).toEqual([]);
+    });
+
+    it("stats top=-1 被 clamp 为 0 返回零个 topFiles", async () => {
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/stats?top=-1`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { topFiles: unknown[] };
+      expect(body.topFiles).toEqual([]);
+    });
+
+    it("stats top=51 被 clamp 为 50 返回全部文件", async () => {
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/stats?top=51`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { fileCount: number; topFiles: unknown[] };
+      // 2 个文件（hello.txt, subdir/nested.txt），topFiles 应返回全部
+      expect(body.topFiles.length).toBe(body.fileCount);
+    });
+
+    it("stats 非法 conversationId 拒绝 400", async () => {
+      const res = await app.request(`/api/conversations/bad-id/workspace/stats`);
+      expect(res.status).toBe(400);
     });
   });
 });

@@ -1185,19 +1185,6 @@ function ConversationPage() {
     } catch { showToast('创建对话失败', 'error') }
   }
 
-  async function confirmChild(title: string) {
-    if (modal.type !== 'child') return
-    try {
-      const dto = await api.createConversation({ title })
-      const conv = mapConversationDTO(dto)
-      setConversations(prev => [...prev, conv])
-      setModal({ type: 'none' })
-      showToast('子对话已创建', 'success')
-      // 混合架构：创建子对话后整页刷新，确保 URL 与内容一致
-      window.location.href = `/conversation/${conv.id}`
-    } catch { showToast('创建子对话失败', 'error') }
-  }
-
   async function confirmArchive() {
     if (!activeId) return
     try {
@@ -1322,8 +1309,6 @@ function ConversationPage() {
     // 混合架构：右键菜单操作时整页刷新，确保 URL 与内容一致
     if (action === 'archive') {
       setModal({ type: 'archive', cid })
-    } else if (action === 'child') {
-      setModal({ type: 'child', parentId: cid })
     } else if (action === 'pin') {
       showToast('正在置顶...', 'info')
       try {
@@ -1449,12 +1434,11 @@ function ConversationPage() {
           <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
             <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
             <div onClick={() => ctxAction('archive', ctxMenu.cid)} className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer ${activeConvForMenu.status !== 'archived' ? 'hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
-            <div onClick={() => ctxAction('child', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">创建子对话</div>
           </div>
         </>
       )}
 
-      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={handleCloseModal} onConfirmNewConv={confirmNewConv} onConfirmChild={confirmChild} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={handleOpenRestart} onOpenDissolve={handleOpenDissolve} />
+      <ConversationModals modal={modal} otters={activeOtters} sessions={sessions} onClose={handleCloseModal} onConfirmNewConv={confirmNewConv} onConfirmArchive={confirmArchive} onConfirmCreateOtter={confirmCreateOtter} onConfirmDissolve={confirmDissolve} onConfirmRestart={confirmRestart} onConfirmLinkResource={confirmLinkResource} onOpenRestart={handleOpenRestart} onOpenDissolve={handleOpenDissolve} />
 
       {/* 定时任务 Modal */}
       {scheduledTaskModal.type !== 'none' && (
