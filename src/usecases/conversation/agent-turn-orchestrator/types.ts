@@ -103,7 +103,7 @@ export interface HealingEventInput {
   messageId: string;
   conversationId: string;
   otterId: string;
-  errorType: "degenerate" | "circuit_break" | "self_restart";
+  errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept";
   severity: "low" | "medium" | "high";
   description: string;
   suggestion?: string;

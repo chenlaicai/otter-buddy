@@ -379,6 +379,35 @@ export class PiSessionFactory implements AgentGateway {
     return otterConfig?.modelAlias ?? this.cfg.modelPool.getDefaultAlias();
   }
 
+  /**
+   * F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本）。
+   * fire-and-forget：失败仅记日志，不阻断拦截本身；healingRepo 缺失时返回 undefined。
+   */
+  private buildGuardInterceptHook(
+    otterId: string,
+    ids: { messageId?: string; conversationId?: string },
+  ): ((input: { command: string; reason: string }) => void) | undefined {
+    const healingRepo = this.cfg.healingRepo;
+    if (!healingRepo) return undefined;
+    return ({ command, reason }) => {
+      healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: ids.messageId ?? "",
+        conversationId: ids.conversationId ?? "",
+        otterId,
+        errorType: "guard_intercept",
+        severity: "medium",
+        description: `bash 守卫拦截：${reason.substring(0, 200)}（命令前缀：${command.substring(0, 120)}）`,
+        suggestion: "LLM 已收到引导提示；若同一 otter 短时间内多次被拦，先排查是否误拦——误拦率上升会侵蚀 LLM 对引导的信任",
+        context: { layer: "framework" },
+        status: "open",
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      }).catch(err => this.logger.error("guard_intercept healing event write failed (non-fatal)", err instanceof Error ? err : new Error(String(err)), { otterId }));
+    };
+  }
+
   /** 使用 session 执行 invoke */
   private async _executeWithSession(
     otterId: string,
@@ -403,7 +432,7 @@ export class PiSessionFactory implements AgentGateway {
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
       { otterPromptConfig, identityPrefix, otterId },
-      // eslint-disable-next-line max-statements -- F20260815rstrt pendingRestart 检查增加语句数
+      // eslint-disable-next-line max-statements, complexity -- F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. 构建工具配置并创建 AgentSession
         this.logger.debug('[execute] Creating session with tools', { otterId });
@@ -412,8 +441,8 @@ export class PiSessionFactory implements AgentGateway {
         const { session, sessionKey, toolContext } = await this._createSessionWithTools(otterId, otterType, options, sessionManager, turnText);
         this.logger.debug('[execute] Session created', { otterId, sessionKey });
 
-        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: process.cwd() });
+        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 守卫拦截 healing（F20260831aksp T3）
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: process.cwd(), onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }) });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);

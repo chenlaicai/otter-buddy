@@ -12,6 +12,8 @@ export type HealingErrorType =
   | 'circuit_break'
   /** F20260824srst：自重启执行（context.newSessionId 关联新 session，防循环上限判定） */
   | 'self_restart'
+  /** F20260831aksp：bash 安全守卫拦截（框架层每次拦截记 medium 样本；编排层同消息二拦终态补 high） */
+  | 'guard_intercept'
   | 'other';
 
 /** Healing event 严重程度 */

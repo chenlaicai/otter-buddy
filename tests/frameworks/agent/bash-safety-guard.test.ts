@@ -64,23 +64,25 @@ describe("checkBashCommandSafety", () => {
 
   it("直接 kill 主进程 PID → 拦截", () => {
     const result = checkBashCommandSafety("kill 42877", mainPid);
-    expect(result).toContain("kill 42877");
+    expect(result).toContain("主进程 PID");
     expect(result).toContain("主进程");
+    // F20260831aksp：PID 数字脱敏——拦截文案不得回显真实 PID（堵试探链）
+    expect(result).not.toContain("42877");
   });
 
   it("kill -9 主进程 PID → 拦截", () => {
     const result = checkBashCommandSafety("kill -9 42877", mainPid);
-    expect(result).toContain("kill 42877");
+    expect(result).toContain("主进程 PID");
   });
 
   it("kill -15 主进程 PID → 拦截", () => {
     const result = checkBashCommandSafety("kill -15 42877", mainPid);
-    expect(result).toContain("kill 42877");
+    expect(result).toContain("主进程 PID");
   });
 
   it("sudo kill 主进程 PID → 拦截（穿透 sudo 包装）", () => {
     const result = checkBashCommandSafety("sudo kill 42877", mainPid);
-    expect(result).toContain("kill 42877");
+    expect(result).toContain("主进程 PID");
   });
 
   it("kill 主进程 + nohup 组合命令 → 拦截", () => {
@@ -88,7 +90,7 @@ describe("checkBashCommandSafety", () => {
       "kill 42877 2>/dev/null; sleep 2; nohup node dist/src/main.js > /tmp/otter-main.log 2>&1 &",
       mainPid,
     );
-    expect(result).toContain("kill 42877");
+    expect(result).toContain("主进程 PID");
   });
 
   it("kill 无关进程 PID → 放行", () => {
@@ -103,7 +105,7 @@ describe("checkBashCommandSafety", () => {
 
   it("多个 PID 中包含主进程 → 拦截", () => {
     const result = checkBashCommandSafety("kill 12345 42877 67890", mainPid);
-    expect(result).toContain("kill 42877");
+    expect(result).toContain("主进程 PID");
   });
 
   it("多个 PID 都是无关进程 → 放行", () => {
@@ -128,12 +130,44 @@ describe("checkBashCommandSafety", () => {
 
   it("管道中前段 kill 主进程 → 拦截", () => {
     const result = checkBashCommandSafety("echo starting && kill 42877", mainPid);
-    expect(result).toContain("kill 42877");
+    expect(result).toContain("主进程 PID");
   });
 
   it("空命令 → 放行", () => {
     const result = checkBashCommandSafety("", mainPid);
     expect(result).toBeNull();
+  });
+
+  // ─── F20260831aksp §2c：归一化检测——塔死引号/反斜杠拼接规避（R1 严重1） ───
+
+  it("空单引号拼接 ki''ll 主 PID → 拦截（归一化后命中）", () => {
+    const result = checkBashCommandSafety("ki''ll 42877", mainPid);
+    expect(result).toContain("主进程 PID");
+  });
+
+  it("空双引号拼接 → 拦截（归一化后命中）", () => {
+    const result = checkBashCommandSafety('ki""ll 42877', mainPid);
+    expect(result).toContain("主进程 PID");
+  });
+
+  it("字母间反斜杠拼接 → 拦截（归一化后命中）", () => {
+    const result = checkBashCommandSafety("k\\ill 42877", mainPid);
+    expect(result).toContain("主进程 PID");
+  });
+
+  it("无 PID 的拼接查询（如 grep 'ki''ll' file）→ 放行（归一化不扩大误拦面）", () => {
+    const result = checkBashCommandSafety("grep 'ki''ll' file.txt", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("拼接 + 无关 PID → 放行（仅归一化命中 kill 词还不够，需后续 PID 判定）", () => {
+    const result = checkBashCommandSafety("ki''ll 12345", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("拦截文案不含 restart 推荐（终审口径：无 restart 出口）", () => {
+    const result = checkBashCommandSafety("pkill -f otter-buddy", mainPid);
+    expect(result).not.toContain("otter-buddy.sh restart");
   });
 
   // ─── pkill/killall 精确模式匹配 ───
