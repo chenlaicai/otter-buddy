@@ -84,3 +84,45 @@ describe('Modal body.modal-open 生命周期（F20260825scrf）', () => {
     expect(container.contains(scrim)).toBe(false)
   })
 })
+
+describe('Modal maxHeight 恒给（F20260831wsui）', () => {
+  it('dialog 层 maxHeight 恒为 --modal-scroll-max-h（无论 fullScreenOnMobile）', async () => {
+    await act(async () => {
+      root.render(
+        <Modal isOpen onClose={() => {}} title="测试" fullScreenOnMobile>
+          内容
+        </Modal>
+      )
+    })
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
+    expect(dialog.style.maxHeight).toBe('var(--modal-scroll-max-h)')
+  })
+
+  it('content 层 maxHeight 恒为 --modal-content-max-h（无论 fullScreenOnMobile）', async () => {
+    await act(async () => {
+      root.render(
+        <Modal isOpen onClose={() => {}} title="测试" fullScreenOnMobile>
+          内容
+        </Modal>
+      )
+    })
+    // content 层是 dialog 内的 overflow-y-auto div
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    const content = dialog.querySelector('.overflow-y-auto') as HTMLElement
+    expect(content).not.toBeNull()
+    expect(content.style.maxHeight).toBe('var(--modal-content-max-h)')
+  })
+
+  it('非 fullScreenOnMobile 时 maxHeight 同样恒给', async () => {
+    await act(async () => {
+      root.render(
+        <Modal isOpen onClose={() => {}} title="测试">
+          内容
+        </Modal>
+      )
+    })
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog.style.maxHeight).toBe('var(--modal-scroll-max-h)')
+  })
+})

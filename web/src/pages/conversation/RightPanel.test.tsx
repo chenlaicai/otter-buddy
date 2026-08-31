@@ -91,7 +91,7 @@ describe('RightPanel tab 切换', () => {
     expect(container.textContent).toContain('Otter 参与者')
   })
 
-  it('点击切换 tab 应显示对应内容', () => {
+  it('点击切换 tab 应显示对应内容', async () => {
     renderPanel([], [])
     switchTab('resources')
     expect(container.textContent).toContain('暂无关键资源')
@@ -99,8 +99,18 @@ describe('RightPanel tab 切换', () => {
     switchTab('tasks')
     expect(container.textContent).toContain('定时任务')
 
+    // A5: mock fetch BEFORE switching to workspace tab (WorkspacePanel useEffect fires on mount)
+    const workspaceEntries = {
+      entries: [{ name: 'file.txt', isDirectory: false, isFile: true, path: 'file.txt' }]
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(workspaceEntries), { status: 200 })
+    ))
     switchTab('workspace')
-    expect(container.textContent).toContain('工作区根目录')
+    // flush microtasks (fetch in useEffect resolves → state update → re-render)
+    await act(async () => { await new Promise<void>(r => setTimeout(r, 0)) })
+    const tree = container.querySelector('[data-testid="workspace-tree"]')
+    expect(tree).not.toBeNull()
   })
 
   it('切换 tab 时应保持各 tab 的状态', () => {
