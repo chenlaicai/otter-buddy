@@ -375,3 +375,96 @@ describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
     expect(overviewRows[0]!.metric_key).toBe("commit_count");
   });
 });
+
+describe("Issue #652 方案甲：confidence=low 不计入健康分 D5（独立仓库，检测器真实产出信号集）", () => {
+  let repoDir: string;
+  let db: Database.Database;
+
+  function git(args: string[]): void {
+    execFileSync("git", args, { cwd: repoDir, stdio: "pipe" });
+  }
+
+  /** 日期递增的 commit（防同秒并列致链内排序不稳定，见主 describe 的 flaky 教训） */
+  let seq = 0;
+  function commitAt(message: string, daysAgo: number): void {
+    const d = new Date(Date.now() - daysAgo * 24 * 3600 * 1000 + seq * 3600 * 1000);
+    seq++;
+    git(["commit", "-m", message, "--date", d.toISOString()]);
+  }
+
+  async function writeFileCommit(rel: string, content: string, message: string, daysAgo: number): Promise<void> {
+    const full = path.join(repoDir, rel);
+    await mkdir(path.dirname(full), { recursive: true });
+    await writeFile(full, content, "utf-8");
+    git(["add", rel]);
+    commitAt(message, daysAgo);
+  }
+
+  beforeAll(async () => {
+    repoDir = await mkdtemp(path.join(tmpdir(), "rhi-652-test-"));
+    db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+
+    git(["init"]);
+    git(["symbolic-ref", "HEAD", "refs/heads/main"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "RHI Test"]);
+
+    // 链 A/B：20/18 天前 commit + 在途文档 → stalled ∧ 有 commit → chain_stall confidence=low ×2
+    await writeFileCommit("src/a.ts", "a", "[F20260901aada][agent][New Feature] 链A", 20);
+    await writeFileCommit("docs/features/2026/09/01/F20260901aada.md",
+      "---\nid: F20260901aada\ntitle: 链A\nsummary: low 信号 1\nchange_type: feature\nstatus: development\n---\n\nbody\n",
+      "[F20260901aada][agent][Feature Update] 链A文档", 20);
+    await writeFileCommit("src/b.ts", "b", "[F20260901aadb][agent][New Feature] 链B", 18);
+    await writeFileCommit("docs/features/2026/09/01/F20260901aadb.md",
+      "---\nid: F20260901aadb\ntitle: 链B\nsummary: low 信号 2\nchange_type: feature\nstatus: development\n---\n\nbody\n",
+      "[F20260901aadb][agent][Feature Update] 链B文档", 18);
+
+    // 链 F：src/hot.ts 3 次 bugfix（3 天内，active 链）→ bug_recurrence confidence=normal ×1
+    await writeFileCommit("src/hot.ts", "v1", "[F20260901aaff][agent][New Feature] 链F", 3);
+    await writeFileCommit("src/hot.ts", "v2", "[F20260901aaff][agent][BugFix] 修1 (#21)", 2);
+    await writeFileCommit("src/hot.ts", "v3", "[F20260901aaff][agent][BugFix] 修2 (#22)", 2);
+    await writeFileCommit("src/hot.ts", "v4", "[F20260901aaff][agent][BugFix] 修3 (#23)", 1);
+    // 链 F 的 F 文档（在途状态，最近 commit 1 天前 → active 链，计入 D5 分母）
+    await writeFileCommit("docs/features/2026/09/01/F20260901aaff.md",
+      "---\nid: F20260901aaff\ntitle: 链F\nsummary: normal critical 测试链\nchange_type: feature\nstatus: development\n---\n\nbody\n",
+      "[F20260901aaff][agent][Feature Update] 链F文档", 1);
+  });
+
+  afterAll(async () => {
+    db.close();
+    await rm(repoDir, { recursive: true, force: true });
+  });
+
+  it("low×2 + normal critical×1 → D5 按过滤后计数（critical=1/3），非 low 全计（=3/3）", async () => {
+    const { SignalRepository } = await import("@usecases/health/signal-repository");
+    const signalRepo = new SignalRepository(db);
+
+    const sinkRows: Array<{ metricType: string; metricKey: string; metricValue: number }> = [];
+    const pipeline = makePipeline(db);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      signalRepo,
+      snapshotSink: (_date, rows) => {
+        for (const r of rows) sinkRows.push({ metricType: r.metricType, metricKey: r.metricKey, metricValue: r.metricValue });
+      },
+    });
+
+    await worker.scanOnce();
+
+    // 信号集确认：2 条 low critical（chain_stall）+ 1 条 normal critical（bug_recurrence）
+    const open = signalRepo.findOpen();
+    const lowCritical = open.filter(s => s.confidence === "low" && s.severity === "critical");
+    const normalCritical = open.filter(s => s.confidence !== "low" && s.severity === "critical");
+    expect(lowCritical).toHaveLength(2);
+    expect(normalCritical).toHaveLength(1);
+    expect(normalCritical[0]!.signal_type).toBe("bug_recurrence");
+
+    const d5 = sinkRows.find(r => r.metricType === "health_index" && r.metricKey === "D5");
+    expect(d5).toBeDefined();
+    // 活跃链（active+stalled）= 3（链A/B stalled + 链F active）；过滤后 critical=1 →
+    // D5 = 100 - (1/3×40) = 86.67；若 low 未过滤（critical=3）→ 100 - 3/3×40 = 60。
+    // 本断言锁定方案甲口径（low 不推高健康分）
+    expect(d5!.metricValue).toBeCloseTo(86.67, 1);
+  });
+});

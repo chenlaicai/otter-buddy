@@ -13,7 +13,9 @@
  * - D3 交付活力: active占比×100 - regressed占比×150 - zombie占比×100（clamp）
  * - D4 流程合规: compliance_rate×100（线性）
  * - D5 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
- *   活跃链 = state∈{active,stalled}（zombie/orphan 积压由 D3 惩罚，不重复压 D5）
+ *   活跃链 = state∈{active,stalled}（zombie/orphan 积压由 D3 惩罚，不重复压 D5）；
+ *   输入口径 #652 方案甲：confidence=low 信号（大概率误报）在源头计数时排除
+ *   （rhi-scan-worker.countOpenBySeverity），本函数无需感知置信分层
  *
  * 无数据维度（如回填历史无 chain_states）：score=null（「—」），
  * 不参与综合分加权，综合分按其余维度权重归一。
@@ -59,7 +61,7 @@ export interface HealthScoreInput {
   changeTypes: Record<string, number>;
   /** distribution.chain_states 的 metadata（五态计数）；null=当日无链数据 */
   chainStates: Record<string, number> | null;
-  /** 当前 open 信号计数（按 severity） */
+  /** 当前 open 信号计数（按 severity；#652 方案甲：confidence=low 不计入——源头过滤） */
   openSignals: { critical: number; warning: number };
 }
 

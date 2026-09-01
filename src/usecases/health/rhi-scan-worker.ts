@@ -126,13 +126,17 @@ export class RhiScanWorker {
     private readonly options: RhiScanWorkerOptions = {},
   ) {}
 
-  /** open 信号按 severity 计数（D5 输入；repo 未注入返回 null → 评分降级零值） */
+  /** open 信号按 severity 计数（D5 输入；repo 未注入返回 null → 评分降级零值）。
+   *  Issue #652 方案甲：confidence=low（大概率误报）不计入 critical/warning 计数——
+   *  数字与视觉一致（UI 折叠的信号不推高健康分）；low 明细走 overview 的
+   *  openSignalsByConfidence 单列，数据不丢 */
   private countOpenBySeverity(): { critical: number; warning: number } | null {
     if (!this.options.signalRepo) return null;
     try {
       const open = this.options.signalRepo.findOpen();
       const counts = { critical: 0, warning: 0 };
       for (const s of open) {
+        if (s.confidence === "low") continue; // #652 方案甲：low 不计主数
         if (s.severity === "critical") counts.critical++;
         else counts.warning++;
       }

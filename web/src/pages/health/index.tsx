@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, Bug, FileCode, TrendingUp, PieChart as PieIcon, Layers, BarChart3, Gauge, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react'
+import { RefreshCw, ShieldAlert, GitBranch, Activity, Bug, FileCode, TrendingUp, PieChart as PieIcon, Layers, BarChart3, Gauge, ArrowUpRight, ArrowDownRight, Minus, Flame } from 'lucide-react'
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, Legend,
@@ -11,6 +11,7 @@ import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiCostOutputOtterDTO, RhiScoreDTO } from '../../api/client'
+import { RecurrencePanel, LowConfidenceDrawer, HotspotHeatBar, TrendSparkline, SignalPostureCard, isRecurrenceSignal } from './recurrence'
 
 /**
  * F20260825rweb（#403）：RHI 健康面板页面（三视图）。
@@ -31,23 +32,27 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   intent_drop: '意图兑现率下降',
   hotspot_imbalance: '热区失衡',
   review_debt: '审视债务',
+  snapshot_shift: '健康分环比骤变',
+  post_merge_fix_density: '合并后修复密度',
 }
 
 const CHAIN_STATE_LABELS: Record<string, { label: string; className: string; color: string }> = {
-  active: { label: '活跃', className: 'bg-emerald-100 text-emerald-700', color: '#10b981' },
-  stalled: { label: '滞留', className: 'bg-status-stalled text-amber-700', color: '#f59e0b' },
-  regressed: { label: '回退', className: 'bg-orange-100 text-orange-700', color: '#f97316' },
+  active: { label: '活跃', className: 'bg-teal-100 text-teal-600', color: '#3A8B8B' },
+  stalled: { label: '滞留', className: 'bg-status-stalled text-caramel-600', color: '#C9956B' },
+  regressed: { label: '回退', className: 'bg-orange-100 text-caramel-700', color: '#8F6234' },
   zombie: { label: '僵尸', className: 'bg-rose-100 text-rose-700', color: '#f43f5e' },
   orphan: { label: '孤儿', className: 'bg-skeleton text-stone-500', color: '#a8a29e' },
 }
 
-const CHANGE_TYPE_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#f97316', '#64748b']
+/** 色彩 token（Issue #647：图表库默认蓝绿橙退场，观澜视觉方案 3.4）
+ *  提交类型分布系列色：teal/otter/lavender 阶梯度（不自造色值） */
+const CHANGE_TYPE_COLORS = ['#3A8B8B', '#C9956B', '#8B7AB8', '#8F6234', '#4A9B9B', '#D9A57B', '#9B8AC8', '#C9AC8E']
 const CHANGE_TYPE_LABELS: Record<string, string> = {
   Feature: '新功能', BugFix: '修复', Refactor: '重构', Docs: '文档',
   Test: '测试', Chore: '杂务', Experiment: '实验',
 }
 
-const COST_OUTPUT_COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#14b8a6', '#f97316', '#64748b', '#ec4899', '#06b6d4']
+const COST_OUTPUT_COLORS = ['#3A8B8B', '#8B6F47', '#8B7AB8', '#C9956B', '#4A9B9B', '#D9A57B', '#9B8AC8', '#C9AC8E', '#7BC5C5', '#E8B98E']
 
 /** 健康分状态色（issue #595：绿≥75 / 黄 50-74 / 红<50，与后端 statusFromScore 对齐）*/
 const SCORE_STATUS_CONFIG: Record<string, { label: string; text: string; bg: string; border: string }> = {
@@ -134,8 +139,8 @@ function HealthPage() {
     }
   }
 
-  const criticalSignals = signals.filter(s => s.severity === 'critical')
-  const warningSignals = signals.filter(s => s.severity !== 'critical')
+  const criticalSignals = signals.filter(s => s.severity === 'critical' && s.confidence !== 'low')
+  const warningSignals = signals.filter(s => s.severity !== 'critical' && s.confidence !== 'low')
 
   return (
     <AppLayout activeView="health">
@@ -184,44 +189,51 @@ function HealthPage() {
             ))}
           </div>
 
-          {/* 总览视图：健康分卡 + 雷达图 + 指标卡 + 可视化看板 */}
+          {/* 总览视图（Issue #647 PR2 重组：从统计仪表到出血点仪表）*/}
           {tab === 'overview' && (
             <div className="space-y-4">
-              {/* 健康分区：综合分大卡 + 五维雷达（issue #595 PR2）*/}
+              {/* 健康分区：综合分大卡 + 五维雷达（issue #595 PR2，保留）*/}
               <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <OverallScoreCard score={score} />
                 <ScoreRadarCard score={score} />
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <MetricCard label="总提交（60 天窗口）" value={overview?.metrics.total_commits ?? '—'} icon={<GitBranch className="w-4 h-4" />} />
-                <MetricCard label="BugFix 比率" value={fmtPercent(overview?.metrics.bugfix_ratio)} icon={<Bug className="w-4 h-4" />} />
-                <MetricCard label="critical 信号" value={overview?.openSignalsBySeverity.critical ?? '—'} icon={<ShieldAlert className="w-4 h-4" />} tone={(overview?.openSignalsBySeverity.critical ?? 0) > 0 ? 'danger' : 'ok'} />
-                <MetricCard label="warning 信号" value={overview?.openSignalsBySeverity.warning ?? '—'} icon={<AlertTriangle className="w-4 h-4" />} tone={(overview?.openSignalsBySeverity.warning ?? 0) > 0 ? 'warn' : 'ok'} />
+
+              {/* 信号态势卡（#652 口径：高置信/低置信分列） + 复发模式区（首屏主角）*/}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <SignalPostureCard overview={overview} signals={signals} />
+                <div className="md:col-span-2">
+                  <SectionTitle icon={<Flame className="w-4 h-4 text-caramel-500" />} title="复发模式（近窗口出血点）" subtitle="bug●→fix● 交替节奏，按热度排序" />
+                  <RecurrencePanel signals={signals} />
+                </div>
+              </div>
+
+              {/* 低置信折叠抽屉（#647：18 条假警报折叠收纳，数据不丢）*/}
+              <LowConfidenceDrawer signals={signals} />
+
+              {/* 热点热力条（#647：teal→caramel 热力映射，替代条形图）+ 指标卡 */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2 rounded-2xl bg-white/80 border border-stone-200/70 px-4 py-3">
+                  <SectionTitle icon={<Flame className="w-4 h-4 text-caramel-500" />} title="热点文件（60 天窗口）" subtitle="修改频次 teal→caramel 热力映射" />
+                  <HotspotHeatBar files={trends?.distributions.file_hotspots ?? []} />
+                </div>
+                <div className="space-y-3">
+                  <MetricCard label="总提交（60 天窗口）" value={overview?.metrics.total_commits ?? '—'} icon={<GitBranch className="w-4 h-4" />} />
+                  <MetricCard label="BugFix 比率" value={fmtPercent(overview?.metrics.bugfix_ratio)} icon={<Bug className="w-4 h-4" />} />
+                </div>
               </div>
 
               {trends && trends.series.length > 0 ? (
                 <>
-                  {/* 趋势区：提交量 + BugFix 比率双图 */}
-                  <ChartCard title="提交 & BugFix 趋势" subtitle="近 30 天快照 · 柱=提交数，线=BugFix 比率" icon={<TrendingUp className="w-4 h-4 text-otter-500" />}>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <ComposedChart data={trends.series} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                        <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 11, fill: '#78716c' }} />
-                        <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#78716c' }} />
-                        <YAxis yAxisId="right" orientation="right" unit="%" tick={{ fontSize: 11, fill: '#78716c' }} domain={[0, 100]} />
-                        <Tooltip labelFormatter={l => `快照 ${fmtDate(String(l))}`} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Bar yAxisId="left" dataKey="total_commits" name="提交数" fill="#93c5fd" radius={[3, 3, 0, 0]} />
-                        <Line yAxisId="right" type="monotone" dataKey="bugfix_ratio" name="BugFix 比率" stroke="#f43f5e" strokeWidth={2} dot={false} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </ChartCard>
+                  {/* 趋势 sparkline（#647：降级为一行高度，首屏 40% 高度让位复发卡）*/}
+                  <div className="rounded-2xl bg-white/80 border border-stone-200/70 px-4 py-2.5">
+                    <TrendSparkline series={trends.series} />
+                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* change_type 分布环形图 */}
+                    {/* change_type 分布环形图（色彩 token 统一后）*/}
                     <ChartCard title="提交类型分布" subtitle={`快照 ${trends.latestSnapshotDate ?? '—'} · 60 天窗口`} icon={<PieIcon className="w-4 h-4 text-otter-500" />}>
                       {changeTypeData(trends).length > 0 ? (
-                        <ResponsiveContainer width="100%" height={220}>
+                        <ResponsiveContainer width="100%" height={180}>
                           <PieChart>
                             <Pie
                               data={changeTypeData(trends)}
@@ -229,8 +241,8 @@ function HealthPage() {
                               nameKey="name"
                               cx="50%"
                               cy="50%"
-                              innerRadius={55}
-                              outerRadius={85}
+                              innerRadius={45}
+                              outerRadius={70}
                               paddingAngle={2}
                             >
                               {changeTypeData(trends).map((_, i) => (
@@ -246,31 +258,16 @@ function HealthPage() {
                       )}
                     </ChartCard>
 
-                    {/* 模块热区条形图 */}
-                    <ChartCard title="模块热区" subtitle="commit 按 module 聚合 · TOP 8" icon={<BarChart3 className="w-4 h-4 text-otter-500" />}>
-                      {moduleData(trends).length > 0 ? (
-                        <ResponsiveContainer width="100%" height={220}>
-                          <ComposedChart data={moduleData(trends)} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
-                            <XAxis type="number" tick={{ fontSize: 11, fill: '#78716c' }} allowDecimals={false} />
-                            <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 11, fill: '#78716c' }} />
-                            <Tooltip />
-                            <Bar dataKey="value" name="commits" fill="#0ea5e9" radius={[0, 3, 3, 0]} barSize={14} />
-                          </ComposedChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <EmptyChart text="无模块数据" />
-                      )}
+                    {/* 特性链五态分布堆叠条 */}
+                    <ChartCard title="特性链五态分布" subtitle={`快照 ${trends.latestSnapshotDate ?? '—'} · 共 ${chainTotal(trends)} 条链`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
+                      <div className="pt-2">
+                        <ChainStateBar counts={trends.distributions.chain_states ?? {}} />
+                      </div>
                     </ChartCard>
                   </div>
-
-                  {/* 特性链五态分布堆叠条 */}
-                  <ChartCard title="特性链五态分布" subtitle={`快照 ${trends.latestSnapshotDate ?? '—'} · 共 ${chainTotal(trends)} 条链`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
-                    <ChainStateBar counts={trends.distributions.chain_states ?? {}} />
-                  </ChartCard>
                 </>
               ) : (
-                <div className="rounded-2xl bg-white/70 border border-stone-200/60 py-16 text-center">
+                <div className="rounded-2xl bg-white/70 border border-stone-200/60 py-12 text-center">
                   <TrendingUp className="w-10 h-10 mx-auto mb-3 text-stone-300" />
                   <p className="text-sm text-stone-500">还没有历史快照——点右上角「立即扫描」生成第一份</p>
                   <p className="text-xs text-stone-400 mt-1">扫描会计算指标并写入快照库，之后每小时自动更新，趋势图逐日长出来</p>
@@ -279,14 +276,13 @@ function HealthPage() {
             </div>
           )}
 
-          {/* 信号视图（列表为主，图表辅助） */}
+          {/* 信号视图（Issue #647：从平铺列表到处置队列——复发卡主角 + 低置信抽屉）*/}
           {tab === 'signals' && (
             <div className="space-y-4">
-              {/* 信号说明卡 */}
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
                 <p className="text-sm text-stone-600 font-semibold mb-1.5">信号 = 仓库异常模式自动检测</p>
                 <p className="text-xs text-stone-500 leading-relaxed">
-                  系统从提交记录、特性链、文件热区等数据中自动识别 8 种信号类型，反映潜在质量风险。open 状态表示待处置，建议关注 critical 级别信号。
+                  复发模式卡是处置主角（bug→fix 交替证据链）；低置信信号折叠收纳不稀释真警报（#652 口径：不计入 critical 计数与健康分）。
                 </p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {Object.values(SIGNAL_TYPE_LABELS).map(label => (
@@ -295,10 +291,22 @@ function HealthPage() {
                 </div>
               </div>
 
-              {criticalSignals.length > 0 && (
-                <SignalGroup title="🔴 严重信号（critical）" signals={criticalSignals} severity="critical" />
+              {/* 主角：复发模式卡全量（含证据时间轴 + 建议动作）*/}
+              {signals.filter(isRecurrenceSignal).length > 0 && (
+                <div>
+                  <h2 className="text-sm font-semibold text-stone-600 mb-2">复发模式 · {signals.filter(isRecurrenceSignal).length}</h2>
+                  <RecurrencePanel signals={signals} />
+                </div>
               )}
-              <SignalGroup title="🟡 警告信号（warning）" signals={warningSignals} severity="warning" />
+
+              {criticalSignals.length > 0 && (
+                <SignalGroup title="严重信号（critical，高置信）" signals={criticalSignals} severity="critical" />
+              )}
+              <SignalGroup title="警告信号（warning，高置信）" signals={warningSignals} severity="warning" />
+
+              {/* 低置信抽屉（明细可展开，数据不丢）*/}
+              <LowConfidenceDrawer signals={signals} />
+
               {signals.length === 0 && (
                 <div className="text-center py-12 text-stone-400">
                   <ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -474,12 +482,6 @@ function changeTypeData(trends: RhiTrendsDTO): Array<{ name: string; value: numb
   return Object.entries(dist)
     .map(([k, v]) => ({ name: CHANGE_TYPE_LABELS[k] ?? k, value: v }))
     .sort((a, b) => b.value - a.value)
-}
-
-function moduleData(trends: RhiTrendsDTO): Array<{ name: string; value: number }> {
-  const mods = trends.distributions.modules
-  if (!Array.isArray(mods)) return []
-  return mods.slice(0, 8).map(m => ({ name: m.module, value: m.count }))
 }
 
 function chainTotal(trends: RhiTrendsDTO): number {
@@ -663,6 +665,21 @@ function ChartCard({ title, subtitle, icon, children }: {
         {subtitle && <span className="text-stone-400">· {subtitle}</span>}
       </div>
       {children}
+    </div>
+  )
+}
+
+/** 区块标题行（Issue #647 PR2：复发卡/热力条区块头，与 ChartCard 同视觉层级） */
+function SectionTitle({ icon, title, subtitle }: {
+  icon?: React.ReactNode
+  title: string
+  subtitle?: string
+}) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-stone-500 mb-2">
+      {icon}
+      <span className="font-semibold text-stone-600">{title}</span>
+      {subtitle && <span className="text-stone-400">· {subtitle}</span>}
     </div>
   )
 }

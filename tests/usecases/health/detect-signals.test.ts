@@ -4,6 +4,7 @@ import type { SignalCommitInput } from "@usecases/health/detect-signals";
 import { parseCommit } from "@usecases/health/commit-parser";
 import { buildFeatureChains } from "@usecases/health/chain-builder";
 import type { CollectedHealingEvent } from "@usecases/health/healing-collector";
+import type { SignalDetail } from "@usecases/health/detect-signals";
 
 const NOW = new Date("2026-08-25T12:00:00+08:00");
 
@@ -95,7 +96,7 @@ describe("detectSignals", () => {
     expect(rec).toBeDefined();
     // 输入是 toISOString() 生成的 Z 格式，归一后仍是 Z 格式（以 Z 结尾）；
     // 若未来采集器改用 %aI 带时区偏移格式，此断言强制归一不变量
-    for (const cm of rec!.detail!.commits) {
+    for (const cm of bugRecDetailCommits(rec!.detail)) {
       expect(cm.date.endsWith("Z")).toBe(true);
     }
   });
@@ -248,6 +249,13 @@ describe("detectSignals", () => {
   });
 });
 
+
+/** 类型收窄 helper（#647 SignalDetail 联合化后）：取 bug_recurrence detail 的 commits */
+function bugRecDetailCommits(detail: SignalDetail | undefined): Array<{ sha: string; date: string; changeType: string | null; message: string }> {
+  if (!detail || detail.kind !== "bug_recurrence_commits") return [];
+  return detail.commits;
+}
+
 describe("Issue #644：结构化证据 + 置信度", () => {
   it("bug_recurrence 的 detail 含全类型 commit 序列（不只 bugfix，交替节奏可画）", () => {
     const commits = [
@@ -263,13 +271,13 @@ describe("Issue #644：结构化证据 + 置信度", () => {
     expect(rec!.detail).toBeDefined();
     expect(rec!.detail!.kind).toBe("bug_recurrence_commits");
     // 全类型：3 bugfix + 1 New Feature + 1 Feature Update = 5 个节点
-    expect(rec!.detail!.commits).toHaveLength(5);
+    expect(bugRecDetailCommits(rec!.detail)).toHaveLength(5);
     // 时间升序
-    const dates = rec!.detail!.commits.map(c => c.date);
+    const dates = bugRecDetailCommits(rec!.detail).map(c => c.date);
     expect([...dates].sort()).toEqual(dates);
     // changeType 标注交替（第一个是引入非 bugfix）
-    expect(rec!.detail!.commits[0]!.changeType).toBe("New Feature");
-    expect(rec!.detail!.commits.filter(c => c.changeType === "BugFix")).toHaveLength(3);
+    expect(bugRecDetailCommits(rec!.detail)[0]!.changeType).toBe("New Feature");
+    expect(bugRecDetailCommits(rec!.detail).filter(c => c.changeType === "BugFix")).toHaveLength(3);
   });
 
   it("detail 窗口滑动整体重算：出窗 commit 不出现在 detail", () => {
@@ -282,8 +290,8 @@ describe("Issue #644：结构化证据 + 置信度", () => {
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.detail!.commits).toHaveLength(3);
-    expect(rec!.detail!.commits.every(c => c.sha !== "old")).toBe(true);
+    expect(bugRecDetailCommits(rec!.detail)).toHaveLength(3);
+    expect(bugRecDetailCommits(rec!.detail).every(c => c.sha !== "old")).toBe(true);
   });
 
   it("chain_stall 置信规则甲：stalled ∧ 有 commit → low；zombie/doc-only → normal", () => {

@@ -466,6 +466,8 @@ export interface RhiOverviewDTO {
   snapshotDate: string | null
   openSignals: number
   openSignalsBySeverity: { critical: number; warning: number }
+  /** Issue #652 方案甲：low（大概率误报）不计入 bySeverity，单列于此——折叠抽屉计数 */
+  openSignalsByConfidence?: { normal: number; low: number }
 }
 
 export interface RhiTrendPointDTO {
@@ -507,6 +509,11 @@ export interface RhiSignalDTO {
     kind: string
     windowDays: number
     commits: Array<{ sha: string; date: string; changeType: string | null; message: string }>
+    /** post_merge_fix_density 专属（Issue #647）：修复 commit 序列 + 占比 + 排除清单 */
+    fixCommits?: Array<{ sha: string; date: string; changeType: string | null; message: string }>
+    totalRelatedCommits?: number
+    fixRatio?: number
+    excludedHighFaninFiles?: string[]
   } | null
   /** 置信度：low=大概率误报（UI 折叠收纳）。null=normal */
   confidence: string | null

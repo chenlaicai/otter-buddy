@@ -2,7 +2,8 @@
  * RhiController: /api/health/* 端点（F20260825rweb Phase 2 / Issue #402）
  *
  * 三个读端点 + 一个手动扫描端点，数据全部来自 Phase 0/1 的现成结构：
- * - overview: health_snapshots 最新快照 + open 信号计数（含 critical 数）
+ * - overview: health_snapshots 最新快照 + open 信号计数（含 critical 数；
+ *   #652 方案甲：confidence=low 不计主数，单列 openSignalsByConfidence）
  * - signals: signals 表（open 优先，可按 status 过滤）
  * - chains:  实时构建特性链（buildFeatureChains 纯函数，读 git + docs）
  * - scan:    手动触发一轮 RhiScanWorker.scanOnce（调试/演示用）
@@ -276,7 +277,11 @@ export class RhiController {
     private readonly logger: Logger,
   ) {}
 
-  /** GET /api/health/overview — 总览：最新快照指标 + 信号计数 */
+  /** GET /api/health/overview — 总览：最新快照指标 + 信号计数。
+   *  Issue #652 方案甲：openSignalsBySeverity 只计 confidence=normal 的信号
+   *  （low 是大概率误报，UI 折叠收纳——折叠的信号不推高 critical 计数，数字与视觉一致）；
+   *  low 明细单列 openSignalsByConfidence（数据不丢，折叠抽屉可展开）；
+   *  openSignals 保持全量 open 总数（含 low——它仍是待核实事件，只是不进主警报） */
   async overview(c: Context): Promise<Response> {
     try {
       const metrics: Record<string, number> = {};
@@ -287,9 +292,15 @@ export class RhiController {
 
       const openSignals = this.signalRepo.findOpen();
       const bySeverity = { critical: 0, warning: 0 };
+      const byConfidence = { normal: 0, low: 0 };
       for (const s of openSignals) {
-        if (s.severity === "critical") bySeverity.critical++;
-        else bySeverity.warning++;
+        if (s.confidence === "low") {
+          byConfidence.low++; // #652：low 不计入 bySeverity（折叠信号不推高主数）
+        } else {
+          byConfidence.normal++;
+          if (s.severity === "critical") bySeverity.critical++;
+          else bySeverity.warning++;
+        }
       }
 
       const latestSnapshotDate = this.snapshotRepo.findLatestByMetricKey("total_commits")?.snapshot_date ?? null;
@@ -299,6 +310,7 @@ export class RhiController {
         snapshotDate: latestSnapshotDate,
         openSignals: openSignals.length,
         openSignalsBySeverity: bySeverity,
+        openSignalsByConfidence: byConfidence,
       });
     } catch (err) {
       this.logger.error("RHI overview failed", err instanceof Error ? err : undefined);

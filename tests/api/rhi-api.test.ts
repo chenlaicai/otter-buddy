@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
 import { migrateDatabase } from "@frameworks/db/migration";
@@ -96,6 +96,7 @@ describe("RHI API（真 sqlite）", () => {
       expect(body.metrics).toEqual({});
       expect(body.openSignals).toBe(0);
     });
+
   });
 
   describe("signals", () => {
@@ -387,5 +388,44 @@ describe("RHI API（真 sqlite）", () => {
       expect(body.ok).toBe(true);
       expect(body.result.commitCount).toBe(42);
     });
+  });
+});
+
+describe("RHI overview #652 方案甲（独立 describe：主 describe 超 max-lines 拆分）", () => {
+  let db: Database.Database;
+  let signalRepo: SignalRepository;
+
+  beforeAll(async () => {
+    db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    signalRepo = new SignalRepository(db);
+  });
+
+
+  afterAll(() => db.close());
+
+  it("low 信号不计入 critical/warning 主数，单列 openSignalsByConfidence", async () => {
+    // 验收口径（issue #652 原文）：low 信号 ×2 + normal critical ×1 → critical 计数 = 1
+    signalRepo.upsert({ signalType: "chain_stall", severity: "critical", featureId: "F20260801low1", filePath: null, evidence: "e", suggestedAction: "s", confidence: "low" });
+    signalRepo.upsert({ signalType: "chain_stall", severity: "critical", featureId: "F20260801low2", filePath: null, evidence: "e", suggestedAction: "s", confidence: "low" });
+    signalRepo.upsert({ signalType: "bug_recurrence", severity: "critical", featureId: null, filePath: "c.ts", evidence: "e", suggestedAction: "s" });
+
+    const worker = { buildChainsOnce: async () => [] } as never;
+    const snapshotRepo = new HealthSnapshotRepository(db);
+    const controller = new RhiController(snapshotRepo, signalRepo, worker, console as never);
+    const c = {
+      json: (data: unknown) => new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } }),
+    } as never;
+    const res = await controller.overview(c) as Response;
+    const body = await res.json() as {
+      openSignals: number;
+      openSignalsBySeverity: { critical: number; warning: number };
+      openSignalsByConfidence: { normal: number; low: number };
+    };
+
+    expect(body.openSignalsBySeverity).toEqual({ critical: 1, warning: 0 });
+    expect(body.openSignalsByConfidence).toEqual({ normal: 1, low: 2 });
+    expect(body.openSignals).toBe(3);
   });
 });

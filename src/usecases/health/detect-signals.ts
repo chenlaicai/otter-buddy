@@ -11,6 +11,7 @@ import type { CollectedHealingEvent } from "./healing-collector";
 import type { FeatureChain } from "./chain-builder";
 import { SIGNAL_REGISTRY } from "./signal-registry";
 import type { SignalType, SignalSeverity } from "./signal-registry";
+import { detectPostMergeFixDensity } from "./post-merge-fix-density";
 
 /** 检测出的信号实例 */
 export interface DetectedSignal {
@@ -34,13 +35,33 @@ export interface DetectedSignal {
 }
 
 /** bug_recurrence 的结构化证据：窗口内该文件的全类型 commit 序列（时间升序） */
-export interface SignalDetail {
+export interface BugRecurrenceDetail {
   kind: "bug_recurrence_commits";
   /** 窗口天数（重算口径的一部分，滑动窗口整体覆盖） */
   windowDays: number;
   /** 窗口内触碰该文件的全部 commit（不只 bugfix——交替节奏需要全类型） */
   commits: Array<SignalDetailCommit>;
 }
+
+/** post_merge_fix_density 的结构化证据（Issue #647：合并后修复密度，含高扇入排除清单） */
+export interface PostMergeFixDensityDetail {
+  kind: "post_merge_fix_density";
+  /** 合入时刻（FID 最后 main commit，squash 流近似） */
+  mergedAt: string;
+  /** 分档窗口天数（按链规模：≤10→14天 / ≤30→21天 / 其他→30天） */
+  windowDays: number;
+  /** 窗口内触碰链文件（排除后）的 bugfix commit */
+  fixCommits: Array<SignalDetailCommit>;
+  /** 占比分母：窗口内触碰链文件（排除后）的全部相关 commit 数 */
+  totalRelatedCommits: number;
+  /** 占比（fixCommits.length / totalRelatedCommits） */
+  fixRatio: number;
+  /** 高扇入排除清单（不参与链级计数——清单可见不黑箱，文件级出血由 bug_recurrence 兜底） */
+  excludedHighFaninFiles: string[];
+}
+
+/** 结构化证据联合（按 kind 判别；新增信号类型在此扩展） */
+export type SignalDetail = BugRecurrenceDetail | PostMergeFixDensityDetail;
 
 export interface SignalDetailCommit {
   sha: string;
@@ -109,6 +130,9 @@ export function detectSignals(
   signals.push(...detectHotspot(inWindow, options));
   signals.push(...detectBehaviorDefect(healingEvents, options, now));
   signals.push(...detectHotspotImbalance(inWindow, options));
+  // Issue #647：合并后修复密度（链级「哪个特性不对劲」——高扇入排除后）。
+  // 用全量 commits 而非 inWindow：合入窗口的右端点是链各自的合入时刻，不随检测窗口滑动
+  signals.push(...detectPostMergeFixDensity(commits, chains, { now }));
 
   return signals;
 }
