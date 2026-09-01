@@ -63,6 +63,12 @@ export interface DetectOptions {
   imbalanceRatio?: number;
   /** 检测窗口（commit 只统计窗口内的，默认 30 天） */
   windowDays?: number;
+  /** behavior_defect 窗口天数（healing 事件只统计窗口内的，默认 7；Issue #645 窗口化升级）。
+   *  命名对齐 rhi-scan-worker 的 windowDays 先例（信号检测窗口天数的既有叫法） */
+  behaviorWindowDays?: number;
+  /** behavior_defect 触发次数（同 errorType 窗口内，默认 3；独立于 recurrenceThreshold——
+   *  两检测器阈值语义不同源，共用参数会在调参时互相牵连） */
+  behaviorThreshold?: number;
   /** 现在时刻（测试可注入） */
   now?: Date;
 }
@@ -101,7 +107,7 @@ export function detectSignals(
   signals.push(...detectBugRecurrence(inWindow, options, now));
   signals.push(...detectChainStall(chains, now));
   signals.push(...detectHotspot(inWindow, options));
-  signals.push(...detectBehaviorDefect(healingEvents, options));
+  signals.push(...detectBehaviorDefect(healingEvents, options, now));
   signals.push(...detectHotspotImbalance(inWindow, options));
 
   return signals;
@@ -206,9 +212,10 @@ function collectDetailCommits(
 /** 从未有关联 commit 的文档状态（零 commit 是常态，不应触发滞留信号） */
 const DOC_NEVER_STARTED_STATUSES = new Set(["draft", "proposed", "design"]);
 
-/** chain_stall：特性链滞留（复用 ChainBuilder 的 stalled/zombie 判定） */
+/** chain_stall：特性链滞留（复用 ChainBuilder 的 stalled/zombie 判定）。Issue #645：
+ *  zombie 分支升级为阶梯分档（severity/evidence/action 按天数分档，见 zombieLadder），
+ *  stalled 分支保持 #644 规则甲语义不变 */
 function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
-  const reg = SIGNAL_REGISTRY.chain_stall;
   return chains
     .filter(c => c.state === "stalled" || c.state === "zombie")
     // Why: draft/proposed 文档从未有 commit 是常态（孤儿文档），不应触发 critical 信号
@@ -216,31 +223,84 @@ function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
       if (c.commitCount === 0 && DOC_NEVER_STARTED_STATUSES.has(c.doc?.status ?? "draft")) return false;
       return true;
     })
-    .map(c => {
-      // Why: daysSinceLastCommit 为 null 表示从未有 commit（doc-only 链），用 createdAt 代替
-      const stallDays = c.daysSinceLastCommit ?? (
-        c.doc?.createdAt
-          ? Math.floor((now.getTime() - new Date(c.doc.createdAt).getTime()) / DAY_MS)
-          : null
-      );
-      // Issue #644 置信规则甲：stalled ∧ 有 commit → low（实查 18/18 为「干完没归档」误报，
-      // 大概率活已干完只是文档没归档）；zombie 与 doc-only 滞留保持 normal（异常更实）。
-      // zombie/doc-only 不降置信：30 天无 commit 且对话零提及更接近真异常。
-      const confidence: SignalConfidence =
-        c.state === "stalled" && c.commitCount > 0 ? "low" : "normal";
-      return {
-        type: reg.type,
-        name: reg.name,
-        severity: reg.severity,
-        featureId: c.featureId,
-        filePath: null,
-        evidence: c.state === "zombie"
-          ? `${c.featureId} 僵尸链：30 天无 commit 且近 30 天对话零提及（doc status=${c.doc?.status ?? "?"}）`
-          : `${c.featureId} 滞留 ${stallDays} 天无 commit（doc status=${c.doc?.status ?? "?"}）`,
-        suggestedAction: reg.suggestedAction,
-        confidence,
-      };
-    });
+    .map(c => (c.state === "zombie" ? zombieLadderSignal(c, now) : stalledSignal(c, now)));
+}
+
+/** 滞留天数：有 commit 用 daysSinceLastCommit；doc-only 链（null）用 createdAt 自算 */
+function stallDaysOf(c: FeatureChain, now: Date): number | null {
+  return c.daysSinceLastCommit ?? (
+    c.doc?.createdAt
+      ? Math.floor((now.getTime() - new Date(c.doc.createdAt).getTime()) / DAY_MS)
+      : null
+  );
+}
+
+/** stalled 分支（#644 置信规则甲）：stalled ∧ 有 commit → low（大概率「干完没归档」误报） */
+function stalledSignal(c: FeatureChain, now: Date): DetectedSignal {
+  const reg = SIGNAL_REGISTRY.chain_stall;
+  const stallDays = stallDaysOf(c, now);
+  const confidence: SignalConfidence = c.commitCount > 0 ? "low" : "normal";
+  return {
+    type: reg.type,
+    name: reg.name,
+    severity: reg.severity,
+    featureId: c.featureId,
+    filePath: null,
+    evidence: `${c.featureId} 滞留 ${stallDays} 天无 commit（doc status=${c.doc?.status ?? "?"}）`,
+    suggestedAction: reg.suggestedAction,
+    confidence,
+  };
+}
+
+/** zombie 分支：阶梯分档（#645）+ normal 置信（#644：30 天无 commit 且零提及更接近真异常） */
+function zombieLadderSignal(c: FeatureChain, now: Date): DetectedSignal {
+  const reg = SIGNAL_REGISTRY.chain_stall;
+  const days = stallDaysOf(c, now);
+  const ladder = zombieLadder(days);
+  return {
+    type: reg.type,
+    name: reg.name,
+    severity: ladder.severity,
+    featureId: c.featureId,
+    filePath: null,
+    evidence: `${c.featureId} 僵尸链（${ladder.label}）：${ladder.days} 天无 commit 且近 30 天对话零提及（doc status=${c.doc?.status ?? "?"}）`,
+    suggestedAction: ladder.suggestedAction,
+    confidence: "normal",
+  };
+}
+
+/** 僵尸链阶梯（Issue #645）：30-60 黄（warning）/ 60-90 红（critical）/ ≥90 建议归档。
+ *  现状是二值判定（zombie=30 天 critical），阶梯后每日任务可按 severity 自动路由：
+ *  warning → 观察，critical → 复盘，≥90 → 拆归档 issue。边界口径：[30,60) 黄 /
+ *  [60,90) 红 / ≥90 归档档（仍为 critical，evidence 与 suggestedAction 升级为归档语义）。
+ *  isZombie 保证进来的链 ≥zombieDays（默认 30）；<60 全部落黄档（防御性兜底，含
+ *  doc-only 链 createdAt 缺失致 stallDays=null 的极端情况）。 */
+function zombieLadder(
+  stallDays: number | null,
+): { severity: "warning" | "critical"; label: string; days: number; suggestedAction: string } {
+  const days = stallDays ?? 0;
+  if (days < 60) {
+    return {
+      severity: "warning",
+      label: "黄档 30-60 天",
+      days,
+      suggestedAction: "观察或链复盘：确认是暂停还是废弃",
+    };
+  }
+  if (days < 90) {
+    return {
+      severity: "critical",
+      label: "红档 60-90 天",
+      days,
+      suggestedAction: "强制链复盘：90 天内归档或重启，否则进入归档档",
+    };
+  }
+  return {
+    severity: "critical",
+    label: `归档档 ≥90 天`,
+    days,
+    suggestedAction: `建议归档：创建归档 issue 并将 F-doc status 置为 archived（${days} 天无活动，每日任务可自动拆 issue）`,
+  };
 }
 
 /**
@@ -288,30 +348,48 @@ function detectHotspot(
   return signals;
 }
 
-/** behavior_defect：同一 errorType healing event 复发（复用 HealingCollector 聚合） */
+/** behavior_defect：同一 errorType healing event 复发（Issue #645 窗口化升级）。
+ *  Why 窗口化而非全量聚合：healing 库 degenerate 57 次/12 天是全库最高频模式，
+ *  全量聚合下它永久占用警报位，无法区分「历史遗留」与「最近在恶化」——升级后
+ *  同型 ≥3 次/7 天才报，第一天就会对 degenerate 报警（这正是本项的存在意义）。 */
 function detectBehaviorDefect(
   healingEvents: CollectedHealingEvent[],
   options: DetectOptions,
+  now: Date,
 ): DetectedSignal[] {
-  const threshold = options.recurrenceThreshold ?? 3;
+  const threshold = options.behaviorThreshold ?? 3;
+  const windowDays = options.behaviorWindowDays ?? 7;
+  const windowStart = new Date(now.getTime() - windowDays * DAY_MS);
   const reg = SIGNAL_REGISTRY.behavior_defect;
 
-  const byType = new Map<string, string[]>();
+  // key: errorType -> 窗口内事件（时间升序，聚合按时间排序——趋势证据可见）
+  const byType = new Map<string, CollectedHealingEvent[]>();
   for (const e of healingEvents) {
-    if (!byType.has(e.errorType)) byType.set(e.errorType, []);
-    byType.get(e.errorType)!.push(e.id);
+    const createdAt = new Date(e.createdAt);
+    if (createdAt < windowStart) continue; // 窗口外事件不参与（含 createdAt 非法的时间边界）
+    let list = byType.get(e.errorType);
+    if (!list) {
+      list = [];
+      byType.set(e.errorType, list);
+    }
+    list.push(e);
+  }
+  for (const list of byType.values()) {
+    list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
   const signals: DetectedSignal[] = [];
-  for (const [errorType, ids] of byType) {
-    if (ids.length >= threshold) {
+  for (const [errorType, events] of byType) {
+    if (events.length >= threshold) {
+      const first = events[0]!;
+      const last = events[events.length - 1]!;
       signals.push({
         type: reg.type,
         name: reg.name,
         severity: reg.severity,
         featureId: null,
         filePath: null,
-        evidence: `errorType=${errorType} 复发 ${ids.length} 次（阈值 ${threshold}）`,
+        evidence: `errorType=${errorType} ${windowDays} 天内复发 ${events.length} 次（阈值 ${threshold}，${first.createdAt.slice(0, 10)} ~ ${last.createdAt.slice(0, 10)}）`,
         suggestedAction: reg.suggestedAction,
       });
     }

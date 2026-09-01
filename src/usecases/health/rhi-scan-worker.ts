@@ -28,6 +28,10 @@ import { calculateMetrics } from "./metrics-calculator";
 import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import type { CreateSnapshotRow } from "./snapshot-rows";
 import { computeHealthScore, buildHealthIndexRows } from "./health-score";
+import { SIGNAL_REGISTRY } from "./signal-registry";
+import { computeFixInterval, buildFixIntervalRow } from "./bugfix-metrics";
+import { diffHealthIndex, buildSnapshotShiftEvidence } from "./snapshot-shift";
+import type { HealthIndexSnapshot } from "./snapshot-shift";
 import type { SignalRepository } from "./signal-repository";
 import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts, collectDispatchTaskCounts } from "./cost-output-collector";
 import type { AgentSessionSource } from "./cost-output-collector";
@@ -75,6 +79,14 @@ export interface RhiScanWorkerOptions {
   agentSessionSource?: AgentSessionSource;
   /** 成本/产出 DB 句柄（#583：OtterOutputCollector 需要查 messages 表）。 */
   costOutputDb?: Database.Database;
+  /** 环比骤变数据源（Issue #645）：昨日 health_index 快照行（五维+overall）。
+   *  注入后 scanOnce 自动对比昨日/今日评分，|Δ|≥10 产出 snapshot_shift 信号进管道。
+   *  未注入时跳过（消费方=每日检查任务可自行调 diffHealthIndex 深挖）。
+   *  Why 由调用方注入而非 worker 直查 DB：health_snapshots 的读取端口已由
+   *  snapshotSink 的所有者持有，worker 不重复持有 repository 细节（同 healingSource 先例）。 */
+  prevDayHealthIndexSource?: () => HealthIndexSnapshot[] | null;
+  /** 环比骤变阈值（默认 10；五维与综合分同阈值） */
+  snapshotShiftThreshold?: number;
 }
 
 export interface RhiScanResult {
@@ -90,6 +102,8 @@ export interface RhiScanResult {
   metricsStored: number;
   /** 写入 health_snapshots 的成本/产出行数（#583；未注入 costOutputSink 时为 0） */
   costOutputStored: number;
+  /** snapshot_shift 环比骤变信号数（Issue #645；prevDayHealthIndexSource 未注入时恒为 0） */
+  snapshotShiftCount: number;
 }
 
 export class RhiScanWorker {
@@ -98,6 +112,11 @@ export class RhiScanWorker {
   private stopped = true;
   /** 最近一轮扫描后的 open 信号计数（health_index D5 输入；signalRepo 未注入时恒 null） */
   private lastOpenSignalCounts: { critical: number; warning: number } | null = null;
+
+  /** 最近一轮写入的 health_index 快照行（Issue #645 环比骤变的「今日」侧：
+   *  persistSnapshot 构建行时缓存，detectSnapshotShift 读取。首扫当日为空 → 跳过检测，
+   *  下一轮（≤1h 后）自动生效——环比骤变是日粒度信号，一小时延迟可接受） */
+  private lastHealthIndexRows: HealthIndexSnapshot[] | null = null;
 
   constructor(
     private readonly repoPath: string,
@@ -200,6 +219,11 @@ export class RhiScanWorker {
       windowDays: this.options.windowDays,
     });
 
+    // 5.5 环比骤变检测（Issue #645）：昨日 health_index 快照 vs 今日（persistSnapshot 会写今日行）。
+    //     必须在 persistSnapshot 之前取昨日数据（不依赖今日写入），信号并入主管道统一落库/记忆/唤醒
+    const shiftSignals = this.detectSnapshotShift();
+    signals.push(...shiftSignals);
+
     // 6. 管道：落库 + 记忆 + 唤醒
     const pipelineResult = await this.pipeline.process(signals, this.options.wakeup);
 
@@ -224,6 +248,7 @@ export class RhiScanWorker {
       errors: pipelineResult.errors,
       metricsStored,
       costOutputStored,
+      snapshotShiftCount: shiftSignals.length,
     };
   }
 
@@ -291,13 +316,13 @@ export class RhiScanWorker {
         windowInputs.map(c => c.parsed),
         windowInputs.map(c => ({ sha: c.sha, date: c.date, message: c.message, filesChanged: c.filesChanged })),
       );
+      const snapshotDate = new Date().toISOString().slice(0, 10);
 
       // 特性链五态分布行（链构建的独有产物，CLI 不写这行——它不建链）
       const stateCounts: Record<string, number> = {};
       for (const ch of chains) {
         stateCounts[ch.state] = (stateCounts[ch.state] ?? 0) + 1;
       }
-      const snapshotDate = new Date().toISOString().slice(0, 10);
       const chainStatesRow: CreateSnapshotRow = {
         snapshotDate, // 行内日期必须真实填写：replaceForDate 的 INSERT 用行内字段，空串会插出无日期行
         metricType: "distribution",
@@ -312,27 +337,7 @@ export class RhiScanWorker {
         extraRows: [chainStatesRow],
       });
 
-      // 健康指标旁路（issue #595）：五维评分纯函数复用同一份 metrics + 链数据，
-      // 输出 health_index 行追加在标准行之后——评分失败与快照失败同降级（传感器分离）
-      try {
-        const score = computeHealthScore({
-          snapshotDate,
-          bugfixRatio: metrics.bugfixRatio,
-          totalCommits: metrics.totalCommits,
-          compliantCommits: metrics.compliantCommits,
-          hotspotFiles: metrics.fileHotspots,
-          changeTypes: metrics.changeTypeDistribution,
-          chainStates: stateCounts,
-          openSignals: this.lastOpenSignalCounts ?? { critical: 0, warning: 0 },
-        });
-        rows.push(...buildHealthIndexRows(score));
-      } catch (scoreErr) {
-        this.logger.warn("RHI health score computation failed, metrics snapshot continues", {
-          action: "rhi_worker_health_score_error",
-          error: scoreErr instanceof Error ? scoreErr.message : String(scoreErr),
-        });
-      }
-
+      this.appendDerivedRows(rows, { snapshotDate, windowDays, windowInputs, metrics, stateCounts });
       sink(snapshotDate, rows);
       return rows.length;
     } catch (err) {
@@ -343,6 +348,110 @@ export class RhiScanWorker {
       });
       return 0;
     }
+  }
+
+  /** 派生行追加（persistSnapshot 拆出）：health_index（#595）+ fix_interval（#645），
+   *  各自独立降级——派生失败与快照失败同策略（传感器分离，不阻断主路） */
+  private appendDerivedRows(
+    rows: CreateSnapshotRow[],
+    ctx: {
+      snapshotDate: string;
+      windowDays: number;
+      windowInputs: Array<{ sha: string; date: string; message: string; parsed: ParsedCommit; filesChanged: string[] }>;
+      metrics: ReturnType<typeof calculateMetrics>;
+      stateCounts: Record<string, number>;
+    },
+  ): void {
+    try {
+      const score = computeHealthScore({
+        snapshotDate: ctx.snapshotDate,
+        bugfixRatio: ctx.metrics.bugfixRatio,
+        totalCommits: ctx.metrics.totalCommits,
+        compliantCommits: ctx.metrics.compliantCommits,
+        hotspotFiles: ctx.metrics.fileHotspots,
+        changeTypes: ctx.metrics.changeTypeDistribution,
+        chainStates: ctx.stateCounts,
+        openSignals: this.lastOpenSignalCounts ?? { critical: 0, warning: 0 },
+      });
+      rows.push(...buildHealthIndexRows(score));
+      // Issue #645：缓存今日 health_index 行（环比骤变「今日」侧，与落库行同源同口径）
+      this.lastHealthIndexRows = rows
+        .filter(r => r.metricType === "health_index")
+        .map(r => ({ snapshotDate: r.snapshotDate, metricKey: r.metricKey, metricValue: r.metricValue }));
+    } catch (scoreErr) {
+      this.logger.warn("RHI health score computation failed, metrics snapshot continues", {
+        action: "rhi_worker_health_score_error",
+        error: scoreErr instanceof Error ? scoreErr.message : String(scoreErr),
+      });
+    }
+
+    // 修复半衰期（Issue #645）：滚动窗口 bugfix 间隔中位数，落 fix_interval 行
+    // （#647 sparkline/热点条消费；窗口随 metricsWindowDays 同口径，趋势可回放）
+    try {
+      const fixInterval = computeFixInterval(
+        ctx.windowInputs.map(c => c.parsed),
+        ctx.windowInputs.map(c => c.date),
+        new Date(),
+        ctx.windowDays,
+      );
+      rows.push(buildFixIntervalRow(ctx.snapshotDate, fixInterval));
+    } catch (intervalErr) {
+      this.logger.warn("RHI fix interval computation failed, metrics snapshot continues", {
+        action: "rhi_worker_fix_interval_error",
+        error: intervalErr instanceof Error ? intervalErr.message : String(intervalErr),
+      });
+    }
+  }
+
+  /** 环比骤变检测（Issue #645）：昨日 health_index 快照 vs 今日，任一维度/综合 |Δ|≥阈值
+   *  产出 snapshot_shift 信号（evidence 带维度前后值，null 维度跳过并注明）。
+   *  数据源未注入 / 异常 → 返回空数组（传感器分离，不阻断主管道）。
+   *  信号走主管道：落库 + critical 唤醒；同日重复触发 upsert 累加，次日不再触发时
+   *  由 pipeline 的 auto-resolve 自动关闭（骤变是瞬时事件，与「问题消失信号自关」语义一致）。 */
+  private detectSnapshotShift(): DetectedSignal[] {
+    const source = this.options.prevDayHealthIndexSource;
+    if (!source) return [];
+    try {
+      const prev = source();
+      if (!prev || prev.length === 0) return [];
+      const threshold = this.options.snapshotShiftThreshold ?? 10;
+      // 今日值取 persistSnapshot 缓存的落库行（同源同口径）；当日首扫时缓存还是昨日行，
+      // todayHealthIndex 判日期不符返回 null → 本轮跳过，下一轮（≤1h 后）生效
+      const current = this.todayHealthIndex();
+      if (!current) return [];
+      const diff = diffHealthIndex(prev, current, threshold);
+      if (!diff.triggered) return [];
+      const { evidence, suggestedAction } = buildSnapshotShiftEvidence(diff, {
+        previousDate: prev[0]!.snapshotDate,
+        currentDate: current[0]!.snapshotDate,
+        threshold,
+      });
+      const reg = SIGNAL_REGISTRY.snapshot_shift;
+      return [{
+        type: reg.type,
+        name: reg.name,
+        severity: reg.severity,
+        featureId: null,
+        filePath: null,
+        evidence,
+        suggestedAction,
+      }];
+    } catch (err) {
+      this.logger.warn("Snapshot shift detection failed, signals continue", {
+        action: "rhi_worker_snapshot_shift_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /** 今日 health_index 值（与 persistSnapshot 同源同口径：同一 computeHealthScore 输入）。
+   *  null=今日尚无可比数据（无 commit 且无链）。 */
+  private todayHealthIndex(): HealthIndexSnapshot[] | null {
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = this.lastHealthIndexRows;
+    if (!rows || rows.length === 0 || rows[0]!.snapshotDate !== today) return null;
+    return rows;
   }
 
   /** 两阶段链构建：先无提及数据粗筛，再对 stalled≥zombieDays 候选查提及重判。
