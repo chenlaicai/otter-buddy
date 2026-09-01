@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, XCircle, Loader, MessageSquare, Clock } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, MessageSquare, Clock, SkipForward } from 'lucide-react'
 import { Modal } from '../../components/Modal'
 import type { LocalScheduledTaskExecution } from '../../lib/mappers'
 import { mapExecutionDTO } from '../../lib/mappers'
@@ -17,6 +17,8 @@ function StatusIcon({ status }: { status: string }) {
       return <CheckCircle size={14} className="text-green-500" />
     case 'failed':
       return <XCircle size={14} className="text-red-500" />
+    case 'skipped':
+      return <SkipForward size={14} className="text-amber-500" />
     case 'running':
       return <Loader size={14} className="text-blue-500 animate-spin" />
     default:
@@ -112,8 +114,8 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
                 )}
 
                 {/* 错误信息 */}
-                {ex.status === 'failed' && ex.errorMessage && (
-                  <div className="text-xs text-red-500 bg-red-50 rounded-lg px-2 py-1.5">
+                {(ex.status === 'failed' || ex.status === 'skipped') && ex.errorMessage && (
+                  <div className={`text-xs rounded-lg px-2 py-1.5 ${ex.status === 'failed' ? 'text-red-500 bg-red-50' : 'text-amber-600 bg-amber-50'}`}>
                     {ex.errorMessage}
                   </div>
                 )}
@@ -125,9 +127,11 @@ export function ExecutionHistoryModal({ taskId, onClose, onJumpToMessage }: Prop
                       ? 'bg-status-success text-green-700'
                       : ex.status === 'failed'
                         ? 'bg-status-error text-red-700'
-                        : 'bg-status-running text-blue-700'
+                        : ex.status === 'skipped'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-status-running text-blue-700'
                   }`}>
-                    {ex.status === 'completed' ? '成功' : ex.status === 'failed' ? '失败' : '执行中'}
+                    {ex.status === 'completed' ? '成功' : ex.status === 'failed' ? '失败' : ex.status === 'skipped' ? '跳过' : '执行中'}
                   </span>
                 </div>
               </div>

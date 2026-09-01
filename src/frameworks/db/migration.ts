@@ -9,7 +9,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数/行数由历史补丁数决定
+// eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureAgentSessionFileColumn(db, logger);
   ensureMessagesSourceAndSenderNameColumns(db, logger);
@@ -101,6 +101,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。 */
   rebuildAttachmentsKindCheck(db, logger);
+
+  /** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值（存量库重建）。
+   *  schema.ts 新库已含；老库 CHECK (running/completed/failed) 无 skipped，需四步重建。 */
+  rebuildExecutionsStatusCheck(db, logger);
 }
 
 /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
@@ -609,4 +613,38 @@ function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger:
     db.prepare("ALTER TABLE messages ADD COLUMN sender_name TEXT NOT NULL DEFAULT ''").run();
     logger.info('Added sender_name column to messages table');
   }
+}
+
+/** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值。
+ *  老库 CHECK (status IN (running, completed, failed)) 不含 skipped，写入即抛
+ *  constraint violation。SQLite 无法 ALTER CHECK，需 CREATE-INSERT-DROP-RENAME 四步重建
+ *  （先例：rebuildDocumentTablesDropCheck）。幂等：新库 CHECK 已含 skipped 时直接返回。 */
+function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): void {
+  const schemaRow = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='scheduled_task_executions'",
+  ).get() as { sql: string } | undefined;
+
+  // 新库（initSchema 建表已含 skipped）或已迁移：无需重建
+  if (!schemaRow?.sql || schemaRow.sql.includes("'skipped'")) return;
+
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE scheduled_task_executions_new (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+        triggered_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
+        error_message TEXT,
+        message_id TEXT REFERENCES messages(id),
+        turn_id TEXT REFERENCES turns(id)
+      );
+      INSERT INTO scheduled_task_executions_new (id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id)
+        SELECT id, task_id, triggered_at, completed_at, status, error_message, message_id, turn_id FROM scheduled_task_executions;
+      DROP TABLE scheduled_task_executions;
+      ALTER TABLE scheduled_task_executions_new RENAME TO scheduled_task_executions;
+      CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
+    `);
+  })();
+  logger.info('Rebuilt scheduled_task_executions table to add skipped status (#654)');
 }

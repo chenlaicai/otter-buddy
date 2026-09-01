@@ -526,5 +526,87 @@ describe("migrateDatabase - F20260901sgp0 signal metadata 列", () => {
       expect(noSignal).toHaveLength(1);
       expect(noSignal[0].id).toBe("msg-2");
     });
+});
+  });
+
+describe("migrateDatabase - #654 补丁: rebuildExecutionsStatusCheck", () => {
+  /** 模拟旧库：scheduled_task_executions 表带旧 CHECK（无 skipped） */
+  function createOldExecutionsDb(): Database.Database {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db);
+    // initSchema 新建已含 skipped，DROP 后用旧式定义重建（模拟 #654 之前的存量库）
+    db.exec("DROP TABLE scheduled_task_executions");
+    db.exec(`
+      CREATE TABLE scheduled_task_executions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+        triggered_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
+        error_message TEXT,
+        message_id TEXT REFERENCES messages(id),
+        turn_id TEXT REFERENCES turns(id)
+      );
+    `);
+    db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-x', '迁移测试', '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO scheduled_tasks (id, conversation_id, name, cron, body, talking_stone_passed_to, sender_id, timezone, created_at, updated_at)
+      VALUES ('task-mig', 'conv-x', '迁移任务', '0 9 * * *', 'x', '[]', 'otter-1', 'Asia/Shanghai', '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status)
+      VALUES ('exec-old-1', 'task-mig', '2026-08-31T09:00:00Z', 'failed')`).run();
+    return db;
+  }
+
+  it("老库重建：skipped 可入库，旧数据完整保留", () => {
+    const db = createOldExecutionsDb();
+    try {
+      // 重建前：skipped 被 CHECK 拒收
+      expect(() =>
+        db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status) VALUES ('exec-new', 'task-mig', '2026-09-01T09:00:00Z', 'skipped')`).run()
+      ).toThrow();
+
+      migrateDatabase(db, createTestLogger());
+
+      // 重建后：skipped 可入
+      expect(() =>
+        db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status) VALUES ('exec-new', 'task-mig', '2026-09-01T09:16:00Z', 'skipped')`).run()
+      ).not.toThrow();
+
+      // 旧数据完整保留
+      const row = db.prepare("SELECT status FROM scheduled_task_executions WHERE id = 'exec-old-1'").get() as { status: string };
+      expect(row.status).toBe("failed");
+
+      // 索引重建（idx_executions_task）
+      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_executions_task'").get();
+      expect(idx).toBeTruthy();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("幂等：二次迁移不报错不重复重建", () => {
+    const db = createOldExecutionsDb();
+    try {
+      migrateDatabase(db, createTestLogger());
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("全新库（initSchema 已含 skipped）：无需重建，直接通过", () => {
+    const db = new Database(":memory:");
+    try {
+      initSchema(db);
+      migrateDatabase(db, createTestLogger());
+      db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-y', '新库测试', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
+      db.prepare(`INSERT INTO scheduled_tasks (id, conversation_id, name, cron, body, talking_stone_passed_to, sender_id, timezone, created_at, updated_at)
+        VALUES ('task-fresh', 'conv-y', '新库任务', '0 9 * * *', 'x', '[]', 'otter-1', 'Asia/Shanghai', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
+      expect(() =>
+        db.prepare(`INSERT INTO scheduled_task_executions (id, task_id, triggered_at, status) VALUES ('exec-fresh', 'task-fresh', '2026-09-01T00:00:00Z', 'skipped')`).run()
+      ).not.toThrow();
+    } finally {
+      db.close();
+    }
   });
 });

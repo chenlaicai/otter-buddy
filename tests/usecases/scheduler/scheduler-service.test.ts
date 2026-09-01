@@ -8,6 +8,7 @@ import type { ManageScheduledTask, TaskChangeCallback } from '@usecases/schedule
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
 import { DomainError } from '@entities/errors';
+import { SessionLockConflictError } from '@entities/errors';
 import type { Logger } from '@usecases/ports/logger';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 
@@ -2303,5 +2304,136 @@ describe('#642: 链看门狗 429 判死', () => {
     // 故返回值断言已能区分两种实现，无需断言调用参数）
     const isStuck = await (service as any).isChainStuckOn429('anchor-msg');
     expect(isStuck).toBe(true);
+  });
+});
+
+// ─── #654: session 锁冲突 → skipped 记账测试 ─────────────────────
+
+describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiveFailures', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  /** 构造锁冲突现场的最小服务（复用状态化 mock 工厂） */
+  function setupLockConflict(mockError: Error) {
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
+
+    // agent invoke 抛锁冲突错误（模拟 PiSessionFactory.acquire 30s 超时上传）
+    (agentInvoke.invokeConversation as ReturnType<typeof vi.fn>).mockRejectedValue(mockError);
+
+    taskRepo._store.set('task-lock', makeTask({ id: 'task-lock', conversationId: 'conv-1' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    return { taskRepo, service };
+  }
+
+  it('类型化 SessionLockConflictError：execution 记 skipped，consecutiveFailures 不增', async () => {
+    const { taskRepo, service } = setupLockConflict(
+      new SessionLockConflictError('Lock acquire timeout for key: session:otter-1'),
+    );
+
+    await expect(service.trigger('task-lock')).rejects.toThrow('Lock acquire timeout');
+
+    // execution 记 skipped 而非 failed
+    const execution = Array.from(taskRepo._executions.values())[0];
+    expect(execution.status).toBe('skipped');
+    expect(execution.errorMessage).toContain('Lock acquire timeout');
+
+    // 关键断言：不计失败
+    expect(taskRepo._getFailureCount()).toBe(0);
+    expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(false);
+  });
+
+  it('链路径反推（assertNoFailedMessages 抛含锁前缀的错误）：同样记 skipped', async () => {
+    // 链模式的实际形态：锁错误被 failTerminal 写进 failed 消息体，scheduler 从
+    // assertNoFailedMessages 的错误字符串反推——message 含锁前缀即命中
+    const { taskRepo, service } = setupLockConflict(
+      new Error('Agent invocation failed: otter message msg-x terminated as failed ([错误] Lock acquire timeout for key: session:otter-1)'),
+    );
+
+    await expect(service.trigger('task-lock')).rejects.toThrow('Lock acquire timeout');
+
+    const execution = Array.from(taskRepo._executions.values())[0];
+    expect(execution.status).toBe('skipped');
+    expect(taskRepo._getFailureCount()).toBe(0);
+    expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(false);
+  });
+
+  it('连续 3 次锁冲突不触发 auto_deactivated（3 连败熔断）', async () => {
+    const { taskRepo, service } = setupLockConflict(
+      new SessionLockConflictError('Lock acquire timeout for key: session:otter-1'),
+    );
+
+    // 撞锁 3 次（今早健康检查现场：09:16 补触发连撞）
+    for (let i = 0; i < 3; i++) {
+      (taskRepo.claimTask as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      await service.trigger('task-lock').catch(() => {});
+    }
+
+    // 3 次全是 skipped，无一 failed；任务未被熔断停跑
+    const statuses = Array.from(taskRepo._executions.values()).map(e => e.status);
+    expect(statuses).toEqual(['skipped', 'skipped', 'skipped']);
+    expect(taskRepo._getFailureCount()).toBe(0);
+    expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(false);
+    // 任务仍 active（对比：真失败 3 次会置 error）
+    expect(taskRepo._store.get('task-lock')?.status).toBe('active');
+  });
+
+  it('真执行失败（非锁错误）：仍记 failed 且计败（负对照，语义不变）', async () => {
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
+
+    (agentInvoke.invokeConversation as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('Agent invocation failed'),
+    );
+
+    taskRepo._store.set('task-real-fail', makeTask({ id: 'task-real-fail', conversationId: 'conv-1' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    for (let i = 0; i < 3; i++) {
+      (taskRepo.claimTask as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      await service.trigger('task-real-fail').catch(() => {});
+    }
+
+    // 真失败路径不受影响：failed + 计败 + 3 连熔断
+    const statuses = Array.from(taskRepo._executions.values()).map(e => e.status);
+    expect(statuses).toEqual(['failed', 'failed', 'failed']);
+    expect(taskRepo._getFailureCount()).toBe(3);
+    expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
   });
 });
