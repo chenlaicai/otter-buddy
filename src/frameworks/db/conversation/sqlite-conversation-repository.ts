@@ -590,6 +590,19 @@ export class SqliteConversationRepository implements ConversationRepository {
     return messages;
   }
 
+  /** #642: 获取锚点后的最近 N 条消息（DESC），用于检测链末尾是否卡在429循环 */
+  async getLatestMessagesAfter(messageId: string, count: number): Promise<Message[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM messages
+      WHERE conversation_id = (SELECT conversation_id FROM messages WHERE id = ?)
+        AND sequence_num > (SELECT sequence_num FROM messages WHERE id = ?)
+      ORDER BY sequence_num DESC LIMIT ?
+    `).all(messageId, messageId, count) as MessageRow[];
+    const messages = rows.map(rowToMessage);
+    await this.attachSegments(messages);
+    return messages;
+  }
+
   // ── MessageEvent ──
 
   async appendEvent(event: MessageEvent): Promise<void> {

@@ -91,6 +91,8 @@ function createMockTaskRepo(task: ScheduledTask) {
     incrementConsecutiveFailures: vi.fn(async () => ({})),
     resetConsecutiveFailures: vi.fn(async () => ({})),
     updateStatus: vi.fn(async () => ({})),
+    getExecutions: vi.fn(async () => []),
+    getExecutionCount: vi.fn(async () => 0),
   } as unknown as ScheduledTaskRepository;
 }
 
