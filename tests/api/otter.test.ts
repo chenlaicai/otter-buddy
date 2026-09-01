@@ -28,6 +28,7 @@ describe("Otter API", () => {
       deps.queryOtter.getById.mockResolvedValue(makeOtter());
       deps.otterConfigProvider = {
         getConfig: (id: string) => id === "otter-1" ? { otterType: "small", modelAlias: "kimi" } : null,
+        getConfigs: () => new Map(), // #528: 类型收敛后 mock 必须补齐，漏方法编译报错
         setConfig: () => {}, deleteConfig: () => {}, hasConfig: () => false,
       };
       app = createTestApp(deps);
@@ -83,6 +84,7 @@ describe("Otter API", () => {
       deps.createOtterUseCase.execute.mockResolvedValue(otter);
       deps.otterConfigProvider = {
         getConfig: (id: string) => id === "new-otter" ? { otterType: "small", modelAlias: "glm" } : null,
+        getConfigs: () => new Map(), // #528: 类型收敛后 mock 必须补齐，漏方法编译报错
         setConfig: () => {}, deleteConfig: () => {}, hasConfig: () => false,
       };
       app = createTestApp(deps);
