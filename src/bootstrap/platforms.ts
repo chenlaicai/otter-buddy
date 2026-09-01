@@ -1,6 +1,6 @@
-/* eslint-disable max-lines -- bootstrap file: init all platforms, legitimately >450 lines */
 import type { AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
+import path from "node:path";
 import * as yaml from "js-yaml";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
@@ -10,6 +10,7 @@ import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 // F20260826mwrd C3（#534）：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
@@ -144,8 +145,25 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
   });
 }
 
-export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig } = options;
+/**
+ * F20260901cxmw：otterId → modelAlias → contextWindow 解析闭包（窄端口注入，避免 interface-adapters 越层依赖 frameworks）。
+ * otterConfigProvider 缺失时 getConfig 回 undefined → getContextWindow(undefined) 即默认模型窗口。
+ */
+function buildCtxWindowProvider(
+  modelPool: ModelPool,
+  otterConfigProvider?: OtterConfigProvider,
+): OtterContextWindowProvider {
+  return {
+    getOtterContextWindow: (otterId: string): number | undefined => {
+      const alias = otterConfigProvider?.getConfig(otterId)?.modelAlias;
+      // 未配 alias 时走默认模型窗口（model-pool.getContextWindow 语义：null/undefined → 默认条目）
+      return modelPool.getContextWindow(alias);
+    },
+  };
+}
+
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig, modelPool, otterConfigProvider } = options;
   await agentGateway.warmup();
 
   // PR4: 注册纸面交易函数（function executor 使用）
@@ -173,6 +191,9 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     });
   }
 
+  // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+  const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
+
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
@@ -186,6 +207,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     buildHandoffPackage,
     // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
     appConfig?.circuitBreaker.healthySessionThresholdMs,
+    // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+    ctxWindowProvider,
   );
 
   // F20260827he2f：启动时探针——验证 healing_repo 可达，熔断事件落库能力正常
@@ -319,7 +342,20 @@ export function startWeixinChannels(options: {
 }): WeixinPollingChannel[] {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger } = options;
   const weixinConfig = appConfig.weixin;
-  if (!weixinConfig) return [];
+  if (!weixinConfig) {
+    // Bugfix（F20260831wxsp）：有已登录账号但 config 无 weixin 段时不再静默 return——
+    // 否则重启后轮询无声消失（web 无任何异常，微信就是不响）。
+    // 触发路径：扫码时 ensureWeixinConfig 写回失败（如路径错误 ENOENT）→ 重启读不到 weixin 段。
+    // 账号 state（token/游标）在 stateDir（默认 ./data/weixin）不受影响，默认段即可拉起轮询；
+    // partnerUserId 缺失仅影响命令门禁锚定（PartnerResolver 未配置时不拦截命令），不阻断消息。
+    const accountStore = new WeixinAccountStore(undefined);
+    const orphanAccounts = accountStore.listAccounts();
+    if (orphanAccounts.length === 0) return [];
+    logger.warn("Weixin: logged-in accounts exist but config.yaml has no weixin section — starting with defaults (partnerUserId unset, commands ungated). Add weixin section to config.yaml to gate commands", { accounts: orphanAccounts.map((a) => a.id) });
+    return orphanAccounts
+      .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account }))
+      .filter((p): p is WeixinPollingChannel => p !== undefined);
+  }
 
   const accountStore = new WeixinAccountStore(weixinConfig);
   const accounts = accountStore.listAccounts();
@@ -394,6 +430,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         onMessage: (msg) => processor.process(msg),
         logger,
       });
+      poller.setIdentity(account.ilinkUserId);
       poller.start();
       logger.info("Weixin polling channel started", { accountId: account.id, ilinkUserId: account.ilinkUserId });
       return poller;
@@ -412,18 +449,27 @@ export function hotStartWeixinAccount(options: StartWeixinAccountOptions): Weixi
 }
 
 export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: string; ilinkUserId?: string; logger?: Logger }): void {
-  const configPath = opts.configPath ?? "./config.yaml";
+  const configPath = opts.configPath ?? path.resolve(process.cwd(), "config/config.yaml");
   try {
-    const raw = yaml.load(fsSync.readFileSync(configPath, "utf8")) as Record<string, unknown> | null;
+    const text = fsSync.readFileSync(configPath, "utf8");
+    const raw = yaml.load(text) as Record<string, unknown> | null;
     if (raw?.weixin) return; // 幂等
-    if (raw) {
-      (raw as { weixin?: unknown }).weixin = {
+    if (!raw) return; // 非法 YAML——loadConfig 已在启动时把关，这里不覆盖文件
+    // Why: 文本追加而非 yaml.dump 全量重写——config/config.yaml 满篇人工注释（对齐 example），
+    // dump 会把注释全部抹掉（F20260829wxui 引入的隐患，仅在写回路径修对后才会显现）。
+    // weixin 是顶层段，追加到文件末尾即等价；缩进对齐顶层键。
+    const section = yaml.dump({
+      weixin: {
         ...(opts.stateDir ? { stateDir: opts.stateDir } : {}),
         ...(opts.ilinkUserId ? { partnerUserId: opts.ilinkUserId } : {}),
-      };
-      fsSync.writeFileSync(configPath, yaml.dump(raw), "utf8");
-      opts.logger?.info("config.yaml weixin section ensured", { configPath });
-    }
+      },
+    }, { lineWidth: -1, noRefs: true });
+    // Why: write-to-temp + rename 原子写——对齐 updateDefaultModelInYaml 的既有模式，
+    // 避免 truncate+write 中途崩溃损坏 config.yaml
+    const tmpPath = configPath + ".tmp";
+    fsSync.writeFileSync(tmpPath, text + "\n" + section, "utf8");
+    fsSync.renameSync(tmpPath, configPath);
+    opts.logger?.info("config.yaml weixin section ensured", { configPath });
   } catch (err) {
     opts.logger?.warn("ensureWeixinConfig failed", { error: err instanceof Error ? err.message : String(err) });
   }

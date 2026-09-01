@@ -2,7 +2,6 @@ import type { Logger } from "@usecases/ports/logger";
 import type { WeixinAccountStore } from "./account-store";
 import type { WeixinApiClient } from "./api-client";
 import { WeixinMessageType, WeixinItemType, type WeixinMessage } from "./types";
-
 /**
  * 微信长轮询 ingress（monitor 语义，照 openclaw-weixin monitor.ts 平移）。
  *
@@ -70,6 +69,20 @@ export class WeixinPollingChannel {
   get accountId(): string {
     return this.deps.accountId;
   }
+
+  /** 本通道归属的扫码人 ilink user id（F20260831wxsp：重新扫码后按人回收旧轮询用）。
+   *  账号 id 每次扫码都新生成（weixin-<时间戳>），同一个人重新扫码后旧账号轮询
+   *  无法靠 accountId 定位——用 ilinkUserId 识别「同一个人的旧轮询」。 */
+  get ilinkUserId(): string | undefined {
+    return this.identity?.ilinkUserId;
+  }
+
+  /** start 后由装配层调用一次（polling-channel 不依赖 account-store 全量 API） */
+  setIdentity(ilinkUserId?: string): void {
+    this.identity = { ilinkUserId };
+  }
+
+  private identity?: { ilinkUserId?: string };
 
   /** 启动轮询循环（幂等：已在跑则直接返回） */
   start(): void {
