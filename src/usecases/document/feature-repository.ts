@@ -5,6 +5,9 @@ export interface FeatureRepository {
   /** 根据 ID 查找 */
   findById(id: string): Promise<FeatureDocument | null>;
 
+  /** F20260901dsyn: 按 file_path 查找（id 漂移诊断——磁盘文档 id 与同路径 DB 记录不一致） */
+  findByFilePath(filePath: string): Promise<FeatureDocument | null>;
+
   /** 查找所有 */
   findAll(): Promise<FeatureDocument[]>;
 

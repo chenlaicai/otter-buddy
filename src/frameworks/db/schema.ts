@@ -129,6 +129,8 @@ function createMessageTables(db: Database.Database): void {
       source TEXT,
       metadata TEXT,
       sender_name TEXT NOT NULL DEFAULT '',
+      signal_level TEXT,
+      signal_meta TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),

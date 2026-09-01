@@ -1601,6 +1601,132 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
   });
 });
 
+describe('PR4: function executor 执行记账', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** 构造 function executor 任务 fixture（PR4 形态，如 paper-trading-match-orders） */
+  function makeFunctionTask(): ScheduledTask {
+    return makeTask({
+      id: 'task-fn',
+      executorType: 'function',
+      functionName: 'match_orders',
+      body: '{}',
+    });
+  }
+
+  it('函数执行成功 -> execution 记 completed，messageId/turnId 留 NULL（不走 completeExecution 的 FK 路径）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    // 副作用记录（repo lint 禁 toHaveBeenCalledWith：用状态断言替代参数断言）
+    const fnCalls: Array<{ name: string; params: Record<string, unknown> }> = [];
+    const fnRegistry = {
+      execute: vi.fn(async (name: string, params: Record<string, unknown>) => {
+        fnCalls.push({ name, params });
+        return { success: true, matchedOrders: 1 };
+      }),
+    };
+
+    const task = makeFunctionTask();
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      functionRegistry: fnRegistry as unknown as import('@usecases/paper-trading/function-registry').FunctionRegistry,
+    });
+
+    const result = await service.trigger('task-fn');
+
+    // 函数被执行，函数名与参数（从 body JSON 解析）均正确
+    expect(fnCalls).toEqual([{ name: 'match_orders', params: {} }]);
+    // execution 落 completed
+    const execution = taskRepo._executions.get(result.executionId);
+    expect(execution!.status).toBe('completed');
+    // 0901 修复核心：不写 messageId=''/turnId（空串非 NULL，FK 不豁免；且 function executor 无消息可关联）
+    expect(execution!.messageId ?? null).toBe(null);
+    expect(execution!.turnId ?? null).toBe(null);
+    // 不发系统消息、不 invoke agent（纯代码执行）
+    expect(sendMessage._getMessageCount()).toBe(0);
+    expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
+    // 连续失败计数被重置（成功路径）
+    expect(taskRepo._getResetCallCount()).toBe(1);
+  });
+
+  it('函数抛错 -> execution 记 failed + errorMessage，连续失败计数走起', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    const fnRegistry = {
+      execute: vi.fn(async () => {
+        throw new Error('match_orders: no active paper account found');
+      }),
+    };
+
+    const task = makeFunctionTask();
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      functionRegistry: fnRegistry as unknown as import('@usecases/paper-trading/function-registry').FunctionRegistry,
+    });
+
+    await expect(service.trigger('task-fn')).rejects.toThrow('no active paper account');
+
+    const execs = [...taskRepo._executions.values()];
+    expect(execs[execs.length - 1].status).toBe('failed');
+    expect(execs[execs.length - 1].errorMessage).toContain('no active paper account');
+    expect(taskRepo._getFailureCount()).toBe(1);
+  });
+
+  it('functionRegistry 未注入 -> validation 错误（不静默降级）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date());
+
+    const task = makeFunctionTask();
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      // 不注入 functionRegistry（校验前置失败）
+    });
+
+    await expect(service.trigger('task-fn')).rejects.toThrow('Function registry not injected');
+  });
+});
+
 describe('#517: invoke 失败时 execution 不得记 completed', () => {
   it('链正常 resolve 但 anchor 后存在 failed 的 otter 消息 → execution 记 failed', async () => {
     const taskRepo = createMockTaskRepo();

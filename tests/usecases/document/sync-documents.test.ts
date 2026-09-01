@@ -48,6 +48,7 @@ function makeStatefulFeatureRepo(initial: FeatureDocument[] = []): FeatureReposi
   return {
     store,
     findById: vi.fn(async (id: string) => store.find(f => f.id === id) ?? null),
+    findByFilePath: vi.fn(async (filePath: string) => store.find(f => f.filePath === filePath) ?? null),
     findAll: vi.fn(async () => [...store]),
     insert: vi.fn(async (doc: FeatureDocument) => { store.push(doc); }),
     updateStatus: vi.fn(async () => {}),
@@ -62,6 +63,7 @@ function makeStatefulFeatureRepo(initial: FeatureDocument[] = []): FeatureReposi
 function makeResearchRepo(): ResearchRepository {
   return {
     findById: vi.fn(async () => null),
+    findByFilePath: vi.fn(async () => null),
     findAll: vi.fn(async () => []),
     insert: vi.fn(async () => {}),
     updateStatus: vi.fn(async () => {}),
@@ -70,7 +72,9 @@ function makeResearchRepo(): ResearchRepository {
   };
 }
 
-/** 智能递归 fs mock：模拟 docs/features/2026/08/03/ 目录树 */
+/** 智能递归 fs mock：模拟 docs/features/2026/08/03/ 目录树。
+ *  F20260901dsyn: docs/research 目录返回空——旧 mock 把两棵树指向同一批文件，
+ *  F 文档会被 research 扫描器重复解析报 Invalid research ID（旧测试不断言 errors 才没暴露） */
 function makeFs(fileMap: Record<string, string>): FileSystemGateway {
   return {
     readFile: vi.fn(async (p: string) => {
@@ -80,7 +84,8 @@ function makeFs(fileMap: Record<string, string>): FileSystemGateway {
       throw new Error(`readFile not mocked: ${p}`);
     }),
     readDir: vi.fn(async (dir: string) => {
-      if (dir.endsWith("docs/features") || dir.endsWith("docs/research"))
+      if (dir.endsWith("docs/research")) return [];
+      if (dir.endsWith("docs/features"))
         return [{ name: "2026", isDirectory: () => true, isFile: () => false }];
       if (dir.endsWith("2026")) return [{ name: "08", isDirectory: () => true, isFile: () => false }];
       if (dir.endsWith("08")) return [{ name: "03", isDirectory: () => true, isFile: () => false }];
@@ -201,5 +206,50 @@ describe("SyncDocuments - F20260803mval", () => {
     const result = await sync.execute("/root");
 
     expect(result.supersedesDangling.some(d => d.includes("F20990101xxxx"))).toBe(true);
+  });
+
+  it("F20260901dsyn: id 漂移——同 file_path DB 存在不同 id -> 结构化错误而非裸 UNIQUE 崩溃，不 insert", async () => {
+    // 复现 #637：文档 id=mmr0，DB 同路径已有 id=mmr 的记录
+    const dbDoc = makeDoc({
+      id: "F20260803mmr",
+      filePath: "docs/features/2026/08/03/F20260803mmr0.md",
+      summary: "旧摘要",
+    });
+    const featureRepo = makeStatefulFeatureRepo([dbDoc]);
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const fs = makeFs({ "F20260803mmr0.md": FEATURE_FM("F20260803mmr0", "新摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
+
+    const result = await sync.execute("/root");
+
+    // 结构化错误：含两个 id 与修复指引，而非裸 SQLite 文本
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0].error).toContain("F20260803mmr0");
+    expect(result.errors[0].error).toContain("F20260803mmr");
+    expect(result.errors[0].error).toContain("ID drift");
+    // 不 insert、不索引：避免撞唯一索引的半写状态
+    expect(featureRepo.store.length).toBe(1);
+    expect(memoryIndex.indexFeature).not.toHaveBeenCalled();
+  });
+
+  it("F20260901dsyn: id 对齐后（文档 id 改回 DB id）——走 upsert update 分支，不再报错", async () => {
+    // 修复后形态：文档 id 已改回 F20260731mmr，与 DB 一致，fingerprint 不同（status 不同）触发 update
+    const dbDoc = makeDoc({
+      id: "F20260803mmr",
+      filePath: "docs/features/2026/08/03/F20260803mmr.md",
+      summary: "旧摘要",
+      status: "archived",
+    });
+    const featureRepo = makeStatefulFeatureRepo([dbDoc]);
+    const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
+    const fs = makeFs({ "F20260803mmr.md": FEATURE_FM("F20260803mmr", "新摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
+
+    const result = await sync.execute("/root");
+
+    expect(result.errors.length).toBe(0);
+    expect(result.updated).toBe(1);
+    expect(featureRepo.store[0].summary).toBe("新摘要");
+    expect(featureRepo.store[0].status).toBe("draft");
   });
 });

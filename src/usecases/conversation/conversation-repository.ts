@@ -57,7 +57,7 @@ export interface ConversationRepository {
   createCompletedMessage(message: Message): Promise<void>;
   createStreamingMessage(message: Message): Promise<void>;
   /** 开始发言（yield 交棒）：streaming → speaking，设置发言石目标；body 可选（拆分后内容由 speak 的 appendSegment 落库） */
-  startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[]): Promise<void>;
+  startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[], signalLevel?: string | null, signalMeta?: string | null): Promise<void>;
   completeMessage(input: {
     messageId: string;
     talkingStonePassedTo: string[];
