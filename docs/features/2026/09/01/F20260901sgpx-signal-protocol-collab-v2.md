@@ -192,6 +192,7 @@ self-yield 自链病态（獭不停给自己派活）：
 - 信号轨迹（投递记录：谁→谁、档位、状态）——审计与可解释性。展示语义规范：busy 目标的 NORMAL 在 DELIVERED 态显示「排队待消化」而非「已送达」，CONSUMED 才显示「已处理」——消除「它收到了在处理」的误读
 - 「一轮」= UI 从消息图派生的活动段分组（信号触发→静默），非数据库实体
 - URGENT 决策过程 = 原消息流内一条轻量系统提示（「⏸ 收到打断询问 → 选择继续/转向」），不新开消息槽
+- **POST SSE 关闭条件重定义**（四入口勘测发现）：现状 = 链 promise settle 后 stream.end；信号模型下无链 promise，改为「请求触发的信号全部 CONSUMED 且产出终态消息 → stream.end」+ 静默超时兑底（如 5min 无产出）。活动段分组（UI）已解耦 turnId，SSE 层尚需同步解耦
 
 ## 影响范围
 
@@ -217,6 +218,19 @@ self-yield 自链病态（獭不停给自己派活）：
 ## 不兼容更新
 
 [Incompatible] turn 表退役、链引擎消解、发言石独占语义退役、锁等待行为变更——涉及核心调度链路重写，需按迁移路径分阶段灰度，每阶段可回滚。
+
+## 迁移施工输入（四入口勘测，2026-09-01 flash）
+
+五条入口（web/retry/scheduler/resume/IM）全部汇聚 executeChain（dispatch-chain-engine.ts:89）→ invokeConversation → per-otter 锁。P1/P2 施工硬约束：
+
+1. **IM 隐式传石查询删除而非双轨**：resolveFirstTurnTargets 读库最新 user 消息定目标（agent-dispatch-service.ts:73-89），并发时有竞态；信号化后消息自带信号是唯一目标真相源，隐式查询必须删
+2. **abort 语义重定义**：现状 abort 只杀 invoke 不杀链（链继续消费 aggregatedTargets）；信号模型下 abort = 向该 otter 投 URGENT/HALT 信号由打断决策接管，双轨期间的语义漂移要在 P1 封死
+3. **scheduler 看门狗语义迁移不能删**：#516 静默窗（15min 无新消息判死 + 任务级 timeoutMinutes 覆盖）是拿三次真实误杀换的教训；等价物 = 盯信号 CONSUMED + otter 产出活性
+4. **resume 的半截 invoke**：信号已 CONSUMED 但 invoke 中断的场景，reconcile 的 streaming 状态检测必须转为投恢复信号（#613 同类），否则静默丢失
+5. **链引擎四个隐藏职责逐项搬移**：①名册/时间锚/未读注入（buildMessageWithContext）②markBatchRead 已读推进（P4 前 turn 语义仍在）③闲置小獭预警 ④安全词扫描 reminder（C3 L2）——漏一项即功能静默回归
+6. **消费失败可见性**：现状锁超时被 allSettled 吞掉用户不可见；信号模型下消费失败 = 消息终态 failed + healing 留痕。档位重试策略：NORMAL 失败重投同档，URGENT 失败不升级仅留痕告警（升级链路待 P3 实测定）
+
+详见对话工作区 p1-entry-audit.md（含全部行号锚点 + P1 改造文件清单）。
 
 ## 设计取舍（含全部被否方案——四轮过堂的精华）
 
