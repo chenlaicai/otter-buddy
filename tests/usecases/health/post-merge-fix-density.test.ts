@@ -30,14 +30,15 @@ function chain(featureId: string, files: string[], lastCommitDaysAgo: number): F
   };
 }
 
-/** 小修链夹具：5 个文件（≤ LARGE_CHAIN_FILES=6 → 14 天窗口） */
+/** 小修链夹具：5 个文件（≤ LARGE_CHAIN_FILES=6 → 14 天窗口），合于 8 天前（窗口内，
+ *  且给合入后留足时间放置 bugfix——检视严重发现 1 后窗口 = [合入, now]） */
 function smallChain(featureId: string): FeatureChain {
-  return chain(featureId, ["src/feat-a.ts", "src/feat-b.ts", "src/feat-c.ts", "src/feat-d.ts", "src/feat-e.ts"], 3);
+  return chain(featureId, ["src/feat-a.ts", "src/feat-b.ts", "src/feat-c.ts", "src/feat-d.ts", "src/feat-e.ts"], 8);
 }
 
-/** 大特性链夹具：10 个文件（> 6 → 大特性档 30 天窗口） */
+/** 大特性链夹具：10 个文件（> 6 → 大特性档 30 天窗口），合于 25 天前（窗口内） */
 function largeChain(featureId: string): FeatureChain {
-  return chain(featureId, Array.from({ length: 10 }, (_, i) => `src/big-${i}.ts`), 5);
+  return chain(featureId, Array.from({ length: 10 }, (_, i) => `src/big-${i}.ts`), 25);
 }
 
 describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
@@ -53,6 +54,68 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
     expect(sig!.type).toBe("post_merge_fix_density");
     expect(sig!.severity).toBe("warning"); // 「不对劲」是待查证不是定罪
     expect(sig!.evidence).toContain("3 次");
+  });
+
+  it("窗口边界：小修档 14 天——第 15 天的 bugfix 不计入（合入 8 天前，2/8=25% 且次数 2<3 → 不触发）", () => {
+    const commits = [
+      commit("b1", 2, "[F20260901zaaa][agent][BugFix] 1", ["src/feat-a.ts"]),
+      commit("b2", 5, "[F20260901zaaa][agent][BugFix] 2", ["src/feat-b.ts"]),
+      commit("b3", 15, "[F20260901zaaa][agent][BugFix] 3", ["src/feat-c.ts"]), // 小修档窗口外
+      commit("f1", 3, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
+      commit("f2", 4, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
+      commit("f3", 6, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
+      commit("f4", 7, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
+      commit("f5", 7, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
+      commit("f6", 7, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
+    ];
+    const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901zaaa")], now: NOW });
+    expect(signals.find(s => s.featureId === "F20260901zaaa")).toBeUndefined();
+  });
+
+  it("大特性档 30 天窗口：合入后第 20 天的 bugfix 计入（小修档会漏）", () => {
+    // 链合于 25 天前，bugfix 在合入后 5/12/20 天——只有大档（30天）窗口够得着第 20 天
+    const commits = [
+      commit("b1", 5, "[F20260901zaaa][agent][BugFix] 1", ["src/big-0.ts"]),
+      commit("b2", 12, "[F20260901zaaa][agent][BugFix] 2", ["src/big-1.ts"]),
+      commit("b3", 20, "[F20260901zaaa][agent][BugFix] 3", ["src/big-2.ts"]),
+    ];
+    const { signals } = detectPostMergeFixDensity({ commits, chains: [largeChain("F20260901zaaa")], now: NOW });
+    const sig = signals.find(s => s.featureId === "F20260901zaaa");
+    expect(sig).toBeDefined();
+    expect(sig!.evidence).toContain("大特性档");
+  });
+
+  it("合入截断（检视严重发现 1）：合入前 bugfix 不计入——3 条合入前碰链 bugfix 不触发", () => {
+    // 若未按合入时刻截断，这 3 条合入前 bugfix 会凑满 ≥3 支误触发
+    const commits = [
+      commit("pre1", 9, "[F20260901zddd][agent][BugFix] 合入前1", ["src/feat-a.ts"]),
+      commit("pre2", 10, "[F20260901zddd][agent][BugFix] 合入前2", ["src/feat-b.ts"]),
+      commit("pre3", 12, "[F20260901zddd][agent][BugFix] 合入前3", ["src/feat-c.ts"]),
+      commit("post1", 2, "[F20260901zddd][agent][Feature Update] 合入后非bugfix", ["src/feat-a.ts"]),
+      commit("post2", 3, "[F20260901zddd][agent][Feature Update] 合入后非bugfix", ["src/feat-b.ts"]),
+    ];
+    const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901zddd")], now: NOW });
+    expect(signals.find(s => s.featureId === "F20260901zddd")).toBeUndefined();
+  });
+
+  it("合入截断（检视严重发现 1）：占比分母只数合入后 commit——合入前填料不得稀释占比", () => {
+    // 链合于 5 天前。合入后：2 bugfix + 3 filler（分母 5，2/5=40% ≥30% → 触发）；
+    // 另有 10 条合入前 filler——若未截断分母 15、占比 13% → 永不触发
+    const chain5 = chain("F20260901zeee", ["src/feat-a.ts", "src/feat-b.ts", "src/feat-c.ts", "src/feat-d.ts", "src/feat-e.ts"], 5);
+    const commits = [
+      commit("b1", 2, "[F20260901zeee][agent][BugFix] 1", ["src/feat-a.ts"]),
+      commit("b2", 3, "[F20260901zeee][agent][BugFix] 2", ["src/feat-b.ts"]),
+      commit("f1", 2, "[F20260901zeee][agent][Feature Update] 合入后", ["src/other.ts"]),
+      commit("f2", 3, "[F20260901zeee][agent][Feature Update] 合入后", ["src/other.ts"]),
+      commit("f3", 4, "[F20260901zeee][agent][Feature Update] 合入后", ["src/other.ts"]),
+    ];
+    for (let i = 0; i < 10; i++) {
+      commits.push(commit(`pre${i}`, 6 + i, "[F20260901zfff][agent][Feature Update] 合入前填料", ["src/pre.ts"]));
+    }
+    const { signals } = detectPostMergeFixDensity({ commits, chains: [chain5], now: NOW });
+    const sig = signals.find(s => s.featureId === "F20260901zeee");
+    expect(sig).toBeDefined();
+    expect(sig!.evidence).toContain("2/5 = 40%"); // 分母不含合入前填料
   });
 
   it("恰好占比 30% 触发（≥ 比率边界）：3 bugfix / 10 commit = 30%", () => {
@@ -95,65 +158,38 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
     expect(signals.find(s => s.featureId === "F20260901yccc")).toBeUndefined();
   });
 
-  it("窗口边界：小修档 14 天——第 15 天的 bugfix 不计入（2/7≈29% 且次数 2<3 → 不触发）", () => {
-    const commits = [
-      commit("b1", 2, "[F20260901zaaa][agent][BugFix] 1", ["src/feat-a.ts"]),
-      commit("b2", 5, "[F20260901zaaa][agent][BugFix] 2", ["src/feat-b.ts"]),
-      commit("b3", 15, "[F20260901zaaa][agent][BugFix] 3", ["src/feat-c.ts"]), // 小修档窗口外
-      commit("f1", 3, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
-      commit("f2", 4, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
-      commit("f3", 6, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
-      commit("f4", 7, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
-      commit("f5", 8, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
-      commit("f6", 9, "[F20260901zaaa][agent][Feature Update] f", ["src/unrelated.ts"]),
-    ];
-    const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901zaaa")], now: NOW });
-    expect(signals.find(s => s.featureId === "F20260901zaaa")).toBeUndefined();
-  });
-
-  it("大特性档 30 天窗口：第 20 天的 bugfix 计入（小修档会漏）", () => {
-    const commits = [
-      commit("b1", 5, "[F20260901zaaa][agent][BugFix] 1", ["src/big-0.ts"]),
-      commit("b2", 12, "[F20260901zaaa][agent][BugFix] 2", ["src/big-1.ts"]),
-      commit("b3", 20, "[F20260901zaaa][agent][BugFix] 3", ["src/big-2.ts"]), // 只有大档（30天）才够得着
-    ];
-    const { signals } = detectPostMergeFixDensity({ commits, chains: [largeChain("F20260901zaaa")], now: NOW });
-    const sig = signals.find(s => s.featureId === "F20260901zaaa");
-    expect(sig).toBeDefined();
-    expect(sig!.evidence).toContain("大特性档");
-  });
-
   it("排除清单：高扇入文件不计入分子（≥10 特性触碰；FID 后缀纯字母）", () => {
-    // 链触碰 big-0..4.ts（正常）+ hot.ts（将被排除）。bugfix 只碰 hot.ts → 排除后 0 次 → 不触发
+    // 排除清单从 chains 统计扇入（检视建议 3 单一真相源）：10 条 dummy 链都碰 hot.ts
+    // → fanIn=10 进清单。bugfix 只碰 hot.ts → 链文件排除后剩 big-0..4 → 0 次不触发
     // FID 后缀合法形态：4-12 位纯字母（commit-parser 白名单 [2-9a-kmnp-z]，数字/短尾不合法）
     const letters = "abcdefghijkmnpqr";
-    const fids = Array.from({ length: 10 }, (_, i) =>
+    const dummyFids = Array.from({ length: 10 }, (_, i) =>
       `F2026082${i < 5 ? 0 : 1}e${letters[i % 8]}${letters[(i + 3) % 8]}xy`);
+    const hubChains = dummyFids.map(fid => chain(fid, ["hub-x.ts", "hot.ts"], 3));
     const commits: SignalCommitInput[] = [
-      ...fids.map((fid, i) =>
-        commit(`x${i}`, 3, `[${fid}][agent][Feature Update] 碰 hot`, ["hot.ts"])),
       commit("b1", 2, "[F20260901zaaa][agent][BugFix] 只碰枢纽", ["hot.ts"]),
       commit("b2", 4, "[F20260901zaaa][agent][BugFix] 只碰枢纽", ["hot.ts"]),
       commit("b3", 6, "[F20260901zaaa][agent][BugFix] 只碰枢纽", ["hot.ts"]),
     ];
     const ch = chain("F20260901zaaa", ["big-0.ts", "big-1.ts", "big-2.ts", "big-3.ts", "big-4.ts", "hot.ts"], 5);
-    const { signals, excludedFiles } = detectPostMergeFixDensity({ commits, chains: [ch], now: NOW });
+    const { signals, excludedFiles } = detectPostMergeFixDensity({ commits, chains: [...hubChains, ch], now: NOW });
     expect(excludedFiles.some(x => x.file === "hot.ts" && x.fanIn >= 10)).toBe(true);
     expect(signals.find(s => s.featureId === "F20260901zaaa")).toBeUndefined();
   });
 
   it("排除清单命中时 evidence 透出清单摘要（可见不黑箱）", () => {
     const letters = "abcdefghijkmnpqr";
-    const fids = Array.from({ length: 10 }, (_, i) =>
+    const dummyFids = Array.from({ length: 10 }, (_, i) =>
       `F2026082${i < 5 ? 0 : 1}e${letters[i % 8]}${letters[(i + 3) % 8]}xy`);
-    const commits: SignalCommitInput[] = fids.map((fid, i) =>
-      commit(`x${i}`, 3, `[${fid}][agent][Feature Update] 碰 hot`, ["hot.ts"]));
-    commits.push(
+    const hubChains = dummyFids.map(fid => chain(fid, ["hub-x.ts", "hot.ts"], 3));
+    const commits: SignalCommitInput[] = [
       commit("b1", 2, "[F20260901zaaa][agent][BugFix] 1", ["src/feat-a.ts"]),
       commit("b2", 4, "[F20260901zaaa][agent][BugFix] 2", ["src/feat-b.ts"]),
       commit("b3", 6, "[F20260901zaaa][agent][BugFix] 3", ["src/feat-c.ts"]),
-    );
-    const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901zaaa")], now: NOW });
+    ];
+    const { signals } = detectPostMergeFixDensity({
+      commits, chains: [...hubChains, smallChain("F20260901zaaa")], now: NOW,
+    });
     const sig = signals.find(s => s.featureId === "F20260901zaaa");
     expect(sig).toBeDefined();
     expect(sig!.evidence).toContain("排除高扇入文件");

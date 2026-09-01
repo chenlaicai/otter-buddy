@@ -46,11 +46,6 @@ export const CHANGE_TYPE_COLORS: Record<string, string> = {
   '实验': CARAMEL[300],
 }
 
-/** 五态链色（与 CHAIN_STATE_LABELS 语义锁定：teal=活跃、caramel=滞留、深 caramel=回退、otter-300=僵尸/孤儿） */
-export const CHAIN_STATE_COLORS: Record<string, string> = {
-  active: TEAL[500],
-  stalled: CARAMEL[500],
-  regressed: CARAMEL[600],
-  zombie: OTTER[300],
-  orphan: OTTER[300],
-}
+/* 链五态色不在此定义：活映射是 index.tsx 的 CHAIN_STATE_LABELS（teal=活跃、
+ * caramel=滞留/回退、otter-300=僵尸/孤儿）——单一真相源，勿在此复制第二份
+ * （曾并行存在语义漂移的死导出 CHAIN_STATE_COLORS，检视建议 7 删除） */

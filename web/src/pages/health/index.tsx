@@ -22,7 +22,7 @@ import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiCostOutputOtterDTO, RhiScoreDTO } from '../../api/client'
 import { SERIES_COLORS, CHANGE_TYPE_COLORS, TEAL, CARAMEL, OTTER, LAVENDER } from './palette'
-import { RecurrenceSection, LowConfidenceDrawer } from './RecurrenceCard'
+import { RecurrenceSection, LowConfidenceDrawer, FreqBadge, FanInExcludedList } from './RecurrenceCard'
 import { HotspotHeatBar, TrendSparkline, hotspotData } from './HotspotHeat'
 
 type Tab = 'overview' | 'signals' | 'chains' | 'cost'
@@ -340,18 +340,7 @@ function HealthPage() {
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
                 <ChainStateBar counts={stateCounts} />
                 {/* Issue #647：高扇入排除清单可见不黑箱（合并后修复密度信号的边界一）*/}
-                {fanInExcluded.length > 0 && (
-                  <div className="mt-3 pt-2 border-t border-stone-100" data-testid="fanin-excluded">
-                    <p className="text-xs text-stone-500 mb-1">高扇入排除清单（被 ≥10 个特性触碰的枢纽文件，不计入「合并后修复密度」信号；文件级复发信号无此排除）</p>
-                    <div className="flex flex-wrap gap-1">
-                      {fanInExcluded.map(x => (
-                        <span key={x.file} className="px-1.5 py-0.5 rounded text-[11px] bg-otter-100 text-otter-700 font-mono" title={x.file}>
-                          {x.file.split('/').pop()} ×{x.fanIn}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <FanInExcludedList files={fanInExcluded} />
               </div>
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 divide-y divide-stone-100">
                 {chains
@@ -769,11 +758,8 @@ function SignalGroup({ title, signals, severity }: {
               <span className="font-medium text-sm">{s.signalTypeLabel}</span>
               {s.feature_id && <span className="font-mono text-xs text-stone-500">{s.feature_id}</span>}
               {s.file_path && <span className="font-mono text-xs text-stone-500">{s.file_path}</span>}
-              {s.occurrences > 1 && (
-                <span className="px-1.5 py-0.5 rounded text-xs bg-rose-50 text-rose-600">
-                  复发 {s.occurrences} 次
-                </span>
-              )}
+              {/* 频次徽章（检视建议 5）：bug_recurrence 走证据序列长度与复发卡同源，rose 退场 */}
+              <FreqBadge signal={s} />
             </div>
             <p className="text-xs text-stone-500 mt-1">{s.evidence}</p>
             {s.suggested_action && (

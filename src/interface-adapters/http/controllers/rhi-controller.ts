@@ -32,7 +32,7 @@ function safeParseJson(raw: string): unknown {
   }
 }
 
-/** 信号类型中文标签（与前端 SIGNAL_TYPE_LABELS 保持一致） */
+/** 信号类型中文标签（与前端 SIGNAL_TYPE_LABELS 保持一致；review_debt 虽未发射但保留对齐） */
 const SIGNAL_TYPE_LABELS: Record<string, string> = {
   bug_recurrence: 'bug 反复出现',
   chain_stall: '特性链滞留',
@@ -41,6 +41,7 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   eval_regression: '效果回退',
   intent_drop: '意图兑现率下降',
   hotspot_imbalance: '热区失衡',
+  review_debt: '审视债务',
   post_merge_fix_density: '合并后修复密度',
 };
 

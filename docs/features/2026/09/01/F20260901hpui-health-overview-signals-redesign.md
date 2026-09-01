@@ -32,9 +32,11 @@ intent:
 
 ### 第 1 项：复发模式卡（首屏主角）
 
-- 后端 `signal-evidence.ts`：`serializeRecurrenceCards()` 把 bug_recurrence 的 evidence_detail 序列化为卡片 DTO——
-  频次徽章 `commitCount` 从 `detail.commits.length` 派生，**严禁 occurrences**（扫描触发次数随扫描频率漂移，合议明令）；
-  时间升序重排 + sha 去重（防窗口滑动残留致徽章虚高）；排序 = 频次优先、其次最近复发。
+- 数据质量保证点（后端）：`detect-signals.ts` 的 `collectDetailCommits`——全类型 commit 序列
+  时间升序重排 + sha 去重（防窗口滑动残留重复节点致徽章虚高）+ 每扫描整体重算（非 append）。
+  频次徽章从 `detail.commits.length` 派生，**严禁 occurrences**（扫描触发次数随扫描频率漂移，合议明令）。
+  （初版曾实现 signal-evidence.ts 序列化模块，对抗审视判为未接线死码——排序职责移至前端
+  RecurrenceSection，模块已删除。）
 - 前端 `RecurrenceCard.tsx`：卡头（文件路径等宽 + caramel-600 频次徽章「N 次/30 天」+ lavender「设计问题嫌疑」描边标签）
   + 水平时间轴（节点按日期线性映射区间；bug=caramel-600 实心 / feat=teal-500 实心 / 其他=otter-300 空心，
   bug●→fix● 交替节奏画出来而非列出来——验收项「交替 changeType 渲染」）。
@@ -98,20 +100,22 @@ intent:
 ## 影响
 
 - 文件：
-  - 后端：signal-counts.ts / signal-evidence.ts / post-merge-fix-density.ts（新）、signal-registry.ts、
+  - 后端：signal-counts.ts / post-merge-fix-density.ts（新）、signal-registry.ts、
     detect-signals.ts、rhi-scan-worker.ts、rhi-controller.ts
   - 前端：palette.ts / RecurrenceCard.tsx / HotspotHeat.tsx（新）、index.tsx、api/client.ts
-  - 测试：signal-counts.test.ts、signal-evidence.test.ts、post-merge-fix-density.test.ts、
+  - 测试：signal-counts.test.ts、post-merge-fix-density.test.ts、
     rhi-api.test.ts（扩充）、RecurrenceCard.test.tsx、TrendSparkline.test.tsx（新）
 - 兼容性：overview/chains 只增字段；存量信号无 confidence 按 normal 计（COALESCE 语义）；
   UI 侧 confidence 字段缺失的信号不进抽屉、维持原展示。
 
 ## 验证
 
-- 后端：2574 tests / 208 files 全绿（含新增 17+6+5 用例：#652 口径验收原文场景、检测器边界
-  「恰好 3 次/恰好 30%/窗口边界 14/30 天/排除清单命中/evidence 透出清单/合入时刻窗外/doc-only 跳过」）。
-- 前端：323 tests 全绿（含新增 16 个组件测试：频次徽章派生自 commits.length 非 occurrences、
-  时间轴交替 changeType、抽屉默认折叠/展开明细不丢、sparkline 48px→220px 数据完整、热力条渲染）。
+- 后端：2579 tests / 207 files 全绿（含新增用例：#652 口径验收原文场景、检测器边界
+  「恰好 3 次/恰好 30%/窗口边界 14/30 天/排除清单命中/evidence 透出清单/合入时刻窗外/doc-only 跳过」，
+  以及审视修复后的「合入前 bugfix 不计入/占比分母只数合入后 commit」截断回归）。
+- 前端：331 tests 全绿（含组件测试：频次徽章派生自 commits.length 非 occurrences（occurrences=99
+  fixture 断言防回归）、时间轴交替 changeType、抽屉默认折叠/展开明细不丢、sparkline 48px→220px
+  数据完整、热力条渲染、FreqBadge 双口径、FanInExcludedList DOM 断言、复发卡频次排序）。
 - 双侧 `npx tsc --noEmit` + lint 0 error（5+3 个 warning 全部为既有代码）。
 - `vite build` 通过。
 - 截图证据（mock fixture 驱动的设计态渲染，数据形态 1:1 对齐 schema）：
@@ -131,5 +135,31 @@ intent:
 
 ## Discovered Issues
 
-- 无（实现过程中发现并当场修正：mock 截图链路缺 cost-output 端点导致 Promise.all 全拒——属于截图工具
-  fixture 问题，非产品代码问题；检测器占比支最小分母保护为测试驱动出的真实边界，已纳入实现与文档）。
+- 实现过程中发现并当场修正：mock 截图链路缺 cost-output 端点导致 Promise.all 全拒——属于截图工具
+  fixture 问题，非产品代码问题；检测器占比支最小分母保护为测试驱动出的真实边界，已纳入实现与文档。
+
+## 对抗审视处置（2026-09-01，检视獭烛幽 vs 实现者绘境，1 严重 + 6 建议全修）
+
+- **严重 1（正确性）**：密度检测器分子/分母未按合入时刻截断——滚动窗口 `[now-N天, now]` 使
+  合入前 commit 计入统计，「合并后」语义被稀释（分子可被合入前 bugfix 凑满误触发、分母被合入前
+  commit 稀释）、evidence 文案与统计事实不符，且原测试把偏差锁进预期行为。修复：
+  `effectiveStart = max(lastCommitAt, windowStart)` 统一过滤（post-merge-fix-density.ts
+  detectChainFixDensity），修正 3 条夹具时间线 + 新增 2 条截断回归用例（合入前 3 条碰链 bugfix
+  不触发；占比分母不含合入前填料，evidence 断言 2/5=40%）。
+- **建议 2（死码）**：signal-evidence.ts（71 行）+ 其测试全删——serializeRecurrenceCards 零调用，
+  文档承诺的频次排序只在死模块里。排序落到前端 RecurrenceSection（commitCount 降序、最后节点
+  日期次之，2 条组件测试锁定）；RecurrenceCard.tsx:5 失实注释改指真实保证点（detect-signals.ts
+  的升序重排 + sha 去重）。
+- **建议 3（双真相源）**：检测器排除清单从 30 天 commit 流独立计算改为调 computeFanInExclusions(chains)，
+  与 chains 端点恒等（单一真相源）；私有 collectFanInExclusions 删除，注释记录漂移风险原因。
+  代价：排除集从 30 天扇入放宽为 60 天扇入（多排除个别 30-59 天前的枢纽文件），对「枢纽」语义无损。
+- **建议 4（issue 侧留痕）**：gh issue comment #647 补记占比支最小分母 5 的偏离、动机
+  （2/3=67% 荒谬触发）与特性文档锚点——issue 是合议决策 record of truth。
+- **建议 5（频次口径收口）**：index.tsx signals tab 残留 occurrences 徽章（rose）替换为 FreqBadge
+  组件——bug_recurrence 走 evidenceDetail.commits.length（与复发卡同源同数），其余信号类型保留
+  occurrences（对非复发类是合理计数）；装饰性 rose 退场，复发徽章改 caramel 系。
+- **建议 6（DOM 断言缺口）**：排除清单抽为 FanInExcludedList 组件（index.tsx import 时挂载 #root
+  有副作用不可直接测），补 2 条组件测试：非空渲染文件名+×N 计数、空数组不渲染。
+- **建议 7（labels 一致性）**：后端 SIGNAL_TYPE_LABELS 恢复 review_debt 条目（10 项对齐前端，
+  未发射类型保留对齐）；palette.ts 删 CHAIN_STATE_COLORS 死导出（orphan 色值与活映射矛盾），
+  留注释指向活映射 index.tsx CHAIN_STATE_LABELS。

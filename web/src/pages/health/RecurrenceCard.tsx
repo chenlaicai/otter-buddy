@@ -2,7 +2,9 @@
  * 复发模式卡（Issue #647 项 1，首屏主角）+ 低置信折叠抽屉（项 2）
  *
  * 复发卡：bug●(caramel-600) → fix●(teal-500) 时间轴证据链——「反复修」第一次有视觉形体。
- * 频次徽章 = commits.length 派生（后端 signal-evidence.ts 已保证），严禁 occurrences。
+ * 频次徽章 = commits.length 派生，严禁 occurrences。数据质量保证点在后端
+ * detect-signals.ts 的 collectDetailCommits：全类型序列升序重排 + sha 去重（防窗口滑动
+ * 残留重复节点致徽章虚高）+ 每扫描整体重算（非 append）。
  * 低置信抽屉：默认收起，otter-100 底单行——高置信前景化、低置信背景化（观澜 3.1）。
  */
 
@@ -115,9 +117,11 @@ function RecurrenceTimeline({ card }: { card: RecurrenceCard }) {
   )
 }
 
-/** 复发卡列表（首屏主角）：无模式时给确定感空态（观澜：teal 勾 + 一句话） */
+/** 复发卡列表（首屏主角）：频次优先、其次最近复发（观澜 3.1）；无模式时给确定感空态 */
 export function RecurrenceSection({ signals }: { signals: RhiSignalDTO[] }) {
   const cards = signals.map(toRecurrenceCard).filter((c): c is RecurrenceCard => c !== null)
+  // 排序在前端做（检视建议 2）：接口返回顺序与频次无关，首屏卡序必须频次优先
+  cards.sort((a, b) => b.commitCount - a.commitCount || b.commits[b.commits.length - 1]!.date.localeCompare(a.commits[a.commits.length - 1]!.date))
   if (cards.length === 0) {
     return (
       <div className="rounded-2xl bg-white/70 border border-teal-300/50 px-4 py-5 text-center" data-testid="recurrence-empty">
@@ -132,6 +136,51 @@ export function RecurrenceSection({ signals }: { signals: RhiSignalDTO[] }) {
       {cards.length > 5 && (
         <p className="text-xs text-stone-400 text-center">其余 {cards.length - 5} 个复发模式见「信号」tab</p>
       )}
+    </div>
+  )
+}
+
+/**
+ * 信号条目频次徽章（检视建议 5）：全信号 tab 与复发卡统一频次口径——
+ * bug_recurrence 走 evidenceDetail.commits.length（证据序列长度），
+ * 其余信号类型保留 occurrences（扫描触发次数，对非复发类信号是合理计数）。
+ * bug_recurrence 的 occurrences 严禁展示：随扫描频率漂移，与复发卡数字同屏矛盾。
+ */
+export function FreqBadge({ signal }: { signal: RhiSignalDTO }) {
+  const n = signal.signal_type === 'bug_recurrence'
+    ? (signal.evidenceDetail?.kind === 'bug_recurrence_commits' ? signal.evidenceDetail.commits.length : 0)
+    : signal.occurrences
+  if (n <= 1) return null
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded text-xs"
+      style={signal.signal_type === 'bug_recurrence'
+        ? { color: CARAMEL[600], backgroundColor: `${CARAMEL[300]}33` }
+        : undefined}
+      data-testid="freq-badge"
+    >
+      复发 {n} 次
+    </span>
+  )
+}
+
+/**
+ * 高扇入排除清单（验收项三：可见不黑箱；检视建议 6 抽出为独立组件以便 DOM 测试——
+ * index.tsx 在 import 时挂载 #root 有副作用，不可直接作为测试对象）。
+ * 集合为空不渲染。
+ */
+export function FanInExcludedList({ files }: { files: Array<{ file: string; fanIn: number }> }) {
+  if (files.length === 0) return null
+  return (
+    <div className="mt-3 pt-2 border-t border-stone-100" data-testid="fanin-excluded">
+      <p className="text-xs text-stone-500 mb-1">高扇入排除清单（被 ≥10 个特性触碰的枢纽文件，不计入「合并后修复密度」信号；文件级复发信号无此排除）</p>
+      <div className="flex flex-wrap gap-1">
+        {files.map(x => (
+          <span key={x.file} className="px-1.5 py-0.5 rounded text-[11px] bg-otter-100 text-otter-700 font-mono" title={x.file}>
+            {x.file.split('/').pop()} ×{x.fanIn}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

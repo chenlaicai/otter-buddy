@@ -72,7 +72,10 @@ export interface PostMergeFixDensityResult {
 export function detectPostMergeFixDensity(input: PostMergeFixDensityInput): PostMergeFixDensityResult {
   const { commits, chains, now } = input;
   const reg = SIGNAL_REGISTRY.post_merge_fix_density;
-  const excludedFiles = collectFanInExclusions(commits);
+  // 单一真相源（检视建议 3）：排除清单与 chains 端点共用 computeFanInExclusions(chains)——
+  // 若从检测窗口 commit 流独立计算（30 天）会与链构建窗口（60 天）双源漂移，
+  // 边界文件漂出阈值时 UI 声明的排除集与实际排除集失配
+  const excludedFiles = computeFanInExclusions(chains);
   const excludedSet = new Set(excludedFiles.map(x => x.file));
   const excludedNote = excludedFiles.length > 0
     ? `；已排除高扇入文件 ${excludedFiles.length} 个（≥${FAN_IN_THRESHOLD} 特性触碰：${summarizeExclusions(excludedFiles)}）`
@@ -106,17 +109,19 @@ function detectChainFixDensity(ctx: {
   // （老特性近期被 bugfix 碰是热点/复发问题，由文件级 bug_recurrence 兜底，不是合入余震）
   if (lastCommitAt < windowStart) return null;
 
+  // 统计窗口 = [合入时刻, now]（检视严重发现 1）：分子分母同口径只数合入后的 commit。
+  // 若只按滚动 windowStart 过滤，合入前 commit 会虚增分子（≥3 支可被合入前 bugfix 凑满
+  // 误触发）、稀释分母（占比支刚合入时几乎不可能触发），「合并后」语义失实。
+  // 合入早于窗口开启已被上面门控排除，故取 max 即合入时刻。
+  const effectiveStart = lastCommitAt > windowStart ? lastCommitAt : windowStart;
+
   // 窗口内全部 commit（分母）：含无 FID 的
-  const inWindow = commits.filter(c => new Date(c.date) >= windowStart);
+  const inWindow = commits.filter(c => new Date(c.date) >= effectiveStart);
   if (inWindow.length === 0) return null;
 
   // 分子：窗口内触碰链文件（排除清单后）的 bugfix，commit 粒度计 1 次
   const chainFiles = new Set([...chain.touchFiles].filter(f => !excludedSet.has(f)));
-  let bugfixHits = 0;
-  for (const c of inWindow) {
-    if (c.parsed.changeType !== "BugFix") continue;
-    if (c.filesChanged.some(f => chainFiles.has(f))) bugfixHits++;
-  }
+  const bugfixHits = countBugfixHits(inWindow, chainFiles);
 
   // 占比支最小分母保护：分母 <RATIO_MIN_DENOMINATOR 时占比失真（合入后仅 1 条 bugfix
   // → 100% 触发是荒谬的），小样本场景由次数阈值单支把关
@@ -136,17 +141,14 @@ function detectChainFixDensity(ctx: {
   };
 }
 
-/** 窗口内 commit 流 → 高扇入排除清单（被 ≥FAN_IN_THRESHOLD 个特性触碰的文件，降序） */
-function collectFanInExclusions(commits: SignalCommitInput[]): Array<{ file: string; fanIn: number }> {
-  const fanIn = new Map<string, Set<string>>();
+/** 分子统计：窗口 commit 流中触碰链文件的 bugfix 数（commit 粒度：同 commit 触碰多链文件计 1 次） */
+function countBugfixHits(commits: SignalCommitInput[], chainFiles: Set<string>): number {
+  let hits = 0;
   for (const c of commits) {
-    if (!c.parsed.featureId) continue;
-    for (const f of c.filesChanged) {
-      if (!fanIn.has(f)) fanIn.set(f, new Set());
-      fanIn.get(f)!.add(c.parsed.featureId);
-    }
+    if (c.parsed.changeType !== "BugFix") continue;
+    if (c.filesChanged.some(f => chainFiles.has(f))) hits++;
   }
-  return rankExclusions(fanIn);
+  return hits;
 }
 
 /** 扇入 Map → 排除清单（降序） */
@@ -167,9 +169,10 @@ function summarizeExclusions(excluded: Array<{ file: string; fanIn: number }>): 
  * 从链集合计算高扇入排除清单（GET /api/health/chains 响应附带——排除清单常驻可见，
  * 不依赖信号触发。验收项：清单可见不黑箱）。
  *
- * Why 从 chains 而非 commit 流：chains 端点已持有 buildChainsOnce 产物，零额外采集；
- * 链的 touchFiles 只含带 FID 的 commit 触碰的文件，与检测器扇入口径同源
- * （检测器窗口 30 天、链构建窗口 60 天——枢纽文件两窗口下分布一致，实测偏差 0）。
+ * 单一真相源（检视建议 3）：检测器与 chains 端点共用本函数，扇入统一按链构建窗口
+ * （60 天）的链触碰统计。此前检测器从 30 天检测窗口 commit 流独立计算，与端点构成
+ * 双计算源——两窗口清单当前重合是数据分布的偶然，边界文件随仓库活动漂移后
+ * 面板展示清单与检测器实际排除集会失配，UI 声明「不计入合并后修复密度信号」失实。
  */
 export function computeFanInExclusions(
   chains: Array<Pick<FeatureChain, "featureId" | "touchFiles">>,
