@@ -32,6 +32,11 @@ const dryRun = args.includes("--dry-run");
 const sinceArg = args.find(a => a.startsWith("--since-days="));
 // 默认 90 天：R3 需「静默 >60 天」证据，链尾 commit 至少 60 天前——45 天窗口装不下（会误判 doc-only）
 const sinceDays = sinceArg ? parseInt(sinceArg.split("=")[1], 10) : 90;
+// 段4 回填参数化：调小阈值可在真实数据上验证 R1/R3 命中行为（正式默认 60/14）
+const quietArg = args.find(a => a.startsWith("--quiet-days="));
+const quietDays = quietArg ? parseInt(quietArg.split("=")[1], 10) : undefined;
+const iterArg = args.find(a => a.startsWith("--iteration-days="));
+const iterationDays = iterArg ? parseInt(iterArg.split("=")[1], 10) : undefined;
 
 async function main() {
   // 1. 采集（与 RhiScanWorker.buildChainsOnce 同源：git log → parse → chains）
@@ -62,7 +67,10 @@ async function main() {
     commitCount: c.commitCount,
     docLastTouchedSha: docLastTouched.get(c.doc?.filePath ?? "") ?? null,
   }));
-  const plan = planDocAdvancements(evidences);
+  const plan = planDocAdvancements(evidences, {
+    ...(quietDays !== undefined ? { quietDays } : {}),
+    ...(iterationDays !== undefined ? { iterationDays } : {}),
+  });
 
   // 4. 输出计划
   console.log(JSON.stringify({
