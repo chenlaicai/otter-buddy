@@ -171,7 +171,7 @@ export class SyncDocuments {
    *
    * 历史案例（#637）：F20260731mmr0（文档）vs F20260731mmr（DB，同 file_path），
    * insert 撞 file_path 唯一索引，报裸 SQLite 文本「UNIQUE constraint failed」，
-   * 根因只能反推。此画数把漂移对查出来，报结构化错误（含修复指引）。
+   * 根因只能反推。此函数把漂移对查出来，报结构化错误（含修复指引）。
    *
    * 注意：只诊断不自动修复——改 DB id 涉及 memory_entries.source_id 迁移，
    * 是策略决策不是 sync 的职责（详见 F20260901dsyn 特性文档「非目标」）。 */
