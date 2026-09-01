@@ -41,3 +41,12 @@ export const FID_ANCHOR_REGEX = new RegExp(`^${FID_PATTERN_SOURCE}$`);
 export function isValidFid(id: string): boolean {
   return FID_ANCHOR_REGEX.test(id);
 }
+
+/** 存量豁免：{4,10} 契约前的合法历史 ID（新 ID 不得再产生此形态）。
+ *
+ * F20260731mmr（多模型路由）：frontmatter id 3 位后缀，是全库唯一短后缀真存量
+ * （commit 侧/文件名侧均无）；其 DB 记录同 id（#637/#657 id 漂移修复的主角），
+ * 改文档 id 会触发 ID drift 检测报错，需 DB 迁移（UPDATE features SET id）后
+ * 才能改文档并清退本豁免。校验侧放行，识别侧（parser/hook）无需豁免——其
+ * 历史 commit 早已入库，不再产生新识别需求。 */
+export const LEGACY_FID_IDS: ReadonlySet<string> = new Set(["F20260731mmr"]);

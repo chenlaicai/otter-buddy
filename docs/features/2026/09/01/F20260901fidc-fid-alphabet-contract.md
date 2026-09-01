@@ -90,7 +90,16 @@ from:
 - `git log --all` 的 4 个 3 位 ID（F20260721cap / F20260722ctx / F20260722hq1 / F20260724dsp）均不在任何分支（`git branch -a --contains` 为空），是 7 月下旬已删分支的悬空 commit，不影响 main 历史与文档库
 - 文件名侧唯一 2 位 ID F20260729im 系文件名截断个例：其 frontmatter id 与合入 commit（501e9446）均为 **F20260729imlo（4 位，含 l+o）**——这反而是一个「文件名与真相源不一致」的存量漂移实例
 
-结论：**两个消费面（commit 识别、文档校验）的真实最短后缀均为 4 位**，下限 3 无存量支撑；旧 commit-parser 正则下限本就是 4（首字符 1 位 + `{3,9}`），`{4,10}` 既非放宽也非收紧，是对既有事实边界的精确表述。
+结论：**commit 侧与文件名侧的真实最短后缀均为 4 位**，下限 3 无存量支撑；旧 commit-parser 正则下限本就是 4（首字符 1 位 + `{3,9}`），`{4,10}` 既非放宽也非收紧，是对既有事实边界的精确表述。
+
+### 第三个消费面的例外：frontmatter id 侧（CI 实测发现，回修后补测）
+
+上表统计的是 commit 引用与文件名两个消费面；回修提交跑 CI 时 docs lint gate 报错，补测第三个消费面发现：**frontmatter id 侧存在唯一一个 3 位后缀真存量 F20260731mmr**（382 个 frontmatter id 中仅此一个，7/31 多模型路由特性）。
+
+处置：新增 `LEGACY_FID_IDS` 存量豁免清单（validator 入库层白名单，参照 known-values.ts 已知值清单模式）：
+- F20260731mmr 的 DB 记录同 id（#637/#657 id 漂移修复的主角，sync-documents.test.ts 有其回归用例）——改文档 id 会触发 ID drift 检测报错，需先 DB 迁移（UPDATE features SET id）+ 文件名/commit 引用同步才能清退豁免，超出本 PR 边界
+- 豁免仅作用于入库校验层（frontmatter-validator）；识别侧（commit-parser/hook/disk-id-scanner）不豁免——新 commit 仍强制 4 位+，该存量不再产生新识别需求
+- 豁免清单自身被元测试锁死：清单项必须不匹配新契约（否则豁免无意义），避免清单腐化
 
 ## 4. 方案（issue 选项 b：单一真相源常量）
 
@@ -102,6 +111,7 @@ export const FID_SUFFIX_SEGMENT = "[a-z0-9]{4,10}";
 export const FID_PATTERN_SOURCE = `[FR]${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}`;
 export const FID_ANCHOR_REGEX = new RegExp(`^${FID_PATTERN_SOURCE}$`);
 export function isValidFid(id: string): boolean;
+export const LEGACY_FID_IDS: ReadonlySet<string>; // 存量豁免（目前仅 F20260731mmr，见 §3）
 ```
 
 **消费方收口（4 处）**：
@@ -134,7 +144,7 @@ Hook 回归：`scripts/tmp-verify/hook-regression-verify.py` ALL OK（13 例，#
 
 ## 7. 验证
 
-- vitest 全量：206 files / 2580 tests 全绿（#670 回修后：fid-format.test.ts 24 例含 3 元测试；disk-id-scanner / sync-documents 测试数据中 3 位合成 ID 对齐 4 位契约）
+- vitest 全量：206 files / 2580 tests 全绿（#670 回修后：fid-format.test.ts 27 例含 3 元测试 + 豁免锁死；frontmatter-validator.test.ts +2；disk-id-scanner / sync-documents 测试数据中 3 位合成 ID 对齐 4 位契约）
 - tsc --noEmit：零错误；eslint：0 error（涉及文件全部干净）
 - 契约对全量存量的复验（#670 回修后重跑）：
   - git log main 147 个唯一 ID：新契约 {4,10} 下非法为零；旧字母表漏判 5 个全部救回（mtbl/o46s/scl1/dpao/evgl）
@@ -150,7 +160,7 @@ Hook 回归：`scripts/tmp-verify/hook-regression-verify.py` ALL OK（13 例，#
 
 | 发现 | 裁决 | 处置 |
 |---|---|---|
-| 严重 1：初版文档以幻影 ID R20260805im 作为下限 3 依据 | 成立，下限收紧 | `{3,10}`→`{4,10}`（真相源/hook/测试/文档四同步）；§3 重写为实查数据表：main commit 侧最短 4（147 个），--all 的 3 位均在悬空 commit，文件名侧唯一 2 位系截断个例（真实形态 imlo 4 位） |
+| 严重 1：初版文档以幻影 ID R20260805im 作为下限 3 依据 | 成立，下限收紧 | `{3,10}`→`{4,10}`（真相源/hook/测试/文档四同步）；§3 重写为实查数据表：main commit 侧最短 4（147 个），--all 的 3 位均在悬空 commit，文件名侧唯一 2 位系截断个例（真实形态 imlo 4 位）。**补充**：回修提交跑 CI 发现 frontmatter id 侧唯一真存量 F20260731mmr（3 位），走 LEGACY_FID_IDS 豁免（见 §3 第三个消费面节），已同步告知大獭追认 |
 | 严重 2：tmp-verify 脚本注释仍引旧字母表 | 成立 | 注释更新为新契约口径 |
 | 建议 1+2（PR body 计数 21→20；真相源无锁死测试） | 合并处置 | 新增真相源锁死元测试 ×3（fs 读 hook 源码断言字符级一致，CI 即校验）；PR body 计数已修 |
 | 建议 3（hook-ts 一致性无 CI 校验） | 合并处置 | 同上元测试覆盖 |

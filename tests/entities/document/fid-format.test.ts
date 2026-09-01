@@ -5,6 +5,8 @@ import {
   isValidFid,
   FID_SUFFIX_SEGMENT,
   FID_PATTERN_SOURCE,
+  FID_ANCHOR_REGEX,
+  LEGACY_FID_IDS,
 } from "@entities/document/fid-format";
 
 describe("FID 形态契约（#667 单一真相源）", () => {
@@ -32,7 +34,7 @@ describe("FID 形态契约（#667 单一真相源）", () => {
   });
 
   it.each([
-    "F20260805im3", // 后缀 3 位（低于下界 4——main 实查无 3 位存量，--all 的 4 个 3 位 ID 均为已删分支悬空 commit）
+    "F20260805im3", // 后缀 3 位（低于下界 4——非豁免存量均拒，见 LEGACY_FID_IDS）
     "F20260729im", // 后缀 2 位（文件名截断个例；frontmatter 与 commit 真实形态均为 4 位 imlo）
     "F20260901234567890123", // 后缀 12 位（超上界）
     "f20260805abcd", // 小写前缀
@@ -73,5 +75,16 @@ describe("真相源锁死元测试（#670 审视回修：堵死 hook 人工镜�
   it("FID_PATTERN_SOURCE 与真相源常量自洽", () => {
     expect(FID_PATTERN_SOURCE).toBe(`[FR]\\d{8}${FID_SUFFIX_SEGMENT}`);
     expect(FID_SUFFIX_SEGMENT).toBe("[a-z0-9]{4,10}");
+  });
+
+  it("存量豁免清单自身不与契约冲突：豁免项均不匹配新契约（否则豁免无意义）", () => {
+    for (const id of LEGACY_FID_IDS) {
+      expect(FID_ANCHOR_REGEX.test(id)).toBe(false);
+      expect(isValidFid(id)).toBe(false); // 豁免是 validator 入库层的白名单，不是契约层放宽
+    }
+  });
+
+  it("存量豁免清单是 F 前缀白名单：伪造同长度的 R 前缀 ID 不被豁免", () => {
+    expect(LEGACY_FID_IDS.has("R20260731mmr")).toBe(false);
   });
 });
