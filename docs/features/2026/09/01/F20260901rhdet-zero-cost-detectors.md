@@ -27,6 +27,8 @@ modules:
   - tests/usecases/health/snapshot-shift.test.ts
   - tests/usecases/health/bugfix-metrics.test.ts
   - tests/usecases/health/rhi-scan-worker-shift.test.ts
+  - tests/usecases/health/detect-signals.test.ts
+  - tests/usecases/health/rhi-scan-worker.test.ts
 capability_test: "n/a: 纯确定性代码（A 类），无 LLM 参与行为"
 created_at: 2026-09-01T13:30:00+08:00
 created_in_conversation: 7c6e78b5-6fdc-462e-9383-4d96cf95dcd7
@@ -74,7 +76,7 @@ created_in_conversation: 7c6e78b5-6fdc-462e-9383-4d96cf95dcd7
   - `buildFixIntervalRow()`：构建 `metric_type=fix_interval, metric_key=bugfix_median_interval_days` 快照行，metadata 带 `{windowDays, bugfixCount, intervalCount, stat:"median"}`（窗口参数入库=时间序列回放可算，验收达成）
 - **口径选择：中位数**（实查 2026-09-01 main 60 天）：42 个 bugfix / 8 个活跃日 / 爆发式提交，间隔分布右偏严重（中位 0.06d，均值 0.18d，max 1.53d，p90 0.69d）。均值会被爆发日内的分钟级间隔拉低，掩盖「平静期拉长」的真实趋势，故取中位数
 - **窗口默认 30 天**：实查 7/14/30 天窗口的每日快照可算率完全相同（9/30 天可算），更短窗口无额外收益；30 天与信号窗口口径一致
-- **接线（rhi-scan-worker.persistSnapshot）**：fix_interval 行追加在 health_index 行后；窗口复用 metricsWindowDays（60 天，趋势口径稳定）；计算失败仅 warn 日志（传感器分离，不阻断主路）
+- **接线（rhi-scan-worker.persistSnapshot）**：fix_interval 行追加在 health_index 行后；窗口随 metricsWindowDays=60（**注：与上节 30 天论证的关系**——30 天论证证明的是「最短可算窗口」，接线取 60 是趋势口径稳定性优先，避免随 metricsWindowDays 调整时半衰期口径跟着跳；真实窗口经 metadata.windowDays 随行落库，回放方以 metadata 为准，不受叙述口径影响）；计算失败仅 warn 日志（传感器分离，不阻断主路）
 - **null 语义**：窗口内 bugfix < 2 时 intervalDays=null，仍落行（metricValue=0 + metadata.intervalCount=0）——时间序列不断点，消费方可区分「算不出」（无间隔）与「间隔为 0」（同刻爆发）
 
 ### ④ 僵尸链阶梯

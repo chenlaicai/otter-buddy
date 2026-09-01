@@ -366,7 +366,10 @@ function detectBehaviorDefect(
   const byType = new Map<string, CollectedHealingEvent[]>();
   for (const e of healingEvents) {
     const createdAt = new Date(e.createdAt);
-    if (createdAt < windowStart) continue; // 窗口外事件不参与（含 createdAt 非法的时间边界）
+    // 审视 A2：Invalid Date 的 valueOf()=NaN，NaN < x 恒 false——直接比较拦不住非法时间，
+    // 必须显式 Number.isFinite 拦截（非法时间事件不进窗口，否则排序 comparator 返回 NaN 顺序不定）
+    const t = createdAt.getTime();
+    if (!Number.isFinite(t) || t < windowStart.getTime()) continue; // 窗口外/非法时间不参与
     let list = byType.get(e.errorType);
     if (!list) {
       list = [];
