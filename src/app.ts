@@ -302,15 +302,38 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     }
     return false;
   };
+  // F20260831wxsp 修复 4：重新扫码后回收同扫码人的旧轮询。账号 id 每次扫码新生成
+  //（weixin-<时间戳>），旧 token 的轮询若在 -14 的 1h 暂停 sleep 里，不回收就成了
+  // 每小时醒一次吃 -14 再睡回去的僵尸循环——直到下次重启才消失。按 ilinkUserId
+  // （扫码人）识别旧轮询；两个池都清（冷启动池 + 热启动池），与账号删除的停法同构。
+  const stopStalePollersForUser = (ilinkUserId: string): number => {
+    let stopped = 0;
+    for (const pool of [extraWeixinPollers, weixinPollers ?? []]) {
+      for (let i = pool.length - 1; i >= 0; i--) {
+        if (pool[i].ilinkUserId === ilinkUserId) {
+          pool[i].stop();
+          pool.splice(i, 1);
+          stopped++;
+        }
+      }
+    }
+    return stopped;
+  };
   const weixinLoginSessions = new WeixinLoginSessionManager({
     baseUrl: config.weixin?.baseUrl,
     accountStore: weixinAccountStore,
     logger,
     onSuccess: (accountId, ilinkUserId) => {
       // partnerUserId = 命令门禁锚定的扫码人（命令重启后仍生效）；config 无 weixin 段时兜底注入
-      ensureWeixinConfig({ stateDir: config.weixin?.stateDir, ilinkUserId, logger });
+      // Bugfix（F20260831wxsp）：补写目标必须与读入路径一致——此前缺省 "./config.yaml" 而真实
+      // 配置在 config/config.yaml，写回 ENOENT 静默失败，重启后 weixin 段丢失、轮询拉不起来。
+      // options.configPath 是测试注入的临时路径；生产缺省走 ensureWeixinConfig 内的默认（对齐 loadConfig）。
+      ensureWeixinConfig({ configPath: options.configPath, stateDir: config.weixin?.stateDir, ilinkUserId, logger });
       const account = weixinAccountStore.getAccount(accountId);
       if (!account) return;
+      // 同扫码人的旧轮询先停（含 -14 暂停中的僵尸循环）——sleep 监听 abort，stop 即醒即退
+      const stoppedStale = stopStalePollersForUser(account.ilinkUserId ?? ilinkUserId ?? "");
+      if (stoppedStale > 0) logger.info("Weixin: stopped stale poller(s) after re-login", { ilinkUserId, count: stoppedStale });
       const poller = hotStartWeixinAccount({
         appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger,
         accountStore: weixinAccountStore,

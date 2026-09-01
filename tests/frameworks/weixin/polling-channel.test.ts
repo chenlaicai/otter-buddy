@@ -132,4 +132,38 @@ describe("WeixinPollingChannel", () => {
     ch.stop();
     expect(effects.received[0].body).toBe("语音转写内容");
   });
+
+  it("F20260831wxsp 修复 4：setIdentity 暴露 ilinkUserId（重新扫码后按人回收旧轮询）", () => {
+    const { accountStore, onMessage, logger } = makeDeps();
+    const api = { getUpdates: vi.fn(async () => new Promise(() => {})) } as unknown as WeixinApiClient;
+    const ch = new WeixinPollingChannel({ api, accountStore, accountId: "acc-old", onMessage, logger });
+    // 未设 identity：undefined（不影响既有 accountId 语义）
+    expect(ch.ilinkUserId).toBeUndefined();
+    ch.setIdentity("u1@im.wechat");
+    expect(ch.ilinkUserId).toBe("u1@im.wechat");
+    // accountId 语义不变（issue #566 账号删除定位用）
+    expect(ch.accountId).toBe("acc-old");
+    ch.stop();
+  });
+
+  it("F20260831wxsp 修复 4：-14 暂停中的旧轮询被 stop 立即唤醒退出（不再等满 1h）", async () => {
+    const { accountStore, onMessage, logger } = makeDeps();
+    const effects = { errorLogs: [] as unknown[] };
+    const warn: Logger["error"] = (msg, err, meta) => { effects.errorLogs.push([msg, err, meta]); };
+    const scopedLogger = { ...logger, error: warn } as unknown as Logger;
+    const api = { getUpdates: vi.fn(async () => ({ ret: 0, errcode: -14, errmsg: "stale" })) } as unknown as WeixinApiClient;
+    const ch = new WeixinPollingChannel({ api, accountStore, accountId: "acc-old", onMessage, logger: scopedLogger });
+    ch.setIdentity("u1@im.wechat");
+    ch.start();
+    // 进入 1h 暂停 sleep 后模拟重新扫码：stop 应立即打断 sleep 退出循环
+    await vi.advanceTimersByTimeAsync(100);
+    ch.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    // 不到 1h 轮询已停：sleep 被 abort 打断，循环退出——副作用断言（错误日志仅进入暂停前那一次）
+    await vi.waitFor(() => expect(effects.errorLogs).toHaveLength(1));
+    // 快进起过 1h：僵尸循环若还在，每小时会再拉一次 -14 再记一条 error——这里都不应发生
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(effects.errorLogs).toHaveLength(1); // 仅进入暂停前的那一次，无僵尸苏醒
+  });
 });
