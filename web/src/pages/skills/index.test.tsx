@@ -52,8 +52,11 @@ describe('能力库页面非空冒烟（#576）', () => {
     const listItems = document.querySelectorAll('.cursor-pointer')
     expect(listItems.length).toBeGreaterThanOrEqual(2)
     expect(container.textContent).toContain('companion')
-    // 详情面板有选中 skill 的描述
-    expect(container.textContent).toContain('兜底模式')
+    // 详情面板（main 区域，不含侧边栏 aside）：首项自动选中（#689 审视建议 1 回归锁定）。
+    // 若 selectedName 未初始化缺陷回归（selectedSkill undefined），h2 不存在，断言失败。
+    const main = container.querySelector('main')
+    expect(main?.querySelector('h2')?.textContent).toBe('companion')
+    expect(main?.textContent).toContain('兜底模式')
   })
 
   it('API 失败：降级内置清单 + 离线标注（非静默空白）', async () => {
@@ -64,6 +67,8 @@ describe('能力库页面非空冒烟（#576）', () => {
     expect(container.textContent).toContain('companion')
     expect(container.textContent).toContain('离线兜底'.slice(0, 2)) // 「离线」标注存在
     expect(container.textContent).toContain('离线')
+    // 降级态同样自动选中首项（#689 建议 1）
+    expect(container.querySelector('main')?.querySelector('h2')?.textContent).toBe('companion')
   })
 
   it('API 返回空数组：显式空态文案（非静默空白）', async () => {

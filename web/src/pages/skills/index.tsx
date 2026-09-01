@@ -124,7 +124,9 @@ export function SkillsPage() {
   const degraded = state.kind === 'error'
   const allSkills = groups.flatMap(g => g.skills)
   const [selectedName, setSelectedName] = useState(allSkills[0]?.name || '')
-  const selectedSkill = allSkills.find(s => s.name === selectedName)
+  // useState 初始值在 loading 态（allSkills 空）求值为 ''，API 加载后不会重求——
+  // 无点击时详情面板空白（#689 审视建议 1）。回退语义：当前选择失效时自动选中首项，用户已点击的选择保留。
+  const selectedSkill = allSkills.find(s => s.name === selectedName) ?? allSkills[0]
 
   return (
     <AppLayout activeView="skills">
@@ -178,7 +180,7 @@ export function SkillsPage() {
                       key={s.name}
                       onClick={() => setSelectedName(s.name)}
                       className={`px-3 py-2 mx-2 rounded-xl cursor-pointer transition ${
-                        s.name === selectedName ? 'conv-active' : 'hover:bg-white/30'
+                        s.name === selectedSkill?.name ? 'conv-active' : 'hover:bg-white/30'
                       }`}
                     >
                       <div className="text-xs font-medium text-stone-700">{s.name}</div>
