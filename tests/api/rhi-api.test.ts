@@ -9,18 +9,52 @@ import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { FeatureChain } from "@usecases/health/chain-builder";
 
 /** 真 sqlite（:memory:）+ 真 Controller 的 API 测试。
- *  buildChainsOnce/scanOnce 走 mock（链构建的端到端已有 rhi-scan-worker.test.ts 覆盖）。 */
+ *  buildChainsOnce/scanOnce 走 mock（链构建的端到端已有 rhi-scan-worker.test.ts 覆盖）。
+ *  无闭包依赖的 helper 放模块级——describe 内联会触发 max-lines-per-function（审视处置中曾超限） */
+
+function makeCtx(statusQuery?: string): Parameters<RhiController["overview"]>[0] {
+  return {
+    req: { query: () => statusQuery },
+    json: (data: unknown) => new Response(JSON.stringify(data), { status: 200 }),
+  } as never;
+}
+
+function makeDetailCtx(featureId: string): Parameters<RhiController["chainDetail"]>[0] {
+  return {
+    req: { param: () => featureId },
+    json: (data: unknown, status?: number) => new Response(JSON.stringify(data), { status: status ?? 200 }),
+  } as never;
+}
+
+const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc?: FeatureChain["doc"]; daysSinceLastCommit?: number | null }): FeatureChain => ({
+  featureId, state, commits: [], firstSeenAt: null, lastCommitAt: null,
+  daysSinceLastCommit: opts?.daysSinceLastCommit ?? null, commitCount: 2, bugfixCount: 1,
+  touchFiles: new Set<string>(), doc: opts?.doc ?? null,
+});
+
+/** chainDetail 用例的链夹具（含全类型 commit 序列，Issue #644） */
+function fakeDetailChain(): FeatureChain {
+  return {
+    featureId: "F20260801aaaa",
+    state: "stalled",
+    commits: [
+      { sha: "abcdef1234567890", date: new Date("2026-08-10T00:00:00Z"), message: "引入", changeType: "New Feature", filesChanged: ["a.ts"] },
+      { sha: "1234567890abcdef", date: new Date("2026-08-20T00:00:00Z"), message: "修复", changeType: "BugFix", filesChanged: ["a.ts"] },
+    ],
+    firstSeenAt: new Date("2026-08-10T00:00:00Z"),
+    lastCommitAt: new Date("2026-08-20T00:00:00Z"),
+    daysSinceLastCommit: 5,
+    commitCount: 2,
+    bugfixCount: 1,
+    touchFiles: new Set(["a.ts"]),
+    doc: { id: "F20260801aaaa", title: "测试链", status: "development", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null },
+  };
+}
+
 describe("RHI API（真 sqlite）", () => {
   let db: Database.Database;
   let signalRepo: SignalRepository;
   let snapshotRepo: HealthSnapshotRepository;
-
-  function makeCtx(statusQuery?: string): Parameters<RhiController["overview"]>[0] {
-    return {
-      req: { query: () => statusQuery },
-      json: (data: unknown) => new Response(JSON.stringify(data), { status: 200 }),
-    } as never;
-  }
 
   beforeEach(() => {
     db = new Database(":memory:");
@@ -37,12 +71,6 @@ describe("RHI API（真 sqlite）", () => {
     } as unknown as RhiScanWorker;
     return new RhiController(snapshotRepo, signalRepo, worker, console as never);
   }
-
-  const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc?: FeatureChain["doc"]; daysSinceLastCommit?: number | null }): FeatureChain => ({
-    featureId, state, commits: [], firstSeenAt: null, lastCommitAt: null,
-    daysSinceLastCommit: opts?.daysSinceLastCommit ?? null, commitCount: 2, bugfixCount: 1,
-    touchFiles: new Set<string>(), doc: opts?.doc ?? null,
-  });
 
   describe("overview", () => {
     it("返回最新快照指标与信号分级计数", async () => {
@@ -136,6 +164,45 @@ describe("RHI API（真 sqlite）", () => {
 
       expect(body.chains[0].stateReason).not.toContain("Infinity");
       expect(body.chains[0].stateReason).toContain("无提交记录");
+    });
+  });
+
+  describe("chainDetail（Issue #644 新端点，审视发现 3）", () => {
+    it("返回链详情：sha 截 8 位 / date Z 格式 ISO / changeType / filesChanged", async () => {
+      const res = await makeController([fakeDetailChain()]).chainDetail(makeDetailCtx("F20260801aaaa"));
+      expect(res.status).toBe(200);
+      const body = await res.json() as { chain: { commits: Array<{ sha: string; date: string; changeType: string | null; filesChanged: string[] }>; stateReason: string; docStatus: string | null } };
+      expect(body.chain.commits).toHaveLength(2);
+      expect(body.chain.commits[0]!.sha).toBe("abcdef12"); // 16 位截 8 位
+      expect(body.chain.commits[0]!.date).toBe("2026-08-10T00:00:00.000Z"); // toISOString 归一 Z 格式
+      expect(body.chain.commits[1]!.changeType).toBe("BugFix");
+      expect(body.chain.commits[0]!.filesChanged).toEqual(["a.ts"]);
+      expect(body.chain.docStatus).toBe("development");
+      expect(body.chain.stateReason).toBeTruthy();
+    });
+
+    it("不存在的链返回 404 与错误信息", async () => {
+      const res = await makeController([fakeDetailChain()]).chainDetail(makeDetailCtx("F99999nope"));
+      expect(res.status).toBe(404);
+      const body = await res.json() as { error: string };
+      expect(body.error).toContain("chain not found");
+      expect(body.error).toContain("F99999nope");
+    });
+  });
+
+  describe("signals 证据透出（审视发现 3）", () => {
+    it("evidenceDetail 安全解析：合法 JSON 透出对象，非法 JSON 降级 null 不阻断列表", async () => {
+      // repo 层无非法 JSON 注入口（upsert stringify），直接 UPDATE 写入模拟历史脏数据
+      signalRepo.upsert({ signalType: "bug_recurrence", severity: "critical", featureId: null, filePath: "src/x.ts", evidence: "e", suggestedAction: "s", evidenceDetail: { kind: "bug_recurrence_commits", windowDays: 30, commits: [{ sha: "ab12cd34", date: "2026-08-20T00:00:00.000Z", changeType: "BugFix", message: "m" }] }, confidence: "low" });
+      // 模拟历史脏数据：evidence_detail 非合法 JSON
+      const db0 = (signalRepo as unknown as { db: Database.Database }).db;
+      db0.prepare("UPDATE signals SET evidence_detail = '{broken json' WHERE file_path = 'src/x.ts'").run();
+
+      const res = await makeController().signals(makeCtx());
+      const body = await res.json() as { signals: Array<{ evidenceDetail: unknown; confidence: string | null }> };
+      expect(body.signals).toHaveLength(1);
+      expect(body.signals[0]!.evidenceDetail).toBeNull(); // 降级不抛错
+      expect(body.signals[0]!.confidence).toBe("low");
     });
   });
 

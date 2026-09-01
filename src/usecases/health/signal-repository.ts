@@ -22,6 +22,10 @@ export interface SignalRecord {
   suggested_action: string | null;
   created_at: string;
   resolved_at: string | null;
+  /** 结构化证据详情 JSON（Issue #644，如 bug_recurrence 全类型 commit 序列）。null=无 */
+  evidence_detail: string | null;
+  /** 置信度：low=大概率误报（UI 折叠收纳）。null=normal（存量默认） */
+  confidence: string | null;
 }
 
 export interface UpsertSignal {
@@ -31,6 +35,10 @@ export interface UpsertSignal {
   filePath: string | null;
   evidence: string;
   suggestedAction: string | null;
+  /** 结构化证据详情（可选——窗口滑动时整体重算覆盖，非 append） */
+  evidenceDetail?: unknown;
+  /** 置信度（可选，缺省 normal） */
+  confidence?: string | null;
 }
 
 export class SignalRepository {
@@ -42,6 +50,9 @@ export class SignalRepository {
    */
   upsert(signal: UpsertSignal, seenAt: Date = new Date()): SignalRecord {
     const now = seenAt.toISOString();
+    const detailJson = signal.evidenceDetail !== undefined
+      ? JSON.stringify(signal.evidenceDetail)
+      : null;
 
     const existing = this.db
       .prepare(`
@@ -54,22 +65,33 @@ export class SignalRepository {
       .get(signal.signalType, signal.featureId, signal.filePath) as SignalRecord | undefined;
 
     if (existing) {
+      // Issue #644：UPDATE 分支必须同步刷 evidence_detail + confidence——只刷旧三字段
+      // 会导致存量信号的置信分层永远不更新（合议审读 §3.1）。COALESCE 语义：本次未传
+      // 时不覆盖旧值（旧行为调用方不受影响）；窗口滑动重算时传新值覆盖。
       this.db
-        .prepare(`UPDATE signals SET last_seen = ?, occurrences = occurrences + 1, evidence = ? WHERE id = ?`)
-        .run(now, signal.evidence, existing.id);
-      return { ...existing, last_seen: now, occurrences: existing.occurrences + 1, evidence: signal.evidence };
+        .prepare(`UPDATE signals SET
+            last_seen = ?,
+            occurrences = occurrences + 1,
+            evidence = ?,
+            evidence_detail = COALESCE(?, evidence_detail),
+            confidence = COALESCE(?, confidence)
+          WHERE id = ?`)
+        .run(now, signal.evidence, detailJson, signal.confidence ?? null, existing.id);
+      return this.coalesceExisting(existing, signal, detailJson, now);
     }
 
     // id 为 INTEGER PRIMARY KEY AUTOINCREMENT（Phase 0 schema 定义），用自增 id 而非 UUID
     const r = this.db
       .prepare(`
         INSERT INTO signals (signal_type, severity, feature_id, file_path, evidence,
-                             first_seen, last_seen, occurrences, status, suggested_action)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'open', ?)
+                             first_seen, last_seen, occurrences, status, suggested_action,
+                             evidence_detail, confidence)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'open', ?, ?, ?)
       `)
       .run(
         signal.signalType, signal.severity, signal.featureId, signal.filePath,
         signal.evidence, now, now, signal.suggestedAction,
+        detailJson, signal.confidence ?? null,
       );
     const id = Number(r.lastInsertRowid);
 
@@ -87,6 +109,25 @@ export class SignalRepository {
       suggested_action: signal.suggestedAction,
       created_at: now,
       resolved_at: null,
+      evidence_detail: detailJson,
+      confidence: signal.confidence ?? null,
+    };
+  }
+
+  /** Issue #644：UPDATE 分支返回值拼装——COALESCE 后的 detail/confidence 与刷新后的计数 */
+  private coalesceExisting(
+    existing: SignalRecord,
+    signal: UpsertSignal,
+    detailJson: string | null,
+    now: string,
+  ): SignalRecord {
+    return {
+      ...existing,
+      last_seen: now,
+      occurrences: existing.occurrences + 1,
+      evidence: signal.evidence,
+      evidence_detail: detailJson !== null ? detailJson : existing.evidence_detail,
+      confidence: signal.confidence ?? existing.confidence,
     };
   }
 

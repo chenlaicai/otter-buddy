@@ -72,6 +72,34 @@ describe("detectSignals", () => {
     expect(stall!.evidence).toContain("20 天");
   });
 
+  it("重复文件名不去重不双计（Set 防御，审视建议发现 4）", () => {
+    // 同 commit 的 filesChanged 含重复文件名：无防御时 shas 双计抬高触发次数、detail 出重复节点。
+    // 当前 git --name-only 不产生重复，此用例锁定防御行为不变
+    const commits = [
+      commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/dup.ts", "src/dup.ts"]),
+      commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/dup.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    // 去重后实际 2 次 < 阈值 3，不触发（不去重则 3 次会误触发）
+    expect(signals.find(s => s.type === "bug_recurrence" && s.filePath === "src/dup.ts")).toBeUndefined();
+  });
+
+  it("detail 的 date 归一为 Z 格式 ISO（与 chainDetail 端点统一契约，审视建议发现 5）", () => {
+    const commits = [
+      commit("b1", 8, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/iso.ts"]),
+      commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/iso.ts"]),
+      commit("b3", 3, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/iso.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 输入是 toISOString() 生成的 Z 格式，归一后仍是 Z 格式（以 Z 结尾）；
+    // 若未来采集器改用 %aI 带时区偏移格式，此断言强制归一不变量
+    for (const cm of rec!.detail!.commits) {
+      expect(cm.date.endsWith("Z")).toBe(true);
+    }
+  });
+
   it("hotspot：窗口内文件修改次数 > 阈值触发 warning", () => {
     const commits = Array.from({ length: 4 }, (_, i) =>
       commit(`h${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["src/hot.ts"]));
@@ -217,5 +245,107 @@ describe("detectSignals", () => {
       commit(`tc${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["Tests/helpers.ts"]));
     const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
     expect(signals.find(s => s.type === "hotspot")).toBeUndefined();
+  });
+});
+
+describe("Issue #644：结构化证据 + 置信度", () => {
+  it("bug_recurrence 的 detail 含全类型 commit 序列（不只 bugfix，交替节奏可画）", () => {
+    const commits = [
+      commit("f1", 10, "[F20260801tstw][agent][New Feature] 引入", ["src/x.ts"]),
+      commit("b1", 8, "[F20260801tstw][agent][BugFix] 修1 (#1)", ["src/x.ts"]),
+      commit("f2", 6, "[F20260801tstw][agent][Feature Update] 增强", ["src/x.ts"]),
+      commit("b2", 4, "[F20260801tstw][agent][BugFix] 修2 (#2)", ["src/x.ts"]),
+      commit("b3", 2, "[F20260801tstw][agent][BugFix] 修3 (#3)", ["src/x.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.detail).toBeDefined();
+    expect(rec!.detail!.kind).toBe("bug_recurrence_commits");
+    // 全类型：3 bugfix + 1 New Feature + 1 Feature Update = 5 个节点
+    expect(rec!.detail!.commits).toHaveLength(5);
+    // 时间升序
+    const dates = rec!.detail!.commits.map(c => c.date);
+    expect([...dates].sort()).toEqual(dates);
+    // changeType 标注交替（第一个是引入非 bugfix）
+    expect(rec!.detail!.commits[0]!.changeType).toBe("New Feature");
+    expect(rec!.detail!.commits.filter(c => c.changeType === "BugFix")).toHaveLength(3);
+  });
+
+  it("detail 窗口滑动整体重算：出窗 commit 不出现在 detail", () => {
+    const commits = [
+      commit("old", 45, "[F20260801tstw][agent][BugFix] 出窗", ["src/y.ts"]),
+      commit("b1", 8, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/y.ts"]),
+      commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/y.ts"]),
+      commit("b3", 3, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/y.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.detail!.commits).toHaveLength(3);
+    expect(rec!.detail!.commits.every(c => c.sha !== "old")).toBe(true);
+  });
+
+  it("chain_stall 置信规则甲：stalled ∧ 有 commit → low；zombie/doc-only → normal", () => {
+    // 滞留但链上有 commit（「干完没归档」主场景）
+    const commits = [commit("s1", 20, "[F20260801aaaa][agent][New Feature] x", ["a.ts"])];
+    const docs = [{
+      id: "F20260801aaaa", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const stall = signals.find(s => s.type === "chain_stall");
+    expect(stall).toBeDefined();
+    expect(stall!.confidence).toBe("low"); // 有 commit 的滞留 → low
+
+    // doc-only development 滞留（无 commit）→ normal（更接近真异常）
+    const docs2 = [{
+      id: "F20260801bbbb", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/y.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains2 = buildFeatureChains([], docs2, { now: NOW });
+    const signals2 = detectSignals([], chains2, [], { now: NOW });
+    const stall2 = signals2.find(s => s.type === "chain_stall");
+    expect(stall2).toBeDefined();
+    expect(stall2!.confidence).toBe("normal");
+  });
+
+  it("chain-builder 白名单收编 active：status: active 的滞留链参与病态判定", () => {
+    // Issue #644 止血：41 篇 status:active 文档原先被当终态静默豁免
+    const commits = [commit("s1", 20, "[F20260801actv][agent][New Feature] x", ["a.ts"])];
+    const docs = [{
+      id: "F20260801actv", title: "t", changeType: "feature", status: "active",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/a.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    expect(chains[0].state).toBe("stalled"); // 不再豁免
+    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const stall = signals.find(s => s.type === "chain_stall");
+    expect(stall).toBeDefined();
+    expect(stall!.confidence).toBe("low");
+  });
+
+  it("置信规则甲 zombie 分支：30 天无 commit 且零提及 → normal（更接近真异常，不降置信）（审视发现 3）", () => {
+    // 规则甲的对照分支：stalled→low 依赖 zombie→normal 的对比才成立。
+    // 原先只有代码注释保证，无直接用例锁定
+    const commits = [commit("s1", 45, "[F20260801zomb][agent][New Feature] x", ["a.ts"])]; // 45 天前最后 commit（> zombieDays 30）
+    const docs = [{
+      id: "F20260801zomb", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/z.md", createdAt: dayAgo(50), createdInConversationId: null,
+    }];
+    // 提及 Map 显式 0（未传 Map = 未查询不判 zombie，冷启动安全，见 isZombie）
+    const fidMentionCounts = new Map([["F20260801zomb", 0]]);
+    const chains = buildFeatureChains(commits, docs, { now: NOW, fidMentionCounts });
+    expect(chains[0].state).toBe("zombie");
+    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const stall = signals.find(s => s.type === "chain_stall");
+    expect(stall).toBeDefined();
+    expect(stall!.confidence).toBe("normal"); // zombie 不降置信
+    expect(stall!.evidence).toContain("僵尸");
   });
 });

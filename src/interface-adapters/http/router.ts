@@ -77,6 +77,8 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/overview", (ctx) => c.rhi.overview(ctx));
   app.get("/api/health/signals", (ctx) => c.rhi.signals(ctx));
   app.get("/api/health/chains", (ctx) => c.rhi.chains(ctx));
+  // Issue #644：链详情（commits 全类型序列——泳道时间线/复发卡数据源）
+  app.get("/api/health/chains/:featureId", (ctx) => c.rhi.chainDetail(ctx));
   app.get("/api/health/trends", (ctx) => c.rhi.trends(ctx));
   app.get("/api/health/score", (ctx) => c.rhi.score(ctx));
   app.get("/api/health/cost-output", (ctx) => c.rhi.costOutput(ctx));

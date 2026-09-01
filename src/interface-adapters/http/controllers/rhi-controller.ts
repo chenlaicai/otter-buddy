@@ -21,6 +21,15 @@ import type { DimensionId, TrendDirection } from "@usecases/health/health-score"
 const STALLED_DAYS = 14;
 const ZOMBIE_DAYS = 30;
 
+/** Issue #644：JSON 字符串安全解析（evidence_detail 列）——解析失败降级 null 不阻断列表 */
+function safeParseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 /** 信号类型中文标签（与前端 SIGNAL_TYPE_LABELS 保持一致） */
 const SIGNAL_TYPE_LABELS: Record<string, string> = {
   bug_recurrence: 'bug 反复出现',
@@ -42,7 +51,7 @@ function buildChainStateReason(
     return "commit 提到了特性编号但未找到对应特性文档";
   }
   const docStatus = chain.doc?.status ?? "draft";
-  const inFlight = ["draft", "proposed", "design", "development"].includes(docStatus);
+  const inFlight = ["draft", "proposed", "design", "development", "active"].includes(docStatus);
   // Why: doc-only 链（有文档无 commit）daysSinceLastCommit=null，不能兜底为 Infinity
   const hasCommits = chain.daysSinceLastCommit !== null;
   const days = chain.daysSinceLastCommit!;
@@ -297,7 +306,7 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/signals?status=open — 信号列表 */
+  /** GET /api/health/signals?status=open — 信号列表（含结构化证据与置信度，Issue #644） */
   async signals(c: Context): Promise<Response> {
     try {
       const status = c.req.query("status") ?? "open";
@@ -308,6 +317,9 @@ export class RhiController {
         signals: rows.map(s => ({
           ...s,
           signalTypeLabel: SIGNAL_TYPE_LABELS[s.signal_type] ?? s.signal_type,
+          // evidence_detail 存 JSON 字符串（可空）——解析失败不阻断列表，降级 null
+          evidenceDetail: s.evidence_detail ? safeParseJson(s.evidence_detail) : null,
+          evidence_detail: undefined,
         })),
         count: rows.length,
       });
@@ -343,6 +355,44 @@ export class RhiController {
       });
     } catch (err) {
       this.logger.error("RHI chains failed", err instanceof Error ? err : undefined);
+      return c.json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** GET /api/health/chains/:featureId — 链详情（Issue #644：泳道时间线/复发卡的数据源）。
+   *  commits 数组为全类型序列（时间升序），供 PR3 泳道 SVG 与链详情抽屉消费。 */
+  async chainDetail(c: Context): Promise<Response> {
+    try {
+      const featureId = c.req.param("featureId");
+      const chains = await this.scanWorker.buildChainsOnce();
+      const ch = chains.find(x => x.featureId === featureId);
+      if (!ch) {
+        return c.json({ error: `chain not found: ${featureId}` }, 404);
+      }
+      return c.json({
+        chain: {
+          featureId: ch.featureId,
+          state: ch.state,
+          commitCount: ch.commitCount,
+          bugfixCount: ch.bugfixCount,
+          daysSinceLastCommit: ch.daysSinceLastCommit,
+          firstSeenAt: ch.firstSeenAt,
+          lastCommitAt: ch.lastCommitAt,
+          docStatus: ch.doc?.status ?? null,
+          docTitle: ch.doc?.title ?? null,
+          stateReason: buildChainStateReason(ch.state, ch),
+          // 链上全类型 commit 序列（时间升序，带 changeType + files）——泳道节点/复发卡的直接数据源
+          commits: ch.commits.map(cm => ({
+            sha: cm.sha.slice(0, 8),
+            date: cm.date.toISOString(),
+            changeType: cm.changeType,
+            message: cm.message,
+            filesChanged: cm.filesChanged,
+          })),
+        },
+      });
+    } catch (err) {
+      this.logger.error("RHI chain detail failed", err instanceof Error ? err : undefined);
       return c.json({ error: err instanceof Error ? err.message : String(err) });
     }
   }
