@@ -78,6 +78,10 @@ export interface StartSpeakingInput {
   /** 可选：随发言一并落库的内容（拆分后由 speak 的 appendSegment 负责，yield 调用时不传） */
   body?: string;
   talkingStonePassedTo: string[];
+  /** F20260901sgp0 P0: 信号档位 (NORMAL/URGENT/HALT)，默认 NORMAL */
+  signalLevel?: string;
+  /** F20260901sgp0 P0: 信号额外元数据 JSON（reason/suggestion 等） */
+  signalMeta?: string;
 }
 
 /** 中止消息输入（系统构造的合成中断声明） */
@@ -331,7 +335,7 @@ export class SendMessage {
       throw new DomainError("talkingStonePassedTo must be non-empty for speaking messages", "validation");
     }
 
-    await this._repo.startSpeaking(messageId, input.body, input.talkingStonePassedTo);
+    await this._repo.startSpeaking(messageId, input.body, input.talkingStonePassedTo, input.signalLevel, input.signalMeta);
 
     return {
       ...message,

@@ -393,3 +393,138 @@ describe("migrateDatabase - F20260827he2f healing_events.introduced_by_pr 列", 
     }
   });
 });
+
+/**
+ * F20260901sgp0 P0：signal_level / signal_meta 列迁移幂等性 + 索引查询验证。
+ * 从独立的 signal-metadata-migration.test.ts 合并入 migration.test.ts，
+ * 避免增加 allow-ddl 豁免文件数（ratchet 上限 6）。
+ */
+describe("migrateDatabase - F20260901sgp0 signal metadata 列", () => {
+  let db: Database.Database;
+
+  // 专用 seed（与顶层 seedMessage 签名不同：支持 overrides + 自增 seq）
+  let seqCounter = 0;
+  function seedSignalMessage(db: Database.Database, id: string, overrides?: Record<string, unknown>): void {
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 't', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-09-01T00:00:00Z')`).run();
+    seqCounter++;
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, created_at)
+      VALUES (?, 'conv-1', 'otter', 'otter-1', 'completed', ?, 'turn-1', '2026-09-01T00:01:00Z')`).run(id, seqCounter);
+    if (overrides) {
+      const sets = Object.entries(overrides).map(([k]) => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE messages SET ${sets} WHERE id = ?`).run(...Object.values(overrides), id);
+    }
+  }
+
+  beforeEach(() => {
+    db = createTestDb();
+    seqCounter = 0;
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  describe("new database (initSchema)", () => {
+    it("messages 表包含 signal_level 和 signal_meta 列", () => {
+      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      const colNames = columns.map(c => c.name);
+      expect(colNames).toContain("signal_level");
+      expect(colNames).toContain("signal_meta");
+    });
+
+    it("新列默认为 null（存量行无信号语义）", () => {
+      seedSignalMessage(db, "msg-1");
+      const row = db.prepare("SELECT signal_level, signal_meta FROM messages WHERE id = 'msg-1'").get() as { signal_level: string | null; signal_meta: string | null };
+      expect(row.signal_level).toBeNull();
+      expect(row.signal_meta).toBeNull();
+    });
+
+    it("可写入和读取 signal_level / signal_meta", () => {
+      seedSignalMessage(db, "msg-1");
+      db.prepare("UPDATE messages SET signal_level = ?, signal_meta = ? WHERE id = ?").run("URGENT", '{"level":"URGENT","reason":"方向反了"}', "msg-1");
+      const row = db.prepare("SELECT signal_level, signal_meta FROM messages WHERE id = 'msg-1'").get() as { signal_level: string; signal_meta: string };
+      expect(row.signal_level).toBe("URGENT");
+      expect(JSON.parse(row.signal_meta)).toEqual({ level: "URGENT", reason: "方向反了" });
+    });
+  });
+
+  describe("existing database (migrateDatabase)", () => {
+    it("存量库迁移添加 signal_level 和 signal_meta 列 + 索引（幂等）", () => {
+      migrateDatabase(db, createTestLogger());
+      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      const colNames = columns.map(c => c.name);
+      expect(colNames).toContain("signal_level");
+      expect(colNames).toContain("signal_meta");
+      // 索引在列之后由 migrateDatabase 创建（非 initSchema，存量库 initSchema 时列不存在）
+      const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
+      expect(indexes.map(i => i.name)).toContain("idx_messages_signal_level");
+    });
+
+    it("存量库迁移添加 signal_level 和 signal_meta 列（幂等）", () => {
+      migrateDatabase(db, createTestLogger());
+      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      const colNames = columns.map(c => c.name);
+      expect(colNames).toContain("signal_level");
+      expect(colNames).toContain("signal_meta");
+    });
+
+    it("迁移幂等：多次运行不报错", () => {
+      migrateDatabase(db, createTestLogger());
+      migrateDatabase(db, createTestLogger()); // 第二次不应报错
+      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      expect(columns.map(c => c.name)).toContain("signal_level");
+    });
+
+    it("迁移后存量消息 signal_level 为 null", () => {
+      seedSignalMessage(db, "msg-old");
+      migrateDatabase(db, createTestLogger());
+      const row = db.prepare("SELECT signal_level, signal_meta FROM messages WHERE id = 'msg-old'").get() as { signal_level: string | null; signal_meta: string | null };
+      expect(row.signal_level).toBeNull();
+      expect(row.signal_meta).toBeNull();
+    });
+
+    it("真·旧库路径：initSchema 后 DROP COLUMN 模拟存量库，migrateDatabase 补列+索引不抛错（幂等）", () => {
+      // body_hash 范式：initSchema 建全表（含 signal_level/signal_meta），再 DROP 模拟旧库
+      db.close();
+      db = createTestDb(); // initSchema 已含 signal_level/signal_meta
+      db.exec("ALTER TABLE messages DROP COLUMN signal_level");
+      db.exec("ALTER TABLE messages DROP COLUMN signal_meta");
+      const before = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      expect(before.some(c => c.name === "signal_level")).toBe(false);
+      expect(before.some(c => c.name === "signal_meta")).toBe(false);
+
+      // migrateDatabase 应补列 + 建索引，不抛错
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      const after = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      expect(after.some(c => c.name === "signal_level")).toBe(true);
+      expect(after.some(c => c.name === "signal_meta")).toBe(true);
+      const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
+      expect(indexes.map(i => i.name)).toContain("idx_messages_signal_level");
+
+      // 第二次不报错（幂等）
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+    });
+  });
+
+  describe("signal_level index queries", () => {
+    it("可通过 signal_level 索引查询 URGENT 消息", () => {
+      seedSignalMessage(db, "msg-1", { signal_level: "NORMAL" });
+      seedSignalMessage(db, "msg-2", { signal_level: "URGENT" });
+      seedSignalMessage(db, "msg-3", { signal_level: null });
+
+      const urgent = db.prepare("SELECT id FROM messages WHERE signal_level = 'URGENT'").all() as Array<{ id: string }>;
+      expect(urgent).toHaveLength(1);
+      expect(urgent[0].id).toBe("msg-2");
+    });
+
+    it("可查询无信号语义的消息（NULL）", () => {
+      seedSignalMessage(db, "msg-1", { signal_level: "NORMAL" });
+      seedSignalMessage(db, "msg-2", { signal_level: null });
+
+      const noSignal = db.prepare("SELECT id FROM messages WHERE signal_level IS NULL").all() as Array<{ id: string }>;
+      expect(noSignal).toHaveLength(1);
+      expect(noSignal[0].id).toBe("msg-2");
+    });
+  });
+});

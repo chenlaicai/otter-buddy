@@ -33,6 +33,7 @@ import { computeFixInterval, buildFixIntervalRow } from "./bugfix-metrics";
 import { diffHealthIndex, buildSnapshotShiftEvidence } from "./snapshot-shift";
 import type { HealthIndexSnapshot } from "./snapshot-shift";
 import type { SignalRepository } from "./signal-repository";
+import { aggregateOpenSignalCounts } from "./signal-counts";
 import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts, collectDispatchTaskCounts } from "./cost-output-collector";
 import type { AgentSessionSource } from "./cost-output-collector";
 import { buildCostOutputSnapshotRows } from "./cost-output-rows";
@@ -126,17 +127,13 @@ export class RhiScanWorker {
     private readonly options: RhiScanWorkerOptions = {},
   ) {}
 
-  /** open 信号按 severity 计数（D5 输入；repo 未注入返回 null → 评分降级零值） */
+  /** open 信号按 severity 计数（D5 输入；repo 未注入返回 null → 评分降级零值）。
+   *  Issue #652 方案甲：confidence=low 不进 critical/warning 计数（与 overview 同源
+   *  aggregateOpenSignalCounts）——低置信折叠后健康分不再纹丝不动。 */
   private countOpenBySeverity(): { critical: number; warning: number } | null {
     if (!this.options.signalRepo) return null;
     try {
-      const open = this.options.signalRepo.findOpen();
-      const counts = { critical: 0, warning: 0 };
-      for (const s of open) {
-        if (s.severity === "critical") counts.critical++;
-        else counts.warning++;
-      }
-      return counts;
+      return aggregateOpenSignalCounts(this.options.signalRepo.findOpen()).bySeverity;
     } catch {
       return null;
     }
