@@ -113,6 +113,8 @@ export interface ConversationRepository {
   ): Promise<Message[]>;
   getMessagesBefore(messageId: string, count: number): Promise<Message[]>;
   getMessagesAfter(messageId: string, count: number): Promise<Message[]>;
+  /** #642: 获取锚点后的最近 N 条消息（DESC），用于检测链末尾是否卡在429循环 */
+  getLatestMessagesAfter(messageId: string, count: number): Promise<Message[]>;
 
   // MessageEvent
   appendEvent(event: MessageEvent): Promise<void>;

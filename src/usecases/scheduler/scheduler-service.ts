@@ -21,6 +21,12 @@ import { resolve } from 'node:path';
 const ONCE_MAX_RETRIES = 3;
 const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
 
+/** #640: 轮询间隔（30 秒）。quartz/celery beat 模式：定时扫描 active 任务，比对墙钟，迟到即补触发 */
+const POLL_INTERVAL_MS = 30_000;
+
+/** #642: 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
+const MAX_429_RETRIES = 3;
+
 /** #516: 链超时参数。语义从「一刀切墙钟」改为「静默容忍窗 + 硬上限」：
  *  静默窗内链无任何新消息 → 判死；有新消息（流式/终态均算）→ 链活跃，续期等待。
  *  背景：8-24/25/26《每日 issue 处理》被 15 分钟一刀切误杀——链实际跑到 18:47 正常收尾，
@@ -31,9 +37,10 @@ const MAX_CHAIN_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 /** 非链降级路径（未注入 dispatchChainEngine）：单次 invoke 5 分钟一刀切（旧语义保留） */
 const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** Cron 解析接口（由 frameworks 层实现） */
+/** Cron 解析接口（由 frameworks 层实现）
+ *  #640: 支持 referenceTime 参数用于轮询模式下计算从某时间点起的下次触发时间 */
 export interface CronParser {
-  getNextTime(cron: string, timezone: string): Date;
+  getNextTime(cron: string, timezone: string, referenceTime?: Date): Date;
 }
 
 export interface SchedulerServiceOptions {
@@ -60,6 +67,10 @@ export interface SchedulerServiceOptions {
 
 export class SchedulerService {
   private timers = new Map<string, NodeJS.Timeout>();
+  /** #640: 轮询定时器（唯一，全局扫描所有 active 任务） */
+  private pollTimer: NodeJS.Timeout | undefined;
+  /** #640: 任务下次预期触发时间缓存（内存，避免每次从 cron 重算） */
+  private nextExpectedTrigger = new Map<string, Date>();
   private readonly taskRepo: ScheduledTaskRepository;
   private readonly convRepo: ConversationRepository;
   private readonly sendMessage: SendMessage;
@@ -152,6 +163,8 @@ export class SchedulerService {
     for (const task of tasks) {
       this.scheduleNext(task);
     }
+    // #640: 启动轮询定时器（quartz/celery beat 模式）
+    this.startPolling();
   }
 
   /** 停止调度器（进程退出时调用） */
@@ -160,6 +173,80 @@ export class SchedulerService {
       clearTimeout(timer);
     }
     this.timers.clear();
+    // #640: 停止轮询定时器
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
+    // #640: 清理轮询缓存
+    this.nextExpectedTrigger.clear();
+  }
+
+  /** #640: 启动轮询定时器。每 POLL_INTERVAL_MS 扫描一次 active 任务，
+   *  比对 last_triggered_at 与 cron 应触发点，越过即触发（迟到即补跑）。
+   *  Why 不依赖 setTimeout：macOS 长延迟 setTimeout 会漂移（App Nap/冻结窗口），
+   *  轮询模式用 setInterval + 墙钟比对，迟到即补，不丢触发。 */
+  private startPolling(): void {
+    if (this.pollTimer) return; // 防重复启动
+    this.pollTimer = setInterval(async () => {
+      try {
+        await this.tick();
+      } catch (error) {
+        this.logger.error('Polling tick failed', error as Error);
+      }
+    }, POLL_INTERVAL_MS);
+    // 立即执行一次 tick，捕获进程重启后的迟到任务（审视建议2: catch 防 unhandled rejection）
+    void this.tick().catch(error => {
+      this.logger.error('Initial polling tick failed', error as Error);
+    });
+  }
+
+  /** #640: 轮询 tick——扫描所有 active 任务，比对预期触发时间与墙钟，
+   *  越过即触发（迟到即补跑），记录 drift 值用于可观测性。 */
+  private async tick(): Promise<void> {
+    const tasks = await this.getAllActiveTasks();
+    const now = Date.now();
+    for (const task of tasks) {
+      // once 任务走 setTimeout，轮询不干预
+      if (task.scheduleType === 'once') continue;
+
+      // 获取或计算下次预期触发时间
+      let expected = this.nextExpectedTrigger.get(task.id);
+      if (!expected) {
+        // 首次 tick 或缓存丢失：从 last_triggered_at 计算
+        const ref = task.lastTriggeredAt ? new Date(task.lastTriggeredAt) : undefined;
+        expected = this.cronParser.getNextTime(task.cron, task.timezone, ref);
+        this.nextExpectedTrigger.set(task.id, expected);
+      }
+
+      // 比对墙钟：预期触发时间已过 → 迟到，补触发
+      // #640 防重复：lastTriggeredAt 在 POLL_INTERVAL_MS 内 → 已被 setTimeout 快路径触发，跳过
+      if (expected.getTime() <= now && (!task.lastTriggeredAt || now - new Date(task.lastTriggeredAt).getTime() > POLL_INTERVAL_MS)) {
+        const driftMs = now - expected.getTime();
+        this.logger.info(`Polling: task ${task.id} overdue by ${driftMs}ms, triggering catch-up`, {
+          taskId: task.id,
+          expectedAt: expected.toISOString(),
+          driftMs,
+        });
+        // 补触发（不阻塞后续任务扫描）
+        void this.triggerTask(task).catch(error => {
+          this.logger.error(`Polling: catch-up trigger failed for task ${task.id}`, error as Error);
+        }).then(() => {
+          // 触发后重新计算下次预期时间（无论成功失败都重算）
+          try {
+            const nextExpected = this.cronParser.getNextTime(task.cron, task.timezone);
+            this.nextExpectedTrigger.set(task.id, nextExpected);
+            // 同步刷新 setTimeout 快路径
+            this.scheduleNext(task);
+          } catch (e) {
+            this.logger.error(`Polling: failed to reschedule task ${task.id}`, e as Error);
+          }
+        });
+      } else {
+        // 未到期：记录下次预期时间（可观测性）
+        this.logger.debug(`Polling: task ${task.id} next expected at ${expected.toISOString()}`);
+      }
+    }
   }
 
   /** 手动触发任务 */
@@ -189,6 +276,8 @@ export class SchedulerService {
     }
 
     const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
+    // #640: 更新轮询缓存（下次预期触发时间）
+    this.nextExpectedTrigger.set(task.id, nextTrigger);
     const delay = nextTrigger.getTime() - Date.now();
 
     // 如果延迟超过 24 小时，使用 24 小时后重新计算
@@ -216,6 +305,9 @@ export class SchedulerService {
         const updatedTask = await this.taskRepo.getById(task.id);
         if (updatedTask?.status === 'active') {
           this.scheduleNext(updatedTask);
+          // #640: 触发后更新轮询缓存
+          const newNextTrigger = this.cronParser.getNextTime(updatedTask.cron, updatedTask.timezone);
+          this.nextExpectedTrigger.set(updatedTask.id, newNextTrigger);
         }
       }
     }, actualDelay);
@@ -232,6 +324,7 @@ export class SchedulerService {
       // Why: 已过期的一次性任务直接删除，不保留历史
       // 使用 .catch() 避免 unhandled rejection（由 onChange 回调链调用）
       this.metrics?.recordExpired();
+      this.nextExpectedTrigger.delete(task.id); // 审视建议2: 清理缓存条目，防长期泄漏
       this.taskRepo.delete(task.id)
         .then(() => {
           this.logger.info(`Once task ${task.id} expired, deleted`);
@@ -246,6 +339,7 @@ export class SchedulerService {
       try {
         await this.triggerTask(task);
         // Why: 一次性任务触发成功后直接删除，不保留历史
+        this.nextExpectedTrigger.delete(task.id); // 审视建议2: 清理缓存条目，防长期泄漏
         await this.taskRepo.delete(task.id);
       } catch (error) {
         this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
@@ -432,6 +526,18 @@ export class SchedulerService {
   }
 
   private async claimAndValidateTask(task: ScheduledTask, now: string): Promise<void> {
+    // #641: 检查是否存在未超时的 running execution，避免重复触发竞态
+    // 同 task 存在 running execution → 拒绝 claim，记 skipped（非 failed）
+    const runningExecutions = await this.taskRepo.getExecutions(task.id, { limit: 5 });
+    const hasRunning = runningExecutions.some(exec =>
+      exec.status === 'running' &&
+      // 未超时判断：triggeredAt 在 MAX_CHAIN_TIMEOUT_MS 内（防僵尸 execution 无限阻塞）
+      new Date(exec.triggeredAt).getTime() > Date.now() - MAX_CHAIN_TIMEOUT_MS
+    );
+    if (hasRunning) {
+      throw new DomainError('Task already has a running execution, skipping this trigger', 'validation');
+    }
+
     const claimed = await this.taskRepo.claimTask(task.id, now, now);
     if (!claimed) {
       throw new DomainError('Task already triggered recently', 'validation');
@@ -533,30 +639,66 @@ export class SchedulerService {
 
     const silenceMs = this.resolveChainSilenceMs(task);
     const deadline = Date.now() + MAX_CHAIN_TIMEOUT_MS;
+    // #642: 429 重试计数器——连续 429 超过 MAX_429_RETRIES 次即判死
+    let consecutive429Count = 0;
     while (Date.now() < deadline) {
-      let timer: NodeJS.Timeout | undefined;
-      const silence = new Promise<'silence'>(r => {
-        timer = setTimeout(() => r('silence'), silenceMs);
-      });
-      const winner = await Promise.race([settled.then(() => 'chain' as const), silence]);
-      if (timer) clearTimeout(timer);
+      // #642: 检查链是否 settle（成功/失败）
+      if (this.settleOutcome(chainSettled)) return;
+
+      // 静默窗等待：链 settle 或静默窗到
+      const winner = await this.waitForSilenceOrSettle(settled, silenceMs);
       if (winner === 'chain') {
-        // 链已 settle：透传（失败原样上抛，走 execution failure 记账）
         this.settleOutcome(chainSettled);
         return;
       }
+
       // 静默窗到：探测链活性
       const alive = await this.isChainStillActive(anchorMessageId);
       if (!alive) {
-        // 对抗审视发现 1/3（审砚）：探测是 async 的，探测期间链可能恰好 settle
-        // （含消息写入失败的 DB 异常路径——链正常结束但锚点后无可见消息）。
-        // 此时透传链结果而非误抛 timeout。
         if (this.settleOutcome(chainSettled)) return;
         throw new Error('Agent invocation timeout');
       }
-      // 链活跃，续期等待下一个静默窗口
+
+      // #642: 检测链是否卡在 429 重试循环
+      consecutive429Count = await this.check429Retry(
+        anchorMessageId, task.id, consecutive429Count,
+      );
     }
     throw new Error(`Agent invocation timeout (chain exceeded hard limit ${MAX_CHAIN_TIMEOUT_MS / 3_600_000}h)`);
+  }
+
+  /** #642: 等待静默窗或链 settle。提取为 helper 减少 watchChainWithActivity 语句数。 */
+  private async waitForSilenceOrSettle(
+    settled: Promise<void>,
+    silenceMs: number,
+  ): Promise<'chain' | 'silence'> {
+    let timer: NodeJS.Timeout | undefined;
+    const silence = new Promise<'silence'>(r => {
+      timer = setTimeout(() => r('silence'), silenceMs);
+    });
+    const winner = await Promise.race([settled.then(() => 'chain' as const), silence]);
+    if (timer) clearTimeout(timer);
+    return winner;
+  }
+
+  /** #642: 检测链是否卡在 429 重试循环。提取为 helper 减少 watchChainWithActivity 语句数。 */
+  private async check429Retry(
+    anchorMessageId: string,
+    taskId: string,
+    consecutive429Count: number,
+  ): Promise<number> {
+    if (await this.isChainStuckOn429(anchorMessageId)) {
+      const newCount = consecutive429Count + 1;
+      this.logger.warn(`Chain watchdog: 429 retry detected (${newCount}/${MAX_429_RETRIES})`, {
+        taskId,
+        anchorMessageId,
+      });
+      if (newCount >= MAX_429_RETRIES) {
+        throw new Error(`Agent invocation timeout: chain stuck on 429 rate limit (${newCount} retries, quota exhausted)`);
+      }
+      return newCount;
+    }
+    return 0; // 非 429 活跃，重置计数器
   }
 
   /** 链 settle 结果透传：未 settle → false；settle 成功 → true（调用方正常返回）；
@@ -575,6 +717,35 @@ export class SchedulerService {
     try {
       const msgs = await this.convRepo.getMessagesAfter(anchorMessageId, 1);
       return Array.isArray(msgs) && msgs.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** #642: 检测链是否卡在 429 重试循环。
+   *  429/rate_limit 类错误的特征：错误消息包含429/status_code/配额/limit 等关键词。
+   *  链活跃但最近消息全是429重试 → 返回 true（应判死）；否则返回 false（真活跃）。
+   *  使用 DESC 查询取最新消息——ASC 只能检测链开头 429，中途撞 429 永远漏检。 */
+  private async isChainStuckOn429(anchorMessageId: string): Promise<boolean> {
+    try {
+      // 获取锚点后的最近几条消息（DESC，最新在前）
+      const msgs = await this.convRepo.getLatestMessagesAfter(anchorMessageId, 3);
+      if (!Array.isArray(msgs) || msgs.length === 0) return false;
+
+      // 检查最近消息是否包含 429/rate_limit 特征
+      const rateLimitPatterns = [
+        /429/i,
+        /rate.?limit/i,
+        /quota/i,
+        /配额.{0,10}耗尽/i,
+        /too many requests/i,
+      ];
+
+      // 最近消息全是 429 相关 → 卡在 429 循环
+      return msgs.every(msg => {
+        const content = msg.segments.map(s => s.body).join('');
+        return rateLimitPatterns.some(pattern => pattern.test(content));
+      });
     } catch {
       return false;
     }

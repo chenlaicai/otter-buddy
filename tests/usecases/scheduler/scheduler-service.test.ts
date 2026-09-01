@@ -106,7 +106,12 @@ function createMockTaskRepo() {
       failureCount = 0;
       resetCallCount += 1;
     }),
-    claimTask: vi.fn(async () => {
+    claimTask: vi.fn(async (id: string, lastTriggeredAt: string) => {
+      // #640: 更新任务的 lastTriggeredAt 字段，防止轮询重复触发
+      const task = store.get(id);
+      if (task && claimResult) {
+        task.lastTriggeredAt = lastTriggeredAt;
+      }
       return claimResult;
     }),
     createExecution: vi.fn(async (execution: Record<string, unknown>) => {
@@ -160,6 +165,7 @@ function createMockConvRepo() {
     getMessages: vi.fn(),
     getMessagesBefore: vi.fn(),
     getMessagesAfter: vi.fn(),
+    getLatestMessagesAfter: vi.fn(),
     appendEvent: vi.fn(),
     getMessageEvents: vi.fn(),
     getMessageEventsByMessageIds: vi.fn(),
@@ -1862,5 +1868,314 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
 
     // sendMessage.send 抛错不阻塞：status 仍然 error
     expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
+  });
+});
+
+// ─── #640: 轮询补触发测试 ─────────────────────────────────────
+
+describe('#640: 轮询补触发（tick polling catch-up）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('轮询 tick 检测到 overdue 任务并补触发', async () => {
+    // 场景：任务的 cron 预期触发时间为 1 小时前，但未被 setTimeout 触发（模拟 timer 漂移）
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    // cronParser 返回的时间是1小时前 → 任务 overdue
+    const overdueTime = new Date('2026-09-01T09:00:00.000Z');
+    const cronParser = createMockCronParser(overdueTime);
+
+    taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1', lastTriggeredAt: null }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    // start() 内立即执行一次 tick，应检测到 overdue 并补触发
+    // 等待异步 tick 完成
+    await vi.advanceTimersByTimeAsync(100);
+
+    // 验证：任务被补触发，创建了执行记录
+    expect(taskRepo._executions.size).toBeGreaterThanOrEqual(1);
+  });
+
+  it('轮询 tick 不重复触发最近已触发的任务', async () => {
+    // 场景：cron 预期时间在 1 小时前（overdue），但 lastTriggeredAt 刚刚更新（10 秒前）
+    // 期望：tick 跳过（lastTriggeredAt 在 POLL_INTERVAL_MS=30s 窗口内），不补触发
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    // cronParser 返回 1 小时前（overdue）— 但因为 lastTriggeredAt 在窗口内，tick 应跳过
+    const overdueTime = new Date('2026-09-01T09:00:00.000Z');
+    // 第一次调用返回 1 小时后（让 scheduleNext 的 setTimeout 不立即触发），后续返回 overdue
+    let cronCallCount = 0;
+    const cronParser = {
+      getNextTime: vi.fn(() => {
+        cronCallCount++;
+        return cronCallCount === 1 ? new Date('2026-09-01T11:00:00.000Z') : overdueTime;
+      }),
+    } as unknown as CronParser;
+
+    // lastTriggeredAt 设为 10 秒前（在 POLL_INTERVAL_MS=30s 内）
+    taskRepo._store.set('task-1', makeTask({
+      id: 'task-1', conversationId: 'conv-1',
+      lastTriggeredAt: new Date('2026-09-01T09:59:50.000Z').toISOString(),
+    }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser,
+      logger: mockLogger,
+    });
+
+    await service.start();
+    // start() 内立即执行一次 tick：lastTriggeredAt=09:59:50, now=10:00:00, 差10s < 30s → 跳过
+    await vi.advanceTimersByTimeAsync(100);
+
+    // 验证：tick 跳过，不触发（lastTriggeredAt 在窗口内）
+    expect(taskRepo._executions.size).toBe(0);
+  });
+});
+
+// ─── #641: claim 前检查 running execution 测试 ─────────────────
+
+describe('#641: claim 前检查 running execution', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('存在未超时 running execution 时拒绝 claim，记 skipped', async () => {
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T09:00:00.000Z'));
+
+    taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 模拟存在一个 running execution（5 分钟前触发，未超时）
+    (taskRepo.getExecutions as ReturnType<typeof vi.fn>).mockResolvedValue([{
+      id: 'exec-running',
+      taskId: 'task-1',
+      triggeredAt: '2026-09-01T09:55:00.000Z',
+      status: 'running',
+      completedAt: null,
+      errorMessage: null,
+      messageId: null,
+      turnId: null,
+    }]);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    // 手动触发应被跳过（存在 running execution）
+    await expect(service.trigger('task-1')).rejects.toThrow('Task already has a running execution');
+    // 未创建新 execution
+    expect(taskRepo._executions.size).toBe(0);
+    // claimTask 未被调用（在检查 running execution 时就已拦截）
+    expect(taskRepo.claimTask).not.toHaveBeenCalled();
+  });
+
+  it('running execution 超时（>24h）时允许 claim', async () => {
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T09:00:00.000Z'));
+
+    taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 模拟存在一个超时 running execution（3天前触发）
+    (taskRepo.getExecutions as ReturnType<typeof vi.fn>).mockResolvedValue([{
+      id: 'exec-stale',
+      taskId: 'task-1',
+      triggeredAt: '2026-08-29T10:00:00.000Z',
+      status: 'running',
+      completedAt: null,
+      errorMessage: null,
+      messageId: null,
+      turnId: null,
+    }]);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    // 手动触发应成功（超时 execution 不阻塞）
+    const result = await service.trigger('task-1');
+    expect(result.executionId).toBeDefined();
+  });
+});
+
+// ─── #642: 链看门狗 429 判死测试 ─────────────────────────────
+
+describe('#642: 链看门狗 429 判死', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('isChainStuckOn429 检测 429 特征消息', async () => {
+    // 场景：验证 isChainStuckOn429 私有方法通过反射测试
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
+
+    taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 模拟 getLatestMessagesAfter 返回429特征消息（DESC，最新在前）
+    const rateLimitMessages = [
+      { id: 'msg-3', segments: [{ body: 'Error 429: Too Many Requests' }], senderType: 'otter', status: 'failed' },
+      { id: 'msg-2', segments: [{ body: 'rate limit exceeded, retrying...' }], senderType: 'otter', status: 'failed' },
+      { id: 'msg-1', segments: [{ body: 'quota exceeded' }], senderType: 'otter', status: 'failed' },
+    ];
+    convRepo.getLatestMessagesAfter = vi.fn(async () => rateLimitMessages);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    // 通过反射测试私有方法
+    const isStuck = await (service as any).isChainStuckOn429('anchor-msg');
+    expect(isStuck).toBe(true);
+  });
+
+  it('isChainStuckOn429 对非 429 消息返回 false', async () => {
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
+
+    taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 模拟 getLatestMessagesAfter 返回正常消息
+    const normalMessages = [
+      { id: 'msg-3', segments: [{ body: 'Task completed successfully' }], senderType: 'otter', status: 'completed' },
+    ];
+    convRepo.getLatestMessagesAfter = vi.fn(async () => normalMessages);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    const isStuck = await (service as any).isChainStuckOn429('anchor-msg');
+    expect(isStuck).toBe(false);
+  });
+
+  it('isChainStuckOn429 用 DESC 检测链尾部 429（ASC 会漏检）', async () => {
+    // 场景：链开头几条消息正常，尾部全是429 → ASC 会漏检，DESC 正确检测
+    const now = new Date('2026-09-01T10:00:00.000Z');
+    vi.setSystemTime(now);
+
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendMessage = createMockSendMessage();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T11:00:00.000Z'));
+
+    taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // getLatestMessagesAfter（DESC）返回最新3条全是429
+    const latestRateLimit = [
+      { id: 'msg-5', segments: [{ body: '429 Too Many Requests' }], senderType: 'otter', status: 'failed' },
+      { id: 'msg-4', segments: [{ body: 'rate limit exceeded' }], senderType: 'otter', status: 'failed' },
+      { id: 'msg-3', segments: [{ body: '配额耗尽' }], senderType: 'otter', status: 'failed' },
+    ];
+    convRepo.getLatestMessagesAfter = vi.fn(async () => latestRateLimit);
+
+    // getMessagesAfter（ASC）返回最早3条是正常消息
+    const earliestNormal = [
+      { id: 'msg-1', segments: [{ body: 'Starting task...' }], senderType: 'otter', status: 'completed' },
+      { id: 'msg-2', segments: [{ body: 'Processing...' }], senderType: 'otter', status: 'completed' },
+      { id: 'msg-3', segments: [{ body: '配额耗尽' }], senderType: 'otter', status: 'failed' },
+    ];
+    convRepo.getMessagesAfter = vi.fn(async () => earliestNormal);
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: sendMessage as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    // DESC 检测 → true（链尾部全是429；若实现误用 ASC，earliestNormal 含正常消息会返回 false，
+    // 故返回值断言已能区分两种实现，无需断言调用参数）
+    const isStuck = await (service as any).isChainStuckOn429('anchor-msg');
+    expect(isStuck).toBe(true);
   });
 });

@@ -74,5 +74,39 @@ describe("SimpleCronParser", () => {
       expect(result.getUTCHours()).toBe(10);
       expect(result.getUTCMinutes()).toBe(30);
     });
+
+    // ─── #640 S3: referenceTime 参数支持 ─────────────────────────
+    it("referenceTime 参数：计算从参考时间起的下次触发", () => {
+      const parser = new SimpleCronParser();
+      // cron = 每天 9:00 UTC
+      // referenceTime = 2026-09-01 08:00 UTC → 下次 09:00
+      const ref = new Date("2026-09-01T08:00:00Z");
+      const result = parser.getNextTime("0 9 * * *", "UTC", ref);
+      expect(result.getUTCHours()).toBe(9);
+      expect(result.getUTCMinutes()).toBe(0);
+      expect(result.getUTCDate()).toBe(1);
+    });
+
+    it("referenceTime 参数：参考时间在过去时返回下一次触发（从参考点算）", () => {
+      const parser = new SimpleCronParser();
+      // cron = 每天 9:00 UTC
+      // referenceTime = 2026-09-01 09:30 UTC（已过 09:00）→ 下次 09:00 是明天
+      const ref = new Date("2026-09-01T09:30:00Z");
+      const result = parser.getNextTime("0 9 * * *", "UTC", ref);
+      expect(result.getUTCHours()).toBe(9);
+      expect(result.getUTCDate()).toBe(2); // 明天
+    });
+
+    it("referenceTime 参数：不传时行为不变（向后兼容）", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-01T08:00:00Z"));
+
+      const parser = new SimpleCronParser();
+      const withRef = parser.getNextTime("0 9 * * *", "UTC", new Date("2026-09-01T08:00:00Z"));
+      const withoutRef = parser.getNextTime("0 9 * * *", "UTC");
+
+      // 两者应返回相同结果
+      expect(withRef.getTime()).toBe(withoutRef.getTime());
+    });
   });
 });
