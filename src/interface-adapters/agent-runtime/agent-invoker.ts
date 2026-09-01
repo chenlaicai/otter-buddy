@@ -31,6 +31,8 @@ import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
 // eslint-disable-next-line no-restricted-imports -- F20260825hndf: type-only import for DI injection
 import type { buildHandoffPackage, HandoffPackageOptions, StateInventoryDeps } from "@frameworks/agent/handoff-package-builder";
+// eslint-disable-next-line no-restricted-imports -- F20260901mbfx: type-only import（SynthesisPrefetch 机械预取数据，DI 注入同源）
+import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-builder";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
@@ -54,6 +56,12 @@ function buildAutoHandoffOptions(input: {
   logger: Logger;
   synthesize: (prompt: string) => Promise<string>;
   trigger: HandoffPackageOptions["trigger"];
+  /** F20260901mbfx：旧 session ID（机械查询，审计 F2） */
+  oldSessionId?: string;
+  /** F20260901mbfx：交接谱系（从旧 summary 机械继承，审计 F3） */
+  lineage?: string;
+  /** F20260901mbfx：合成 §④/⑥ 机械预取数据（审计 F1/F5） */
+  prefetch?: SynthesisPrefetch;
 }): HandoffPackageOptions {
   return {
     recencyTokens: 8000,
@@ -61,7 +69,9 @@ function buildAutoHandoffOptions(input: {
     queryMessage: input.queryMessage,
     logger: input.logger,
     synthesize: input.synthesize,
-    oldSessionId: undefined, // 将从 session 获取
+    oldSessionId: input.oldSessionId,
+    lineage: input.lineage,
+    prefetch: input.prefetch,
     trigger: input.trigger,
   };
 }
@@ -600,13 +610,7 @@ export class AgentInvoker implements AgentTurnPort {
       const pkg = await this.buildHandoffPkg(
         conversationId,
         otterId,
-        buildAutoHandoffOptions({
-          inventoryDeps: this.buildStateInventoryDeps(conversationId, workspacePath),
-          queryMessage: this.queryMessage,
-          logger: this.logger,
-          synthesize,
-          trigger: '70%阈值',
-        }),
+        await this.buildAutoHandoffOptionsWithMechanicals(conversationId, otterId, workspacePath, synthesize),
       );
 
       // 件件②③④写入 otter_context（借用式，首次 invoke 后删除）
@@ -663,6 +667,102 @@ export class AgentInvoker implements AgentTurnPort {
       workspacePath,
       logger: this.logger,
     };
+  }
+
+  /**
+   * F20260901mbfx（审计 F1/F2/F3/F5）：组装 70% 自动交接 options + 机械供料。
+   *
+   * 枚举型事实不堆叠 LLM：oldSessionId（当前 active session 真实 ID，此前未接线
+   * 导致谱系行永远显示 otter UUID）、lineage（旧 summary 谱系行，供新代追加）、
+   * prefetch（context keys / active 产物 / 最近搭档消息）。全部客忍失败，不阻塞交接。
+   */
+  private async buildAutoHandoffOptionsWithMechanicals(
+    conversationId: string,
+    otterId: string,
+    workspacePath: string | undefined,
+    synthesize: ReturnType<AgentInvoker["buildSynthesisFunction"]>,
+  ): Promise<HandoffPackageOptions> {
+    const { oldSessionId, lineage } = await this.resolveHandoffLineage(otterId);
+    return buildAutoHandoffOptions({
+      inventoryDeps: this.buildStateInventoryDeps(conversationId, workspacePath),
+      queryMessage: this.queryMessage,
+      logger: this.logger,
+      synthesize,
+      trigger: '70%阈值',
+      oldSessionId,
+      lineage,
+      prefetch: await this.buildSynthesisPrefetch(conversationId, otterId),
+    });
+  }
+
+  /**
+   * F20260901mbfx（审计 F2/F3）：交接谱系机械解析。
+   *
+   * 从当前 active session 的 summary（上一代交接时写入）提取既有谱系行
+   * （`- genN xxx:` 格式，每代一行只追加），并返回真实 session ID。
+   * 查询失败不阻塞交接（返回 undefined，合成端 gen1 重建谱系）——谱系是增强
+   * 信息，不是交接硬依赖（D9 同源原则）。
+   */
+  private async resolveHandoffLineage(otterId: string): Promise<{ oldSessionId?: string; lineage?: string }> {
+    try {
+      const active = await this.manageSession.getActiveSession(otterId);
+      if (!active) return {};
+      // 从旧 summary 提取谱系行：匹配「- genN 开头」的行（kimi 模板 §⑦ 格式）。
+      // 历史兼容：旧代未带 gen 标记时提取不到，视为谱系断档，新代从 gen1 重建。
+      const lineage = (active.summary ?? '')
+        .split('\n')
+        .filter(l => /^\s*-\s*gen\d+\s/.test(l))
+        .map(l => l.trim())
+        .join('\n');
+      return {
+        oldSessionId: active.id,
+        lineage: lineage.length > 0 ? lineage : undefined,
+      };
+    } catch (err) {
+      this.logger.warn('[handoff] Lineage resolve failed, continuing without', {
+        otterId, error: err instanceof Error ? err.message : String(err),
+      });
+      return {};
+    }
+  }
+
+  /**
+   * F20260901mbfx（审计 F1/F5）：合成 §④/⑥ 机械预取。
+   *
+   * 枚举型事实机械供料（判据：必然准确的给机制）：context keys、active 产物清单、
+   * 最近搭档消息原文。全部容忍失败（返回部分数据或 undefined），不阻塞交接。
+   */
+  private async buildSynthesisPrefetch(conversationId: string, otterId: string): Promise<SynthesisPrefetch | undefined> {
+    const results = await Promise.allSettled([
+      this.manageContext ? this.manageContext.get(otterId) : Promise.resolve({} as Record<string, string>),
+      this.listArtifacts ? this.listArtifacts(conversationId) : Promise.resolve([] as LinkedResource[]),
+      this.fetchRecentUserMessages(conversationId),
+    ]);
+    const prefetch: SynthesisPrefetch = {};
+    if (results[0].status === 'fulfilled') prefetch.contextKeys = Object.keys(results[0].value);
+    if (results[1].status === 'fulfilled') {
+      prefetch.activeArtifacts = (results[1].value as Array<{ id: string; resourceType: string; title?: string; status?: string }>)
+        .filter(a => !a.status || a.status === 'active')
+        .map(a => ({ id: a.id, resourceType: a.resourceType, title: a.title }));
+    }
+    if (results[2].status === 'fulfilled' && results[2].value.length > 0) prefetch.recentUserMessages = results[2].value;
+    return Object.keys(prefetch).length > 0 ? prefetch : undefined;
+  }
+
+  /**
+   * F20260901mbfx：拉取最近 N 条用户（搭档）消息原文，时间正序。
+   * 供合成 prompt §⑥ 机械预取——LLM 只负责挑选哪句是指令，不负责翻找。
+   */
+  private async fetchRecentUserMessages(conversationId: string, limit = 6): Promise<string[]> {
+    try {
+      const messages = await this.queryMessage.getMessages(conversationId, { limit, senderType: 'user' });
+      return messages
+        .map(m => aggregateBody(m.segments).trim())
+        .filter(t => t.length > 0 && t.length <= 500)
+        .reverse();
+    } catch {
+      return [];
+    }
   }
 
   /**

@@ -43,6 +43,8 @@ import { SessionRestore } from "./session-restore";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { IdentityBuilder } from "./identity-builder";
 import { buildCustomTools } from "./tool-builder";
+// F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
+import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
 import type { PiCodingAgentModule } from "./model-runtime-registry";
 import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
@@ -545,6 +547,13 @@ export class PiSessionFactory implements AgentGateway {
     const codingTools = getCodingToolsForOtterType(otterType);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
+    // F20260901mbfx（审计 F5）：readOnly 模式的自定义工具同样走白名单过滤。
+    // 此前只滤 coding 工具，speak/yield/写库类自定义工具原样进 session——合成獭
+    // 理论上可在摘要生成路径越权发言/交棒/写产物。白名单与 otterType manifest 的
+    // allowedNames 双重求交（本过滤发生在 allowedNames 之后），新注册工具默认不进。
+    const filteredCustomTools = readOnly
+      ? customTools.filter(t => SYNTHESIS_READ_ONLY_TOOL_WHITELIST.has(t.name))
+      : customTools;
 
     // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
     let resolvedModel = this.cfg.model;
@@ -560,8 +569,8 @@ export class PiSessionFactory implements AgentGateway {
       otterId, otterType, modelAlias: resolvedAlias,
       codingTools: filteredCodingTools,
       readOnly: readOnly ?? false,
-      customToolNames: customTools.map(t => t.name),
-      whitelist: [...filteredCodingTools, ...customTools.map(t => t.name)],
+      customToolNames: filteredCustomTools.map(t => t.name),
+      whitelist: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name)],
     });
 
     const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
@@ -573,8 +582,8 @@ export class PiSessionFactory implements AgentGateway {
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
-      tools: [...filteredCodingTools, ...customTools.map(t => t.name)],
-      customTools,
+      tools: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name)],
+      customTools: filteredCustomTools,
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
