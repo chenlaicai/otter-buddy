@@ -282,6 +282,11 @@ export function MessageList({
     prevMessagesLenRef.current = 0
   }, [conversationId, isAtBottomRef])
 
+  /** F20260901uiag 检视处置（mimo 发现 1）：groupByActivity 缓存——分页 prepend/流式追加时
+   *  group 数组引用稳定，配合 React key 只挂载新增段，避免全列表重渲染。
+   *  位置在 hooks 区末尾：条件 return 之后调用会违反 hooks 规则（F20260814qswp 同款教训）。 */
+  const activityGroups = useMemo(() => groupByActivity(messages), [messages])
+
   // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
   if (state === 'no-llm') {
     return (
@@ -334,7 +339,7 @@ export function MessageList({
         style={{ overflowAnchor: 'none' }}
       >
         {/* F20260901sgpx §7：活动段分组（「一轮」派生视图）——替代按 turnId 的分隔线（P4 turn 退役后读路径不变） */}
-        {groupByActivity(messages).map(group => (
+        {activityGroups.map(group => (
           <ActivityGroupBlock key={group.id} group={group}>
             {group.messages.map(m => (
               <div key={m.id} data-message-id={m.id}>
