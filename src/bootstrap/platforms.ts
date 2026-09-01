@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- bootstrap file: init all platforms, legitimately >450 lines */
 import type { AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
+import path from "node:path";
 import * as yaml from "js-yaml";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
@@ -319,7 +320,20 @@ export function startWeixinChannels(options: {
 }): WeixinPollingChannel[] {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger } = options;
   const weixinConfig = appConfig.weixin;
-  if (!weixinConfig) return [];
+  if (!weixinConfig) {
+    // Bugfix（F20260831wxsp）：有已登录账号但 config 无 weixin 段时不再静默 return——
+    // 否则重启后轮询无声消失（web 无任何异常，微信就是不响）。
+    // 触发路径：扫码时 ensureWeixinConfig 写回失败（如路径错误 ENOENT）→ 重启读不到 weixin 段。
+    // 账号 state（token/游标）在 stateDir（默认 ./data/weixin）不受影响，默认段即可拉起轮询；
+    // partnerUserId 缺失仅影响命令门禁锚定（PartnerResolver 未配置时不拦截命令），不阻断消息。
+    const accountStore = new WeixinAccountStore(undefined);
+    const orphanAccounts = accountStore.listAccounts();
+    if (orphanAccounts.length === 0) return [];
+    logger.warn("Weixin: logged-in accounts exist but config.yaml has no weixin section — starting with defaults (partnerUserId unset, commands ungated). Add weixin section to config.yaml to gate commands", { accounts: orphanAccounts.map((a) => a.id) });
+    return orphanAccounts
+      .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account }))
+      .filter((p): p is WeixinPollingChannel => p !== undefined);
+  }
 
   const accountStore = new WeixinAccountStore(weixinConfig);
   const accounts = accountStore.listAccounts();
@@ -412,18 +426,27 @@ export function hotStartWeixinAccount(options: StartWeixinAccountOptions): Weixi
 }
 
 export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: string; ilinkUserId?: string; logger?: Logger }): void {
-  const configPath = opts.configPath ?? "./config.yaml";
+  const configPath = opts.configPath ?? path.resolve(process.cwd(), "config/config.yaml");
   try {
-    const raw = yaml.load(fsSync.readFileSync(configPath, "utf8")) as Record<string, unknown> | null;
+    const text = fsSync.readFileSync(configPath, "utf8");
+    const raw = yaml.load(text) as Record<string, unknown> | null;
     if (raw?.weixin) return; // 幂等
-    if (raw) {
-      (raw as { weixin?: unknown }).weixin = {
+    if (!raw) return; // 非法 YAML——loadConfig 已在启动时把关，这里不覆盖文件
+    // Why: 文本追加而非 yaml.dump 全量重写——config/config.yaml 满篇人工注释（对齐 example），
+    // dump 会把注释全部抹掉（F20260829wxui 引入的隐患，仅在写回路径修对后才会显现）。
+    // weixin 是顶层段，追加到文件末尾即等价；缩进对齐顶层键。
+    const section = yaml.dump({
+      weixin: {
         ...(opts.stateDir ? { stateDir: opts.stateDir } : {}),
         ...(opts.ilinkUserId ? { partnerUserId: opts.ilinkUserId } : {}),
-      };
-      fsSync.writeFileSync(configPath, yaml.dump(raw), "utf8");
-      opts.logger?.info("config.yaml weixin section ensured", { configPath });
-    }
+      },
+    }, { lineWidth: -1, noRefs: true });
+    // Why: write-to-temp + rename 原子写——对齐 updateDefaultModelInYaml 的既有模式，
+    // 避免 truncate+write 中途崩溃损坏 config.yaml
+    const tmpPath = configPath + ".tmp";
+    fsSync.writeFileSync(tmpPath, text + "\n" + section, "utf8");
+    fsSync.renameSync(tmpPath, configPath);
+    opts.logger?.info("config.yaml weixin section ensured", { configPath });
   } catch (err) {
     opts.logger?.warn("ensureWeixinConfig failed", { error: err instanceof Error ? err.message : String(err) });
   }

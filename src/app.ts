@@ -308,7 +308,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
     onSuccess: (accountId, ilinkUserId) => {
       // partnerUserId = 命令门禁锚定的扫码人（命令重启后仍生效）；config 无 weixin 段时兜底注入
-      ensureWeixinConfig({ stateDir: config.weixin?.stateDir, ilinkUserId, logger });
+      // Bugfix（F20260831wxsp）：补写目标必须与读入路径一致——此前缺省 "./config.yaml" 而真实
+      // 配置在 config/config.yaml，写回 ENOENT 静默失败，重启后 weixin 段丢失、轮询拉不起来。
+      // options.configPath 是测试注入的临时路径；生产缺省走 ensureWeixinConfig 内的默认（对齐 loadConfig）。
+      ensureWeixinConfig({ configPath: options.configPath, stateDir: config.weixin?.stateDir, ilinkUserId, logger });
       const account = weixinAccountStore.getAccount(accountId);
       if (!account) return;
       const poller = hotStartWeixinAccount({
