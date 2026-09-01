@@ -231,6 +231,12 @@ export function SwimlaneTimeline({ chains, onOpen }: { chains: RhiChainDTO[]; on
   return (
     <div className="overflow-auto" style={{ maxHeight: VIEWPORT_H + 36 }} data-testid="swimlane-scroll" onScroll={onScroll}>
       <div style={{ width: ROW_W }}>
+        {/* 共享 x 轴 sticky 常驻：窗口化下泳道区可达 12k px 深，轴沉底等于不可见 */}
+        <div style={{ position: 'sticky', top: 0, zIndex: 10, background: 'rgba(255,255,255,0.95)' }}>
+          <svg width={ROW_W} height={28} style={{ display: 'block' }}>
+            <XAxis now={now} />
+          </svg>
+        </div>
         <div style={{ height: total * ROW_H, position: 'relative' }}>
           <svg
             className="swimlane-svg"
@@ -243,9 +249,6 @@ export function SwimlaneTimeline({ chains, onOpen }: { chains: RhiChainDTO[]; on
             ))}
           </svg>
         </div>
-        <svg width={ROW_W} height={28} style={{ display: 'block' }}>
-          <XAxis now={now} />
-        </svg>
       </div>
     </div>
   )
