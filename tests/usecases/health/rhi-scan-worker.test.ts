@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,6 +18,15 @@ function makePipeline(db: Database.Database): SignalPipeline {
   return new SignalPipeline(db, writer as never, queue as never, embedding as never, console as never);
 }
 
+
+/** 时钟冻结点（Issue #605）：真实时钟在模块加载时的快照。两点理由：
+ *  1) 冻结——fixture 种子「now - offset」随真实运行时刻漂移，不同时段跑出不同种子、
+ *     用例间真实时钟流逝也会引入偏差（#605/#601/#595 同族 flaky 的共同土壤）。
+ *     冻结后单次运行内全部 Date.now() 派生值恒定，该类非确定性物理上不可能发生。
+ *  2) 快照而非绝对固定时间——采集窗口 git log --since 按 committer date（真实时钟）过滤，
+ *     fixture 的 --date 只设 author date；冻结点偏离真实时钟超过 60 天窗口会把 fixture 整体滤空
+ *     （实测冻结在 2026-12-31 时 commitCount=0、7 用例翻红）。快照信真实时钟、又消除运行期间流逝。 */
+const CLOCK_SNAPSHOT = new Date();
 
 describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   let repoDir: string;
@@ -45,6 +54,8 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   }
 
   beforeAll(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(CLOCK_SNAPSHOT);
     repoDir = await mkdtemp(path.join(tmpdir(), "rhi-worker-test-"));
     db = new Database(":memory:");
     initSchema(db);
@@ -72,6 +83,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   afterAll(async () => {
+    vi.useRealTimers();
     db.close();
     await rm(repoDir, { recursive: true, force: true });
   });
@@ -162,10 +174,10 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const chainStates = byKey.get("chain_states")!;
     expect(JSON.parse(chainStates.metadata!)).toEqual({ stalled: 1, active: 1 });
 
-    // fix_interval 行（Issue #645）：3 个 bugfix 间隔 1h → 中位 1/24 天；metadata 带窗口参数
+    // 3 个 bugfix 间隔固定 1h（时钟冻结，无写文件耗时） → 中位严格 1/24 天；metadata 带窗口参数
     const fixInterval = byKey.get("bugfix_median_interval_days")!;
     expect(fixInterval.metricType).toBe("fix_interval");
-    expect(fixInterval.metricValue).toBeCloseTo(1 / 24, 3); // 间隔含 fixture 写文件耗时（≈1h+几秒），精度放宽到 3 位
+    expect(fixInterval.metricValue).toBe(1 / 24);
     const fiMeta = JSON.parse(fixInterval.metadata!);
     expect(fiMeta).toEqual({ windowDays: 60, bugfixCount: 3, intervalCount: 2, stat: "median" });
 
