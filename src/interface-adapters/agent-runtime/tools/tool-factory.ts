@@ -99,6 +99,11 @@ function createYieldTool(ctx: ToolContext): AgentTool {
           type: "string",
           description: "（to 包含 'user' 时建议提供）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
         },
+        level: {
+          type: "string",
+          enum: ["NORMAL", "URGENT", "HALT"],
+          description: "信号档位：NORMAL（默认，必处理）/ URGENT（必决策）/ HALT（物理停，仅用户/大獭可投）",
+        },
       },
       required: ["to"],
     },
@@ -122,9 +127,19 @@ function createYieldTool(ctx: ToolContext): AgentTool {
       const dispatchWarning = checkPendingDispatches(ctx, resolvedIds, recipients);
       if (dispatchWarning) return textResponse(dispatchWarning);
 
+      // F20260901sgpx P0: HALT 权限约束——仅用户/大獭可投（沿用 F20260826mwrd C2 裁决）
+      const signalLevel = (params.level as string | undefined)?.toUpperCase() ?? 'NORMAL';
+      if (signalLevel === 'HALT') {
+        const self = await ctx.client.otter.getById(ctx.otterId);
+        if (self?.type === 'small') {
+          return errorResponse("[错误] 小獭不允许投递 HALT 档信号（仅用户/大獭可投，沿用 F20260826mwrd C2 裁决）。需要中止任务请 yield(NORMAL) 回大獭说明情况。");
+        }
+      }
+      const signalMeta = signalLevel !== 'NORMAL' ? JSON.stringify({ level: signalLevel, reason: params.reason as string | undefined }) : undefined;
+
       try {
         /** 拆分后 startSpeaking 只设路由 + 状态（内容已由 speak 的 segments 落库） */
-        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds });
+        await ctx.client.conversation.message.startSpeaking(ctx.currentMessageId, { talkingStonePassedTo: resolvedIds, signalLevel, signalMeta });
         /** F20260813actk C9：提交成功后才确认清除已派工票据 */
         confirmDispatchesClear(ctx, resolvedIds);
         /** F20260821i336：更新派工台账状态（小獭 yield 回来时标记为 in_progress） */

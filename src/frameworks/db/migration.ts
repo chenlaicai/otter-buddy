@@ -116,6 +116,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** Issue #644（健康面板重设计 PR1）：signals 表添加 evidence_detail + confidence 列（存量库迁移）。
    *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureSignalsEvidenceColumns(db, logger);
+
+  /** F20260901sgpx P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
+   *  schema.ts 新库已含两列；存量库需 ALTER 补列。幂等：PRAGMA 检测。 */
+  ensureMessagesSignalColumns(db, logger);
 }
 
 /** Issue #644：signals 表补 evidence_detail / confidence 列（幂等，PRAGMA 检测）。
@@ -490,6 +494,20 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
   if (!hasIntroducedByPr) {
     db.prepare("ALTER TABLE healing_events ADD COLUMN introduced_by_pr TEXT").run();
     logger.info('Added introduced_by_pr column to healing_events table');
+  }
+}
+
+/** F20260901sgpx P0: messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
+ *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
+function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'signal_level')) {
+    db.prepare("ALTER TABLE messages ADD COLUMN signal_level TEXT").run();
+    logger.info('Added signal_level column to messages table');
+  }
+  if (!columns.some(col => col.name === 'signal_meta')) {
+    db.prepare("ALTER TABLE messages ADD COLUMN signal_meta TEXT").run();
+    logger.info('Added signal_meta column to messages table');
   }
 }
 

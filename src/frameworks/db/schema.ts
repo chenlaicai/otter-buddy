@@ -129,6 +129,8 @@ function createMessageTables(db: Database.Database): void {
       source TEXT,
       metadata TEXT,
       sender_name TEXT NOT NULL DEFAULT '',
+      signal_level TEXT,
+      signal_meta TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
@@ -141,6 +143,7 @@ function createMessageTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(turn_id);
     CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_signal_level ON messages(signal_level);
   `);
 
   db.exec(`

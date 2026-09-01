@@ -308,7 +308,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     })();
   }
 
-  async startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[]): Promise<void> {
+  async startSpeaking(messageId: string, body: string | undefined, talkingStonePassedTo: string[], signalLevel?: string | null, signalMeta?: string | null): Promise<void> {
     this.db.transaction(() => {
       // 状态变更 + FTS 刷新同一事务；body 非空时附带插入 segment（speak+yield 拆分后 yield 调用不传 body）
       if (body !== undefined) {
@@ -316,9 +316,10 @@ export class SqliteConversationRepository implements ConversationRepository {
         this.db.prepare("INSERT INTO message_segments (id, message_id, body, sequence_num, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(`seg-${messageId}-${maxSeq.max_seq + 1}`, messageId, body, maxSeq.max_seq + 1);
       }
       const result = this.db.prepare(`
-        UPDATE messages SET status = 'speaking', talking_stone_passed_to = ?
+        UPDATE messages SET status = 'speaking', talking_stone_passed_to = ?,
+          signal_level = ?, signal_meta = ?
         WHERE id = ? AND status = 'streaming'
-      `).run(JSON.stringify(talkingStonePassedTo), messageId);
+      `).run(JSON.stringify(talkingStonePassedTo), signalLevel ?? null, signalMeta ?? null, messageId);
       if (result.changes === 0) throw new DomainError(`Message ${messageId} not found or not in streaming status`, "conflict");
       this.refreshMessageFts(messageId);
     })();
