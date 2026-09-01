@@ -132,4 +132,30 @@ describe("WeixinAccountStore - context_token v2 (F20260901wxnt)", () => {
     expect(raw.u1.receivedAt).toBe(1000);
     expect(raw.u1.warnedAt).toBe(2000);
   });
+
+  it("v2 条目 receivedAt 缺失/NaN 时回退 mtime 兜底（F20260901wxnt 发现2）", () => {
+    const accountId = "acc-v2-bad";
+    const dir = path.join(tmpDir, accountId);
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, "context-tokens.json");
+    fs.writeFileSync(filePath, JSON.stringify({
+      ok: { token: "tok-ok", receivedAt: 5000 },
+      bad: { token: "tok-bad" },         // receivedAt 缺失
+      nan: { token: "tok-nan", receivedAt: NaN },  // receivedAt 非有限
+    }));
+    const mtime = fs.statSync(filePath).mtimeMs;
+
+    const raw = store.loadRawContextTokens(accountId);
+
+    // 正常条目不受影响
+    expect(raw.ok.receivedAt).toBe(5000);
+    // 损坏条目回退到 mtime（浮点精度允许 5ms 偏差——test 与代码的 statSync 调用有时差）
+    expect(raw.bad.receivedAt).toBeGreaterThanOrEqual(mtime - 5);
+    expect(raw.bad.receivedAt).toBeLessThanOrEqual(mtime + 5);
+    expect(raw.nan.receivedAt).toBeGreaterThanOrEqual(mtime - 5);
+    expect(raw.nan.receivedAt).toBeLessThanOrEqual(mtime + 5);
+    // token 保留
+    expect(raw.bad.token).toBe("tok-bad");
+    expect(raw.nan.token).toBe("tok-nan");
+  });
 });

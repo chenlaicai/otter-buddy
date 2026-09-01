@@ -323,6 +323,23 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
   }
+
+  // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
+  if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
+}
+
+/** 传入值→有限数，非法回退默认值（F20260901wxnt 发现1：YAML "60min" → NaN → 全轰炸） */
+export function safeFinite(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** 校验 weixin contextTokenWarn* 字段合法性（正整数或 undefined，F20260901wxnt 发现1） */
+function validateWeixinWarnConfig(weixin: NonNullable<RawConfig["weixin"]>): void {
+  for (const [key, val] of Object.entries({ contextTokenWarnMinutes: weixin.contextTokenWarnMinutes, contextTokenWarnCooldownMinutes: weixin.contextTokenWarnCooldownMinutes })) {
+    if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val))) {
+      throw new Error(`配置校验失败: weixin.${key} 必须是整数，当前值: ${String(val)}`);
+    }
+  }
 }
 
 function buildDbConfig(raw: RawConfig): AppConfig["db"] {

@@ -314,3 +314,84 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
     poller.stop();
   });
 });
+
+describe("WeixinPollingChannel - 预警内存补偿止损 (F20260901wxnt 发现3)", () => {
+  let fakeNow: number;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fakeNow = 1725188000000;
+    vi.setSystemTime(fakeNow);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("recordContextTokenWarned 落盘失败时内存补偿止损（F20260901wxnt 发现3）", async () => {
+    const receivedAt = fakeNow - 61 * 60_000;
+    const fakeStore = makeFakeAccountStore({
+      "acc-1": {
+        user1: { token: "tok-dead", receivedAt },
+        user2: { token: "tok-ok", receivedAt },
+      },
+    });
+    // user1 落盘失败（模拟磁盘故障），user2 正常
+    let diskFailForUser1 = true;
+    const origWarned = fakeStore.accountStore.recordContextTokenWarned as ReturnType<typeof vi.fn>;
+    origWarned.mockImplementation((accountId: string, userId: string) => {
+      if (accountId === "acc-1" && userId === "user1" && diskFailForUser1) {
+        throw new Error("ENOSPC: disk full");
+      }
+      fakeStore.warnedCalls.push({ accountId, userId });
+      if (fakeStore.store[accountId]?.[userId]) {
+        fakeStore.store[accountId][userId].warnedAt = Date.now();
+      }
+    });
+    const { logger } = makeLogger();
+    const sendCalls: Array<{ toUserId: string }> = [];
+    let getUpdatesCalls = 0;
+    const DELAY_MS = 50;
+    const api = {
+      getUpdates: vi.fn().mockImplementation(() => {
+        getUpdatesCalls++;
+        return new Promise(resolve => setTimeout(() => resolve({ ret: 0, msgs: [] } as never), DELAY_MS));
+      }),
+      sendTextMessage: vi.fn(async (p: { toUserId: string }) => { sendCalls.push(p); }),
+    } as unknown as WeixinApiClient;
+
+    const poller = new WeixinPollingChannel({
+      api,
+      accountStore: fakeStore.accountStore,
+      accountId: "acc-1",
+      onMessage: async () => {},
+      logger,
+      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 60 * 60_000 },
+      now: () => fakeNow,
+    });
+
+    poller.start();
+    // 推进 100ms：tick 1（user1 落盘失败但内存缓存已生效 + user2 成功）→ getUpdates sleep DELAY_MS
+    await vi.advanceTimersByTimeAsync(100);
+
+    // tick 1：两用户都触发预警，user1 落盘失败 + user2 正常
+    expect(sendCalls).toHaveLength(2);
+    expect(fakeStore.warnedCalls).toHaveLength(1); // 只有 user2 成功落盘
+    expect(fakeStore.warnedCalls[0].userId).toBe("user2");
+
+    const sendsAfterTick1 = sendCalls.length;
+
+    // tick 2：即使 user1 落盘失败，内存缓存的 warnedAt 生效→冷却期内不重发
+    await vi.advanceTimersByTimeAsync(DELAY_MS + 100); // 推进到 tick 2
+    expect(sendCalls).toHaveLength(sendsAfterTick1); // 冷却期内无新发送
+
+    // tick 3：推进 fakeNow 到冷却期过后，重发成功
+    fakeNow += 61 * 60_000; // 61 分钟后，冷却期已过
+    diskFailForUser1 = false; // 恢复磁盘
+    await vi.advanceTimersByTimeAsync(DELAY_MS + 100); // 推进到 tick 3
+    expect(sendCalls.length).toBeGreaterThan(sendsAfterTick1); // 冷却期过后有新发送
+    expect(getUpdatesCalls).toBeGreaterThan(0); // loop 确实在运行
+
+    poller.stop();
+  });
+});

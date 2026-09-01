@@ -1,4 +1,4 @@
-import type { AppConfig } from "@frameworks/config";
+import { safeFinite, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
 import * as yaml from "js-yaml";
@@ -111,7 +111,6 @@ export async function createAgentGateway(options: {
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
     // F20260826mwrd C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
-    // （resolvedBy=系统，resolution=指令已到达目标獭——halt 无待裁决事项，落账即闭环）。
     // 回调在 tool_call handler 栈内执行（同步语义），resolve 走 fire-and-forget + catch。
     onHaltFirstBlock: (directive) => {
       repos.signalEvent.resolve(
@@ -349,11 +348,8 @@ export function startWeixinChannels(options: {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry } = options;
   const weixinConfig = appConfig.weixin;
   if (!weixinConfig) {
-    // Bugfix（F20260831wxsp）：有已登录账号但 config 无 weixin 段时不再静默 return——
-    // 否则重启后轮询无声消失（web 无任何异常，微信就是不响）。
-    // 触发路径：扫码时 ensureWeixinConfig 写回失败（如路径错误 ENOENT）→ 重启读不到 weixin 段。
-    // 账号 state（token/游标）在 stateDir（默认 ./data/weixin）不受影响，默认段即可拉起轮询；
-    // partnerUserId 缺失仅影响命令门禁锚定（PartnerResolver 未配置时不拦截命令），不阻断消息。
+    // F20260831wxsp：有已登录账号但 config 无 weixin 段时默认拉起——
+    // 账号 state 在 stateDir 不受影响，partnerUserId 缺失仅影响命令门禁
     const accountStore = new WeixinAccountStore(undefined);
     const orphanAccounts = accountStore.listAccounts();
     if (orphanAccounts.length === 0) return [];
@@ -401,9 +397,10 @@ interface StartWeixinAccountOptions {
 }
 
 // 单键显式 0 即关闭（0 = 禁用）；未配置默认 60min，clamp 下限 1 分钟（避免 35s 后误报）
+// F20260901wxnt 发现1 防御：非有限数（NaN/Infinity，如 YAML "60min"）由 safeFinite 回退默认
 const buildContextTokenWarn = (w: AppConfig["weixin"]): { afterMs: number; cooldownMs: number } | undefined =>
   w?.contextTokenWarnMinutes === 0 || w?.contextTokenWarnCooldownMinutes === 0 ? undefined
-    : { afterMs: Math.max((w?.contextTokenWarnMinutes ?? 60), 1) * 60_000, cooldownMs: Math.max((w?.contextTokenWarnCooldownMinutes ?? 60), 1) * 60_000 };
+    : { afterMs: Math.max(safeFinite(w?.contextTokenWarnMinutes, 60), 1) * 60_000, cooldownMs: Math.max(safeFinite(w?.contextTokenWarnCooldownMinutes, 60), 1) * 60_000 };
 
 /** 单账号启动（初始启动与 web 扫码登录热启动共用，issue #566） */
 function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {

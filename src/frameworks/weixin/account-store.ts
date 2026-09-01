@@ -96,15 +96,23 @@ export class WeixinAccountStore {
   loadRawContextTokens(accountId: string): Record<string, ContextTokenEntry> {
     const raw = (this.safeRead(path.join(this.stateDir, accountId, "context-tokens.json")) ?? {}) as Record<string, unknown>;
     const result: Record<string, ContextTokenEntry> = {};
+    const filePath = path.join(this.stateDir, accountId, "context-tokens.json");
     for (const [userId, value] of Object.entries(raw)) {
       if (typeof value === "string") {
         // Why: v1 兼容——值为字符串时用文件 mtime 回填 receivedAt（mtime 是「最近一次 token 落盘」的可靠代理）
-        const filePath = path.join(this.stateDir, accountId, "context-tokens.json");
         let mtime = Date.now();
         try { mtime = fs.statSync(filePath).mtimeMs; } catch { /* 文件不存在用 now */ }
         result[userId] = { token: value, receivedAt: mtime };
       } else if (value && typeof value === "object" && "token" in value) {
-        result[userId] = value as ContextTokenEntry;
+        const entry = value as ContextTokenEntry;
+        if (typeof entry.receivedAt === "number" && Number.isFinite(entry.receivedAt)) {
+          result[userId] = entry;
+        } else {
+          // F20260901wxnt 发现2：v2 条目 receivedAt 非法（手改/损坏）→ 回退 mtime 兜底，与 v1 同款
+          let mtime = Date.now();
+          try { mtime = fs.statSync(filePath).mtimeMs; } catch { /* 文件异常用 now */ }
+          result[userId] = { ...entry, receivedAt: mtime };
+        }
       }
     }
     return result;

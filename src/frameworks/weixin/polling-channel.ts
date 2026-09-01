@@ -54,6 +54,9 @@ export class WeixinPollingChannel {
 
   private abort?: AbortController;
   private running = false;
+  /** F20260901wxnt 发现3：recordContextTokenWarned 落盘失败时的内存级 warnedAt 补偿——
+   *  disk 丢失后内存保底，下个 tick 冷却判断不旁路（防成功的预警每 35s 重发） */
+  private warnedAtMemoryCache = new Map<string, number>();
 
   constructor(
     private readonly deps: {
@@ -281,7 +284,9 @@ export class WeixinPollingChannel {
     const { accountStore, accountId, api, logger } = this.deps;
     const age = nowMs - entry.receivedAt;
     if (age < warn.afterMs) return; // 未满阈值
-    if (entry.warnedAt != null && nowMs - entry.warnedAt < warn.cooldownMs) return; // 冷却期内
+    // 冷却期内（内存优先——disk 可能丢失）
+    const warnedAt = this.warnedAtMemoryCache.get(userId) ?? entry.warnedAt;
+    if (warnedAt != null && nowMs - warnedAt < warn.cooldownMs) return;
     try {
       await api.sendTextMessage({
         toUserId: userId,
@@ -296,8 +301,13 @@ export class WeixinPollingChannel {
         tokenAgeMs: age,
       });
     }
-    // 成败都记——防死 token 每 35s 被重锤
-    accountStore.recordContextTokenWarned(accountId, userId);
+    // 成败都记——防死 token 每 35s 被重锤（memory 优先防进程内存丢失，disk best-effort）
+    this.warnedAtMemoryCache.set(userId, nowMs);
+    try {
+      accountStore.recordContextTokenWarned(accountId, userId);
+    } catch {
+      logger.warn("context_token 预警记录落盘失败，内存补偿已生效", { accountId, userId });
+    }
   }
 
   private async sleep(ms: number): Promise<void> {
