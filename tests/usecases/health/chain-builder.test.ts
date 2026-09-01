@@ -22,6 +22,7 @@ function doc(id: string, status: string, createdDaysAgo = 40): CollectedFeatureD
     title: `doc ${id}`,
     changeType: "feature",
     status,
+    substatus: null,
     tags: [],
     modules: [],
     causalLinksFrom: [],
@@ -162,5 +163,103 @@ describe("buildFeatureChains", () => {
       { ...OPTS, fidMentionCounts: new Map([["F20260802ffff", 0]]) },
     );
     expect(chains[0].state).toBe("orphan");
+  });
+});
+
+// ===== #646 值域契约：判定层的「未知值不碰」负用例 =====
+
+describe("#646 值域契约（chain-builder 消费侧）", () => {
+  it("未知 status：链不判病态（视为稳定，不猜语义）", () => {
+    // 40 天前的 commit + 未知 status（如手写 wip/blocked）→ 不判 stalled/zombie
+    const chains = buildFeatureChains(
+      [commit("s1", 40, "[F20260801unkn][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801unkn", "wip")],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("未知 status 的 doc-only 链：不判 stalled/zombie", () => {
+    const chains = buildFeatureChains([], [doc("F20260801unkn2", "shipped", 90)], OPTS);
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("未知 status：zombie 两阶段判定也不参与（提及计数显式 0 仍不判）", () => {
+    const chains = buildFeatureChains(
+      [commit("s1", 40, "[F20260801unkn3][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801unkn3", "wip")],
+      { ...OPTS, fidMentionCounts: new Map([["F20260801unkn3", 0]]) },
+    );
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("在途存量变体 review/reviewed：参与病态判定（与 development 同待遇）", () => {
+    // review 状态 + 20 天无 commit → stalled（对比未知值不判）
+    const chains = buildFeatureChains(
+      [commit("s1", 20, "[F20260801revw][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801revw", "review")],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("stalled");
+  });
+
+  it("终态 locked：豁免 stalled/zombie（设计稿冻结语义，#646 定案）", () => {
+    const chains = buildFeatureChains(
+      [commit("s1", 40, "[F20260801lock][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801lock", "locked")],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("active");
+  });
+});
+
+// ===== #646 段2：子状态判定边界 =====
+
+describe("#646 子状态（chain-builder 消费侧）", () => {
+  it("implemented:active（迭代中）：20 天无 commit → stalled（照常停滞判定）", () => {
+    const chains = buildFeatureChains(
+      [commit("s1", 20, "[F20260901suba][agent][New Feature] x", ["a.ts"])],
+      [{ ...doc("F20260901suba", "implemented"), substatus: "active" }],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("stalled");
+  });
+
+  it("纯 implemented：20 天无 commit → active（豁免停滞判定）", () => {
+    const chains = buildFeatureChains(
+      [commit("s1", 20, "[F20260901subb][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260901subb", "implemented")],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("implemented:active 的 doc-only 链：创建 90 天 + 零提及 → zombie 判定通道参与", () => {
+    const chains = buildFeatureChains(
+      [],
+      [{ ...doc("F20260901subc", "implemented", 90), substatus: "active" }],
+      { ...OPTS, fidMentionCounts: new Map([["F20260901subc", 0]]) },
+    );
+    expect(chains[0].state).toBe("zombie");
+  });
+
+  it("纯 implemented 的 doc-only 链：创建 90 天 + 零提及 → 仍豁免（active）", () => {
+    const chains = buildFeatureChains(
+      [],
+      [doc("F20260901subd", "implemented", 90)],
+      { ...OPTS, fidMentionCounts: new Map([["F20260901subd", 0]]) },
+    );
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("分批合入大特性不提前标完成：PR1 合入后文档应标 implemented 而非等待期被误豁免", () => {
+    // 场景：PR1（仅半个特性）合入，PR2 两周后才开工。若 status=implemented 无子状态 → 豁免。
+    // 正确姿势：文档写 status: implemented + substatus: active（迭代中）， stalled 判定照常。
+    const chains = buildFeatureChains(
+      [commit("s1", 20, "[F20260901sube][agent][New Feature] x", ["a.ts"])],
+      [{ ...doc("F20260901sube", "implemented"), substatus: "active" }],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("stalled"); // PR2 等待期不会静默失联
   });
 });

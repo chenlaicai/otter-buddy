@@ -17,8 +17,14 @@ export interface CollectedFeatureDoc {
   title: string;
   /** 变更类型 */
   changeType: string | null;
-  /** 文档状态 */
+  /** 文档状态。#646 值域契约：语义分组（在途/终态/未知）消费方统一用
+   *  @entities/document/doc-status 的 classifyDocStatus，勿在各消费点自行 has 判断。
+   *  本字段保留原始值（含行内注释已被 yaml 解析器剥离后的裸值），不做归一改写。 */
   status: string | null;
+  /** 子状态（#646 段2）：目前仅 implemented: active（合入后又有新 commit = 迭代中，参与病态判定）。
+   *  可选字段（undefined = 无子状态）——新增概念不破坏存量构造点。
+ *  独立字段而非复合字面值（implemented:active 会炸 known-values 枚举）。 */
+  substatus?: string | null;
   /** 标签 */
   tags: string[];
   /** 模块 */
@@ -91,6 +97,17 @@ async function collectDocsRecursively(
   }
 }
 
+/** 从 frontmatter 提取 intent 块（存在时）；无则 undefined */
+function buildIntent(fm: Record<string, unknown>): CollectedFeatureDoc["intent"] {
+  if (!fm.intent) return undefined;
+  const raw = fm.intent as Record<string, unknown>;
+  return {
+    problem: raw.problem as string,
+    expectedEffect: raw.expected_effect as string,
+    verifyBy: raw.verify_by as string,
+  };
+}
+
 /**
  * 解析单个 F 文档
  */
@@ -114,6 +131,7 @@ async function parseFeatureDoc(
     title: (frontmatter.title as string) ?? "",
     changeType: (frontmatter.change_type as string) ?? null,
     status: (frontmatter.status as string) ?? null,
+    substatus: (frontmatter.substatus as string) ?? null,
     tags: (frontmatter.tags as string[]) ?? [],
     modules: (frontmatter.modules as string[]) ?? [],
     causalLinksFrom: (frontmatter.from as string[]) ?? [],
@@ -121,10 +139,6 @@ async function parseFeatureDoc(
     filePath: relativePath,
     createdAt: (frontmatter.created_at as string) ?? null,
     createdInConversationId: (frontmatter.created_in_conversation as string) ?? null,
-    intent: frontmatter.intent ? {
-      problem: (frontmatter.intent as Record<string, unknown>).problem as string,
-      expectedEffect: (frontmatter.intent as Record<string, unknown>).expected_effect as string,
-      verifyBy: (frontmatter.intent as Record<string, unknown>).verify_by as string,
-    } : undefined,
+    intent: buildIntent(frontmatter),
   };
 }
