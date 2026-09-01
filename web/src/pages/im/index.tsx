@@ -39,8 +39,6 @@ function ImPage() {
       setChannelStatus(resp.channels)
     } catch {
       showToast('加载通道状态失败', 'error')
-    } finally {
-      setLoadingStatus(false)
     }
   }, [])
 
