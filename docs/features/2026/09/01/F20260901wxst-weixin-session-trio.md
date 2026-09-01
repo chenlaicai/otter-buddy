@@ -100,13 +100,15 @@ app.ts `onWeixinAccountDeleted` 回调：停轮询后调 `cancelByAccountId` + �
 
 ## 验证
 
-- **全仓 vitest**：205 文件 2569 测试全绿（含新增 12 用例）
+- **全仓 vitest**：208 文件 2592 测试全绿（含新增 15 用例；初审时 207/2589，回修新增 3）
 - **tsc --noEmit**：零错误
 - **新增测试**：
   - message-broadcaster：同 key 替换（旧通道不再收/新通道收一次）、替换保插入序、unregister 后不投递+未注册返回 false、不同 key 互不影响（4 例）
   - login-session-manager：cancelByAccountId 仅非终态、cancelByIlinkUserId 标记 account_deleted、删号取消完成不落盘不复活+onSuccess 不触发、普通取消完成仍落盘（既有语义回归锁定）（4 例）
   - api-client：GET 无 Content-Type 且公共头完整、POST 仍带 Content-Type（回归锁定）（2 例）
   - message-broadcaster-feishu：bindFeishu 辅助函数适配 Map（内部实现细节适配，行为断言不变）
+  - 【回修】login-session-manager：双路径二次删除幂等时序锁定（主路径先删 + account_deleted 分支后到二次 removeAccount，无残留无抛错，onSuccess 不触发）（1 例）
+  - 【回修】account-store：removeAccount 幂等性（重复删/从未存在不抛 + 删除后其它账号不受影响）（2 例）
 - **pre-existing 声明**：无——全绿基线
 - **CI**：推送后 `gh run watch` 验证
 
@@ -124,3 +126,14 @@ app.ts `onWeixinAccountDeleted` 回调：停轮询后调 `cancelByAccountId` + �
 
 - `login-flow.ts` confirm() 落盘的 accountId 用 `weixin-${Date.now().toString(36)}`——同毫秒并发两次扫码会撞 id（概率极低，未处理）
 - `login-session-manager.ts` cancel() 返回 false 的语义混叠（会话不存在 vs 已终态），前端无法区分——展示层问题，未动
+
+## 回修记录（对抗审视后，检视獭-682 报告）
+
+**0 严重 + 2 建议**，处置如下：
+
+| # | 发现 | 处置 |
+|---|---|---|
+| 建议 1 | #592 并发时序测试缺口——「flow 完成先于删除」场景无测试，removeAccount 幂等性仅靠代码审查确认 | **接受修复（不建 issue，直接补测试）**：核实后发现用现有 scriptFetch 模式可低成本构造「主路径先删 + account_deleted 分支后到二次 removeAccount」时序——无需 fake timer（检视者担心的复杂度不存在）。补 login-session-manager 时序用例 1 例 + account-store 幂等性用例 2 例，共 3 例锁定 |
+| 建议 2 | onSessionCancelledByAccountDeletion hook 已定义未装配（死代码/扩展预留） | **接受修复（删除）**：核实全仓零装配、零测试、零使用（grep 确认仅类型定义+构造参数+一处调用点）——纯死代码。删除比留注释更符合最简原则；后续清理由 app.ts 的 onWeixinAccountDeleted 回调链完成（更显式、顺序可控），该路径有测试覆盖 |
+
+回修改动：login-session-manager.ts 删 hook（类型+参数+调用共 3 处）+ 2 测试文件。208 文件 / 2592 tests 全绿，tsc 零错误。

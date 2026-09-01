@@ -252,6 +252,38 @@ describe("WeixinLoginSessionManager", () => {
       expect(onSuccess).not.toHaveBeenCalled(); // 不热启动
     });
 
+    it("双路径二次删除幂等：主路径先删 + account_deleted 分支后到二次 removeAccount，无残留无抛错（检视 #682 发现 1）", async () => {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      // 时序：主路径（onWeixinAccountDeleted）先删账号并取消会话，扫码 confirmed
+      // 才后到——handleFlowSuccess 走 account_deleted 分支二次调用 removeAccount。
+      // 幂等性依赖：delete raw[id]（key 不存在 no-op）+ rmSync({force:true})（路径
+      // 不存在不抛）——本用例锁定该假设，防重构时被无检打破
+      restore = scriptFetch([
+        { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+        ...Array.from({ length: 30 }, () => () => ({ status: "wait" })),
+        { status: "confirmed", bot_token: "tok-dup", ilink_user_id: "u1@im.wechat" },
+      ]);
+      const onSuccess = vi.fn();
+      mgr = new WeixinLoginSessionManager({ accountStore: store, logger, onSuccess });
+      const { id } = mgr.start();
+      await vi.waitFor(() => expect(mgr.get(id)!.qrcodeUrl).toBeDefined());
+      (mgr as any).sessions.get(id).ilinkUserId = "u1@im.wechat";
+      // 主路径先删：account-store removeAccount（id 为 login-flow 确认后回写的 id，
+      // 直接用 token 衍生 id 模拟已落盘后被删）
+      store.saveAccount({ id: "dup-acc", token: "tok-dup", ilinkUserId: "u1@im.wechat", addedAt: new Date().toISOString() });
+      store.removeAccount("dup-acc");
+      // 删号路径取消会话（标记 account_deleted）
+      expect(mgr.cancelByIlinkUserId("u1@im.wechat")).toBe(1);
+
+      await vi.waitFor(() => {
+        // confirmed 后到：account_deleted 分支二次 removeAccount（this 时账号
+        // id 由 flow 回传）——幂等成立则不抛、不复活
+        expect(mgr.get(id)!.status).toBe("cancelled");
+      });
+      expect(store.listAccounts()).toHaveLength(0);
+      expect(onSuccess).not.toHaveBeenCalled();
+    });
+
     it("普通 cancel 的会话扫码完成：账号保留（既有语义不变，#592 不误伤）", async () => {
       const store = new WeixinAccountStore({ stateDir: tempStateDir() });
       restore = scriptFetch([
