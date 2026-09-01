@@ -117,7 +117,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureSignalsEvidenceColumns(db, logger);
 
-  /** F20260901sgpx P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
+  /** F20260901sgp0 P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
    *  schema.ts 新库已含两列；存量库需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureMessagesSignalColumns(db, logger);
 }
@@ -497,7 +497,7 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
   }
 }
 
-/** F20260901sgpx P0: messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
+/** F20260901sgp0 P0: messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
  *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
 function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
@@ -508,6 +508,14 @@ function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): voi
   if (!columns.some(col => col.name === 'signal_meta')) {
     db.prepare("ALTER TABLE messages ADD COLUMN signal_meta TEXT").run();
     logger.info('Added signal_meta column to messages table');
+  }
+  // F20260901sgp0 P0: 索引在列之后幂等建——存量库 initSchema 先于 migrateDatabase，
+  // 列不存在时 CREATE INDEX 会抛 no such column（PR #386 前科）。
+  // 新库列已在 initSchema 时存在，此处 CREATE IF NOT EXISTS 为 no-op。
+  const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
+  if (!indexes.some(idx => idx.name === 'idx_messages_signal_level')) {
+    db.prepare("CREATE INDEX idx_messages_signal_level ON messages(signal_level)").run();
+    logger.info('Created idx_messages_signal_level index on messages table');
   }
 }
 

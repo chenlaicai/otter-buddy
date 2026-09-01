@@ -395,11 +395,11 @@ describe("migrateDatabase - F20260827he2f healing_events.introduced_by_pr 列", 
 });
 
 /**
- * F20260901sgpx P0：signal_level / signal_meta 列迁移幂等性 + 索引查询验证。
+ * F20260901sgp0 P0：signal_level / signal_meta 列迁移幂等性 + 索引查询验证。
  * 从独立的 signal-metadata-migration.test.ts 合并入 migration.test.ts，
  * 避免增加 allow-ddl 豁免文件数（ratchet 上限 6）。
  */
-describe("migrateDatabase - F20260901sgpx signal metadata 列", () => {
+describe("migrateDatabase - F20260901sgp0 signal metadata 列", () => {
   let db: Database.Database;
 
   // 专用 seed（与顶层 seedMessage 签名不同：支持 overrides + 自增 seq）
@@ -433,12 +433,6 @@ describe("migrateDatabase - F20260901sgpx signal metadata 列", () => {
       expect(colNames).toContain("signal_meta");
     });
 
-    it("signal_level 有索引", () => {
-      const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
-      const idxNames = indexes.map(i => i.name);
-      expect(idxNames).toContain("idx_messages_signal_level");
-    });
-
     it("新列默认为 null（存量行无信号语义）", () => {
       seedSignalMessage(db, "msg-1");
       const row = db.prepare("SELECT signal_level, signal_meta FROM messages WHERE id = 'msg-1'").get() as { signal_level: string | null; signal_meta: string | null };
@@ -456,6 +450,17 @@ describe("migrateDatabase - F20260901sgpx signal metadata 列", () => {
   });
 
   describe("existing database (migrateDatabase)", () => {
+    it("存量库迁移添加 signal_level 和 signal_meta 列 + 索引（幂等）", () => {
+      migrateDatabase(db, createTestLogger());
+      const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      const colNames = columns.map(c => c.name);
+      expect(colNames).toContain("signal_level");
+      expect(colNames).toContain("signal_meta");
+      // 索引在列之后由 migrateDatabase 创建（非 initSchema，存量库 initSchema 时列不存在）
+      const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
+      expect(indexes.map(i => i.name)).toContain("idx_messages_signal_level");
+    });
+
     it("存量库迁移添加 signal_level 和 signal_meta 列（幂等）", () => {
       migrateDatabase(db, createTestLogger());
       const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;

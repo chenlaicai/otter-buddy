@@ -1,5 +1,5 @@
 /**
- * F20260901sgpx P0: yield 工具 level 参数测试。
+ * F20260901sgp0 P0: yield 工具 level 参数测试。
  *
  * 测试：
  * - yield level 参数透传到 startSpeaking 的 signalLevel/signalMeta
@@ -69,7 +69,7 @@ function makeToolsForYield(
   };
 }
 
-describe("yield level 参数（F20260901sgpx P0）", () => {
+describe("yield level 参数（F20260901sgp0 P0）", () => {
   describe("level 透传", () => {
     it("默认 level=NORMAL（不传 level 参数）", async () => {
       const { yield: yieldTool, speakingCalls } = makeToolsForYield();

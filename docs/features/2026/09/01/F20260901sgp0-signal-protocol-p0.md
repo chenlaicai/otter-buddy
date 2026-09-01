@@ -1,17 +1,18 @@
 ---
-id: F20260901sgpx
+id: F20260901sgp0
 title: '协作机制 v2：信号协议 P0 — 信号元数据铺轨'
-summary: '为信号协议（F20260901sgpx）铺轨：messages 表加 signal_level/signal_meta 列，yield 工具接受 level 参数（NORMAL/URGENT/HALT），HALT 权限约束落地（仅用户/大獭可投）。P0 阶段行为零变化——不做路由、不改调度逻辑。'
+summary: '为信号协议（F20260901sgp0）铺轨：messages 表加 signal_level/signal_meta 列，yield 工具接受 level 参数（NORMAL/URGENT/HALT），HALT 权限约束落地（仅用户/大獭可投）。P0 阶段行为零变化——不做路由、不改调度逻辑。'
 change_type: feature
 status: draft
+capability_test: n/a — P0 阶段无新增能力，仅铺轨数据层
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
 ---
 
-# F20260901sgpx: 信号协议 P0 — 信号元数据铺轨
+# F20260901sgp0: 信号协议 P0 — 信号元数据铺轨
 
 ## 背景
 
-本文档记录信号协议实现的第一阶段（P0）。完整设计方案见 [F20260901sgpx 设计文档](https://github.com/chenlaicai/otter-buddy/pull/669)。
+本文档记录信号协议实现的第一阶段（P0）。完整设计方案见 [F20260901sgp0 设计文档](https://github.com/chenlaicai/otter-buddy/pull/669)。
 
 P0 的目标是**铺轨不走路**：在数据库和工具层埋入信号元数据能力，但不改变现有调度行为。
 
@@ -19,7 +20,7 @@ P0 的目标是**铺轨不走路**：在数据库和工具层埋入信号元数�
 
 ### 1. 数据库层
 
-- **schema.ts**：messages 表新增 `signal_level TEXT` 和 `signal_meta TEXT` 列 + `idx_messages_signal_level` 索引
+- **schema.ts**：messages 表新增 `signal_level TEXT` 和 `signal_meta TEXT` 列（索引由 migrateDatabase 在列之后幂等创建，避免存量库 initSchema 时列不存在崩溃——PR #386 前科模式）
 - **migration.ts**：`ensureMessagesSignalColumns()` — 存量库 PRAGMA 检测幂等迁移
 - **conversation-mapper.ts**：`MessageRow` 接口 + `rowToMessage()` 映射新增两列
 
@@ -80,7 +81,7 @@ P0 的目标是**铺轨不走路**：在数据库和工具层埋入信号元数�
 | 新列 NULL 语义 | 存量行 NULL = 无信号语义 | DEFAULT 'NORMAL' 填充 | 填充会混淆存量消息（它们从未被 yield 过），NULL 才是准确的"无信号"语义 |
 | signalMeta 格式 | JSON 字符串 | 独立列（reason/suggestion 各一列） | 设计文档 §1 定义 signal_meta 为 JSON——为 P1/P2 预留扩展空间，避免频繁 ALTER TABLE |
 | HALT 权限校验位置 | yield 工具 execute 内（调用 getById 查类型） | 工具白名单层拦截（manifest） | 白名单拦的是工具名，拦不住 yield 的 level 参数——权限必须在 yield 语义内校验 |
-| signal_level 索引 | 加索引 | 不加（靠全表扫描） | P1 路由器需要按档位筛选消息，索引铺轨成本极低（CREATE INDEX IF NOT EXISTS） |
+| signal_level 索引 | migrateDatabase 内幂等建（列 ALTER 之后） | initSchema 内建（列存在时） | 存量库 initSchema 先于 migrateDatabase，列不存在时 CREATE INDEX 抛 no such column（PR #386 前科） |
 
 ## 迁移路径
 

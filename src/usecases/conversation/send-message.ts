@@ -78,9 +78,9 @@ export interface StartSpeakingInput {
   /** 可选：随发言一并落库的内容（拆分后由 speak 的 appendSegment 负责，yield 调用时不传） */
   body?: string;
   talkingStonePassedTo: string[];
-  /** F20260901sgpx P0: 信号档位 (NORMAL/URGENT/HALT)，默认 NORMAL */
+  /** F20260901sgp0 P0: 信号档位 (NORMAL/URGENT/HALT)，默认 NORMAL */
   signalLevel?: string;
-  /** F20260901sgpx P0: 信号额外元数据 JSON（reason/suggestion 等） */
+  /** F20260901sgp0 P0: 信号额外元数据 JSON（reason/suggestion 等） */
   signalMeta?: string;
 }
 

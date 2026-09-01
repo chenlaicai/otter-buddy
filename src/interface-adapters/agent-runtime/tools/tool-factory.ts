@@ -6,6 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool, createGetTurnHistoryTool } from "./message-tools";
 import { validateSpeakBody } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { HealingErrorType, HealingSeverity, HealingEventStatus } from "@entities/healing/healing-event";
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
@@ -83,16 +84,40 @@ async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string
   }
 }
 
-/** F20260901sgpx P0: HALT 权限校验 + 信号元数据构建（从 yield execute 中提取，降低 cyclomatic complexity） */
+/** F20260901sgp0 P0: HALT 权限校验 + 信号元数据构建（从 yield execute 中提取，降低 cyclomatic complexity） */
+const VALID_SIGNAL_LEVELS = new Set(['NORMAL', 'URGENT', 'HALT']);
+
+/** F20260901sgp0 P0: HALT 权限校验 + 信号元数据构建（从 yield execute 中提取，降低 cyclomatic complexity） */
 async function resolveSignalLevel(
   ctx: ToolContext,
   levelParam: string | undefined,
-  reasonParam: unknown
+  reasonParam: unknown,
+  healingRepo?: HealingEventRepository
 ): Promise<{ signalLevel: string; signalMeta: string | undefined; haltError: string | null }> {
   const signalLevel = levelParam?.toUpperCase() ?? 'NORMAL';
+  if (!VALID_SIGNAL_LEVELS.has(signalLevel)) {
+    return { signalLevel, signalMeta: undefined, haltError: `[错误] 无效信号档位 "${signalLevel}"，合法值：NORMAL / URGENT / HALT` };
+  }
   if (signalLevel === 'HALT') {
     const self = await ctx.client.otter.getById(ctx.otterId);
     if (self?.type === 'small') {
+      if (healingRepo) {
+        healingRepo.create({
+          id: crypto.randomUUID(),
+          messageId: ctx.currentMessageId ?? '',
+          conversationId: ctx.conversationId,
+          otterId: ctx.otterId,
+          errorType: 'permission_denied' as HealingErrorType,
+          severity: 'medium' as HealingSeverity,
+          description: `小獭 ${ctx.otterId} 尝试投递 HALT 档信号，已拒绝`,
+          suggestion: '需要中止任务请 yield(NORMAL) 回大獭说明情况',
+          context: null,
+          status: 'open' as HealingEventStatus,
+          resolution: null,
+          createdAt: new Date().toISOString(),
+          resolvedAt: null,
+        });
+      }
       return {
         signalLevel,
         signalMeta: undefined,
@@ -114,7 +139,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
   return null;
 }
 
-function createYieldTool(ctx: ToolContext): AgentTool {
+function createYieldTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
     description: "交棒工具——结束你的本轮行动，把行动权交给指定的参与者。接到行动权的人会被立即唤醒执行。调用前应先用 speak 输出你的结论/成果（yield 不会携带内容）。GOTCHA: yield 必须单独调用，不要与其他工具同批（同批时 terminate 不生效）。WORKFLOW: 路由规则——子任务完成时传回召唤你的海獭或工作流下一步执行者；整个任务终审才传 'user'；不能传自己。不确定在场成员时先调 get_active_participants。\n\n⚠️ yield to 'user' 反思检查点：当 to 包含 'user' 时，请先暂停想一想——为什么需要用户介入？如果你自己能处理、或有其他人应该先确认，就不要 yield 给 user。建议通过 reason 参数说明你的理由。",
@@ -154,8 +179,8 @@ function createYieldTool(ctx: ToolContext): AgentTool {
       const dispatchWarning = checkPendingDispatches(ctx, resolvedIds, recipients);
       if (dispatchWarning) return textResponse(dispatchWarning);
 
-      // F20260901sgpx P0: 信号档位解析 + HALT 权限校验
-      const { signalLevel, signalMeta, haltError } = await resolveSignalLevel(ctx, params.level as string | undefined, params.reason);
+      // F20260901sgp0 P0: 信号档位解析 + HALT 权限校验
+      const { signalLevel, signalMeta, haltError } = await resolveSignalLevel(ctx, params.level as string | undefined, params.reason, healingRepo);
       if (haltError) return errorResponse(haltError);
 
       try {
@@ -809,7 +834,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   const signalRepo = ctx.signalRepo;
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
-    createYieldTool(ctx),
+    createYieldTool(ctx, healingRepo),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx),
     createDissolveOtterTool(ctx),
