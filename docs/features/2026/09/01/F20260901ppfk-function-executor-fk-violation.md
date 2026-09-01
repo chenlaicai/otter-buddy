@@ -58,7 +58,7 @@ function executor 成功路径不走 `completeExecution`（它为 agent 会话�
 | `src/frameworks/db/scheduled-task/sqlite-scheduled-task-repository.ts` | toNullableId 归一化（''/undefined → null），createExecution 与 updateExecutionStatus 双落点 |
 | `src/usecases/scheduled-task/scheduled-task-repository.ts` | 接口类型放宽 messageId/turnId 为 `string \| null` |
 | `tests/usecases/scheduler/scheduler-service.test.ts` | 新增 `PR4: function executor 执行记账` describe：成功落 completed 且 messageId/turnId 为 NULL、不发消息不 invoke agent、函数抛错落 failed、registry 未注入抛 validation |
-| `tests/frameworks/db/scheduled-task/sqlite-scheduled-task-repository.test.ts` | 新增 2 个真库 FK 回归测试：`messageId=''` 必须抛 FOREIGN KEY（钉住 bug 条件，防未来把空串写回调用路径）；不传 messageId/turnId 干净落库 |
+| `tests/frameworks/db/scheduled-task/sqlite-scheduled-task-repository.test.ts` | 新增 3 个真库 FK 回归测试：`messageId=''` 被 repo 层归一化为 NULL 不再炸（验证防御层）；`turnId=''` 同样归一化；不传 messageId/turnId 干净落库 |
 
 ## 验证
 
