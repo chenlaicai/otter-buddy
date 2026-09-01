@@ -126,10 +126,8 @@ function HealthPage() {
     try {
       const r = await api.triggerRhiScan()
       const res = r.result as { commitCount?: number; metricsStored?: number }
-      showToast(
-        r.ok ? `扫描完成：${res.commitCount ?? 0} commits · ${res.metricsStored ?? 0} 项指标入库` : '扫描失败',
-        r.ok ? 'success' : 'error',
-      )
+      // #581：后端失败改返 500，此处只处理成功路径（失败进 catch）
+      showToast(`扫描完成：${res.commitCount ?? 0} commits · ${res.metricsStored ?? 0} 项指标入库`, 'success')
       await refresh()
     } catch (err) {
       showToast(err instanceof Error ? err.message : '扫描失败', 'error')

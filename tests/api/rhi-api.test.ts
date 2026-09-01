@@ -26,6 +26,15 @@ function makeDetailCtx(featureId: string): Parameters<RhiController["chainDetail
   } as never;
 }
 
+/** #581：断言错误路径状态码的 ctx（handleError 会调 c.get('requestId')，必须 mock） */
+function makeStatusCtx(query?: string, params?: Record<string, string>): Parameters<RhiController["overview"]>[0] {
+  return {
+    req: { query: () => query, param: (name: string) => params?.[name] },
+    get: () => undefined,
+    json: (data: unknown, status?: number) => new Response(JSON.stringify(data), { status: status ?? 200 }),
+  } as never;
+}
+
 const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc?: FeatureChain["doc"]; daysSinceLastCommit?: number | null }): FeatureChain => ({
   featureId, state, commits: [], firstSeenAt: null, lastCommitAt: null,
   daysSinceLastCommit: opts?.daysSinceLastCommit ?? null, commitCount: 2, bugfixCount: 1,
@@ -449,5 +458,73 @@ describe("RHI chains 轻量 commits（Issue #649 PR3）", () => {
 
     expect(Array.isArray(body.chains[0].commits)).toBe(true);
     expect(body.chains[0].commits).toHaveLength(0);
+  });
+});
+
+describe("RHI API 错误路径状态码（#581：废除守门人 200+error，catch 统一 5xx）", () => {
+  /** 坏 repo：所有读方法抛错，模拟依赖层故障 */
+  function badRepo(): never {
+    const boom = () => { throw new Error("db exploded"); };
+    return {
+      findLatestByMetricKey: boom,
+      findByDateRange: boom,
+      findOpen: boom,
+      findByStatus: boom,
+      findActiveOtterIds: boom,
+    } as never;
+  }
+
+  /** 坏 worker：buildChainsOnce/scanOnce 抛错 */
+  function badWorker(): RhiScanWorker {
+    const boom = async () => { throw new Error("git exploded"); };
+    return { buildChainsOnce: boom, scanOnce: boom } as unknown as RhiScanWorker;
+  }
+
+  function makeErrController(): RhiController {
+    return new RhiController(badRepo(), badRepo(), badWorker(), console as never);
+  }
+
+  it("overview 依赖抛错 → 500 + error body（非 200+error）", async () => {
+    const res = await makeErrController().overview(makeStatusCtx());
+    expect(res.status).toBe(500);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("db exploded");
+  });
+
+  it("signals 依赖抛错 → 500", async () => {
+    const res = await makeErrController().signals(makeStatusCtx("open"));
+    expect(res.status).toBe(500);
+  });
+
+  it("chains worker 抛错 → 500", async () => {
+    const res = await makeErrController().chains(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("chainDetail worker 抛错 → 500（正常 404 路径不受影响，另有用例覆盖）", async () => {
+    const res = await makeErrController().chainDetail(makeStatusCtx(undefined, { featureId: "F1" }));
+    expect(res.status).toBe(500);
+  });
+
+  it("trends 依赖抛错 → 500", async () => {
+    const res = await makeErrController().trends(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("score 依赖抛错 → 500", async () => {
+    const res = await makeErrController().score(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("costOutput 依赖抛错 → 500", async () => {
+    const res = await makeErrController().costOutput(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("scan worker 抛错 → 500（不再返回 200+ok:false）", async () => {
+    const res = await makeErrController().scan(makeStatusCtx());
+    expect(res.status).toBe(500);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("git exploded");
   });
 });
