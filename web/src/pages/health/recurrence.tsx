@@ -280,12 +280,12 @@ export function TrendSparkline({ series }: {
 // ── 信号态势卡（数字卡改造：构成分列，视觉方案 3.1）──
 
 export function SignalPostureCard({ overview, signals }: {
-  overview: { openSignalsBySeverity: { critical: number; warning: number }; openSignalsByConfidence?: { normal: number; low: number } } | null
+  overview: { openSignalsBySeverity: { critical: number; warning: number }; openSignalsByConfidence: { normal: number; low: number } } | null
   signals: RhiSignalDTO[]
 }) {
   const critical = overview?.openSignalsBySeverity.critical ?? 0
   const warning = overview?.openSignalsBySeverity.warning ?? 0
-  const low = overview?.openSignalsByConfidence?.low ?? signals.filter(s => s.confidence === 'low').length
+  const low = overview?.openSignalsByConfidence.low ?? signals.filter(s => s.confidence === 'low').length
   const recurrence = signals.filter(isRecurrenceSignal).length
   return (
     <div className="rounded-2xl bg-white/80 border border-stone-200/70 px-4 py-3">

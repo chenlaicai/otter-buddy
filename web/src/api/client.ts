@@ -467,7 +467,7 @@ export interface RhiOverviewDTO {
   openSignals: number
   openSignalsBySeverity: { critical: number; warning: number }
   /** Issue #652 方案甲：low（大概率误报）不计入 bySeverity，单列于此——折叠抽屉计数 */
-  openSignalsByConfidence?: { normal: number; low: number }
+  openSignalsByConfidence: { normal: number; low: number }
 }
 
 export interface RhiTrendPointDTO {
