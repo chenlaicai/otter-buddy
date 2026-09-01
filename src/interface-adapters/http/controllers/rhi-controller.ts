@@ -17,6 +17,8 @@ import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/health-score";
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
+import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
+import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density";
 
 const STALLED_DAYS = 14;
 const ZOMBIE_DAYS = 30;
@@ -39,7 +41,7 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   eval_regression: '效果回退',
   intent_drop: '意图兑现率下降',
   hotspot_imbalance: '热区失衡',
-  review_debt: '审视债务',
+  post_merge_fix_density: '合并后修复密度',
 };
 
 /** 特性链五态人话解释（基于 chain-builder.ts 五态判定规则） */
@@ -286,11 +288,9 @@ export class RhiController {
       }
 
       const openSignals = this.signalRepo.findOpen();
-      const bySeverity = { critical: 0, warning: 0 };
-      for (const s of openSignals) {
-        if (s.severity === "critical") bySeverity.critical++;
-        else bySeverity.warning++;
-      }
+      // Issue #652 方案甲：low 不进 severity 计数（数字与视觉折叠一致），单列
+      // byConfidence 供低置信抽屉——口径单一真相源 signal-counts.ts（worker D5 同源）
+      const { bySeverity, byConfidence } = aggregateOpenSignalCounts(openSignals);
 
       const latestSnapshotDate = this.snapshotRepo.findLatestByMetricKey("total_commits")?.snapshot_date ?? null;
 
@@ -299,6 +299,7 @@ export class RhiController {
         snapshotDate: latestSnapshotDate,
         openSignals: openSignals.length,
         openSignalsBySeverity: bySeverity,
+        openSignalsByConfidence: byConfidence,
       });
     } catch (err) {
       this.logger.error("RHI overview failed", err instanceof Error ? err : undefined);
@@ -352,6 +353,9 @@ export class RhiController {
         })),
         stateCounts,
         total: chains.length,
+        // Issue #647：高扇入排除清单常驻可见（验收项：不黑箱）——
+        // 与 post_merge_fix_density 信号同源同阈值，见 post-merge-fix-density.ts
+        fanInExcludedFiles: computeFanInExclusions(chains),
       });
     } catch (err) {
       this.logger.error("RHI chains failed", err instanceof Error ? err : undefined);
