@@ -1,14 +1,14 @@
 ---
 id: F20260901chun
 title: IM 通道统一整合：微信/飞书归一 + 真实健康状态
-summary: 将《连接》（IM 大厅）与《微信》两个目录整合为统一「通道」页；通道状态从静态档案显示改为轮询层实时上报的探活状态，消除"token 已死 UI 仍显示已连接"的失真；飞书侧暴露长连接状态。
+summary: 将《连接》（IM 大厅）与《微信》两个目录整合为统一「IM」页；通道状态从静态档案显示改为轮询层实时上报的探活状态，消除"token 已死 UI 仍显示已连接"的失真；飞书侧暴露长连接状态。
 change_type: feature
 created_in_conversation: 479d3c9a-19c7-468e-a7b6-ec29c3a42c81
 capability_test: "n/a: 纯方案设计文档，无 LLM 行为变更；实现阶段的 capability_test 由实现 PR 声明"
 tags: [im, weixin, feishu, channel, health, status, ui, refactor]
 modules:
   - api-contract/web/pages.ts
-  - web/src/pages/channels/
+  - web/src/pages/im/
   - web/src/components/weixin/
   - web/src/api/client.ts
   - src/usecases/channel/
@@ -22,6 +22,9 @@ modules:
 ---
 
 # IM 通道统一整合：微信/飞书归一 + 真实健康状态
+
+> **命名决策（搭档 2026-09-11:56 拍板）**：「名字用 IM，不用通道」。
+> UI 可见面（TopBar label、页面标题、路由）统一用「IM」；代码层标识符（ChannelStatusRegistry、channelId、ChannelKind）保留 channel——技术概念准确（每通道一个实例），不影响用户可见文案。
 
 ## 背景
 
@@ -41,15 +44,15 @@ modules:
 
 ## 目标
 
-T1: **统一通道页**：《连接》+《微信》整合为单一「通道」页，每个通道（飞书/微信）一张卡片，统一三件套——接入引导（扫码/凭证）、真实健康状态、账号管理。
+T1: **统一 IM 页**：《连接》+《微信》整合为单一「IM」页，每个通道（飞书/微信）一张卡片，统一三件套——接入引导（扫码/凭证）、真实健康状态、账号管理。
 T2: **真实健康状态**：通道卡片显示的状态来自运行时探活上报（轮询层状态），token 失效立即变"token 失效，重新扫码"，不再有静态"已连接"假象。
-T3: **通道状态可编程获取**：后端暴露 `/api/channels/status` 聚合端点，为通道页及未来接入 RHI 健康面板留出统一接口。
+T3: **通道状态可编程获取**：后端暴露 `/api/channels/status` 聚合端点，为 IM 页及未来接入 RHI 健康面板留出统一接口。
 T4: **飞书长连接状态外显**：飞书侧复用已有 WSClient 回调数据（long-connection-client.ts:70-87，4 个回调 onReady/onError/onReconnecting/onReconnected，connectionState/reconnectAttempts 已组装但只打日志），在通道卡片显示 WS 连接状态与重连计数。
-T5: **导航收敛**：TopBar 从 8 项收敛为 7 项（连接+微信→通道），《连接》页全部功能平移进通道页（见方案设计·页面结构）。
+T5: **导航收敛**：TopBar 从 8 项收敛为 7 项（连接+微信→IM），《连接》页全部功能平移进 IM 页（见方案设计·页面结构）。
 
 ## 非目标
 
-- **不重做 IM 大厅**：《连接》页的对话会话功能（enter/leave/列表）保留原样，仅平移为「通道」页内的一张卡片。理由：那套功能与通道管理正交，重做扩大爆炸半径。
+- **不重做 IM 大厅**：《连接》页的对话会话功能（enter/leave/列表）保留原样，仅平移为「IM」页内的一张卡片。理由：那套功能与通道管理正交，重做扩大爆炸半径。
 - **不实现飞书扫码**：协议上不存在（飞书机器人是企业自建应用模型——管理员在开放平台建应用、拿 app_id/app_secret、配事件订阅，全是管理端操作，协议上不存在"用户扫码给 bot 授权"路径；飞书 OAuth 扫码是给人登录第三方网站用的，不是 bot 建连）。
 - **不改协议层**：ilink 协议、轮询语义、重试/退避策略保持现状。本方案只读状态、不写协议。
 - **不接入 RHI 评分**：仅留接口（T3 留口），不把通道健康计入 RHI 五维评分——那需要单独定义评分口径，另起方案。
@@ -58,18 +61,18 @@ T5: **导航收敛**：TopBar 从 8 项收敛为 7 项（连接+微信→通道�
 
 ## 方案设计
 
-### 整体形态：统一「通道」页
+### 整体形态：统一「IM」页
 
 ```
-TopBar: 对话 · 记忆搜索 · 能力库 · 通道 · 健康面板 · 设置
-                                        ↑ 新（连接+微信 合并）
+TopBar: 对话 · 记忆搜索 · 能力库 · IM · 健康面板 · 设置
+                                    ↑ 新（连接+微信 合并，命名搭档拍板）
 ```
 
-页面结构（`/channels`，MPA 入口）：
+页面结构（`/im`，MPA 入口）：
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ 通道总览（状态来自 /api/channels/status）        │
+│ IM 总览（状态来自 /api/channels/status）         │
 ├─────────────────────────────────────────────────┤
 │ ┌─────────────────────────────────────────────┐ │
 │ │ 微信                  ● 运行中              │ │
@@ -82,7 +85,7 @@ TopBar: 对话 · 记忆搜索 · 能力库 · 通道 · 健康面板 · 设置
 │ │ [连接测试] [如何配置？]                       │ │
 │ └─────────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────────┐ │
-│ │ 会话大厅（原《连接》页功能平移）              │ │
+│ │ IM 大厅（原《连接》页功能平移）              │ │
 │ │ 进入对话 · 离开对话 · 会话列表                │ │
 │ └─────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────┘
@@ -139,9 +142,9 @@ interface ChannelStatusEntry {
 
 鉴权沿用现状（内网 MPA API 无鉴权，与 /api/weixin/accounts 同口径）。
 
-**新增状态字段消费方声明（issue #379 ⑥）**：本方案不新增数据库 schema 字段（registry 纯内存）；`/api/channels/status` 端点的消费方为 ① 通道页（5s 轮询）② 未来 RHI 通道健康维度（接口预留，本方案不实现评分）。
+**新增状态字段消费方声明（issue #379 ⑥）**：本方案不新增数据库 schema 字段（registry 纯内存）；`/api/channels/status` 端点的消费方为 ① IM 页（5s 轮询）② 未来 RHI 通道健康维度（接口预留，本方案不实现评分）。
 
-**静态账号数据与运行态合并**：通道页需同时展示"有哪些账号"（静态，account-store）与"状态"（运行时，registry）。合并点在 channel-controller：`accountStore.listAccounts()` 逐个 leftJoin registry 条目——有运行条目用运行态；无条目（服务刚重启、轮询未起）显示"未运行"（灰色）。token 死没死一眼可见。
+**静态账号数据与运行态合并**：IM 页需同时展示"有哪些账号"（静态，account-store）与"状态"（运行时，registry）。合并点在 channel-controller：`accountStore.listAccounts()` 逐个 leftJoin registry 条目——有运行条目用运行态；无条目（服务刚重启、轮询未起）显示"未运行"（灰色）。token 死没死一眼可见。
 
 ### 状态语义判别表
 
@@ -158,16 +161,16 @@ interface ChannelStatusEntry {
 
 **-14 不细分"过期 vs 被顶"**：协议上 -14 是"session timeout"统称，本地无法区分。统一显示"token 失效，重新扫码"，原始 errmsg 存 registry 备查。
 
-### UI 层：channels 页面
+### UI 层：IM 页面（/im）
 
-**新建 `web/src/pages/channels/index.tsx`**（入口 channels.html，pages.ts 加 entry）：
+**新建 `web/src/pages/im/index.tsx`**（入口 im.html，pages.ts 加 entry）：
 
 - **微信卡片**：通道级状态徽标 + 已连接账号列表（含每账号状态）+ 扫码登录入口（QRCodeLoginCard 组件）+ 删除账号。
 - **飞书卡片**：凭证状态（读后端——有 appId 即"已配置"，显示掩码；无则"未配置"+ 引导文案与开放平台外链）+ WS 状态 + 「连接测试」按钮（后端调一次 feishu token 接口验证凭证，结果 toast）。
 - **会话大厅卡片**：平移原《连接》页的 enter/leave/会话列表（组件级平移，功能不变）。
 - 状态轮询：5s 轮询 /api/channels/status（与 health 页刷新节奏一致）。5s 够用：token 失效不需要亚秒级感知。
 
-**导航**：pages.ts 的 MPA_PAGES 删 connections + weixin 两项、加 channels 一项（位置在「健康面板」前）。vite.config / server.ts / TopBar / 路由测试 4 处自动同步（F20260827mpss 单一真相源）。旧 URL `/connections`、`/weixin` 在 server.ts 静态路由层 301 到 `/channels`，防外链断裂。
+**导航**：pages.ts 的 MPA_PAGES 删 connections + weixin 两项、加 im 一项（entry `im`，pattern `/im`，label `IM`，位置在「健康面板」前）。vite.config / server.ts / TopBar / 路由测试 4 处自动同步（F20260827mpss 单一真相源）。旧 URL `/connections`、`/weixin` 在 server.ts 静态路由层 301 到 `/im`，防外链断裂。
 
 **旧页面处置（方案 A，见取舍）**：删除 web/src/pages/connections/ + weixin/ 目录，功能全部平移。微信扫码区域抽为独立组件 `web/src/components/weixin/QRCodeLoginCard.tsx` 复用。
 
@@ -176,7 +179,7 @@ interface ChannelStatusEntry {
 ```
 WeixinPollingChannel.loop() ──┐
   (5 状态节点 + start/stop)    │
-FeishuLongConnectionClient ───┼─▶ ChannelStatusRegistry ─▶ GET /api/channels/status ─▶ channels 页 5s 轮询
+FeishuLongConnectionClient ───┼─▶ ChannelStatusRegistry ─▶ GET /api/channels/status ─▶ IM 页 5s 轮询
   (WS 回调)                    │       (usecases/channel/)
 stopStalePollersForUser ──────┘       bootstrap 注入单例
 ```
@@ -193,14 +196,14 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 | frameworks/feishu | long-connection-client.ts | 改 | WS 回调写 registry（connectionState/reconnectAttempts → running/error_backoff 映射） |
 | bootstrap | platforms.ts | 改 | 建 registry 单例并注入 weixin/feishu 启动链；startWeixinAccount 拉起先写 starting |
 | bootstrap | controllers.ts | 改 | 组装 ChannelController（registry + accountStore + feishu 配置读取） |
-| bootstrap | server.ts | 改 | /connections /weixin 旧 URL 301 |
+| bootstrap | server.ts | 改 | /connections /weixin 旧 URL 301 → /im |
 | interface-adapters | http/controllers/channel-controller.ts | 新 | GET /api/channels/status 聚合（registry + accountStore leftJoin） |
 | interface-adapters | http/router.ts | 改 | 注册新路由 |
-| web | channels.html + src/pages/channels/index.tsx | 新 | 统一通道页 |
+| web | im.html + src/pages/im/index.tsx | 新 | 统一 IM 页 |
 | web | src/components/weixin/QRCodeLoginCard.tsx | 新 | 扫码登录卡片（从 weixin 页抽出） |
 | web | src/pages/weixin/ + connections/ | 删 | 功能平移后删除（方案 A） |
 | web | src/api/client.ts | 改 | getChannelStatus() 封装 |
-| contract | api-contract/web/pages.ts | 改 | MPA_PAGES：-connections -weixin +channels |
+| contract | api-contract/web/pages.ts | 改 | MPA_PAGES：-connections -weixin +im |
 
 **依赖方向**：registry 类型定义在 usecases 层，frameworks 层构造注入使用（同现有 Logger 端口模式，frameworks → usecases 合规）；channel-controller 依赖 usecases 类型（同现有 controller 模式），无分层违规。
 
@@ -214,11 +217,11 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 
 ## 影响范围
 
-- **用户可见**：TopBar 导航变化（连接+微信 → 通道）；旧 URL 301；微信状态从"永远已连接"变为真实状态。
+- **用户可见**：TopBar 导航变化（连接+微信 → IM）；旧 URL 301；微信状态从"永远已连接"变为真实状态。
 - **/api/weixin/*、/api/connections/***：不动，扫码与会话功能无回归风险。
 - **polling-channel.ts**：新增上报调用（纯副作用追加，不改变循环语义与退避策略）；现有 7 例 polling 测试应全绿。
 - **feishu long-connection-client.ts**：追加写 registry（不改变连接行为）。
-- **删除两个旧页面**：channels 页承接全部功能；唯一不可逆点是旧 URL 依赖（已用 301 兜底）。
+- **删除两个旧页面**：IM 页承接全部功能；唯一不可逆点是旧 URL 依赖（已用 301 兜底）。
 
 ## 风险与约束
 
@@ -246,7 +249,7 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 | 状态获取方式 | 5s HTTP 轮询 | SSE/WS 推送 | token 失效无需亚秒感知；本方案不引入新推送机制（复杂度不匹配收益） |
 | 飞书凭证 UI 编辑 | 不做，保持 config.yaml | UI 表单编辑 | 低频管理操作，UI 化收益低；app_secret 表单落库涉及安全设计，另案处理 |
 | token 失效细分 | 不区分"过期 vs 被顶" | 本地检测被顶 | 协议无区分语义（-14 统称 session timeout）；检测成本高且不可靠 |
-| 会话大厅形态 | 通道页内卡片 | 保留连接页独立入口 | 搭档原话"整合一下（比如当前是 连接+微信 两个目录）"指向目录整合，保留独立入口与初衷相悖 |
+| 会话大厅形态 | IM 页内卡片 | 保留连接页独立入口 | 搭档原话"整合一下（比如当前是 连接+微信 两个目录）"指向目录整合，保留独立入口与初衷相悖 |
 | 页面结构 | 单页纵向 3 卡片 | Tab 切换 | 3 卡片信息量小，滚动即可；与 health 页卡片风格一致 |
 
 ## 审视决策史（第一轮，检视獭-通道整合 mimo，2026-09-01）
@@ -265,7 +268,7 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 
 ### 验收标准
 
-1. TopBar 显示「通道」，不再显示「连接」「微信」；旧 URL /connections、/weixin 301 → /channels。
+1. TopBar 显示「IM」，不再显示「连接」「微信」；旧 URL /connections、/weixin 301 → /im。
 2. 微信 token 正常时显示「● 运行中」；token 失效（-14）后 ≤5s 页面显示「🔴 token 失效，重新扫码」（原状：永远显示已连接）。
 3. token_stale 后点「重新扫码」，登录成功状态转回 running（#638 热启动 + registry 更新联动）。
 4. 飞书无凭证显示「未配置」+ 引导；有凭证显示 WS 状态 + 重连数；「连接测试」可验证凭证有效性。
@@ -284,8 +287,8 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 | 文件 | 操作 | 说明 |
 |---|---|---|
 | api-contract/web/pages.ts | 改 | MPA_PAGES 增删 |
-| web/channels.html | 新 | 页面入口 |
-| web/src/pages/channels/index.tsx | 新 | 统一通道页（微信+飞书+会话大厅 3 卡片） |
+| web/im.html | 新 | 页面入口 |
+| web/src/pages/im/index.tsx | 新 | 统一 IM 页（微信+飞书+会话大厅 3 卡片） |
 | web/src/components/weixin/QRCodeLoginCard.tsx | 新 | 扫码登录卡片组件（自 weixin 页抽出） |
 | web/src/pages/weixin/ | 删 | 功能平移后删除 |
 | web/src/pages/connections/ | 删 | 功能平移后删除 |
