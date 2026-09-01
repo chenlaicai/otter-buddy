@@ -26,6 +26,7 @@ modules: [src/bootstrap/platforms.ts, src/app.ts]
    - 非法 YAML（load 得 null）不覆盖文件——loadConfig 已在启动时把关
 2. **`src/app.ts` — 登录成功回调**：`ensureWeixinConfig({ configPath: options.configPath, ... })` 显式传 buildApp 的 configPath（测试注入的临时路径），生产缺省走函数内默认（与读入同源）
 3. **`src/bootstrap/platforms.ts` — `startWeixinChannels`**：config 无 weixin 段时不再静默 return——用默认 stateDir 列账号，**有账号则 warn + 降级拉起轮询**（默认段：默认网关 + partnerUserId 未配置）。安全性论证：PartnerResolver 未配置时不拦截命令（降级语义），消息收发不受影响；web 登录流程本身不依赖 config weixin 段（F20260829wxui 零配置设计），降级启动与热启动路径使用同一默认段，行为一致。
+4. **`src/app.ts` + `src/frameworks/weixin/polling-channel.ts` — 重新扫码后回收僵尸轮询**（搭档追问发现，并入本 PR）：账号 id 每次扫码新生成（`weixin-<时间戳>`），重新扫码成功后旧账号轮询若在 -14 的 1h 暂停 sleep 里，无人 stop 它——每小时醒一次吃 -14 再睡回去，直到重启才消失。修复：`WeixinPollingChannel` 暴露 `ilinkUserId`（`setIdentity` 由装配层调用，对齐 #566 暴露 accountId 的模式）；onSuccess 拉起新轮询前 `stopStalePollersForUser(ilinkUserId)` 回收两个池（冷启动 + 热启动）里的同扫码人旧轮询——sleep 监听 abort，stop 即醒即退。扫码即恢复，无需等满 1h。
 
 ## 判别表（运维速查）
 
@@ -39,6 +40,7 @@ modules: [src/bootstrap/platforms.ts, src/app.ts]
 ## 验证
 
 - 新增 `tests/bootstrap/weixin-cold-start.test.ts` 5 例：注释保留追加 / 幂等不写 / 双字段顶层缩进 / 文件不存在 warn 不抛 / 零配置无账号不误报
+- 修复 4 新增 `tests/frameworks/weixin/polling-channel.test.ts` 2 例：setIdentity 暴露 ilinkUserId（accountId 语义不回归）/ -14 暂停中 stop 立即唤醒退出（getUpdates 恰好 1 次，僵尸循环消失）
 - 受影响面全绿：bootstrap + frameworks/weixin + interface-adapters/weixin + usecases/im 共 171 例；build-app 组装根 6 例
 - tsc --noEmit 通过；eslint 通过
 - **最简实现检查**：已过——修 1/2 只改函数体不动签名；修 3 复用既有 `startWeixinAccount` 装配（传空段），未新增抽象层

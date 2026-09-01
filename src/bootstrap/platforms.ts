@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- bootstrap file: init all platforms, legitimately >450 lines */
 import type { AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
@@ -408,6 +407,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         onMessage: (msg) => processor.process(msg),
         logger,
       });
+      poller.setIdentity(account.ilinkUserId);
       poller.start();
       logger.info("Weixin polling channel started", { accountId: account.id, ilinkUserId: account.ilinkUserId });
       return poller;
