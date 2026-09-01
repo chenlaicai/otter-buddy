@@ -24,6 +24,15 @@ export interface WeixinAccount {
   addedAt: string;
 }
 
+/** context_token 条目 v2 格式（F20260901wxnt：token 年龄追踪 + 预警状态） */
+export interface ContextTokenEntry {
+  token: string;
+  /** 该 token 落盘时刻（= 最近一条入站消息到达时刻） */
+  receivedAt: number;
+  /** 最近一次预警发送尝试时刻（无论成败都记——防死 token 每 35s 被重锤） */
+  warnedAt?: number;
+}
+
 export class WeixinAccountStore {
   private readonly stateDir: string;
 
@@ -83,13 +92,47 @@ export class WeixinAccountStore {
 
   // ── context_token 映射（对端 → token）──
 
-  loadContextTokens(accountId: string): Record<string, string> {
-    return (this.safeRead(path.join(this.stateDir, accountId, "context-tokens.json")) ?? {}) as Record<string, string>;
+  /** raw 层：返回 v2 完整结构（消费方：预警检查 + save/record 的 load-modify-save 基座） */
+  loadRawContextTokens(accountId: string): Record<string, ContextTokenEntry> {
+    const raw = (this.safeRead(path.join(this.stateDir, accountId, "context-tokens.json")) ?? {}) as Record<string, unknown>;
+    const result: Record<string, ContextTokenEntry> = {};
+    for (const [userId, value] of Object.entries(raw)) {
+      if (typeof value === "string") {
+        // Why: v1 兼容——值为字符串时用文件 mtime 回填 receivedAt（mtime 是「最近一次 token 落盘」的可靠代理）
+        const filePath = path.join(this.stateDir, accountId, "context-tokens.json");
+        let mtime = Date.now();
+        try { mtime = fs.statSync(filePath).mtimeMs; } catch { /* 文件不存在用 now */ }
+        result[userId] = { token: value, receivedAt: mtime };
+      } else if (value && typeof value === "object" && "token" in value) {
+        result[userId] = value as ContextTokenEntry;
+      }
+    }
+    return result;
   }
 
+  /** 投影层：对外签名不变（消费方：gateway adapter resolveContextToken，零改动） */
+  loadContextTokens(accountId: string): Record<string, string> {
+    const raw = this.loadRawContextTokens(accountId);
+    const projected: Record<string, string> = {};
+    for (const [userId, entry] of Object.entries(raw)) {
+      projected[userId] = entry.token;
+    }
+    return projected;
+  }
+
+  /** 写入 token v2 条目（receivedAt=now + 清除 warnedAt——入站换新 = 用户说话 = 预警使命完成） */
   saveContextToken(accountId: string, userId: string, token: string): void {
-    const tokens = this.loadContextTokens(accountId);
-    tokens[userId] = token;
+    const tokens = this.loadRawContextTokens(accountId);
+    tokens[userId] = { token, receivedAt: Date.now() };
+    // Why: 走 raw load-modify-save 而非投影 map——保留其他用户的 v2 元数据
+    this.safeWrite(path.join(this.stateDir, accountId, "context-tokens.json"), tokens);
+  }
+
+  /** 记录预警发送时刻（无论成败都记——防死 token 被重锤） */
+  recordContextTokenWarned(accountId: string, userId: string): void {
+    const tokens = this.loadRawContextTokens(accountId);
+    if (!tokens[userId]) return; // 无条目则忽略（理论上不会发生）
+    tokens[userId].warnedAt = Date.now();
     this.safeWrite(path.join(this.stateDir, accountId, "context-tokens.json"), tokens);
   }
 

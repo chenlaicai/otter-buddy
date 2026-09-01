@@ -110,6 +110,10 @@ export interface AppConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁锚定，同 feishu.partnerOpenId 语义） */
     partnerUserId?: string;
+    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt，默认 60；显式 0 关闭） */
+    contextTokenWarnMinutes?: number;
+    /** 同一用户两次预警最小间隔（分钟，默认 60；显式 0 关闭） */
+    contextTokenWarnCooldownMinutes?: number;
   };
   inbound?: {
     recruiting?: {
@@ -244,6 +248,10 @@ interface RawConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁，同 feishu.partnerOpenId 语义） */
     partnerUserId?: string;
+    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt） */
+    contextTokenWarnMinutes?: number;
+    /** 同一用户两次预警最小间隔（分钟） */
+    contextTokenWarnCooldownMinutes?: number;
   };
   inbound?: {
     recruiting?: {
@@ -382,12 +390,16 @@ function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
 function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   const seg = raw.weixin ?? {};
   // 三字段全空 → 未启用；任一有值 → 给出完整默认（baseUrl/stateDir 有内置缺省）
+  // Why: contextTokenWarn* 不参与启用判定——它们是已有 weixin 段的可选配置，
+  // 单独配 warn 参数但不配 baseUrl/stateDir/partnerUserId 不应触发微信通道启动
   const anyConfigured = Boolean(seg.baseUrl || seg.stateDir || seg.partnerUserId);
   if (!anyConfigured) return undefined;
   return {
     baseUrl: seg.baseUrl?.trim() || "https://ilinkai.weixin.qq.com",
     stateDir: seg.stateDir?.trim() || "./data/weixin",
     partnerUserId: seg.partnerUserId?.trim() || undefined,
+    contextTokenWarnMinutes: seg.contextTokenWarnMinutes,
+    contextTokenWarnCooldownMinutes: seg.contextTokenWarnCooldownMinutes,
   };
 }
 
