@@ -10,6 +10,7 @@ import type { ManageSession } from '@usecases/otter/manage-session';
 import { DomainError } from '@entities/errors';
 import type { Logger } from '@usecases/ports/logger';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
+import { FunctionRegistry } from '@usecases/paper-trading/function-registry';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
 
@@ -2177,5 +2178,81 @@ describe('#642: 链看门狗 429 判死', () => {
     // 故返回值断言已能区分两种实现，无需断言调用参数）
     const isStuck = await (service as any).isChainStuckOn429('anchor-msg');
     expect(isStuck).toBe(true);
+  });
+});
+
+// ─── F20260901schf: function executor 成功路径记账修复 ───
+
+describe('F20260901schf: function executor 成功路径记账', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function buildFunctionTask() {
+    return makeTask({
+      executorType: 'function',
+      functionName: 'match_orders',
+      body: '{}',
+    });
+  }
+
+  function buildFunctionRegistry() {
+    const registry = new FunctionRegistry();
+    registry.register('match_orders', async () => ({ matched: 2 }));
+    return registry;
+  }
+
+  it('成功后 execution 记 completed，messageId=null（不再传空串触发 FK 炸）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T15:05:00.000Z'));
+
+    taskRepo._store.set('task-1', buildFunctionTask());
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      functionRegistry: buildFunctionRegistry(),
+    });
+
+    const { executionId } = await (service as any).triggerTask(buildFunctionTask());
+
+    // 记账断言：completed + messageId=null（修复前传 '' 触发 message_id FK 炸）
+    const execution = taskRepo._executions.get(executionId) as Record<string, unknown>;
+    expect(execution.status).toBe('completed');
+    expect(execution.messageId).toBeNull();
+    expect(taskRepo._getResetCallCount()).toBe(1);
+  });
+
+  it('LLM executor 路径不受影响：completeExecution 仍传 anchor message.id', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2026-09-01T15:30:00.000Z'));
+
+    const agentTask = makeTask({});
+    taskRepo._store.set('task-1', agentTask);
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendMessage: createMockSendMessage() as unknown as SendMessage,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+    });
+
+    const { executionId } = await (service as any).triggerTask(agentTask);
+
+    const execution = taskRepo._executions.get(executionId) as Record<string, unknown>;
+    expect(execution.status).toBe('completed');
+    expect(execution.messageId).toBe('msg-1');
   });
 });

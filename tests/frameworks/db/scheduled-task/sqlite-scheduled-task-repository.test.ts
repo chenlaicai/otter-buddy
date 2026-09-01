@@ -409,6 +409,37 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
       expect(results[0].status).toBe("failed");
       expect(results[0].errorMessage).toBe("执行超时");
     });
+
+    // F20260901schf: function executor 成功路径曾传 messageId=''
+    // 空串非 null 穿透 ?? 链写入 message_id，被 FK（REFERENCES messages）拒绝后整笔回滚
+    it("messageId 传空串时归一化为 null，不触发 FOREIGN KEY 炸（F20260901schf）", async () => {
+      await repo.create(createTaskFixture());
+      await repo.createExecution(createExecutionFixture());
+
+      await expect(repo.updateExecutionStatus("exec-1", {
+        status: "completed",
+        completedAt: "2026-09-01T15:05:30.000Z",
+        messageId: "",
+      })).resolves.toBeUndefined();
+
+      const results = await repo.getExecutions("task-1");
+      expect(results[0].status).toBe("completed");
+      expect(results[0].messageId).toBeNull();
+    });
+
+    it("turnId 传空串同样归一化为 null（防御性，与 messageId 同源问题）", async () => {
+      await repo.create(createTaskFixture());
+      await repo.createExecution(createExecutionFixture());
+
+      await expect(repo.updateExecutionStatus("exec-1", {
+        status: "completed",
+        completedAt: "2026-09-01T15:05:30.000Z",
+        turnId: "",
+      })).resolves.toBeUndefined();
+
+      const results = await repo.getExecutions("task-1");
+      expect(results[0].turnId).toBeNull();
+    });
   });
 });
 

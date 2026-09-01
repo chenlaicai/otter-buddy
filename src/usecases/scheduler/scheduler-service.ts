@@ -434,7 +434,7 @@ export class SchedulerService {
           // 执行函数
           const result = await this.functionRegistry.execute(task.functionName, params);
 
-          await this.completeExecution(executionId, task.conversationId, '');
+          await this.completeExecution(executionId, task.conversationId, null);
           try {
             await this.taskRepo.resetConsecutiveFailures(task.id, now);
           } catch (resetErr) {
@@ -792,7 +792,8 @@ export class SchedulerService {
     return out;
   }
 
-  private async completeExecution(executionId: string, conversationId: string, messageId: string): Promise<void> {
+  /** messageId 为 null：function executor 无消息（PR4）；LLM executor 传 anchor 消息 id */
+  private async completeExecution(executionId: string, conversationId: string, messageId: string | null): Promise<void> {
     const activeTurn = await this.convRepo.getActiveTurn(conversationId);
     await this.taskRepo.updateExecutionStatus(executionId, {
       status: 'completed',
