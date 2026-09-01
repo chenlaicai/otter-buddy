@@ -15,14 +15,14 @@ function commit(sha: string, daysAgo: number, message: string, files: string[]):
   return { sha, date: dayAgo(daysAgo), message, parsed: parseCommit(sha, message), filesChanged: files };
 }
 
-function healingEvent(id: string, errorType: string): CollectedHealingEvent {
+function healingEvent(id: string, errorType: string, createdDaysAgo = 1): CollectedHealingEvent {
   return {
     id,
     errorType,
     severity: "low",
     status: "open",
     introducedByPr: null,
-    createdAt: dayAgo(1),
+    createdAt: dayAgo(createdDaysAgo),
     resolvedAt: null,
   };
 }
@@ -348,4 +348,134 @@ describe("Issue #644：结构化证据 + 置信度", () => {
     expect(stall!.confidence).toBe("normal"); // zombie 不降置信
     expect(stall!.evidence).toContain("僵尸");
   });
+});
+
+describe("Issue #645：僵尸链阶梯", () => {
+  function zombieFixture(fid: string, commitDaysAgo: number, docCreatedDaysAgo: number) {
+    const commits = [commit("s1", commitDaysAgo, `[${fid}][agent][New Feature] x`, ["a.ts"])];
+    const docs = [{
+      id: fid, title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: `docs/features/${fid}.md`, createdAt: dayAgo(docCreatedDaysAgo), createdInConversationId: null,
+    }];
+    const fidMentionCounts = new Map([[fid, 0]]);
+    const chains = buildFeatureChains(commits, docs, { now: NOW, fidMentionCounts });
+    expect(chains[0]!.state).toBe("zombie");
+    return detectSignals(commits, chains, [], { now: NOW }).find(s => s.type === "chain_stall")!;
+  }
+
+  it("30-60 天黄档：severity 降为 warning，suggestedAction=观察", () => {
+    const stall = zombieFixture("F20260801warn", 35, 40);
+    expect(stall.severity).toBe("warning");
+    expect(stall.evidence).toContain("黄档");
+    expect(stall.evidence).toContain("35 天");
+    expect(stall.suggestedAction).toContain("观察");
+    expect(stall.confidence).toBe("normal"); // #644 语义不变：zombie 不降置信
+  });
+
+  it("边界：恰好 30 天进黄档（isZombie 的 zombieDays 默认 30 已拦 <30）", () => {
+    const stall = zombieFixture("F20260801bt33", 30, 40);
+    expect(stall.severity).toBe("warning");
+    expect(stall.evidence).toContain("黄档");
+  });
+
+  it("60-90 天红档：critical + 强制复盘 action（恰好 60 天进红档）", () => {
+    const stall = zombieFixture("F20260801red6", 60, 70);
+    expect(stall.severity).toBe("critical");
+    expect(stall.evidence).toContain("红档");
+    expect(stall.evidence).toContain("60 天");
+    expect(stall.suggestedAction).toContain("链复盘");
+  });
+
+  it("≥90 天归档档：critical + evidence 建议归档 + suggestedAction 指向归档动作（消费者拿得起）", () => {
+    const stall = zombieFixture("F20260801arc9", 95, 100);
+    expect(stall.severity).toBe("critical");
+    expect(stall.evidence).toContain("归档");
+    expect(stall.evidence).toContain("95 天");
+    expect(stall.suggestedAction).toContain("归档 issue");
+    expect(stall.suggestedAction).toContain("archived");
+  });
+
+  it("stalled 分支不受阶梯影响：仍 critical + 规则甲置信（14 天滞留）", () => {
+    const commits = [commit("s1", 20, "[F20260801staz][agent][New Feature] x", ["a.ts"])];
+    const docs = [{
+      id: "F20260801staz", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    expect(chains[0]!.state).toBe("stalled");
+    const stall = detectSignals(commits, chains, [], { now: NOW }).find(s => s.type === "chain_stall")!;
+    expect(stall.severity).toBe("critical"); // 注册表默认，阶梯只作用于 zombie
+    expect(stall.evidence).not.toContain("黄档");
+    expect(stall.confidence).toBe("low"); // stalled ∧ 有 commit → low
+  });
+});
+
+describe("Issue #645：behavior_defect 窗口化", () => {
+  it("behavior_defect 窗口化（Issue #645）：7 天外的旧事件不抬计数，聚合按时间排序", () => {
+    // 老实现（全量聚合）：5 次会触发且证据无窗口；新实现：窗口内只有 3 次仍触发但计数为 3
+    const events = [
+      healingEvent("old1", "degenerate", 8),  // 窗口外
+      healingEvent("old2", "degenerate", 10), // 窗口外
+      healingEvent("w1", "degenerate", 6),
+      healingEvent("w2", "degenerate", 3),
+      healingEvent("w3", "degenerate", 1),
+    ];
+    const signals = detectSignals([], [], events, { now: NOW });
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    expect(bd!.evidence).toContain("7 天内复发 3 次"); // 不含窗口外事件
+    expect(bd!.evidence).toContain("阈值 3");
+    // 日期范围：窗口内最早 ~ 最晚
+    expect(bd!.evidence).toContain(dayAgo(6).slice(0, 10));
+    expect(bd!.evidence).toContain(dayAgo(1).slice(0, 10));
+  });
+
+  it("behavior_defect 窗口化：全量超阈值但窗口内不足 → 不触发（窗口化语义核心差异）", () => {
+    // degenerate 57 次/12 天场景的微缩：总量大但近 7 天只有 2 次 → 不再永久占用警报位
+    const events = [
+      ...Array.from({ length: 10 }, (_, i) => healingEvent(`h${i}`, "degenerate", 8 + i)),
+      healingEvent("r1", "degenerate", 3),
+      healingEvent("r2", "degenerate", 1),
+    ];
+    const signals = detectSignals([], [], events, { now: NOW });
+    expect(signals.find(s => s.type === "behavior_defect")).toBeUndefined();
+  });
+
+  it("behavior_defect 阈值边界：恰好 3 次触发，2 次不触发（空窗口同不触发）", () => {
+    const two = [
+      healingEvent("a", "tool_failure"),
+      healingEvent("b", "tool_failure"),
+    ];
+    expect(detectSignals([], [], two, { now: NOW }).find(s => s.type === "behavior_defect")).toBeUndefined();
+
+    const three = [
+      healingEvent("a", "tool_failure", 5),
+      healingEvent("b", "tool_failure", 3),
+      healingEvent("c", "tool_failure", 1),
+    ];
+    expect(detectSignals([], [], three, { now: NOW }).find(s => s.type === "behavior_defect")).toBeDefined();
+
+    // 空窗口：无任何事件
+    expect(detectSignals([], [], [], { now: NOW }).find(s => s.type === "behavior_defect")).toBeUndefined();
+  });
+
+  it("behavior_defect：behaviorWindowDays/behaviorThreshold 参数可调（独立于 recurrence 阈值）", () => {
+    const events = [
+      healingEvent("a", "degenerate", 10), // 默认 7 天窗外，12 天窗内
+      healingEvent("b", "degenerate", 6),
+      healingEvent("c", "degenerate", 1),
+    ];
+    // 默认 7 天窗口：2 次 < 3 不触发
+    expect(detectSignals([], [], events, { now: NOW }).find(s => s.type === "behavior_defect")).toBeUndefined();
+    // 12 天窗口：3 次触发
+    const widened = detectSignals([], [], events, { now: NOW, behaviorWindowDays: 12 });
+    expect(widened.find(s => s.type === "behavior_defect")).toBeDefined();
+    expect(widened.find(s => s.type === "behavior_defect")!.evidence).toContain("12 天内复发 3 次");
+    // 阈值调高：同数据 12 天窗 + 阈值 4 不触发（behaviorThreshold 独立于 recurrenceThreshold）
+    expect(detectSignals([], [], events, { now: NOW, behaviorWindowDays: 12, behaviorThreshold: 4, recurrenceThreshold: 1 })
+      .find(s => s.type === "behavior_defect")).toBeUndefined();
+  });
+
 });
