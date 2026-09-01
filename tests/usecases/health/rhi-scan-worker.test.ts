@@ -174,7 +174,9 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const chainStates = byKey.get("chain_states")!;
     expect(JSON.parse(chainStates.metadata!)).toEqual({ stalled: 1, active: 1 });
 
-    // 3 个 bugfix 间隔固定 1h（时钟冻结，无写文件耗时） → 中位严格 1/24 天；metadata 带窗口参数
+    // 3 个 bugfix 间隔固定 1h（时钟冻结，无写文件耗时） → 中位严格 1/24 天；metadata 带窗口参数。
+    // 注：toBe 而非 toBeCloseTo 是浮点安全的——间隔恰为 3,600,000ms，3600000/86400000 = 1/24
+    // 在 IEEE 754 double 中精确表示（分母 86400000 = 2^7×3^3×5^6，商为有限二进制小数，无舍入）
     const fixInterval = byKey.get("bugfix_median_interval_days")!;
     expect(fixInterval.metricType).toBe("fix_interval");
     expect(fixInterval.metricValue).toBe(1 / 24);
