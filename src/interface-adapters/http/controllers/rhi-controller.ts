@@ -351,6 +351,14 @@ export class RhiController {
           docStatus: ch.doc?.status ?? null,
           docTitle: ch.doc?.title ?? null,
           stateReason: buildChainStateReason(ch.state, ch),
+          // Issue #649 PR3：泳道 x 轴数据源——轻量 commit 序列（sha8+date+changeType，
+          // 不带 message/filesChanged 控 payload；全量走 chainDetail 供抽屉）。
+          // 单请求无瀑布：329 链 × 均几条 ≈ 60KB 可接受，虚拟化渲染照常。
+          commits: ch.commits.map(cm => ({
+            sha: cm.sha.slice(0, 8),
+            date: cm.date.toISOString(),
+            changeType: cm.changeType,
+          })),
         })),
         stateCounts,
         total: chains.length,
