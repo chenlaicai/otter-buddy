@@ -110,6 +110,9 @@ export function sniffType(head: Uint8Array, declaredName: string): DetectedType 
   if (isPng(head)) return { kind: "image", mimeType: "image/png" };
   if (isJpeg(head)) return { kind: "image", mimeType: "image/jpeg" };
   if (isGif(head)) return { kind: "image", mimeType: "image/gif" };
+  // RIFF 子类型：WebP 与 WAV 同容器（前 4 字节 52 49 46 46），靠 8-11 字节互斥区分
+  // （WEBP=0x57454250 / WAVE=0x57415645）——新增 RIFF 格式（如 AVI）时注意与
+  // 下方 isWav 的插入位置与子类型注释保持同步，避免顺序依赖误判（检视建议 3）
   if (isWebp(head)) return { kind: "image", mimeType: "image/webp" };
 
   // audio/video 路径：magic bytes（#608）

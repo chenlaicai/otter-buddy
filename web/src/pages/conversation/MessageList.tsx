@@ -383,7 +383,8 @@ export function MessageList({
 function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: boolean }) {
   const images = atts.filter(a => a.kind === 'image')
   const audios = atts.filter(a => a.kind === 'audio')
-  const others = atts.filter(a => a.kind !== 'image' && a.kind !== 'audio')
+  // document + video 均为文件卡下载样式（检视建议 4：显式命名，未来 video 需特殊渲染时从此处拆出）
+  const documentsAndVideos = atts.filter(a => a.kind !== 'image' && a.kind !== 'audio')
   return (
     <div className="mt-2 space-y-2">
       {images.length > 0 && (
@@ -407,9 +408,9 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
           ))}
         </div>
       )}
-      {others.length > 0 && (
+      {documentsAndVideos.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {others.map(a => (
+          {documentsAndVideos.map(a => (
             <a
               key={a.id}
               href={`/api/attachments/${a.id}`}

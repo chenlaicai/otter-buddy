@@ -59,7 +59,7 @@ from: [F20260830wxmd, F20260827mmdu, F20260901chun]
 1. **voice 转码失败改抛错（与 #567 首版不同）**：首版「降级存原始 SILK 字节」的前提是管线宽松；现在 sniffType 白名单严格，SILK 原始字节必被拒——不如显式抛错走单项降级提示，语义诚实（转写文本仍在 body，体验不瞎）
 2. **audio/video/PDF 不进 LLM 注入**：音频视频无法文本化（语音转写在 body 已覆盖）；PDF 二进制 utf8 解码只产出乱码占 16KB 上下文，比不注入更糟。均待后续能力（视频抽帧后议、PDF 文本提取器）再启用，入口就在 shouldSkipInjection 一处
 3. **掩码在 frameworks 层完成**：完整 appId 只到 long-connection-client 为止，registry（内存）/controller（HTTP）/web（浏览器）全程只见掩码——凭证确认（区分多套凭证）不需要完整值
-4. **reconnectAttempts 挂 error_backoff state 而非顶层**：它是错误的属性（连续重连中才存在，恢复归零），与 nextRetryAt 同级；不污染 running 态
+4. **reconnectAttempts 挂 error_backoff state 而非顶层**：它是错误的属性（连续重连中才存在，恢复后随 error_backoff → running 的 state 整体替换自然消失——不是显式归零），与 nextRetryAt 同级；不污染 running 态
 5. **表重建迁移而非跳过 CHECK**：SQLite 无法修改已有约束；存量库中 attachments 有数据（图片已入库），必须保数据搬迁。幂等靠检测旧 CHECK 文本——新库天然宽约束直接返回
 
 ## 验证
@@ -79,3 +79,14 @@ from: [F20260830wxmd, F20260827mmdu, F20260901chun]
 - 视频抽帧注入（issue #608 标注「后议」）
 - PDF 文本提取器（启用 PDF 的 LLM 注入，入口已留 shouldSkipInjection）
 - 飞书语音/视频入站（飞书侧 media payload 目前只有 image/file，音视频类型待飞书侧协议扩展）
+- voice 转码失败时不区分 silk-wasm 基础设施异常与单条数据异常（检视建议 2，降级提示同为「接收失败」——功能正确，运维区分需后续在 silkToWav 分层错误）
+
+## 回修记录（对抗审视后，检视獭-683 报告 1 严重 + 5 建议）
+
+- **严重 1 修复**：`rebuildAttachmentsKindCheck` 的 DROP+RENAME 重建改入 `db.transaction()` 包裹（与注释声明和 rebuildDocumentTablesDropCheck 同模式）；新增「迁移中途失败整体回滚」测试（预置同名表迫使 CREATE 失败，断言老表无损 + 可重入）
+- **建议 3 修复**：sniffType 补 RIFF 子类型互斥注释（WebP/WAV 同容器靠 8-11 字节区分，新增 RIFF 格式注意插入位置）
+- **建议 4 修复**：MessageList `others` 更名 `documentsAndVideos`（显式语义，未来 video 特殊渲染时拆出）
+- **建议 5 修复**：特性文档措辞「恢复归零」→「随 error_backoff → running 的 state 整体替换自然消失」
+- **建议 2、6 不改**：建议 2（silk 基础设施 vs 数据异常不区分）与建议 6（guide 誊抄）均检视方自判非阻断，已入后续跟踪，不在本 PR 强行分层
+- rebase：开发期间 main 推进至 d63e8e8d（#678 信号铺轨，migration.ts 尾部撞车），冲突已解（两迁移调用均保留）
+- 回修后验证：全仓 vitest **2632 passed**（含事务性新用例，基数随 #678 新增测试增长）；server/web tsc 零错误；eslint 0 error

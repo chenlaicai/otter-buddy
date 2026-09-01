@@ -116,28 +116,33 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
   if (!schema?.sql?.includes("CHECK(kind IN ('image', 'document'))")) return;
 
   logger.info('Rebuilding attachments table to widen kind CHECK constraint (add audio/video)');
-  db.exec(`
-    CREATE TABLE attachments_new (
-      id TEXT PRIMARY KEY,
-      sha256 TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      original_name TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      kind TEXT NOT NULL CHECK(kind IN ('image', 'document', 'audio', 'video')),
-      size_bytes INTEGER NOT NULL,
-      width INTEGER,
-      height INTEGER,
-      caption TEXT,
-      uploader_id TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    INSERT INTO attachments_new (id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at)
-    SELECT id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at FROM attachments;
-    DROP TABLE attachments;
-    ALTER TABLE attachments_new RENAME TO attachments;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
-    CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
-  `);
+  // 与 rebuildDocumentTablesDropCheck 同模式：DROP+RENAME 必须事务内完成——
+  // 裸 exec 在 DROP 成功后、RENAME 前进程中断会永久丢失 attachments 表（检视发现 1）。
+  const rebuild = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE attachments_new (
+        id TEXT PRIMARY KEY,
+        sha256 TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('image', 'document', 'audio', 'video')),
+        size_bytes INTEGER NOT NULL,
+        width INTEGER,
+        height INTEGER,
+        caption TEXT,
+        uploader_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO attachments_new (id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at)
+      SELECT id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at FROM attachments;
+      DROP TABLE attachments;
+      ALTER TABLE attachments_new RENAME TO attachments;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
+      CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
+    `);
+  });
+  rebuild();
   logger.info('attachments kind CHECK widened: audio/video now accepted');
 }
 

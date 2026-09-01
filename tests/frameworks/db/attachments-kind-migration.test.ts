@@ -114,7 +114,7 @@ describe("rebuildAttachmentsKindCheck（#608 存量库迁移）", () => {
     db.close();
   });
 
-  it("迁移后重复跑 migrate 幂等（老库迁完不再重建）", () => {
+  it("幂等：迁移后重复跑 migrate 幂等（老库迁完不再重建）", () => {
     const db = new Database(":memory:");
     initSchema(db, createTestLogger());
     downgradeToLegacyAttachments(db);
@@ -123,6 +123,34 @@ describe("rebuildAttachmentsKindCheck（#608 存量库迁移）", () => {
     migrateDatabase(db, createTestLogger());
     const second = db.prepare("SELECT sql FROM sqlite_master WHERE name='attachments'").get() as { sql: string };
     expect(first.sql).toBe(second.sql);
+    db.close();
+  });
+
+  it("事务性：迁移中途 SQL 失败整体回滚，老表无损（检视发现 1）", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    initSchema(db, createTestLogger());
+    downgradeToLegacyAttachments(db);
+    db.prepare(
+      "INSERT INTO attachments (id, sha256, file_path, original_name, mime_type, kind, size_bytes, uploader_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("att-tx-1", "sha-tx-1", "attachments/aa/bb/y.png", "y.png", "image/png", "image", 42, "user-1");
+    // 预置同名表使迁移的 CREATE TABLE attachments_new 失败——模拟事务中途出错
+    db.exec("CREATE TABLE attachments_new (id TEXT PRIMARY KEY)");
+
+    expect(() => migrateDatabase(db, createTestLogger())).toThrow();
+
+    // 老表原样：数据无损、窄 CHECK 仍在、可继续正常写入（事务回滚保证，裸 exec 下表会丢失/残缺）
+    const row = db.prepare("SELECT * FROM attachments WHERE id = ?").get("att-tx-1") as { kind: string; size_bytes: number };
+    expect(row.kind).toBe("image");
+    expect(row.size_bytes).toBe(42);
+    expect(() => db.prepare(
+      "INSERT INTO attachments (id, sha256, file_path, original_name, mime_type, kind, size_bytes, uploader_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("att-tx-2", "sha-tx-2", "p", "z.png", "image/png", "image", 1, "user-1")).not.toThrow();
+    // 清障后重跑迁移成功（失败可重入）
+    db.exec("DROP TABLE attachments_new");
+    migrateDatabase(db, createTestLogger());
+    const widened = db.prepare("SELECT sql FROM sqlite_master WHERE name='attachments'").get() as { sql: string };
+    expect(widened.sql).toContain("audio");
     db.close();
   });
 });
