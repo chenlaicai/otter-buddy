@@ -7,6 +7,7 @@ import { SignalRepository } from "@usecases/health/signal-repository";
 import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { FeatureChain } from "@usecases/health/chain-builder";
+import { DomainError } from "@entities/errors";
 
 /** 真 sqlite（:memory:）+ 真 Controller 的 API 测试。
  *  buildChainsOnce/scanOnce 走 mock（链构建的端到端已有 rhi-scan-worker.test.ts 覆盖）。
@@ -403,11 +404,11 @@ describe("RHI API（真 sqlite）", () => {
   });
 
   describe("scan", () => {
-    it("手动扫描返回结果", async () => {
+    it("手动扫描返回结果（#581 回修：响应体不再有 ok 字段）", async () => {
       const res = await makeController([], { commitCount: 42 }).scan(makeCtx());
-      const body = await res.json() as { ok: boolean; result: { commitCount: number } };
-      expect(body.ok).toBe(true);
+      const body = await res.json() as { result: { commitCount: number }; ok?: boolean };
       expect(body.result.commitCount).toBe(42);
+      expect(body.ok).toBeUndefined(); // ok 字段已随守门人语义废除
     });
   });
 });
@@ -526,5 +527,38 @@ describe("RHI API 错误路径状态码（#581：废除守门人 200+error，cat
     expect(res.status).toBe(500);
     const body = await res.json() as { error: string };
     expect(body.error).toBe("git exploded");
+  });
+
+  /** #581 回修（检视建议 2）：ADR 声称的 DomainError→4xx 自动映射，在 RHI 端点级佐证 */
+  it("DomainError not_found 经 handleError → 404（ADR 4xx 映射在 RHI 端点真实生效）", async () => {
+    const repo = {
+      findLatestByMetricKey: () => { throw new DomainError("snapshot not found", "not_found"); },
+      findByDateRange: () => [],
+      findOpen: () => [],
+      findByStatus: () => [],
+      findActiveOtterIds: () => [],
+    } as never;
+    const worker = { buildChainsOnce: async () => [], scanOnce: async () => ({}) } as unknown as RhiScanWorker;
+    const ctrl = new RhiController(repo, repo, worker, console as never);
+    const res = await ctrl.overview(makeStatusCtx());
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("snapshot not found");
+  });
+
+  it("DomainError validation 经 handleError → 400（同一映射表的第二档佐证）", async () => {
+    const repo = {
+      findLatestByMetricKey: () => ({} as { snapshot_date: string; metric_value: number }),
+      findByDateRange: () => { throw new DomainError("invalid date range", "validation"); },
+      findOpen: () => [],
+      findByStatus: () => [],
+      findActiveOtterIds: () => [],
+    } as never;
+    const worker = { buildChainsOnce: async () => [], scanOnce: async () => ({}) } as unknown as RhiScanWorker;
+    const ctrl = new RhiController(repo, repo, worker, console as never);
+    const res = await ctrl.trends(makeStatusCtx());
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("invalid date range");
   });
 });

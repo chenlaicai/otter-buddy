@@ -90,9 +90,16 @@ RHI 端点的 web 消费方全部经 `web/src/api/client.ts` 的 `request()`（�
 - `web/src/pages/health/index.tsx`：triggerScan 简化为成功路径 + catch toast
 - `tests/api/rhi-api.test.ts`：新增 describe「错误路径状态码」8 用例——bad repo/worker 注入，断言每端点 catch → 500 + error body（scan 断言不再出现 ok:false）；mock ctx 补 `get: () => undefined`（handleError 读 requestId）
 
+### 回修记录（检视獭-676 审视处置，3 建议全采纳）
+
+1. **重复日志**：删 8 处 catch 内前序 `this.logger.error("RHI xxx failed")`——handleError 内部统一记日志（含 requestId/errorCode/statusCode 结构化字段），前序 log 是每错误双条噪声，且其余 11 controller 均无此前序模式
+2. **DomainError→4xx 零佐证**：补 2 端点级用例（not_found→404 / validation→400），验证 ADR 声称的映射在 RHI 端点真实生效
+3. **scan ok:true 残留**：成功响应体改 `{ result }`（ok 字段彻底废除——HTTP 200 即成功，状态由状态码携带），同步更新 scan 用例断言 `ok` undefined
+
 ## 验证
 
-- `npx vitest run tests/api/rhi-api.test.ts`：29 passed（21 原有 + 8 新增错误路径）
+- `npx vitest run tests/api/rhi-api.test.ts`：31 passed（21 原有 + 8 错误路径 + 2 DomainError→4xx，回修后）
+- `npx vitest run` 全量：**205 文件 / 2563 测试全绿**（回修后复跑）
 - `npx tsc --noEmit`：零错误
 - 全量自检 + lint + web build：见 PR（CI 复核）
 - **最简实现检查**：已过——复用现成 `handleError`（11 controller 同款模式），未新写错误分类逻辑、未新增文件；前端只删死代码不加分支。

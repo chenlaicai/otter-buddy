@@ -305,7 +305,6 @@ export class RhiController {
         openSignalsByConfidence: byConfidence,
       });
     } catch (err) {
-      this.logger.error("RHI overview failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
@@ -328,7 +327,6 @@ export class RhiController {
         count: rows.length,
       });
     } catch (err) {
-      this.logger.error("RHI signals failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
@@ -369,7 +367,6 @@ export class RhiController {
         fanInExcludedFiles: computeFanInExclusions(chains),
       });
     } catch (err) {
-      this.logger.error("RHI chains failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
@@ -407,7 +404,6 @@ export class RhiController {
         },
       });
     } catch (err) {
-      this.logger.error("RHI chain detail failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
@@ -433,7 +429,6 @@ export class RhiController {
         latestSnapshotDate: latestDate,
       });
     } catch (err) {
-      this.logger.error("RHI trends failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
@@ -465,7 +460,6 @@ export class RhiController {
         attribution: overallMeta?.attribution ?? null,
       });
     } catch (err) {
-      this.logger.error("RHI score failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
@@ -508,19 +502,18 @@ export class RhiController {
 
       return c.json({ days, series, otters, totals, latestSnapshotDate: latestDate });
     } catch (err) {
-      this.logger.error("RHI cost-output failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
 
   /** POST /api/health/scan — 手动触发一轮扫描（调试/演示；worker 每小时自动跑）。
-   *  #581：失败改经 handleError 返回 500——「ok:false in 200」的守门人语义一并废除。 */
+   *  #581：失败改经 handleError 返回 500——「ok 状态在 body」的守门人语义一并废除
+   *  （HTTP 200 即成功，失败即 5xx，状态由状态码携带）。 */
   async scan(c: Context): Promise<Response> {
     try {
       const result = await this.scanWorker.scanOnce();
-      return c.json({ ok: true, result });
+      return c.json({ result });
     } catch (err) {
-      this.logger.error("RHI manual scan failed", err instanceof Error ? err : undefined);
       return handleError(c, err, this.logger);
     }
   }
