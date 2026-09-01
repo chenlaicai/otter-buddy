@@ -75,7 +75,15 @@ intent:
 - 双侧 `tsc --noEmit` 0 错误；`eslint` 0 error。
 - 验收对照：五态泳道可视觉区分（DOM 属性级断言）✓；329 链窗口化渲染（DOM 行数 ≤21 断言）✓；异常筛选后泳道只留命中链（filter 行为断言）✓。
 
+## 对抗审视处置
+
+审视：鉴微（mimo，与实现者 glm-flash 跨厂异模型），结论 **0 严重 + 2 建议**；基础维度 B1-B4 全过，焦点 7 条（F1 regressed 裁量、F2 payload 实测、F3 窗口化边界、F4 收编真实性、F5 sticky 轴、F6 竞态防护、F7 五态断言强度）中 6 条无问题。逐条处置：
+
+- **S1（regressed 标记色 gap）→ 建 issue #691 跟踪**：§3.4 指定 caramel-700，palette CARAMEL 阶最大 600，实现取 600 近似（视觉差异极小，鉴微判「合理近似」）。palette 深阶 token 扩展是独立决策不阻塞本 PR；补齐后需同步 5 处落点（SwimlaneTimeline.tsx 回卷弧、chain-state-meta.ts meta、双侧测试断言，issue 内已列全）。
+- **S2（抽屉竞态测试缺失）→ 本 PR 修复**：AbortController 防护实现正确（F6 判定）但无测试保护。补竞态用例：拟真 fetch（signal.aborted 时按浏览器契约 reject AbortError）→ 快速切换 featureId → 断言旧 signal aborted / 新 signal 未 abort / error state 未触发 / 新链数据正确渲染（body 级断言新 stateReason + header 级断言新 docTitle）。
+
 ## 后续
 
 - 菱形（PR）/方块（merge）节点留 v2：main 上 squash 流 merge commit=0，方节点永远无数据（issue 内合议依据）。
 - 泳道节点 hover tooltip 目前用原生 `<title>`，若需要富 tooltip（如文件热区）可后续替换自绘浮层。
+- palette 深阶 token（caramel-700 或 danger 语义色）：issue #691 跟踪，补齐后回同步 regressed 标记色。

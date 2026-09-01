@@ -90,4 +90,40 @@ describe('ChainDetailDrawer 链详情抽屉（Issue #649 交付 3）', () => {
     await flush()
     expect(c.querySelector('[data-testid="chain-drawer-error"]')?.textContent).toContain('boom')
   })
+
+  it('竞态防护：快速切换 featureId → 旧请求被 abort 且不触发 error state，新数据正常渲染', async () => {
+    // 拟真 fetch：signal.abort() 时按浏览器契约 reject AbortError，否则挂起等 resolver 放行
+    const signals: AbortSignal[] = []
+    const resolvers: Array<(res: Response) => void> = []
+    const abortErr = () => Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      const signal = init?.signal as AbortSignal
+      signals.push(signal)
+      return new Promise<Response>((resolve, reject) => {
+        if (signal.aborted) { reject(abortErr()); return }
+        signal.addEventListener('abort', () => reject(abortErr()))
+        resolvers.push(resolve)
+      })
+    }))
+    const c = render(<ChainDetailDrawer featureId="F20260801aaaa" onClose={() => {}} />)
+    expect(signals).toHaveLength(1)
+
+    // 快速连点另一条链：effect cleanup → 旧控制器 abort、新请求发出
+    act(() => root.render(<ChainDetailDrawer featureId="F20260801bbbb" onClose={() => {}} />))
+    expect(signals).toHaveLength(2)
+    expect(signals[0].aborted).toBe(true)
+    expect(signals[1].aborted).toBe(false)
+
+    // 旧请求走 AbortError 路径：静默吞掉 → 不渲染 error、不渲染旧数据
+    await flush()
+    expect(c.querySelector('[data-testid="chain-drawer-error"]')).toBeNull()
+    expect(c.querySelector('[data-testid="chain-drawer-commit"]')).toBeNull()
+
+    // 新请求放行 → B 链数据渲染（body 级断言新 stateReason，header 级断言新 docTitle），error 仍未出现
+    resolvers[1](new Response(JSON.stringify({ chain: { ...detail, featureId: 'F20260801bbbb', docTitle: '竞态链 B', stateReason: 'B 链独立原因' } }), { status: 200 }))
+    await flush()
+    expect(c.querySelector('[data-testid="chain-drawer-error"]')).toBeNull()
+    expect((c.querySelector('[data-testid="chain-drawer-body"]')?.textContent ?? '')).toContain('B 链独立原因')
+    expect((c.querySelector('[data-testid="chain-drawer"]')?.textContent ?? '')).toContain('竞态链 B')
+  })
 })
