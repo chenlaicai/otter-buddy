@@ -181,8 +181,15 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
       "acc-1": { user1: { token: "tok-dead", receivedAt } },
     });
     const { logger, logs } = makeLogger();
+    // Why: 第一次 getUpdates 立即返回让 loop 推进到 tick 2；第二次挂起阻止 spin——
+    // 原 mock 永挂起 = 循环卡死在 tick 1，断言永远成立（vacuous）
+    let getUpdatesCalls = 0;
     const api = {
-      getUpdates: vi.fn(() => new Promise<never>(() => {})),
+      getUpdates: vi.fn().mockImplementation(() => {
+        getUpdatesCalls++;
+        if (getUpdatesCalls === 1) return Promise.resolve({ ret: 0, msgs: [] } as never);
+        return new Promise<never>(() => {}); // 第二次挂起，loop 停在 tick 2 的 getUpdates
+      }),
       sendTextMessage: vi.fn(async () => { throw new Error("weixin sendmessage ret=-2 errmsg=prepare failed"); }),
     } as unknown as WeixinApiClient;
 
@@ -197,20 +204,18 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
     });
 
     poller.start();
-    // 第一个 tick：触发预警 → 失败 → 记 warnedAt
+    // 推进 100ms：tick 1（send 失败 + warnedAt）→ getUpdates resolve → tick 2（cooldown skip）→ getUpdates 挂起
     await vi.advanceTimersByTimeAsync(100);
+
+    // tick 1：触发预警 → 失败 → 记 warnedAt
     expect(warnedCalls).toHaveLength(1);
     expect(warnedCalls[0]).toEqual({ accountId: "acc-1", userId: "user1" });
-    // error 日志记录了失败
     const errorLog = logs.find(l => l.level === "error" && l.msg.includes("context_token 预警发送失败"));
     expect(errorLog).toBeDefined();
 
-    // 第二个 tick（冷却期内，warnedAt 刚记过）：不应再调 sendTextMessage
-    // 快进到第二个 tick（轮询循环每 tick 会再检查一次）
-    const warnedCallsAfterFirst = warnedCalls.length;
-    await vi.advanceTimersByTimeAsync(100);
-    // warnedCalls 数量不变——冷却期内不再尝试预警
-    expect(warnedCalls).toHaveLength(warnedCallsAfterFirst);
+    // tick 2 已执行 checkContextTokenExpiry（getUpdates call 2 发生 = tick 2 的 check 已跑完）
+    // 但 warnedCalls 仍只有1条——cooldown 生效，未再尝试预警
+    expect(getUpdatesCalls).toBe(2); // 确认 loop 确实推进到了 tick 2
 
     poller.stop();
   });

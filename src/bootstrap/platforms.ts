@@ -400,9 +400,10 @@ interface StartWeixinAccountOptions {
   registry?: ChannelStatusRegistry;
 }
 
+// 单键显式 0 即关闭（0 = 禁用）；未配置默认 60min，clamp 下限 1 分钟（避免 35s 后误报）
 const buildContextTokenWarn = (w: AppConfig["weixin"]): { afterMs: number; cooldownMs: number } | undefined =>
-  w?.contextTokenWarnMinutes === 0 && w?.contextTokenWarnCooldownMinutes === 0 ? undefined
-    : { afterMs: (w?.contextTokenWarnMinutes ?? 60) * 60_000, cooldownMs: (w?.contextTokenWarnCooldownMinutes ?? 60) * 60_000 };
+  w?.contextTokenWarnMinutes === 0 || w?.contextTokenWarnCooldownMinutes === 0 ? undefined
+    : { afterMs: Math.max((w?.contextTokenWarnMinutes ?? 60), 1) * 60_000, cooldownMs: Math.max((w?.contextTokenWarnCooldownMinutes ?? 60), 1) * 60_000 };
 
 /** 单账号启动（初始启动与 web 扫码登录热启动共用，issue #566） */
 function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
@@ -411,6 +412,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token });
       // 媒体支持（issue #567）：CDN 客户端同构注入 gateway（出站上传）与媒体下载实现（入站）
       const cdn = new WeixinCdnClient({ api, logger });
+      const mediaGateway = new WeixinMediaClient({ cdn, logger });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
       // 出站：广播总线注册（与飞书同模式；attachmentRepo 供媒体出站查存储路径）
       messageBroadcaster.registerOutboundChannel(
@@ -436,11 +438,10 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         }),
         messageBroadcaster,
         logger,
-        mediaGateway: new WeixinMediaClient({ cdn, logger }),
+        mediaGateway,
         attachmentUpload: uc.attachmentUpload,
         attachmentInjection,
       });
-      const contextTokenWarn = buildContextTokenWarn(appConfig.weixin);
       const poller = new WeixinPollingChannel({
         api,
         accountStore,
@@ -448,7 +449,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         onMessage: (msg) => processor.process(msg),
         logger,
         registry,
-        contextTokenWarn,
+        contextTokenWarn: buildContextTokenWarn(appConfig.weixin),
       });
       poller.setIdentity(account.ilinkUserId);
       poller.start();
@@ -460,7 +461,10 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
     }
 }
 
-/** web 扫码登录成功后热启动单账号（issue #566）：不重启进程把轮询拉起 */
+/**
+ * web 扫码登录成功后热启动单账号（issue #566）：不重启进程把轮询拉起。
+ * 调用方组装 weixinConfig（config 无 weixin 段时用默认值 + 登录回传的 partnerUserId）。
+ */
 export function hotStartWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
   return startWeixinAccount(options);
 }

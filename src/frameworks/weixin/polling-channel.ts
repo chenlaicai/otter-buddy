@@ -245,30 +245,22 @@ export class WeixinPollingChannel {
   private async checkContextTokenExpiry(): Promise<void> {
     const warn = this.deps.contextTokenWarn;
     if (!warn) return; // 未配置则不启用检查
-    const { accountStore, accountId, api, logger } = this.deps;
-    const now = this.deps.now ?? Date.now;
+    const { accountStore, accountId, logger } = this.deps;
+    const nowMs = (this.deps.now ?? Date.now)();
     try {
       const entries = accountStore.loadRawContextTokens(accountId);
       for (const [userId, entry] of Object.entries(entries)) {
-        const age = now() - entry.receivedAt;
-        if (age < warn.afterMs) continue; // 未满阈值
-        if (entry.warnedAt != null && now() - entry.warnedAt < warn.cooldownMs) continue; // 冷却期内
+        // Why: 每个用户独立 try/catch——recordContextTokenWarned 磁盘写失败不应阻断剩余用户检查
         try {
-          await api.sendTextMessage({
-            toUserId: userId,
-            contextToken: entry.token,
-            text: "我们有一阵子没聊天啦～微信的会话凭证快到期了，之后你发的消息我可能会收不到。\n随便回我一条（哪怕一个表情）就能续上，需要时随时喊我 🦦",
-          });
+          await this.warnUserIfStale(userId, entry, warn, nowMs);
         } catch (err) {
-          // Why: ret=-2 = token 已死，重试必败且每 35s 一次是 hammering——记日志即止
-          logger.error("context_token 预警发送失败（token 已失效），用户下次发消息即恢复", err instanceof Error ? err : undefined, {
+          // 单用户处理失败（含 recordContextTokenWarned 磁盘异常）不阻断剩余用户
+          logger.warn("context_token 预警用户处理异常", {
             accountId,
             userId,
-            tokenAgeMs: age,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
-        // 成败都记——防死 token 每 35s 被重锤
-        accountStore.recordContextTokenWarned(accountId, userId);
       }
     } catch (err) {
       // 整体 try/catch：不干扰轮询主路径
@@ -277,6 +269,35 @@ export class WeixinPollingChannel {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /** 单用户预警判断 + 发送（被 checkContextTokenExpiry 调用，失败向上抛由调用方 catch） */
+  private async warnUserIfStale(
+    userId: string,
+    entry: { token: string; receivedAt: number; warnedAt?: number },
+    warn: { afterMs: number; cooldownMs: number },
+    nowMs: number,
+  ): Promise<void> {
+    const { accountStore, accountId, api, logger } = this.deps;
+    const age = nowMs - entry.receivedAt;
+    if (age < warn.afterMs) return; // 未满阈值
+    if (entry.warnedAt != null && nowMs - entry.warnedAt < warn.cooldownMs) return; // 冷却期内
+    try {
+      await api.sendTextMessage({
+        toUserId: userId,
+        contextToken: entry.token,
+        text: "我们有一阵子没聊天啦～微信的会话凭证快到期了，之后你发的消息我可能会收不到。\n随便回我一条（哪怕一个表情）就能续上，需要时随时喊我 🦦",
+      });
+    } catch (err) {
+      // Why: ret=-2 = token 已死，重试必败且每 35s 一次是 hammering——记日志即止
+      logger.error("context_token 预警发送失败（token 已失效），用户下次发消息即恢复", err instanceof Error ? err : undefined, {
+        accountId,
+        userId,
+        tokenAgeMs: age,
+      });
+    }
+    // 成败都记——防死 token 每 35s 被重锤
+    accountStore.recordContextTokenWarned(accountId, userId);
   }
 
   private async sleep(ms: number): Promise<void> {
