@@ -114,6 +114,70 @@ describe("containsNul", () => {
   });
 });
 
+
+/** #608：WAV 头（RIFF....WAVE） */
+const WAV_HEAD = Buffer.from([
+  0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, // "RIFF" + size
+  0x57, 0x41, 0x56, 0x45, // "WAVE"
+  0x66, 0x6d, 0x74, 0x20, // "fmt "
+]);
+
+/** #608：MP3 ID3v2 头 */
+const MP3_ID3_HEAD = Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+/** #608：MP3 裸帧同步头（MPEG1 Layer III 128kbps：FF FB） */
+const MP3_SYNC_HEAD = Buffer.from([0xff, 0xfb, 0x90, 0x00]);
+
+/** #608：MP4 ISO-BMFF 头（size + "ftyp" + brand） */
+const MP4_HEAD = Buffer.from([
+  0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, // size + "ftyp"
+  0x69, 0x73, 0x6f, 0x6d, // "isom"
+]);
+
+/** #608：PDF 头 */
+const PDF_HEAD = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]); // "%PDF-1.4"
+
+describe("sniffType（#608 扩展：audio/video/pdf magic bytes）", () => {
+  it("WAV RIFF-WAVE 容器识别", () => {
+    expect(sniffType(WAV_HEAD, "x.bin")).toEqual({ kind: "audio", mimeType: "audio/wav" });
+  });
+
+  it("MP3 ID3v2 头识别", () => {
+    expect(sniffType(MP3_ID3_HEAD, "x.bin")).toEqual({ kind: "audio", mimeType: "audio/mpeg" });
+  });
+
+  it("MP3 裸帧同步识别（无 ID3 tag）", () => {
+    expect(sniffType(MP3_SYNC_HEAD, "x.bin")).toEqual({ kind: "audio", mimeType: "audio/mpeg" });
+  });
+
+  it("MP4 ftyp 容器识别", () => {
+    expect(sniffType(MP4_HEAD, "x.bin")).toEqual({ kind: "video", mimeType: "video/mp4" });
+  });
+
+  it("PDF magic bytes 识别（kind=document）", () => {
+    expect(sniffType(PDF_HEAD, "report.pdf")).toEqual({ kind: "document", mimeType: "application/pdf" });
+  });
+
+  it("WAV 与 WebP 同 RIFF 头靠子类型区分（不互串）", () => {
+    expect(sniffType(WEBP_HEAD, "x.bin")?.mimeType).toBe("image/webp");
+    expect(sniffType(WAV_HEAD, "x.bin")?.mimeType).toBe("audio/wav");
+  });
+
+  it("假扩展名不影响 magic bytes 判定（.txt 里塞 MP4）", () => {
+    expect(sniffType(MP4_HEAD, "evil.txt")).toEqual({ kind: "video", mimeType: "video/mp4" });
+  });
+
+  it("MP3 帧同步误报防御：layer=reserved（FF 06）不识别", () => {
+    // 0x06 = version 非 reserved 但 layer=00（reserved）——应拒绝
+    expect(sniffType(Buffer.from([0xff, 0x06, 0x90, 0x00]), "x.bin")).toBeNull();
+  });
+
+  it("WMA/OGG/FLAC 等其他音频格式仍拒绝（白名单外）", () => {
+    expect(sniffType(Buffer.from("OggS".split("").map(c => c.charCodeAt(0))), "a.ogg")).toBeNull();
+    expect(sniffType(Buffer.from("fLaC".split("").map(c => c.charCodeAt(0))), "a.flac")).toBeNull();
+  });
+});
+
 describe("sizeLimitFor", () => {
   const config = { maxImageBytes: 10, maxDocumentBytes: 20 };
   it("按 kind 取上限", () => {

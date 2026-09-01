@@ -377,11 +377,13 @@ export function MessageList({
 }
 
 /** 多模态 Phase 1：消息内附件渲染。图片网格缩略图（点击新窗口看原图）+
- *  document 文件卡（点击下载）。同一端点 /api/attachments/:id，image inline / document attachment。
+ *  document/audio/video 文件卡（点击下载；audio 用原生控件回放，#608）。
+ *  同一端点 /api/attachments/:id，image inline / 其他 attachment。
  *  为什么用后端端点而非 base64 内嵌：DTO 只带引用（id/尺寸），消息体积不变，缓存友好（immutable） */
 function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: boolean }) {
   const images = atts.filter(a => a.kind === 'image')
-  const docs = atts.filter(a => a.kind === 'document')
+  const audios = atts.filter(a => a.kind === 'audio')
+  const others = atts.filter(a => a.kind !== 'image' && a.kind !== 'audio')
   return (
     <div className="mt-2 space-y-2">
       {images.length > 0 && (
@@ -398,9 +400,16 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
           ))}
         </div>
       )}
-      {docs.length > 0 && (
+      {audios.length > 0 && (
+        <div className="space-y-1.5">
+          {audios.map(a => (
+            <audio key={a.id} controls preload="none" src={`/api/attachments/${a.id}`} className="w-full max-w-[320px] h-10" />
+          ))}
+        </div>
+      )}
+      {others.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {docs.map(a => (
+          {others.map(a => (
             <a
               key={a.id}
               href={`/api/attachments/${a.id}`}

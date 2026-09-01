@@ -63,10 +63,10 @@ export interface LocalMessageSegment {
   sequenceNum: number
 }
 
-/** 前端本地附件（多模态 Phase 1）——与 AttachmentDTO 同构，历史/乐观两条路径共用 */
+/** 前端本地附件（多模态 Phase 1；#608 扩 kind 值域）——与 AttachmentDTO 同构，历史/乐观两条路径共用 */
 export interface LocalAttachment {
   id: string
-  kind: 'image' | 'document'
+  kind: 'image' | 'document' | 'audio' | 'video'
   originalName: string
   mimeType: string
   sizeBytes: number

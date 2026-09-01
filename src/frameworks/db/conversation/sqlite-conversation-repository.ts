@@ -80,7 +80,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       `).all(messageId) as Array<{ kind: string; original_name: string; size_bytes: number; caption: string | null }>;
       if (attRows.length === 0) return body;
       const projection = projectAttachments(attRows.map(r => ({
-        id: "", kind: r.kind as "image" | "document", originalName: r.original_name,
+        id: "", kind: r.kind as "image" | "document" | "audio" | "video", originalName: r.original_name,
         mimeType: "", sizeBytes: r.size_bytes, width: null, height: null, caption: r.caption,
       })));
       return projection ? `${body}\n${projection}` : body;

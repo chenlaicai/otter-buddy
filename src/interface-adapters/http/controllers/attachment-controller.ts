@@ -162,8 +162,9 @@ export class AttachmentController {
         // nosniff：防 MIME 嗅探把文本/图片渲染成可执行向量
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "public, max-age=31536000, immutable",
-        // document 强制下载（清洗后文件名）；image inline（白名单已排除可执行向量）
-        ...(att.kind === "document" && {
+        // document 强制下载（清洗后文件名）；image inline（白名单已排除可执行向量）；
+        // audio/video inline（原生控件回放，#608——mp4/wav/mp3 不在浏览器可执行向量内，与 image 同理）
+        ...(att.kind !== "image" && att.kind !== "audio" && att.kind !== "video" && {
           "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(att.originalName)}`,
         }),
       };
