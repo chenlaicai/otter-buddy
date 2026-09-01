@@ -466,6 +466,8 @@ export interface RhiOverviewDTO {
   snapshotDate: string | null
   openSignals: number
   openSignalsBySeverity: { critical: number; warning: number }
+  /** Issue #652：按置信度计数（low = 低置信折叠抽屉数据源，不进 severity 主数） */
+  openSignalsByConfidence: { normal: number; low: number }
 }
 
 export interface RhiTrendPointDTO {
@@ -533,7 +535,7 @@ export function getRhiSignals(status = 'open', signal?: AbortSignal): Promise<{ 
   return request(`/health/signals?status=${encodeURIComponent(status)}`, { signal })
 }
 
-export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number }> {
+export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number; fanInExcludedFiles: Array<{ file: string; fanIn: number }> }> {
   return request('/health/chains', { signal })
 }
 
