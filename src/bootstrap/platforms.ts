@@ -111,6 +111,7 @@ export async function createAgentGateway(options: {
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
     // F20260826mwrd C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
+    // （resolvedBy=系统，resolution=指令已到达目标獭——halt 无待裁决事项，落账即闭环）。
     // 回调在 tool_call handler 栈内执行（同步语义），resolve 走 fire-and-forget + catch。
     onHaltFirstBlock: (directive) => {
       repos.signalEvent.resolve(
@@ -348,8 +349,11 @@ export function startWeixinChannels(options: {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry } = options;
   const weixinConfig = appConfig.weixin;
   if (!weixinConfig) {
-    // F20260831wxsp：有已登录账号但 config 无 weixin 段时默认拉起——
-    // 账号 state 在 stateDir 不受影响，partnerUserId 缺失仅影响命令门禁
+    // Bugfix（F20260831wxsp）：有已登录账号但 config 无 weixin 段时不再静默 return——
+    // 否则重启后轮询无声消失（web 无任何异常，微信就是不响）。
+    // 触发路径：扫码时 ensureWeixinConfig 写回失败（如路径错误 ENOENT）→ 重启读不到 weixin 段。
+    // 账号 state（token/游标）在 stateDir（默认 ./data/weixin）不受影响，默认段即可拉起轮询；
+    // partnerUserId 缺失仅影响命令门禁锚定（PartnerResolver 未配置时不拦截命令），不阻断消息。
     const accountStore = new WeixinAccountStore(undefined);
     const orphanAccounts = accountStore.listAccounts();
     if (orphanAccounts.length === 0) return [];

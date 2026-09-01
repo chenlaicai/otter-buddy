@@ -86,6 +86,7 @@ for each (userId, entry) in entries:
 
 - 逐用户独立 try/catch：一个用户失败不阻断其他用户
 - 失败不重试：ret=-2 = token 已死，重试必败；记 warnedAt 后冷却期内不再尝试
+- **内存优先，disk 真相源**：`warnedAtMemoryCache`（实例级 Map）在 disk 写之前设置——disk 落盘失败时内存补偿冷却状态，防成功预警每 35s 重发；入站重置时同步清除内存缓存（cooldown > after 场景不漏发）
 - **入站自然重置**：`dispatchInbound` 落新 token 时 receivedAt=now、warnedAt 清除（数据模型层已保证）——用户说话即免打扰
 - **-14 暂停期自动停摆**：bot_token 死亡期间轮询睡 1h，检查不跑——正确语义（bot_token 死则 sendmessage 必失败，预警无意义）
 - 时间注入：poller deps 增加可选 `now?: () => number`（默认 `Date.now`），供测试控制时钟
