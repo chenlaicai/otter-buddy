@@ -483,6 +483,28 @@ describe("migrateDatabase - F20260901sgp0 signal metadata 列", () => {
       expect(row.signal_level).toBeNull();
       expect(row.signal_meta).toBeNull();
     });
+
+    it("真·旧库路径：initSchema 后 DROP COLUMN 模拟存量库，migrateDatabase 补列+索引不抛错（幂等）", () => {
+      // body_hash 范式：initSchema 建全表（含 signal_level/signal_meta），再 DROP 模拟旧库
+      db.close();
+      db = createTestDb(); // initSchema 已含 signal_level/signal_meta
+      db.exec("ALTER TABLE messages DROP COLUMN signal_level");
+      db.exec("ALTER TABLE messages DROP COLUMN signal_meta");
+      const before = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      expect(before.some(c => c.name === "signal_level")).toBe(false);
+      expect(before.some(c => c.name === "signal_meta")).toBe(false);
+
+      // migrateDatabase 应补列 + 建索引，不抛错
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+      const after = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+      expect(after.some(c => c.name === "signal_level")).toBe(true);
+      expect(after.some(c => c.name === "signal_meta")).toBe(true);
+      const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
+      expect(indexes.map(i => i.name)).toContain("idx_messages_signal_level");
+
+      // 第二次不报错（幂等）
+      expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
+    });
   });
 
   describe("signal_level index queries", () => {

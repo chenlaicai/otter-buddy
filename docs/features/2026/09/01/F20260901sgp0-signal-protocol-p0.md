@@ -12,7 +12,7 @@ created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
 
 ## 背景
 
-本文档记录信号协议实现的第一阶段（P0）。完整设计方案见 [F20260901sgp0 设计文档](https://github.com/chenlaicai/otter-buddy/pull/669)。
+本文档记录信号协议实现的第一阶段（P0）。完整设计方案见 [F20260901sgpx 设计文档](https://github.com/chenlaicai/otter-buddy/pull/669)。
 
 P0 的目标是**铺轨不走路**：在数据库和工具层埋入信号元数据能力，但不改变现有调度行为。
 
