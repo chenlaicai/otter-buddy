@@ -131,7 +131,9 @@ function detectBugRecurrence(
     const date = new Date(c.date);
     if (date < recurrenceStart) continue;
 
-    for (const file of c.filesChanged) {
+    // Set 防御（审视建议发现 4）：同 commit 的 filesChanged 若含重复文件名，
+    // 不去重会双计 shas 抬高触发次数——当前 git --name-only 不重复，纯防御性收口
+    for (const file of new Set(c.filesChanged)) {
       const key = `${c.parsed.module}\u0000${file}`;
       let entry = byModuleFile.get(key);
       if (!entry) {
@@ -181,13 +183,16 @@ function collectDetailCommits(
     if (date < recurrenceStart) continue;
     // module 无法解析的 commit 不参与（与第一遍口径一致：module null 直接 skip）
     if (!c.parsed.module) continue;
-    for (const file of c.filesChanged) {
+    // 与第一遍同样的 Set 防御：重复文件名不重复入 detail（避免时间轴重复节点）
+    for (const file of new Set(c.filesChanged)) {
       const key = `${c.parsed.module}\u0000${file}`;
       const entry = byModuleFile.get(key);
       if (!entry) continue; // 未达 bugfix 阈值的文件无 entry，不浪费内存
       entry.allCommits.push({
         sha: c.sha.slice(0, 8),
-        date: c.date,
+        // date 归一为 Z 格式 ISO（审视建议发现 5）：与 chainDetail 端点的 toISOString()
+        // 统一序列化契约，前端两路数据排序/分组不踩 localeCompare 语义差
+        date: new Date(c.date).toISOString(),
         changeType: c.parsed.changeType,
         message: c.message,
       });

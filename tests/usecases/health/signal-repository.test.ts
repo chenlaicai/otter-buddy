@@ -152,6 +152,13 @@ describe("Issue #644：evidence_detail + confidence 列", () => {
     const r = repo.upsert({ ...baseSignal }); // 旧行为调用方
     expect(r.confidence).toBe("low"); // 保留
     expect(r.evidence_detail).toContain("\"sha\":\"aa\""); // 保留
+    // 审视建议发现 2：以上断言读的是 TS 拼装返回值（coalesceExisting），与 SQL 的
+    // COALESCE(?, col) 是两套逻辑——若 SQL 误写直接覆盖，上面仍绿。此处补 findOpen
+    // 读 DB 实态，把 UPDATE 的 SQL 侧 COALESCE 行为也锁住
+    const open = repo.findOpen();
+    expect(open).toHaveLength(1);
+    expect(open[0]!.confidence).toBe("low");
+    expect(open[0]!.evidence_detail).toContain("\"sha\":\"aa\"");
   });
 
   it("存量库补列迁移：老库（无新列）跑 migrateDatabase 后两列可用", () => {

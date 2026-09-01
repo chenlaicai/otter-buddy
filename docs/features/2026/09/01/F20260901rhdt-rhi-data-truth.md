@@ -24,6 +24,7 @@ intent:
 ### 关键改动
 
 - "detect-signals.ts：bug_recurrence 触发后第二遍收集窗口内全类型 commit 序列（含 changeType 标注）——只有 bugfix 画不出交替节奏；chain_stall 附 confidence"
+- "审视处置（发现 4/5）：两遍 filesChanged 遍历加 Set 去重防御（同 commit 重复文件名不双计 shas/不重复入 detail）；detail.date 归一为 toISOString() Z 格式（与 chainDetail 端点统一序列化契约）"
 - "signal-repository.ts：upsert UPDATE 分支同步刷 evidence_detail/confidence（只刷旧三字段的 bug 会让存量信号置信分层永远不更新）；INSERT 分支写入两列"
 - "signal-pipeline.ts：processOne 拆出（lint 行数限制），透传 detail/confidence"
 - "chain-builder.ts：ACTIVE_DOC_STATUSES 收编 active（41 篇文档止血；值域系统性归一见 Issue #646）"
@@ -40,9 +41,11 @@ intent:
 ### 测试与自检
 
 - "detect-signals.test.ts 新增 4 用例：detail 全类型序列（5 节点含 New Feature/BugFix 交替、时间升序）、窗口滑动出窗 commit 不入 detail、置信规则甲（stalled+commit→low / doc-only→normal）、active 收编后不再豁免"
+- "审视处置新增 4 用例：规则甲 zombie 对照分支（显式零提及 Map → normal，审视发现 3）、重复文件名不双计（Set 防御，发现 4）、detail.date Z 格式归一不变量（发现 5）、COALESCE 用例补 findOpen 锁 DB 实态（发现 2，非仅 TS 拼装返回值）"
+- "rhi-api.test.ts 新增 3 用例：chainDetail 200（sha 截 8 位/date Z 格式/changeType/filesChanged/docStatus/stateReason）、chainDetail 404（错误信息含 FID）、signals evidenceDetail 非法 JSON 降级 null 不阻断（发现 3）；无闭包 helper 提模块级（describe 超 max-lines-per-function 300 行）"
 - "signal-repository.test.ts 新增 4 用例：首插落列、UPDATE 分支刷新（合议 §3.1 坑）、COALESCE 不覆盖、存量库补列迁移幂等"
 
-"根仓 194 files / 2406 tests 全绿；web 36 files / 311 tests 全绿；tsc --noEmit 0 错误；eslint 0 error（5 warning 均为存量 no-console）"
+"根仓 194 files / 2419 tests 全绿（审视处置后新增 6：原 2413 + 发现 2/3/4/5 用例）；web 36 files / 311 tests 全绿；tsc --noEmit 0 错误；eslint 0 error（5 warning 均为存量 no-console）。审视报告 B3 指出自报 2406 与实跑 2413 差 7，本处以后续实跑输出为准（含本次处置新增）"
 
 "已过最简检查——未新造表/依赖，复用 signals 表加列（JSON 列而非 commit 专表：单文件序列数据量小，与 evidence 文本同级）；链详情复用 buildChainsOnce 内存过滤而非新查询路径"
 
@@ -50,10 +53,14 @@ intent:
 
 ## 后续
 
-"PR 审视通过后呈搭档终审；后续 Issue B(#645)/C(#646) 可并行开工，D(#647) 依赖本 PR 合入"
+"PR 审视通过（守拙，0 严重 6 建议）后逐条处置：发现 2/3/4/5 本 PR 修复；发现 1 建为 #652（confidence 消费口径，挂 #647 前置）；发现 6 建为 #653（链泳道性能，挂 #649 设计前）。delta 复核通过后呈搭档终审"
 
 "PR2 复发模式卡消费 evidenceDetail.commits；PR3 泳道消费链详情端点；低置信抽屉消费 confidence=low"
 
 关联 issue：
 
 "https://github.com/chenlaicai/otter-buddy/issues/644"
+
+"https://github.com/chenlaicai/otter-buddy/issues/652（审视发现 1 承接）"
+
+"https://github.com/chenlaicai/otter-buddy/issues/653（审视发现 6 承接）"

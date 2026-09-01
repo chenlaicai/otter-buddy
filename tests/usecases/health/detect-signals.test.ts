@@ -72,6 +72,34 @@ describe("detectSignals", () => {
     expect(stall!.evidence).toContain("20 天");
   });
 
+  it("重复文件名不去重不双计（Set 防御，审视建议发现 4）", () => {
+    // 同 commit 的 filesChanged 含重复文件名：无防御时 shas 双计抬高触发次数、detail 出重复节点。
+    // 当前 git --name-only 不产生重复，此用例锁定防御行为不变
+    const commits = [
+      commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/dup.ts", "src/dup.ts"]),
+      commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/dup.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    // 去重后实际 2 次 < 阈值 3，不触发（不去重则 3 次会误触发）
+    expect(signals.find(s => s.type === "bug_recurrence" && s.filePath === "src/dup.ts")).toBeUndefined();
+  });
+
+  it("detail 的 date 归一为 Z 格式 ISO（与 chainDetail 端点统一契约，审视建议发现 5）", () => {
+    const commits = [
+      commit("b1", 8, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/iso.ts"]),
+      commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/iso.ts"]),
+      commit("b3", 3, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/iso.ts"]),
+    ];
+    const signals = detectSignals(commits, [], [], { now: NOW });
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    // 输入是 toISOString() 生成的 Z 格式，归一后仍是 Z 格式（以 Z 结尾）；
+    // 若未来采集器改用 %aI 带时区偏移格式，此断言强制归一不变量
+    for (const cm of rec!.detail!.commits) {
+      expect(cm.date.endsWith("Z")).toBe(true);
+    }
+  });
+
   it("hotspot：窗口内文件修改次数 > 阈值触发 warning", () => {
     const commits = Array.from({ length: 4 }, (_, i) =>
       commit(`h${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["src/hot.ts"]));
@@ -299,5 +327,25 @@ describe("Issue #644：结构化证据 + 置信度", () => {
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.confidence).toBe("low");
+  });
+
+  it("置信规则甲 zombie 分支：30 天无 commit 且零提及 → normal（更接近真异常，不降置信）（审视发现 3）", () => {
+    // 规则甲的对照分支：stalled→low 依赖 zombie→normal 的对比才成立。
+    // 原先只有代码注释保证，无直接用例锁定
+    const commits = [commit("s1", 45, "[F20260801zomb][agent][New Feature] x", ["a.ts"])]; // 45 天前最后 commit（> zombieDays 30）
+    const docs = [{
+      id: "F20260801zomb", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/z.md", createdAt: dayAgo(50), createdInConversationId: null,
+    }];
+    // 提及 Map 显式 0（未传 Map = 未查询不判 zombie，冷启动安全，见 isZombie）
+    const fidMentionCounts = new Map([["F20260801zomb", 0]]);
+    const chains = buildFeatureChains(commits, docs, { now: NOW, fidMentionCounts });
+    expect(chains[0].state).toBe("zombie");
+    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const stall = signals.find(s => s.type === "chain_stall");
+    expect(stall).toBeDefined();
+    expect(stall!.confidence).toBe("normal"); // zombie 不降置信
+    expect(stall!.evidence).toContain("僵尸");
   });
 });
