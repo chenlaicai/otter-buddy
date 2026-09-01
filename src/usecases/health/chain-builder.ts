@@ -31,6 +31,8 @@ export interface FeatureChain {
     message: string;
     changeType: string | null;
     filesChanged: string[];
+    /** PR 号（commit 尾部 (#N) 解析；无则 null）。#646 推进器高置信归档判定用 */
+    prNumber: number | null;
   }>;
   /** 首次出现（链上最早 commit 日期），orphan 链可能无文档 createdAt */
   firstSeenAt: Date | null;
@@ -124,6 +126,7 @@ function aggregateCommits(
       message: c.message,
       changeType: c.parsed.changeType,
       filesChanged: c.filesChanged,
+      prNumber: c.parsed.prNumber,
     });
     for (const f of c.filesChanged) chain.touchFiles.add(f);
     if (c.parsed.changeType === "BugFix") chain.bugfixCount++;

@@ -38,8 +38,8 @@ function fakeDetailChain(): FeatureChain {
     featureId: "F20260801aaaa",
     state: "stalled",
     commits: [
-      { sha: "abcdef1234567890", date: new Date("2026-08-10T00:00:00Z"), message: "引入", changeType: "New Feature", filesChanged: ["a.ts"] },
-      { sha: "1234567890abcdef", date: new Date("2026-08-20T00:00:00Z"), message: "修复", changeType: "BugFix", filesChanged: ["a.ts"] },
+      { sha: "abcdef1234567890", date: new Date("2026-08-10T00:00:00Z"), message: "引入", changeType: "New Feature", filesChanged: ["a.ts"], prNumber: null },
+      { sha: "1234567890abcdef", date: new Date("2026-08-20T00:00:00Z"), message: "修复", changeType: "BugFix", filesChanged: ["a.ts"], prNumber: null },
     ],
     firstSeenAt: new Date("2026-08-10T00:00:00Z"),
     lastCommitAt: new Date("2026-08-20T00:00:00Z"),
