@@ -54,46 +54,12 @@ export class SignalPipeline {
   ): Promise<SignalPipelineResult> {
     const result: SignalPipelineResult = { stored: 0, memoryIndexed: 0, wakeupsTriggered: 0, errors: [] };
 
-    // Track detected signal keys for auto-resolve
     const detectedKeys = new Set<string>();
 
     for (const signal of signals) {
       try {
-        const record = this.signalRepo.upsert({
-          signalType: signal.type,
-          severity: signal.severity,
-          featureId: signal.featureId,
-          filePath: signal.filePath,
-          evidence: signal.evidence,
-          suggestedAction: signal.suggestedAction,
-        });
-        result.stored++;
-
-        // Track key for auto-resolve
+        await this.processOne(signal, wakeup, result);
         detectedKeys.add(`${signal.type}\u0000${signal.featureId ?? ""}\u0000${signal.filePath ?? ""}`);
-
-        if (signal.severity === "critical") {
-          await this.storeMemory.execute({
-            layer: "working",
-            contentType: "fact",
-            sourceId: String(record.id),
-            sourceTable: "signals",
-            granularity: "coarse",
-            content: `[RHI信号][${signal.severity}] ${signal.name}：${signal.evidence}（建议：${signal.suggestedAction}）`,
-            metadata: {
-              signal_type: signal.type,
-              severity: signal.severity,
-              feature_id: signal.featureId,
-              file_path: signal.filePath,
-            },
-          });
-          result.memoryIndexed++;
-
-          if (wakeup) {
-            await wakeup(signal, record.id);
-            result.wakeupsTriggered++;
-          }
-        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.warn(`Signal pipeline item failed: ${signal.type}`, {
@@ -117,6 +83,49 @@ export class SignalPipeline {
     });
 
     return result;
+  }
+
+  /** 单信号处理：落库 + critical 记忆通道 + critical 唤醒（Issue #644 重构拆出，行为不变） */
+  private async processOne(
+    signal: DetectedSignal,
+    wakeup: CriticalSignalWakeup | undefined,
+    result: SignalPipelineResult,
+  ): Promise<void> {
+    const record = this.signalRepo.upsert({
+      signalType: signal.type,
+      severity: signal.severity,
+      featureId: signal.featureId,
+      filePath: signal.filePath,
+      evidence: signal.evidence,
+      suggestedAction: signal.suggestedAction,
+      // Issue #644：detail/confidence 透传落库（未传时旧值保留）
+      evidenceDetail: signal.detail,
+      confidence: signal.confidence,
+    });
+    result.stored++;
+
+    if (signal.severity !== "critical") return;
+
+    await this.storeMemory.execute({
+      layer: "working",
+      contentType: "fact",
+      sourceId: String(record.id),
+      sourceTable: "signals",
+      granularity: "coarse",
+      content: `[RHI信号][${signal.severity}] ${signal.name}：${signal.evidence}（建议：${signal.suggestedAction}）`,
+      metadata: {
+        signal_type: signal.type,
+        severity: signal.severity,
+        feature_id: signal.featureId,
+        file_path: signal.filePath,
+      },
+    });
+    result.memoryIndexed++;
+
+    if (wakeup) {
+      await wakeup(signal, record.id);
+      result.wakeupsTriggered++;
+    }
   }
 
   /**

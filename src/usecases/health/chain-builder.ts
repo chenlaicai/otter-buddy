@@ -69,7 +69,10 @@ export interface ChainCommitInput {
   filesChanged: string[];
 }
 
-const ACTIVE_DOC_STATUSES = new Set(["draft", "proposed", "design", "development"]);
+// 实查（Issue #644）：docs/features 存在 41 篇 status: active 的文档（如 F20260829gvid）。
+// active 不在白名单时被当终态，静默豁免病态判定（现网判定盲区）——收编为在途状态参与判定。
+// 注：值域系统性归一（8 种值 + 行内注释变体）见 Issue #646 值域契约，此处为最小止血。
+const ACTIVE_DOC_STATUSES = new Set(["draft", "proposed", "design", "development", "active"]);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**

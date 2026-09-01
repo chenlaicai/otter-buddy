@@ -112,6 +112,25 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
    *  此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。 */
   ensureHealingEventsIntroducedByPrColumn(db, logger);
+
+  /** Issue #644（健康面板重设计 PR1）：signals 表添加 evidence_detail + confidence 列（存量库迁移）。
+   *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
+  ensureSignalsEvidenceColumns(db, logger);
+}
+
+/** Issue #644：signals 表补 evidence_detail / confidence 列（幂等，PRAGMA 检测）。
+ *  Why 独立函数：与 ensureHealingEventsIntroducedByPrColumn 同模式——存量库列补丁不进 initSchema
+ *  的 CREATE（新库自动带上），只在这里 ALTER 补旧库。 */
+function ensureSignalsEvidenceColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(signals)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'evidence_detail')) {
+    db.prepare("ALTER TABLE signals ADD COLUMN evidence_detail TEXT").run();
+    logger.info('Added evidence_detail column to signals table');
+  }
+  if (!columns.some(col => col.name === 'confidence')) {
+    db.prepare("ALTER TABLE signals ADD COLUMN confidence TEXT").run();
+    logger.info('Added confidence column to signals table');
+  }
 }
 
 /**
