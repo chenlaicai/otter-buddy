@@ -149,8 +149,9 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     const result = await worker.scanOnce();
 
-    // 18 行：11 标准行 + 1 chain_states 行 + 6 health_index 行（5 维度 + overall，issue #595 PR1）
-    expect(result.metricsStored).toBe(18);
+    // 19 行：11 标准行 + 1 chain_states 行 + 6 health_index 行（issue #595 PR1）
+    //        + 1 fix_interval 行（修复半衰期，Issue #645）
+    expect(result.metricsStored).toBe(19);
     expect(sinkCalls).toHaveLength(1);
     const { date, rows } = sinkCalls[0]!;
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -160,6 +161,13 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(byKey.get("bugfix_count")!.metricValue).toBe(3); // 60 天窗口内 3 个 BugFix commit（测试仓库历史全在窗口内）
     const chainStates = byKey.get("chain_states")!;
     expect(JSON.parse(chainStates.metadata!)).toEqual({ stalled: 1, active: 1 });
+
+    // fix_interval 行（Issue #645）：3 个 bugfix 间隔 1h → 中位 1/24 天；metadata 带窗口参数
+    const fixInterval = byKey.get("bugfix_median_interval_days")!;
+    expect(fixInterval.metricType).toBe("fix_interval");
+    expect(fixInterval.metricValue).toBeCloseTo(1 / 24, 3); // 间隔含 fixture 写文件耗时（≈1h+几秒），精度放宽到 3 位
+    const fiMeta = JSON.parse(fixInterval.metadata!);
+    expect(fiMeta).toEqual({ windowDays: 60, bugfixCount: 3, intervalCount: 2, stat: "median" });
 
     // health_index 行：metricType 统一，5 维度 + overall 全在（D5 零信号满分）
     const hiRows = rows.filter(r => r.metricType === "health_index");

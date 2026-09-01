@@ -68,15 +68,22 @@ export class SignalRepository {
       // Issue #644：UPDATE 分支必须同步刷 evidence_detail + confidence——只刷旧三字段
       // 会导致存量信号的置信分层永远不更新（合议审读 §3.1）。COALESCE 语义：本次未传
       // 时不覆盖旧值（旧行为调用方不受影响）；窗口滑动重算时传新值覆盖。
+      // Issue #645 审视 S1：severity / suggested_action 同理必须刷——僵尸阶梯是首个
+      // 让同一信号 severity 随时间变化的功能（黄档首开→红档推进），不刷则档位冻结、
+      // 消费侧按 severity 路由失效。severity 必传直接覆盖（其余 8 类传入值=注册表
+      // 常量=存量值，零行为变化）；suggested_action 可空走 COALESCE（同防御语义）。
       this.db
         .prepare(`UPDATE signals SET
             last_seen = ?,
             occurrences = occurrences + 1,
             evidence = ?,
             evidence_detail = COALESCE(?, evidence_detail),
-            confidence = COALESCE(?, confidence)
+            confidence = COALESCE(?, confidence),
+            severity = ?,
+            suggested_action = COALESCE(?, suggested_action)
           WHERE id = ?`)
-        .run(now, signal.evidence, detailJson, signal.confidence ?? null, existing.id);
+        .run(now, signal.evidence, detailJson, signal.confidence ?? null,
+             signal.severity, signal.suggestedAction, existing.id);
       return this.coalesceExisting(existing, signal, detailJson, now);
     }
 
@@ -114,7 +121,8 @@ export class SignalRepository {
     };
   }
 
-  /** Issue #644：UPDATE 分支返回值拼装——COALESCE 后的 detail/confidence 与刷新后的计数 */
+  /** Issue #644/#645：UPDATE 分支返回值拼装——与 SQL 侧刷新列保持一致
+   *  （detail/confidence COALESCE、severity/suggested_action 覆盖、计数刷新） */
   private coalesceExisting(
     existing: SignalRecord,
     signal: UpsertSignal,
@@ -128,6 +136,8 @@ export class SignalRepository {
       evidence: signal.evidence,
       evidence_detail: detailJson !== null ? detailJson : existing.evidence_detail,
       confidence: signal.confidence ?? existing.confidence,
+      severity: signal.severity,
+      suggested_action: signal.suggestedAction ?? existing.suggested_action,
     };
   }
 

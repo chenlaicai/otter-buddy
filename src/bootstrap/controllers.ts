@@ -37,6 +37,8 @@ import { AttachmentController } from "@interface-adapters/http/controllers/attac
 import { WorkspaceController } from "@interface-adapters/http/controllers/workspace-controller";
 import { WeixinConnectionController } from "@interface-adapters/http/controllers/weixin-connection-controller";
 import type { WeixinLoginSessionPort, WeixinAccountStorePort } from "@interface-adapters/http/controllers/weixin-connection-controller";
+import { ChannelController } from "@interface-adapters/http/controllers/channel-controller";
+import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
@@ -84,6 +86,21 @@ export interface ControllerDeps {
   weixinLoginSessions?: WeixinLoginSessionPort;
   weixinAccountStore?: WeixinAccountStorePort;
   onWeixinAccountDeleted?: (accountId: string) => void;
+  /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
+  registry?: ChannelStatusRegistry;
+}
+
+function buildChannelController(deps: ControllerDeps) {
+  if (!deps.registry) return undefined;
+  return new ChannelController(deps.registry, deps.weixinAccountStore);
+}
+
+function buildAttachmentInjection(deps: ControllerDeps, appConfig: AppConfig, repos: Repositories, logger: Logger) {
+  return new AttachmentInjectionService({
+    attachmentRepo: deps.attachmentRepo ?? repos.attachment,
+    storageRoot: deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
+    logger,
+  });
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
@@ -107,16 +124,11 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     embeddingLocalModelPath: appConfig.embedding.localModelPath,
     embeddingDim: appConfig.embedding.dimensions,
   };
-
   const nodeFs = new NodeFileSystem();
   const rootDir = process.cwd();
 
   /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
-  const attachmentInjection = new AttachmentInjectionService({
-    attachmentRepo: deps.attachmentRepo ?? repos.attachment,
-    storageRoot: deps.attachmentStorageRoot ?? appConfig.attachments?.storageRoot ?? "./data/attachments",
-    logger,
-  });
+  const attachmentInjection = buildAttachmentInjection(deps, appConfig, repos, logger);
 
   return {
     conversation: new ConversationController(uc.manageConversation, uc.manageParticipant, settingsRepo, logger),
@@ -157,5 +169,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     workspace: uc.manageWorkspace ? new WorkspaceController(uc.manageWorkspace, logger) : undefined,
     // 微信连接管理（issue #566）——登录会话管理器注入时挂载
     weixin: buildWeixinController(),
+    // 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态）
+    channel: buildChannelController(deps),
   };
 }

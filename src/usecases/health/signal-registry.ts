@@ -1,7 +1,8 @@
 /**
  * 信号注册表（Issue #399 单一真相源）
  *
- * 8 类信号定义与特性文档 F20260824rhib 信号注册表一一对应。
+ * 9 类信号定义与特性文档 F20260824rhib 信号注册表一一对应（snapshot_shift 为
+ * Issue #645 新增——环比骤变检测，消费 health_snapshots 快照不依赖 commit 流）。
  * 检测器实现度分级：
  * - MVP 已实现：bug_recurrence / chain_stall / hotspot / behavior_defect / hotspot_imbalance
  * - Phase 1.5 待实现（数据源依赖）：eval_regression / intent_drop（intent 字段冷启动 0%）
@@ -16,7 +17,8 @@ export type SignalType =
   | "eval_regression"
   | "intent_drop"
   | "hotspot_imbalance"
-  | "review_debt";
+  | "review_debt"
+  | "snapshot_shift";
 
 export type SignalSeverity = "critical" | "warning";
 
@@ -63,9 +65,19 @@ export const SIGNAL_REGISTRY: Readonly<Record<SignalType, SignalDefinition>> = {
   behavior_defect: {
     type: "behavior_defect",
     name: "行为缺陷",
-    triggerRule: "同一 errorType healing event 复发",
+    // Issue #645 窗口化升级：原「同一 errorType healing event 复发」为全量聚合无窗口——
+    // degenerate 57 次/12 天（healing 库最高频）会永久占用警报位，失去「最近在恶化」的语义。
+    triggerRule: "同一 errorType healing event 7 天窗口内 ≥3 次",
     severity: "warning",
     suggestedAction: "prompt/skill 修订",
+    implemented: true,
+  },
+  snapshot_shift: {
+    type: "snapshot_shift",
+    name: "健康分环比骤变",
+    triggerRule: "五维/综合健康分单日 |Δ|≥10（相邻两日 health_snapshots 快照 diff，null 维度跳过）",
+    severity: "warning",
+    suggestedAction: "深挖当日快照 diff：逐维度核对上升/下降因子",
     implemented: true,
   },
   eval_regression: {

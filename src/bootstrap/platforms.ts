@@ -51,6 +51,8 @@ import { WeixinMediaClient } from "@frameworks/weixin/media-client";
 import { WeixinAccountStore, type WeixinAccount } from "@frameworks/weixin/account-store";
 import type { WeixinConfig } from "@frameworks/weixin/types";
 import { WeixinPollingChannel } from "@frameworks/weixin/polling-channel";
+import { InMemoryChannelStatusRegistry } from "@usecases/channel/channel-status-registry";
+import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
 
 import { WeixinMessageChannel } from "@usecases/im/weixin-message-channel";
 import { WeixinGatewayAdapter } from "@interface-adapters/weixin/weixin-gateway-adapter";
@@ -265,8 +267,9 @@ export function setupFeishu(options: {
   feishu: FeishuBundle;
   messageBroadcaster: MessageBroadcaster;
   logger: Logger;
+  registry?: ChannelStatusRegistry;
 }): void {
-  const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger } = options;
+  const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry } = options;
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
@@ -306,7 +309,7 @@ export function setupFeishu(options: {
     logger,
   });
 
-  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, feishu.tokenManager);
+  const longConnectionClient = new FeishuLongConnectionClient(appConfig.feishu, logger, feishu.tokenManager, registry);
   const longConnectionHandler = new FeishuLongConnectionHandler({
     longConnectionGateway: longConnectionClient,
     messageProcessor,
@@ -328,6 +331,8 @@ export interface PlatformBootstrapResult {
   recruitingInit: Promise<void>;
   /** 微信通道轮询句柄（app 关停时统一 stop） */
   weixinPollers?: WeixinPollingChannel[];
+  /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
+  registry?: ChannelStatusRegistry;
 }
 
 /** 微信通道启动（issue #565）：每个已登录账号拉一条轮询 + 注册出站通道 */
@@ -339,8 +344,9 @@ export function startWeixinChannels(options: {
   dispatchChainEngine: DispatchChainEngine;
   messageBroadcaster: MessageBroadcaster;
   logger: Logger;
+  registry?: ChannelStatusRegistry;
 }): WeixinPollingChannel[] {
-  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger } = options;
+  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry } = options;
   const weixinConfig = appConfig.weixin;
   if (!weixinConfig) {
     // Bugfix（F20260831wxsp）：有已登录账号但 config 无 weixin 段时不再静默 return——
@@ -352,9 +358,16 @@ export function startWeixinChannels(options: {
     const orphanAccounts = accountStore.listAccounts();
     if (orphanAccounts.length === 0) return [];
     logger.warn("Weixin: logged-in accounts exist but config.yaml has no weixin section — starting with defaults (partnerUserId unset, commands ungated). Add weixin section to config.yaml to gate commands", { accounts: orphanAccounts.map((a) => a.id) });
-    return orphanAccounts
-      .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account }))
+    const pollers = orphanAccounts
+      .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account, registry }))
       .filter((p): p is WeixinPollingChannel => p !== undefined);
+    // F20260901chun 发现8：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
+    if (registry) {
+      for (const account of orphanAccounts) {
+        registry.update(`weixin-${account.id}`, { kind: "weixin", state: { kind: "running", since: Date.now(), degraded: true } });
+      }
+    }
+    return pollers;
   }
 
   const accountStore = new WeixinAccountStore(weixinConfig);
@@ -366,7 +379,7 @@ export function startWeixinChannels(options: {
 
   const pollers: WeixinPollingChannel[] = [];
   for (const account of accounts) {
-    const poller = startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account });
+    const poller = startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry });
     if (poller) pollers.push(poller);
   }
   return pollers;
@@ -384,11 +397,12 @@ interface StartWeixinAccountOptions {
   accountStore: WeixinAccountStore;
   weixinConfig: WeixinConfig;
   account: WeixinAccount;
+  registry?: ChannelStatusRegistry;
 }
 
 /** 单账号启动（初始启动与 web 扫码登录热启动共用，issue #566） */
 function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
-  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account } = options;
+  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry } = options;
   try {
       const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token });
       // 媒体支持（issue #567）：CDN 客户端同构注入 gateway（出站上传）与媒体下载实现（入站）
@@ -429,6 +443,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         accountId: account.id,
         onMessage: (msg) => processor.process(msg),
         logger,
+        registry,
       });
       poller.setIdentity(account.ilinkUserId);
       poller.start();
@@ -515,8 +530,11 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
       .catch(err => logger.warn("Recruiting init failed", { error: err instanceof Error ? err.message : String(err) }));
   }
 
-  // ── 微信通道（issue #565）：每个已登录账号拉起轮询 + 出站注册 ──
-  const weixinPollers = startWeixinChannels(options);
+  // ── 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） ──
+  const registry = new InMemoryChannelStatusRegistry();
 
-  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers };
+  // ── 微信通道（issue #565）：每个已登录账号拉起轮询 + 出站注册 ──
+  const weixinPollers = startWeixinChannels({ ...options, registry });
+
+  return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry };
 }

@@ -35,6 +35,10 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
       app.get(page.pattern, serveStatic({ root: staticRoot, path: `${page.entry}.html` }));
     }
 
+    // F20260901chun：旧 URL 301 重定向到 /im（防外链断裂）
+    app.get("/connections", (c) => c.redirect("/im", 301));
+    app.get("/weixin", (c) => c.redirect("/im", 301));
+
     app.use("/*", serveStatic({ root: staticRoot }));
   }
 
