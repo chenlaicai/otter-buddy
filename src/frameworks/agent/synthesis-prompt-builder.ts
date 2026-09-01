@@ -34,7 +34,7 @@ export const SYNTHESIS_READ_ONLY_TOOL_WHITELIST: ReadonlySet<string> = new Set([
   // 消息与对话（查询）
   'search_messages', 'list_messages', 'get_message', 'get_turn_history',
   // 协作状态（查询）
-  'get_active_participants',
+  'get_active_participants', 'query_dispatch_ledger',
 ]);
 
 /** §④ 机械预取数据 */
@@ -196,9 +196,14 @@ function formatStateInventoryForPrompt(
   // F20260901mbfx：优先全量 B1-B6 渲染文本（件④一次聚合两用，与给新 session 的
   // otter_context 注入同源——同一份数据两处消费，无竞态窗口）。
   // 裁掉首行标题（含时间戳，meta 行已有）保持 §⑤ 紧凑。
+  // 仅滤标题行与首尾空行（boundary 审视发现：全量空行过滤会在未来
+  // renderStateInventory 增加分组空行时静默吞掉分隔——只裁首尾，保留中段）。
   if (fallbackText) {
-    const lines = fallbackText.split('\n');
-    const body = lines.filter(l => !(l.startsWith('## ') || l.trim() === ''));
+    // 先滤标题行，再裁首尾空行（顺序关键：标题行若在首，filter 后会暴露首空行）
+    const stripped = fallbackText.split('\n').filter(l => !l.startsWith('## '));
+    const first = stripped.findIndex(l => l.trim() !== '');
+    const last = stripped.length - 1 - [...stripped].reverse().findIndex(l => l.trim() !== '');
+    const body = first >= 0 ? stripped.slice(first, last + 1) : [];
     if (body.length > 0) return body.join('\n');
   }
   if (inventory) {

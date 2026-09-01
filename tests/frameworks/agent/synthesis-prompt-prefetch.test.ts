@@ -129,6 +129,22 @@ describe("F20260901mbfx §⑤ 全量 B1-B6 注入", () => {
     // 标题行（含时间戳）被裁掉
     expect(prompt).not.toContain("## 活状态盘点");
   });
+
+  it("boundary 审视发现 2：中段空行分隔保留（仅裁首尾空行与标题）", () => {
+    const prompt = buildSynthesisPrompt({
+      otterName: "大獭",
+      oldSessionId: "sess1234-xxxx",
+      trigger: "70%阈值",
+      stateInventoryText:
+        "## 活状态盘点\n\n- 发言石：无\n\n- 调度任务：无\n\n",
+    });
+
+    // 中段空行保留（未来 renderStateInventory 加分组分隔不会被吞）
+    expect(prompt).toContain("- 发言石：无\n\n- 调度任务：无");
+    // 首尾空行被裁
+    expect(prompt).toContain("### ⑤ 协作状态\n- 发言石：无");
+    expect(prompt).not.toMatch(/调度任务：无\n\n\n/);
+  });
 });
 
 describe("F20260901mbfx readOnly 白名单内容安全", () => {
@@ -159,5 +175,9 @@ describe("F20260901mbfx readOnly 白名单内容安全", () => {
     for (const tool of ["read", "get_context", "list_artifacts", "search_memory", "get_message", "get_active_participants"]) {
       expect(SYNTHESIS_READ_ONLY_TOOL_WHITELIST.has(tool)).toBe(true);
     }
+  });
+
+  it("boundary 审视发现 1：query_dispatch_ledger（只读派工台账查询）在白名单内", () => {
+    expect(SYNTHESIS_READ_ONLY_TOOL_WHITELIST.has("query_dispatch_ledger")).toBe(true);
   });
 });
