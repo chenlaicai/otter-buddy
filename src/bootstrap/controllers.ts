@@ -27,6 +27,7 @@ import { ConversationController } from "@interface-adapters/http/controllers/con
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 import { MemoryController } from "@interface-adapters/http/controllers/memory-controller";
+import { SkillController, type SkillDirectory } from "@interface-adapters/http/controllers/skill-controller";
 import { HealthController } from "@interface-adapters/http/controllers/health-controller";
 import { InboundController } from "@interface-adapters/http/controllers/inbound-controller";
 import { KeyInfoController } from "@interface-adapters/http/controllers/key-info-controller";
@@ -91,6 +92,8 @@ export interface ControllerDeps {
   registry?: ChannelStatusRegistry;
   /** F20260901sgpv P1：信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
   signalRouter?: SignalRouter;
+  /** #576（F20260901emps）：能力库页面数据源（ResourceLoader 适配器）；缺省时路由返回 503 */
+  skillDirectory?: SkillDirectory;
 }
 
 function buildChannelController(deps: ControllerDeps) {
@@ -143,7 +146,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       attachmentInjection,
       signalRouter,
     ),
-    memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
+    memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
@@ -175,5 +178,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     weixin: buildWeixinController(),
     // 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态）
     channel: buildChannelController(deps),
+    // #576（F20260901emps）：能力库真数据源。测试环境（无 ResourceLoader）可省略，路由层优雅降级
+    skills: deps.skillDirectory ? new SkillController(deps.skillDirectory, logger) : undefined,
   };
 }

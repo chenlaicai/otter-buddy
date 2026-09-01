@@ -16,6 +16,7 @@ import type { AttachmentController } from "./controllers/attachment-controller";
 import type { WorkspaceController } from "./controllers/workspace-controller";
 import type { WeixinConnectionController } from "./controllers/weixin-connection-controller";
 import type { ChannelController } from "./controllers/channel-controller";
+import type { SkillController } from "./controllers/skill-controller";
 
 
 export interface Controllers {
@@ -37,6 +38,8 @@ export interface Controllers {
   weixin?: WeixinConnectionController;
   /** 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态） */
   channel?: ChannelController;
+  /** #576（F20260901emps）：能力库真数据源端点 */
+  skills?: SkillController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -76,6 +79,11 @@ function registerOtterRoutes(app: Hono, c: Controllers): void {
 
 function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/memory", (ctx) => c.health.memory(ctx));
+
+  // #576（F20260901emps）：能力库页面真数据。未注入（测试环境）时 503，前端降级静态清单
+  if (c.skills) {
+    app.get("/api/skills", (ctx) => c.skills!.list(ctx));
+  }
   // F20260825rweb（#402）：RHI 面板 API（与 memory 健康端点同前缀，职责分离的 controller）
   app.get("/api/health/overview", (ctx) => c.rhi.overview(ctx));
   app.get("/api/health/signals", (ctx) => c.rhi.signals(ctx));
@@ -87,6 +95,8 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/cost-output", (ctx) => c.rhi.costOutput(ctx));
   app.post("/api/health/scan", (ctx) => c.rhi.scan(ctx));
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
+  // #576（F20260901emps）：记忆搜索页初始态数据源（最近记忆，非检索）
+  app.get("/api/memory/recent", (ctx) => c.memory.recent(ctx));
   app.post("/api/memory/search/similar", (ctx) => c.memory.searchSimilar(ctx));
   app.get("/api/memory/batch", (ctx) => c.memory.getDetails(ctx));
   app.get("/api/memory/dark-entries", (ctx) => c.memory.getDarkEntries(ctx));

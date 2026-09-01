@@ -6,9 +6,11 @@ import type { MemoryLayer, MemoryContentType, RetrievalGranularity, DetailLevel 
 import { isMemoryContentType } from "@entities/memory/memory-entry";
 import type { Logger } from "@usecases/ports/logger";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import { handleError, param } from "../http-error";
 import { toMemoryEntryDTO } from "../dto/memory-dto";
 import type { SearchSimilarRequestDTO, FlagMemoryRequestDTO } from "../dto/memory-dto";
+import type { RecentMemoryDTO } from "@contract/api/memory";
 
 /**
  * 在纯文本 snippet 中高亮搜索词（Web 后端职责，不在记忆模块）
@@ -50,7 +52,8 @@ export class MemoryController {
     private readonly manageMemory: ManageMemory,
     private readonly scanDarkEntries: ScanDarkEntries,
     private readonly embeddingGateway: EmbeddingGateway,
-      private readonly logger: Logger,
+    /** #576（F20260901emps）：recent 端点数据源（repo + logger 收拢为第 5 参，避 max-params） */
+    private readonly deps: { repo: MemoryRepository; logger: Logger },
   ) {}
 
   async search(c: Context): Promise<Response> {
@@ -118,7 +121,7 @@ export class MemoryController {
         ...(degraded ? { degraded: true, degradedReason: "embedding 不可用，语义检索降级，结果可能不完整" } : {}),
       });
     } catch (err) {
-      return handleError(c, err, this.logger);
+      return handleError(c, err, this.deps.logger);
     }
   }
 
@@ -133,7 +136,7 @@ export class MemoryController {
         vecCoverage: result.vecCoverage,
       });
     } catch (err) {
-      return handleError(c, err, this.logger);
+      return handleError(c, err, this.deps.logger);
     }
   }
 
@@ -145,7 +148,7 @@ export class MemoryController {
       const result = await this.scanDarkEntries.execute(includeDead);
       return c.json(result);
     } catch (err) {
-      return handleError(c, err, this.logger);
+      return handleError(c, err, this.deps.logger);
     }
   }
 
@@ -166,7 +169,25 @@ export class MemoryController {
         total: entries.length,
       });
     } catch (err) {
-      return handleError(c, err, this.logger);
+      return handleError(c, err, this.deps.logger);
+    }
+  }
+
+  /**
+   * #576（F20260901emps）：最近记忆——记忆搜索页初始态数据源。
+   * 让页面打开即有内容（而非静默引导文案），点击条目可展开详情。
+   */
+  async recent(c: Context): Promise<Response> {
+    try {
+      const limit = Math.min(Number(c.req.query("limit") ?? "10") || 10, 50);
+      const entries = await this.deps.repo.listRecent(limit);
+      const dto: RecentMemoryDTO = {
+        entries: entries.map((e) => toMemoryEntryDTO(e)),
+        total: entries.length,
+      };
+      return c.json(dto);
+    } catch (err) {
+      return handleError(c, err, this.deps.logger);
     }
   }
 
@@ -179,7 +200,7 @@ export class MemoryController {
       }
       return c.json(toMemoryEntryDTO(entry));
     } catch (err) {
-      return handleError(c, err, this.logger);
+      return handleError(c, err, this.deps.logger);
     }
   }
 
@@ -190,7 +211,7 @@ export class MemoryController {
       await this.manageMemory.flagMemory(id, body.flagged);
       return c.json({ status: "flagged", flagged: body.flagged });
     } catch (err) {
-      return handleError(c, err, this.logger);
+      return handleError(c, err, this.deps.logger);
     }
   }
 }

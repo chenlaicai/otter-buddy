@@ -1,18 +1,22 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Construction, Package } from 'lucide-react'
 import '../../styles/globals.css'
 import { AppLayout } from '../../components/AppLayout'
 
-// TODO: API contract not yet defined - Skill 管理功能建设中（issue #366 PR-1），
-// 当前为只读展示。数据为静态拷贝，真相源：prompts/skills/manifest.yaml（+ 各 SKILL.md）
+/**
+ * #576（F20260901emps）：数据源从静态快照改为 GET /api/skills（ResourceLoader 真相源）。
+ * Why: 此前硬编码 9 个 skill（8/21 快照），仓库演化到 11 个后页面过时且不会更新。
+ * 降级链：API 成功 → 真实清单；API 失败 → 内置兜底清单（带「离线兜底」标注）；
+ * API 成功但空 → 显式空态文案（不再静默空白）。
+ */
 interface SkillEntry {
   name: string
   desc: string
 }
 
-// 分层结构对应 manifest.yaml 中的注释分组
-const skillGroups: { label: string; skills: SkillEntry[] }[] = [
+// 内置兜底清单（API 不可达时的降级展示；正常环境下被真实数据取代）
+const FALLBACK_SKILL_GROUPS: { label: string; skills: SkillEntry[] }[] = [
   {
     label: '默认搭档',
     skills: [
@@ -33,6 +37,7 @@ const skillGroups: { label: string; skills: SkillEntry[] }[] = [
       { name: 'code-implementation', desc: '已确认方案 → 代码 PR' },
       { name: 'adversarial-review', desc: '对代码变更或设计文档做对抗审视' },
       { name: 'worktree-isolation', desc: '修改 git 跟踪文件前的 worktree 隔离' },
+      { name: 'post-merge-cleanup', desc: 'PR 合入后的 worktree/分支/issue 善后清理' },
     ],
   },
   {
@@ -45,13 +50,79 @@ const skillGroups: { label: string; skills: SkillEntry[] }[] = [
     label: '元规范',
     skills: [
       { name: 'writing-skills', desc: '关于 skill 的 skill：铁律 + 契约 + 模板 + lint 规则' },
+      { name: 'stock-analysis', desc: 'A股/港股结构化分析与纸面交易' },
     ],
   },
 ]
 
-const allSkills = skillGroups.flatMap(g => g.skills)
+type LoadState =
+  | { kind: 'loading' }
+  | { kind: 'loaded'; groups: { label: string; skills: SkillEntry[] }[]; degraded: boolean }
+  | { kind: 'empty' }
+  | { kind: 'error' }
 
-function SkillsPage() {
+/** 把 API 返回的平铺 skill 列表按内置分组顺序归类；未识别的归「其他」 */
+function groupSkills(names: { name: string; desc: string }[]): { label: string; skills: SkillEntry[] }[] {
+  const order = FALLBACK_SKILL_GROUPS.map(g => g.label)
+  const buckets = new Map<string, SkillEntry[]>()
+  for (const s of names) {
+    const label = findGroupLabel(s.name) ?? '其他'
+    if (!buckets.has(label)) buckets.set(label, [])
+    buckets.get(label)!.push({ name: s.name, desc: s.desc })
+  }
+  // 按内置顺序输出，末尾追加未识别分组
+  const result: { label: string; skills: SkillEntry[] }[] = []
+  for (const label of order) {
+    const skills = buckets.get(label)
+    if (skills && skills.length > 0) result.push({ label, skills })
+    buckets.delete(label)
+  }
+  for (const [label, skills] of buckets) result.push({ label, skills })
+  return result
+}
+
+function findGroupLabel(skillName: string): string | null {
+  for (const g of FALLBACK_SKILL_GROUPS) {
+    if (g.skills.some(s => s.name === skillName)) return g.label
+  }
+  return null
+}
+
+export function SkillsPage() {
+  const [state, setState] = useState<LoadState>({ kind: 'loading' })
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/skills')
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<{ skills: { name: string; description: string }[] }>
+      })
+      .then(data => {
+        if (cancelled) return
+        if (!data.skills || data.skills.length === 0) {
+          setState({ kind: 'empty' })
+          return
+        }
+        setState({
+          kind: 'loaded',
+          groups: groupSkills(data.skills.map(s => ({ name: s.name, desc: s.description }))),
+          degraded: false,
+        })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setState({ kind: 'error' })
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  // 降级：API 不可达时用内置清单（仍可展示，但标注非实时）
+  const groups = state.kind === 'loaded' ? state.groups
+    : state.kind === 'error' ? FALLBACK_SKILL_GROUPS
+    : []
+  const degraded = state.kind === 'error'
+  const allSkills = groups.flatMap(g => g.skills)
   const [selectedName, setSelectedName] = useState(allSkills[0]?.name || '')
   const selectedSkill = allSkills.find(s => s.name === selectedName)
 
@@ -64,62 +135,87 @@ function SkillsPage() {
           <div className="text-xs leading-relaxed text-stone-600">
             <span className="font-semibold text-amber-600">建设中</span>
             Skill 目录为只读展示，数据来自系统真实 skill 清单；注册、加载、卸载等管理功能尚未接入，暂不可用。
+            {degraded && (
+              <span className="block mt-1 text-amber-600">
+                （服务连接失败，当前展示内置离线清单，可能与实际不符）
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-1 overflow-hidden gap-3">
-          {/* Skill List Panel */}
-          <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-y-auto">
-            <div className="p-3 border-b border-white/40">
-              <span className="text-sm font-semibold text-stone-700">能力库</span>
+        {/* 加载中 / 空态 */}
+        {state.kind === 'loading' && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <div className="w-6 h-6 border-2 border-otter-300 border-t-transparent rounded-full animate-spin" />
+            <div className="text-sm text-stone-400">加载 skill 清单中...</div>
+          </div>
+        )}
+        {state.kind === 'empty' && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <Package className="w-10 h-10 text-stone-300" />
+            <div className="text-sm font-medium text-stone-400">未发现任何 skill</div>
+            <div className="text-xs text-stone-400">
+              .pi/skills 目录为空或未加载——请检查服务端 skill 加载日志
             </div>
+          </div>
+        )}
 
-            {skillGroups.map(group => (
-              <div key={group.label}>
-                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
-                  {group.label}
-                </div>
-                {group.skills.map(s => (
-                  <div
-                    key={s.name}
-                    onClick={() => setSelectedName(s.name)}
-                    className={`px-3 py-2 mx-2 rounded-xl cursor-pointer transition ${
-                      s.name === selectedName ? 'conv-active' : 'hover:bg-white/30'
-                    }`}
-                  >
-                    <div className="text-xs font-medium text-stone-700">{s.name}</div>
-                    <div className="text-[10px] text-stone-400">{s.desc}</div>
+        {(state.kind === 'loaded' || state.kind === 'error') && (
+          <div className="flex flex-1 overflow-hidden gap-3">
+            {/* Skill List Panel */}
+            <aside className="w-56 glass rounded-3xl flex flex-col flex-shrink-0 overflow-y-auto">
+              <div className="p-3 border-b border-white/40">
+                <span className="text-sm font-semibold text-stone-700">能力库</span>
+              </div>
+
+              {groups.map(group => (
+                <div key={group.label}>
+                  <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
+                    {group.label}
                   </div>
-                ))}
-              </div>
-            ))}
-          </aside>
-
-          {/* Skill Detail */}
-          <main className="flex-1 glass rounded-3xl overflow-y-auto p-6">
-            {!selectedSkill ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2">
-                <Package className="w-10 h-10 text-stone-300" />
-                <div className="text-sm font-medium text-stone-400">未选择 Skill</div>
-              </div>
-            ) : (
-              <div className="max-w-[700px] mx-auto">
-                <div className="flex items-center gap-3 mb-4">
-                  <h2 className="text-lg font-semibold text-stone-700">{selectedSkill.name}</h2>
+                  {group.skills.map(s => (
+                    <div
+                      key={s.name}
+                      onClick={() => setSelectedName(s.name)}
+                      className={`px-3 py-2 mx-2 rounded-xl cursor-pointer transition ${
+                        s.name === selectedName ? 'conv-active' : 'hover:bg-white/30'
+                      }`}
+                    >
+                      <div className="text-xs font-medium text-stone-700">{s.name}</div>
+                      <div className="text-[10px] text-stone-400">{s.desc}</div>
+                    </div>
+                  ))}
                 </div>
+              ))}
+            </aside>
 
-                <div className="mb-4">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1">描述</div>
-                  <div className="text-sm text-stone-600">{selectedSkill.desc}</div>
+            {/* Skill Detail */}
+            <main className="flex-1 glass rounded-3xl overflow-y-auto p-6">
+              {!selectedSkill ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2">
+                  <Package className="w-10 h-10 text-stone-300" />
+                  <div className="text-sm font-medium text-stone-400">未选择 Skill</div>
                 </div>
-              </div>
-            )}
-          </main>
-        </div>
+              ) : (
+                <div className="max-w-[700px] mx-auto">
+                  <div className="flex items-center gap-3 mb-4">
+                    <h2 className="text-lg font-semibold text-stone-700">{selectedSkill.name}</h2>
+                  </div>
+
+                  <div className="mb-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 mb-1">描述</div>
+                    <div className="text-sm text-stone-600">{selectedSkill.desc}</div>
+                  </div>
+                </div>
+              )}
+            </main>
+          </div>
+        )}
       </div>
     </AppLayout>
   )
 }
 
+/** 入口挂载（测试经 export 的 SkillsPage 直接渲染，不走此副作用） */
 const root = createRoot(document.getElementById('root')!)
 root.render(<SkillsPage />)
