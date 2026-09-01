@@ -25,8 +25,11 @@ if [ "$has_cjk" != "yes" ]; then
 fi
 
 is_template_valid=$(node -e "
+// ID 字母表（#667）：与 src/entities/document/fid-format.ts 单一真相源同口径
+// （[a-z0-9]{3,10}，无 0/1/l/o 排除——旧字母表无成文约定出处且与 frontmatter-validator
+// 分裂致 5 个存量特性漏判，详见 issue #667；hook 无法 import ts，人工同步）
 const title = process.argv[1];
-const id = '(\\\\d{10}|\\\\d{8}[a-kmnp-z][2-9a-kmnp-z]{3,9})';
+const id = '(\\\\d{10}|\\\\d{8}[a-z0-9]{3,10})';
 const cjk = '[\\\\u4e00-\\\\u9fff]';
 // F：必须带变更类型；R：类型可省略（与 CI PR 标题规则及历史 R 提交一致）
 // 类型白名单与 commit-convention.md Type Tags 对齐（补录 Design/Refactor，#427）
@@ -40,7 +43,7 @@ if [ "$is_template_valid" != "yes" ]; then
   echo "[F|YYYYMMDDNN|YYYYMMDDxNNN][module][Feature Update|BugFix|New Feature|Refactor|Design][Incompatible] 中文标题"
   echo "或 [R...][module] 中文标题（R=research，类型字段可省略）"
   echo "说明：ID 前缀 F=feature/bugfix（须带变更类型），R=research。[Incompatible] 仅在存在不兼容更新时出现。"
-  echo "xxxx 首位必须是字母（a-k, m-n, p-z，排除 l/o），后 3-9 位为 2-9 数字或 a-k, m-n, p-z 字母（排除 l/o/0/1），以区分日期部分（4-10 位后缀，与 docs/README 及 CI PR 标题规则对齐）。"
+  echo "xxxx 为 3-10 位小写字母数字（4 位推荐，与 src/entities/document/fid-format.ts 契约同步，#667）。"
   echo "module 为小写字母格式（如 agent、web、memory 等功能区域标签，不允许连字符）"
   echo "当前首行: $first_line"
   exit 1

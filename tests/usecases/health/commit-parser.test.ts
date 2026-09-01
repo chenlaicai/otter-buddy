@@ -142,6 +142,21 @@ describe("CommitParser", () => {
       expect(result.isCompliant).toBe(false);
       expect(result.skipReason).toBe("non_standard_format");
     });
+
+    // #667 回归：后缀含 0/1/l/o 的存量真实 ID 曾被旧字母表正则漏判 no_f_prefix
+    it.each([
+      ["F20260827mtbl", "[F20260827mtbl][db][BugFix] 存量库补建 (#548)"],
+      ["F20260826scl1", "[F20260826scl1][scripts][New Feature] PR1: 股票数据桥 (#465)"],
+      ["F20260826o46s", "[F20260826o46s][prompt][Feature Update] 卡住主动汇报 (#468)"],
+    ])(
+      "后缀含 0/1/l/o 的真实 ID %s 可解析",
+      (fid, message) => {
+        const result = parseCommit("lmn789", message);
+
+        expect(result.featureId).toBe(fid);
+        expect(result.isCompliant).toBe(true);
+      }
+    );
   });
 
   describe("parseCommits", () => {
