@@ -46,17 +46,23 @@ function executor 成功路径不走 `completeExecution`（它为 agent 会话�
 - `messageId`/`turnId` 留 NULL——FK 豁免，且语义正确：function executor 纯代码执行，无消息可关联
 - agent 会话路径（completeExecution 带 messageId）不受影响
 
+**第二层防御（竞态裁决后追加，源自同日另一修复方案）**：repo 层 `toNullableId` 归一化——`sqlite-scheduled-task-repository.ts` 的 `createExecution` 与 `updateExecutionStatus` 两处出参绑定，空串/undefined 统一转 NULL。未来任何调用方再传 `''` 都不再触发外键回滚。接口类型同步放宽 `messageId?: string | null; turnId?: string | null`（NULL 是「无」的 SQL 语义）。
+
+> 背景：同日 session 重启竞态产生了第二份修复（PR #674，已关闭），裁决采用本 PR 的 service 层修法（绕开 completeExecution，不关联无关 turn）+ 移植其 repo 层防御层。
+
 ## 改动文件
 
 | 文件 | 改动 |
 |------|------|
 | `src/usecases/scheduler/scheduler-service.ts` | function executor 成功路径改为直接 updateExecutionStatus（不写 messageId/turnId） |
+| `src/frameworks/db/scheduled-task/sqlite-scheduled-task-repository.ts` | toNullableId 归一化（''/undefined → null），createExecution 与 updateExecutionStatus 双落点 |
+| `src/usecases/scheduled-task/scheduled-task-repository.ts` | 接口类型放宽 messageId/turnId 为 `string \| null` |
 | `tests/usecases/scheduler/scheduler-service.test.ts` | 新增 `PR4: function executor 执行记账` describe：成功落 completed 且 messageId/turnId 为 NULL、不发消息不 invoke agent、函数抛错落 failed、registry 未注入抛 validation |
 | `tests/frameworks/db/scheduled-task/sqlite-scheduled-task-repository.test.ts` | 新增 2 个真库 FK 回归测试：`messageId=''` 必须抛 FOREIGN KEY（钉住 bug 条件，防未来把空串写回调用路径）；不传 messageId/turnId 干净落库 |
 
 ## 验证
 
-- 全量 205 文件 2558 测试通过（含 5 个新增）
+- 定向 4 文件 95 测试通过（含 FK 回归）；全量 205 文件 2558 测试通过
 - `npx tsc --noEmit` 干净；eslint 干净
 
 ## 关联

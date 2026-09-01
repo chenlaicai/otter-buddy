@@ -410,20 +410,39 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
       expect(results[0].errorMessage).toBe("执行超时");
     });
 
-    it("0901 PR4 FK 回归：messageId='' 空串在 FK 开启的真库上必须抛错（钉住 bug 条件）", async () => {
+    it("0901 PR4 FK 回归：messageId='' 空串被 repo 层归一化为 NULL，不再触发外键炸（F20260901ppfk 防御层）", async () => {
       await repo.create(createTaskFixture());
       await repo.createExecution(createExecutionFixture());
 
       // bug 现场：completeExecution(executionId, conversationId, '') 写入 messageId=''
       // —— 空串非 NULL，messages 表无 id=''，FOREIGN KEY constraint failed。
-      // 本测试钉住该语义：若未来有人把空串写回调用路径，真库上立即红。
+      // repo 层 toNullableId 归一化后：任何调用方再传空串都归 NULL（FK 豁免），不回滚账本。
       await expect(
         repo.updateExecutionStatus("exec-1", {
           status: "completed",
           completedAt: "2026-07-22T09:05:00Z",
           messageId: "",
         }),
-      ).rejects.toThrow(/FOREIGN KEY/i);
+      ).resolves.toBeUndefined();
+
+      const results = await repo.getExecutions("task-1");
+      expect(results[0].messageId).toBeNull();
+    });
+
+    it("0901 PR4 FK 回归：turnId 空串同样归一化为 NULL（与 messageId 同源防御）", async () => {
+      await repo.create(createTaskFixture());
+      await repo.createExecution(createExecutionFixture());
+
+      await expect(
+        repo.updateExecutionStatus("exec-1", {
+          status: "completed",
+          completedAt: "2026-07-22T09:05:00Z",
+          turnId: "",
+        }),
+      ).resolves.toBeUndefined();
+
+      const results = await repo.getExecutions("task-1");
+      expect(results[0].turnId).toBeNull();
     });
 
     it("0901 PR4 FK 回归：function executor 成功路径不传 messageId/turnId -> 干净落库", async () => {
