@@ -27,6 +27,9 @@ intent:
 ### 关键设计决策
 
 - **score_jump 环比口径 =「最近两个完整快照日」**：当日行会被小时级扫描反复覆盖（replaceForDate 同日重写），含当日值的环比在一天内多次扫描间不稳定；前一快照日已封版，分母稳定。序列有缺口时与上一有值日环比（缺日 ≠ 骤变 0）。
+  - **分子含当日（大獭裁决保留，审视发现 3）**：当前日 = 快照序列最新日（含当日）——score_jump 语义是骤变报警，当日骤变当天就该报不等次日；代价是一天内多次扫描告警可能不稳定，取舍为报警偏向灵敏。分母 = 前一封版日，稳定性优先。
+  - **缺口填槽分两层（审视发现 1 修复）**：①日期级缺口——快照序列无某日任何行时，锚点自然落在上一有值日（dates 只含有行日期）；②指标级缺口——锚点日缺某维度行（如 D5 无活跃链 null 不落行）时，该指标回溯到自己的上一有值日环比，不再整维度静默跳过。回溯发生时 evidence 附「基日 X 缺口回溯」、detail.gapFilledKeys 留痕实际比较区间。
+  - **检测器异常留痕（审视发现 2 修复）**：scoreHistorySource 异常经 DetectOptions.onDetectError 回调留痕（worker 装配接 logger.warn），不再静默吞——否则 DB 故障会让 score_jump 长期无信号且无人知晓。纯函数层不依赖日志端口，回调注入保持可测性。
 - **score_jump 作为检测器而非快照旁路的理由**：issue 原文「消费者=每日检查任务自动深挖」——每日任务消费 open 信号流，报警必须出现在 signals 表里，否则要另开一条取数路径。
 - **detectSignals 签名变 async**：score_jump 需读快照端口（`scoreHistorySource` 注入，纯函数层不直接依赖 repository）。端口未注入时跳过检测（CLI/测试向后兼容），抛异常时 catch 降级为空（传感器分离）。其余检测器仍是纯同步函数。
 - **behavior_defect 窗口语义**：createdAt ≥ now-7d 闭区间（与 bug_recurrence 的 [start, now] 边界语义一致）；证据含窗口天数 + 最近发生日期；按窗口内次数降序输出（聚类优先处置）。
@@ -35,7 +38,7 @@ intent:
 
 ### 数据契约
 
-- **score_jump detail**（evidence_detail JSON，kind=`score_jump_snapshots`）：previousDate / currentDate / previousValues / currentValues（六键 D1-D5+overall 的前后日值，环比分子分母留痕）。
+- **score_jump detail**（evidence_detail JSON，kind=`score_jump_snapshots`）：previousDate / currentDate / previousValues / currentValues（环比分子分母留痕）+ gapFilledKeys（审视修复：指标级缺口回溯留痕，实际比较区间偏离信号级锚点的指标→该指标自己的前后日；无填槽时缺省）。previousValues/currentValues 仅含触发阈值的维度（未触发维度不进证据，与旧版含全维度不同——只留與告警相关的分子分母）。
 - **trend 快照行**：metricType=`trend`、metricKey=`bugfix_interval`、metricValue=平均间隔天数（样本不足 0）、metadata={trend, firstHalfAvgDays, secondHalfAvgDays, bugfixCount}。worker 每轮扫描与 overview 行同日写入（sparkline 数据源从此连续）。
 - **repository 新查询**：`findByMetricTypeSince(metricType, sinceDate)`——score_jump 数据源，日期降序（取最近两日依赖此序）。
 
@@ -61,18 +64,27 @@ intent:
 ### 新增/更新用例
 
 - **behavior_defect 窗口化**（detect-signals.test.ts）：窗口内 ≥3 触发（证据含窗口天数/最近日期）；**恰 7 天边界含、8 天边界排除**；12 天前 2 次 + 窗口内 2 次不触发（锁定旧全量聚合行为已消除）；多类型按次数降序；空窗口不触发。
-- **score_jump**：单日 Δ=-20 触发 + detail 留痕（前日值 80 / 今日 60）；上行 +15 同样触发（|Δ| 对称）；**恰 |Δ|=10 触发 / 9.9 不触发**；单日快照不触发（冷启动）；缺日序列与上一有值日环比；数据源异常降级空；未注入端口跳过。
+- **score_jump**：单日 Δ=-20 触发 + detail 留痕（前日值 80 / 今日 60）；上行 +15 同样触发（|Δ| 对称）；**恰 |Δ|=10 触发 / 9.9 不触发**；单日快照不触发（冷启动）；缺日序列与上一有值日环比；**日期级缺口真骤变触发（验证与有值日而非空日比较）**；**指标级缺口填槽（D5 锚点日缺行回溯到自己的上一有值日，evidence 带「基日 X 缺口回溯」）**；**当日缺该维度行不比（无分子不误触发）**；数据源异常降级空；**异常经 onDetectError 回调留痕（不静默吞）**；未注入端口跳过。
 - **僵尸链阶梯**：35/65/95 天分别落黄/红/建议归档档；**恰 60 天整=红档（>=）、59 天=黄档**；stalled 态不带档位文案（阶梯只作用 zombie）。
 - **修复半衰期**（fix-halflife.test.ts）：shortening/lengthening/stable 三态；2-3 个 bugfix insufficient；空输入/单点 null；无序输入自动排序；同日连环修（前半零间隔）lengthening；Date 对象与 ISO 字符串同结果；trend 行 metadata 契约 + 样本不足 metricValue=0。
 - **worker 集成**：snapshotSink 行数 18→19 断言更新 + trend 行存在性/同源 bugfixCount 断言。
 - **repository**：findByMetricTypeSince 类型过滤 + since 边界含 + 降序。
 
-### 自检记录（2026-09-01）
+### 自检记录（2026-09-01，含审视修复后复跑）
 
-- `npx vitest run`：**195 files / 2455 tests 全部通过**（含新增 26 用例）
+- `npx vitest run`：**195 files / 2459 tests 全部通过**（初版 26 用例 + 审视修复新增 4 用例）
 - `npx tsc --noEmit`：零错误
 - `npm run lint`：0 error / 5 warning——5 个 warning 全部 pre-existing（cost-output-collector.ts no-console ×2、web/conversation/index.tsx react-hooks ×3，均不在本次改动文件内；git diff 可证本次未触碰这三个文件）
-- **pre-existing 声明证据**：`git diff --stat` 显示本次改动仅涉及 src/usecases/health/{detect-signals,fix-halflife,signal-registry,rhi-scan-worker,health-snapshot-repository}.ts、src/app.ts、rhi-controller.ts、tests/usecases/health/*——warning 所在文件零交集
+- **pre-existing 声明证据**：`git diff --stat` 显示本次改动仅涉及 src/usecases/health/{detect-signals,rhi-scan-worker}.ts、tests/usecases/health/detect-signals.test.ts、docs/features/2026/09/01/F20260901sgn4-*.md——warning 所在文件零交集
+
+### 审视修复记录（2026-09-01，检视獭-656 报告 + 大獭裁决）
+
+| 发现 | 裁决 | 处置 |
+|---|---|---|
+| 严重 1：缺口填槽语义未被测试验证（实现固定取 dates[1]，指标级缺口整维度跳过） | 修 | 指标级跳空回溯重写 + 4 个新用例：日期级缺口真骤变触发（验证「真的在比较」）、指标级缺口填槽（D5 锚点日缺行回溯）、当日缺维度不比、异常留痕回调 |
+| 建议 2：catch 静默吞异常无留痕 | 修 | DetectOptions.onDetectError 回调，worker 装配接 logger.warn（纯函数层不引日志端口）|
+| 建议 3：分子含当日 vs 「前日封版」意图冲突 | 大獭拍板行为保留，文档补理由 | 本文档「关键设计决策」段已补「分子含当日」条目 |
+| 建议 4：behavior_defect 窗口边界覆盖偏薄 | 立另案 | #660 跟踪，不在本 PR |
 
 ### 最简实现检查
 

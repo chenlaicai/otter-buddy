@@ -53,6 +53,9 @@ export interface ScoreJumpDetail {
   previousValues: Record<string, number>;
   /** 各指标的今日值（环比分子） */
   currentValues: Record<string, number>;
+  /** 缺口填槽留痕（审视发现 1）：环比区间偏离信号级锚点的指标 -> 该指标实际比较的两日。
+   *  Why 稀疏记录：未偏离的指标区间即锚点区间，不重复占体积；缺省 = 无填槽（旧行为兼容）。 */
+  gapFilledKeys?: Record<string, { previousDate: string; currentDate: string }>;
 }
 
 export interface SignalDetailCommit {
@@ -85,6 +88,9 @@ export interface DetectOptions {
   scoreHistorySource?: (lookbackDays: number) => Promise<Array<{ snapshot_date: string; metric_key: string; metric_value: number }>>;
   /** 环比骤变回看天数（默认 7：找上一完整日 + 短序列容错） */
   scoreJumpLookbackDays?: number;
+  /** 检测器异常回调（审视发现 2）：score_jump 读快照失败时留痕，不静默吞。
+   *  Why 回调而非注入 Logger：纯函数层不依赖具体日志端口，装配层（worker/app）自行接线。 */
+  onDetectError?: (err: unknown) => void;
   /** 现在时刻（测试可注入） */
   now?: Date;
 }
@@ -126,8 +132,12 @@ export async function detectSignals(
   signals.push(...detectBehaviorDefect(healingEvents, options, now));
   signals.push(...detectHotspotImbalance(inWindow, options));
   // Why await 在数组平铺后逐个 push：score_jump 是唯一异步检测器（快照读端口），
-  // 失败降级为 [] 不阻断其余检测（传感器分离）
-  signals.push(...(await detectScoreJump(options).catch(() => [])));
+  // 失败降级为 [] 不阻断其余检测（传感器分离）——但异常经 onDetectError 留痕（审视发现 2），
+  // 不静默吞：DB 长期故障会让 score_jump 无信号且无人知晓
+  signals.push(...(await detectScoreJump(options).catch((err: unknown) => {
+    options.onDetectError?.(err);
+    return [];
+  })));
 
   return signals;
 }
@@ -371,9 +381,54 @@ function detectBehaviorDefect(
   }));
 }
 
+/** score_jump 环比比较的纯计算部分（拆分以控函数复杂度）：per-key 跳空回溯。 */
+interface JumpResult { key: string; prev: number; curr: number; delta: number; from: string; }
+
+/** 指标级序列 → 各指标与「自己的上一有值日」的环比差。缺口填槽（审视发现 1）：
+ *  某指标比信号级更稀疏——锚点日缺该维度行（如 D5 无活跃链 null 不落行）时，
+ *  回溯到它自己的上一有值日，而非整维度静默跳过。缺日 ≠ 骤变 0。 */
+function computeJumps(
+  rows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>,
+  currentDate: string,
+  previousDate: string,
+  threshold: number,
+): { jumped: JumpResult[]; gapFilledKeys: Record<string, { previousDate: string; currentDate: string }> } {
+  const series = new Map<string, Array<{ date: string; value: number }>>();
+  for (const r of rows) {
+    if (!SCORE_JUMP_KEYS.has(r.metric_key)) continue;
+    let list = series.get(r.metric_key);
+    if (!list) {
+      list = [];
+      series.set(r.metric_key, list);
+    }
+    list.push({ date: r.snapshot_date, value: r.metric_value });
+  }
+  for (const list of series.values()) {
+    list.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)); // 日期降序
+  }
+
+  const jumped: JumpResult[] = [];
+  const gapFilledKeys: Record<string, { previousDate: string; currentDate: string }> = {};
+  for (const key of SCORE_JUMP_KEYS) {
+    const list = series.get(key);
+    // 当前日无值：该维度当日未采集（如 D5 无活跃链），无分子不比（与锚点语义一致）
+    if (!list || list.length < 2 || list[0]!.date !== currentDate) continue;
+    const prev = list[1]!; // 该指标自己的上一有值日（缺口填槽）
+    const delta = list[0]!.value - prev.value;
+    if (Math.abs(delta) >= threshold) {
+      jumped.push({ key, prev: prev.value, curr: list[0]!.value, delta, from: prev.date });
+      // 仅当实际比较区间偏离信号级锚点时留痕（稀疏记录：未偏离的不重复占体积）
+      if (prev.date !== previousDate) gapFilledKeys[key] = { previousDate: prev.date, currentDate };
+    }
+  }
+  return { jumped, gapFilledKeys };
+}
+
 /** score_jump：五维/综合分单日环比骤变（Issue #645）。
  *  Why 「最近两个完整日」口径：当日行会被扫描反复覆盖（replaceForDate 同日重写），
- *  含当日值环比在一天内多次扫描间不稳定；前日快照已封版，分母稳定。
+ *  含当日值的环比在一天内多次扫描间不稳定；前日快照已封版，分母稳定。
+ *  Why 分子含当日（大獭裁决保留）：score_jump 语义是骤变报警——当日骤变当天就该报，
+ *  不等次日封版；一天内多次扫描的告警不稳定是可接受代价（报警偏向灵敏）。
  *  Why 作为检测器走 signal 管道：每日检查任务消费 open 信号自动深挖（issue 原文），
  *  骤变报警必须出现在 open 信号流里，否则消费者要另开一条取数路径。 */
 async function detectScoreJump(options: DetectOptions): Promise<DetectedSignal[]> {
@@ -386,35 +441,27 @@ async function detectScoreJump(options: DetectOptions): Promise<DetectedSignal[]
   const rows = await source(lookback);
   if (rows.length === 0) return [];
 
-  // 日期降序去重取「最近两个完整日」：当日（最新，可能被覆盖）vs 前一完整日（分母）
+  // 日期降序去重取信号级锚点：「当前日」与「前一完整日」（分母基准）。
+  //  Why 锚点仍取 dates[1]：无缺口时它就是「上一有值日」，与缺口填槽结果一致；
+  //  有缺口时作 fallback 与留痕基准，各指标实际比较区间可独立回溯到更早的有值日
   const dates = [...new Set(rows.map(r => r.snapshot_date))].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
   if (dates.length < 2) return [];
-  const [currentDate, previousDate] = [dates[0]!, dates[1]!];
+  const currentDate = dates[0]!;
+  const previousDate = dates[1]!;
 
-  const asMap = (date: string) => {
-    const m = new Map<string, number>();
-    for (const r of rows) {
-      if (r.snapshot_date === date && SCORE_JUMP_KEYS.has(r.metric_key)) {
-        m.set(r.metric_key, r.metric_value);
-      }
-    }
-    return m;
-  };
-  const current = asMap(currentDate);
-  const previous = asMap(previousDate);
-
-  const jumped: Array<{ key: string; prev: number; curr: number; delta: number }> = [];
-  for (const key of SCORE_JUMP_KEYS) {
-    // 双侧都有值才可比（某日缺维度——如 D5 无活跃链 null 不落行——跳过该维度）
-    if (!current.has(key) || !previous.has(key)) continue;
-    const delta = current.get(key)! - previous.get(key)!;
-    if (Math.abs(delta) >= threshold) jumped.push({ key, prev: previous.get(key)!, curr: current.get(key)!, delta });
-  }
+  const { jumped, gapFilledKeys } = computeJumps(rows, currentDate, previousDate, threshold);
   if (jumped.length === 0) return [];
 
   const parts = jumped
-    .map(j => `${j.key} ${j.prev}→${j.curr}（${j.delta > 0 ? "+" : ""}${j.delta}）`)
+    .map(j => `${j.key} ${j.prev}→${j.curr}（${j.delta > 0 ? "+" : ""}${j.delta}${j.from === previousDate ? "" : `，基日 ${j.from} 缺口回溯`}`)
     .join("；");
+
+  const previousValues: Record<string, number> = {};
+  const currentValues: Record<string, number> = {};
+  for (const j of jumped) {
+    previousValues[j.key] = j.prev;
+    currentValues[j.key] = j.curr;
+  }
 
   return [{
     type: reg.type,
@@ -428,8 +475,9 @@ async function detectScoreJump(options: DetectOptions): Promise<DetectedSignal[]
       kind: "score_jump_snapshots",
       previousDate,
       currentDate,
-      previousValues: Object.fromEntries([...previous]),
-      currentValues: Object.fromEntries([...current]),
+      previousValues,
+      currentValues,
+      ...(Object.keys(gapFilledKeys).length > 0 ? { gapFilledKeys } : {}),
     },
   }];
 }

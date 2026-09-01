@@ -495,12 +495,75 @@ describe("Issue #645：score_jump 环比骤变", () => {
     expect(signals.find(s => s.type === "score_jump")).toBeUndefined();
   });
 
+  it("缺口填槽（审视发现 1）：日期级缺口且值真骤变时，与上一有值日比较并触发（验证「真的在比较」）", async () => {
+    const rows: SnapRow[] = [
+      { snapshot_date: "2026-08-20", metric_key: "overall", metric_value: 80 },
+      // 08-21 ~ 08-23 无数据：若实现与空日比较则不触发——本用例证明它与 08-20 比较
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 60 }, // 与 08-20 相比 Δ=-20
+    ];
+    const signals = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(rows) });
+    const jump = signals.find(s => s.type === "score_jump");
+    expect(jump).toBeDefined();
+    // 证据区间直接是 08-20→08-24：证明比较对象是有值的 08-20，不是空日
+    expect(jump!.evidence).toContain("2026-08-20→2026-08-24");
+    expect(jump!.evidence).toContain("80→60");
+    // 锚点即上一有值日：无指标级回溯标注（gapFilledKeys 缺省）
+    const detail = jump!.detail as import("@usecases/health/detect-signals").ScoreJumpDetail;
+    expect(detail.previousDate).toBe("2026-08-20");
+    expect(detail.gapFilledKeys).toBeUndefined();
+  });
+
+  it("指标级缺口填槽：锚点日缺该维度行时，回溯到该指标自己的上一有值日", async () => {
+    const rows: SnapRow[] = [
+      // 信号级锚点日 08-23 有 overall 无 D5（如 D5 无活跃链 null 不落行）
+      { snapshot_date: "2026-08-23", metric_key: "overall", metric_value: 78 },
+      // D5 的上一有值日在 08-21（08-22、08-23 都缺）
+      { snapshot_date: "2026-08-21", metric_key: "D5", metric_value: 75 },
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 79 }, // Δ=1 不触发
+      { snapshot_date: "2026-08-24", metric_key: "D5", metric_value: 55 }, // 与 08-21 比 Δ=-20：触发
+    ];
+    const signals = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(rows) });
+    const jump = signals.find(s => s.type === "score_jump");
+    expect(jump).toBeDefined();
+    expect(jump!.evidence).toContain("D5 75→55");
+    expect(jump!.evidence).toContain("基日 2026-08-21 缺口回溯");
+    // 未达阈值的维度不进证据（overall Δ=1）
+    expect(jump!.evidence).not.toContain("78→79");
+    const detail = jump!.detail as import("@usecases/health/detect-signals").ScoreJumpDetail;
+    expect(detail.gapFilledKeys?.["D5"]?.previousDate).toBe("2026-08-21");
+    // 信号级锚点仍是最近两个有行日（留痕语义不变）
+    expect(detail.previousDate).toBe("2026-08-23");
+    expect(detail.currentDate).toBe("2026-08-24");
+  });
+
+  it("当日缺该维度行：无分子不比，不因锚点日有值就误触发", async () => {
+    const rows: SnapRow[] = [
+      { snapshot_date: "2026-08-23", metric_key: "D5", metric_value: 80 },
+      { snapshot_date: "2026-08-23", metric_key: "overall", metric_value: 78 },
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 79 }, // 当日无 D5 行
+    ];
+    const signals = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(rows) });
+    expect(signals.find(s => s.type === "score_jump")).toBeUndefined();
+  });
+
   it("数据源抛异常降级为空（传感器分离，不阻断其余检测）", async () => {
     const signals = await detectSignals([], [], [], {
       now: NOW,
       scoreHistorySource: async () => { throw new Error("db down"); },
     });
     expect(signals.find(s => s.type === "score_jump")).toBeUndefined();
+  });
+
+  it("数据源异常经 onDetectError 留痕（审视发现 2：不静默吞）", async () => {
+    const seen: unknown[] = [];
+    const signals = await detectSignals([], [], [], {
+      now: NOW,
+      scoreHistorySource: async () => { throw new Error("db down"); },
+      onDetectError: err => { seen.push(err); },
+    });
+    expect(signals.find(s => s.type === "score_jump")).toBeUndefined(); // 仍降级不阻断
+    expect(seen.length).toBe(1);
+    expect((seen[0] as Error).message).toBe("db down");
   });
 
   it("未注入数据源跳过检测（CLI/纯函数场景向后兼容）", async () => {

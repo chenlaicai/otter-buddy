@@ -201,10 +201,17 @@ export class RhiScanWorker {
     // 5. 链构建（两阶段 zombie 判定，F20260825sgnw 审视发现 2）+ 信号检测
     const chains = await this.buildChainsWithZombieJudging(signalInputs, docs);
     // Issue #645：detectSignals 变 async（score_jump 检测器读快照端口），
-    // 其余检测器仍为纯同步函数
+    // 其余检测器仍为纯同步函数。异常经 onDetectError 接 logger 留痕（审视发现 2），
+    // 不让 DB 故障静默吞掉导致 score_jump 长期无信号无人知晓
     const signals: DetectedSignal[] = await detectSignals(signalInputs, chains, healingEvents, {
       windowDays: this.options.windowDays,
       scoreHistorySource: this.options.scoreHistorySource,
+      onDetectError: err => {
+        this.logger.warn("RHI score_jump detector failed, other signals continue", {
+          action: "rhi_worker_score_jump_error",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      },
     });
 
     // 6. 管道：落库 + 记忆 + 唤醒
