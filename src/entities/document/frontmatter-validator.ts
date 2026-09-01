@@ -74,7 +74,7 @@ function validateCommonFields(fm: Record<string, unknown>, errors: string[]): vo
 }
 
 function validateFeatureId(id: unknown, errors: string[]): void {
-  // 后缀 3-10 位小写字母数字（4 位推荐，3 位兼容历史）——#667 起与 commit-parser
+  // 后缀 4-10 位小写字母数字（实查最短 4 位，见 fid-format.ts 头注释）——#667 起与 commit-parser
   // 共享 fid-format.ts 单一真相源，两处不再各自持正则
   if (id && !new RegExp(`^F${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}$`).test(id as string)) {
     errors.push(`Invalid feature ID format: ${id}`);
