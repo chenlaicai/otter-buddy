@@ -28,9 +28,23 @@ category: technique
 ## 工作流
 
 1. **验证环境**：`git rev-parse --show-toplevel` + `pwd`，确认是否已在 `.claude/worktrees/` 下。已在则跳到 step 2。
-2. **创建 worktree**：`git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。worktree 是特性开发的独立空间，特性文档（`docs/features/`）也在这里。
-3. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染（#524）。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名见 `_shared/signature-convention.md`。**特性文档（docs/features/F*.md）是默认交付物**（#443）：与改动同 worktree 提交，格式参考 docs/features/ 下已有文档，frontmatter 至少含 id/title/summary/change_type/created_in_conversation，详见 `_shared/SKILL-TEMPLATE.md` 全局约定「特性文档」。**历史文档不可变（铁律 F20260831dgim）**：`git log --oneline -- <file>` 已在 main 出现过的特性/研究文档，禁止 M/D——后续变更一律新建文档记录（frontmatter from/supersedes 关联前文），pre-commit 的 lint-historical-docs 机械拦截，结构性迁移用 `BYPASS_HISTORICAL_DOC_LINT=1` 并在特性文档记录理由。
-4. **推送并创建 PR**：`git push -u origin <branch>` + `gh pr create`，PR 链接交给搭档。自己创建的 feature 分支 rebase 后需重写推送时，用 `git push --force-with-lease`——R1 第 4 条对此放行且无需确认（出处 #468）；受保护分支的 force push 仍禁止，见 SYSTEM.md 红线。
+2. **认领协议（防跨对话撞车，F20260901cimp）**：任务对应 GitHub issue 编号时，创建 worktree 前必须执行——多条对话线（定时任务/手动对话/派工）可能同时盯上同一 issue（#665/#679 撞车实证）。
+   - **开工三问**（按序检查，任一命中即停手核实）：
+     1. 认领检查：`gh issue view <N> --json comments` 搜 `otter-claim` 标记——已有他人认领且无 release → 换目标，不抢
+     2. 在途 PR：`gh pr list --state open --search "<N>"`——已有 open PR 引用该 issue → 换目标
+     3. worktree 现场：`git worktree list` 有相关目录 → **零 commit ≠ 废弃**（唯一合法结论是「可能正在开工」，禁止据此接手）；确需判断时看目录 mtime（<48h 视为在途）
+   - **认领动作**：三问通过后立即在 issue 发认领评论（人可读 + 机器可 grep 双层结构，评论永不删除）：
+     ```
+     🦦 认领 #<N>
+     <!-- otter-claim: conversation=<对话短ID>; otter=<名号>; worktree=<worktree名>; at=<ISO时间> -->
+     开工：<一句话任务>
+     ```
+   - **回读退场**（协议核心，不可省略）：发完认领评论后**立即回读全部评论**——存在更早的他人 otter-claim 且无 release → 自己输，直接退场换目标，不发难。回读是把「评论无原子性」补成秒级可裁决的关键一步（两线几秒内并发认领，靠 GitHub 服务端时间戳定胜负）。
+   - **放弃认领**：发 `<!-- otter-claim-release: conversation=<对话短ID> -->` + 原因说明。
+   - **双 PR 仲裁**（最坏情况已并存）：时间序优先（PR createdAt 不可伪造）；质量明显更优可升级搭档裁决；被弃方 close 并在关闭评论留判定依据（#665 先例模板）。
+3. **创建 worktree**：`git worktree add .claude/worktrees/<name> -b <branch-name> origin/main`。失败时报告搭档，由搭档决定继续或中止。worktree 是特性开发的独立空间，特性文档（`docs/features/`）也在这里。
+4. **在 worktree 内提交**：所有改动和验证在 worktree 内进行，主目录只读。生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title 或语义相同的文档则复用原 ID——自编新 ID 会让旧 ID 的 chunk 残留 memory 库形成重复污染（#524）。标题搜不到时改用主题关键词重试，仍无命中才可自编新 ID。按提交模板 commit，署名见 `_shared/signature-convention.md`。**特性文档（docs/features/F*.md）是默认交付物**（#443）：与改动同 worktree 提交，格式参考 docs/features/ 下已有文档，frontmatter 至少含 id/title/summary/change_type/created_in_conversation，详见 `_shared/SKILL-TEMPLATE.md` 全局约定「特性文档」。**历史文档不可变（铁律 F20260831dgim）**：`git log --oneline -- <file>` 已在 main 出现过的特性/研究文档，禁止 M/D——后续变更一律新建文档记录（frontmatter from/supersedes 关联前文），pre-commit 的 lint-historical-docs 机械拦截，结构性迁移用 `BYPASS_HISTORICAL_DOC_LINT=1` 并在特性文档记录理由。
+5. **推送并创建 PR**：`git push -u origin <branch>` + `gh pr create`，PR 链接交给搭档。自己创建的 feature 分支 rebase 后需重写推送时，用 `git push --force-with-lease`——R1 第 4 条对此放行且无需确认（出处 #468）；受保护分支的 force push 仍禁止，见 SYSTEM.md 红线。
 
 > 红线在 SYSTEM.md "仓库安全红线" 中全局定义，本流程严格遵守。
 
