@@ -311,9 +311,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     for (const pool of [extraWeixinPollers, weixinPollers ?? []]) {
       for (let i = pool.length - 1; i >= 0; i--) {
         if (pool[i].ilinkUserId === ilinkUserId) {
-          // F20260901chun：鬼影回收时同步清 registry 条目（防残留状态误导 UI）
-          registry?.remove(`weixin-${pool[i].accountId}`);
           pool[i].stop();
+          // F20260901chun：鬼影回收时同步清 registry 条目（防残留状态误导 UI）
+          // 必须在 stop() 之后——stop() 内部会写回状态，先清会被覆盖
+          registry?.remove(`weixin-${pool[i].accountId}`);
           pool.splice(i, 1);
           stopped++;
         }
