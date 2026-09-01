@@ -35,6 +35,7 @@ import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 // F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
 import { HandoffState, shouldTriggerHandoff, recordPostTurnTokens, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
+import { MIN_SENSIBLE_CTX_WINDOW, type OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 import { mapToSSEEvent, mapToMessageEventInput } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
@@ -89,6 +90,8 @@ export class AgentInvoker implements AgentTurnPort {
   private readonly circuitBreak: CircuitBreakSupport | null;
   /** F20260825hndf：handoff 状态管理 */
   private readonly handoffState = new HandoffState();
+  /** F20260901cxmw：按 otter 缓存解析出的 ctxMax（池条目启动后不可变，见 ModelPool 注释） */
+  private readonly resolvedCtxMax = new Map<string, number>();
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -117,6 +120,8 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly buildHandoffPkg?: typeof buildHandoffPackage,
     /** F20260831cbkw：可选注入，熔断 session 年龄窗口阈值（ms），缺省 2h */
     private readonly healthySessionThresholdMs?: number,
+    /** F20260901cxmw：可选注入，otter 实际模型 contextWindow 解析（缺省回退 128k，兼容旧测试） */
+    private readonly ctxWindowProvider?: OtterContextWindowProvider,
   ) {
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
     this.circuitBreak = healingRepo
@@ -152,7 +157,7 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
   }
 
-  // eslint-disable-next-line max-lines-per-function, complexity -- 触发链路+熔断+自重启集成点（F20260826mwrd C3：+healing 高危路由消费），拆分降低可读性
+  // eslint-disable-next-line max-lines-per-function -- 触发链路+熔断+自重启集成点（F20260826mwrd C3：+healing 高危路由消费），拆分降低可读性（F20260901cxmw：getCtxMax 改同步后 complexity 已降至限内，无需 disable）
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -181,8 +186,9 @@ export class AgentInvoker implements AgentTurnPort {
       ...(retryCount > 0 && { retryCount }),
     });
 
-    /** F20260825hndf Pre-invoke 检查：上轮 ctxTokens 超 70% 阈值 → 先 handoff 再处理本轮消息 */
-    const ctxMax = await this.getCtxMax(otterId) ?? DEFAULT_CTX_MAX;
+    /** F20260825hndf Pre-invoke 检查：上轮 ctxTokens 超 70% 阈值 → 先 handoff 再处理本轮消息
+     * F20260901cxmw：ctxMax 按 otter 实际模型窗口解析（同步，带缓存） */
+    const ctxMax = this.getCtxMax(otterId);
     if (shouldTriggerHandoff(otterId, this.handoffState, ctxMax)) {
       this.logger.info('[handoff] Pre-invoke threshold exceeded', { otterId, ctxMax });
       await this.handleHandoff(otterId, conversationId);
@@ -694,10 +700,35 @@ export class AgentInvoker implements AgentTurnPort {
     return this.circuitBreak ? this.circuitBreak.probeHealingRepo() : false;
   }
 
-  /** F20260825hndf：获取 otter 的 context window 大小 */
-  private async getCtxMax(_otterId: string): Promise<number | undefined> {
-    // Phase 1：用默认值 128k；Phase 2 通过 modelPool.getContextWindow 获取精确值
-    return DEFAULT_CTX_MAX;
+  /**
+   * F20260825hndf→F20260901cxmw：解析 otter 实际模型的 contextWindow。
+   *
+   * 回退链：otter 配了 modelAlias → getContextWindow(alias)；
+   * 没配 alias → 默认模型窗口（provider 闭包内 getContextWindow(undefined)）；
+   * 查出 undefined / 0 / < 合理下限 → DEFAULT_CTX_MAX 兜底
+   * （models-factory 注释实锤：contextWindow 缺省时 SDK 视为 0，会让阈值恒真）。
+   *
+   * 结果按 otterId 缓存：ModelPool 条目启动后不可变，仅默认 alias 可运行时切换
+   * （settings 页），切换只影响新 session 的窗口口径，缓存可接受。
+   */
+  private getCtxMax(otterId: string): number {
+    const cached = this.resolvedCtxMax.get(otterId);
+    if (cached !== undefined) return cached;
+
+    let resolved: number;
+    let source: string;
+    const window = this.ctxWindowProvider?.getOtterContextWindow(otterId);
+    if (window !== undefined && window >= MIN_SENSIBLE_CTX_WINDOW) {
+      resolved = window;
+      source = 'model-pool';
+    } else {
+      resolved = DEFAULT_CTX_MAX;
+      source = 'fallback-128k';
+    }
+    this.resolvedCtxMax.set(otterId, resolved);
+    // 低噪声可观测：每 otter 仅首饮打一次，部署后 grep 该事件即可验证解析链路
+    this.logger.info('[handoff] ctxMax resolved', { otterId, ctxMax: resolved, source });
+    return resolved;
   }
 
 
