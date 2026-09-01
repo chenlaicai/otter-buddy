@@ -83,6 +83,37 @@ async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string
   }
 }
 
+/** F20260901sgpx P0: HALT 权限校验 + 信号元数据构建（从 yield execute 中提取，降低 cyclomatic complexity） */
+async function resolveSignalLevel(
+  ctx: ToolContext,
+  levelParam: string | undefined,
+  reasonParam: unknown
+): Promise<{ signalLevel: string; signalMeta: string | undefined; haltError: string | null }> {
+  const signalLevel = levelParam?.toUpperCase() ?? 'NORMAL';
+  if (signalLevel === 'HALT') {
+    const self = await ctx.client.otter.getById(ctx.otterId);
+    if (self?.type === 'small') {
+      return {
+        signalLevel,
+        signalMeta: undefined,
+        haltError: "[错误] 小獭不允许投递 HALT 档信号（仅用户/大獭可投，沿用 F20260826mwrd C2 裁决）。需要中止任务请 yield(NORMAL) 回大獭说明情况。",
+      };
+    }
+  }
+  const signalMeta = signalLevel !== 'NORMAL'
+    ? JSON.stringify({ level: signalLevel, reason: reasonParam as string | undefined })
+    : undefined;
+  return { signalLevel, signalMeta, haltError: null };
+}
+
+/** 消息非空校验（从 yield execute 中提取，降低 cyclomatic complexity） */
+async function validateMessageHasContent(ctx: ToolContext): Promise<string | null> {
+  if (!ctx.currentMessageId) return "[错误] 系统错误：当前消息 ID 未设置，无法交棒。";
+  const msg = await ctx.client.conversation.message.getById(ctx.currentMessageId);
+  if (!msg || msg.segments.length === 0) return "[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。";
+  return null;
+}
+
 function createYieldTool(ctx: ToolContext): AgentTool {
   return {
     name: "yield",
@@ -108,16 +139,12 @@ function createYieldTool(ctx: ToolContext): AgentTool {
       required: ["to"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      if (!ctx.currentMessageId) return errorResponse("[错误] 系统错误：当前消息 ID 未设置，无法交棒。");
+      // 消息非空校验
+      const msgError = await validateMessageHasContent(ctx);
+      if (msgError) return errorResponse(msgError);
 
       const recipients = params.to as string[];
       if (!recipients || recipients.length === 0) return errorResponse("[错误] 交棒目标不能为空。请指定下一个应该行动的参与者名字。");
-
-      /** 守卫：消息完成后必须有非空内容（isValidCompletedMessage 不变量）——先给模型即时反馈，而非丢回合走重试 */
-      const msg = await ctx.client.conversation.message.getById(ctx.currentMessageId);
-      if (!msg || msg.segments.length === 0) {
-        return errorResponse("[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。");
-      }
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const { resolvedIds, error } = validateAndResolve(recipients, active, ctx.otterId);
@@ -127,15 +154,9 @@ function createYieldTool(ctx: ToolContext): AgentTool {
       const dispatchWarning = checkPendingDispatches(ctx, resolvedIds, recipients);
       if (dispatchWarning) return textResponse(dispatchWarning);
 
-      // F20260901sgpx P0: HALT 权限约束——仅用户/大獭可投（沿用 F20260826mwrd C2 裁决）
-      const signalLevel = (params.level as string | undefined)?.toUpperCase() ?? 'NORMAL';
-      if (signalLevel === 'HALT') {
-        const self = await ctx.client.otter.getById(ctx.otterId);
-        if (self?.type === 'small') {
-          return errorResponse("[错误] 小獭不允许投递 HALT 档信号（仅用户/大獭可投，沿用 F20260826mwrd C2 裁决）。需要中止任务请 yield(NORMAL) 回大獭说明情况。");
-        }
-      }
-      const signalMeta = signalLevel !== 'NORMAL' ? JSON.stringify({ level: signalLevel, reason: params.reason as string | undefined }) : undefined;
+      // F20260901sgpx P0: 信号档位解析 + HALT 权限校验
+      const { signalLevel, signalMeta, haltError } = await resolveSignalLevel(ctx, params.level as string | undefined, params.reason);
+      if (haltError) return errorResponse(haltError);
 
       try {
         /** 拆分后 startSpeaking 只设路由 + 状态（内容已由 speak 的 segments 落库） */

@@ -9,7 +9,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定（max-lines-per-function #506 后未超限）
+// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数/行数由历史补丁数决定
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   // 检查 session_file 字段是否存在
   const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
