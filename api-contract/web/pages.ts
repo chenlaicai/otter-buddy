@@ -28,9 +28,8 @@ export const MPA_PAGES: readonly MpaPage[] = [
   { entry: "conversation", pattern: "/conversation/:id", label: "对话详情" },
   { entry: "memory", pattern: "/memory", label: "记忆搜索" },
   { entry: "skills", pattern: "/skills", label: "能力库" },
+  { entry: "im", pattern: "/im", label: "IM" },
   { entry: "health", pattern: "/health", label: "健康面板" },
-  { entry: "connections", pattern: "/connections", label: "连接" },
-  { entry: "weixin", pattern: "/weixin", label: "微信" },
   { entry: "settings", pattern: "/settings", label: "设置" },
 ];
 

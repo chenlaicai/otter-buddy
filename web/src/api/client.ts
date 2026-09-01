@@ -616,3 +616,29 @@ export interface RhiScoreDTO {
 export function getRhiScore(signal?: AbortSignal): Promise<RhiScoreDTO> {
   return request('/health/score', { signal })
 }
+
+// ── 通道状态（F20260901chun：统一 IM 页 + 真实健康状态）──
+
+export interface ChannelStatusDTO {
+  channelId: string;
+  kind: "weixin" | "feishu";
+  state: {
+    kind: string;
+    since: number;
+    lastInboundAt?: number;
+    degraded?: boolean;
+    errmsg?: string;
+    errorMsg?: string;
+    nextRetryAt?: number;
+    reason?: string;
+  };
+  account?: { id: string; nickname?: string };
+}
+
+export interface ChannelStatusResponseDTO {
+  channels: ChannelStatusDTO[];
+}
+
+export function getChannelStatus(): Promise<ChannelStatusResponseDTO> {
+  return request('/channels/status')
+}

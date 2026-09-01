@@ -284,7 +284,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     : undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
-  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers } =
+  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
 
   // ── 微信 web 登录（issue #566）：零配置可用 ──
@@ -312,6 +312,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       for (let i = pool.length - 1; i >= 0; i--) {
         if (pool[i].ilinkUserId === ilinkUserId) {
           pool[i].stop();
+          // F20260901chun：鬼影回收时同步清 registry 条目（防残留状态误导 UI）
+          // 必须在 stop() 之后——stop() 内部会写回状态，先清会被覆盖
+          registry?.remove(`weixin-${pool[i].accountId}`);
           pool.splice(i, 1);
           stopped++;
         }
@@ -340,6 +343,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         // config 无 weixin 段时用默认配置 + 扫码人作为 partner（命令门禁锚定）
         weixinConfig: config.weixin ?? { partnerUserId: account.ilinkUserId ?? ilinkUserId },
         account,
+        registry,
       });
       if (poller) extraWeixinPollers.push(poller);
     },
@@ -377,13 +381,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
       logger.info("Weixin account deleted; poller stopped", { accountId });
     },
+    // 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态）
+    registry,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   if (feishu) {
-    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger });
+    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
@@ -426,6 +432,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       weixinPollers?.forEach((p) => p.stop());
       // issue #566：web 登录热启动的轮询同样要停（dispose 单独数组）
       extraWeixinPollers.forEach((p) => p.stop());
+      // F20260901chun：防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
+      registry?.clear();
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();

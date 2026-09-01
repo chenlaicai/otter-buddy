@@ -16,6 +16,7 @@
 
 import type { ParsedCommit } from "./commit-parser";
 import type { CollectedFeatureDoc } from "./feature-doc-collector";
+import { classifyDocStatusWithSubstatus } from "@entities/document/doc-status";
 
 export type ChainState = "active" | "stalled" | "regressed" | "zombie" | "orphan";
 
@@ -30,6 +31,8 @@ export interface FeatureChain {
     message: string;
     changeType: string | null;
     filesChanged: string[];
+    /** PR 号（commit 尾部 (#N) 解析；无则 null）。#646 推进器高置信归档判定用 */
+    prNumber: number | null;
   }>;
   /** 首次出现（链上最早 commit 日期），orphan 链可能无文档 createdAt */
   firstSeenAt: Date | null;
@@ -69,10 +72,9 @@ export interface ChainCommitInput {
   filesChanged: string[];
 }
 
-// 实查（Issue #644）：docs/features 存在 41 篇 status: active 的文档（如 F20260829gvid）。
-// active 不在白名单时被当终态，静默豁免病态判定（现网判定盲区）——收编为在途状态参与判定。
-// 注：值域系统性归一（8 种值 + 行内注释变体）见 Issue #646 值域契约，此处为最小止血。
-const ACTIVE_DOC_STATUSES = new Set(["draft", "proposed", "design", "development", "active"]);
+// #646 值域契约：在途/终态/未知的语义分组单一真相源在 @entities/document/doc-status.ts
+// （历史注释：active 曾不在白名单致 41 篇文档静默豁免病态判定，Issue #644 PR1 最小止血收编，
+//  #646 收敛为契约模块。review/reviewed 为实查存量变体，语义在途）。
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -124,6 +126,7 @@ function aggregateCommits(
       message: c.message,
       changeType: c.parsed.changeType,
       filesChanged: c.filesChanged,
+      prNumber: c.parsed.prNumber,
     });
     for (const f of c.filesChanged) chain.touchFiles.add(f);
     if (c.parsed.changeType === "BugFix") chain.bugfixCount++;
@@ -184,14 +187,15 @@ type ChainCtx = {
   fidMentionCounts?: Map<string, number>;
 };
 
-/** 五态判定（病态优先级：orphan > zombie > regressed > stalled > active） */
+/** 五态判定（病态优先级：orphan > zombie > regressed > stalled > active）。
+ *  #646 值域契约：unknown status 一律不判病态（不猜语义，视为稳定）——「未知值不碰」的判定层体现。 */
 function classifyChain(chain: FeatureChain, ctx: ChainCtx): ChainState {
   // orphan：commit 的 FID 无文档
   if (!chain.doc) return "orphan";
 
-  const inFlight = ACTIVE_DOC_STATUSES.has(chain.doc.status ?? "draft");
+  const inFlight = classifyDocStatusWithSubstatus(chain.doc.status, chain.doc.substatus) === "in-flight";
 
-  if (isZombie(chain, ctx)) return "zombie";
+  if (isZombie(chain, ctx, inFlight)) return "zombie";
   if (inFlight && isRegressed(chain)) return "regressed";
   if (inFlight && idleOver(chain.daysSinceLastCommit, ctx.stalledDays)) return "stalled";
 
@@ -204,8 +208,8 @@ function idleOver(days: number | null, threshold: number): boolean {
 }
 
 /** zombie：在途 ∧ ≥zombieDays 无 commit ∧ 提及 Map 显式记录为 0（未传 Map / Map 无此 key = 未查询，不判——冷启动安全） */
-function isZombie(chain: FeatureChain, ctx: ChainCtx): boolean {
-  if (!ACTIVE_DOC_STATUSES.has(chain.doc?.status ?? "draft")) return false;
+function isZombie(chain: FeatureChain, ctx: ChainCtx, inFlight: boolean): boolean {
+  if (!inFlight) return false;
   const idle = chain.daysSinceLastCommit ?? Number.POSITIVE_INFINITY;
   if (idle < ctx.zombieDays) return false;
   const counts = ctx.fidMentionCounts;
@@ -222,10 +226,11 @@ function isRegressed(chain: FeatureChain): boolean {
   return last.filesChanged.some(f => priorFiles.has(f));
 }
 
-/** doc-only 链（无 commit）的状态：文档在途但从未有 commit → stalled/zombie 判定 */
+/** doc-only 链（无 commit）的状态：文档在途但从未有 commit → stalled/zombie 判定。
+ *  #646 值域契约：unknown 不碰（视为稳定），与 classifyChain 同策略。
+ *  子状态同步生效：implemented:active 文档建了但从未有 commit → 按 in-flight 判定。 */
 function classifyDocOnly(doc: CollectedFeatureDoc, ctx: ChainCtx): ChainState {
-  const status = doc.status ?? "draft";
-  if (!ACTIVE_DOC_STATUSES.has(status)) return "active"; // 终态文档（implemented 等）视为稳定
+  if (classifyDocStatusWithSubstatus(doc.status, doc.substatus) !== "in-flight") return "active"; // 终态/未知视为稳定
 
   const createdDays = doc.createdAt
     ? Math.floor((ctx.now.getTime() - new Date(doc.createdAt).getTime()) / DAY_MS)

@@ -21,6 +21,7 @@ import type { StateInventory, StateInventoryDeps } from './state-inventory';
 
 export type { StateInventoryDeps };
 import { buildSynthesisPrompt, buildMechanicalDump } from './synthesis-prompt-builder';
+import type { SynthesisPrefetch } from './synthesis-prompt-builder';
 import type { Logger } from '@usecases/ports/logger';
 
 /** 四件套完整包 */
@@ -52,6 +53,8 @@ export interface HandoffPackageOptions {
   lineage?: string;
   /** 触发原因 */
   trigger?: '70%阈值' | '手动' | '熔断';
+  /** F20260901mbfx：§④/⑥ 机械预取数据（枚举型事实机械供料，不再依赖 LLM 自行调工具） */
+  prefetch?: SynthesisPrefetch;
 }
 
 /**
@@ -75,6 +78,7 @@ export async function buildHandoffPackage(
     otterName = otterId,
     oldSessionId,
     lineage,
+    prefetch,
     trigger = '70%阈值',
   } = options;
 
@@ -120,6 +124,7 @@ export async function buildHandoffPackage(
     inventoryObj,
     inventoryResult,
     synthesize,
+    prefetch,
     logger,
   );
 
@@ -154,6 +159,7 @@ async function generateSummary(
   inventoryObj: StateInventory | null,
   inventoryText: string,
   synthesize: SynthesisFunction | undefined,
+  prefetch: SynthesisPrefetch | undefined,
   logger?: Logger,
 ): Promise<string> {
   // 防线①：LLM 叙事合成
@@ -161,11 +167,15 @@ async function generateSummary(
     try {
       const prompt = buildSynthesisPrompt({
         otterName,
+        // F20260901mbfx（审计 F2）：oldSessionId 由调用方（handleHandoff）机械查询注入，
+        // 堆叠 fallback 仅限极端未注入场景（手动路径未传时）——旧 session 是可查的枚举事实，
+        // 不该退化为 otterId（曾致谱系行永远显示 otter UUID，跨代不可区分）。
         oldSessionId: oldSessionId ?? otterId,
         lineage,
         stateInventory: inventoryObj ?? undefined,
         stateInventoryText: inventoryText,
         trigger: trigger as '70%阈值' | '手动' | '熔断',
+        prefetch,
       });
 
       logger?.info('[handoff-package] Starting LLM synthesis', { otterId });

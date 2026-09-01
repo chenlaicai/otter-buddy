@@ -5,7 +5,8 @@
  * 两条写入路径共用同一构建逻辑，保证口径一致（60 天滚动窗口）。
  *
  * 行清单（11 行）：overview 数值 7 行 + distribution 4 行（change_types / skip_reasons /
- * modules / file_hotspots）。RhiScanWorker 额外追加 chain_states 1 行（链构建只有 worker 有）。
+ * modules / file_hotspots）。RhiScanWorker 额外追加 chain_states 1 行（链构建只有 worker 有）、
+ * fix_interval 1 行（修复半衰期，Issue #645）、health_index 6 行（五维评分，issue #595）。
  */
 
 import type { Metrics } from "./metrics-calculator";

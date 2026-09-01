@@ -3,6 +3,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { FeishuLongConnectionGateway, FeishuLongConnectionMessage, FeishuMediaPayload, FeishuPostMediaItem } from "@usecases/im/feishu-long-connection-gateway";
 import type { FeishuAccessTokenManager } from "./access-token-manager";
 import type { FeishuConfig } from "./types";
+import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
 
 export type { FeishuConfig };
 
@@ -58,6 +59,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     private readonly config: FeishuConfig,
     private readonly logger: Logger,
     private readonly tokenManager: FeishuAccessTokenManager,
+    private readonly registry?: ChannelStatusRegistry,
   ) {
     this.eventDispatcher = new EventDispatcher({
       encryptKey: config.encryptKey,
@@ -75,17 +77,43 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
           lastConnectTime: status.lastConnectTime,
           reconnectAttempts: status.reconnectAttempts,
         });
+        // 首次建连成功，上报 running 状态
+        this.reportStatus("running");
       },
       onError: (err) => {
         this.logger.error("Feishu WSClient onError callback fired", err);
+        // 上报 error_backoff 状态
+        this.reportStatus("error_backoff", { errorMsg: err instanceof Error ? err.message : String(err) });
       },
       onReconnecting: () => {
         this.logger.warn("Feishu WSClient onReconnecting callback fired");
+        // 上报 error_backoff 状态（WS 重连中）
+        this.reportStatus("error_backoff", { errorMsg: "WS 重连中" });
       },
       onReconnected: () => {
         this.logger.info("Feishu WSClient onReconnected callback fired");
+        // 断线重连成功，刷新 since
+        this.reportStatus("running");
       },
     });
+  }
+
+  /** 上报通道状态到 registry（防御性调用：registry 可选注入） */
+  private reportStatus(
+    kind: "running" | "error_backoff",
+    extra?: { errorMsg?: string },
+  ): void {
+    if (!this.registry) return;
+    const channelId = "feishu";
+    const now = Date.now();
+    switch (kind) {
+      case "running":
+        this.registry.update(channelId, { kind: "feishu", state: { kind: "running", since: now } });
+        break;
+      case "error_backoff":
+        this.registry.update(channelId, { kind: "feishu", state: { kind: "error_backoff", since: now, errorMsg: extra?.errorMsg || "" } });
+        break;
+    }
   }
 
   /** 启动长连接 */

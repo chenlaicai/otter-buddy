@@ -182,3 +182,48 @@ describe("Issue #644：evidence_detail + confidence 列", () => {
     expect(r.confidence).toBe("low");
   });
 });
+
+describe("Issue #645 审视 S1：severity/suggested_action 档位推进（僵尸阶梯）", () => {
+  function makeRepo(): SignalRepository {
+    const db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    return new SignalRepository(db);
+  }
+  const base = {
+    signalType: "chain_stall",
+    severity: "warning" as const,
+    featureId: "F20260801stal" as string | null,
+    filePath: "docs/features/2026/08/01/F20260801stal.md" as string | null,
+    evidence: "链 35 天黄档",
+    suggestedAction: "观察或链复盘：确认是暂停还是废弃",
+  };
+
+  it("同键信号档位推进：UPDATE 刷新 severity 与 suggested_action（黄档→红档不冻结）", () => {
+    const repo = makeRepo();
+    // 黄档 35 天首开：warning
+    repo.upsert({ ...base });
+    // 推进到红档 65 天：critical 再触发，severity/suggested_action 必须随 evidence 一起推进
+    const r2 = repo.upsert({
+      ...base, severity: "critical",
+      evidence: "链 65 天红档", suggestedAction: "强制链复盘：90 天内归档或重启",
+    });
+    expect(r2.severity).toBe("critical");
+    expect(r2.suggested_action).toBe("强制链复盘：90 天内归档或重启");
+    expect(r2.occurrences).toBe(2);
+    // DB 实态同步验证（不只信 TS 拼装返回值，同 #644 发现 2 的教训）
+    const open = repo.findOpen();
+    expect(open).toHaveLength(1);
+    expect(open[0]!.severity).toBe("critical");
+    expect(open[0]!.suggested_action).toBe("强制链复盘：90 天内归档或重启");
+    expect(open[0]!.evidence).toBe("链 65 天红档");
+  });
+
+  it("suggestedAction 传 null 时不覆盖已有值（COALESCE 防御语义）", () => {
+    const repo = makeRepo();
+    repo.upsert({ ...base });
+    const r2 = repo.upsert({ ...base, suggestedAction: null });
+    expect(r2.suggested_action).toBe("观察或链复盘：确认是暂停还是废弃"); // 保留首开的值
+    expect(repo.findOpen()[0]!.suggested_action).toBe("观察或链复盘：确认是暂停还是废弃");
+  });
+});
