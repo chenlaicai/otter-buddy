@@ -21,6 +21,8 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
         id: msg.id, senderType: msg.senderType, senderId: msg.senderId,
         body: aggregateBody(msg.segments), status: msg.status, turnId: msg.turnId,
         sequenceNum: msg.sequenceNum, createdAt: msg.createdAt, completedAt: msg.completedAt,
+        ...(msg.signalLevel ? { signalLevel: msg.signalLevel } : {}),
+        ...(msg.signalMeta ? { signalMeta: msg.signalMeta } : {}),
       }));
     },
   };
@@ -47,6 +49,8 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
         /** 注入出口给剥离投影：html-card 替换为占位符（源码经 get_message 取回）；
          *  html-card-reply 不剥（回执 JSON 是交互载荷，须直接可见） */
         body: m.segments.length === 0 ? null : stripHtmlCardsOnly(aggregateBody(m.segments)), status: m.status, sequenceNum: m.sequenceNum, createdAt: m.createdAt,
+        ...(m.signalLevel ? { signalLevel: m.signalLevel } : {}),
+        ...(m.signalMeta ? { signalMeta: m.signalMeta } : {}),
       }))));
     },
   };
@@ -73,6 +77,7 @@ export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
       return textResponse(JSON.stringify(messages.map(m => ({
         id: m.id, senderType: m.senderType, senderId: m.senderId,
         body: aggregateBody(m.segments), sequenceNum: m.sequenceNum, createdAt: m.createdAt,
+        ...(m.signalLevel ? { signalLevel: m.signalLevel } : {}),
       }))));
     },
   };
