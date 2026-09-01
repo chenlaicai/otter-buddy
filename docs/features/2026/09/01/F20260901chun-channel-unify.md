@@ -33,7 +33,7 @@ modules:
 
 2026-09-01 上午实测发现的三个问题叠加：
 
-1. **状态失真（bug，本方案主要驱动力）**：《微信》页账号列表纯静态读 `accounts.json`（`weixin-connection-controller.ts:95-105` 只回 `hasToken: Boolean(a.token)`），token 被顶死（实测 `errcode -14 "session timeout"`）后 UI 仍显示"已连接"。轮询层实际知道真相（polling-channel.ts:135-139 吃到 -14 时暂停 1h），但状态从不上报。
+1. **状态失真（bug，本方案主要驱动力）**：《微信》页账号列表纯静态读 `accounts.json`（`weixin-connection-controller.ts:95-103`，`hasToken: Boolean(a.token)` 在 line 103），token 被顶死（实测 `errcode -14 "session timeout"`）后 UI 仍显示"已连接"。轮询层实际知道真相（polling-channel.ts:146-149 吃到 -14 时暂停 1h），但状态从不上报。
 2. **目录层积**：飞书是第一代通道（配置藏在 config.yaml，UI 无任何入口），微信是第二代（独立《微信》页 + 扫码）。用户视角"微信和飞书都是 IM"，系统视角却是两套独立页面、两套语义。
 3. **"连接"语义撞车**：《连接》页的"已连接"指"海獭进入某个对话会话"（`currentConversation`，IM 大厅，connections/index.tsx:209-215），与《微信》页的"通道已连接"语义完全不同，两个页面共用"已连接"一词表达不同含义。
 
@@ -44,7 +44,7 @@ modules:
 T1: **统一通道页**：《连接》+《微信》整合为单一「通道」页，每个通道（飞书/微信）一张卡片，统一三件套——接入引导（扫码/凭证）、真实健康状态、账号管理。
 T2: **真实健康状态**：通道卡片显示的状态来自运行时探活上报（轮询层状态），token 失效立即变"token 失效，重新扫码"，不再有静态"已连接"假象。
 T3: **通道状态可编程获取**：后端暴露 `/api/channels/status` 聚合端点，为通道页及未来接入 RHI 健康面板留出统一接口。
-T4: **飞书长连接状态外显**：飞书侧复用已有 `connectionState` + `reconnectAttempts`（long-connection-client.ts:74-76 已有数据源），在通道卡片显示 WS 连接状态与重连计数。
+T4: **飞书长连接状态外显**：飞书侧复用已有 WSClient 回调数据（long-connection-client.ts:70-87，4 个回调 onReady/onError/onReconnecting/onReconnected，connectionState/reconnectAttempts 已组装但只打日志），在通道卡片显示 WS 连接状态与重连计数。
 T5: **导航收敛**：TopBar 从 8 项收敛为 7 项（连接+微信→通道），《连接》页全部功能平移进通道页（见方案设计·页面结构）。
 
 ## 非目标
@@ -113,7 +113,16 @@ interface ChannelStatusEntry {
 
 - 微信轮询循环：`WeixinPollingChannel.loop()` 在关键节点调 `registry.update(channelId, state)`——`start()` 时 starting → 首次成功 getupdates 转 running；-14 时 token_stale；连错进 backoff 时 error_backoff；收到消息时刷新 lastInboundAt；`stop()` 时 stopped。改动点集中在 polling-channel.ts：deps 注入 registry + loop() 内 5 个节点 + start/stop。
 - 鬼影轮询回收（#638 修复 4）：`stopStalePollersForUser`（app.ts）回收旧轮询时同步清 registry 对应条目。
-- 飞书长连接：`FeishuLongConnectionClient` 现有回调（onReconnected 等，long-connection-client.ts:74-76 已组装 connectionState/reconnectAttempts 但只打日志）增加写 registry。飞书无凭证时 registry 无条目。
+- 飞书长连接：`FeishuLongConnectionClient` 现有 4 个回调（long-connection-client.ts:70-87）增加写 registry，映射表：
+
+| WS 回调 | registry 状态 | 说明 |
+|---|---|---|
+| onReady | running | 首次建连成功 |
+| onReconnected | running | 断线重连成功，刷新 since |
+| onError | error_backoff | errorMsg = 原始错误 |
+| onReconnecting | error_backoff | errorMsg = "WS 重连中"（无已知重试时间，nextRetryAt 省略；UI 按 errorMsg 区分文案） |
+
+  飞书无凭证时 registry 无条目。
 
 **谁读状态**：新增 `GET /api/channels/status`（channel-controller.ts，新文件）：
 
@@ -195,6 +204,8 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 
 **依赖方向**：registry 类型定义在 usecases 层，frameworks 层构造注入使用（同现有 Logger 端口模式，frameworks → usecases 合规）；channel-controller 依赖 usecases 类型（同现有 controller 模式），无分层违规。
 
+**注入路径（审视补充）**：`platforms.ts` 启动时 `new ChannelStatusRegistry()` 建单例 → 作为字段加入 `startWeixinChannels(options)` 与 `setupFeishu` 的 options → 传入 `startWeixinAccount(options)` → 注入 `WeixinPollingChannel` 构造 deps；飞书侧同样传入 `FeishuLongConnectionClient` 构造参数。`hotStartWeixinAccount`（app.ts 闭包）从 startWeixinChannels 闭包同源传入，保证冷/热启动写同一个 registry 实例。`dispose()` 时 `registry.clear()`（防御性，防未来加事件监听/定时器泄漏；进程退出场景内存自然释放）。
+
 ### 与既有机制的关系
 
 - **#638 冷启动降级（F20260831wxsp）**：startWeixinChannels 读到账号但无 config 段时降级拉起并 warn——registry 对应记 running + degraded，UI 显示"降级运行中"。
@@ -211,9 +222,15 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 
 ## 风险与约束
 
-- **R1 删除旧页面的平移遗漏**：connections/weixin 页面各 ~200-400 行，平移时功能点可能遗漏（如 weixin 页的"二维码过期自动重试"、connections 页的"创建连接"表单）。缓解：平移清单逐项核对（两页全部交互点列清单），验收标准逐条过。
+- **R1 删除旧页面的平移遗漏**：connections/weixin 两页功能点清单（审视核实后逐项）：
+
+  **connections/index.tsx（293 行）**：① 连接列表 + 每连接 currentConversation 状态查询 ② 新建连接表单（name + externalId）③ 进入/离开对话 ④ 当前对话标题展示 ⑤ 加载状态 + 错误 toast（注：无"连接删除"功能，检视清单中该项不存在，已核实全页按钮仅创建/进入/离开）
+
+  **weixin/index.tsx（210 行）**：① 扫码登录发起 + 状态轮询（2s）② 二维码 PNG 渲染 + 过期降级（opacity-40）③ 取消登录 ④ 已登录账号列表 + 删除 ⑤ 扫码成功 toast + 自动刷新 ⑥ 登录会话终态处理（success/expired/error/cancelled）
+
+  平移时逐项打勾，验收标准逐条过。
 - **R2 registry 时序竞态**：账号删除瞬间状态查询可能读到已移除条目（可接受的最终一致，5s 轮询自然收敛）。
-- **R3 飞书 WS 状态回调覆盖不全**：WSClient 的断连/重连回调若触发不全（现有代码只见 onReconnected 明确存在），error 状态可能漏报。缓解：实现时先枚举 WSClient 全部回调再映射，覆盖不到的保持 running（宁可乐观不可误报死）。
+- **R3 飞书 WS 状态回调覆盖不全**：实现时按注入路径的 4 回调映射表执行；覆盖不到的极端场景保持 running（宁可乐观不可误报死）。
 - **R4 glm 配额耗尽（9/4 20:22 重置）**：实现期若遇 429，编码小獭可切 mimo；不影响本方案设计。
 
 ## 不兼容更新
@@ -232,6 +249,18 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 | 会话大厅形态 | 通道页内卡片 | 保留连接页独立入口 | 搭档原话"整合一下（比如当前是 连接+微信 两个目录）"指向目录整合，保留独立入口与初衷相悖 |
 | 页面结构 | 单页纵向 3 卡片 | Tab 切换 | 3 卡片信息量小，滚动即可；与 health 页卡片风格一致 |
 
+## 审视决策史（第一轮，检视獭-通道整合 mimo，2026-09-01）
+
+0 严重 / 5 建议，逐条处置：
+
+| 发现 | 处置 | 理由 |
+|---|---|---|
+| 1. file:line 引用偏 3 处 | 接受并修订 | 核实属实（-14 实际 146-149、hasToken 在 103、飞书回调在 70-87），修正后实现者零搜索成本 |
+| 2. 平移清单缺逐项功能点 | 部分接受 | 清单补入 R1（修正了检视清单中的错误项：connections 页无"连接删除"功能，已核实全页按钮仅创建/进入/离开）；但清单本身写入方案而非建 issue——它是验收标准的一部分，跟着文档走比跟着 issue 走更近 |
+| 3. registry 注入路径未展开 | 接受并修订 | 补注入路径段（冷/热启动同源 + dispose clear），2-3 行成本消歧义 |
+| 4. 飞书 4 回调映射未明确 | 接受并修订 | 补映射表；onReconnecting → error_backoff(errorMsg="WS 重连中")，不为它单加第六态——重连中本质是"带错误信息的等待"，与 backoff 语义同构 |
+| 5. registry dispose 无清理 | 接受并修订 | 补 dispose() 清 registry.clear()；HMR 场景现阶段不存在，但一行成本防御 |
+
 ## 验证
 
 ### 验收标准
@@ -246,8 +275,9 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 ### 测试设计
 
 - **单元**：ChannelStatusRegistry（update/snapshot/clear 时序）；polling-channel 状态上报（fake registry 收集副作用——沿用 #638 的副作用断言风格）；channel-controller leftJoin 合并逻辑。
-- **集成**：server 静态路由（channels 注册 + 旧 URL 301）；pages.ts MPA_PAGES 守卫测试自动覆盖新入口。
-- **手动验收**：真实 token 失效场景（拔掉 config 或等 -14）观察 UI 转红；扫码恢复转绿。
+- **集成**：server 静态路由（channels 注册 + 旧 URL 301）；pages.ts MPA_PAGES 守卫测试自动覆盖新入口；registry 单例冷/热启动同源（hotStartWeixinAccount 写入与冷启动同一实例）。
+- **手动验收**：真实 token 失效场景（拔掉 config 或等 -14）观察 UI 转红；扫码恢复转绿；飞书断网/恢复观察 onReconnecting→onReconnected 状态往返。
+- **平移验收**：R1 清单逐项打勾（connections 5 项 + weixin 6 项）。
 
 ## 改动范围
 
