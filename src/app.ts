@@ -293,10 +293,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 注：账号删除后的轮询停止由 controller 层回调处理（此处闭包注入 stop 逻辑）
   const weixinAccountStore = new WeixinAccountStore(config.weixin ?? {});
   const extraWeixinPollers: WeixinPollingChannel[] = [];
+  // #591：停掉并注销同 accountId 的旧轮询（替换语义）。热启动重登录虽生成新
+  // accountId，但同账号重登/极窗内并发登录可产生同 id 场景；registry 条目
+  // 同步清（对齐 stopStalePollersForUser 的做法：stop() 内部会写回状态，
+  // 必须先 stop 再 remove，否则被覆盖）
   const stopWeixinPoller = (accountId: string, pool: WeixinPollingChannel[]): boolean => {
     const idx = pool.findIndex((p) => p.accountId === accountId);
     if (idx >= 0) {
       pool[idx].stop();
+      registry?.remove(`weixin-${pool[idx].accountId}`);
+      messageBroadcaster.unregisterOutboundChannel(`weixin-${pool[idx].accountId}`);
       pool.splice(idx, 1);
       return true;
     }
@@ -315,6 +321,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
           // F20260901chun：鬼影回收时同步清 registry 条目（防残留状态误导 UI）
           // 必须在 stop() 之后——stop() 内部会写回状态，先清会被覆盖
           registry?.remove(`weixin-${pool[i].accountId}`);
+          // #591：出站通道同步注销——旧 poller 停了但 channel 还挂在 broadcaster
+          // 上，一条消息仍会投给旧 token（大概率 -14 报错吞在通道 catch 里）
+          messageBroadcaster.unregisterOutboundChannel(`weixin-${pool[i].accountId}`);
           pool.splice(i, 1);
           stopped++;
         }
@@ -334,7 +343,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       ensureWeixinConfig({ configPath: options.configPath, stateDir: config.weixin?.stateDir, ilinkUserId, logger });
       const account = weixinAccountStore.getAccount(accountId);
       if (!account) return;
-      // 同扫码人的旧轮询先停（含 -14 暂停中的僵尸循环）——sleep 监听 abort，stop 即醒即退
+      // #591 替换语义：同 accountId 的旧 poller 先停再重启（防同账号并发轮询
+      // 消费同游标致重复投递）；stopStalePollersForUser 负责同扫码人旧账号的
+      // 僵尸循环回收（-14 暂停 sleep 监听 abort，stop 即醒即退）。两道去重
+      // 独立生效：前者管「同 id」，后者管「同人不同 id」
+      const stoppedSameAccount = stopWeixinPoller(accountId, extraWeixinPollers)
+        || (weixinPollers ? stopWeixinPoller(accountId, weixinPollers) : false);
+      if (stoppedSameAccount) logger.info("Weixin: replaced poller with same accountId on re-login", { accountId });
       const stoppedStale = stopStalePollersForUser(account.ilinkUserId ?? ilinkUserId ?? "");
       if (stoppedStale > 0) logger.info("Weixin: stopped stale poller(s) after re-login", { ilinkUserId, count: stoppedStale });
       const poller = hotStartWeixinAccount({
@@ -379,6 +394,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 它不再拉起新轮询，长轮询 35s 超时后自然停止）
       const stopped = stopWeixinPoller(accountId, extraWeixinPollers);
       if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
+      // #592：清理关联的活跃登录会话——开着登录页又去删账号的竞态场景，不清理
+      // 的话扫码确认后账号重新落盘（「删了又复活」）。非终态会话置 cancelled；
+      // 若扫码已在后台完成（accountId 已回填）连带清同扫码人的其它会话。已终态
+      // （success/error/expired/cancelled）的不动——终态语义不可变更。
+      const account = weixinAccountStore.getAccount(accountId);
+      const sessionsCancelled = weixinLoginSessions.cancelByAccountId(accountId);
+      const userCancelled = account?.ilinkUserId
+        ? weixinLoginSessions.cancelByIlinkUserId(account.ilinkUserId)
+        : 0;
+      if (sessionsCancelled + userCancelled > 0) {
+        logger.info("Weixin account deleted; cancelled in-flight login sessions", { accountId, sessionsCancelled, userCancelled });
+      }
       logger.info("Weixin account deleted; poller stopped", { accountId });
     },
     // 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态）

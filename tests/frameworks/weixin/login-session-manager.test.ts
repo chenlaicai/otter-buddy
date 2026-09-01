@@ -177,4 +177,100 @@ describe("WeixinLoginSessionManager", () => {
     expect(s.status).toBe("cancelled"); // 会话不复活
     expect(s.qrcodeUrl).toBeUndefined(); // QR 不写入已取消会话
   });
+
+  // ── #592：账号删除时的会话清理（防「删了又复活」）──
+  describe("cancelByAccountId / cancelByIlinkUserId（#592）", () => {
+    it("cancelByAccountId：仅取消该账号的非终态会话，终态不动", async () => {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      // 两轮 wait 后 script 耗尽回 expired，会话最终落 expired 终态（供终态断言）
+      restore = scriptFetch([
+        { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+        () => ({ status: "wait" }),
+        { status: "expired" },
+      ]);
+      mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
+      const a = mgr.start();
+      await vi.waitFor(() => expect(mgr.get(a.id)!.status).toBe("expired"));
+
+      // 手工构造另一条非终态会话（借用内部 sessions——直接用 start 开第二条）
+      const b = mgr.start();
+      await vi.waitFor(() => expect(mgr.get(b.id)!.qrcodeUrl).toBeDefined());
+      // 模拟 success 后回填的 accountId（b 的 accountId 在 confirmed 前未知）
+      // ——直接给 expired 的 a 借一个：a 已终态，不可被取消
+      (mgr as any).sessions.get(a.id).accountId = "weixin-accX";
+
+      const cancelled = mgr.cancelByAccountId("weixin-accX");
+      expect(cancelled).toBe(0); // a 已终态，不动
+      expect(mgr.get(a.id)!.status).toBe("expired");
+
+      // b 无 accountId 且非终态：不被 accountId 路径取消
+      expect(mgr.get(b.id)!.status).not.toBe("cancelled");
+    });
+
+    it("cancelByIlinkUserId：取消同扫码人的非终态会话并标记 account_deleted", async () => {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      restore = scriptFetch([
+        { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+        ...Array.from({ length: 50 }, () => () => ({ status: "wait" })),
+      ]);
+      mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
+      const s = mgr.start();
+      await vi.waitFor(() => expect(mgr.get(s.id)!.qrcodeUrl).toBeDefined());
+      // ilinkUserId 在 confirmed 后才回填——非终态期手动注入（模拟另一条已 success 的
+      // 同人会话回填过 ilinkUserId 的删除场景）
+      (mgr as any).sessions.get(s.id).ilinkUserId = "u1@im.wechat";
+
+      const cancelled = mgr.cancelByIlinkUserId("u1@im.wechat");
+      expect(cancelled).toBe(1);
+      expect(mgr.get(s.id)!.status).toBe("cancelled");
+      expect(mgr.get(s.id)!.cancellationReason).toBe("account_deleted");
+    });
+
+    it("删号后取消的会话扫码完成：不落盘不复活、onSuccess 不触发（#592 防复活核心）", async () => {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      // 30 轮 wait（300ms）拉开时间线：waitFor 看到 qrcodeUrl 后立即取消，
+      // confirmed 在取消之后才到——模拟删号后微信侧授权才完成
+      restore = scriptFetch([
+        { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+        ...Array.from({ length: 30 }, () => () => ({ status: "wait" })),
+        { status: "confirmed", bot_token: "tok-del", ilink_user_id: "u1@im.wechat" },
+      ]);
+      const onSuccess = vi.fn();
+      mgr = new WeixinLoginSessionManager({ accountStore: store, logger, onSuccess });
+      const { id } = mgr.start();
+      await vi.waitFor(() => expect(mgr.get(id)!.qrcodeUrl).toBeDefined());
+      // 模拟删除账号时按扫码人取消：confirmed 后 ilinkUserId 回填前的窗口不可测，
+      // 这里在 wait 阶段手动回填再取消（等价于删号路径对已 success 会话的 ilinkUserId 匹配）
+      (mgr as any).sessions.get(id).ilinkUserId = "u1@im.wechat";
+      expect(mgr.cancelByIlinkUserId("u1@im.wechat")).toBe(1);
+
+      await vi.waitFor(() => {
+        // 扫码完成后：账号不复活（removeAccount 生效——listAccounts 为空）
+        expect(store.listAccounts()).toHaveLength(0);
+      });
+      expect(mgr.get(id)!.status).toBe("cancelled");
+      expect(onSuccess).not.toHaveBeenCalled(); // 不热启动
+    });
+
+    it("普通 cancel 的会话扫码完成：账号保留（既有语义不变，#592 不误伤）", async () => {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      restore = scriptFetch([
+        { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+        ...Array.from({ length: 30 }, () => () => ({ status: "wait" })),
+        { status: "confirmed", bot_token: "tok-keep", ilink_user_id: "u2@im.wechat" },
+      ]);
+      const onSuccess = vi.fn();
+      mgr = new WeixinLoginSessionManager({ accountStore: store, logger, onSuccess });
+      const { id } = mgr.start();
+      await vi.waitFor(() => expect(mgr.get(id)!.qrcodeUrl).toBeDefined());
+      expect(mgr.cancel(id)).toBe(true); // 普通取消（无 account_deleted 标记）
+
+      await vi.waitFor(() => {
+        // 账号保留（既有语义：微信侧授权已成不回滚）
+        expect(store.listAccounts()).toHaveLength(1);
+      });
+      expect(mgr.get(id)!.status).toBe("cancelled");
+      expect(onSuccess).not.toHaveBeenCalled();
+    });
+  });
 });

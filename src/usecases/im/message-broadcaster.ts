@@ -29,19 +29,25 @@ export class MessageBroadcaster {
   private webSubscribers = new Map<string, Set<(message: Message) => void>>();
   // Web 端的事件订阅者(conversationId -> Set<callback>),用于转发 agent streaming 事件
   private eventSubscribers = new Map<string, Set<(event: SSEEvent) => void>>();
-  // 出站通道（飞书等外部 IM；按注册序调用）
-  private messageChannels: OutboundMessageChannel[] = [];
-  private eventChannels: OutboundEventChannel[] = [];
+  // 出站通道（飞书等外部 IM；按注册序调用）。#591：key = 通道唯一标识
+  // （"feishu" / "weixin-<accountId>"）——同 key 重复注册**替换**旧通道而非追加，
+  // 防止微信热启动重登录后旧通道残留导致一条消息多次投递；unregister 供
+  // 停轮询/删账号时成对清理（Map 保插入序，替换不改变广播顺序）
+  private outboundChannels = new Map<string, OutboundMessageChannel & OutboundEventChannel>();
   // #241: 幂等性去重——最近广播过的 messageId 集合（进程内 LRU）
   private recentBroadcasts = new Set<string>();
   private static readonly DEDUP_MAX_SIZE = 1000;
 
   constructor(private readonly logger: Logger) {}
 
-  /** 注册出站通道（bootstrap 在对应平台启用时调用） */
-  registerOutboundChannel(channel: OutboundMessageChannel & OutboundEventChannel): void {
-    this.messageChannels.push(channel);
-    this.eventChannels.push(channel);
+  /** 注册出站通道（bootstrap 在对应平台启用时调用）。同 key 再注册 = 替换（#591 替换语义） */
+  registerOutboundChannel(key: string, channel: OutboundMessageChannel & OutboundEventChannel): void {
+    this.outboundChannels.set(key, channel);
+  }
+
+  /** 注销出站通道（账号删除/同 key 替换停旧通道时调用，#591）；未注册返回 false */
+  unregisterOutboundChannel(key: string): boolean {
+    return this.outboundChannels.delete(key);
   }
 
   /**
@@ -122,15 +128,14 @@ export class MessageBroadcaster {
 
     // 2. 广播到出站通道（飞书等；逐通道顺序 await，逐通道 catch 隔离——
     //    单通道失败不阻塞后续通道）
-    for (let i = 0; i < this.messageChannels.length; i++) {
-      const channel = this.messageChannels[i];
+    for (const [key, channel] of this.outboundChannels) {
       try {
         await channel.onMessage(message);
       } catch (err) {
         this.logger.error("Failed to dispatch message to outbound channel", err instanceof Error ? err : undefined, {
           conversationId: message.conversationId,
           messageId: message.id,
-          channelIndex: i,
+          channelKey: key,
         });
       }
     }
@@ -142,15 +147,14 @@ export class MessageBroadcaster {
    */
   broadcastEvent(conversationId: string, event: SSEEvent): void {
     // 出站事件通道（如飞书"正在思考..."，fire-and-forget）
-    for (let i = 0; i < this.eventChannels.length; i++) {
-      const channel = this.eventChannels[i];
+    for (const [key, channel] of this.outboundChannels) {
       try {
         channel.onEvent(conversationId, event);
       } catch (err) {
         this.logger.error("Failed to dispatch event to outbound channel", err instanceof Error ? err : undefined, {
           conversationId,
           event: event.event,
-          channelIndex: i,
+          channelKey: key,
         });
       }
     }
