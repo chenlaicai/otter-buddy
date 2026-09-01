@@ -241,9 +241,10 @@ export class MessageController {
         })
         .finally(() => {
           unsubscribe?.();
-          // 兼底：路由器是 fire-and-forget 点火，POST SSE 流在路由返回后关闭
-          // （流式事件由 GET SSE 订阅接收；P2 重定义 SSE 生命周期后此兼底重评）
-          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+          // 路由器是同步决策+fire-and-forget 点火，返回时无需再等——直接关闭 POST SSE 流
+          // （流式事件由 GET SSE 订阅接收；P2 重定义 SSE 生命周期 = 信号 CONSUMED + 静默超时兜底，七刀之五）
+          push({ event: "stream.end", data: {} });
+          close();
         });
       return response;
     }

@@ -275,7 +275,7 @@ export class SignalRouter {
       const otterId = key.split(":")[1];
       if (this.inFlight.has(key) || await this.isOtterActive(conversationId, otterId)) {
         queue.unshift(item); // 放回队首，保序
-        return;
+        continue; // 该目标仍 busy（外部路径在跑）：跳过，不终止——同会话其他 idle 目标的队列不被饿死
       }
       this.invokeTarget(conversationId, otterId, item.content, item.senderId);
       return; // 单条点火即止，接力交给完成重扫
