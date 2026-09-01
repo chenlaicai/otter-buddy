@@ -92,6 +92,9 @@ export class AgentInvoker implements AgentTurnPort {
   private readonly handoffState = new HandoffState();
   /** F20260901cxmw：按 otter 缓存解析出的 ctxMax（池条目启动后不可变，见 ModelPool 注释） */
   private readonly resolvedCtxMax = new Map<string, number>();
+  /** F20260901cxmw：按 otter 缓存解析出的 ctxMax。缓存边界（cxrev 审视发现 #3 措辞精确化）：
+   * ModelPool 的 entries 启动后不可变；defaultAlias 可通过 settings 页运行时切换，
+   * 仅影响无显式 modelAlias otter 的新解析（新 session 口径）——已缓存的 otter 保持首解析值。 */
 
   // eslint-disable-next-line max-params -- AgentInvoker 依赖较多，参数数量由 DI 框架决定
   constructor(
@@ -715,22 +718,15 @@ export class AgentInvoker implements AgentTurnPort {
     const cached = this.resolvedCtxMax.get(otterId);
     if (cached !== undefined) return cached;
 
-    let resolved: number;
-    let source: string;
     const window = this.ctxWindowProvider?.getOtterContextWindow(otterId);
-    if (window !== undefined && window >= MIN_SENSIBLE_CTX_WINDOW) {
-      resolved = window;
-      source = 'model-pool';
-    } else {
-      resolved = DEFAULT_CTX_MAX;
-      source = 'fallback-128k';
-    }
+    const usable = window !== undefined && window >= MIN_SENSIBLE_CTX_WINDOW;
+    const resolved = usable ? window : DEFAULT_CTX_MAX;
+    const source = usable ? 'model-pool' : 'fallback-128k';
     this.resolvedCtxMax.set(otterId, resolved);
     // 低噪声可观测：每 otter 仅首饮打一次，部署后 grep 该事件即可验证解析链路
     this.logger.info('[handoff] ctxMax resolved', { otterId, ctxMax: resolved, source });
     return resolved;
   }
-
 
   /**
    * F20260818cbkr：熔断信号处理。restart 成功 → 全新 invoke 的结果；未触发或降级返回 null。

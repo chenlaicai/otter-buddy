@@ -20,7 +20,8 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { LinkedResource } from "@entities/conversation/conversation";
-import { createTestLogger, createCapturingLogger } from "../helpers/logger";
+import { createTestLogger } from "../helpers/logger";
+import type { Logger } from "@usecases/ports/logger";
 import { MIN_SENSIBLE_CTX_WINDOW } from "@usecases/ports/otter-context-window-provider";
 import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 
@@ -160,6 +161,22 @@ function mockBuildHandoffPackage() {
 }
 
 /**
+ * F20260901cxmw：捕获 structured data 的 logger（cxrev 审视发现 #2 补强）。
+ * 共享 helpers 的 createCapturingLogger 只存 message 字符串；本测试需断言
+ * [handoff] ctxMax resolved 事件中的 ctxMax/source 字段值，内联实现避免
+ * 改动共享 helper 影响其他消费者。
+ */
+function createDataCapturingLogger() {
+  const infoCalls: Array<{ msg: string; data?: Record<string, unknown> }> = [];
+  const logger: Logger = {
+    info: (msg: string, data?: Record<string, unknown>) => { infoCalls.push({ msg, data }); },
+    warn: () => {}, error: () => {}, debug: () => {},
+    child: () => logger,
+  };
+  return { logger, infoCalls };
+}
+
+/**
  * F20260901cxmw：ctxWindowProvider mock。
  * D1：形状与生产闭包同构（platforms.ts 组装的 getOtterContextWindow 签名），
  * 内部用真实 Map 存窗口，支持状态断言（D7：断言行为结果不绑定调用参数）。
@@ -189,10 +206,11 @@ describe("F20260825hndf 优雅上下文交接", () => {
       const buildHandoffPkg = mockBuildHandoffPackage();
       // 修前：100000 >= 89600 (0.7×128k) → 误触发；修后：100000 < 140000 (0.7×200k) → 不触发
       const ctxWindowProvider = mockCtxWindowProvider({ "otter-1": 200000 });
+      const { logger, infoCalls } = createDataCapturingLogger();
 
       const invoker = new AgentInvoker(
         sdkInvoke, sendMessage, queryMessage, manageSession,
-        queryOtter, createTestLogger(), undefined, undefined, undefined,
+        queryOtter, logger, undefined, undefined, undefined,
         undefined, undefined,
         mockConversationRepo(), undefined, undefined, undefined, buildHandoffPkg,
         undefined, ctxWindowProvider,
@@ -210,6 +228,10 @@ describe("F20260825hndf 优雅上下文交接", () => {
       // 阈值线从 89600 抬到 140000 后，100k 不再触发（D7：断言副作用不存在）
       expect(buildHandoffPkg).not.toHaveBeenCalled();
       expect(manageSession.restartSession).not.toHaveBeenCalled();
+      // cxrev 发现 #2 补强：可观测性断言验证 structured data——model-pool 链路解析出真实窗口
+      const resolved = infoCalls.filter((c) => c.msg === "[handoff] ctxMax resolved");
+      expect(resolved).toHaveLength(1);
+      expect(resolved[0]?.data).toMatchObject({ otterId: "otter-1", ctxMax: 200000, source: "model-pool" });
     });
 
     it("小窗口模型（64k）：阈值按实际窗口收紧，修前不会触发/触发前撞墙的场景现在能正确触发", async () => {
@@ -283,8 +305,8 @@ describe("F20260825hndf 优雅上下文交接", () => {
       const queryOtter = mockQueryOtter();
       const buildHandoffPkg = mockBuildHandoffPackage();
       const ctxWindowProvider = mockCtxWindowProvider({ "otter-1": 0 });
-      // 捕获型 logger：验证可观测日志（低噪声：每 otter 首次解析一条）
-      const logger = createCapturingLogger();
+      // 捕获 structured data 的 logger：验证可观测日志（低噪声：每 otter 首次解析一条）
+      const { logger, infoCalls } = createDataCapturingLogger();
 
       const invoker = new AgentInvoker(
         sdkInvoke, sendMessage, queryMessage, manageSession,
@@ -294,26 +316,22 @@ describe("F20260825hndf 优雅上下文交接", () => {
         undefined, ctxWindowProvider,
       );
 
-      await invoker
-        .invokeConversation({
-          otterId: "otter-1", conversationId: "conv-1",
-          userMessageContent: "Hello", senderId: "user-1",
-        })
-        .then(() =>
-          invoker.invokeConversation({
-            otterId: "otter-1", conversationId: "conv-1",
-            userMessageContent: "World", senderId: "user-1",
-          }),
-        );
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hello", senderId: "user-1",
+      });
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "World", senderId: "user-1",
+      });
 
       // 0 不可用 → 128k 兜底：50000 < 89600 → 不触发（若直接用 0，任何正数都触发，阈值失明）
       expect(buildHandoffPkg).not.toHaveBeenCalled();
-      // 可观测：解析出的 ctxMax + 来源记日志，部署后 grep 验证
-      const resolved = logger.captured.infos.find((m) => m === "[handoff] ctxMax resolved");
-      expect(resolved).toBeDefined();
-      // 低噪声：多次 invoke 只解析一次（缓存），日志仅一条
-      const resolvedCount = logger.captured.infos.filter((m) => m === "[handoff] ctxMax resolved").length;
-      expect(resolvedCount).toBe(1);
+      // cxrev 发现 #2 补强：断言 structured data（ctxMax/source）——区分「正确回退 128k」与
+      // 「错误使用 0」（两者 message 字符串相同，行为断言之外补可观测性断言）
+      const resolved = infoCalls.filter((c) => c.msg === "[handoff] ctxMax resolved");
+      expect(resolved).toHaveLength(1); // 低噪声：缓存生效，多次 invoke 仅首饮解析一条
+      expect(resolved[0]?.data).toMatchObject({ otterId: "otter-1", ctxMax: 128000, source: "fallback-128k" });
       // MIN_SENSIBLE_CTX_WINDOW 导出常量与实现同步
       expect(MIN_SENSIBLE_CTX_WINDOW).toBeGreaterThan(0);
     });

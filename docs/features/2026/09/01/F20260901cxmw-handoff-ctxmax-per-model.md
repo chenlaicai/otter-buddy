@@ -100,9 +100,9 @@ private getCtxMax(otterId: string): number {  // 同步化（原为 async 占位
 ```
 
 要点：
-- **按 otterId 缓存**：ModelPool 条目启动后不可变（仅默认 alias 可运行时切换且只影响新 session），缓存安全。
-- **同步化**：原 async 签名是为未来查库预留的占位，实际链路（getConfig/Map.get）全同步，落地为同步调用。
-- **可观测**：每 otter 首次解析打一条 `[handoff] ctxMax resolved`（含 ctxMax + source），部署后 grep 该事件即可验证解析链路走了哪一级。
+- **按 otterId 缓存**：ModelPool 的 entries 启动后不可变；defaultAlias 可通过 settings 页运行时切换，仅影响无显式 modelAlias otter 的新解析（新 session 口径），已缓存的 otter 保持首解析值（cxrev 审视发现 #3 措辞精确化）。
+- **断言策略（cxrev 审视发现 #2 补强）**：可观测性断言验证 structured data（ctxMax/source 字段值）而非仅 message 字符串——区分「正确回退 128k」与「错误使用 0」（两者 message 相同）。内联 createDataCapturingLogger 捕获 info(msg, data)，不改共享 helper（避免影响 24 处既有消费者）。
+- **同步化**：原 async 签名是为未来查库预留的占位，实际链路（getConfig/Map.get）全同步，落地为同步调用（cxrev 审视焦点 3 核实：无时序竞态）。
 
 ### 2.4 注入点
 
@@ -147,11 +147,11 @@ private getCtxMax(otterId: string): number {  // 同步化（原为 async 占位
 
 Mock 策略（D1）：`mockCtxWindowProvider` 形状与 platforms.ts 生产闭包同构（真实 Map 存窗口、
 getOtterContextWindow 签名一致）；断言策略（D7）：触发断言用 buildHandoffPkg/restartSession
-副作用 + logger 捕获，不绑定调用参数。
+副作用，不绑定调用参数。
 
 既有 7 用例全数保持通过（构造函数追加可选参数向后兼容）。
 
-## 6. 验证（质量门四件套，2026-09-10:14 worktree 实测）
+## 6. 验证（质量门四件套，2026-09-01 10:14 worktree 实测；处置轮复跑见 §8）
 
 | 门 | 命令 | 结果 |
 |----|------|------|
@@ -167,4 +167,17 @@ getOtterContextWindow 签名一致）；断言策略（D7）：触发断言用 b
 - **不动 PR #639**：该 PR 也改 agent-invoker.ts（合成闭包读 directText 修复），保持 OPEN 不碰；同文件冲突由后合入方 rebase 解决。
 - **不回改历史文档**：本缺陷的来龙去脉记录在本文档（新建），frontmatter from: F20260831hndp。
 - **HANDOFF_THRESHOLD 不变**（0.7）：只修窗口口径，不动阈值本身。
-- **默认 alias 运行时切换**：切换后新 otter 解析用新默认窗口；已缓存的 otter 保持首解析值（切换只影响新 session 的模型口径，与 ModelPool 语义一致，见 §2.3 缓存说明）。
+
+## 8. 审视处置（cxrev 对抗审视，0 严重 / 4 建议）
+
+处置记录（作者逐条走决策树，四分类响应）：
+
+| # | 发现 | 更好/更差 | 处置 | 落点 |
+|---|------|----------|------|------|
+| 1 | 特性文档 §6 时间戳笔误（2026-09-10:14） | 更好 | **接受并修复** | §6 标题改为 2026-09-01 10:14 |
+| 2 | 日志断言只验 message 不验 structured data（ctxMax/source） | 更好 | **接受并修复** | 用例 1/4 补 `toMatchObject({ ctxMax, source })` 断言；内联 createDataCapturingLogger（不动共享 helper，避免影响 24 处既有消费者） |
+| 3 | 缓存注释「条目不可变」措辞不精确（defaultAlias 可运行时切） | 更好 | **接受并修复** | 代码注释 + 本档 §2.4/§7 改为「entries 不可变；defaultAlias 可切，仅影响无显式 alias otter 的新解析」 |
+| 4 | PR 含 wxsp merge 范围混合 | 更差 | **反驳（附证据）** | 合并是 D10 教训标准动作；wxsp 已在 main（PR #638），本 PR 合入后 diff 即收敛为本修复内容；已按 cxrev 建议在 PR 描述补「含 wxsp merge，该部分变更见 #638」 |
+
+处置轮质量门（2026-09-01 10:38）：tsc 0 / eslint 0 / vitest handoff 12/12 / CI 待推后验证。
+- **默认 alias 运行时切换**：切换后无显式 alias otter 的**新解析**用新默认窗口；已缓存的 otter 保持首解析值（cxrev 审视 #3 已精确化：entries 不可变、defaultAlias 可切，切换仅影响新 session 口径的解析）。影响方向保守：新默认窗口更大时 handoff 更晚触发、更小时更早触发。
