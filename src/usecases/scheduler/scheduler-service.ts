@@ -799,12 +799,14 @@ export class SchedulerService {
     return out;
   }
 
-  private async completeExecution(executionId: string, conversationId: string, messageId: string): Promise<void> {
+  /** messageId 为 null：function executor 无消息（PR4）；LLM executor 传 anchor 消息 id。
+   * F20260901ppfk 检视处置：防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
+  private async completeExecution(executionId: string, conversationId: string, messageId: string | null): Promise<void> {
     const activeTurn = await this.convRepo.getActiveTurn(conversationId);
     await this.taskRepo.updateExecutionStatus(executionId, {
       status: 'completed',
       completedAt: new Date().toISOString(),
-      messageId,
+      messageId: messageId || null,
       turnId: activeTurn?.id,
     });
   }

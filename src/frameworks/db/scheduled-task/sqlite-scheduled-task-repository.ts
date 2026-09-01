@@ -139,8 +139,8 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
       status: ExecutionStatus;
       completedAt?: string;
       errorMessage?: string;
-      messageId?: string;
-      turnId?: string;
+      messageId?: string | null;
+      turnId?: string | null;
     },
   ): Promise<void> {
     this.db.prepare(`
