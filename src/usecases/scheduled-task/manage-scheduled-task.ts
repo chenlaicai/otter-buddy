@@ -30,6 +30,22 @@ function validateScheduleFields(input: CreateScheduledTaskInput): string | null 
   return null;
 }
 
+/** #610: watchlist-only patch 语义——读旧 body JSON、只替换 watchlist 字段。
+ *  返回 null 表示 body 不是合法 JSON 对象（旧格式/非 JSON body 不兼容此通道），由调用方抛 400，
+ *  避免把非 JSON body 静默重写而丢内容。其他字段（prompt 等）原样保留，调用方无需携带 prompt 全文。 */
+export function applyWatchlistPatch(body: string, watchlist: string[]): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  return JSON.stringify({ ...(parsed as Record<string, unknown>), watchlist });
+}
+
 /** 校验 CreateScheduledTaskInput，返回错误消息或 null */
 function validateCreateInput(input: CreateScheduledTaskInput): string | null {
   const scheduleError = validateScheduleFields(input);
@@ -97,6 +113,9 @@ export interface UpdateScheduledTaskInput {
   executorType?: 'agent' | 'function';
   /** PR4: function executor 时注册的函数名 */
   functionName?: string;
+  /** #610: watchlist-only patch——服务端读旧 body JSON、只替换 watchlist 字段。
+   *  调用方不再携带 prompt 全文（旧通道丢一字即损坏）。与 body 字段互斥。 */
+  watchlist?: string[];
 }
 
 export type TaskChangeCallback = (taskId: string, action: 'created' | 'updated' | 'deleted') => void;
@@ -169,6 +188,27 @@ export class ManageScheduledTask {
 
     this.validateUpdateInput(task, input);
 
+    // #610: watchlist patch——与 body 显式互斥，双传说明调用方语义混乱，拒之。
+    let effectiveBody = input.body ?? task.body;
+    if (input.watchlist !== undefined) {
+      if (input.body !== undefined) {
+        throw new DomainError('watchlist and body are mutually exclusive in update', 'validation');
+      }
+      const patched = applyWatchlistPatch(task.body, input.watchlist);
+      if (patched === null) {
+        // Why 400：请求格式合法但旧 body 不支持 patch（非 JSON 对象），修复责任在调用方
+        throw new DomainError(
+          `Cannot patch watchlist: task body is not a JSON object (taskId=${id}). Use full body update instead.`,
+          'validation',
+        );
+      }
+      effectiveBody = patched;
+      // Why：patched body 是新入库值，必须同样满足 10000 上限不变量（prompt 近上限+巨长 watchlist 可超）
+      if (effectiveBody.length > 10000) {
+        throw new DomainError('body must be 10000 characters or less', 'validation');
+      }
+    }
+
     const now = new Date().toISOString();
     const updated: ScheduledTask = {
       ...task,
@@ -177,7 +217,7 @@ export class ManageScheduledTask {
       cron: input.cron ?? task.cron,
       triggerAt: input.triggerAt !== undefined ? input.triggerAt : task.triggerAt,
       timezone: input.timezone ?? task.timezone,
-      body: input.body ?? task.body,
+      body: effectiveBody,
       talkingStonePassedTo: input.talkingStonePassedTo ?? task.talkingStonePassedTo,
       status: input.status ?? task.status,
       restartBeforeInvoke: input.restartBeforeInvoke ?? task.restartBeforeInvoke,
@@ -212,6 +252,17 @@ export class ManageScheduledTask {
 
     if (input.body && input.body.length > 10000) {
       throw new DomainError('body must be 10000 characters or less', 'validation');
+    }
+
+    // #610: watchlist patch 格式校验——通用通道不做 A 股代码格式假设，只保证结构。
+    // Why 空数组合法：操盘 prompt 对空自选池有明确行为（报告搭档），清空自选池是合法操作。
+    if (input.watchlist !== undefined) {
+      if (
+        !Array.isArray(input.watchlist) ||
+        input.watchlist.some(code => typeof code !== 'string' || code.length === 0)
+      ) {
+        throw new DomainError('watchlist must be an array of non-empty strings', 'validation');
+      }
     }
   }
 
