@@ -24,7 +24,33 @@ export interface DetectedSignal {
   /** 证据（人类可读，确定性数据） */
   evidence: string;
   suggestedAction: string;
+  /** 结构化证据详情（Issue #644）：窗口内全类型 commit 序列（bug●→fix● 交替时间轴的数据源）。
+   *  Why 全类型而非仅 bugfix：只有 bugfix 画不出「引入-修复-回归-再修复」的交替节奏，
+   *  前端时间轴需要 changeType 区分节点形态（观澜视觉方案 3.1）。窗口滑动时整体重算覆盖。 */
+  detail?: SignalDetail;
+  /** 置信度（Issue #644）：low = 大概率误报（如「干完没归档」的滞留），UI 折叠收纳不进主警报区。
+   *  未标注 = normal（默认，走正常警报）。 */
+  confidence?: SignalConfidence;
 }
+
+/** bug_recurrence 的结构化证据：窗口内该文件的全类型 commit 序列（时间升序） */
+export interface SignalDetail {
+  kind: "bug_recurrence_commits";
+  /** 窗口天数（重算口径的一部分，滑动窗口整体覆盖） */
+  windowDays: number;
+  /** 窗口内触碰该文件的全部 commit（不只 bugfix——交替节奏需要全类型） */
+  commits: Array<SignalDetailCommit>;
+}
+
+export interface SignalDetailCommit {
+  sha: string;
+  date: string;
+  /** commit 类型（BugFix / New Feature / Feature Update / Refactor / …，null=未识别） */
+  changeType: string | null;
+  message: string;
+}
+
+export type SignalConfidence = "normal" | "low";
 
 export interface DetectOptions {
   /** bug_recurrence 窗口天数（默认 30） */
@@ -92,25 +118,33 @@ function detectBugRecurrence(
   const reg = SIGNAL_REGISTRY.bug_recurrence;
 
   // key: module + file -> bugfix commit 列表（窗口内）
-  const byModuleFile = new Map<string, { module: string; file: string; shas: string[]; dates: Date[] }>();
+  const byModuleFile = new Map<string, {
+    module: string; file: string;
+    shas: string[]; dates: Date[];
+    /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
+    allCommits: SignalDetailCommit[];
+  }>();
 
+  const recurrenceStart = new Date(now.getTime() - windowDays * DAY_MS);
   for (const c of commits) {
     if (c.parsed.changeType !== "BugFix" || !c.parsed.module) continue;
     const date = new Date(c.date);
-    const recurrenceStart = new Date(now.getTime() - windowDays * DAY_MS);
     if (date < recurrenceStart) continue;
 
     for (const file of c.filesChanged) {
       const key = `${c.parsed.module}\u0000${file}`;
       let entry = byModuleFile.get(key);
       if (!entry) {
-        entry = { module: c.parsed.module, file, shas: [], dates: [] };
+        entry = { module: c.parsed.module, file, shas: [], dates: [], allCommits: [] };
         byModuleFile.set(key, entry);
       }
       entry.shas.push(c.sha.slice(0, 8));
       entry.dates.push(date);
     }
   }
+
+  // 第二遍（Issue #644）：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
+  collectDetailCommits(commits, byModuleFile, recurrenceStart);
 
   const signals: DetectedSignal[] = [];
   for (const entry of byModuleFile.values()) {
@@ -123,10 +157,45 @@ function detectBugRecurrence(
         filePath: entry.file,
         evidence: `[${entry.module}] ${entry.file} 窗口 ${windowDays} 天内 bugfix ${entry.shas.length} 次（${entry.shas.join(", ")}）`,
         suggestedAction: reg.suggestedAction,
+        detail: {
+          kind: "bug_recurrence_commits",
+          windowDays,
+          commits: entry.allCommits,
+        },
       });
     }
   }
   return signals;
+}
+
+/** Issue #644 第二遍收集：为已触发的 (module, file) 填充窗口内全类型 commit 序列（时间升序）。
+ *  Why 全类型：只有 bugfix 画不出「引入-修复-回归-再修复」交替节奏，前端时间轴需要 changeType
+ *  区分节点（观澜视觉方案 3.1）。窗口滑动时随扫描整体重算覆盖（非 append）。 */
+function collectDetailCommits(
+  commits: SignalCommitInput[],
+  byModuleFile: Map<string, { allCommits: SignalDetailCommit[] }>,
+  recurrenceStart: Date,
+): void {
+  for (const c of commits) {
+    const date = new Date(c.date);
+    if (date < recurrenceStart) continue;
+    // module 无法解析的 commit 不参与（与第一遍口径一致：module null 直接 skip）
+    if (!c.parsed.module) continue;
+    for (const file of c.filesChanged) {
+      const key = `${c.parsed.module}\u0000${file}`;
+      const entry = byModuleFile.get(key);
+      if (!entry) continue; // 未达 bugfix 阈值的文件无 entry，不浪费内存
+      entry.allCommits.push({
+        sha: c.sha.slice(0, 8),
+        date: c.date,
+        changeType: c.parsed.changeType,
+        message: c.message,
+      });
+    }
+  }
+  for (const entry of byModuleFile.values()) {
+    entry.allCommits.sort((a, b) => a.date.localeCompare(b.date));
+  }
 }
 
 /** 从未有关联 commit 的文档状态（零 commit 是常态，不应触发滞留信号） */
@@ -149,6 +218,11 @@ function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
           ? Math.floor((now.getTime() - new Date(c.doc.createdAt).getTime()) / DAY_MS)
           : null
       );
+      // Issue #644 置信规则甲：stalled ∧ 有 commit → low（实查 18/18 为「干完没归档」误报，
+      // 大概率活已干完只是文档没归档）；zombie 与 doc-only 滞留保持 normal（异常更实）。
+      // zombie/doc-only 不降置信：30 天无 commit 且对话零提及更接近真异常。
+      const confidence: SignalConfidence =
+        c.state === "stalled" && c.commitCount > 0 ? "low" : "normal";
       return {
         type: reg.type,
         name: reg.name,
@@ -159,6 +233,7 @@ function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
           ? `${c.featureId} 僵尸链：30 天无 commit 且近 30 天对话零提及（doc status=${c.doc?.status ?? "?"}）`
           : `${c.featureId} 滞留 ${stallDays} 天无 commit（doc status=${c.doc?.status ?? "?"}）`,
         suggestedAction: reg.suggestedAction,
+        confidence,
       };
     });
 }

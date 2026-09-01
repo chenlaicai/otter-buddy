@@ -502,6 +502,14 @@ export interface RhiSignalDTO {
   status: string
   suggested_action: string | null
   signalTypeLabel: string
+  /** Issue #644：结构化证据详情（bug●→fix● 交替时间轴数据源）。null=无 */
+  evidenceDetail: {
+    kind: string
+    windowDays: number
+    commits: Array<{ sha: string; date: string; changeType: string | null; message: string }>
+  } | null
+  /** 置信度：low=大概率误报（UI 折叠收纳）。null=normal */
+  confidence: string | null
 }
 
 export interface RhiChainDTO {
@@ -527,6 +535,15 @@ export function getRhiSignals(status = 'open', signal?: AbortSignal): Promise<{ 
 
 export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number }> {
   return request('/health/chains', { signal })
+}
+
+/** Issue #644：链详情（全类型 commit 序列——泳道时间线/链详情抽屉数据源） */
+export interface RhiChainDetailDTO extends RhiChainDTO {
+  commits: Array<{ sha: string; date: string; changeType: string | null; message: string; filesChanged: string[] }>
+}
+
+export function getRhiChainDetail(featureId: string, signal?: AbortSignal): Promise<{ chain: RhiChainDetailDTO }> {
+  return request(`/health/chains/${encodeURIComponent(featureId)}`, { signal })
 }
 
 export function getRhiTrends(days = 30, signal?: AbortSignal): Promise<RhiTrendsDTO> {

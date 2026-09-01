@@ -37,7 +37,11 @@ const allowDdlFiles = [];
 // 4→5（F20260829ppta）：tests/frameworks/db/paper-trade-repository-impl-ledger-integration.test.ts——
 // X1 P0 集成测试，使用真实 Ledger + 真实 SQLite 验证成交订单 DB 状态落库，
 // 全 mock 测试结构上不可能发现 X1 缺陷，需要隔离内存 SQLite 真实写入
-const MAX_ALLOW_DDL_FILES = 5;
+// 5→6（F20260901rhdt）：tests/usecases/health/signal-repository.test.ts——
+// Issue #644 存量库补列迁移测试：需建 8/31 旧形状 signals 表（无 evidence_detail/confidence
+// 两列）验证 migrateDatabase ALTER 补列幂等——被测对象就是「旧 schema → 新 schema」迁移本身，
+// 用生产 schema 建不出旧表形态（与 migration 同类场景）
+const MAX_ALLOW_DDL_FILES = 6;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

@@ -750,6 +750,8 @@ function createSignalsTable(db: Database.Database): void {
       occurrences INTEGER DEFAULT 1,
       status TEXT DEFAULT 'open',
       suggested_action TEXT,
+      evidence_detail TEXT,
+      confidence TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       resolved_at TEXT
     );
