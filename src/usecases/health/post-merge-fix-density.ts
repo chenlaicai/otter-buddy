@@ -27,6 +27,7 @@
 import type { SignalCommitInput, DetectedSignal } from "./detect-signals";
 import type { FeatureChain } from "./chain-builder";
 import { SIGNAL_REGISTRY } from "./signal-registry";
+import type { SignalDefinition } from "./signal-registry";
 
 /** 分档阈值：链触碰文件数 > 此值 = 大特性档（30 天窗口），否则小修档（14 天）。
  *  实测 p75=6：多数特性 ≤6 文件；>6 是真「大特性」。 */
@@ -90,7 +91,7 @@ function detectChainFixDensity(ctx: {
   chain: FeatureChain;
   commits: SignalCommitInput[];
   now: Date;
-  reg: { type: "post_merge_fix_density"; name: string; severity: "warning"; suggestedAction: string };
+  reg: SignalDefinition;
   excludedSet: Set<string>;
   excludedNote: string;
 }): DetectedSignal | null {
