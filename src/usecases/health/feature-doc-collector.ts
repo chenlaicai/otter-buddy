@@ -17,7 +17,9 @@ export interface CollectedFeatureDoc {
   title: string;
   /** 变更类型 */
   changeType: string | null;
-  /** 文档状态 */
+  /** 文档状态。#646 值域契约：语义分组（在途/终态/未知）消费方统一用
+   *  @entities/document/doc-status 的 classifyDocStatus，勿在各消费点自行 has 判断。
+   *  本字段保留原始值（含行内注释已被 yaml 解析器剥离后的裸值），不做归一改写。 */
   status: string | null;
   /** 标签 */
   tags: string[];

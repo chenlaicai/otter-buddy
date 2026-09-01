@@ -164,3 +164,50 @@ describe("buildFeatureChains", () => {
     expect(chains[0].state).toBe("orphan");
   });
 });
+
+// ===== #646 值域契约：判定层的「未知值不碰」负用例 =====
+
+describe("#646 值域契约（chain-builder 消费侧）", () => {
+  it("未知 status：链不判病态（视为稳定，不猜语义）", () => {
+    // 40 天前的 commit + 未知 status（如手写 wip/blocked）→ 不判 stalled/zombie
+    const chains = buildFeatureChains(
+      [commit("s1", 40, "[F20260801unkn][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801unkn", "wip")],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("未知 status 的 doc-only 链：不判 stalled/zombie", () => {
+    const chains = buildFeatureChains([], [doc("F20260801unkn2", "shipped", 90)], OPTS);
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("未知 status：zombie 两阶段判定也不参与（提及计数显式 0 仍不判）", () => {
+    const chains = buildFeatureChains(
+      [commit("s1", 40, "[F20260801unkn3][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801unkn3", "wip")],
+      { ...OPTS, fidMentionCounts: new Map([["F20260801unkn3", 0]]) },
+    );
+    expect(chains[0].state).toBe("active");
+  });
+
+  it("在途存量变体 review/reviewed：参与病态判定（与 development 同待遇）", () => {
+    // review 状态 + 20 天无 commit → stalled（对比未知值不判）
+    const chains = buildFeatureChains(
+      [commit("s1", 20, "[F20260801revw][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801revw", "review")],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("stalled");
+  });
+
+  it("终态 locked：豁免 stalled/zombie（设计稿冻结语义，#646 定案）", () => {
+    const chains = buildFeatureChains(
+      [commit("s1", 40, "[F20260801lock][agent][New Feature] x", ["a.ts"])],
+      [doc("F20260801lock", "locked")],
+      OPTS,
+    );
+    expect(chains[0].state).toBe("active");
+  });
+});
