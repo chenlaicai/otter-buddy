@@ -61,7 +61,12 @@ v2：
 - `warnedAt`：最近一次预警**发送尝试**时刻（无论成败都记——防死 token 每 35s 被重锤）
 - **向后兼容读 v1**：值为字符串 → 迁移为 `{ token, receivedAt: <文件 mtime> }`（mtime 是「最近一次 token 落盘」的可靠代理，8/31 实测已用 mtime 验证过换新时序）；迁移态不回写，下次 save 自然落 v2
 - `saveContextToken` 语义升级：写 `receivedAt = now` 且 **清除 warnedAt**（入站换新 token = 用户说话了 = 预警使命完成）
-- 消费方声明（#379 ⑥）：`receivedAt`/`warnedAt` 仅由轮询层预警检查读写；`token` 字段消费方不变（gateway adapter resolveContextToken 出站回填，经投影方法读，签名不变）
+- **接口分层（审视 S1 修订：load-modify-save 必须基于 raw 结构）**：
+  - `loadRawContextTokens(accountId): Record<userId, ContextTokenEntry>` —— **新增**，返回 v2 完整结构。消费方：预警检查（polling-channel）、`saveContextToken`、`recordContextTokenWarned` 的 load-modify-save 基座
+  - `loadContextTokens(accountId): Record<userId, string>` —— **对外签名不变**，内部投影 `entry → entry.token`。消费方：gateway adapter `resolveContextToken`（出站回填，**零改动**）
+  - `saveContextToken` 内部改走 `loadRawContextTokens`：保留其他用户条目的 v2 元数据，仅重置目标用户（token/receivedAt=now/清 warnedAt）。**若基于投影后的字符串 map 做 save，会把其他用户的 receivedAt/warnedAt 全部抹掉**（审视 S1 指出的连锁毁损）
+  - `recordContextTokenWarned(accountId, userId)` —— **新增**，同样走 raw load-modify-save
+- 消费方声明（#379 ⑥）：`receivedAt`/`warnedAt` 仅由轮询层预警检查经 `loadRawContextTokens`/`recordContextTokenWarned` 读写；`token` 字段消费方（gateway adapter）经投影方法读，签名不变
 
 ### 2. 预警检查：轮询循环内嵌（每 ~35s 一 tick）
 
@@ -124,7 +129,8 @@ contextTokenWarn: { afterMs, cooldownMs }  // minutes * 60_000
 - **TTL 精确值未知**：默认 60min 是基于「<2h 上界 + 1h47m 死亡样本」的工程猜测。若真实 TTL <60min，预警恒失败（无害：一条 error 日志 + warnedAt 止损）。上线路径：默认 60min 跑一段时间，观察「预警发送失败」日志比例，再调阈值
 - **风控**：主动消息对微信侧是显性流量（bot_agent 归因可见）。频率受 cooldown 限制（每用户每小时 ≤1 条），量级无害
 - **打扰**：对「本来就不想聊」的用户是打扰。缓解：一条即止（说一句话即重置）；文案明确「需要时」
-- **mtime 回填精度**：v1 迁移用文件级 mtime，同文件多用户共享同一时间戳（粒度粗）。影响：重启后首批预警时序略偏，不影响正确性；下一次 save 即精确
+- **mtime 回填精度**：v1 迁移用文件级 mtime；文件按 accountId 分目录（`data/weixin/<accountId>/context-tokens.json`），受影响的仅是**同账号下多个对端用户**共享同一时间戳（实际场景 1-2 人，粒度影响小，审视发现 2 修订）。后果：重启后首批预警时序略偏，不影响正确性；下一次 save 即精确
+- **唤醒率不确定**（审视发现 4）：ilink bot 消息在微信侧的通知策略未实测——不活跃用户可能收不到弹窗通知，或看到通知但不点进对话（「随便发一条」有行动门槛）。本机制无害兜底：失败即弃、不重试，即使唤醒率为 0 也不劣于现状（静默断连）。上线路径：观察「预警发送成功但用户仍未回复」的比例，有数据后再立 issue 迭代文案/时机（现在无观察数据，空壳 issue 无修复方案可写）
 
 ## 设计取舍
 
@@ -158,10 +164,19 @@ contextTokenWarn: { afterMs, cooldownMs }  // minutes * 60_000
 
 | 文件 | 操作 | 说明 |
 |---|---|---|
-| src/frameworks/weixin/account-store.ts | M | context-tokens v2 格式（receivedAt/warnedAt + v1 mtime 兼容读）+ recordContextTokenWarned；loadContextTokens 对外签名不变 |
+| src/frameworks/weixin/account-store.ts | M | ① context-tokens v2 格式（receivedAt/warnedAt + v1 mtime 兼容读）；② **新增 loadRawContextTokens**（raw 访问：预警检查 + save 基座）；③ **新增 recordContextTokenWarned**；④ loadContextTokens 对外签名不变（内部投影 entry.token） |
 | src/frameworks/weixin/polling-channel.ts | M | loop 每 tick 调 checkContextTokenExpiry；deps 增 contextTokenWarn?/now?；发送失败 error 日志 + warnedAt 止损 |
 | src/frameworks/config-service.ts | M | weixin 段新增 contextTokenWarnMinutes / contextTokenWarnCooldownMinutes（含 RawConfig 类型） |
 | src/bootstrap/platforms.ts | M | startWeixinAccount 换算并传递 warn 配置进 poller deps |
 | tests/frameworks/weixin/account-store-context-age.test.ts | A | 数据模型测试 |
 | tests/frameworks/weixin/polling-channel-warn.test.ts | A | 预警触发/抑制/失败路径测试 |
 | docs/features/2026/09/01/F20260901wxnt-weixin-context-token-warn.md | A | 本文档 |
+
+## 审视记录
+
+### 第 1 轮（2026-09-01，检视獭-预警方案 / mimo 异模型）
+
+- **S1（严重，采纳）**：`saveContextToken` 的 load-modify-save 若基于投影字符串 map，会覆盖其他用户的 v2 元数据；若 `loadContextTokens` 返回 raw 对象，gateway `resolveContextToken` 出站崩溃。处置：方案 §1 补接口分层（loadRawContextTokens raw 层 + loadContextTokens 投影层），saveContextToken/recordContextTokenWarned 明确走 raw 基座
+- **发现 2（建议，采纳）**：mtime 精度风险措辞澄清——文件按 accountId 分目录，仅同账号多对端用户受影响，实际场景影响小
+- **发现 3（建议，采纳）**：改动范围表 account-store 行拆为 4 项明确标注两个新增方法
+- **发现 4（建议，部分接受）**：微信侧通知策略未实测、唤醒率可能低于预期——采纳风险节补充（无害兜底逻辑已明确）；驳回建 issue：上线前无观察数据，空壳 issue 不符合「每个 issue 必须有具体修复方案」规范（F20260820 #352），观察后再立
