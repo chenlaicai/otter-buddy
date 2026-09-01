@@ -203,9 +203,10 @@ export class ManageScheduledTask {
         );
       }
       effectiveBody = patched;
-      // Why：patched body 是新入库值，必须同样满足 10000 上限不变量（prompt 近上限+巨长 watchlist 可超）
+      // Why：patched body 是新入库值，必须同样满足 10000 上限不变量（prompt 近上限+巨长 watchlist 可超）。
+      // 检视发现 1：报错区分来源——旧通道超限是调用方 body 问题，patch 路径超限是合并 watchlist 后溢出，修复路径不同。
       if (effectiveBody.length > 10000) {
-        throw new DomainError('body must be 10000 characters or less', 'validation');
+        throw new DomainError('patched body exceeds 10000 character limit after merging watchlist', 'validation');
       }
     }
 

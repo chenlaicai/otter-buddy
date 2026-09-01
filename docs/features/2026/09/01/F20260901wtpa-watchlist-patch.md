@@ -88,3 +88,9 @@ curl -X PATCH /api/scheduled-tasks/<taskId> -d '{"watchlist": ["600519", "601318
 ## 更名记录
 
 本文档初版 ID 为 `F20260901wtlp`（后缀含 commit-msg 钩子禁用字符 `l`），PR 未合入前更名为 `F20260901wtpa`——属 PR 内重命名，非回改历史（铁律 F20260831dgim 不受影响），故 `BYPASS_HISTORICAL_DOC_LINT=1` 提交。
+
+## 对抗审视记录（2026-09-01）
+
+检视獭-680（mimo，异模型）：0 严重 + 1 建议，B1-B4 全过，大獭预检 6 项疑点全部核实通过。
+
+**建议 1（接受并修复）**：patched body 超 10000 上限的报错与旧通道 body 超限不可区分——已改为 `'patched body exceeds 10000 character limit after merging watchlist'`，测试断言同步锁定区分性消息。修复 commit 见 PR #680。

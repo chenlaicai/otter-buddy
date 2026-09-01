@@ -482,6 +482,8 @@ describe("update()", () => {
         .catch((e) => e);
 
       expect(err).toBeInstanceOf(DomainError);
+      // 检视发现 1：报错需区分 patch 路径（合并 watchlist 后溢出）与旧通道 body 超限
+      expect(err.message).toContain("patched body");
       expect(err.message).toContain("10000");
     });
   });
