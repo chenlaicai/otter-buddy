@@ -148,17 +148,22 @@ describe("WeixinPollingChannel", () => {
 
   it("F20260831wxsp 修复 4：-14 暂停中的旧轮询被 stop 立即唤醒退出（不再等满 1h）", async () => {
     const { accountStore, onMessage, logger } = makeDeps();
+    const effects = { errorLogs: [] as unknown[] };
+    const warn: Logger["error"] = (msg, err, meta) => { effects.errorLogs.push([msg, err, meta]); };
+    const scopedLogger = { ...logger, error: warn } as unknown as Logger;
     const api = { getUpdates: vi.fn(async () => ({ ret: 0, errcode: -14, errmsg: "stale" })) } as unknown as WeixinApiClient;
-    const ch = new WeixinPollingChannel({ api, accountStore, accountId: "acc-old", onMessage, logger });
+    const ch = new WeixinPollingChannel({ api, accountStore, accountId: "acc-old", onMessage, logger: scopedLogger });
     ch.setIdentity("u1@im.wechat");
     ch.start();
     // 进入 1h 暂停 sleep 后模拟重新扫码：stop 应立即打断 sleep 退出循环
     await vi.advanceTimersByTimeAsync(100);
     ch.stop();
     await vi.advanceTimersByTimeAsync(0);
-    // 不到 1h 轮询已停：stopped 日志已出（sleep 被 abort 打断，循环退出）
-    await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith("Weixin polling channel stopped", expect.objectContaining({ accountId: "acc-old" })));
-    // 且没有继续拉取（僵尸循环的每小时一次 -14 消失）
-    expect(api.getUpdates).toHaveBeenCalledTimes(1);
+    // 不到 1h 轮询已停：sleep 被 abort 打断，循环退出——副作用断言（错误日志仅进入暂停前那一次）
+    await vi.waitFor(() => expect(effects.errorLogs).toHaveLength(1));
+    // 快进起过 1h：僵尸循环若还在，每小时会再拉一次 -14 再记一条 error——这里都不应发生
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(effects.errorLogs).toHaveLength(1); // 仅进入暂停前的那一次，无僵尸苏醒
   });
 });
