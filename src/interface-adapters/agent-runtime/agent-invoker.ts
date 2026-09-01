@@ -676,16 +676,23 @@ export class AgentInvoker implements AgentTurnPort {
         readOnly: true,
       });
 
-      if (!result.text || result.text.trim().length === 0) {
+      // F20260901dtfx：LLM 直出文本在 directText（turnText 缓冲，pi-session-factory
+      // 在 invoke 结果组装后填充），result.text 是 buildInvokeResult 的占位空串——
+      // 只读 text 会 100% 误判 empty result，把已生成的摘要扔进降级（Phase 2 上线
+      // 后微信对话 3/3 合成全失败的根因）。fallback 链：directText → text → 失败。
+      const synthesisText = result.directText?.trim() || result.text?.trim() || '';
+
+      if (synthesisText.length === 0) {
         throw new Error('LLM synthesis returned empty result');
       }
 
       this.logger.info('[handoff-synthesis] Completed', {
         otterId,
-        length: result.text.length,
+        length: synthesisText.length,
+        source: result.directText?.trim() ? 'directText' : 'text',
       });
 
-      return result.text;
+      return synthesisText;
     };
   }
 

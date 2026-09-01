@@ -87,14 +87,21 @@ function mockManageSession(session?: OtterSession) {
   } as unknown as ManageSession;
 }
 
-function mockSdkInvoke(result?: { text?: string; ctxTokens?: number }) {
+function mockSdkInvoke(result?: { text?: string; directText?: string; ctxTokens?: number }) {
+  // F20260901dtfx D1 同构修复：生产 invoke 结果的 text 是 buildInvokeResult 占位空串
+  // （circuit-breaker-helpers.ts:118），LLM 直出在 directText（turnText 缓冲）。
+  // mock 必须复现这个形状——旧 mock 返回 text:"Hello" 是无 directText 的不同构形状，
+  // 掩盖了合成闭包只读 text 导致 100% 误判降级的 bug（PR #618 上线后 3/3 合成失败）。
+  const direct = result?.directText ?? result?.text ?? "Hello";
   return {
-    invoke: vi.fn().mockResolvedValue({
-      text: result?.text ?? "Hello",
+    invoke: vi.fn().mockImplementation(async () => ({
+      // 生产形状：text 恒空串，直出在 directText
+      text: "",
+      directText: direct,
       tokenUsage: { input: 1000, output: 500 },
       ctxTokens: result?.ctxTokens ?? 100000,
       ctxMax: 128000,
-    }),
+    })),
     abort: vi.fn(),
     getToolCallCount: vi.fn().mockReturnValue(0),
     getInternalAbortReason: vi.fn().mockReturnValue(undefined),
@@ -326,6 +333,92 @@ describe("F20260825hndf 优雅上下文交接", () => {
       expect(typeof callArgs[2].synthesize).toBe("function");
       // 且包含 trigger 参数
       expect(callArgs[2]).toHaveProperty("trigger", "70%阈值");
+    });
+
+    it("F20260901dtfx 回归：合成闭包从 directText 提取文本（生产形状 text 恒空）", async () => {
+      // PR #618 上线后 3/3 合成失败的根因：生产 invoke 结果 text 是占位空串，
+      // 直出在 directText。旧 mock 返回 text:"Hello"（不同构）掩盖了 bug。
+      // 本用例用生产形状 mock（text:"" + directText）驱动真实闭包。
+      const sdkInvoke = mockSdkInvoke({ ctxTokens: 100000, directText: "## 交接摘要\n叙事合成内容" });
+      const manageSession = mockManageSession();
+      const manageContext = mockManageContext();
+      let capturedSynthesize: ((prompt: string) => Promise<string>) | undefined;
+      const buildHandoffPkg = vi.fn().mockImplementation(
+        async (_convId: string, _otterId: string, options: { synthesize?: (prompt: string) => Promise<string> }) => {
+          capturedSynthesize = options.synthesize;
+          return {
+            summary: "## 交接摘要（机械转储）",
+            fileTrail: "## 文件轨迹",
+            recencyWindow: "## 近期原文",
+            stateInventory: "## 活状态盘点",
+            totalTokenEstimate: 3000,
+          };
+        },
+      );
+
+      const invoker = new AgentInvoker(
+        sdkInvoke, mockSendMessage(), mockQueryMessage(), manageSession,
+        mockQueryOtter(), createTestLogger(), undefined, undefined, undefined,
+        undefined, undefined,
+        mockConversationRepo(), mockScheduledTaskRepo(),
+        () => Promise.resolve<LinkedResource[]>([]),
+        manageContext, buildHandoffPkg,
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hello", senderId: "user-1",
+      });
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "World", senderId: "user-1",
+      });
+
+      // 真实闭包应从 directText 提取成功，而非抛 empty result
+      expect(capturedSynthesize).toBeDefined();
+      const text = await capturedSynthesize!("test prompt");
+      expect(text).toBe("## 交接摘要\n叙事合成内容");
+    });
+
+    it("F20260901dtfx 回归：directText 与 text 全空时闭包抛错（走防线②降级）", async () => {
+      const sdkInvoke = mockSdkInvoke({ ctxTokens: 100000, directText: "" });
+      const manageSession = mockManageSession();
+      const manageContext = mockManageContext();
+      let capturedSynthesize: ((prompt: string) => Promise<string>) | undefined;
+      const buildHandoffPkg = vi.fn().mockImplementation(
+        async (_convId: string, _otterId: string, options: { synthesize?: (prompt: string) => Promise<string> }) => {
+          capturedSynthesize = options.synthesize;
+          return {
+            summary: "## 交接摘要（机械转储）",
+            fileTrail: "## 文件轨迹",
+            recencyWindow: "## 近期原文",
+            stateInventory: "## 活状态盘点",
+            totalTokenEstimate: 3000,
+          };
+        },
+      );
+
+      const invoker = new AgentInvoker(
+        sdkInvoke, mockSendMessage(), mockQueryMessage(), manageSession,
+        mockQueryOtter(), createTestLogger(), undefined, undefined, undefined,
+        undefined, undefined,
+        mockConversationRepo(), mockScheduledTaskRepo(),
+        () => Promise.resolve<LinkedResource[]>([]),
+        manageContext, buildHandoffPkg,
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hello", senderId: "user-1",
+      });
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "World", senderId: "user-1",
+      });
+
+      // 全空 → 闭包抛 empty result → 由 builder 的 catch 降级机械转储（防线②）
+      expect(capturedSynthesize).toBeDefined();
+      await expect(capturedSynthesize!("test prompt")).rejects.toThrow("LLM synthesis returned empty result");
     });
 
     it("handoff 路径 summary 透传到 restartSession", async () => {
