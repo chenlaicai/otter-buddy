@@ -34,6 +34,7 @@ modules: [src/bootstrap/platforms.ts, src/app.ts]
 | 启动日志有 `Weixin polling channel started` | 轮询正常 | — |
 | 启动日志有 `Weixin: logged-in accounts exist but config.yaml has no weixin section` | 孤儿账号降级启动（本修复新增） | 手工补 weixin 段（或重新扫码触发 ensureWeixinConfig）恢复 partnerUserId 门禁 |
 | 扫码后日志有 `ensureWeixinConfig failed` | 补写失败（路径/权限） | 按日志 error 处理；此前该 warn 极易被忽略，重启后轮询丢失 |
+| 无上述任何日志且微信不响（曾用自定义 stateDir） | **降级不可达**（检视建议 1）：自定义 stateDir 记录在已丢失的 weixin 段里，降级检查读默认 `./data/weixin` 找不到账号 → 静默 return | 手工补 weixin 段（含自定义 stateDir）。已知边界：降级兜底只覆盖默认 stateDir 用户 |
 
 ## 验证
 
@@ -45,7 +46,7 @@ modules: [src/bootstrap/platforms.ts, src/app.ts]
 ## 影响
 
 - 本修复落地后，**不需要执行任何数据订正**：8-31 已手工补写 config.yaml weixin 段（热修），下次重启轮询即恢复；代码修复保证的是「未来任何扫码 → 补写 → 重启」链路不再断
-- 孤儿账号降级启动是兜底而非推荐态：降级期间命令门禁未锚定（任何人可发命令），有安全敏感场景应尽快补 config 段
+- 孤儿账号降级启动是兜底而非推荐态：降级期间命令门禁未锚定（任何人可发命令），有安全敏感场景应尽快补 config 段；且降级检查只读默认 `./data/weixin`——自定义 stateDir 用户的账号不在默认路径，降级不可达（见判别表末行）
 
 ## 关联
 
