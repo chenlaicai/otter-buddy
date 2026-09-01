@@ -2,6 +2,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { WeixinAccountStore } from "./account-store";
 import type { WeixinApiClient } from "./api-client";
 import { WeixinMessageType, WeixinItemType, type WeixinMessage } from "./types";
+import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
 /**
  * 微信长轮询 ingress（monitor 语义，照 openclaw-weixin monitor.ts 平移）。
  *
@@ -28,7 +29,7 @@ export interface WeixinInboundMessage {
 /** 轮询循环内部状态（失败计数与退避） */
 class BackoffState {
   failures = 0;
-  private static readonly MAX_CONSECUTIVE_FAILURES = 3;
+  static readonly MAX_CONSECUTIVE_FAILURES = 3;
   private static readonly BACKOFF_MS = 30_000;
   private static readonly RETRY_MS = 2_000;
 
@@ -62,6 +63,8 @@ export class WeixinPollingChannel {
       /** 消息回调（ingress 处理链）；抛错只记日志不中断轮询 */
       onMessage: (msg: WeixinInboundMessage) => Promise<void>;
       logger: Logger;
+      /** 通道状态注册表（可选注入，用于上报运行时状态） */
+      registry?: ChannelStatusRegistry;
     },
   ) {}
 
@@ -89,12 +92,14 @@ export class WeixinPollingChannel {
     if (this.running) return;
     this.running = true;
     this.abort = new AbortController();
+    this.reportStatus("starting");
     void this.loop();
   }
 
   stop(): void {
     this.running = false;
     this.abort?.abort();
+    this.reportStatus("stopped", { reason: "manual" });
   }
 
   private async loop(): Promise<void> {
@@ -119,15 +124,25 @@ export class WeixinPollingChannel {
         // 客户端长轮询超时 = 空转，正常续拉
         if (err instanceof Error && err.name === "TimeoutError") continue;
         if (!this.running) return;
-        const waitMs = backoff.recordFailure();
-        logger.warn("Weixin getupdates fetch error", {
-          accountId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        const waitMs = this.handleFetchError(err, backoff);
         await this.sleep(waitMs);
       }
     }
     logger.info("Weixin polling channel stopped", { accountId });
+  }
+
+  private handleFetchError(err: unknown, backoff: BackoffState): number {
+    const { accountId, logger } = this.deps;
+    const waitMs = backoff.recordFailure();
+    logger.warn("Weixin getupdates fetch error", {
+      accountId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // 连错 3 次进 backoff 时上报 error_backoff 状态
+    if (backoff.failures >= BackoffState.MAX_CONSECUTIVE_FAILURES) {
+      this.reportStatus("error_backoff", { errorMsg: err instanceof Error ? err.message : String(err) });
+    }
+    return waitMs;
   }
 
   /**
@@ -140,19 +155,15 @@ export class WeixinPollingChannel {
     resp: { ret?: number; errcode?: number; errmsg?: string; get_updates_buf?: string; msgs?: WeixinMessage[] },
     backoff: BackoffState,
   ): Promise<number> {
-    const { accountStore, accountId, logger } = this.deps;
+    const { accountStore, accountId } = this.deps;
     const isApiError = (resp.ret !== undefined && resp.ret !== 0) || (resp.errcode !== undefined && resp.errcode !== 0);
     if (isApiError) {
-      if (resp.errcode === -14 || resp.ret === -14) {
-        logger.error(`Weixin token stale (errcode -14), pausing 1h — 需重新扫码登录`, undefined, { accountId });
-        return WeixinPollingChannel.STALE_PAUSE_MS;
-      }
-      const waitMs = backoff.recordFailure();
-      logger.warn("Weixin getupdates api error", { accountId, ret: resp.ret, errcode: resp.errcode, errmsg: resp.errmsg });
-      return waitMs;
+      return this.handleApiError(resp, backoff);
     }
 
     backoff.reset();
+    // 首次成功 getupdates 转 running 状态（或持续刷新 since）
+    this.reportStatus("running");
     if (resp.get_updates_buf) {
       this.buf = resp.get_updates_buf;
       accountStore.saveSyncBuf(accountId, resp.get_updates_buf);
@@ -161,6 +172,25 @@ export class WeixinPollingChannel {
       await this.dispatchInbound(msg);
     }
     return -1;
+  }
+
+  private handleApiError(
+    resp: { ret?: number; errcode?: number; errmsg?: string },
+    backoff: BackoffState,
+  ): number {
+    const { accountId, logger } = this.deps;
+    if (resp.errcode === -14 || resp.ret === -14) {
+      logger.error(`Weixin token stale (errcode -14), pausing 1h — 需重新扫码登录`, undefined, { accountId });
+      this.reportStatus("token_stale", { errmsg: "session timeout" });
+      return WeixinPollingChannel.STALE_PAUSE_MS;
+    }
+    const waitMs = backoff.recordFailure();
+    logger.warn("Weixin getupdates api error", { accountId, ret: resp.ret, errcode: resp.errcode, errmsg: resp.errmsg });
+    // 连错 3 次进 backoff 时上报 error_backoff 状态
+    if (backoff.failures >= BackoffState.MAX_CONSECUTIVE_FAILURES) {
+      this.reportStatus("error_backoff", { errorMsg: resp.errmsg || `API error ${resp.errcode || resp.ret}` });
+    }
+    return waitMs;
   }
 
   /** 归一化 + 落 context_token + 回调；单条失败不中断 */
@@ -174,6 +204,8 @@ export class WeixinPollingChannel {
     }
     try {
       await this.deps.onMessage(inbound);
+      // 收到消息时刷新 lastInboundAt（UI 显示「上次收消息」时间）
+      this.reportStatus("running", { lastInboundAt: Date.now() });
     } catch (err) {
       logger.error("Weixin inbound message handler failed", err instanceof Error ? err : undefined, {
         accountId,
@@ -204,6 +236,28 @@ export class WeixinPollingChannel {
       const t = setTimeout(resolve, ms);
       this.abort?.signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
     });
+  }
+
+  /** 上报通道状态到 registry（防御性调用：registry 可选注入） */
+  private reportStatus(
+    kind: "starting" | "running" | "token_stale" | "error_backoff" | "stopped",
+    extra?: { errmsg?: string; errorMsg?: string; reason?: "manual" | "no_config"; lastInboundAt?: number },
+  ): void {
+    const registry = this.deps.registry;
+    if (!registry) return;
+    const channelId = `weixin-${this.deps.accountId}`;
+    const now = Date.now();
+    
+    // 状态映射表（简化 switch 逻辑）
+    const stateMap: Record<string, () => void> = {
+      starting: () => registry.update(channelId, { kind: "weixin", state: { kind: "starting", since: now } }),
+      running: () => registry.update(channelId, { kind: "weixin", state: { kind: "running", since: now, lastInboundAt: extra?.lastInboundAt } }),
+      token_stale: () => registry.update(channelId, { kind: "weixin", state: { kind: "token_stale", since: now, errmsg: extra?.errmsg || "" } }),
+      error_backoff: () => registry.update(channelId, { kind: "weixin", state: { kind: "error_backoff", since: now, errorMsg: extra?.errorMsg || "" } }),
+      stopped: () => registry.update(channelId, { kind: "weixin", state: { kind: "stopped", since: now, reason: extra?.reason || "manual" } }),
+    };
+    
+    stateMap[kind]?.();
   }
 }
 

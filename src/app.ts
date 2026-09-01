@@ -284,7 +284,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     : undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
-  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers } =
+  const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
 
   // ── 微信 web 登录（issue #566）：零配置可用 ──
@@ -377,6 +377,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
       logger.info("Weixin account deleted; poller stopped", { accountId });
     },
+    // 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态）
+    registry,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");
@@ -426,6 +428,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       weixinPollers?.forEach((p) => p.stop());
       // issue #566：web 登录热启动的轮询同样要停（dispose 单独数组）
       extraWeixinPollers.forEach((p) => p.stop());
+      // F20260901chun：防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
+      registry?.clear();
       schedulerService.stop();
       // F20260812mrcq Part 1：先停 retry worker 再关 DB
       retryWorker?.stopSync();

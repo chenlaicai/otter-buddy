@@ -15,6 +15,7 @@ import type { RhiController } from "./controllers/rhi-controller";
 import type { AttachmentController } from "./controllers/attachment-controller";
 import type { WorkspaceController } from "./controllers/workspace-controller";
 import type { WeixinConnectionController } from "./controllers/weixin-connection-controller";
+import type { ChannelController } from "./controllers/channel-controller";
 
 
 export interface Controllers {
@@ -34,6 +35,8 @@ export interface Controllers {
   workspace?: WorkspaceController;
   /** 微信连接管理端点（issue #566） */
   weixin?: WeixinConnectionController;
+  /** 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态） */
+  channel?: ChannelController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -173,6 +176,10 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   registerConnectionRoutes(app, ctrl);
   registerInboundRoutes(app, ctrl);
   registerWorkspaceRoutes(app, ctrl);
+  // 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态）
+  if (ctrl.channel) {
+    app.get("/api/channels/status", (ctx) => ctrl.channel!.getStatus(ctx));
+  }
 
   /** 多模态 Phase 1：附件端点（可选装配——未注入时不暴露路由） */
   if (ctrl.attachment) {

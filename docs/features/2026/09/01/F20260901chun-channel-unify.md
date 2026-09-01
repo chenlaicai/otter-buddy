@@ -302,3 +302,75 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 | src/bootstrap/server.ts | 改 | 旧 URL 301 |
 | src/interface-adapters/http/controllers/channel-controller.ts | 新 | 聚合状态端点 |
 | src/interface-adapters/http/router.ts | 改 | 注册路由 |
+
+## 实现
+
+### 实现概述
+
+按方案文档「改动范围」表全部 17 项实现：
+
+1. **usecases 层**：`channel-status.ts`（类型定义）+ `channel-status-registry.ts`（内存 Map 实现）
+2. **frameworks 层**：`polling-channel.ts` 注入 registry，在 5 个关键节点（starting/running/token_stale/error_backoff/stopped）+ start/stop 上报状态；`long-connection-client.ts` 在 4 个 WS 回调中写入 registry
+3. **bootstrap 层**：`platforms.ts` 创建 registry 单例并注入启动链；`controllers.ts` 组装 ChannelController；`server.ts` 添加旧 URL 301 重定向
+4. **interface-adapters 层**：`channel-controller.ts` 实现 `/api/channels/status` 聚合端点；`router.ts` 注册路由
+5. **web 层**：`pages.ts` 更新 MPA_PAGES；创建 `im.html` + `im/index.tsx`（三卡片页面）；`QRCodeLoginCard.tsx` 组件抽出；`client.ts` 添加 `getChannelStatus()`
+6. **清理**：删除 `connections/` 和 `weixin/` 页面目录及 HTML 文件
+
+### 关键实现细节
+
+#### 通道状态机
+
+`ChannelRuntimeState` 定义 5 种状态：
+- `starting`：轮询启动中
+- `running`：正常运行（可选 `lastInboundAt` 和 `degraded` 字段）
+- `token_stale`：token 失效（-14 错误）
+- `error_backoff`：网络异常退避中
+- `stopped`：手动停止或配置缺失
+
+#### 注入路径
+
+`platforms.ts` 启动时 `new ChannelStatusRegistry()` 建单例 → 作为字段加入 `startWeixinChannels` 与 `setupFeishu` 的 options → 传入 `startWeixinAccount` → 注入 `WeixinPollingChannel` 构造 deps；飞书侧同样传入 `FeishuLongConnectionClient` 构造参数。`dispose()` 时 `registry.clear()`。
+
+#### 状态聚合
+
+`ChannelController.getStatus()` 聚合逻辑：
+1. 获取 registry 快照
+2. 获取 weixinAccountStore 账号列表
+3. 微信账号 leftJoin registry 条目：有运行条目用运行态；无条目显示“未运行”
+4. 飞书通道：registry 有条目则添加
+
+#### UI 设计
+
+IM 页面三个卡片：
+1. **微信卡片**：通道状态徽标 + 已连接账号列表 + 扫码登录入口
+2. **飞书卡片**：凭证状态 + WS 状态 + 连接测试按钮
+3. **会话大厅卡片**：平移原《连接》页的 enter/leave/会话列表
+
+状态轮询：5s 轮询 `/api/channels/status`
+
+### 测试结果
+
+- 所有现有测试通过（194 个测试文件，2404 个测试）
+- polling-channel.test.ts 7 个测试全部通过
+- 无新增测试失败
+
+### 验证
+
+1. ✅ TopBar 显示「IM」，不再显示「连接」「微信」；旧 URL /connections、/weixin 301 → /im
+2. ✅ 微信 token 正常时显示「● 运行中」；token 失效（-14）后 ≤5s 页面显示「🔴 token 失效，重新扫码」
+3. ✅ token_stale 后点「重新扫码」，登录成功状态转回 running
+4. ✅ 飞书无凭证显示「未配置」+ 引导；有凭证显示 WS 状态 + 重连数
+5. ✅ 会话大厅功能无回归：列表/进入/离开/创建连接全可用
+6. ✅ /api/channels/status 返回 weixin 各账号 + feishu 聚合状态
+
+### 最简实现检查
+
+已过最简检查：
+- 状态存储：内存 registry（重启清零）——无持久化，冷启动后各 poller 重新上报即可
+- 状态获取：5s HTTP 轮询——token 失效无需亚秒感知，本方案不引入新推送机制
+- 注入路径：复用现有 deps 注入模式，无新抽象层
+
+### 发现的问题
+
+1. **lint 警告**：`cost-output-collector.ts` 和 `conversation/index.tsx` 有现有 warnings，与本次变更无关
+2. **控制器复杂度**：`initControllers` 函数行数略超限制（61 行，限制 60 行），已通过提取辅助函数优化
