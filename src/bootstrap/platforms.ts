@@ -358,9 +358,16 @@ export function startWeixinChannels(options: {
     const orphanAccounts = accountStore.listAccounts();
     if (orphanAccounts.length === 0) return [];
     logger.warn("Weixin: logged-in accounts exist but config.yaml has no weixin section — starting with defaults (partnerUserId unset, commands ungated). Add weixin section to config.yaml to gate commands", { accounts: orphanAccounts.map((a) => a.id) });
-    return orphanAccounts
+    const pollers = orphanAccounts
       .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account, registry }))
       .filter((p): p is WeixinPollingChannel => p !== undefined);
+    // F20260901chun 发现8：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
+    if (registry) {
+      for (const account of orphanAccounts) {
+        registry.update(`weixin-${account.id}`, { kind: "weixin", state: { kind: "running", since: Date.now(), degraded: true } });
+      }
+    }
+    return pollers;
   }
 
   const accountStore = new WeixinAccountStore(weixinConfig);

@@ -4,8 +4,9 @@ import '../../styles/globals.css'
 
 import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
+import { QRCodeLoginCard } from '../../components/weixin/QRCodeLoginCard'
 import * as api from '../../api/client'
-import type { ChannelStatusDTO, ConnectionDTO, WeixinAccountDTO, WeixinLoginSessionDTO } from '../../api/client'
+import type { ChannelStatusDTO, ConnectionDTO, WeixinAccountDTO } from '../../api/client'
 
 const POLL_INTERVAL_MS = 5000
 
@@ -21,8 +22,6 @@ function ImPage() {
   // 微信账号
   const [weixinAccounts, setWeixinAccounts] = useState<WeixinAccountDTO[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
-  const [weixinSession, setWeixinSession] = useState<WeixinLoginSessionDTO | null>(null)
-  const [startingLogin, setStartingLogin] = useState(false)
 
   // 会话大厅（connections）
   const [connections, setConnections] = useState<ConnectionWithSession[]>([])
@@ -31,6 +30,12 @@ function ImPage() {
   const [newName, setNewName] = useState('')
   const [newExternalId, setNewExternalId] = useState('')
   const [creating, setCreating] = useState(false)
+
+  // 进入对话
+  const [showEnter, setShowEnter] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<Array<{ id: string; title: string; occupiedBy?: string }>>([])
+  const [loadingConvs, setLoadingConvs] = useState(false)
+  const [entering, setEntering] = useState(false)
 
   // 加载通道状态
   const loadChannelStatus = useCallback(async () => {
@@ -80,44 +85,11 @@ function ImPage() {
     loadWeixinAccounts()
     loadConnections()
 
-    // 5s 轮询通道状态
     pollTimer.current = window.setInterval(loadChannelStatus, POLL_INTERVAL_MS)
     return () => {
       if (pollTimer.current) window.clearInterval(pollTimer.current)
     }
   }, [loadChannelStatus, loadWeixinAccounts, loadConnections])
-
-  // 微信扫码登录
-  const handleStartWeixinLogin = async () => {
-    setStartingLogin(true)
-    try {
-      const session = await api.startWeixinLogin()
-      setWeixinSession(session)
-      // 轮询登录状态
-      const poll = window.setInterval(async () => {
-        try {
-          const s = await api.getWeixinLogin(session.id)
-          setWeixinSession(s)
-          if (['success', 'expired', 'error', 'cancelled'].includes(s.status)) {
-            window.clearInterval(poll)
-            if (s.status === 'success') {
-              showToast('微信连接成功', 'success')
-              loadWeixinAccounts()
-              loadChannelStatus()
-            } else if (s.status === 'error') {
-              showToast(s.error ?? '登录失败', 'error')
-            }
-          }
-        } catch {
-          window.clearInterval(poll)
-        }
-      }, 2000)
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : '发起登录失败', 'error')
-    } finally {
-      setStartingLogin(false)
-    }
-  }
 
   const handleDeleteWeixinAccount = async (accountId: string) => {
     try {
@@ -161,21 +133,52 @@ function ImPage() {
     }
   }
 
+  // 进入对话：加载活跃对话列表
+  const handleOpenEnter = async (connectionId: string) => {
+    setShowEnter(connectionId)
+    setLoadingConvs(true)
+    try {
+      const convs = await api.listActiveConversations()
+      setConversations(convs)
+    } catch {
+      showToast('加载对话列表失败', 'error')
+    } finally {
+      setLoadingConvs(false)
+    }
+  }
+
+  const handleEnterConversation = async (connectionId: string, conversationId: string) => {
+    setEntering(true)
+    try {
+      await api.enterConversation(connectionId, { conversationId })
+      showToast('已进入对话', 'success')
+      setShowEnter(null)
+      await loadConnections()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '操作失败', 'error')
+    } finally {
+      setEntering(false)
+    }
+  }
+
   // 状态渲染辅助
   const getStatusLabel = (state: ChannelStatusDTO['state']) => {
     switch (state.kind) {
-      case 'running': return '● 运行中'
+      case 'running':
+        return state.degraded ? '🟡 降级运行中（config 段缺失）' : '● 运行中'
       case 'starting': return '🟡 启动中'
       case 'token_stale': return '🔴 token 失效，重新扫码'
-      case 'error_backoff': return `🟡 网络异常，自动重试中`
-      case 'stopped': return state.reason === 'no_config' ? '⚪ 配置缺失，未运行' : '⚪ 已停止'
+      case 'error_backoff': return '🟡 网络异常，自动重试中'
+      case 'stopped':
+        return state.reason === 'no_config' ? '⚪ 配置缺失，未运行' : '⚪ 未运行'
       default: return '⚪ 未知状态'
     }
   }
 
   const getStatusColor = (state: ChannelStatusDTO['state']) => {
     switch (state.kind) {
-      case 'running': return 'text-green-600 bg-green-50'
+      case 'running':
+        return state.degraded ? 'text-yellow-600 bg-yellow-50' : 'text-green-600 bg-green-50'
       case 'starting': return 'text-yellow-600 bg-yellow-50'
       case 'token_stale': return 'text-red-600 bg-red-50'
       case 'error_backoff': return 'text-yellow-600 bg-yellow-50'
@@ -184,10 +187,19 @@ function ImPage() {
     }
   }
 
-  // 微信状态
-  const weixinStatus = channelStatus.find(c => c.kind === 'weixin')
-  // 飞书状态
+  // 微信通道级状态聚合：任一 token_stale → token_stale；任一 error_backoff → error_backoff；否则取首个
+  const getWeixinAggregateStatus = (): ChannelStatusDTO | undefined => {
+    const weixinEntries = channelStatus.filter(c => c.kind === 'weixin')
+    if (weixinEntries.length === 0) return undefined
+    const hasStale = weixinEntries.find(e => e.state.kind === 'token_stale')
+    if (hasStale) return hasStale
+    const hasError = weixinEntries.find(e => e.state.kind === 'error_backoff')
+    if (hasError) return hasError
+    return weixinEntries[0]
+  }
+
   const feishuStatus = channelStatus.find(c => c.kind === 'feishu')
+  const weixinStatus = getWeixinAggregateStatus()
 
   return (
     <AppLayout activeView="im">
@@ -209,14 +221,6 @@ function ImPage() {
                 </span>
               )}
             </div>
-            <button
-              onClick={handleStartWeixinLogin}
-              disabled={startingLogin}
-              className="px-4 py-2 text-sm text-white rounded-xl shadow-glow transition disabled:opacity-50"
-              style={{ background: 'linear-gradient(135deg,#8B7E72,#6B6157)' }}
-            >
-              {startingLogin ? '启动中...' : '重新扫码'}
-            </button>
           </div>
 
           {/* 微信账号列表 */}
@@ -242,9 +246,18 @@ function ImPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs px-2 py-1 rounded-full ${acc.hasToken ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
-                        {acc.hasToken ? '已授权' : 'token 缺失'}
-                      </span>
+                      {(() => {
+                        const acctStatus = channelStatus.find(c => c.channelId === `weixin-${acc.id}`)
+                        return acctStatus ? (
+                          <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(acctStatus.state)}`}>
+                            {getStatusLabel(acctStatus.state)}
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-1 rounded-full bg-skeleton text-stone-500">
+                            未运行
+                          </span>
+                        )
+                      })()}
                       <button
                         onClick={() => handleDeleteWeixinAccount(acc.id)}
                         className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition"
@@ -258,21 +271,8 @@ function ImPage() {
             )}
           </div>
 
-          {/* 微信扫码会话 */}
-          {weixinSession && weixinSession.status !== 'cancelled' && (
-            <div className="border-t border-stone-200/30 pt-4">
-              <p className="text-sm text-stone-600 mb-2">扫码登录会话</p>
-              <div className="p-3 rounded-xl bg-white/30">
-                <p className="text-xs text-stone-500">
-                  状态: {weixinSession.status}
-                  {weixinSession.qrcodePng && ' (二维码已生成)'}
-                </p>
-                {weixinSession.status === 'success' && (
-                  <p className="text-xs text-green-600 mt-1">账号 {weixinSession.accountId} 已连接</p>
-                )}
-              </div>
-            </div>
-          )}
+          {/* 扫码登录组件（F20260901chun 发现1：使用真 QRCodeLoginCard 组件） */}
+          <QRCodeLoginCard onLoginSuccess={() => { loadWeixinAccounts(); loadChannelStatus() }} />
         </div>
 
         {/* 飞书卡片 */}
@@ -299,7 +299,7 @@ function ImPage() {
             </button>
           </div>
           <p className="text-sm text-stone-600">
-            {feishuStatus ? '应用凭证已配置（app_id 掩码显示）' : '未配置飞书凭证，请在 config.yaml 中配置 feishu 段'}
+            {feishuStatus ? '应用凭证已配置' : '未配置飞书凭证，请在 config.yaml 中配置 feishu 段'}
           </p>
           {feishuStatus?.state.kind === 'error_backoff' && feishuStatus.state.errorMsg && (
             <p className="text-xs text-red-500 mt-2">错误: {feishuStatus.state.errorMsg}</p>
@@ -416,7 +416,7 @@ function ImPage() {
                         </button>
                       ) : (
                         <button
-                          onClick={() => showToast('进入对话功能开发中', 'info')}
+                          onClick={() => handleOpenEnter(conn.id)}
                           className="px-3 py-1.5 text-xs text-white rounded-lg transition"
                           style={{ background: 'linear-gradient(135deg,#8B7E72,#6B6157)' }}
                         >
@@ -424,6 +424,40 @@ function ImPage() {
                         </button>
                       )}
                     </div>
+
+                    {/* 进入对话：选择活跃对话 */}
+                    {showEnter === conn.id && (
+                      <div className="mt-3 p-3 rounded-xl bg-white/30">
+                        <p className="text-xs text-stone-500 mb-2">选择一个对话进入：</p>
+                        {loadingConvs ? (
+                          <p className="text-xs text-stone-400">加载中...</p>
+                        ) : conversations.length === 0 ? (
+                          <p className="text-xs text-stone-400">暂无活跃对话</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {conversations.map(conv => (
+                              <button
+                                key={conv.id}
+                                onClick={() => handleEnterConversation(conn.id, conv.id)}
+                                disabled={entering || !!conv.occupiedBy}
+                                className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-white/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <span className="text-stone-700">{conv.title}</span>
+                                {conv.occupiedBy && (
+                                  <span className="text-stone-400 ml-2">（已被 {conv.occupiedBy} 占用）</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => setShowEnter(null)}
+                          className="mt-2 text-xs text-stone-400 hover:text-stone-600"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

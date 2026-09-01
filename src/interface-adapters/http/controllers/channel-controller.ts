@@ -65,10 +65,11 @@ export class ChannelController {
         });
       } else {
         // 无 registry 条目：服务刚重启、轮询未起
+        // F20260901chun 发现11：无 registry 条目 ≠ 配置缺失——区分 not_started（轮询未起）与 no_config（无 config 段且降级失败）
         channels.push({
           channelId,
           kind: "weixin",
-          state: { kind: "stopped", since: Date.now(), reason: "no_config" },
+          state: { kind: "stopped", since: Date.now(), reason: "not_started" },
           account: { id: account.id },
         });
       }

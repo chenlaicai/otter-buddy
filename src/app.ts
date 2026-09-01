@@ -311,6 +311,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     for (const pool of [extraWeixinPollers, weixinPollers ?? []]) {
       for (let i = pool.length - 1; i >= 0; i--) {
         if (pool[i].ilinkUserId === ilinkUserId) {
+          // F20260901chun：鬼影回收时同步清 registry 条目（防残留状态误导 UI）
+          registry?.remove(`weixin-${pool[i].accountId}`);
           pool[i].stop();
           pool.splice(i, 1);
           stopped++;
@@ -340,6 +342,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         // config 无 weixin 段时用默认配置 + 扫码人作为 partner（命令门禁锚定）
         weixinConfig: config.weixin ?? { partnerUserId: account.ilinkUserId ?? ilinkUserId },
         account,
+        registry,
       });
       if (poller) extraWeixinPollers.push(poller);
     },
@@ -385,7 +388,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   if (feishu) {
-    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger });
+    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。

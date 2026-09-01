@@ -12,7 +12,12 @@ export class InMemoryChannelStatusRegistry implements ChannelStatusRegistry {
   private readonly store = new Map<string, ChannelStatusEntry>();
 
   update(channelId: string, entry: Omit<ChannelStatusEntry, 'channelId'>): void {
-    this.store.set(channelId, { ...entry, channelId });
+    // F20260901chun：merge 策略——保留旧条目的可选字段（degraded/lastInboundAt），
+    // 新条目只覆盖显式提供的字段。无此 merge 会导致空轮询覆盖 lastInboundAt、
+    // orphan degraded 标记在首次正常 running 后丢失。
+    const existing = this.store.get(channelId);
+    const mergedState = existing ? { ...existing.state, ...entry.state } : entry.state;
+    this.store.set(channelId, { ...entry, state: mergedState, channelId });
   }
 
   remove(channelId: string): void {

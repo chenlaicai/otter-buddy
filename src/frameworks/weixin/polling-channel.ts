@@ -249,9 +249,15 @@ export class WeixinPollingChannel {
     const now = Date.now();
     
     // 状态映射表（简化 switch 逻辑）
+    // lastInboundAt 保留策略：无新值时合并旧值，防长轮询空转覆盖最近入站时间（#F20260901chun 发现7）
+    const existing = extra?.lastInboundAt === undefined
+      ? registry.snapshot().find(e => e.channelId === channelId)
+      : undefined;
+    const preservedLastInboundAt = extra?.lastInboundAt ?? (existing?.state.kind === "running" ? existing.state.lastInboundAt : undefined);
+
     const stateMap: Record<string, () => void> = {
       starting: () => registry.update(channelId, { kind: "weixin", state: { kind: "starting", since: now } }),
-      running: () => registry.update(channelId, { kind: "weixin", state: { kind: "running", since: now, lastInboundAt: extra?.lastInboundAt } }),
+      running: () => registry.update(channelId, { kind: "weixin", state: { kind: "running", since: now, lastInboundAt: preservedLastInboundAt } }),
       token_stale: () => registry.update(channelId, { kind: "weixin", state: { kind: "token_stale", since: now, errmsg: extra?.errmsg || "" } }),
       error_backoff: () => registry.update(channelId, { kind: "weixin", state: { kind: "error_backoff", since: now, errorMsg: extra?.errorMsg || "" } }),
       stopped: () => registry.update(channelId, { kind: "weixin", state: { kind: "stopped", since: now, reason: extra?.reason || "manual" } }),

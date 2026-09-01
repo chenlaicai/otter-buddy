@@ -17,6 +17,7 @@ modules:
   - src/bootstrap/platforms.ts
   - src/bootstrap/controllers.ts
   - src/bootstrap/server.ts
+  - src/app.ts
   - src/interface-adapters/http/controllers/channel-controller.ts
   - src/interface-adapters/http/router.ts
 ---
@@ -238,7 +239,7 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 
 ## 不兼容更新
 
-[Incompatible] TopBar 导航：`/connections` 与 `/weixin` 页面移除，URL 301 到 `/channels`。书签/外链用户受影响（自动跳转，无功能损失）。
+[Incompatible] TopBar 导航：`/connections` 与 `/weixin` 页面移除，URL 301 到 `/im`。书签/外链用户受影响（自动跳转，无功能损失）。
 
 ## 设计取舍
 
@@ -300,6 +301,7 @@ stopStalePollersForUser ──────┘       bootstrap 注入单例
 | src/bootstrap/platforms.ts | 改 | registry 单例注入启动链 |
 | src/bootstrap/controllers.ts | 改 | 组装 ChannelController |
 | src/bootstrap/server.ts | 改 | 旧 URL 301 |
+| src/app.ts | 改 | registry 注入 setupFeishu/hotStartWeixinAccount + ghost poller 清理 |
 | src/interface-adapters/http/controllers/channel-controller.ts | 新 | 聚合状态端点 |
 | src/interface-adapters/http/router.ts | 改 | 注册路由 |
 
@@ -350,7 +352,8 @@ IM 页面三个卡片：
 
 ### 测试结果
 
-- 所有现有测试通过（194 个测试文件，2404 个测试）
+- 所有现有测试通过（197 个测试文件，2439 个测试）
+- 新增3个测试文件：channel-status-registry.test.ts（10例）、polling-channel-status.test.ts（6例）、channel-controller.test.ts（5例）
 - polling-channel.test.ts 7 个测试全部通过
 - 无新增测试失败
 

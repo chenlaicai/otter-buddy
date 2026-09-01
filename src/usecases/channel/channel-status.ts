@@ -21,7 +21,7 @@ export type ChannelRuntimeState =
   | { kind: "running"; since: number; lastInboundAt?: number; degraded?: boolean }
   | { kind: "token_stale"; since: number; errmsg: string }
   | { kind: "error_backoff"; since: number; nextRetryAt?: number; errorMsg: string }
-  | { kind: "stopped"; since: number; reason: "manual" | "no_config" };
+  | { kind: "stopped"; since: number; reason: "manual" | "no_config" | "not_started" };
 
 /**
  * 通道状态条目（registry 存储单元）。
