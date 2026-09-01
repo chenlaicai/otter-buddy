@@ -86,4 +86,17 @@ describe("buildHttpApp MPA 静态路由（F20260826hfix）", () => {
     const bare = buildHttpApp(minimalControllers(), logger, false);
     expect((await bare.request("/health")).status).toBe(404);
   });
+
+  // F20260901chun：旧 URL 301 重定向测试（方案验收标准T1）
+  it("/connections 301 重定向到 /im", async () => {
+    const res = await app.request("/connections");
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("/im");
+  });
+
+  it("/weixin 301 重定向到 /im", async () => {
+    const res = await app.request("/weixin");
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("/im");
+  });
 });
