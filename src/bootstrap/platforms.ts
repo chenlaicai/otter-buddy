@@ -10,6 +10,7 @@ import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 // F20260826mwrd C3（#534）：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
@@ -144,8 +145,25 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
   });
 }
 
-export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig }) {
-  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig } = options;
+/**
+ * F20260901cxmw：otterId → modelAlias → contextWindow 解析闭包（窄端口注入，避免 interface-adapters 越层依赖 frameworks）。
+ * otterConfigProvider 缺失时 getConfig 回 undefined → getContextWindow(undefined) 即默认模型窗口。
+ */
+function buildCtxWindowProvider(
+  modelPool: ModelPool,
+  otterConfigProvider?: OtterConfigProvider,
+): OtterContextWindowProvider {
+  return {
+    getOtterContextWindow: (otterId: string): number | undefined => {
+      const alias = otterConfigProvider?.getConfig(otterId)?.modelAlias;
+      // 未配 alias 时走默认模型窗口（model-pool.getContextWindow 语义：null/undefined → 默认条目）
+      return modelPool.getContextWindow(alias);
+    },
+  };
+}
+
+export async function initAgentAndScheduler(options: { repos: Repositories; uc: UseCases; agentGateway: PiSessionFactory; messageBroadcaster: MessageBroadcaster | undefined; logger: Logger; workspaceGateway?: WorkspaceGateway; metrics?: SchedulerMetrics; agentMetrics?: AgentMetricsPort; dispatchChainEngine?: DispatchChainEngine; db?: Database.Database; appConfig?: AppConfig; modelPool?: ModelPool; otterConfigProvider?: OtterConfigProvider }) {
+  const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, db, appConfig, modelPool, otterConfigProvider } = options;
   await agentGateway.warmup();
 
   // PR4: 注册纸面交易函数（function executor 使用）
@@ -173,6 +191,9 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     });
   }
 
+  // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+  const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
+
   const agentInvoker = new AgentInvoker(
     agentGateway, uc.sendMessage,
     uc.queryMessage, uc.manageSession, uc.queryOtter, logger,
@@ -186,6 +207,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     buildHandoffPackage,
     // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
     appConfig?.circuitBreaker.healthySessionThresholdMs,
+    // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+    ctxWindowProvider,
   );
 
   // F20260827he2f：启动时探针——验证 healing_repo 可达，熔断事件落库能力正常
