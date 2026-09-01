@@ -13,6 +13,9 @@ import type { FeishuAccessTokenManager } from "./access-token-manager";
  *
  * 设计要点：
  * - 进程内 Map 缓存 open_id → name，命中不出网；未命中 TTL 过期后重查一次
+ * - 在途请求合并（#490）：缓存未命中时同一 open_id 的并发调用共享同一个
+ *   请求 Promise，防止短窗口多条消息各自触发一次通讯录 API（应用级限流风险）；
+ *   模式与 FeishuAccessTokenManager.refreshPromise 同构，泛化为按 open_id 键控
  * - API 失败（权限未开/限流/网络）→ 返回 null + 单条 warn 日志，不抛错不重试风暴
  * - 仅 cache 正结果；null 结果不缓存（权限开通后自动恢复，无需重启）
  */
@@ -28,6 +31,8 @@ interface CacheEntry {
 
 export class FeishuUserInfoClient implements FeishuUserInfoGateway {
   private readonly cache = new Map<string, CacheEntry>();
+  /** 在途请求表：open_id → 未决请求。同步段写入，并发调用者在 fetch 出网前即可复用 */
+  private readonly inflight = new Map<string, Promise<string | null>>();
 
   constructor(
     private readonly tokenManager: FeishuAccessTokenManager,
@@ -42,6 +47,19 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
       return cached.name;
     }
 
+    const existing = this.inflight.get(openId);
+    if (existing) return existing;
+
+    // Why: finally 清表而非 then —— 失败（null/异常）同样必须清，
+    // 否则失败结果会像被缓存一样驻留在途表，违反"null 不缓存、可重试"的约定
+    const request = this.fetchUserName(openId).finally(() => {
+      this.inflight.delete(openId);
+    });
+    this.inflight.set(openId, request);
+    return request;
+  }
+
+  private async fetchUserName(openId: string): Promise<string | null> {
     try {
       const token = await this.tokenManager.getAccessToken();
       const response = await fetch(`${USER_ENDPOINT}${encodeURIComponent(openId)}?user_id_type=open_id`, {
