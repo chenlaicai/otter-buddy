@@ -210,6 +210,7 @@ describe("#646 段3 applyAdvancements frontmatter 改写", () => {
   const PLAN = (actions: Parameters<typeof applyAdvancements>[0]["actions"]) => ({
     actions,
     skipped: [],
+    gapDispositions: [],
     plannedAt: NOW.toISOString(),
   });
 
@@ -308,6 +309,71 @@ describe("#646 段3 applyAdvancements frontmatter 改写", () => {
 });
 
 // ===== R1 证据门槛：区分「PR 同步拍板」与「标注后又迭代」（2026-09-01 dry-run 实测修正） =====
+
+// ===== #661 R1 推进器 14-60 天空窗处置：显式接受 + 留痕（不新增规则） =====
+
+describe("#661 空窗处置：R1 关窗 ∧ R2 无 substatus ∧ R3 不适用 implemented", () => {
+  const gapEvidence = (fid: string, idleDays: number): ChainEvidence => ({
+    featureId: fid,
+    doc: { status: "implemented", substatus: null, filePath: `docs/features/${fid}.md` },
+    commits: [
+      { date: daysAgo(idleDays + 30), prNumber: 100, sha: "sha-doc" },
+      { date: daysAgo(idleDays), prNumber: 101, sha: "sha-code" },
+    ],
+    lastCommitAt: daysAgo(idleDays),
+    commitCount: 2,
+    docLastTouchedSha: "sha-doc", // 链尾 commit 未触碰文档（标注早于代码活动）
+  });
+
+  it("空窗核心：纯 implemented ∧ 链尾未碰文档 ∧ 静默 >14 天 → 无动作 + gapDispositions 留痕", () => {
+    const plan = planDocAdvancements([gapEvidence("F20260901gapa", 30)], { now: NOW });
+    expect(plan.actions).toHaveLength(0);
+    expect(plan.gapDispositions).toHaveLength(1);
+    expect(plan.gapDispositions[0]).toMatchObject({ fid: "F20260901gapa", idleDays: 30 });
+    expect(plan.gapDispositions[0]!.reason).toContain("R2 收口等价终态");
+  });
+
+  it("空窗不误伤 R2：implemented+active ∧ 静默 >14 天 → close-iteration，不进 gapDispositions", () => {
+    const evidence: ChainEvidence = {
+      ...gapEvidence("F20260901gapb", 30),
+      doc: { status: "implemented", substatus: "active", filePath: "docs/features/F20260901gapb.md" },
+    };
+    const plan = planDocAdvancements([evidence], { now: NOW });
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0]).toMatchObject({ kind: "close-iteration" });
+    expect(plan.gapDispositions).toHaveLength(0);
+  });
+
+  it("复活路径：空窗链新 commit 距今 ≤14 天 → R1 直达标记，不进 gapDispositions", () => {
+    const plan = planDocAdvancements([gapEvidence("F20260901gapc", 10)], { now: NOW });
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0]).toMatchObject({ fid: "F20260901gapc", kind: "mark-iterating" });
+    expect(plan.gapDispositions).toHaveLength(0);
+  });
+
+  it("非空窗不误留痕：同步拍板（docLastTouchedSha == 链尾）∧ 静默 >14 天 → 无动作且无 gap 留痕", () => {
+    const evidence: ChainEvidence = {
+      featureId: "F20260901gapd",
+      doc: { status: "implemented", substatus: null, filePath: "docs/features/F20260901gapd.md" },
+      commits: [{ date: daysAgo(30), prNumber: 100, sha: "sha-last" }],
+      lastCommitAt: daysAgo(30),
+      commitCount: 1,
+      docLastTouchedSha: "sha-last",
+    };
+    const plan = planDocAdvancements([evidence], { now: NOW });
+    expect(plan.actions).toHaveLength(0);
+    expect(plan.gapDispositions).toHaveLength(0);
+  });
+
+  it("幂等（空窗处置零副作用）：同一空窗链 plan 两次均无 action，留痕不触发任何文件改动", () => {
+    const plan1 = planDocAdvancements([gapEvidence("F20260901gape", 30)], { now: NOW });
+    const plan2 = planDocAdvancements([gapEvidence("F20260901gape", 30)], { now: NOW });
+    expect(plan1.actions).toHaveLength(0);
+    expect(plan2.actions).toHaveLength(0);
+    expect(plan1.gapDispositions).toHaveLength(1);
+    expect(plan2.gapDispositions).toHaveLength(1); // 纯留痕，重复运行无文件副作用
+  });
+});
 
 describe("#646 R1 docLastTouchedSha 证据门槛", () => {
   it("标注与链尾 commit 同步（docLastTouchedSha == 链尾 sha）：不标迭代（完成拍板非迭代）", () => {
