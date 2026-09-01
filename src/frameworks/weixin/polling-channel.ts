@@ -210,6 +210,8 @@ export class WeixinPollingChannel {
     // 入站消息的 context_token 是出站回信的唯一凭证——先落盘再处理
     if (inbound.contextToken && inbound.fromUserId) {
       accountStore.saveContextToken(accountId, inbound.fromUserId, inbound.contextToken);
+      // Why: 入站换新 = 用户说话 → 清除内存缓存的 warnedAt，防止 stale 条目抑制后续预警（场景：cooldown > after 时，缓存中的旧 warnedAt 会在 disk warnedAt 被 saveContextToken 清零后仍生效，错误跳过预警）
+      this.warnedAtMemoryCache.delete(inbound.fromUserId);
     }
     try {
       await this.deps.onMessage(inbound);

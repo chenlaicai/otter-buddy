@@ -315,6 +315,104 @@ describe("WeixinPollingChannel - context_token 过期预警 (F20260901wxnt)", ()
   });
 });
 
+describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxnt 发现F)", () => {
+  let fakeNow: number;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fakeNow = 1725188000000;
+    vi.setSystemTime(fakeNow);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("入站消息清除内存缓存 warnedAt（cooldown > after 场景不漏发）", async () => {
+    // 场景：cooldown > after（afterMs=60min, cooldownMs=120min）
+    // Phase 1: disk warnedAt=10min ago → cooldown 期内抑制
+    // Phase 2: 快进121min → cooldown 过期 → 预警触发 → 内存缓存 set warnedAt
+    // Phase 3: 用户回复 → dispatchInbound → saveContextToken (disk 清零) + warnedAtMemoryCache.delete (内存清零)
+    // Phase 4: 快进90min → age > afterMs, 内存缓存已清 → 冷却检查跳过 → 预警触发
+    // 若内存缓存未清（bug）：warnedAt 距今 90min < cooldownMs 120min → 错误抑制 → 漏发
+    const warnedAt = fakeNow - 10 * 60_000; // disk: 10 分钟前被预警过
+    const { accountStore, savedTokens } = makeFakeAccountStore({
+      "acc-1": { user1: { token: "tok", receivedAt: fakeNow - 61 * 60_000, warnedAt } },
+    });
+    const { logger } = makeLogger();
+    const sendCalls: Array<{ toUserId: string; contextToken?: string }> = [];
+    // Why: 使用 controllable resolver 控制 getUpdates 响应时机——
+    // 每次 resolve 后 loop 自动推进到下一个 hanging getUpdates，可在两次 resolve 之间精确控制 fakeNow
+    const getUpdatesResolvers: Array<(v: { ret: number; msgs: unknown[] }) => void> = [];
+    let getUpdatesCallCount = 0;
+    const api = {
+      getUpdates: vi.fn().mockImplementation(() => {
+        getUpdatesCallCount++;
+        return new Promise(resolve => { getUpdatesResolvers.push(resolve); });
+      }),
+      sendTextMessage: vi.fn(async (p: { toUserId: string; contextToken?: string }) => { sendCalls.push(p); }),
+    } as unknown as WeixinApiClient;
+
+    const poller = new WeixinPollingChannel({
+      api,
+      accountStore,
+      accountId: "acc-1",
+      onMessage: async () => {},
+      logger,
+      contextTokenWarn: { afterMs: 60 * 60_000, cooldownMs: 120 * 60_000 },
+      now: () => fakeNow,
+    });
+
+    poller.start();
+
+    // Phase 1: check 运行（fakeNow 原始值），cooldown 期内抑制 → getUpdates 1 挂起
+    await vi.advanceTimersByTimeAsync(100); // drain check 微任务
+    expect(getUpdatesCallCount).toBe(1); // loop 卡在 getUpdates 1
+    expect(sendCalls).toHaveLength(0); // cooldown 抑制
+
+    // Phase 2: 快进 121 分钟 → resolve getUpdates 1 → loop 继续 → check 运行 → cooldown 过期 → 预警触发
+    fakeNow += 121 * 60_000;
+    getUpdatesResolvers[0]({ ret: 0, msgs: [] });
+    await vi.advanceTimersByTimeAsync(100); // drain check + send + getUpdates 2 hang
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0].toUserId).toBe("user1");
+    expect(getUpdatesCallCount).toBe(2); // loop 卡在 getUpdates 2
+
+    // Phase 3: resolve getUpdates 2 → 入站消息 → dispatchInbound
+    // → saveContextToken（disk: receivedAt=now, warnedAt=undefined）+ warnedAtMemoryCache.delete
+    // → check 运行（fakeNow 不变，age=0 → 不触发）→ getUpdates 3 挂起
+    getUpdatesResolvers[1]({
+      ret: 0,
+      msgs: [{
+        message_type: 1,
+        from_user_id: "user1",
+        context_token: "tok-renewed",
+        item_list: [{ type: 1, text_item: { text: "hi" } }],
+      }],
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(savedTokens).toHaveLength(1); // saveContextToken 被调用
+    expect(savedTokens[0].token).toBe("tok-renewed"); // token 换新
+    expect(getUpdatesCallCount).toBe(3); // loop 卡在 getUpdates 3
+
+    // Phase 4: 快进 90 分钟 → resolve getUpdates 3 → check 运行
+    // age = 90min > afterMs = 60min
+    // disk warnedAt = undefined（saveContextToken 清零）
+    // 内存缓存 = 已清除（dispatchInbound 调了 delete）
+    // → 冷却检查跳过 → 应触发第二次预警
+    // 若内存缓存未清（bug）：warnedAt = Phase 2 的 fakeNow 距今 90min < cooldownMs 120min → 错误抑制 → 漏发
+    fakeNow += 90 * 60_000;
+    getUpdatesResolvers[2]({ ret: 0, msgs: [] });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sendCalls).toHaveLength(2);
+    expect(sendCalls[1].toUserId).toBe("user1");
+    expect(sendCalls[1].contextToken).toBe("tok-renewed"); // 入站换的新 token
+    expect(getUpdatesCallCount).toBe(4); // loop 卡在 getUpdates 4
+
+    poller.stop();
+  });
+});
+
 describe("WeixinPollingChannel - 预警内存补偿止损 (F20260901wxnt 发现3)", () => {
   let fakeNow: number;
 
