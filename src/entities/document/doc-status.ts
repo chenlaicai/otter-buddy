@@ -47,6 +47,13 @@ export const TERMINAL_DOC_STATUSES: ReadonlySet<string> = new Set([
 /** 状态归属判定结果 */
 export type DocStatusClass = "in-flight" | "terminal" | "unknown";
 
+/** 子状态值（#646 段2）：implemented 下的「迭代中」标记。
+ *  语义：implemented 文档合入后又收到新 commit（分批合入大特性的 PR1 后 PR2 等待期）——
+ *  参与病态判定（照常停滞判定），区别于纯 implemented 的豁免。
+ *  序列化采用独立 frontmatter 字段 `substatus: active`，而非 issue 记号 `implemented:active` 字面值——
+ *  复合值会炸 known-values 枚举（lint 警告）且被 feature-mapper 未知值强转 draft 污染 DB。 */
+export const SUBSTATUS_ACTIVE = "active";
+
 /**
  * 判定 status 值的契约归属。
  * null/undefined 归 in-flight（feature-doc-collector 语义：缺省视为草稿在途，
@@ -60,6 +67,23 @@ export function classifyDocStatus(status: string | null | undefined): DocStatusC
   if (IN_FLIGHT_DOC_STATUSES.has(v)) return "in-flight";
   if (TERMINAL_DOC_STATUSES.has(v)) return "terminal";
   return "unknown";
+}
+
+/**
+ * 带子状态的归属判定（#646 段2）：
+ * - 基础归属非 terminal（in-flight/unknown）→ 原样返回（子状态无意义，不猜语义）
+ * - 终态中仅 implemented 定义子状态语义（final/locked/archived = 真终态，子状态忽略）
+ * - implemented ∧ substatus=active → 迭代中，视同在途参与病态判定
+ * - 子状态未知值 → 忽略（不碰原则同样适用于子状态域）
+ */
+export function classifyDocStatusWithSubstatus(
+  status: string | null | undefined,
+  substatus: string | null | undefined,
+): DocStatusClass {
+  const base = classifyDocStatus(status);
+  if (base !== "terminal") return base;
+  if (status !== "implemented") return base;
+  return substatus?.trim() === SUBSTATUS_ACTIVE ? "in-flight" : base;
 }
 
 /**

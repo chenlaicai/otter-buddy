@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyDocStatus,
+  classifyDocStatusWithSubstatus,
   IN_FLIGHT_DOC_STATUSES,
   TERMINAL_DOC_STATUSES,
 } from "@entities/document/doc-status";
@@ -55,5 +56,42 @@ describe("#646 值域契约 classifyDocStatus", () => {
     for (const s of KNOWN_FEATURE_STATUSES) {
       expect(classifyDocStatus(s)).not.toBe("unknown");
     }
+  });
+});
+
+// ===== #646 段2：子状态 =====
+
+describe("#646 子状态 classifyDocStatusWithSubstatus", () => {
+  it("implemented + substatus:active → in-flight（迭代中，参与病态判定）", () => {
+    expect(classifyDocStatusWithSubstatus("implemented", "active")).toBe("in-flight");
+  });
+
+  it("纯 implemented（无/空子状态）→ terminal（豁免，合入即完成语义）", () => {
+    expect(classifyDocStatusWithSubstatus("implemented", null)).toBe("terminal");
+    expect(classifyDocStatusWithSubstatus("implemented", undefined)).toBe("terminal");
+    expect(classifyDocStatusWithSubstatus("implemented", "")).toBe("terminal");
+  });
+
+  it("子状态对 final/locked/archived 无效（真终态，子状态忽略）", () => {
+    expect(classifyDocStatusWithSubstatus("final", "active")).toBe("terminal");
+    expect(classifyDocStatusWithSubstatus("locked", "active")).toBe("terminal");
+    expect(classifyDocStatusWithSubstatus("archived", "active")).toBe("terminal");
+  });
+
+  it("子状态对 in-flight 基础值无效（draft 等本来就是 in-flight，子状态无意义）", () => {
+    expect(classifyDocStatusWithSubstatus("development", "active")).toBe("in-flight");
+    expect(classifyDocStatusWithSubstatus("development", null)).toBe("in-flight");
+  });
+
+  it("子状态对 unknown 基础值无效（不碰原则同样适用于子状态域）", () => {
+    expect(classifyDocStatusWithSubstatus("wip", "active")).toBe("unknown");
+  });
+
+  it("子状态未知值忽略：implemented + substatus:paused → 仍 terminal", () => {
+    expect(classifyDocStatusWithSubstatus("implemented", "paused")).toBe("terminal");
+  });
+
+  it("子状态防御性 trim", () => {
+    expect(classifyDocStatusWithSubstatus("implemented", " active ")).toBe("in-flight");
   });
 });

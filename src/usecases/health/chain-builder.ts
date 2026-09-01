@@ -16,7 +16,7 @@
 
 import type { ParsedCommit } from "./commit-parser";
 import type { CollectedFeatureDoc } from "./feature-doc-collector";
-import { classifyDocStatus } from "@entities/document/doc-status";
+import { classifyDocStatusWithSubstatus } from "@entities/document/doc-status";
 
 export type ChainState = "active" | "stalled" | "regressed" | "zombie" | "orphan";
 
@@ -190,7 +190,7 @@ function classifyChain(chain: FeatureChain, ctx: ChainCtx): ChainState {
   // orphan：commit 的 FID 无文档
   if (!chain.doc) return "orphan";
 
-  const inFlight = classifyDocStatus(chain.doc.status) === "in-flight";
+  const inFlight = classifyDocStatusWithSubstatus(chain.doc.status, chain.doc.substatus) === "in-flight";
 
   if (isZombie(chain, ctx, inFlight)) return "zombie";
   if (inFlight && isRegressed(chain)) return "regressed";
@@ -224,9 +224,10 @@ function isRegressed(chain: FeatureChain): boolean {
 }
 
 /** doc-only 链（无 commit）的状态：文档在途但从未有 commit → stalled/zombie 判定。
- *  #646 值域契约：unknown 不碰（视为稳定），与 classifyChain 同策略。 */
+ *  #646 值域契约：unknown 不碰（视为稳定），与 classifyChain 同策略。
+ *  子状态同步生效：implemented:active 文档建了但从未有 commit → 按 in-flight 判定。 */
 function classifyDocOnly(doc: CollectedFeatureDoc, ctx: ChainCtx): ChainState {
-  if (classifyDocStatus(doc.status) !== "in-flight") return "active"; // 终态/未知视为稳定
+  if (classifyDocStatusWithSubstatus(doc.status, doc.substatus) !== "in-flight") return "active"; // 终态/未知视为稳定
 
   const createdDays = doc.createdAt
     ? Math.floor((ctx.now.getTime() - new Date(doc.createdAt).getTime()) / DAY_MS)
