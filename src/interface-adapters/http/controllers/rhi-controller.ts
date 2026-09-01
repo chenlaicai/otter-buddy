@@ -40,6 +40,7 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   intent_drop: '意图兑现率下降',
   hotspot_imbalance: '热区失衡',
   review_debt: '审视债务',
+  score_jump: '指标骤变',
 };
 
 /** 特性链五态人话解释（基于 chain-builder.ts 五态判定规则） */

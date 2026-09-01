@@ -1,9 +1,9 @@
 /**
  * 信号注册表（Issue #399 单一真相源）
  *
- * 8 类信号定义与特性文档 F20260824rhib 信号注册表一一对应。
+ * 9 类信号定义与特性文档 F20260824rhib 信号注册表对应（score_jump 为 Issue #645 新增）。
  * 检测器实现度分级：
- * - MVP 已实现：bug_recurrence / chain_stall / hotspot / behavior_defect / hotspot_imbalance
+ * - MVP 已实现：bug_recurrence / chain_stall / hotspot / behavior_defect / hotspot_imbalance / score_jump
  * - Phase 1.5 待实现（数据源依赖）：eval_regression / intent_drop（intent 字段冷启动 0%）
  *   / review_debt（需 PR comment 数据判定是否走过对抗审视）
  */
@@ -16,7 +16,8 @@ export type SignalType =
   | "eval_regression"
   | "intent_drop"
   | "hotspot_imbalance"
-  | "review_debt";
+  | "review_debt"
+  | "score_jump";
 
 export type SignalSeverity = "critical" | "warning";
 
@@ -92,6 +93,14 @@ export const SIGNAL_REGISTRY: Readonly<Record<SignalType, SignalDefinition>> = {
     triggerRule: "bugfix:feature >2 持续 2 周",
     severity: "warning",
     suggestedAction: "重构立项",
+    implemented: true,
+  },
+  score_jump: {
+    type: "score_jump",
+    name: "指标骤变",
+    triggerRule: "五维/综合分单日 |Δ|≥10（快照环比）",
+    severity: "warning",
+    suggestedAction: "深挖当日变更找驱动因子",
     implemented: true,
   },
   review_debt: {

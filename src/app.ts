@@ -150,6 +150,13 @@ function createRhiScanWorker(deps: {
 
   // 指标快照落库端口（F20260829hviz Fix A）：scanOnce 计算指标写 health_snapshots
   const snapshotRepo = new HealthSnapshotRepository(deps.db);
+
+  // Issue #645：score_jump 环比骤变数据源——读 health_snapshots 的 health_index 行。
+  //  Why 独立查询端口：detect-signals 保持纯函数层，不直接依赖 repository 类型
+  const scoreHistorySource = async (lookbackDays: number) => {
+    const since = new Date(Date.now() - (lookbackDays + 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return snapshotRepo.findByMetricTypeSince("health_index", since);
+  };
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
@@ -180,7 +187,7 @@ function createRhiScanWorker(deps: {
   const sessionsDir = path.join(deps.rootDir, "data", "sessions");
 
   return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, {
-    fidMentionSource, snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
+    fidMentionSource, snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db, scoreHistorySource,
   });
 }
 

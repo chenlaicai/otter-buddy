@@ -27,6 +27,7 @@ import type { CollectedFeatureDoc } from "./feature-doc-collector";
 import { calculateMetrics } from "./metrics-calculator";
 import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import type { CreateSnapshotRow } from "./snapshot-rows";
+import { computeFixInterval, buildFixIntervalRow } from "./fix-halflife";
 import { computeHealthScore, buildHealthIndexRows } from "./health-score";
 import type { SignalRepository } from "./signal-repository";
 import { collectLlmCalls, collectOtterOutput, collectToolCallCounts, collectPrCounts, collectFdocCounts, collectDispatchTaskCounts } from "./cost-output-collector";
@@ -75,6 +76,9 @@ export interface RhiScanWorkerOptions {
   agentSessionSource?: AgentSessionSource;
   /** 成本/产出 DB 句柄（#583：OtterOutputCollector 需要查 messages 表）。 */
   costOutputDb?: Database.Database;
+  /** 环比骤变检测数据源（Issue #645）：读 health_snapshots 的 health_index 行。
+   *  未注入时 score_jump 检测跳过（detect-signals 内部降级）。 */
+  scoreHistorySource?: (lookbackDays: number) => Promise<Array<{ snapshot_date: string; metric_key: string; metric_value: number }>>;
 }
 
 export interface RhiScanResult {
@@ -196,8 +200,11 @@ export class RhiScanWorker {
 
     // 5. 链构建（两阶段 zombie 判定，F20260825sgnw 审视发现 2）+ 信号检测
     const chains = await this.buildChainsWithZombieJudging(signalInputs, docs);
-    const signals: DetectedSignal[] = detectSignals(signalInputs, chains, healingEvents, {
+    // Issue #645：detectSignals 变 async（score_jump 检测器读快照端口），
+    // 其余检测器仍为纯同步函数
+    const signals: DetectedSignal[] = await detectSignals(signalInputs, chains, healingEvents, {
       windowDays: this.options.windowDays,
+      scoreHistorySource: this.options.scoreHistorySource,
     });
 
     // 6. 管道：落库 + 记忆 + 唤醒
@@ -333,6 +340,9 @@ export class RhiScanWorker {
         });
       }
 
+      // Issue #645 修复半衰期：bugfix 间隔指标落 trend 行（sparkline/热点条数据源）
+      rows.push(this.buildTrendRow(windowInputs, snapshotDate));
+
       sink(snapshotDate, rows);
       return rows.length;
     } catch (err) {
@@ -343,6 +353,18 @@ export class RhiScanWorker {
       });
       return 0;
     }
+  }
+
+  /** 半衰期 trend 行构建（Issue #645）：窗口内 bugfix 日期序列 → 间隔趋势。
+   *  Why 与 metrics 同窗口：半衰期趋势分母必须与 bugfix_ratio 同源，跨窗口对比无意义。 */
+  private buildTrendRow(
+    windowInputs: Array<{ date: string; parsed: ParsedCommit }>,
+    snapshotDate: string,
+  ) {
+    return buildFixIntervalRow(
+      snapshotDate,
+      computeFixInterval(windowInputs.filter(c => c.parsed.changeType === "BugFix").map(c => c.date)),
+    );
   }
 
   /** 两阶段链构建：先无提及数据粗筛，再对 stalled≥zombieDays 候选查提及重判。

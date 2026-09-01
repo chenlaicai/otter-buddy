@@ -28,13 +28,13 @@ function healingEvent(id: string, errorType: string): CollectedHealingEvent {
 }
 
 describe("detectSignals", () => {
-  it("bug_recurrence：同模块同文件 ≥3 次 bugfix 触发 critical", () => {
+  it("bug_recurrence：同模块同文件 ≥3 次 bugfix 触发 critical", async () => {
     const commits = [
       commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/invoker.ts"]),
       commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/invoker.ts"]),
       commit("b3", 9, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/invoker.ts"]),
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
+    const signals = await detectSignals(commits, [], [], { now: NOW });
 
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
@@ -44,18 +44,18 @@ describe("detectSignals", () => {
     expect(rec!.evidence).toContain("3 次");
   });
 
-  it("bug_recurrence 不触发：不同文件 / 次数不足 / 窗口外", () => {
+  it("bug_recurrence 不触发：不同文件 / 次数不足 / 窗口外", async () => {
     const commits = [
       commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/a.ts"]),
       commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/b.ts"]), // 不同文件
       commit("b3", 9, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/a.ts"]),
       commit("b4", 45, "[F20260801tstw][agent][BugFix] old (#4)", ["src/a.ts"]), // 30 天窗口外
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
+    const signals = await detectSignals(commits, [], [], { now: NOW });
     expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
   });
 
-  it("chain_stall：stalled/zombie 链触发 critical（复用 ChainBuilder 判定）", () => {
+  it("chain_stall：stalled/zombie 链触发 critical（复用 ChainBuilder 判定）", async () => {
     const commits = [commit("s1", 20, "[F20260801aaaa][agent][New Feature] x", ["a.ts"])];
     const docs = [{
       id: "F20260801aaaa", title: "t", changeType: "feature", status: "development",
@@ -63,7 +63,7 @@ describe("detectSignals", () => {
       filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
     }];
     const chains = buildFeatureChains(commits, docs, { now: NOW });
-    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const signals = await detectSignals(commits, chains, [], { now: NOW });
 
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
@@ -72,38 +72,39 @@ describe("detectSignals", () => {
     expect(stall!.evidence).toContain("20 天");
   });
 
-  it("重复文件名不去重不双计（Set 防御，审视建议发现 4）", () => {
+  it("重复文件名不去重不双计（Set 防御，审视建议发现 4）", async () => {
     // 同 commit 的 filesChanged 含重复文件名：无防御时 shas 双计抬高触发次数、detail 出重复节点。
     // 当前 git --name-only 不产生重复，此用例锁定防御行为不变
     const commits = [
       commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/dup.ts", "src/dup.ts"]),
       commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/dup.ts"]),
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
+    const signals = await detectSignals(commits, [], [], { now: NOW });
     // 去重后实际 2 次 < 阈值 3，不触发（不去重则 3 次会误触发）
     expect(signals.find(s => s.type === "bug_recurrence" && s.filePath === "src/dup.ts")).toBeUndefined();
   });
 
-  it("detail 的 date 归一为 Z 格式 ISO（与 chainDetail 端点统一契约，审视建议发现 5）", () => {
+  it("detail 的 date 归一为 Z 格式 ISO（与 chainDetail 端点统一契约，审视建议发现 5）", async () => {
     const commits = [
       commit("b1", 8, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/iso.ts"]),
       commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/iso.ts"]),
       commit("b3", 3, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/iso.ts"]),
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
+    const signals = await detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
     // 输入是 toISOString() 生成的 Z 格式，归一后仍是 Z 格式（以 Z 结尾）；
     // 若未来采集器改用 %aI 带时区偏移格式，此断言强制归一不变量
+    if (rec!.detail!.kind !== "bug_recurrence_commits") throw new Error("kind 不符");
     for (const cm of rec!.detail!.commits) {
       expect(cm.date.endsWith("Z")).toBe(true);
     }
   });
 
-  it("hotspot：窗口内文件修改次数 > 阈值触发 warning", () => {
+  it("hotspot：窗口内文件修改次数 > 阈值触发 warning", async () => {
     const commits = Array.from({ length: 4 }, (_, i) =>
       commit(`h${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["src/hot.ts"]));
-    const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
+    const signals = await detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
 
     const hot = signals.find(s => s.type === "hotspot");
     expect(hot).toBeDefined();
@@ -111,14 +112,14 @@ describe("detectSignals", () => {
     expect(hot!.evidence).toContain("4 次");
   });
 
-  it("behavior_defect：同一 errorType ≥3 次触发 warning", () => {
+  it("behavior_defect：同一 errorType ≥3 次触发 warning", async () => {
     const events = [
       healingEvent("e1", "tool_failure"),
       healingEvent("e2", "tool_failure"),
       healingEvent("e3", "tool_failure"),
       healingEvent("e4", "format_violation"), // 不同类型不合并
     ];
-    const signals = detectSignals([], [], events, { now: NOW });
+    const signals = await detectSignals([], [], events, { now: NOW });
 
     const bd = signals.find(s => s.type === "behavior_defect");
     expect(bd).toBeDefined();
@@ -127,14 +128,14 @@ describe("detectSignals", () => {
     expect(bd!.evidence).toContain("3 次");
   });
 
-  it("hotspot_imbalance：bugfix:feature > 2 触发 warning", () => {
+  it("hotspot_imbalance：bugfix:feature > 2 触发 warning", async () => {
     const commits = [
       commit("f1", 1, "[F20260801tstw][agent][New Feature] a", ["a.ts"]),
       commit("b1", 2, "[F20260801tstw][agent][BugFix] 1", ["a.ts"]),
       commit("b2", 3, "[F20260801tstw][agent][BugFix] 2", ["a.ts"]),
       commit("b3", 4, "[F20260801tstw][agent][BugFix] 3", ["a.ts"]),
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
+    const signals = await detectSignals(commits, [], [], { now: NOW });
 
     const im = signals.find(s => s.type === "hotspot_imbalance");
     expect(im).toBeDefined();
@@ -142,12 +143,12 @@ describe("detectSignals", () => {
     expect(im!.evidence).toContain("3:1");
   });
 
-  it("hotspot_imbalance 不触发：feature=0（小样本保护）或比率未超", () => {
+  it("hotspot_imbalance 不触发：feature=0（小样本保护）或比率未超", async () => {
     const onlyBugfix = [
       commit("b1", 2, "[F20260801tstw][agent][BugFix] 1", ["a.ts"]),
       commit("b2", 3, "[F20260801tstw][agent][BugFix] 2", ["a.ts"]),
     ];
-    expect(detectSignals(onlyBugfix, [], [], { now: NOW }).find(s => s.type === "hotspot_imbalance"))
+    expect((await detectSignals(onlyBugfix, [], [], { now: NOW })).find(s => s.type === "hotspot_imbalance"))
       .toBeUndefined();
 
     const balanced = [
@@ -155,22 +156,22 @@ describe("detectSignals", () => {
       commit("f2", 2, "[F20260801tstw][agent][New Feature] b", ["b.ts"]),
       commit("b1", 3, "[F20260801tstw][agent][BugFix] 1", ["a.ts"]),
     ];
-    expect(detectSignals(balanced, [], [], { now: NOW }).find(s => s.type === "hotspot_imbalance"))
+    expect((await detectSignals(balanced, [], [], { now: NOW })).find(s => s.type === "hotspot_imbalance"))
       .toBeUndefined();
   });
 
-  it("信号结构对齐注册表：name/severity/suggestedAction 来自单一真相源", () => {
+  it("信号结构对齐注册表：name/severity/suggestedAction 来自单一真相源", async () => {
     const commits = [
       commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/invoker.ts"]),
       commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/invoker.ts"]),
       commit("b3", 9, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/invoker.ts"]),
     ];
-    const [rec] = detectSignals(commits, [], [], { now: NOW });
+    const [rec] = await detectSignals(commits, [], [], { now: NOW });
     expect(rec.name).toBe("bug 反复出现");
     expect(rec.suggestedAction).toBe("强制根因分析");
   });
 
-  it("chain_stall：draft/proposed 文档从未有 commit 不触发（孤儿文档误报修复）", () => {
+  it("chain_stall：draft/proposed 文档从未有 commit 不触发（孤儿文档误报修复）", async () => {
     // Why: draft/proposed 文档从未开工是常态，不应触发 critical 信号
     const docs = [{
       id: "F20260801draf", title: "t", changeType: "feature", status: "draft",
@@ -180,11 +181,11 @@ describe("detectSignals", () => {
     const chains = buildFeatureChains([], docs, { now: NOW });
     // ChainBuilder 判定为 stalled（>14 天无 commit），但 detectChainStall 应过滤掉
     expect(chains[0].state).toBe("stalled");
-    const signals = detectSignals([], chains, [], { now: NOW });
+    const signals = await detectSignals([], chains, [], { now: NOW });
     expect(signals.find(s => s.type === "chain_stall")).toBeUndefined();
   });
 
-  it("chain_stall：development 文档从未有 commit 仍触发（用 createdAt 计算天数）", () => {
+  it("chain_stall：development 文档从未有 commit 仍触发（用 createdAt 计算天数）", async () => {
     // Why: development 状态文档从未有 commit 仍值得关注，但证据应基于 createdAt
     const docs = [{
       id: "F20260801dev0", title: "t", changeType: "feature", status: "development",
@@ -193,13 +194,13 @@ describe("detectSignals", () => {
     }];
     const chains = buildFeatureChains([], docs, { now: NOW });
     expect(chains[0].state).toBe("stalled");
-    const signals = detectSignals([], chains, [], { now: NOW });
+    const signals = await detectSignals([], chains, [], { now: NOW });
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.evidence).toContain("40 天"); // 基于 createdAt，不是 "null 天"
   });
 
-  it("hotspot：测试文件不进入热点检测", () => {
+  it("hotspot：测试文件不进入热点检测", async () => {
     const testFiles = [
       "tests/api/helpers.ts",
       "tests/usecases/health/detect-signals.test.ts",
@@ -208,24 +209,24 @@ describe("detectSignals", () => {
     ];
     const commits = Array.from({ length: 12 }, (_, i) =>
       commit(`t${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, [testFiles[i % testFiles.length]]));
-    const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
+    const signals = await detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
     expect(signals.find(s => s.type === "hotspot")).toBeUndefined();
   });
 
-  it("hotspot：源码文件仍正常检测（测试文件排除不影响源码）", () => {
+  it("hotspot：源码文件仍正常检测（测试文件排除不影响源码）", async () => {
     const commits = [
       ...Array.from({ length: 5 }, (_, i) =>
         commit(`ts${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["tests/foo.test.ts"])),
       ...Array.from({ length: 5 }, (_, i) =>
         commit(`to${i}`, i + 6, `[F20260801tstw][agent][Feature Update] ${i}`, ["src/core.ts"])),
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
+    const signals = await detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
     const hot = signals.find(s => s.type === "hotspot");
     expect(hot).toBeDefined();
     expect(hot!.filePath).toBe("src/core.ts");
   });
 
-  it("chain_stall：design 文档从未有 commit 不触发（design 状态过滤）", () => {
+  it("chain_stall：design 文档从未有 commit 不触发（design 状态过滤）", async () => {
     // Why: design 文档从未开工是常态（项目规划阶段），不应触发 critical 信号
     const docs = [{
       id: "F20260801desg", title: "t", changeType: "feature", status: "design",
@@ -235,21 +236,21 @@ describe("detectSignals", () => {
     const chains = buildFeatureChains([], docs, { now: NOW });
     // ChainBuilder 判定为 stalled（>14 天无 commit），但 detectChainStall 应过滤掉
     expect(chains[0].state).toBe("stalled");
-    const signals = detectSignals([], chains, [], { now: NOW });
+    const signals = await detectSignals([], chains, [], { now: NOW });
     expect(signals.find(s => s.type === "chain_stall")).toBeUndefined();
   });
 
-  it("hotspot：大写 Tests/ 目录也排除（大小写不敏感）", () => {
+  it("hotspot：大写 Tests/ 目录也排除（大小写不敏感）", async () => {
     // Why: 某些项目使用大写 Tests/ 目录，应同样排除
     const commits = Array.from({ length: 12 }, (_, i) =>
       commit(`tc${i}`, i + 1, `[F20260801tstw][agent][Feature Update] ${i}`, ["Tests/helpers.ts"]));
-    const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
+    const signals = await detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
     expect(signals.find(s => s.type === "hotspot")).toBeUndefined();
   });
 });
 
 describe("Issue #644：结构化证据 + 置信度", () => {
-  it("bug_recurrence 的 detail 含全类型 commit 序列（不只 bugfix，交替节奏可画）", () => {
+  it("bug_recurrence 的 detail 含全类型 commit 序列（不只 bugfix，交替节奏可画）", async () => {
     const commits = [
       commit("f1", 10, "[F20260801tstw][agent][New Feature] 引入", ["src/x.ts"]),
       commit("b1", 8, "[F20260801tstw][agent][BugFix] 修1 (#1)", ["src/x.ts"]),
@@ -257,36 +258,38 @@ describe("Issue #644：结构化证据 + 置信度", () => {
       commit("b2", 4, "[F20260801tstw][agent][BugFix] 修2 (#2)", ["src/x.ts"]),
       commit("b3", 2, "[F20260801tstw][agent][BugFix] 修3 (#3)", ["src/x.ts"]),
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
+    const signals = await detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
     expect(rec!.detail).toBeDefined();
     expect(rec!.detail!.kind).toBe("bug_recurrence_commits");
-    // 全类型：3 bugfix + 1 New Feature + 1 Feature Update = 5 个节点
-    expect(rec!.detail!.commits).toHaveLength(5);
+    // 全类型：3 bugfix + 1 New Feature + 1 Feature Update = 5 个节点（kind 断言后收窄类型）
+    const detail = rec!.detail! as import("@usecases/health/detect-signals").SignalDetail;
+    expect(detail.commits).toHaveLength(5);
     // 时间升序
-    const dates = rec!.detail!.commits.map(c => c.date);
+    const dates = detail.commits.map(c => c.date);
     expect([...dates].sort()).toEqual(dates);
     // changeType 标注交替（第一个是引入非 bugfix）
-    expect(rec!.detail!.commits[0]!.changeType).toBe("New Feature");
-    expect(rec!.detail!.commits.filter(c => c.changeType === "BugFix")).toHaveLength(3);
+    expect(detail.commits[0]!.changeType).toBe("New Feature");
+    expect(detail.commits.filter(c => c.changeType === "BugFix")).toHaveLength(3);
   });
 
-  it("detail 窗口滑动整体重算：出窗 commit 不出现在 detail", () => {
+  it("detail 窗口滑动整体重算：出窗 commit 不出现在 detail", async () => {
     const commits = [
       commit("old", 45, "[F20260801tstw][agent][BugFix] 出窗", ["src/y.ts"]),
       commit("b1", 8, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/y.ts"]),
       commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/y.ts"]),
       commit("b3", 3, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/y.ts"]),
     ];
-    const signals = detectSignals(commits, [], [], { now: NOW });
+    const signals = await detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.detail!.commits).toHaveLength(3);
-    expect(rec!.detail!.commits.every(c => c.sha !== "old")).toBe(true);
+    const detail = rec!.detail! as import("@usecases/health/detect-signals").SignalDetail;
+    expect(detail.commits).toHaveLength(3);
+    expect(detail.commits.every(c => c.sha !== "old")).toBe(true);
   });
 
-  it("chain_stall 置信规则甲：stalled ∧ 有 commit → low；zombie/doc-only → normal", () => {
+  it("chain_stall 置信规则甲：stalled ∧ 有 commit → low；zombie/doc-only → normal", async () => {
     // 滞留但链上有 commit（「干完没归档」主场景）
     const commits = [commit("s1", 20, "[F20260801aaaa][agent][New Feature] x", ["a.ts"])];
     const docs = [{
@@ -295,7 +298,7 @@ describe("Issue #644：结构化证据 + 置信度", () => {
       filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
     }];
     const chains = buildFeatureChains(commits, docs, { now: NOW });
-    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const signals = await detectSignals(commits, chains, [], { now: NOW });
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.confidence).toBe("low"); // 有 commit 的滞留 → low
@@ -307,13 +310,13 @@ describe("Issue #644：结构化证据 + 置信度", () => {
       filePath: "docs/features/y.md", createdAt: dayAgo(40), createdInConversationId: null,
     }];
     const chains2 = buildFeatureChains([], docs2, { now: NOW });
-    const signals2 = detectSignals([], chains2, [], { now: NOW });
+    const signals2 = await detectSignals([], chains2, [], { now: NOW });
     const stall2 = signals2.find(s => s.type === "chain_stall");
     expect(stall2).toBeDefined();
     expect(stall2!.confidence).toBe("normal");
   });
 
-  it("chain-builder 白名单收编 active：status: active 的滞留链参与病态判定", () => {
+  it("chain-builder 白名单收编 active：status: active 的滞留链参与病态判定", async () => {
     // Issue #644 止血：41 篇 status:active 文档原先被当终态静默豁免
     const commits = [commit("s1", 20, "[F20260801actv][agent][New Feature] x", ["a.ts"])];
     const docs = [{
@@ -323,13 +326,13 @@ describe("Issue #644：结构化证据 + 置信度", () => {
     }];
     const chains = buildFeatureChains(commits, docs, { now: NOW });
     expect(chains[0].state).toBe("stalled"); // 不再豁免
-    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const signals = await detectSignals(commits, chains, [], { now: NOW });
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.confidence).toBe("low");
   });
 
-  it("置信规则甲 zombie 分支：30 天无 commit 且零提及 → normal（更接近真异常，不降置信）（审视发现 3）", () => {
+  it("置信规则甲 zombie 分支：30 天无 commit 且零提及 → normal（更接近真异常，不降置信）（审视发现 3）", async () => {
     // 规则甲的对照分支：stalled→low 依赖 zombie→normal 的对比才成立。
     // 原先只有代码注释保证，无直接用例锁定
     const commits = [commit("s1", 45, "[F20260801zomb][agent][New Feature] x", ["a.ts"])]; // 45 天前最后 commit（> zombieDays 30）
@@ -342,10 +345,213 @@ describe("Issue #644：结构化证据 + 置信度", () => {
     const fidMentionCounts = new Map([["F20260801zomb", 0]]);
     const chains = buildFeatureChains(commits, docs, { now: NOW, fidMentionCounts });
     expect(chains[0].state).toBe("zombie");
-    const signals = detectSignals(commits, chains, [], { now: NOW });
+    const signals = await detectSignals(commits, chains, [], { now: NOW });
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.confidence).toBe("normal"); // zombie 不降置信
     expect(stall!.evidence).toContain("僵尸");
+  });
+});
+
+describe("Issue #645：behavior_defect 窗口化升级", () => {
+  it("窗口内 ≥3 次触发，证据含窗口天数与最近发生日期", async () => {
+    const events = [
+      healingEvent("w1", "degenerate"),
+      healingEvent("w2", "degenerate"),
+      healingEvent("w3", "degenerate"),
+    ];
+    const signals = await detectSignals([], [], events, { now: NOW });
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    expect(bd!.evidence).toContain("窗口 7 天");
+    expect(bd!.evidence).toContain("3 次");
+    expect(bd!.evidence).toContain("最近一次"); // 聚合含 lastAt
+  });
+
+  it("恰在窗口边界：8 天前事件不计数，7 天内 3 次恰触发（含/排除边界）", async () => {
+    // 边界定义复刻 bug_recurrence 的 [start, now] 闭区间语义：at >= windowStart 计入
+    const justOutside = [
+      { ...healingEvent("o1", "tool_failure"), createdAt: dayAgo(8) }, // 窗口外（8 天前）
+      healingEvent("i1", "tool_failure"),
+      healingEvent("i2", "tool_failure"),
+    ];
+    const none = await detectSignals([], [], justOutside, { now: NOW });
+    expect(none.find(s => s.type === "behavior_defect")).toBeUndefined();
+
+    const justInside = [
+      { ...healingEvent("b1", "tool_failure"), createdAt: dayAgo(7) }, // 恰 7 天前：边界含
+      healingEvent("b2", "tool_failure"),
+      healingEvent("b3", "tool_failure"),
+    ];
+    const hit = await detectSignals([], [], justInside, { now: NOW });
+    const bd = hit.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    expect(bd!.evidence).toContain("3 次");
+  });
+
+  it("窗口外历史不再永久累计：12 天前 2 次 + 窗口内 2 次不触发（旧全量聚合会显示 4 次）", async () => {
+    const events = [
+      { ...healingEvent("h1", "legacy_type"), createdAt: dayAgo(12) },
+      { ...healingEvent("h2", "legacy_type"), createdAt: dayAgo(11) },
+      healingEvent("h3", "legacy_type"),
+      healingEvent("h4", "legacy_type"),
+    ];
+    const signals = await detectSignals([], [], events, { now: NOW });
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeUndefined(); // 窗口内仅 2 次 < 3
+  });
+
+  it("聚合排序：窗口内次数多的 errorType 排在前（聚类优先处置）", async () => {
+    const events = [
+      healingEvent("a1", "type_a"), healingEvent("a2", "type_a"), healingEvent("a3", "type_a"),
+      healingEvent("b1", "type_b"), healingEvent("b2", "type_b"), healingEvent("b3", "type_b"),
+      healingEvent("b4", "type_b"), healingEvent("b5", "type_b"),
+    ];
+    const signals = await detectSignals([], [], events, { now: NOW });
+    const bds = signals.filter(s => s.type === "behavior_defect");
+    expect(bds).toHaveLength(2);
+    expect(bds[0]!.evidence).toContain("type_b"); // 5 次 > 3 次，排前
+    expect(bds[1]!.evidence).toContain("type_a");
+  });
+
+  it("空窗口不触发（zero-cost 确定性）", async () => {
+    const signals = await detectSignals([], [], [], { now: NOW });
+    expect(signals.find(s => s.type === "behavior_defect")).toBeUndefined();
+  });
+});
+
+describe("Issue #645：score_jump 环比骤变", () => {
+  type SnapRow = { snapshot_date: string; metric_key: string; metric_value: number };
+
+  function historySource(rows: SnapRow[]) {
+    return async () => rows;
+  }
+
+  it("单日 |Δ|≥10 触发 warning，detail 含前后两日值", async () => {
+    const rows: SnapRow[] = [
+      // 前一完整日：整体 80
+      { snapshot_date: "2026-08-23", metric_key: "overall", metric_value: 80 },
+      { snapshot_date: "2026-08-23", metric_key: "D1", metric_value: 75 },
+      // 当日：overall 60（Δ=-20 ≥10 触发）；D1 Δ=-5 不触发
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 60 },
+      { snapshot_date: "2026-08-24", metric_key: "D1", metric_value: 70 },
+    ];
+    const signals = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(rows) });
+    const jump = signals.find(s => s.type === "score_jump");
+    expect(jump).toBeDefined();
+    expect(jump!.severity).toBe("warning");
+    expect(jump!.evidence).toContain("2026-08-23→2026-08-24");
+    expect(jump!.evidence).toContain("80→60");
+    expect(jump!.evidence).not.toContain("75→70"); // 未达阈值的维度不进证据
+    // detail 留痕
+    const detail = jump!.detail as import("@usecases/health/detect-signals").ScoreJumpDetail;
+    expect(detail.kind).toBe("score_jump_snapshots");
+    expect(detail.previousValues["overall"]).toBe(80);
+    expect(detail.currentValues["overall"]).toBe(60);
+  });
+
+  it("上行骤变同样触发（|Δ| 对称：55→70 也报）", async () => {
+    const rows: SnapRow[] = [
+      { snapshot_date: "2026-08-23", metric_key: "D2", metric_value: 55 },
+      { snapshot_date: "2026-08-24", metric_key: "D2", metric_value: 70 },
+    ];
+    const signals = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(rows) });
+    const jump = signals.find(s => s.type === "score_jump");
+    expect(jump).toBeDefined();
+    expect(jump!.evidence).toContain("+15");
+  });
+
+  it("恰在阈值：|Δ|=10 触发（边界含），|Δ|=9.9 不触发", async () => {
+    const exact: SnapRow[] = [
+      { snapshot_date: "2026-08-23", metric_key: "overall", metric_value: 70 },
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 80 }, // Δ=+10 恰触发
+    ];
+    const hit = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(exact) });
+    expect(hit.find(s => s.type === "score_jump")).toBeDefined();
+
+    const below: SnapRow[] = [
+      { snapshot_date: "2026-08-23", metric_key: "overall", metric_value: 70 },
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 79.9 }, // Δ=9.9 不触发
+    ];
+    const none = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(below) });
+    expect(none.find(s => s.type === "score_jump")).toBeUndefined();
+  });
+
+  it("不足两个快照日不触发（冷启动）", async () => {
+    const rows: SnapRow[] = [
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 80 },
+    ];
+    const signals = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(rows) });
+    expect(signals.find(s => s.type === "score_jump")).toBeUndefined();
+  });
+
+  it("中间隔无数据日：仍与上一有值日环比（序列缺口不误报为骤变）", async () => {
+    const rows: SnapRow[] = [
+      { snapshot_date: "2026-08-20", metric_key: "overall", metric_value: 80 },
+      // 08-21 ~ 08-23 无数据
+      { snapshot_date: "2026-08-24", metric_key: "overall", metric_value: 81 }, // 与 08-20 相比 Δ=1
+    ];
+    const signals = await detectSignals([], [], [], { now: NOW, scoreHistorySource: historySource(rows) });
+    expect(signals.find(s => s.type === "score_jump")).toBeUndefined();
+  });
+
+  it("数据源抛异常降级为空（传感器分离，不阻断其余检测）", async () => {
+    const signals = await detectSignals([], [], [], {
+      now: NOW,
+      scoreHistorySource: async () => { throw new Error("db down"); },
+    });
+    expect(signals.find(s => s.type === "score_jump")).toBeUndefined();
+  });
+
+  it("未注入数据源跳过检测（CLI/纯函数场景向后兼容）", async () => {
+    const signals = await detectSignals([], [], [], { now: NOW });
+    expect(signals.find(s => s.type === "score_jump")).toBeUndefined();
+  });
+});
+
+describe("Issue #645：僵尸链阶梯（30/60/90）", () => {
+  function zombieChain(id: string, lastCommitDaysAgo: number, createdDaysAgo: number) {
+    const commits = [commit("zc", lastCommitDaysAgo, `[${id}][agent][New Feature] x`, ["a.ts"])];
+    const docs = [{
+      id, title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/z.md", createdAt: dayAgo(createdDaysAgo), createdInConversationId: null,
+    }];
+    const fidMentionCounts = new Map([[id, 0]]); // 提及 Map 显式 0 → zombie 判定成立
+    return buildFeatureChains(commits, docs, { now: NOW, fidMentionCounts });
+  }
+
+  it("30-59 天 → 黄档；60-89 天 → 红档；≥90 天 → 建议归档", async () => {
+    const yellow = await detectSignals([], zombieChain("F20260801zylw", 35, 50), [], { now: NOW });
+    expect(yellow.find(s => s.type === "chain_stall")!.evidence).toContain("30 天 黄档");
+
+    const red = await detectSignals([], zombieChain("F20260801zred", 65, 80), [], { now: NOW });
+    expect(red.find(s => s.type === "chain_stall")!.evidence).toContain("60 天 红档");
+
+    const archive = await detectSignals([], zombieChain("F20260801zarc", 95, 110), [], { now: NOW });
+    expect(archive.find(s => s.type === "chain_stall")!.evidence).toContain("90 天+ 建议归档");
+  });
+
+  it("恰在阶梯边界：60 天整为红档（>=），59 天为黄档", async () => {
+    const boundary60 = await detectSignals([], zombieChain("F20260801zb60", 60, 75), [], { now: NOW });
+    expect(boundary60.find(s => s.type === "chain_stall")!.evidence).toContain("60 天 红档");
+
+    const day59 = await detectSignals([], zombieChain("F20260801zb59", 59, 75), [], { now: NOW });
+    expect(day59.find(s => s.type === "chain_stall")!.evidence).toContain("30 天 黄档");
+  });
+
+  it("非僵尸滞留（stalled）不带阶梯文案（阶梯只作用于 zombie 态）", async () => {
+    const commits = [commit("s1", 20, "[F20260801stg2][agent][New Feature] x", ["a.ts"])];
+    const docs = [{
+      id: "F20260801stg2", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/s.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    const signals = await detectSignals(commits, chains, [], { now: NOW });
+    const stall = signals.find(s => s.type === "chain_stall");
+    expect(stall).toBeDefined();
+    expect(stall!.evidence).not.toContain("黄档");
+    expect(stall!.evidence).not.toContain("红档");
   });
 });

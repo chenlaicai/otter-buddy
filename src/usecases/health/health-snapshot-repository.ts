@@ -105,6 +105,14 @@ export class HealthSnapshotRepository {
       .get(metricKey) as HealthSnapshot | undefined) ?? null;
   }
 
+  /** 按类型查指定日期起的行（Issue #645：score_jump 检测器的 health_index 序列读取） */
+  findByMetricTypeSince(metricType: string, sinceDate: string): Array<Pick<HealthSnapshot, "snapshot_date" | "metric_key" | "metric_value">> {
+    return this.db
+      .prepare(`SELECT snapshot_date, metric_key, metric_value FROM health_snapshots
+                WHERE metric_type = ? AND snapshot_date >= ? ORDER BY snapshot_date DESC, id DESC`)
+      .all(metricType, sinceDate) as Array<Pick<HealthSnapshot, "snapshot_date" | "metric_key" | "metric_value">>;
+  }
+
   /** 删除 N 天前的快照（数据保留策略：默认 90 天） */
   deleteOlderThan(days: number): number {
     const cutoff = new Date();

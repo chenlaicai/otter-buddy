@@ -100,4 +100,24 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
 
     db.close();
   });
+
+  it("findByMetricTypeSince：按类型过滤 + since 日期边界含（Issue #645 score_jump 数据源）", () => {
+    const { repo, db } = makeRepo();
+    repo.createBatch([
+      { snapshotDate: "2026-08-20", metricType: "health_index", metricKey: "overall", metricValue: 80 },
+      { snapshotDate: "2026-08-24", metricType: "health_index", metricKey: "overall", metricValue: 60 },
+      // 同日其他类型不受影响（类型过滤）
+      { snapshotDate: "2026-08-24", metricType: "overview", metricKey: "total_commits", metricValue: 42 },
+      // since 之前的 health_index 行排除
+      { snapshotDate: "2026-08-19", metricType: "health_index", metricKey: "overall", metricValue: 99 },
+    ]);
+
+    const found = repo.findByMetricTypeSince("health_index", "2026-08-20");
+    expect(found).toHaveLength(2);
+    expect(found.every(s => s.metric_key === "overall")).toBe(true);
+    // 日期降序（最新在前，score_jump 取「最近两个完整日」依赖此序）
+    expect(found[0]!.snapshot_date).toBe("2026-08-24");
+    expect(found[1]!.snapshot_date).toBe("2026-08-20"); // 边界日含
+    db.close();
+  });
 });
