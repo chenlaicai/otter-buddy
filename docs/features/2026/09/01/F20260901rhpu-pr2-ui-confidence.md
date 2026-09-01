@@ -12,7 +12,10 @@ from:
 intent:
   problem: "PR1 把模式存成了结构化数据，但消费侧没跟上：countOpenBySeverity 不过滤 confidence，18 条 low 信号全额计入 critical 计数与健康分（#652 口径断层）；首屏没有像素在讲模式——趋势图拿 40% 高度放聚合统计，复发信号藏在第二个 tab 的平铺列表里；图表用默认蓝绿橙，红=需要行动的语义被 BugFix 比率线稀释。"
   why_now: "chen 已确认视觉方向（观澜 ui-redesign-visual-review.md）与信息架构（ui-redesign-info-arch.md）；#658（#645 零成本检测器）已合入提供 fix_interval 指标行。PR1 数据层已就绪，PR2 UI 是它的直接消费方。"
-  verify_by: "面板打开总览：复发模式卡在首屏右上有时间轴；低置信信号折叠在抽屉；overview 的 critical 计数与折叠抽屉外的信号一致（不含 low）；图表无默认蓝绿橙。"
+  expected_effect: "总览打开即见出血点：复发模式卡带 bug●→fix● 时间轴居首屏主角位；低置信 18 条假警报折叠不稀释真警报；critical 计数/健康分 D5 只反映高置信信号（#652 方案甲）；图表无默认蓝绿橙，红色只剩需要行动元素；合并后修复密度信号上线（排除清单可见不黑箱）。"
+  verify_by:
+    type: behavior_check
+    detail: "A 类确定性 UI 组件与计数口径：#652 验收单测（low×2+normal critical×1→critical=1，rhi-api.test.ts）+ D5 端到端口径锁定（86.67 vs 未过滤 60）+ 前端 20 用例（时间轴交替渲染/频次徽章禁用 occurrences/排除清单可见/低置信抽屉默认折叠）；根仓 2469 + web 327 tests 全绿。面板人工核对：总览首屏复发卡主角位、图表无默认蓝绿橙。"
 ---
 
 # F20260901rhpu 健康面板重设计 PR2：总览+信号 UI 重构 + confidence 口径方案甲
