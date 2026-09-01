@@ -9,6 +9,7 @@ import type { ParsedCommit } from "./commit-parser";
 
 import type { CollectedHealingEvent } from "./healing-collector";
 import type { FeatureChain } from "./chain-builder";
+import { detectPostMergeFixDensity } from "./post-merge-fix-density";
 import { SIGNAL_REGISTRY } from "./signal-registry";
 import type { SignalType, SignalSeverity } from "./signal-registry";
 
@@ -109,6 +110,8 @@ export function detectSignals(
   signals.push(...detectHotspot(inWindow, options));
   signals.push(...detectBehaviorDefect(healingEvents, options, now));
   signals.push(...detectHotspotImbalance(inWindow, options));
+  // Issue #647：合并后修复密度（「哪个特性不对劲」，排除清单后；文件级 bug_recurrence 兑「哪里在出血」）
+  signals.push(...detectPostMergeFixDensity({ commits: inWindow, chains, now }).signals);
 
   return signals;
 }

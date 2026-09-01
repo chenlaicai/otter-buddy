@@ -1,8 +1,9 @@
 /**
  * 信号注册表（Issue #399 单一真相源）
  *
- * 9 类信号定义与特性文档 F20260824rhib 信号注册表一一对应（snapshot_shift 为
- * Issue #645 新增——环比骤变检测，消费 health_snapshots 快照不依赖 commit 流）。
+ * 10 类信号定义与特性文档 F20260824rhib 信号注册表一一对应（snapshot_shift 为
+ * Issue #645 新增——环比骤变检测；post_merge_fix_density 为 Issue #647 新增——
+ * 合并后修复密度，实现在 post-merge-fix-density.ts）。
  * 检测器实现度分级：
  * - MVP 已实现：bug_recurrence / chain_stall / hotspot / behavior_defect / hotspot_imbalance
  * - Phase 1.5 待实现（数据源依赖）：eval_regression / intent_drop（intent 字段冷启动 0%）
@@ -18,7 +19,8 @@ export type SignalType =
   | "intent_drop"
   | "hotspot_imbalance"
   | "review_debt"
-  | "snapshot_shift";
+  | "snapshot_shift"
+  | "post_merge_fix_density";
 
 export type SignalSeverity = "critical" | "warning";
 
@@ -78,6 +80,15 @@ export const SIGNAL_REGISTRY: Readonly<Record<SignalType, SignalDefinition>> = {
     triggerRule: "五维/综合健康分单日 |Δ|≥10（相邻两日 health_snapshots 快照 diff，null 维度跳过）",
     severity: "warning",
     suggestedAction: "深挖当日快照 diff：逐维度核对上升/下降因子",
+    implemented: true,
+  },
+  post_merge_fix_density: {
+    type: "post_merge_fix_density",
+    name: "合并后修复密度",
+    // Issue #647：分档与排除清单口径见 post-merge-fix-density.ts 头注释（分档按链文件数实测校准）
+    triggerRule: "特性合入后窗口期（小修 14 天/大特性 30 天，按链触碰文件数分档）内，触碰链文件的 bugfix ≥3 次或占比 ≥30%（高扇入文件 ≥10 特性触碰进排除清单）",
+    severity: "warning",
+    suggestedAction: "链复盘：核对合入范围是否消化完毕（「特性不对劲」是待查证不是定罪）",
     implemented: true,
   },
   eval_regression: {
