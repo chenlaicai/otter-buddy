@@ -1,5 +1,5 @@
 ---
-id: F20260731mmr0
+id: F20260731mmr
 title: multi-model-routing
 doc_type: feature
 
@@ -22,7 +22,7 @@ modules: [src/frameworks/llm/, src/frameworks/agent/, src/interface-adapters/age
 created_at: 2026-07-31
 ---
 
-# F20260731mmr0 多模型路由
+# F20260731mmr 多模型路由
 
 ## 背景
 

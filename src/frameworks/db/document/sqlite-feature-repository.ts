@@ -12,6 +12,12 @@ export class SqliteFeatureRepository implements FeatureRepository {
     return row ? rowToEntity(row) : null;
   }
 
+  /** F20260901dsyn: id 漂移诊断用（磁盘文档 id 与同 file_path 的 DB 记录 id 不一致） */
+  async findByFilePath(filePath: string): Promise<FeatureDocument | null> {
+    const row = this.db.prepare("SELECT * FROM features WHERE file_path = ?").get(filePath) as FeatureRow | undefined;
+    return row ? rowToEntity(row) : null;
+  }
+
   async findAll(): Promise<FeatureDocument[]> {
     const rows = this.db.prepare("SELECT * FROM features ORDER BY created_at DESC").all() as FeatureRow[];
     return rows.map(rowToEntity);

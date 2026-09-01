@@ -167,6 +167,27 @@ export class SyncDocuments {
     }
   }
 
+  /** F20260901dsyn: id 漂移诊断——磁盘文档 id 与同 file_path 的 DB 记录 id 不一致。
+   *
+   * 历史案例（#637）：F20260731mmr0（文档）vs F20260731mmr（DB，同 file_path），
+   * insert 撞 file_path 唯一索引，报裸 SQLite 文本「UNIQUE constraint failed」，
+   * 根因只能反推。此画数把漂移对查出来，报结构化错误（含修复指引）。
+   *
+   * 注意：只诊断不自动修复——改 DB id 涉及 memory_entries.source_id 迁移，
+   * 是策略决策不是 sync 的职责（详见 F20260901dsyn 特性文档「非目标」）。 */
+  private buildIdDriftError(
+    diskId: string,
+    dbId: string,
+    filePath: string,
+  ): string {
+    return (
+      `ID drift: frontmatter id ${diskId} != DB record id ${dbId} at same file_path ${filePath}. ` +
+      `Insert would violate file_path unique index. ` +
+      `Fix: align frontmatter id with DB id (recommended, see F20260901dsyn #637), ` +
+      `or migrate the DB record id (requires memory_entries source_id migration).`
+    );
+  }
+
   private async syncFeatureDoc(
     fm: Record<string, unknown>,
     filePath: string,
@@ -181,6 +202,16 @@ export class SyncDocuments {
       modules: doc.modules, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
+      /** F20260901dsyn: insert 前查同 file_path 记录，提前识别 id 漂移，
+       * 避免裸 UNIQUE 报错（sync 对 id 漂移无自愈，至少要让根因可读） */
+      const byPath = await this.featureRepo.findByFilePath(doc.filePath);
+      if (byPath && byPath.id !== doc.id) {
+        result.errors.push({
+          file: filePath,
+          error: this.buildIdDriftError(doc.id, byPath.id, doc.filePath),
+        });
+        return;
+      }
       await this.featureRepo.insert(doc);
       await this.memoryIndex.indexFeature(doc.id, doc.summary, meta);
       const chunks = chunkMarkdown(rawBody);
@@ -213,6 +244,15 @@ export class SyncDocuments {
       conclusion: doc.conclusion, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
+      /** F20260901dsyn: 同 syncFeatureDoc 的 id 漂移诊断 */
+      const byPath = await this.researchRepo.findByFilePath(doc.filePath);
+      if (byPath && byPath.id !== doc.id) {
+        result.errors.push({
+          file: filePath,
+          error: this.buildIdDriftError(doc.id, byPath.id, doc.filePath),
+        });
+        return;
+      }
       await this.researchRepo.insert(doc);
       await this.memoryIndex.indexResearch(doc.id, doc.summary, meta);
       const chunks = chunkMarkdown(rawBody);

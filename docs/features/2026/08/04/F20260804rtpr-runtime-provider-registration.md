@@ -10,7 +10,7 @@ summary: |
 
 causal_links:
   from:
-    - F20260731mmr0   # 多模型路由：引入 alias 作为 provider id 的方案，但只覆盖了 app 侧注册表
+    - F20260731mmr   # 多模型路由：引入 alias 作为 provider id 的方案，但只覆盖了 app 侧注册表
   to: []
 
 status: implemented
@@ -52,7 +52,7 @@ pi-coding-agent 0.81 的 `AgentSession._getRequiredRequestAuth()`（agent-sessio
 
 ### 为什么以前能跑
 
-旧配置 alias 就叫 `anthropic`，**撞上了内置 provider id**，runtime 注册表天然认识它，配合 runtime key 恰好能解析。换成 `mimo`/`kimi` 后巧合失效。这是 F20260731mmr0 多模型路由的遗留盲点：当时只用 `alias=anthropic` 验证过，自定义 alias 路径从未真正跑通。
+旧配置 alias 就叫 `anthropic`，**撞上了内置 provider id**，runtime 注册表天然认识它，配合 runtime key 恰好能解析。换成 `mimo`/`kimi` 后巧合失效。这是 F20260731mmr 多模型路由的遗留盲点：当时只用 `alias=anthropic` 验证过，自定义 alias 路径从未真正跑通。
 
 ## 修复方案
 
