@@ -60,8 +60,8 @@ R3 archive 仅处理 in-flight 链（planInFlight 分支，classifyDocStatusWith
 
 ## 验证
 
-- 新增 5 测试：空窗核心留痕 / 不误伤 R2（close-iteration 优先）/ 复活路径（R1 直达）/ 非空窗不误留痕（同步拍板形态）/ 幂等（留痕零副作用）
-- 全仓 205 files / 2556 tests 全绿；tsc 零错误；eslint 0 error（5 warnings 均存量其他文件）
+- 新增 6 测试：空窗核心留痕 / 不误伤 R2（close-iteration 优先）/ 复活路径（R1 直达）/ 非空窗不误留痕（同步拍板形态）/ 无证据不进留痕（null/undefined，检视建议 1+2）/ 幂等（留痕零副作用）
+- 全仓 205 files / 2559 tests 全绿（rebase 到含 #657 最新 main 后复跑，含 #657 带入的 2 测试）；tsc 零错误；eslint 0 error（5 warnings 均存量其他文件）
 - **真实仓库端到端 dry-run 对照**（#614 证据）：基线（stash 后）chainCount 371 / actions 0 / skipped 0；本改动后 371 / 0 / 0 / gapCount 0——零回归，gapDispositions 通道生效且实测 0 命中
 - **最简实现检查**：已过——备选方案「新增 R1.5 规则」需改 applyAdvancements 改写器 + 振荡防护（更高复杂度）；「纯 issue 回复不改代码」损失每日审计可见性；本方案纯留痕通道是达成「显式接受 + 可审计」的最小实现
 

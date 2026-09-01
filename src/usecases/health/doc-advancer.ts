@@ -161,10 +161,11 @@ function planImplemented(
 }
 
 /** 链尾 commit 未触碰文档 = 标注早于代码活动（R1 迭代判定与 #661 空窗判定的共同前提）。
- *  无 sha 证据（docLastTouchedSha undefined）时保守返回 false（宁可漏标不可误标）。 */
+ *  无 sha 证据（docLastTouchedSha null/undefined——采集未命中或未采集）时保守返回 false
+ *  （宁可漏标不可误标；宽松 != null 同时堵死 CLI 侧 `?? null` 转换后的语义缝隙，检视建议 1）。 */
 function isDocUntouchedAfterLastCommit(chain: ChainEvidence): boolean {
   const lastSha = chain.commits[chain.commits.length - 1]?.sha ?? null;
-  return lastSha !== null && chain.docLastTouchedSha !== undefined && chain.docLastTouchedSha !== lastSha;
+  return lastSha !== null && chain.docLastTouchedSha != null && chain.docLastTouchedSha !== lastSha;
 }
 
 /** R3：在途链的高置信归档（全 commit 带 PR 号 ∧ 静默超阈值）。其余交僵尸阶梯。 */

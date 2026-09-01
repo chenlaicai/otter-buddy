@@ -365,6 +365,22 @@ describe("#661 空窗处置：R1 关窗 ∧ R2 无 substatus ∧ R3 不适用 im
     expect(plan.gapDispositions).toHaveLength(0);
   });
 
+  it("无证据不进空窗留痕（检视建议 1+2）：docLastTouchedSha 为 null/undefined → 保守不判定，无 action 且无 gap 留痕", () => {
+    for (const noEvidence of [null, undefined] as const) {
+      const evidence: ChainEvidence = {
+        featureId: "F20260901gapf",
+        doc: { status: "implemented", substatus: null, filePath: "docs/features/F20260901gapf.md" },
+        commits: [{ date: daysAgo(30), prNumber: 100, sha: "sha-code" }],
+        lastCommitAt: daysAgo(30),
+        commitCount: 1,
+        ...(noEvidence === null ? { docLastTouchedSha: null } : {}),
+      };
+      const plan = planDocAdvancements([evidence], { now: NOW });
+      expect(plan.actions).toHaveLength(0);
+      expect(plan.gapDispositions).toHaveLength(0);
+    }
+  });
+
   it("幂等（空窗处置零副作用）：同一空窗链 plan 两次均无 action，留痕不触发任何文件改动", () => {
     const plan1 = planDocAdvancements([gapEvidence("F20260901gape", 30)], { now: NOW });
     const plan2 = planDocAdvancements([gapEvidence("F20260901gape", 30)], { now: NOW });
