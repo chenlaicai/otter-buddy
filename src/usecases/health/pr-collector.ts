@@ -58,8 +58,12 @@ export interface OpenPrInfo {
 
 export interface PrCollectOptions {
   /** gh CLI 可执行文件名（默认 gh；测试可注入 mock runner） */
-  runner?: (cmd: string, args: string[], opts: { cwd: string; maxBuffer: number }) => Promise<{ stdout: string }>;
+  runner?: (cmd: string, args: string[], opts: { cwd: string; maxBuffer: number; timeout: number; killSignal: NodeJS.Signals }) => Promise<{ stdout: string }>;
 }
+
+/** gh 子进程超时（ms）：CI runner 预装 gh 但无凭据时会挂起等认证——超时快速失败进降级路径
+ *  （pr-stalled 信号缺席），绝不阻塞扫描主路。15s 覆盖正常网络抖动。 */
+const GH_TIMEOUT_MS = 15_000;
 
 /** 默认采集入口（rhi-scan-worker 的 prSource 端口签名）：repoPath → open PR 列表 */
 export function collectOpenPrsForRepo(repoPath: string): Promise<OpenPrInfo[]> {
@@ -94,7 +98,7 @@ export async function collectOpenPrs(repoPath: string, options?: PrCollectOption
       "--state", "open",
       "--json", "number,title,headRefName,body,url,createdAt",
       "--limit", "100",
-    ], { cwd: repoPath, maxBuffer: 5 * 1024 * 1024 });
+    ], { cwd: repoPath, maxBuffer: 5 * 1024 * 1024, timeout: GH_TIMEOUT_MS, killSignal: "SIGKILL" });
 
     const rows = JSON.parse(stdout) as GhPrListRow[];
     if (!Array.isArray(rows)) return [];
@@ -119,7 +123,7 @@ async function collectPrView(
     const { stdout } = await run("gh", [
       "pr", "view", String(number),
       "--json", "commits,reviews,comments",
-    ], { cwd: repoPath, maxBuffer: 5 * 1024 * 1024 });
+    ], { cwd: repoPath, maxBuffer: 5 * 1024 * 1024, timeout: GH_TIMEOUT_MS, killSignal: "SIGKILL" });
     return JSON.parse(stdout) as GhPrView;
   } catch {
     return null;

@@ -110,7 +110,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("scanOnce 跑通全管道并落库信号", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const result = await worker.scanOnce();
 
@@ -132,7 +132,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("重复扫描 occurrences 累加不重复开行", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     await worker.scanOnce();
     const before = pipeline.listOpen().find(s => s.signal_type === "bug_recurrence")!.occurrences;
@@ -186,6 +186,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     const sinkCalls: Array<{ date: string; rows: import("@usecases/health/snapshot-rows").CreateSnapshotRow[] }> = [];
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       snapshotSink: (date, rows) => sinkCalls.push({ date, rows }),
     });
 
@@ -226,7 +227,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("snapshotSink 未注入时快照跳过且不报错（向后兼容）", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const result = await worker.scanOnce();
     expect(result.metricsStored).toBe(0);
@@ -236,6 +237,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   it("snapshotSink 抛异常不影响信号落库（旁路隔离）", async () => {
     const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       snapshotSink: () => {
         throw new Error("sink boom");
       },
@@ -248,7 +250,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("buildChainsOnce 与 scanOnce 同源且不落库（审视发现 3 补测：/api/health/chains 专用方法）", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const before = pipeline.listOpen().length;
     const chains = await worker.buildChainsOnce();
@@ -302,6 +304,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const pipeline = makePipeline(db);
 
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       snapshotSink: overviewSink,
       costOutputSink,
       sessionsDir,
@@ -335,7 +338,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
   it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const result = await worker.scanOnce();
     expect(result.costOutputStored).toBe(0); expect(result.signalCount).toBeGreaterThanOrEqual(1);
@@ -404,6 +407,7 @@ describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
     const pipeline = makePipeline(db);
 
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       costOutputSink,
       sessionsDir,
       agentSessionSource: async () => [],

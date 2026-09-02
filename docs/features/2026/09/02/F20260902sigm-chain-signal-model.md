@@ -260,6 +260,14 @@ ChainState = "active" | "stalled" | "regressed" | "orphan"   // 枚举保留4值
 2. **detectChainStall 的信号粒度**：方案消费方表写「读 chain.signals（pr-stalled → stalled ladder）」——「stalled ladder」是旧 zombie 阶梯的遗留措辞；实现为逐 PR 出信号（一链多停滞 PR 时 N 条 chain_stall 信号，挂几个报几个），与方案「信号可叠加」原则一致
 3. **skills 模板改动位置**：简报指向 code-implementation/SKILL.md，实查该文件不含 status 字段指引；真相源在 `_shared/SKILL-TEMPLATE.md` L151（特性文档核心字段清单，所有 skill 的共享约定段）——改后者，前者无改动需要。根因在派工简报（按方案 §4 字面表述转写）
 
+## CI 修复记录（2026-09-02 晚）
+
+**Flaky 根因**：CI runner 预装 gh CLI 但无 repo 凭据——`gh pr list` 挂起等认证超过 vitest 5s 默认超时，`rhi-scan-worker.test.ts` 首用例超时红（本地三连跑全绿，CI 时好时坏：06:21 轮过、12:20 轮挂）。属我引入的测试设计缺陷：rhi-scan-worker 测试未隔离 gh 外部依赖。
+
+**修复两处**：
+1. `pr-collector.ts`：execFile 加 `timeout: 15s + killSignal: SIGKILL`——gh 挂起时快速失败进降级路径（信号缺席），绝不阻塞扫描主路（顺带加固生产路径）
+2. `rhi-scan-worker.test.ts`：全部 11 处 worker 构造显式注入 `prSource: async () => []`——测试对象是链构建/信号管道，与 gh 环境无关，显式隔离根除 flaky
+
 ## 最简实现检查（#614 必答）
 
 已过最简检查：无新建表（PR 数据查询时现拉，方案 R3）、无新依赖（gh CLI 子进程复用 execFile 先例）、pr-collector 单文件（无框架）；删除代码（-468 行）远大于新增（+380 行），净简化。stalledPr label 逻辑内联在 SwimlaneTimeline（<10 行），未抽组件。
