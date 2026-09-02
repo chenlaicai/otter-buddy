@@ -155,7 +155,12 @@ jobs:
           key: bge-m3-${{ runner.os }}-v1
 
       - name: Download bge-m3 if not cached
-        run: node scripts/download-bge-m3.mjs
+        # --force 绕过脚本的 CI 跳过逻辑（L114：旧假设「CI 测试全 mock」——但 capability
+        # boot 禁止降级（boot.ts L209），golden selftest 需要真模型；缓存命中时脚本
+        # 自动跳过（L121 missing.length===0），force 只影响缺文件时是否下载）
+        run: node scripts/download-bge-m3.mjs --force
+        env:
+          HF_ENDPOINT: https://hf-mirror.com
 
       # selftest-only：vitest 按用例名过滤 selftest 段——golden.runner 的用例为
       # `${id}（n=..，源 ..）` 整体用例，selftest 是其内嵌步骤，无法用 -t 过滤出
