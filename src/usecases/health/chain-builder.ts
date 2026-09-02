@@ -77,6 +77,11 @@ export interface ChainCommitInput {
 //  #646 收敛为契约模块。review/reviewed 为实查存量变体，语义在途）。
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** 默认停滞判定阈值（天）。Issue #636 B4：展示层（rhi-controller 状态原因文案）引用同一真相源，防两处漂移 */
+export const DEFAULT_STALLED_DAYS = 14;
+/** 默认 zombie 判定阈值（天）。真相源说明同上 */
+export const DEFAULT_ZOMBIE_DAYS = 30;
+
 /**
  * 构建全部特性链
  * @param commits commit 列表（任意顺序，内部按日期排序）
@@ -89,8 +94,8 @@ export function buildFeatureChains(
 ): FeatureChain[] {
   const ctx = {
     now: options.now ?? new Date(),
-    stalledDays: options.stalledDays ?? 14,
-    zombieDays: options.zombieDays ?? 30,
+    stalledDays: options.stalledDays ?? DEFAULT_STALLED_DAYS,
+    zombieDays: options.zombieDays ?? DEFAULT_ZOMBIE_DAYS,
     fidMentionCounts: options.fidMentionCounts,
   };
 
