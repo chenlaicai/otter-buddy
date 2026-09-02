@@ -44,6 +44,7 @@ function createBroadcaster() {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
   const broadcaster = new MessageBroadcaster(logger);
   broadcaster.registerOutboundChannel(
+    "weixin-test-1",
     new WeixinMessageChannel(manageConnection, weixinGateway, queryOtter, logger),
   );
   return { broadcaster, manageConnection, weixinGateway, replies, logger };

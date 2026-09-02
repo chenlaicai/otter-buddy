@@ -2,21 +2,9 @@ import { useState, useEffect, useCallback, useMemo, type ComponentProps } from '
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronRight, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
-
-/** 工作区文件条目 */
-interface WorkspaceEntry {
-  name: string
-  isDirectory: boolean
-  isFile: boolean
-  path: string
-}
-
-/** 工作区文件内容 */
-interface WorkspaceFileContent {
-  path: string
-  content: string
-  truncated: boolean
-}
+// Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是手工同步副本，
+// 迁移后直接引用契约，与后端靠 web tsc --noEmit 锁死漂移
+import type { WorkspaceEntry, WorkspaceFileContent, WorkspaceListDirResponse } from '@contract/api/workspace'
 
 interface WorkspacePanelProps {
   conversationId: string
@@ -56,8 +44,8 @@ async function fetchDir(conversationId: string, path?: string): Promise<Workspac
     const err = await res.json().catch(() => ({ error: '加载失败' }))
     throw new Error(err.error || '加载失败')
   }
-  const data = await res.json()
-  return data.entries as WorkspaceEntry[]
+  const data = (await res.json()) as WorkspaceListDirResponse
+  return data.entries
 }
 
 /** 从 API 加载文件内容 */

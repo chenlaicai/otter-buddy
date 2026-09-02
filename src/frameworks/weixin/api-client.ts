@@ -47,13 +47,17 @@ export class WeixinApiClient {
     return btoa(String(uint32));
   }
 
-  private buildHeaders(): Record<string, string> {
+  /**
+   * GET 请求公共头（#624，对齐参考实现 buildCommonHeaders()）：
+   * 鉴权/自声明字段，**无 Content-Type**（GET 无 body）。
+   * 注意每次调用生成新 X-WECHAT-UIN（与参考实现同构，非每实例固定）。
+   */
+  private buildCommonHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
       AuthorizationType: "ilink_bot_token",
       "X-WECHAT-UIN": this.randomUin(),
       "iLink-App-Id": "bot",
-      // 0.1.0 → 65536；与插件编码规则一致（major<<16|minor<<8|patch）
+      // 0.1.0 → (0<<16)|(1<<8)|0 = 256；与插件编码规则一致（major<<16|minor<<8|patch）
       "iLink-App-ClientVersion": String((0 << 16) | (1 << 8) | 0),
     };
     if (this.token?.trim()) {
@@ -62,11 +66,16 @@ export class WeixinApiClient {
     return headers;
   }
 
+  /** POST 请求头：公共头 + Content-Type（仅 POST 搞 JSON body，#624） */
+  private buildPostHeaders(): Record<string, string> {
+    return { "Content-Type": "application/json", ...this.buildCommonHeaders() };
+  }
+
   /** GET 语义：目前仅扫码状态轮询使用（见 pollQrStatus 的协议注释） */
   private async get<T>(endpointWithQuery: string, timeoutMs: number): Promise<T> {
     const res = await fetch(`${this.baseUrl}/${endpointWithQuery}`, {
       method: "GET",
-      headers: this.buildHeaders(),
+      headers: this.buildCommonHeaders(),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
@@ -79,7 +88,7 @@ export class WeixinApiClient {
   private async post<T>(endpoint: string, body: Record<string, unknown>, timeoutMs: number): Promise<T> {
     const res = await fetch(`${this.baseUrl}/${endpoint}`, {
       method: "POST",
-      headers: this.buildHeaders(),
+      headers: this.buildPostHeaders(),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });

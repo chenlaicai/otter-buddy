@@ -1,20 +1,10 @@
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { DomainError } from "@entities/errors";
+// Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是定义处，
+// 迁移后此处仅消费契约，与 controller / web 三侧靠双端 tsc 锁死漂移
+import type { WorkspaceEntry, WorkspaceFileContent } from "@contract/api/workspace";
 
-/** 工作区文件条目 */
-export interface WorkspaceEntry {
-  name: string;
-  isDirectory: boolean;
-  isFile: boolean;
-  path: string; // 相对于工作区根目录的路径
-}
-
-/** 工作区文件内容 */
-export interface WorkspaceFileContent {
-  path: string;
-  content: string;
-  truncated: boolean;
-}
+export type { WorkspaceEntry, WorkspaceFileContent };
 
 /** 单文件读取大小上限（字节）——超过此值截断并提示 */
 const MAX_DISPLAY_FILE_SIZE_BYTES = 100 * 1024; // 100KB
