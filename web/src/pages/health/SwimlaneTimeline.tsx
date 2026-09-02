@@ -3,11 +3,10 @@
  *
  * 形态：每链一条泳道，节点圆点按日期线性映射到共享 x 轴（默认 60 天窗口，与
  * 链构建窗口 30+30 对齐）；窗口外老链起点贴左缘截断标注（data-clipped-start）。
- * 五态线尾表达（§3.2 色义锁定）：
+ * 四态线尾表达（§3.2 色义锁定；F20260902sigm：zombie 删除，stalled=pr-stalled）：
  * - active：teal 实线 + 末端呼吸动画（全场唯一动效，swim-active-pulse + SMIL）
- * - stalled：线尾虚化（dashed fade-out）+ caramel 空心圆末端 + 「停滞 N 天」旁注
+ * - stalled（pr-stalled）：线尾虚化（dashed fade-out）+ caramel 空心圆末端 + 「PR 停滞 N 天」旁注
  * - regressed：线体 teal + 线中段 caramel-700 回卷标记（swim-regressed-mark）
- * - zombie：整条 otter-300 降饱和（data-desaturated）+ 末端 ×
  * - orphan：lavender 悬空空心起点（swim-orphan-start）
  * 密度原则（§3.5）：动效仅 active 呼吸一处；异常用实心饱和、常态低饱和；
  * 虚拟化：手写窗口化（滚动容器 + 可视区间渲染，行高 38px），零新依赖。
@@ -75,11 +74,10 @@ function buildLaneGeom(ch: RhiChainDTO, xOf: (iso: string | null) => number, now
   return { nodes, firstX, lastX, clippedStart, regressedAtX }
 }
 
-/** 五态线体色（§3.2 + §3.4：stalled 线体 caramel-400 浅阶；regressed 线体 teal——
- *  它本质仍是进行中的链，caramel-700 只给回卷标记；zombie 整条 otter-300 降饱和） */
+/** 四态线体色（§3.2 + §3.4：stalled 线体 caramel-400 浅阶；regressed 线体 teal——
+ *  它本质仍是进行中的链，caramel-700 只给回卷标记） */
 function laneLineColor(state: ChainState): string {
   if (state === 'stalled') return CARAMEL[400]
-  if (state === 'zombie') return OTTER[300]
   if (state === 'orphan') return LAVENDER[400]
   return TEAL[500]
 }
@@ -101,7 +99,6 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
       data-state={ch.state}
       data-feature-id={ch.featureId}
       data-clipped-start={geo.clippedStart ? '1' : undefined}
-      data-desaturated={ch.state === 'zombie' ? '1' : undefined}
       transform={`translate(0 ${y})`}
       style={{ cursor: 'pointer' }}
       onClick={() => onOpen(ch.featureId)}
@@ -144,13 +141,8 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
           </circle>
         </g>
       )}
-      {ch.state === 'stalled' && hasCommits && <StalledTail lastX={geo.lastX} days={ch.daysSinceLastCommit} />}
-      {ch.state === 'zombie' && hasCommits && (
-        <path
-          className="swim-zombie-end"
-          d={`M ${geo.lastX - 4} ${ROW_H / 2 - 4} L ${geo.lastX + 4} ${ROW_H / 2 + 4} M ${geo.lastX - 4} ${ROW_H / 2 + 4} L ${geo.lastX + 4} ${ROW_H / 2 - 4}`}
-          stroke={OTTER[400]} strokeWidth={2} fill="none"
-        />
+      {ch.state === 'stalled' && hasCommits && (
+        <StalledTail lastX={geo.lastX} label={stalledPrLabel(ch)} />
       )}
       {ch.state === 'regressed' && geo.regressedAtX !== null && (
         <path
@@ -163,8 +155,18 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
   )
 }
 
-/** stalled 线尾：虚化尾巴（dashed fade-out）+ caramel 空心圆 + 「停滞 N 天」旁注 */
-function StalledTail({ lastX, days }: { lastX: number; days: number | null }) {
+/** pr-stalled 旁注文案：单 PR 「#N 停 7 天」，多 PR 「#N 等 2 个」 */
+function stalledPrLabel(ch: RhiChainDTO): string {
+  const sig = ch.signals.find(s => s.id === 'pr-stalled')
+  const prs = sig?.stalledPrs ?? []
+  if (prs.length === 0) return 'PR 停滞'
+  const first = prs[0]!
+  if (prs.length === 1) return `#${first.number} 停 ${first.daysSinceActivity} 天`
+  return `#${first.number} 等 ${prs.length} 个`
+}
+
+/** stalled（pr-stalled）线尾：虚化尾巴（dashed fade-out）+ caramel 空心圆 + 「PR 停滞」旁注 */
+function StalledTail({ lastX, label }: { lastX: number; label?: string }) {
   const tailLen = 34
   const endX = lastX + tailLen
   const labelRight = endX + 78 > LANE_X1 // 右边界放不下旁注则翻到空心圆左侧
@@ -184,7 +186,7 @@ function StalledTail({ lastX, days }: { lastX: number; days: number | null }) {
         fill={CARAMEL[600]}
         textAnchor={labelRight ? 'end' : 'start'}
       >
-        {days !== null ? `停滞 ${days} 天` : '停滞'}
+        {label ?? 'PR 停滞'}
       </text>
     </g>
   )

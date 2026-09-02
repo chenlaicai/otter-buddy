@@ -17,7 +17,10 @@ const detail: RhiChainDetailDTO = {
   lastCommitAt: '2026-08-26T00:00:00.000Z',
   docStatus: 'development',
   docTitle: '测试链',
-  stateReason: 'stalled：development 6 天内有提交，但已 6 天无活动',
+  signals: [
+    { id: 'pr-stalled', evidence: 'open PR #42 已 10 天无推进（无新 commit/review/comment）' },
+  ],
+  stateReason: 'open PR #42 已 10 天无推进（无新 commit/review/comment）',
   commits: [
     { sha: 'abcdef12', date: '2026-08-10T00:00:00.000Z', changeType: 'New Feature', message: 'feat: 引入', filesChanged: ['a.ts', 'b.ts'] },
     { sha: '12345678', date: '2026-08-26T00:00:00.000Z', changeType: 'BugFix', message: 'fix: 修复', filesChanged: ['a.ts'] },
@@ -59,7 +62,7 @@ describe('ChainDetailDrawer 链详情抽屉（Issue #649 交付 3）', () => {
     expect(c.querySelector('[data-testid="chain-drawer"]')).toBeNull()
   })
 
-  it('拉取 chainDetail 并展示全量 commits（message/filesChanged/changeType）+ stateReason + docStatus', async () => {
+  it('拉取 chainDetail 并展示全量 commits（message/filesChanged/changeType）+ stateReason + 信号清单', async () => {
     const c = render(<ChainDetailDrawer featureId="F20260801aaaa" onClose={() => {}} />)
     await flush()
     expect(c.querySelector('[data-testid="chain-drawer"]')).toBeTruthy()
@@ -68,8 +71,10 @@ describe('ChainDetailDrawer 链详情抽屉（Issue #649 交付 3）', () => {
     expect(text).toContain('feat: 引入')
     expect(text).toContain('fix: 修复')
     expect(text).toContain('2 文件 · a.ts, b.ts')
-    expect(text).toContain('6 天内有提交')
-    expect(text).toContain('文档状态：development')
+    expect(text).toContain('#42 已 10 天无推进')
+    // F20260902sigm：docStatus 行删除，改显信号清单
+    expect(text).not.toContain('文档状态')
+    expect(c.querySelector('[data-testid="chain-drawer-signals"]')).toBeTruthy()
   })
 
   it('点击遮罩/关闭按钮回调 onClose', async () => {

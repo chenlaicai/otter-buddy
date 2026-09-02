@@ -1,7 +1,8 @@
 /**
  * 链详情抽屉（Issue #649 交付 3）：点泳道行 → 拉 #644 chainDetail → 展示全量
- * commits（sha/message/changeType/filesChanged）+ stateReason + docStatus/docTitle。
+ * commits（sha/message/changeType/filesChanged）+ stateReason + 信号清单 + docTitle。
  *
+ * F20260902sigm：docStatus 行删除（docStatus 退役），改显信号事实清单。
  * 泳道只画轻量节点（sha8+date+changeType），全量信息在此抽屉露出——
  * 单请求消费既有端点，不加新接口。
  */
@@ -12,6 +13,13 @@ import * as api from '../../api/client'
 import type { RhiChainDetailDTO } from '../../api/client'
 import { OTTER } from './palette'
 import { CHAIN_STATE_META, CHANGE_TYPE_LABELS, commitNodeColor } from './chain-state-meta'
+
+/** 链路信号标签（F20260902sigm） */
+const CHAIN_SIGNAL_LABELS: Record<string, string> = {
+  'pr-stalled': 'PR 停滞',
+  regressed: '质量回退',
+  'doc-gap': '引用缺口',
+}
 
 /** 链详情侧滑抽屉：featureId=null 时不渲染 */
 export function ChainDetailDrawer({ featureId, onClose }: { featureId: string | null; onClose: () => void }) {
@@ -70,8 +78,19 @@ export function ChainDetailDrawer({ featureId, onClose }: { featureId: string | 
             <div className="flex items-center gap-3 text-xs text-stone-400 flex-wrap">
               <span>{detail.commitCount} commits · {detail.bugfixCount} bugfix</span>
               {detail.daysSinceLastCommit !== null && <span>距上次 {detail.daysSinceLastCommit} 天</span>}
-              <span>文档状态：{detail.docStatus ?? '无文档'}</span>
             </div>
+            {detail.signals.length > 0 && (
+              <div className="flex flex-col gap-1" data-testid="chain-drawer-signals">
+                {detail.signals.map(sig => (
+                  <div key={sig.id} className="flex items-start gap-1.5 text-xs">
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded ${sig.id === 'regressed' ? 'bg-caramel-100 text-caramel-700' : sig.id === 'pr-stalled' ? 'bg-caramel-50 text-caramel-600' : 'bg-lavender-100 text-lavender-600'}`}>
+                      {CHAIN_SIGNAL_LABELS[sig.id] ?? sig.id}
+                    </span>
+                    <span className="text-stone-500">{sig.evidence}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="border-t border-stone-100 pt-2">
               <div className="text-xs font-semibold text-stone-500 mb-1.5">commit 全序列（时间升序 · {detail.commits.length}）</div>
               <div className="divide-y divide-stone-100">
