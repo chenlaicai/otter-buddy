@@ -35,10 +35,11 @@ export interface MessageDTO {
 }
 
 /** 信号轨迹单项（F20260902u5tr：一次投石对一个 otter 目标的投递状态）。
- *  state 判据（服务端持久层推导，前端零推导）：
- *  - CONSUMED：目标游标已越过信号所在 turn（turn_number < last_read_turn_number）
- *  - CONSUMING：目标最新消息 streaming（invoke 进行中，游标未动的窗口）
- *  - PENDING：其余（含游标缺省且非 streaming 的降级判定） */
+ *  state 判据（服务端持久层推导，前端零推导；F20260902sgp2 S1b 判据切台账）：
+ *  - PENDING：dispatch_attempts 无该 (message, target) 记录（排队=还没派发）
+ *  - CONSUMING：attempt 行 in_progress（持久行，无 5min 墙钟窗，无状态倒退）
+ *  - CONSUMED：attempt 终态 completed
+ *  - FAILED：attempt 终态 failed/aborted（❌ + note，失败可见 → 用户决定是否 retry） */
 export interface SignalTrailItemDTO {
   messageId: string;
   fromType: "user" | "otter";
@@ -46,9 +47,11 @@ export interface SignalTrailItemDTO {
   targetOtterId: string;
   /** 档位（signal_level 列解析，NULL 归一为 NORMAL——与 SignalRouter 判据一致） */
   level: "NORMAL" | "URGENT" | "HALT" | string;
-  state: "PENDING" | "CONSUMING" | "CONSUMED";
+  state: "PENDING" | "CONSUMING" | "CONSUMED" | "FAILED";
   ts: string;
   seq: number;
+  /** FAILED 态展示失败原因（attempt.note，含 retry 前情压缩——§8.2 折中）；其余态 null */
+  note?: string | null;
 }
 
 export interface SignalTrailResponseDTO {

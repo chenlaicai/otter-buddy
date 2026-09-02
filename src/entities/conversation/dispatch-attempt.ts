@@ -48,6 +48,11 @@ export interface DispatchAttemptRepo {
   countPendingSignals(conversationId?: string): number;
   listPendingSignals(conversationId?: string, limit?: number): PendingSignalRow[];
   /**
+   * S1b 轨迹 UI（§4.7）：本会话全部 attempt（无 limit——轨迹批量投影用，
+   * (message,target) 唯一键防膨胀；与 pendingClause 同文件同真相源）。
+   */
+  listAttemptsForConversation(conversationId: string): DispatchAttempt[];
+  /**
    * 启动死亡证明（§4.4，flash 对撞③）：进程内不可能有存活的 in_progress 跨越重启——
    * 补扫之前把所有 in_progress 标 failed + note。先例 reconcile-orphans.ts:50 同款语义。
    * 返回翻篇行数（日志可见）。
