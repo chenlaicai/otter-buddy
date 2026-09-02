@@ -21,9 +21,12 @@ import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/h
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
 import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
 import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density";
-
-const STALLED_DAYS = 14;
-const ZOMBIE_DAYS = 30;
+// Issue #636 B4：阈值/状态集单一真相源收口（原 controller 本地复制，漂移隐患）
+import { DEFAULT_STALLED_DAYS as STALLED_DAYS, DEFAULT_ZOMBIE_DAYS as ZOMBIE_DAYS } from "@usecases/health/chain-builder";
+import { classifyDocStatusWithSubstatus } from "@entities/document/doc-status";
+// Issue #636 B5：信号中文名的单一真相源是 signal-registry（SIGNAL_REGISTRY[type].name）
+import { SIGNAL_REGISTRY } from "@usecases/health/signal-registry";
+import type { SignalType } from "@usecases/health/signal-registry";
 
 /** Issue #644：JSON 字符串安全解析（evidence_detail 列）——解析失败降级 null 不阻断列表 */
 function safeParseJson(raw: string): unknown {
@@ -34,29 +37,29 @@ function safeParseJson(raw: string): unknown {
   }
 }
 
-/** 信号类型中文标签（与前端 SIGNAL_TYPE_LABELS 保持一致；review_debt 虽未发射但保留对齐） */
-const SIGNAL_TYPE_LABELS: Record<string, string> = {
-  bug_recurrence: 'bug 反复出现',
-  chain_stall: '特性链滞留',
-  hotspot: '热点文件',
-  behavior_defect: '行为缺陷',
-  eval_regression: '效果回退',
-  intent_drop: '意图兑现率下降',
-  hotspot_imbalance: '热区失衡',
-  review_debt: '审视债务',
-  post_merge_fix_density: '合并后修复密度',
-};
+/** Issue #636 B5：原 SIGNAL_TYPE_LABELS 本地映射（与 registry name 逐字重复）已收口——
+ *  中文名从 SIGNAL_REGISTRY[type].name 取，registry 为单一真相源。未收录类型回退原始 type 字符串。 */
+function signalTypeLabel(type: string): string {
+  return SIGNAL_REGISTRY[type as SignalType]?.name ?? type;
+}
+
+/** Issue #636 B4：inFlight 判定收口 #646 值域契约（原 controller 硬编码 5 值白名单，
+ *  漂移实证：缺 review/reviewed/implemented+active 子状态，与 chain-builder 判定层不一致）。
+ *  独立辅助函数：复杂度限额内承载 ?./?? 链 */
+function isInFlightDoc(doc: { status: string | null; substatus?: string | null } | null): boolean {
+  return classifyDocStatusWithSubstatus(doc?.status ?? null, doc?.substatus ?? null) === "in-flight";
+}
 
 /** 特性链五态人话解释（基于 chain-builder.ts 五态判定规则） */
 function buildChainStateReason(
   state: string,
-  chain: { daysSinceLastCommit: number | null; doc: { status: string | null } | null; bugfixCount: number; commitCount: number },
+  chain: { daysSinceLastCommit: number | null; doc: { status: string | null; substatus?: string | null } | null; bugfixCount: number; commitCount: number },
 ): string {
   if (state === "orphan") {
     return "commit 提到了特性编号但未找到对应特性文档";
   }
   const docStatus = chain.doc?.status ?? "draft";
-  const inFlight = ["draft", "proposed", "design", "development", "active"].includes(docStatus);
+  const inFlight = isInFlightDoc(chain.doc);
   // Why: doc-only 链（有文档无 commit）daysSinceLastCommit=null，不能兜底为 Infinity
   const hasCommits = chain.daysSinceLastCommit !== null;
   const days = chain.daysSinceLastCommit!;
@@ -319,7 +322,7 @@ export class RhiController {
       return c.json({
         signals: rows.map(s => ({
           ...s,
-          signalTypeLabel: SIGNAL_TYPE_LABELS[s.signal_type] ?? s.signal_type,
+          signalTypeLabel: signalTypeLabel(s.signal_type),
           // evidence_detail 存 JSON 字符串（可空）——解析失败不阻断列表，降级 null
           evidenceDetail: s.evidence_detail ? safeParseJson(s.evidence_detail) : null,
           evidence_detail: undefined,
