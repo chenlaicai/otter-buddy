@@ -298,22 +298,29 @@ function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void
 function rebuildMemoryFtsJiebaDoubleWrite(db: Database.Database, logger: Logger): void {
   const done = db.prepare("SELECT value FROM settings WHERE key = 'fts_jieba_double_write'")
     .get() as { value: string } | undefined;
-  if (done?.value === 'done') return;
+  // F20260902rcq3: 版本号 v2（doc ID 锚点注入）——已跑过 v1 的库需重跑补锚点
+  if (done?.value === 'v2') return;
 
   const rebuild = db.transaction(() => {
     db.prepare("DELETE FROM memory_fts_jieba").run();
-    const rows = db.prepare("SELECT id, content FROM memory_entries").all() as Array<{ id: string; content: string }>;
+    const rows = db.prepare("SELECT id, content, source_table, source_id FROM memory_entries").all() as Array<{ id: string; content: string; source_table: string; source_id: string }>;
     const insert = db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)");
     for (const row of rows) {
-      insert.run(row.id, tokenizeWithJieba(row.content, { doubleWrite: true }));
+      // F20260902rcq3: 文档类条目注入 sourceId 前缀（与 insertEntryRow 同逻辑）——
+      // 文档正文不含自身编号，ID 直查时确定性最强的目标反而 miss
+      const ftsText = (row.source_table === "features" || row.source_table === "research")
+        && /^[FR]\d{8}[a-z0-9]{4}$/i.test(row.source_id)
+        ? `${row.source_id} ${row.content}`
+        : row.content;
+      insert.run(row.id, tokenizeWithJieba(ftsText, { doubleWrite: true }));
     }
     db.prepare(
-      "INSERT INTO settings (key, value, updated_at) VALUES ('fts_jieba_double_write', 'done', datetime('now')) " +
-      "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+      "INSERT INTO settings (key, value, updated_at) VALUES ('fts_jieba_double_write', 'v2', datetime('now')) " +
+      "ON CONFLICT(key) DO UPDATE SET value = 'v2', updated_at = datetime('now')",
     ).run();
   });
   rebuild();
-  logger.info(`Rebuilt memory_fts_jieba with double-write tokens (${rows_count_hint(db)} entries, fts_jieba_double_write=done)`);
+  logger.info(`Rebuilt memory_fts_jieba with double-write + doc ID anchor (${rows_count_hint(db)} entries, fts_jieba_double_write=v2)`);
 }
 
 function rows_count_hint(db: Database.Database): number {

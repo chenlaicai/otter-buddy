@@ -102,9 +102,16 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       entry.createdAt,
     );
     // F20260805hybrid: jieba 分词，支持中文短查询
+    // F20260902rcq3: 文档类条目（feature/research）把 sourceId（文档编号）注入 FTS 索引前缀——
+    // 文档正文通常不含自己的编号，查「F20260829raft」时确定性最强的目标反而搜不到
+    // （Phase 0 复测归因：12/79 残留零召回属此类）。只注入 FTS，不改 content 本体。
+    const ftsText = (entry.sourceTable === "features" || entry.sourceTable === "research")
+      && /^[FR]\d{8}[a-z0-9]{4}$/i.test(entry.sourceId)
+      ? `${entry.sourceId} ${entry.content}`
+      : entry.content;
     this.db.prepare(`
       INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
-    `).run(entry.id, tokenizeWithJieba(entry.content, { doubleWrite: true }));
+    `).run(entry.id, tokenizeWithJieba(ftsText, { doubleWrite: true }));
     this.db.prepare(`
       INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
       VALUES (?, 0, NULL, 0)
