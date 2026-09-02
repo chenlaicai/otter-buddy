@@ -96,6 +96,7 @@ export class ScheduledTaskController {
         triggerAt: body.triggerAt,
         timezone: body.timezone,
         body: body.body,
+        watchlist: body.watchlist,
         talkingStonePassedTo: body.talkingStonePassedTo,
         status: body.status,
         restartBeforeInvoke: body.restartBeforeInvoke,

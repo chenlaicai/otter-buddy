@@ -7,6 +7,7 @@ import { SignalRepository } from "@usecases/health/signal-repository";
 import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { FeatureChain } from "@usecases/health/chain-builder";
+import { DomainError } from "@entities/errors";
 
 /** 真 sqlite（:memory:）+ 真 Controller 的 API 测试。
  *  buildChainsOnce/scanOnce 走 mock（链构建的端到端已有 rhi-scan-worker.test.ts 覆盖）。
@@ -22,6 +23,15 @@ function makeCtx(statusQuery?: string): Parameters<RhiController["overview"]>[0]
 function makeDetailCtx(featureId: string): Parameters<RhiController["chainDetail"]>[0] {
   return {
     req: { param: () => featureId },
+    json: (data: unknown, status?: number) => new Response(JSON.stringify(data), { status: status ?? 200 }),
+  } as never;
+}
+
+/** #581：断言错误路径状态码的 ctx（handleError 会调 c.get('requestId')，必须 mock） */
+function makeStatusCtx(query?: string, params?: Record<string, string>): Parameters<RhiController["overview"]>[0] {
+  return {
+    req: { query: () => query, param: (name: string) => params?.[name] },
+    get: () => undefined,
     json: (data: unknown, status?: number) => new Response(JSON.stringify(data), { status: status ?? 200 }),
   } as never;
 }
@@ -394,11 +404,161 @@ describe("RHI API（真 sqlite）", () => {
   });
 
   describe("scan", () => {
-    it("手动扫描返回结果", async () => {
+    it("手动扫描返回结果（#581 回修：响应体不再有 ok 字段）", async () => {
       const res = await makeController([], { commitCount: 42 }).scan(makeCtx());
-      const body = await res.json() as { ok: boolean; result: { commitCount: number } };
-      expect(body.ok).toBe(true);
+      const body = await res.json() as { result: { commitCount: number }; ok?: boolean };
       expect(body.result.commitCount).toBe(42);
+      expect(body.ok).toBeUndefined(); // ok 字段已随守门人语义废除
     });
+  });
+});
+
+describe("RHI chains 轻量 commits（Issue #649 PR3）", () => {
+  let db: Database.Database;
+  let signalRepo: SignalRepository;
+  let snapshotRepo: HealthSnapshotRepository;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    signalRepo = new SignalRepository(db);
+    snapshotRepo = new HealthSnapshotRepository(db);
+  });
+
+  const chainsController = (chains: FeatureChain[]): RhiController => {
+    const worker = {
+      buildChainsOnce: vi.fn(async () => chains),
+      scanOnce: vi.fn(async () => ({ scannedAt: "", chainCount: 0, signalCount: 0, stored: 0, memoryIndexed: 0, wakeupsTriggered: 0, errors: [] })),
+    } as unknown as RhiScanWorker;
+    return new RhiController(snapshotRepo, signalRepo, worker, console as never);
+  };
+
+  it("列表链携带轻量 commits（sha8+date+changeType，无 message/filesChanged）", async () => {
+    const chain: FeatureChain = {
+      ...fakeChain("F20260801ffff", "regressed"),
+      commits: [
+        { sha: "abcdef1234567890", date: new Date("2026-08-10T00:00:00Z"), message: "feat: 引入", changeType: "New Feature", filesChanged: ["a.ts"], prNumber: null },
+        { sha: "1234567890abcdef", date: new Date("2026-08-20T00:00:00Z"), message: "fix: 修复", changeType: "BugFix", filesChanged: ["a.ts"], prNumber: 123 },
+      ],
+    };
+    const res = await chainsController([chain]).chains(makeCtx());
+    const body = await res.json() as { chains: Array<{ commits: Array<Record<string, unknown>> }> };
+    const lite = body.chains[0].commits;
+
+    expect(lite).toHaveLength(2);
+    expect(lite[0]).toEqual({ sha: "abcdef12", date: "2026-08-10T00:00:00.000Z", changeType: "New Feature" });
+    expect(lite[1].sha).toBe("12345678");
+    // 轻量化契约：不携带重量字段（全量走 chainDetail）
+    expect(Object.keys(lite[0]).sort()).toEqual(["changeType", "date", "sha"]);
+  });
+
+  it("空 commits 链序列化为空数组（非 undefined）", async () => {
+    const res = await chainsController([fakeChain("F20260801eeee", "zombie")]).chains(makeCtx());
+    const body = await res.json() as { chains: Array<{ commits: unknown[] }> };
+
+    expect(Array.isArray(body.chains[0].commits)).toBe(true);
+    expect(body.chains[0].commits).toHaveLength(0);
+  });
+});
+
+describe("RHI API 错误路径状态码（#581：废除守门人 200+error，catch 统一 5xx）", () => {
+  /** 坏 repo：所有读方法抛错，模拟依赖层故障 */
+  function badRepo(): never {
+    const boom = () => { throw new Error("db exploded"); };
+    return {
+      findLatestByMetricKey: boom,
+      findByDateRange: boom,
+      findOpen: boom,
+      findByStatus: boom,
+      findActiveOtterIds: boom,
+    } as never;
+  }
+
+  /** 坏 worker：buildChainsOnce/scanOnce 抛错 */
+  function badWorker(): RhiScanWorker {
+    const boom = async () => { throw new Error("git exploded"); };
+    return { buildChainsOnce: boom, scanOnce: boom } as unknown as RhiScanWorker;
+  }
+
+  function makeErrController(): RhiController {
+    return new RhiController(badRepo(), badRepo(), badWorker(), console as never);
+  }
+
+  it("overview 依赖抛错 → 500 + error body（非 200+error）", async () => {
+    const res = await makeErrController().overview(makeStatusCtx());
+    expect(res.status).toBe(500);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("db exploded");
+  });
+
+  it("signals 依赖抛错 → 500", async () => {
+    const res = await makeErrController().signals(makeStatusCtx("open"));
+    expect(res.status).toBe(500);
+  });
+
+  it("chains worker 抛错 → 500", async () => {
+    const res = await makeErrController().chains(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("chainDetail worker 抛错 → 500（正常 404 路径不受影响，另有用例覆盖）", async () => {
+    const res = await makeErrController().chainDetail(makeStatusCtx(undefined, { featureId: "F1" }));
+    expect(res.status).toBe(500);
+  });
+
+  it("trends 依赖抛错 → 500", async () => {
+    const res = await makeErrController().trends(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("score 依赖抛错 → 500", async () => {
+    const res = await makeErrController().score(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("costOutput 依赖抛错 → 500", async () => {
+    const res = await makeErrController().costOutput(makeStatusCtx());
+    expect(res.status).toBe(500);
+  });
+
+  it("scan worker 抛错 → 500（不再返回 200+ok:false）", async () => {
+    const res = await makeErrController().scan(makeStatusCtx());
+    expect(res.status).toBe(500);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("git exploded");
+  });
+
+  /** #581 回修（检视建议 2）：ADR 声称的 DomainError→4xx 自动映射，在 RHI 端点级佐证 */
+  it("DomainError not_found 经 handleError → 404（ADR 4xx 映射在 RHI 端点真实生效）", async () => {
+    const repo = {
+      findLatestByMetricKey: () => { throw new DomainError("snapshot not found", "not_found"); },
+      findByDateRange: () => [],
+      findOpen: () => [],
+      findByStatus: () => [],
+      findActiveOtterIds: () => [],
+    } as never;
+    const worker = { buildChainsOnce: async () => [], scanOnce: async () => ({}) } as unknown as RhiScanWorker;
+    const ctrl = new RhiController(repo, repo, worker, console as never);
+    const res = await ctrl.overview(makeStatusCtx());
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("snapshot not found");
+  });
+
+  it("DomainError validation 经 handleError → 400（同一映射表的第二档佐证）", async () => {
+    const repo = {
+      findLatestByMetricKey: () => ({} as { snapshot_date: string; metric_value: number }),
+      findByDateRange: () => { throw new DomainError("invalid date range", "validation"); },
+      findOpen: () => [],
+      findByStatus: () => [],
+      findActiveOtterIds: () => [],
+    } as never;
+    const worker = { buildChainsOnce: async () => [], scanOnce: async () => ({}) } as unknown as RhiScanWorker;
+    const ctrl = new RhiController(repo, repo, worker, console as never);
+    const res = await ctrl.trends(makeStatusCtx());
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("invalid date range");
   });
 });
