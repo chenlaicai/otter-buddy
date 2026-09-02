@@ -45,7 +45,11 @@ const allowDdlFiles = [];
 // Issue #608 存量库 kind CHECK 扩展迁移测试：需建窄 CHECK（'image','document'）旧形状
 // attachments 表验证 rebuildAttachmentsKindCheck 表重建幂等——被测对象就是「旧 schema →
 // 新 schema」迁移本身，用生产 schema 建不出旧表形态（与 migration.test.ts 同类场景）
-const MAX_ALLOW_DDL_FILES = 7;
+// 7→8（F20260902sgp2）：tests/frameworks/db/dispatch-attempt-repo.test.ts——
+// 派发台账真实仓储集成测试（rbsg 事故教训：mock 与真实投影的分歧两次酿祸，#700/#710）。
+// 被测对象是 pending 判据 SQL 与真实投影的交互，手写 seed 需直插 messages/otters
+// 原始行（initSchema 建表后无生产写入路径可到达该形状）；与 migration 同类隔离场景
+const MAX_ALLOW_DDL_FILES = 8;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

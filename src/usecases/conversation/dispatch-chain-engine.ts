@@ -11,6 +11,8 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
+import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
+import { randomUUID } from "node:crypto";
 // F20260826mwrd C3（Part 6）：L2 安全词扫描
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 
@@ -64,6 +66,9 @@ export class DispatchChainEngine {
       metrics?: AgentMetricsPort;
       /** F20260826fpbd：搭档身份静态判定（未注入/未配置时降级动态推断） */
       partnerResolver?: PartnerResolver;
+      /** F20260902sgp2 S1：派发台账（可选注入——不注入时链路行为与 sgpv 回滚基线完全一致）。
+       *  记账失败仅日志不阻断（硬约束 1）。 */
+      dispatchAttemptRepo?: DispatchAttemptRepo;
     },
   ) {}
 
@@ -83,6 +88,10 @@ export class DispatchChainEngine {
       callbacks?: ChainCallbacks;
       /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，超出在 controller 层已拒绝） */
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
+      /** F20260902sgp2 S1：触发消息 ID（派发台账记账用）。首 hop 必填；
+       *  缺省时 S1 仅跳过首 hop 记账并打点日志（链路行为零变化，硬约束 1）。
+       *  hop 2+ 的记账用 yield 出处消息 ID（InvokeFnResult.messageId），与此参数无关。 */
+      triggerMessageId?: string;
     },
   ): Promise<{ otterReply?: string }> {
     return runWithTrace({ traceId: newTraceId(), source: "chain" }, () => this.executeChainInner(params));
@@ -98,9 +107,11 @@ export class DispatchChainEngine {
       invokeFn: InvokeFn;
       callbacks?: ChainCallbacks;
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
+      /** F20260902sgp2 S1：触发消息 ID（首 hop 记账） */
+      triggerMessageId?: string;
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images } = params;
+    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -118,6 +129,7 @@ export class DispatchChainEngine {
       depth++;
       const result = await this.executeOneHop({
         conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
+        triggerMessageId: depth === 1 ? triggerMessageId : undefined,
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
       targets = result.nextTargets;
@@ -147,11 +159,18 @@ export class DispatchChainEngine {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     /** F20260826mwrd C3：「停下」等安全词 reminder（与链上下文同生命周期，随 params 传入） */
     stopWordReminder?: string | null;
+    /** F20260902sgp2 S1：触发消息 ID（仅首 hop 传入；hop 2+ 的记账用 yield 出处 messageId） */
+    triggerMessageId?: string;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId } = params;
+    /** F20260902sgp2 S1：hop 内 target → yield 出处 messageId。首 hop 为空（用 triggerMessageId）；
+     *  settle 时从 fulfilled 结果回填，供下一 hop 记账取源。*/
+    const hopSourceMessageIds = new Map<string, string>();
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
+      // F20260902sgp2 S1：起跑记账（§4.2）——失败仅日志，绝不阻断链路（硬约束 1）
+      this.recordAttemptStart(conversationId, otterId, triggerMessageId, hopSourceMessageIds.get(otterId));
       let messageWithContext = await this.buildMessageWithContext(
         conversationId, otterId, userMessageContent, senderId, roster
       );
@@ -177,9 +196,70 @@ export class DispatchChainEngine {
     });
 
     const results = await Promise.allSettled(promises);
+    // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + hop 出处回填
+    this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, hopSourceMessageIds);
     await this.markBatchRead(conversationId, results, targets);
 
     return this.processHopResults(results, senderId, conversationId, targets);
+  }
+
+  /** F20260902sgp2 S1：起跑记账——首 hop 用 triggerMessageId，hop 2+ 用 yield 出处
+   *  （每 hop 的 targets 来自上一 hop 各自的聚合目标，出处消息不同，按 target 配对取源）。
+   *  无 repo / 无 messageId 时静默跳过（S1 观察面零侵入）；失败仅日志不阻断（硬约束 1）。 */
+  private recordAttemptStart(
+    conversationId: string,
+    target: string,
+    triggerMessageId: string | undefined,
+    hopSourceMessageId: string | undefined,
+  ): void {
+    const ledgerMsgId = triggerMessageId ?? hopSourceMessageId;
+    if (!ledgerMsgId || !this.deps.dispatchAttemptRepo) return;
+    try {
+      this.deps.dispatchAttemptRepo.recordStart({
+        id: randomUUID(),
+        conversationId,
+        messageId: ledgerMsgId,
+        targetOtterId: target,
+        status: "in_progress",
+        source: "chain",
+        attemptStartedAt: new Date().toISOString(),
+        note: null,
+      });
+      this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'in_progress', source: 'chain' });
+    } catch (e) {
+      this.deps.logger.warn('[signal-ledger] 起跑记账失败（不影响链路）', { conversationId, messageId: ledgerMsgId, otterId: target, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** F20260902sgp2 S1：settle 记账——每个目标按起跑同源 messageId 记终态；
+   *  fulfilled 时回填 hop 出处（下一 hop 记账取源）。失败仅日志不阻断。 */
+  private recordAttemptSettle(
+    conversationId: string,
+    targets: string[],
+    results: PromiseSettledResult<InvokeFnResult>[],
+    triggerMessageId: string | undefined,
+    hopSourceMessageIds: Map<string, string>,
+  ): void {
+    if (!this.deps.dispatchAttemptRepo) return;
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      const target = targets[i];
+      const ledgerMsgId = triggerMessageId ?? hopSourceMessageIds.get(target);
+      if (!ledgerMsgId) continue;
+      try {
+        if (r.status === "fulfilled") {
+          this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "completed");
+          hopSourceMessageIds.set(target, r.value.messageId);
+          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'completed', source: 'chain' });
+        } else {
+          const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+          this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "failed", reason.slice(0, 300));
+          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'failed', source: 'chain', reason: reason.slice(0, 200) });
+        }
+      } catch (e) {
+        this.deps.logger.warn('[signal-ledger] settle 记账失败（不影响链路）', { conversationId, target, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
   }
 
   private async processHopResults(
