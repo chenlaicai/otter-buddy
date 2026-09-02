@@ -10,7 +10,7 @@ const TEST_CONFIG: SearchEngineConfig = {
   alpha: 0.4,
   vecSimilarityThreshold: 0.3,
   bothBoost: 1.2,
-  weightHalfLifeDays: 7,
+  weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2,
   frequencyBoostFactor: 0.5,
 };

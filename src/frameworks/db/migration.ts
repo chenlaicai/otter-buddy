@@ -1,12 +1,14 @@
 /**
- * 数据库迁移：Session 复用机制。#506 后未达 max-lines 阈值——若未来补丁增长再次超限，
- * 可按 schema.ts 先例恢复 eslint-disable max-lines（补丁集合文件，行数由历史补丁数决定）。
+ * 数据库迁移：Session 复用机制。F20260902rcp1 补丁后再次超过 max-lines 阈值，
+ * 按首行注释预案恢复 eslint-disable max-lines（补丁集合文件，行数由历史补丁数决定）。
  */
+/* eslint-disable max-lines -- 补丁集合，行数由历史补丁数决定（首行注释预案） */
 
 import type Database from "better-sqlite3";
 import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
+import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定
@@ -57,6 +59,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   rebuildMessagesFtsStripped(db, logger);
   dropMessagesAttachmentsColumn(db, logger);
   addPinnedColumn(db, logger);
+
+  /** F20260902rcp1 一次性补丁：memory_fts_jieba 双写重建（词典词+单字） */
+  rebuildMemoryFtsJiebaDoubleWrite(db, logger);
 
   /** F20260803mval 一次性补丁：移除文档表枚举 CHECK 约束 */
   rebuildDocumentTablesDropCheck(db, logger);
@@ -282,6 +287,37 @@ function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void
   });
   rebuild();
   logger.info('Rebuilt messages_fts with stripped projection (messages_fts_stripped_rebuild=done)');
+}
+
+/**
+ * F20260902rcp1 补丁：memory_fts_jieba 全量重建为双写格式（词典词 + 全单字）。
+ * 背景：旧索引用 cut(x,false) 全单字写入，词典词（「健康」「架构」）在索引中不存在，
+ * 短语查询永远 miss（Phase 0 根因1）。重建后双写兼容两类查询。
+ * 幂等键：settings 表 fts_jieba_double_write=done（沿用 rebuildMessagesFtsStripped 模式）。
+ */
+function rebuildMemoryFtsJiebaDoubleWrite(db: Database.Database, logger: Logger): void {
+  const done = db.prepare("SELECT value FROM settings WHERE key = 'fts_jieba_double_write'")
+    .get() as { value: string } | undefined;
+  if (done?.value === 'done') return;
+
+  const rebuild = db.transaction(() => {
+    db.prepare("DELETE FROM memory_fts_jieba").run();
+    const rows = db.prepare("SELECT id, content FROM memory_entries").all() as Array<{ id: string; content: string }>;
+    const insert = db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)");
+    for (const row of rows) {
+      insert.run(row.id, tokenizeWithJieba(row.content, { doubleWrite: true }));
+    }
+    db.prepare(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('fts_jieba_double_write', 'done', datetime('now')) " +
+      "ON CONFLICT(key) DO UPDATE SET value = 'done', updated_at = datetime('now')",
+    ).run();
+  });
+  rebuild();
+  logger.info(`Rebuilt memory_fts_jieba with double-write tokens (${rows_count_hint(db)} entries, fts_jieba_double_write=done)`);
+}
+
+function rows_count_hint(db: Database.Database): number {
+  return (db.prepare("SELECT COUNT(*) AS c FROM memory_entries").get() as { c: number }).c;
 }
 
 /**
