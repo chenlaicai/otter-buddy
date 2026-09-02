@@ -1,6 +1,9 @@
 import type { MemoryEntry, MemoryWeight } from "@entities/memory/memory-entry";
 import type { RetrievalSource, FTSHit, VecHit } from "./memory-types";
 
+/** F20260902rcp1: document 层条目类型——半衰期分层与层配额共用此集合（导出供 search-memory debug 注入复用） */
+export const DOCUMENT_CONTENT_TYPES = new Set(["feature", "research", "feature_chunk", "research_chunk"]);
+
 export interface SearchEngineConfig {
   rrfK: number;
   /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
@@ -10,6 +13,9 @@ export interface SearchEngineConfig {
   /** 两路命中（source=both）的加成系数，默认 1.2 */
   bothBoost: number;
   weightHalfLifeDays: number;
+  /** F20260902rcp1: document 层（feature/research summary+chunk）专用半衰期，默认 90 天——
+   *  7 天半衰期下一个月前的文档权重只剩 5%，「找历史特性」类查询永久出局（Phase 0 根因3） */
+  weightHalfLifeDaysDocument: number;
   userFlagMultiplier: number;
   frequencyBoostFactor: number;
 }
@@ -43,6 +49,11 @@ export interface ScoredHit {
  */
 export class SearchEngine {
   constructor(private readonly config: SearchEngineConfig) {}
+
+  /** F20260902rcp1 审视修复：debug 注入需要按层取半衰期，暴露 config 读取（只读语义） */
+  get configRef(): Readonly<SearchEngineConfig> {
+    return this.config;
+  }
 
   /**
    * RRF 融合：FTS + Vec 两路结果合并（三阶段策略）
@@ -143,7 +154,9 @@ export class SearchEngine {
     return result;
   }
 
-  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier */
+  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier
+   *  F20260902rcp1: document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
+   *  其余层维持 weightHalfLifeDays。 */
   rerank(
     hits: Map<string, RrfHit>,
     weights: Map<string, MemoryWeight>,
@@ -156,9 +169,12 @@ export class SearchEngine {
         lastRetrievedAt: null,
         userFlagged: false,
       };
+      const halfLifeDays = DOCUMENT_CONTENT_TYPES.has(hit.entry.contentType)
+        ? this.config.weightHalfLifeDaysDocument
+        : this.config.weightHalfLifeDays;
       const finalScore =
         hit.rrfScore *
-        this.computeTimeDecay(hit.entry.createdAt) *
+        this.computeTimeDecay(hit.entry.createdAt, halfLifeDays) *
         this.computeFrequencyBoost(weight.retrievalCount) *
         (weight.userFlagged ? this.config.userFlagMultiplier : 1.0);
       result.push({
@@ -172,8 +188,10 @@ export class SearchEngine {
     return result;
   }
 
-  /** time_decay: exp(-ln(2) * age_days / half_life_days) */
-  private computeTimeDecay(createdAt: string): number {
+  /** time_decay: exp(-ln(2) * age_days / half_life_days)
+   *  F20260902rcp1: halfLifeDays 可选参数——document 层传 90 天半衰期，缺省走 weightHalfLifeDays（旧行为） */
+  private computeTimeDecay(createdAt: string, halfLifeDays?: number): number {
+    const hl = halfLifeDays ?? this.config.weightHalfLifeDays;
     /** SQLite datetime('now') returns UTC as "YYYY-MM-DD HH:MM:SS" (space-separated).
      * JS Date parses space-separated dates as local time; normalize to ISO 8601 UTC. */
     const utc = createdAt.includes("T")
@@ -181,7 +199,7 @@ export class SearchEngine {
       : createdAt.replace(" ", "T") + "Z";
     const ageMs = Date.now() - new Date(utc).getTime();
     const ageDays = ageMs / (1000 * 60 * 60 * 24);
-    return Math.exp(-Math.LN2 * ageDays / this.config.weightHalfLifeDays);
+    return Math.exp(-Math.LN2 * ageDays / hl);
   }
 
   /** frequency_boost: log(1 + retrieval_count) * factor + 1 */
@@ -193,8 +211,8 @@ export class SearchEngine {
    * F20260811mrpy Part 1：public 暴露 time_decay 计算（debug 信息注入用）。
    * 与内部 computeTimeDecay 等价。
    */
-  computeTimeDecayPublic(createdAt: string): number {
-    return this.computeTimeDecay(createdAt);
+  computeTimeDecayPublic(createdAt: string, halfLifeDays?: number): number {
+    return this.computeTimeDecay(createdAt, halfLifeDays);
   }
 
   /**

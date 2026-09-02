@@ -34,10 +34,15 @@ const STOP_WORDS = new Set([
  * @param text 输入文本
  * @returns 分词结果，用空格连接
  */
-export function tokenizeWithJieba(text: string): string {
+export function tokenizeWithJieba(text: string, options?: { doubleWrite?: boolean }): string {
   if (!text) return "";
-  const words = getJieba().cut(text, false);
-  return words.join(" ");
+  // F20260902rcp1: 索引侧改 HMM 词典模式（cut(x,true)），产出词典词；
+  // doubleWrite=true 时追加全单字序列（cut(x,false) 兼容旧单字查询行为）
+  const hmmWords = getJieba().cut(text, true);
+  const hmmJoined = hmmWords.join(" ");
+  if (!options?.doubleWrite) return hmmJoined;
+  const singleChars = getJieba().cut(text, false).join(" ");
+  return `${hmmJoined} ${singleChars}`;
 }
 
 /**
@@ -45,10 +50,12 @@ export function tokenizeWithJieba(text: string): string {
  * @param query 查询词
  * @returns 分词结果数组（已过滤停用词）
  * 注意：如果所有 token 都是停用词，返回原始查询词（避免空结果）
+ * F20260902rcp1: 查询侧改 HMM 词典模式——单字模式（cut(x,false)）在
+ * @node-rs/jieba 2.x 下无词典参与，中文查询退化为全单字，区分度坍塌（Phase 0 根因1）。
  */
 export function tokenizeQuery(query: string): string[] {
   if (!query) return [];
-  const words = getJieba().cut(query, false);
+  const words = getJieba().cut(query, true);
   const filtered = words.filter(word => !STOP_WORDS.has(word));
   // 如果过滤后为空，返回原始分词结果（避免查询无结果）
   return filtered.length > 0 ? filtered : words;

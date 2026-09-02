@@ -104,7 +104,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     // F20260805hybrid: jieba 分词，支持中文短查询
     this.db.prepare(`
       INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)
-    `).run(entry.id, tokenizeWithJieba(entry.content));
+    `).run(entry.id, tokenizeWithJieba(entry.content, { doubleWrite: true }));
     this.db.prepare(`
       INSERT INTO memory_weights (memory_entry_id, retrieval_count, last_retrieved_at, user_flagged)
       VALUES (?, 0, NULL, 0)
