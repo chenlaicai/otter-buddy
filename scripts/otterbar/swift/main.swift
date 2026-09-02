@@ -26,21 +26,17 @@
 //
 // 编译：swiftc -O main.swift -framework AppKit -o otterbar-renderer-swift
 // 自检：otterbar-renderer-swift --selftest   （状态归并全矩阵断言，不碰 Touch Bar）
-// 键测：otterbar-renderer-swift --test-key volumeUp|volumeDown|escape
 //
-// 系统键（与 MTMR items 版对齐，macOS 26 实测定稿）：
-// - Esc：CGEvent key 53（实测可用）
-// - 音量：CoreAudio 公开 API 直设默认输出设备音量（实测可用；无 OSD 弹窗——合成
-//   NX_SYSDEFINED 媒体键在 macOS 26 被 HID 层静默丢弃，MTMR 的 IOKit 路线同样失效）
-// - 亮度：无公开 API（CoreDisplay 私有路线在 macOS 26 实测崩溃/无效）——本期不设亮度按钮
+// 系统键：不集成（搭档验收 22:24 决策）——Swift 端作为应用加入 bar 时，系统自带
+// 原生控制条（esc/音量/亮度）仍然可用，我们在 view 里再集成一遍是冗余。研究结论
+// 留档：合成媒体键在 macOS 26 被 HID 层静默丢弃，CoreAudio 直设可用（历史验证
+// 见 F20260902swft 首版验证表）。
 //
-// 编译：./build.sh（swiftc -O + DFRFoundation 私有框架 + CoreAudio）
+// 编译：./build.sh（swiftc -O + DFRFoundation 私有框架）
 // 运行：常驻，由 launchd 管理（scripts/launchd/com.otterbuddy.otterbar-renderer-swift.plist）
 
 import AppKit
-import CoreAudio
 import IOKit
-import IOKit.hidsystem
 
 // MARK: - 私有 API 桥（最小面，与 MTMR CBridge/TouchBarPrivateApi.h 一致）
 
@@ -141,82 +137,36 @@ func deriveState(_ model: DisplayModel) -> StatusRender {
     return StatusRender(kind: .sleeping, nonPrimary: nonPrimary)
 }
 
-// MARK: - 系统键事件（macOS 26 实测定稿）
-
-enum SystemKeys {
-    /// Esc：CGEvent key 53（MTMR GenericKeyPress 同款，实测可用）
-    static func postEscape() {
-        let src = CGEventSource(stateID: .hidSystemState)
-        let down = CGEvent(keyboardEventSource: src, virtualKey: 53, keyDown: true)
-        let up = CGEvent(keyboardEventSource: src, virtualKey: 53, keyDown: false)
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
-    }
-
-    // MARK: 音量：CoreAudio 直设默认输出设备（macOS 26 唯一实测有效路线）
-    // 注：合成 NX_SYSDEFINED 媒体键（MTMR IOKit 路线 + NSEvent 路线 + 3 种 tap 点）
-    // 在本机 macOS 26 全部被 HID 层静默丢弃；CoreAudio 直设实测生效（AppleScript
-    // 交叉验证），代价是无 OSD 弹窗动画——功能真实优先。
-
-    private static func defaultOutputDevice() -> AudioDeviceID? {
-        var id = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject),
-                                         &addr, 0, nil, &size, &id) == noErr else { return nil }
-        return id
-    }
-
-    private static func systemVolume() -> Float32? {
-        guard let dev = defaultOutputDevice() else { return nil }
-        var v = Float32(0)
-        var size = UInt32(MemoryLayout<Float32>.size)
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain)
-        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &v) == noErr else { return nil }
-        return v
-    }
-
-    private static func setSystemVolume(_ val: Float32) {
-        guard let dev = defaultOutputDevice() else { return }
-        var v = val
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMain)
-        _ = AudioObjectSetPropertyData(dev, &addr, 0, nil,
-                                       UInt32(MemoryLayout<Float32>.size), &v)
-    }
-
-    /// 步进量对齐硬件音量键（每按一次约 1/16 ≈ 6.25，取 0.0625 标度）
-    static func postVolumeUp() {
-        let cur = systemVolume() ?? 0
-        setSystemVolume(min(cur + 0.0625, 1.0))
-    }
-
-    static func postVolumeDown() {
-        let cur = systemVolume() ?? 0
-        setSystemVolume(max(cur - 0.0625, 0.0))
-    }
-}
-
 // MARK: - OtterView：常驻徽章 view，帧动画核心（局部重绘，不重建 bar）
 
+// OtterView v2 —— 方案 A「小海獭徽章」实现（设计獭-水獭 规格，F20260902swft）
+// 视觉语言：左侧 26pt 矢量海獭头像 + 状态环（颜色编码状态，动态编码活跃度）
+// → 中部数据区（大数字/点阵）→ 右侧会话名。0.5s 辨识链：颜色 → 环动态 → 数字。
+// 色板（黑底校准）：琥珀 #FFB454（等你）/ 青 #45D6BD（干活）/ 夜蓝 #6B7FA3（睡觉）/
+// 灰 #8E8E96（失联）/ 暗红 #C05A5A（心跳描边）/ 脸棕 #A9825F / 吻 #D8BE9F / 眼鼻 #2E2218
+
 final class OtterView: NSView {
-    override var intrinsicContentSize: NSSize { NSSize(width: 120, height: 30) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 160, height: 30) }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private(set) var status: StatusRender = StatusRender(kind: .sleeping, nonPrimary: false)
-    private var phase: TimeInterval = 0          // 动画相位（秒）
-    private let spinnerFrames: [String] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    private var phase: TimeInterval = 0
+    private var lastBlink: TimeInterval = 2.0     // 上次眨眼时刻
+    private var blinkUntil: TimeInterval = -1     // 眨眼闭眼截止时刻
+    private var nextBlinkAt: TimeInterval = 3.5   // 下次眨眼调度
+
+    // 色板
+    private let cAmber = NSColor(srgbRed: 1.0, green: 0.706, blue: 0.329, alpha: 1)
+    private let cTeal = NSColor(srgbRed: 0.271, green: 0.839, blue: 0.741, alpha: 1)
+    private let cNightBlue = NSColor(srgbRed: 0.420, green: 0.498, blue: 0.639, alpha: 1)
+    private let cGray = NSColor(srgbRed: 0.557, green: 0.557, blue: 0.588, alpha: 1)
+    private let cDarkRed = NSColor(srgbRed: 0.753, green: 0.353, blue: 0.353, alpha: 1)
+    private let cFur = NSColor(srgbRed: 0.663, green: 0.510, blue: 0.373, alpha: 1)
+    private let cMuzzle = NSColor(srgbRed: 0.847, green: 0.745, blue: 0.624, alpha: 1)
+    private let cEye = NSColor(srgbRed: 0.180, green: 0.133, blue: 0.094, alpha: 1)
 
     func update(_ new: StatusRender) {
-        if status != new { status = new }        // 文本变化由下一帧自然带出，仍只重绘本 view
+        if status != new { status = new }        // 变化由下一帧自然带出，仅重绘本 view
     }
 
     /// 12fps 帧推进：仅标记本 view 脏区 → Touch Bar server 局部合成，无 bar 级重载
@@ -225,86 +175,351 @@ final class OtterView: NSView {
         needsDisplay = true
     }
 
+    // MARK: 帧动画参数（全部正弦缓动，周期 ≥1.2s —— 12fps 下的优雅约束）
+
+    private func sin01(_ t: TimeInterval, period: Double) -> Double {
+        0.5 + 0.5 * sin(2 * .pi * Double(t) / period)
+    }
+
+    /// 眨眼调度：每 3.5s±0.8s 一次，闭眼 2 帧（~166ms）
+    private var eyesClosed: Bool {
+        let awake = !(status.kind == .sleeping || status.kind == .offline)
+        guard awake else { return true }
+        if blinkUntil > phase { return true }     // 闭眼窗口内
+        if phase >= nextBlinkAt {                 // 触发眨眼
+            blinkUntil = phase + 0.17
+            nextBlinkAt = phase + 3.5 + Double.random(in: -0.8...0.8)
+            return true
+        }
+        return false
+    }
+
+    // MARK: 绘制
+
     override func draw(_ dirtyRect: NSRect) {
         let t = phase
-        let sleeping = (status.kind == .sleeping)
-        let offline = (status.kind == .offline)
+        let kind = status.kind
+        let sleeping = kind == .sleeping
+        let offline = kind == .offline
 
-        // 海獭呼吸：字号正弦起伏（睡觉=深慢呼吸 4s/0.9pt；平时 3s/0.7pt；离线=弱呼吸+降透明度）
-        let period: Double = sleeping ? 4.0 : 3.0
-        let amp: Double = sleeping ? 0.9 : 0.7
-        let fontSize = 15.0 + amp * sin(2 * .pi * t / period)
-        let otterAlpha: CGFloat = offline ? 0.55 : 0.85 + 0.15 * CGFloat(sin(2 * .pi * t / period))
+        // ── 左：海獭头像 + 状态环（圆心 15,15，脸 r9，环 r12）──
+        let center = CGPoint(x: 15, y: 15)
+        drawStatusRing(center: center, t: t, kind: kind)
+        drawOtterFace(center: center, sleeping: sleeping, offline: offline,
+                      blink: eyesClosed, t: t)
+        if sleeping { drawZZ(center: center, t: t) }
+        if offline { drawBrokenHeart(center: CGPoint(x: 26, y: 22)) }
 
-        var segs: [(String, CGFloat, CGFloat)] = []   // (text, fontSize, alpha)
-        segs.append(("🦦", fontSize, otterAlpha))
-        if status.nonPrimary { segs.append((" ⚠️非主·", 12, 1)) }
+        // 混合态：右下青色角标（干活存在感）
+        if case .mixed = kind { drawTealCorner(center: center, t: t) }
 
-        switch status.kind {
-        case .offline:
-            segs.append(("🖤离线", 13, 1))
+        // ── 中+右：数据区 ──
+        let textX: CGFloat = 36
+        let textW = bounds.width - textX - 4
+        drawDataArea(x: textX, w: textW, kind: kind, nonPrimary: status.nonPrimary, t: t)
+    }
+
+    // 状态环
+    private func drawStatusRing(center: CGPoint, t: TimeInterval, kind: StatusRender.Kind) {
+        let rect = NSRect(x: center.x - 12, y: center.y - 12, width: 24, height: 24)
+        let path = NSBezierPath(ovalIn: rect)
+        path.lineCapStyle = .round
+
+        switch kind {
+        case .waiting, .mixed:
+            // 琥珀呼吸：环宽 1.8↔2.6pt + 透明度 0.65↔1.0 / 1.7s
+            let b = sin01(t, period: 1.7)
+            cAmber.withAlphaComponent(0.65 + 0.35 * CGFloat(b)).setStroke()
+            path.lineWidth = 1.8 + 0.8 * CGFloat(b)
+            path.stroke()
+        case .working:
+            // 青色单弧：弧长 160°↔300° 往复 / 2.8s + 慢旋转 80°/s（每帧 6.7°）
+            let grow = sin01(t, period: 2.8)
+            let sweep = 160.0 + 140.0 * grow
+            let start = -90.0 + (t * 80.0).truncatingRemainder(dividingBy: 360.0)
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: center, radius: 12,
+                          startAngle: start, endAngle: start + sweep)
+            arc.lineCapStyle = .round
+            cTeal.setStroke()
+            arc.lineWidth = 2.2
+            arc.stroke()
         case .sleeping:
-            // 💤 缓慢漂浮（±1.5pt 基线偏移，8s 周期）
-            segs.append((" 💤", 13, 1))
-        case .waiting(let count, let top):
-            // 🔴 脉冲：1s 周期透明度 0.5~1 + 计数上标
-            let pulse = CGFloat(0.5 + 0.5 * (0.5 + 0.5 * sin(2 * .pi * t)))
-            segs.append((" 🔴", 13, pulse))
-            segs.append((superscript(count), 9, pulse))
-            if !top.isEmpty { segs.append((" · \(prefix10(top))", 12, 1)) }
-        case .working(let convs, let otters):
-            segs.append((" \(spinner(at: t)) ⌨️\(convs)场\(otters)獭", 13, 1))
-        case .mixed(let count, let top, let convs, let otters):
-            let pulse = CGFloat(0.5 + 0.5 * (0.5 + 0.5 * sin(2 * .pi * t)))
-            segs.append((" 🔴", 13, pulse))
-            segs.append((superscript(count), 9, pulse))
-            segs.append((" \(spinner(at: t)) ⌨️\(convs)场\(otters)獭", 13, 1))
-            if !top.isEmpty { segs.append((" · \(prefix10(top))", 12, 1)) }
+            // 夜蓝极慢浮动：透明度 0.18↔0.28 / 9s（几乎静止——睡觉就要像睡觉）
+            let b = sin01(t, period: 9.0)
+            cNightBlue.withAlphaComponent(0.18 + 0.10 * CGFloat(b)).setStroke()
+            path.lineWidth = 1.6
+            path.stroke()
+        case .offline:
+            // 灰虚线静止
+            cGray.withAlphaComponent(0.5).setStroke()
+            path.setLineDash([3, 3], count: 2, phase: 0)
+            path.lineWidth = 1.5
+            path.stroke()
+        }
+    }
+
+    // 海獭脸 v2「海獭相」（设计獭规格）：扁宽脸+小贴耳+大扁鼻+白胡须+微笑弧
+    // 局部坐标系 26×26pt（原点左上、y 向下，映射到 view 时 y 翻转）
+    // 绘制顺序：耳（被脸盖下缘）→ 脸 → 吻 → 鼻 → 嘴 → 眼 → 胡须（永远最上层）
+    private let showWhiskers = true   // 真机保险丝：26pt 下糊则置 false 或降为 2 根
+
+    private func drawOtterFace(center: CGPoint, sleeping: Bool, offline: Bool, blink: Bool, t: TimeInterval) {
+        let ox = center.x - 13
+        let oy = center.y - 13
+        func rectC(_ cx: CGFloat, _ cy: CGFloat, _ w: CGFloat, _ h: CGFloat) -> NSRect {
+            NSRect(x: ox + cx - w / 2, y: oy + (26 - cy) - h / 2, width: w, height: h)
+        }
+        func pt(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+            NSPoint(x: ox + x, y: oy + (26 - y))
         }
 
-        let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor.white,
-            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-        ]
-        let full = NSMutableAttributedString()
-        for (text, size, alpha) in segs {
-            let p = NSMutableParagraphStyle()
-            p.alignment = .center
-            var a = attrs
-            a[.font] = NSFont.systemFont(ofSize: size, weight: .medium)
-            a[.foregroundColor] = NSColor.white.withAlphaComponent(alpha)
-            a[.paragraphStyle] = p
-            full.append(NSAttributedString(string: text, attributes: a))
+        // v2 色板：深棕脸 #8F6B4A / 浅吻 #E3C9A8（离线灰剪影）
+        let fur = offline ? cGray.withAlphaComponent(0.4)
+                          : NSColor(srgbRed: 0.561, green: 0.420, blue: 0.290, alpha: 1)
+        let muzzleC = offline ? cGray.withAlphaComponent(0.28)
+                              : NSColor(srgbRed: 0.890, green: 0.790, blue: 0.659, alpha: 1)
+        let inkC = offline ? NSColor(white: 0.23, alpha: 0.7) : cEye
+
+        // 耳：r1.3 小贴耳（先画，脸盖掉下缘只露小凸起——熊耳是「像熊」头号元凶）
+        for ex in [5.2, 20.8] {
+            let ear = NSBezierPath(ovalIn: rectC(ex, 5.2, 2.6, 2.6))
+            fur.setFill()
+            ear.fill()
         }
-        // 超宽截断（view 宽 120，对齐 MTMR width:120）
-        let maxWidth = bounds.width - 6
-        if full.size().width > maxWidth, let line = full.mutableCopy() as? NSMutableAttributedString {
-            while line.size().width > maxWidth - 12 && line.length > 1 {
-                line.deleteCharacters(in: NSRange(location: line.length - 1, length: 1))
+
+        // 脸：椭圆 21×19（宽>高=鼬科扁宽脸盘）
+        let face = NSBezierPath(ovalIn: rectC(13, 14.5, 21, 19))
+        fur.setFill()
+        face.fill()
+
+        // 吻/脸颊：椭圆 9.5×7 提亮（深头浅吻强对比）
+        let muzzle = NSBezierPath(ovalIn: rectC(13, 18, 9.5, 7))
+        muzzleC.setFill()
+        muzzle.fill()
+
+        // 鼻：横向大扁鼻 3.6×2.6（海獭最强辨识符号）
+        let nose = NSBezierPath(ovalIn: rectC(13, 15.8, 3.6, 2.6))
+        inkC.setFill()
+        nose.fill()
+
+        // 嘴：鼻下 2.8pt 微笑弧（温和感=伙伴人格）
+        let mouth = NSBezierPath()
+        mouth.move(to: pt(11.6, 18.4))
+        mouth.curve(to: pt(14.4, 18.4),
+                    controlPoint1: pt(12.3, 19.3),
+                    controlPoint2: pt(13.7, 19.3))
+        inkC.withAlphaComponent(0.85).setStroke()
+        mouth.lineWidth = 0.7
+        mouth.lineCapStyle = .round
+        mouth.stroke()
+
+        // 眼：r1.5 略小略拢（给大鼻和胡须让视觉权重）；闭眼=圆角横线
+        for ex in [8.8, 17.2] {
+            if sleeping || blink {
+                let line = NSBezierPath(roundedRect: rectC(ex, 12, 3.2, 1.5), xRadius: 0.75, yRadius: 0.75)
+                inkC.setFill()
+                line.fill()
+            } else {
+                let eye = NSBezierPath(ovalIn: rectC(ex, 12, 3.0, 3.0))
+                inkC.setFill()
+                eye.fill()
             }
-            line.append(NSAttributedString(string: "…", attributes: attrs))
-            full.setAttributedString(line)
         }
-        let size = full.size()
-        let textRect = NSRect(x: 3, y: (bounds.height - size.height) / 2,
-                              width: bounds.width - 6, height: size.height)
-        full.draw(in: textRect)
+
+        // 胡须：每侧 3 根白线（起点藏进吻部，黑底白须辨识度最高）
+        if showWhiskers && !offline {
+            NSColor.white.withAlphaComponent(0.6).setStroke()
+            let whiskerLen: CGFloat = 6.0
+            for side in [CGFloat(1), CGFloat(-1)] {
+                let baseX: CGFloat = 8.4 + (side > 0 ? 0 : 0) // 左侧起点 x（右侧镜像）
+                let anchor = side > 0 ? { (dx: CGFloat, dy: CGFloat) in NSPoint(x: baseX + dx, y: 17.8 + dy) }
+                                      : { (dx: CGFloat, dy: CGFloat) in NSPoint(x: 26 - baseX - dx, y: 17.8 + dy) }
+                let angles: [CGFloat] = [0, 14, -14]   // 中平/上斜/下斜（度）
+                for deg in angles {
+                    let rad = deg * .pi / 180 * side
+                    let x0 = anchor(0, 0).x
+                    let y0 = anchor(0, 0).y
+                    let x1 = x0 - whiskerLen * cos(rad) * side
+                    let y1 = y0 + whiskerLen * sin(rad)
+                    let w = NSBezierPath()
+                    w.move(to: pt(x0, y0))
+                    w.line(to: pt(x1, y1))
+                    w.lineWidth = 0.8
+                    w.lineCapStyle = .round
+                    w.stroke()
+                }
+            }
+        }
     }
 
-    private func spinner(at t: TimeInterval) -> String {
-        let idx = Int(t / 0.1) % spinnerFrames.count
-        return spinnerFrames[idx]
+    // zZ 上浮（双字，9/7pt，斜体），透明度 0→0.35→0 / 5s，相位差 2.5s
+    private func drawZZ(center: CGPoint, t: TimeInterval) {
+        for (i, size) in [9.0, 7.0].enumerated() {
+            let tt = t + Double(i) * 2.5
+            let cyc = (tt / 5.0).truncatingRemainder(dividingBy: 1.0)
+            let rise = cyc * 7.0
+            let alpha = sin(CGFloat(cyc) * .pi) * 0.35
+            let font = NSFontManager.shared.convert(
+                NSFont.systemFont(ofSize: CGFloat(size)), toHaveTrait: .italicFontMask)
+            let z = NSAttributedString(string: "z", attributes: [
+                .font: font,
+                .foregroundColor: NSColor.white.withAlphaComponent(alpha),
+            ])
+            let pt = NSPoint(x: center.x + 10 + CGFloat(i) * 5,
+                             y: center.y + 8 + CGFloat(rise) * 0.4)
+            z.draw(at: pt)
+        }
     }
 
-    private func prefix10(_ s: String) -> String { String(s.prefix(10)) }
-}
+    // 离线：矢量黑心（黑填充 + 暗红描边），透明度 0.5→0.8→0.5 / 4s——最后的心跳
+    private func drawBrokenHeart(center: CGPoint) {
+        let t = phase
+        let b = 0.5 + 0.5 * sin(2 * .pi * Double(t) / 4.0)
+        let alpha = 0.5 + 0.3 * CGFloat(b)
+        let w: CGFloat = 10, h: CGFloat = 9
+        let x = center.x - w / 2, y = center.y - h / 2
+        let path = NSBezierPath()
+        // 标准 cubic 心形：左瓣→右瓣→底尖
+        path.move(to: NSPoint(x: x + w * 0.5, y: y + h * 0.85))
+        path.curve(to: NSPoint(x: x, y: y + h * 0.35),
+                   controlPoint1: NSPoint(x: x + w * 0.18, y: y + h * 1.05),
+                   controlPoint2: NSPoint(x: x, y: y + h * 0.6))
+        path.curve(to: NSPoint(x: x + w * 0.5, y: y),
+                   controlPoint1: NSPoint(x: x, y: y + h * 0.12),
+                   controlPoint2: NSPoint(x: x + w * 0.28, y: y))
+        path.curve(to: NSPoint(x: x + w, y: y + h * 0.35),
+                   controlPoint1: NSPoint(x: x + w * 0.72, y: y),
+                   controlPoint2: NSPoint(x: x + w, y: y + h * 0.12))
+        path.curve(to: NSPoint(x: x + w * 0.5, y: y + h * 0.85),
+                   controlPoint1: NSPoint(x: x + w, y: y + h * 0.6),
+                   controlPoint2: NSPoint(x: x + w * 0.82, y: y + h * 1.05))
+        path.close()
+        NSColor.black.withAlphaComponent(alpha).setFill()
+        path.fill()
+        cDarkRed.withAlphaComponent(alpha).setStroke()
+        path.lineWidth = 1.0
+        path.stroke()
+    }
 
-private func superscript(_ n: Int) -> String {
-    let map = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"]
-    if n <= 0 { return map[0] }
-    var out = "", v = n
-    while v > 0 { out = map[v % 10] + out; v /= 10 }
-    return out
+    // 混合态：右下青色角标（r3.5 + 黑描边），透明度 0.7↔1.0 / 2.2s
+    private func drawTealCorner(center: CGPoint, t: TimeInterval) {
+        let b = sin01(t, period: 2.2)
+        let c = CGPoint(x: center.x + 8, y: center.y - 8)
+        let dot = NSBezierPath(ovalIn: NSRect(x: c.x - 3.5, y: c.y - 3.5, width: 7, height: 7))
+        cTeal.withAlphaComponent(0.7 + 0.3 * CGFloat(b)).setFill()
+        dot.fill()
+        NSColor.black.setStroke()
+        dot.lineWidth = 1.5
+        dot.stroke()
+    }
+
+    // 数据区：大数字 / 点阵 / 状态词 + 会话名
+    private func drawDataArea(x: CGFloat, w: CGFloat, kind: StatusRender.Kind,
+                              nonPrimary: Bool, t: TimeInterval) {
+        let midY = bounds.height / 2
+
+        // 非主前缀：琥珀描边胶囊「非主」+ 竖分隔线（宽度 30pt，从数据区左侧扣）
+        var cursorX = x
+        if nonPrimary {
+            drawNonPrimaryPill(x: cursorX, y: midY)
+            // 竖分隔线
+            let sep = NSBezierPath()
+            sep.move(to: NSPoint(x: cursorX + 32, y: midY - 7))
+            sep.line(to: NSPoint(x: cursorX + 32, y: midY + 7))
+            NSColor.white.withAlphaComponent(0.2).setStroke()
+            sep.lineWidth = 1
+            sep.stroke()
+            cursorX += 38
+        }
+
+        switch kind {
+        case .waiting(let count, let top), .mixed(let count, let top, _, _):
+            // 大数字 19pt mono semibold + 「条未读」9.5pt 白60% + 会话名右对齐
+            let numFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .semibold)
+            let num = NSAttributedString(string: "\(count)", attributes: [
+                .font: numFont, .foregroundColor: NSColor.white,
+            ])
+            let unit = NSAttributedString(string: " 条未读", attributes: [
+                .font: NSFont.systemFont(ofSize: 9.5),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.6),
+                .baselineOffset: 1.5,
+            ])
+            let line = NSMutableAttributedString(attributedString: num)
+            line.append(unit)
+            let lineSize = line.size()
+            line.draw(at: NSPoint(x: cursorX, y: midY - lineSize.height / 2))
+            // 会话名（右对齐，超宽截 6 字）
+            if !top.isEmpty {
+                let name = String(top.prefix(nonPrimary ? 4 : 6))
+                let nameAttr = NSAttributedString(string: name, attributes: [
+                    .font: NSFont.systemFont(ofSize: 10.5),
+                    .foregroundColor: NSColor.white.withAlphaComponent(0.65),
+                    .kern: 0.2,
+                ])
+                let ns = nameAttr.size()
+                let nx = x + w - ns.width
+                if nx > cursorX + lineSize.width + 8 {
+                    nameAttr.draw(at: NSPoint(x: nx, y: midY - ns.height / 2))
+                }
+            }
+        case .working(_, let otters):
+            // 点阵（1 点 = 1 獭，≤6，4pt 圆点间距 7pt，逐点脉冲波 0.45↔1.0 间隔 0.25s）+ n獭·m话
+            let n = min(otters, 6)
+            let dotStart = cursorX + 2
+            for i in 0..<n {
+                let wave = sin01(t - Double(i) * 0.25, period: 1.2)
+                let alpha = 0.45 + 0.55 * CGFloat(max(0, wave))
+                let dx = dotStart + CGFloat(i) * 7
+                let dot = NSBezierPath(ovalIn: NSRect(x: dx, y: midY - 2, width: 4, height: 4))
+                cTeal.withAlphaComponent(alpha).setFill()
+                dot.fill()
+            }
+            let textX2 = dotStart + CGFloat(n) * 7 + 6
+            if case .working(let convs, _) = kind {
+                let label = NSAttributedString(string: "\(otters)獭 · \(convs)话", attributes: [
+                    .font: NSFont.systemFont(ofSize: 10),
+                    .foregroundColor: NSColor.white.withAlphaComponent(0.75),
+                ])
+                let s = label.size()
+                if textX2 + s.width < x + w {
+                    label.draw(at: NSPoint(x: textX2, y: midY - s.height / 2))
+                }
+            }
+        case .sleeping:
+            let label = NSAttributedString(string: "睡了", attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.45),
+            ])
+            let s = label.size()
+            label.draw(at: NSPoint(x: cursorX, y: midY - s.height / 2))
+        case .offline:
+            let label = NSAttributedString(string: "失联", attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: cGray,
+            ])
+            let s = label.size()
+            label.draw(at: NSPoint(x: cursorX, y: midY - s.height / 2))
+        }
+    }
+
+    // 非主胶囊：琥珀描边圆角矩形 + 9.5pt 琥珀字
+    private func drawNonPrimaryPill(x: CGFloat, y: CGFloat) {
+        let pill = NSBezierPath(roundedRect: NSRect(x: x, y: y - 8, width: 28, height: 16),
+                                xRadius: 8, yRadius: 8)
+        cAmber.setStroke()
+        pill.lineWidth = 1
+        pill.stroke()
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: CGFloat(9.5)),
+            .foregroundColor: cAmber,
+        ]
+        let text = NSAttributedString(string: "非主", attributes: attrs)
+        let sw = text.size().width
+        let sh = text.size().height
+        let px = x + (28 - sw) / 2
+        text.draw(at: NSPoint(x: px, y: y - sh / 2))
+    }
 }
 
 // MARK: - Controller
@@ -371,51 +586,18 @@ final class BarController: NSObject, NSTouchBarDelegate {
         return item
     }
 
+    /// 徽章 view 独占 item（搭档验收 22:24：系统原生控制条仍在 bar 上，
+    /// 不再集成 esc/音量按钮；bar 布局留给美化迭代扩展）
     private func buildStack() -> NSView {
         let stack = NSStackView()
         stack.orientation = .horizontal
-        stack.spacing = 2
+        stack.spacing = 0
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 2, bottom: 0, right: 2)
 
         otterView.translatesAutoresizingMaskIntoConstraints = false
         stack.addView(otterView, in: .leading)
-
-        let esc = NSButton(title: "esc", target: self, action: #selector(tapEsc))
-        styleKey(esc)
-        stack.addView(esc, in: .trailing)
-
-        // 音量键（CoreAudio 直设，macOS 26 实测可用）；亮度键本期不设——无公开 API，
-        // 私有路线实测失败（详见特性文档），MTMR 载体同样只剩视觉件
-        for (symbol, action) in [
-            ("speaker.wave.1", #selector(tapVolumeDown)),
-            ("speaker.wave.3", #selector(tapVolumeUp)),
-        ] as [(String, Selector)] {
-            let b = NSButton()
-            if let img = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
-                b.image = img
-            } else {
-                b.title = symbol // 极端兜底：无 SF Symbol 环境显示文字
-            }
-            b.action = action
-            b.target = self
-            styleKey(b)
-            stack.addView(b, in: .trailing)
-        }
         return stack
     }
-
-    private func styleKey(_ b: NSButton) {
-        b.isBordered = false
-        b.bezelColor = .clear
-        b.imageScaling = .scaleProportionallyDown
-        b.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        b.translatesAutoresizingMaskIntoConstraints = false
-        b.widthAnchor.constraint(equalToConstant: 34).isActive = true
-    }
-
-    @objc private func tapEsc() { SystemKeys.postEscape() }
-    @objc private func tapVolumeUp() { SystemKeys.postVolumeUp() }
-    @objc private func tapVolumeDown() { SystemKeys.postVolumeDown() }
 
     // MARK: model 轮询（契约文件 2s 一读，仅文本 diff 时更新 view 状态）
 
@@ -495,8 +677,6 @@ enum Selftest {
                StatusRender(kind: .offline, nonPrimary: true))
         expect("unknownPrimary", deriveState(model(primary: "unknown")),
                StatusRender(kind: .sleeping, nonPrimary: false))
-        // 上标
-        assert(superscript(0) == "⁰" && superscript(10) == "¹⁰" && superscript(23) == "²³", "superscript broken")
         print(failed == 0 ? "SELFTEST PASS" : "SELFTEST FAIL (\(failed))")
         return failed == 0 ? 0 : 1
     }
@@ -506,15 +686,7 @@ enum Selftest {
 
 var args = CommandLine.arguments
 if args.contains("--selftest") { exit(Selftest.run()) }
-if let i = args.firstIndex(of: "--test-key"), i + 1 < args.count {
-    switch args[i + 1] {
-    case "escape": SystemKeys.postEscape()
-    case "volumeUp": SystemKeys.postVolumeUp()
-    case "volumeDown": SystemKeys.postVolumeDown()
-    default: print("unknown key (brightness not supported)"); exit(2)
-    }
-    exit(0)
-}
+
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)

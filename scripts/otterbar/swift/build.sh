@@ -9,6 +9,5 @@ swiftc -O main.swift \
   -framework AppKit \
   -F /System/Library/PrivateFrameworks \
   -framework DFRFoundation \
-  -framework CoreAudio \
   -o otterbar-renderer-swift
 echo "built: $(pwd)/otterbar-renderer-swift"
