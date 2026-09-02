@@ -60,6 +60,7 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/subscribe", (ctx) => c.message.subscribe(ctx));
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/conversations/:id/unread", (ctx) => c.message.getUnreadState(ctx));
+  app.get("/api/conversations/:id/signal-trail", (ctx) => c.message.getSignalTrail(ctx));
   app.post("/api/conversations/:id/read", (ctx) => c.message.markRead(ctx));
   app.get("/api/messages/:id", (ctx) => c.message.getById(ctx));
   app.get("/api/messages/:id/events", (ctx) => c.message.getEvents(ctx));

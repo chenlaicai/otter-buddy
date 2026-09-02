@@ -145,6 +145,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       signalEventRepo,
       attachmentInjection,
       signalRouter,
+      uc.querySignalTrail,
     ),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),

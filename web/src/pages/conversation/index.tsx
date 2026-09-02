@@ -4,6 +4,7 @@ import { PanelLeft, PanelRight } from 'lucide-react'
 import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalMessageSegment } from '../../lib/mappers'
+import type { TrailItem } from '../../lib/signal-trail'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { useSpeakSegments } from '../../lib/use-speak-segments'
 import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage } from '../../lib/message-stream'
@@ -311,6 +312,17 @@ function ConversationPage() {
 
   /** 静默刷新消息列表（轮询用，失败不打扰用户，下轮重试） */
   /** 增量刷新：只拉比当前最新消息更新的消息（after 游标），不触碰 prepend 的历史 */
+  /** 信号轨迹（F20260902u5tr）：服务端推导的投递状态；切会话播种 + 轮询刷新 */
+  const [trailItems, setTrailItems] = useState<TrailItem[]>([])
+  const refreshSignalTrail = useCallback(async (convId: string) => {
+    try {
+      const resp = await api.getSignalTrail(convId)
+      setTrailItems(resp.items as unknown as TrailItem[])
+    } catch {
+      // 轨迹是增强信息：失败静默，不影响主消息流
+    }
+  }, [])
+
   const refreshMessages = useCallback(async (convId: string) => {
     /** F20260825scrf 检视 S-1 修复：弹窗打开期间冻结——本函数直接 setAllMessages（绕过
      *  batcher defer），SSE onError 等调用点会驱动 scrim 背后像素变化。关窗后由轮询
@@ -432,7 +444,10 @@ function ConversationPage() {
     const scheduleNext = () => {
       timer = setTimeout(() => {
         void refreshMessages(activeId).finally(() => {
-          if (!cancelled) scheduleNext()
+          // F20260902u5tr：轨迹随轮询链刷新（排队→处理中→已处理的收敛在 2s 内可见）
+          void refreshSignalTrail(activeId).finally(() => {
+            if (!cancelled) scheduleNext()
+          })
         })
       }, 2000)
     }
@@ -441,7 +456,7 @@ function ConversationPage() {
     /** 依赖含 modalOpen（F20260825scrf 检视 S-1）：关窗时无条件重跑恢复轮询链——
      *  否则"弹窗期播种被跳 + 关窗 flush 无暂存"时 allMessages 不变，effect 不重跑，
      *  in-flight 续看断链 */
-  }, [activeId, allMessages, refreshMessages, modalOpen])
+  }, [activeId, allMessages, refreshMessages, refreshSignalTrail, modalOpen])
 
   /** 订阅消息广播（支持飞书消息实时同步到 Web，含 agent streaming 事件） */
   useEffect(() => {
@@ -1392,7 +1407,7 @@ function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} trailItems={trailItems} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"

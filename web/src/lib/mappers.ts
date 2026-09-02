@@ -98,6 +98,8 @@ export interface LocalMessage {
   segments?: LocalMessageSegment[]
   /** 消息关联信号（F20260826mwrd C4 徽章）；历史消息可能无此字段 */
   signals?: LocalMessageSignal[]
+  /** 发言石目标（F20260902u5tr：信号轨迹判定用）；乐观消息/SSE 实时消息无此字段 */
+  tsp?: string[] | null
   /** 多模态 Phase 1：随消息携带的附件 */
   atts?: LocalAttachment[]
 }
@@ -168,6 +170,8 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     ctx: dto.ctx,
     ctxMax: dto.ctxMax,
     turnId: dto.turnId,
+    // F20260902u5tr：发言石目标透出（信号轨迹判定）
+    tsp: dto.tsp,
     src: dto.src as 'web' | 'feishu' | undefined,
     // F-multi-speak-bubble: 历史消息分段数据
     segments: dto.segments,

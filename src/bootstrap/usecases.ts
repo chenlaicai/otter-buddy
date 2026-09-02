@@ -19,6 +19,7 @@ import { SendMessage } from "@usecases/conversation/send-message";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
+import { QuerySignalTrail } from "@usecases/conversation/query-signal-trail";
 import { ManageParticipant } from "@usecases/conversation/manage-participant";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import { QueryOtter } from "@usecases/otter/query-otter";
@@ -53,6 +54,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
   const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, queryMessage, logger);
   const manageReadState = new ManageReadState(repos.conversation);
+  // 信号轨迹查询（F20260902u5tr）：读路径只依赖 conversation repo + queryMessage
+  const querySignalTrail = new QuerySignalTrail({ conversationRepo: repos.conversation, queryMessage });
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);
@@ -72,6 +75,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   return {
     manageConversation, manageMemory, manageTerminology, searchMemory, scanDarkEntries,
     sendMessage, queryMessage, manageReadState, manageParticipant, manageKeyInfo, recordSearchQuery,
+    querySignalTrail,
     queryOtter, createOtter, manageSession, dissolveOtter, manageContext,
     manageScheduledTask, manageConnection,
     createEdge, getRelated, deleteEdge, getDocProvenance,
