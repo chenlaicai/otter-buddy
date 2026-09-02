@@ -562,3 +562,33 @@ describe("RHI API 错误路径状态码（#581：废除守门人 200+error，cat
     expect(body.error).toBe("invalid date range");
   });
 });
+
+/** Issue #636 B5 防回归（检视獭-甲审视建议，PR #715 处置）：信号中文标签真相源锁定。
+ *  独立 describe：主 describe 已贴近 max-lines-per-function(300) 限额（见文件头注释）。
+ *  锁定目标：controller 曾有本地 9 类映射落后 registry 10 类（#645 snapshot_shift 缺席）——
+ *  若未来回退为本地映射或裸 type 回退，此断言即红。断言用字面中文名（用户可见契约）而非引用
+ *  registry 常量，防止「测试与实现同源共漂移」。 */
+describe("RHI signals 标签真相源（#636 B5 防回归）", () => {
+  let db: Database.Database;
+  let signalRepo: SignalRepository;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    signalRepo = new SignalRepository(db);
+  });
+
+  it("snapshot_shift 标签取自 SIGNAL_REGISTRY 而非本地映射/裸 type 回退", async () => {
+    signalRepo.upsert({ signalType: "snapshot_shift", severity: "warning", featureId: null, filePath: null, evidence: "e", suggestedAction: "s" });
+    const worker = {
+      buildChainsOnce: vi.fn(async () => []),
+      scanOnce: vi.fn(),
+    } as unknown as RhiScanWorker;
+    const controller = new RhiController(new HealthSnapshotRepository(db), signalRepo, worker, console as never);
+
+    const res = await controller.signals(makeCtx());
+    const body = await res.json() as { signals: Array<{ signalTypeLabel: string }> };
+    expect(body.signals[0]!.signalTypeLabel).toBe("健康分环比骤变");
+  });
+});
