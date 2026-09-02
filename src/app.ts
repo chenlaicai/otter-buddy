@@ -22,6 +22,7 @@ import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
+import { SignalRouter } from "@usecases/conversation/signal-router";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
 import {
@@ -284,8 +285,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     : undefined;
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
+
+  // ── F20260901sgpv P1：信号路由器（调度收敛；agentInvoker 诞生后装配，闭包捕获）──
+  const signalRouter = new SignalRouter({
+    conversationRepo: repos.conversation,
+    queryMessage: uc.queryMessage,
+    queryOtter: uc.queryOtter,
+    dispatchChainEngine,
+    invokeFn: (params) => agentInvoker.invokeConversation(params),
+    logger,
+    healingRepo: repos.healingEvent,
+  });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
-    await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
+    await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster, signalRouter });
 
   // ── 微信 web 登录（issue #566）：零配置可用 ──
   // config 无 weixin 段时也能发起扫码（登录会话用默认网关 + 默认 stateDir）；
@@ -410,13 +422,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     },
     // 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态）
     registry,
+    // F20260901sgpv P1：信号路由器（主入口换轨）
+    signalRouter,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   if (feishu) {
-    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry });
+    setupFeishu({ appConfig: config, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter });
   }
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
@@ -438,6 +452,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
     // #613：服务重启事件落 healing 台账（观测层闭环，severity 按中断发言数分级）
     healingRepo: repos.healingEvent,
+    // F20260901sgpv P1：启动补扫含信号补路由（崩溃窗口兑底）
+    signalRouter,
   });
   if (options.startResume ?? true) {
     // fire-and-forget：resume 内部自带延迟，不阻塞也不吞启动错误

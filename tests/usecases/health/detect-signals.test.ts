@@ -479,3 +479,148 @@ describe("Issue #645：behavior_defect 窗口化", () => {
   });
 
 });
+
+describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
+  // 语义锚点（与 issue 文本的口径差异留痕）：issue #660 第三项「降序（聚类优先）」源自
+  // PR #656（未合入实现）的「信号按窗口内次数降序」；main 合入的 #658 实际语义是
+  // 「同型事件按 createdAt 升序聚合，evidence 报最早~最晚」（F20260901rhdet §② 明文），
+  // 无跨类型密度排序。本组用例锁定 #658 合入版契约，密度排序属特性变更不在本 issue 范围。
+
+  it("混合时间分布：12 天前×2 与窗口内×3 交错 → 只计窗口内 3 次触发", () => {
+    // Why 交错：现有用例的窗口外事件是成组排列的，未覆盖乱序输入下窗口过滤的正确性
+    const events = [
+      healingEvent("a", "tool_failure", 12), // 窗口外
+      healingEvent("b", "tool_failure", 1),  // 窗口内（最晚）
+      healingEvent("c", "tool_failure", 12), // 窗口外
+      healingEvent("d", "tool_failure", 3),  // 窗口内
+      healingEvent("e", "tool_failure", 6),  // 窗口内（最早）
+    ];
+    const signals = detectSignals([], [], events, { now: NOW });
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    expect(bd!.evidence).toContain("7 天内复发 3 次"); // 窗口外 2 次不抬计数（全计入则 5 次）
+    expect(bd!.evidence).not.toContain("5 次");
+    // 日期范围只含窗口内最早~最晚；窗口外日期（12 天前）不出现
+    expect(bd!.evidence).toContain(`${dayAgo(6).slice(0, 10)} ~ ${dayAgo(1).slice(0, 10)}`);
+    expect(bd!.evidence).not.toContain(dayAgo(12).slice(0, 10));
+  });
+
+  it("混合时间分布（负例）：窗口外交错 + 窗口内仅 2 次 → 不触发", () => {
+    // 全量 4 次超阈值，但交错分布下窗口内只有 2 次——窗口化对乱序输入同样成立
+    const events = [
+      healingEvent("a", "degenerate", 12),
+      healingEvent("b", "degenerate", 1),
+      healingEvent("c", "degenerate", 12),
+      healingEvent("d", "degenerate", 5),
+    ];
+    expect(detectSignals([], [], events, { now: NOW }).find(s => s.type === "behavior_defect"))
+      .toBeUndefined();
+  });
+
+  it("多 errorType 交错独立计数：各型均不足 → 不触发；各型均足 → 两条独立信号", () => {
+    // 负例：三型交错各有 1-2 次，任何一型都不该触发；若跨型合并会计 5 次 → 误报
+    const mixed = [
+      healingEvent("a", "tool_failure", 1),
+      healingEvent("b", "degenerate", 2),
+      healingEvent("c", "circuit_break", 3),
+      healingEvent("d", "tool_failure", 5),
+      healingEvent("e", "degenerate", 6),
+    ];
+    expect(detectSignals([], [], mixed, { now: NOW }).find(s => s.type === "behavior_defect"))
+      .toBeUndefined();
+
+    // 正例：两型各自 ≥3 次且时间交错 → 两条信号独立触发，互不合并也不互抬计数
+    const both = [
+      healingEvent("x1", "degenerate", 1),
+      healingEvent("x2", "degenerate", 2),
+      healingEvent("x3", "degenerate", 3),
+      healingEvent("y1", "circuit_break", 1),
+      healingEvent("y2", "circuit_break", 4),
+      healingEvent("y3", "circuit_break", 6),
+    ];
+    const bds = detectSignals([], [], both, { now: NOW }).filter(s => s.type === "behavior_defect");
+    expect(bds).toHaveLength(2);
+    expect(bds.every(s => s.evidence.includes("复发 3 次"))).toBe(true); // 不互抬
+    expect(bds.some(s => s.evidence.includes("degenerate"))).toBe(true);
+    expect(bds.some(s => s.evidence.includes("circuit_break"))).toBe(true);
+  });
+
+  it("多信号类型共存互不干扰：bug_recurrence + chain_stall + behavior_defect 同场各自触发", () => {
+    const commits = [
+      commit("s1", 20, "[F20260801mx66][agent][New Feature] x", ["src/stall.ts"]),
+      commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/invoker.ts"]),
+      commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/invoker.ts"]),
+      commit("b3", 9, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/invoker.ts"]),
+    ];
+    const docs = [{
+      id: "F20260801mx66", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/mx66.md", createdAt: dayAgo(40), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    const events = [
+      healingEvent("h1", "tool_failure", 5),
+      healingEvent("h2", "tool_failure", 3),
+      healingEvent("h3", "tool_failure", 1),
+    ];
+    const signals = detectSignals(commits, chains, events, { now: NOW });
+
+    const rec = signals.find(s => s.type === "bug_recurrence");
+    expect(rec).toBeDefined();
+    expect(rec!.evidence).toContain("3 次"); // 计数不被 healing 事件抬高
+    const stall = signals.find(s => s.type === "chain_stall");
+    expect(stall).toBeDefined();
+    expect(stall!.featureId).toBe("F20260801mx66"); // 判定不被 healing/commit 混入干扰
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    expect(bd!.evidence).toContain("3 次"); // 计数不被 commit 抬高
+  });
+
+  it("聚合按时间升序（#658 合入版契约）：新→旧乱序输入 → evidence 范围为窗口内最早~最晚", () => {
+    // Why：既有「聚合按时间排序」用例的输入恰好是旧→新顺序，不排序也能通过——
+    // 本用例用新→旧乱序输入真正锁定排序行为（乱序时 first/last 会取错端点）
+    const events = [
+      healingEvent("new", "degenerate", 0.5),  // 窗口内最晚
+      healingEvent("mid", "degenerate", 3),
+      healingEvent("old", "degenerate", 6),    // 窗口内最早
+      healingEvent("far", "degenerate", 12),   // 窗口外
+    ];
+    const signals = detectSignals([], [], events, { now: NOW });
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    const earliest = dayAgo(6).slice(0, 10);
+    const latest = dayAgo(0.5).slice(0, 10);
+    // 升序契约：范围端点 = 最早在前、最晚在后；按输入顺序（新→旧）聚合会反向
+    expect(bd!.evidence.indexOf(earliest)).toBeLessThan(bd!.evidence.indexOf(latest));
+    expect(bd!.evidence).not.toContain(dayAgo(12).slice(0, 10)); // 窗口外不进范围
+  });
+
+  it("7 天窗口恰含边界：窗口起点同刻事件计入（>= 语义，degenerate 型）", () => {
+    const boundary = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const events = [
+      { ...healingEvent("b0", "degenerate"), createdAt: boundary }, // 恰在窗口起点
+      healingEvent("b1", "degenerate", 2),
+      healingEvent("b2", "degenerate", 4),
+    ];
+    const signals = detectSignals([], [], events, { now: NOW });
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    expect(bd!.evidence).toContain("复发 3 次"); // 边界点计入（排除则仅 2 次不触发）
+  });
+
+  it("7 天窗口恰排除边界：窗口起点 -1ms 不计入（circuit_break 型）", () => {
+    const justOut = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000 - 1).toISOString();
+    const events = [
+      { ...healingEvent("j0", "circuit_break"), createdAt: justOut }, // 恰在窗口起点之前 1ms
+      healingEvent("j1", "circuit_break", 2),
+      healingEvent("j2", "circuit_break", 4),
+      healingEvent("j3", "circuit_break", 5),
+    ];
+    const signals = detectSignals([], [], events, { now: NOW });
+    const bd = signals.find(s => s.type === "behavior_defect");
+    expect(bd).toBeDefined();
+    // 窗口内 3 次触发，恰排除事件不计入（计入则 4 次）
+    expect(bd!.evidence).toContain("复发 3 次");
+    expect(bd!.evidence).not.toContain("4 次");
+  });
+});
