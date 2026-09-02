@@ -122,6 +122,10 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
   logger.info('Rebuilding attachments table to widen kind CHECK constraint (add audio/video)');
   // 与 rebuildDocumentTablesDropCheck 同模式：DROP+RENAME 必须事务内完成——
   // 裸 exec 在 DROP 成功后、RENAME 前进程中断会永久丢失 attachments 表（检视发现 1）。
+  // FK 修复：message_attachments.attachment_id 引用 attachments(id)，存量有数据时
+  // DROP TABLE attachments 触发 FOREIGN KEY constraint failed。
+  // PRAGMA foreign_keys 不能在事务内切换，须在事务外关闭、事务后恢复。
+  db.pragma("foreign_keys = OFF");
   const rebuild = db.transaction(() => {
     db.exec(`
       CREATE TABLE attachments_new (
@@ -147,6 +151,7 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
     `);
   });
   rebuild();
+  db.pragma("foreign_keys = ON");
   logger.info('attachments kind CHECK widened: audio/video now accepted');
 }
 
