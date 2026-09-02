@@ -140,6 +140,46 @@ def structured_error(context: str, exc: Exception) -> dict:
     }
 
 
+def _normalize(obj):
+    """NaN/Inf → None（合法 JSON）。模块级供 main 与测试共用（F20260902ssfb）。"""
+    if isinstance(obj, float) and (obj != obj or obj in (float("inf"), float("-inf"))):
+        return None
+    if isinstance(obj, dict):
+        return {k: _normalize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_normalize(x) for x in obj]
+    return obj
+
+
+# 测试访问句柄（main 内部直接用 _normalize，测试经此公共名访问）
+_normalize_public = _normalize
+
+
+def fetch_baidu_valuation(ak, code: str, errors: list) -> dict | None:
+    """百度估值备源（非东财域）：PE-TTM/市净率 + 近三年分位。
+    为什么需要备源：2026-09-01 起东财行情域名持续拒连，overview 双接口（info+quote）
+    同域全挂；百度源实测健康且带三年历史可算分位（同港股 hvaluation 的数据源）。
+    无任何指标成功时返回 None，由调用方决定报错结构。"""
+    indicators = {}
+    for indicator, label in [("市盈率(TTM)", "pe_ttm"), ("市净率", "pb")]:
+        try:
+            df = ak.stock_zh_valuation_baidu(symbol=code, indicator=indicator, period="近三年")
+            if df is not None and not df.empty:
+                values = df["value"].astype(float)
+                current = float(values.iloc[-1])
+                percentile = round(float((values <= current).sum() / len(values) * 100), 1)
+                indicators[label] = {
+                    "current": round(current, 2),
+                    "three_year_min": round(float(values.min()), 2),
+                    "three_year_max": round(float(values.max()), 2),
+                    "percentile": percentile,
+                    "data_date": str(df["date"].iloc[-1]),
+                }
+        except Exception as e:
+            errors.append(f"baidu_{label}: {type(e).__name__}: {str(e)[:200]}")
+    return indicators if indicators else None
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -157,6 +197,9 @@ def cmd_kline(args) -> dict:
     def fetch():
         end = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=days + 30)).strftime("%Y%m%d")  # extra days for holidays
+        df = None
+        source = None
+        errors: list[str] = []
         try:
             df = ak.stock_zh_a_hist(
                 symbol=code,
@@ -166,11 +209,32 @@ def cmd_kline(args) -> dict:
                 adjust=adjust,
                 timeout=15,
             )
+            if df is not None and not df.empty:
+                source = "eastmoney"
         except Exception as e:
-            return structured_error(f"stock_zh_a_hist({code})", e)
+            errors.append(f"eastmoney: {type(e).__name__}: {str(e)[:200]}")
+
+        # 备源：新浪日 K（2026-09-01 起东财行情域名持续拒连的兜底；volume 量纲为股，东财为手）
+        if df is None or df.empty:
+            try:
+                sina_symbol = ("sh" if code.startswith(("6", "9")) else "sz") + code
+                df = ak.stock_zh_a_daily(
+                    symbol=sina_symbol,
+                    start_date=start,
+                    end_date=end,
+                    adjust=adjust if adjust else "",
+                )
+                if df is not None and not df.empty:
+                    source = "sina"
+            except Exception as e:
+                errors.append(f"sina: {type(e).__name__}: {str(e)[:200]}")
 
         if df is None or df.empty:
-            return {"error": f"No kline data for {code}", "code": code}
+            return {
+                "error": f"kline all sources failed for {code}",
+                "sources": errors,
+                "suggestion": "Run 'selftest' command to diagnose: python scripts/stock-cli.py selftest",
+            }
 
         # Standardize column names
         col_map = {
@@ -188,6 +252,14 @@ def cmd_kline(args) -> dict:
         }
         df = df.rename(columns=col_map)
 
+        # 新浪备源列名已是英文（rename 对其无操作），补算东财有而新浪无的列；
+        # 首行 close_prev 为 NaN，补算列为 NaN 时 stats/JSON 层需容忍
+        if source == "sina":
+            df["close_prev"] = df["close"].shift(1)
+            df["change"] = df["close"] - df["close_prev"]
+            df["change_pct"] = (df["change"] / df["close_prev"] * 100).round(2)
+            df["amplitude"] = ((df["high"] - df["low"]) / df["close_prev"] * 100).round(2)
+
         # Take last N trading days
         df = df.tail(days).reset_index(drop=True)
 
@@ -198,7 +270,7 @@ def cmd_kline(args) -> dict:
                 for k, v in r.items():
                     if hasattr(v, "item"):
                         r[k] = v.item()
-            return {"code": code, "adjust": adjust, "count": len(records), "data": records}
+            return {"code": code, "adjust": adjust, "source": source, "count": len(records), "data": records}
 
         # Summary mode: last 30 trading days + stats
         summary_df = df.tail(30).reset_index(drop=True)
@@ -252,6 +324,7 @@ def cmd_kline(args) -> dict:
         return {
             "code": code,
             "adjust": adjust,
+            "source": source,
             "summary_days": len(ohlcv),
             "ohlcv": ohlcv,
             "stats": stats,
@@ -305,7 +378,12 @@ def cmd_overview(args) -> dict:
         if errors:
             result["warnings"] = errors
 
+        # 备源：百度估值（东财双接口全挂时兜底，非东财域）
         if "basic_info" not in result and "quote" not in result:
+            valuation = fetch_baidu_valuation(ak, code, errors)
+            if valuation is not None:
+                result["valuation"] = valuation
+                return result
             return structured_error(f"No overview data for {code}", Exception("; ".join(errors)))
 
         return result
@@ -921,7 +999,10 @@ def main():
 
     try:
         result = handler(args)
-        print(json.dumps(result, ensure_ascii=False, default=str))
+        # Why: akshare 返回的 NaN/Inf 经 json.dumps 默认输出非标准 JSON 字面量，
+        # JS JSON.parse 拒收——MCP 包装层报「输出非 JSON」（finance 命令在 2026-09-02
+        # 持续触发）。模块级 _normalize 把 NaN/Inf 转 null；allow_nan=False 作保险丝。
+        print(json.dumps(_normalize(result), ensure_ascii=False, default=str, allow_nan=False))
         # Non-zero exit when result contains error (LLM callers rely on exit code)
         # Also check selftest's error count — partial failure is still failure
         has_error = False

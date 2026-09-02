@@ -54,8 +54,8 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
   const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, queryMessage, logger);
   const manageReadState = new ManageReadState(repos.conversation);
-  // 信号轨迹查询（F20260902u5tr）：读路径只依赖 conversation repo + queryMessage
-  const querySignalTrail = new QuerySignalTrail({ conversationRepo: repos.conversation, queryMessage });
+  // 信号轨迹查询（F20260902u5tr → sgp2 S1b）：判据切台账（dispatch_attempts），可选注入降级 PENDING
+  const querySignalTrail = new QuerySignalTrail({ conversationRepo: repos.conversation, queryMessage, dispatchAttemptRepo: repos.dispatchAttempt });
   const manageParticipant = new ManageParticipant(repos.conversation, repos.otter, otterConfigProvider);
   const manageKeyInfo = new ManageKeyInfo(repos.conversation, memoryIndex);
   const queryOtter = new QueryOtter(repos.otter);

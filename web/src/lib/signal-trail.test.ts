@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
- * signal-trail 纯函数测试（F20260902u5tr）：信号判据 + 状态盒措辞约束。
+ * signal-trail 纯函数测试（F20260902u5tr → sgp2 S1b 四态）：信号判据 + 状态盒措辞约束。
  * 措辞约束是 #695 裁决固化项——回归守护：
  * - PENDING 只说「排队待消化」，禁止出现「正在忙」
  * - 不显示队列位置
+ * - FAILED 显「处理失败」+ note（失败可见 = S1b 验收③）
  */
 import { describe, it, expect } from 'vitest'
 import { isSignalMessage, trailStateMeta, trailLevelMeta, type TrailItem } from './signal-trail'
@@ -35,7 +36,7 @@ describe('isSignalMessage', () => {
 
 describe('trailStateMeta 措辞约束', () => {
   const cases: Array<[TrailItem['state'], string]> = [
-    ['PENDING', 'NORMAL'], ['CONSUMING', 'NORMAL'], ['CONSUMED', 'NORMAL'],
+    ['PENDING', 'NORMAL'], ['CONSUMING', 'NORMAL'], ['CONSUMED', 'NORMAL'], ['FAILED', 'NORMAL'],
     ['PENDING', 'URGENT'], ['PENDING', 'HALT'],
   ]
   it.each(cases)('state=%s level=%s 不出现「正在忙」', (state, level) => {
@@ -49,9 +50,19 @@ describe('trailStateMeta 措辞约束', () => {
     expect(trailStateMeta('PENDING', 'HALT').cls).toContain('red')
     expect(trailStateMeta('PENDING', 'NORMAL').cls).toContain('amber')
   })
-  it('CONSUMED = 已处理；CONSUMING = 处理中', () => {
+  it('CONSUMED = 已处理；CONSUMING = 处理中；FAILED = 处理失败（note 入 title）', () => {
     expect(trailStateMeta('CONSUMED', 'NORMAL').label).toBe('已处理')
     expect(trailStateMeta('CONSUMING', 'NORMAL').label).toBe('处理中')
+    const failed = trailStateMeta('FAILED', 'NORMAL', 'tool timeout; prev=failed: db locked')
+    expect(failed.label).toBe('处理失败')
+    expect(failed.title).toContain('tool timeout')
+    expect(failed.title).toContain('prev=failed')
+  })
+  it('FAILED 无 note 时 title 仍成立（不显示 undefined）', () => {
+    const meta = trailStateMeta('FAILED', 'URGENT', null)
+    expect(meta.label).toBe('处理失败')
+    expect(meta.title).not.toContain('undefined')
+    expect(meta.title).toContain('URGENT')
   })
 })
 

@@ -14,12 +14,13 @@ export function SignalTrailChip({ items, otters }: { items: TrailItem[]; otters:
   const [open, setOpen] = useState(false)
   if (items.length === 0) return null
 
-  // 汇总态：任一 CONSUMING 显处理中；否则任一 PENDING 显排队；全 CONSUMED 显已处理
-  const summary = items.some(i => i.state === 'CONSUMING')
-    ? trailStateMeta('CONSUMING', items[0].level)
-    : items.some(i => i.state === 'PENDING')
-      ? trailStateMeta('PENDING', items[0]?.level ?? 'NORMAL')
-      : trailStateMeta('CONSUMED', items[0].level)
+  // 汇总态优先级：FAILED > CONSUMING > PENDING > CONSUMED（最需要用户注意的态优先；
+  // 失败不可被其它目标正常态掩盖——失败可见是 S1b 验收③）
+  const worst = items.find(i => i.state === 'FAILED') ?? items.find(i => i.state === 'CONSUMING')
+    ?? items.find(i => i.state === 'PENDING')
+  const summary = worst
+    ? trailStateMeta(worst.state, worst.level, worst.note)
+    : trailStateMeta('CONSUMED', items[0].level)
 
   return (
     <div className="my-1 text-xs" data-testid="signal-trail">
@@ -37,7 +38,7 @@ export function SignalTrailChip({ items, otters }: { items: TrailItem[]; otters:
       {open && (
         <div className="mt-1 max-w-md rounded-xl border border-stone-200 bg-white/80 px-3 py-2 leading-relaxed text-stone-600 space-y-1">
           {items.map(i => {
-            const meta = trailStateMeta(i.state, i.level)
+            const meta = trailStateMeta(i.state, i.level, i.note)
             const lv = trailLevelMeta(i.level)
             const targetName = otters.find(o => o.id === i.targetOtterId)?.name ?? i.targetOtterId.slice(0, 8)
             const fromName = i.fromType === 'user' ? '用户' : (otters.find(o => o.id === i.fromId)?.name ?? i.fromId.slice(0, 8))

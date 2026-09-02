@@ -203,11 +203,15 @@ function ImPage() {
 
   return (
     <AppLayout activeView="im">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Why: max-w-6xl —— 双列布局需要更宽画布；4xl 下两卡并排会挤压二维码可读性 */}
+      <div className="max-w-6xl w-full mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold text-stone-800 mb-6">IM 总览</h1>
 
+        {/* Why: 微信/飞书双列并排 —— 两条平级 IM，单列堆叠浪费纵向空间且撞破视口（搭档 2026-09-02 反馈，F20260902imsc）。
+            items-start：卡高不一致时短卡不拉伸填高；lg 以下回落单列（窄屏并排会挤压二维码） */}
+        <div className="grid gap-6 lg:grid-cols-2 items-start mb-6">
         {/* 微信卡片 */}
-        <div className="glass-card rounded-2xl p-6 mb-6">
+        <div className="glass-card rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-stone-800">微信</h2>
@@ -275,8 +279,8 @@ function ImPage() {
           <QRCodeLoginCard onLoginSuccess={() => { loadWeixinAccounts(); loadChannelStatus() }} />
         </div>
 
-        {/* 飞书卡片 */}
-        <div className="glass-card rounded-2xl p-6 mb-6">
+        {/* 飞书卡片（与微信并排，见上方 grid Why 注释） */}
+        <div className="glass-card rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-stone-800">飞书</h2>
@@ -315,8 +319,9 @@ function ImPage() {
             </p>
           )}
         </div>
+        </div>
 
-        {/* 会话大厅卡片 */}
+        {/* 会话大厅卡片：占满整行 —— 连接数可增长，是主要工作区，不与通道卡挤同一列 */}
         <div className="glass-card rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-stone-800">IM 大厅</h2>
@@ -387,7 +392,8 @@ function ImPage() {
               <p className="text-xs mt-1">点击"新建连接"开始</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              {/* Why: 连接卡片双列 —— 单列罗列浪费横向空间（搭档 2026-09-02 反馈） */}
               {connections.map(conn => (
                 <div key={conn.id} className="glass-card rounded-2xl overflow-hidden">
                   <div className="p-4">

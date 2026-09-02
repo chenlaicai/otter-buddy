@@ -1,6 +1,9 @@
 /**
- * QuerySignalTrail 单元测试（真 sqlite，F20260902u5tr）。
- * 三态判定 + 信号判据边界 + 游标缺省降级，全部对真 DB 断言。
+ * QuerySignalTrail 单元测试（真 sqlite，F20260902u5tr → sgp2 S1b 判据切台账）。
+ * 四态判定全部对真 DB 断言（rbsg 教训：禁 mock 判据路径）。
+ *
+ * 判据真相源 = dispatch_attempts 台账（SqliteDispatchAttemptRepo），记账走生产路径
+ * recordStart/recordFinish——与链引擎插桩同一写入口，不用手写 INSERT 造账。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
@@ -8,6 +11,8 @@ import { QuerySignalTrail } from "@usecases/conversation/query-signal-trail";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+import { SqliteDispatchAttemptRepo } from "@frameworks/db/conversation/sqlite-dispatch-attempt-repo";
+import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
 import type { Conversation, Turn, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { createTestDb } from "../../helpers/db";
@@ -20,10 +25,11 @@ function otterFixture(id: string, name: string): Otter {
   };
 }
 
-describe("QuerySignalTrail（真 sqlite）", () => {
+describe("QuerySignalTrail（真 sqlite，台账判据）", () => {
   let db: Database.Database;
   let repo: SqliteConversationRepository;
   let otterRepo: SqliteOtterRepository;
+  let attemptRepo: SqliteDispatchAttemptRepo;
   let trail: QuerySignalTrail;
   let turnSeq = 0;
 
@@ -32,9 +38,11 @@ describe("QuerySignalTrail（真 sqlite）", () => {
     db = createTestDb();
     repo = new SqliteConversationRepository(db);
     otterRepo = new SqliteOtterRepository(db);
+    attemptRepo = new SqliteDispatchAttemptRepo(db);
     trail = new QuerySignalTrail({
       conversationRepo: repo,
       queryMessage: new QueryMessage(repo),
+      dispatchAttemptRepo: attemptRepo,
     });
 
     const conv: Conversation = {
@@ -67,15 +75,13 @@ describe("QuerySignalTrail（真 sqlite）", () => {
 
   /** 建一个 completed 消息（含 tsp / signal_level），返回消息 id。
    *  走真实写路径：createStreamingMessage → startSpeaking（落 tsp/level）→ completeMessage（终态）。
-   *  createdAt 可选：CONSUMING 判定依赖「目标最新消息是否在 5min 窗口内」，
-   *  需要可控的时间戳（默认固定值必落在窗口外）。 */
+   *  （S1b 起状态判定不再依赖 streaming/游标，helper 无需时间戳控制。） */
   async function signal(opts: {
     from?: "user" | "otter";
     fromId?: string;
     tsp: string[];
     level?: string | null;
     status?: "completed" | "streaming";
-    createdAt?: string;
   }): Promise<string> {
     turnSeq += 1;
     const turn: Turn = {
@@ -101,24 +107,42 @@ describe("QuerySignalTrail（真 sqlite）", () => {
       source: "web",
       metadata: null,
       senderName: "",
-      createdAt: opts.createdAt ?? "2026-01-01T00:00:00Z",
+      createdAt: "2026-01-01T00:00:00Z",
       completedAt: null,
       signalLevel: null,
       signalMeta: null,
     });
     if ((opts.status ?? "completed") === "completed") {
-      // 生产时序：streaming（干活）→ startSpeaking（yield 设路由，落 tsp/level）→ completed。
-      // streaming 占位不调 startSpeaking——生产中 startSpeaking 只在 yield 时发生，
-      // 提前调用会把消息推入 speaking 态，失真（CONSUMING 判据只认 streaming）。
+      // 生产时序：streaming（干活）→ startSpeaking（yield 设路由，落 tsp/level）→ completed
       await repo.startSpeaking(id, "hi", opts.tsp, opts.level ?? null, null);
       await repo.completeMessage({ messageId: id, talkingStonePassedTo: opts.tsp, completedAt: "2026-01-01T00:00:01Z" });
     }
     return id;
   }
 
-  it("PENDING：游标未越过信号 turn", async () => {
+  /** 记账走生产写入口（与链引擎插桩同款），不手写 INSERT 造账 */
+  function ledgerStart(messageId: string, target: string): void {
+    attemptRepo.recordStart({
+      id: `att-${messageId}-${target}`, conversationId: "conv-1",
+      messageId, targetOtterId: target,
+      status: "in_progress", source: "chain",
+      attemptStartedAt: "2026-01-01T00:00:02Z", note: null,
+    });
+  }
+
+  /** 展开真 repo 为接口对象（供单方法覆盖的降级注入用） */
+  function attemptRepoInterface(r: SqliteDispatchAttemptRepo): DispatchAttemptRepo {
+    return r;
+  }
+
+  const stateOf = (items: Array<{ seq: number; state: string; note?: string | null }>, seq: number) =>
+    items.find(i => i.seq === seq);
+
+  it("PENDING：无 attempt 记录（游标滞后不再冒充 pending——徽标痊愈的判据面）", async () => {
     await joinParticipant("otter-a", 0);
-    await signal({ tsp: ["otter-a"] });
+    const msgId = await signal({ tsp: ["otter-a"] });
+    // 游标远远滞后（v1 下这会显示 CONSUMED 或误导性状态；v2 只看台账）
+    await repo.updateLastReadTurnNumber("conv-1", "otter-a", 99);
 
     const { items } = await trail.list("conv-1");
     expect(items).toHaveLength(1);
@@ -126,25 +150,69 @@ describe("QuerySignalTrail（真 sqlite）", () => {
     expect(items[0].targetOtterId).toBe("otter-a");
     expect(items[0].level).toBe("NORMAL"); // 用户消息无列值 → 归一 NORMAL
     expect(items[0].fromType).toBe("user");
+    expect(msgId).toBeTruthy();
   });
 
-  it("CONSUMED：游标已越过信号 turn", async () => {
+  it("CONSUMING：attempt in_progress（持久行判定，无 5min 墙钟窗）", async () => {
     await joinParticipant("otter-a", 0);
-    await signal({ tsp: ["otter-a"] }); // turn 1
-    await repo.updateLastReadTurnNumber("conv-1", "otter-a", 2); // 回应 turn
+    const msgId = await signal({ tsp: ["otter-a"] });
+    ledgerStart(msgId, "otter-a");
+
+    const { items } = await trail.list("conv-1");
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("CONSUMING");
+  });
+
+  it("CONSUMED：attempt completed（记账走 recordFinish 生产路径）", async () => {
+    await joinParticipant("otter-a", 0);
+    const msgId = await signal({ tsp: ["otter-a"] });
+    ledgerStart(msgId, "otter-a");
+    attemptRepo.recordFinish(msgId, "otter-a", "completed");
 
     const { items } = await trail.list("conv-1");
     expect(items[0].state).toBe("CONSUMED");
   });
 
-  it("URGENT 档位透出 + 同信号多目标展开为多项", async () => {
+  it("FAILED：attempt failed/aborted + note 透出（失败首次可见，S1b 验收③）", async () => {
     await joinParticipant("otter-a", 0);
-    await joinParticipant("otter-b", 0);
-    await signal({ from: "otter", fromId: "otter-b", tsp: ["otter-a", "user"], level: "URGENT" });
+    const msgId = await signal({ tsp: ["otter-a"] });
+    ledgerStart(msgId, "otter-a");
+    attemptRepo.recordFinish(msgId, "otter-a", "failed", "tool timeout");
 
     const { items } = await trail.list("conv-1");
-    // user 目标被排除，仅 otter-a 一项
-    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("FAILED");
+    expect(items[0].note).toContain("tool timeout");
+  });
+
+  it("aborted 同归 FAILED；CONSUMED/CONSUMING 不带 note", async () => {
+    await joinParticipant("otter-a");
+    await joinParticipant("otter-b");
+    const m1 = await signal({ tsp: ["otter-a"] });
+    const m2 = await signal({ tsp: ["otter-b"] });
+    ledgerStart(m1, "otter-a");
+    attemptRepo.recordFinish(m1, "otter-a", "aborted", "用户中止");
+    ledgerStart(m2, "otter-b");
+    attemptRepo.recordFinish(m2, "otter-b", "completed");
+
+    const { items } = await trail.list("conv-1");
+    expect(stateOf(items, 1)?.state).toBe("FAILED");
+    expect(stateOf(items, 1)?.note).toContain("用户中止");
+    expect(stateOf(items, 2)?.state).toBe("CONSUMED");
+    expect(stateOf(items, 2)?.note ?? null).toBeNull();
+  });
+
+  it("逐目标精确：同信号多目标、目标 B 处理中不影响目标 A 已消费（v1 遮蔽病的 v2 形态校验）", async () => {
+    await joinParticipant("otter-a", 0);
+    await joinParticipant("otter-b", 0);
+    const msgId = await signal({ from: "otter", fromId: "otter-b", tsp: ["otter-a", "otter-b"], level: "URGENT" });
+    ledgerStart(msgId, "otter-a");
+    attemptRepo.recordFinish(msgId, "otter-a", "completed");
+    ledgerStart(msgId, "otter-b"); // B 还在处理
+
+    const { items } = await trail.list("conv-1");
+    expect(items).toHaveLength(2);
+    expect(items.find(i => i.targetOtterId === "otter-a")?.state).toBe("CONSUMED");
+    expect(items.find(i => i.targetOtterId === "otter-b")?.state).toBe("CONSUMING");
     expect(items[0].level).toBe("URGENT");
     expect(items[0].fromType).toBe("otter");
   });
@@ -159,53 +227,47 @@ describe("QuerySignalTrail（真 sqlite）", () => {
     expect(items).toHaveLength(1); // 仅最后一条 self-yield（otter→otter-a）
   });
 
-  it("游标缺省（无参与者行）降级 PENDING，不假证已读", async () => {
-    await signal({ tsp: ["otter-a"] }); // otter-a 未 join
-    const { items } = await trail.list("conv-1");
-    expect(items[0].state).toBe("PENDING");
-  });
-
-  it("CONSUMED 优先于 CONSUMING：目标 streaming 期间已消费信号 A 不被遮蔽（#696 审视发现 1）", async () => {
-    await joinParticipant("otter-a", 0);
-    await signal({ tsp: ["otter-a"] }); // 信号 A，turn 1
-    await signal({ tsp: ["otter-a"] }); // 信号 B，turn 2
-    await repo.updateLastReadTurnNumber("conv-1", "otter-a", 2); // 游标越过 A
-    // 目标獭正在处理（streaming、5min 窗口内）
-    await signal({
-      from: "otter", fromId: "otter-a", tsp: [], status: "streaming",
-      createdAt: new Date().toISOString(),
-    });
-
-    const { items } = await trail.list("conv-1");
-    const stateOf = (seq: number) => items.find(i => i.seq === seq)?.state;
-    // 修复前：streaming 判定先行 → 已消费的 A 也显示 CONSUMING（说谎）；修复后逐信号精确
-    expect(stateOf(1)).toBe("CONSUMED");
-  });
-
-  it("CONSUMING：信号未消费 + 目标最新消息 streaming 在窗口内", async () => {
-    await joinParticipant("otter-a", 0);
-    await signal({ tsp: ["otter-a"] }); // turn 1，游标 0 未消费（路由器已点火、链尾 markBatchRead 未跑的真实窗口）
-    await signal({
-      from: "otter", fromId: "otter-a", tsp: [], status: "streaming",
-      createdAt: new Date().toISOString(),
-    });
-
-    const { items } = await trail.list("conv-1");
-    expect(items).toHaveLength(1);
-    expect(items[0].state).toBe("CONSUMING");
-  });
-
-  it("streaming 超出 5min 窗口 → 不判 CONSUMING，降级 PENDING", async () => {
+  it("repo 未注入（装配降级）→ 全部降级 PENDING，不撒谎", async () => {
     await joinParticipant("otter-a", 0);
     await signal({ tsp: ["otter-a"] });
-    await signal({
-      from: "otter", fromId: "otter-a", tsp: [], status: "streaming",
-      // 11 分钟前：超过 ACTIVE_WINDOW_MS(5min)，reconcile 前的遗留 streaming 占位
-      createdAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+    const degraded = new QuerySignalTrail({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      // 不注入 dispatchAttemptRepo
     });
-
-    const { items } = await trail.list("conv-1");
+    const { items } = await degraded.list("conv-1");
     expect(items[0].state).toBe("PENDING");
+  });
+
+  it("未知 attempt status 的双层防御：schema CHECK 拦入早 + usecase 降级不留假终态", async () => {
+    await joinParticipant("otter-a", 0);
+    const msgId = await signal({ tsp: ["otter-a"] });
+    // 第一道防线：schema CHECK 约束——非法值进不了台账（#735 审视建议 1 的前提：
+    // 内部枚举扩展时先改 CHECK 再改映射，中间态不可能静默入库）
+    expect(() =>
+      db.prepare(`
+        INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, note)
+        VALUES ('att-x', 'conv-1', ?, 'otter-a', 'cancelled', 'chain', datetime('now'), 'future status')
+      `).run(msgId),
+    ).toThrow(/CHECK constraint failed/);
+
+    // 第二道防线（未来 CHECK 放宽后的窗口）：usecase 对未知值降级 PENDING、
+    // 不假证终态、note 不透出——降级路径行为锁死
+    const degraded = new QuerySignalTrail({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      dispatchAttemptRepo: {
+        ...attemptRepoInterface(attemptRepo),
+        listAttemptsForConversation: () => [{
+          id: "att-x", conversationId: "conv-1", messageId: msgId, targetOtterId: "otter-a",
+          status: "cancelled" as never, source: "chain" as never,
+          attemptStartedAt: "2026-01-01T00:00:02Z", attemptFinishedAt: null, note: "future status",
+        }],
+      },
+    });
+    const { items } = await degraded.list("conv-1");
+    expect(items[0].state).toBe("PENDING");
+    expect(items[0].note ?? null).toBeNull();
   });
 
   it("按 seq 升序返回（时序展示）", async () => {
