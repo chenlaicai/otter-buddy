@@ -87,8 +87,8 @@ export class WeixinMessageProcessor {
       return false;
     }
 
-    // 媒体消息（issue #567）：本期仅图片入库（检视发现 2 收敛）；语音转写已在 body，
-    // 文件/视频降级为可见提示（kind 扩展见 issue #608）
+    // 媒体消息（issue #567 → #608）：四类全量入库（sniffType 白名单已扩 audio/video/pdf）；
+    // 语音 ASR 转写已在 body，音视频文件同时入库供回放
     const outcome = await this.composeMediaOutcome(msg.raw?.item_list ?? [], fromUserId);
 
     let bodyText = body.trim();
@@ -183,17 +183,11 @@ export class WeixinMessageProcessor {
   // ── 媒体支持（issue #567，照飞书 processMedia 语义）──
 
   /** 从入站消息提取媒体项（image/voice/file/video），无媒体返回空数组 */
-  /** 媒体段编排：非图媒体收集降级提示，图片走 processMedia 管线（复杂度拆出） */
+  /** 媒体段编排：逐项走下载入库管线，单项失败单项降级（与飞书 processMedia 同语义，#608 恢复四类） */
   private async composeMediaOutcome(items: WeixinMediaGatewayItem[], senderId: string): Promise<WeixinMediaOutcome> {
     const mediaItems = this.extractMediaItems(items);
-    const unsupportedNotes = mediaItems
-      .filter(m => m.kind !== "image")
-      .map(m => `[${this.mediaKindLabel(m.kind)}：本期暂不支持接收，语音转写/文字不受影响]`);
-    const imageItems = mediaItems.filter(m => m.kind === "image");
-    const outcome = imageItems.length > 0
-      ? await this.processMedia(imageItems, senderId)
-      : { attachmentIds: [], degradeNote: null };
-    return { ...outcome, degradeNote: this.joinNotes(unsupportedNotes, outcome.degradeNote) };
+    if (mediaItems.length === 0) return { attachmentIds: [], degradeNote: null };
+    return this.processMedia(mediaItems, senderId);
   }
 
   private extractMediaItems(items: WeixinMediaGatewayItem[]): WeixinMediaItemEntry[] {
@@ -207,7 +201,7 @@ export class WeixinMessageProcessor {
     return out;
   }
 
-  /** 媒体处理主流程：下载网关 → 附件管线 → id + 注入载荷。单项失败单项降级 */
+  /** 媒体处理主流程：下载网关 → 附件管线 → id + 注入载荷。单项失败单项降级（#608 四类全量） */
   private async processMedia(mediaItems: WeixinMediaItemEntry[], senderId: string): Promise<WeixinMediaOutcome> {
     // 管线未装配（旧部署未配 attachments / mediaGateway）：降级提示
     if (!this.deps.mediaGateway || !this.deps.attachmentUpload || !this.deps.attachmentInjection) {
@@ -232,7 +226,6 @@ export class WeixinMessageProcessor {
         degradeNotes.push(`[媒体：接收失败：${reason}]`);
       }
     }
-
     // 注入载荷（与飞书/Web 同一份策略）；超限（>2 图）整组拒绝附件、保留正文
     let injection: WeixinMediaOutcome["injection"];
     if (ids.length > 0) {
@@ -247,6 +240,7 @@ export class WeixinMessageProcessor {
     return { attachmentIds: ids, degradeNote: this.joinNotes(degradeNotes, null), injection };
   }
 
+  /** 媒体项标签（降级提示用） */
   private mediaKindLabel(kind: string): string {
     return kind === "image" ? "图片" : kind === "voice" ? "语音" : kind === "video" ? "视频" : "文件";
   }

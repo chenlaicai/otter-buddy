@@ -136,6 +136,51 @@ describe("AttachmentUploadService（上传管线集成，多模态 Phase 1）", 
     expect(fs.readFileSync(abs, "utf8")).toBe("hello 多模态");
   });
 
+
+  // ── #608：audio/video/pdf 白名单扩展 ──
+
+  it("WAV 音频上传：识别为 audio，直落盘不重编码（#608）", async () => {
+    // 44 字节 WAV 头 + 少量 PCM 数据
+    const wav = Buffer.concat([Buffer.from([0x52,0x49,0x46,0x46,0x24,0x00,0x00,0x00,0x57,0x41,0x56,0x45]), Buffer.alloc(64, 0x01)]);
+    const att = await service.upload({
+      stream: Readable.from(wav),
+      originalName: "weixin-voice-1.wav",
+      declaredMimeType: "application/octet-stream", // 假声明，magic bytes 说了算
+      uploaderId: "user-1",
+    });
+    expect(att.kind).toBe("audio");
+    expect(att.mimeType).toBe("audio/wav");
+    expect(att.width).toBeNull();
+    const abs = path.join(tmpRoot, att.filePath);
+    expect(att.filePath.endsWith(".wav")).toBe(true);
+    expect(fs.statSync(abs).size).toBe(wav.length); // 直落盘不 resize
+  });
+
+  it("MP4 视频上传：识别为 video（#608）", async () => {
+    const mp4 = Buffer.concat([Buffer.from([0x00,0x00,0x00,0x20,0x66,0x74,0x79,0x70,0x69,0x73,0x6f,0x6d]), Buffer.alloc(128, 0x02)]);
+    const att = await service.upload({
+      stream: Readable.from(mp4),
+      originalName: "weixin-video-1.mp4",
+      declaredMimeType: "video/mp4",
+      uploaderId: "user-1",
+    });
+    expect(att.kind).toBe("video");
+    expect(att.mimeType).toBe("video/mp4");
+  });
+
+  it("PDF 上传：识别为 document kind，落盘原字节（#608）", async () => {
+    const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(100, 0x03)]);
+    const att = await service.upload({
+      stream: Readable.from(pdf),
+      originalName: "report.pdf",
+      declaredMimeType: "application/pdf",
+      uploaderId: "user-1",
+    });
+    expect(att.kind).toBe("document");
+    expect(att.mimeType).toBe("application/pdf");
+    expect(att.filePath.endsWith(".pdf")).toBe(true);
+  });
+
   it("original_name 路径穿越清洗（../../secret/notes.txt → notes.txt）", async () => {
     const att = await service.upload({
       stream: Readable.from(Buffer.from("hello")),

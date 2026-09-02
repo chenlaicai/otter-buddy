@@ -41,7 +41,11 @@ const allowDdlFiles = [];
 // Issue #644 存量库补列迁移测试：需建 8/31 旧形状 signals 表（无 evidence_detail/confidence
 // 两列）验证 migrateDatabase ALTER 补列幂等——被测对象就是「旧 schema → 新 schema」迁移本身，
 // 用生产 schema 建不出旧表形态（与 migration 同类场景）
-const MAX_ALLOW_DDL_FILES = 6;
+// 6→7（F20260901awhk）：tests/frameworks/db/attachments-kind-migration.test.ts——
+// Issue #608 存量库 kind CHECK 扩展迁移测试：需建窄 CHECK（'image','document'）旧形状
+// attachments 表验证 rebuildAttachmentsKindCheck 表重建幂等——被测对象就是「旧 schema →
+// 新 schema」迁移本身，用生产 schema 建不出旧表形态（与 migration.test.ts 同类场景）
+const MAX_ALLOW_DDL_FILES = 7;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

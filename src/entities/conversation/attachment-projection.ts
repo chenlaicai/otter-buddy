@@ -8,7 +8,8 @@
  * 占位格式（方案 §3.5）：
  * - 图片：[图片: caption|文件名]——caption 存在时用 caption，Phase 2 worker
  *   上线前恒 NULL，降级文件名兜底
- * - 文件：[文件: name (size)]
+ * - 语音：[语音: 文件名 (size)]——#608 audio kind
+ * - 文件：[文件: name (size)]（document/video 统一此格式）
  */
 
 import type { AttachmentRef } from "./attachment";
@@ -32,6 +33,7 @@ export function projectAttachments(atts: AttachmentRef[]): string {
         const label = a.caption?.trim() ? a.caption.trim() : a.originalName;
         return `[图片: ${label}]`;
       }
+      if (a.kind === "audio") return `[语音: ${a.originalName} (${humanSize(a.sizeBytes)})]`;
       return `[文件: ${a.originalName} (${humanSize(a.sizeBytes)})]`;
     })
     .join("\n");

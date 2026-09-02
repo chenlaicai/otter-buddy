@@ -162,4 +162,81 @@ describe("WeixinMessageProcessor", () => {
     expect(String(ctx.sentMessages[0].body)).toContain("未启用附件功能");
     expect(ctx.sentMessages[0].attachmentIds).toBeUndefined();
   });
+
+  // ── #608：四类媒体全量入库（voice/file/video 恢复）──
+
+  it("语音消息：下载入库 audio kind + ASR 转写文本在 body（#608）", async () => {
+    const ctx = makeProcessor({
+      mediaGateway: { downloadMediaItem: vi.fn(async () => ({ fileName: "weixin-voice-1.wav", mimeType: "audio/wav", buffer: Buffer.from("wav-bytes") })) },
+      attachmentUpload: { upload: vi.fn(async () => ({ id: "att-voice", kind: "audio", originalName: "weixin-voice-1.wav", mimeType: "audio/wav", sizeBytes: 9, filePath: "/tmp/v" })) },
+      attachmentInjection: { validateForSend: vi.fn(async () => undefined), buildInjectionPayload: vi.fn(async () => ({ images: [], documentBlock: null })) },
+    });
+    ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
+
+    await ctx.processor.process({
+      fromUserId: "u-1",
+      body: "这是转写文本",
+      raw: { item_list: [{ type: 3, voice_item: { media: { encrypt_query_param: "eq-v", aes_key: "b64key" } } }] },
+    });
+
+    expect(ctx.sentMessages[0].attachmentIds).toEqual(["att-voice"]);
+    expect(ctx.sentMessages[0].body).toBe("这是转写文本"); // 转写文本 + 音频文件同时在场，无降级提示
+  });
+
+  it("文件消息：file_name 保留入库（#608）", async () => {
+    const ctx = makeProcessor({
+      mediaGateway: { downloadMediaItem: vi.fn(async () => ({ fileName: "report.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 fake") })) },
+      attachmentUpload: { upload: vi.fn(async () => ({ id: "att-file", kind: "document", originalName: "report.pdf", mimeType: "application/pdf", sizeBytes: 13, filePath: "/tmp/f" })) },
+      attachmentInjection: { validateForSend: vi.fn(async () => undefined), buildInjectionPayload: vi.fn(async () => ({})) },
+    });
+    ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
+
+    await ctx.processor.process({
+      fromUserId: "u-1",
+      body: "",
+      raw: { item_list: [{ type: 4, file_item: { file_name: "report.pdf", media: { encrypt_query_param: "eq-f", aes_key: "b64key" } } }] },
+    });
+
+    expect(ctx.sentMessages[0].attachmentIds).toEqual(["att-file"]);
+    expect(String(ctx.sentMessages[0].body)).toBe(""); // attachmentIds 已在场，空 body 不需要占位
+  });
+
+  it("视频消息：下载入库 video kind（#608）", async () => {
+    const ctx = makeProcessor({
+      mediaGateway: { downloadMediaItem: vi.fn(async () => ({ fileName: "weixin-video-1.mp4", mimeType: "video/mp4", buffer: Buffer.from("mp4-bytes") })) },
+      attachmentUpload: { upload: vi.fn(async () => ({ id: "att-video", kind: "video", originalName: "weixin-video-1.mp4", mimeType: "video/mp4", sizeBytes: 10, filePath: "/tmp/m" })) },
+      attachmentInjection: { validateForSend: vi.fn(async () => undefined), buildInjectionPayload: vi.fn(async () => ({})) },
+    });
+    ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
+
+    await ctx.processor.process({
+      fromUserId: "u-1",
+      body: "看视频",
+      raw: { item_list: [{ type: 5, video_item: { media: { encrypt_query_param: "eq-m", aes_key: "b64key" } } }] },
+    });
+
+    expect(ctx.sentMessages[0].attachmentIds).toEqual(["att-video"]);
+    expect(ctx.sentMessages[0].body).toBe("看视频");
+  });
+
+  it("语音转码失败（silk 降级拒绝）：单项降级提示不丢消息，ASR 文本保留（#608）", async () => {
+    const ctx = makeProcessor({
+      mediaGateway: { downloadMediaItem: vi.fn(async () => { throw new Error("silk→wav 转码失败（原始 SILK 不在附件白名单）"); }) },
+      attachmentUpload: { upload: vi.fn(async () => ({ id: "never", kind: "audio", originalName: "x", mimeType: "audio/wav", sizeBytes: 1, filePath: "/tmp/n" })) },
+      attachmentInjection: { validateForSend: vi.fn(async () => undefined), buildInjectionPayload: vi.fn(async () => ({})) },
+    });
+    ctx.manageConnection.getCurrentConversation.mockResolvedValue({ id: "conv-1", title: "t" });
+
+    await ctx.processor.process({
+      fromUserId: "u-1",
+      body: "转写文本还在",
+      raw: { item_list: [{ type: 3, voice_item: { media: { encrypt_query_param: "eq-v", aes_key: "b64key" } } }] },
+    });
+
+    expect(ctx.sentMessages[0].attachmentIds).toBeUndefined();
+    expect(String(ctx.sentMessages[0].body)).toContain("接收失败"); // 降级可见
+    expect(String(ctx.sentMessages[0].body)).toContain("转写文本还在"); // 正文不丢
+    // dispatch 用原始 body，不含降级提示
+    expect(ctx.dispatched[0].content).toBe("转写文本还在");
+  });
 });

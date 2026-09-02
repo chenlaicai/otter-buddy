@@ -210,4 +210,26 @@ describe("FeishuMessageProcessor 多模态 ingress（Phase 2）", () => {
     const dispatchArgs = dispatch.mock.calls.at(-1) ?? [];
     expect(dispatchArgs[3]).toBeUndefined();
   });
+
+  // ── #608：降级提示不进 agent dispatch 上下文（PR #603 检视建议 1 同款）──
+
+  it("媒体下载失败：降级提示入消息体可见，agent dispatch 用原始正文（#608）", async () => {
+    const { deps, send, dispatch } = makeDeps();
+    // 下载失败：downloadMessageResource 返回 null（资源过期/权限不足）
+    deps.feishuResource = { downloadMessageResource: vi.fn().mockResolvedValue(null) } as unknown as typeof deps.feishuResource;
+    const processor = new FeishuMessageProcessor(deps);
+
+    await processor.process({
+      chatId: "oc_1", text: "看这图", senderId: "ou_x", messageId: "om_1",
+      media: { type: "image", imageKey: "img_v2_dead00" },
+    });
+
+    // 消息体：降级提示可见（用户感知）
+    const input = send.mock.calls[0][0] as { body: string };
+    expect(input.body).toContain("看这图");
+    expect(input.body).toContain("下载失败");
+    // dispatch：原始正文，不含降级提示（运维文本不进 agent 上下文）
+    const dispatchArgs = dispatch.mock.calls.at(-1) ?? [];
+    expect(dispatchArgs[1]).toBe("看这图");
+  });
 });
