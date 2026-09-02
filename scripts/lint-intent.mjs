@@ -11,6 +11,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
@@ -52,6 +53,83 @@ function isSoftCodeChange(fm) {
   const modules = fm.modules;
   if (!Array.isArray(modules)) return false;
   return modules.some((m) => typeof m === "string" && (m.startsWith("prompts/") || m.startsWith(".pi/")));
+}
+
+/**
+ * P0-c 声明率统计：分两层（intent 存在率 / verify_by 率）× 两口径（存量参考 / 本期判定）。
+ * 存量参考 = 全量文档；本期判定 = 本次 PR 修改的文档（通过 git diff 获取）。
+ */
+async function computeDeclarationStats(files, root) {
+  // 获取本次 PR 修改/新增的文件列表（diff 仅含 tracked 修改，untracked 新文档单独列）
+  let currentFiles = new Set();
+  try {
+    const diffOutput = execSync(
+      "git diff --name-only origin/main -- docs/features && git ls-files --others --exclude-standard docs/features",
+      { encoding: "utf8", cwd: root },
+    );
+    currentFiles = new Set(
+      diffOutput.split("\n").filter(f => f.startsWith("docs/features/") && f.endsWith(".md"))
+    );
+  } catch {
+    // 非 git 环境或无 origin/main，本期判定为空
+  }
+
+  const stats = {
+    existing: { total: 0, intentExists: 0, verifyByExists: 0, intentRate: 0, verifyByRate: 0 },
+    current: { total: 0, intentExists: 0, verifyByExists: 0, intentRate: 0, verifyByRate: 0 },
+  };
+
+  const { parseFrontmatterFromContent } =
+    await import(distRoot + "/usecases/document/frontmatter-parse.js");
+
+  for (const file of files) {
+    const rel = path.relative(root, file);
+    const txt = fs.readFileSync(file, "utf8");
+    let frontmatter;
+    try {
+      frontmatter = parseFrontmatterFromContent(txt).frontmatter;
+    } catch {
+      continue;
+    }
+
+    // 存量参考统计
+    stats.existing.total++;
+    if (frontmatter.intent && typeof frontmatter.intent === "object") {
+      stats.existing.intentExists++;
+      if (frontmatter.intent.verify_by) {
+        stats.existing.verifyByExists++;
+      }
+    }
+
+    // 本期判定统计（仅统计本次 PR 修改的文档）
+    if (currentFiles.has(rel)) {
+      stats.current.total++;
+      if (frontmatter.intent && typeof frontmatter.intent === "object") {
+        stats.current.intentExists++;
+        if (frontmatter.intent.verify_by) {
+          stats.current.verifyByExists++;
+        }
+      }
+    }
+  }
+
+  // 计算百分比。口径（v6.3 方案 P0-c）：intent 存在率分母 = 全部文档；
+  // intent 内 verify_by 率分母 = 有 intent 的文档（若分母用全量，3 个 intent 全带 verify_by
+  // 会读成 3/393=1%，掩盖「写了 intent 的都声明了验证方式」这一事实）
+  stats.existing.intentRate = stats.existing.total > 0
+    ? Math.round(stats.existing.intentExists / stats.existing.total * 100)
+    : 0;
+  stats.existing.verifyByRate = stats.existing.intentExists > 0
+    ? Math.round(stats.existing.verifyByExists / stats.existing.intentExists * 100)
+    : 0;
+  stats.current.intentRate = stats.current.total > 0
+    ? Math.round(stats.current.intentExists / stats.current.total * 100)
+    : 0;
+  stats.current.verifyByRate = stats.current.intentExists > 0
+    ? Math.round(stats.current.verifyByExists / stats.current.intentExists * 100)
+    : 0;
+
+  return stats;
 }
 
 function validateIntent(fm) {
@@ -201,4 +279,14 @@ async function main() {
     process.exit(1);
   }
   console.log(`[lint:intent] ${files.length} docs OK`);
+
+  // P0-c 声明率上墙：分两层（intent 存在率 / verify_by 率）× 两口径（存量参考 / 本期判定）
+  const stats = await computeDeclarationStats(files, root);
+  console.log(`\n[lint:intent] 声明率统计（P0-c）：`);
+  console.log(`  存量参考（全量文档）：`);
+  console.log(`    intent 存在率：${stats.existing.intentExists}/${stats.existing.total} = ${stats.existing.intentRate}%`);
+  console.log(`    verify_by 率（分母=有 intent 的文档）：${stats.existing.verifyByExists}/${stats.existing.intentExists} = ${stats.existing.verifyByRate}%`);
+  console.log(`  本期判定（本次 PR 修改的文档）：`);
+  console.log(`    intent 存在率：${stats.current.intentExists}/${stats.current.total} = ${stats.current.intentRate}%`);
+  console.log(`    verify_by 率（分母=有 intent 的文档）：${stats.current.verifyByExists}/${stats.current.intentExists} = ${stats.current.verifyByRate}%`);
 }

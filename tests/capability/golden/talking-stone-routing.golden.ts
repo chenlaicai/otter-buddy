@@ -42,14 +42,16 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
     return { ok: false, detail: `大獭未召唤小獭 tools=${JSON.stringify(tools)}` };
   }
 
-  /** 发现 2 修复：按 conversation_id 过滤（JOIN conversation_otters），避免多轮采样
-   *  共享 DB 时命中前轮/历史残留子獭。源测试用 ottersBefore diff，golden 用会话隔离。 */
+  /** 发现 2 修复（+2026-09-02 表路径修正）：按 conversation_participants 过滤。
+   *  原查 conversation_otters（建会话初始名单）——但 create_otter 的 join 链路写
+   *  conversation_participants（manage-participant.ts L69），生产路径永不命中旧表，
+   *  采样 0/3 稳定 fail；selftest 自插旧表数据故绿灯——构造路径与生产路径分叉。 */
   const smallOtter = ctx.built.db
     .prepare(
       `SELECT o.id, o.name, o.type, o.parent_otter_id FROM otters o
-       JOIN conversation_otters co ON co.otter_id = o.id
-       WHERE co.conversation_id = ? AND o.type = 'small'
-       ORDER BY o.rowid DESC LIMIT 1`,
+       JOIN conversation_participants cp ON cp.otter_id = o.id
+       WHERE cp.conversation_id = ? AND o.type = 'small' AND cp.status = 'active'
+       ORDER BY cp.created_at DESC LIMIT 1`,
     )
     .get(convId) as Record<string, string> | undefined;
   if (!smallOtter) {
@@ -80,7 +82,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
 /**
  * F20260828gssf: selftest 参考序列（DB 依赖场景——factory 函数）。
  *
- * 本场景断言需要查 DB（conversation_otters JOIN otters），所以 selftest 是 factory 函数：
+ * 本场景断言需要查 DB（conversation_participants JOIN otters），所以 selftest 是 factory 函数：
  * 先通过 API 创建会话，再往 DB 插入测试 otter 记录，然后构造带正确 senderId 的消息。
  *
  * good = 子獭 tsp 指向大獭（正确路由）
@@ -110,13 +112,24 @@ export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext)
     .prepare("INSERT OR REPLACE INTO otters (id, name, type, status, parent_otter_id) VALUES (?, ?, ?, 'active', ?)")
     .run(smallOtterId, "selftest-报告獭", "small", bigOtterId);
 
-  // 关联到会话
+  // 关联到会话（跟随 assert 表路径修正：join 生产链路写 conversation_participants，
+  // 构造路径与生产路径同表——原插 conversation_otters 是构造/生产分叉根源。
+  // joined_at_turn_id 需真实 turn（FK 约束）——取该会话最新 turn）
+  const turnRow = ctx.built.db
+    .prepare("SELECT id FROM turns WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1")
+    .get(convId) as { id: string | null } | undefined;
+  const turnId = turnRow?.id ?? null;
+  const now = new Date().toISOString();
   ctx.built.db
-    .prepare("INSERT OR REPLACE INTO conversation_otters (conversation_id, otter_id) VALUES (?, ?)")
-    .run(convId, bigOtterId);
+    .prepare(`INSERT OR REPLACE INTO conversation_participants
+      (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at, last_read_turn_number)
+      VALUES (?, ?, ?, ?, 0, 'active', ?, 0)`)
+    .run(`selftest-part-big-${convId.slice(0, 8)}`, convId, bigOtterId, turnId, now);
   ctx.built.db
-    .prepare("INSERT OR REPLACE INTO conversation_otters (conversation_id, otter_id) VALUES (?, ?)")
-    .run(convId, smallOtterId);
+    .prepare(`INSERT OR REPLACE INTO conversation_participants
+      (id, conversation_id, otter_id, joined_at_turn_id, joined_at_turn_number, status, created_at, last_read_turn_number)
+      VALUES (?, ?, ?, ?, 0, 'active', ?, 0)`)
+    .run(`selftest-part-small-${convId.slice(0, 8)}`, convId, smallOtterId, turnId, now);
 
   const userMsg: MessageDto = {
     id: "st-u1", st: "user", si: "selftest-user", content: "召唤小獭", status: "completed", seq: 1,
