@@ -1,7 +1,7 @@
 ---
 id: F20260902caramel
 title: "palette 扩 CARAMEL-700 深阶 token：regressed 严重档色对齐观澜 §3.4"
-summary: CARAMEL 阶补 700（#6B4924）补齐「严重/回退」深档，palette.ts 与 globals.css 双源同步；regressed 回卷弧、CHAIN_STATE_META 色义、筛选 chip 文本色升 700，ChainDetailDrawer 三个失效 class（caramel-50/100/700 无定义）被顺带修复。
+summary: CARAMEL 阶补 700（#6B4924）补齐「严重/回退」深档，palette.ts 与 globals.css 双源同步；regressed 回卷弧、CHAIN_STATE_META 色义、筛选 chip 文本色升 700，ChainDetailDrawer 三个失效 class（caramel-50/100/700 无定义）全部修复（大獭拍板：浅底档搭同 PR 顺手补齐）。
 created: 2026-09-02
 created_in_conversation: 7c6e78b5-6fdc-462e-9383-4d96cf95dcd7
 change_type: fix
@@ -52,7 +52,7 @@ intent:
 **token 定义（双源同步，两处都要加）**：
 
 1. `web/src/pages/health/palette.ts` — `CARAMEL` 常量补 `700: '#6B4924'`
-2. `web/src/styles/globals.css` — `@theme` 补 `--color-caramel-700` 变量
+2. `web/src/styles/globals.css` — `@theme` 补 `--color-caramel-700` 变量；同 commit 追补浅底档 `--color-caramel-50: #FBF7F4` / `--color-caramel-100: #F7EDE3`（由 300 阶 #E8B98E ≈ HSL(29°,47%,73%) 反向外推：同色相/饱和度、亮度拉到 97%/93% 的浅底，100 档配 text-caramel-700 对比度 ≈6.9:1）——修复 ChainDetailDrawer 徽章 `bg-caramel-100/50` 自 #687 起静默失效的问题（大獭拍板搭同 PR 顺手修）
 
 > tailwind v4 的 utility class 由 `@theme` 变量生成：只加 palette.ts 不加 globals.css，`text-caramel-700` 等 class 依然不生成。
 
@@ -84,9 +84,9 @@ intent:
 
 ## 验证
 
-- 单元测试：web 全套 `npm test` 46 文件 / 389 用例全绿（含更新后的 2 处色值断言）
+- 单元测试：web 全套 `npm test` 46 文件 / 389 用例全绿（含更新后的 2 处色值断言；浅底档追补 commit 复跑仍全绿）
 - 类型检查：`tsc --noEmit` 0 error
-- 视觉验证：mock 数据（独立端口 5273 vite + 3001 mock API，验证后进程自灭）造一条 regressed 链，截图确认泳道回卷弧渲染、DOM 取证 `path.swim-regressed-mark` stroke = `#6B4924`（精确匹配 CARAMEL[700]）
+- 视觉验证：mock 数据（独立端口 5273 vite + 3001 mock API，验证后进程自灭）造一条 regressed 链，截图确认泳道回卷弧渲染、DOM 取证 `path.swim-regressed-mark` stroke = `#6B4924`（精确匹配 CARAMEL[700]）；浅底档复验：打开链详情抽屉，「质量回退」徽章 computedStyle bg=`rgb(247,237,227)`（caramel-100）+ color=`rgb(107,73,36)`（caramel-700），浅底深字完整生效
 - 自检基线：改动前主仓同套测试既有基线（46/389 全绿），无 pre-existing 声明，无需 stash 复跑
 
 ## 后续
