@@ -18,7 +18,8 @@ script = script.replace('const title = process.argv[1];', 'const title = T;')
 script = script.replace("process.stdout.write((f.test(title) || r.test(title)) ? 'yes' : 'no');",
                         "RESULTS.push((f.test(title) || r.test(title)) ? 'yes' : 'no');")
 
-# 注意：ID 后缀须用合法字符集（首位 a-kmnp-z，后 3-9 位 2-9a-kmnp-z，排除 l/o/0/1）
+# 注意：ID 后缀合法字符集 [a-z0-9]（4-10 位，无 0/1/l/o 排除，与 fid-format.ts
+# 单一真相源同口径；用例应覆盖含 l/o/1 后缀与下界拒收）
 cases = [
     ('[F20260825zzzz][ci][Design] 提交规范三方一致性订正：文档收敛类型清单至 5 种', True),
     ('[F20260825zzza][ci][New Feature] 新功能应通过', True),
@@ -26,6 +27,14 @@ cases = [
     ('[F20260825zzzc][ci][Feature] 类型 Feature 应拒绝', False),
     ('[F20260825zzzd][ci-x][Design] 模块段连字符应拒绝', False),
     ('[F20260825cmhg][ci][BugFix] 存量ID应通过', True),
+    # 新字母表边界（#670 回修）：含 l/o/0/1 后缀放行、3 位下界拒收、10 位上界放行
+    ('[F20260729imlo][im][New Feature] 含 l+o 后缀应通过', True),
+    ('[F20260826o46s][im][BugFix] 含 o+数字后缀应通过', True),
+    ('[F20260826scl1][im][BugFix] 含 l+1 后缀应通过', True),
+    ('[F202608260123][im][BugFix] 含 0+1 纯数字后缀应通过', True),
+    ('[F20260825imx][im][BugFix] 后缀 3 位应拒绝（实查最短 4，#670 裁决收紧）', False),
+    ('[F20260825abcd123456][im][BugFix] 后缀 10 位上界应通过', True),
+    ('[F20260825abcd1234567][im][BugFix] 后缀 11 位超上界应拒绝', False),
 ]
 body = ("const CASES = " + json.dumps([c[0] for c in cases], ensure_ascii=False)
         + ";\nconst RESULTS=[];\nfor (const T of CASES) {\n" + script
