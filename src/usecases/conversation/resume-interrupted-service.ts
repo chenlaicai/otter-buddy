@@ -2,6 +2,7 @@ import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
 import type { SendMessage } from "./send-message";
 import type { DispatchChainEngine } from "./dispatch-chain-engine";
+import type { SignalRouter } from "./signal-router";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import {
@@ -39,6 +40,9 @@ export class ResumeInterruptedService {
       dispatchChainEngine: DispatchChainEngine;
       /** invokeFn 在装配处闭包捕获 agentInvoker（审视发现 1 修复） */
       invokeFn: (params: { otterId: string; conversationId: string; userMessageContent: string; senderId: string }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
+      /** F20260901sgpv P1：信号路由器（可选）——注入后启动补扫含信号补路由
+       *  （崩溃窗口内未点火信号的克星）；恢复链本身仍走链引擎 */
+      signalRouter?: SignalRouter;
       logger: Logger;
       /** #613：healing 台账写入（服务重启事件落账，观测层闭环） */
       healingRepo?: HealingEventRepository;
@@ -55,6 +59,16 @@ export class ResumeInterruptedService {
     await new Promise(resolve => setTimeout(resolve, delay));
     try {
       const pending = await this.deps.conversationRepo.getPendingResumes();
+
+      // F20260901sgpv P1：信号补扫（崩溃窗口兑底）——无论是否有中断发言，都扫一遍
+      // 信号未消费积压：服务崩溃时写路径没能点火的信号在此补路由。放在恢复链之前，
+      // 让补扫信号与恢复链在同一竞争面（路由器串行化）内消化，不与恢复 invoke 撞车
+      if (this.deps.signalRouter) {
+        await this.deps.signalRouter.routeAllPending().catch(err => {
+          this.deps.logger.warn("signal rescan on resume failed", { error: err instanceof Error ? err.message : String(err) });
+        });
+      }
+
       if (pending.length === 0) return;
       this.deps.logger.info(`Resuming interrupted messages after restart`, { count: pending.length });
       // #613：服务重启事件落 healing 台账（severity 按中断发言数分级）
