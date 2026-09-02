@@ -116,6 +116,11 @@ export class DispatchChainEngine {
     let depth = 0;
     let lastOtterReply: string | undefined;
     const maxDepth = this.deps.maxChainDepth ?? 100;
+    /** F20260902sgp2 hop 取源修复：target → 链上所有 yield 出处 messageId（链级生命周期）。
+     *  多源列表：A、B 同 hop 都 yield 给 C 时，C 的记账需覆盖两条触发消息（各记一条 attempt）。
+     *  原 bug：Map 是 hop 局部变量，settle 回填出方法即丢——hop 2+ 记账全部静默跳过
+     *  （生产观察 2026-09-02：9 pending 中 3 条假阳性源于此）。 */
+    const chainSourceMessageIds = new Map<string, string[]>();
 
     // F20260826mwrd C3（Part 6）：L2 安全词扫描——用户原始消息命中独立成词「停下」时
     // 生成 reminder，附在每个 hop 的消息末尾（首 hop 原文扫描；不硬拦，LLM 语境确认）。
@@ -130,6 +135,7 @@ export class DispatchChainEngine {
       const result = await this.executeOneHop({
         conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
         triggerMessageId: depth === 1 ? triggerMessageId : undefined,
+        chainSourceMessageIds,
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
       targets = result.nextTargets;
@@ -161,16 +167,16 @@ export class DispatchChainEngine {
     stopWordReminder?: string | null;
     /** F20260902sgp2 S1：触发消息 ID（仅首 hop 传入；hop 2+ 的记账用 yield 出处 messageId） */
     triggerMessageId?: string;
+    /** F20260902sgp2 hop 取源修复：链级 target → yield 出处列表（跨 hop 存活，修复局部 Map 回填即丢的 bug） */
+    chainSourceMessageIds?: Map<string, string[]>;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId } = params;
-    /** F20260902sgp2 S1：hop 内 target → yield 出处 messageId。首 hop 为空（用 triggerMessageId）；
-     *  settle 时从 fulfilled 结果回填，供下一 hop 记账取源。*/
-    const hopSourceMessageIds = new Map<string, string>();
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, chainSourceMessageIds } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     const promises = targets.map(async otterId => {
-      // F20260902sgp2 S1：起跑记账（§4.2）——失败仅日志，绝不阻断链路（硬约束 1）
-      this.recordAttemptStart(conversationId, otterId, triggerMessageId, hopSourceMessageIds.get(otterId));
+      // F20260902sgp2 S1：起跑记账（§4.2）——失败仅日志，绝不阻断链路（硬约束 1）。
+      // hop 取源修复：hop 2+ 从链级多源列表取全部触发消息（一条 per (msg,target) 记账）
+      this.recordAttemptStart(conversationId, otterId, triggerMessageId, chainSourceMessageIds?.get(otterId));
       let messageWithContext = await this.buildMessageWithContext(
         conversationId, otterId, userMessageContent, senderId, roster
       );
@@ -196,10 +202,10 @@ export class DispatchChainEngine {
     });
 
     const results = await Promise.allSettled(promises);
-    // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + hop 出处回填
+    // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + 链级出处回填
     // 审视建议 1：调用点再隔一层 try/catch——防方法内部 try 块之外的理论异常阻断 markBatchRead
     try {
-      this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, hopSourceMessageIds);
+      this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, chainSourceMessageIds);
     } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
     await this.markBatchRead(conversationId, results, targets);
 
@@ -213,54 +219,73 @@ export class DispatchChainEngine {
     conversationId: string,
     target: string,
     triggerMessageId: string | undefined,
-    hopSourceMessageId: string | undefined,
+    chainSourceMessageIds: string[] | undefined,
   ): void {
-    const ledgerMsgId = triggerMessageId ?? hopSourceMessageId;
-    if (!ledgerMsgId || !this.deps.dispatchAttemptRepo) return;
-    try {
-      this.deps.dispatchAttemptRepo.recordStart({
-        id: randomUUID(),
-        conversationId,
-        messageId: ledgerMsgId,
-        targetOtterId: target,
-        status: "in_progress",
-        source: "chain",
-        attemptStartedAt: new Date().toISOString(),
-        note: null,
-      });
-      this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'in_progress', source: 'chain' });
-    } catch (e) {
-      this.deps.logger.warn('[signal-ledger] 起跑记账失败（不影响链路）', { conversationId, messageId: ledgerMsgId, otterId: target, error: e instanceof Error ? e.message : String(e) });
+    // hop 取源修复：首 hop 用 triggerMessageId；hop 2+ 用链级多源列表——
+    // A、B 同 hop 都 yield 给 C 时，C 需为每条触发消息各记一条 attempt（消费义务逐条销账）
+    const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds ?? []);
+    if (ledgerMsgIds.length === 0 || !this.deps.dispatchAttemptRepo) return;
+    for (const ledgerMsgId of ledgerMsgIds) {
+      try {
+        this.deps.dispatchAttemptRepo.recordStart({
+          id: randomUUID(),
+          conversationId,
+          messageId: ledgerMsgId,
+          targetOtterId: target,
+          status: "in_progress",
+          source: "chain",
+          attemptStartedAt: new Date().toISOString(),
+          note: null,
+        });
+        this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'in_progress', source: 'chain' });
+      } catch (e) {
+        this.deps.logger.warn('[signal-ledger] 起跑记账失败（不影响链路）', { conversationId, messageId: ledgerMsgId, otterId: target, error: e instanceof Error ? e.message : String(e) });
+      }
     }
   }
 
-  /** F20260902sgp2 S1：settle 记账——每个目标按起跑同源 messageId 记终态；
-   *  fulfilled 时回填 hop 出处（下一 hop 记账取源）。失败仅日志不阻断。 */
+  /** F20260902sgp2 S1：settle 记账——每个目标按起跑同源 messageId 列表记终态；
+   *  fulfilled 时把产出消息追加进链级出处列表（后续 hop 记账取源）。失败仅日志不阻断。 */
+  // eslint-disable-next-line complexity -- 多源记账双层循环 + 逐源 try/catch 兜底（硬约束 1：记账失败不阻断链路），拆分反而损可读性
   private recordAttemptSettle(
     conversationId: string,
     targets: string[],
     results: PromiseSettledResult<InvokeFnResult>[],
     triggerMessageId: string | undefined,
-    hopSourceMessageIds: Map<string, string>,
+    chainSourceMessageIds: Map<string, string[]> | undefined,
   ): void {
     if (!this.deps.dispatchAttemptRepo) return;
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       const target = targets[i];
-      const ledgerMsgId = triggerMessageId ?? hopSourceMessageIds.get(target);
-      if (!ledgerMsgId) continue;
-      try {
-        if (r.status === "fulfilled") {
-          this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "completed");
-          hopSourceMessageIds.set(target, r.value.messageId);
-          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'completed', source: 'chain' });
-        } else {
-          const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-          this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "failed", reason.slice(0, 300));
-          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'failed', source: 'chain', reason: reason.slice(0, 200) });
+      const ledgerMsgIds = triggerMessageId ? [triggerMessageId] : (chainSourceMessageIds?.get(target) ?? []);
+      for (const ledgerMsgId of ledgerMsgIds) {
+        try {
+          if (r.status === "fulfilled") {
+            this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "completed");
+            this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'completed', source: 'chain' });
+          } else {
+            const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+            this.deps.dispatchAttemptRepo.recordFinish(ledgerMsgId, target, "failed", reason.slice(0, 300));
+            this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: ledgerMsgId, otter: target, status: 'failed', source: 'chain', reason: reason.slice(0, 200) });
+          }
+        } catch (e) {
+          this.deps.logger.warn('[signal-ledger] settle 记账失败（不影响链路）', { conversationId, target, error: e instanceof Error ? e.message : String(e) });
         }
-      } catch (e) {
-        this.deps.logger.warn('[signal-ledger] settle 记账失败（不影响链路）', { conversationId, target, error: e instanceof Error ? e.message : String(e) });
+      }
+      // 链级出处回填（hop 取源修复核心）：该目标的产出消息是【它 yield 给的下一跳目标】的
+      // 触发源——按 aggregatedTargets 落位，而非记在自己名下。
+      // 例：worker 产出 m-work 并 yield owner → m-work 应记在 chainSource[owner]，
+      // 下 hop owner 起跑时用它记账 (m-work, owner)。多源追加不去重（A、B 都 yield C 时
+      // C 名下两条触发消息各记一次）；同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。
+      if (r.status === "fulfilled" && chainSourceMessageIds) {
+        const produced = r.value.messageId;
+        const nextHops = r.value.aggregatedTargets?.filter(id => id !== "user") ?? [];
+        for (const next of nextHops) {
+          const list = (chainSourceMessageIds.get(next) ?? []).filter(id => id !== produced);
+          list.push(produced);
+          chainSourceMessageIds.set(next, list.slice(-8));
+        }
       }
     }
   }
