@@ -96,6 +96,18 @@ describe("RHI API（真 sqlite）", () => {
       expect(body.metrics).toEqual({});
       expect(body.openSignals).toBe(0);
     });
+
+    it("Issue #652 验收：low critical ×2 + normal critical ×1 → critical 计数 = 1，低置信单列", async () => {
+      signalRepo.upsert({ signalType: "chain_stall", severity: "critical", featureId: "F1", filePath: null, evidence: "e", suggestedAction: "s", confidence: "low" });
+      signalRepo.upsert({ signalType: "chain_stall", severity: "critical", featureId: "F2", filePath: null, evidence: "e", suggestedAction: "s", confidence: "low" });
+      signalRepo.upsert({ signalType: "bug_recurrence", severity: "critical", featureId: null, filePath: "a.ts", evidence: "e", suggestedAction: "s" });
+
+      const res = await makeController().overview(makeCtx());
+      const body = await res.json() as { openSignals: number; openSignalsBySeverity: { critical: number; warning: number }; openSignalsByConfidence: { normal: number; low: number } };
+      expect(body.openSignals).toBe(3); // 总数不变（数据不丢）
+      expect(body.openSignalsBySeverity.critical).toBe(1); // low 不推高主警报数
+      expect(body.openSignalsByConfidence).toEqual({ normal: 1, low: 2 });
+    });
   });
 
   describe("signals", () => {
@@ -116,14 +128,15 @@ describe("RHI API（真 sqlite）", () => {
   });
 
   describe("chains", () => {
-    it("返回链列表与五态分布", async () => {
+    it("返回链列表与五态分布 + 高扇入排除清单（Issue #647 验收：可见）", async () => {
       const chains = [fakeChain("F20260801aaaa", "active"), fakeChain("F20260801bbbb", "stalled")];
       const res = await makeController(chains).chains(makeCtx());
-      const body = await res.json() as { chains: Array<{ featureId: string; state: string }>; stateCounts: Record<string, number>; total: number };
+      const body = await res.json() as { chains: Array<{ featureId: string; state: string }>; stateCounts: Record<string, number>; total: number; fanInExcludedFiles: Array<{ file: string; fanIn: number }> };
 
       expect(body.total).toBe(2);
       expect(body.stateCounts).toEqual({ active: 1, stalled: 1 });
       expect(body.chains[0]).toMatchObject({ featureId: "F20260801aaaa", state: "active" });
+      expect(Array.isArray(body.fanInExcludedFiles)).toBe(true);
     });
 
     it("链响应包含 docTitle 和 stateReason", async () => {

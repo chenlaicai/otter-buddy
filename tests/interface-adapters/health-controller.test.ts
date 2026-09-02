@@ -15,11 +15,13 @@ function makeRepos(opts: { dbFeatureIds?: string[]; diskIds?: string[] }) {
   const dbFeatureIds = opts.dbFeatureIds ?? [];
   const featureRepo = {
     findById: vi.fn(async () => null),
+    findByFilePath: vi.fn(async () => null),
     findAll: vi.fn(async () => dbFeatureIds.map(id => ({ id, status: "draft", supersedes: [] as string[] }))),
     insert: vi.fn(), updateStatus: vi.fn(), updateContent: vi.fn(),
   } as unknown as FeatureRepository;
   const researchRepo = {
-    findById: vi.fn(async () => null), findAll: vi.fn(async () => []),
+    findById: vi.fn(async () => null), findByFilePath: vi.fn(async () => null),
+    findAll: vi.fn(async () => []),
     insert: vi.fn(), updateStatus: vi.fn(), updateContent: vi.fn(),
   } as unknown as ResearchRepository;
   const diskIds = opts.diskIds ?? [];

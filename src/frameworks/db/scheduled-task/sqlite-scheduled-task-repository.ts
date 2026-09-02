@@ -17,6 +17,11 @@ import {
   type ScheduledTaskExecutionRow,
 } from './scheduled-task-mapper';
 
+/** 空串/undefined 统一归 null：message_id/turn_id 带 FK 约束（REFERENCES messages/turns），
+ * 空串会被外键拒绝。F20260901ppfk：function executor 成功路径曾传 messageId=''
+ * 导致撮合结果整笔回滚（FOREIGN KEY constraint failed）。 */
+const toNullableId = (value: string | null | undefined): string | null => (value ? value : null);
+
 export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -124,7 +129,7 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     `).run(
       execution.id, execution.taskId, execution.triggeredAt,
       execution.completedAt, execution.status, execution.errorMessage,
-      execution.messageId, execution.turnId,
+      toNullableId(execution.messageId), toNullableId(execution.turnId),
     );
   }
 
@@ -134,8 +139,8 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
       status: ExecutionStatus;
       completedAt?: string;
       errorMessage?: string;
-      messageId?: string;
-      turnId?: string;
+      messageId?: string | null;
+      turnId?: string | null;
     },
   ): Promise<void> {
     this.db.prepare(`
@@ -147,8 +152,8 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
       updates.status,
       updates.completedAt ?? null,
       updates.errorMessage ?? null,
-      updates.messageId ?? null,
-      updates.turnId ?? null,
+      toNullableId(updates.messageId),
+      toNullableId(updates.turnId),
       id,
     );
   }
