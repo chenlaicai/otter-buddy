@@ -50,6 +50,7 @@ export class ChannelController {
       kind: "weixin" | "feishu";
       state: ChannelStatusEntry["state"];
       account?: { id: string; nickname?: string };
+      appIdMasked?: string;
     }> = [];
     
     // 微信账号：有 registry 条目用运行态；无条目显示"未运行"
@@ -75,13 +76,14 @@ export class ChannelController {
       }
     }
     
-    // 飞书通道：registry 有条目则添加
+    // 飞书通道：registry 有条目则添加（#663：携带掩码 appId 供凭证确认）
     const feishuEntry = registryMap.get("feishu");
     if (feishuEntry) {
       channels.push({
         channelId: "feishu",
         kind: "feishu",
         state: feishuEntry.state,
+        appIdMasked: feishuEntry.appIdMasked,
       });
     }
     

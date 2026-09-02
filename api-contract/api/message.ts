@@ -61,10 +61,10 @@ export interface MessageEventDTO {
   createdAt: string;
 }
 
-/** 附件 DTO（多模态 Phase 1，消息携带的附件透出） */
+/** 附件 DTO（多模态 Phase 1，消息携带的附件透出；#608 扩 kind 值域 audio/video） */
 export interface AttachmentDTO {
   id: string;
-  kind: "image" | "document";
+  kind: "image" | "document" | "audio" | "video";
   originalName: string;
   mimeType: string;
   sizeBytes: number;

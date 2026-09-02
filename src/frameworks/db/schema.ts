@@ -924,7 +924,7 @@ function createAttachmentTables(db: Database.Database): void {
       file_path TEXT NOT NULL,
       original_name TEXT NOT NULL,
       mime_type TEXT NOT NULL,
-      kind TEXT NOT NULL CHECK(kind IN ('image', 'document')),
+      kind TEXT NOT NULL CHECK(kind IN ('image', 'document', 'audio', 'video')),
       size_bytes INTEGER NOT NULL,
       width INTEGER,
       height INTEGER,

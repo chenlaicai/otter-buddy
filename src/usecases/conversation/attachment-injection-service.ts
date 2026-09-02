@@ -87,6 +87,9 @@ export class AttachmentInjectionService {
    * 组装注入载荷：image → base64 真图；document → 提取文本块（16KB/文件截断）。
    * 调用前应先过 validateForSend（限制已在入口拒绝，此处不再重复判）。
    * 单次读盘后多獭共享（dispatch-chain 对每獭复用同一份载荷——优于方案 §3.4③ 的 3 獭 3 次读盘）。
+   *
+   * #608：audio/video/PDF 不进注入载荷（文本投影占位已覆盖可见性；音频/视频无法
+   * 以文本注入 LLM——语音的转写文本在消息 body，视频抽帧后议；PDF 待文本提取器）。
    */
   async buildInjectionPayload(attachmentIds?: string[]): Promise<InjectionPayload | undefined> {
     if (!attachmentIds || attachmentIds.length === 0) return undefined;
@@ -103,7 +106,8 @@ export class AttachmentInjectionService {
         this.pushImage(images, await this.readAttachmentFile(a.filePath), a.mimeType);
         continue;
       }
-      // document：提取文本（plain-text extractor——白名单 MIME 均为纯文本类，直接 utf8 解码）
+      if (this.shouldSkipInjection(a)) continue; // #608：音视频/PDF 不注入，见 shouldSkipInjection 注释
+      // document（纯文本类）：提取注入（白名单 MIME 均为纯文本，直接 utf8 解码）
       await this.pushDocumentLine(docLines, a, await this.readAttachmentFile(a.filePath));
     }
 
@@ -112,6 +116,12 @@ export class AttachmentInjectionService {
       ...(images.length > 0 && { images }),
       ...(docLines.length > 0 && { documentBlock: docLines.join("\n\n") }),
     };
+  }
+
+  /** #608：非注入类附件判定（音频/视频无法文本化；PDF 二进制 utf8 解码只会产出
+   *  乱码污染上下文——均待后续能力（抽帧/文本提取器）再启用注入，占位投影已可见） */
+  private shouldSkipInjection(a: { kind: string; mimeType: string }): boolean {
+    return a.kind === "audio" || a.kind === "video" || a.mimeType === "application/pdf";
   }
 
   /** 图片入载荷（≤MAX_IMAGES_PER_TURN 防御：validate 已拒，此处兜底截断；读盘失败跳过） */

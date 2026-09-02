@@ -8,11 +8,15 @@
 /** image 扩展名白名单（与后端 IMAGE_MIME_WHITELIST 一致；SVG 明确排除——XSS 向量） */
 export const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
 
-/** document 扩展名白名单（与后端 DOCUMENT_EXTENSION_MAP 一致——纯文本类，可注入 LLM） */
-export const DOCUMENT_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.json']
+/** document 扩展名白名单（与后端 DOCUMENT_EXTENSION_MAP 一致——纯文本类，可注入 LLM；PDF 走二进制魔数） */
+export const DOCUMENT_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.json', '.pdf']
 
-/** 文件选择器 accept 属性（两类白名单合并） */
-export const ATTACHMENT_ACCEPT = [...IMAGE_EXTENSIONS, ...DOCUMENT_EXTENSIONS].join(',')
+/** audio/video 扩展名白名单（#608：与后端 AUDIO/VIDEO_MIME_WHITELIST 对齐） */
+export const AUDIO_EXTENSIONS = ['.wav', '.mp3']
+export const VIDEO_EXTENSIONS = ['.mp4']
+
+/** 文件选择器 accept 属性（四类白名单合并） */
+export const ATTACHMENT_ACCEPT = [...IMAGE_EXTENSIONS, ...DOCUMENT_EXTENSIONS, ...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS].join(',')
 
 /** 上传/携带限制（与后端一致：每轮 ≤2 图、单次上传 ≤5 文件、图 10MB/文档 20MB） */
 export const MAX_IMAGES_PER_SEND = 2
@@ -20,17 +24,19 @@ export const MAX_FILES_PER_UPLOAD = 5
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
-export type AttachmentKind = 'image' | 'document'
+export type AttachmentKind = 'image' | 'document' | 'audio' | 'video'
 
 export interface RejectedFile {
   name: string
   reason: string
 }
 
-/** 按扩展名判定附件类型（白名单外返回 null） */
+/** 按扩展名判定附件类型（白名单外返回 null；#608 扩 audio/video/pdf） */
 export function classifyByExtension(name: string): AttachmentKind | null {
   const lower = name.toLowerCase()
   if (IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext))) return 'image'
+  if (AUDIO_EXTENSIONS.some(ext => lower.endsWith(ext))) return 'audio'
+  if (VIDEO_EXTENSIONS.some(ext => lower.endsWith(ext))) return 'video'
   if (DOCUMENT_EXTENSIONS.some(ext => lower.endsWith(ext))) return 'document'
   return null
 }
@@ -41,7 +47,8 @@ export function validateFile(file: File): [boolean, string | null] {
   if (!kind) return [false, `不支持的文件类型（支持：${ATTACHMENT_ACCEPT}）`]
   const limit = kind === 'image' ? MAX_IMAGE_BYTES : MAX_DOCUMENT_BYTES
   if (file.size > limit) {
-    return [false, `${kind === 'image' ? '图片' : '文档'}超过大小限制（${fmtBytes(limit)}）`]
+    const label = kind === 'image' ? '图片' : kind === 'audio' ? '音频' : kind === 'video' ? '视频' : '文档'
+    return [false, `${label}超过大小限制（${fmtBytes(limit)}）`]
   }
   return [true, null]
 }

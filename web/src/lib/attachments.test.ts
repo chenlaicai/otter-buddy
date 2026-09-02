@@ -42,9 +42,15 @@ describe('classifyByExtension', () => {
 
   it('白名单外返回 null', () => {
     expect(classifyByExtension('archive.zip')).toBeNull()
-    expect(classifyByExtension('doc.pdf')).toBeNull()
     expect(classifyByExtension('app.exe')).toBeNull()
     expect(classifyByExtension('noext')).toBeNull()
+  })
+
+  it('#608：pdf/wav/mp3/mp4 加入白名单', () => {
+    expect(classifyByExtension('doc.pdf')).toBe('document')
+    expect(classifyByExtension('rec.wav')).toBe('audio')
+    expect(classifyByExtension('song.mp3')).toBe('audio')
+    expect(classifyByExtension('movie.mp4')).toBe('video')
   })
 
   it('accept 属性不含 svg', () => {
@@ -71,9 +77,14 @@ describe('validateFile', () => {
   })
 
   it('类型不在白名单拒绝（提示含支持列表）', () => {
-    const [ok, reason] = validateFile(file('movie.mp4', 100, 'video/mp4'))
+    const [ok, reason] = validateFile(file('setup.exe', 100, 'application/x-msdownload'))
     expect(ok).toBe(false)
     expect(reason).toContain('不支持')
+  })
+
+  it('#608：mp4 在白名单通过', () => {
+    const [ok] = validateFile(file('movie.mp4', 100, 'video/mp4'))
+    expect(ok).toBe(true)
   })
 })
 
