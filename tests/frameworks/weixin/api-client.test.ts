@@ -161,4 +161,37 @@ describe("WeixinApiClient", () => {
       restore();
     }
   });
+
+  // #624：GET/POST headers 两套构造（对齐参考实现 buildCommonHeaders）
+  it("GET 请求不带 Content-Type（无 body 语义，#624）", async () => {
+    const { calls, restore } = captureFetch(ok({ ret: 0, status: "wait" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test", token: "tok-1" });
+      await api.pollQrStatus({ qrcode: "qr" });
+      const h = calls[0].headers;
+      expect(h["Content-Type"]).toBeUndefined();
+      // 公共头仍在：鉴权 + 自声明字段一个不少
+      expect(h["AuthorizationType"]).toBe("ilink_bot_token");
+      expect(h["iLink-App-Id"]).toBe("bot");
+      expect(h["iLink-App-ClientVersion"]).toBe("256");
+      expect(h["Authorization"]).toBe("Bearer tok-1");
+      expect(typeof h["X-WECHAT-UIN"]).toBe("string");
+    } finally {
+      restore();
+    }
+  });
+
+  it("POST 请求仍带 Content-Type: application/json（JSON body 语义不变，#624 回归锁定）", async () => {
+    const { calls, restore } = captureFetch(ok({ ret: 0, msgs: [], get_updates_buf: "" }));
+    try {
+      const api = new WeixinApiClient({ baseUrl: "https://example.test" });
+      await api.getUpdates("");
+      const h = calls[0].headers;
+      expect(h["Content-Type"]).toBe("application/json");
+      expect(h["AuthorizationType"]).toBe("ilink_bot_token");
+      expect(h["iLink-App-Id"]).toBe("bot");
+    } finally {
+      restore();
+    }
+  });
 });
