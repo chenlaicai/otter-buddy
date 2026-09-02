@@ -42,6 +42,9 @@ export interface MemoryRepository {
   deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
+  /** #576（F20260901emps）：按创建时间倒序取最近 N 条（记忆搜索页初始态数据源）
+   *  过滤 chunk 类条目——它们是文档分段碎片，直接罗列对用户无意义 */
+  listRecent(limit: number): Promise<MemoryEntry[]>;
   /**
    * F20260812mrcq Part 3：按 source_id + 可选 contentType 主键直查。
    * 用于 anchor 短路——F/R 文档 ID 形如 "F20260812mrcq" 作为 source_id 索引。

@@ -56,6 +56,12 @@ export interface MemoryEntryDTO {
 }
 
 /** 检索结果 DTO */
+
+/** #576（F20260901emps）：最近记忆列表（记忆搜索页初始态数据源） */
+export interface RecentMemoryDTO {
+  entries: MemoryEntryDTO[];
+  total: number;
+}
 export interface SearchResultDTO {
   entries: MemoryEntryDTO[];
   total: number;

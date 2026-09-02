@@ -73,7 +73,7 @@ function TerminologyCard({ entry }: { entry: MemoryEntryDTO }) {
   )
 }
 
-function MemorySearchPage() {
+export function MemorySearchPage() {
   const [query, setQuery] = useState('')
   const [layer, setLayer] = useState('')
   const [granularity, setGranularity] = useState('')
@@ -104,6 +104,15 @@ function MemorySearchPage() {
   const [health, setHealth] = useState<api.MemoryHealthDTO | null>(null)
   useEffect(() => {
     api.getMemoryHealth().then(setHealth).catch(() => {})
+  }, [])
+
+  // #576（F20260901emps）：初始态加载最近记忆——页面打开即有内容，而非静默引导文案。
+  // 切正常搜索后不回退（results !== null 时不再覆盖）；加载失败静默保持原引导文案（降级可接受）
+  const [recent, setRecent] = useState<MemoryEntryDTO[] | null>(null)
+  useEffect(() => {
+    api.getRecentMemory(10)
+      .then(r => setRecent(r.entries))
+      .catch(() => setRecent([]))
   }, [])
 
   async function doSearch(searchQuery?: string) {
@@ -303,11 +312,69 @@ function MemorySearchPage() {
             </div>
           )}
 
-          {!loading && results === null && (
+          {!loading && results === null && recent === null && (
             <div className="flex flex-col items-center justify-center h-full gap-2">
               <Search className="w-10 h-10 text-stone-300" />
               <div className="text-sm font-medium text-stone-400">搜索记忆</div>
               <div className="text-xs text-stone-400">输入关键词搜索历史对话和关键资源</div>
+            </div>
+          )}
+
+          {/* #576：初始态展示最近记忆（有内容可看可点，展开详情走既有 Modal） */}
+          {!loading && results === null && recent !== null && recent.length > 0 && (
+            <div className="max-w-[800px] mx-auto space-y-3">
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-sm font-medium text-stone-500">最近记忆</div>
+                <div className="text-xs text-stone-400">输入关键词搜索历史对话和关键资源</div>
+              </div>
+              {recent.map(e => {
+                const isTerm = isTerminology(e)
+                return (
+                  <div key={e.id} className="glass-card rounded-2xl p-4">
+                    <div className="flex items-center gap-2 text-xs text-stone-400 mb-2">
+                      {!isTerm && (
+                        <>
+                          <span className="flex items-center gap-1">
+                            {(() => { const Icon = typeIconComponents[e.contentType] || FileText; return <Icon className="w-3 h-3" /> })()}
+                            {e.contentType}
+                          </span>
+                          <span>·</span>
+                          <span>{e.conversationId || '-'}</span>
+                          <span>·</span>
+                        </>
+                      )}
+                      <span>{e.createdAt}</span>
+                      {!isTerm && (
+                        <span className="text-[10px] bg-white/40 px-1.5 py-0.5 rounded-full">
+                          {layerLabels[e.layer] || e.layer}
+                        </span>
+                      )}
+                    </div>
+
+                    {isTerm ? (
+                      <TerminologyCard entry={e} />
+                    ) : (
+                      <div className="text-sm text-stone-700 line-clamp-3">{e.content}</div>
+                    )}
+
+                    <div className="flex items-center gap-3 text-xs mt-2">
+                      <button onClick={() => expandContext(e.id)} className="text-otter-500 hover:underline">
+                        {isTerm ? '查看详情' : '展开上下文'}
+                      </button>
+                      <button onClick={() => findSimilar(e.id)} className="text-otter-500 hover:underline">查找相似</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* #576：recent 为空数组 = 环境无数据（区分于加载中）——显式空态文案 */}
+          {!loading && results === null && recent !== null && recent.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-2">
+              <Search className="w-10 h-10 text-stone-300" />
+              <div className="text-sm font-medium text-stone-400">暂无记忆数据</div>
+              <div className="text-xs text-stone-400">系统尚无历史对话或文档入库——正常使用后这里会展示最近记忆</div>
             </div>
           )}
 
@@ -477,5 +544,6 @@ function MemorySearchPage() {
   )
 }
 
+/** 入口挂载（测试经 export 的 MemorySearchPage 直接渲染，不走此副作用） */
 const root = createRoot(document.getElementById('root')!)
 root.render(<MemorySearchPage />)

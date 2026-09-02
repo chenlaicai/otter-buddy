@@ -253,4 +253,46 @@ describe("Memory API", () => {
       expect(body.flagged).toBe(false);
     });
   });
+
+  // ─── GET /api/memory/recent（#576 F20260901emps） ───
+
+  describe("GET /api/memory/recent", () => {
+    it("returns recent entries (newest first, DTO shape)", async () => {
+      deps.memoryRepo = {
+        listRecent: async () => [makeMemoryEntry()],
+      };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/memory/recent?limit=5");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.total).toBe(1);
+      expect(body.entries).toHaveLength(1);
+      expect(body.entries[0].id).toBe(makeMemoryEntry().id);
+      expect(body.entries[0].content).toBeTypeOf("string");
+    });
+
+    it("defaults to empty list when no data", async () => {
+      const res = await app.request("/api/memory/recent");
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.total).toBe(0);
+      expect(body.entries).toHaveLength(0);
+    });
+
+    it("caps limit at 50", async () => {
+      const seen: number[] = [];
+      deps.memoryRepo = {
+        listRecent: async (limit: number) => {
+          seen.push(limit);
+          return [];
+        },
+      };
+      app = createTestApp(deps);
+
+      const res = await app.request("/api/memory/recent?limit=999");
+      expect(res.status).toBe(200);
+      expect(seen[0]).toBe(50);
+    });
+  });
 });
