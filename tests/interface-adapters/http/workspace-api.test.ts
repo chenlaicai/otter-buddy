@@ -17,6 +17,8 @@ import { WorkspaceController } from "@interface-adapters/http/controllers/worksp
 import { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 import { createTestLogger } from "../../helpers/logger";
+// Why: 契约形状锁（issue #558）——响应体断言直接用契约类型，形成契约↔wire 双向绑定
+import type { WorkspaceListDirResponse, WorkspaceFileContent } from "@contract/api/workspace";
 
 /** 合法 conversationId 样本 */
 const VALID_CONV_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
@@ -33,25 +35,27 @@ function createTestApp(dataDir: string): Hono {
   return app;
 }
 
+// Why: fixture 声明在文件级（非 describe 内）——vitest 文件级 hook 服务于本文件全部
+// describe，两个顶级 describe 共用同一套 workspace fixture，避免逐 describe 抄副本
+let tmpDir: string;
+let app: Hono;
+
+beforeEach(async () => {
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ws-api-test-"));
+  app = createTestApp(tmpDir);
+  // 创建工作区并写入测试文件
+  const wsDir = path.join(tmpDir, "workspaces", VALID_CONV_ID);
+  await fs.mkdir(wsDir, { recursive: true });
+  await fs.writeFile(path.join(wsDir, "hello.txt"), "你好世界", "utf-8");
+  await fs.mkdir(path.join(wsDir, "subdir"), { recursive: true });
+  await fs.writeFile(path.join(wsDir, "subdir", "nested.txt"), "嵌套文件", "utf-8");
+});
+
+afterEach(async () => {
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
 describe("Workspace HTTP API", () => {
-  let tmpDir: string;
-  let app: Hono;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ws-api-test-"));
-    app = createTestApp(tmpDir);
-    // 创建工作区并写入测试文件
-    const wsDir = path.join(tmpDir, "workspaces", VALID_CONV_ID);
-    await fs.mkdir(wsDir, { recursive: true });
-    await fs.writeFile(path.join(wsDir, "hello.txt"), "你好世界", "utf-8");
-    await fs.mkdir(path.join(wsDir, "subdir"), { recursive: true });
-    await fs.writeFile(path.join(wsDir, "subdir", "nested.txt"), "嵌套文件", "utf-8");
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
-
   // ─── S1: 路径穿越防护 ───
 
   describe("conversationId 路径穿越防护（UUID 校验）", () => {
@@ -297,4 +301,53 @@ describe("Workspace HTTP API", () => {
       expect(res.status).toBe(400);
     });
   });
+});
+
+// ─── 契约形状锁（issue #558）：wire 响应体必须与 api-contract 契约一致 ───
+// Why: 三侧（usecase/controller/web）已各自 import 契约类型，编译期漂移由双端
+// tsc 锁死；这里锁的是运行时 wire 形状——JSON 字段缺失/多出/类型漂移会被感知
+
+describe("响应体与 api-contract 契约一致", () => {
+    it("listDir 响应体匹配 WorkspaceListDirResponse", async () => {
+      const res = await app.request(`/api/conversations/${VALID_CONV_ID}/workspace`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as WorkspaceListDirResponse;
+      expect(body.basePath).toBe("");
+      // 字段全集断言：契约定义的每个字段都在 wire 上存在且类型正确
+      for (const entry of body.entries) {
+        expect(typeof entry.name).toBe("string");
+        expect(typeof entry.isDirectory).toBe("boolean");
+        expect(typeof entry.isFile).toBe("boolean");
+        expect(typeof entry.path).toBe("string");
+      }
+      const hello = body.entries.find((e) => e.name === "hello.txt");
+      expect(hello).toBeDefined();
+      expect(hello!.path).toBe("hello.txt");
+    });
+
+    it("listDir 子目录条目 path 为嵌套形态（父路径/名称）", async () => {
+      // 锁住 usecase 拼接逻辑产出的 path 形态与契约注释一致
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace?path=subdir`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as WorkspaceListDirResponse;
+      const nested = body.entries.find((e) => e.name === "nested.txt");
+      expect(nested).toBeDefined();
+      expect(nested!.path).toBe("subdir/nested.txt");
+    });
+
+    it("readFile 响应体匹配 WorkspaceFileContent", async () => {
+      const res = await app.request(
+        `/api/conversations/${VALID_CONV_ID}/workspace/file?path=hello.txt`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as WorkspaceFileContent;
+      expect(typeof body.path).toBe("string");
+      expect(typeof body.content).toBe("string");
+      expect(typeof body.truncated).toBe("boolean");
+      expect(body.path).toBe("hello.txt");
+      expect(body.content).toBe("你好世界");
+      expect(body.truncated).toBe(false);
+    });
 });

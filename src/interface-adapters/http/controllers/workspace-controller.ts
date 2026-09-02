@@ -1,6 +1,9 @@
 import type { Context } from "hono";
 import type { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 import type { Logger } from "@usecases/ports/logger";
+// Why: Workspace DTO 单一真相源在 api-contract（issue #558）——HTTP 响应体按契约类型序列化，
+// 类型漂移会在 tsc 阶段暴露而非运行时
+import type { WorkspaceFileContent, WorkspaceListDirResponse } from "@contract/api/workspace";
 import { HttpError, handleError, param } from "../http-error";
 
 /** 合法 conversationId 的正则：UUID 格式，杜绝路径分隔符和 .. 逃逸 */
@@ -37,10 +40,11 @@ export class WorkspaceController {
       const relativePath = c.req.query("path") || undefined;
 
       const entries = await this.manageWorkspace.listDir(conversationId, relativePath);
-      return c.json({
+      const body: WorkspaceListDirResponse = {
         entries,
         basePath: relativePath || "",
-      });
+      };
+      return c.json(body);
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -82,7 +86,10 @@ export class WorkspaceController {
         return c.json({ error: "path 参数必填" }, 400);
       }
 
-      const fileContent = await this.manageWorkspace.readFile(conversationId, relativePath);
+      const fileContent: WorkspaceFileContent = await this.manageWorkspace.readFile(
+        conversationId,
+        relativePath,
+      );
       return c.json(fileContent);
     } catch (err) {
       return handleError(c, err, this.logger);
