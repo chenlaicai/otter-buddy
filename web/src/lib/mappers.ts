@@ -251,7 +251,7 @@ export interface LocalScheduledTaskExecution {
   taskId: string
   triggeredAt: string
   completedAt: string | null
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'failed' | 'skipped'
   errorMessage: string | null
   messageId: string | null
   turnId: string | null
@@ -318,7 +318,7 @@ export function mapExecutionDTO(dto: ScheduledTaskExecutionDTO): LocalScheduledT
     taskId: dto.taskId,
     triggeredAt: dto.triggeredAt,
     completedAt: dto.completedAt,
-    status: dto.status as 'running' | 'completed' | 'failed',
+    status: dto.status as 'running' | 'completed' | 'failed' | 'skipped',
     errorMessage: dto.errorMessage,
     messageId: dto.messageId,
     turnId: dto.turnId,
