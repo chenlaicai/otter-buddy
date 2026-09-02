@@ -12,6 +12,8 @@
  *      （合入后又有新 commit = 迭代中，参与病态判定——分批合入大特性不提前标完成）
  *   R2 迭代收口：implemented + substatus:active ∧ 最后 commit > iterationDays → 删 substatus
  *      （迭代静默 ≥ 阈值，收口回纯 implemented 豁免）
+ *   #661 空窗处置（纯留痕无动作）：R1 关窗 ∧ R2 无 substatus ∧ R3 不适用 implemented 的链
+ *      → 显式接受为「R2 收口等价终态」，gapDispositions 留痕（详见特性文档 F20260901dgap）
  *   R3 高置信归档：in-flight ∧ commitCount ≥ 1 ∧ 全 commit 带 prNumber ∧ 最后 commit > quietDays
  *      → status → implemented（issue 定案的高置信子集：全 PR 合入 + 静默 60 天；
  *      其余交僵尸阶梯消化，防「干一半放弃」误标完成污染基线）
@@ -47,11 +49,15 @@ export interface AdvancementAction {
   fromStatus?: string;
 }
 
-/** 推进计划：动作 + 跳过留痕（issue 验收：未知值跳过且日志留痕） */
+/** 推进计划：动作 + 跳过留痕 + 空窗处置留痕（issue 验收：未知值跳过且日志留痕） */
 export interface AdvancementPlan {
   actions: AdvancementAction[];
   /** 跳过留痕：fid → 原因 */
   skipped: Array<{ fid: string; status: string | null; reason: string }>;
+  /** 空窗处置留痕（#661）：R1 关窗 ∧ R2 无 substatus ∧ R3 不适用 implemented 的链——
+   *  显式接受为「R2 收口等价终态」（语义：迭代已静默收口），不产生动作，仅审计可见。
+   *  复活路径：未来新 commit 落在 ≤iterationDays 内则 R1 直达标记。 */
+  gapDispositions: Array<{ fid: string; idleDays: number; reason: string }>;
   /** 计划生成时刻 */
   plannedAt: string;
 }
@@ -79,6 +85,7 @@ export function planDocAdvancements(chains: ChainEvidence[], options: AdvancerOp
 
   const actions: AdvancementAction[] = [];
   const skipped: AdvancementPlan["skipped"] = [];
+  const gapDispositions: AdvancementPlan["gapDispositions"] = [];
 
   for (const chain of chains) {
     if (shouldSkipChain(chain)) continue;
@@ -91,13 +98,13 @@ export function planDocAdvancements(chains: ChainEvidence[], options: AdvancerOp
     }
 
     if (status === "implemented") {
-      planImplemented(chain, { now, iterationDays }, actions);
+      planImplemented(chain, { now, iterationDays }, actions, gapDispositions);
     } else {
       planInFlight(chain, { now, quietDays }, actions, skipped);
     }
   }
 
-  return { actions, skipped, plannedAt: now.toISOString() };
+  return { actions, skipped, gapDispositions, plannedAt: now.toISOString() };
 }
 
 /** 推进前置守卫：orphan / 真终态 / doc-only 无 commit 一律跳过（各自语义见内联注释）。 */
@@ -118,20 +125,31 @@ function planImplemented(
   chain: ChainEvidence,
   ctx: { now: Date; iterationDays: number },
   actions: AdvancementAction[],
+  gapDispositions: AdvancementPlan["gapDispositions"],
 ): void {
   const idleDays = Math.floor((ctx.now.getTime() - chain.lastCommitAt!.getTime()) / DAY_MS);
-  const lastSha = chain.commits[chain.commits.length - 1]?.sha ?? null;
-  const docTouchedAfterLastCommit =
-    lastSha !== null && chain.docLastTouchedSha !== undefined && chain.docLastTouchedSha !== lastSha;
+  const docUntouchedAfterLastCommit = isDocUntouchedAfterLastCommit(chain);
   const iterating = chain.doc!.substatus === "active";
 
-  if (!iterating && docTouchedAfterLastCommit && idleDays <= ctx.iterationDays) {
-    actions.push({
-      fid: chain.featureId,
-      kind: "mark-iterating",
-      reason: `implemented 后 ${idleDays} 天内有新 commit（最后 ${chain.lastCommitAt!.toISOString().slice(0, 10)}）→ 标记迭代中`,
-      filePath: chain.doc!.filePath,
-    });
+  if (!iterating && docUntouchedAfterLastCommit) {
+    if (idleDays <= ctx.iterationDays) {
+      actions.push({
+        fid: chain.featureId,
+        kind: "mark-iterating",
+        reason: `implemented 后 ${idleDays} 天内有新 commit（最后 ${chain.lastCommitAt!.toISOString().slice(0, 10)}）→ 标记迭代中`,
+        filePath: chain.doc!.filePath,
+      });
+    } else {
+      // #661 空窗处置：R1 窗口已关（>iterationDays）∧ R2 无 substatus 可收 ∧ R3 不适用 implemented。
+      // 显式接受为「R2 收口等价终态」——语义与 R2 收口后的状态完全一致（纯 implemented，病态判定豁免），
+      // 不加规则不产动作，仅留痕。放宽 R1 上限反而制造 R1/R2 振荡（mark→close→mark 每日空转），已排除。
+      // 复活路径：未来 commit 距今 ≤iterationDays 时 R1 直达标记，空窗自动退出。
+      gapDispositions.push({
+        fid: chain.featureId,
+        idleDays,
+        reason: `迭代后静默 ${idleDays} 天（> ${ctx.iterationDays}）→ 显式接受为 R2 收口等价终态（空窗处置 #661）`,
+      });
+    }
   } else if (iterating && idleDays > ctx.iterationDays) {
     actions.push({
       fid: chain.featureId,
@@ -140,6 +158,14 @@ function planImplemented(
       filePath: chain.doc!.filePath,
     });
   }
+}
+
+/** 链尾 commit 未触碰文档 = 标注早于代码活动（R1 迭代判定与 #661 空窗判定的共同前提）。
+ *  无 sha 证据（docLastTouchedSha null/undefined——采集未命中或未采集）时保守返回 false
+ *  （宁可漏标不可误标；宽松 != null 同时堵死 CLI 侧 `?? null` 转换后的语义缝隙，检视建议 1）。 */
+function isDocUntouchedAfterLastCommit(chain: ChainEvidence): boolean {
+  const lastSha = chain.commits[chain.commits.length - 1]?.sha ?? null;
+  return lastSha !== null && chain.docLastTouchedSha != null && chain.docLastTouchedSha !== lastSha;
 }
 
 /** R3：在途链的高置信归档（全 commit 带 PR 号 ∧ 静默超阈值）。其余交僵尸阶梯。 */

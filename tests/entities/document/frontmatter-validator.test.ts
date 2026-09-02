@@ -21,6 +21,24 @@ const BASE_FM = {
   change_type: "prompt",
 };
 
+describe("validateFeatureFrontmatter: 存量豁免清单（#667 LEGACY_FID_IDS）", () => {
+  it("F20260731mmr（3 位后缀真存量，DB 同 id）放行不报 Invalid", () => {
+    const r = validateFeatureFrontmatter(
+      { ...BASE_FM, id: "F20260731mmr" },
+      "docs/features/2026/07/31/F20260731-multi-model-routing.md"
+    );
+    expect(r.errors.some((e) => e.includes("Invalid feature ID"))).toBe(false);
+  });
+
+  it("同形态新 ID 不被豁免（豁免是白名单不是放宽）：F20260801xyz 仍报 Invalid", () => {
+    const r = validateFeatureFrontmatter(
+      { ...BASE_FM, id: "F20260801xyz" },
+      "docs/features/2026/08/01/F20260801-xyz.md"
+    );
+    expect(r.errors.some((e) => e.includes("Invalid feature ID"))).toBe(true);
+  });
+});
+
 describe("validateFeatureFrontmatter: title 可读性（#470）", () => {
   it("纯 slug title（无 CJK 无空格）报 warning", () => {
     const r = validateFeatureFrontmatter(

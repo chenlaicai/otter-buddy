@@ -79,8 +79,10 @@ async function main() {
     chainCount: chains.length,
     actionCount: plan.actions.length,
     skipCount: plan.skipped.length,
+    gapCount: plan.gapDispositions.length,
     actions: plan.actions,
     skipped: plan.skipped,
+    gapDispositions: plan.gapDispositions,
   }, null, 2));
 
   if (dryRun) {
