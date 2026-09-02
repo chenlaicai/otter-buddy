@@ -157,5 +157,14 @@ describe("SqliteDispatchAttemptRepo（sgp2 S1 真实仓储集成）", () => {
       const n2 = repo.backfillLegacyAttempted();
       expect(n2).toBe(0);
     });
+
+    it("墓碑故意覆盖归档会话（安全偏置，审视建议 2 处置）：宁多勿少防归档→复活窗口", () => {
+      seedDelivered(db, "m-arch-2", { targets: ["otter-1"], conversationId: "conv-arch2" });
+      db.prepare(`UPDATE conversations SET status = 'archived' WHERE id = 'conv-arch2'`).run();
+      expect(repo.countPendingSignals("conv-arch2")).toBe(0); // pending 扫不进归档
+      const n = repo.backfillLegacyAttempted();
+      expect(n).toBe(1); // 但墓碑照样翻篇——防未来归档→复活窗口内陈年信号变 pending
+      expect(repo.countPendingSignals("conv-arch2")).toBe(0);
+    });
   });
 });

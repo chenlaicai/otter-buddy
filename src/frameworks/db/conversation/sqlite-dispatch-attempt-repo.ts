@@ -38,7 +38,9 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
 
   backfillLegacyAttempted(): number {
     // §4.5 墓碑：存量已投递消息 × otter 目标一刀标记 legacy-attempted（completed 终态）。
-    // 「已投递」判据与 §4.3 pending SQL 完全同源（completed ∧ 非 system ∧ tsp 含 otter 目标）——
+    // 「已投递」判据与 §4.3 pending SQL 同源（completed ∧ 非 system ∧ tsp 含 otter 目标）——
+    // 审视建议 2 的故意分歧：此处【不】加 c.status='active' 过滤——墓碑宁多勿少：归档会话
+    // 的历史消息也翻篇，防「归档→复活」窗口内陈年信号变 pending 误点（rbsg 安全偏置）。
     // 幂等：OR IGNORE 跳过已有记录的 (message, target)（本方法仅 S1 迁移调用一次，防御性幂等）。
     const result = this.db.prepare(`
       INSERT OR IGNORE INTO dispatch_attempts

@@ -197,7 +197,10 @@ export class DispatchChainEngine {
 
     const results = await Promise.allSettled(promises);
     // F20260902sgp2 S1：settle 记账（§4.2）——终态回写 + hop 出处回填
-    this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, hopSourceMessageIds);
+    // 审视建议 1：调用点再隔一层 try/catch——防方法内部 try 块之外的理论异常阻断 markBatchRead
+    try {
+      this.recordAttemptSettle(conversationId, targets, results, triggerMessageId, hopSourceMessageIds);
+    } catch { /* 记账面异常不阻断链路（硬约束 1） */ }
     await this.markBatchRead(conversationId, results, targets);
 
     return this.processHopResults(results, senderId, conversationId, targets);
