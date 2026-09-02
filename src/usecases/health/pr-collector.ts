@@ -162,6 +162,6 @@ function latestActivityStamp(view: GhPrView | null): string | null {
   return stamps.length > 0 ? stamps.reduce((a, b) => (a > b ? a : b)) : null;
 }
 
-async function defaultRun(cmd: string, args: string[], opts: { cwd: string; maxBuffer: number }): Promise<{ stdout: string }> {
+async function defaultRun(cmd: string, args: string[], opts: { cwd: string; maxBuffer: number; timeout: number; killSignal: NodeJS.Signals }): Promise<{ stdout: string }> {
   return execFileAsync(cmd, args, opts);
 }

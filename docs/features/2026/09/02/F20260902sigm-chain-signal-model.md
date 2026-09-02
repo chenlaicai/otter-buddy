@@ -18,6 +18,12 @@ tags:
   - refactor
 status: final
 capability_test: "n/a: 判定层重构为确定性规则（无 LLM 行为变化），由单元测试覆盖（chain-builder/pr-collector/rhi-scan-worker 共 268+ 用例）"
+intent:
+  problem: "特性文档 status 字段被当作生命周期真相源驱动病态判定——手工字段必然腐烂（127 篇标 development 多数已合入）、生命周期叙事越权（zombie 判死）、51 条 stalled 全是 doc-only 噪音且合入后 BugFix 漏报"
+  expected_effect: "病态判定 100% 来自 git/PR 实时事实：stalled 51→0（doc-only 归零）、pr-stalled 依真实 PR 状态、regressed 无 inFlight 前提必报、zombie 删除——golden gate 4 场景关键项全过 + 2799 测试绿"
+  verify_by:
+    type: capability_test
+  effect_window: 1w
 ---
 
 # 链路信号模型：docStatus 退役与病态判定重构
@@ -223,6 +229,19 @@ ChainState = "active" | "stalled" | "regressed" | "orphan"   // 枚举保留4值
 **反驳记录**：S1 要求定义 branch name 提取正则——部分反驳：branch name 无 hook 强制（feature/rhi-pr2-ui 命名无 FID），正则提取误配率高（日期字符串/历史 FID 残留），决策为不提取。证据：分支命名规范无强制约束（.githooks 仅管 commit-msg），现役分支名抽查（feature/rhi-pr3-swimlanes / feature/sigm-chain-model）均无 FID。
 
 ---
+
+# Phase 1 对抗审视处置（2026-09-02 晚，检视獭勘流 mimo；处置裁决：大獭）
+
+**结论：1 严重 + 3 建议。焦点 7 条全裁决通过（三偏差合理 / r4 申诉独立验证成立）。**
+
+| # | 发现 | 处置 | 决策树判断 | 修复 |
+|---|---|---|---|---|
+| B6 严重 | Intent 块缺失（SKILL-TEMPLATE 改动属软代码，frontmatter 无 intent） | 接受并返工 | 更好（软代码流程硬要求） | frontmatter 补 intent 块（problem/expected_effect/verify_by=capability_test/effect_window=1w），lint-intent 1/1=100% 过 |
+| 建议 2 | defaultRun 签名缺 timeout/killSignal 声明（tsc 过但签名不全） | 接受并修复 | 更好（显式声明降认知负荷，两行） | 签名补全，tsc 0 error + 10 tests 过 |
+| 建议 3 | gh pr view 单 PR 失败静默滑出停滞检测（与全量失败不对称，观测力悄悄变弱） | 建 issue 跟踪 | 更好但不阻塞（unknown 区分有价值，属增量优化） | **issue #738**（锚点 pr-collector.ts:106-116 + chain-builder.ts:216-220），PR body 补 Discovered Issues |
+| 建议 4 | 回归数字绝对值时序漂移（勘流亲跑 411/404/0/7 vs 自报 401/393/0/8；主仓基线 407/349/51/7——方向完全匹配） | 无需修改 | — | —（PR 创建后新 commit/doc 进入所致，stalled 51→0 的核心信号两边一致） |
+
+r4 golden 波动申诉：勘流独立验证 golden-results.jsonl 同代码非单调震荡（3/3→1/3→0/3）成立，留痕不阻塞。
 
 # Phase 1 实现记录（2026-09-02，开发獭潮痕）
 
