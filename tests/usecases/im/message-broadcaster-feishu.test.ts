@@ -41,14 +41,16 @@ function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepo
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
   const broadcaster = new MessageBroadcaster(logger);
   broadcaster.registerOutboundChannel(
+    "feishu",
     new FeishuMessageChannel(manageConnection, feishuGateway, queryOtter, logger, webBaseUrl, settingsRepo),
   );
   return { broadcaster, manageConnection, feishuGateway, queryOtter, logger };
 }
 
-/** 把 manageConnection mock 设置为有飞书绑定 */
+/** 把 manageConnection mock 设置为有飞书绑定（#591 重构后出站通道存 Map，
+ *  取通道改走 outboundChannels.get） */
 function bindFeishu(broadcaster: MessageBroadcaster, externalId = "chat-123", externalType = "feishu") {
-  const manageConnection = (broadcaster as any).messageChannels[0]["manageConnection"];
+  const manageConnection = (broadcaster as any).outboundChannels.get("feishu")["manageConnection"];
   manageConnection.getSessionByConversation.mockResolvedValue({ connectionId: "conn-1" });
   manageConnection.getConnection.mockResolvedValue({ externalId, externalType });
 }
