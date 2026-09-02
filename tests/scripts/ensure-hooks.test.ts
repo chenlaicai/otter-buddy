@@ -44,7 +44,9 @@ afterAll(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-/** 建一个带可用 .githooks/commit-msg 的真实仓库，返回仓库根。 */
+/** 建一个带可用 .githooks/（四钩子全，与真实仓库一致）的仓库，返回仓库根。 */
+const ALL_HOOKS = ['commit-msg', 'pre-commit', 'pre-push', 'pre-merge-commit'];
+
 function initFixtureRepo(name: string): string {
   const root = path.join(tmpDir, name);
   fs.mkdirSync(root, { recursive: true });
@@ -53,9 +55,11 @@ function initFixtureRepo(name: string): string {
   git(['config', 'user.name', 'test'], root);
   git(['config', 'commit.gpgsign', 'false'], root);
   fs.mkdirSync(path.join(root, '.githooks'), { recursive: true });
-  const hook = path.join(root, '.githooks', 'commit-msg');
-  fs.writeFileSync(hook, '#!/bin/sh\nexit 0\n');
-  fs.chmodSync(hook, 0o755);
+  for (const hook of ALL_HOOKS) {
+    const hookFile = path.join(root, '.githooks', hook);
+    fs.writeFileSync(hookFile, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(hookFile, 0o755);
+  }
   // 模拟 npm prepare 后的健康态
   git(['config', 'core.hooksPath', '.githooks'], root);
   fs.writeFileSync(path.join(root, 'README.md'), 'fixture\n');
@@ -121,6 +125,27 @@ describe('ensure-hooks.mjs（issue #684 防回归）', () => {
     expect(runScript(['--check'], root).exitCode).toBe(1);
     expect(runScript([], root).exitCode).toBe(0);
     expect(getHooksPath(root)).toBe('.githooks');
+  });
+
+  it('部分钩子缺失（仅 commit-msg 可用）：判失效并列出缺失清单，自愈后恢复（审视处置用例）', () => {
+    const root = initFixtureRepo('partial-hooks');
+    // 模拟外部工具留下的钩子目录：只有 commit-msg 可执行，其余三个缺失
+    fs.mkdirSync(path.join(root, 'stale-hooks'), { recursive: true });
+    const cm = path.join(root, 'stale-hooks', 'commit-msg');
+    fs.writeFileSync(cm, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(cm, 0o755);
+    git(['config', 'core.hooksPath', 'stale-hooks'], root);
+
+    const check = runScript(['--check'], root);
+    expect(check.exitCode).toBe(1);
+    expect(check.stderr).toContain('pre-commit');
+    expect(check.stderr).toContain('pre-push');
+    expect(check.stderr).toContain('pre-merge-commit');
+
+    const fix = runScript([], root);
+    expect(fix.exitCode).toBe(0);
+    expect(getHooksPath(root)).toBe('.githooks');
+    expect(runScript(['--check'], root).exitCode).toBe(0);
   });
 
   it('worktree 场景：worktree 内检测失效，worktree 内修复对共享 repo config 全局生效', () => {

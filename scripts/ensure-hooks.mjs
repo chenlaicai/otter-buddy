@@ -21,7 +21,10 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 
 const EXPECTED_HOOKS_PATH = ".githooks";
-const REQUIRED_HOOK = "commit-msg";
+// 审视处置（检视獭-甲建议发现，大獭裁决本 PR 顺手修）：只查 commit-msg 会放过
+// 其余三个钩子的静默失效——与要消灭的问题同构的窗口。清单与仓库 .githooks/ 现存
+// 四钩子对齐；仓库演进增减钩子时需同步此清单，缺钩子时 fail-closed 报错会明确提示。
+const REQUIRED_HOOKS = ["commit-msg", "pre-commit", "pre-push", "pre-merge-commit"];
 
 function runGit(args, cwd) {
   return execFileSync("git", args, { encoding: "utf-8", cwd }).trim();
@@ -45,16 +48,23 @@ function resolveHooksDir(root, hooksPath) {
   return path.isAbsolute(hooksPath) ? hooksPath : path.join(root, hooksPath);
 }
 
-/** 钩子目录是否真实可用：REQUIRED_HOOK 存在且可执行。 */
+/** 列出钩子目录中缺失或不可执行的必需钩子。 */
+function missingHooks(root, hooksPath) {
+  if (!hooksPath) return REQUIRED_HOOKS.slice();
+  const dir = resolveHooksDir(root, hooksPath);
+  return REQUIRED_HOOKS.filter((hook) => {
+    try {
+      fs.accessSync(path.join(dir, hook), fs.constants.X_OK);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+}
+
+/** 钩子目录是否真实可用：全部必需钩子存在且可执行。 */
 function hooksDirUsable(root, hooksPath) {
-  if (!hooksPath) return false;
-  const hookFile = path.join(resolveHooksDir(root, hooksPath), REQUIRED_HOOK);
-  try {
-    fs.accessSync(hookFile, fs.constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
+  return missingHooks(root, hooksPath).length === 0;
 }
 
 function main() {
@@ -74,7 +84,11 @@ function main() {
     return;
   }
 
-  const reason = value === null ? "未配置 core.hooksPath" : `指向失效目录：${resolveHooksDir(root, value)}（无可用 ${REQUIRED_HOOK}）`;
+  const missing = missingHooks(root, value);
+  const reason =
+    value === null
+      ? "未配置 core.hooksPath"
+      : `指向失效目录：${resolveHooksDir(root, value)}（缺失或不可执行：${missing.join(", ")}）`;
   if (checkOnly) {
     console.error(`[ensure-hooks] ✗ 本地钩子失效：${reason}（来源 ${origin ?? "n/a"}）`);
     console.error("[ensure-hooks] 本地 commit-msg/pre-commit 等钩子会被 git 静默跳过，规范只剩 CI 兜底。");
@@ -94,7 +108,7 @@ function main() {
     console.log(`[ensure-hooks] 已自愈：core.hooksPath '${value ?? "(未配置)"}'（${reason}）→ '${after.value}'（来源 ${after.origin}）`);
     console.log("[ensure-hooks] 各 worktree 共享 repo config，此修复对全部 worktree 即时生效。");
   } else {
-    console.error(`[ensure-hooks] ✗ 已写回 '${EXPECTED_HOOKS_PATH}' 但钩子目录仍不可用，请检查仓库完整性（应有 ${EXPECTED_HOOKS_PATH}/${REQUIRED_HOOK}）。`);
+    console.error(`[ensure-hooks] ✗ 已写回 '${EXPECTED_HOOKS_PATH}' 但钩子目录仍不可用（缺失或不可执行：${missingHooks(root, after.value).join(", ")}），请检查仓库完整性（${EXPECTED_HOOKS_PATH}/ 应含 ${REQUIRED_HOOKS.join(", ")}）。`);
     process.exit(1);
   }
 }
