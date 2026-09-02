@@ -19,7 +19,7 @@ import { createPaperTradeTool } from "./paper-trade-tool";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
-import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
+import type { AgentTool, ToolContext, ToolModelPool } from "@usecases/ports/agent-tools";
 import type { Ledger } from "@usecases/paper-trading/ledger";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 // R20260817arnt PR-B：领域规则下沉到 usecases 层
@@ -283,7 +283,32 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   };
 }
 
-function createCreateOtterTool(ctx: ToolContext): AgentTool {
+/** #543：create_otter 前置提示——目标模型近 24h 内有未恢复的配额耗尽记录时提示改派。
+ *  Why 提示不硬拦：rate_limit 事件 resolve 无人驱动（配额恢复是外部事实），
+ *  24h 窗内旧事件可能已恢复——硬拦会误伤；提示让编排獭结合上下文自行裁决。
+ *  findAll('open', 50) 按时间倒序，rate_limit 事件正常态为 0，过滤成本可忽略。 */
+async function checkModelQuotaHint(
+  healingRepo: HealingEventRepository | undefined,
+  targetAlias: string | undefined,
+): Promise<string> {
+  if (!healingRepo || !targetAlias) return '';
+  try {
+    const events = await healingRepo.findAll('open', 50);
+    const windowMs = 24 * 3600 * 1000;
+    const hit = events.find(e => {
+      if (e.errorType !== 'rate_limit') return false;
+      const ctx = (e.context ?? {}) as { modelAlias?: unknown; exhausted?: unknown };
+      return ctx.modelAlias === targetAlias && ctx.exhausted === true
+        && Date.now() - Date.parse(e.createdAt) < windowMs;
+    });
+    if (!hit) return '';
+    return `\n⚠️ #543 提示：模型 ${targetAlias} 近 24h 内有配额耗尽记录（${hit.createdAt}）。若配额未恢复，新獭将无法执行任务（首次 invoke 即终态失败）。建议改派其他模型，或坚持创建后用小任务试探。`;
+  } catch {
+    return ''; // 提示性检查，失败静默降级
+  }
+}
+
+function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "create_otter",
     description: "创建子 Otter 并让它就位待命. When: 需要召唤小獭分担工作（独立审视/并行工作/角色讨论/任务分担）. **创建不触发执行——新 Otter 只是就位待命，你必须在随后的 yield 里把行动权传给它（to=[\"名字\"]），它才会被唤醒执行；只创建不派工＝小獭永远不产出**. Not for: 解散 → dissolve_otter. Output: 新 Otter 的 ID 与名称，自动加入当前对话（但未开工）. GOTCHA: 创建不可逆——在场已有同名参与者时拒绝创建（避免重名混乱）. BOUNDARY: parentOtterId 由系统注入（不可伪造血缘）. TIP: 召唤决策与 systemPrompt 编写见 otter-summon skill.",
@@ -296,6 +321,7 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       },
       required: ["name", "systemPrompt"],
     },
+    // eslint-disable-next-line complexity -- #543：+配额前置提示分支（校验链顺序内聚，拆分无增益）
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 校验 modelAlias
       const modelAlias = params.modelAlias as string | undefined;
@@ -303,6 +329,12 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
         const available = ctx.modelPool.describeModels().map(m => m.alias).join(", ");
         return errorResponse(`[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`);
       }
+
+      /** #543：目标模型近 24h 配额耗尽提示（显式 alias 用显式的，未传用默认模型；
+       *  getDefaultAlias 缺失（mock/旧装配）时跳过默认模型检查——提示性功能不硬依赖） */
+      const pool = ctx.modelPool as (ToolModelPool & { getDefaultAlias?: () => string }) | undefined;
+      const targetAlias = modelAlias?.trim() || pool?.getDefaultAlias?.();
+      const quotaHint = await checkModelQuotaHint(healingRepo, targetAlias);
 
       /** 检查是否已有同名参与者 */
       const existing = await ctx.client.conversation.participant.getActive(ctx.conversationId);
@@ -331,10 +363,11 @@ function createCreateOtterTool(ctx: ToolContext): AgentTool {
       /** F20260824aibd: 回包含模型信息，让大獭对模型分配有即时反馈 */
       const config = ctx.otterConfigProvider?.getConfig(otter.id);
       const modelLabel = config?.modelAlias ? `，模型：${config.modelAlias}` : '';
-      /** F20260813actk C3：回包提示就位待命状态（串行场景教育） */
+      /** F20260813actk C3：回包提示就位待命状态（串行场景教育）；#543：附配额提示 */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}${modelLabel}). 已就位待命，但尚未开工——` +
-        `你需要在随后的 yield 里把行动权（to=["${otter.name}"]）传给它，它才会执行。`
+        `你需要在随后的 yield 里把行动权（to=["${otter.name}"]）传给它，它才会执行。` +
+        quotaHint
       );
     },
   };
@@ -836,7 +869,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createSpeakTool(ctx, healingRepo, logger),
     createYieldTool(ctx, healingRepo),
     createSearchMemoryTool(ctx),
-    createCreateOtterTool(ctx),
+    createCreateOtterTool(ctx, healingRepo),
     createDissolveOtterTool(ctx),
     createRestartOtterTool(ctx, healingRepo),
     createLinkedResourceTool(ctx),

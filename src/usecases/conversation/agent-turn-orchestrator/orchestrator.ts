@@ -17,6 +17,8 @@ import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
 import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
+// #543：api_error 终态限流识别 + 告警文案（配额黑盒修复）
+import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
 import { aggregateBody } from "@entities/conversation/message";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
@@ -51,7 +53,7 @@ export class AgentTurnOrchestrator {
    * 核心循环：invoke → classify → route（可能重试 → 再 invoke）。
    * 递归重入改为循环 + driver.invoke，避免栈溢出。
    */
-  // eslint-disable-next-line max-lines-per-function, max-statements -- executeTurn is the core retry loop; splitting would obscure control flow
+  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- executeTurn is the core retry loop; splitting would obscure control flow（#543：+rate_limit err 元数据保留分支）
   async executeTurn(
     input: TurnInput,
     driver: AttemptDriver,
@@ -76,8 +78,9 @@ export class AgentTurnOrchestrator {
         toolCallCount = attempt.toolCallCount;
       } catch (e) {
         err = e;
-        result = { text: '' };
+        // #543：err 路径保留 _modelAlias——rate_limit 落账需要模型标识（与 toolCallCount 同模式提取）
         const errMeta = e as ErrorWithToolCallCount;
+        result = { text: '', ...(errMeta._modelAlias && { modelAlias: errMeta._modelAlias }) };
         toolCallCount = errMeta._toolCallCount ?? driver.getToolCallCount(currentInput.otterId, currentInput.messageId);
       } finally {
         // 清理当前 attempt 的去重键，防止内存泄漏
@@ -239,12 +242,114 @@ export class AgentTurnOrchestrator {
       case 'guard_abort':
         return this.routeGuardAbort(reason, ctx);
       case 'api_error':
-        return this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
+        // #543：api_error 终态限流识别——配额黑盒修复点。
+        // 识别失败/写入失败不阻断 failTerminal（主路径），告警尽力而为。
+        return this.handleApiError(reason, ctx);
       case 'no_yield':
         return this.handleYieldRetry(ctx);
       default:
         return { messageId: ctx.input.messageId, duration: Date.now() - ctx.startTime };
     }
+  }
+
+  /**
+   * #543：api_error 终态处理——限流识别 → 落账 + 通知 → failTerminal。
+   *
+   * Why 在 orchestrator 而非 SDK 层：这里是错误消息的终端汇聚点（api_error 分类后）
+   * 且 callbacks（sendSystem/recordHealingEvent/emitEvent）齐全；pi-session-factory
+   * 层拿不到 sendSystem。识别是纯函数（matchRateLimitError），可单测。
+   *
+   * Why 不重试：SDK（agent-session）已内置 maxRetries=4 指数退避，能上抛到这里的
+   * 429 要么是终态配额耗尽（isTerminalRateLimitError 判定不可重试），要么重试
+   * 预算已耗尽——otter 层再叠加重试只会续期静默窗（#642 教训：重试无限续期 = 看门狗失明）。
+   */
+  private async handleApiError(
+    reason: ExitReason & { kind: 'api_error' },
+    ctx: RouteContext,
+  ): Promise<TurnResult> {
+    let match: ReturnType<typeof matchRateLimitError> = null;
+    try {
+      match = matchRateLimitError(reason.errorMessage);
+    } catch (err) {
+      ctx.callbacks.logger.warn('rate limit pattern match failed (non-fatal)', {
+        messageId: ctx.input.messageId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    if (match) {
+      // 落账 + 通知均非致命：任一失败不阻断 failTerminal 主路径
+      await this.recordRateLimitHealingEvent(ctx, match, reason).catch(() => { /* 已在内部记日志 */ });
+      await this.notifyRateLimit(ctx, match).catch(() => { /* 通知失败不阻断 */ });
+    }
+
+    return this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
+  }
+
+  /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级） */
+  private async recordRateLimitHealingEvent(
+    ctx: RouteContext,
+    match: NonNullable<ReturnType<typeof matchRateLimitError>>,
+    reason: ExitReason & { kind: 'api_error' },
+  ): Promise<void> {
+    const modelAlias = this.resolveModelAlias(ctx);
+    try {
+      await ctx.callbacks.recordHealingEvent({
+        messageId: ctx.input.messageId,
+        conversationId: ctx.input.conversationId,
+        otterId: ctx.input.otterId,
+        errorType: "rate_limit",
+        severity: match.exhausted ? "high" : "medium",
+        description: buildRateLimitDescription({ modelAlias, exhausted: match.exhausted }),
+        suggestion: match.exhausted
+          ? "配额重置前该模型不可用：改派其他模型的獭，或等待重置时间后重试"
+          : "短时限流：稍后重试或改派",
+        context: {
+          layer: "orchestrator",
+          modelAlias,
+          exhausted: match.exhausted,
+          resetHint: match.resetHint ?? null,
+          errorMessage: reason.errorMessage.slice(0, 500),
+        },
+      });
+    } catch (err) {
+      ctx.callbacks.logger.error('rate_limit healing_event write FAILED',
+        err instanceof Error ? err : new Error(String(err)),
+        { otterId: ctx.input.otterId, messageId: ctx.input.messageId },
+      );
+    }
+  }
+
+  /** #543：会话内告警（sendSystem + SSE）——检视席空转黑盒的主出口 */
+  private async notifyRateLimit(
+    ctx: RouteContext,
+    match: NonNullable<ReturnType<typeof matchRateLimitError>>,
+  ): Promise<void> {
+    const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+    const modelAlias = this.resolveModelAlias(ctx);
+    const msg = buildRateLimitSystemMsg({
+      otterName: resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId,
+      modelAlias,
+      exhausted: match.exhausted,
+      resetHint: match.resetHint,
+    });
+    const sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, msg);
+    this.safeEmitEvent(ctx.callbacks, {
+      event: "system.message",
+      data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+    });
+    ctx.callbacks.logger.warn('[rate-limit] model rate limit terminal, alerted', {
+      otterId: ctx.input.otterId,
+      conversationId: ctx.input.conversationId,
+      modelAlias,
+      exhausted: match.exhausted,
+      resetHint: match.resetHint ?? null,
+    });
+  }
+
+  /** #543：模型标识解析——err 路径由 executeTurn catch 块保留在 result.modelAlias */
+  private resolveModelAlias(ctx: RouteContext): string {
+    return ctx.result?.modelAlias ?? 'unknown';
   }
 
   /** Handle user abort: speaking guard → abort terminal */
