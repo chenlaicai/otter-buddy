@@ -12,6 +12,7 @@ import { QueryMessage } from "@usecases/conversation/query-message";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SqliteDispatchAttemptRepo } from "@frameworks/db/conversation/sqlite-dispatch-attempt-repo";
+import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
 import type { Conversation, Turn, ConversationParticipant } from "@entities/conversation/conversation";
 import type { Otter } from "@entities/otter/otter";
 import { createTestDb } from "../../helpers/db";
@@ -129,6 +130,11 @@ describe("QuerySignalTrail（真 sqlite，台账判据）", () => {
     });
   }
 
+  /** 展开真 repo 为接口对象（供单方法覆盖的降级注入用） */
+  function attemptRepoInterface(r: SqliteDispatchAttemptRepo): DispatchAttemptRepo {
+    return r;
+  }
+
   const stateOf = (items: Array<{ seq: number; state: string; note?: string | null }>, seq: number) =>
     items.find(i => i.seq === seq);
 
@@ -231,6 +237,37 @@ describe("QuerySignalTrail（真 sqlite，台账判据）", () => {
     });
     const { items } = await degraded.list("conv-1");
     expect(items[0].state).toBe("PENDING");
+  });
+
+  it("未知 attempt status 的双层防御：schema CHECK 拦入早 + usecase 降级不留假终态", async () => {
+    await joinParticipant("otter-a", 0);
+    const msgId = await signal({ tsp: ["otter-a"] });
+    // 第一道防线：schema CHECK 约束——非法值进不了台账（#735 审视建议 1 的前提：
+    // 内部枚举扩展时先改 CHECK 再改映射，中间态不可能静默入库）
+    expect(() =>
+      db.prepare(`
+        INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, note)
+        VALUES ('att-x', 'conv-1', ?, 'otter-a', 'cancelled', 'chain', datetime('now'), 'future status')
+      `).run(msgId),
+    ).toThrow(/CHECK constraint failed/);
+
+    // 第二道防线（未来 CHECK 放宽后的窗口）：usecase 对未知值降级 PENDING、
+    // 不假证终态、note 不透出——降级路径行为锁死
+    const degraded = new QuerySignalTrail({
+      conversationRepo: repo,
+      queryMessage: new QueryMessage(repo),
+      dispatchAttemptRepo: {
+        ...attemptRepoInterface(attemptRepo),
+        listAttemptsForConversation: () => [{
+          id: "att-x", conversationId: "conv-1", messageId: msgId, targetOtterId: "otter-a",
+          status: "cancelled" as never, source: "chain" as never,
+          attemptStartedAt: "2026-01-01T00:00:02Z", attemptFinishedAt: null, note: "future status",
+        }],
+      },
+    });
+    const { items } = await degraded.list("conv-1");
+    expect(items[0].state).toBe("PENDING");
+    expect(items[0].note ?? null).toBeNull();
   });
 
   it("按 seq 升序返回（时序展示）", async () => {
