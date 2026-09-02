@@ -57,25 +57,28 @@ describe("Memory API", () => {
       });
     });
 
-    it("detail_level=summary 时 content 被裁剪为 snippet", async () => {
+    it("detail_level=summary 时 DTO 直传 usecase 投影的 content（#542：不再用 snippet 覆盖）", async () => {
+      /** usecase 层已按 summary 契约投影：content=原文首句、snippet=匹配窗口（语义分离） */
       const entry = makeMemoryEntry({
-        content: "这是一条很长的记忆内容。包含了很多细节信息。需要被裁剪。",
+        content: "这是一条很长的记忆内容。",
       });
       deps.searchMemory.search.mockResolvedValue({
-        entries: [{ ...entry, score: 0.9, source: "fts", snippet: "这是一条很长的记忆内容。" }],
+        entries: [{ ...entry, score: 0.9, source: "fts", snippet: "...多细节信息。需要被裁剪..." }],
         total: 1,
       });
 
       const res = await app.request("/api/memory/search?query=test&detail_level=summary");
       expect(res.status).toBe(200);
       const body = await json(res);
+      /** content 保持 usecase 投影的首句（DTO 层二次覆盖会把首句替换回 FTS 窗口，重蹈 #542） */
       expect(body.entries[0].content).toBe("这是一条很长的记忆内容。");
-      expect(body.entries[0].snippet).toBeDefined();
+      expect(body.entries[0].snippet).toBe("...多细节信息。需要被裁剪...");
     });
 
-    it("detail_level=snippet 时 content 被裁剪为 snippet", async () => {
+    it("detail_level=snippet 时 content=snippet（usecase 契约，DTO 直传）", async () => {
+      /** snippet 模式 usecase 契约：content=snippet=匹配窗口 */
       const entry = makeMemoryEntry({
-        content: "这是一条很长的记忆内容。包含了很多细节信息。需要被裁剪。",
+        content: "包含了很多细节信息",
       });
       deps.searchMemory.search.mockResolvedValue({
         entries: [{ ...entry, score: 0.9, source: "fts", snippet: "包含了很多细节信息" }],

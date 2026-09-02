@@ -81,21 +81,19 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(first.content).toBe(first.snippet);
   });
 
-  it("detail_level=summary 返回首句", async () => {
+  it("detail_level=summary 返回原文首句（#542：提取源为原文，与匹配位置解耦）", async () => {
     const result = await searchMemory.search({ query: "FTS5", limit: 5, detailLevel: "summary" });
 
     expect(result.entries.length).toBeGreaterThan(0);
     const first = result.entries[0];
     expect(first.snippet).toBeDefined();
-    /** content 应被裁剪为首句，与 snippet 一致 */
-    expect(first.content).toBe(first.snippet);
-    /** summary 应比 snippet 更短 */
-    const snippetResult = await searchMemory.search({ query: "FTS5", limit: 5, detailLevel: "snippet" });
-    if (snippetResult.entries.length > 0) {
-      expect(first.snippet!.length).toBeLessThanOrEqual(snippetResult.entries[0].snippet!.length);
-      /** summary 的 content 也应比 snippet 的 content 更短 */
-      expect(first.content.length).toBeLessThanOrEqual(snippetResult.entries[0].content.length);
-    }
+    /**
+     * #542 契约：content = 原文首句（开头即有信息量），snippet = FTS 匹配窗口。
+     * 两者提取源不同（原文 vs 匹配位置），短文浅匹配时可能恰好重合——
+     * 分离的意义在深匹配场景（见下方回归测试），此处断言契约本身：
+     */
+    expect(first.content.startsWith("今天讨论了")).toBe(true);
+    expect(first.snippet).toContain("FTS5");
   });
 
   it("detail_level=full 返回完整内容", async () => {
@@ -214,24 +212,24 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(result.entries[0].content).toBe(result.entries[0].snippet);
   });
 
-  it("渐进式披露核心：snippet/summary 的 content 等于 snippet，full 保持全文", async () => {
-    /** 存入一条长文本条目 */
+  it("渐进式披露三模式契约（#542）：summary=原文首句 / snippet=匹配窗口 / full=全文", async () => {
+    /** 存入一条长文本条目（句末标点后无数字，首句=第一个句号止） */
     const longContent = "记忆系统的渐进式披露设计原则是一个重要的架构决策。".repeat(30);
     storeEntry(db, { ...BASE_ENTRY, id: "e-long", content: longContent });
 
-    /** snippet 模式：content 必须等于 snippet（渐进式披露核心不变量） */
+    /** snippet 模式：content = snippet = FTS 匹配窗口（不变量保持） */
     const snippetResult = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "snippet" });
     const snippetEntry = snippetResult.entries.find(e => e.id === "e-long");
     expect(snippetEntry).toBeDefined();
     expect(snippetEntry!.content).toBe(snippetEntry!.snippet);
 
-    /** summary 模式：content 必须等于 snippet（首句） */
+    /** summary 模式：content = 原文首句（#542：与 FTS 窗口解耦） */
     const summaryResult = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "summary" });
     const summaryEntry = summaryResult.entries.find(e => e.id === "e-long");
     expect(summaryEntry).toBeDefined();
-    expect(summaryEntry!.content).toBe(summaryEntry!.snippet);
-    /** summary 的 content（首句）应比 snippet 模式更短 */
-    expect(summaryEntry!.content.length).toBeLessThanOrEqual(snippetEntry!.content.length);
+    expect(summaryEntry!.content).toBe("记忆系统的渐进式披露设计原则是一个重要的架构决策。");
+    /** snippet 字段仍是匹配窗口 */
+    expect(summaryEntry!.snippet).toBe(snippetEntry!.snippet);
 
     /** full 模式：content 保持完整原文，无 snippet 字段 */
     const fullResult = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "full" });
@@ -241,17 +239,83 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(fullEntry!.snippet).toBeUndefined();
   });
 
-  it("detail_level 未传时 content 也不应返回全文（默认 snippet 行为）", async () => {
-    /** 存入一条超长条目（>200 字，触发 vec-only 降级截取） */
+  it("detail_level 未传时默认 summary：content 为原文首句截断，不返回全文（#542 契约）", async () => {
+    /** 存入一条超长条目（无句末标点，首句提取回退到 $ 整段，验证截断兜底） */
     const longContent = "关键词".repeat(300);
     storeEntry(db, { ...BASE_ENTRY, id: "e-long2", content: longContent });
 
     const result = await searchMemory.search({ query: "关键词", limit: 5 });
     const entry = result.entries.find(e => e.id === "e-long2");
     if (entry) {
-      /** content 应等于 snippet，不应返回 600 字全文 */
-      expect(entry.content).toBe(entry.snippet);
+      /** 不应返回 900 字全文；summary 首句无终止符时整段截断到 200 */
+      expect(entry.content.length).toBeLessThanOrEqual(200);
+      expect(entry.content.startsWith("关键词")).toBe(true);
     }
+  });
+
+  /**
+   * #542 回归锁：summary 模式空 content 投影缺陷。
+   * issue 实证（2026-08-28 起，40% 复现）：FTS 深匹配条目（匹配词在 100 字符后）的
+   * 匹配窗口带 `...` 前缀，旧首句正则从窗口提取出 `.`；换行开头提取出 `\n`；
+   * 编号标题（`2.2 方案`）提取出 `2.`。修复后 content 恒为原文首句（与匹配位置解耦）。
+   */
+  it("#542 回归：FTS 深匹配条目 summary content 不再投影为 `.`/`\n`（原文首句）", async () => {
+    /** 深匹配构造：匹配词埋在 150 字符后，FTS 窗口必带 `...` 前缀（100 窗口半径之外） */
+    const filler = "这是与查询无关的铺垫内容，用来把匹配词推到文档深处。";
+    const deepContent = filler.repeat(6) + "靶词语在这里。" + "后续还有更多内容用于拉长文档。".repeat(3);
+    storeEntry(db, { ...BASE_ENTRY, id: "e-deep", sourceId: "src-deep", content: deepContent });
+
+    const result = await searchMemory.search({ query: "靶词语", limit: 5, detailLevel: "summary" });
+    const entry = result.entries.find(e => e.id === "e-deep");
+    expect(entry).toBeDefined();
+    /** 核心断言（确定性）：content 是原文首句，非空非单字符 */
+    expect(entry!.content).toBe("这是与查询无关的铺垫内容，用来把匹配词推到文档深处。");
+    expect(entry!.content.length).toBeGreaterThan(10);
+    /** snippet 保留 FTS 匹配窗口（含匹配词与省略号） */
+    expect(entry!.snippet).toContain("靶词语");
+    expect(entry!.snippet!.startsWith("...")).toBe(true);
+  });
+
+  it("#542 回归：编号开头/换行开头条目的 summary content 不截断为 `2.`/空行", async () => {
+    /** 编号标题开头（issue 样本 `2.2 方案` → 旧投影 `2.`）。独立 sourceId：dedup 按 source 折叠，
+     *  共用 src-1 时同组其他条目（含"行"字）会挤掉本条 */
+    storeEntry(db, { ...BASE_ENTRY, id: "e-num", sourceId: "src-num", content: "2.2 方案设计要点\n正文第一行。第二行继续。" });
+    const r1 = await searchMemory.search({ query: "方案设计要点", limit: 5, detailLevel: "summary" });
+    const e1 = r1.entries.find(e => e.id === "e-num");
+    expect(e1).toBeDefined();
+    expect(e1!.content).toBe("2.2 方案设计要点");
+    expect(e1!.content).not.toBe("2.");
+
+    /** 空行开头（issue 样本 → 旧投影 `\n`）。独立 sourceId 同上 */
+    storeEntry(db, { ...BASE_ENTRY, id: "e-nl", sourceId: "src-nl", content: "\n换行开头条目的首行内容。第二行。" });
+    const r2 = await searchMemory.search({ query: "换行开头", limit: 5, detailLevel: "summary" });
+    const e2 = r2.entries.find(e => e.id === "e-nl");
+    expect(e2).toBeDefined();
+    expect(e2!.content).toBe("换行开头条目的首行内容。");
+    expect(e2!.content).not.toBe("\n");
+  });
+
+  it("#542 回归：同 entry 双查询（summary vs snippet）content 均非空且含原文信息", async () => {
+    /** issue 验收标准：双查询路径同 entry 结果一致可用（DB 有内容则两模式都拿得到） */
+    /** 深匹配（匹配词埋在 150+ 字符后，FTS 窗口带 `...` 前缀）：旧代码此场景
+     *  summary 投影 `.` 而 snippet 正常——正是 issue 双查询对照实证的分歧形态 */
+    const deepContent = "深埋条目的开头句子，信息量从这里起步。" + "中段铺垫内容用于把关键词推到窗口之外。".repeat(8) + "定位关键词在中部。" + "尾部内容。".repeat(20);
+    storeEntry(db, { ...BASE_ENTRY, id: "e-dual", sourceId: "src-dual", content: deepContent });
+
+    const summary = await searchMemory.search({ query: "定位关键词", limit: 5, detailLevel: "summary" });
+    const snippet = await searchMemory.search({ query: "定位关键词", limit: 5, detailLevel: "snippet" });
+    const s1 = summary.entries.find(e => e.id === "e-dual");
+    const s2 = snippet.entries.find(e => e.id === "e-dual");
+    expect(s1).toBeDefined();
+    expect(s2).toBeDefined();
+    /** 两模式 content 均非空、非单字符（`./\n` 判定，对应 issue 40% 空投影） */
+    for (const e of [s1, s2]) {
+      expect(e!.content.length).toBeGreaterThan(5);
+      expect(e!.content).not.toBe(".");
+      expect(e!.content).not.toBe("\n");
+    }
+    /** summary content 恒为原文首句（确定性锚点，与匹配位置无关） */
+    expect(s1!.content).toBe("深埋条目的开头句子，信息量从这里起步。");
   });
 
   it("ManageMemory.getDetails 返回指定条目的完整内容", async () => {
