@@ -11,30 +11,8 @@ import { stripHtmlCardFences } from "@entities/conversation/message-body-project
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数/行数由历史补丁数决定
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
-  // 检查 session_file 字段是否存在
-  const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
-  const hasSessionFile = columns.some(col => col.name === 'session_file');
-
-  if (!hasSessionFile) {
-    db.prepare("ALTER TABLE agent_sessions ADD COLUMN session_file TEXT NOT NULL DEFAULT ''").run();
-    logger.info('Added session_file column to agent_sessions table');
-  }
-
-  // 检查 messages 表的 source 字段是否存在
-  const msgColumns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
-  const hasSource = msgColumns.some(col => col.name === 'source');
-
-  if (!hasSource) {
-    db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
-    logger.info('Added source column to messages table');
-  }
-
-  // sender_name: 发送者显示名快照（F20260824snrs 单一真相源）
-  const hasSenderName = msgColumns.some(col => col.name === 'sender_name');
-  if (!hasSenderName) {
-    db.prepare("ALTER TABLE messages ADD COLUMN sender_name TEXT NOT NULL DEFAULT ''").run();
-    logger.info('Added sender_name column to messages table');
-  }
+  ensureAgentSessionFileColumn(db, logger);
+  ensureMessagesSourceAndSenderNameColumns(db, logger);
 
   // 创建 otter_configs 表。
   // #506 注：此表未纳入 schema.ts（历史原因），仅此一处定义——
@@ -120,6 +98,52 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** F20260901sgp0 P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
    *  schema.ts 新库已含两列；存量库需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureMessagesSignalColumns(db, logger);
+
+  /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。 */
+  rebuildAttachmentsKindCheck(db, logger);
+}
+
+/** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
+ *  Why 表重建而非 ALTER：SQLite 无法修改已有 CHECK 约束，只能重建表替换。
+ *  与 rebuildDocumentTablesDropCheck 同模式：检测 sqlite_master 的旧 CHECK 文本判存量。
+ *  幂等：新库 schema 已是宽约束（检测不到旧文本直接返回）；重建过程 DROP+RENAME 事务内完成。
+ *  FK 说明：SQLite 表重建期间 PRAGMA legacy_alter_table=OFF 时 RENAME 会级联改引用方
+ *  外键定义，但引用方（message_attachments）的 FK 指向表名不变，无副作用。 */
+function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): void {
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='attachments'")
+    .get() as { sql: string } | undefined;
+  // 检测旧窄约束（'image', 'document' 结尾不含 audio）——新库宽约束不命中
+  if (!schema?.sql?.includes("CHECK(kind IN ('image', 'document'))")) return;
+
+  logger.info('Rebuilding attachments table to widen kind CHECK constraint (add audio/video)');
+  // 与 rebuildDocumentTablesDropCheck 同模式：DROP+RENAME 必须事务内完成——
+  // 裸 exec 在 DROP 成功后、RENAME 前进程中断会永久丢失 attachments 表（检视发现 1）。
+  const rebuild = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE attachments_new (
+        id TEXT PRIMARY KEY,
+        sha256 TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('image', 'document', 'audio', 'video')),
+        size_bytes INTEGER NOT NULL,
+        width INTEGER,
+        height INTEGER,
+        caption TEXT,
+        uploader_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO attachments_new (id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at)
+      SELECT id, sha256, file_path, original_name, mime_type, kind, size_bytes, width, height, caption, uploader_id, created_at FROM attachments;
+      DROP TABLE attachments;
+      ALTER TABLE attachments_new RENAME TO attachments;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256, uploader_id);
+      CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
+    `);
+  });
+  rebuild();
+  logger.info('attachments kind CHECK widened: audio/video now accepted');
 }
 
 /** Issue #644：signals 表补 evidence_detail / confidence 列（幂等，PRAGMA 检测）。
@@ -562,4 +586,27 @@ export function migrateMessageSegments(db: Database.Database, logger: Logger): v
   });
   migrate();
   logger.info('Message segments migration completed (message_segments_migrated=done)');
+}
+
+/** agent_sessions 表补 session_file 列（PRAGMA 探测幂等，自 migrateDatabase 拆出） */
+function ensureAgentSessionFileColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'session_file')) {
+    db.prepare("ALTER TABLE agent_sessions ADD COLUMN session_file TEXT NOT NULL DEFAULT ''").run();
+    logger.info('Added session_file column to agent_sessions table');
+  }
+}
+
+/** messages 表补 source + sender_name 列（PRAGMA 探测幂等，自 migrateDatabase 拆出；
+ *  sender_name 为 F20260824snrs 发送者显示名快照） */
+function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger: Logger): void {
+  const msgColumns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!msgColumns.some(col => col.name === 'source')) {
+    db.prepare("ALTER TABLE messages ADD COLUMN source TEXT NOT NULL DEFAULT 'web'").run();
+    logger.info('Added source column to messages table');
+  }
+  if (!msgColumns.some(col => col.name === 'sender_name')) {
+    db.prepare("ALTER TABLE messages ADD COLUMN sender_name TEXT NOT NULL DEFAULT ''").run();
+    logger.info('Added sender_name column to messages table');
+  }
 }

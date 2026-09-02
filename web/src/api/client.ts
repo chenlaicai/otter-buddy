@@ -654,8 +654,12 @@ export interface ChannelStatusDTO {
     errorMsg?: string;
     nextRetryAt?: number;
     reason?: string;
+    /** #663：连续重连次数（飞书长连接 error_backoff 时携带，成功归零） */
+    reconnectAttempts?: number;
   };
   account?: { id: string; nickname?: string };
+  /** #663：掩码后的飞书 app_id（凭证确认用，形如 cli_a****z9k2） */
+  appIdMasked?: string;
 }
 
 export interface ChannelStatusResponseDTO {

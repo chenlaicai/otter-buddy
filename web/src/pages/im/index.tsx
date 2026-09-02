@@ -301,8 +301,18 @@ function ImPage() {
           <p className="text-sm text-stone-600">
             {feishuStatus ? '应用凭证已配置' : '未配置飞书凭证，请在 config.yaml 中配置 feishu 段'}
           </p>
+          {/* #663：掩码 appId 展示（凭证确认用——多套凭证/多环境时比对当前实例用的是哪套） */}
+          {feishuStatus?.appIdMasked && (
+            <p className="text-xs text-stone-400 mt-1 font-mono">app_id: {feishuStatus.appIdMasked}</p>
+          )}
           {feishuStatus?.state.kind === 'error_backoff' && feishuStatus.state.errorMsg && (
-            <p className="text-xs text-red-500 mt-2">错误: {feishuStatus.state.errorMsg}</p>
+            <p className="text-xs text-red-500 mt-2">
+              错误: {feishuStatus.state.errorMsg}
+              {/* #663：重连次数（连续重连，恢复后归零） */}
+              {typeof feishuStatus.state.reconnectAttempts === 'number' && (
+                <span className="ml-2">（已重连 {feishuStatus.state.reconnectAttempts} 次）</span>
+              )}
+            </p>
           )}
         </div>
 

@@ -87,8 +87,13 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
       },
       onReconnecting: () => {
         this.logger.warn("Feishu WSClient onReconnecting callback fired");
-        // 上报 error_backoff 状态（WS 重连中）
-        this.reportStatus("error_backoff", { errorMsg: "WS 重连中" });
+        // 上报 error_backoff 状态（WS 重连中）+ 连续重连次数（#663：数据源
+        // getConnectionStatus().reconnectAttempts 原本只打日志，现入 registry 供 IM 页展示）
+        const status = this.wsClient.getConnectionStatus();
+        this.reportStatus("error_backoff", {
+          errorMsg: "WS 重连中",
+          reconnectAttempts: status?.reconnectAttempts,
+        });
       },
       onReconnected: () => {
         this.logger.info("Feishu WSClient onReconnected callback fired");
@@ -98,20 +103,29 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     });
   }
 
-  /** 上报通道状态到 registry（防御性调用：registry 可选注入） */
+  /** 上报通道状态到 registry（防御性调用：registry 可选注入）。
+   *  #663：飞书条目同时携带掩码 appId（完整凭证不出 frameworks 层） */
   private reportStatus(
     kind: "running" | "error_backoff",
-    extra?: { errorMsg?: string },
+    extra?: { errorMsg?: string; reconnectAttempts?: number },
   ): void {
     if (!this.registry) return;
     const channelId = "feishu";
     const now = Date.now();
     switch (kind) {
       case "running":
-        this.registry.update(channelId, { kind: "feishu", state: { kind: "running", since: now } });
+        this.registry.update(channelId, {
+          kind: "feishu",
+          state: { kind: "running", since: now },
+          appIdMasked: maskAppId(this.config.appId),
+        });
         break;
       case "error_backoff":
-        this.registry.update(channelId, { kind: "feishu", state: { kind: "error_backoff", since: now, errorMsg: extra?.errorMsg || "" } });
+        this.registry.update(channelId, {
+          kind: "feishu",
+          state: { kind: "error_backoff", since: now, errorMsg: extra?.errorMsg || "", ...(extra?.reconnectAttempts != null && { reconnectAttempts: extra.reconnectAttempts }) },
+          appIdMasked: maskAppId(this.config.appId),
+        });
         break;
     }
   }
@@ -352,4 +366,12 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
       mediaKey: media.type === "image" ? (media.imageKey ?? "").slice(0, 16) : (media.fileKey ?? "").slice(0, 16),
     };
   }
+}
+
+/** #663：app_id 掩码（保留前 5 后 4 位，形如 cli_a****z9k2）——完整凭证不出 frameworks 层。
+ *  过短 appId（≤9 位）全掩码中间段，防止超短标识被反推。 */
+export function maskAppId(appId: string): string {
+  if (!appId) return "";
+  if (appId.length <= 9) return `${appId.slice(0, 2)}****${appId.slice(-2)}`;
+  return `${appId.slice(0, 5)}****${appId.slice(-4)}`;
 }

@@ -19,6 +19,8 @@ import { SettingsController, type SettingsConfig } from "../../src/interface-ada
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
 import { buildModelPool } from "../../src/frameworks/llm/model-pool";
 import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-chain-engine";
+import type { OtterConfigProvider } from "../../src/usecases/ports/otter-config-provider";
+import type { ModelPoolLike } from "../../src/usecases/ports/model-pool-like";
 import { createTestLogger } from "../helpers/logger";
 
 /** 解析 Response JSON（避免 strict 模式下 unknown 报错） */
@@ -386,13 +388,16 @@ export interface TestDeps {
   manageMemory: any;
   manageKeyInfo: any;
   settingsConfig: SettingsConfig;
+  // #528 收敛批次记录：settingsRepo/manageScheduledTask/schedulerService/cronParser 四处仍为 any——
+  // createMockDeps 默认值经 mockMethods() 产出 Record<string, Mock>（索引签名），不满足接口命名属性检查；
+  // 强行收敛需重构 mock 基建（泛型断言丢检查或手写结构 mock），收益不成比例，留后续批次
   settingsRepo: any;
-  modelPool: any;
+  modelPool: ModelPoolLike;
   manageScheduledTask: any;
   schedulerService: any;
   cronParser: any;
-  /** 可选：注入后 OtterController 读 modelAlias 写入 OtterDTO */
-  otterConfigProvider?: any;
+  /** 可选：注入后 OtterController 读 modelAlias 写入 OtterDTO（#528: any → OtterConfigProvider，漏方法 mock 编译报错） */
+  otterConfigProvider?: OtterConfigProvider;
 }
 
 export function createTestApp(deps: TestDeps): Hono {

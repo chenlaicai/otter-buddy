@@ -46,18 +46,29 @@ function buildRelativePath(sha256: string, ext: string): string {
   return path.posix.join("attachments", sha256.slice(0, 2), sha256.slice(2, 4), `${sha256}${ext}`);
 }
 
+/** MIME → 存储扩展名（表驱动；#608 扩 audio/video/pdf） */
+const MIME_EXTENSION_MAP: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "text/plain": ".txt",
+  "text/markdown": ".md",
+  "text/csv": ".csv",
+  "application/json": ".json",
+  "audio/wav": ".wav",
+  "audio/mpeg": ".mp3",
+  "video/mp4": ".mp4",
+  "application/pdf": ".pdf",
+};
+
 function extForMime(mimeType: string): string {
-  switch (mimeType) {
-    case "image/png": return ".png";
-    case "image/jpeg": return ".jpg";
-    case "image/gif": return ".gif";
-    case "image/webp": return ".webp";
-    case "text/plain": return ".txt";
-    case "text/markdown": return ".md";
-    case "text/csv": return ".csv";
-    case "application/json": return ".json";
-    default: return "";
-  }
+  return MIME_EXTENSION_MAP[mimeType] ?? "";
+}
+
+/** kind 人类可读名（错误消息用，#608 扩展） */
+function kindLabel(kind: "image" | "document" | "audio" | "video"): string {
+  return kind === "image" ? "图片" : kind === "audio" ? "音频" : kind === "video" ? "视频" : "文档";
 }
 
 export class AttachmentUploadService {
@@ -118,7 +129,7 @@ export class AttachmentUploadService {
     const detected = sniffType(head, originalName);
     if (!detected) {
       throw new DomainError(
-        `不支持的文件类型：${originalName}（白名单：png/jpeg/webp/gif 图片；txt/md/csv/json 文档）`,
+        `不支持的文件类型：${originalName}（白名单：png/jpeg/webp/gif 图片；wav/mp3 音频；mp4 视频；pdf/txt/md/csv/json 文档）`,
         "validation",
       );
     }
@@ -126,7 +137,7 @@ export class AttachmentUploadService {
     // 按 kind 精确大小校验（document 的 NUL 探嗅已在 sniffType 内做：含 NUL 判二进制拒绝）
     const limit = sizeLimitFor(detected.kind, this.config);
     if (size > limit) {
-      throw new DomainError(`文件超过大小上限（${detected.kind === "image" ? "图片" : "文档"} 限 ${limit} 字节，实际 ${size}）`, "validation");
+      throw new DomainError(`文件超过大小上限（${kindLabel(detected.kind)} 限 ${limit} 字节，实际 ${size}）`, "validation");
     }
     return detected;
   }
@@ -210,9 +221,9 @@ export class AttachmentUploadService {
     return { tempPath, size };
   }
 
-  /** 落盘：图片 resize 后写最终路径，返回最终字节 sha256；文档直移到最终路径。
+  /** 落盘：图片 resize 后写最终路径，返回最终字节 sha256；文档/音频/视频直移到最终路径。
    *  filePath 由 mimeType 决定扩展名（与 upload() 主流程的 buildRelativePath(extForMime) 一致） */
-  private async persist(tempPath: string, kind: "image" | "document", mimeType: string): Promise<string> {
+  private async persist(tempPath: string, kind: "image" | "document" | "audio" | "video", mimeType: string): Promise<string> {
     const { default: sharp } = await import("sharp");
     if (kind === "image") {
       // resize 2048px（fit inside，不放大）；输出保持原格式（gif 动图 resize 会丢帧——sharp 默认取首帧，接受）
@@ -231,7 +242,7 @@ export class AttachmentUploadService {
       fs.writeFileSync(tempPath, buf);
       return sha256;
     }
-    // document：直移（ext 按 mimeType，与 buildRelativePath(extForMime(mimeType)) 同源）
+    // document/audio/video：直移（ext 按 mimeType，与 buildRelativePath(extForMime(mimeType)) 同源）
     const buf = fs.readFileSync(tempPath);
     const sha256 = crypto.createHash("sha256").update(buf).digest("hex");
     const finalPath = path.join(this.config.storageRoot, buildRelativePath(sha256, extForMime(mimeType)));
