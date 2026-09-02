@@ -1,8 +1,8 @@
 import type { MemoryEntry, MemoryWeight } from "@entities/memory/memory-entry";
 import type { RetrievalSource, FTSHit, VecHit } from "./memory-types";
 
-/** F20260902rcp1: document 层条目类型——半衰期分层与层配额共用此集合 */
-const DOCUMENT_CONTENT_TYPES = new Set(["feature", "research", "feature_chunk", "research_chunk"]);
+/** F20260902rcp1: document 层条目类型——半衰期分层与层配额共用此集合（导出供 search-memory debug 注入复用） */
+export const DOCUMENT_CONTENT_TYPES = new Set(["feature", "research", "feature_chunk", "research_chunk"]);
 
 export interface SearchEngineConfig {
   rrfK: number;
@@ -49,6 +49,11 @@ export interface ScoredHit {
  */
 export class SearchEngine {
   constructor(private readonly config: SearchEngineConfig) {}
+
+  /** F20260902rcp1 审视修复：debug 注入需要按层取半衰期，暴露 config 读取（只读语义） */
+  get configRef(): Readonly<SearchEngineConfig> {
+    return this.config;
+  }
 
   /**
    * RRF 融合：FTS + Vec 两路结果合并（三阶段策略）

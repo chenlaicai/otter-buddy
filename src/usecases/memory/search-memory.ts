@@ -17,6 +17,7 @@ import type { MemoryWriter } from "./memory-writer";
 import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { SearchEngine, RrfHit, ScoredHit } from "./search-engine";
+import { DOCUMENT_CONTENT_TYPES } from "./search-engine";
 import type { Logger } from "@usecases/ports/logger";
 
 /** snippet 降级截取长度（FTS5 highlight 不可用时） */
@@ -133,6 +134,11 @@ export class SearchMemory {
     private readonly logger: Logger,
     private readonly terminologyRepo?: TerminologyRepository,
   ) {}
+
+  /** F20260902rcp1 审视修复：document 层半衰期（debug 注入与 rerank 同源） */
+  private get documentHalfLifeDays(): number | undefined {
+    return this.searchEngine.configRef.weightHalfLifeDaysDocument;
+  }
 
   // eslint-disable-next-line complexity -- F20260812mrcq 加 anchor 短路 + expandContext 分支后超 12
   async search(query: SearchQuery): Promise<RetrievalResult> {
@@ -572,11 +578,16 @@ export class SearchMemory {
         const drillDown = detailLevel && detailLevel !== "full"
           ? { tool: "get_memory_detail", params: { id: h.entryId } }
           : undefined;
-        /** F20260811mrpy Part 1：debug=true 时注入中间分值 */
+        /** F20260811mrpy Part 1：debug=true 时注入中间分值
+         *  F20260902rcp1 审视修复：timeDecay 按层传半衰期——document 层用 90 天，
+         *  否则 debug 显示 7 天值与 finalScore 实际计算脱节（30 天文档偏差 15.5x） */
         const debugInfo = debug ? {
           rrfScore: h.rrfScore,
           finalScore: h.finalScore,
-          timeDecay: this.searchEngine.computeTimeDecayPublic(h.entry.createdAt),
+          timeDecay: this.searchEngine.computeTimeDecayPublic(
+            h.entry.createdAt,
+            DOCUMENT_CONTENT_TYPES.has(h.entry.contentType) ? this.documentHalfLifeDays : undefined,
+          ),
           frequencyBoost: this.searchEngine.computeFrequencyBoostPublic(
             weightMap.get(h.entryId)?.retrievalCount ?? 0,
           ),
