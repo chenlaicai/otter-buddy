@@ -17,6 +17,8 @@ export interface MessageDTO {
   seq: number;
   tsp: string[] | null;
   turnId: string;
+  /** 信号档位（F20260902u5tr：yield 投石为 NORMAL/URGENT/HALT，用户消息无列值隐式 NORMAL）；仅非空时携带 */
+  lvl?: string;
   /** 发送者显示名（otter 消息为 otter 名；user/system 省略） */
   sn?: string;
   ctx?: number;
@@ -30,6 +32,27 @@ export interface MessageDTO {
   /** 多模态 Phase 1：消息携带的附件（仅 attachments 非空时携带） */
   atts?: AttachmentDTO[];
   events?: MessageEventDTO[];
+}
+
+/** 信号轨迹单项（F20260902u5tr：一次投石对一个 otter 目标的投递状态）。
+ *  state 判据（服务端持久层推导，前端零推导）：
+ *  - CONSUMED：目标游标已越过信号所在 turn（turn_number < last_read_turn_number）
+ *  - CONSUMING：目标最新消息 streaming（invoke 进行中，游标未动的窗口）
+ *  - PENDING：其余（含游标缺省且非 streaming 的降级判定） */
+export interface SignalTrailItemDTO {
+  messageId: string;
+  fromType: "user" | "otter";
+  fromId: string;
+  targetOtterId: string;
+  /** 档位（signal_level 列解析，NULL 归一为 NORMAL——与 SignalRouter 判据一致） */
+  level: "NORMAL" | "URGENT" | "HALT" | string;
+  state: "PENDING" | "CONSUMING" | "CONSUMED";
+  ts: string;
+  seq: number;
+}
+
+export interface SignalTrailResponseDTO {
+  items: SignalTrailItemDTO[];
 }
 
 /** 消息关联的獭间信号（F20260826mwrd C4：UI 徽章数据源） */

@@ -34,6 +34,8 @@ export function toMessageDTO(msg: Message, senderName?: string): MessageDTO {
     seq: msg.sequenceNum,
     tsp: msg.talkingStonePassedTo,
     turnId: msg.turnId,
+    // 信号轨迹（F20260902u5tr）：yield 投石档位透出；用户消息无列值不携带（隐式 NORMAL）
+    ...(msg.signalLevel && { lvl: msg.signalLevel }),
     ...(effectiveName !== undefined && { sn: effectiveName }),
     ...(msg.contextTokens !== null && msg.contextTokens !== undefined && { ctx: msg.contextTokens }),
     ...(msg.contextTokensMax !== null && msg.contextTokensMax !== undefined && { ctxMax: msg.contextTokensMax }),

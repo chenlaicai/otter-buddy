@@ -6,6 +6,7 @@ import type {
   MessageListResponseDTO,
   UnreadStateDTO,
   MarkReadResponseDTO,
+  SignalTrailResponseDTO,
   MessageEventDTO,
   SendMessageRequestDTO,
   OtterDTO,
@@ -99,6 +100,11 @@ export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> 
 }
 
 /** 标记已读 */
+/** 信号轨迹（F20260902u5tr）：投石信号对目标 otter 的投递状态 */
+export function getSignalTrail(conversationId: string): Promise<SignalTrailResponseDTO> {
+  return request(`/conversations/${conversationId}/signal-trail`)
+}
+
 export function markRead(conversationId: string, messageSeq: number): Promise<MarkReadResponseDTO> {
   return request(`/conversations/${conversationId}/read`, { method: 'POST', body: JSON.stringify({ messageSeq }) })
 }

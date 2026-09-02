@@ -15,6 +15,8 @@ import { parseCardTitle } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
 import { SignalBadge } from './SignalBadge'
+import { SignalTrailChip } from './SignalTrailChip'
+import { isSignalMessage, type TrailItem } from '../../lib/signal-trail'
 import { resolveDisplayName } from './display-name'
 import { groupByActivity } from '../../lib/activity-group'
 
@@ -183,6 +185,8 @@ interface MessageListProps {
   userName?: string
   /** 用户滚动到底部时调用，用于标记已读 */
   onReachBottom?: () => void
+  /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
+  trailItems?: TrailItem[]
 }
 
 /** 判断是否在底部（阈值 100px） */
@@ -196,6 +200,7 @@ export function MessageList({
   loadingMore, onAtBottomChange,
   unreadSeparatorSeq, highlightMessageId,
   userName, onReachBottom,
+  trailItems,
 }: MessageListProps) {
   /** F20260814qswp：全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
    *  的早退位于 hooks 声明之前，同一挂载实例上 state 切换会导致 hooks 数量变化而崩溃 */
@@ -286,6 +291,16 @@ export function MessageList({
    *  group 数组引用稳定，配合 React key 只挂载新增段，避免全列表重渲染。
    *  位置在 hooks 区末尾：条件 return 之后调用会违反 hooks 规则（F20260814qswp 同款教训）。 */
   const activityGroups = useMemo(() => groupByActivity(messages), [messages])
+  /** F20260902u5tr：信号轨迹按消息分组（messageId → TrailItem[]），消息原位渲染 */
+  const trailByMessage = useMemo(() => {
+    const map = new Map<string, TrailItem[]>()
+    for (const item of trailItems ?? []) {
+      const list = map.get(item.messageId) ?? []
+      list.push(item)
+      map.set(item.messageId, list)
+    }
+    return map
+  }, [trailItems])
 
   // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
   if (state === 'no-llm') {
@@ -350,7 +365,7 @@ export function MessageList({
                     <div className="flex-1 h-px bg-teal-400/40" />
                   </div>
                 )}
-                <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} />
+                <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} trail={trailByMessage.get(m.id)} />
               </div>
             ))}
           </ActivityGroupBlock>
@@ -461,7 +476,7 @@ function groupReasonLabel(reason: 'conversation-start' | 'user-message' | 'gap')
   }
 }
 
-function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {
+function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName, trail }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string; trail?: TrailItem[] }) {
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
   if (m.st === 'system') {
     return (
@@ -538,6 +553,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           style={sideBar}
         >
           {!isUser && m.events && m.events.length > 0 && <StreamingProcess events={m.events} duration={m.dur || ''} status={m.status} />}
+          {/* F20260902u5tr: 信号轨迹（投石信号的投递状态，服务端推导，前端零推导） */}
+          {isSignalMessage(m) && trail && trail.length > 0 && (
+            <SignalTrailChip items={trail} otters={otters} />
+          )}
           {/* F20260826mwrd C4: 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
           {!isUser && m.signals && m.signals.length > 0 && (
             <div className="mb-1.5">

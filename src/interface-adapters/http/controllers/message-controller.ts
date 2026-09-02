@@ -10,6 +10,7 @@ import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SSEEvent } from "@contract/sse/events";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
+import type { QuerySignalTrail } from "@usecases/conversation/query-signal-trail";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
@@ -38,6 +39,8 @@ export class MessageController {
     /** F20260901sgpv P1：信号路由器——主入口调度收敛（火车头换轨）。可选注入：
      *  未注入时降级田直连链（旧装配/存量测试不变，灰度回滚面） */
     private readonly signalRouter?: SignalRouter,
+    /** 信号轨迹查询（F20260902u5tr）；可选装配，未注入时端点降级 */
+    private readonly signalTrail?: QuerySignalTrail,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -509,6 +512,19 @@ export class MessageController {
       const userId = c.req.query("userId") ?? "web-user";
       const state = await this.queryMessage.getUnreadState(conversationId, userId);
       return c.json(state);
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /** 信号轨迹（F20260902u5tr）：投石信号对目标 otter 的投递状态（服务端持久层推导） */
+  async getSignalTrail(c: Context): Promise<Response> {
+    try {
+      if (!this.signalTrail) {
+        return c.json({ error: "signal trail not configured" }, 501);
+      }
+      const conversationId = param(c, "id");
+      return c.json(await this.signalTrail.list(conversationId));
     } catch (err) {
       return handleError(c, err, this.logger);
     }

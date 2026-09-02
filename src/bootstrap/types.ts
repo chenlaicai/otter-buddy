@@ -29,6 +29,7 @@ import type { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageReadState } from "@usecases/conversation/manage-read-state";
+import type { QuerySignalTrail } from "@usecases/conversation/query-signal-trail";
 import type { ManageParticipant } from "@usecases/conversation/manage-participant";
 import type { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -80,6 +81,8 @@ export interface UseCases {
   /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
   recordSearchQuery: RecordSearchQuery;
   manageReadState: ManageReadState;
+  /** 信号轨迹查询（F20260902u5tr） */
+  querySignalTrail: QuerySignalTrail;
   manageParticipant: ManageParticipant;
   manageKeyInfo: ManageKeyInfo;
   queryOtter: QueryOtter;
