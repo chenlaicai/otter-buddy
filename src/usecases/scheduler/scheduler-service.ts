@@ -13,7 +13,7 @@ import type { HealingEventRepository } from '@usecases/healing/healing-event-rep
 import type { SchedulerMetricsPort } from './scheduler-metrics-port';
 import type { DispatchChainEngine } from '@usecases/conversation/dispatch-chain-engine';
 import type { FunctionRegistry } from '@usecases/paper-trading/function-registry';
-import { DomainError } from '@entities/errors';
+import { DomainError, isSessionLockConflictError } from '@entities/errors';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -502,6 +502,16 @@ export class SchedulerService {
         status = 'completed';
         return { executionId };
       } catch (error) {
+        // #654: session 锁冲突 = 并发冲突（目标会话被活跃方持有，如人工调查/并行任务），
+        // 非任务本身失败——execution 记 skipped、不 increment consecutiveFailures、不触发 3 连败熔断。
+        // 判据：锁超时错误从 agent 调用链抛出（非链路径 rethrow，或锁链路径经 assertNoFailedMessages
+        // 从 failed 消息反推，两者 message 均含锁超时前缀）。
+        // Why 仍 rethrow：调用方语义各异（once 重试/手动触发者感知），锁冲突不算触发成功。
+        if (isSessionLockConflictError(error)) {
+          status = 'skipped';
+          await this.handleExecutionSkipped(executionId, error);
+          throw error;
+        }
         await this.handleTaskExecutionFailure(executionId, task.id, error, options?.skipConsecutiveFailureTracking);
         throw error;
       }
@@ -809,6 +819,25 @@ export class SchedulerService {
       messageId: messageId || null,
       turnId: activeTurn?.id,
     });
+  }
+
+  /** #654: 锁冲突跳过记账——execution 记 skipped（非 failed），不 increment consecutiveFailures、
+   *  不触发 3 连败熔断。errorMessage 留下锁冲突痕迹供面板/排查可见。 */
+  private async handleExecutionSkipped(executionId: string, error: unknown): Promise<void> {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    try {
+      await this.taskRepo.updateExecutionStatus(executionId, {
+        status: 'skipped',
+        completedAt: new Date().toISOString(),
+        errorMessage,
+      });
+    } catch (updateErr) {
+      // 防御：记账失败不吞掉原始锁冲突错误（调用方语义更重要）
+      this.logger.warn('updateExecutionStatus(skipped) failed for lock conflict (non-fatal)', {
+        executionId,
+        error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+      });
+    }
   }
 
   private async handleExecutionFailure(executionId: string, taskId: string, error: unknown): Promise<void> {

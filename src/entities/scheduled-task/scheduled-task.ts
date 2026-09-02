@@ -4,8 +4,8 @@ export type ScheduledTaskStatus = 'active' | 'disabled' | 'error';
 /** 调度类型：cron=周期性，once=一次性 */
 export type ScheduleType = 'cron' | 'once';
 
-/** 执行记录状态 */
-export type ExecutionStatus = 'running' | 'completed' | 'failed';
+/** 执行记录状态。#654: skipped=并发冲突（如 session 锁被活跃方持有），非任务失败，不计 consecutiveFailures */
+export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'skipped';
 
 /** 执行器类型 */
 export type ExecutorType = 'agent' | 'function';

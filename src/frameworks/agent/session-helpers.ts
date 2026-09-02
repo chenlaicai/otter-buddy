@@ -6,6 +6,7 @@ import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
 import type { Logger } from "@usecases/ports/logger";
+import { SessionLockConflictError } from "@entities/errors";
 import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manifest-loader";
 
 /**
@@ -209,7 +210,7 @@ export class SimpleLockManager {
           const now = Date.now();
           this.logger?.error(
             `Lock acquire timeout for key: ${key}`,
-            new Error(`Lock acquire timeout for key: ${key}`),
+            new SessionLockConflictError(`Lock acquire timeout for key: ${key}`),
             {
               module: 'SimpleLockManager',
               lockKey: key,
@@ -227,7 +228,7 @@ export class SimpleLockManager {
               activeLocks: this.locks.size,
             },
           );
-          reject(new Error(`Lock acquire timeout for key: ${key}`));
+          reject(new SessionLockConflictError(`Lock acquire timeout for key: ${key}`));
         }, timeout)
       ),
     ]);

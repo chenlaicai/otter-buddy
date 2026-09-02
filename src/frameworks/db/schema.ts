@@ -615,7 +615,7 @@ function createScheduledTaskTables(db: Database.Database): void {
       task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
       triggered_at TEXT NOT NULL,
       completed_at TEXT,
-      status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
+      status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
       error_message TEXT,
       message_id TEXT REFERENCES messages(id),
       turn_id TEXT REFERENCES turns(id)
