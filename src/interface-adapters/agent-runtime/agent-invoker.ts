@@ -354,6 +354,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** 创建 TurnCallbacks：消息生命周期 + SSE 事件推送 */
+  // eslint-disable-next-line max-lines-per-function -- 回调装配表（#731：+getRecentGuardBounces）
   private createTurnCallbacks(
     emitEvent: (event: SSEEvent) => void,
     /** F20260830fabt: failMessage 后 abort SDK session，防止 dead message 僵尸运行 */
@@ -378,6 +379,13 @@ export class AgentInvoker implements AgentTurnPort {
       recordHealingEvent: async (input: HealingEventInput) => {
         if (!this.circuitBreak) return;
         await this.circuitBreak.recordHealingEvent(input);
+      },
+
+      // #731：bounce 计数查询——直透 CircuitBreakSupport（无 healingRepo 时 circuitBreak 为 null，
+      // 拋错交由 orchestrator fail-closed 升级；不静默返回 0，防「降级配置下无限回发」）
+      getRecentGuardBounces: async (otterId: string, windowMs: number) => {
+        if (!this.circuitBreak) throw new Error('guard bounce count unavailable: healing repo not configured');
+        return this.circuitBreak.countRecentGuardBounces(otterId, windowMs);
       },
 
       isCircuitBreakerEnabled: () => !!this.circuitBreak,

@@ -118,6 +118,11 @@ export interface TurnCallbacks {
   abortMessage(messageId: string, input: { body: string; talkingStonePassedTo?: string[] }): Promise<void>;
   /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
   recordHealingEvent(input: HealingEventInput): Promise<void>;
+  /**
+   * #731：查询 otter 在滑窗内的 guard bounce 次数（errorType=guard_intercept 且 context.bounced=true，
+   * 含调用时刻刚落账的本轮）。上限判定数据源；不可用时拋错由调用方 fail-closed 升级。
+   */
+  getRecentGuardBounces(otterId: string, windowMs: number): Promise<number>;
   /** F20260818cbkr：当前 active session 是否由熔断创建（上限判定） */
   isSessionCircuitBreakCreated(otterId: string): Promise<boolean>;
   /** F20260818cbkr：熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */

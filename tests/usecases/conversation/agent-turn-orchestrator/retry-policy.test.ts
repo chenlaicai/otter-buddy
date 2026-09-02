@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, buildGuardAbortBody } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
+import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
 
 describe("buildYieldRetryMsg", () => {
   it("hasOrphanText=true 时返回旁白流失专项文案", () => {
@@ -105,5 +105,44 @@ describe("buildAutoRetryMsg", () => {
     expect(msg).toContain("继续");
     // 通用文案不应泄漏 bash_safety 专项内容
     expect(msg).not.toContain("安全守卫拦截");
+  });
+});
+
+describe("#731 guard bounce 文案与常量", () => {
+  it("GUARD_BOUNCE_MAX 默认 3 次（有界防护）", () => {
+    expect(GUARD_BOUNCE_MAX).toBe(3);
+  });
+
+  it("GUARD_BOUNCE_WINDOW_MS 默认 10 分钟滑窗", () => {
+    expect(GUARD_BOUNCE_WINDOW_MS).toBe(10 * 60 * 1000);
+  });
+
+  it("buildGuardBounceMsg：回发进度 + 透传拦截原因 + 四要素引导（无 restart 出口）", () => {
+    const msg = buildGuardBounceMsg("bash_safety:测试拦截原因文案", 2);
+    expect(msg).toContain("第 2/3 次");
+    expect(msg).toContain("自动回发控制信号");
+    expect(msg).toContain("测试拦截原因文案");
+    // 复用四要素口径
+    expect(msg).toContain("该命令不允许");
+    expect(msg).toContain("worktree");
+    expect(msg).toContain("不要重复原命令");
+    // 终审口径：不提供 restart 出口
+    expect(msg).not.toContain("otter-buddy.sh restart");
+    expect(msg).not.toContain("请使用 restart");
+  });
+
+  it("buildGuardBounceFailBody：fail 过渡文案区分于一拦 auto-retry", () => {
+    const body = buildGuardBounceFailBody();
+    expect(body).toContain("自动回发控制信号");
+    expect(body).toContain("仍被拦");
+  });
+
+  it("buildGuardBounceEscalationMsg：升级文案含次数 + 人工介入引导 + 误拦排查提示", () => {
+    const msg = buildGuardBounceEscalationMsg("mimo");
+    expect(msg).toContain("mimo");
+    expect(msg).toContain("已连续 3 次");
+    expect(msg).toContain("停止自动回发");
+    expect(msg).toContain("请人工介入");
+    expect(msg).toContain("误拦");
   });
 });
