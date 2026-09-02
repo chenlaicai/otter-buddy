@@ -79,11 +79,21 @@ checkBashCommandSafetyOnText 对原始与归一化文本各跑一次全量检测
 
 ## 验证
 
-- [x] `npx vitest run tests/frameworks/agent/bash-safety-guard.test.ts` → 54/54 绿
+- [x] `npx vitest run tests/frameworks/agent/bash-safety-guard.test.ts` → 57/57 绿
 - [x] 修复 commit 的命令行本身含 guard-eval-fix 路径（live 验证：若守卫仍误报则无法提交）
+
+## #730 拦截回显增强（chen 追加：修守卫应修完整体验）
+
+mimo 审视建议 1 当日升级进本 PR：拦截文案从静态说明 → 附加【命中详情】块（规则名 × 片段 × 位置偏移），被拦的獭能自诊断。
+
+实现：`locateTriggerContext()` 扫描四类高危词表（kill 族 / eval / PID 文件 / 进程名），命中片段带前后 10 字符上下文 + offset；`withDiagnostics()` 挂到两条拦截出口（原始文本 + 归一化文本，归一化路径扫归一化后文本——e""val 拆开的原文字面扫不到）。
+
+**PID 脱敏铁律兼容（F20260831aksp）**：片段中的主进程 PID 替换为 `<main-pid>` 占位符——既有测试「拦截文案不含 42877」继续成立，防「试探→回显→二次打击」链不被诊断功能重新打开。
+
+#731（拦截后自动回发控制信号恢复行动权）不在本 PR：那是 agent 编排层变更（拦截点在 agent 运行时，非守卫函数本身），单开 PR 做。
 
 ## 影响范围
 
-- 唯一文件：src/frameworks/agent/bash-safety-guard.ts（1 处正则 + 注释）
-- 测试：3 个新用例
-- 行为变化：路径含 eval-xxx 的命令从「拦截」变「放行」；命令位置 eval 行为不变
+- src/frameworks/agent/bash-safety-guard.ts：L133 正则收紧 + locateTriggerContext/withDiagnostics 两个纯函数 + 两处拦截出口挂接
+- tests：6 个新用例（3 误报回归 + 2 回显 + 1 脱敏断言）
+- 行为变化：路径含 eval-xxx 的命令从「拦」变「放」；命令位置 eval 不变；拦截文案末尾多【命中详情】块（含 PID 脱敏）

@@ -215,6 +215,42 @@ function checkBashCommandSafetyOnText(
   return null;
 }
 
+/** 命中规则定位（F20260902gvrd，#730）：拦截文案从静态说明升级为带诊断上下文。
+ *  扫描命令中命中各高危词表的子串，返回「规则名 × 片段 × 位置」行。
+ *  只做诊断回显，不参与拦截判定——拦截逻辑本身不变。 */
+function locateTriggerContext(command: string, mainPid: number | null): string[] {
+  const hits: string[] = [];
+  const patterns: Array<[string, RegExp]> = [
+    ["kill 族命令", /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/gi],
+    ["eval 引用", /\beval\b/gi],
+    ["PID 文件引用", /\.otter-buddy\.pid/g],
+    ["进程名模式", /\b(?:otter-buddy|otter_buddy|dist\/src\/main|main\.js|node)\b/g],
+  ];
+  for (const [name, pat] of patterns) {
+    const re = new RegExp(pat.source, pat.flags.includes("g") ? pat.flags : pat.flags + "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(command)) !== null && hits.length < 6) {
+      const start = Math.max(0, m.index - 10);
+      const end = Math.min(command.length, m.index + m[0].length + 10);
+      // PID 脱敏铁律（F20260831aksp）：片段中的真实主进程 PID 替换为占位符——
+      // 防「错误试探 → 文案回显真实 PID → 精准二次打击」。其他数字（日期/行号）无害保留。
+      const raw = command.slice(start, end).replace(/\n/g, " ");
+      const snippet = mainPid !== null ? raw.split(String(mainPid)).join("<main-pid>") : raw;
+      hits.push(`${name}：…${snippet}… @${m.index}`);
+    }
+  }
+  return hits;
+}
+
+/** 拦截文案附加诊断块（#730）：被拦的獭能看到命中了什么、在哪，自诊断不再靠人肉读源码。
+ *  scanText = 诊断扫描文本：拦截命中自哪份文本（原始/归一化）就用哪份——归一化路径的
+ *  触发词在原命令里可能被引号拆开（e""val），扫原文会零命中。 */
+function withDiagnostics(message: string, scanText: string, mainPid: number | null): string {
+  const hits = locateTriggerContext(scanText, mainPid);
+  if (hits.length === 0) return message;
+  return `${message}\n【命中详情】${hits.join("；")}`;
+}
+
 /**
  * 检查 bash 命令是否安全（不针对主进程的 kill 操作）。
  *
@@ -236,11 +272,12 @@ export function checkBashCommandSafety(
   if (!command.trim() || mainPid === null) return null;
 
   const result = checkBashCommandSafetyOnText(command, mainPid, logger);
-  if (result) return result;
+  if (result) return withDiagnostics(result, command, mainPid);
 
   const normalized = normalizeForDetection(command);
   if (normalized !== command) {
-    return checkBashCommandSafetyOnText(normalized, mainPid, logger);
+    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger);
+    return nResult ? withDiagnostics(nResult, normalized, mainPid) : null;
   }
   return null;
 }

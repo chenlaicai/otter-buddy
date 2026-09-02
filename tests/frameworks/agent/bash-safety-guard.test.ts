@@ -290,6 +290,11 @@ describe("checkBashCommandSafety", () => {
     const result = checkBashCommandSafety('eval "kil""l 42877"', mainPid);
     expect(result).not.toBeNull();
   });
+});
+
+// F20260902gvrd + #730：词边界收紧 / 拦截回显 / PID 脱敏——独立 describe（避免主 describe 超 max-lines-per-function 220）
+describe("F20260902gvrd 词边界收紧与拦截回显", () => {
+  const mainPid = 42877;
 
   // F20260902gvrd：eval 词边界收紧为命令位置后的误报回归用例——路径/标识符中的
   // eval-xxx（连字符是 \b 词边界）叠加任意 2-6 位数字（日期/行号）曾误拦纯 git/grep 命令
@@ -309,6 +314,28 @@ describe("checkBashCommandSafety", () => {
   it("命令位置 eval 在操作符后仍拦截（收紧后覆盖面回归）", () => {
     const result = checkBashCommandSafety("cd /tmp && eval \"echo 42877\"", mainPid);
     expect(result).not.toBeNull();
+  });
+
+  // #730 拦截回显增强：被拦命令应带诊断块（规则名 + 片段 + 位置），不再只有静态文案
+  it("拦截文案含命中详情（规则名 + 位置偏移，#730）", () => {
+    const result = checkBashCommandSafety('git -C . && eval "echo 42877"', mainPid);
+    expect(result).not.toBeNull();
+    expect(result!).toContain("【命中详情】");
+    expect(result!).toContain("@"); // 位置偏移标记
+  });
+
+  it("拦截文案含命中详情且主进程 PID 已脱敏（#730 + F20260831aksp 铁律兼容）", () => {
+    const result = checkBashCommandSafety("kill 42877", mainPid);
+    expect(result).not.toBeNull();
+    expect(result!).toContain("【命中详情】");
+    expect(result!).not.toContain("42877"); // PID 不回显
+    expect(result!).toContain("<main-pid>"); // 脱敏占位符可见，位置可自定位
+  });
+
+  it("归一化路径拦截的诊断块引用原始命令（#730）", () => {
+    const result = checkBashCommandSafety('e""val "echo 42877"', mainPid);
+    expect(result).not.toBeNull();
+    expect(result!).toContain("【命中详情】");
   });
 
   it("PoC-10: perl -e 'kill 15, 42877' → 拦截（perl kill 绕过）", () => {
