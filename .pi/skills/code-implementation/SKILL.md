@@ -39,11 +39,33 @@ category: technique
 
    **最简实现检查**（必答，结论记入特性文档「验证」节）：此方案能否用更少代码/文件/依赖达成同等效果？先过一道阶梯——仓库已有实现 → stdlib/平台原生 → 已装依赖 → 才写新代码（思想源 R20260828pntr §0：LLM 天然偏好过度建设，"我要一个函数，它给我一个框架"）。发现更简实现且不改语义 → 采简弃繁；确认已最简 → 在验证节记"已过最简检查"。
 
+   **Golden Gate 自检（软代码改动必须）**：
+   - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，必须跑 golden gate
+   - **执行**：在 worktree 内运行 `npm run test:capability` 或 `npx vitest run --config vitest.capability.config.ts`
+   - **记录留存**：results.jsonl 会自动写入主仓根 `data/metrics/golden-results.jsonl`（P0-b 修通后）
+   - **fail 处置闭环**（v6.3，glm-flash 发现 5）：
+     - 单场景 fail → 实现者复跑一次，复跑通过则记后续通过记录
+     - 连续两次 fail → 修问题再跑，直至通过
+     - 无法修复 → 走申诉留痕决议（在 PR 描述中说明理由）
+   - **复跑主体 = 实现者**（生产方职责），检视獭不重复跑
+
    **CI 验证（必须）**：
    - 推送 PR 后，等待 CI 运行完成：`gh run watch`
    - CI 失败时立即诊断修复——检视也会将 CI 失败标记为严重发现
 
 7. **文档**：将实现要点、变更说明写入本特性的文档——**新建追加，不改历史**（铁律 F20260831dgim）：本特性已有文档（本分支/本 PR 内创建）则追加；否则新建 `docs/features/` 文档记录，包括「本次变更对旧特性做了什么」也写在新文档里，回改已合入的历史文档一律禁止（参见全局约定「特性文档」；pre-commit 的 lint-historical-docs 会机械拦截）。写完/改完文档后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。
+
+   **Intent 块生成（软代码改动必须）**：
+   - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，特性文档 frontmatter 必须生成 intent 块
+   - **格式**：在 frontmatter 中添加 `intent` 字段，包含 `problem`（要解决什么问题）和 `verify_by`（如何验证，如 `golden_gate`、`capability_test`、`manual_review`）
+   - **n/a 须附理由**：如果 verify_by 填 n/a，必须附理由说明为什么不需要验证
+   - **示例**：
+     ```yaml
+     intent:
+       problem: "海獭在召唤小獭前不搜记忆，违反 R4 约束"
+       verify_by: "golden_gate"
+     ```
+   - **目的**：让评测机制知道这个变更需要什么验证方式，是 golden gate 的输入信号
 
 8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
