@@ -466,6 +466,8 @@ export interface RhiOverviewDTO {
   snapshotDate: string | null
   openSignals: number
   openSignalsBySeverity: { critical: number; warning: number }
+  /** Issue #652：按置信度计数（low = 低置信折叠抽屉数据源，不进 severity 主数） */
+  openSignalsByConfidence: { normal: number; low: number }
 }
 
 export interface RhiTrendPointDTO {
@@ -512,6 +514,14 @@ export interface RhiSignalDTO {
   confidence: string | null
 }
 
+export interface RhiChainCommitLiteDTO {
+  /** 8 位短 sha */
+  sha: string
+  /** ISO 时间 */
+  date: string
+  changeType: string | null
+}
+
 export interface RhiChainDTO {
   featureId: string
   state: 'active' | 'stalled' | 'regressed' | 'zombie' | 'orphan'
@@ -523,6 +533,8 @@ export interface RhiChainDTO {
   docStatus: string | null
   docTitle: string | null
   stateReason: string
+  /** Issue #649 PR3：轻量 commit 序列（泳道 x 轴映射；全量含 message/filesChanged 走 chainDetail） */
+  commits: RhiChainCommitLiteDTO[]
 }
 
 export function getRhiOverview(signal?: AbortSignal): Promise<RhiOverviewDTO> {
@@ -533,13 +545,21 @@ export function getRhiSignals(status = 'open', signal?: AbortSignal): Promise<{ 
   return request(`/health/signals?status=${encodeURIComponent(status)}`, { signal })
 }
 
-export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number }> {
+export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDTO[]; stateCounts: Record<string, number>; total: number; fanInExcludedFiles: Array<{ file: string; fanIn: number }> }> {
   return request('/health/chains', { signal })
 }
 
 /** Issue #644：链详情（全类型 commit 序列——泳道时间线/链详情抽屉数据源） */
-export interface RhiChainDetailDTO extends RhiChainDTO {
-  commits: Array<{ sha: string; date: string; changeType: string | null; message: string; filesChanged: string[] }>
+export interface RhiChainDetailCommitDTO {
+  sha: string
+  date: string
+  changeType: string | null
+  message: string
+  filesChanged: string[]
+}
+
+export interface RhiChainDetailDTO extends Omit<RhiChainDTO, 'commits'> {
+  commits: RhiChainDetailCommitDTO[]
 }
 
 export function getRhiChainDetail(featureId: string, signal?: AbortSignal): Promise<{ chain: RhiChainDetailDTO }> {
