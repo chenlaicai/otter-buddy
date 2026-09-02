@@ -110,6 +110,10 @@ export interface AppConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁锚定，同 feishu.partnerOpenId 语义） */
     partnerUserId?: string;
+    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt，默认 60；显式 0 关闭） */
+    contextTokenWarnMinutes?: number;
+    /** 同一用户两次预警最小间隔（分钟，默认 60；显式 0 关闭） */
+    contextTokenWarnCooldownMinutes?: number;
   };
   inbound?: {
     recruiting?: {
@@ -244,6 +248,10 @@ interface RawConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁，同 feishu.partnerOpenId 语义） */
     partnerUserId?: string;
+    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt） */
+    contextTokenWarnMinutes?: number;
+    /** 同一用户两次预警最小间隔（分钟） */
+    contextTokenWarnCooldownMinutes?: number;
   };
   inbound?: {
     recruiting?: {
@@ -315,6 +323,38 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
   }
+
+  // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
+  if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
+}
+
+/** 传入值→有限数，非法回退默认值（F20260901wxnt 发现1：YAML "60min" → NaN → 全轰炸） */
+function safeFinite(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * 预警窗口构造（F20260901wxnt）：单键显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
+ * 非有限数（NaN/Infinity，如 YAML "60min"）由 safeFinite 回退默认——与 validate() 启动报错构成双层防线（构造层兑底）。
+ * 归属 weixin 配置域，供 platforms.ts 装配层直接消费。
+ */
+export function buildContextTokenWarnConfig(
+  weixin: AppConfig["weixin"],
+): { afterMs: number; cooldownMs: number } | undefined {
+  if (weixin?.contextTokenWarnMinutes === 0 || weixin?.contextTokenWarnCooldownMinutes === 0) return undefined;
+  return {
+    afterMs: Math.max(safeFinite(weixin?.contextTokenWarnMinutes, 60), 1) * 60_000,
+    cooldownMs: Math.max(safeFinite(weixin?.contextTokenWarnCooldownMinutes, 60), 1) * 60_000,
+  };
+}
+
+/** 校验 weixin contextTokenWarn* 字段合法性（正整数或 undefined，F20260901wxnt 发现1） */
+function validateWeixinWarnConfig(weixin: NonNullable<RawConfig["weixin"]>): void {
+  for (const [key, val] of Object.entries({ contextTokenWarnMinutes: weixin.contextTokenWarnMinutes, contextTokenWarnCooldownMinutes: weixin.contextTokenWarnCooldownMinutes })) {
+    if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val))) {
+      throw new Error(`配置校验失败: weixin.${key} 必须是整数，当前值: ${String(val)}`);
+    }
+  }
 }
 
 function buildDbConfig(raw: RawConfig): AppConfig["db"] {
@@ -382,12 +422,16 @@ function buildFeishuConfig(raw: RawConfig): AppConfig["feishu"] {
 function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   const seg = raw.weixin ?? {};
   // 三字段全空 → 未启用；任一有值 → 给出完整默认（baseUrl/stateDir 有内置缺省）
+  // Why: contextTokenWarn* 不参与启用判定——它们是已有 weixin 段的可选配置，
+  // 单独配 warn 参数但不配 baseUrl/stateDir/partnerUserId 不应触发微信通道启动
   const anyConfigured = Boolean(seg.baseUrl || seg.stateDir || seg.partnerUserId);
   if (!anyConfigured) return undefined;
   return {
     baseUrl: seg.baseUrl?.trim() || "https://ilinkai.weixin.qq.com",
     stateDir: seg.stateDir?.trim() || "./data/weixin",
     partnerUserId: seg.partnerUserId?.trim() || undefined,
+    contextTokenWarnMinutes: seg.contextTokenWarnMinutes,
+    contextTokenWarnCooldownMinutes: seg.contextTokenWarnCooldownMinutes,
   };
 }
 

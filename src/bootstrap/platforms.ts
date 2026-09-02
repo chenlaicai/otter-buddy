@@ -1,4 +1,4 @@
-import type { AppConfig } from "@frameworks/config";
+import { buildContextTokenWarnConfig, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
 import * as yaml from "js-yaml";
@@ -453,6 +453,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         onMessage: (msg) => processor.process(msg),
         logger,
         registry,
+        contextTokenWarn: buildContextTokenWarnConfig(appConfig.weixin),
       });
       poller.setIdentity(account.ilinkUserId);
       poller.start();

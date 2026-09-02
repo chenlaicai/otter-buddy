@@ -166,6 +166,22 @@ circuitBreaker:
 #    /history - 查看当前对话历史消息
 #    /help - 显示帮助信息
 
+# === 微信通道配置（可选）===
+# 协议直连 ilink，无需 appId/Secret（扫码授权，issue #565）；账号状态默认存 ./data/weixin
+# weixin:
+#   # ilink 网关 base URL（默认 https://ilinkai.weixin.qq.com）
+#   # baseUrl: "https://ilinkai.weixin.qq.com"
+#   # 账号/游标持久化目录（默认 ./data/weixin）
+#   # stateDir: "./data/weixin"
+#   # 搭档的微信 ilink_user_id（命令门禁锚定，同 feishu.partnerOpenId 语义）
+#   # partnerUserId: "wxid_xxxxxxxxxxxx"
+#   # --- context_token 过期预警（F20260901wxnt）---
+#   # 静默多久（分钟）后向对端用户发一条预警提醒（默认 60；显式 0 = 关闭预警）
+#   # 用户随便回一条消息即换新 token 重置计时，安静聊天不会被打扰
+#   # contextTokenWarnMinutes: 60
+#   # 同一用户两次预警最小间隔（分钟，默认 60；显式 0 = 关闭预警）
+#   # contextTokenWarnCooldownMinutes: 60
+
 # === 招聘桥接 Inbound 配置（可选）===
 # 配置后启用 Chrome 扩展（boss-zhipin-bridge）向 otter-buddy 推送 BOSS 直聘消息
 # apiKey 是扩展和服务端共享的密钥，扩展端 options 页要填同样的值
