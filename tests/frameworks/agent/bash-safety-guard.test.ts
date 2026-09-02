@@ -291,6 +291,26 @@ describe("checkBashCommandSafety", () => {
     expect(result).not.toBeNull();
   });
 
+  // F20260902gvrd：eval 词边界收紧为命令位置后的误报回归用例——路径/标识符中的
+  // eval-xxx（连字符是 \b 词边界）叠加任意 2-6 位数字（日期/行号）曾误拦纯 git/grep 命令
+  it("路径含 eval-xxx + 日期数字 → 放行（eval 不在命令位置，F20260902gvrd 误报回归）", () => {
+    const result = checkBashCommandSafety(
+      "git -C /Users/orca/ai/otter-buddy/.claude/worktrees/guard-eval-fix status --short && git add docs/features/2026/09/02/x.md",
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("文件名含 e.*v.*a.*l 变体路径 + 行号 → 放行（同上）", () => {
+    const result = checkBashCommandSafety("sed -n '125,140p' src/frameworks/agent/bash-safety-guard.ts && grep -n 'l40' x.txt", mainPid);
+    expect(result).toBeNull();
+  });
+
+  it("命令位置 eval 在操作符后仍拦截（收紧后覆盖面回归）", () => {
+    const result = checkBashCommandSafety("cd /tmp && eval \"echo 42877\"", mainPid);
+    expect(result).not.toBeNull();
+  });
+
   it("PoC-10: perl -e 'kill 15, 42877' → 拦截（perl kill 绕过）", () => {
     // perl 的 kill 不是 shell kill，但参数中有主进程 PID + kill 关键词
     const result = checkBashCommandSafety("perl -e 'kill 15, 42877'", mainPid);
