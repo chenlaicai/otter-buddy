@@ -9,6 +9,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
+import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
 // eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定
@@ -308,8 +309,9 @@ function rebuildMemoryFtsJiebaDoubleWrite(db: Database.Database, logger: Logger)
     for (const row of rows) {
       // F20260902rcq3: 文档类条目注入 sourceId 前缀（与 insertEntryRow 同逻辑）——
       // 文档正文不含自身编号，ID 直查时确定性最强的目标反而 miss
+      // 审视修复：正则改用 fid-format 真相源（{4,10}）
       const ftsText = (row.source_table === "features" || row.source_table === "research")
-        && /^[FR]\d{8}[a-z0-9]{4}$/i.test(row.source_id)
+        && FID_ANCHOR_REGEX.test(row.source_id)
         ? `${row.source_id} ${row.content}`
         : row.content;
       insert.run(row.id, tokenizeWithJieba(ftsText, { doubleWrite: true }));

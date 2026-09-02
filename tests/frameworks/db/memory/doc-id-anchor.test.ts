@@ -46,6 +46,15 @@ describe("F20260902rcq3 doc ID 锚点注入", () => {
     expect(m.c).toBe(0);
   });
 
+  it("长后缀（>4 字符）文档编号同样注入——fid-format {4,10} 契约（审视修复回归）", async () => {
+    await repo.storeEntry(makeEntry({ sourceId: "F20260829qsref" }));
+    const hit = db.prepare(`SELECT COUNT(*) c FROM memory_fts_jieba WHERE memory_fts_jieba MATCH '"F20260829qsref"'`).get() as { c: number };
+    expect(hit.c).toBeGreaterThanOrEqual(1);
+    await repo.storeEntry(makeEntry({ sourceTable: "research", sourceId: "R20260805imaging", contentType: "research" }));
+    const r = db.prepare(`SELECT COUNT(*) c FROM memory_fts_jieba WHERE memory_fts_jieba MATCH '"R20260805imaging"'`).get() as { c: number };
+    expect(r.c).toBeGreaterThanOrEqual(1);
+  });
+
   it("content 本体不被修改（只注入 FTS，原文保持）", async () => {
     const e = makeEntry();
     await repo.storeEntry(e);
