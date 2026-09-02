@@ -29,7 +29,7 @@ fetch_state() {
     [.[] | select(.status == "active")] |
     [
       ([.[] | select((.unreadCount // 0) > 0)] | length),
-      ([.[] | select(.activityStatus == "processing") | select((now - ((.lastMessageTs // "1970") | ts2epoch)) < $fresh)] | length),
+      ([.[] | select(.activityStatus == "processing") | select((now - ((.lastMessageTs // "1970-01-01T00:00:00Z") | ts2epoch)) < $fresh)] | length),
       ([.[] | select((.unreadCount // 0) > 0)][0].title // "")
     ] | @tsv' || printf "0\t0\t\n"
 }

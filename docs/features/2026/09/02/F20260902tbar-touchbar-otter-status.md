@@ -100,11 +100,18 @@ render_items 一段，状态判定逻辑零改动。
    launchctl load ~/Library/LaunchAgents/com.otterbuddy.otterbar-status.plist
    ```
 
+   注意：plist 内脚本路径指向主仓 `scripts/otterbar-status.sh`，需在 PR 合入 main 后执行；
+   开发期从 worktree 手动跑脚本验证即可，提前 load 会因路径不存在而静默失败
+   （KeepAlive 会不断重试，日志在 `/tmp/otterbar-status.err.log` 可见）。
+
 ## 手动验证
 
 - **三态渲染**：live API 下输出 `🦦 🔴等你×17 ⌨️干活×5 · 📋 Backlog 排期`（真实聚合结果）
 - **后端不可达降级**：API 指向死端口时输出 `🦦 💤 睡觉`（curl -sf 失败 → printf 兜底 0/0），
   不崩溃、不残留旧状态
+- **lastMessageTs=null 边界**：processing 会话无时间戳时不崩溃、不计入干活数
+  （初版 fallback `"1970"` 非 ISO8601 导致 jq 报错退出，`|| printf` 兜底进而把
+  "等你"计数一并归零——检视发现 #713 R1，修复为完整 epoch 零点后实测通过）
 - **语法/结构**：`bash -n` 通过；plist `plutil -lint` 通过
 - 首版踩坑记录：jq 内联 `def` 在单引号 heredoc 中被 shell 转义破坏，改用脚本内
   单引号包裹 jq 程序体解决（测试脚本与主脚本逻辑一致性 diff 验证）
