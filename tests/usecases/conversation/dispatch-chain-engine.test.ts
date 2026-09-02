@@ -567,3 +567,85 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
     expect(received[0]).not.toContain("[L2 安全词检测]");
   });
 });
+
+describe("sgp2 hop 取源修复（F20260902sgp2 #712：hop 2+ 记账 + 多源覆盖）", () => {
+  /** 复现生产观察 2026-09-02：hop 局部 Map 回填即丢 → hop 2+ 记账全跳过 → 虚 pending */
+  function makeLedgerMocks() {
+    const m = makeMocks();
+    const attempts: Array<{ messageId: string; target: string; status: string }> = [];
+    const dispatchAttemptRepo = {
+      recordStart: (a: { messageId: string; targetOtterId: string }) => {
+        attempts.push({ messageId: a.messageId, target: a.targetOtterId, status: "in_progress" });
+      },
+      recordFinish: (messageId: string, target: string, status: string) => {
+        const row = attempts.find(x => x.messageId === messageId && x.target === target && x.status === "in_progress");
+        if (row) row.status = status;
+      },
+      backfillLegacyAttempted: () => 0,
+      countPendingSignals: () => 0,
+      listPendingSignals: () => [],
+      markStaleInProgressFailed: () => 0,
+    };
+    return { m, attempts, dispatchAttemptRepo };
+  }
+
+  it("hop 2+ 记账不再跳过：小獭 yield 属主，属主被记为消费触发消息 m-work", async () => {
+    const { m, attempts, dispatchAttemptRepo } = makeLedgerMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, dispatchAttemptRepo });
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: ["otter-worker"],
+      triggerMessageId: "m-user",
+      invokeFn: async ({ otterId }) => {
+        if (otterId === "otter-worker") return { messageId: "m-work", aggregatedTargets: ["owner-otter"] };
+        return { messageId: "m-owner" };
+      },
+    });
+
+    // hop1: (m-user, otter-worker)；hop2: (m-work, owner-otter) ——修复前 hop2 无记账
+    const hop2 = attempts.find(a => a.messageId === "m-work" && a.target === "owner-otter");
+    expect(hop2).toBeDefined();
+    expect(hop2!.status).toBe("completed");
+    const hop1 = attempts.find(a => a.messageId === "m-user" && a.target === "otter-worker");
+    expect(hop1!.status).toBe("completed");
+  });
+
+  it("多源覆盖：A、B 同 hop yield 给 C，C 对两条触发消息各记一条 attempt", async () => {
+    const { m, attempts, dispatchAttemptRepo } = makeLedgerMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger, dispatchAttemptRepo });
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: ["otter-a", "otter-b"],
+      invokeFn: async ({ otterId }) => {
+        if (otterId === "otter-a") return { messageId: "m-a", aggregatedTargets: ["otter-c"] };
+        if (otterId === "otter-b") return { messageId: "m-b", aggregatedTargets: ["otter-c"] };
+        return { messageId: "m-c" };
+      },
+    });
+
+    // hop2 的 C 需记 (m-a, C) 和 (m-b, C) 两条——消费义务逐条销账
+    const forC = attempts.filter(a => a.target === "otter-c");
+    expect(forC.map(a => a.messageId).sort()).toEqual(["m-a", "m-b"]);
+    expect(forC.every(a => a.status === "completed")).toBe(true);
+  });
+
+  it("无 repo 时不记账也不抛（可选依赖，零行为变化）", async () => {
+    const { m } = makeLedgerMocks();
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryMessage: m.queryMessage, queryOtter: m.queryOtter, logger: m.logger });
+    const invoked: string[] = [];
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user",
+      initialTargets: ["otter-worker"],
+      invokeFn: async ({ otterId }) => {
+        invoked.push(otterId);
+        if (otterId === "otter-worker") return { messageId: "m-work", aggregatedTargets: ["owner-otter"] };
+        return { messageId: "m-owner" };
+      },
+    });
+
+    expect(invoked).toEqual(["otter-worker", "owner-otter"]); // 链路行为不变
+  });
+});
