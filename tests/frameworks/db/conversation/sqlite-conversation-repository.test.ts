@@ -690,6 +690,37 @@ describe("SqliteConversationRepository - 重启兜底与未读过滤（F20260724
       const unread = await repo.getUnreadMessages("conv-1", "otter-reader");
       expect(unread.map(m => m.id)).toEqual(["msg-1"]);
     });
+
+    /** F20260902uspr 回归：SignalRouter 收件箱（未读视图 × talkingStonePassedTo 判别）依赖。
+     *  病史：投影曾硬编码 talkingStonePassedTo: null，signal-router 单测 mock 了仓储带真值，
+     *  真实路径 pendingSignalsFor 恒空——web/IM/补扫全入口静默哑火且无日志。 */
+    it("携带 talkingStonePassedTo 真值（SignalRouter 收件箱判别依赖）", async () => {
+      await repo.create(conversationFixture());
+      await repo.createTurn(turnFixture());
+      db.prepare(`INSERT INTO otters (id, name, type) VALUES (?, ?, ?)`).run("otter-reader", "Reader", "small");
+      await repo.createParticipant({
+        id: "part-1", conversationId: "conv-1", otterId: "otter-reader",
+        joinedAtTurnId: null, joinedAtTurnNumber: 0,
+        leftAtTurnId: null, leftAtTurnNumber: null,
+        status: "active", createdAt: "2026-07-22T00:00:00Z", leftAt: null,
+        lastReadTurnNumber: 0,
+        lastActiveTurnNumber: 0,
+      });
+      await repo.createCompletedMessage(messageFixture({
+        id: "msg-targeted", senderId: "user-1", sequenceNum: 1,
+        talkingStonePassedTo: ["otter-reader", "user"],
+      }));
+      await repo.createCompletedMessage(messageFixture({
+        id: "msg-notarget", senderId: "user-1", sequenceNum: 2,
+        talkingStonePassedTo: null,
+      }));
+
+      const unread = await repo.getUnreadMessages("conv-1", "otter-reader");
+      expect(unread.map(m => m.talkingStonePassedTo)).toEqual([
+        ["otter-reader", "user"],  // 指向判别命中：router.pendingSignalsFor 可见
+        null,                       // 无目标：与 conversation-mapper 同约定
+      ]);
+    });
   });
 
   describe("getTurnById（F20260803trrf: markBatchRead 时序修复）", () => {

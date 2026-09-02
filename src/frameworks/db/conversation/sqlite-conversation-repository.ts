@@ -659,7 +659,11 @@ export class SqliteConversationRepository implements ConversationRepository {
     const messages = mixins.getUnreadMessages(this.db, conversationId, otterId).map(row => ({
       id: row.id, conversationId, senderType: row.sender_type as 'user' | 'otter' | 'system',
       senderId: row.sender_id, status: 'completed' as const, segments: [] as MessageSegment[],
-      sequenceNum: row.sequence_num, turnId: '', talkingStonePassedTo: null,
+      sequenceNum: row.sequence_num, turnId: '',
+      // F20260902uspr：解析真实值（SignalRouter 收件箱判别依赖，与 conversation-mapper 同约定）
+      talkingStonePassedTo: row.talking_stone_passed_to
+        ? (JSON.parse(row.talking_stone_passed_to) as string[])
+        : null,
       contextTokens: null, contextTokensMax: null, source: 'web' as const,
       senderName: row.sender_name ?? '',
       createdAt: '', completedAt: null,
