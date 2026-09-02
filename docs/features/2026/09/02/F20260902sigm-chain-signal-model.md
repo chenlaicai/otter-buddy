@@ -240,7 +240,11 @@ ChainState = "active" | "stalled" | "regressed" | "orphan"   // 枚举保留4值
 
 1. **单元/集成**：2743 tests 全绿（主仓基线同口径 2743；改动文件 219 个测试文件无回归）；tsc 0 error；eslint 0 error（修掉自引入的 4 个：pr-collector 复杂度、未用 import、2 个测试文件行数超限）
 2. **web**：384 tests 全绿（385→384：zombie 用例删除 + pr-stalled 新断言）；build 通过
-3. **golden gate（软代码改动）**：4 场景 3 过 1 挂——talking-stone-routing 0/3「本会话中未找到 small 类型子獭」；**主仓 main（6b9b5ba2）基线复现同样 0/3 同报错**（证据存工作区 main-baseline-output.txt），判定 pre-existing 环境问题非本 PR 引入；r4-summon-search-first / seriousness-mode-switch / yield-handoff-protocol 全过
+3. **golden gate（软代码改动，2026-09-02 晚终版）**：
+   - **关键场景 talking-stone-routing 3/3 全过**、yield-handoff-protocol 3/3、seriousness manualReview 路径正常出采样信号（人工判定项）
+   - **r4-summon-search-first 本轮 0/3，但与软代码改动无关**——失败明细：两轮 `summoned=false`（大獭搜完记忆后未召唤直接答话）+ 一轮等待终态超时。本 PR 改的 SKILL-TEMPLATE L151 只删 status 字段说明，与 R4「召唤前先搜」行为零交集；历史记录佐证波动性（golden-results.jsonl：今晨 05:58 3/3 → 07:00 2/3 → 11:10 1/3 → 11:22 2/3 → 11:54 0/3，同代码逐轮下滑，与今天 LLM 端点限流频繁的时间线吻合）。今日恰逢 glm 5 小时窗口限流（18:02 重置），采样时段端点不稳
+   - **首跑挂的根因（搭档追问后深挖定案）**：golden 断言自身 bug——断言查 `conversation_otters` 表，但 create_otter 的 join 生产链路写 `conversation_participants`（manage-participant.ts L69）。selftest 自插旧表数据所以判别力校验绿灯，真实采样永不命中旧表 → 0/3 稳定 fail。该 bug 由 PR #712（commit ccbfa6b6，14:27 合入）独立发现修复；潮痕 14:08 跑基线时修复未进 main，「主仓同挂」的 pre-existing 判定证据成立、方向正确，断言层根因由搭档质疑推动的二次深挖定位。rebase 后用 main 官方版验证通过
+   - 证据：/tmp/golden-rerun.log（本轮完整输出）、data/metrics/golden-results.jsonl（历史波动记录）、工作区 main-baseline-output.txt（初版基线留档）
 4. **回归数字对照**（方案验证节预期命中）：
    - 重构前基线：400 链 active 342 / stalled 51 / orphan 7 / zombie 0 / regressed 0
    - 重构后实测：**401 链 active 393 / stalled 0 / orphan 8 / regressed 0**——方案预期「active ≈393、doc-gap 7~8」精确命中；51 条 doc-only stalled 全部归零（信号质量修复落地）；pr-stalled 依真实 PR 状态（当前 open PR 全部今日活跃）= 0
@@ -250,9 +254,11 @@ ChainState = "active" | "stalled" | "regressed" | "orphan"   // 枚举保留4值
 
 ## 实现偏差记录（事实优先，无静默偏离）
 
+> 为什么会有偏差（共性归因，大獭 2026-09-02 晚对齐定案）：方案是审视定稿的**意图契约**，实现时撞上的是**代码现状**——三处偏差中两笔根因在方案/简报侧（偏差 2「stalled ladder」是旧僵尸阶梯遗留措辞未清干净；偏差 3 简报指错模板文件），一笔是方案粒度之下的合理裁量（偏差 1）。均不是设计变更，处置保持方案原意。
+
 1. **方案 §4「检测器缺失 ≠ 系统健康」的实现细节**：pr-collector 的 gh pr view 逐 PR 失败时保留 PR 但 lastActivityAt=null（判定层不猜不判停滞）——方案未明确此中间态，实现取「数据不全不判定」
 2. **detectChainStall 的信号粒度**：方案消费方表写「读 chain.signals（pr-stalled → stalled ladder）」——「stalled ladder」是旧 zombie 阶梯的遗留措辞；实现为逐 PR 出信号（一链多停滞 PR 时 N 条 chain_stall 信号，挂几个报几个），与方案「信号可叠加」原则一致
-3. **skills 模板改动位置**：简报指向 code-implementation/SKILL.md，实查该文件不含 status 字段指引；真相源在 `_shared/SKILL-TEMPLATE.md` L151（特性文档核心字段清单）——改后者，前者无改动需要
+3. **skills 模板改动位置**：简报指向 code-implementation/SKILL.md，实查该文件不含 status 字段指引；真相源在 `_shared/SKILL-TEMPLATE.md` L151（特性文档核心字段清单，所有 skill 的共享约定段）——改后者，前者无改动需要。根因在派工简报（按方案 §4 字面表述转写）
 
 ## 最简实现检查（#614 必答）
 
