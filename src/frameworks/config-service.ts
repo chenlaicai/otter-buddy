@@ -329,8 +329,23 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
 }
 
 /** 传入值→有限数，非法回退默认值（F20260901wxnt 发现1：YAML "60min" → NaN → 全轰炸） */
-export function safeFinite(value: number | undefined, fallback: number): number {
+function safeFinite(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * 预警窗口构造（F20260901wxnt）：单键显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
+ * 非有限数（NaN/Infinity，如 YAML "60min"）由 safeFinite 回退默认——与 validate() 启动报错构成双层防线（构造层兑底）。
+ * 归属 weixin 配置域，供 platforms.ts 装配层直接消费。
+ */
+export function buildContextTokenWarnConfig(
+  weixin: AppConfig["weixin"],
+): { afterMs: number; cooldownMs: number } | undefined {
+  if (weixin?.contextTokenWarnMinutes === 0 || weixin?.contextTokenWarnCooldownMinutes === 0) return undefined;
+  return {
+    afterMs: Math.max(safeFinite(weixin?.contextTokenWarnMinutes, 60), 1) * 60_000,
+    cooldownMs: Math.max(safeFinite(weixin?.contextTokenWarnCooldownMinutes, 60), 1) * 60_000,
+  };
 }
 
 /** 校验 weixin contextTokenWarn* 字段合法性（正整数或 undefined，F20260901wxnt 发现1） */

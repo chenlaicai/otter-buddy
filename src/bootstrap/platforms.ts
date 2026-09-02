@@ -1,4 +1,4 @@
-import { safeFinite, type AppConfig } from "@frameworks/config";
+import { buildContextTokenWarnConfig, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
 import * as yaml from "js-yaml";
@@ -408,12 +408,6 @@ interface StartWeixinAccountOptions {
   signalRouter?: SignalRouter;
 }
 
-// 单键显式 0 即关闭（0 = 禁用）；未配置默认 60min，clamp 下限 1 分钟（避免 35s 后误报）
-// F20260901wxnt 发现1 防御：非有限数（NaN/Infinity，如 YAML "60min"）由 safeFinite 回退默认
-const buildContextTokenWarn = (w: AppConfig["weixin"]): { afterMs: number; cooldownMs: number } | undefined =>
-  w?.contextTokenWarnMinutes === 0 || w?.contextTokenWarnCooldownMinutes === 0 ? undefined
-    : { afterMs: Math.max(safeFinite(w?.contextTokenWarnMinutes, 60), 1) * 60_000, cooldownMs: Math.max(safeFinite(w?.contextTokenWarnCooldownMinutes, 60), 1) * 60_000 };
-
 /** 单账号启动（初始启动与 web 扫码登录热启动共用，issue #566） */
 function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry } = options;
@@ -456,7 +450,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         onMessage: (msg) => processor.process(msg),
         logger,
         registry,
-        contextTokenWarn: buildContextTokenWarn(appConfig.weixin),
+        contextTokenWarn: buildContextTokenWarnConfig(appConfig.weixin),
       });
       poller.setIdentity(account.ilinkUserId);
       poller.start();
