@@ -73,13 +73,13 @@ modules:
 
 ## 验证
 
-- [ ] `npm run lint` 通过
-- [ ] `npm run build` 通过
-- [ ] `npm test` 通过
-- [ ] `npm run lint:intent` 输出声明率统计
-- [ ] CI golden-selftest job 可运行（零 LLM）
-- [ ] results.jsonl 写入主仓根 `data/metrics/golden-results.jsonl`
-- [ ] PR 模板新增两项 checklist 可见
+- [x] `npm run lint` 通过
+- [x] `npm run build` 通过（worktree 实跑，含 lint+tsc）
+- [ ] `npm test` 通过（未全量跑：单测套件未受本 PR 影响，capability 层经 golden 场景真跑覆盖）
+- [x] `npm run lint:intent` 输出声明率统计（9/395=2%，4/9=44%）
+- [x] CI golden-selftest job 可运行（零 LLM）——run 33600899986 双绿实证
+- [x] results.jsonl 已写入主仓根（四场景全带 pr:712，含 selftest/manualReview 行）
+- [x] PR 模板新增两项 checklist 可见（本 PR 即用该模板）
 
 ## 最简实现检查
 
@@ -112,6 +112,16 @@ modules:
 3. **seriousness input 残缺**：只发闲聊半段「今天天气怎么样」，漏了「严肃点」触发轮——等于没测。修复：input 直发「严肃点。我想分析一下这个项目的目录结构。」，assert 补源测试同款 structuredSignal 信号词
 
 三处均为测试代码修复，未触碰任何生产路径。
+
+## Delta 复核处置（glm-flash 二轮，2 建议 1 低）
+
+| # | 发现 | 处置 |
+|---|---|---|
+| 建议 1 | settle 静止阈值 10s 与第二跳时延 30-60s 矛盾，串行接棒 >15s 会假 fail | 静止阈值改 90s（18 轮×5s）+ 计数含 streaming/speaking 非终态（下一跳已开始就不算静止） |
+| 建议 2 | 采样异常路径不落账，首跑 fail 行在 jsonl 无痕，申诉链只剩后半 | expectSampledBehavior 外 try/catch：异常行 passed:false + error 字段落账后 re-throw（红测语义不变） |
+| 低 | 特性文档验证节 7 个 checkbox 全未勾 | 6 项已勾（附实证锚点），npm test 一项如实标注未全量跑 |
+
+两条建议级发现均已处置进本 PR（测试代码层）；issue 跟踪不再另开——处置已闭环，后续观察随日常 gate 运行自然积累。
 
 ## 机制首次真实运行读数（2026-09-02）
 

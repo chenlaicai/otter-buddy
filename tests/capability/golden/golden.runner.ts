@@ -274,11 +274,29 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
         }
 
         let successes = 0;
-        await expectSampledBehavior(label, golden.sampling.n, golden.sampling.minSuccess, async () => {
-          const r = await runOneSample(ctx, golden, assert);
-          if (r.ok) successes++;
-          return r;
-        });
+        /** 异常路径落账（glm-flash delta 发现 2）：采样抛异常时 expectSampledBehavior 直接向上抛，
+ *        appendResult 不执行——首跑 fail/超时/环境故障在 jsonl 无痕，「fail 留痕→复跑通过」
+ *        的申诉链只剩后半。异常行 passed:false + error 字段，与正常 fail 行同语义。 */
+        try {
+          await expectSampledBehavior(label, golden.sampling.n, golden.sampling.minSuccess, async () => {
+            const r = await runOneSample(ctx, golden, assert);
+            if (r.ok) successes++;
+            return r;
+          });
+        } catch (err) {
+          appendResult({
+            ts: new Date().toISOString(),
+            golden_id: golden.id,
+            model: golden.modelTag,
+            n: golden.sampling.n,
+            successes,
+            pr: currentPr(),
+            manual: false,
+            passed: false,
+            error: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+          });
+          throw err; // 断言失败语义不变：异常仍向 vitest 抛，红测就是红测
+        }
 
         appendResult({
           ts: new Date().toISOString(),
@@ -310,20 +328,25 @@ async function runOneSample(
   const firstMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
   void firstMsg; // 首跳等待仅为了拿到「回合已开始产出终态」的锚点；settle 窗口自己探终态数
 
-  // settle 窗口：等后续 hop。每 5s 拉一次消息数，静止两轮或窗口耗尽则进入断言
+  // settle 窗口：等后续 hop。每 5s 拉一次消息数，链静止或窗口耗尽则进入断言。
+  // 静止阈值 90s（18 轮无新增终态）：串行接棒的第二跳可能 30-60s 才开始 streaming，
+  // 10s 静止会在「上一跳完成→下一跳开始」的间隙误判链静止（glm-flash delta 发现 1：
+  // 首跑 3/3 靠并行重叠掩盏，串行接棒 >15s 的链会假 fail）。90s = 第二跳时长上限
+  // 与总窗口 180s 的折中，代价是单跳场景多等 90s。
   const deadline = Date.now() + 180_000;
   let lastCount = -1;
   let stableRounds = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 5_000));
     const messages = await listMessages(ctx, convId);
-    const otterTerminal = messages.filter((m) => m.st === "otter" && (m.status === "completed" || m.status === "failed")).length;
-    if (otterTerminal === lastCount) {
+    const otterAny = messages.filter((m) => m.st === "otter").length;
+    // 计数含 streaming/speaking：下一跳已开始（非终态但存在）就不算静止
+    if (otterAny === lastCount) {
       stableRounds++;
-      if (stableRounds >= 2) break; // 两轮 10s 无新增终态消息 → 链静止
+      if (stableRounds >= 18) break; // 90s 无新消息（含非终态）→ 链静止
     } else {
       stableRounds = 0;
-      lastCount = otterTerminal;
+      lastCount = otterAny;
     }
   }
 
