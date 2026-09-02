@@ -254,10 +254,11 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
 
         if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
-        /** manualReview 场景不自动断言——跑完输出标记，由检视獭按 manualReviewHint 人工判定 */
+        /** manualReview 场景不自动断言——跑完输出标记 + assert 客观信号 detail，由检视獭按 manualReviewHint 判定 */
         if (golden.manualReview) {
-          await runOneSample(ctx, golden, assert);
-          console.log(`MANUAL_REVIEW: ${golden.id}${mod.manualReviewHint ? ` —— 判定提示：${mod.manualReviewHint}` : ""}`);
+          const mr = await runOneSample(ctx, golden, assert);
+          console.log(`MANUAL_REVIEW: ${golden.id} 采样信号：${mr.detail}`);
+          if (mod.manualReviewHint) console.log(`  判定提示：${mod.manualReviewHint}`);
           appendResult({
             ts: new Date().toISOString(),
             golden_id: golden.id,
@@ -294,7 +295,11 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
   });
 }
 
-/** 跑一轮采样：建会话 → 发输入 → 等回合终局 → 命令式断言 */
+/** 跑一轮采样：建会话 → 发输入 → 等回合终局 → 命令式断言
+ * 多跳等待（2026-09-02）：首跳 completed 后再观察一段 settle 窗口（链引擎可能继续派发
+ * 下一个 hop——如大獭 summon 后 yield 给小獭，小獭又需 30-60s 完整回合）。源测试
+ * talking-stone-routing 用 afterSeq 两段式等待；golden 通用化：首终态后 settle 窗口
+ * 内若消息数还在涨则继续等，静止后断言。窗口独立于首跳超时，总上限 = 首跳 + 180s。 */
 async function runOneSample(
   ctx: CapabilityContext,
   golden: GoldenScenario,
@@ -302,7 +307,26 @@ async function runOneSample(
 ): Promise<SampleResult> {
   const convId = await createConversation(ctx, `golden:${golden.id}`);
   await sendUserMessage(ctx, convId, golden.input);
-  await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+  const firstMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+  void firstMsg; // 首跳等待仅为了拿到「回合已开始产出终态」的锚点；settle 窗口自己探终态数
+
+  // settle 窗口：等后续 hop。每 5s 拉一次消息数，静止两轮或窗口耗尽则进入断言
+  const deadline = Date.now() + 180_000;
+  let lastCount = -1;
+  let stableRounds = 0;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    const messages = await listMessages(ctx, convId);
+    const otterTerminal = messages.filter((m) => m.st === "otter" && (m.status === "completed" || m.status === "failed")).length;
+    if (otterTerminal === lastCount) {
+      stableRounds++;
+      if (stableRounds >= 2) break; // 两轮 10s 无新增终态消息 → 链静止
+    } else {
+      stableRounds = 0;
+      lastCount = otterTerminal;
+    }
+  }
+
   const messages = await listMessages(ctx, convId);
   return assert({ ctx, convId, messages });
 }

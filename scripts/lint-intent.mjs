@@ -285,8 +285,8 @@ async function main() {
   console.log(`\n[lint:intent] 声明率统计（P0-c）：`);
   console.log(`  存量参考（全量文档）：`);
   console.log(`    intent 存在率：${stats.existing.intentExists}/${stats.existing.total} = ${stats.existing.intentRate}%`);
-  console.log(`    verify_by 率：${stats.existing.verifyByExists}/${stats.existing.total} = ${stats.existing.verifyByRate}%`);
+  console.log(`    verify_by 率（分母=有 intent 的文档）：${stats.existing.verifyByExists}/${stats.existing.intentExists} = ${stats.existing.verifyByRate}%`);
   console.log(`  本期判定（本次 PR 修改的文档）：`);
   console.log(`    intent 存在率：${stats.current.intentExists}/${stats.current.total} = ${stats.current.intentRate}%`);
-  console.log(`    verify_by 率：${stats.current.verifyByExists}/${stats.current.total} = ${stats.current.verifyByRate}%`);
+  console.log(`    verify_by 率（分母=有 intent 的文档）：${stats.current.verifyByExists}/${stats.current.intentExists} = ${stats.current.verifyByRate}%`);
 }

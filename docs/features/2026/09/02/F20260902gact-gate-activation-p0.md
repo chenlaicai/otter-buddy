@@ -95,3 +95,26 @@ modules:
 - 代码：golden.runner.ts、lint-intent.mjs
 - CI：.github/workflows/ci.yml
 - 定时任务：daily-health-check.md
+
+## 对抗审视处置（glm-flash，4 严重 3 建议）
+
+| # | 发现 | 处置 |
+|---|---|---|
+| S1 | 分支落后 main（freshness gate 红灯） | rebase 到 60245cc8 |
+| S2 | CI `\|\| true` 吞退出码 + EMBEDDING_ENABLED 幽灵变量 + 跑全 suite 非 selftest-only | 重写：删 `\|\| true`（退出码交给 vitest）；删幽灵变量；bge-m3 缓存下载（boot 禁降级，无锚点推测 → 实测路径 a+缓存）；OTTER_TEST_LLM_API_KEY 置空 → boot 检测无 key → 采样 skip + selftest 全跑（runner L243 语义） |
+| S3 | 出生证明未兑现（results.jsonl 不存在） | 本地真跑全场景：r4-summon 3/3、yield-handoff 3/3、talking-stone 3/3（passed=true 落盘 pr:712）；seriousness manualReview 采样信号 structuredSignal=true structuredTool=true，检视判定 pass |
+| S4 | lint 打印分母错（4/394=44% 自相矛盾） | 打印分母改 intent 存在数：4/9=44% |
+
+## 出生证明跑出来的三个场景层真缺陷（顺带修复）
+
+1. **talking-stone 查错表**：assert 查 conversation_otters（建会话初始名单表），但 create_otter 的 join 链路写 conversation_participants（manage-participant.ts）——生产路径永不命中；selftest 自插旧表所以绿灯（构造/生产分叉）。修复：assert + selftest 构造同改 conversation_participants（joined_at_turn_id 取真实 turn 过 FK 约束）
+2. **runner 多跳等待缺口**：runOneSample 只等第一跳 completed，链引擎派发的第二 hop（小獭回合 30-60s）永远等不到。源测试用 afterSeq 两段式，golden 漏抄。修复：settle 窗口（首终态后每 5s 探测，终态数两轮不动或 180s 上限）
+3. **seriousness input 残缺**：只发闲聊半段「今天天气怎么样」，漏了「严肃点」触发轮——等于没测。修复：input 直发「严肃点。我想分析一下这个项目的目录结构。」，assert 补源测试同款 structuredSignal 信号词
+
+三处均为测试代码修复，未触碰任何生产路径。
+
+## 机制首次真实运行读数（2026-09-02）
+
+- 首跑 2 场景 fail（r4 1/3、talking-stone 0/3）→ 复跑 3/3 全过：申诉规则（fail 复跑一次）的统计设计首次实战验证（r4 首跑 1/3 属 p≈0.7 的正常波动；talking-stone 0/3 是场景缺陷非行为回归）
+- manualReview 场景的采样信号 detail 已进 MANUAL_REVIEW 控制台输出（检视判定有据可查）
+- results.jsonl 落盘主仓 data/metrics/（记录链修通验证）
