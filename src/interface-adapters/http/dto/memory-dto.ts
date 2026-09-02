@@ -3,7 +3,6 @@ import type {
   RetrievalSource,
   MemoryEntryDTO,
   SearchResultDTO,
-  DetailLevel,
   RetrievalDebugInfoDTO,
 } from "@contract/api/memory";
 
@@ -22,12 +21,14 @@ export function toMemoryEntryDTO(
   score?: number,
   source?: RetrievalSource,
   snippet?: string,
-  /** 渐进式披露：非 full 时裁剪 content 避免上下文暴涨 */
-  detailLevel?: DetailLevel,
+  /**
+   * #542：usecase 已按 detailLevel 完成 content 投影（summary=原文首句 / snippet=匹配窗口 /
+   * full=全文），DTO 层直传——此前用 snippet 二次覆盖 content 会把 summary 首句重新替换成
+   * FTS 窗口，重蹈「深匹配条目 content 失真」的覆辙（投影只做一次，语义归 usecase 层）。
+   * detailLevel 参数随之移除（DTO 不再参与投影裁剪）。
+   */
 ): MemoryEntryDTO {
-  const content = detailLevel && detailLevel !== "full" && snippet
-    ? snippet
-    : entry.content;
+  const content = entry.content;
   return {
     id: entry.id,
     layer: entry.layer,
