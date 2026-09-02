@@ -66,13 +66,16 @@ describe("QuerySignalTrail（真 sqlite）", () => {
   }
 
   /** 建一个 completed 消息（含 tsp / signal_level），返回消息 id。
-   *  走真实写路径：createStreamingMessage → startSpeaking（落 tsp/level）→ completeMessage（终态）。 */
+   *  走真实写路径：createStreamingMessage → startSpeaking（落 tsp/level）→ completeMessage（终态）。
+   *  createdAt 可选：CONSUMING 判定依赖「目标最新消息是否在 5min 窗口内」，
+   *  需要可控的时间戳（默认固定值必落在窗口外）。 */
   async function signal(opts: {
     from?: "user" | "otter";
     fromId?: string;
     tsp: string[];
     level?: string | null;
     status?: "completed" | "streaming";
+    createdAt?: string;
   }): Promise<string> {
     turnSeq += 1;
     const turn: Turn = {
@@ -98,13 +101,16 @@ describe("QuerySignalTrail（真 sqlite）", () => {
       source: "web",
       metadata: null,
       senderName: "",
-      createdAt: "2026-01-01T00:00:00Z",
+      createdAt: opts.createdAt ?? "2026-01-01T00:00:00Z",
       completedAt: null,
       signalLevel: null,
       signalMeta: null,
     });
-    await repo.startSpeaking(id, "hi", opts.tsp, opts.level ?? null, null);
     if ((opts.status ?? "completed") === "completed") {
+      // 生产时序：streaming（干活）→ startSpeaking（yield 设路由，落 tsp/level）→ completed。
+      // streaming 占位不调 startSpeaking——生产中 startSpeaking 只在 yield 时发生，
+      // 提前调用会把消息推入 speaking 态，失真（CONSUMING 判据只认 streaming）。
+      await repo.startSpeaking(id, "hi", opts.tsp, opts.level ?? null, null);
       await repo.completeMessage({ messageId: id, talkingStonePassedTo: opts.tsp, completedAt: "2026-01-01T00:00:01Z" });
     }
     return id;
@@ -155,6 +161,49 @@ describe("QuerySignalTrail（真 sqlite）", () => {
 
   it("游标缺省（无参与者行）降级 PENDING，不假证已读", async () => {
     await signal({ tsp: ["otter-a"] }); // otter-a 未 join
+    const { items } = await trail.list("conv-1");
+    expect(items[0].state).toBe("PENDING");
+  });
+
+  it("CONSUMED 优先于 CONSUMING：目标 streaming 期间已消费信号 A 不被遮蔽（#696 审视发现 1）", async () => {
+    await joinParticipant("otter-a", 0);
+    await signal({ tsp: ["otter-a"] }); // 信号 A，turn 1
+    await signal({ tsp: ["otter-a"] }); // 信号 B，turn 2
+    await repo.updateLastReadTurnNumber("conv-1", "otter-a", 2); // 游标越过 A
+    // 目标獭正在处理（streaming、5min 窗口内）
+    await signal({
+      from: "otter", fromId: "otter-a", tsp: [], status: "streaming",
+      createdAt: new Date().toISOString(),
+    });
+
+    const { items } = await trail.list("conv-1");
+    const stateOf = (seq: number) => items.find(i => i.seq === seq)?.state;
+    // 修复前：streaming 判定先行 → 已消费的 A 也显示 CONSUMING（说谎）；修复后逐信号精确
+    expect(stateOf(1)).toBe("CONSUMED");
+  });
+
+  it("CONSUMING：信号未消费 + 目标最新消息 streaming 在窗口内", async () => {
+    await joinParticipant("otter-a", 0);
+    await signal({ tsp: ["otter-a"] }); // turn 1，游标 0 未消费（路由器已点火、链尾 markBatchRead 未跑的真实窗口）
+    await signal({
+      from: "otter", fromId: "otter-a", tsp: [], status: "streaming",
+      createdAt: new Date().toISOString(),
+    });
+
+    const { items } = await trail.list("conv-1");
+    expect(items).toHaveLength(1);
+    expect(items[0].state).toBe("CONSUMING");
+  });
+
+  it("streaming 超出 5min 窗口 → 不判 CONSUMING，降级 PENDING", async () => {
+    await joinParticipant("otter-a", 0);
+    await signal({ tsp: ["otter-a"] });
+    await signal({
+      from: "otter", fromId: "otter-a", tsp: [], status: "streaming",
+      // 11 分钟前：超过 ACTIVE_WINDOW_MS(5min)，reconcile 前的遗留 streaming 占位
+      createdAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+    });
+
     const { items } = await trail.list("conv-1");
     expect(items[0].state).toBe("PENDING");
   });

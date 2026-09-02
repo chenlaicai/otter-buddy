@@ -29,11 +29,15 @@ interface CursorSnapshot {
  *   status = 'completed' AND sender_type != 'system'
  *   AND talking_stone_passed_to 含至少一个 otter 目标（排除 'user'）
  *
- * 投递状态机（SignalTrailState）：
+ * 投递状态机（SignalTrailState）——判定顺序固定：游标缺失 → CONSUMED → CONSUMING：
  *   CONSUMED   目标游标已越过信号所在 turn（turn_number < last_read_turn_number）。
  *              生产库实证：user 消息独占 turn、otter 回应独占下一 turn（ensureActiveTurn
  *              按 sender 分 turn），markBatchRead 推进到回应 turn 即覆盖信号 turn，判据干净。
- *   CONSUMING  目标最新消息 streaming 且在窗口内（invoke 进行中，游标尚未推进的窗口）
+ *              【判定必须先于 CONSUMING（#696 审视发现 1）：目标獭处理信号 B 的 streaming
+ *              窗口内，已消费的信号 A 若先被 streaming 判定命中，会错误显示「处理中」——
+ *              CONSUMED 优先才能保证逐信号精确】
+ *   CONSUMING  信号未消费 + 目标最新消息 streaming 且在窗口内（=「正在处理我的信号」，
+ *              而非「目标在忙」——busy 判定是近似，不用于给已消费信号定状态）
  *   PENDING    其余（排队待消化）。游标缺省（非活跃参与者）也归此——缺省不能假证已读。
  *              已知边界（busyQueue 注释同款竞态）：busy 獭链尾 markBatchRead 会把
  *              「消费但未注入」的插话标为 CONSUMED——内容已由 busyQueue 快照显式注入，
@@ -105,10 +109,13 @@ export class QuerySignalTrail {
     cursor: CursorSnapshot | undefined,
   ): SignalTrailItemDTO["state"] {
     if (!cursor) return "PENDING";
-    if (cursor.streaming) return "CONSUMING";
     // 游标缺失（脏数据）不能假证已读：与缺省参与者同归 PENDING
     if (cursor.lastReadTurnNumber == null) return "PENDING";
+    // CONSUMED 判定先于 CONSUMING（#696 审视发现 1）：目标 streaming 只说明它正在
+    // 处理某条信号，不覆盖「本信号已被游标消费」的持久事实——顺序反了会让已消费
+    // 信号在目标处理其他信号期间被遮蔽为「处理中」
     if (signalTurnNumber > 0 && signalTurnNumber < cursor.lastReadTurnNumber) return "CONSUMED";
+    if (cursor.streaming) return "CONSUMING";
     return "PENDING";
   }
 }
