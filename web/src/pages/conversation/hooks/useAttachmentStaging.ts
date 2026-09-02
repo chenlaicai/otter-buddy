@@ -13,7 +13,7 @@ import * as api from '../../../api/client'
 import { ApiError } from '../../../api/client'
 import type { AttachmentDTO } from '@contract/api'
 import type { LocalAttachment } from '../../../lib/mappers'
-import { pickValidFiles, MAX_FILES_PER_UPLOAD, MAX_IMAGES_PER_SEND, type RejectedFile } from '../../../lib/attachments'
+import { pickValidFiles, classifyByExtension, MAX_FILES_PER_UPLOAD, MAX_IMAGES_PER_SEND, type RejectedFile } from '../../../lib/attachments'
 
 /** 中转条目：上传成功后 DTO 替代本地 File（服务端 id 是发送时的唯一引用） */
 export interface StagedAttachment extends LocalAttachment {
@@ -47,7 +47,7 @@ export function useAttachmentStaging(conversationId: string | null) {
     // 本地占位（uploading 态显示预览/文件名）
     const placeholders: StagedAttachment[] = batch.map(f => ({
       id: `tmp-${f.name}-${f.size}-${Math.random().toString(36).slice(2, 8)}`,
-      kind: (f.type.startsWith('image/') ? 'image' : 'document') as 'image' | 'document',
+      kind: classifyByExtension(f.name) ?? (f.type.startsWith('image/') ? 'image' : 'document'),
       originalName: f.name,
       mimeType: f.type || 'application/octet-stream',
       sizeBytes: f.size,

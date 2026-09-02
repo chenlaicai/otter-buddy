@@ -16,6 +16,7 @@ import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { HtmlCard } from './HtmlCard'
 import { SignalBadge } from './SignalBadge'
 import { resolveDisplayName } from './display-name'
+import { groupByActivity } from '../../lib/activity-group'
 
 
 /** 复制按钮 */
@@ -281,6 +282,11 @@ export function MessageList({
     prevMessagesLenRef.current = 0
   }, [conversationId, isAtBottomRef])
 
+  /** F20260901uiag 检视处置（mimo 发现 1）：groupByActivity 缓存——分页 prepend/流式追加时
+   *  group 数组引用稳定，配合 React key 只挂载新增段，避免全列表重渲染。
+   *  位置在 hooks 区末尾：条件 return 之后调用会违反 hooks 规则（F20260814qswp 同款教训）。 */
+  const activityGroups = useMemo(() => groupByActivity(messages), [messages])
+
   // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
   if (state === 'no-llm') {
     return (
@@ -332,22 +338,23 @@ export function MessageList({
         className="flex-1 overflow-y-auto"
         style={{ overflowAnchor: 'none' }}
       >
-        {messages.map((m, i) => {
-          const prev = i > 0 ? messages[i - 1] : undefined
-          const isNewTurn = m.turnId && m.turnId !== prev?.turnId
-          return (
-            <div key={m.id} data-message-id={m.id} className={isNewTurn ? 'mt-3 pt-3 border-t border-stone-200/50' : ''}>
-              {unreadSeparatorSeq != null && m.seq === unreadSeparatorSeq && (
-                <div className="flex items-center gap-2 my-2 mx-auto" style={{ maxWidth: '72%' }}>
-                  <div className="flex-1 h-px bg-teal-400/40" />
-                  <span className="text-[10px] text-teal-500 font-medium px-2">未读消息</span>
-                  <div className="flex-1 h-px bg-teal-400/40" />
-                </div>
-              )}
-              <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} />
-            </div>
-          )
-        })}
+        {/* F20260901sgpx §7：活动段分组（「一轮」派生视图）——替代按 turnId 的分隔线（P4 turn 退役后读路径不变） */}
+        {activityGroups.map(group => (
+          <ActivityGroupBlock key={group.id} group={group}>
+            {group.messages.map(m => (
+              <div key={m.id} data-message-id={m.id}>
+                {unreadSeparatorSeq != null && m.seq === unreadSeparatorSeq && (
+                  <div className="flex items-center gap-2 my-2 mx-auto" style={{ maxWidth: '72%' }}>
+                    <div className="flex-1 h-px bg-teal-400/40" />
+                    <span className="text-[10px] text-teal-500 font-medium px-2">未读消息</span>
+                    <div className="flex-1 h-px bg-teal-400/40" />
+                  </div>
+                )}
+                <MessageItem message={m} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === m.id} userName={userName} />
+              </div>
+            ))}
+          </ActivityGroupBlock>
+        ))}
       </div>
       {newMessagesCount > 0 && onJumpToBottom && (
         <button
@@ -377,11 +384,14 @@ export function MessageList({
 }
 
 /** 多模态 Phase 1：消息内附件渲染。图片网格缩略图（点击新窗口看原图）+
- *  document 文件卡（点击下载）。同一端点 /api/attachments/:id，image inline / document attachment。
+ *  document/audio/video 文件卡（点击下载；audio 用原生控件回放，#608）。
+ *  同一端点 /api/attachments/:id，image inline / 其他 attachment。
  *  为什么用后端端点而非 base64 内嵌：DTO 只带引用（id/尺寸），消息体积不变，缓存友好（immutable） */
 function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: boolean }) {
   const images = atts.filter(a => a.kind === 'image')
-  const docs = atts.filter(a => a.kind === 'document')
+  const audios = atts.filter(a => a.kind === 'audio')
+  // document + video 均为文件卡下载样式（检视建议 4：显式命名，未来 video 需特殊渲染时从此处拆出）
+  const documentsAndVideos = atts.filter(a => a.kind !== 'image' && a.kind !== 'audio')
   return (
     <div className="mt-2 space-y-2">
       {images.length > 0 && (
@@ -398,9 +408,16 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
           ))}
         </div>
       )}
-      {docs.length > 0 && (
+      {audios.length > 0 && (
+        <div className="space-y-1.5">
+          {audios.map(a => (
+            <audio key={a.id} controls preload="none" src={`/api/attachments/${a.id}`} className="w-full max-w-[320px] h-10" />
+          ))}
+        </div>
+      )}
+      {documentsAndVideos.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {docs.map(a => (
+          {documentsAndVideos.map(a => (
             <a
               key={a.id}
               href={`/api/attachments/${a.id}`}
@@ -416,6 +433,32 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
       )}
     </div>
   )
+}
+
+/**
+ * F20260901sgpx §7：活动段分组容器——段头轻量（时间+段起点语义），替代原 turn 分隔线视觉。
+ * 段首无额外边框（首段），后续段用上边距+细分割线区分，视觉密度与原 turn 分隔一致。
+ */
+function ActivityGroupBlock({ group, children }: { group: ReturnType<typeof groupByActivity>[number]; children: ComponentProps<'div'>['children'] }) {
+  const idx = groupReasonLabel(group.reason)
+  return (
+    <div className={group.reason === 'conversation-start' ? '' : 'mt-4 pt-3 border-t border-stone-200/50'}>
+      <div className="flex items-center gap-2 mb-2 px-1">
+        <Clock size={11} className="text-stone-300 flex-shrink-0" />
+        <span className="text-[10px] msg-meta">{fmtTime(group.startedAt)}{idx ? ` · ${idx}` : ''}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/** 段切分依据的 UI 短语（可解释性：为什么这里开新段） */
+function groupReasonLabel(reason: 'conversation-start' | 'user-message' | 'gap'): string {
+  switch (reason) {
+    case 'user-message': return '新一轮'
+    case 'gap': return '新一轮（间隔较久）'
+    default: return ''
+  }
 }
 
 function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {

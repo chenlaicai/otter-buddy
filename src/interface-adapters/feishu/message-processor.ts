@@ -86,9 +86,14 @@ export class FeishuMessageProcessor {
     const bodyText = this.composeBodyText(text, outcome);
     const attachmentIds = outcome.attachmentIds.length > 0 ? outcome.attachmentIds : undefined;
 
+    // #608（PR #603 检视建议 1 同款）：agent dispatch 用原始 text，不含降级提示——
+    // 运维文本不进 agent 上下文；降级提示仅入消息库供用户可见（与微信侧同位置同修）
+    const dispatchText = text.trim();
+
     await this.persistAndFanout(
       { chatId, senderId, conversationId: conversation.id, connectionId: connection.id },
       { bodyText, attachmentIds, injection: outcome.injection },
+      dispatchText,
     );
   }
 
@@ -119,10 +124,11 @@ export class FeishuMessageProcessor {
     return bodyText;
   }
 
-  /** 入库 + 广播 + dispatch（自 process 拆出控复杂度） */
+  /** 入库 + 广播 + dispatch（自 process 拆出控复杂度；dispatchText 与 bodyText 分离见 #608） */
   private async persistAndFanout(
     ids: { chatId: string; senderId: string; conversationId: string; connectionId: string },
     payload: { bodyText: string; attachmentIds?: string[]; injection?: FeishuAttachmentOutcome["injection"] },
+    dispatchText: string,
   ): Promise<void> {
     // 存消息（F20260826fuid：飞书消息带 senderDisplayName 快照，群聊多人可识别）
     const senderDisplayName = await this.resolveSenderName(ids.senderId);
@@ -161,7 +167,8 @@ export class FeishuMessageProcessor {
     });
 
     // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）
-    this.triggerAgentDispatch(ids.conversationId, payload.bodyText, ids.senderId, payload.injection);
+    // #608：dispatchText 为原始正文（降级提示不进 agent 上下文，与微信侧同款）
+    this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection);
   }
 
   /** 多模态 Phase 2：媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
