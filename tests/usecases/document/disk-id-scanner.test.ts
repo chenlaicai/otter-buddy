@@ -70,13 +70,13 @@ describe("disk-id-scanner - F20260804dcnv", () => {
 
   it("frontmatter id 为非字符串时跳过，走文件名兜底", async () => {
     const fs = makeFs({
-      "docs/features/F20260804num-x.md":
+      "docs/features/F20260804num1-x.md":
         "---\nid: 12345\ntitle: t\n---\nbody",
     });
     const map = await scanDiskIds(fs, "docs/features");
     expect(map.size).toBe(1);
-    // 文件名兜底提 F20260804num，frontmatter 的数字 id 不用
-    expect(map.has("F20260804num")).toBe(true);
+    // 文件名兜底提 F20260804num1，frontmatter 的数字 id 不用
+    expect(map.has("F20260804num1")).toBe(true);
   });
 
   it("文件名不含合法 ID 模式时返回 null，不进 map", async () => {
@@ -130,8 +130,8 @@ describe("disk-id-scanner - F20260804dcnv", () => {
       readDir: vi.fn(async (dir: string) => {
         if (dir === "docs/features") {
           return [
-            mkFile("F20260804dup-foo.md"),
-            mkFile("F20260804dup-bar.md"),
+            mkFile("F20260804dup1-foo.md"),
+            mkFile("F20260804dup1-bar.md"),
           ];
         }
         return [];
@@ -150,8 +150,8 @@ describe("disk-id-scanner - F20260804dcnv", () => {
       readDir: vi.fn(async (dir: string) => {
         if (dir === "docs/features") {
           return [
-            mkFile("F20260804dup-foo.md"),
-            mkFile("F20260804dup-bar.md"),
+            mkFile("F20260804dup1-foo.md"),
+            mkFile("F20260804dup1-bar.md"),
           ];
         }
         return [];

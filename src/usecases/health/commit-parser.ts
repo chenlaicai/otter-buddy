@@ -8,6 +8,11 @@
  * 口径说明（来自特性文档 F20260824rhib）：
  * - F 前缀：249/259（96.1%）
  * - 严格三段格式：182/259（70.3%）—— 模块段仅允许纯字母（不含连字符）
+ *
+ * FID 形态契约（#667）：F/R ID 的日期段与后缀段正则源自单一真相源
+ * src/entities/document/fid-format.ts（排除 0/1/l/o 的旧字母表已废弃——
+ * 仓库从无该约定，frontmatter-validator 与 ID 生成现状均为全小写字母数字，
+ * 旧正则致 5 个存量特性 commit 被漏判 no_f_prefix，详见 issue #667）
  */
 
 export interface ParsedCommit {
@@ -29,8 +34,12 @@ export interface ParsedCommit {
   skipReason?: string;
 }
 
-/** 标准三段格式正则：[FID][module][type] */
-const STANDARD_FORMAT_REGEX = /^\[F(\d{8}[a-kmnp-z][2-9a-kmnp-z]{3,9})\]\[([a-z][a-z-]*)\]\[(New Feature|BugFix|Feature Update)\]/;
+import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT } from "@entities/document/fid-format";
+
+/** 标准三段格式正则：[FID][module][type]（#667：FID 段源自 fid-format.ts 单一真相源） */
+const STANDARD_FORMAT_REGEX = new RegExp(
+  `^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[(New Feature|BugFix|Feature Update)\\]`
+);
 
 /** PR 号正则：(#123) */
 const PR_NUMBER_REGEX = /\(#(\d+)\)/;
@@ -56,7 +65,7 @@ export function parseCommit(sha: string, message: string): ParsedCommit {
   }
 
   // 非标准格式但有 F 前缀
-  const fPrefixMatch = firstLine.match(/^\[F(\d{8}[a-kmnp-z][2-9a-kmnp-z]{3,9})\]/);
+  const fPrefixMatch = firstLine.match(new RegExp(`^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]`));
   if (fPrefixMatch) {
     return createFPrefixResult(sha, message, fPrefixMatch, firstLine);
   }
@@ -71,7 +80,7 @@ function detectSkipReason(firstLine: string): string | null {
   if (firstLine.startsWith('fixup!')) return 'fixup_commit';
   if (firstLine.startsWith('init:') || firstLine.startsWith('Initial commit')) return 'init_commit';
   if (firstLine.startsWith('Revert ')) return 'revert_commit';
-  if (firstLine.match(/^\[R\d{8}[a-kmnp-z][2-9a-kmnp-z]{3,9}\]/)) return 'research_document';
+  if (firstLine.match(new RegExp(`^\\[R${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}\\]`))) return 'research_document';
   return null;
 }
 
