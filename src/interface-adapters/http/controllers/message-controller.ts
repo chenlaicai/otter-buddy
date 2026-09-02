@@ -9,6 +9,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SSEEvent } from "@contract/sse/events";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
 import { handleError, param } from "../http-error";
@@ -34,6 +35,9 @@ export class MessageController {
     private readonly signalRepo?: SignalEventRepository,
     /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务（usecases 层策略——校验+真图+document 文本）；可选装配 */
     private readonly attachmentInjection?: AttachmentInjectionService,
+    /** F20260901sgpv P1：信号路由器——主入口调度收敛（火车头换轨）。可选注入：
+     *  未注入时降级田直连链（旧装配/存量测试不变，灰度回滚面） */
+    private readonly signalRouter?: SignalRouter,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -222,6 +226,28 @@ export class MessageController {
     const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
 
     const injection = payload && typeof payload !== "string" ? payload : undefined;
+    // F20260901sgpv P1：主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
+    // Why 路由器优先：四入口各自直调 executeChain 是旧架构的核心痛点（T1），“插话撞
+    // 锁超时”的根因即在此；未注入路由器时降级直连链（灰度回滚面，行为与现状等价）。
+    // SSE 生命周期不变：仍由调度 promise settle 后 finally 关闭（P2 替换链驱动时再重定义，七刀之五）。
+    if (this.signalRouter && !injection) {
+      // Why !injection（多模态例外）：带图片/文档注入的消息暂留直连链——注入载荷只存在于此请求内存中，
+      // 信号路由从消息表重建内容拿不到它（多模态×信号路由的统一归 P2 接缝层解决）
+      this.signalRouter.routePendingSignals(conversationId)
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.error('信号路由调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
+          push({ event: "error", data: { message: `信号路由失败: ${msg}`, messageId: "", otterId: "" } });
+        })
+        .finally(() => {
+          unsubscribe?.();
+          // 路由器是同步决策+fire-and-forget 点火，返回时无需再等——直接关闭 POST SSE 流
+          // （流式事件由 GET SSE 订阅接收；P2 重定义 SSE 生命周期 = 信号 CONSUMED + 静默超时兜底，七刀之五）
+          push({ event: "stream.end", data: {} });
+          close();
+        });
+      return response;
+    }
     this.dispatchTurnLoop(firstTurnTargets, {
       conversationId, userMessageContent: this.withDocumentBlock(body.body, injection?.documentBlock),
       senderId: body.senderId, allTargets, images: injection?.images,

@@ -20,6 +20,7 @@ task_name: 每日 issue 处理
 红线补充：
 - actionable 每天上限 **3 条**（防爆量，剩余顺延次日；超过 3 条时按以下优先级选前 3：**bug > tech-debt，同级按创建时间从早到晚**）
 - 分流结论（每条归属哪类）写进当日产出，供搭档抽查
+- **认领三问（F20260901cimp，防跨对话撞车）**：每条 actionable 开工前必查（#665/#679 撞车实证）：① issue 是否已有他人 otter-claim 认领且无 release（`gh issue view <N> --json comments`）；② 是否有 open PR 引用（`gh pr list --state open --search "<N>"`）；③ `git worktree list` 有无相关目录且零 commit（**零 commit ≠ 废弃**，只可能是「在途」）。任一命中 → 跳过该条，报告中标注原因。认领动作（发 otter-claim 评论 + 回读退场 + 双 PR 仲裁）详见 worktree-isolation skill 步骤 2——本步骤必读。
 
 ## 处理今日 issue
 
@@ -33,6 +34,7 @@ task_name: 每日 issue 处理
 ## Issue 自动关闭检查（处理完今日 issue 后）
 
 1. **已修复但未关闭的 issue（语义级，F20260831whfw）**：扫描**近 7 天合入的 PR**，对其标题/正文与 open issue 做语义匹配——PR 描述用「issue #N」「修复了 #N」等非关键词行文的也要抓到（#566 案例：PR #586 合入 2 天 issue 未关，关键词检查漏网）。命中即留评论说明后关闭。范围限定近 7 天 PR，不全量扫。工具用法：`gh pr list --state merged --search "merged:>YYYY-MM-DD"`（计算 7 天前日期）获取候选 PR，再与 `gh issue list --state open` 结果逐条语义比对。
+1b. **认领回收（F20260901cimp）**：扫描全部 open issue 的 otter-claim 认领（搜 issue 评论 `otter-claim` 标记）——认领超过 48h 无后续 PR、无评论更新、对应对话无活动的，留问询评论；再过 24h 仍无响应的发 `otter-claim-release` 评论解除认领（防锁孤儿：对话被限流冻结/挂死时释放锁——阈值基准：429 冻结案例 5h，留 10 倍余量）。回收记录写进当日产出。
 2. **daily-review issue 超期关闭**：超过 3 天的 daily-review issue，如果对应问题已在 main 分支修复，留评论后关闭。
 3. **长期无活动的 stale issue**：超过 14 天无任何更新的 issue（非 daily-review、非 tech-debt——tech-debt 阈值放宽到 30 天，它们常等排期），留评论标记为 stale 并关闭。
 
