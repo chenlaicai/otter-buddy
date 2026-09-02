@@ -17,6 +17,7 @@ import type { MemoryWriter } from "./memory-writer";
 import type { TerminologyRepository } from "./terminology-repository";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { SearchEngine, RrfHit, ScoredHit } from "./search-engine";
+import { DOCUMENT_CONTENT_TYPES } from "./search-engine";
 import type { Logger } from "@usecases/ports/logger";
 
 /** snippet 降级截取长度（FTS5 highlight 不可用时） */
@@ -133,6 +134,11 @@ export class SearchMemory {
     private readonly logger: Logger,
     private readonly terminologyRepo?: TerminologyRepository,
   ) {}
+
+  /** F20260902rcp1 审视修复：document 层半衰期（debug 注入与 rerank 同源） */
+  private get documentHalfLifeDays(): number | undefined {
+    return this.searchEngine.configRef.weightHalfLifeDaysDocument;
+  }
 
   // eslint-disable-next-line complexity -- F20260812mrcq 加 anchor 短路 + expandContext 分支后超 12
   async search(query: SearchQuery): Promise<RetrievalResult> {
@@ -546,7 +552,8 @@ export class SearchMemory {
     /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
     const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
-    const top = deduped.slice(0, limit);
+    /** F20260902rcp1: 层配额——doc summary 在 top-N 保底（去重豁免版，Phase 0 根因2） */
+    const top = this.applyLayerQuota(deduped, limit).slice(0, limit);
 
     /** S15: 批量递增检索计数 */
     await this.writer.incrementRetrievalCounts(top.map((h) => h.entryId));
@@ -571,11 +578,16 @@ export class SearchMemory {
         const drillDown = detailLevel && detailLevel !== "full"
           ? { tool: "get_memory_detail", params: { id: h.entryId } }
           : undefined;
-        /** F20260811mrpy Part 1：debug=true 时注入中间分值 */
+        /** F20260811mrpy Part 1：debug=true 时注入中间分值
+         *  F20260902rcp1 审视修复：timeDecay 按层传半衰期——document 层用 90 天，
+         *  否则 debug 显示 7 天值与 finalScore 实际计算脱节（30 天文档偏差 15.5x） */
         const debugInfo = debug ? {
           rrfScore: h.rrfScore,
           finalScore: h.finalScore,
-          timeDecay: this.searchEngine.computeTimeDecayPublic(h.entry.createdAt),
+          timeDecay: this.searchEngine.computeTimeDecayPublic(
+            h.entry.createdAt,
+            DOCUMENT_CONTENT_TYPES.has(h.entry.contentType) ? this.documentHalfLifeDays : undefined,
+          ),
           frequencyBoost: this.searchEngine.computeFrequencyBoostPublic(
             weightMap.get(h.entryId)?.retrievalCount ?? 0,
           ),
@@ -604,6 +616,42 @@ export class SearchMemory {
    * M15: 创建新对象而非原地修改 finalScore（避免 mutation 风险）。
    * S8: tie-breaker 按 chunk_index 保证确定性。
    */
+  /**
+   * F20260902rcp1: 层配额——doc summary（feature/research doc-level）在 top-N 保底。
+   * 触发：top-N 中 doc summary 数量 < 配额 且命中集中存在该层条目（去重豁免：doc summary
+   * 即使同源 chunk 已在结果中也插入——概览与正文并列是预期行为，配额条目不参与
+   * dedupAndBoostBySource 的 chunk-priority 代表选择）。
+   * 替换：从尾部向前替换非 doc-summary 条目；limit<6 时配额降 1 席（防小 limit 挢占）。
+   */
+  private applyLayerQuota(sorted: ScoredHit[], limit: number): ScoredHit[] {
+    const DOC_SUMMARY_TYPES = new Set(["feature", "research"]);
+    const quota = limit < 6 ? 1 : 2;
+    if (sorted.length <= limit) return sorted;
+
+    const isDocSummary = (h: ScoredHit) => DOC_SUMMARY_TYPES.has(h.entry.contentType);
+    const inTop = sorted.slice(0, limit);
+    const docCount = inTop.filter(isDocSummary).length;
+    if (docCount >= quota) return sorted;
+
+    // 从剩余命中中取 doc summary 候选（去重豁免：不同 source 或同 source 皆可）
+    const candidates = sorted.slice(limit).filter(isDocSummary);
+    if (candidates.length === 0) return sorted;
+
+    const result = [...inTop];
+    let need = quota - docCount;
+    let replaceFrom = result.length - 1;
+    while (need > 0 && candidates.length > 0 && replaceFrom >= 0) {
+      const cand = candidates.shift()!;
+      // 从尾部找非 doc-summary 条目替换
+      while (replaceFrom >= 0 && isDocSummary(result[replaceFrom])) replaceFrom--;
+      if (replaceFrom < 0) break;
+      result[replaceFrom] = cand;
+      replaceFrom--;
+      need--;
+    }
+    return result;
+  }
+
   private dedupAndBoostBySource(scored: ScoredHit[]): ScoredHit[] {
     const MULTI_HIT_BOOST = 0.01;
     const MAX_MULTI_HIT_BOOST_COUNT = 5;

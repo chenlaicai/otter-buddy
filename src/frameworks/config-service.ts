@@ -47,6 +47,8 @@ export interface AppConfig {
     /** 两路命中（source=both）的加成系数，默认 1.2 */
     bothBoost: number;
     weightHalfLifeDays: number;
+    /** F20260902rcp1: document 层（feature/research）专用半衰期，默认 90 天 */
+    weightHalfLifeDaysDocument: number;
     userFlagMultiplier: number;
     frequencyBoostFactor: number;
   };
@@ -203,6 +205,8 @@ interface RawConfig {
     vecSimilarityThreshold?: number;
     bothBoost?: number;
     weightHalfLifeDays?: number;
+    /** F20260902rcp1: document 层专用半衰期（天），默认 90 */
+    weightHalfLifeDaysDocument?: number;
     userFlagMultiplier?: number;
     frequencyBoostFactor?: number;
   };
@@ -372,6 +376,7 @@ function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
     vecSimilarityThreshold: d(raw.memory?.vecSimilarityThreshold, 0.3),
     bothBoost: d(raw.memory?.bothBoost, 1.2),
     weightHalfLifeDays: d(raw.memory?.weightHalfLifeDays, 7),
+    weightHalfLifeDaysDocument: d(raw.memory?.weightHalfLifeDaysDocument, 90),
     userFlagMultiplier: d(raw.memory?.userFlagMultiplier, 2.0),
     frequencyBoostFactor: d(raw.memory?.frequencyBoostFactor, 0.1),
   };
