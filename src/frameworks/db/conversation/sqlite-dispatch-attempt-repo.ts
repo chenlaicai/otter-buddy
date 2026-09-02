@@ -80,6 +80,30 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     return row.n;
   }
 
+  /** S1b 轨迹 UI：本会话全部 attempt（无 limit——(message,target) 唯一键防膨胀） */
+  listAttemptsForConversation(conversationId: string): DispatchAttempt[] {
+    const rows = this.db.prepare(`
+      SELECT id, conversation_id, message_id, target_otter_id, status, source,
+             attempt_started_at, attempt_finished_at, note
+      FROM dispatch_attempts WHERE conversation_id = ?
+    `).all(conversationId) as Array<{
+      id: string; conversation_id: string; message_id: string; target_otter_id: string;
+      status: string; source: string; attempt_started_at: string;
+      attempt_finished_at: string | null; note: string | null;
+    }>;
+    return rows.map(r => ({
+      id: r.id,
+      conversationId: r.conversation_id,
+      messageId: r.message_id,
+      targetOtterId: r.target_otter_id,
+      status: r.status as DispatchAttempt["status"],
+      source: r.source as DispatchAttempt["source"],
+      attemptStartedAt: r.attempt_started_at,
+      attemptFinishedAt: r.attempt_finished_at,
+      note: r.note,
+    }));
+  }
+
   listPendingSignals(conversationId?: string, limit = 50): PendingSignalRow[] {
     const { where, params } = this.pendingClause(conversationId);
     return this.db.prepare(`
