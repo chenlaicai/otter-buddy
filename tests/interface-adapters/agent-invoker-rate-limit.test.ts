@@ -5,7 +5,7 @@
  * 链路：mockAgentInvoke 抛 LLM API error（checkSessionError 终端形态）
  * → orchestrator api_error 分类 → handleApiError 识别 → 落账 + sendSystem + failTerminal。
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SdkInvokePort } from "@usecases/ports/sdk-invoke-port";
 import type { SendMessage } from "@usecases/conversation/send-message";
@@ -15,6 +15,7 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Message } from "@entities/conversation/message";
 import type { HealingEvent } from "@entities/healing/healing-event";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import { createTestLogger } from "../helpers/logger";
 
 const streamingMsg: Message = {
@@ -89,6 +90,8 @@ function makeInvoker(agentInvoke: SdkInvokePort, msg: ReturnType<typeof mockSend
 }
 
 describe("AgentInvoker rate limit alerting (#543)", () => {
+  beforeEach(() => healingAlertRegistry.resetForTest());
+
   it("配额耗尽 429 → healing 落账（high + modelAlias + resetHint）+ 系统告警 + 消息 fail", async () => {
     const msg = mockSendMessage();
     const healingRepo = mockHealingRepo();
@@ -120,6 +123,14 @@ describe("AgentInvoker rate limit alerting (#543)", () => {
     expect(alert).toBeDefined();
     expect(alert).toContain("glm");
     expect(alert).toContain("改派");
+
+    // ②' C3 高警队列（严重发现 1 修复）：high 级入队，大獭下次 invoke 的 DynamicContext 补送达
+    const queued = healingAlertRegistry.takeAll("conv-1");
+    expect(queued).toHaveLength(1);
+    expect(queued[0].errorType).toBe("rate_limit");
+    expect(queued[0].otterId).toBe("otter-1");
+    expect(queued[0].description).toContain("glm");
+    expect(healingAlertRegistry.takeAll("conv-1")).toHaveLength(0); // 送达即删语义
   });
 
   it("瞬时限流 429（重试耗尽）→ severity=medium 告警", async () => {
@@ -134,6 +145,8 @@ describe("AgentInvoker rate limit alerting (#543)", () => {
     expect(rl).toBeDefined();
     expect(rl!.severity).toBe("medium");
     expect(msg._sendSystemBodies.some(b => b.includes("限流"))).toBe(true);
+    // medium 不入 C3 高警队列（与 interceptHealingReport 的 high 门控一致）
+    expect(healingAlertRegistry.takeAll("conv-1")).toHaveLength(0);
   });
 
   it("非限流 API 错误 → 无 rate_limit 落账、无系统告警（不误报）", async () => {

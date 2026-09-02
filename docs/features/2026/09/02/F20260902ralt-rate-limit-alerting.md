@@ -44,7 +44,7 @@ LLM API 429（终态配额耗尽）
 
 - 配额耗尽：`[系统告警] <獭名> 的模型 <alias> 配额耗尽（429 限流终态），本轮发言已终止…编排者请改派其他模型的獭`
 - 瞬时限流：`[系统提示] …SDK 自动重试已耗尽…通常短时后自行恢复`
-- 高危路由增强：high 级 rate_limit 事件同时入 `healingAlertRegistry` 队列——大獭下一次 invoke 时 DynamicContext 注入提醒（复用 F20260826mwrd C3 管道，进程内即时、无需轮询）
+- 高危路由增强：high 级 rate_limit 事件同时入 `healingAlertRegistry` 队列——大獭不在场时 sendSystem 错过，下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd C3 管道）。首版漏接此管道，对抗审视（检视獭-乙严重发现 1）打回后补上：`recordRateLimitHealingEvent` 落账成功后 enqueue（仅 exhausted=true，与 interceptHealingReport 的 high 门控一致）；集成测试断言 high 入队/medium 不入队
 
 ### 出口③ 派工前置提示（create_otter，可选增强）
 
@@ -83,6 +83,12 @@ LLM API 429（终态配额耗尽）
 - 真实链路不强求复现（issue 验收原文），错误形态按 pi-ai 源码实证建模（openai-codex-responses.js `isTerminalRateLimitError` / openai-completions.js `formatProviderError`）
 
 **最简实现检查**：已过。识别逻辑收敛为单文件纯函数（regex 识别 + 两个文案构造器），编排层改动最小化（一个路由 case + err 元数据透传），无新依赖、无 DB schema 变更（rate_limit 复用 errorType 字符串列）、无新进程内状态（高警复用既有 healingAlertRegistry）。曾评估在 pi-session-factory 层落账（离错误源更近）但该层无 sendSystem 通道，通知会缺主出口——落点选 orchestrator（错误终端汇聚点 + callbacks 齐全）。
+
+## 对抗审视记录（打回→修复）
+
+- **严重发现 1（属实，已修）**：首版高警只发 sendSystem 未入 C3 队列——大獭不在场即错过，恰是 issue 要消灭的静默。修复：`recordRateLimitHealingEvent` 落账成功后 `healingAlertRegistry.enqueue`（仅 exhausted=true）；集成测试补 high 入队/medium 不入队断言
+- **建议发现 2（建 issue）**：`checkModelQuotaHint` 24h 窗口无时钟偏差防护——单机同源时钟无实际风险，建 #719 留档
+- **建议发现 3（随发现 1 修复）**：C3 管道无测试覆盖——已随严重发现 1 同步补齐
 
 ## 边界与遗留
 

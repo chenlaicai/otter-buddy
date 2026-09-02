@@ -19,6 +19,10 @@ import { classifyExit, exitKindToOutcome } from "./exit-classifier";
 import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
 // #543：api_error 终态限流识别 + 告警文案（配额黑盒修复）
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
+// #543 严重发现 1 修复：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
+// 下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd Part 4 管道，process 级单例直引，
+// 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
+import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import { aggregateBody } from "@entities/conversation/message";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, RetryContext, TerminalContext, RetryWithNewMessageSignal } from "./types";
@@ -286,7 +290,9 @@ export class AgentTurnOrchestrator {
     return this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
   }
 
-  /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级） */
+  /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级）。
+   *  严重发现 1 修复：high 级（配额耗尽）落账成功后同步入 C3 高警队列——
+   *  sendSystem 只达当前在场者，大獭不在场即错过；C3 队列保证下次 invoke 补送达。 */
   private async recordRateLimitHealingEvent(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchRateLimitError>>,
@@ -312,6 +318,18 @@ export class AgentTurnOrchestrator {
           errorMessage: reason.errorMessage.slice(0, 500),
         },
       });
+      // C3 高警入队：仅 high（配额耗尽）入；eventId 先行生成、与台账 create 同源双写
+      // 各自失败不阻塞对方（interceptHealingReport 同款语义，审计面以 healing_events 为准）
+      if (match.exhausted) {
+        healingAlertRegistry.enqueue(ctx.input.conversationId, {
+          eventId: crypto.randomUUID(),
+          conversationId: ctx.input.conversationId,
+          otterId: ctx.input.otterId,
+          errorType: "rate_limit",
+          description: buildRateLimitDescription({ modelAlias, exhausted: true }),
+          createdAt: new Date().toISOString(),
+        });
+      }
     } catch (err) {
       ctx.callbacks.logger.error('rate_limit healing_event write FAILED',
         err instanceof Error ? err : new Error(String(err)),
