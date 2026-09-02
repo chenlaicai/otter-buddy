@@ -49,6 +49,10 @@ export class AgentDispatchService {
         return { error: "无可用的 Otter 参与者" };
       }
 
+      // F20260902sgp2 S1：首 hop 记账用触发消息（与 resolveFirstTurnTargets 同源——
+      // 最新 user 消息；旧路径已知竞态下两者至少自洽，目标与消息 ID 来自同一次读取）
+      const triggerMessage = await this.deps.queryMessage.getMessages(conversationId, { limit: 1, senderType: "user" });
+
       let lastMessageId: string | undefined;
 
       const result = await this.deps.dispatchChainEngine.executeChain({
@@ -56,6 +60,9 @@ export class AgentDispatchService {
         userMessageContent: this.withDocumentBlock(userMessageContent, injection?.documentBlock),
         senderId,
         initialTargets: firstTurnTargets,
+        // F20260902sgp2 S1：IM 入口触发消息 ID（首 hop 派发记账）；resolveFirstTurnTargets
+        // 已确保首轮目标与落库消息的 talkingStonePassedTo 同源（以持久化后的消息目标为准）
+        triggerMessageId: triggerMessage[0]?.id,
         ...(injection?.images && { images: injection.images }),
         invokeFn: async (params) => {
           const invokeResult = await this.deps.agentInvokePort.invokeConversation({

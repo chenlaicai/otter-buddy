@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- sgp2 S1 注入 dispatchAttemptRepo 后 451>450；装配文件行数由注入项决定，拆分降低可读性（同 tool-factory.ts 先例） */
 import { buildContextTokenWarnConfig, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
@@ -145,6 +146,9 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     metrics: agentMetrics,
     // F20260826fpbd：搭档身份静态判定。appConfig.feishu 可选，未配置时 PartnerResolver 降级（动态推断）
     partnerResolver: new PartnerResolver(appConfig.feishu?.partnerOpenId),
+    // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
+    // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
+    dispatchAttemptRepo: repos.dispatchAttempt,
   });
 }
 

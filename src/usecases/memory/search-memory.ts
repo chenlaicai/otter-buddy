@@ -31,6 +31,17 @@ const SNIPPET_FALLBACK_LENGTH = 200;
  */
 const ANCHOR_PATTERN = /(?<![\w])([FR])\d{8}[a-z0-9]{4,6}(?![\w])/i;
 
+/**
+ * #542 修复：summary 模式首句提取正则（数字感知）。
+ * 从 entry.content 原文开头提取首句：
+ * - 主体 `[^\n]*?` 非贪婪同行拉长，直到「真正的句末」或行尾；
+ * - 句末标点集 `[.。！？!?]` 含 ASCII `.`（英文句子）；数字感知终止（`(?!\d|[A-Za-z])`）：
+ *   标点后紧跟数字/字母则非句末（`2.2 方案`、`v1.2`），避免编号标题被截断为 `2.`（issue 实证样本）；
+ * - 换行无条件终止（markdown 行边界）；
+ * - `$` 兜底：无终止符时取整行/整段。
+ */
+const FIRST_SENTENCE_PATTERN = /[^\n]*?(?:[.。！？!?](?!\d|[A-Za-z])|\n|$)/u;
+
 export interface SearchQuery {
   query: string;
   limit: number;
@@ -229,9 +240,10 @@ export class SearchMemory {
 
   /** F20260812mrcq Part 3: 把 anchor 命中 entry 组装为 RetrievalResultEntry（source='anchor'） */
   private buildAnchorEntry(entry: MemoryEntry, detailLevel: DetailLevel): RetrievalResultEntry {
+    /** #542：非 full 时 content 用原文首句（summary 契约），不再置空 */
     const base = detailLevel === "full"
-      ? entry
-      : { ...entry, content: "" };
+      ? { ...entry }
+      : { ...entry, content: this.extractSummaryContent(entry.content) };
     const snippetText = detailLevel === "summary"
       ? entry.content.slice(0, SNIPPET_FALLBACK_LENGTH)
       : entry.content;
@@ -285,7 +297,7 @@ export class SearchMemory {
         seen.add(nb.id);
         result.push({
           ...nb,
-          content: "",  // 渐进式披露：snippet 模式下 content 置空
+          content: this.extractSummaryContent(nb.content),  // #542：summary 契约首句，不再置空
           score: 0,  // 不参与 RRF 比较
           source: "context-expand",
           drillDown: { tool: "get_memory_detail", params: { id: nb.id } },
@@ -552,10 +564,9 @@ export class SearchMemory {
         const meta = h.multiHitCount && h.multiHitCount > 1
           ? { ...(h.entry.metadata ?? {}), multi_hit_count: h.multiHitCount }
           : h.entry.metadata;
-        // snippet/summary 模式 content 置空（渐进式披露：snippet 定位 → get_memory_detail 深入）
-        const base = detailLevel === "full"
-          ? h.entry
-          : { ...h.entry, content: "" };
+        // #542：非 full 模式 content 由 buildSnippet 投影（summary=原文首句 / snippet=匹配窗口），
+        // 不再置空——空 content 会摧毁 summary 模式的信息价值（渐进式披露的裁剪在 buildSnippet）
+        const base = detailLevel === "full" ? h.entry : { ...h.entry };
         /** F20260811mrpy Part 2：detail_level != "full" 时填充 drillDown hint */
         const drillDown = detailLevel && detailLevel !== "full"
           ? { tool: "get_memory_detail", params: { id: h.entryId } }
@@ -684,9 +695,30 @@ export class SearchMemory {
   }
 
   /**
+   * #542：summary 投影 content——原文首句（数字感知正则）。
+   * 前导空白剥离（条目以空行/缩进开头时取首个实际内容行），行尾换行清理，
+   * 超长截断到 SNIPPET_FALLBACK_LENGTH。由 buildSnippet / buildAnchorEntry /
+   * expandContextForEntries 共用，保证三处投影点 summary 契约一致。
+   */
+  private extractSummaryContent(content: string): string {
+    const firstSentence = FIRST_SENTENCE_PATTERN
+      .exec(content.replace(/^\s+/, ""))?.[0]?.trimEnd() ?? content;
+    return firstSentence.length > SNIPPET_FALLBACK_LENGTH
+      ? firstSentence.slice(0, SNIPPET_FALLBACK_LENGTH)
+      : firstSentence;
+  }
+
+  /**
    * 根据 detail_level 构建返回内容。
    * 返回 { content } 用于覆盖 entry.content（渐进式披露核心：非 full 时裁剪），
    * 返回 { snippet } 用于 HTTP 端点高亮渲染。
+   *
+   * #542 修复：content 与 snippet 语义分离——
+   * - summary：content = 从 entry.content 原文开头提取的首句（与匹配位置无关，恒有意义）；
+   *   snippet = FTS 匹配窗口（匹配上下文）。
+   *   此前首句从 FTS 窗口提取：窗口起点在匹配词前 100 字符处，深匹配时带 `...` 前缀或
+   *   恰以换行开头，首句正则匹配出 `.` / `\n`（40% 空投影的根因）。
+   * - snippet：content = snippet = FTS 匹配窗口（不变）。
    */
   private buildSnippet(
     entry: MemoryEntry,
@@ -707,9 +739,14 @@ export class SearchMemory {
       : rawSnippet;
 
     if (detailLevel === "summary") {
-      /** summary：取 snippet 的第一句（Unicode Sentence_Terminal 覆盖中英日韩泰阿拉伯等所有语言的句末标点） */
-      const firstSentence = new RegExp('^[^\\n\\p{Sentence_Terminal}]*[\\p{Sentence_Terminal}\\n]?', 'u').exec(snippet)?.[0] ?? snippet;
-      return { content: firstSentence, snippet: firstSentence };
+      /**
+       * summary：content = 原文首句（#542：提取源从 FTS 窗口改为 entry.content，
+       * 与匹配位置解耦——深匹配条目不再投影为空）。
+       * 首句正则数字感知：句末标点后紧跟数字/拉丁字母时不是句末（`2.2 方案`、
+       * `v1.2`、`e.g.`），编号标题行（`2.2 方案\n`）整行成首句而非截断为 `2.`。
+       * 换行无条件终止（markdown 行边界语义）。
+       */
+      return { content: this.extractSummaryContent(entry.content), snippet };
     }
 
     return { content: snippet, snippet };

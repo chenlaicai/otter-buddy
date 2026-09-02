@@ -14,6 +14,8 @@ export type HealingErrorType =
   | 'self_restart'
   /** F20260831aksp：bash 安全守卫拦截（框架层每次拦截记 medium 样本；编排层同消息二拦终态补 high） */
   | 'guard_intercept'
+  /** #543：模型限流/配额耗尽（api_error 终态识别；context 含 modelAlias/exhausted/resetHint） */
+  | 'rate_limit'
   | 'other';
 
 /** Healing event 严重程度 */

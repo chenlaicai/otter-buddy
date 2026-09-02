@@ -285,6 +285,8 @@ export class ResumeInterruptedService {
       userMessageContent: buildRestartResumeMsg(),
       senderId,
       initialTargets: [item.otterId],
+      // F20260902sgp2 S1：resume 续跑记账——触发消息 = 被恢复的半截消息（item.messageId）
+      triggerMessageId: item.messageId,
       invokeFn: this.deps.invokeFn,
     });
   }

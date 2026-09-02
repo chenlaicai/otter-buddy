@@ -605,6 +605,9 @@ export class SchedulerService {
         userMessageContent: body ?? task.body,
         senderId: task.senderId,
         initialTargets: task.talkingStonePassedTo,
+        // F20260902sgp2 S1：定时任务链记账——trigger 为任务锚点消息（anchorMessageId
+        // 由调用方注入；无锚时首 hop 不记账，仅 hop 2+ 按 yield 出处记，不阻断）
+        triggerMessageId: anchorMessageId,
         invokeFn: async (params) => this.agentInvokePort.invokeConversation(params),
       });
       await this.watchChainWithActivity(task, anchorMessageId, chainPromise);

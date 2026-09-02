@@ -18,6 +18,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { bootCapabilityApp, type CapabilityContext } from "../helpers/boot";
 import {
@@ -85,11 +86,48 @@ export interface GoldenModule {
   selftest?: GoldenSelftest | ((ctx: CapabilityContext) => Promise<GoldenSelftest>);
 }
 
-/** results.jsonl 写入点（非 git 追踪，本地数据沉淀） */
-const RESULTS_PATH = path.join(__dirname, "results.jsonl");
+/** results.jsonl 写入点（非 git 追踪，本地数据沉淀）
+ *  v6.3 P0-b: 默认解析主仓根（git rev-parse --git-common-dir），防 worktree 孤岛写入。
+ *  env GOLDEN_RESULTS_PATH 可显式覆盖。 */
+function resolveResultsPath(): string {
+  const envPath = process.env.GOLDEN_RESULTS_PATH;
+  if (envPath) return envPath;
+
+  // git rev-parse --git-common-dir 在 worktree 中返回主仓 .git 路径
+  let gitCommonDir: string;
+  try {
+    gitCommonDir = execSync("git rev-parse --git-common-dir", { encoding: "utf8" }).trim();
+  } catch {
+    // fallback: 当前目录（非 git 环境）
+    return path.join(__dirname, "results.jsonl");
+  }
+
+  // git-common-dir 可能是相对路径（如 .git），需要解析为绝对路径
+  const resolved = path.isAbsolute(gitCommonDir)
+    ? gitCommonDir
+    : path.resolve(process.cwd(), gitCommonDir);
+
+  // 推导主仓根目录（.git 的父目录）
+  const repoRoot = path.dirname(resolved);
+
+  // fail-fast: 写入目标不在主仓根下 → 报错拒跑（防 worktree 孤岛写入）
+  const targetDir = path.join(repoRoot, "data", "metrics");
+  if (!targetDir.startsWith(repoRoot)) {
+    throw new Error(`[golden] results.jsonl 写入目标不在主仓根下：${targetDir}（主仓根：${repoRoot}）`);
+  }
+
+  return path.join(targetDir, "golden-results.jsonl");
+}
+
+const RESULTS_PATH = resolveResultsPath();
 
 function appendResult(record: Record<string, unknown>): void {
   try {
+    // 确保目录存在
+    const dir = path.dirname(RESULTS_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     fs.appendFileSync(RESULTS_PATH, JSON.stringify(record) + "\n", "utf8");
   } catch (err) {
     /** 结果沉淀失败不阻断 gate——assert 已通过 expectSampledBehavior 判定，
@@ -216,10 +254,11 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
 
         if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
-        /** manualReview 场景不自动断言——跑完输出标记，由检视獭按 manualReviewHint 人工判定 */
+        /** manualReview 场景不自动断言——跑完输出标记 + assert 客观信号 detail，由检视獭按 manualReviewHint 判定 */
         if (golden.manualReview) {
-          await runOneSample(ctx, golden, assert);
-          console.log(`MANUAL_REVIEW: ${golden.id}${mod.manualReviewHint ? ` —— 判定提示：${mod.manualReviewHint}` : ""}`);
+          const mr = await runOneSample(ctx, golden, assert);
+          console.log(`MANUAL_REVIEW: ${golden.id} 采样信号：${mr.detail}`);
+          if (mod.manualReviewHint) console.log(`  判定提示：${mod.manualReviewHint}`);
           appendResult({
             ts: new Date().toISOString(),
             golden_id: golden.id,
@@ -229,16 +268,35 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
             pr: currentPr(),
             manual: true,
             verdict: "pending",
+            passed: null, // manualReview 行不参与零 fail 统计（v6.3，mimo 新发现 2 + glm-flash 发现 7）
           });
           return;
         }
 
         let successes = 0;
-        await expectSampledBehavior(label, golden.sampling.n, golden.sampling.minSuccess, async () => {
-          const r = await runOneSample(ctx, golden, assert);
-          if (r.ok) successes++;
-          return r;
-        });
+        /** 异常路径落账（glm-flash delta 发现 2）：采样抛异常时 expectSampledBehavior 直接向上抛，
+ *        appendResult 不执行——首跑 fail/超时/环境故障在 jsonl 无痕，「fail 留痕→复跑通过」
+ *        的申诉链只剩后半。异常行 passed:false + error 字段，与正常 fail 行同语义。 */
+        try {
+          await expectSampledBehavior(label, golden.sampling.n, golden.sampling.minSuccess, async () => {
+            const r = await runOneSample(ctx, golden, assert);
+            if (r.ok) successes++;
+            return r;
+          });
+        } catch (err) {
+          appendResult({
+            ts: new Date().toISOString(),
+            golden_id: golden.id,
+            model: golden.modelTag,
+            n: golden.sampling.n,
+            successes,
+            pr: currentPr(),
+            manual: false,
+            passed: false,
+            error: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+          });
+          throw err; // 断言失败语义不变：异常仍向 vitest 抛，红测就是红测
+        }
 
         appendResult({
           ts: new Date().toISOString(),
@@ -248,13 +306,18 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
           successes,
           pr: currentPr(),
           manual: false,
+          passed: successes >= golden.sampling.minSuccess, // 自动场景 passed = successes >= minSuccess（v6.3，mimo 新发现 2 + glm-flash 发现 7）
         });
       }, 1_800_000); // 30 分钟超时（采样 × 每轮完整 agent 回合 ~30-60s）
     }
   });
 }
 
-/** 跑一轮采样：建会话 → 发输入 → 等回合终局 → 命令式断言 */
+/** 跑一轮采样：建会话 → 发输入 → 等回合终局 → 命令式断言
+ * 多跳等待（2026-09-02）：首跳 completed 后再观察一段 settle 窗口（链引擎可能继续派发
+ * 下一个 hop——如大獭 summon 后 yield 给小獭，小獭又需 30-60s 完整回合）。源测试
+ * talking-stone-routing 用 afterSeq 两段式等待；golden 通用化：首终态后 settle 窗口
+ * 内若消息数还在涨则继续等，静止后断言。窗口独立于首跳超时，总上限 = 首跳 + 180s。 */
 async function runOneSample(
   ctx: CapabilityContext,
   golden: GoldenScenario,
@@ -262,7 +325,31 @@ async function runOneSample(
 ): Promise<SampleResult> {
   const convId = await createConversation(ctx, `golden:${golden.id}`);
   await sendUserMessage(ctx, convId, golden.input);
-  await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+  const firstMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+  void firstMsg; // 首跳等待仅为了拿到「回合已开始产出终态」的锚点；settle 窗口自己探终态数
+
+  // settle 窗口：等后续 hop。每 5s 拉一次消息数，链静止或窗口耗尽则进入断言。
+  // 静止阈值 90s（18 轮无新增终态）：串行接棒的第二跳可能 30-60s 才开始 streaming，
+  // 10s 静止会在「上一跳完成→下一跳开始」的间隙误判链静止（glm-flash delta 发现 1：
+  // 首跑 3/3 靠并行重叠掩盏，串行接棒 >15s 的链会假 fail）。90s = 第二跳时长上限
+  // 与总窗口 180s 的折中，代价是单跳场景多等 90s。
+  const deadline = Date.now() + 180_000;
+  let lastCount = -1;
+  let stableRounds = 0;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    const messages = await listMessages(ctx, convId);
+    const otterAny = messages.filter((m) => m.st === "otter").length;
+    // 计数含 streaming/speaking：下一跳已开始（非终态但存在）就不算静止
+    if (otterAny === lastCount) {
+      stableRounds++;
+      if (stableRounds >= 18) break; // 90s 无新消息（含非终态）→ 链静止
+    } else {
+      stableRounds = 0;
+      lastCount = otterAny;
+    }
+  }
+
   const messages = await listMessages(ctx, convId);
   return assert({ ctx, convId, messages });
 }

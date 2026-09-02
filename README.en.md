@@ -152,11 +152,12 @@ Rule (confirmed by F20260827mmdu): **Models without vision must explicitly decla
 
 ### Verify git hooks
 
-`npm install`'s `prepare` script runs `git config core.hooksPath .githooks`, pointing hooks at the repo's `.githooks/` (commit-msg / pre-commit / pre-push / pre-merge-commit). If this config gets overridden by external tools or environment, all hooks silently stop working (#476, F20260821kgts). Verify after install:
+`npm install`'s `prepare` script points hooks at the repo's `.githooks/` (commit-msg / pre-commit / pre-push / pre-merge-commit). If this config gets overridden by external tools or environment, all hooks silently stop working (#476, F20260821kgts, #684). Verify after install:
 
 ```bash
-git config core.hooksPath
-# Expected: .githooks (relative path; if other value or missing directory, re-run npm run prepare)
+npm run hooks:check
+# Expected: core.hooksPath=.githooks ✓ (relative paths resolve against the repo root, works inside worktrees)
+# Exits 1 when broken; run npm run prepare (or npm run hooks:fix) to self-heal
 ```
 
 ### Contributing

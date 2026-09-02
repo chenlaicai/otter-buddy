@@ -4,7 +4,9 @@
   "description": "Otter Buddy - An Agentic System with Chat as Substrate",
   "main": "dist/src/main.js",
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks",
+    "prepare": "node scripts/ensure-hooks.mjs",
+    "hooks:check": "node scripts/ensure-hooks.mjs --check",
+    "hooks:fix": "node scripts/ensure-hooks.mjs",
     "health:report": "node scripts/health-report.mjs",
     "weixin:login": "npm run build --silent && node scripts/weixin-login.mjs",
     "health:backfill": "node scripts/health-backfill.mjs",

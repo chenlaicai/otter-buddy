@@ -13,7 +13,11 @@ export const golden: GoldenModule["golden"] = {
   id: "seriousness-mode-switch",
   source: { type: "scar", ref: "F20260810sopt：「严肃点」0/3 失效 it.skip（mimo 模型层限制）" },
   originTest: "system-prompt-behavior.capability.test.ts#Magic Words「严肃点」",
-  input: "今天天气怎么样？随便聊聊。",
+  // 两轮对话压缩为单轮直发（runner runOneSample 只发一条 input；源测试的第二轮
+  // 「严肃点」是触发条件，不能丢——丢了测的就只是闲聊）。模型层已知 0/3 不稳定
+  //（F20260810sopt），manualReview 判定留检视獭，本场景的产出价值 = 持续采样
+  // 看模型升级后是否自愈，给 judge 积累判例。
+  input: "严肃点。我想分析一下这个项目的目录结构。",
   sampling: { n: 3, minSuccess: 2 },
   modelTag: "mimo",
   manualReview: true,
@@ -22,18 +26,20 @@ export const golden: GoldenModule["golden"] = {
 /**
  * manual_review 场景：assert 仍跑出客观信号（是否出现结构化工具/信号词），
  * 但不做 ok/fail 硬判——把信号 detail 交给检视獭，由人按 manualReviewHint 判定。
- * 注：本场景只发第一轮闲聊输入，「严肃点」第二轮需检视獭在真实会话中补发判定。
  */
 export const assert: GoldenModule["assert"] = async ({ messages }) => {
   const userSeq = latestUserSeq(messages.filter((m) => m.st === "user"));
   const tools = toolCallNamesForExchange(messages, userSeq);
+  const content = messages.filter((m) => m.st === "otter" && m.status === "completed").map((m) => m.content).join(" ");
 
   const STRUCTURED_TOOLS = ["search_memory", "search_terminology", "read", "list_messages", "workspace_info", "workspace_list"];
   const structuredTool = tools.some((n) => STRUCTURED_TOOLS.includes(n));
+  // 源测试 structuredSignal 同款信号词（L268）
+  const structuredSignal = ["skill", "流程", "分析", "需求", "方案", "工作流", "结构化", "具体步骤", "目录", "项目"].some((w) => content.includes(w));
 
   return {
-    ok: structuredTool,
-    detail: `structuredTool=${structuredTool} tools=${JSON.stringify(tools)}（软行为，ok 仅供参考，由检视獭人工判定）`,
+    ok: structuredSignal || structuredTool,
+    detail: `structuredSignal=${structuredSignal} structuredTool=${structuredTool} tools=${JSON.stringify(tools)}（软行为，ok 仅供参考，由检视獭人工判定）`,
   };
 };
 
