@@ -328,15 +328,18 @@ export class DispatchChainEngine {
     //  非搭档即使触发本次派发也不再显示 partnerLabel（动态推断时代的冒名旧病）。
     //  降级：未配置 partnerOpenId 时回退 #488 行为（当前 sender 无快照→partnerLabel）
     const resolver = this.deps.partnerResolver;
-    const staticMode = !!resolver?.configured;
+    // #497：用三元式收窄替代旧 staticMode + resolver! 断言——configured 时绑定非空 resolver 本身，
+    //  TS 控制流在回调内自动收窄（if (staticResolver) ⟹ 非空），零非空断言且不把 ?. 分支点
+    //  携入 .map 回调（复杂度门禁 12，携入会 13 超限）
+    const staticResolver = resolver?.configured ? resolver : undefined;
     const formatted = unreadMessages
       .map(m => {
         let label: string;
         if (m.senderType === 'system') {
           label = '系统';
         } else if (m.senderType === 'user') {
-          if (staticMode) {
-            label = resolver!.isPartner(m.senderId)
+          if (staticResolver) {
+            label = staticResolver.isPartner(m.senderId)
               ? partnerLabel
               : (m.senderName?.trim() || m.senderId);  // 访客：快照名，无则裸 ID 不冒充
           } else {
