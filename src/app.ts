@@ -22,6 +22,7 @@ import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
+import { SignalRouter } from "@usecases/conversation/signal-router";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
 import {
@@ -285,14 +286,27 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
 
-  // ── F20260902rbsg：信号路由器 P1 回滚（装配摘除）──
-  // F20260901sgpv 上线后两起事故（F20260902uspr 投影哑火 + 存量信号批量点火，详见
-  // F20260902rbsg 根因分析）：收件箱「未读=待行动」语义不成立，需重新设计。P1 的
-  // 可选注入降级面即设计的回滚通道——此处不构造 SignalRouter，四入口（web MC /
-  // 飞书 ADS / 微信 / RIS 启动补扫）全部回落直连链，行为与 sgpv 合入前一致。
-  // signal-router.ts 类与单测保留，作为重设计的参考实现；恢复装配即重新启用。
+  // ── F20260902sgp2 S2：信号路由器重挂（v2 语义：pending = 派发台账）──
+  // rbsg 回滚的两大根因已在 v2 消除：
+  // ① 「未读 ≠ 待行动」语义混淆 → v2 判据 = 已投递 ∧ 无 dispatch_attempts 记录
+  //    （行动义务由台账记账，游标回归上下文本职）；
+  // ② 存量批量点火 → backfill 墓碑已于 S1 一次性翻篇（#739 起带一次性守卫，
+  //    不再每次重启重跑），切换瞬间 pending=0，此后只增真实欠账。
+  // 可选注入降级面保持：出问题摘除本构造块 + 下方注入点即回直连链（回滚通道）。
+  // 恢复的入口范围：web MC / 飞书 ADS / 微信 / RIS 启动补扫（scheduler/retry 仍直连，
+  // 其派发经链引擎记账，无双触发账面歧义——F20260902sgp2 §4.2）。
+  const signalRouter = new SignalRouter({
+    conversationRepo: repos.conversation,
+    queryMessage: uc.queryMessage,
+    queryOtter: uc.queryOtter,
+    dispatchChainEngine,
+    invokeFn: (params) => agentInvoker.invokeConversation(params),
+    logger,
+    healingRepo: repos.healingEvent,
+    dispatchAttemptRepo: repos.dispatchAttempt,
+  });
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
-    await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster });
+    await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster, signalRouter });
 
   // ── 微信 web 登录（issue #566）：零配置可用 ──
   // config 无 weixin 段时也能发起扫码（登录会话用默认网关 + 默认 stateDir）；
@@ -402,6 +416,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     healthSnapshotRepo: new HealthSnapshotRepository(db),
     // F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分）
     signalEventRepo: repos.signalEvent,
+    // F20260902sgp2 S2：信号路由器重挂（web 主入口换轨；未注入时 MC 降级直连链）
+    signalRouter,
     // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
     attachmentRepo: repos.attachment,
     // 微信连接管理（issue #566）
@@ -459,6 +475,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
     // #613：服务重启事件落 healing 台账（观测层闭环，severity 按中断发言数分级）
     healingRepo: repos.healingEvent,
+    // F20260902sgp2 S2：启动补扫含信号补路由（崩溃窗口兜底，台账判据）
+    signalRouter,
   });
   if (options.startResume ?? true) {
     // fire-and-forget：resume 内部自带延迟，不阻塞也不吞启动错误
