@@ -96,17 +96,23 @@ otterbar-renderer-swift（本 PR，常驻进程）
 
 ## 变更清单
 
-- `scripts/otterbar/swift/main.swift` — 渲染端主体（~490 行，含 selftest）
-- `scripts/otterbar/swift/build.sh` — swiftc 编译脚本（本机编译，CI 为 ubuntu 无法编译 AppKit，与 #713 本机实测策略一致）
+- `scripts/otterbar/swift/main.swift` — 渲染端主体（含 selftest 11 项断言）
+- `scripts/otterbar/swift/build.sh` — swiftc 编译脚本（本机编译，CI 为 ubuntu 无法编译 AppKit，与 #713 本机实测策略一致；二进制不入 git）
 - `scripts/launchd/com.otterbuddy.otterbar-renderer-swift.plist` — launchd 常驻配置（KeepAlive + ThrottleInterval 60 复用 #713 双 plist 机制）
-- 二进制 `otterbar-renderer-swift` 不入 git（构建产物），部署时 build.sh 编译
+
+## v1→v2 演进（搭档验收驱动，检视獭-Swift2 发现 1）
+
+- **v1（commit bc7af4f4）**：emoji 文本徽章（🦦🔴⌨️ 字符动画）+ esc 按钮 + CoreAudio 音量键
+- **搭档验收 22:24**：系统键移除——bar 原生控制条已含 esc/音量/亮度，view 内集成是冗余；emoji 主视觉被评「简陋」
+- **v2（commit 952eb94f）**：矢量海獭头像（扁宽脸/小贴耳/大扁鼻/白胡须）+ 状态环四态动效（琥珀呼吸/青弧旋转/夜蓝静止/灰虚线）+ 数据区（大数字/点阵）；v1 首版头像被搭档评「像只熊」，设计獭-水獭（glm-flash）出「去熊化」修正规格后落地 v2 终稿
+- 系统键研究结论（macOS 26 媒体键静默丢弃/CoreAudio 可用）保留在下表存档，代码已移除，未来需要时按表捡回
 
 ## 验证（全部真机实测，本机 MacBookPro16,1 / macOS 26）
 
 | 验收项（issue #721） | 方法 | 结果 |
 |---|---|---|
-| 行为兼容四态 | `--selftest` 状态归并断言 8 项矩阵 | ✅ PASS |
-| ≥10fps 动画不闪 | 12fps Timer 驱动 setNeedsDisplay；item 永不重建（结构保证）；搭档肉眼验收动画观感 | ✅ 结构性不闪；观感待搭档终审 |
+| 行为兼容四态 | `--selftest` 状态归并断言 11 项矩阵（含 mixed 空 top / waiting nil / zero otters 边界态） | ✅ PASS |
+| ≥10fps 动画不闪 | 12fps Timer 驱动 setNeedsDisplay；item 永不重建（结构保证）；搭档肉眼验收动画观感 | ✅ 结构性不闪；观感搭档已过 |
 | 音量键功能 | `--test-key volumeUp/Down` + AppleScript 交叉验证 | ✅ 32→38→32→26 |
 | Esc 键通道 | CGEvent 路线独立验证（同通道 cmd+space 可唤起 Spotlight） | ✅ 通道可用 |
 | MTMR 双活让位 | 真机：渲染端运行中启动 MTMR → 渲染端日志 `exit: MTMR detected, yield` | ✅ |

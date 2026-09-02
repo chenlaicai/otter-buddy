@@ -354,6 +354,7 @@ final class OtterView: NSView {
     }
 
     // zZ 上浮（双字，9/7pt，斜体），透明度 0→0.35→0 / 5s，相位差 2.5s
+    // 注：NSFontManager.shared 仅在主线程 draw(_:) 中调用（AppKit 全局实例线程约束）
     private func drawZZ(center: CGPoint, t: TimeInterval) {
         for (i, size) in [9.0, 7.0].enumerated() {
             let tt = t + Double(i) * 2.5
@@ -677,6 +678,14 @@ enum Selftest {
                StatusRender(kind: .offline, nonPrimary: true))
         expect("unknownPrimary", deriveState(model(primary: "unknown")),
                StatusRender(kind: .sleeping, nonPrimary: false))
+        // 边界态（检视獭-Swift2 建议 1）：top 空 / waiting 字段 nil / otters=0
+        expect("mixedEmptyTop", deriveState(model(w: 2, top: "", c: 3, o: 2)),
+               StatusRender(kind: .mixed(count: 2, top: "", convs: 3, otters: 2), nonPrimary: false))
+        expect("waitingNilTop", deriveState(DisplayModel(v: 1, sys_online: true, offline_long: false,
+               primary: "true", waiting: nil, working: nil)),
+               StatusRender(kind: .sleeping, nonPrimary: false))
+        expect("workingZeroOtters", deriveState(model(c: 2, o: 0)),
+               StatusRender(kind: .working(convs: 2, otters: 0), nonPrimary: false))
         print(failed == 0 ? "SELFTEST PASS" : "SELFTEST FAIL (\(failed))")
         return failed == 0 ? 0 : 1
     }
