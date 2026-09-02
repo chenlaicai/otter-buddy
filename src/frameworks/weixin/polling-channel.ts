@@ -54,6 +54,9 @@ export class WeixinPollingChannel {
 
   private abort?: AbortController;
   private running = false;
+  /** F20260901wxnt 发现3：recordContextTokenWarned 落盘失败时的内存级 warnedAt 补偿——
+   *  disk 丢失后内存保底，下个 tick 冷却判断不旁路（防成功的预警每 35s 重发） */
+  private warnedAtMemoryCache = new Map<string, number>();
 
   constructor(
     private readonly deps: {
@@ -65,6 +68,10 @@ export class WeixinPollingChannel {
       logger: Logger;
       /** 通道状态注册表（可选注入，用于上报运行时状态） */
       registry?: ChannelStatusRegistry;
+      /** context_token 过期预警配置（可选注入，缺省不启用检查） */
+      contextTokenWarn?: { afterMs: number; cooldownMs: number };
+      /** 时间注入（默认 Date.now，供测试控制时钟） */
+      now?: () => number;
     },
   ) {}
 
@@ -111,6 +118,8 @@ export class WeixinPollingChannel {
     logger.info("Weixin polling channel started", { accountId });
 
     while (this.running && !this.abort?.signal.aborted) {
+      // Why: 每 tick 轮询开头做一次 context_token 过期检查（整体 try/catch 不干扰主路径）
+      await this.checkContextTokenExpiry();
       try {
         const resp = await api.getUpdates(this.buf, timeoutMs);
         if (resp.longpolling_timeout_ms && resp.longpolling_timeout_ms > 0) {
@@ -201,6 +210,8 @@ export class WeixinPollingChannel {
     // 入站消息的 context_token 是出站回信的唯一凭证——先落盘再处理
     if (inbound.contextToken && inbound.fromUserId) {
       accountStore.saveContextToken(accountId, inbound.fromUserId, inbound.contextToken);
+      // Why: 入站换新 = 用户说话 → 清除内存缓存的 warnedAt，防止 stale 条目抑制后续预警（场景：cooldown > after 时，缓存中的旧 warnedAt 会在 disk warnedAt 被 saveContextToken 清零后仍生效，错误跳过预警）
+      this.warnedAtMemoryCache.delete(inbound.fromUserId);
     }
     try {
       await this.deps.onMessage(inbound);
@@ -229,6 +240,76 @@ export class WeixinPollingChannel {
       messageId: items.find((i) => i.msg_id)?.msg_id ?? (msg.message_id !== undefined ? String(msg.message_id) : undefined),
       raw: msg,
     };
+  }
+
+  /**
+   * context_token 过期预警检查（F20260901wxnt）。
+   * 逐用户独立 try/catch：一个用户失败不阻断其他用户。
+   * 发送失败记 error 日志 + warnedAt 止损不重试（ret=-2 = token 已死，重试必败）。
+   */
+  private async checkContextTokenExpiry(): Promise<void> {
+    const warn = this.deps.contextTokenWarn;
+    if (!warn) return; // 未配置则不启用检查
+    const { accountStore, accountId, logger } = this.deps;
+    const nowMs = (this.deps.now ?? Date.now)();
+    try {
+      const entries = accountStore.loadRawContextTokens(accountId);
+      for (const [userId, entry] of Object.entries(entries)) {
+        // Why: 每个用户独立 try/catch——recordContextTokenWarned 磁盘写失败不应阻断剩余用户检查
+        try {
+          await this.warnUserIfStale(userId, entry, warn, nowMs);
+        } catch (err) {
+          // 单用户处理失败（含 recordContextTokenWarned 磁盘异常）不阻断剩余用户
+          logger.warn("context_token 预警用户处理异常", {
+            accountId,
+            userId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } catch (err) {
+      // 整体 try/catch：不干扰轮询主路径
+      logger.warn("context_token 过期检查异常", {
+        accountId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** 单用户预警判断 + 发送（被 checkContextTokenExpiry 调用，失败向上抛由调用方 catch） */
+  private async warnUserIfStale(
+    userId: string,
+    entry: { token: string; receivedAt: number; warnedAt?: number },
+    warn: { afterMs: number; cooldownMs: number },
+    nowMs: number,
+  ): Promise<void> {
+    const { accountStore, accountId, api, logger } = this.deps;
+    const age = nowMs - entry.receivedAt;
+    if (age < warn.afterMs) return; // 未满阈值
+    // 冷却期内（内存优先——disk 可能丢失）
+    const warnedAt = this.warnedAtMemoryCache.get(userId) ?? entry.warnedAt;
+    if (warnedAt != null && nowMs - warnedAt < warn.cooldownMs) return;
+    try {
+      await api.sendTextMessage({
+        toUserId: userId,
+        contextToken: entry.token,
+        text: "我们有一阵子没聊天啦～微信的会话凭证快到期了，之后你发的消息我可能会收不到。\n随便回我一条（哪怕一个表情）就能续上，需要时随时喊我 🦦",
+      });
+    } catch (err) {
+      // Why: ret=-2 = token 已死，重试必败且每 35s 一次是 hammering——记日志即止
+      logger.error("context_token 预警发送失败（token 已失效），用户下次发消息即恢复", err instanceof Error ? err : undefined, {
+        accountId,
+        userId,
+        tokenAgeMs: age,
+      });
+    }
+    // 成败都记——防死 token 每 35s 被重锤（memory 优先防进程内存丢失，disk best-effort）
+    this.warnedAtMemoryCache.set(userId, nowMs);
+    try {
+      accountStore.recordContextTokenWarned(accountId, userId);
+    } catch {
+      logger.warn("context_token 预警记录落盘失败，内存补偿已生效", { accountId, userId });
+    }
   }
 
   private async sleep(ms: number): Promise<void> {
