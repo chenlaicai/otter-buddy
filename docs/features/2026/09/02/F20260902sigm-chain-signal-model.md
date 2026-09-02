@@ -16,7 +16,7 @@ tags:
   - doc-status
   - chain-model
   - refactor
-status: design
+status: final
 capability_test: "n/a: 判定层重构为确定性规则（无 LLM 行为变化），由单元测试覆盖（chain-builder/pr-collector/rhi-scan-worker 共 268+ 用例）"
 ---
 
@@ -221,3 +221,49 @@ ChainState = "active" | "stalled" | "regressed" | "orphan"   // 枚举保留4值
 | A5 | 趋势跳变风险被低估 | 接受并修订 | 更好（不可逆跳变必须写实） | 风险 2 强化：不可比/不回填/不可逆三不政策 + 趋势图标注切换日期 + 跳变幅度预判 |
 
 **反驳记录**：S1 要求定义 branch name 提取正则——部分反驳：branch name 无 hook 强制（feature/rhi-pr2-ui 命名无 FID），正则提取误配率高（日期字符串/历史 FID 残留），决策为不提取。证据：分支命名规范无强制约束（.githooks 仅管 commit-msg），现役分支名抽查（feature/rhi-pr3-swimlanes / feature/sigm-chain-model）均无 FID。
+
+---
+
+# Phase 1 实现记录（2026-09-02，开发獭潮痕）
+
+## 交付概览
+
+三个分阶段 commit（防 429，分阶段测试通过再下一步）：
+
+| commit | 范围 | 内容 |
+|---|---|---|
+| 986f354a | 后端判定层 | chain-builder 四态重构 + pr-collector 新增 + rhi-scan-worker 接线 + detect-signals/health-score/rhi-controller 消费迁移 + #659 遗产 7 项删除 |
+| d916b600 | web 前端 | chain-state-meta 四态 + SwimlaneTimeline 删 zombie 视觉 + Drawer 信号清单 + client.ts 类型 |
+| cdec29ba | skill 模板 | SKILL-TEMPLATE.md 核心字段清单停写 status（软代码） |
+
+## 验证数字
+
+1. **单元/集成**：2743 tests 全绿（主仓基线同口径 2743；改动文件 219 个测试文件无回归）；tsc 0 error；eslint 0 error（修掉自引入的 4 个：pr-collector 复杂度、未用 import、2 个测试文件行数超限）
+2. **web**：384 tests 全绿（385→384：zombie 用例删除 + pr-stalled 新断言）；build 通过
+3. **golden gate（软代码改动）**：4 场景 3 过 1 挂——talking-stone-routing 0/3「本会话中未找到 small 类型子獭」；**主仓 main（6b9b5ba2）基线复现同样 0/3 同报错**（证据存工作区 main-baseline-output.txt），判定 pre-existing 环境问题非本 PR 引入；r4-summon-search-first / seriousness-mode-switch / yield-handoff-protocol 全过
+4. **回归数字对照**（方案验证节预期命中）：
+   - 重构前基线：400 链 active 342 / stalled 51 / orphan 7 / zombie 0 / regressed 0
+   - 重构后实测：**401 链 active 393 / stalled 0 / orphan 8 / regressed 0**——方案预期「active ≈393、doc-gap 7~8」精确命中；51 条 doc-only stalled 全部归零（信号质量修复落地）；pr-stalled 依真实 PR 状态（当前 open PR 全部今日活跃）= 0
+   - 真实 PR 采集：15 条 open PR（6 条带 FID 关联、9 条 dependabot 无 FID 不关联）——关联规则实跑验证
+5. **降级验证**：gh CLI 可用时 15 条 PR 正常采集；测试覆盖 gh 失败 → 空数组不崩
+6. **web 截图**：四态信号对照（mock 数据：401 链 active 391 / stalled 2 / orphan 8，PR 停滞 chips/泳道无 zombie 元素）——工作区 health-chains-four-states.png / health-overview.png；独立端口 18923 server 用完自灭
+
+## 实现偏差记录（事实优先，无静默偏离）
+
+1. **方案 §4「检测器缺失 ≠ 系统健康」的实现细节**：pr-collector 的 gh pr view 逐 PR 失败时保留 PR 但 lastActivityAt=null（判定层不猜不判停滞）——方案未明确此中间态，实现取「数据不全不判定」
+2. **detectChainStall 的信号粒度**：方案消费方表写「读 chain.signals（pr-stalled → stalled ladder）」——「stalled ladder」是旧 zombie 阶梯的遗留措辞；实现为逐 PR 出信号（一链多停滞 PR 时 N 条 chain_stall 信号，挂几个报几个），与方案「信号可叠加」原则一致
+3. **skills 模板改动位置**：简报指向 code-implementation/SKILL.md，实查该文件不含 status 字段指引；真相源在 `_shared/SKILL-TEMPLATE.md` L151（特性文档核心字段清单）——改后者，前者无改动需要
+
+## 最简实现检查（#614 必答）
+
+已过最简检查：无新建表（PR 数据查询时现拉，方案 R3）、无新依赖（gh CLI 子进程复用 execFile 先例）、pr-collector 单文件（无框架）；删除代码（-468 行）远大于新增（+380 行），净简化。stalledPr label 逻辑内联在 SwimlaneTimeline（<10 行），未抽组件。
+
+## #659 遗产删除核对（7/7）
+
+- [x] doc-advancer.ts（262 行）
+- [x] tests/usecases/health/doc-advancer.test.ts（443 行）
+- [x] scripts/docs-advance.mjs（121 行）
+- [x] package.json `docs:advance` script
+- [x] rhi-scan-worker `buildChainsWithZombieJudging` 方法（含 fidMentionSource/mentionWindowDays/zombieDays 选项）
+- [x] fid-mention-counter.ts（42 行，纯服务 zombie 判定）
+- [x] app.ts countFidMentions wiring（import + 装配行）
