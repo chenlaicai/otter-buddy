@@ -57,7 +57,7 @@ describe("SearchMemory - progressive disclosure", () => {
   beforeEach(() => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     searchMemory = new SearchMemory(repo, repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
     manageMemory = new ManageMemory(repo, repo);
 
@@ -186,7 +186,7 @@ describe("SearchMemory - progressive disclosure", () => {
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
 
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const vecOnlySearch = new SearchMemory(mockRepo, mockRepo, mockEmbedding, searchEngine, createTestLogger());
 
     const result = await vecOnlySearch.search({ query: "关键词", limit: 5, detailLevel: "snippet" });
@@ -351,7 +351,7 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
   beforeEach(() => {
     db = createTestDb();
     repo = new SqliteMemoryRepository(db);
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     searchMemory = new SearchMemory(repo, repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
 
     /** 构造同文档的 summary entry + body entry，同 sourceId="F123" */
@@ -490,7 +490,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       alpha: 0.4,
       vecSimilarityThreshold: 0.3,
       bothBoost: 1.2,
-      weightHalfLifeDays: 7,
+      weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90,
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
@@ -571,7 +571,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       alpha: 0.4,
       vecSimilarityThreshold: 0.3,
       bothBoost: 1.2,
-      weightHalfLifeDays: 7,
+      weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90,
       userFlagMultiplier: 2,
       frequencyBoostFactor: 0.1,
     });
@@ -604,7 +604,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
     });
     await repo.storeEmbedding("anchor-1", new Float32Array([0.1, 0.2, 0.3]));
 
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -640,7 +640,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       metadata: null, createdAt: "2026-08-12T00:00:00Z",
     });
 
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -663,7 +663,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       embed: async () => { throw new Error("mock"); },
     };
 
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -691,7 +691,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -718,7 +718,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -746,7 +746,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     // URL 编码的空格
@@ -785,7 +785,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -824,7 +824,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -855,7 +855,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -880,7 +880,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -917,7 +917,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
@@ -950,7 +950,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       available: false,
       embed: async () => { throw new Error("mock"); },
     };
-    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+    const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
 
     const result = await search.search({
