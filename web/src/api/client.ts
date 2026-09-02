@@ -570,7 +570,8 @@ export function getRhiTrends(days = 30, signal?: AbortSignal): Promise<RhiTrends
   return request(`/health/trends?days=${days}`, { signal })
 }
 
-export function triggerRhiScan(): Promise<{ ok: boolean; result: Record<string, unknown> }> {
+/** #581：扫描失败时后端返回 500，request() 抛 ApiError——响应体不再有 ok:false 分支 */
+export function triggerRhiScan(): Promise<{ result: Record<string, unknown> }> {
   return request('/health/scan', { method: 'POST' })
 }
 
