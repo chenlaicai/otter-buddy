@@ -146,7 +146,7 @@ export class ProcessInboundRecruit {
     });
 
     // 4. 触发大獭一次 invoke（fire-and-forget，错误不影响响应）
-    void this.triggerDispatch(conversationId, bigOtterId, body).catch(err => {
+    void this.triggerDispatch(conversationId, bigOtterId, body, message.id).catch(err => {
       this.logger.error(
         'inbound recruit: dispatch failed',
         err instanceof Error ? err : new Error(String(err)),
@@ -193,7 +193,7 @@ export class ProcessInboundRecruit {
           severity: event.severity,
         });
 
-        void this.triggerDispatch(conversationId, bigOtterId, body).catch(err => {
+        void this.triggerDispatch(conversationId, bigOtterId, body, message.id).catch(err => {
           this.logger.error(
             'inbound status: dispatch failed',
             err instanceof Error ? err : new Error(String(err)),
@@ -224,6 +224,7 @@ export class ProcessInboundRecruit {
     conversationId: string,
     bigOtterId: string,
     userMessageContent: string,
+    triggerMessageId: string,
   ): Promise<void> {
     const invokeFn: InvokeFn = async ({ otterId, conversationId, userMessageContent, senderId }) =>
       this.agentInvokePort.invokeConversation({
@@ -238,6 +239,7 @@ export class ProcessInboundRecruit {
       userMessageContent,
       senderId: 'boss-zhipin-bridge',
       initialTargets: [bigOtterId],
+      triggerMessageId,
       invokeFn,
     });
   }

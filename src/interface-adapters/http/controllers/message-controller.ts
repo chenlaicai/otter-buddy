@@ -254,6 +254,8 @@ export class MessageController {
     this.dispatchTurnLoop(firstTurnTargets, {
       conversationId, userMessageContent: this.withDocumentBlock(body.body, injection?.documentBlock),
       senderId: body.senderId, allTargets, images: injection?.images,
+      // F20260902sgp2 S1：触发消息 ID（派发台账首 hop 记账）
+      triggerMessageId: userMessage.id,
     })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -322,6 +324,10 @@ export class MessageController {
       senderId,
       initialTargets: [otterId],
       ...(images && { images }),
+      // F20260902sgp2 S1：retry 的触发消息 = 被重试的 otter 消息（记账目标为该 otter）。
+      // 注：retry 记账语义按 S3 设计为覆盖同槽 source='retry'，S1 先按 source='chain' 记
+      //（台账是全事实记录，source 细分随 S3 换轨引入）。
+      triggerMessageId: messageId,
       invokeFn: async (params) => this.agentInvoker.invokeConversation({
         otterId: params.otterId,
         conversationId: params.conversationId,
@@ -376,9 +382,9 @@ export class MessageController {
   /** Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
   private async dispatchTurnLoop(
     targets: string[],
-    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }> },
+    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }>; triggerMessageId?: string },
   ): Promise<void> {
-    const { conversationId, userMessageContent, senderId, allTargets, images } = ctx;
+    const { conversationId, userMessageContent, senderId, allTargets, images, triggerMessageId } = ctx;
 
     // 使用 DispatchChainEngine 执行发言链（事件通过 broadcastEvent 统一推送到订阅者）
     await this.dispatchChainEngine.executeChain({
@@ -386,6 +392,8 @@ export class MessageController {
       userMessageContent,
       senderId,
       initialTargets: targets,
+      // F20260902sgp2 S1：触发消息 ID（首 hop 派发记账）
+      triggerMessageId,
       ...(images && { images }),
       invokeFn: async (params) => {
         for (const id of params.otterId ? [params.otterId] : []) allTargets.add(id);

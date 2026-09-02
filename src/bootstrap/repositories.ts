@@ -14,6 +14,7 @@ import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { SqliteSignalEventRepository } from "@frameworks/db/signal/sqlite-signal-repository";
 import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-attachment-repository";
+import { SqliteDispatchAttemptRepo } from "@frameworks/db/conversation/sqlite-dispatch-attempt-repo";
 import type { Logger } from "@usecases/ports/logger";
 
 export function initRepositories(db: Database.Database, logger?: Logger): Repositories {
@@ -35,6 +36,8 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     connection: new SqliteConnectionRepository(db),
     healingEvent: new SqliteHealingEventRepository(db),
     signalEvent: new SqliteSignalEventRepository(db),
+    /** F20260902sgp2 S1：派发台账（信号协议 v2） */
+    dispatchAttempt: new SqliteDispatchAttemptRepo(db),
     /** 多模态 Phase 1：附件 repo */
     attachment: new SqliteAttachmentRepository(db),
   };

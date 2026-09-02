@@ -38,6 +38,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
     createSignalEventsTable(db);
+    createDispatchAttemptsTable(db);
     createRestartPendingResumesTable(db);
     createAttachmentTables(db);
     createPaperTradingTables(db);
@@ -761,6 +762,32 @@ function createSignalsTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
     CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
     CREATE INDEX IF NOT EXISTS idx_signals_feature ON signals(feature_id);
+  `);
+}
+
+/** F20260902sgp2 S1：派发台账（信号协议 v2）。pending := 已投递 ∧ 无派发记录；
+ *  消费 = 派发尝试记账（链引擎插桩）。UNIQUE(message_id, target_otter_id) 机械表达
+ *  「一尝试一销账」；覆盖式 retry 前把旧行终态压缩进 note（§8.2 折中，历史是排查线索）。
+ *  仅登记 initSchema 一处（F20260827mgux 消灭誊抄结构）。 */
+function createDispatchAttemptsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dispatch_attempts (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      target_otter_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')),
+      source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')),
+      attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      attempt_finished_at TEXT,
+      note TEXT,
+      UNIQUE(message_id, target_otter_id),
+      FOREIGN KEY (message_id) REFERENCES messages(id),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_dispatch_attempts_conv ON dispatch_attempts(conversation_id, status);
+    CREATE INDEX IF NOT EXISTS idx_dispatch_attempts_message ON dispatch_attempts(message_id);
   `);
 }
 

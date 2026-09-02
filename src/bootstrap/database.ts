@@ -82,6 +82,23 @@ export async function postInitDatabase(db: Database.Database, repos: Repositorie
   await seedTerminologyData(db, logger);
   await reconcileOrphans(repos.conversation, logger);
   await backfillSessionLedger(db, repos.otter, logger);
+
+  // ── F20260902sgp2 S1：派发台账启动任务（顺序固定：死亡证明 → backfill 墓碑）──
+  // ① 死亡证明（§4.4）：上个进程遗留的 in_progress 一律标 failed（进程内不可能有存活的
+  //    in_progress 跨越重启；先例 reconcile-orphans failInFlightMessages 同款语义）。
+  // ② backfill 墓碑（§4.5）：首次建表后存量已投递消息一刀标记 legacy-attempted——
+  //    幂等（OR IGNORE），切换瞬间 pending=0，rbsg 126-invoke 事故不可能重演。
+  // 两者失败均仅日志——台账是记账面不是控制面，任何失败不阻断启动（硬约束 1）。
+  try {
+    const stale = repos.dispatchAttempt.markStaleInProgressFailed();
+    if (stale > 0) logger.info('[signal-ledger] 死亡证明：重启翻篇 in_progress 派发记录', { count: stale });
+    const backfilled = repos.dispatchAttempt.backfillLegacyAttempted();
+    if (backfilled > 0) logger.info('[signal-ledger] backfill 墓碑：存量已投递消息标记 legacy-attempted', { count: backfilled });
+    const pendingCount = repos.dispatchAttempt.countPendingSignals();
+    logger.info('[signal-ledger] 启动完成，当前 pending 计数', { pending: pendingCount });
+  } catch (e) {
+    logger.warn('[signal-ledger] 启动任务失败（不影响启动）', { error: e instanceof Error ? e.message : String(e) });
+  }
 }
 
 /** sync 完成后的 chunk 迁移（独立于 migrateDatabase，PR 审视 S3-01） */
