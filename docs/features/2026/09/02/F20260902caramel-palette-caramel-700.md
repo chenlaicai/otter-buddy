@@ -45,14 +45,14 @@ intent:
 
 - 深档（600→700）步长显著大于浅档（300→500），这是 600 已经建立的既有趋势；
 - 700 保持「R 降最多、B 降最少」的暖棕色相偏移，与 600→700 的 caramel 语义（越深越接近烘焦色）一致；
-- 对白底对比度约 8.2:1（600 为 6.3:1），满足「深阶警示可读性」。
+- 对白底对比度实测 8.07:1（600 为 5.30:1，WCAG 复算验证），满足「深阶警示可读性」（初稿声称 8.2:1/6.3:1 为估算值，检视纠正）。
 
 ## 方案
 
 **token 定义（双源同步，两处都要加）**：
 
 1. `web/src/pages/health/palette.ts` — `CARAMEL` 常量补 `700: '#6B4924'`
-2. `web/src/styles/globals.css` — `@theme` 补 `--color-caramel-700` 变量；同 commit 追补浅底档 `--color-caramel-50: #FBF7F4` / `--color-caramel-100: #F7EDE3`（由 300 阶 #E8B98E ≈ HSL(29°,47%,73%) 反向外推：同色相/饱和度、亮度拉到 97%/93% 的浅底，100 档配 text-caramel-700 对比度 ≈6.9:1）——修复 ChainDetailDrawer 徽章 `bg-caramel-100/50` 自 #687 起静默失效的问题（大獭拍板搭同 PR 顺手修）
+2. `web/src/styles/globals.css` — `@theme` 补 `--color-caramel-700` 变量；同 commit 追补浅底档 `--color-caramel-50: #FBF7F4` / `--color-caramel-100: #F7EDE3`（由 300 阶 #E8B98E ≈ HSL(29°,47%,73%) 反向外推：同色相/饱和度、亮度拉到 97%/93% 的浅底，100 档配 text-caramel-700 对比度实测 6.98:1）——修复 ChainDetailDrawer 徽章 `bg-caramel-100/50` 自 #687 起静默失效的问题（大獭拍板搭同 PR 顺手修）
 
 > tailwind v4 的 utility class 由 `@theme` 变量生成：只加 palette.ts 不加 globals.css，`text-caramel-700` 等 class 依然不生成。
 
