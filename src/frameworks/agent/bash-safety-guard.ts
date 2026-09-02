@@ -130,8 +130,15 @@ function checkCommandLevelPatterns(
   mainPid: number,
   logger?: Logger,
 ): string | null {
-  // eval 包装 + 数字参数 → 保守拦截（eval "kil""l 42877" 等字符串拼接绕过）
-  if (/\beval\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
+  // eval 包装 + 数字参数 → 保守拦截（eval "kil""l 42877" 等字符串拼接绕过）。
+  // 词边界限定命令位置（F20260902gvrd）：原 /\beval\b/ 匹配路径/标识符中的 eval-xxx
+  //（连字符是词边界，eval-activation-p0 / guard-eval-fix 均命中），叠加任意 2-6 位数字
+  //（路径里的日期、行号）即误拦纯 git/grep 命令。收紧为：行首或 shell 操作符/管道后的
+  // 独立 eval 单词——字符串拼接绕过仍被覆盖（eval 必在命令位置才执行），路径中的
+  // eval-xxx 不再触发。归一化文本同步收紧（塔死 k\ill 后接 eval 的拼接形态由
+  // normalizeForDetection 段落化后仍在命令位置）。
+  const evalInCommandPosition = /(?:^|[;&|]\s*|\|\s*)eval\s/.test(cmdLower) || /(?:^|[;&|]\s*)eval\b"/.test(cmdLower);
+  if (evalInCommandPosition && /\b\d{2,6}\b/.test(command)) {
     logger?.warn("[bash-safety-guard] BLOCKED eval with numeric arguments", { mainPid, command: command.substring(0, 200) });
     return "bash 命令使用 eval 包装了含数字参数的操作，可能隐藏终止进程的命令。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
@@ -208,6 +215,42 @@ function checkBashCommandSafetyOnText(
   return null;
 }
 
+/** 命中规则定位（F20260902gvrd，#730）：拦截文案从静态说明升级为带诊断上下文。
+ *  扫描命令中命中各高危词表的子串，返回「规则名 × 片段 × 位置」行。
+ *  只做诊断回显，不参与拦截判定——拦截逻辑本身不变。 */
+function locateTriggerContext(command: string, mainPid: number | null): string[] {
+  const hits: string[] = [];
+  const patterns: Array<[string, RegExp]> = [
+    ["kill 族命令", /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/gi],
+    ["eval 引用", /\beval\b/gi],
+    ["PID 文件引用", /\.otter-buddy\.pid/g],
+    ["进程名模式", /\b(?:otter-buddy|otter_buddy|dist\/src\/main|main\.js|node)\b/g],
+  ];
+  for (const [name, pat] of patterns) {
+    const re = new RegExp(pat.source, pat.flags.includes("g") ? pat.flags : pat.flags + "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(command)) !== null && hits.length < 6) {
+      const start = Math.max(0, m.index - 10);
+      const end = Math.min(command.length, m.index + m[0].length + 10);
+      // PID 脱敏铁律（F20260831aksp）：片段中的真实主进程 PID 替换为占位符——
+      // 防「错误试探 → 文案回显真实 PID → 精准二次打击」。其他数字（日期/行号）无害保留。
+      const raw = command.slice(start, end).replace(/\n/g, " ");
+      const snippet = mainPid !== null ? raw.split(String(mainPid)).join("<main-pid>") : raw;
+      hits.push(`${name}：…${snippet}… @${m.index}`);
+    }
+  }
+  return hits;
+}
+
+/** 拦截文案附加诊断块（#730）：被拦的獭能看到命中了什么、在哪，自诊断不再靠人肉读源码。
+ *  scanText = 诊断扫描文本：拦截命中自哪份文本（原始/归一化）就用哪份——归一化路径的
+ *  触发词在原命令里可能被引号拆开（e""val），扫原文会零命中。 */
+function withDiagnostics(message: string, scanText: string, mainPid: number | null): string {
+  const hits = locateTriggerContext(scanText, mainPid);
+  if (hits.length === 0) return message;
+  return `${message}\n【命中详情】${hits.join("；")}`;
+}
+
 /**
  * 检查 bash 命令是否安全（不针对主进程的 kill 操作）。
  *
@@ -229,11 +272,12 @@ export function checkBashCommandSafety(
   if (!command.trim() || mainPid === null) return null;
 
   const result = checkBashCommandSafetyOnText(command, mainPid, logger);
-  if (result) return result;
+  if (result) return withDiagnostics(result, command, mainPid);
 
   const normalized = normalizeForDetection(command);
   if (normalized !== command) {
-    return checkBashCommandSafetyOnText(normalized, mainPid, logger);
+    const nResult = checkBashCommandSafetyOnText(normalized, mainPid, logger);
+    return nResult ? withDiagnostics(nResult, normalized, mainPid) : null;
   }
   return null;
 }
