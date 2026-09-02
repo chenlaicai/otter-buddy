@@ -61,6 +61,8 @@ export interface OtterToolClient {
       startSpeaking(messageId: string, params: {
         body?: string;
         talkingStonePassedTo: string[];
+        signalLevel?: string;
+        signalMeta?: string;
       }): Promise<Message>;
       /** 追加一条 speak 片段到消息 */
       appendSegment(messageId: string, body: string): Promise<MessageSegment>;

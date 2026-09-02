@@ -7,6 +7,7 @@ import type { SettingsConfig } from "@interface-adapters/http/controllers/settin
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
 import type { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
@@ -88,6 +89,8 @@ export interface ControllerDeps {
   onWeixinAccountDeleted?: (accountId: string) => void;
   /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
+  /** F20260901sgpv P1：信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
+  signalRouter?: SignalRouter;
 }
 
 function buildChannelController(deps: ControllerDeps) {
@@ -104,7 +107,7 @@ function buildAttachmentInjection(deps: ControllerDeps, appConfig: AppConfig, re
 }
 
 export function initControllers(deps: ControllerDeps, logger: Logger) {
-  const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo } = deps;
+  const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
   /** issue #566：微信连接控制器（端口注入；拆出降 initControllers 复杂度） */
   const buildWeixinController = () =>
@@ -138,6 +141,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       dispatchChainEngine, messageBroadcaster,
       signalEventRepo,
       attachmentInjection,
+      signalRouter,
     ),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, logger),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),

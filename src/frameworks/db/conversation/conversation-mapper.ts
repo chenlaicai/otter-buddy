@@ -48,6 +48,8 @@ export interface MessageRow {
   sender_name: string;
   created_at: string;
   completed_at: string | null;
+  signal_level: string | null;
+  signal_meta: string | null;
 }
 
 export interface MessageEventRow {
@@ -139,6 +141,8 @@ export function rowToMessage(row: MessageRow): Message {
     senderName: row.sender_name ?? '',
     createdAt: row.created_at,
     completedAt: row.completed_at,
+    signalLevel: row.signal_level ?? null,
+    signalMeta: row.signal_meta ?? null,
   };
 }
 
