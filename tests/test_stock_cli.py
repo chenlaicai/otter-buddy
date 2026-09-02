@@ -390,8 +390,15 @@ class TestKlineFallback:
             result = cli.cmd_kline(_make_kline_args())
             assert result.get("source") == "sina"
             assert result["stats"]["last_close"] == 10.9
-            assert "change_pct" in result["ohlcv"][-1]
-            assert "amplitude" in result["ohlcv"][-1]
+            # 值断言（海星检视发现 3）：补算列不只验证键存在，还验证计算正确性
+            last = result["ohlcv"][-1]
+            assert "change_pct" in last
+            assert "amplitude" in last
+            # close 10.5 -> 10.9：change_pct = 0.4/10.5*100 ≈ 3.81
+            assert last["change_pct"] == pytest.approx(3.81, abs=0.01)
+            # high 11.0 / low 10.6 / prev close 10.5：amplitude = 0.4/10.5*100 ≈ 3.81
+            assert last["amplitude"] == pytest.approx(3.81, abs=0.01)
+            assert last["change"] == pytest.approx(0.4, abs=0.001)
         finally:
             ak.stock_zh_a_hist, ak.stock_zh_a_daily = originals
 
