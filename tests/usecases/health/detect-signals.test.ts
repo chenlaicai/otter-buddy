@@ -55,21 +55,41 @@ describe("detectSignals", () => {
     expect(signals.find(s => s.type === "bug_recurrence")).toBeUndefined();
   });
 
-  it("chain_stall：stalled/zombie 链触发 critical（复用 ChainBuilder 判定）", () => {
-    const commits = [commit("s1", 20, "[F20260801aaaa][agent][New Feature] x", ["a.ts"])];
+  it("chain_stall：pr-stalled 信号触发 critical（F20260902sigm：读 chain.signals）", () => {
+    const commits = [commit("s1", 3, "[F20260801aaaa][agent][New Feature] x", ["a.ts"])];
     const docs = [{
       id: "F20260801aaaa", title: "t", changeType: "feature", status: "development",
       tags: [], modules: [], causalLinksFrom: [], supersedes: [],
       filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
     }];
-    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    const openPrs = [{
+      number: 42, title: "PR", headRefName: "feature/x", body: null,
+      url: "https://example.com/pr/42", createdAt: dayAgo(30),
+      lastActivityAt: dayAgo(20), featureIds: ["F20260801aaaa"],
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW, openPrs });
     const signals = detectSignals(commits, chains, [], { now: NOW });
 
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.severity).toBe("critical");
     expect(stall!.featureId).toBe("F20260801aaaa");
-    expect(stall!.evidence).toContain("20 天");
+    expect(stall!.evidence).toContain("#42");
+    expect(stall!.evidence).toContain("20 天无推进");
+    // pr-stalled 是 PR 事实而非猜测，不降置信
+    expect(stall!.confidence).toBe("normal");
+  });
+
+  it("chain_stall 不触发：commit 静默但无 open PR（旧 stalled 语义删除）", () => {
+    const commits = [commit("s1", 45, "[F20260801nnnn][agent][New Feature] x", ["a.ts"])];
+    const docs = [{
+      id: "F20260801nnnn", title: "t", changeType: "feature", status: "development",
+      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+      filePath: "docs/features/n.md", createdAt: dayAgo(50), createdInConversationId: null,
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    const signals = detectSignals(commits, chains, [], { now: NOW });
+    expect(signals.find(s => s.type === "chain_stall")).toBeUndefined();
   });
 
   it("重复文件名不去重不双计（Set 防御，审视建议发现 4）", () => {
@@ -170,33 +190,27 @@ describe("detectSignals", () => {
     expect(rec.suggestedAction).toBe("强制根因分析");
   });
 
-  it("chain_stall：draft/proposed 文档从未有 commit 不触发（孤儿文档误报修复）", () => {
-    // Why: draft/proposed 文档从未开工是常态，不应触发 critical 信号
-    const docs = [{
-      id: "F20260801draf", title: "t", changeType: "feature", status: "draft",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
-    }];
+  it("F20260902sigm：doc-only 链（任何 status，无论创建多久）零信号——零 commit 是常态不是病", () => {
+    // 旧模型按 status 过滤（draft/proposed/design 豁免、development 触发）；新模型 docStatus 退役，
+    // doc-only 一律稳定（245 篇零 commit 文档是本仓常态，方案 R6）
+    const docs = [
+      { id: "F20260801draf", title: "t", changeType: "feature", status: "draft",
+        tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+        filePath: "docs/features/x1.md", createdAt: dayAgo(40), createdInConversationId: null },
+      { id: "F20260801dev0", title: "t", changeType: "feature", status: "development",
+        tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+        filePath: "docs/features/x2.md", createdAt: dayAgo(40), createdInConversationId: null },
+      { id: "F20260801desg", title: "t", changeType: "feature", status: "design",
+        tags: [], modules: [], causalLinksFrom: [], supersedes: [],
+        filePath: "docs/features/x3.md", createdAt: dayAgo(90), createdInConversationId: null },
+    ];
     const chains = buildFeatureChains([], docs, { now: NOW });
-    // ChainBuilder 判定为 stalled（>14 天无 commit），但 detectChainStall 应过滤掉
-    expect(chains[0].state).toBe("stalled");
+    for (const c of chains) {
+      expect(c.state).toBe("active");
+      expect(c.signals).toEqual([]);
+    }
     const signals = detectSignals([], chains, [], { now: NOW });
     expect(signals.find(s => s.type === "chain_stall")).toBeUndefined();
-  });
-
-  it("chain_stall：development 文档从未有 commit 仍触发（用 createdAt 计算天数）", () => {
-    // Why: development 状态文档从未有 commit 仍值得关注，但证据应基于 createdAt
-    const docs = [{
-      id: "F20260801dev0", title: "t", changeType: "feature", status: "development",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/y.md", createdAt: dayAgo(40), createdInConversationId: null,
-    }];
-    const chains = buildFeatureChains([], docs, { now: NOW });
-    expect(chains[0].state).toBe("stalled");
-    const signals = detectSignals([], chains, [], { now: NOW });
-    const stall = signals.find(s => s.type === "chain_stall");
-    expect(stall).toBeDefined();
-    expect(stall!.evidence).toContain("40 天"); // 基于 createdAt，不是 "null 天"
   });
 
   it("hotspot：测试文件不进入热点检测", () => {
@@ -223,20 +237,6 @@ describe("detectSignals", () => {
     const hot = signals.find(s => s.type === "hotspot");
     expect(hot).toBeDefined();
     expect(hot!.filePath).toBe("src/core.ts");
-  });
-
-  it("chain_stall：design 文档从未有 commit 不触发（design 状态过滤）", () => {
-    // Why: design 文档从未开工是常态（项目规划阶段），不应触发 critical 信号
-    const docs = [{
-      id: "F20260801desg", title: "t", changeType: "feature", status: "design",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/z.md", createdAt: dayAgo(40), createdInConversationId: null,
-    }];
-    const chains = buildFeatureChains([], docs, { now: NOW });
-    // ChainBuilder 判定为 stalled（>14 天无 commit），但 detectChainStall 应过滤掉
-    expect(chains[0].state).toBe("stalled");
-    const signals = detectSignals([], chains, [], { now: NOW });
-    expect(signals.find(s => s.type === "chain_stall")).toBeUndefined();
   });
 
   it("hotspot：大写 Tests/ 目录也排除（大小写不敏感）", () => {
@@ -286,129 +286,23 @@ describe("Issue #644：结构化证据 + 置信度", () => {
     expect(rec!.detail!.commits.every(c => c.sha !== "old")).toBe(true);
   });
 
-  it("chain_stall 置信规则甲：stalled ∧ 有 commit → low；zombie/doc-only → normal", () => {
-    // 滞留但链上有 commit（「干完没归档」主场景）
-    const commits = [commit("s1", 20, "[F20260801aaaa][agent][New Feature] x", ["a.ts"])];
+  it("F20260902sigm：多停滞 PR 逐条出信号（挂几个报几个）", () => {
+    const commits = [commit("s1", 3, "[F20260801mult][agent][New Feature] x", ["a.ts"])];
     const docs = [{
-      id: "F20260801aaaa", title: "t", changeType: "feature", status: "development",
+      id: "F20260801mult", title: "t", changeType: "feature", status: "development",
       tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
+      filePath: "docs/features/m.md", createdAt: dayAgo(40), createdInConversationId: null,
     }];
-    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    const mkPr = (n: number, days: number) => ({
+      number: n, title: `PR ${n}`, headRefName: "feature/x", body: null,
+      url: `https://example.com/pr/${n}`, createdAt: dayAgo(days + 5),
+      lastActivityAt: dayAgo(days), featureIds: ["F20260801mult"],
+    });
+    const chains = buildFeatureChains(commits, docs, { now: NOW, openPrs: [mkPr(51, 20), mkPr(52, 9)] });
     const signals = detectSignals(commits, chains, [], { now: NOW });
-    const stall = signals.find(s => s.type === "chain_stall");
-    expect(stall).toBeDefined();
-    expect(stall!.confidence).toBe("low"); // 有 commit 的滞留 → low
-
-    // doc-only development 滞留（无 commit）→ normal（更接近真异常）
-    const docs2 = [{
-      id: "F20260801bbbb", title: "t", changeType: "feature", status: "development",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/y.md", createdAt: dayAgo(40), createdInConversationId: null,
-    }];
-    const chains2 = buildFeatureChains([], docs2, { now: NOW });
-    const signals2 = detectSignals([], chains2, [], { now: NOW });
-    const stall2 = signals2.find(s => s.type === "chain_stall");
-    expect(stall2).toBeDefined();
-    expect(stall2!.confidence).toBe("normal");
-  });
-
-  it("chain-builder 白名单收编 active：status: active 的滞留链参与病态判定", () => {
-    // Issue #644 止血：41 篇 status:active 文档原先被当终态静默豁免
-    const commits = [commit("s1", 20, "[F20260801actv][agent][New Feature] x", ["a.ts"])];
-    const docs = [{
-      id: "F20260801actv", title: "t", changeType: "feature", status: "active",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/a.md", createdAt: dayAgo(40), createdInConversationId: null,
-    }];
-    const chains = buildFeatureChains(commits, docs, { now: NOW });
-    expect(chains[0].state).toBe("stalled"); // 不再豁免
-    const signals = detectSignals(commits, chains, [], { now: NOW });
-    const stall = signals.find(s => s.type === "chain_stall");
-    expect(stall).toBeDefined();
-    expect(stall!.confidence).toBe("low");
-  });
-
-  it("置信规则甲 zombie 分支：30 天无 commit 且零提及 → normal（更接近真异常，不降置信）（审视发现 3）", () => {
-    // 规则甲的对照分支：stalled→low 依赖 zombie→normal 的对比才成立。
-    // 原先只有代码注释保证，无直接用例锁定
-    const commits = [commit("s1", 45, "[F20260801zomb][agent][New Feature] x", ["a.ts"])]; // 45 天前最后 commit（> zombieDays 30）
-    const docs = [{
-      id: "F20260801zomb", title: "t", changeType: "feature", status: "development",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/z.md", createdAt: dayAgo(50), createdInConversationId: null,
-    }];
-    // 提及 Map 显式 0（未传 Map = 未查询不判 zombie，冷启动安全，见 isZombie）
-    const fidMentionCounts = new Map([["F20260801zomb", 0]]);
-    const chains = buildFeatureChains(commits, docs, { now: NOW, fidMentionCounts });
-    expect(chains[0].state).toBe("zombie");
-    const signals = detectSignals(commits, chains, [], { now: NOW });
-    const stall = signals.find(s => s.type === "chain_stall");
-    expect(stall).toBeDefined();
-    expect(stall!.confidence).toBe("normal"); // zombie 不降置信
-    expect(stall!.evidence).toContain("僵尸");
-  });
-});
-
-describe("Issue #645：僵尸链阶梯", () => {
-  function zombieFixture(fid: string, commitDaysAgo: number, docCreatedDaysAgo: number) {
-    const commits = [commit("s1", commitDaysAgo, `[${fid}][agent][New Feature] x`, ["a.ts"])];
-    const docs = [{
-      id: fid, title: "t", changeType: "feature", status: "development",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: `docs/features/${fid}.md`, createdAt: dayAgo(docCreatedDaysAgo), createdInConversationId: null,
-    }];
-    const fidMentionCounts = new Map([[fid, 0]]);
-    const chains = buildFeatureChains(commits, docs, { now: NOW, fidMentionCounts });
-    expect(chains[0]!.state).toBe("zombie");
-    return detectSignals(commits, chains, [], { now: NOW }).find(s => s.type === "chain_stall")!;
-  }
-
-  it("30-60 天黄档：severity 降为 warning，suggestedAction=观察", () => {
-    const stall = zombieFixture("F20260801warn", 35, 40);
-    expect(stall.severity).toBe("warning");
-    expect(stall.evidence).toContain("黄档");
-    expect(stall.evidence).toContain("35 天");
-    expect(stall.suggestedAction).toContain("观察");
-    expect(stall.confidence).toBe("normal"); // #644 语义不变：zombie 不降置信
-  });
-
-  it("边界：恰好 30 天进黄档（isZombie 的 zombieDays 默认 30 已拦 <30）", () => {
-    const stall = zombieFixture("F20260801bt33", 30, 40);
-    expect(stall.severity).toBe("warning");
-    expect(stall.evidence).toContain("黄档");
-  });
-
-  it("60-90 天红档：critical + 强制复盘 action（恰好 60 天进红档）", () => {
-    const stall = zombieFixture("F20260801red6", 60, 70);
-    expect(stall.severity).toBe("critical");
-    expect(stall.evidence).toContain("红档");
-    expect(stall.evidence).toContain("60 天");
-    expect(stall.suggestedAction).toContain("链复盘");
-  });
-
-  it("≥90 天归档档：critical + evidence 建议归档 + suggestedAction 指向归档动作（消费者拿得起）", () => {
-    const stall = zombieFixture("F20260801arc9", 95, 100);
-    expect(stall.severity).toBe("critical");
-    expect(stall.evidence).toContain("归档");
-    expect(stall.evidence).toContain("95 天");
-    expect(stall.suggestedAction).toContain("归档 issue");
-    expect(stall.suggestedAction).toContain("archived");
-  });
-
-  it("stalled 分支不受阶梯影响：仍 critical + 规则甲置信（14 天滞留）", () => {
-    const commits = [commit("s1", 20, "[F20260801staz][agent][New Feature] x", ["a.ts"])];
-    const docs = [{
-      id: "F20260801staz", title: "t", changeType: "feature", status: "development",
-      tags: [], modules: [], causalLinksFrom: [], supersedes: [],
-      filePath: "docs/features/x.md", createdAt: dayAgo(40), createdInConversationId: null,
-    }];
-    const chains = buildFeatureChains(commits, docs, { now: NOW });
-    expect(chains[0]!.state).toBe("stalled");
-    const stall = detectSignals(commits, chains, [], { now: NOW }).find(s => s.type === "chain_stall")!;
-    expect(stall.severity).toBe("critical"); // 注册表默认，阶梯只作用于 zombie
-    expect(stall.evidence).not.toContain("黄档");
-    expect(stall.confidence).toBe("low"); // stalled ∧ 有 commit → low
+    const stalls = signals.filter(s => s.type === "chain_stall");
+    expect(stalls).toHaveLength(2);
+    expect(stalls.map(s => s.evidence)).toContainEqual(expect.stringContaining("#51"));
   });
 });
 
@@ -547,7 +441,7 @@ describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
 
   it("多信号类型共存互不干扰：bug_recurrence + chain_stall + behavior_defect 同场各自触发", () => {
     const commits = [
-      commit("s1", 20, "[F20260801mx66][agent][New Feature] x", ["src/stall.ts"]),
+      commit("s1", 3, "[F20260801mx66][agent][New Feature] x", ["src/stall.ts"]),
       commit("b1", 3, "[F20260801tstw][agent][BugFix] 1 (#1)", ["src/invoker.ts"]),
       commit("b2", 6, "[F20260801tstw][agent][BugFix] 2 (#2)", ["src/invoker.ts"]),
       commit("b3", 9, "[F20260801tstw][agent][BugFix] 3 (#3)", ["src/invoker.ts"]),
@@ -557,7 +451,11 @@ describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
       tags: [], modules: [], causalLinksFrom: [], supersedes: [],
       filePath: "docs/features/mx66.md", createdAt: dayAgo(40), createdInConversationId: null,
     }];
-    const chains = buildFeatureChains(commits, docs, { now: NOW });
+    const openPrs = [{
+      number: 88, title: "PR", headRefName: "feature/mx66", body: null,
+      url: null, createdAt: dayAgo(30), lastActivityAt: dayAgo(12), featureIds: ["F20260801mx66"],
+    }];
+    const chains = buildFeatureChains(commits, docs, { now: NOW, openPrs });
     const events = [
       healingEvent("h1", "tool_failure", 5),
       healingEvent("h2", "tool_failure", 3),

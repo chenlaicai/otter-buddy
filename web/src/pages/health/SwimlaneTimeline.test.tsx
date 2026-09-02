@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import type { RhiChainDTO } from '../../api/client'
 import { SwimlaneTimeline, ChainFilterChips, sortChainsBySeverity } from './SwimlaneTimeline'
 import { CHAIN_STATE_META, commitNodeColor } from './chain-state-meta'
-import { TEAL, CARAMEL, OTTER, LAVENDER } from './palette'
+import { TEAL, CARAMEL, LAVENDER } from './palette'
 
 // 页面入口 index.tsx 在 import 时挂载 #root，本测试不 import 它，无副作用
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
@@ -16,6 +16,7 @@ function chain(state: RhiChainDTO['state'], featureId: string, overrides: Partia
   return {
     featureId,
     state,
+    signals: [],
     commitCount: 3,
     bugfixCount: 1,
     daysSinceLastCommit: 1,
@@ -52,15 +53,13 @@ function q(c: HTMLElement, sel: string): Element | null {
 }
 
 describe('SwimlaneTimeline 泳道时间线（Issue #649 视觉契约）', () => {
-  it('五态行各带 data-state；zombie 行 data-desaturated=1（降饱和契约）', () => {
-    const states: RhiChainDTO['state'][] = ['active', 'stalled', 'regressed', 'zombie', 'orphan']
+  it('F20260902sigm 四态行各带 data-state（zombie 已删除）', () => {
+    const states: RhiChainDTO['state'][] = ['active', 'stalled', 'regressed', 'orphan']
     const c = render(<SwimlaneTimeline chains={states.map(s => chain(s, `F${s}`))} onOpen={() => {}} />)
     for (const s of states) {
       const row = c.querySelector(`g.swim-row[data-state="${s}"]`)
       expect(row, `state=${s} 行应存在`).toBeTruthy()
     }
-    expect(q(c, 'g[data-state="zombie"]')?.getAttribute('data-desaturated')).toBe('1')
-    expect(q(c, 'g[data-state="active"]')?.getAttribute('data-desaturated')).toBeNull()
   })
 
   it('active 末端呼吸动画（全场唯一动效）：swim-active-pulse + SMIL animate', () => {
@@ -70,19 +69,14 @@ describe('SwimlaneTimeline 泳道时间线（Issue #649 视觉契约）', () => 
     expect(pulse!.querySelector('animate')).toBeTruthy()
   })
 
-  it('stalled 线尾虚化 + 空心圆 + 停滞旁注（三要素 DOM 断言）', () => {
-    const c = render(<SwimlaneTimeline chains={[chain('stalled', 'F2', { daysSinceLastCommit: 6 })]} onOpen={() => {}} />)
+  it('stalled（pr-stalled）线尾虚化 + 空心圆 + PR 停滞旁注（三要素 DOM 断言）', () => {
+    const c = render(<SwimlaneTimeline chains={[chain('stalled', 'F2', {
+      signals: [{ id: 'pr-stalled', evidence: 'open PR #42 已 6 天无推进', stalledPrs: [{ number: 42, url: null, daysSinceActivity: 6 }] }],
+    })]} onOpen={() => {}} />)
     expect(q(c, 'line.swim-stalled-fade')).toBeTruthy()
     expect(q(c, 'circle.swim-stalled-end')).toBeTruthy()
     const label = c.querySelector('text.swim-stalled-label')
-    expect(label?.textContent).toContain('停滞 6 天')
-  })
-
-  it('zombie 末端 ×（swim-zombie-end path，otter-400 降饱和阶）', () => {
-    const c = render(<SwimlaneTimeline chains={[chain('zombie', 'F3')]} onOpen={() => {}} />)
-    const mark = c.querySelector('path.swim-zombie-end') as SVGElement | null
-    expect(mark).toBeTruthy()
-    expect(mark!.getAttribute('stroke')).toBe(OTTER[400])
+    expect(label?.textContent).toContain('#42 停 6 天')
   })
 
   it('orphan 悬空空心起点：lavender 空心圆（fill=none）', () => {
@@ -149,7 +143,7 @@ describe('SwimlaneTimeline 泳道时间线（Issue #649 视觉契约）', () => 
 })
 
 describe('ChainFilterChips 异常筛选（§3.2 视觉反转）', () => {
-  const counts = { active: 275, stalled: 50, regressed: 2, zombie: 7, orphan: 4 }
+  const counts = { active: 275, stalled: 50, regressed: 2, orphan: 4 }
 
   it('异常 chips 实心（色底白字）+ 计数徽章；活跃 chip 描边灰显', () => {
     const c = render(<ChainFilterChips counts={counts} total={338} active={null} onPick={() => {}} />)
@@ -164,13 +158,13 @@ describe('ChainFilterChips 异常筛选（§3.2 视觉反转）', () => {
 
   it('点击异常 chip → onPick(state)；选中态再点取消 → onPick(null)', () => {
     let picked: string | null = null
-    const c = render(<ChainFilterChips counts={counts} total={338} active={null} onPick={s => { picked = s }} />)
-    const zombieChip = c.querySelector('[data-testid="chip-zombie"]') as HTMLElement
-    act(() => { zombieChip.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
-    expect(picked).toBe('zombie')
-    // 选中态（active=zombie）重渲染后，再点同一 chip = 取消
-    act(() => root.render(<ChainFilterChips counts={counts} total={338} active={'zombie'} onPick={s => { picked = s }} />))
-    const chipAgain = c.querySelector('[data-testid="chip-zombie"]') as HTMLElement
+    const c = render(<ChainFilterChips counts={counts} total={331} active={null} onPick={s => { picked = s }} />)
+    const regressedChip = c.querySelector('[data-testid="chip-regressed"]') as HTMLElement
+    act(() => { regressedChip.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(picked).toBe('regressed')
+    // 选中态（active=regressed）重渲染后，再点同一 chip = 取消
+    act(() => root.render(<ChainFilterChips counts={counts} total={331} active={'regressed'} onPick={s => { picked = s }} />))
+    const chipAgain = c.querySelector('[data-testid="chip-regressed"]') as HTMLElement
     expect(chipAgain.getAttribute('data-active')).toBe('1')
     act(() => { chipAgain.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     expect(picked).toBeNull()
@@ -182,24 +176,23 @@ describe('ChainFilterChips 异常筛选（§3.2 视觉反转）', () => {
     expect(orphanChip.style.opacity).toBe('0.45')
   })
 
-  it('排序：状态严重度优先（zombie > regressed > stalled > orphan > active），同态按最近活动', () => {
+  it('排序：状态严重度优先（regressed > stalled > orphan > active），同态按最近活动', () => {
     const input = [
       chain('active', 'Fa', { daysSinceLastCommit: 1 }),
       chain('stalled', 'Fs', { daysSinceLastCommit: 20 }),
-      chain('zombie', 'Fz', { daysSinceLastCommit: 40 }),
+      chain('orphan', 'Fo', { daysSinceLastCommit: 40 }),
       chain('regressed', 'Fr', { daysSinceLastCommit: 2 }),
     ]
     const sorted = sortChainsBySeverity(input)
-    expect(sorted.map(c => c.state)).toEqual(['zombie', 'regressed', 'stalled', 'active'])
+    expect(sorted.map(c => c.state)).toEqual(['regressed', 'stalled', 'orphan', 'active'])
   })
 })
 
-describe('五态元数据（chain-state-meta 单一真相源）', () => {
-  it('色义锁定：与观澜 §3.4 表一致', () => {
+describe('四态元数据（chain-state-meta 单一真相源）', () => {
+  it('色义锁定：与观澜 §3.4 表一致（F20260902sigm：zombie 删除）', () => {
     expect(CHAIN_STATE_META.active.color).toBe(TEAL[500])
     expect(CHAIN_STATE_META.stalled.color).toBe(CARAMEL[500])
     expect(CHAIN_STATE_META.regressed.color).toBe(CARAMEL[600])
-    expect(CHAIN_STATE_META.zombie.color).toBe(OTTER[300])
     expect(CHAIN_STATE_META.orphan.color).toBe(LAVENDER[400])
   })
 })
