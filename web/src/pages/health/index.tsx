@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
-import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, Bug, FileCode, TrendingUp, PieChart as PieIcon, Layers, BarChart3, Gauge, ArrowUpRight, ArrowDownRight, Minus, Flame } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ShieldAlert, GitBranch, Activity, Bug, TrendingUp, PieChart as PieIcon, Layers, BarChart3, Gauge, ArrowUpRight, ArrowDownRight, Minus, Flame } from 'lucide-react'
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, Legend,
@@ -21,9 +21,12 @@ import { AppLayout } from '../../components/AppLayout'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiCostOutputOtterDTO, RhiScoreDTO } from '../../api/client'
-import { SERIES_COLORS, CHANGE_TYPE_COLORS, TEAL, CARAMEL, OTTER, LAVENDER } from './palette'
+import { SERIES_COLORS, CHANGE_TYPE_COLORS, TEAL, CARAMEL, OTTER } from './palette'
 import { RecurrenceSection, LowConfidenceDrawer, FreqBadge, FanInExcludedList } from './RecurrenceCard'
 import { HotspotHeatBar, TrendSparkline, hotspotData } from './HotspotHeat'
+import { SwimlaneTimeline, sortChainsBySeverity, ChainFilterChips } from './SwimlaneTimeline'
+import { ChainDetailDrawer } from './ChainDetailDrawer'
+import { CHAIN_STATE_META, CHANGE_TYPE_LABELS, type ChainState } from './chain-state-meta'
 
 type Tab = 'overview' | 'signals' | 'chains' | 'cost'
 
@@ -39,20 +42,7 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   post_merge_fix_density: '合并后修复密度',
 }
 
-/** 链五态（Issue #647 色彩纪律）：teal=活跃、caramel=滞留/回退、otter-300=僵尸/孤儿（失活降饱和，
- *  原 zombie rose 红退场——失活不是需要行动的紧急态）；徽章底色用 token +1A 透明后缀 */
-const CHAIN_STATE_LABELS: Record<string, { label: string; className: string; color: string }> = {
-  active: { label: '活跃', className: 'text-teal-700', color: TEAL[500] },
-  stalled: { label: '滞留', className: 'text-caramel-600', color: CARAMEL[500] },
-  regressed: { label: '回退', className: 'text-caramel-600', color: CARAMEL[600] },
-  zombie: { label: '僵尸', className: 'text-stone-500', color: OTTER[300] },
-  orphan: { label: '孤儿', className: 'text-lavender-500', color: LAVENDER[400] },
-}
-
-const CHANGE_TYPE_LABELS: Record<string, string> = {
-  Feature: '新功能', BugFix: '修复', Refactor: '重构', Docs: '文档',
-  Test: '测试', Chore: '杂务', Experiment: '实验',
-}
+/** 链五态/排序/changeType 标签已收编 chain-state-meta.ts（Issue #649 PR3 单一真相源） */
 
 const COST_OUTPUT_COLORS = SERIES_COLORS
 
@@ -92,6 +82,9 @@ function HealthPage() {
   const [fanInExcluded, setFanInExcluded] = useState<Array<{ file: string; fanIn: number }>>([])
   const [costOutput, setCostOutput] = useState<RhiCostOutputDTO | null>(null)
   const [score, setScore] = useState<RhiScoreDTO | null>(null)
+  // Issue #649 PR3：泳道异常筛选 + 抽屉选中链
+  const [chainFilter, setChainFilter] = useState<ChainState | null>(null)
+  const [activeChainId, setActiveChainId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -334,7 +327,8 @@ function HealthPage() {
             </div>
           )}
 
-          {/* 特性链视图 */}
+          {/* 特性链视图（PR3 #649）：泳道时间线 + 异常筛选 + 详情抽屉；
+              原 slice(0,50) 列表的可见性缺口（51 名后链不可见）由窗口化泳道取代 */}
           {tab === 'chains' && (
             <div className="space-y-4">
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
@@ -342,35 +336,14 @@ function HealthPage() {
                 {/* Issue #647：高扇入排除清单可见不黑箱（合并后修复密度信号的边界一）*/}
                 <FanInExcludedList files={fanInExcluded} />
               </div>
-              <div className="rounded-2xl bg-white/70 border border-stone-200/60 divide-y divide-stone-100">
-                {chains
-                  .slice()
-                  .sort((a, b) => stateRank(b.state) - stateRank(a.state) || (b.daysSinceLastCommit ?? 0) - (a.daysSinceLastCommit ?? 0))
-                  .slice(0, 50)
-                  .map(ch => (
-                    <div key={ch.featureId} className="px-4 py-2.5 text-sm">
-                      <div className="flex items-center gap-3">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${CHAIN_STATE_LABELS[ch.state]?.className ?? ''}`}>
-                          {CHAIN_STATE_LABELS[ch.state]?.label ?? ch.state}
-                        </span>
-                        <span className="font-medium text-stone-700 truncate">
-                          {ch.docTitle ?? '无文档'}
-                        </span>
-                        <span className="font-mono text-xs text-stone-400 shrink-0">{ch.featureId}</span>
-                        <span className="text-xs text-stone-400 shrink-0 ml-auto">
-                          {ch.commitCount} commits · {ch.bugfixCount} bugfix
-                          {ch.daysSinceLastCommit !== null && ` · 距上次 ${ch.daysSinceLastCommit} 天`}
-                        </span>
-                      </div>
-                      <p className="text-xs text-stone-500 mt-1 ml-14">{ch.stateReason}</p>
-                    </div>
-                  ))}
-                {chains.length === 0 && (
-                  <div className="text-center py-12 text-stone-400">
-                    <FileCode className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                    无特性链数据
-                  </div>
-                )}
+              <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
+                <ChainFilterChips counts={stateCounts} total={chains.length} active={chainFilter} onPick={setChainFilter} />
+              </div>
+              <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-2 py-2 overflow-x-auto">
+                <SwimlaneTimeline
+                  chains={sortChainsBySeverity(chainFilter ? chains.filter(c => c.state === chainFilter) : chains)}
+                  onOpen={setActiveChainId}
+                />
               </div>
             </div>
           )}
@@ -482,6 +455,8 @@ function HealthPage() {
           )}
         </div>
       </div>
+      {/* 链详情抽屉（Issue #649 交付 3）：点泳道行展开，全量 commits + 状态归因 */}
+      <ChainDetailDrawer featureId={activeChainId} onClose={() => setActiveChainId(null)} />
     </AppLayout>
   )
 }
@@ -515,10 +490,7 @@ function chainTotal(trends: RhiTrendsDTO): number {
   return cs ? Object.values(cs).reduce((s, v) => s + v, 0) : 0
 }
 
-function stateRank(state: string): number {
-  const order: Record<string, number> = { zombie: 5, regressed: 4, stalled: 3, orphan: 2, active: 1 }
-  return order[state] ?? 0
-}
+/** 链五态/排序/changeType 标签已收编 chain-state-meta.ts（Issue #649 PR3 单一真相源） */
 
 // ── 组件 ──
 
@@ -712,7 +684,7 @@ function ChainStateBar({ counts }: { counts: Record<string, number> }) {
     <div>
       <div className="flex h-7 rounded-full overflow-hidden bg-skeleton/50">
         {entries.map(([state, count]) => {
-          const cfg = CHAIN_STATE_LABELS[state]
+          const cfg = CHAIN_STATE_META[state as ChainState]
           return (
             <div
               key={state}
@@ -729,7 +701,7 @@ function ChainStateBar({ counts }: { counts: Record<string, number> }) {
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
         {entries.map(([state, count]) => {
-          const cfg = CHAIN_STATE_LABELS[state]
+          const cfg = CHAIN_STATE_META[state as ChainState]
           return (
             <span key={state} className="flex items-center gap-1 text-xs text-stone-500">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cfg?.color ?? OTTER[300] }} />
@@ -741,6 +713,8 @@ function ChainStateBar({ counts }: { counts: Record<string, number> }) {
     </div>
   )
 }
+
+/** 异常态筛选 chips 已收编 SwimlaneTimeline.tsx（供测试引用；观澜 §3.2 视觉反转） */
 
 function SignalGroup({ title, signals, severity }: {
   title: string

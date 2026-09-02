@@ -402,3 +402,52 @@ describe("RHI API（真 sqlite）", () => {
     });
   });
 });
+
+describe("RHI chains 轻量 commits（Issue #649 PR3）", () => {
+  let db: Database.Database;
+  let signalRepo: SignalRepository;
+  let snapshotRepo: HealthSnapshotRepository;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    signalRepo = new SignalRepository(db);
+    snapshotRepo = new HealthSnapshotRepository(db);
+  });
+
+  const chainsController = (chains: FeatureChain[]): RhiController => {
+    const worker = {
+      buildChainsOnce: vi.fn(async () => chains),
+      scanOnce: vi.fn(async () => ({ scannedAt: "", chainCount: 0, signalCount: 0, stored: 0, memoryIndexed: 0, wakeupsTriggered: 0, errors: [] })),
+    } as unknown as RhiScanWorker;
+    return new RhiController(snapshotRepo, signalRepo, worker, console as never);
+  };
+
+  it("列表链携带轻量 commits（sha8+date+changeType，无 message/filesChanged）", async () => {
+    const chain: FeatureChain = {
+      ...fakeChain("F20260801ffff", "regressed"),
+      commits: [
+        { sha: "abcdef1234567890", date: new Date("2026-08-10T00:00:00Z"), message: "feat: 引入", changeType: "New Feature", filesChanged: ["a.ts"], prNumber: null },
+        { sha: "1234567890abcdef", date: new Date("2026-08-20T00:00:00Z"), message: "fix: 修复", changeType: "BugFix", filesChanged: ["a.ts"], prNumber: 123 },
+      ],
+    };
+    const res = await chainsController([chain]).chains(makeCtx());
+    const body = await res.json() as { chains: Array<{ commits: Array<Record<string, unknown>> }> };
+    const lite = body.chains[0].commits;
+
+    expect(lite).toHaveLength(2);
+    expect(lite[0]).toEqual({ sha: "abcdef12", date: "2026-08-10T00:00:00.000Z", changeType: "New Feature" });
+    expect(lite[1].sha).toBe("12345678");
+    // 轻量化契约：不携带重量字段（全量走 chainDetail）
+    expect(Object.keys(lite[0]).sort()).toEqual(["changeType", "date", "sha"]);
+  });
+
+  it("空 commits 链序列化为空数组（非 undefined）", async () => {
+    const res = await chainsController([fakeChain("F20260801eeee", "zombie")]).chains(makeCtx());
+    const body = await res.json() as { chains: Array<{ commits: unknown[] }> };
+
+    expect(Array.isArray(body.chains[0].commits)).toBe(true);
+    expect(body.chains[0].commits).toHaveLength(0);
+  });
+});
