@@ -18,12 +18,13 @@ import { collectGitLogWithFiles } from "./git-log-collector";
 import { parseCommits } from "./commit-parser";
 import { collectFeatureDocs } from "./feature-doc-collector";
 import { buildFeatureChains } from "./chain-builder";
+import { collectOpenPrsForRepo } from "./pr-collector";
+import type { OpenPrInfo } from "./pr-collector";
 import { detectSignals } from "./detect-signals";
 import type { DetectedSignal } from "./detect-signals";
 import type { SignalPipeline, CriticalSignalWakeup } from "./signal-pipeline";
 import type { CollectedHealingEvent } from "./healing-collector";
 import type { ParsedCommit } from "./commit-parser";
-import type { CollectedFeatureDoc } from "./feature-doc-collector";
 import { calculateMetrics } from "./metrics-calculator";
 import { buildOverviewSnapshotRows } from "./snapshot-rows";
 import type { CreateSnapshotRow } from "./snapshot-rows";
@@ -56,13 +57,11 @@ export interface RhiScanWorkerOptions {
   windowDays?: number;
   /** critical 信号唤醒回调（SignalPipeline 用） */
   wakeup?: CriticalSignalWakeup;
-  /** FID 提及计数源（zombie 判定数据源，F20260825sgnw 审视发现 2：
-   *  未注入时 zombie 不判（降级 stalled），注入后对 stalled 候选二次判定） */
-  fidMentionSource?: (fids: string[], windowDays: number) => Promise<Map<string, number>>;
-  /** zombie 判定的提及窗口天数（默认 30，母文档口径） */
-  mentionWindowDays?: number;
-  /** zombie 阈值天数（透传 buildFeatureChains，默认 30） */
-  zombieDays?: number;
+  /** open PR 数据源（F20260902sigm pr-stalled 信号；默认 collectOpenPrs 现拉 gh CLI）。
+   *  采集失败降级：返回空数组 → pr-stalled 信号缺席，不误报不崩 */
+  prSource?: (repoPath: string) => Promise<OpenPrInfo[]>;
+  /** pr-stalled 阈值天数（透传 buildFeatureChains，默认 7） */
+  stalledPrDays?: number;
   /** 指标快照落库端口（F20260829hviz Fix A）：注入后 scanOnce 会计算指标并写入 health_snapshots。
    *  未注入时跳过（向后兼容，旧测试/CLI 直调不受影响）。 */
   snapshotSink?: SnapshotSink;
@@ -158,7 +157,7 @@ export class RhiScanWorker {
   }
 
   /** 仅构建特性链（不检测信号不落库）——Phase 2 /api/health/chains 端点用。
-   *  采集+解析+两阶段 zombie 判定与 scanOnce 同逻辑，保证面板看到的链与信号同源。 */
+   *  采集+解析+PR 数据接入与 scanOnce 同逻辑，保证面板看到的链与信号同源。 */
   async buildChainsOnce(): Promise<ReturnType<typeof buildFeatureChains>> {
     const commitsWithFiles = await collectGitLogWithFiles(this.repoPath, {
       ref: this.options.ref,
@@ -172,8 +171,14 @@ export class RhiScanWorker {
       parsed: parsed[i]!,
       filesChanged: c.filesChanged,
     }));
-    const docs = await collectFeatureDocs(this.repoPath);
-    return this.buildChainsWithZombieJudging(signalInputs, docs);
+    const [docs, openPrs] = await Promise.all([
+      collectFeatureDocs(this.repoPath),
+      this.collectOpenPrsSafe(),
+    ]);
+    return buildFeatureChains(signalInputs, docs, {
+      stalledPrDays: this.options.stalledPrDays,
+      openPrs,
+    });
   }
 
   /** 单轮扫描（可独立调用，CLI/测试用） */
@@ -198,8 +203,8 @@ export class RhiScanWorker {
       filesChanged: c.filesChanged,
     }));
 
-    // 4. F 文档 + healing 事件
-    const [docs, healingEvents] = await Promise.all([
+    // 4. F 文档 + healing 事件 + open PR（F20260902sigm pr-stalled 数据源）
+    const [docs, healingEvents, openPrs] = await Promise.all([
       collectFeatureDocs(this.repoPath),
       this.healingSource().catch(err => {
         this.logger.warn("Healing source failed, continuing without it", {
@@ -208,10 +213,14 @@ export class RhiScanWorker {
         });
         return [] as CollectedHealingEvent[];
       }),
+      this.collectOpenPrsSafe(),
     ]);
 
-    // 5. 链构建（两阶段 zombie 判定，F20260825sgnw 审视发现 2）+ 信号检测
-    const chains = await this.buildChainsWithZombieJudging(signalInputs, docs);
+    // 5. 链构建（链路信号模型）+ 信号检测
+    const chains = buildFeatureChains(signalInputs, docs, {
+      stalledPrDays: this.options.stalledPrDays,
+      openPrs,
+    });
     const signals: DetectedSignal[] = detectSignals(signalInputs, chains, healingEvents, {
       windowDays: this.options.windowDays,
     });
@@ -451,37 +460,19 @@ export class RhiScanWorker {
     return rows;
   }
 
-  /** 两阶段链构建：先无提及数据粗筛，再对 stalled≥zombieDays 候选查提及重判。
-   *  未注入源 / 查询失败 → zombie 不判（降级 stalled，冷启动安全）；
-   *  查询成功 → 候选全部进 Map（缺 key 兜底 0），isZombie 的 has(fid) 语义成立。 */
-  private async buildChainsWithZombieJudging(
-    signalInputs: Array<{ sha: string; date: string; message: string; parsed: ParsedCommit; filesChanged: string[] }>,
-    docs: CollectedFeatureDoc[],
-  ): Promise<ReturnType<typeof buildFeatureChains>> {
-    const zombieDays = this.options.zombieDays ?? 30;
-    const mentionWindow = this.options.mentionWindowDays ?? 30;
-    const firstPass = buildFeatureChains(signalInputs, docs, { zombieDays });
-    if (!this.options.fidMentionSource) return firstPass;
-
-    const candidates = firstPass.filter(c => c.state === "stalled" && (c.daysSinceLastCommit ?? 0) >= zombieDays);
-    if (candidates.length === 0) return firstPass;
-
-    const mentions = await this.options
-      .fidMentionSource(candidates.map(c => c.featureId), mentionWindow)
-      .catch(err => {
-        this.logger.warn("fidMentionSource failed, zombie judging degraded to stalled-only", {
-          action: "rhi_worker_mention_source_error",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return null;
+  /** open PR 采集（传感器分离：失败降级空数组不阻断主管道，pr-stalled 信号缺席） */
+  private async collectOpenPrsSafe(): Promise<OpenPrInfo[]> {
+    const source = this.options.prSource ?? collectOpenPrsForRepo;
+    try {
+      const prs = await source(this.repoPath);
+      return Array.isArray(prs) ? prs : [];
+    } catch (err) {
+      this.logger.warn("Open PR collection failed, pr-stalled signal degraded to absent", {
+        action: "rhi_worker_pr_source_error",
+        error: err instanceof Error ? err.message : String(err),
       });
-    if (!mentions) return firstPass;
-
-    const filled = new Map(mentions);
-    for (const c of candidates) {
-      if (!filled.has(c.featureId)) filled.set(c.featureId, 0);
+      return [];
     }
-    return buildFeatureChains(signalInputs, docs, { zombieDays, fidMentionCounts: filled });
   }
 
   private async tickSafely(): Promise<void> {

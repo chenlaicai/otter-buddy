@@ -28,30 +28,53 @@ function makePipeline(db: Database.Database): SignalPipeline {
  *     （实测冻结在 2026-12-31 时 commitCount=0、7 用例翻红）。快照信真实时钟、又消除运行期间流逝。 */
 const CLOCK_SNAPSHOT = new Date();
 
-describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
-  let repoDir: string;
-  let db: Database.Database;
 
-  function git(args: string[]): void {
-    execFileSync("git", args, { cwd: repoDir, stdio: "pipe" });
+/** 测试仓库句柄：目录 + git 快捷方法（模块级工厂，避免 describe 体膨胀过 eslint 行限） */
+class TestRepo {
+  dir: string;
+  private commitSeq = 0;
+
+  constructor(dir: string) {
+    this.dir = dir;
+    this.git(["init"]);
+    this.git(["symbolic-ref", "HEAD", "refs/heads/main"]);
+    this.git(["config", "user.email", "test@example.com"]);
+    this.git(["config", "user.name", "RHI Test"]);
   }
 
-  let commitSeq = 0;
+  git(args: string[]): void {
+    execFileSync("git", args, { cwd: this.dir, stdio: "pipe" });
+  }
+
   /** 日期基点：5 天前，每个 commit 递增 1 小时——避免同秒创建导致秒级日期字符串并列、
    *  链内排序不稳定（曾致 active/regressed 随机翻转的 flaky，issue #595 PR1 修复） */
-  function nextCommitDate(): string {
-    const d = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 + commitSeq * 60 * 60 * 1000);
-    commitSeq++;
+  nextCommitDate(): string {
+    const d = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 + this.commitSeq * 60 * 60 * 1000);
+    this.commitSeq++;
     return d.toISOString();
   }
 
-  async function commitFile(file: string, content: string, message: string): Promise<void> {
-    const fullPath = path.join(repoDir, file);
+  async commitFile(file: string, content: string, message: string): Promise<void> {
+    const fullPath = path.join(this.dir, file);
     await mkdir(path.dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
-    git(["add", file]);
-    git(["commit", "-m", message, "--date", nextCommitDate()]);
+    this.git(["add", file]);
+    this.git(["commit", "-m", message, "--date", this.nextCommitDate()]);
   }
+
+  /** 写 F 文档并单独 commit */
+  async commitDoc(docPath: string, content: string, message: string): Promise<void> {
+    await mkdir(path.dirname(path.join(this.dir, docPath)), { recursive: true });
+    await writeFile(path.join(this.dir, docPath), content, "utf-8");
+    this.git(["add", "docs/"]);
+    this.git(["commit", "-m", message, "--date", this.nextCommitDate()]);
+  }
+}
+
+describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
+  let repo: TestRepo;
+  let repoDir: string;
+  let db: Database.Database;
 
   beforeAll(async () => {
     vi.useFakeTimers();
@@ -61,26 +84,23 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     initSchema(db);
     migrateDatabase(db, console as never);
 
-    git(["init"]);
-    git(["symbolic-ref", "HEAD", "refs/heads/main"]);
-    git(["config", "user.email", "test@example.com"]);
-    git(["config", "user.name", "RHI Test"]);
-
-    // 构造触发信号的历史：同文件 3 次 bugfix（bug_recurrence）+ 热点文件（hotspot）
-    await commitFile("src/invoker.ts", "v1", "[F20260801wwww][agent][New Feature] 建链");
-    await commitFile("src/invoker.ts", "v2", "[F20260801wwww][agent][BugFix] 修 1 (#11)");
-    await commitFile("src/invoker.ts", "v3", "[F20260801wwww][agent][BugFix] 修 2 (#12)");
-    await commitFile("src/invoker.ts", "v4", "[F20260801wwww][agent][BugFix] 修 3 (#13)");
-    // F 文档：在途状态（stalled 候选——4 天前最后 commit，不触发；改用 20 天前的另一条链测 stalled 需要旧日期 commit，这里略）
-    await mkdir(path.join(repoDir, "docs/features/2026/08/01"), { recursive: true });
-    await writeFile(
-      path.join(repoDir, "docs/features/2026/08/01/F20260801wwww.md"),
-      `---\nid: F20260801wwww\ntitle: 测试链\nsummary: 冒烟测试用 F 文档\nchange_type: feature\nstatus: development\n---\n\nbody\n`,
-      "utf-8",
-    );
-    git(["add", "docs/"]);
-    git(["commit", "-m", "[F20260801wwww][agent][Feature Update] 加文档", "--date", nextCommitDate()]);
+    repo = new TestRepo(repoDir);
+    await seedFixture();
   });
+
+  /** 种子历史：同文件 3 次 bugfix（bug_recurrence）+ F 文档（链路信号模型下 docStatus 不参与判定，仅保证链非 orphan） */
+  async function seedFixture(): Promise<void> {
+    for (const [content, message] of [
+      ["v1", "[F20260801wwww][agent][New Feature] 建链"],
+      ["v2", "[F20260801wwww][agent][BugFix] 修 1 (#11)"],
+      ["v3", "[F20260801wwww][agent][BugFix] 修 2 (#12)"],
+      ["v4", "[F20260801wwww][agent][BugFix] 修 3 (#13)"],
+    ] as const) {
+      await repo.commitFile("src/invoker.ts", content, message);
+    }
+    await repo.commitDoc("docs/features/2026/08/01/F20260801wwww.md", "---\nid: F20260801wwww\ntitle: 测试链\nsummary: 冒烟测试用 F 文档\nchange_type: feature\nstatus: development\n---\n\nbody\n", "[F20260801wwww][agent][Feature Update] 加文档");
+  }
+
 
   afterAll(async () => {
     vi.useRealTimers();
@@ -90,7 +110,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("scanOnce 跑通全管道并落库信号", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const result = await worker.scanOnce();
 
@@ -112,7 +132,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("重复扫描 occurrences 累加不重复开行", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     await worker.scanOnce();
     const before = pipeline.listOpen().find(s => s.signal_type === "bug_recurrence")!.occurrences;
@@ -121,34 +141,44 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(after).toBe(before + 1);
   });
 
-  it("fidMentionSource 注入后 zombie 判定生效（审视发现 2 的端到端验证）", async () => {
-    // 构造一条 35 天前的在途链：旧日期 commit + 对应 F 文档（无文档判 orphan 不判 stalled）
+  it("prSource 注入后 pr-stalled 判定生效（F20260902sigm 端到端验证）", async () => {
+    // 构造一条链：旧日期 commit + 对应 F 文档 + 关联停滞 open PR
     const oldDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
     const oldDocDir = path.join(repoDir, "docs/features/2026/07/01");
     await mkdir(oldDocDir, { recursive: true });
     await writeFile(
       path.join(oldDocDir, "F20260701zzzz.md"),
-      "---\nid: F20260701zzzz\ntitle: 旧链\nsummary: zombie 测试\nchange_type: feature\nstatus: development\n---\n\nbody\n",
+      "---\nid: F20260701zzzz\ntitle: 旧链\nsummary: pr-stalled 测试\nchange_type: feature\nstatus: development\n---\n\nbody\n",
       "utf-8",
     );
-    execFileSync("git", ["-C", repoDir, "add", "docs/"], { stdio: "pipe" });
-    execFileSync("git", ["-C", repoDir, "commit", "-m", "[F20260701zzzz][agent][Feature Update] 旧链文档", "--date", oldDate], { stdio: "pipe" });
+    repo.git(["add", "docs/"]);
+    repo.git(["commit", "-m", "[F20260701zzzz][agent][Feature Update] 旧链文档", "--date", oldDate]);
 
     const pipeline = makePipeline(db);
 
-    // 未注入 fidMentionSource：zombie 不判（降级 stalled）
-    const workerNoMention = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
-    await workerNoMention.scanOnce();
-    const stalled = pipeline.listOpen().find(s => s.evidence.includes("F20260701zzzz"));
-    expect(stalled?.evidence).toContain("滞留");
-
-    // 注入提及源（空 Map = 查过全部 0 提及）：zombie 判定生效
-    const workerWithMention = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
-      fidMentionSource: async () => new Map(),
+    // 未注入 prSource 的 worker 用默认 collectOpenPrs（测试 repo 无 gh remote，降级空数组）
+    // → pr-stalled 信号缺席。显式空 prSource 模拟同一降级路径
+    const workerNoPr = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
     });
-    await workerWithMention.scanOnce();
-    const zombie = pipeline.listOpen().find(s => s.evidence.includes("F20260701zzzz"));
-    expect(zombie?.evidence).toContain("僵尸链");
+    await workerNoPr.scanOnce();
+    expect(pipeline.listOpen().find(s => s.evidence.includes("F20260701zzzz") && s.signal_type === "chain_stall")).toBeUndefined();
+
+    // 注入停滞 open PR（20 天无推进 > 阈值 7 天）：pr-stalled 判定生效
+    const workerWithPr = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [{
+        number: 77, title: "旧链 PR", headRefName: "feature/old",
+        body: null, url: "https://example.com/pr/77",
+        createdAt: new Date(Date.now() - 25 * 86400000).toISOString(),
+        lastActivityAt: new Date(Date.now() - 20 * 86400000).toISOString(),
+        featureIds: ["F20260701zzzz"],
+      }],
+    });
+    await workerWithPr.scanOnce();
+    const stalled = pipeline.listOpen().find(s => s.evidence.includes("F20260701zzzz"));
+    expect(stalled?.evidence).toContain("#77");
+    expect(stalled?.evidence).toContain("无推进");
+    expect(stalled?.confidence).toBe("normal");
   });
 
   it("snapshotSink 注入后 scanOnce 写入指标快照（F20260829hviz Fix A）", async () => {
@@ -156,6 +186,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     const sinkCalls: Array<{ date: string; rows: import("@usecases/health/snapshot-rows").CreateSnapshotRow[] }> = [];
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       snapshotSink: (date, rows) => sinkCalls.push({ date, rows }),
     });
 
@@ -172,7 +203,9 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(byKey.get("total_commits")!.metricValue).toBe(6);
     expect(byKey.get("bugfix_count")!.metricValue).toBe(3); // 60 天窗口内 3 个 BugFix commit（测试仓库历史全在窗口内）
     const chainStates = byKey.get("chain_states")!;
-    expect(JSON.parse(chainStates.metadata!)).toEqual({ stalled: 1, active: 1 });
+    // F20260902sigm：链路信号模型——链尾是 Feature Update（加文档）非 BugFix → 不 regressed；
+    // 无 open PR（测试仓库无 gh remote，降级缺席）→ 无 stalled。旧断言 { stalled: 1, active: 1 } 已过时
+    expect(JSON.parse(chainStates.metadata!)).toEqual({ active: 2 });
 
     // 3 个 bugfix 间隔固定 1h（时钟冻结，无写文件耗时） → 中位严格 1/24 天；metadata 带窗口参数。
     // 注：toBe 而非 toBeCloseTo 是浮点安全的——间隔恰为 3,600,000ms，3600000/86400000 = 1/24
@@ -194,7 +227,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("snapshotSink 未注入时快照跳过且不报错（向后兼容）", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const result = await worker.scanOnce();
     expect(result.metricsStored).toBe(0);
@@ -204,6 +237,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   it("snapshotSink 抛异常不影响信号落库（旁路隔离）", async () => {
     const pipeline = makePipeline(db);
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       snapshotSink: () => {
         throw new Error("sink boom");
       },
@@ -216,7 +250,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("buildChainsOnce 与 scanOnce 同源且不落库（审视发现 3 补测：/api/health/chains 专用方法）", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const before = pipeline.listOpen().length;
     const chains = await worker.buildChainsOnce();
@@ -270,6 +304,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const pipeline = makePipeline(db);
 
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       snapshotSink: overviewSink,
       costOutputSink,
       sessionsDir,
@@ -303,7 +338,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
   it("costOutputSink 未注入时快照跳过且不报错（向后兼容，#583）", async () => {
     const pipeline = makePipeline(db);
-    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never);
+    const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, { prSource: async () => [] });
 
     const result = await worker.scanOnce();
     expect(result.costOutputStored).toBe(0); expect(result.signalCount).toBeGreaterThanOrEqual(1);
@@ -372,6 +407,7 @@ describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
     const pipeline = makePipeline(db);
 
     const worker = new RhiScanWorker(repoDir, pipeline, async () => [], console as never, {
+      prSource: async () => [],
       costOutputSink,
       sessionsDir,
       agentSessionSource: async () => [],

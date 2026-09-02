@@ -16,7 +16,7 @@ import { toRetryLabel } from "@usecases/ports/agent-metrics-port";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
-import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg } from "./retry-policy";
+import { isRetryableGuardAbort, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg } from "./retry-policy";
 // #543：api_error 终态限流识别 + 告警文案（配额黑盒修复）
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
 // #543 严重发现 1 修复：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
@@ -461,8 +461,18 @@ export class AgentTurnOrchestrator {
       return this.handleAutoRetry(ctx, guardReason);
     }
 
+    // #731：bash 守卫二拦终态自动回发——拦截是反馈信号不是断头台（事故 C：终态后行动权悬空只能等用户手动拉起）
+    if (this.shouldGuardBounce(guardReason, retryCount)) {
+      return this.handleGuardBounce(reason, ctx);
+    }
     return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
   }
+
+  /** 从 ExitReason 判断是否应走 #731 guard bounce（终态前最后一道判定，独立降复杂度） */
+  private shouldGuardBounce(guardReason: string, retryCount: number): boolean {
+    return guardReason.startsWith('bash_safety:') && retryCount > 0 && isRetryableGuardAbort(guardReason);
+  }
+
 
   /** F20260818cbkr：degenerate guard 每次触发都落 healing_events（二级触发与观测的数据源，非致命） */
   private async recordDegenerateHealingEvent(ctx: RouteContext): Promise<void> {
@@ -691,6 +701,144 @@ export class AgentTurnOrchestrator {
     }
 
     return null;
+  }
+
+  /**
+   * #731：bash 守卫二拦终态自动回发控制信号（guard bounce）。
+   *
+   * 路径：failMessage（fail 过渡）→ 上限判定（滑窗内已回发次数 ≥ GUARD_BOUNCE_MAX → abortTerminal 升级）
+   * → sendSystem 写入对话流（搭档可见，消息实体而非 SSE 幻影）→ startNewMessage 新消息重整
+   * → RetryWithNewMessageSignal 上抛，executeTurn 主循环继续驱动新消息。
+   *
+   * 计数载体：healing_events（errorType=guard_intercept 且 context.bounced=true）——
+   * process 级内存计数在 invoker 单例生命周期外无意义，DB 是唯一跨消息真相源。
+   * 查询经 TurnCallbacks.getRecentGuardBounces（不 fail-open：台账失明时宁可走升级路径，
+   * 防御「写失败 → 计数失明 → 无限自循环」）。
+   */
+  // #731：bounce 主路径——上限判定/升级/回发三段，复杂度与回发执行已拆出子方法
+  private async handleGuardBounce(
+    reason: ExitReason & { kind: 'guard_abort' },
+    ctx: RouteContext,
+  ): Promise<TurnResult | RetryWithNewMessageSignal | null> {
+    const { guardReason } = reason;
+    const failBody = `[系统] ${buildGuardBounceFailBody()}`;
+    try { await ctx.callbacks.failMessage(ctx.input.messageId, failBody); } catch { /* ignore */ }
+
+    // 有界防护：滑窗内 bounce 次数查询（写前查询——上限判定用，不依赖事后计数）；
+    // 写前失败则计数不可信，走升级路径（fail-closed，不 fail-open）
+    let priorBounces = 0;
+    let countQueryFailed = false;
+    try {
+      priorBounces = await ctx.callbacks.getRecentGuardBounces(ctx.input.otterId, GUARD_BOUNCE_WINDOW_MS);
+    } catch (err) {
+      countQueryFailed = true;
+      this.logger.error('guard bounce count query FAILED — fail-closed to escalation',
+        err instanceof Error ? err : new Error(String(err)),
+        { otterId: ctx.input.otterId, conversationId: ctx.input.conversationId },
+      );
+    }
+
+    const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
+    const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
+
+    // 超限 / 计数不可信 → 停止自动回发，升级上报（healing high 由 abortTerminal 终态分支落）
+    if (countQueryFailed || priorBounces >= GUARD_BOUNCE_MAX) {
+      return this.escalateGuardBounce(ctx, guardReason, otterName, priorBounces, countQueryFailed);
+    }
+
+    // bounce 计数落账（下一轮上限判定的数据源；失败仅日志——本轮回发照常，下轮查询兜底）
+    try {
+      await ctx.callbacks.recordHealingEvent({
+        messageId: ctx.input.messageId,
+        conversationId: ctx.input.conversationId,
+        otterId: ctx.input.otterId,
+        errorType: "guard_intercept",
+        severity: "medium",
+        description: `bash 守卫二拦终态自动回发控制信号（第 ${priorBounces + 1}/${GUARD_BOUNCE_MAX} 次）`,
+        suggestion: "LLM 已收到拦截原因与正道引导；若后续仍持续被拦将升级上报",
+        context: { layer: "orchestrator", bounce: true, guardReason, bounceAttempt: priorBounces + 1 },
+      });
+    } catch { /* 计数落账失败不阻断回发；上限判定失明时下轮 fail-closed 升级 */ }
+
+    return this.executeGuardBounce(ctx, guardReason, otterName, priorBounces + 1);
+  }
+
+  /** #731：bounce 超限升级——停止自动回发，abort 终态 + 会话内用户可见通知 */
+  private async escalateGuardBounce(
+    ctx: RouteContext,
+    guardReason: string,
+    otterName: string,
+    priorBounces: number,
+    countQueryFailed: boolean,
+  ): Promise<TurnResult> {
+    this.logger.warn('Guard bounce limit reached (or count unavailable), escalating to abort', {
+      otterId: ctx.input.otterId,
+      conversationId: ctx.input.conversationId,
+      priorBounces,
+      countQueryFailed,
+    });
+    try {
+      const sysMsg = await ctx.callbacks.sendSystem(
+        ctx.input.conversationId,
+        buildGuardBounceEscalationMsg(otterName),
+      );
+      this.safeEmitEvent(ctx.callbacks, {
+        event: "system.message",
+        data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+      });
+    } catch { /* 通知失败不阻断 abort 流程 */ }
+    return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
+  }
+
+  /** #731：执行回发——sendSystem 写入对话流 + 新消息承载重整（与 degenerate retry 同构） */
+  private async executeGuardBounce(
+    ctx: RouteContext,
+    guardReason: string,
+    otterName: string,
+    attempt: number,
+  ): Promise<TurnResult | RetryWithNewMessageSignal | null> {
+    // 回发消息写入对话流：搭档可见、新消息可读（sendSystem 是消息实体，不是 SSE 幻影）
+    const bounceMsg = buildGuardBounceMsg(guardReason, attempt);
+    try {
+      const sysMsg = await ctx.callbacks.sendSystem(ctx.input.conversationId, bounceMsg);
+      this.safeEmitEvent(ctx.callbacks, {
+        event: "system.message",
+        data: { messageId: sysMsg.id, content: sysMsg.body, seq: sysMsg.sequenceNum },
+      });
+    } catch (err) {
+      this.logger.warn('sendSystem failed during guard bounce, falling back to abort', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
+    }
+
+    // 新消息承载重整：executeTurn 主循环继续驱动
+    try {
+      const newMsg = await ctx.callbacks.startNewMessage(
+        ctx.input.conversationId,
+        ctx.input.senderId,
+        [ctx.input.senderId],
+      );
+      this.safeEmitEvent(ctx.callbacks, {
+        event: "message.start",
+        data: { messageId: newMsg.id, otterId: ctx.input.otterId, otterName, seq: newMsg.sequenceNum, createdAt: newMsg.createdAt },
+      });
+      return {
+        _retryWithNewMessage: true as const,
+        newMessageId: newMsg.id,
+        retryMsg: bounceMsg,
+        toolCallCount: ctx.toolCallCount,
+      } satisfies RetryWithNewMessageSignal;
+    } catch (err) {
+      this.logger.warn('startNewMessage failed during guard bounce, falling back to abort', {
+        messageId: ctx.input.messageId,
+        otterId: ctx.input.otterId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
+    }
   }
 
   /** Handle yield retry: fail + system reminder + retry */

@@ -86,14 +86,34 @@ export async function postInitDatabase(db: Database.Database, repos: Repositorie
   // ── F20260902sgp2 S1：派发台账启动任务（顺序固定：死亡证明 → backfill 墓碑）──
   // ① 死亡证明（§4.4）：上个进程遗留的 in_progress 一律标 failed（进程内不可能有存活的
   //    in_progress 跨越重启；先例 reconcile-orphans failInFlightMessages 同款语义）。
-  // ② backfill 墓碑（§4.5）：首次建表后存量已投递消息一刀标记 legacy-attempted——
-  //    幂等（OR IGNORE），切换瞬间 pending=0，rbsg 126-invoke 事故不可能重演。
+  //    每次重启都跑（记账面收尾，非迁移）。
+  // ② backfill 墓碑（§4.5）：**仅一次**——F20260902hopf 后续核查发现墓碑每次重启都重跑
+  //    （3589→3607），会吞掉崩溃窗口的真 pending（R1 场景：用户消息落库后进程死、
+  //    无人应答，该由补扫点燃——被下次重启的墓碑误标翻篇）。守卫：settings CAS 一次性锁，
+    //    tryInsertIfAbsent 先到先得；老库已跑过墓碑（无守卫期）的处理见下方 comment。
   // 两者失败均仅日志——台账是记账面不是控制面，任何失败不阻断启动（硬约束 1）。
   try {
     const stale = repos.dispatchAttempt.markStaleInProgressFailed();
     if (stale > 0) logger.info('[signal-ledger] 死亡证明：重启翻篇 in_progress 派发记录', { count: stale });
-    const backfilled = repos.dispatchAttempt.backfillLegacyAttempted();
-    if (backfilled > 0) logger.info('[signal-ledger] backfill 墓碑：存量已投递消息标记 legacy-attempted', { count: backfilled });
+    // 墓碑守卫：CAS 抢锁成功才跑。老库在无守卫期已跑过墓碑的判定：
+    // 表内有 source='backfill' 行 = 墓碑已执行过（幂等 OR IGNORE 语义下行数只会增）。
+    // 三者（锁 + 历史行检查）构成完整一次性语义，无需 settings 追加额外 key。
+    const legacyTombstones = db.prepare(
+      "SELECT count(*) AS n FROM dispatch_attempts WHERE source = 'backfill'"
+    ).get() as { n: number };
+    if (legacyTombstones.n > 0) {
+      logger.info('[signal-ledger] backfill 墓碑已执行过（存量墓碑行），跳过', { existing: legacyTombstones.n });
+    } else {
+      const gotLock = await repos.settings.tryInsertIfAbsent(
+        'sgp2:backfill-legacy-attempted', new Date().toISOString(),
+      );
+      if (gotLock) {
+        const backfilled = repos.dispatchAttempt.backfillLegacyAttempted();
+        logger.info('[signal-ledger] backfill 墓碑：存量已投递消息标记 legacy-attempted（一次性）', { count: backfilled });
+      } else {
+        logger.info('[signal-ledger] backfill 墓碑：另一进程已抢锁，跳过');
+      }
+    }
     const pendingCount = repos.dispatchAttempt.countPendingSignals();
     logger.info('[signal-ledger] 启动完成，当前 pending 计数', { pending: pendingCount });
   } catch (e) {

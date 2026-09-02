@@ -21,9 +21,6 @@ import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/h
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
 import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
 import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density";
-// Issue #636 B4：阈值/状态集单一真相源收口（原 controller 本地复制，漂移隐患）
-import { DEFAULT_STALLED_DAYS as STALLED_DAYS, DEFAULT_ZOMBIE_DAYS as ZOMBIE_DAYS } from "@usecases/health/chain-builder";
-import { classifyDocStatusWithSubstatus } from "@entities/document/doc-status";
 // Issue #636 B5：信号中文名的单一真相源是 signal-registry（SIGNAL_REGISTRY[type].name）
 import { SIGNAL_REGISTRY } from "@usecases/health/signal-registry";
 import type { SignalType } from "@usecases/health/signal-registry";
@@ -43,44 +40,27 @@ function signalTypeLabel(type: string): string {
   return SIGNAL_REGISTRY[type as SignalType]?.name ?? type;
 }
 
-/** Issue #636 B4：inFlight 判定收口 #646 值域契约（原 controller 硬编码 5 值白名单，
- *  漂移实证：缺 review/reviewed/implemented+active 子状态，与 chain-builder 判定层不一致）。
- *  独立辅助函数：复杂度限额内承载 ?./?? 链 */
-function isInFlightDoc(doc: { status: string | null; substatus?: string | null } | null): boolean {
-  return classifyDocStatusWithSubstatus(doc?.status ?? null, doc?.substatus ?? null) === "in-flight";
-}
-
-/** 特性链五态人话解释（基于 chain-builder.ts 五态判定规则） */
+/** 特性链信号事实解释（F20260902sigm：链路信号模型，判据 100% 来自 git/PR 事实，
+ *  docStatus 不再参与文案；信号可叠加，逐条列出，无生命周期叙事） */
 function buildChainStateReason(
-  state: string,
-  chain: { daysSinceLastCommit: number | null; doc: { status: string | null; substatus?: string | null } | null; bugfixCount: number; commitCount: number },
+  chain: {
+    signals: Array<{ id: string; evidence: string }>;
+    commitCount: number;
+    bugfixCount: number;
+    daysSinceLastCommit: number | null;
+  },
 ): string {
-  if (state === "orphan") {
-    return "commit 提到了特性编号但未找到对应特性文档";
+  const parts: string[] = [];
+  for (const sig of chain.signals) {
+    parts.push(sig.evidence);
   }
-  const docStatus = chain.doc?.status ?? "draft";
-  const inFlight = isInFlightDoc(chain.doc);
-  // Why: doc-only 链（有文档无 commit）daysSinceLastCommit=null，不能兜底为 Infinity
-  const hasCommits = chain.daysSinceLastCommit !== null;
-  const days = chain.daysSinceLastCommit!;
-
-  switch (state) {
-    case "active":
-      if (!hasCommits) return `文档状态 ${docStatus}，尚未有提交`;
-      return inFlight
-        ? `文档状态 ${docStatus}，最近 ${days} 天内有提交（阈值 ${STALLED_DAYS} 天）`
-        : `文档已终结（${docStatus}），视为稳定`;
-    case "stalled":
-      if (!hasCommits) return `文档状态 ${docStatus}，有文档但无提交记录`;
-      return `文档状态 ${docStatus}，已 ${days} 天无提交（超过 ${STALLED_DAYS} 天阈值）`;
-    case "regressed":
-      return `最新提交为 BugFix（共 ${chain.bugfixCount} 个），且触碰了链内更早引入的文件`;
-    case "zombie":
-      if (!hasCommits) return `文档状态 ${docStatus}，有文档但无提交记录，且近期对话中未被提及`;
-      return `已 ${days} 天无提交（超过 ${ZOMBIE_DAYS} 天），且近期对话中未被提及`;
-    default:
-      return "";
+  if (parts.length === 0) {
+    // 无信号：链事实健康（doc-only 零 commit 也是稳定态——「写了文档没动工」不是病）
+    return chain.commitCount === 0
+      ? "链上无异常信号（仅有文档，尚无提交）"
+      : `链上无异常信号（${chain.commitCount} commits，距上次提交 ${chain.daysSinceLastCommit ?? "?"} 天）`;
   }
+  return parts.join("；");
 }
 
 const OVERVIEW_KEYS = [
@@ -353,7 +333,8 @@ export class RhiController {
           lastCommitAt: ch.lastCommitAt,
           docStatus: ch.doc?.status ?? null,
           docTitle: ch.doc?.title ?? null,
-          stateReason: buildChainStateReason(ch.state, ch),
+          signals: ch.signals.map(s => ({ id: s.id, evidence: s.evidence })),
+          stateReason: buildChainStateReason(ch),
           // Issue #649 PR3：泳道 x 轴数据源——轻量 commit 序列（sha8+date+changeType，
           // 不带 message/filesChanged 控 payload；全量走 chainDetail 供抽屉）。
           // 单请求无瀑布：329 链 × 均几条 ≈ 60KB 可接受，虚拟化渲染照常。
@@ -393,9 +374,10 @@ export class RhiController {
           daysSinceLastCommit: ch.daysSinceLastCommit,
           firstSeenAt: ch.firstSeenAt,
           lastCommitAt: ch.lastCommitAt,
-          docStatus: ch.doc?.status ?? null,
+          docStatus: ch.doc?.status ?? null, // deprecated：健康链路不再消费（F20260902sigm），存量兼容保留
           docTitle: ch.doc?.title ?? null,
-          stateReason: buildChainStateReason(ch.state, ch),
+          signals: ch.signals.map(s => ({ id: s.id, evidence: s.evidence })),
+          stateReason: buildChainStateReason(ch),
           // 链上全类型 commit 序列（时间升序，带 changeType + files）——泳道节点/复发卡的直接数据源
           commits: ch.commits.map(cm => ({
             sha: cm.sha.slice(0, 8),

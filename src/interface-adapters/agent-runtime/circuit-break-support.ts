@@ -123,6 +123,20 @@ export class CircuitBreakSupport {
   }
 
   /** degenerate guard 触发点回调：组装完整 HealingEvent 写库 */
+  /**
+   * #731：查询 otter 在滑窗内的 guard bounce 次数——上限判定数据源。
+   * 直查 healing_events（errorType=guard_intercept 且 context.bounced=true），
+   * 不缓存不吞错：查询失败向上拋，由调用方 fail-closed 升级（台账失明 ≠ 无限回发）。
+   */
+  async countRecentGuardBounces(otterId: string, windowMs: number): Promise<number> {
+    const since = new Date(Date.now() - windowMs).toISOString();
+    const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_intercept', 50);
+    return events.filter(e => {
+      const ctx = e.context as { bounce?: boolean } | null;
+      return ctx?.bounce === true && e.createdAt >= since;
+    }).length;
+  }
+
   async recordHealingEvent(input: HealingEventInput): Promise<void> {
     try {
       await this.deps.healingRepo.create({

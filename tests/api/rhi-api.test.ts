@@ -36,8 +36,8 @@ function makeStatusCtx(query?: string, params?: Record<string, string>): Paramet
   } as never;
 }
 
-const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc?: FeatureChain["doc"]; daysSinceLastCommit?: number | null }): FeatureChain => ({
-  featureId, state, commits: [], firstSeenAt: null, lastCommitAt: null,
+const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc?: FeatureChain["doc"]; daysSinceLastCommit?: number | null; signals?: FeatureChain["signals"] }): FeatureChain => ({
+  featureId, state, signals: opts?.signals ?? [], commits: [], firstSeenAt: null, lastCommitAt: null,
   daysSinceLastCommit: opts?.daysSinceLastCommit ?? null, commitCount: 2, bugfixCount: 1,
   touchFiles: new Set<string>(), doc: opts?.doc ?? null,
 });
@@ -47,6 +47,7 @@ function fakeDetailChain(): FeatureChain {
   return {
     featureId: "F20260801aaaa",
     state: "stalled",
+    signals: [{ id: "pr-stalled", evidence: "open PR #42 已 10 天无推进（无新 commit/review/comment）" }],
     commits: [
       { sha: "abcdef1234567890", date: new Date("2026-08-10T00:00:00Z"), message: "引入", changeType: "New Feature", filesChanged: ["a.ts"], prNumber: null },
       { sha: "1234567890abcdef", date: new Date("2026-08-20T00:00:00Z"), message: "修复", changeType: "BugFix", filesChanged: ["a.ts"], prNumber: null },
@@ -137,58 +138,6 @@ describe("RHI API（真 sqlite）", () => {
     });
   });
 
-  describe("chains", () => {
-    it("返回链列表与五态分布 + 高扇入排除清单（Issue #647 验收：可见）", async () => {
-      const chains = [fakeChain("F20260801aaaa", "active"), fakeChain("F20260801bbbb", "stalled")];
-      const res = await makeController(chains).chains(makeCtx());
-      const body = await res.json() as { chains: Array<{ featureId: string; state: string }>; stateCounts: Record<string, number>; total: number; fanInExcludedFiles: Array<{ file: string; fanIn: number }> };
-
-      expect(body.total).toBe(2);
-      expect(body.stateCounts).toEqual({ active: 1, stalled: 1 });
-      expect(body.chains[0]).toMatchObject({ featureId: "F20260801aaaa", state: "active" });
-      expect(Array.isArray(body.fanInExcludedFiles)).toBe(true);
-    });
-
-    it("链响应包含 docTitle 和 stateReason", async () => {
-      const doc = { id: "F20260801aaaa", title: "健康面板综合分卡", status: "development", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
-      const chains = [fakeChain("F20260801aaaa", "active", { doc, daysSinceLastCommit: 3 })];
-      const res = await makeController(chains).chains(makeCtx());
-      const body = await res.json() as { chains: Array<{ docTitle: string | null; stateReason: string }> };
-
-      expect(body.chains[0].docTitle).toBe("健康面板综合分卡");
-      expect(body.chains[0].stateReason).toContain("development");
-      expect(body.chains[0].stateReason).toContain("3 天内有提交");
-    });
-
-    it("doc-only 链（daysSinceLastCommit=null）不显示 Infinity", async () => {
-      const doc = { id: "F20260801cccc", title: "实验性特性", status: "draft", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
-      const chains = [fakeChain("F20260801cccc", "stalled", { doc, daysSinceLastCommit: null })];
-      const res = await makeController(chains).chains(makeCtx());
-      const body = await res.json() as { chains: Array<{ stateReason: string }> };
-
-      expect(body.chains[0].stateReason).not.toContain("Infinity");
-      expect(body.chains[0].stateReason).toContain("无提交记录");
-    });
-
-    it("orphan 链 docTitle=null，stateReason 解释无文档", async () => {
-      const chains = [fakeChain("F20260801dddd", "orphan")];
-      const res = await makeController(chains).chains(makeCtx());
-      const body = await res.json() as { chains: Array<{ docTitle: string | null; stateReason: string }> };
-
-      expect(body.chains[0].docTitle).toBeNull();
-      expect(body.chains[0].stateReason).toContain("未找到对应特性文档");
-    });
-
-    it("zombie doc-only 链 stateReason 不含 Infinity", async () => {
-      const doc = { id: "F20260801eeee", title: "废弃特性", status: "proposed", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
-      const chains = [fakeChain("F20260801eeee", "zombie", { doc, daysSinceLastCommit: null })];
-      const res = await makeController(chains).chains(makeCtx());
-      const body = await res.json() as { chains: Array<{ stateReason: string }> };
-
-      expect(body.chains[0].stateReason).not.toContain("Infinity");
-      expect(body.chains[0].stateReason).toContain("无提交记录");
-    });
-  });
 
   describe("chainDetail（Issue #644 新端点，审视发现 3）", () => {
     it("返回链详情：sha 截 8 位 / date Z 格式 ISO / changeType / filesChanged", async () => {
@@ -454,7 +403,7 @@ describe("RHI chains 轻量 commits（Issue #649 PR3）", () => {
   });
 
   it("空 commits 链序列化为空数组（非 undefined）", async () => {
-    const res = await chainsController([fakeChain("F20260801eeee", "zombie")]).chains(makeCtx());
+    const res = await chainsController([fakeChain("F20260801eeee", "active")]).chains(makeCtx());
     const body = await res.json() as { chains: Array<{ commits: unknown[] }> };
 
     expect(Array.isArray(body.chains[0].commits)).toBe(true);
@@ -591,4 +540,84 @@ describe("RHI signals 标签真相源（#636 B5 防回归）", () => {
     const body = await res.json() as { signals: Array<{ signalTypeLabel: string }> };
     expect(body.signals[0]!.signalTypeLabel).toBe("健康分环比骤变");
   });
+});
+
+describe("chains", () => {
+let db: Database.Database;
+let signalRepo: SignalRepository;
+let snapshotRepo: HealthSnapshotRepository;
+
+beforeEach(() => {
+  db = new Database(":memory:");
+  initSchema(db);
+  migrateDatabase(db, console as never);
+  signalRepo = new SignalRepository(db);
+  snapshotRepo = new HealthSnapshotRepository(db);
+});
+
+function makeController(chains: FeatureChain[] = [], scanResult = { commitCount: 0 }): RhiController {
+  const worker = {
+    buildChainsOnce: vi.fn(async () => chains),
+    scanOnce: vi.fn(async () => scanResult),
+  };
+  return new RhiController(snapshotRepo, signalRepo, worker as unknown as RhiScanWorker, console as never);
+}
+
+it("返回链列表与五态分布 + 高扇入排除清单（Issue #647 验收：可见）", async () => {
+  const chains = [fakeChain("F20260801aaaa", "active"), fakeChain("F20260801bbbb", "stalled")];
+  const res = await makeController(chains).chains(makeCtx());
+  const body = await res.json() as { chains: Array<{ featureId: string; state: string }>; stateCounts: Record<string, number>; total: number; fanInExcludedFiles: Array<{ file: string; fanIn: number }> };
+
+  expect(body.total).toBe(2);
+  expect(body.stateCounts).toEqual({ active: 1, stalled: 1 });
+  expect(body.chains[0]).toMatchObject({ featureId: "F20260801aaaa", state: "active" });
+  expect(Array.isArray(body.fanInExcludedFiles)).toBe(true);
+});
+
+it("链响应包含 docTitle、signals 与信号事实 stateReason", async () => {
+  const doc = { id: "F20260801aaaa", title: "健康面板综合分卡", status: "development", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
+  const chains = [fakeChain("F20260801aaaa", "stalled", { doc, daysSinceLastCommit: 3, signals: [{ id: "pr-stalled", evidence: "open PR #42 已 10 天无推进（无新 commit/review/comment）" }] })];
+  const res = await makeController(chains).chains(makeCtx());
+  const body = await res.json() as { chains: Array<{ docTitle: string | null; stateReason: string; signals: Array<{ id: string; evidence: string }> }> };
+
+  expect(body.chains[0].docTitle).toBe("健康面板综合分卡");
+  expect(body.chains[0].signals).toEqual([{ id: "pr-stalled", evidence: "open PR #42 已 10 天无推进（无新 commit/review/comment）" }]);
+  // F20260902sigm：stateReason 是信号事实文案，不再拼 docStatus
+  expect(body.chains[0].stateReason).toContain("#42");
+  expect(body.chains[0].stateReason).toContain("10 天无推进");
+  expect(body.chains[0].stateReason).not.toContain("development");
+});
+
+it("doc-only 链（无信号无 commit）：stateReason 稳定态文案，不显示 Infinity", async () => {
+  const doc = { id: "F20260801cccc", title: "实验性特性", status: "draft", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null };
+  const chains = [fakeChain("F20260801cccc", "active", { doc, daysSinceLastCommit: null })];
+  const res = await makeController(chains).chains(makeCtx());
+  const body = await res.json() as { chains: Array<{ stateReason: string }> };
+
+  expect(body.chains[0].stateReason).not.toContain("Infinity");
+  expect(body.chains[0].stateReason).toContain("链上无异常信号");
+});
+
+it("orphan 链 docTitle=null，stateReason 解释无文档", async () => {
+  const chains = [fakeChain("F20260801dddd", "orphan", { signals: [{ id: "doc-gap", evidence: "commit 提及 F20260801dddd 但 docs/features 未找到对应特性文档（2 commits 无引用）" }] })];
+  const res = await makeController(chains).chains(makeCtx());
+  const body = await res.json() as { chains: Array<{ docTitle: string | null; stateReason: string }> };
+
+  expect(body.chains[0].docTitle).toBeNull();
+  expect(body.chains[0].stateReason).toContain("未找到对应特性文档");
+});
+
+it("信号叠加：regressed + pr-stalled 同时出现在 stateReason（逐条列出，不取最严重）", async () => {
+  const chains = [fakeChain("F20260801ffff", "stalled", {
+    signals: [
+      { id: "regressed", evidence: "链尾出现 BugFix abcd1234 触碰 2 个链内文件" },
+      { id: "pr-stalled", evidence: "open PR #43 已 9 天无推进（无新 commit/review/comment）" },
+    ],
+  })];
+  const res = await makeController(chains).chains(makeCtx());
+  const body = await res.json() as { chains: Array<{ stateReason: string }> };
+
+  expect(body.chains[0].stateReason).toContain("BugFix abcd1234");
+  expect(body.chains[0].stateReason).toContain("#43");
+});
 });

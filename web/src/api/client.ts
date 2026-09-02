@@ -537,12 +537,20 @@ export interface RhiChainCommitLiteDTO {
 
 export interface RhiChainDTO {
   featureId: string
-  state: 'active' | 'stalled' | 'regressed' | 'zombie' | 'orphan'
+  /** F20260902sigm：四态兼容投影（zombie 删除） */
+  state: 'active' | 'stalled' | 'regressed' | 'orphan'
+  /** 链路信号清单（可叠加；state 是其兼容投影） */
+  signals: Array<{
+    id: 'pr-stalled' | 'regressed' | 'doc-gap'
+    evidence: string
+    stalledPrs?: Array<{ number: number; url: string | null; daysSinceActivity: number }>
+  }>
   commitCount: number
   bugfixCount: number
   daysSinceLastCommit: number | null
   firstSeenAt: string | null
   lastCommitAt: string | null
+  /** deprecated：健康链路不再消费（F20260902sigm），存量兼容保留 */
   docStatus: string | null
   docTitle: string | null
   stateReason: string

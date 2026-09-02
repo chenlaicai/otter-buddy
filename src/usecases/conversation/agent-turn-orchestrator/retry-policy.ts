@@ -108,6 +108,40 @@ export function buildRestartResumeTerminalMsg(outcome: "done" | "failed"): strin
     : "[系统] 恢复未完成：本条发言已中止（半截内容已保留），可在本条上手动重试。";
 }
 
+// ─── #731：bash 守卫二拦终态自动回发控制信号（guard bounce）───
+
+/**
+ * #731：单獭 guard bounce 自动回发上限（GUARD_BOUNCE_WINDOW_MS 窗口内）。
+ * 超限停止自动回发，升级上报（healing high + 会话内系统消息）。
+ * 拦截是反馈信号不是断头台——但反馈被无视 N 次后必须见人。
+ */
+export const GUARD_BOUNCE_MAX = 3;
+
+/**
+ * #731：bounce 计数窗口（ms）——限「同时失控的自循环」；
+ * 历史拦截随窗口滑出，不永久占用额度（十分钟前的教训不该堵死现在的自纠）。
+ */
+export const GUARD_BOUNCE_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * #731：bounce 回发消息——复用 buildAutoRetryMsg 的四要素文案（被拦/为什么/正道/继续），
+ * 前缀告知回发进度。口径与 F20260831aksp 终审一致：不提供任何 restart 出口。
+ */
+export function buildGuardBounceMsg(reason: string, attempt: number): string {
+  const core = buildAutoRetryMsg(reason).slice('[系统提醒] '.length);
+  return `[系统提醒] 你上一条发言因 bash 安全守卫拦截已中止，系统自动回发控制信号（第 ${attempt}/${GUARD_BOUNCE_MAX} 次）。${core}`;
+}
+
+/** #731：bounce 时旧消息的 fail 过渡文案（一拦 auto-retry 的 buildRetryFailBody 同族，区别在自纠已失败一次） */
+export function buildGuardBounceFailBody(): string {
+  return "检测到针对主进程的不允许命令（自纠重试后仍被拦），已拦截并自动回发控制信号";
+}
+
+/** #731：bounce 超限升级的会话内用户可见通知 */
+export function buildGuardBounceEscalationMsg(otterName: string): string {
+  return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被 bash 守卫拦截并自动回发，仍在尝试被拦命令——已停止自动回发并中断其发言。请人工介入：排查该獭任务是否涉及进程管理，或核实守卫是否误拦。`;
+}
+
 /** Build abort body: user abort vs guard abort */
 export function buildGuardAbortBody(guardReason: string | undefined): string {
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';

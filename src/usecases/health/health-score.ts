@@ -10,7 +10,9 @@
  * 维度口径（审视闭环后的最终版）：
  * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.4-ratio)/0.2))
  * - D2 架构稳定: 100 - min(60, hotspot文件数×4) - imbalance触发?20:0（clamp）
- * - D3 交付活力: active占比×100 - regressed占比×150 - zombie占比×100（clamp）
+ * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×1.0）占比扣分（F20260902sigm 四态：
+ *   pr-stalled 投影 stalled 顶上原 zombie 的 ×100 权重位；D5 分母口径不变——
+ *   active+stalled 仍为「活跃+停滞中」链）
  * - D4 流程合规: compliance_rate×100（线性）
  * - D5 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
  *   活跃链 = state∈{active,stalled}（zombie/orphan 积压由 D3 惩罚，不重复压 D5）
@@ -107,12 +109,13 @@ export function scoreD2(hotspotCount: number, imbalanceTriggered: boolean): numb
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
-/** D3 交付活力：active 占比给分，regressed（×1.5）/zombie（×1.0）占比扣分 */
+/** D3 交付活力：active 占比给分，regressed（×1.5）/stalled（×1.0，pr-stalled 投影）占比扣分
+ *  F20260902sigm：zombie 删除，stalled 顶上 ×100 权重位（方案审视 A1 定稿公式） */
 export function scoreD3(chainStates: Record<string, number>): number {
   const total = Object.values(chainStates).reduce((s, n) => s + n, 0);
   if (total <= 0) return 0;
   const pct = (k: string) => (chainStates[k] ?? 0) / total;
-  return clamp(pct("active") * 100 - pct("regressed") * 150 - pct("zombie") * 100);
+  return clamp(pct("active") * 100 - pct("regressed") * 150 - pct("stalled") * 100);
 }
 
 /** D5 信号压力：open 信号按活跃链（active+stalled）归一后的密度扣分 */
@@ -170,7 +173,7 @@ function dimensionD3(input: HealthScoreInput): DimensionScore {
     return { dimension: "D3", name: DIMENSION_NAMES.D3, score: null, status: null, attribution: null };
   }
   const score = scoreD3(chainStates);
-  const WORST_ORDER = ["zombie", "regressed", "orphan", "stalled"] as const;
+  const WORST_ORDER = ["regressed", "stalled", "orphan"] as const;
   const worstState = WORST_ORDER.find((s) => (chainStates[s] ?? 0) > 0);
   const worst = worstState ? `${worstState} 链 ${chainStates[worstState] ?? 0} 条` : null;
   return {
