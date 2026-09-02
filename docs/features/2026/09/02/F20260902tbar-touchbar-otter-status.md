@@ -3,11 +3,13 @@ id: F20260902tbar
 title: 'Touch Bar 海獭状态桥：MTMR 三态常驻显示（睡觉/干活/等你介入）'
 doc_type: feature
 summary: |
-  Touch Bar 状态桥 v2：海獭后端 → status-core 聚合 → Display Model JSON（稳定契约）→
-  renderer-mtmr 渲染到 MTMR。四态显示：🔴等你介入（unreadCount>0）、⌨️干活中
-  （processing+30 分钟新鲜窗）、💤睡觉、🖤系统离线（后端不可达显式态，不降级成睡觉）。
+  Touch Bar 状态桥 v3：海獭后端 → status-core 聚合 → Display Model JSON（稳定契约）→
+  renderer-mtmr 渲染到 MTMR。五态显示：🔴等你介入（unreadCount>0）、⌨️干活中
+  （processing+30 分钟新鲜窗）、💤睡觉、🖤系统离线（后端不可达显式态）、
+  ⚠️非主进程（3000 端口被 worktree 测试进程占用时提示）。长离线（10 分钟）
+  renderer 自禁——Touch Bar 回归系统默认，KeepAlive 低频拉起探测，恢复在线后自愈。
   架构解耦：系统侧与渲染层分离，未来切自研 Swift 渲染端（DFR 私有接口）只换 renderer。
-  MTMR 无局部刷新接口，字符动画=整条闪烁不可用，真动画归自研课题（见关联 issue）。
+  MTMR 无局部刷新接口，字符动画=整条闪烁不可用，真动画归自研课题（#721）。
 
 status: final
 change_type: feature
@@ -33,6 +35,8 @@ TouchBarServer 实测存活。需求收敛（搭档两轮拍板）：
 2. **需要介入时跳红点**：有未读且等搭档处理时，Touch Bar 上直接可见
 3. **v2 追加**（搭档反馈五点）：系统离线显式态、数字可视化去简陋、还原系统控件
    （Esc/音量/亮度）、架构解耦（后续切自研 Swift 渲染端，展示内容由系统传递）
+4. **v3 追加**（搭档终审追问两问）：长时间离线自动还原 bar（renderer 自禁 +
+   KeepAlive 低频探测）、主进程自证（防 worktree 测试进程冒充 3000 端口污染状态）
 
 明确不做：Touch Bar 按钮触发动作、BTT 付费路线、字符轮换动画（MTMR 全量重载会闪，
 见「已知限制」）。
@@ -60,6 +64,8 @@ Display Model v1 契约：
 {
   "v": 1,
   "sys_online": true,
+  "offline_long": false,
+  "primary": "true",
   "waiting":  { "count": 17, "top": "📋 Backlog 排期" },
   "working":  { "convs": 3, "otters": 5 }
 }
@@ -68,13 +74,15 @@ Display Model v1 契约：
 renderer 不访问后端 API，只读 model 文件——切换载体零改系统侧。model 契约变更
 时升 v 字段，renderer 按 v 兼容。
 
-### 四态判定（status-core.sh）
+### 五态判定（status-core.sh）
 
 数据源：`GET /api/conversations` 单请求（web 前端本就 5 秒轮询同源数据）。
 
 | 状态 | 判定 | 依据 |
 |------|------|------|
 | 🖤 系统离线 | curl 失败 / model 损坏或缺失 | 后端挂了是显式状态，不降级成睡觉（搭档明确要求：异常停止要一眼看出） |
+| 长离线自禁 | 离线持续 ≥ OFFLINE_LONG_SEC（600s） | renderer 写空配置退出，Touch Bar 回归系统默认；launchd ThrottleInterval=60s 拉起重探，恢复在线后自愈（检测主体是 core/renderer 脚本，MTMR 只是无配置不渲染） |
+| ⚠️ 非主进程 | 3000 端口 LISTEN 进程 cwd ≠ 主仓 | 防 worktree 测试进程顶上 3000 冒充主系统污染状态；取不到 cwd 时 primary=unknown 不误报 |
 | 🔴 等你介入 | active 会话 `unreadCount > 0` | 读没读本身就是时间窗——陈年 awaiting_user 会话（实测 44 个）只要没新未读就不刷屏 |
 | ⌨️ 干活中 | `activityStatus == "processing"` 且 `lastMessageTs` 距今 ≤ 1800s | processing 可能因异常中断残留，新鲜度窗口兜底 |
 | 💤 睡觉 | 在线且皆无 | — |
@@ -122,11 +130,15 @@ plist。日志各自落 `/tmp/otterbar-{core,renderer}.*.log`。
 
 ## 手动验证
 
-- **四态渲染**（构造 model 实测）：
+- **五态渲染**（构造 model 实测）：
   - 离线：`🦦 🖤离线`；model 损坏（`not json{{{`）→ 离线态；model 文件缺失 → 离线态
+  - 长离线：offline_long=true → renderer 写空 items 退出（exit 0），Touch Bar 回归系统默认
+  - 非主进程：`🦦 ⚠️非主·🔴² ⌨️1场1獭 · 测试`；离线+非主：`🦦 ⚠️非主·🖤离线`
   - 睡觉：`🦦 💤`
   - 等你+干活：`🦦 🔴¹⁷ ⌨️3场5獭 · 📋 Backlog`（上标计数，宽字符截断 10 字）
-  - 真机 live：`🦦 ⌨️5场5獭`（core 5s 刷新 + renderer 增量写盘）
+  - 真机 live：`🦦 🔴¹ ⌨️4场4獭 · 评测机制`（core 5s 刷新 + renderer 增量写盘）
+- **主进程自证实测**：当前 3000 端口进程 cwd=主仓 → primary=true；PRIMARY_CWD 指向不存在路径 → false；lsof 取不到 → unknown（不误报）
+- **离线计时实测**：模拟 API 不可达 + OFFLINE_LONG_SEC=2，4 轮后 model offline_long=true
 - **后端不可达降级**：curl -sf 失败 → 写 OFFLINE_MODEL，不崩溃不残留旧状态
 - **lastMessageTs=null 边界**：fallback `"1970-01-01T00:00:00Z"`（初版 `"1970"`
   非 ISO8601 导致 jq 报错退出，`|| printf` 兜底把全部计数归零——检视发现 #713 R1）

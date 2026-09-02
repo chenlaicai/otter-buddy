@@ -4,21 +4,24 @@
 # 契约：本文件不访问海獭后端，只读 display-model.json——未来切换自研 Swift
 # 渲染端时，整体替换本文件即可，系统侧（status-core.sh）零改动。
 #
-# 为什么是静态的：MTMR 对 items.json 的任何变化都是整条 Touch Bar 全量重载
-# （无局部刷新/无 websocket），字符轮换动画 = 每秒整条 bar 闪烁，不可用。
-# 真动画需求走自研 Swift 渲染端课题（DFR 私有接口），见对应 issue。
-#
-# 无 Touch Bar 机器安全性：本脚本只写文件，不碰硬件；未装 MTMR 时 items.json
-# 无人消费，纯孤儿文件，无副作用。
+# 行为细则：
+# - 长离线（offline_long=true）：休眠自禁——items.json 置空数组，Touch Bar 回归
+#   系统默认（MTMR 无配置时不渲染自定义内容）；launchd KeepAlive 会在 plist 的
+#   ThrottleInterval 后拉起，拉起后若仍长离线则再次退出，形成低频探测循环。
+#   core 恢复在线后 model 恢复正常，renderer 常驻显示。
+# - 非主进程（primary=false）：显示 ⚠️ 徽章，数据照常显示（提示 3000 端口被
+#   worktree 测试进程占用，搭档一眼识破）。
+# - MTMR 对 items.json 全量重载无局部刷新，故徽章静态、标题未变不写盘。
+# - 无 Touch Bar / 未装 MTMR 机器：只写孤儿文件，零副作用。
 set -euo pipefail
 
 MODEL_FILE="${OTTERBAR_MODEL_FILE:-$HOME/Library/Application Support/OtterBar/display-model.json}"
 ITEMS_FILE="${OTTERBAR_ITEMS_FILE:-$HOME/Library/Application Support/MTMR/items.json}"
 POLL_INTERVAL="${OTTERBAR_POLL_INTERVAL:-5}"
 
-OFFLINE_MODEL='{"v":1,"sys_online":false,"waiting":{"count":0,"top":""},"working":{"convs":0,"otters":0}}'
+OFFLINE_MODEL='{"v":1,"sys_online":false,"offline_long":false,"primary":"unknown","waiting":{"count":0,"top":""},"working":{"convs":0,"otters":0}}'
+EMPTY_ITEMS='[]'
 
-# 数字 → Unicode 上标（🔴³ 比 🔴×3 紧凑）
 sup() {
   local n=$1 out="" d
   local map=(⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹)
@@ -34,15 +37,21 @@ build_title() {
   model=$(cat "$MODEL_FILE" 2>/dev/null || true)
   [[ -z "$model" ]] && model="$OFFLINE_MODEL"
 
-  local online wcount wtop wconv wott
+  local online offline_long primary wcount wtop wconv wott
   online=$(jq -r '.sys_online // false' <<<"$model" 2>/dev/null || echo false)
+  offline_long=$(jq -r '.offline_long // false' <<<"$model" 2>/dev/null || echo false)
+  primary=$(jq -r '.primary // "unknown"' <<<"$model" 2>/dev/null || echo unknown)
   wcount=$(jq -r '.waiting.count // 0' <<<"$model" 2>/dev/null || echo 0)
   wtop=$(jq -r '.waiting.top // ""' <<<"$model" 2>/dev/null || echo "")
   wconv=$(jq -r '.working.convs // 0' <<<"$model" 2>/dev/null || echo 0)
   wott=$(jq -r '.working.otters // 0' <<<"$model" 2>/dev/null || echo 0)
 
+  # 前缀：非主进程警告优先于一切在线状态
+  local prefix=""
+  [[ "$primary" == "false" ]] && prefix="⚠️非主·"
+
   if [[ "$online" != "true" ]]; then
-    printf '%s' "🦦 🖤离线"
+    printf '%s' "🦦 ${prefix}🖤离线"
     return
   fi
 
@@ -51,13 +60,13 @@ build_title() {
     if (( wcount > 0 )); then parts+=("🔴$(sup "$wcount")"); fi
     if (( wconv > 0 )); then parts+=("⌨️${wconv}场${wott}獭"); fi
     local IFS=" "
-    local title="🦦 ${parts[*]}"
+    local title="🦦 ${prefix}${parts[*]}"
     if (( wcount > 0 && ${#wtop} > 0 )); then
       title="$title · ${wtop:0:10}"
     fi
     printf '%s' "$title"
   else
-    printf '%s' "🦦 💤"
+    printf '%s' "🦦 ${prefix}💤"
   fi
 }
 
@@ -80,8 +89,14 @@ EOF
 }
 
 mkdir -p "$(dirname "$ITEMS_FILE")"
-last_title=""
+last_title="__init__"
 while true; do
+  offline_long=$(jq -r '.offline_long // false' "$MODEL_FILE" 2>/dev/null || echo false)
+  if [[ "$offline_long" == "true" ]]; then
+    # 长离线：置空配置让 Touch Bar 回归系统默认，自禁退出等 KeepAlive 低频拉起
+    printf '%s\n' "$EMPTY_ITEMS" > "$ITEMS_FILE"
+    exit 0
+  fi
   title=$(build_title)
   if [[ "$title" != "$last_title" ]]; then
     write_items "$title"
