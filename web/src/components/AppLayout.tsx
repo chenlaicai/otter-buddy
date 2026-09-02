@@ -21,7 +21,7 @@ export function AppLayout({ activeView, children, wsBar }: AppLayoutProps) {
           兜底放骨架层而非每个页面自查：新页面零成本获得滚动。
           min-h-0：让自带 overflow-hidden 内滚的页面（conversation 三栏）作为 flex 子项正常收缩，
           显式 overflow-* 声明优先于本兜底，不受影响。 */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="app-content-scroll">{children}</div>
       <ToastContainer />
     </div>
   )

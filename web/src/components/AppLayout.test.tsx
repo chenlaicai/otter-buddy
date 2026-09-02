@@ -71,7 +71,8 @@ describe('AppLayout 骨架滚动兜底（F20260902imsc）', () => {
       )
     })
     // 骨架防御：body overflow:hidden 裁剪之下，内容区必须有滚动容器
-    const scrollable = document.querySelector('.h-screen > .overflow-y-auto')
+    // Why: 用 data-testid 而非 class 组合选择器 —— class 重构（如 h-screen→h-dvh）不应假阳性破坏行为断言（检视发现 1）
+    const scrollable = document.querySelector('[data-testid="app-content-scroll"]')
     expect(scrollable).not.toBeNull()
   })
 
@@ -83,8 +84,22 @@ describe('AppLayout 骨架滚动兜底（F20260902imsc）', () => {
         </AppLayout>,
       )
     })
-    const scrollable = document.querySelector('.h-screen > .overflow-y-auto')!
+    const scrollable = document.querySelector('[data-testid="app-content-scroll"]')!
     expect(scrollable.querySelector('header')).toBeNull()
     expect(document.querySelector('header')).not.toBeNull()
   })
+})
+
+// Why: 布局契约的另一半 —— 滚动容器必须真带 overflow-y-auto（testid 只锚点，行为断言仍看 class）
+// 避免 testid 加了但滚动类被误删的回归
+it('滚动容器带 overflow-y-auto——testid 锚点不替代行为断言', async () => {
+  await act(async () => {
+    root.render(
+      <AppLayout activeView="im">
+        <div>任意内容</div>
+      </AppLayout>,
+    )
+  })
+  const scrollable = document.querySelector('[data-testid="app-content-scroll"]')! as HTMLElement
+  expect(scrollable.className).toContain('overflow-y-auto')
 })

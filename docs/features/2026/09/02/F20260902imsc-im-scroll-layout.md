@@ -59,7 +59,7 @@ IM 页（F20260901chun 昨日交付）单列堆叠三张卡片，内容一多即
 
 ## 验证
 
-1. **单测**：`AppLayout.test.tsx` 2 条通过（滚动容器存在 / TopBar 在滚动区外）
+1. **单测**：`AppLayout.test.tsx` 3 条通过（滚动容器存在 / TopBar 在滚动区外 / 滚动容器带 overflow-y-auto——检视发现 1 处置后由 2 条扩为 3 条，选择器从 class 组合改为 data-testid + 行为断言双保险）
 2. **全量**：web 46 files / 387 tests passed；`tsc --noEmit && vite build` 通过
 3. **Playwright 数值断言**（1440x900，dev server 实跑）：
    - 滚动容器 `.h-screen > .overflow-y-auto` 存在，`body overflow: hidden` 之下内容可滚
@@ -67,6 +67,15 @@ IM 页（F20260901chun 昨日交付）单列堆叠三张卡片，内容一多即
 4. **视觉核验**（mimo-vision 多模态读截图）：4 项通过——双列并排视觉平级、无错位溢出重叠、大厅独立行、无截断。观察项：微信卡含扫码子卡高约 3 倍于飞书卡（内容量差异，`items-start` 已保证不拉伸，飞书侧内容增长后自然均衡）
 5. **最简实现检查**：已过——兜底为一层 div + 4 个 utility class，无新组件无新依赖；双列为 Tailwind 原生 grid 类，零 JS
 6. **capability_test**: n/a——纯 CSS 布局（A 类），无 LLM 行为
+
+## 检视与处置
+
+对抗审视（检视獭-IM滚动，mimo，PR #732 review comment）0 严重 + 2 建议，处置：
+
+| 发现 | 处置 | 更好/更差判断
+|------|------|----------------
+| 1. 测试选择器 `.h-screen > .overflow-y-auto` 锁定实现细节，class 重构会假阳性 | **接受并修复**：AppLayout 加 `data-testid="app-content-scroll"`（项目惯例，health 页同模式），断言改 testid 锚点 + 行为断言（overflow-y-auto class 存在）双保险，并新增第 3 条测试防止 testid 加了但滚动类被误删 | 改了更好：重构 class 不再破坏行为断言
+| 2. launchd plist PATH 无关变更混入 PR | **反驳（误报）**：`git diff origin/main...HEAD --stat` 实证 PR 只碰 4 个文件，plist 变更来自 base 提交 304249d6（#724，已在 main），不在本 PR diff 内 | 反驳有据：PR diff --name-only 全量核对
 
 ## 备考
 
