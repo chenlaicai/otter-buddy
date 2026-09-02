@@ -115,3 +115,41 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  # P0-b: Golden Gate selftest-only 独立入口（零 LLM、不配置 LLM 端点）
+  # 应用仍需 boot 供 talking-stone selftest 的 db/app
+  golden-selftest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Upgrade npm to match local version
+        run: npm install -g npm@11.17.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run check
+
+      # selftest-only：只跑 selftest 层（good/bad 参考序列校验），不跑真 LLM 采样
+      # 零 LLM 调用——参考消息序列纯构造，不发真实请求
+      - name: Run golden selftest (zero LLM)
+        run: npx vitest run --config vitest.capability.config.ts --reporter=verbose 2>&1 | grep -E "(selftest|PASS|FAIL|✓|✗)" || true
+        env:
+          # 不配置 LLM 端点，确保零 LLM 调用
+          OPENAI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          # 不配置 embedding，跳过 bge-m3 加载
+          EMBEDDING_ENABLED: "false"

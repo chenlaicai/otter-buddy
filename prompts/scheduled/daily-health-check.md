@@ -71,3 +71,30 @@ task_name: 每日对话健康检查
 ## issue 产出规范
 
 每个提交的 daily-review issue 必须有具体修复方案（代码/配置/prompt/流程），不能只写「留评论跟踪」或「分析类不需要PR」——问题值得记录就值得有修复路径（SYSTEM.md R2 Issue 处理规范）。
+
+## 止损线检查（P0-c，v6.3）
+
+每日检查评测机制止损线状态，发现问题立即开 issue：
+
+### 检查项
+
+1. **intent 生成率**：运行 `node scripts/lint-intent.mjs` 查看声明率统计（P0-c 输出）
+   - 存量参考：intent 存在率 / verify_by 率（参考值，不触发止损）
+   - 本期判定：本次 PR 修改的文档 intent 存在率 / verify_by 率（判定值）
+   - **止损线**：观察期（P0 落地后 2 周或 5 个软代码 PR，先到为准）新增文档 intent 生成率 <80% → 触发
+
+2. **golden gate 执行记录**：检查 `data/metrics/golden-results.jsonl` 是否存在且有记录
+   - **止损线**：golden gate 从未被实际执行 → 触发
+
+3. **条件 3（效果外标）**：检查 golden gate 执行记录中的 passed 字段
+   - **样本单位 = PR 数**（按 pr 字段聚合，一个 PR 多场景只算一个样本）
+   - **样本不足分支**：窗口内聚合后 <5 个 PR → 窗口顺延，记「样本不足」，不算空转不算价值
+   - **触发条件**：≥5 个 PR 的自动场景记录且 passed 全为 true（零 fail，分母只算自动场景）→ 触发复审
+   - **复审后静默规则**：复审决议「保留」→ 条件 3 静默 ≥8 周后再恢复检查（防复审疲劳）
+   - **复审判据（人工，一次性）**：① 场景覆盖 vs 窗口内软代码 PR diff 的相关性；② post_merge_fix_density 趋势旁证
+
+### 处置
+
+- 止损线触发 → owner=大獭，daily-review 开 issue
+- 触发处置：golden 目录删除 → capability test 承接原断言 → results.jsonl 归档 data/metrics/ → #579 同步关闭 → 验收记录写入特性文档
+- 复审决议「保留」→ 条件 3 静默 ≥8 周后再恢复检查

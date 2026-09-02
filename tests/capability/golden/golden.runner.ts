@@ -18,6 +18,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { bootCapabilityApp, type CapabilityContext } from "../helpers/boot";
 import {
@@ -85,11 +86,48 @@ export interface GoldenModule {
   selftest?: GoldenSelftest | ((ctx: CapabilityContext) => Promise<GoldenSelftest>);
 }
 
-/** results.jsonl 写入点（非 git 追踪，本地数据沉淀） */
-const RESULTS_PATH = path.join(__dirname, "results.jsonl");
+/** results.jsonl 写入点（非 git 追踪，本地数据沉淀）
+ *  v6.3 P0-b: 默认解析主仓根（git rev-parse --git-common-dir），防 worktree 孤岛写入。
+ *  env GOLDEN_RESULTS_PATH 可显式覆盖。 */
+function resolveResultsPath(): string {
+  const envPath = process.env.GOLDEN_RESULTS_PATH;
+  if (envPath) return envPath;
+
+  // git rev-parse --git-common-dir 在 worktree 中返回主仓 .git 路径
+  let gitCommonDir: string;
+  try {
+    gitCommonDir = execSync("git rev-parse --git-common-dir", { encoding: "utf8" }).trim();
+  } catch {
+    // fallback: 当前目录（非 git 环境）
+    return path.join(__dirname, "results.jsonl");
+  }
+
+  // git-common-dir 可能是相对路径（如 .git），需要解析为绝对路径
+  const resolved = path.isAbsolute(gitCommonDir)
+    ? gitCommonDir
+    : path.resolve(process.cwd(), gitCommonDir);
+
+  // 推导主仓根目录（.git 的父目录）
+  const repoRoot = path.dirname(resolved);
+
+  // fail-fast: 写入目标不在主仓根下 → 报错拒跑（防 worktree 孤岛写入）
+  const targetDir = path.join(repoRoot, "data", "metrics");
+  if (!targetDir.startsWith(repoRoot)) {
+    throw new Error(`[golden] results.jsonl 写入目标不在主仓根下：${targetDir}（主仓根：${repoRoot}）`);
+  }
+
+  return path.join(targetDir, "golden-results.jsonl");
+}
+
+const RESULTS_PATH = resolveResultsPath();
 
 function appendResult(record: Record<string, unknown>): void {
   try {
+    // 确保目录存在
+    const dir = path.dirname(RESULTS_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     fs.appendFileSync(RESULTS_PATH, JSON.stringify(record) + "\n", "utf8");
   } catch (err) {
     /** 结果沉淀失败不阻断 gate——assert 已通过 expectSampledBehavior 判定，
@@ -229,6 +267,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
             pr: currentPr(),
             manual: true,
             verdict: "pending",
+            passed: null, // manualReview 行不参与零 fail 统计（v6.3，mimo 新发现 2 + glm-flash 发现 7）
           });
           return;
         }
@@ -248,6 +287,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
           successes,
           pr: currentPr(),
           manual: false,
+          passed: successes >= golden.sampling.minSuccess, // 自动场景 passed = successes >= minSuccess（v6.3，mimo 新发现 2 + glm-flash 发现 7）
         });
       }, 1_800_000); // 30 分钟超时（采样 × 每轮完整 agent 回合 ~30-60s）
     }

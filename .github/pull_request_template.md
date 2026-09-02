@@ -32,6 +32,8 @@ Explain the motivation for this change.
 - [ ] `npm run build`
 - [ ] `npm run test`
 - [ ] Manual verification completed
+- [ ] **Intent 块存在**（软代码改动必须）：特性文档 frontmatter 有 intent 块（problem + verify_by）
+- [ ] **Golden Gate 已跑且 fail 已处置**（软代码改动必须）：results.jsonl 有该 PR 的执行记录，fail 行已复跑通过/修复再跑/申诉留痕
 
 ## Discovered Issues
 
