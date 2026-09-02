@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.otterbuddy.otterbar-status</string>
+    <string>com.otterbuddy.otterbar-core</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/orca/ai/otter-buddy/scripts/otterbar-status.sh</string>
+        <string>/Users/orca/ai/otter-buddy/scripts/otterbar/status-core.sh</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/otterbar-status.log</string>
+    <string>/tmp/otterbar-core.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/otterbar-status.err.log</string>
+    <string>/tmp/otterbar-core.err.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
