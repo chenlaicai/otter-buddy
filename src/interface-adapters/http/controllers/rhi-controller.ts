@@ -7,16 +7,20 @@
  * - chains:  实时构建特性链（buildFeatureChains 纯函数，读 git + docs）
  * - scan:    手动触发一轮 RhiScanWorker.scanOnce（调试/演示用）
  *
- * 设计：try-catch 兜底返回 200 + error 字段（对齐 memory 端点的守门人模式）。
+ * 设计：HTTP 语义优先——catch 块经 handleError 统一返回 5xx/4xx（#581，废除历史上的
+ * 「守门人模式」即 200+error body；决策记录见特性文档 F20260901r5xx）。
  */
 
 import type { Context } from "hono";
 import type { Logger } from "@usecases/ports/logger";
+import { handleError } from "../http-error";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/health-score";
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
+import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
+import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density";
 
 const STALLED_DAYS = 14;
 const ZOMBIE_DAYS = 30;
@@ -30,7 +34,7 @@ function safeParseJson(raw: string): unknown {
   }
 }
 
-/** 信号类型中文标签（与前端 SIGNAL_TYPE_LABELS 保持一致） */
+/** 信号类型中文标签（与前端 SIGNAL_TYPE_LABELS 保持一致；review_debt 虽未发射但保留对齐） */
 const SIGNAL_TYPE_LABELS: Record<string, string> = {
   bug_recurrence: 'bug 反复出现',
   chain_stall: '特性链滞留',
@@ -40,6 +44,7 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   intent_drop: '意图兑现率下降',
   hotspot_imbalance: '热区失衡',
   review_debt: '审视债务',
+  post_merge_fix_density: '合并后修复密度',
 };
 
 /** 特性链五态人话解释（基于 chain-builder.ts 五态判定规则） */
@@ -286,11 +291,9 @@ export class RhiController {
       }
 
       const openSignals = this.signalRepo.findOpen();
-      const bySeverity = { critical: 0, warning: 0 };
-      for (const s of openSignals) {
-        if (s.severity === "critical") bySeverity.critical++;
-        else bySeverity.warning++;
-      }
+      // Issue #652 方案甲：low 不进 severity 计数（数字与视觉折叠一致），单列
+      // byConfidence 供低置信抽屉——口径单一真相源 signal-counts.ts（worker D5 同源）
+      const { bySeverity, byConfidence } = aggregateOpenSignalCounts(openSignals);
 
       const latestSnapshotDate = this.snapshotRepo.findLatestByMetricKey("total_commits")?.snapshot_date ?? null;
 
@@ -299,10 +302,10 @@ export class RhiController {
         snapshotDate: latestSnapshotDate,
         openSignals: openSignals.length,
         openSignalsBySeverity: bySeverity,
+        openSignalsByConfidence: byConfidence,
       });
     } catch (err) {
-      this.logger.error("RHI overview failed", err instanceof Error ? err : undefined);
-      return c.json({ error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -324,8 +327,7 @@ export class RhiController {
         count: rows.length,
       });
     } catch (err) {
-      this.logger.error("RHI signals failed", err instanceof Error ? err : undefined);
-      return c.json({ error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -349,13 +351,23 @@ export class RhiController {
           docStatus: ch.doc?.status ?? null,
           docTitle: ch.doc?.title ?? null,
           stateReason: buildChainStateReason(ch.state, ch),
+          // Issue #649 PR3：泳道 x 轴数据源——轻量 commit 序列（sha8+date+changeType，
+          // 不带 message/filesChanged 控 payload；全量走 chainDetail 供抽屉）。
+          // 单请求无瀑布：329 链 × 均几条 ≈ 60KB 可接受，虚拟化渲染照常。
+          commits: ch.commits.map(cm => ({
+            sha: cm.sha.slice(0, 8),
+            date: cm.date.toISOString(),
+            changeType: cm.changeType,
+          })),
         })),
         stateCounts,
         total: chains.length,
+        // Issue #647：高扇入排除清单常驻可见（验收项：不黑箱）——
+        // 与 post_merge_fix_density 信号同源同阈值，见 post-merge-fix-density.ts
+        fanInExcludedFiles: computeFanInExclusions(chains),
       });
     } catch (err) {
-      this.logger.error("RHI chains failed", err instanceof Error ? err : undefined);
-      return c.json({ error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -392,8 +404,7 @@ export class RhiController {
         },
       });
     } catch (err) {
-      this.logger.error("RHI chain detail failed", err instanceof Error ? err : undefined);
-      return c.json({ error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -418,8 +429,7 @@ export class RhiController {
         latestSnapshotDate: latestDate,
       });
     } catch (err) {
-      this.logger.error("RHI trends failed", err instanceof Error ? err : undefined);
-      return c.json({ error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -450,8 +460,7 @@ export class RhiController {
         attribution: overallMeta?.attribution ?? null,
       });
     } catch (err) {
-      this.logger.error("RHI score failed", err instanceof Error ? err : undefined);
-      return c.json({ error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 
@@ -493,19 +502,19 @@ export class RhiController {
 
       return c.json({ days, series, otters, totals, latestSnapshotDate: latestDate });
     } catch (err) {
-      this.logger.error("RHI cost-output failed", err instanceof Error ? err : undefined);
-      return c.json({ error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 
-  /** POST /api/health/scan — 手动触发一轮扫描（调试/演示；worker 每小时自动跑） */
+  /** POST /api/health/scan — 手动触发一轮扫描（调试/演示；worker 每小时自动跑）。
+   *  #581：失败改经 handleError 返回 500——「ok 状态在 body」的守门人语义一并废除
+   *  （HTTP 200 即成功，失败即 5xx，状态由状态码携带）。 */
   async scan(c: Context): Promise<Response> {
     try {
       const result = await this.scanWorker.scanOnce();
-      return c.json({ ok: true, result });
+      return c.json({ result });
     } catch (err) {
-      this.logger.error("RHI manual scan failed", err instanceof Error ? err : undefined);
-      return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return handleError(c, err, this.logger);
     }
   }
 }

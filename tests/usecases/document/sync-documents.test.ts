@@ -209,23 +209,24 @@ describe("SyncDocuments - F20260803mval", () => {
   });
 
   it("F20260901dsyn: id 漂移——同 file_path DB 存在不同 id -> 结构化错误而非裸 UNIQUE 崩溃，不 insert", async () => {
-    // 复现 #637：文档 id=mmr0，DB 同路径已有 id=mmr 的记录
+    // 复现 #637：文档 id=mmr10，DB 同路径已有 id=mmr1 的记录（#670 回修后测试数据
+    // 对齐 4 位后缀契约，原 3 位合成 id 在 {4,10} 下非法）
     const dbDoc = makeDoc({
-      id: "F20260803mmr",
-      filePath: "docs/features/2026/08/03/F20260803mmr0.md",
+      id: "F20260803mmr1",
+      filePath: "docs/features/2026/08/03/F20260803mmr10.md",
       summary: "旧摘要",
     });
     const featureRepo = makeStatefulFeatureRepo([dbDoc]);
     const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
-    const fs = makeFs({ "F20260803mmr0.md": FEATURE_FM("F20260803mmr0", "新摘要") });
+    const fs = makeFs({ "F20260803mmr10.md": FEATURE_FM("F20260803mmr10", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
     const result = await sync.execute("/root");
 
     // 结构化错误：含两个 id 与修复指引，而非裸 SQLite 文本
     expect(result.errors.length).toBe(1);
-    expect(result.errors[0].error).toContain("F20260803mmr0");
-    expect(result.errors[0].error).toContain("F20260803mmr");
+    expect(result.errors[0].error).toContain("F20260803mmr10");
+    expect(result.errors[0].error).toContain("F20260803mmr1");
     expect(result.errors[0].error).toContain("ID drift");
     // 不 insert、不索引：避免撞唯一索引的半写状态
     expect(featureRepo.store.length).toBe(1);
@@ -233,16 +234,16 @@ describe("SyncDocuments - F20260803mval", () => {
   });
 
   it("F20260901dsyn: id 对齐后（文档 id 改回 DB id）——走 upsert update 分支，不再报错", async () => {
-    // 修复后形态：文档 id 已改回 F20260731mmr，与 DB 一致，fingerprint 不同（status 不同）触发 update
+    // 修复后形态：文档 id 已改回 F20260803mmr1，与 DB 一致，fingerprint 不同（status 不同）触发 update
     const dbDoc = makeDoc({
-      id: "F20260803mmr",
-      filePath: "docs/features/2026/08/03/F20260803mmr.md",
+      id: "F20260803mmr1",
+      filePath: "docs/features/2026/08/03/F20260803mmr1.md",
       summary: "旧摘要",
       status: "archived",
     });
     const featureRepo = makeStatefulFeatureRepo([dbDoc]);
     const memoryIndex = { indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}) };
-    const fs = makeFs({ "F20260803mmr.md": FEATURE_FM("F20260803mmr", "新摘要") });
+    const fs = makeFs({ "F20260803mmr1.md": FEATURE_FM("F20260803mmr1", "新摘要") });
     const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), memoryIndex as MemoryIndexGateway, createTestLogger());
 
     const result = await sync.execute("/root");

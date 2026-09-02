@@ -9,7 +9,7 @@ import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider"
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements -- 补丁集合，语句数由历史补丁数决定（max-lines-per-function #506 后未超限）
+// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数/行数由历史补丁数决定
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   // 检查 session_file 字段是否存在
   const columns = db.prepare("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
@@ -116,6 +116,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** Issue #644（健康面板重设计 PR1）：signals 表添加 evidence_detail + confidence 列（存量库迁移）。
    *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureSignalsEvidenceColumns(db, logger);
+
+  /** F20260901sgp0 P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
+   *  schema.ts 新库已含两列；存量库需 ALTER 补列。幂等：PRAGMA 检测。 */
+  ensureMessagesSignalColumns(db, logger);
 }
 
 /** Issue #644：signals 表补 evidence_detail / confidence 列（幂等，PRAGMA 检测）。
@@ -490,6 +494,28 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
   if (!hasIntroducedByPr) {
     db.prepare("ALTER TABLE healing_events ADD COLUMN introduced_by_pr TEXT").run();
     logger.info('Added introduced_by_pr column to healing_events table');
+  }
+}
+
+/** F20260901sgp0 P0: messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
+ *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
+function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>;
+  if (!columns.some(col => col.name === 'signal_level')) {
+    db.prepare("ALTER TABLE messages ADD COLUMN signal_level TEXT").run();
+    logger.info('Added signal_level column to messages table');
+  }
+  if (!columns.some(col => col.name === 'signal_meta')) {
+    db.prepare("ALTER TABLE messages ADD COLUMN signal_meta TEXT").run();
+    logger.info('Added signal_meta column to messages table');
+  }
+  // F20260901sgp0 P0: 索引在列之后幂等建——存量库 initSchema 先于 migrateDatabase，
+  // 列不存在时 CREATE INDEX 会抛 no such column（PR #386 前科）。
+  // 新库列已在 initSchema 时存在，此处 CREATE IF NOT EXISTS 为 no-op。
+  const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
+  if (!indexes.some(idx => idx.name === 'idx_messages_signal_level')) {
+    db.prepare("CREATE INDEX idx_messages_signal_level ON messages(signal_level)").run();
+    logger.info('Created idx_messages_signal_level index on messages table');
   }
 }
 

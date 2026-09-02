@@ -27,6 +27,8 @@ export interface UpdateScheduledTaskRequestDTO {
   triggerAt?: string | null;
   timezone?: string;
   body?: string;
+  /** #610: watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
+  watchlist?: string[];
   talkingStonePassedTo?: string[];
   status?: 'active' | 'disabled' | 'error';
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
