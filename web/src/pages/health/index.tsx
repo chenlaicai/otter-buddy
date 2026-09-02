@@ -42,7 +42,7 @@ const SIGNAL_TYPE_LABELS: Record<string, string> = {
   post_merge_fix_density: '合并后修复密度',
 }
 
-/** 链五态/排序/changeType 标签已收编 chain-state-meta.ts（Issue #649 PR3 单一真相源） */
+/** 链四态/排序/changeType 标签已收编 chain-state-meta.ts（Issue #649 PR3 单一真相源） */
 
 const COST_OUTPUT_COLORS = SERIES_COLORS
 
@@ -57,7 +57,7 @@ const SCORE_STATUS_CONFIG: Record<string, { label: string; text: string; bg: str
 const DIMENSION_FORMULAS: Record<string, { formula: string; source: string }> = {
   D1: { formula: 'ratio ≤ 20% 满分，线性降至 40% 归零', source: 'bugfix 占比（快照行）' },
   D2: { formula: '100 − min(60, 热区文件数×4) − 失衡?20', source: '热区文件数 + bugfix:feature 失衡（分布）' },
-  D3: { formula: 'active 占比×100 − regressed×150 − zombie×100', source: '五态计数（链状态分布）' },
+  D3: { formula: 'active 占比×100 − regressed×150 − stalled×100', source: '四态计数（链状态分布）' },
   D4: { formula: '合规率×100（线性）', source: '合规提交数 / 总提交数（快照行）' },
   D5: { formula: '100 − (critical 密度×40 + warning 密度×30)', source: 'open 信号数 / 活跃链数（active+stalled）' },
 }
@@ -274,8 +274,8 @@ function HealthPage() {
                     </ChartCard>
                   </div>
 
-                  {/* 特性链五态分布堆叠条（色板 token 化）*/}
-                  <ChartCard title="特性链五态分布" subtitle={`快照 ${trends.latestSnapshotDate ?? '—'} · 共 ${chainTotal(trends)} 条链`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
+                  {/* 特性链四态分布堆叠条（色板 token 化）*/}
+                  <ChartCard title="特性链四态分布" subtitle={`快照 ${trends.latestSnapshotDate ?? '—'} · 共 ${chainTotal(trends)} 条链`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
                     <ChainStateBar counts={trends.distributions.chain_states ?? {}} />
                   </ChartCard>
 
@@ -488,7 +488,7 @@ function chainTotal(trends: RhiTrendsDTO): number {
   return cs ? Object.values(cs).reduce((s, v) => s + v, 0) : 0
 }
 
-/** 链五态/排序/changeType 标签已收编 chain-state-meta.ts（Issue #649 PR3 单一真相源） */
+/** 链四态/排序/changeType 标签已收编 chain-state-meta.ts（Issue #649 PR3 单一真相源） */
 
 // ── 组件 ──
 
@@ -671,7 +671,7 @@ function EmptyChart({ text }: { text: string }) {
   )
 }
 
-/** 特性链五态分布：水平堆叠条（各态按占比分宽，hover 显示数值） */
+/** 特性链四态分布：水平堆叠条（各态按占比分宽，hover 显示数值） */
 function ChainStateBar({ counts }: { counts: Record<string, number> }) {
   const entries = Object.entries(counts).filter(([, v]) => v > 0)
   const total = entries.reduce((s, [, v]) => s + v, 0)

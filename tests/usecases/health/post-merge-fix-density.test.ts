@@ -19,6 +19,7 @@ function chain(featureId: string, files: string[], lastCommitDaysAgo: number): F
   return {
     featureId,
     state: "active",
+    signals: [],
     commits: [{ sha: "a0000000", date: new Date(daysAgo(lastCommitDaysAgo)), message: "merge", changeType: "New Feature", filesChanged: files, prNumber: 1 }],
     firstSeenAt: new Date(daysAgo(lastCommitDaysAgo)),
     lastCommitAt: new Date(daysAgo(lastCommitDaysAgo)),

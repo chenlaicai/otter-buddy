@@ -56,7 +56,6 @@ import type { RhiScanWorker as RhiScanWorkerType } from "@usecases/health/rhi-sc
 import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import { collectHealingEvents } from "@usecases/health/healing-collector";
-import { countFidMentions } from "@frameworks/db/health/fid-mention-counter";
 import { SignalRepository } from "@usecases/health/signal-repository";
 import { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { AgentSessionSource } from "@usecases/health/cost-output-collector";
@@ -145,10 +144,6 @@ function createRhiScanWorker(deps: {
   // healing 事件源：open 状态全部取（behavior_defect 检测数据面）
   const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
 
-  // FID 提及计数源（zombie 判定，审视发现 2：messages_fts 近 30 天窗口计数）
-  const fidMentionSource = async (fids: string[], windowDays: number) =>
-    countFidMentions(deps.db, fids, windowDays);
-
   // 指标快照落库端口（F20260829hviz Fix A）：scanOnce 计算指标写 health_snapshots
   const snapshotRepo = new HealthSnapshotRepository(deps.db);
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
@@ -181,7 +176,7 @@ function createRhiScanWorker(deps: {
   const sessionsDir = path.join(deps.rootDir, "data", "sessions");
 
   return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, {
-    fidMentionSource, snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
+    snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
   });
 }
 

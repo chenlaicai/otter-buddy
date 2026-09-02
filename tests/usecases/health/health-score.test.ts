@@ -90,11 +90,11 @@ describe("D3 交付活力", () => {
   it("全 active = 100", () => {
     expect(scoreD3({ active: 10 })).toBe(100);
   });
-  it("一半 zombie：active 得分 50 被 zombie 扣 50 → 0", () => {
-    expect(scoreD3({ active: 5, zombie: 5 })).toBe(0);
+  it("一半 stalled（pr-stalled 投影）：active 得分 50 被 stalled 扣 50 → 0", () => {
+    expect(scoreD3({ active: 5, stalled: 5 })).toBe(0);
   });
-  it("40% zombie：60 得分扣 40 → 20", () => {
-    expect(scoreD3({ active: 6, zombie: 4 })).toBe(20);
+  it("40% stalled：60 得分扣 40 → 20", () => {
+    expect(scoreD3({ active: 6, stalled: 4 })).toBe(20);
   });
   it("regressed 惩罚 ×150：一半 regressed → 50-75 clamp 0", () => {
     expect(scoreD3({ active: 5, regressed: 5 })).toBe(0);
@@ -102,13 +102,13 @@ describe("D3 交付活力", () => {
   it("20% regressed：80 得分扣 30 → 50", () => {
     expect(scoreD3({ active: 8, regressed: 2 })).toBe(50);
   });
-  it("zombie 归因优先于 regressed（数量相同时）", () => {
+  it("stalled 归因排在 orphan 前、regressed 之后（数量相同时取更重者）", () => {
     const r = computeHealthScore({
       ...BASE_INPUT,
-      chainStates: { active: 5, zombie: 3, regressed: 3 },
+      chainStates: { active: 5, stalled: 3, regressed: 3 },
     });
     const d3 = r.dimensions.find(d => d.dimension === "D3")!;
-    expect(d3.attribution).toContain("zombie");
+    expect(d3.attribution).toContain("regressed");
   });
 
   it("zombie=0 且 regressed=0 时归因指认 orphan 而非 zombie 0 条（审视发现 1）", () => {
@@ -209,9 +209,10 @@ describe("综合分与拖累归因", () => {
     expect(r.attribution).toContain("质量成本");
     expect(r.attribution).toContain("bugfix");
   });
-  it("除 D3 外全满分：stalled 占 20% → D3=80，综合 95", () => {
+  it("除 D3 外全满分：stalled（pr-stalled 投影）占 20% → D3=60，综合 90（F20260902sigm 新权重）", () => {
+    // 新公式：80 − 0×1.5 − 2/10×100 = 60（stalled 顶上原 zombie 的 ×100 权重位）
     const r = computeHealthScore({ ...BASE_INPUT, compliantCommits: 100 });
-    expect(r.overall).toBe(95);
+    expect(r.overall).toBe(90);
     expect(r.attribution).toContain("交付活力");
   });
   it("全链 active + 全合规时归因为 null", () => {

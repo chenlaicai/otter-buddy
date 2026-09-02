@@ -106,7 +106,7 @@ export function detectSignals(
   const signals: DetectedSignal[] = [];
 
   signals.push(...detectBugRecurrence(inWindow, options, now));
-  signals.push(...detectChainStall(chains, now));
+  signals.push(...detectChainStall(chains));
   signals.push(...detectHotspot(inWindow, options));
   signals.push(...detectBehaviorDefect(healingEvents, options, now));
   signals.push(...detectHotspotImbalance(inWindow, options));
@@ -212,98 +212,30 @@ function collectDetailCommits(
   }
 }
 
-/** 从未有关联 commit 的文档状态（零 commit 是常态，不应触发滞留信号） */
-const DOC_NEVER_STARTED_STATUSES = new Set(["draft", "proposed", "design"]);
-
-/** chain_stall：特性链滞留（复用 ChainBuilder 的 stalled/zombie 判定）。Issue #645：
- *  zombie 分支升级为阶梯分档（severity/evidence/action 按天数分档，见 zombieLadder），
- *  stalled 分支保持 #644 规则甲语义不变 */
-function detectChainStall(chains: FeatureChain[], now: Date): DetectedSignal[] {
-  return chains
-    .filter(c => c.state === "stalled" || c.state === "zombie")
-    // Why: draft/proposed 文档从未有 commit 是常态（孤儿文档），不应触发 critical 信号
-    .filter(c => {
-      if (c.commitCount === 0 && DOC_NEVER_STARTED_STATUSES.has(c.doc?.status ?? "draft")) return false;
-      return true;
-    })
-    .map(c => (c.state === "zombie" ? zombieLadderSignal(c, now) : stalledSignal(c, now)));
-}
-
-/** 滞留天数：有 commit 用 daysSinceLastCommit；doc-only 链（null）用 createdAt 自算 */
-function stallDaysOf(c: FeatureChain, now: Date): number | null {
-  return c.daysSinceLastCommit ?? (
-    c.doc?.createdAt
-      ? Math.floor((now.getTime() - new Date(c.doc.createdAt).getTime()) / DAY_MS)
-      : null
-  );
-}
-
-/** stalled 分支（#644 置信规则甲）：stalled ∧ 有 commit → low（大概率「干完没归档」误报） */
-function stalledSignal(c: FeatureChain, now: Date): DetectedSignal {
+/** chain_stall：特性链滞留（F20260902sigm：读 chain.signals 的 pr-stalled 信号——
+ *  病态判据 100% 来自 PR 事实，docStatus 不再参与；zombie/doc-only 判死已删）。
+ *  一个链挂多个停滞 PR 时逐条出信号（挂几个报几个，不合并不取最严重） */
+function detectChainStall(chains: FeatureChain[]): DetectedSignal[] {
   const reg = SIGNAL_REGISTRY.chain_stall;
-  const stallDays = stallDaysOf(c, now);
-  const confidence: SignalConfidence = c.commitCount > 0 ? "low" : "normal";
-  return {
-    type: reg.type,
-    name: reg.name,
-    severity: reg.severity,
-    featureId: c.featureId,
-    filePath: null,
-    evidence: `${c.featureId} 滞留 ${stallDays} 天无 commit（doc status=${c.doc?.status ?? "?"}）`,
-    suggestedAction: reg.suggestedAction,
-    confidence,
-  };
-}
-
-/** zombie 分支：阶梯分档（#645）+ normal 置信（#644：30 天无 commit 且零提及更接近真异常） */
-function zombieLadderSignal(c: FeatureChain, now: Date): DetectedSignal {
-  const reg = SIGNAL_REGISTRY.chain_stall;
-  const days = stallDaysOf(c, now);
-  const ladder = zombieLadder(days);
-  return {
-    type: reg.type,
-    name: reg.name,
-    severity: ladder.severity,
-    featureId: c.featureId,
-    filePath: null,
-    evidence: `${c.featureId} 僵尸链（${ladder.label}）：${ladder.days} 天无 commit 且近 30 天对话零提及（doc status=${c.doc?.status ?? "?"}）`,
-    suggestedAction: ladder.suggestedAction,
-    confidence: "normal",
-  };
-}
-
-/** 僵尸链阶梯（Issue #645）：30-60 黄（warning）/ 60-90 红（critical）/ ≥90 建议归档。
- *  现状是二值判定（zombie=30 天 critical），阶梯后每日任务可按 severity 自动路由：
- *  warning → 观察，critical → 复盘，≥90 → 拆归档 issue。边界口径：[30,60) 黄 /
- *  [60,90) 红 / ≥90 归档档（仍为 critical，evidence 与 suggestedAction 升级为归档语义）。
- *  isZombie 保证进来的链 ≥zombieDays（默认 30）；<60 全部落黄档（防御性兜底，含
- *  doc-only 链 createdAt 缺失致 stallDays=null 的极端情况）。 */
-function zombieLadder(
-  stallDays: number | null,
-): { severity: "warning" | "critical"; label: string; days: number; suggestedAction: string } {
-  const days = stallDays ?? 0;
-  if (days < 60) {
-    return {
-      severity: "warning",
-      label: "黄档 30-60 天",
-      days,
-      suggestedAction: "观察或链复盘：确认是暂停还是废弃",
-    };
+  const out: DetectedSignal[] = [];
+  for (const c of chains) {
+    const stalled = c.signals.find(s => s.id === "pr-stalled");
+    if (!stalled) continue;
+    for (const pr of stalled.stalledPrs ?? []) {
+      out.push({
+        type: reg.type,
+        name: reg.name,
+        severity: reg.severity,
+        featureId: c.featureId,
+        filePath: null,
+        evidence: `${c.featureId} open PR #${pr.number} 已 ${pr.daysSinceActivity} 天无推进（无新 commit/review/comment）${pr.url ? `：${pr.url}` : ""}`,
+        suggestedAction: reg.suggestedAction,
+        // pr-stalled 是 PR 事实而非「干完没归档」猜测，不降置信
+        confidence: "normal",
+      });
+    }
   }
-  if (days < 90) {
-    return {
-      severity: "critical",
-      label: "红档 60-90 天",
-      days,
-      suggestedAction: "强制链复盘：90 天内归档或重启，否则进入归档档",
-    };
-  }
-  return {
-    severity: "critical",
-    label: `归档档 ≥90 天`,
-    days,
-    suggestedAction: `建议归档：创建归档 issue 并将 F-doc status 置为 archived（${days} 天无活动，每日任务可自动拆 issue）`,
-  };
+  return out;
 }
 
 /**
