@@ -4,6 +4,7 @@ import {
   isKnownResearchStatus,
   isKnownExplorationType,
 } from "./known-values";
+import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT, LEGACY_FID_IDS } from "./fid-format";
 
 export interface ValidationResult {
   valid: boolean;
@@ -73,14 +74,24 @@ function validateCommonFields(fm: Record<string, unknown>, errors: string[]): vo
 }
 
 function validateFeatureId(id: unknown, errors: string[]): void {
-  // 后缀 4-10 位小写字母数字（4 位推荐，放宽兼容历史）
-  if (id && !/^F\d{8}[a-z0-9]{3,10}$/.test(id as string)) {
+  // 后缀 4-10 位小写字母数字（实查最短 4 位，见 fid-format.ts 头注释）——#667 起与 commit-parser
+  // 共享 fid-format.ts 单一真相源，两处不再各自持正则。LEGACY_FID_IDS 为契约收紧
+  // 前的合法存量豁免（3 位后缀，DB 同 id，改 id 需先迁移，详见 fid-format.ts）
+  if (
+    id &&
+    !LEGACY_FID_IDS.has(id as string) &&
+    !new RegExp(`^F${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}$`).test(id as string)
+  ) {
     errors.push(`Invalid feature ID format: ${id}`);
   }
 }
 
 function validateResearchId(id: unknown, errors: string[]): void {
-  if (id && !/^R\d{8}[a-z0-9]{3,10}$/.test(id as string)) {
+  if (
+    id &&
+    !LEGACY_FID_IDS.has(id as string) &&
+    !new RegExp(`^R${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}$`).test(id as string)
+  ) {
     errors.push(`Invalid research ID format: ${id}`);
   }
 }
@@ -128,10 +139,10 @@ export function validateTitleReadability(title: unknown, warnings: string[]): vo
 
 /** F20260827spcs（#470）: 特性文档文件名 slug 后缀校验。
  *  主流命名：F<date><id>-<slug>.md（存量 271/292）；缺 slug 后缀报 warning（#470 评论升级为必查项），
- *  与存量兼容，逐步收紧。仅对 feature 文档生效。 */
+ *  与存量兼容，逐步收紧。仅对 feature 文档生效。ID 段口径同 fid-format.ts（#667）。 */
 export function validateFilenameSlug(filePath: string, warnings: string[]): void {
   const base = filePath.split("/").pop() ?? "";
-  if (/^F\d{8}[a-z0-9]{3,10}\.md$/.test(base)) {
+  if (new RegExp(`^F${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}\\.md$`).test(base)) {
     warnings.push(`Filename "${base}" missing slug suffix: prefer F<date><id>-<slug>.md`);
   }
 }

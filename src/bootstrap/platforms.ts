@@ -25,6 +25,7 @@ import { registerPaperTradingFunctions } from "@usecases/paper-trading/register-
 import { paperTradingFunctionRegistry } from "@usecases/paper-trading/function-registry";
 import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { SignalRouter } from "@usecases/conversation/signal-router";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import { SchedulerService } from "@usecases/scheduler/scheduler-service";
@@ -252,7 +253,7 @@ export function createFeishuBundle(options: {
   const { feishuConfig, uc, dispatchChainEngine, logger, webBaseUrl, messageBroadcaster, settingsRepo } = options;
   const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
   const client = new FeishuClient(feishuConfig, logger, tokenManager);
-  messageBroadcaster.registerOutboundChannel(new FeishuMessageChannel(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl, settingsRepo));
+  messageBroadcaster.registerOutboundChannel("feishu", new FeishuMessageChannel(uc.manageConnection, client, uc.queryOtter, logger, webBaseUrl, settingsRepo));
   if (!webBaseUrl) {
     logger.info("web.baseUrl not configured, feishu html-card placeholders will show without clickable links");
   }
@@ -268,8 +269,10 @@ export function setupFeishu(options: {
   messageBroadcaster: MessageBroadcaster;
   logger: Logger;
   registry?: ChannelStatusRegistry;
+  /** F20260901sgpv P1：信号路由器（飞书入口换轨） */
+  signalRouter?: SignalRouter;
 }): void {
-  const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry } = options;
+  const { appConfig, uc, repos, agentInvoker, feishu, messageBroadcaster, logger, registry, signalRouter } = options;
   if (!appConfig.feishu) return;
 
   const commandDispatcher = new CommandDispatcher(uc.manageConnection, uc.queryMessage, feishu.client, logger);
@@ -280,6 +283,8 @@ export function setupFeishu(options: {
     queryMessage: uc.queryMessage,
     agentInvokePort: agentInvoker,
     logger,
+    // F20260901sgpv P1：飞书入口换轨（隐式传石查询停用，四入口勘测硬约束 1）
+    ...(signalRouter && { signalRouter }),
   });
 
   // 多模态 Phase 2：飞书 ingress 附件三件套——资源下载客户端 + 注入服务与 controllers.ts 同构
@@ -345,8 +350,9 @@ export function startWeixinChannels(options: {
   messageBroadcaster: MessageBroadcaster;
   logger: Logger;
   registry?: ChannelStatusRegistry;
+  signalRouter?: SignalRouter;
 }): WeixinPollingChannel[] {
-  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry } = options;
+  const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter } = options;
   const weixinConfig = appConfig.weixin;
   if (!weixinConfig) {
     // Bugfix（F20260831wxsp）：有已登录账号但 config 无 weixin 段时不再静默 return——
@@ -359,7 +365,7 @@ export function startWeixinChannels(options: {
     if (orphanAccounts.length === 0) return [];
     logger.warn("Weixin: logged-in accounts exist but config.yaml has no weixin section — starting with defaults (partnerUserId unset, commands ungated). Add weixin section to config.yaml to gate commands", { accounts: orphanAccounts.map((a) => a.id) });
     const pollers = orphanAccounts
-      .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account, registry }))
+      .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account, registry, signalRouter }))
       .filter((p): p is WeixinPollingChannel => p !== undefined);
     // F20260901chun 发现8：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
     if (registry) {
@@ -379,7 +385,7 @@ export function startWeixinChannels(options: {
 
   const pollers: WeixinPollingChannel[] = [];
   for (const account of accounts) {
-    const poller = startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry });
+    const poller = startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry, signalRouter });
     if (poller) pollers.push(poller);
   }
   return pollers;
@@ -398,6 +404,8 @@ interface StartWeixinAccountOptions {
   weixinConfig: WeixinConfig;
   account: WeixinAccount;
   registry?: ChannelStatusRegistry;
+  /** F20260901sgpv P1：信号路由器（微信入口换轨） */
+  signalRouter?: SignalRouter;
 }
 
 /** 单账号启动（初始启动与 web 扫码登录热启动共用，issue #566） */
@@ -410,7 +418,10 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       const mediaGateway = new WeixinMediaClient({ cdn, logger });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
       // 出站：广播总线注册（与飞书同模式；attachmentRepo 供媒体出站查存储路径）
+      // #591：键控注册（"weixin-<accountId>"）——同账号重登录时替换旧通道而非追加，
+      // 防止重复投递；停轮询/删账号时 unregisterOutboundChannel 成对清理
       messageBroadcaster.registerOutboundChannel(
+        `weixin-${account.id}`,
         new WeixinMessageChannel(uc.manageConnection, gateway, uc.queryOtter, logger, appConfig.web?.baseUrl, repos.settings, repos.attachment),
       );
       // ingress：入站处理器 + 轮询循环（媒体三项与飞书同构：注入服务与 controllers.ts 同一块装配）
@@ -425,13 +436,11 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         queryMessage: uc.queryMessage,
         weixinGateway: gateway,
         partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
+        // F20260901sgpv P1：微信入口换轨（与飞书同构）
         agentDispatchService: new AgentDispatchService({
-          dispatchChainEngine,
-          queryMessage: uc.queryMessage,
-          agentInvokePort: agentInvoker,
-          logger,
-        }),
-        messageBroadcaster,
+          dispatchChainEngine, queryMessage: uc.queryMessage, agentInvokePort: agentInvoker, logger,
+          ...(options.signalRouter && { signalRouter: options.signalRouter }),
+        }),        messageBroadcaster,
         logger,
         mediaGateway,
         attachmentUpload: uc.attachmentUpload,
@@ -490,7 +499,7 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
   }
 }
 
-export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger }): Promise<PlatformBootstrapResult> {
+export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger; signalRouter?: SignalRouter }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger } = options;
   const healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendMessage: uc.sendMessage, logger })
     .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
