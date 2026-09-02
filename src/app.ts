@@ -382,6 +382,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const statsQuery = new SqliteStatsQuery(db);
   const queryOtterProfile = new QueryOtterProfile(repos.otter, otterConfigProvider, modelPool, logger, { resourceLoader: resourceLoader as any, statsQuery });
 
+  /** #576（F20260901emps）：能力库页面数据源——ResourceLoader 适配 SkillDirectory 端口。
+   *  与 otter 实际加载的 skill 一致（页面所见即系统所载），替代前端静态快照。
+   *  warmup 前 resourceLoader 可能为 null——返回空列表，前端展示显式空态（不静默空白） */
+  const skillDirectory = resourceLoader
+    ? {
+        list: async () => {
+          const { skills } = resourceLoader.getSkills();
+          return skills.map((s: { name: string; description: string }) => ({ name: s.name, description: s.description }));
+        },
+      }
+    : undefined;
+
   const controllers = initControllers({
     uc, repos, agentInvoker, appConfig: config, modelPool, settingsRepo: repos.settings,
     otterConfigProvider,
@@ -424,6 +436,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     registry,
     // F20260901sgpv P1：信号路由器（主入口换轨）
     signalRouter,
+    // #576（F20260901emps）：能力库真数据源
+    skillDirectory,
   }, logger);
 
   const app = buildHttpApp(controllers, logger, options.staticRoot ?? "./web/dist");

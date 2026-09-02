@@ -254,6 +254,11 @@ export function flagMemory(id: string, flagged: boolean): Promise<{ status: stri
   return request(`/memory/${id}/flag`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
 }
 
+/** #576（F20260901emps）：最近记忆——记忆搜索页初始态数据源 */
+export function getRecentMemory(limit = 10): Promise<{ entries: MemoryEntryDTO[]; total: number }> {
+  return request(`/memory/recent?limit=${limit}`)
+}
+
 // ── Settings ──
 
 export function getSettings(): Promise<SettingsDTO> {

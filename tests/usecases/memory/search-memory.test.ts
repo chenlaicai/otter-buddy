@@ -145,6 +145,8 @@ describe("SearchMemory - progressive disclosure", () => {
     /** mock repo：FTS 返回空，vec 返回 longEntry */
     const mockRepo = {
       hasVecTable: () => true,
+      /* #576: listRecent 不在此测试范围 */
+      listRecent: async () => [] as never[],
       isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [],
       searchFTS: async () => [],
@@ -372,6 +374,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     // Mock repo：FTS 返回高质量结果，vec 返回低质量结果
     const mockRepo = {
       hasVecTable: () => true,
+      /* #576: listRecent 不在此测试范围 */
+      listRecent: async () => [] as never[],
       isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [
         { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台是中国古代四大爱情故事之一" }, snippet: "梁山伯与祝英台" },
@@ -451,6 +455,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
 
     const mockRepo = {
       hasVecTable: () => true,
+      /* #576: listRecent 不在此测试范围 */
+      listRecent: async () => [] as never[],
       isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [
         { entryId: "e1", ftsRank: -10, entry: { ...BASE_ENTRY, id: "e1", sourceId: "src-1", content: "梁山伯与祝英台" }, snippet: "梁山伯与祝英台" },

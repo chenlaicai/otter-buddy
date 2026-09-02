@@ -14,6 +14,8 @@ import { ConversationController } from "../../src/interface-adapters/http/contro
 import { MessageController } from "../../src/interface-adapters/http/controllers/message-controller";
 import { OtterController } from "../../src/interface-adapters/http/controllers/otter-controller";
 import { MemoryController } from "../../src/interface-adapters/http/controllers/memory-controller";
+import { SkillController } from "../../src/interface-adapters/http/controllers/skill-controller";
+import type { MemoryRepository } from "../../src/usecases/memory/memory-repository";
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
@@ -384,6 +386,10 @@ export interface TestDeps {
   manageSession: any;
   queryOtter: any;
   searchMemory: any;
+  /** #576（F20260901emps）：recent 端点 repo（默认空列表，需测试时覆写 listRecent） */
+  memoryRepo?: { listRecent: (limit: number) => Promise<unknown[]> };
+  /** #576（F20260901emps）：能力库真数据源（默认空列表） */
+  skillDirectory?: { list: () => Promise<{ name: string; description: string }[]> };
   scanDarkEntries: any;
   manageMemory: any;
   manageKeyInfo: any;
@@ -447,7 +453,8 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.manageMemory,
     deps.scanDarkEntries ?? { execute: async () => ({ entries: [], total: 0, vecDisabled: false }) },
     { available: true, embed: async () => new Float32Array(1024) },
-    logger,
+    /* #576：recent 端点 repo——默认空实现，测试可经 deps.memoryRepo 覆写 */
+    { repo: (deps.memoryRepo ?? { listRecent: async () => [] }) as unknown as MemoryRepository, logger },
   );
   const keyInfoCtrl = new KeyInfoController(
     deps.manageKeyInfo,
@@ -481,6 +488,10 @@ export function createTestApp(deps: TestDeps): Hono {
       optionsEvents: (c: any) => c.body(null, 204),
       receiveEvents: async (c: any) => c.json({ ok: true }),
     } as any,
+    /* #576（F20260901emps）：能力库真数据源端点；默认注入，需测试时经 deps.skillDirectory 覆写 */
+    skills: deps.skillDirectory
+      ? new SkillController(deps.skillDirectory as never, createTestLogger())
+      : new SkillController({ list: async () => [] }, createTestLogger()),
   };
 
   const app = createRouter(controllers, createTestLogger());

@@ -325,6 +325,17 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return row ? rowToMemoryEntry(row) : null;
   }
 
+  /** #576（F20260901emps）：最近记忆（记忆搜索页初始态）——排除 chunk 分段碎片。
+   *  不用 NOT LIKE '_chunk'（无 ESCAPE）：_ 在 LIKE 里是单字符通配，会误排除 xchunk 类 */
+  async listRecent(limit: number): Promise<MemoryEntry[]> {
+    const rows = this.db.prepare(
+      `SELECT * FROM memory_entries
+       WHERE content_type NOT IN ('feature_chunk', 'research_chunk', 'message_chunk')
+       ORDER BY created_at DESC LIMIT ?`,
+    ).all(limit) as MemoryEntryRow[];
+    return rows.map(rowToMemoryEntry);
+  }
+
   /**
    * F20260812mrcq Part 3：按 source_id + 可选 contentType 主键直查（anchor 短路用）。
    * 多条命中时取最新（created_at DESC）。

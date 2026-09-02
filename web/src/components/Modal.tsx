@@ -15,14 +15,41 @@ interface ModalProps {
   fullScreenOnMobile?: boolean
 }
 
+/**
+ * #510（F20260901mftz）：打开中的 Modal 栈——模块级，所有 Modal 实例共享。
+ * Why: 多 Modal 叠加（Modal 内开 Modal）时，每个实例都往 document 挂 keydown，
+ * focus trap 的 Tab 循环互相拉扯、Escape 同时关闭全部。栈建立层级意识：
+ * 只有栈顶实例响应 Tab 循环和 Escape，非栈顶静默。
+ * 焦点归还（prevActive?.focus()）天然正确：顶层打开时记录的焦点就在次层 Modal 内。
+ */
+const modalStack: number[] = []
+let nextModalId = 1
+
+/** 实例是否为栈顶（含幂等重入保护：非栈顶实例不响应键盘） */
+function isStackTop(id: number): boolean {
+  return modalStack[modalStack.length - 1] === id
+}
+
 export const Modal = memo(function Modal({ isOpen = true, onClose, title, children, footer, width = '440px', fullScreenOnMobile }: ModalProps) {
+  /** #510: 栈登记 id——组件挂载期稳定（memo 下重渲染不变），open 时 push，卸载/close 时移除 */
+  const stackIdRef = useRef<number | null>(null)
+
   useEffect(() => {
-    if (isOpen) {
-      const handler = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') onClose()
-      }
-      document.addEventListener('keydown', handler)
-      return () => document.removeEventListener('keydown', handler)
+    if (!isOpen) return
+    const id = nextModalId++
+    stackIdRef.current = id
+    modalStack.push(id)
+
+    const handler = (e: KeyboardEvent) => {
+      /** #510: 只有栈顶响应 Escape——叠加时非栈顶实例静默，避免连锁关闭 */
+      if (e.key === 'Escape' && isStackTop(id)) onClose()
+    }
+    document.addEventListener('keydown', handler)
+    return () => {
+      document.removeEventListener('keydown', handler)
+      const idx = modalStack.indexOf(id)
+      if (idx !== -1) modalStack.splice(idx, 1)
+      stackIdRef.current = null
     }
   }, [isOpen, onClose])
 
@@ -45,7 +72,8 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
    *  的 !important 100dvh 兜底，无需 JS 侧条件置 undefined。 */
 
   /** F20260826pfix：焦点管理（可及性）——打开时焦点进入弹窗（关闭按钮），
-   *  关闭时归还触发元素。简单 focus trap：Tab 循环限制在 dialog 内。 */
+   *  关闭时归还触发元素。简单 focus trap：Tab 循环限制在 dialog 内。
+   *  #510：非栈顶实例的 trap 静默——Tab 由栈顶全权接管，杜绝循环拉扯。 */
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -54,6 +82,8 @@ export const Modal = memo(function Modal({ isOpen = true, onClose, title, childr
     closeBtnRef.current?.focus()
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !dialogRef.current) return
+      /** #510: 只在栈顶时接管 Tab——非栈顶 Modal 的 dialog 不可见/不可交互 */
+      if (!isStackTop(stackIdRef.current ?? -1)) return
       const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
       )
