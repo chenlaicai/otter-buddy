@@ -514,6 +514,14 @@ export interface RhiSignalDTO {
   confidence: string | null
 }
 
+export interface RhiChainCommitLiteDTO {
+  /** 8 位短 sha */
+  sha: string
+  /** ISO 时间 */
+  date: string
+  changeType: string | null
+}
+
 export interface RhiChainDTO {
   featureId: string
   state: 'active' | 'stalled' | 'regressed' | 'zombie' | 'orphan'
@@ -525,6 +533,8 @@ export interface RhiChainDTO {
   docStatus: string | null
   docTitle: string | null
   stateReason: string
+  /** Issue #649 PR3：轻量 commit 序列（泳道 x 轴映射；全量含 message/filesChanged 走 chainDetail） */
+  commits: RhiChainCommitLiteDTO[]
 }
 
 export function getRhiOverview(signal?: AbortSignal): Promise<RhiOverviewDTO> {
@@ -540,8 +550,16 @@ export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDT
 }
 
 /** Issue #644：链详情（全类型 commit 序列——泳道时间线/链详情抽屉数据源） */
-export interface RhiChainDetailDTO extends RhiChainDTO {
-  commits: Array<{ sha: string; date: string; changeType: string | null; message: string; filesChanged: string[] }>
+export interface RhiChainDetailCommitDTO {
+  sha: string
+  date: string
+  changeType: string | null
+  message: string
+  filesChanged: string[]
+}
+
+export interface RhiChainDetailDTO extends Omit<RhiChainDTO, 'commits'> {
+  commits: RhiChainDetailCommitDTO[]
 }
 
 export function getRhiChainDetail(featureId: string, signal?: AbortSignal): Promise<{ chain: RhiChainDetailDTO }> {
