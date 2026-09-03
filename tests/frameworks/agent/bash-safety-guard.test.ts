@@ -375,3 +375,148 @@ describe("F20260902gvrd 词边界收紧与拦截回显", () => {
     }
   });
 });
+
+// ─── #698 误报回归：eval 词元文件名+数字即拦（模式1） ───
+
+describe("#698 误报回归：eval 词元文件名+数字即拦（模式1）", () => {
+  const mainPid = 42877;
+
+  it("cp plans/eval-activation-v6.md <workspace UUID> → 放行（eval 在路径中，非命令）", () => {
+    const result = checkBashCommandSafety(
+      "cp plans/eval-activation-v6.md data/workspaces/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("ls plans/; find . -name 'eval-activation...' → 放行（eval 在 find 参数中）", () => {
+    const result = checkBashCommandSafety(
+      'ls plans/; find . -name "eval-activation*"',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("grep -n 'v4.2|D1|D2|D3' workspaces/... → 放行（eval 在路径中 + 文档内容含数字）", () => {
+    const result = checkBashCommandSafety(
+      'grep -n "v4.2\\|D1\\|D2\\|D3" data/workspaces/a1b2c3d4/note.md',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("grep -n '不 boot 应用|git-common-dir' ... → 放行（eval 在路径中）", () => {
+    const result = checkBashCommandSafety(
+      'grep -n "不 boot 应用\\|git-common-dir" data/workspaces/a1b2c3d4/eval-activation-v6.md',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("cat > /tmp/test24.js << EOF → 放行（heredoc 写文件，eval 可能在内容中）", () => {
+    const result = checkBashCommandSafety(
+      'cat > /tmp/test24.js << EOF\neval("test")\nEOF',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ─── #698 误报回归：进程动词词元任意位置匹配（模式2） ───
+
+describe("#698 误报回归：进程动词词元任意位置匹配（模式2）", () => {
+  const mainPid = 42877;
+
+  it("gh pr review --comment --body 含 skill 字样 + markdown 反引号 → 放行", () => {
+    const result = checkBashCommandSafety(
+      "gh pr review 689 --comment --body '## 审查者 检视獭-689\n\n`skill` 文件审查通过'",
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("for pr in ...; do gh pr view $pr; done # skill 文件自查 → 放行", () => {
+    const result = checkBashCommandSafety(
+      'for pr in 683 682 681; do gh pr view $pr; done # skill 文件自查',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("grep -rn skill .pi/skills/ → 放行（skill 在搜索词和路径中）", () => {
+    const result = checkBashCommandSafety(
+      'grep -rn "skill" .pi/skills/',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("echo skill | cat → 放行（skill 作为 echo 参数，无间接 PID 目标）", () => {
+    const result = checkBashCommandSafety(
+      'echo skill | cat',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ─── #698 攻击链回归：命令位置限定不得放行真攻击链 ───
+
+describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变体", () => {
+  const mainPid = 42877;
+
+  // a. wrapper/赋值前缀 + 字面量主 PID
+  it("env kill 42877 → 拦截（env wrapper 前缀 + 主 PID）", () => {
+    const result = checkBashCommandSafety("env kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("FOO=1 kill 42877 → 拦截（赋值前缀 + 主 PID）", () => {
+    const result = checkBashCommandSafety("FOO=1 kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("nohup kill 42877 → 拦截（nohup wrapper + 主 PID）", () => {
+    const result = checkBashCommandSafety("nohup kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("timeout 5 kill 42877 → 拦截（timeout wrapper + 主 PID）", () => {
+    const result = checkBashCommandSafety("timeout 5 kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // b. bash -c 引号内嵌完整攻击链
+  it("bash -c 'pkill -f otter-buddy' → 拦截（bash -c 引号内嵌 pkill）", () => {
+    const result = checkBashCommandSafety("bash -c 'pkill -f otter-buddy'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'kill 42877' → 拦截（bash -c 引号内嵌主 PID）", () => {
+    const result = checkBashCommandSafety("bash -c 'kill 42877'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // c. xargs 带参数变体
+  it("cat f | xargs -n1 kill 42877 → 拦截（xargs -n1 参数变体）", () => {
+    const result = checkBashCommandSafety("cat f | xargs -n1 kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("cat f | xargs -I{} kill 42877 → 拦截（xargs -I{} 参数变体）", () => {
+    const result = checkBashCommandSafety("cat f | xargs -I{} kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // d. 路径变体
+  it("~/bin/kill 42877 → 拦截（~ 路径 + 主 PID）", () => {
+    const result = checkBashCommandSafety("~/bin/kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // e. python -c one-liner（#698 建议3）
+  it("python3 -c 'import os; os.kill(42877, 9)' → 拦截（python -c one-liner）", () => {
+    const result = checkBashCommandSafety("python3 -c 'import os; os.kill(42877, 9)'", mainPid);
+    expect(result).not.toBeNull();
+  });
+});
