@@ -44,6 +44,8 @@ export type RouteAction =
   | "skipped_no_target"
   | "skipped_inactive"
   /** F20260903ihlt：用户中断停机中——信号保留（pending 不动），等用户显式恢复 */
+  | "retry_gated"
+  | "retry_invoked"
   | "skipped_halted"
   /** F20260903ihlt：会话限流熔断中——rate_limit healing 事件窗口内拒点火，信号保留 */
   | "skipped_rate_limited";
@@ -182,6 +184,36 @@ export class SignalRouter {
   }
 
   /** F20260903ihlt：用户中断停机置位（中断端点调用）。幂等。 */
+  /**
+   * F20260903ihlt 遗留漏洞修复（S3）：手动 retry 的调度入口——与自动点火同一套闸门与记账。
+   *
+   * Why 必须存在：retry 曾走直连链（executeChain 直调），绕过路由器的全部调度闸门——
+   * 限流熔断期间手动 retry 照跑撞 429 → orchestrator 落新 rate_limit 事件 →
+   * 熔断窗口被重置 → 自动点火继续冻结（09-03 搭档实锤的调度漏洞）。
+   *
+   * 语义：
+   * - 过闸门（用户停机/限流熔断）：被挡时返回 retry_gated，调用方应向用户反馈
+   *   「重试被调度闸门暂缓」而非静默失败——retry 是用户显式动作，不诚实反馈 = 体验黑洞
+   * - 记账：source='retry' 覆盖同 (message,target) 槽位（§8.2 折中，前情压缩进 note）
+   * - 点火：与 routeTarget 同路径（invokeTarget，含 busyQueue 排队语义）
+   *
+   * 与 clearUserHalt 的关系：调用方（message-controller）在 retry 前已解除用户停机
+   * （显式恢复动作）；本方法内的限流熔断闸门**不受 clearUserHalt 影响**——
+   * 「用户想重试」不能解除「模型配额还没恢复」的客观事实。
+   */
+  async retrySignal(conversationId: string, messageId: string, targetOtterId: string, signal: Message): Promise<"retry_invoked" | "retry_gated"> {
+    // 闸门 1：用户停机——retry 是显式恢复动作，理论不会同时 halted；防御性兜底
+    // （调用方已 clearUserHalt，此处 double-check 防竞态：halt 置位与 retry 并发）
+    if (this.userHalted.has(conversationId)) return "retry_gated";
+    // 闸门 2：限流熔断——用户显式 retry 不能重置熔断窗口（否则「点一下重试」=
+    // 「把全会话恢复推后一小时」，09-03 实锤漏洞面）。被挡即如实反馈。
+    if (await this.isRateLimited(conversationId)) return "retry_gated";
+
+    const action = await this.routeTarget(conversationId, targetOtterId, signal, "retry");
+    // invoked = 直接点火；queued_busy = 目标忙入队（受理成功，等消化）——两者都是 retry 成功受理
+    return action === "invoked" || action === "queued_busy" ? "retry_invoked" : "retry_gated";
+  }
+
   markUserHalt(conversationId: string): void {
     if (this.userHalted.has(conversationId)) return;
     this.userHalted.add(conversationId);
@@ -252,7 +284,7 @@ export class SignalRouter {
    * | URGENT  | 点火 invoke              | 入 busyQueue（同上；steer 归 P3） |
    * | HALT    | 点火 invoke（处理停机请求）| 大獭：入 busyQueue 优先消化；小獭：丢弃 + healing 留痕 |
    */
-  private async routeTarget(conversationId: string, targetId: string, signal: Message): Promise<RouteAction> {
+  private async routeTarget(conversationId: string, targetId: string, signal: Message, source: "chain" | "retry" = "chain"): Promise<RouteAction> {
     const level = (signal.signalLevel ?? "NORMAL").toUpperCase();
     const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
     // F20260903damp：dissolved 目标不点火——getById 不过滤 status（sqlite-otter-repository
@@ -261,9 +293,7 @@ export class SignalRouter {
     // 此处是 SQL 求值与 otters 状态变更之间的竞态兜底（双层独立成立）。
     if (!otter || otter.status !== "active") return "skipped_inactive"; // 目标已解散等：留箱静默，等人工处理
 
-    if (level === "HALT" && otter.type === "small") {
-      // P0 在 yield 写入层已拒绝小獭投 HALT；此处拦截绕过路径（历史遗留/直写库）
-      await this.recordHealing({ conversationId, messageId: signal.id, otterId: targetId, level: signal.signalLevel ?? null, errorType: "permission_denied" as HealingErrorType, severity: "medium", description: `HALT 信号投往小獭 ${targetId}，路由器已丢弃（仅用户/大獭可投，F20260826mwrd C2）` });
+    if (await this.haltToSmallOtterGuard(conversationId, level, signal, targetId)) {
       return "skipped_no_target";
     }
 
@@ -276,7 +306,7 @@ export class SignalRouter {
     }
     const busy = this.inFlight.has(key) || await this.isOtterActive(conversationId, targetId);
     if (!busy) {
-      return this.invokeTarget(conversationId, targetId, "", signal.senderId, signal.id);
+      return this.invokeTarget(conversationId, targetId, "", signal.senderId, { triggerMessageId: signal.id, source });
     }
 
     // busy：入队保内容（HALT 到 busy 大獭置队首——停机请求优先于普通排队信号消化）
@@ -293,6 +323,17 @@ export class SignalRouter {
     }
     this.busyQueue.set(key, queue);
     return "queued_busy";
+  }
+
+  /** F20260903damp：HALT 投往小獭拦截（C2 权限绕过路径防线）。
+   *  @returns true = 已拦截（调用方返回 skipped_no_target） */
+  private async haltToSmallOtterGuard(conversationId: string, level: string, signal: Message, targetId: string): Promise<boolean> {
+    if (level !== "HALT") return false;
+    const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
+    if (!otter || otter.type !== "small") return false;
+    // P0 在 yield 写入层已拒绝小獭投 HALT；此处拦截绕过路径（历史遗留/直写库）
+    await this.recordHealing({ conversationId, messageId: signal.id, otterId: targetId, level: signal.signalLevel ?? null, errorType: "permission_denied" as HealingErrorType, severity: "medium", description: `HALT 信号投往小獭 ${targetId}，路由器已丢弃（仅用户/大獭可投，F20260826mwrd C2）` });
+    return true;
   }
 
   /** 信号内容快照：segments 聚合（入 busyQueue 时调用——游标推进后原文将不可再得） */
@@ -316,7 +357,7 @@ export class SignalRouter {
    *        链引擎 recordStart 对同 (message,target) INSERT OR REPLACE 覆盖（幂等），
    *        settle 终态由链按 triggerMessageId 落；链整体抛错时由本方法 catch 兜底 failed。
    */
-  private invokeTarget(conversationId: string, otterId: string, content: string, senderId: string, triggerMessageId?: string): "invoked" {
+  private invokeTarget(conversationId: string, otterId: string, content: string, senderId: string, ledger?: { triggerMessageId: string; source: "chain" | "router" | "retry" }): "invoked" {
     const key = `${conversationId}:${otterId}`;
     if (this.inFlight.has(key)) return "invoked"; // 去抖窗口内的重复触发，静默合并
 
@@ -324,6 +365,7 @@ export class SignalRouter {
     void (async () => {
       // 点火即记账（in_progress 即非 pending）：写入义务收敛在点火原点，
       // 不随链引擎参数传递的完整性而变。失败仅日志（台账不阻断链路，硬约束 1）。
+      const triggerMessageId = ledger?.triggerMessageId;
       if (triggerMessageId) {
         try {
           this.deps.dispatchAttemptRepo.recordStart({
@@ -332,11 +374,11 @@ export class SignalRouter {
             messageId: triggerMessageId,
             targetOtterId: otterId,
             status: "in_progress",
-            source: "router",
+            source: ledger.source,
             attemptStartedAt: new Date().toISOString(),
             note: null,
           });
-          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: triggerMessageId, otter: otterId, status: 'in_progress', source: 'router' });
+          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: triggerMessageId, otter: otterId, status: 'in_progress', source: ledger.source });
         } catch (e) {
           this.deps.logger.warn('[signal-ledger] 路由器点火记账失败（不影响链路）', { conversationId, messageId: triggerMessageId, otterId, error: e instanceof Error ? e.message : String(e) });
         }
@@ -402,7 +444,7 @@ export class SignalRouter {
         queue.unshift(item); // 放回队首，保序
         continue; // 该目标仍 busy（外部路径在跑）：跳过，不终止——同会话其他 idle 目标的队列不被饿死
       }
-      this.invokeTarget(conversationId, otterId, item.content, item.senderId, item.signalId);
+      this.invokeTarget(conversationId, otterId, item.content, item.senderId, { triggerMessageId: item.signalId, source: "router" });
       return; // 单条点火即止，接力交给完成重扫
     }
   }

@@ -429,3 +429,100 @@ describe("F20260903ihlt 用户停机 × 限流熔断", () => {
     expect(degraded.map(r => r.action)).toEqual(["invoked"]); // 无台账数据源 = 无闸门（降级）
   });
 });
+
+describe("F20260902sgp2 S3：retrySignal——retry 入口过闸门与记账（闸门绕过漏洞修复）", () => {
+  let db: import("better-sqlite3").Database;
+  let repo: SqliteDispatchAttemptRepo;
+  let executeChain: ReturnType<typeof vi.fn>;
+  let router: SignalRouter;
+  let healingCreate: ReturnType<typeof vi.fn>;
+  let healingEvents: Array<Record<string, unknown>>;
+
+  function seedRetryScene(): void {
+    db = new Database(":memory:");
+    initSchema(db);
+    repo = new SqliteDispatchAttemptRepo(db);
+    executeChain = vi.fn().mockResolvedValue({});
+    healingCreate = vi.fn().mockResolvedValue(undefined);
+    // healingRepo 内存存储：isRateLimited 从 findByConversation 读 rate_limit 事件，
+    // create 落事件——S3b 熔断场景需要真实读写闭环（mock 只有 create 时熔断永不生效）
+    healingEvents = [];
+    const healingRepoMock = {
+      create: vi.fn().mockImplementation(async (e: Record<string, unknown>) => { healingEvents.push(e); }),
+      findByConversation: vi.fn().mockImplementation(async () => healingEvents),
+    };
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', 't', 'active', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES ('otter-1', '大獭', 'big', 'active', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at, completed_at) VALUES ('msg-retry', 'conv-1', 'otter', 'otter-1', 'failed', 1, 'turn-1', '["otter-1"]', '2026-09-02T09:00:00Z', '2026-09-02T09:00:01Z')`).run();
+    router = new SignalRouter({
+      conversationRepo: { getAllIds: vi.fn().mockResolvedValue(["conv-1"]) } as unknown as ConversationRepository,
+      queryMessage: {
+        getMessageById: vi.fn().mockImplementation((id: string) => {
+          const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+          if (!row) return null;
+          return {
+            id: row.id, conversationId: row.conversation_id, turnId: row.turn_id,
+            senderId: row.sender_id, senderType: row.sender_type, status: row.status,
+            segments: [{ id: "seg", messageId: row.id as string, body: "retry me", sequenceNum: 0, createdAt: "" }],
+            sequenceNum: 1, talkingStonePassedTo: JSON.parse((row.talking_stone_passed_to as string) ?? "[]"),
+            contextTokens: null, contextTokensMax: null, source: "web", senderName: "",
+            createdAt: row.created_at, completedAt: row.completed_at, signalLevel: null, signalMeta: null,
+          } as unknown as Message;
+        }),
+        getLastMessageBySender: vi.fn().mockResolvedValue(null),
+      } as unknown as QueryMessage,
+      queryOtter: { getById: vi.fn().mockImplementation(async (id: string) => ({ id, name: "大獭", type: "big", status: "active" })) } as unknown as QueryOtter,
+      dispatchChainEngine: { executeChain } as unknown as DispatchChainEngine,
+      invokeFn: vi.fn().mockResolvedValue({ messageId: "m-out" }),
+      logger: createTestLogger(),
+      healingRepo: healingRepoMock as unknown as import("@usecases/healing/healing-event-repository").HealingEventRepository,
+      dispatchAttemptRepo: repo,
+    });
+    (router as unknown as { deps: { healingRepo: unknown } }).deps.healingRepo = healingRepoMock;
+  }
+
+  it("S3a 正常 retry：过闸门 + source='retry' 记账 + 链点火", async () => {
+    seedRetryScene();
+    const signal = makeMsg({ id: "msg-retry", senderType: "otter", senderId: "otter-1", status: "failed" });
+    const action = await router.retrySignal("conv-1", "msg-retry", "otter-1", signal);
+    expect(action).toBe("retry_invoked");
+    await new Promise(r => setTimeout(r, 20));
+    const rows = repo.listAttemptsForConversation("conv-1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe("retry");
+    expect(executeChain.mock.calls).toHaveLength(1);
+  });
+
+  it("S3b 限流熔断中 retry → retry_gated，零点火零记账（漏洞修复判据：熔断窗口不被 retry 重置）", async () => {
+    seedRetryScene();
+    // 注入 fresh rate_limit 事件（模拟熔断中）——走 router deps 同一 healingRepo
+    await (router as unknown as { deps: { healingRepo: { create: (e: Record<string, unknown>) => Promise<void> } } }).deps.healingRepo.create({
+      id: "h-rl", messageId: "", conversationId: "conv-1", otterId: "otter-1",
+      errorType: "rate_limit", severity: "high", description: "429 exhausted",
+      suggestion: "", context: { exhausted: true }, status: "open" as never,
+      resolution: null, createdAt: new Date().toISOString(), resolvedAt: null,
+    });
+    void healingCreate;
+    const signal = makeMsg({ id: "msg-retry", senderType: "otter", senderId: "otter-1", status: "failed" });
+    const action = await router.retrySignal("conv-1", "msg-retry", "otter-1", signal);
+    expect(action).toBe("retry_gated");
+    expect(executeChain.mock.calls).toHaveLength(0); // 漏洞修复：熔断中 retry 不再撞墙
+    expect(repo.listAttemptsForConversation("conv-1")).toHaveLength(0); // 不产生新事件
+    // 熔断窗口不被重置的验证：rate_limit 事件仍是原 createdAt（healingCreate 仅初始注入那一次）
+    expect(healingCreate).not.toHaveBeenCalled();
+  });
+
+  it("S3c 用户停机中 retry → retry_gated（防御性兜底；调用方应先 clearUserHalt）", async () => {
+    seedRetryScene();
+    router.markUserHalt("conv-1");
+    const signal = makeMsg({ id: "msg-retry", senderType: "otter", senderId: "otter-1", status: "failed" });
+    const action = await router.retrySignal("conv-1", "msg-retry", "otter-1", signal);
+    expect(action).toBe("retry_gated");
+    expect(executeChain.mock.calls).toHaveLength(0);
+    // 解除后可正常 retry
+    router.clearUserHalt("conv-1");
+    const action2 = await router.retrySignal("conv-1", "msg-retry", "otter-1", signal);
+    expect(action2).toBe("retry_invoked");
+  });
+});

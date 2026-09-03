@@ -310,11 +310,51 @@ export class MessageController {
   }
 
   /** retry 链启动（自 retry 拆出控复杂度）：SSE 流 + broadcaster 订阅 + executeChain */
+  /** F20260902sgp2 S3：retry 换轨路径——过路由器闸门（限流熔断中被挡如实反馈 retry_gated），
+   *  记账 source='retry'，与自动点火共用 invokeTarget（busyQueue 排队语义一致）。
+   *  修复的漏洞：retry 曾直连 executeChain 绕过全部调度闸门——限流熔断期间手动 retry
+   *  照跑撞 429 → 熔断窗口重置 → 自动点火继续冻结（09-03 会议定性，搭档实锤）。 */
+  private retryViaRouterPath(args: {
+    conversationId: string; otterId: string; messageId: string; senderId: string;
+    signal: Message; unsubscribe: (() => void) | undefined;
+    push: (event: { event: string; data: Record<string, unknown> }) => void;
+    close: () => void; response: Response;
+  }): Response {
+    const { conversationId, otterId, messageId, signal, unsubscribe, push, close, response } = args;
+    void this.signalRouter!.retrySignal(conversationId, messageId, otterId, signal)
+      .then((action) => {
+        if (action === "retry_gated") {
+          push({ event: "system.message", data: { content: "调度闸门暂缓：限流冷却中或会话已停机，重试将在恢复后可再次执行", messageId, otterId } });
+        }
+      })
+      .catch((err: unknown) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error('retrySignal 调度异常', err instanceof Error ? err : new Error(errMsg), { conversationId, messageId });
+        push({ event: "error", data: { message: `重试失败: ${errMsg}`, messageId, otterId } });
+      })
+      .finally(() => {
+        unsubscribe?.();
+        // retry 的 settle 等待：与 K3 同语义——attempt 终态驱动关流（失败也是终态）
+        void this.settleRetrySse(conversationId, messageId).finally(() => {
+          // 与主路径 K3 一致：settle 已等 attempt 终态，直接关流（无 100ms 缓冲——
+          // 那是「路由器未注入降级路径」的旧语义，settle 语义下无必要）
+          push({ event: "stream.end", data: {} });
+          close();
+        });
+      });
+    return response;
+  }
+
+  /** S3：retry 换轨后的 SSE settle 等待（与 K3 同语义——attempt 终态驱动关流） */
+  private async settleRetrySse(conversationId: string, messageId: string): Promise<void> {
+    await awaitTriggerAttemptsSettled(this.dispatchAttemptRepo, this.logger, conversationId, messageId);
+  }
+
   private startRetryChain(
     c: Context,
-    ctx: { conversationId: string; otterId: string; messageId: string; userMessageContent: string; senderId: string; images?: Array<{ type: "image"; data: string; mimeType: string }> },
+    ctx: { conversationId: string; otterId: string; messageId: string; userMessageContent: string; senderId: string; images?: Array<{ type: "image"; data: string; mimeType: string }>; signal?: Message },
   ): Response {
-    const { conversationId, otterId, messageId, userMessageContent, senderId, images } = ctx;
+    const { conversationId, otterId, messageId, userMessageContent, senderId, images, signal } = ctx;
     const { response, push, close } = streamEvents(c);
 
     // F20260903ihlt：手动 retry = 用户显式恢复动作——解除中断停机，冻结的 pending 随链收尾重扫恢复
@@ -329,6 +369,12 @@ export class MessageController {
       );
     }
 
+    // F20260902sgp2 S3（09-03 会议整改，堵闸门绕过漏洞）：路由器在位且带信号实体 → 换轨；
+    // 降级（未注入/直写库无信号实体）→ 保留直连链。见 retryViaRouterPath。
+    if (this.signalRouter && signal) {
+      return this.retryViaRouterPath({ conversationId, otterId, messageId, senderId, signal, unsubscribe, push, close, response });
+    }
+
     // Why: 通过 DispatchChainEngine 执行而非直接 invoke——
     // 链引擎消费 aggregatedTargets 续跑发言链，直接 invoke 会丢弃 yield 传递目标（#332）
     this.dispatchChainEngine.executeChain({
@@ -337,9 +383,7 @@ export class MessageController {
       senderId,
       initialTargets: [otterId],
       ...(images && { images }),
-      // F20260902sgp2 S1：retry 的触发消息 = 被重试的 otter 消息（记账目标为该 otter）。
-      // 注：retry 记账语义按 S3 设计为覆盖同槽 source='retry'，S1 先按 source='chain' 记
-      //（台账是全事实记录，source 细分随 S3 换轨引入）。
+      // S1：retry 的触发消息 = 被重试的 otter 消息（记账目标为该 otter）
       triggerMessageId: messageId,
       invokeFn: async (params) => this.agentInvoker.invokeConversation({
         otterId: params.otterId,
@@ -524,6 +568,8 @@ export class MessageController {
         conversationId, otterId, messageId: id,
         userMessageContent: contentWithDocs, senderId,
         images: retryPayload?.images,
+        // S3：retry 信号实体（档位/内容/发送者）——路由器 retrySignal 的闸门与记账输入
+        signal: msg,
       });
     } catch (err) {
       return handleError(c, err, this.logger);
