@@ -691,6 +691,9 @@ function createHealingEventTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_healing_events_created ON healing_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_healing_events_type ON healing_events(error_type);
     CREATE INDEX IF NOT EXISTS idx_healing_events_otter ON healing_events(otter_id, created_at);
+    -- F20260903ah68 S3.5：GateBanner 2s 轮询按 conversation 查 healing（getGateState）——
+    -- mimo 审视焦点4：无此索引时每次查询全表扫，healing_events 增长后成性能瓶颈
+    CREATE INDEX IF NOT EXISTS idx_healing_events_conversation ON healing_events(conversation_id, error_type, created_at);
   `);
 
   // F20260824ax376: 存量数据库迁移——introduced_by_pr 列

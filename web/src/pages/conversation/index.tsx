@@ -5,6 +5,7 @@ import '../../styles/globals.css'
 
 import type { LocalOtter, LocalConversation, LocalMessage, LocalLinkedResource, LocalOtterSession, LocalScheduledTask, LocalMessageSegment } from '../../lib/mappers'
 import type { TrailItem } from '../../lib/signal-trail'
+import type { GateState } from './GateBanner'
 import { mapOtterDTO, mapConversationDTO, mapMessageDTO, mapLinkedResourceDTO, mapSessionDTO, mapParticipantDTO } from '../../lib/mappers'
 import { useSpeakSegments } from '../../lib/use-speak-segments'
 import { isInFlight, upsertMessage, insertBySeq, findStaleInFlight, upsertTerminalMessage } from '../../lib/message-stream'
@@ -314,10 +315,13 @@ function ConversationPage() {
   /** 增量刷新：只拉比当前最新消息更新的消息（after 游标），不触碰 prepend 的历史 */
   /** 信号轨迹（F20260902u5tr）：服务端推导的投递状态；切会话播种 + 轮询刷新 */
   const [trailItems, setTrailItems] = useState<TrailItem[]>([])
+  /** S3.5（F20260903s35u）：会话调度闸门状态（横幅数据源）——与轨迹同端点随轮询刷新 */
+  const [gateState, setGateState] = useState<GateState | null>(null)
   const refreshSignalTrail = useCallback(async (convId: string) => {
     try {
       const resp = await api.getSignalTrail(convId)
       setTrailItems(resp.items as unknown as TrailItem[])
+      setGateState(resp.gate ?? null)
     } catch {
       // 轨迹是增强信息：失败静默，不影响主消息流
     }
@@ -739,6 +743,8 @@ function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[]) => {
     if (!activeId) return
+    // S3.5（G3）：发新消息 = 恢复动作（后端 clearUserHalt）——此前停机态时告知调度已恢复
+    if (gateState?.halted) showToast('调度已恢复', 'info')
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
     const targetOtterIds = mentionOtterIds ?? []
     /** 多模态 Phase 1：附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
@@ -981,7 +987,7 @@ function ConversationPage() {
       removeTmpMsg()
       showToast('发送失败', 'error')
     }
-  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred])
+  }, [activeId, refreshMessages, batchUpdateMessages, refreshParticipantsAfterDissolve, clearSegments, upsertSegment, upsertOtterIfAbsentDeferred, gateState])
 
   /** 卡片提交 → 强制预览 → 回执复用 handleSend 整条 SSE 管线（显式路由卡片作者） */
   const { cardPreview, confirmCardPreview, rejectCardPreview } = useCardBridge({
@@ -1010,6 +1016,10 @@ function ConversationPage() {
       return { ...prev, [activeId]: list.map(m => m.id === messageId ? { ...m, status: 'streaming' as const } : m) }
     })
     api.abortMessage(messageId)
+      .then(() => {
+        // S3.5（F20260903s35u，G3）：中断已升级为会话级停机——显式告知效果与恢复路径
+        showToast('已暂停本会话新任务，发新消息即恢复', 'info')
+      })
       .catch((err) => console.error('Failed to abort message:', err))
       .finally(async () => {
         try {
@@ -1407,7 +1417,7 @@ function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} trailItems={trailItems} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => { window.location.href = '/settings' }} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} isAtBottomRef={isAtBottomRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} onReachBottom={handleMarkRead} trailItems={trailItems} gateState={gateState} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"

@@ -102,8 +102,9 @@ async function runHandoffCapture(opts: {
     userMessageContent: "Hi",
     senderId: "user-1",
   });
-  await call(); // 第一轮：post-turn 记录 ctxTokens（100k > 128k×0.7）
-  await call(); // 第二轮：pre-invoke 阈值命中 → handleHandoff
+  await call(); // 第一轮：post-turn 记录 ctxTokens
+  // F20260903cmpk：70% Pre-invoke 阈值链路退役，直调 handleHandoff 驱动捕获
+  await (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> }).handleHandoff("otter-1", "conv-1");
 
   return captured;
 }

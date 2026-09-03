@@ -340,7 +340,8 @@ describe("F20260903ihlt 用户停机 × 限流熔断", () => {
       dispatchAttemptRepo: repo,
       ...(withHealing && {
         healingRepo: {
-          findByConversation: vi.fn().mockImplementation(async () => healingEvents),
+          findByConversation: vi.fn().mockImplementation(async (_convId: string, errorType?: string) =>
+            errorType ? healingEvents.filter(e => e.errorType === errorType) : healingEvents),
         } as unknown as HealingEventRepository,
       }),
     });

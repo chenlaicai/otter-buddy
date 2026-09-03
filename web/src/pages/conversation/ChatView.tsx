@@ -4,6 +4,7 @@ import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessa
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
+import { GateBanner, type GateState } from './GateBanner'
 import { useAttachmentStaging, type StagedAttachment } from './hooks/useAttachmentStaging'
 import type { TrailItem } from '../../lib/signal-trail'
 
@@ -37,6 +38,8 @@ interface ChatViewProps {
   onReachBottom?: () => void
   /** 信号轨迹（F20260902u5tr）：透传 MessageList */
   trailItems?: TrailItem[]
+  /** S3.5：会话调度闸门状态（横幅数据源，null=路由器未注入不渲染） */
+  gateState?: GateState | null
 }
 
 export function ChatView(props: ChatViewProps) {
@@ -45,6 +48,8 @@ export function ChatView(props: ChatViewProps) {
 
   return (
     <main className="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
+      {/* S3.5：调度闸门横幅（停机/限流冷却时显示，解除后消失） */}
+      <GateBanner gate={props.gateState} />
       {/* Chat Header */}
       <div className="px-1 py-3 flex items-center justify-between border-b border-white/40 flex-shrink-0">
         <div className="flex items-center gap-2">
