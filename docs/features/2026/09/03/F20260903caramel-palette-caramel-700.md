@@ -1,5 +1,5 @@
 ---
-id: F20260902caramel
+id: F20260903caramel
 title: "palette 扩 CARAMEL-700 深阶 token：regressed 严重档色对齐观澜 §3.4"
 summary: CARAMEL 阶补 700（#6B4924）补齐「严重/回退」深档，palette.ts 与 globals.css 双源同步；regressed 回卷弧、CHAIN_STATE_META 色义、筛选 chip 文本色升 700，ChainDetailDrawer 三个失效 class（caramel-50/100/700 无定义）全部修复（大獭拍板：浅底档搭同 PR 顺手补齐）。
 created: 2026-09-02
