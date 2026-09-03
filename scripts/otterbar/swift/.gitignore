@@ -1,0 +1,2 @@
+# 构建产物不入库（部署时 build.sh 编译）
+otterbar-renderer-swift
