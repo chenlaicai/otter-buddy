@@ -62,6 +62,8 @@ function buildAutoHandoffOptions(input: {
   lineage?: string;
   /** F20260901mbfx：合成 §④/⑥ 机械预取数据（审计 F1/F5） */
   prefetch?: SynthesisPrefetch;
+  /** F20260903lngth：timeout/error 降级结果回传 metrics */
+  onSynthesisOutcome?: HandoffPackageOptions["onSynthesisOutcome"];
 }): HandoffPackageOptions {
   return {
     recencyTokens: 8000,
@@ -73,6 +75,7 @@ function buildAutoHandoffOptions(input: {
     lineage: input.lineage,
     prefetch: input.prefetch,
     trigger: input.trigger,
+    onSynthesisOutcome: input.onSynthesisOutcome,
   };
 }
 
@@ -703,6 +706,8 @@ export class AgentInvoker implements AgentTurnPort {
       oldSessionId,
       lineage,
       prefetch: await this.buildSynthesisPrefetch(conversationId, otterId),
+      // F20260903lngth：timeout/error 降级结果回传 metrics（success/empty/truncated 在合成闭包内计数）
+      onSynthesisOutcome: (outcome) => this.metrics?.recordSynthesis(outcome),
     });
   }
 
@@ -802,10 +807,20 @@ export class AgentInvoker implements AgentTurnPort {
       // 后微信对话 3/3 合成全失败的根因）。fallback 链：directText → text → 失败。
       const synthesisText = result.directText?.trim() || result.text?.trim() || '';
 
+      // F20260903lngth：length-stop fail-closed（借鉴 Pi getSummarizationFailure）。
+      // 截断的摘要不抛错、非空、看似成功——直接写进 session.summary 会误导下一代海獭。
+      // 与 Pi 同立场：截断摘要不许当 checkpoint，throw 走防线②机械转储降级。
+      if (result.lastStopReason === 'length') {
+        this.metrics?.recordSynthesis('truncated');
+        throw new Error('LLM synthesis truncated (stopReason=length), refusing to persist incomplete summary');
+      }
+
       if (synthesisText.length === 0) {
+        this.metrics?.recordSynthesis('empty');
         throw new Error('LLM synthesis returned empty result');
       }
 
+      this.metrics?.recordSynthesis('success');
       this.logger.info('[handoff-synthesis] Completed', {
         otterId,
         length: synthesisText.length,

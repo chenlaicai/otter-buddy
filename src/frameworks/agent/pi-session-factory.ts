@@ -85,6 +85,8 @@ export interface AgentRunResult {
   sessionRebuilt?: boolean;
   /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke */
   _selfRestart?: { otterId: string; summary?: string };
+  /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断） */
+  lastStopReason?: string;
 }
 
 

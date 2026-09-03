@@ -72,6 +72,7 @@ export class AgentMetrics implements AgentMetricsPort {
   private readonly chainDepthExceededTotal: Counter<string>;
   /** F20260821spcm: 旁白流失计数 */
   private readonly noYieldWithOrphanTextTotal: Counter<string>;
+  private readonly synthesisTotal: Counter<string>;
 
   /** otterId → 上次 session 累计 token 快照（attempt 增量差分用；基数=獭数） */
   private lastTokenSnapshot = new Map<string, { input: number; output: number }>();
@@ -100,6 +101,16 @@ export class AgentMetrics implements AgentMetricsPort {
     this.chainHops = chain.chainHops;
     this.chainDepthExceededTotal = chain.chainDepthExceededTotal;
     this.noYieldWithOrphanTextTotal = chain.noYieldWithOrphanTextTotal;
+    this.synthesisTotal = AgentMetrics.buildSynthesisMetric(registry);
+  }
+
+  /** F20260903lngth：交接摘要合成结果计数器（success/empty/truncated/error/timeout 封闭枚举） */
+  private static buildSynthesisMetric(registry: MetricsRegistry) {
+    return registry.counter({
+      name: "agent_handoff_synthesis_total",
+      help: "Handoff summary synthesis outcomes (success/empty/truncated/error/timeout)",
+      labelNames: ["outcome"],
+    });
   }
 
   private static buildInvokeMetrics(registry: MetricsRegistry) {
@@ -271,5 +282,10 @@ export class AgentMetrics implements AgentMetricsPort {
   /** F20260821spcm: 旁白流失计数（按 otterId 分组） */
   recordNoYieldWithOrphanText(otterId: string): void {
     this.noYieldWithOrphanTextTotal.inc({ otter_id: otterId });
+  }
+
+  /** F20260903lngth：交接摘要合成结果计数 */
+  recordSynthesis(outcome: "success" | "empty" | "truncated" | "error" | "timeout"): void {
+    this.synthesisTotal.inc({ outcome });
   }
 }

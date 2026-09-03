@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { getContextWindowTokens } from "@frameworks/agent/context-tokens";
+import { getContextWindowTokens, getLastStopReason } from "@frameworks/agent/context-tokens";
 import { checkTokenWarning } from "@frameworks/agent/circuit-breaker-helpers";
 import { createCapturingLogger } from "../../helpers/logger";
 
@@ -105,5 +105,36 @@ describe("checkTokenWarning（窗口占用口径）", () => {
     checkTokenWarning("otter-1", 100_001, logger);
     expect(logger.captured.warns).toHaveLength(1);
     expect(logger.captured.warns[0]).toContain("otter-1");
+  });
+});
+
+describe("getLastStopReason（F20260903lngth）", () => {
+  it("取末条 assistant 的 stopReason（length）", () => {
+    const entries = [
+      assistantEntry({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1 }, "endTurn"),
+      assistantEntry({ input: 2, output: 2, cacheRead: 2, cacheWrite: 2 }, "length"),
+    ];
+    expect(getLastStopReason(entries)).toBe("length");
+  });
+
+  it("与 validAssistantUsage 过滤规则互补：aborted/error 也能取到（不过滤）", () => {
+    const entries = [
+      assistantEntry({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1 }, "endTurn"),
+      assistantEntry({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, "aborted"),
+    ];
+    expect(getLastStopReason(entries)).toBe("aborted");
+  });
+
+  it("跳过非 assistant 消息，向前回溯", () => {
+    const entries = [
+      assistantEntry({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1 }, "length"),
+      userEntry(),
+    ];
+    expect(getLastStopReason(entries)).toBe("length");
+  });
+
+  it("无 assistant 消息时返回 undefined", () => {
+    expect(getLastStopReason([userEntry()])).toBeUndefined();
+    expect(getLastStopReason([])).toBeUndefined();
   });
 });
