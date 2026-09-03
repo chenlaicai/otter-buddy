@@ -51,13 +51,13 @@ fixes: "#752"
 
 ### 测试
 
-- `exit-classifier.test.ts`：12 个测试覆盖 classifyExit 的所有分支 + underlyingError 捕获逻辑
+- `exit-classifier.test.ts`：15 个测试覆盖 classifyExit 的所有分支 + underlyingError 捕获逻辑 + isAbortOwnError 排除（含 SDK 抛错与 checkSessionError 包装两种形态）
 - `retry-policy.test.ts`：6 个新测试覆盖 buildUserAbortBody 的增强行为
-- 全量 105 个相关测试通过，无回归
+- 全量 108 个相关测试通过，无回归
 
 ## 验证
 
 ```bash
 npx vitest run tests/usecases/conversation/agent-turn-orchestrator/ tests/interface-adapters/agent-invoker.test.ts tests/interface-adapters/agent-invoker-guard-bounce.test.ts tests/interface-adapters/agent-invoker-metrics.test.ts
-# 7 files, 105 tests passed
+# 7 files, 108 tests passed
 ```
