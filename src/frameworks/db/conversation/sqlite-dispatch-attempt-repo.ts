@@ -73,7 +73,10 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
         AND t.value != m.sender_id
         AND EXISTS (SELECT 1 FROM otters o WHERE o.id = t.value AND o.status = 'active')
         AND NOT EXISTS (SELECT 1 FROM dispatch_attempts da
-                        WHERE da.message_id = m.id AND da.target_otter_id = t.value)`;
+                        WHERE da.message_id = m.id AND da.target_otter_id = t.value)
+        AND NOT EXISTS (SELECT 1 FROM dispatch_attempts df
+                        WHERE df.message_id = m.id AND df.target_otter_id = t.value
+                          AND df.status IN ('failed', 'aborted'))`;
     if (conversationId) return { where: `${where} AND m.conversation_id = ?`, params: [conversationId] };
     return { where, params: [] };
   }
@@ -109,12 +112,32 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
   }
 
   listPendingSignals(conversationId?: string, limit = 50): PendingSignalRow[] {
+    // F20260903damp 阻尼#1：重扫只碰「从未派发」的行（attempts=0）。
+    // 含 failed 终态行的信号不进重扫视野——「无自动重试」从口号机制化：
+    // 失败信号再点火只能走用户手动 retry（覆盖式，source='retry'）。
+    // 09-03 事故形态：failed 无行 → 50ms 重扫永燃；本守卫使失效模式落在哑火侧。
     const { where, params } = this.pendingClause(conversationId);
     return this.db.prepare(`
       SELECT m.id AS messageId, m.conversation_id AS conversationId,
              t.value AS targetOtterId, m.signal_level AS signalLevel, m.created_at AS createdAt
       ${where} ORDER BY m.created_at DESC LIMIT ?
     `).all(...params, limit) as PendingSignalRow[];
+  }
+
+  /** F20260903damp 阻尼#1 补充：同 (message,target) 最小点火间隔守卫。
+   *  @returns true = 允许点火（首次，或距上次点火超过间隔）；false = 阻尼中。
+   *  间隔语义： attempts 行的 attempt_started_at 距 now 不足 minIntervalSec 秒时拒绝。
+   *  为什么在 repo 层：与 pending 判据同一真相源文件，且测试可用真库验证时间边界。 */
+  shouldThrottle(messageId: string, targetOtterId: string, minIntervalSec: number): boolean {
+    const row = this.db.prepare(`
+      SELECT attempt_started_at FROM dispatch_attempts
+      WHERE message_id = ? AND target_otter_id = ?
+      ORDER BY attempt_started_at DESC LIMIT 1
+    `).get(messageId, targetOtterId) as { attempt_started_at: string } | undefined;
+    if (!row) return false; // 无记录 = 首次，不阻尼
+    const last = Date.parse(row.attempt_started_at.includes("T") ? row.attempt_started_at : row.attempt_started_at.replace(" ", "T") + "Z");
+    if (!Number.isFinite(last)) return false; // 脏时间戳按不阻尼（宁多勿错）
+    return Date.now() - last < minIntervalSec * 1000;
   }
 
   markStaleInProgressFailed(): number {

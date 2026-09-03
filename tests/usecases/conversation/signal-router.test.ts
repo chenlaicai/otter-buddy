@@ -64,7 +64,7 @@ function makeDeps(overrides: Partial<{
       invokeFn: vi.fn().mockResolvedValue({ messageId: "m-out" }),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger,
       healingRepo: { create: healingCreate } as unknown as HealingEventRepository,
-      dispatchAttemptRepo: { listPendingSignals: listPending } as unknown as DispatchAttemptRepo,
+      dispatchAttemptRepo: { listPendingSignals: listPending, shouldThrottle: vi.fn().mockReturnValue(false) } as unknown as DispatchAttemptRepo,
     }),
     mocks: { getLast, getMessageById, listPending },
   };
