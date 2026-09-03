@@ -92,3 +92,28 @@ S4c（游标 seq 双写，独立）→ S4d（评估）→ S4e（退役实施，�
   但需勘测 sequence_num 的单调性保证
 3. S4d 的评估深度：只勘测 tryCloseTurn 消费方，还是顺带盘点 turnId 在消息行的去留
   （消息行保留 turn_id 列作为历史分组元数据，成本极低，倾向保留）
+
+## 7. 搭档裁决记录（09-03 16:11-16:53）
+
+1. **system 消息不能触发海獭的原因**：v2 判据刻意写入的防双真相源防波堤（sgpv 时代
+   scheduler 直连+路由器并存）。S4a 换轨后前提消失，防波堤删除——**判据特例清零**
+2. **scheduler senderId 修正**（搭档纠正）：任务触发消息是「系统说的」，senderId 归属
+   system，不偷目标獭（历史默认值造成 60+ 条 system 消息挂獭 id，生产实证）
+3. **自指排除精确化**：仅 otter 发言者排除自指；system senderId 不参与自指判断
+4. **turn 退役合并 S4 一次做**（搭档裁决：不拆两段），设计须给全部职责逐一处置表
+
+## 8. 实施记录（S4a/b/c 第一批，09-03）
+
+| 项 | 内容 |
+|----|------|
+| senderId 修正 | manage-scheduled-task.ts:157 默认 'system'；测试用例同步更新 |
+| 判据特例清零 | pendingClause 删 sender_type!='system'；自指精确化为 NOT(otter AND t=sender) |
+| S4b 看门狗 | isChainAliveByLedger（台账终态优先，回退消息存在性）；dispatchAttemptRepo 可选注入 platforms |
+| S4c 游标 seq | last_read_seq 列迁移（可空）+ updateLastReadSeq mixins + markBatchRead 双写（可选守卫） |
+| 验证 | 233 files / 2903 tests 全绿；tsc/eslint 0 error |
+
+### 判据语义声明（S4a 后）
+
+`pending := completed ∧ 有 yield 指向 active 獭 ∧ 非 otter 自指 ∧ 无派发记录 ∧ 无 failed 终态行`
+
+**无任何发送者类型特例**——与搭档模型对齐：「消息就是消息，tsp（yield）才是触发信号」。
