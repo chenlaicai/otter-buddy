@@ -55,6 +55,8 @@ export interface HandoffPackageOptions {
   trigger?: '70%阈值' | '手动' | '熔断';
   /** F20260901mbfx：§④/⑥ 机械预取数据（枚举型事实机械供料，不再依赖 LLM 自行调工具） */
   prefetch?: SynthesisPrefetch;
+  /** F20260903lngth：合成降级结果回调（timeout/error 在此捕获；success/empty/truncated 在合成闭包内） */
+  onSynthesisOutcome?: (outcome: "error" | "timeout") => void;
 }
 
 /**
@@ -80,6 +82,7 @@ export async function buildHandoffPackage(
     lineage,
     prefetch,
     trigger = '70%阈值',
+    onSynthesisOutcome,
   } = options;
 
   // 审视 P2：件④只收集一次，渲染文本与合成 prompt 共用同一对象——
@@ -126,6 +129,7 @@ export async function buildHandoffPackage(
     synthesize,
     prefetch,
     logger,
+    onSynthesisOutcome,
   );
 
   const estimate = (text: string) => Math.ceil(text.length / 4);
@@ -149,6 +153,33 @@ export async function buildHandoffPackage(
  * 防线①：LLM 叙事合成（readOnly invocation）
  * 防线②：机械转储（LLM 失败/超时时降级）
  */
+/**
+ * F20260903lngth：带超时的合成调用（超时/异常统一走 SynthesisFailureError，
+ * 调用方凭 outcome 字段回传 metrics，不再内联分支判定）。
+ */
+class SynthesisFailureError extends Error {
+  constructor(
+    readonly outcome: "timeout" | "error",
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+async function synthesizeWithTimeout(synthesize: SynthesisFunction, prompt: string, timeoutMs: number): Promise<string> {
+  try {
+    return await Promise.race([
+      synthesize(prompt),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error('Synthesis timeout')), timeoutMs)
+      ),
+    ]);
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.message === 'Synthesis timeout';
+    throw new SynthesisFailureError(isTimeout ? 'timeout' : 'error', err);
+  }
+}
+
 // eslint-disable-next-line max-params -- 防线①/②合成链路需要完整上下文参数
 async function generateSummary(
   otterId: string,
@@ -161,6 +192,7 @@ async function generateSummary(
   synthesize: SynthesisFunction | undefined,
   prefetch: SynthesisPrefetch | undefined,
   logger?: Logger,
+  onSynthesisOutcome?: (outcome: "error" | "timeout") => void,
 ): Promise<string> {
   // 防线①：LLM 叙事合成
   if (synthesize) {
@@ -180,15 +212,12 @@ async function generateSummary(
 
       logger?.info('[handoff-package] Starting LLM synthesis', { otterId });
 
-      // 设置超时（60s）
-      const timeoutMs = 60_000;
-      const result = await Promise.race([
-        synthesize(prompt),
-        new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error('Synthesis timeout')), timeoutMs)
-        ),
-      ]);
-
+      const result = await synthesizeWithTimeout(synthesize, prompt, 60_000)
+        .catch((err: SynthesisFailureError) => {
+          // F20260903lngth：timeout/error 降级结果回传 metrics
+          onSynthesisOutcome?.(err.outcome);
+          throw err;
+        });
       if (result && result.trim().length > 0) {
         logger?.info('[handoff-package] LLM synthesis succeeded', {
           otterId,

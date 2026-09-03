@@ -38,3 +38,21 @@ export function getContextWindowTokens(entries: SessionEntry[]): number | undefi
   const lastUsage = getLastAssistantUsage(entries);
   return lastUsage ? calculateContextTokens(lastUsage) : undefined;
 }
+
+/**
+ * 末条 assistant 消息的 stopReason（F20260903lngth）。
+ * 与 validAssistantUsage 的过滤规则互补：validAssistantUsage 跳过 aborted/error，
+ * 本函数不过滤——截断（length）信号恰恰需要从"看起来成功"的响应里暴露出来。
+ * 取自最后一条含 stopReason 的 assistant 消息（含 usage 为零的边缘情形）。
+ */
+export function getLastStopReason(entries: SessionEntry[]): string | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.type !== "message") continue;
+    const msg = entry.message;
+    if (msg.role !== "assistant") continue;
+    const assistant = msg as { stopReason?: string };
+    if (typeof assistant.stopReason === "string") return assistant.stopReason;
+  }
+  return undefined;
+}

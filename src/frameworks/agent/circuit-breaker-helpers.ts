@@ -5,7 +5,7 @@
 import { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import type { Logger } from "@usecases/ports/logger";
-import { getContextWindowTokens } from "./context-tokens";
+import { getContextWindowTokens, getLastStopReason } from "./context-tokens";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { Model, Api } from "@earendil-works/pi-ai";
@@ -94,6 +94,10 @@ export interface BuildInvokeResultResult {
   _selfRestart?: { otterId: string; summary?: string };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
+  /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断）。
+   *  Pi SDK 对 length-stop 摘要 fail-closed（compaction.js getSummarizationFailure），
+   *  本字段把截断信号带上结果边界，供合成链路做同样的完整性校验 */
+  lastStopReason?: string;
 }
 
 /** buildInvokeResult：构建 invoke 结果 */
@@ -118,6 +122,8 @@ export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeR
   const result: BuildInvokeResultResult = buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
   /** F20260814mtrc：模型别名随结果透传（metrics model label 数据源） */
   result.modelAlias = getModelAliasForLog(otterId);
+  /** F20260903lngth：截断信号透传——length-stop 不抛错，不带上边界则下游无法感知 */
+  result.lastStopReason = getLastStopReason(session.sessionManager.getBranch());
   return result;
 }
 

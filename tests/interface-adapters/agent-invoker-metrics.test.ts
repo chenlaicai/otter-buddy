@@ -34,6 +34,7 @@ function metricsSpy() {
       recordChainHops: () => {},
       recordChainDepthExceeded: () => {},
       recordNoYieldWithOrphanText: () => {},
+      recordSynthesis: () => {},
     } as AgentMetricsPort,
     invokes, retries, guardAborts, toolCalls, toolDurations, toolErrors, compactions, sessionRebuilds,
   };

@@ -90,7 +90,7 @@ function mockManageSession(session?: OtterSession) {
   } as unknown as ManageSession;
 }
 
-function mockSdkInvoke(result?: { text?: string; directText?: string; ctxTokens?: number }) {
+function mockSdkInvoke(result?: { text?: string; directText?: string; ctxTokens?: number; lastStopReason?: string }) {
   // F20260901dtfx D1 同构修复：生产 invoke 结果的 text 是 buildInvokeResult 占位空串
   // （circuit-breaker-helpers.ts:118），LLM 直出在 directText（turnText 缓冲）。
   // mock 必须复现这个形状——旧 mock 返回 text:"Hello" 是无 directText 的不同构形状，
@@ -104,6 +104,7 @@ function mockSdkInvoke(result?: { text?: string; directText?: string; ctxTokens?
       tokenUsage: { input: 1000, output: 500 },
       ctxTokens: result?.ctxTokens ?? 100000,
       ctxMax: 128000,
+      lastStopReason: result?.lastStopReason,
     })),
     abort: vi.fn(),
     getToolCallCount: vi.fn().mockReturnValue(0),
@@ -798,6 +799,94 @@ describe("F20260825hndf 优雅上下文交接", () => {
       );
       // readOnly invoke 应存在（synthesis invocation）
       expect(readOnlyCall).toBeDefined();
+    });
+
+    it("F20260903lngth：length-stop 截断摘要 fail-closed——闭包抛错不走成功路径（借鉴 Pi getSummarizationFailure）", async () => {
+      // stopReason=length 时 SDK 不抛错、directText 非空、看似成功——
+      // 截断摘要写进 session.summary 会误导下一代海獭。闭包必须拒绝。
+      const sdkInvoke = mockSdkInvoke({ ctxTokens: 100000, directText: "## 交接摘要\n被截断的叙事…", lastStopReason: "length" });
+      const manageSession = mockManageSession();
+      const manageContext = mockManageContext();
+      let capturedSynthesize: ((prompt: string) => Promise<string>) | undefined;
+      const buildHandoffPkg = vi.fn().mockImplementation(
+        async (
+          _convId: string,
+          _otterId: string,
+          options: { synthesize?: (prompt: string) => Promise<string> },
+        ) => {
+          capturedSynthesize = options.synthesize;
+          return {
+            summary: "## 交接摘要（机械转储）",
+            fileTrail: "## 文件轨迹",
+            recencyWindow: "## 近期原文",
+            stateInventory: "## 活状态盘点",
+            totalTokenEstimate: 3000,
+          };
+        },
+      );
+
+      const invoker = new AgentInvoker(
+        sdkInvoke, mockSendMessage(), mockQueryMessage(), manageSession,
+        mockQueryOtter(), createTestLogger(), undefined, undefined, undefined,
+        undefined, undefined,
+        mockConversationRepo(), mockScheduledTaskRepo(),
+        () => Promise.resolve<LinkedResource[]>([]),
+        manageContext, buildHandoffPkg,
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hello", senderId: "user-1",
+      });
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "World", senderId: "user-1",
+      });
+
+      expect(capturedSynthesize).toBeDefined();
+      // 截断摘要必须被拒绝（throw），即使 directText 非空
+      await expect(capturedSynthesize!("test prompt")).rejects.toThrow(/truncated/);
+    });
+
+    it("F20260903lngth：stopReason 非 length（如 stop_end_input）不误杀，正常返回合成文本", async () => {
+      const sdkInvoke = mockSdkInvoke({ ctxTokens: 100000, directText: "## 交接摘要\n完整叙事", lastStopReason: "stop_end_input" });
+      const manageSession = mockManageSession();
+      const manageContext = mockManageContext();
+      let capturedSynthesize: ((prompt: string) => Promise<string>) | undefined;
+      const buildHandoffPkg = vi.fn().mockImplementation(
+        async (_convId: string, _otterId: string, options: { synthesize?: (prompt: string) => Promise<string> }) => {
+          capturedSynthesize = options.synthesize;
+          return {
+            summary: "## 交接摘要（机械转储）",
+            fileTrail: "## 文件轨迹",
+            recencyWindow: "## 近期原文",
+            stateInventory: "## 活状态盘点",
+            totalTokenEstimate: 3000,
+          };
+        },
+      );
+
+      const invoker = new AgentInvoker(
+        sdkInvoke, mockSendMessage(), mockQueryMessage(), manageSession,
+        mockQueryOtter(), createTestLogger(), undefined, undefined, undefined,
+        undefined, undefined,
+        mockConversationRepo(), mockScheduledTaskRepo(),
+        () => Promise.resolve<LinkedResource[]>([]),
+        manageContext, buildHandoffPkg,
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "Hello", senderId: "user-1",
+      });
+      await invoker.invokeConversation({
+        otterId: "otter-1", conversationId: "conv-1",
+        userMessageContent: "World", senderId: "user-1",
+      });
+
+      expect(capturedSynthesize).toBeDefined();
+      const text = await capturedSynthesize!("test prompt");
+      expect(text).toBe("## 交接摘要\n完整叙事");
     });
   });
 });
