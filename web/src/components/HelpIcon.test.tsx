@@ -75,3 +75,34 @@ describe('HelpIcon', () => {
     container.remove()
   })
 })
+
+// F20260903：text 放宽为 ReactNode——健康页五维雷达公式列表是结构化内容
+describe('HelpIcon ReactNode 内容（F20260903）', () => {
+  it('接受结构化 JSX 内容并完整渲染在 Portal 气泡中', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(
+        <HelpIcon text={(
+          <div>
+            <p>综合分 = Σ(维度分 × 权重) / Σ(有数据维度权重)</p>
+            <div>维度公式行</div>
+          </div>
+        )} />
+      )
+    })
+    const btn = container.querySelector('button')
+    expect(btn).not.toBeNull()
+    expect(document.body.textContent).not.toContain('综合分')
+
+    act(() => { btn!.click() })
+    const bubble = document.body.querySelector('[role="tooltip"]')
+    expect(bubble).not.toBeNull()
+    expect(bubble!.textContent).toContain('综合分 = Σ(维度分 × 权重)')
+    expect(bubble!.textContent).toContain('维度公式行')
+
+    act(() => { root.unmount() })
+    container.remove()
+  })
+})

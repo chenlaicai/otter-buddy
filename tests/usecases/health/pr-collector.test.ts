@@ -97,11 +97,19 @@ describe("collectOpenPrs", () => {
     expect(prs).toEqual([]);
   });
 
-  it("降级：单 PR view 失败 → PR 保留，lastActivityAt=null", async () => {
+  it("降级：单 PR view 失败 → PR 保留，lastActivityAt=null，viewFailed=true", async () => {
     const list = [{ number: 5, title: "t", headRefName: "b", body: null, url: null, createdAt: dayAgo(3) }];
     const prs = await collectOpenPrs("/repo", { runner: makeRunner(list, {}, "view") });
     expect(prs).toHaveLength(1);
     expect(prs[0]!.lastActivityAt).toBeNull();
+    expect(prs[0]!.viewFailed).toBe(true);
+  });
+
+  it("正常 PR → viewFailed=undefined（不占位）", async () => {
+    const list = [{ number: 6, title: "t", headRefName: "b", body: null, url: null, createdAt: dayAgo(3) }];
+    const views = { 6: { commits: [{ committedDate: dayAgo(1) }], reviews: [], comments: [] } };
+    const prs = await collectOpenPrs("/repo", { runner: makeRunner(list, views) });
+    expect(prs[0]!.viewFailed).toBeUndefined();
   });
 
   it("降级：list 返回非数组 JSON → 空数组", async () => {

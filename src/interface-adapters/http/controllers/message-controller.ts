@@ -18,9 +18,12 @@ import { toMessageDTO, toMessageEventDTO } from "../dto/message-dto";
 import { buildMessageDTOs, decorateWithSignals, resolveSenderNames, type MessageDtoBuilderDeps } from "../dto/message-dto-builder";
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
 import { streamEvents } from "../sse-streamer";
+import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
+import type { DispatchAttemptRepo } from "@entities/conversation/dispatch-attempt";
 /** 多模态 Phase 1（审视修复 R4/R7）：附件注入策略归位 usecases 层——controller 只透传调用 */
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 
+/* eslint-disable max-lines -- K3（F20260903k23）注入 dispatchAttemptRepo 后 458>450；行数由 DI 参数与入口数量决定，拆分会降低内聚（platforms.ts 同款先例） */
 export class MessageController {
   // eslint-disable-next-line max-params -- 依赖由 DI 装配，参数数量由依赖决定
   constructor(
@@ -41,6 +44,8 @@ export class MessageController {
     private readonly signalRouter?: SignalRouter,
     /** 信号轨迹查询（F20260902u5tr）；可选装配，未注入时端点降级 */
     private readonly signalTrail?: QuerySignalTrail,
+    /** K3（F20260903k23）：派发台账读——POST SSE 等本轮信号到 attempt 终态再关流（未注入回退旧语义） */
+    private readonly dispatchAttemptRepo?: DispatchAttemptRepo,
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
@@ -232,20 +237,22 @@ export class MessageController {
     // F20260901sgpv P1：主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
     // Why 路由器优先：四入口各自直调 executeChain 是旧架构的核心痛点（T1），“插话撞
     // 锁超时”的根因即在此；未注入路由器时降级直连链（灰度回滚面，行为与现状等价）。
-    // SSE 生命周期不变：仍由调度 promise settle 后 finally 关闭（P2 替换链驱动时再重定义，七刀之五）。
+    // K3（F20260903k23）：SSE 生命周期挂台账终态——本轮信号 attempt 全部到终态或超时才关流。
     if (this.signalRouter && !injection) {
       // Why !injection（多模态例外）：带图片/文档注入的消息暂留直连链——注入载荷只存在于此请求内存中，
       // 信号路由从消息表重建内容拿不到它（多模态×信号路由的统一归 P2 接缝层解决）
       this.signalRouter.routePendingSignals(conversationId)
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error('信号路由调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
-          push({ event: "error", data: { message: `信号路由失败: ${msg}`, messageId: "", otterId: "" } });
+        .then((results) => {
+          // K3 审视焦点 3（#757）：全部 skipped（如 HALT 到小獭被丢弃、dissolved 目标）
+          // 时永不产生 attempt 行——等 settle 只会白等满 30s。直接关流（signal 在消息表
+          // 持久，状态由轨迹 UI 承载）；混合场景（有 invoked/queued_busy）仍走终态等待。
+          return results.length > 0 && results.every(r => r.action.startsWith("skipped"))
+            ? undefined
+            : awaitTriggerAttemptsSettled(this.dispatchAttemptRepo, this.logger, conversationId, userMessage.id)
+                .catch(e => this.logger.warn("[k3] settle 轮询异常（兜底关流）", { conversationId, error: e instanceof Error ? e.message : String(e) }));
         })
         .finally(() => {
           unsubscribe?.();
-          // 路由器是同步决策+fire-and-forget 点火，返回时无需再等——直接关闭 POST SSE 流
-          // （流式事件由 GET SSE 订阅接收；P2 重定义 SSE 生命周期 = 信号 CONSUMED + 静默超时兜底，七刀之五）
           push({ event: "stream.end", data: {} });
           close();
         });

@@ -190,3 +190,106 @@ describe("SignalRouter × 真实台账（S2 回放判据）", () => {
     expect(executeChain.mock.calls[0][0].triggerMessageId).toBe("msg-r4d");
   });
 });
+
+describe("F20260903damp 阻尼机制（S2.1：R5 判据——失效模式落哑火侧）", () => {
+  let db: import("better-sqlite3").Database;
+  let repo: SqliteDispatchAttemptRepo;
+  let executeChain: ReturnType<typeof vi.fn>;
+  let router: SignalRouter;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    initSchema(db);
+    repo = new SqliteDispatchAttemptRepo(db);
+    executeChain = vi.fn().mockRejectedValue(new Error("boom")); // 失败路径——阻尼的正战场
+    router = new SignalRouter({
+      conversationRepo: { getAllIds: vi.fn().mockResolvedValue(["conv-1"]) } as unknown as ConversationRepository,
+      queryMessage: {
+        getMessageById: vi.fn().mockImplementation((id: string) => {
+          const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as { id: string; conversation_id: string; sender_type: string; sender_id: string; talking_stone_passed_to: string | null; signal_level: string | null; created_at: string } | undefined;
+          if (!row) return null;
+          return makeMsg({
+            id: row.id, conversationId: row.conversation_id,
+            senderType: row.sender_type as Message["senderType"], senderId: row.sender_id,
+            talkingStonePassedTo: row.talking_stone_passed_to ? JSON.parse(row.talking_stone_passed_to) : [],
+            signalLevel: row.signal_level, createdAt: row.created_at,
+          });
+        }),
+        getLastMessageBySender: vi.fn().mockResolvedValue(null),
+      } as unknown as QueryMessage,
+      queryOtter: { getById: vi.fn().mockResolvedValue({ id: "otter-1", type: "big", status: "active" }) } as unknown as QueryOtter,
+      dispatchChainEngine: { executeChain } as unknown as DispatchChainEngine,
+      invokeFn: vi.fn().mockResolvedValue({ messageId: "m-out" }),
+      logger: createTestLogger(),
+      dispatchAttemptRepo: repo,
+    });
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("R5a 阻尼#1：失败后重扫零点火——failed 终态行把信号挡在 pending 之外（热循环免疫）", async () => {
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', 't', 'active', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES ('otter-1', '大獭', 'big', 'active', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at, completed_at) VALUES ('msg-damp', 'conv-1', 'user', 'user', 'completed', 1, 'turn-1', ?, '2026-09-02T09:00:00Z', '2026-09-02T09:00:01Z')`).run(JSON.stringify(["otter-1"]));
+
+    // 首轮点火：路由器预写账（点火即记账）+ 链失败 → 路由器兜底 failed
+    await router.routeAllPending();
+    await new Promise(r => setTimeout(r, 60)); // 跨 1+ 个去抖周期
+    const firstCalls = executeChain.mock.calls.length;
+    expect(firstCalls).toBe(1);
+
+    // 模拟链未记账的最坏情况：删掉 chain 行，只留路由器预写的行（source=router 的 in_progress → 兜底 failed）
+    // 实际上 #749 后路由器兜底已落 failed——直接断言台账有 failed 行
+    const failedRow = db.prepare(`SELECT status FROM dispatch_attempts WHERE message_id = 'msg-damp' AND target_otter_id = 'otter-1'`).get() as { status: string };
+    expect(failedRow.status).toBe("failed");
+
+    // 两个重扫周期后：不再点火（pending 判据排除 failed 行——失效模式落哑火侧）
+    await router.routeAllPending();
+    await router.routeAllPending();
+    await new Promise(r => setTimeout(r, 120));
+    expect(executeChain.mock.calls.length).toBe(firstCalls); // 无新增点火
+    expect(repo.countPendingSignals("conv-1")).toBe(0);
+  });
+
+  it("R5b 阻尼#1：shouldThrottle 最小点火间隔——60s 内二次点火被拒", () => {
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', 't', 'active', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at, completed_at) VALUES ('msg-t', 'conv-1', 'user', 'user', 'completed', 1, 'turn-1', '["otter-1"]', '2026-09-02T09:00:00Z', '2026-09-02T09:00:01Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES ('otter-1', '大獭', 'big', 'active', '2026-09-02T00:00:00Z')`).run();
+    // 无记录 = 首次，不阻尼
+    expect(repo.shouldThrottle("msg-t", "otter-1", 60)).toBe(false);
+    // 记账后 60s 内 = 阻尼
+    repo.recordStart({ id: "a1", conversationId: "conv-1", messageId: "msg-t", targetOtterId: "otter-1", status: "in_progress", source: "router", attemptStartedAt: new Date().toISOString(), note: null });
+    expect(repo.shouldThrottle("msg-t", "otter-1", 60)).toBe(true);
+    // 间隔外 = 放行
+    const past = new Date(Date.now() - 61_000).toISOString();
+    db.prepare(`UPDATE dispatch_attempts SET attempt_started_at = ? WHERE id = 'a1'`).run(past);
+    expect(repo.shouldThrottle("msg-t", "otter-1", 60)).toBe(false);
+    // 脏时间戳 = 不阻尼（宁多勿错）
+    db.prepare(`UPDATE dispatch_attempts SET attempt_started_at = 'garbage' WHERE id = 'a1'`).run();
+    expect(repo.shouldThrottle("msg-t", "otter-1", 60)).toBe(false);
+  });
+
+  it("R5c 阻尼#2：失败不重复落用户可见消息（写放大上界由消息层聚合）——同信号重试只产一条 failed 消息", async () => {
+    // 验证点：#749 后 failed 消息由 orchestrator 落，路由器兜底只写台账。
+    // 本用例锁定：同一 (message,target) 反复点火失败（模拟），台账 failed 行只有一条（覆盖式）
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', 't', 'active', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at, completed_at) VALUES ('msg-dup', 'conv-1', 'user', 'user', 'completed', 1, 'turn-1', '["otter-1"]', '2026-09-02T09:00:00Z', '2026-09-02T09:00:01Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES ('otter-1', '大獭', 'big', 'active', '2026-09-02T00:00:00Z')`).run();
+    repo.recordStart({ id: "a1", conversationId: "conv-1", messageId: "msg-dup", targetOtterId: "otter-1", status: "in_progress", source: "router", attemptStartedAt: "2026-09-02T09:00:02Z", note: null });
+    repo.recordFinish("msg-dup", "otter-1", "failed", "boom 1");
+    // 二次「重试」（覆盖式 INSERT OR REPLACE）
+    repo.recordStart({ id: "a2", conversationId: "conv-1", messageId: "msg-dup", targetOtterId: "otter-1", status: "in_progress", source: "retry", attemptStartedAt: "2026-09-02T09:05:00Z", note: "retry; prev=failed: boom 1" });
+    repo.recordFinish("msg-dup", "otter-1", "failed", "boom 2");
+    const rows = db.prepare(`SELECT id FROM dispatch_attempts WHERE message_id = 'msg-dup'`).all();
+    expect(rows).toHaveLength(1); // UNIQUE 槽位覆盖，不膨胀
+    // recordStart 时已压缩前情（retry note 含 prev=failed），recordFinish 以本轮原因覆盖 note
+    // ——本轮失败原因可查（排查线索），历史轮次经覆盖时已被压缩进上一轮 note 链
+    const row = db.prepare(`SELECT note FROM dispatch_attempts WHERE message_id = 'msg-dup'`).get() as { note: string };
+    expect(row.note).toBe("boom 2");
+  });
+});
