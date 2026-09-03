@@ -16,8 +16,8 @@
 
 /** teal 阶（健康/修复/正向） */
 export const TEAL = { 300: '#7BC5C5', 400: '#4A9B9B', 500: '#3A8B8B', 600: '#2A7B7B' } as const
-/** caramel 阶（注意/热/复发） */
-export const CARAMEL = { 300: '#E8B98E', 400: '#D9A57B', 500: '#C9956B', 600: '#8F6234' } as const
+/** caramel 阶（注意/热/复发；700=严重/回退深阶，观澜 §3.4） */
+export const CARAMEL = { 300: '#E8B98E', 400: '#D9A57B', 500: '#C9956B', 600: '#8F6234', 700: '#6B4924' } as const
 /** otter 阶（失活/中性/背景） */
 export const OTTER = { 100: '#F0E8DC', 200: '#E0D0BC', 300: '#C9AC8E', 400: '#A88260', 500: '#8B6F47', 700: '#52402C', 900: '#2A2014' } as const
 /** lavender 阶（悬空/辅助） */
