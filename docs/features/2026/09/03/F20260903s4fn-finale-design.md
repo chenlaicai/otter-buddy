@@ -13,6 +13,7 @@ change_type: feature
 tags: [signal-protocol, scheduler, watchdog, cursor-migration, turn-retirement]
 modules: [src/usecases/scheduler/, src/usecases/conversation/, src/frameworks/db/]
 created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
+capability_test: "n/a: S4a/b/c 为调度/记账/游标逻辑（A 类），无 LLM 参与行为变化；回归由 2903 用例全量 + S2.x 判据块覆盖"
 causal_links:
   from:
     - F20260902sgp2   # 父特性（S4 原规划）
