@@ -242,21 +242,19 @@ export class MessageController {
       // Why !injection（多模态例外）：带图片/文档注入的消息暂留直连链——注入载荷只存在于此请求内存中，
       // 信号路由从消息表重建内容拿不到它（多模态×信号路由的统一归 P2 接缝层解决）
       this.signalRouter.routePendingSignals(conversationId)
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error('信号路由调度异常', err instanceof Error ? err : new Error(msg), { conversationId });
-          push({ event: "error", data: { message: `信号路由失败: ${msg}`, messageId: "", otterId: "" } });
+        .then((results) => {
+          // K3 审视焦点 3（#757）：全部 skipped（如 HALT 到小獭被丢弃、dissolved 目标）
+          // 时永不产生 attempt 行——等 settle 只会白等满 30s。直接关流（signal 在消息表
+          // 持久，状态由轨迹 UI 承载）；混合场景（有 invoked/queued_busy）仍走终态等待。
+          return results.length > 0 && results.every(r => r.action.startsWith("skipped"))
+            ? undefined
+            : awaitTriggerAttemptsSettled(this.dispatchAttemptRepo, this.logger, conversationId, userMessage.id)
+                .catch(e => this.logger.warn("[k3] settle 轮询异常（兜底关流）", { conversationId, error: e instanceof Error ? e.message : String(e) }));
         })
         .finally(() => {
-          // K3：不立即关流——等本轮信号到 attempt 终态（排队消化/失败翻篇均覆盖），超时兜底防悬死流
-          const triggerMessageId = userMessage.id;
-          awaitTriggerAttemptsSettled(this.dispatchAttemptRepo, this.logger, conversationId, triggerMessageId)
-            .catch(e => this.logger.warn("[k3] settle 轮询异常（兜底关流）", { conversationId, error: e instanceof Error ? e.message : String(e) }))
-            .finally(() => {
-              unsubscribe?.();
-              push({ event: "stream.end", data: {} });
-              close();
-            });
+          unsubscribe?.();
+          push({ event: "stream.end", data: {} });
+          close();
         });
       return response;
     }

@@ -100,6 +100,15 @@ describe("K2 收件箱预告（真实台账 × 真实投影）", () => {
     expect(result).not.toContain("收件箱预告");
   });
 
+  it("pending 超 50 条时预告数字仍准确（#757 审视焦点 1：count 无 limit，不封顶）", async () => {
+    // 灌 55 条 pending（> 旧实现 listPendingSignals(limit=50) 的全局上界）
+    for (let i = 0; i < 55; i++) {
+      await signal(["otter-a"]);
+    }
+    const result = await engine.buildMessageWithContext("conv-1", "otter-a", "当前任务", "user", "名册");
+    expect(result).toContain("55 条信号待消化");
+  });
+
   it("台账未注入 → 无预告（降级零侵入）", async () => {
     await signal(["otter-a"]);
     const result = await engineNoLedger.buildMessageWithContext("conv-1", "otter-a", "当前任务", "user", "名册");

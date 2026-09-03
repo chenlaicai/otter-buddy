@@ -63,6 +63,7 @@ describe("K3：POST SSE 挂 attempt 终态（F20260903k23）", () => {
     } as unknown as DispatchAttemptRepo;
     const router = { routePendingSignals: vi.fn().mockImplementation(async () => {
       rows = [{ messageId: "user-msg-1", status: "in_progress" }];
+      return [{ signal: {} as never, action: "invoked" as const }]; // invoked → 走 settle 等待
     }) } as unknown as SignalRouter;
     const { app } = buildHarness({ repo, router });
 
@@ -78,7 +79,7 @@ describe("K3：POST SSE 挂 attempt 终态（F20260903k23）", () => {
     const repo = {
       listAttemptsForConversation: vi.fn().mockResolvedValue([{ messageId: "user-msg-1", status: "failed" }]),
     } as unknown as DispatchAttemptRepo;
-    const router = { routePendingSignals: vi.fn().mockResolvedValue([]) } as unknown as SignalRouter;
+    const router = { routePendingSignals: vi.fn().mockResolvedValue([{ signal: {} as never, action: "invoked" as const }]) } as unknown as SignalRouter;
     const { app } = buildHarness({ repo, router });
     const res = await postMessage(app);
     const text = await res.text();
@@ -90,7 +91,7 @@ describe("K3：POST SSE 挂 attempt 终态（F20260903k23）", () => {
     const repo = {
       listAttemptsForConversation: listAttempts,
     } as unknown as DispatchAttemptRepo;
-    const router = { routePendingSignals: vi.fn().mockResolvedValue([]) } as unknown as SignalRouter;
+    const router = { routePendingSignals: vi.fn().mockResolvedValue([{ signal: {} as never, action: "queued_busy" as const }]) } as unknown as SignalRouter;
     const { app } = buildHarness({ repo, router });
     const res = await postMessage(app);
     const text = await res.text();
@@ -99,8 +100,20 @@ describe("K3：POST SSE 挂 attempt 终态（F20260903k23）", () => {
     expect(listAttempts.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("全 skipped（HALT 到小獭等）→ 跳过 settle 等待直接关流（#757 审视焦点 3）", async () => {
+    const listAttempts = vi.fn().mockResolvedValue([]);
+    const repo = { listAttemptsForConversation: listAttempts } as unknown as DispatchAttemptRepo;
+    // HALT 到小獭被丢弃：路由器返回 skipped_no_target，永不产生 attempt 行
+    const router = { routePendingSignals: vi.fn().mockResolvedValue([{ signal: {} as never, action: "skipped_no_target" as const }]) } as unknown as SignalRouter;
+    const { app } = buildHarness({ repo, router });
+    const res = await postMessage(app);
+    const text = await res.text();
+    expect(text).toContain("stream.end");
+    expect(listAttempts).not.toHaveBeenCalled(); // 未进入 settle 轮询（不白等 30s）
+  });
+
   it("台账未注入 → 立即关流（回退旧语义）", async () => {
-    const router = { routePendingSignals: vi.fn().mockResolvedValue([]) } as unknown as SignalRouter;
+    const router = { routePendingSignals: vi.fn().mockResolvedValue([{ signal: {} as never, action: "invoked" as const }]) } as unknown as SignalRouter;
     const { app } = buildHarness({ router });
     const res = await postMessage(app);
     const text = await res.text();

@@ -583,6 +583,7 @@ describe("sgp2 hop 取源修复（F20260902sgp2 #712：hop 2+ 记账 + 多源覆
       },
       backfillLegacyAttempted: () => 0,
       countPendingSignals: () => 0,
+      countPendingForTarget: () => ({ total: 0, halt: 0 }),
       listPendingSignals: () => [],
       markStaleInProgressFailed: () => 0,
       shouldThrottle: () => false,

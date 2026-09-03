@@ -90,6 +90,19 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     return row.n;
   }
 
+  /** K2 收件箱预告（F20260903k23，#757 审视焦点 1 修复）：目标獭的 pending 精确计数。
+   *  无 limit（预告数字必须诚实——listPendingSignals+filter 会双重封顶漏报）；
+   *  total 与 halt 一次查询带回（SQL 条件聚合，避免两遍扫描）。 */
+  countPendingForTarget(conversationId: string, targetOtterId: string): { total: number; halt: number } {
+    const { where, params } = this.pendingClause(conversationId);
+    const row = this.db.prepare(`
+      SELECT count(*) AS total,
+             COALESCE(SUM(CASE WHEN UPPER(COALESCE(m.signal_level, 'NORMAL')) = 'HALT' THEN 1 ELSE 0 END), 0) AS halt
+      ${where} AND t.value = ?
+    `).get(...params, targetOtterId) as { total: number; halt: number };
+    return { total: row.total, halt: row.halt };
+  }
+
   /** S1b 轨迹 UI：本会话全部 attempt（无 limit——(message,target) 唯一键防膨胀） */
   listAttemptsForConversation(conversationId: string): DispatchAttempt[] {
     const rows = this.db.prepare(`

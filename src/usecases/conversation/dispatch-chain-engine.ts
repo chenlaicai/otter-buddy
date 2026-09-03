@@ -487,12 +487,12 @@ export class DispatchChainEngine {
   private buildPendingPreview(conversationId: string, otterId: string): string | null {
     if (!this.deps.dispatchAttemptRepo) return null;
     try {
-      const rows = this.deps.dispatchAttemptRepo.listPendingSignals(conversationId, 50)
-        .filter(r => r.targetOtterId === otterId);
-      if (rows.length === 0) return null;
-      const haltCount = rows.filter(r => (r.signalLevel ?? "NORMAL").toUpperCase() === "HALT").length;
-      const haltNote = haltCount > 0 ? `（含 ${haltCount} 条 HALT 停机请求，优先处理）` : "";
-      return `> 收件箱预告：你名下还有 ${rows.length} 条信号待消化${haltNote}（当前任务完成后按序处理即可）`;
+      // 精确计数（#757 审视焦点 1：listPendingSignals+limit=50 会双重封顶漏报——
+      // 全会话 50 条上界截断 + per-target 超 50 不诚实。count 无 limit，数字必须诚实）
+      const { total, halt } = this.deps.dispatchAttemptRepo.countPendingForTarget(conversationId, otterId);
+      if (total === 0) return null;
+      const haltNote = halt > 0 ? `（含 ${halt} 条 HALT 停机请求，优先处理）` : "";
+      return `> 收件箱预告：你名下还有 ${total} 条信号待消化${haltNote}（当前任务完成后按序处理即可）`;
     } catch {
       return null; // 预告失败不影响主流程
     }
