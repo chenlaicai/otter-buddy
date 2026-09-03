@@ -349,9 +349,9 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
         <OtterAvatar otterId={o.id} name={o.name} size={28} type={o.type} />
         <div className="flex-1 min-w-0">
           <div className="text-xs font-semibold text-stone-700">{o.name}</div>
-          <div className="text-[10px] text-stone-400">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
+          <div className="text-[10px] text-stone-400 whitespace-nowrap truncate">{isBig ? '大獭 · 持久' : (o.role?.name || '')}</div>
           {activeS && (
-            <div className="text-[9px] text-stone-400">
+            <div className="text-[9px] text-stone-400 whitespace-nowrap truncate">
               第{activeGen}世 · {fmtTime(activeS.startedAt)}
             </div>
           )}
