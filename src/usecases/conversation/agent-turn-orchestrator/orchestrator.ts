@@ -242,7 +242,7 @@ export class AgentTurnOrchestrator {
   ): Promise<TurnResult | RetryWithNewMessageSignal | null> {
     switch (reason.kind) {
       case 'user_abort':
-        return this.handleUserAbort(ctx);
+        return this.handleUserAbort(ctx, reason);
       case 'guard_abort':
         return this.routeGuardAbort(reason, ctx);
       case 'api_error':
@@ -371,7 +371,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Handle user abort: speaking guard → abort terminal */
-  private async handleUserAbort(ctx: RouteContext): Promise<TurnResult> {
+  private async handleUserAbort(ctx: RouteContext, reason?: ExitReason & { kind: 'user_abort' }): Promise<TurnResult> {
     const msg = await ctx.callbacks.getMessageById(ctx.input.messageId);
     if (msg?.status === 'speaking') {
       try {
@@ -405,7 +405,7 @@ export class AgentTurnOrchestrator {
       }
     }
 
-    return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'user' });
+    return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'user', underlyingError: reason?.underlyingError });
   }
 
   /** Route guard abort: degenerate retry → degenerate circuit break → auto-retry → abort terminal */
@@ -967,7 +967,7 @@ export class AgentTurnOrchestrator {
     const actualToolCallCount = ctx.toolCallCount || 0;
     const body = ctx.kind === 'guard'
       ? buildGuardAbortBody(ctx.guardReason)
-      : buildUserAbortBody(actualToolCallCount, await ctx.callbacks.getPartnerLabel());
+      : buildUserAbortBody(actualToolCallCount, await ctx.callbacks.getPartnerLabel(), ctx.underlyingError);
 
     try {
       await ctx.callbacks.abortMessage(messageId, {
