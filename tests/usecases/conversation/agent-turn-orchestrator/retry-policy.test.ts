@@ -159,7 +159,7 @@ describe("buildUserAbortBody (#752: 中断归因增强)", () => {
   });
 
   it("0 次工具调用 + api_error（429 限流）→ 归因到模型限流", () => {
-    const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: '429 Too Many Requests' });
+    const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: 'LLM API error: 429 Too Many Requests' });
     expect(msg).toContain("模型服务限流（429）");
     expect(msg).toContain("未能开始");
     expect(msg).toContain("chen中断了等待");
@@ -167,7 +167,7 @@ describe("buildUserAbortBody (#752: 中断归因增强)", () => {
   });
 
   it("0 次工具调用 + api_error（非 429）→ 归因到模型服务异常", () => {
-    const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: 'Connection refused' });
+    const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: 'LLM API error: Connection refused' });
     expect(msg).toContain("模型服务异常");
     expect(msg).toContain("未能开始");
     expect(msg).toContain("chen中断了等待");
@@ -178,10 +178,5 @@ describe("buildUserAbortBody (#752: 中断归因增强)", () => {
     expect(msg).toContain("安全守卫拦截");
     expect(msg).toContain("未能开始");
     expect(msg).toContain("搭档中断了等待");
-  });
-
-  it("0 次工具调用 + no_yield → 保持原有文案（纯等待超时）", () => {
-    const msg = buildUserAbortBody(0, "chen", { kind: 'no_yield' });
-    expect(msg).toBe("[chen中断] 经过 0 次工具调用后，chen强制中断了当前发言。");
   });
 });

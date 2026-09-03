@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyExit, extractGuardReason } from "@usecases/conversation/agent-turn-orchestrator/exit-classifier";
+import { classifyExit, extractGuardReason, isAbortOwnError } from "@usecases/conversation/agent-turn-orchestrator/exit-classifier";
 
 describe("classifyExit", () => {
   const noAbort = new Set<string>();
@@ -15,9 +15,10 @@ describe("classifyExit", () => {
     expect(reason.kind).toBe("user_abort");
   });
 
-  it("user_abort + 底层有 err → underlyingError 为 api_error", () => {
+  it("user_abort + 底层有真实 API err → underlyingError 为 api_error（S2: 非 abort 自身产物）", () => {
     const aborted = new Set(["msg-1"]);
-    const err = new Error("429 Too Many Requests");
+    // 真实 SDK 错误形态：checkSessionError 包装后带 "LLM API error:" 前缀
+    const err = new Error("LLM API error: 429 Too Many Requests");
     const reason = classifyExit(
       { messageId: "msg-1", result: { text: "" }, err, toolCallCount: 0 },
       aborted,
@@ -30,6 +31,22 @@ describe("classifyExit", () => {
       if (reason.underlyingError?.kind === "api_error") {
         expect(reason.underlyingError.errorMessage).toContain("429");
       }
+    }
+  });
+
+  it("user_abort + 底层是 abort 自身产物 → underlyingError 为 undefined（S2-A 修复：不归罪模型）", () => {
+    const aborted = new Set(["msg-1"]);
+    // SDK abort 自身抛出的错误形态（pi-ai openai-completions.js:427-431）
+    const err = new Error("LLM API error: Request was aborted");
+    const reason = classifyExit(
+      { messageId: "msg-1", result: { text: "" }, err, toolCallCount: 0 },
+      aborted,
+      noInternalReason,
+    );
+    expect(reason.kind).toBe("user_abort");
+    if (reason.kind === "user_abort") {
+      // abort 自身产物不应归为 api_error
+      expect(reason.underlyingError).toBeUndefined();
     }
   });
 
@@ -50,7 +67,7 @@ describe("classifyExit", () => {
     }
   });
 
-  it("user_abort + toolCallCount=0 无 err 无 guardReason → underlyingError 为 no_yield", () => {
+  it("user_abort + 无 err 无 guardReason → underlyingError 为 undefined（纯用户中断）", () => {
     const aborted = new Set(["msg-1"]);
     const reason = classifyExit(
       { messageId: "msg-1", result: { text: "" }, toolCallCount: 0 },
@@ -59,8 +76,7 @@ describe("classifyExit", () => {
     );
     expect(reason.kind).toBe("user_abort");
     if (reason.kind === "user_abort") {
-      expect(reason.underlyingError).toBeDefined();
-      expect(reason.underlyingError?.kind).toBe("no_yield");
+      expect(reason.underlyingError).toBeUndefined();
     }
   });
 
@@ -102,6 +118,24 @@ describe("classifyExit", () => {
       noInternalReason,
     );
     expect(reason.kind).toBe("no_yield");
+  });
+});
+
+describe("isAbortOwnError", () => {
+  it("SDK abort 错误 → true", () => {
+    expect(isAbortOwnError(new Error("Request was aborted"))).toBe(true);
+    expect(isAbortOwnError(new Error("LLM API error: Request was aborted"))).toBe(true);
+  });
+
+  it("真实 API 错误 → false", () => {
+    expect(isAbortOwnError(new Error("LLM API error: 429 Too Many Requests"))).toBe(false);
+    expect(isAbortOwnError(new Error("LLM API error: Connection refused"))).toBe(false);
+  });
+
+  it("非 Error 对象 → false", () => {
+    expect(isAbortOwnError("some string")).toBe(false);
+    expect(isAbortOwnError(null)).toBe(false);
+    expect(isAbortOwnError(undefined)).toBe(false);
   });
 });
 

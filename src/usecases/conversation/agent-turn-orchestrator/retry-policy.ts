@@ -5,6 +5,8 @@
  * retry-policy 是纯函数+配置，无状态依赖。
  */
 
+import type { AbortUnderlyingError } from "./exit-classifier";
+
 /** Check if guard abort reason is retryable */
 export function isRetryableGuardAbort(reason: string): boolean {
   if (reason === 'degenerate_output') return false;
@@ -159,7 +161,7 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
 export function buildUserAbortBody(
   toolCallCount: number,
   partnerLabel: string,
-  underlyingError?: { kind: 'api_error'; errorMessage: string } | { kind: 'guard_abort'; guardReason: string } | { kind: 'no_yield' },
+  underlyingError?: AbortUnderlyingError,
 ): string {
   const base = `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
   // #752：0 次工具调用 + 底层有 API 错误 → 归因到系统问题而非纯用户中断

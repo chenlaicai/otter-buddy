@@ -1,7 +1,7 @@
 ---
 id: F20260903abrt
-title: 中断归因增强：用户中断时保留底层 SDK 错误信息
-summary: 用户中断消息时，若底层存在 API 错误（如 429 限流），中断文案从「强制中断了当前发言」改为归因到系统问题（「因模型服务限流未能开始」），消除中断归因失真
+title: 中断归因增强：用户中断时保留底层 SDK 错误信息（排除 abort 自身产物）
+summary: 用户中断消息时，若底层存在真实 API 错误（如 429 限流），中断文案归因到系统问题；排除 abort 自身产生的 "Request was aborted" 错误避免反向归因失真
 change_type: fix
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 fixes: "#752"
@@ -34,11 +34,12 @@ fixes: "#752"
 
 ### 核心改动
 
-**exit-classifier.ts**：`classifyExit` 在返回 `user_abort` 时，同时捕获底层 SDK 错误信息到 `underlyingError` 字段：
+**exit-classifier.ts**：`classifyExit` 在返回 `user_abort` 时，捕获底层 SDK 错误信息到 `underlyingError` 字段，**但排除 abort 自身产物**：
 - 底层有 `_guardAbortReason` → `underlyingError.kind = 'guard_abort'`
-- 底层有 Error → `underlyingError.kind = 'api_error'`
-- 无错误且 toolCallCount=0 → `underlyingError.kind = 'no_yield'`
-- toolCallCount>0 且无错误 → `underlyingError = undefined`（正常执行中被中断）
+- 底层有 Error 且非 abort 自身产物 → `underlyingError.kind = 'api_error'`
+- 底层有 Error 但是 abort 自身产物（`isAbortOwnError` 匹配） → `underlyingError = undefined`
+- 无错误 → `underlyingError = undefined`
+- **关键**：SDK 的 abort 操作会抛出 `"Request was aborted"` 错误，这是 abort 的副作用而非底层 API 错误，必须排除
 
 **retry-policy.ts**：`buildUserAbortBody` 新增可选 `underlyingError` 参数：
 - 0 次工具调用 + API 错误（429）→ 「因模型服务限流（429）未能开始，中断了等待」
