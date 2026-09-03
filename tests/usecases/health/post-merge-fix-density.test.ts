@@ -28,6 +28,7 @@ function chain(featureId: string, files: string[], lastCommitDaysAgo: number): F
     bugfixCount: 0,
     touchFiles: new Set(files),
     doc: null,
+    unknownPrCount: 0,
   };
 }
 
