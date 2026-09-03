@@ -1,4 +1,24 @@
-
+---
+id: F20260903s4fn
+title: 'sgp2 S4 终局：scheduler 换轨 + 看门狗语义迁移 + 游标 seq 化 + turn 写路径退役'
+doc_type: feature
+summary: |
+  信号协议 v2 的收官段。四件套：① scheduler 入口换轨（最后一条直连链进闸门体系）；
+  ② 看门狗语义迁移（静默窗判死 → 「attempt 终态 + 持续产出」双条件，#516 教训平移）；
+  ③ 游标 seq 化（lastReadTurnNumber → lastReadSeq 双写迁移，刻度从 turn 换消息 seq）；
+  ④ turn 写路径退役评估（读路径 #677 已派生视图化，写路径 createTurn/closeTurn 的
+  消费面盘点后决定拆或留）。分四个独立 PR，每段可回滚。
+status: draft
+change_type: feature
+tags: [signal-protocol, scheduler, watchdog, cursor-migration, turn-retirement]
+modules: [src/usecases/scheduler/, src/usecases/conversation/, src/frameworks/db/]
+created_in_conversation: 52bfdd91-a61e-4323-b1f7-1fe3daaadc32
+capability_test: "n/a: S4a/b/c 为调度/记账/游标逻辑（A 类），无 LLM 参与行为变化；回归由 2903 用例全量 + S2.x 判据块覆盖"
+causal_links:
+  from:
+    - F20260902sgp2   # 父特性（S4 原规划）
+    - F20260901sgpx   # 母方案（P4 turn 退役原设计）
+---
 ## 10. S4 补丁批（自检发现的偏差与遗漏修复）
 
 自检（搭档令）对照设计文档/阻尼清单/会议裁决，发现 2 偏差 + 2 遗漏：
