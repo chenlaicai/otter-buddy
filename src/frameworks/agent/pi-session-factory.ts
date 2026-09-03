@@ -454,12 +454,15 @@ export class PiSessionFactory implements AgentGateway {
     // F20260824aibd: 传递 modelAlias 给身份构建，让海獭知道自己运行在什么模型上
     const modelAlias = this.getModelAliasForLog(otterId);
     const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, modelAlias);
+    // F20260903cmpk（#770 检视发现 2）：压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
+    // 查询失败不影响链路（catch 降级 undefined，钩子用"海獭"兜底）。
+    const displayName = await this.identityBuilder.getOtterName(otterId).catch(() => undefined);
 
     // S1：整个 createAgentSession + prompt 包在 ALS scope 内，
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId },
+      { otterPromptConfig, identityPrefix, otterId, displayName },
       // eslint-disable-next-line max-statements, complexity -- F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. 构建工具配置并创建 AgentSession

@@ -135,7 +135,7 @@ export class ModelRuntimeRegistry {
               // 避免 registry 构造参数反向穿透）。无 deps 时 undefined = Pi 默认兜底。
               pi.on("session_before_compact", async (event: { reason: "manual" | "threshold" | "overflow"; preparation: CompactionPreparationLike }) => {
                 const store = otterInvokeStorage.getStore();
-                const otterName = store?.otterPromptConfig ? otterIdFromStore(store) : "海獭";
+                const otterName = store?.displayName ?? "海獭";
                 return await handleSessionBeforeCompact(event, compactionHookDeps, otterName);
               });
             },
@@ -288,6 +288,8 @@ export interface OtterInvokeContext {
   identityPrefix: string;
   /** F20260826mwrd C1：当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
   otterId: string;
+  /** F20260903cmpk：otter 显示名（otters.name）——压缩钩子合成 prompt 的 meta 行用（#770 检视发现 2） */
+  displayName?: string;
 }
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
@@ -299,10 +301,6 @@ let compactionHookDeps: CompactionHookDeps | null = null;
 
 export function setCompactionHookDeps(deps: CompactionHookDeps | null): void {
   compactionHookDeps = deps;
-}
-
-function otterIdFromStore(store: OtterInvokeContext): string {
-  return store.otterId || "海獭";
 }
 
 /**

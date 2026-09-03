@@ -7,6 +7,7 @@ created_in_conversation: 9d326c9d-9818-40a2-9982-898315fe7aa4
 capability_test: "tests/capability/compaction-hook.capability.test.ts"
 intent:
   problem: "双机制并存（70% handoff + Pi compaction）存在竞争窗口：轮内暴涨时 Pi 的 87% 通用算法抢跑，摘要质量降级；且「Pi 压缩不可干预」的设计前提已被 SDK 钩子证伪"
+  expected_effect: "threshold 触发的压缩摘要包含七段模板标记（capability e2e 断言 fromHook=true + summary 匹配）；70% Pre-invoke 链路零触发（存量反转测试为回归防线）"
 from:
   - F20260825hndf
   - F20260903lngth
