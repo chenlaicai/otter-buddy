@@ -194,9 +194,9 @@ describe("checkBashCommandSafety", () => {
     expect(result).toContain("本意安全");
   });
 
-  it("管道到 shell 中 kill 在 grep 参数里 → 放行（kill 非命令位置，#698 误报回归）", () => {
+  it("管道到 shell 拦截含误拦退出引导", () => {
     const result = checkBashCommandSafety("cat note.txt | grep -q kill && bash -c 'true'", mainPid);
-    expect(result).toBeNull();
+    expect(result).toContain("本意安全");
   });
 
   it("直接命中主进程 PID 的拦截不含误拦退出引导（不存在本意安全语义，加了自相矛盾）", () => {
@@ -443,7 +443,7 @@ describe("#698 误报回归：进程动词词元任意位置匹配（模式2）"
     expect(result).toBeNull();
   });
 
-  it("grep -rn skill .pi/skills/ → 放行（skill 在搜索词和路径中，非命令）", () => {
+  it("grep -rn skill .pi/skills/ → 放行（skill 在搜索词和路径中）", () => {
     const result = checkBashCommandSafety(
       'grep -rn "skill" .pi/skills/',
       mainPid,
@@ -451,37 +451,72 @@ describe("#698 误报回归：进程动词词元任意位置匹配（模式2）"
     expect(result).toBeNull();
   });
 
-  it("echo skill | cat → 放行（skill 在 echo 参数中，非命令）", () => {
+  it("echo skill | cat → 放行（skill 作为 echo 参数，无间接 PID 目标）", () => {
     const result = checkBashCommandSafety(
       'echo skill | cat',
       mainPid,
     );
     expect(result).toBeNull();
   });
+});
 
-  // ─── 管道/操作符后 kill 仍应拦截 ───
+// ─── #698 攻击链回归：命令位置限定不得放行真攻击链 ───
 
-  it("cat file | xargs kill → 拦截（xargs kill 在管道后，命令位置）", () => {
-    const result = checkBashCommandSafety(
-      'cat file | xargs kill',
-      mainPid,
-    );
+describe("#698 攻击链回归：wrapper/赋值/bash -c/xargs 参数/路径变体", () => {
+  const mainPid = 42877;
+
+  // a. wrapper/赋值前缀 + 字面量主 PID
+  it("env kill 42877 → 拦截（env wrapper 前缀 + 主 PID）", () => {
+    const result = checkBashCommandSafety("env kill 42877", mainPid);
     expect(result).not.toBeNull();
   });
 
-  it("echo starting && kill 42877 → 拦截（kill 在 && 后，命中主 PID）", () => {
-    const result = checkBashCommandSafety(
-      'echo starting && kill 42877',
-      mainPid,
-    );
+  it("FOO=1 kill 42877 → 拦截（赋值前缀 + 主 PID）", () => {
+    const result = checkBashCommandSafety("FOO=1 kill 42877", mainPid);
     expect(result).not.toBeNull();
   });
 
-  it("echo a; sudo /usr/bin/kill 42877 → 拦截（sudo + 路径穿透 kill 在 ; 后，命中主 PID）", () => {
-    const result = checkBashCommandSafety(
-      'echo a; sudo /usr/bin/kill 42877',
-      mainPid,
-    );
+  it("nohup kill 42877 → 拦截（nohup wrapper + 主 PID）", () => {
+    const result = checkBashCommandSafety("nohup kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("timeout 5 kill 42877 → 拦截（timeout wrapper + 主 PID）", () => {
+    const result = checkBashCommandSafety("timeout 5 kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // b. bash -c 引号内嵌完整攻击链
+  it("bash -c 'pkill -f otter-buddy' → 拦截（bash -c 引号内嵌 pkill）", () => {
+    const result = checkBashCommandSafety("bash -c 'pkill -f otter-buddy'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("bash -c 'kill 42877' → 拦截（bash -c 引号内嵌主 PID）", () => {
+    const result = checkBashCommandSafety("bash -c 'kill 42877'", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // c. xargs 带参数变体
+  it("cat f | xargs -n1 kill 42877 → 拦截（xargs -n1 参数变体）", () => {
+    const result = checkBashCommandSafety("cat f | xargs -n1 kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  it("cat f | xargs -I{} kill 42877 → 拦截（xargs -I{} 参数变体）", () => {
+    const result = checkBashCommandSafety("cat f | xargs -I{} kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // d. 路径变体
+  it("~/bin/kill 42877 → 拦截（~ 路径 + 主 PID）", () => {
+    const result = checkBashCommandSafety("~/bin/kill 42877", mainPid);
+    expect(result).not.toBeNull();
+  });
+
+  // e. python -c one-liner（#698 建议3）
+  it("python3 -c 'import os; os.kill(42877, 9)' → 拦截（python -c one-liner）", () => {
+    const result = checkBashCommandSafety("python3 -c 'import os; os.kill(42877, 9)'", mainPid);
     expect(result).not.toBeNull();
   });
 });

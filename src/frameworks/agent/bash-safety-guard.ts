@@ -28,7 +28,13 @@ export function readMainProcessPid(projectRoot: string): number | null {
 
 // ─── 危险命令模式匹配 ───
 
-/** otter 主进程相关关键词模式（pkill/killall 的 -f/-n 参数值） */
+/** kill 族命令名（含路径穿透、~ 路径、变量赋值前缀、wrapper 命令、bash -c 引号内嵌）
+ * F20260903gh698：(1) bash -c 支持引号包裹的内嵌命令（'kill N'/"kill N"/kill N）
+ *                (2) 全模式加 i 标志（大小写不敏感）
+ */
+const KILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:[A-Za-z_]\w*=\S+\s+)*(?:env\s+|timeout\s+\S+\s+|nohup\s+|command\s+|nice\s+-?n?\s*\d*\s+)*(?:kill|skill)\b|(?:bash|sh)\s*-c\s*[\s'"]?(?:kill|skill|pkill|killall)\b[^|;&]*/i;
+/** pkill/killall 族（含路径穿透，F20260903gh698 加 i 标志） */
+const PKILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:pkill|pgrep|killall|killall5)\b/i;
 const OTTER_PROCESS_PATTERNS = [
   "otter-buddy", "otter_buddy",
   "node.*main", "dist/src/main", "dist/src/main.js",
@@ -40,9 +46,9 @@ const OTTER_PROCESS_PATTERNS = [
 /** 非字面量 kill 目标模式：变量、命令替换、管道、特殊字符 */
 const INDIRECT_PID_PATTERNS = [
   /\$[{(a-zA-Z_]/, // $VAR / $(cmd) / ${VAR}
-  /`[^`]+`/, // `cmd` 反引号
+  /`[^`]*[\s|;&><][^`]*`/, // `cmd arg` 反引号命令替换（要求含空格/管道/重定向等命令特征，排除 markdown 单词代码块如 `skill`）
   /\|.*\bkill\b/, // 管道到 kill（如 ... | xargs kill）
-  /xargs\s+(sudo\s+)?\bkill\b/, // xargs kill
+  /xargs\b[^|;&]*\bkill\b/, // xargs kill（容忍 xargs 与目标间的参数，如 xargs -n1 kill）
   /\beval\b/, // eval 包装
   /\\x[0-9a-f]{2}/i, // hex 转义
   /\$\(cat\b.*pid/i, // $(cat ...pid)
@@ -70,32 +76,42 @@ export function normalizeForDetection(command: string): string {
  * 返回匹配的 kill 段（按 shell 操作符分段后逐段扫描）。
  */
 /**
- * F20260903gh698：命令位置限定正则——kill/skill/pkill 等仅在命令位置（段首或
- * shell 操作符后）才识别为危险命令。段中间的词元（markdown body、注释、echo 文本）
- * 不作为命令识别。shell 语义中这些命令只有在命令位置才会执行，此收紧语义无损。
- *
- * Why 独立正则：命令位置检测需要 ^ 锚定 + 路径前缀 + 负向前瞻，与诊断回显的全文扫描需求不同。
+ * F20260903gh698：位置感知匹配——regex match 必须出现在命令位置（段首或 shell 操作符后）。
+ * 若匹配被字母或连字符前缀（如 eval-skill / guard-kill / t-skill）包围则跳过。
+ * Why 不用全局 matchAll：\b 零宽断言在 g 模式下会产生重叠误匹配。
  */
-const KILL_AT_CMD_POS = /^(?:\s*(?:sudo\s+)?(?:(?:\/[\w.-]+)+\/)?(?:kill|skill)(?!\w)\b)/;
-const PKILL_AT_CMD_POS = /^(?:\s*(?:sudo\s+)?(?:(?:\/[\w.-]+)+\/)?(?:pkill|pgrep|killall|killall5)(?!\w)\b)/;
-/** xargs kill 管道模式——xargs 将 stdin 作为参数传给 kill，等效于 kill 执行。 */
-const XARGS_KILL_RE = /\bxargs\s+(?:sudo\s+)?\bkill\b/;
-
+function isKillAtCommandPosition(text: string, pattern: RegExp): boolean {
+  const re = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g");
+  const VALID_CMD_PRECEDERS = new Set(["|", ";", "&", "\n", "\r", "\f"]);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const pos = m.index;
+    if (pos === 0) return true;
+    const prev = text[pos - 1];
+    if (VALID_CMD_PRECEDERS.has(prev)) return true;
+    if (prev === "-" || /[a-zA-Z]/.test(prev)) continue;
+    return true;
+  }
+  return false;
+}
+/**
+ * F20260903gh698：位置感知匹配 + 间接防线兜底。
+ *
+ * findKillSegments 按 shell 操作符分段后，对每段做位置感知匹配：
+ * kill/skill 词元必须出现在命令位置（段首或 shell 操作符后），
+ * 且不被连字符前缀（如 eval-skill / guard-kill）误触发。
+ * 这解决了模式2误报（词元在 markdown body / 路径 / 注释中任意位置匹配）。
+ */
 function findKillSegments(command: string): { segment: string; isPkill: boolean }[] {
   const results: { segment: string; isPkill: boolean }[] = [];
-  // 按 shell 操作符分段（含 | 管道——管道到 kill 由 hasIndirectPidTarget 整体拦截）
+  // 按 shell 操作符分段（不含 | 管道——管道到 kill 是间接攻击向量，由 hasIndirectPidTarget 整体拦截）
   const segments = command.split(/&&|\|\||[;&\n]/);
   for (const seg of segments) {
     const trimmed = seg.trim();
     if (!trimmed) continue;
-    // 只在命令位置匹配：段首（含管道后、操作符后）的 kill 族词元
-    // Why: 段中间的 skill/kill 可能是 markdown body、注释、echo 文本，不是真正命令
-    if (PKILL_AT_CMD_POS.test(trimmed)) {
+    if (isKillAtCommandPosition(trimmed, PKILL_COMMANDS)) {
       results.push({ segment: trimmed, isPkill: true });
-    } else if (KILL_AT_CMD_POS.test(trimmed)) {
-      results.push({ segment: trimmed, isPkill: false });
-    } else if (XARGS_KILL_RE.test(trimmed)) {
-      // xargs kill 管道模式：xargs 将 stdin 作为参数传给 kill，等效执行
+    } else if (isKillAtCommandPosition(trimmed, KILL_COMMANDS)) {
       results.push({ segment: trimmed, isPkill: false });
     }
   }
@@ -113,6 +129,7 @@ function hasIndirectPidTarget(segment: string): boolean {
 /**
  * 提取 kill 命令参数中的字面量数字 PID 列表。
  * 仅返回纯数字参数（非负整数），跳过信号参数（-N、-SIGTERM 等）。
+ * F20260903gh698：去引号——bash -c 'kill 42877' 中 PID 被引号包裹，需先去引号再解析。
  */
 function extractLiteralPids(segment: string): number[] {
   const pids: number[] = [];
@@ -121,8 +138,9 @@ function extractLiteralPids(segment: string): number[] {
   const words = afterCmd.split(/\s+/).filter(Boolean);
   for (const w of words) {
     if (w.startsWith("-")) continue; // 跳过信号参数
-    const pid = parseInt(w, 10);
-    if (!isNaN(pid) && pid > 0 && String(pid) === w) pids.push(pid);
+    const stripped = w.replace(/^["']|["']$/g, ""); // 去掉首尾引号（bash -c 'kill N' 场景）
+    const pid = parseInt(stripped, 10);
+    if (!isNaN(pid) && pid > 0 && String(pid) === stripped) pids.push(pid);
   }
   return pids;
 }
@@ -130,10 +148,13 @@ function extractLiteralPids(segment: string): number[] {
 /**
  * 检查 pkill/killall 命令是否可能命中 otter 主进程。
  * 检查 -f/-n 参数值和位置参数中的关键词。
+ * F20260903gh698：改用 word-boundary 正则——lower.includes("node") 会误匹配 "ffmpeg" 中的子串 "node"。
  */
 function pkillTargetsOtter(segment: string): boolean {
   const lower = segment.toLowerCase();
-  return OTTER_PROCESS_PATTERNS.some(pat => lower.includes(pat));
+  return OTTER_PROCESS_PATTERNS.some(
+    pat => new RegExp("\\b" + pat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b").test(lower),
+  );
 }
 
 function checkCommandLevelPatterns(
@@ -160,7 +181,7 @@ function checkCommandLevelPatterns(
     return "bash 命令通过管道传入 shell 执行且包含终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
   // 脚本语言 one-liner 执行 kill：perl/ruby/python -e '...kill N...'
-  if (/(?:perl|ruby|python\d?)\s+.*-e\s/.test(cmdLower) && /\bkill\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
+  if (/(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s/.test(cmdLower) && /\bkill\b/.test(cmdLower) && /\b\d{2,6}\b/.test(command)) {
     logger?.warn("[bash-safety-guard] BLOCKED scripting language one-liner with kill", { mainPid, command: command.substring(0, 200) });
     return "bash 命令通过脚本语言执行了终止进程操作，无法判断目标。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
   }
