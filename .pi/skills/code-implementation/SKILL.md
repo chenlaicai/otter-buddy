@@ -72,7 +72,7 @@ category: technique
 
 > ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。
 
-10. **对抗审视**：
+10. **对抗审视**（流程细节：审视者产出校验、delta 审视、收敛判据，见 `_shared/review-protocol.md`）：
    > 小獭没有 create_otter 能力，无法自行召唤检视獭。小獭完成代码后，将产出（PR 链接、worktree 路径、测试结果）交回大獭，由大獭编排对抗审视。
 
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill

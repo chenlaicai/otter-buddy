@@ -28,7 +28,7 @@ category: technique
 
 1. **明确意图**：新建 / 重写 / 修复 lint 错误？skill 名（kebab-case）、目标职责、触发场景、产出。一个 skill 只做一件事——合并后的 description 不能变"什么都能做"。
 
-2. **选 category**：
+2. **选 category**：technique / pattern / reference 三类的详细辨析与选型判据见 `references/skill-types.md`。
    | category | 适用 | 例 |
    |---|---|---|
    | `technique` | 具体方法步骤，按工作流执行 | troubleshooting / code-implementation |
@@ -42,6 +42,7 @@ category: technique
    - **强制三段式**：`Use when: ... Not for: ... Output: ...`
    - **fallback skill 豁免**：companion 不强制三段式 marker。
    - **长度**：≤ 500 字符。超长说明职责过宽，拆 skill。
+   - **正反例对照**：合规与违规 description 逐例对照见 `references/description-examples.md`。
 
 4. **套模板**：复制 `_shared/SKILL-TEMPLATE.md` 的"模板"段，填具体内容。保持五个段落：触发 / 输入 / 工作流 / 产出 / 参考。
 

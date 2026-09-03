@@ -75,7 +75,7 @@ category: technique
 
 5. **独立核实**：直接运行测试和构建，不只检查开发者的结果。
 
-6. **输出报告到 PR**：先将检视结论 post 到 PR，再在 otter 对话中发轻量通知。
+6. **输出报告到 PR**：先将检视结论 post 到 PR，再在 otter 对话中发轻量通知。报告中的处置栏格式见 `references/author-response-protocol.md`；多轮审视的收敛判据与终止条件见 `references/review-loop.md`。
 
    **步骤 6a：post PR review comment**：
 

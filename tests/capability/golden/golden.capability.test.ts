@@ -12,5 +12,6 @@ import * as r4 from "./r4-summon-search-first.golden";
 import * as seriousness from "./seriousness-mode-switch.golden";
 import * as yieldHandoff from "./yield-handoff-protocol.golden";
 import * as talkingStone from "./talking-stone-routing.golden";
+import * as skillReferences from "./skill-references-visibility.golden";
 
-registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone]);
+registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone, skillReferences]);
