@@ -56,6 +56,8 @@ export interface SignalTrailItemDTO {
 
 export interface SignalTrailResponseDTO {
   items: SignalTrailItemDTO[];
+  /** S3.5（F20260903s35u）：会话调度闸门状态（横幅数据源）；路由器未注入时 null */
+  gate?: { halted: boolean; rateLimitedUntil: string | null } | null;
 }
 
 /** 消息关联的獭间信号（F20260826mwrd C4：UI 徽章数据源） */

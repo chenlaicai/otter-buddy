@@ -50,13 +50,14 @@ describe('trailStateMeta 措辞约束', () => {
     expect(trailStateMeta('PENDING', 'HALT').cls).toContain('red')
     expect(trailStateMeta('PENDING', 'NORMAL').cls).toContain('amber')
   })
-  it('CONSUMED = 已处理；CONSUMING = 处理中；FAILED = 处理失败（note 入 title）', () => {
+  it('CONSUMED = 已处理；CONSUMING = 处理中；FAILED = 处理失败（note 人话入 title）', () => {
     expect(trailStateMeta('CONSUMED', 'NORMAL').label).toBe('已处理')
     expect(trailStateMeta('CONSUMING', 'NORMAL').label).toBe('处理中')
     const failed = trailStateMeta('FAILED', 'NORMAL', 'tool timeout; prev=failed: db locked')
     expect(failed.label).toBe('处理失败')
+    // S3.5 G7：title 只带本轮原因人话（prev= 历史链不进 title，详情展开再看）
     expect(failed.title).toContain('tool timeout')
-    expect(failed.title).toContain('prev=failed')
+    expect(failed.title).not.toContain('prev=failed')
   })
   it('FAILED 无 note 时 title 仍成立（不显示 undefined）', () => {
     const meta = trailStateMeta('FAILED', 'URGENT', null)

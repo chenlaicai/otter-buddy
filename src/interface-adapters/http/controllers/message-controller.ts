@@ -245,7 +245,19 @@ export class MessageController {
       // Why !injection（多模态例外）：带图片/文档注入的消息暂留直连链——注入载荷只存在于此请求内存中，
       // 信号路由从消息表重建内容拿不到它（多模态×信号路由的统一归 P2 接缝层解决）
       this.signalRouter.routePendingSignals(conversationId)
-        .then((results) => {
+        .then(async (results) => {
+          // S3.5（F20260903s35u，G6）：熔断/停机导致本轮信号全部被闸门挡下时，
+          // 落一条系统消息告知用户——HTTP 200 + 零反馈是最差交互组合；「已排队待恢复」
+          // 要说清楚（信号保留，闸门解除后自动处理）。
+          if (results.length > 0 && results.some(r => r.action === "skipped_rate_limited" || r.action === "skipped_halted")) {
+            const gate = await this.signalRouter!.getGateState(conversationId);
+            const reason = gate.halted
+              ? "会话已停机（你按过中断），发新消息即恢复调度"
+              : gate.rateLimitedUntil
+                ? `模型限流冷却中（至 ${new Date(gate.rateLimitedUntil).toLocaleTimeString('sv-SE', { hour12: false })}），消息已排队、恢复后自动处理`
+                : "调度闸门暂缓，消息已排队";
+            await this.sendMessageUseCase.sendSystem(conversationId, reason).catch(() => {});
+          }
           // K3 审视焦点 3（#757）：全部 skipped（如 HALT 到小獭被丢弃、dissolved 目标）
           // 时永不产生 attempt 行——等 settle 只会白等满 30s。直接关流（signal 在消息表
           // 持久，状态由轨迹 UI 承载）；混合场景（有 invoked/queued_busy）仍走终态等待。
@@ -595,7 +607,11 @@ export class MessageController {
         return c.json({ error: "signal trail not configured" }, 501);
       }
       const conversationId = param(c, "id");
-      return c.json(await this.signalTrail.list(conversationId));
+      const trail = await this.signalTrail.list(conversationId);
+      // S3.5（F20260903s35u）：附带会话调度闸门状态（横幅数据源，与轨迹同端点一次取全，
+      // 前端轮询无需新增请求）。路由器未注入（降级直连链）时 gate 为 null——横幅不渲染。
+      const gate = this.signalRouter ? await this.signalRouter.getGateState(conversationId) : null;
+      return c.json({ ...trail, gate });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
