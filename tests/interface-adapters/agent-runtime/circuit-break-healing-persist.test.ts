@@ -15,6 +15,7 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { SendMessage } from "@usecases/conversation/send-message";
 import type { HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
+import { HEALING_PROBE_SENTINEL, isHealingProbeEvent } from "@usecases/healing/constants";
 import type Database from "better-sqlite3";
 
 function createCircuitBreakSupport(db: Database.Database) {
@@ -57,6 +58,25 @@ describe("F20260827he2f: healing_events 熔断落库集成（真实 SQLite）", 
     const { support } = createCircuitBreakSupport(db);
     const result = await support.probeHealingRepo();
     expect(result).toBe(true);
+  });
+
+  it("#751 probeHealingRepo: 探针事件写入即 resolved，不进 open 池", async () => {
+    const { support, healingRepo } = createCircuitBreakSupport(db);
+    const result = await support.probeHealingRepo();
+    expect(result).toBe(true);
+
+    // 探针事件落库且状态为 resolved（heartbeat 语义）
+    const probeEvents = await healingRepo.findByConversation(HEALING_PROBE_SENTINEL);
+    expect(probeEvents).toHaveLength(1);
+    expect(probeEvents[0].messageId).toBe(HEALING_PROBE_SENTINEL);
+    expect(probeEvents[0].status).toBe("resolved");
+    expect(probeEvents[0].resolvedAt).not.toBeNull();
+    expect(probeEvents[0].resolution?.action).toBe("no_action");
+    expect(probeEvents[0].resolution?.notes).toContain("#751");
+
+    // 关键：open 池不含探针
+    const open = await healingRepo.findOpen(50);
+    expect(open.filter(e => isHealingProbeEvent(e))).toHaveLength(0);
   });
 
   it("probeHealingRepo: DB 不可达时返回 false 并记录 error 日志", async () => {

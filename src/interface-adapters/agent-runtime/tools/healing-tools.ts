@@ -6,6 +6,7 @@ import type { HealingEventRepository, HealingEventBatchFilter } from "@usecases/
 import type { HealingResolutionAction, HealingEventStatus, HealingErrorType } from "@entities/healing/healing-event";
 import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
+import { isHealingProbeEvent } from "@usecases/healing/constants";
 import type { Logger } from "@usecases/ports/logger";
 import type { ToolContext, AgentTool, ToolResponse } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
@@ -92,17 +93,25 @@ async function handleBatchResolve(
   }, null, 2));
 }
 
+/** #751：query 动作——查池 + 可选 errorType 过滤 + 默认探针过滤（includeProbe 诊断通道） */
+async function handleQuery(params: Record<string, unknown>, healingRepo: HealingEventRepository): Promise<ToolResponse> {
+  const status = (params.status as string) ?? 'open';
+  let events = await healingRepo.findAll(status as 'open' | 'resolved' | 'dismissed', 50);
+  const et = params.errorType as string | undefined;
+  if (et) events = events.filter(e => e.errorType === et);
+  // #751：默认过滤健康探针事件（哨兵 messageId/conversationId/otterId = probe-test）——
+  // 探针是管道心跳非真实问题，混在结果里会稀释真实事件（占展示位/干扰处置判断）。
+  // includeProbe: true 时不过滤，供诊断探针落账本身（如验证探针是否在正常写入）。
+  const includeProbe = (params.includeProbe as boolean) ?? false;
+  if (!includeProbe) events = events.filter(e => !isHealingProbeEvent(e));
+  return textResponse(JSON.stringify(events, null, 2));
+}
+
 /** 创建 healing event 管理工具 */
 export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: HealingEventRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ToolResponse> => {
     const action = params.action as string;
-    if (action === 'query') {
-      const status = (params.status as string) ?? 'open';
-      let events = await healingRepo.findAll(status as 'open' | 'resolved' | 'dismissed', 50);
-      const et = params.errorType as string | undefined;
-      if (et) events = events.filter(e => e.errorType === et);
-      return textResponse(JSON.stringify(events, null, 2));
-    }
+    if (action === 'query') return handleQuery(params, healingRepo);
     if (action === 'batch_resolve') return handleBatchResolve(params, healingRepo);
     const ids = params.eventIds as string[];
     if (!ids?.length) return errorResponse("[错误] eventIds 不能为空");
@@ -125,13 +134,14 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve）. batch_resolve: 按 filter 批量处置（用 filterStatus/filterErrorType/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. GOTCHA: resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（用 filterStatus/filterErrorType/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. GOTCHA: resolve/dismiss 部分失败时返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {
         action: { type: "string", enum: ["query", "resolve", "dismiss", "batch_resolve"], description: "操作类型" },
         status: { type: "string", enum: ["open", "resolved", "dismissed"], description: "按状态筛选" },
         errorType: { type: "string", description: "按错误类型筛选" },
+        includeProbe: { type: "boolean", description: "#751 true 时包含健康探针事件（默认过滤）。仅诊断探针落账时开启" },
         eventIds: { type: "array", items: { type: "string" }, description: "event ID 列表" },
         resolutionAction: { type: "string", enum: ["prompt_updated", "memory_added", "tool_fixed", "config_changed", "no_action", "deferred"], description: "修复行动" },
         resolutionNotes: { type: "string", description: "解决方式说明" },

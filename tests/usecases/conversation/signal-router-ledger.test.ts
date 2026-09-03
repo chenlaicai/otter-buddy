@@ -19,6 +19,7 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
+import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { createTestLogger } from "../../helpers/logger";
 import Database from "better-sqlite3";
 
@@ -291,5 +292,140 @@ describe("F20260903damp 阻尼机制（S2.1：R5 判据——失效模式落哑�
     // ——本轮失败原因可查（排查线索），历史轮次经覆盖时已被压缩进上一轮 note 链
     const row = db.prepare(`SELECT note FROM dispatch_attempts WHERE message_id = 'msg-dup'`).get() as { note: string };
     expect(row.note).toBe("boom 2");
+  });
+});
+
+// ---- F20260903ihlt：用户停机 × 限流熔断（09-03 12:45 Self-Healing 事故回放）----
+// 事故形态：429 风暴中一只接一只獭被逐个点火撞墙；用户点「中断」后 50ms 去抖重扫
+// 继续弹出下一只 pending 獭（中断 a 弹出 b）。判据：中断 = 会话级停机冻结一切点火；
+// rate_limit healing 事件窗口内整会话拒点火——两者信号都保留（pending 不动），哑火侧失效。
+
+describe("F20260903ihlt 用户停机 × 限流熔断", () => {
+  let db: import("better-sqlite3").Database;
+  let repo: SqliteDispatchAttemptRepo;
+  let executeChain: ReturnType<typeof vi.fn>;
+  let router: SignalRouter;
+  let healingEvents: Array<Record<string, unknown>>;
+
+  function seedConvAndSignal(): void {
+    db.prepare(`INSERT OR IGNORE INTO conversations (id, title, status, created_at, updated_at) VALUES ('conv-1', 't', 'active', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO turns (id, conversation_id, turn_number, created_at) VALUES ('turn-1', 'conv-1', 1, '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES ('otter-1', '大獭', 'big', 'active', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at, completed_at) VALUES ('msg-h', 'conv-1', 'user', 'user', 'completed', 1, 'turn-1', '["otter-1"]', '2026-09-02T09:00:00Z', '2026-09-02T09:00:01Z')`).run();
+  }
+
+  function makeRouter(withHealing: boolean): SignalRouter {
+    return new SignalRouter({
+      conversationRepo: { getAllIds: vi.fn().mockResolvedValue(["conv-1"]) } as unknown as ConversationRepository,
+      queryMessage: {
+        getMessageById: vi.fn().mockImplementation((id: string) => {
+          const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+          if (!row) return null;
+          return makeMsg({
+            id: row.id as string,
+            conversationId: row.conversation_id as string,
+            senderType: row.sender_type as Message["senderType"],
+            senderId: row.sender_id as string,
+            talkingStonePassedTo: row.talking_stone_passed_to ? JSON.parse(row.talking_stone_passed_to as string) : [],
+            signalLevel: (row.signal_level as string | null) ?? null,
+            createdAt: row.created_at as string,
+          });
+        }),
+        getLastMessageBySender: vi.fn().mockResolvedValue(null),
+      } as unknown as QueryMessage,
+      queryOtter: { getById: vi.fn().mockResolvedValue({ id: "otter-1", type: "big", status: "active" }) } as unknown as QueryOtter,
+      dispatchChainEngine: { executeChain } as unknown as DispatchChainEngine,
+      invokeFn: vi.fn().mockResolvedValue({ messageId: "m-out" }),
+      logger: createTestLogger(),
+      dispatchAttemptRepo: repo,
+      ...(withHealing && {
+        healingRepo: {
+          findByConversation: vi.fn().mockImplementation(async () => healingEvents),
+        } as unknown as HealingEventRepository,
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    initSchema(db);
+    repo = new SqliteDispatchAttemptRepo(db);
+    executeChain = vi.fn().mockResolvedValue({});
+    healingEvents = [];
+    router = makeRouter(true);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("H1 用户停机：markUserHalt 冻结点火（skipped_halted + 零 invoke + pending 保留），clearUserHalt 恢复", async () => {
+    seedConvAndSignal();
+    router.markUserHalt("conv-1");
+    const results = await router.routePendingSignals("conv-1");
+    expect(results.map(r => r.action)).toEqual(["skipped_halted"]);
+    await new Promise(r => setTimeout(r, 80)); // 跨去抖周期
+    expect(executeChain).not.toHaveBeenCalled();
+    expect(repo.countPendingSignals("conv-1")).toBe(1); // 信号保留，不丢
+
+    // 用户恢复（发新消息）→ 解除 → 正常点火
+    router.clearUserHalt("conv-1");
+    const resumed = await router.routePendingSignals("conv-1");
+    expect(resumed.map(r => r.action)).toEqual(["invoked"]);
+    await new Promise(r => setTimeout(r, 20));
+    expect(executeChain.mock.calls).toHaveLength(1);
+  });
+
+  it("H2 中断不再弹下一只：多目标 pending 全部 skipped_halted（09-03 现场「中断 a 弹出 b」回放）", async () => {
+    seedConvAndSignal();
+    db.prepare(`INSERT OR IGNORE INTO otters (id, name, type, status, created_at) VALUES ('otter-2', '小獭b', 'small', 'active', '2026-09-02T00:00:00Z')`).run();
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at, completed_at) VALUES ('msg-h2', 'conv-1', 'user', 'user', 'completed', 2, 'turn-1', '["otter-2"]', '2026-09-02T09:01:00Z', '2026-09-02T09:01:01Z')`).run();
+    router.markUserHalt("conv-1");
+    const results = await router.routePendingSignals("conv-1");
+    expect(results.every(r => r.action === "skipped_halted")).toBe(true);
+    expect(results).toHaveLength(2);
+    await new Promise(r => setTimeout(r, 80));
+    expect(executeChain).not.toHaveBeenCalled(); // a 中断后，b 不再弹出
+  });
+
+  it("RL1 限流熔断：会话内 rate_limit 事件窗口内整会话拒点火，信号保留", async () => {
+    seedConvAndSignal();
+    healingEvents = [{ errorType: "rate_limit", createdAt: new Date().toISOString(), context: { exhausted: false } }];
+    const results = await router.routePendingSignals("conv-1");
+    expect(results.map(r => r.action)).toEqual(["skipped_rate_limited"]);
+    await new Promise(r => setTimeout(r, 80));
+    expect(executeChain).not.toHaveBeenCalled();
+    expect(repo.countPendingSignals("conv-1")).toBe(1); // pending 保留，窗口后可恢复
+  });
+
+  it("RL2 窗口分级：transient 10min / exhausted 60min——30 分钟前的事件按 exhausted 分级判定", async () => {
+    seedConvAndSignal();
+    const createdAt = new Date(Date.now() - 30 * 60_000).toISOString();
+    // exhausted=true：30min < 60min 窗口 → 仍熔断
+    healingEvents = [{ errorType: "rate_limit", createdAt, context: { exhausted: true } }];
+    const blocked = await router.routePendingSignals("conv-1");
+    expect(blocked.map(r => r.action)).toEqual(["skipped_rate_limited"]);
+    // exhausted=false：30min > 10min 窗口 → 放行
+    healingEvents = [{ errorType: "rate_limit", createdAt, context: { exhausted: false } }];
+    const allowed = await router.routePendingSignals("conv-1");
+    expect(allowed.map(r => r.action)).toEqual(["invoked"]);
+    await new Promise(r => setTimeout(r, 20));
+    expect(executeChain.mock.calls).toHaveLength(1);
+  });
+
+  it("RL3 非 rate_limit 事件不触发熔断；healingRepo 未注入时降级为不熔断（现状等价）", async () => {
+    seedConvAndSignal();
+    healingEvents = [{ errorType: "tool_failure", createdAt: new Date().toISOString(), context: null }];
+    const results = await router.routePendingSignals("conv-1");
+    expect(results.map(r => r.action)).toEqual(["invoked"]);
+    await new Promise(r => setTimeout(r, 20));
+    expect(executeChain.mock.calls).toHaveLength(1);
+
+    const noHealingRouter = makeRouter(false);
+    healingEvents = [{ errorType: "rate_limit", createdAt: new Date().toISOString(), context: { exhausted: true } }];
+    // 新信号（前半段的信号已记账翻篇）——无 healingRepo 时即使限流事件在场也照常点火
+    db.prepare(`INSERT INTO messages (id, conversation_id, sender_type, sender_id, status, sequence_num, turn_id, talking_stone_passed_to, created_at, completed_at) VALUES ('msg-h3', 'conv-1', 'user', 'user', 'completed', 3, 'turn-1', '["otter-1"]', '2026-09-02T09:02:00Z', '2026-09-02T09:02:01Z')`).run();
+    const degraded = await noHealingRouter.routePendingSignals("conv-1");
+    expect(degraded.map(r => r.action)).toEqual(["invoked"]); // 无台账数据源 = 无闸门（降级）
   });
 });

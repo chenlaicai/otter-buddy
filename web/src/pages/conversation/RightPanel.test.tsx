@@ -230,6 +230,15 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
     expect(container.querySelector('[data-testid="model-badge"]')!.textContent).toBe('glm')
   })
 
+  it('副行时间戳 truncate：完整时间字符串不再撑高卡片（#757 根因——「第6世 · 2026-09-02 09:32:06」在窄卡内换行两行，大獭卡 118px vs 其他卡 61px）', () => {
+    renderPanel([], [makeOtter({ id: 'big-3', name: '大獭', type: 'big', modelAlias: 'glm-flash' })])
+    // 副行有 nowrap+truncate 防护（sessions 为空 → 时间行不渲染，只断言副行；时间行防护同款 class 已在源码同批应用）
+    const sub = Array.from(container.querySelectorAll('div')).find(el => el.textContent?.includes('大獭 · 持久') && el.children.length === 0)
+    expect(sub).toBeDefined()
+    expect(sub!.className).toContain('truncate')
+    expect(sub!.className).toContain('whitespace-nowrap')
+  })
+
   it('长 modelAlias（glm-flash 等）badge 不换行不压缩（whitespace-nowrap + shrink-0 防卡片竖向变形）', () => {
     renderPanel([], [makeOtter({ id: 'big-2', name: '大獭', type: 'big', modelAlias: 'glm-flash' })])
     const badge = container.querySelector('[data-testid="model-badge"]') as HTMLElement
