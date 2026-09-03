@@ -40,6 +40,8 @@ export class AgentDispatchService {
       // 消息定目标在并发时有竞态，隐式查询必须删而非双轨——注入路由器后旧路径不可达。
       // 多模态例外与 web 同理：带注入载荷暂留直连链（载荷在请求内存，信号路由拿不到）
       if (this.deps.signalRouter && !injection) {
+        // F20260903ihlt：IM 用户发言 = 显式恢复动作——解除中断停机后再路由
+        this.deps.signalRouter.clearUserHalt(conversationId);
         await this.deps.signalRouter.routePendingSignals(conversationId);
         return {};
       }
