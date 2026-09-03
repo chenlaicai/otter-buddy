@@ -162,7 +162,7 @@ class SynthesisFailureError extends Error {
     readonly outcome: "timeout" | "error",
     cause: unknown,
   ) {
-    super(cause instanceof Error ? cause.message : String(cause));
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
   }
 }
 
