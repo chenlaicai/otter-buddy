@@ -51,7 +51,8 @@ export interface DispatchAttemptRepo {
    *  @returns true = 阻尼中（距上次点火不足 minIntervalSec，应跳过）；false = 允许点火。 */
   shouldThrottle(messageId: string, targetOtterId: string, minIntervalSec: number): boolean;
   /** F20260902sgp2 S4b 看门狗：锚点消息的全部 attempt 是否已到终态（无 in_progress）。
-   *  true=链收工；false=有在途派发或无任何行（保守）。 */
+   *  true=链收工；false=有在途派发（链活跃）；无任何行 = false（保守：等消息层判定）。
+   *  判定失败/无数据由调用方回退消息存在性判定（SchedulerService 看门狗语义）。 */
   allAnchorAttemptsSettled(messageId: string): boolean;
   /** F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账——某獭名下全部
    *  in_progress 派发落 failed（'目标已解散'）。返回翻篇行数。 */

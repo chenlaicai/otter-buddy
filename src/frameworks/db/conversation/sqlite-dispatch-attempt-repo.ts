@@ -63,14 +63,20 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
    *  09-03 事故：dissolved 检视獭的遗留信号被补扫点火 → 50ms 重扫热循环。
    *  注意与 backfillLegacyAttempted 的故意分歧（墓碑宁多勿少，不加 status）保持不变。 */
   private pendingClause(conversationId?: string): { where: string; params: unknown[] } {
+    // F20260902sgp2 S4：判据特例清零（搭档模型对齐）——
+    // ① 删除 sender_type != 'system'：消息就是消息，tsp（yield）才是触发信号。
+    //    scheduler/招聘的行动类 system 消息（带 tsp 点名獭）与其他消息同一语义；
+    //    纯通知类（进场/恢复/警告）无 tsp，天然落在判据之外，无需排除。
+    //    前提：#744 换轨后 scheduler/招聘入口已进闸门体系，无双重执行。
+    // ② 自指排除精确化：仅 otter 发言者排除自指（防獭 yield 自己的自链病态）——
+    //    system 消息的 sender_id 是技术归属（'system' / 任务标识），非语义发言者。
     const where = `
       FROM messages m, json_each(m.talking_stone_passed_to) t
       JOIN conversations c ON c.id = m.conversation_id
       WHERE m.status = 'completed'
-        AND m.sender_type != 'system'
         AND c.status = 'active'
         AND t.value != 'user'
-        AND t.value != m.sender_id
+        AND NOT (m.sender_type = 'otter' AND t.value = m.sender_id)
         AND EXISTS (SELECT 1 FROM otters o WHERE o.id = t.value AND o.status = 'active')
         AND NOT EXISTS (SELECT 1 FROM dispatch_attempts da
                         WHERE da.message_id = m.id AND da.target_otter_id = t.value)
