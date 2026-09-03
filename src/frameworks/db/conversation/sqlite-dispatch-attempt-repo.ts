@@ -74,6 +74,9 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
         AND EXISTS (SELECT 1 FROM otters o WHERE o.id = t.value AND o.status = 'active')
         AND NOT EXISTS (SELECT 1 FROM dispatch_attempts da
                         WHERE da.message_id = m.id AND da.target_otter_id = t.value)
+        -- F20260903dmpe 阻尼1a：当前 UNIQUE 约束下此条件逻辑冗余（第一个 NOT EXISTS
+        -- 已排除任何行）。保留意图：future-proof——若 UNIQUE 放松为 append-only
+        -- （多轮尝试历史），failed 终态行不得让信号重回 pending（无自动重试的判据面）。
         AND NOT EXISTS (SELECT 1 FROM dispatch_attempts df
                         WHERE df.message_id = m.id AND df.target_otter_id = t.value
                           AND df.status IN ('failed', 'aborted'))`;
