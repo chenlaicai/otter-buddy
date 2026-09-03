@@ -57,7 +57,11 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
     return result.changes;
   }
 
-  /** §4.3 pending 判据 SQL——与 v2 路由器（S2）、轨迹 UI（S1b）单一真相源 */
+  /** §4.3 pending 判据 SQL——与 v2 路由器（S2）、轨迹 UI（S1b）单一真相源。
+   *  F20260903damp：目标 EXISTS 加 o.status='active'——指向 dissolved 目标的信号不是
+   *  actionable pending（行动人已不存在），从计数/扫描/补扫中消失（留箱静默）。
+   *  09-03 事故：dissolved 检视獭的遗留信号被补扫点火 → 50ms 重扫热循环。
+   *  注意与 backfillLegacyAttempted 的故意分歧（墓碑宁多勿少，不加 status）保持不变。 */
   private pendingClause(conversationId?: string): { where: string; params: unknown[] } {
     const where = `
       FROM messages m, json_each(m.talking_stone_passed_to) t
@@ -67,7 +71,7 @@ export class SqliteDispatchAttemptRepo implements DispatchAttemptRepo {
         AND c.status = 'active'
         AND t.value != 'user'
         AND t.value != m.sender_id
-        AND EXISTS (SELECT 1 FROM otters o WHERE o.id = t.value)
+        AND EXISTS (SELECT 1 FROM otters o WHERE o.id = t.value AND o.status = 'active')
         AND NOT EXISTS (SELECT 1 FROM dispatch_attempts da
                         WHERE da.message_id = m.id AND da.target_otter_id = t.value)`;
     if (conversationId) return { where: `${where} AND m.conversation_id = ?`, params: [conversationId] };
