@@ -838,11 +838,14 @@ describe("F20260825hndf 优雅上下文交接", () => {
         otterId: "otter-1", conversationId: "conv-1",
         userMessageContent: "Hello", senderId: "user-1",
       });
-      await invoker.invokeConversation({
-        otterId: "otter-1", conversationId: "conv-1",
-        userMessageContent: "World", senderId: "user-1",
-      });
-
+      // F20260903cmpk：70% 自动触发退役，直调 handleHandoff 驱动合成路径
+      const driver = (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> });
+      await driver.handleHandoff("otter-1", "conv-1");
+      // CI 环境时序防御：mock 赋值与断言之间无 await 边界，理论同步；若 CI 下仍未赋值说明
+      // handleHandoff 守卫提前 return（防重入/未注入），此时直接 fail 并带诊断信息
+      if (!capturedSynthesize) {
+        console.error("DEBUG handleHandoff did not reach buildHandoffPkg, sdkInvoke calls:", (sdkInvoke.invoke as ReturnType<typeof vi.fn>).mock.calls.length);
+      }
       expect(capturedSynthesize).toBeDefined();
       // 截断摘要必须被拒绝（throw），即使 directText 非空
       await expect(capturedSynthesize!("test prompt")).rejects.toThrow(/truncated/);
@@ -879,10 +882,8 @@ describe("F20260825hndf 优雅上下文交接", () => {
         otterId: "otter-1", conversationId: "conv-1",
         userMessageContent: "Hello", senderId: "user-1",
       });
-      await invoker.invokeConversation({
-        otterId: "otter-1", conversationId: "conv-1",
-        userMessageContent: "World", senderId: "user-1",
-      });
+      // F20260903cmpk：70% 自动触发退役，直调 handleHandoff 驱动合成路径
+      await (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> }).handleHandoff("otter-1", "conv-1");
 
       expect(capturedSynthesize).toBeDefined();
       const text = await capturedSynthesize!("test prompt");
