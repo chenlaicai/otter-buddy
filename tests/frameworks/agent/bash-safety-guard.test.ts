@@ -194,9 +194,9 @@ describe("checkBashCommandSafety", () => {
     expect(result).toContain("本意安全");
   });
 
-  it("管道到 shell 拦截含误拦退出引导", () => {
+  it("管道到 shell 中 kill 在 grep 参数里 → 放行（kill 非命令位置，#698 误报回归）", () => {
     const result = checkBashCommandSafety("cat note.txt | grep -q kill && bash -c 'true'", mainPid);
-    expect(result).toContain("本意安全");
+    expect(result).toBeNull();
   });
 
   it("直接命中主进程 PID 的拦截不含误拦退出引导（不存在本意安全语义，加了自相矛盾）", () => {
@@ -373,5 +373,115 @@ describe("F20260902gvrd 词边界收紧与拦截回显", () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ─── #698 误报回归：eval 词元文件名+数字即拦（模式1） ───
+
+describe("#698 误报回归：eval 词元文件名+数字即拦（模式1）", () => {
+  const mainPid = 42877;
+
+  it("cp plans/eval-activation-v6.md <workspace UUID> → 放行（eval 在路径中，非命令）", () => {
+    const result = checkBashCommandSafety(
+      "cp plans/eval-activation-v6.md data/workspaces/a1b2c3d4-e5f6-7890-abcd-ef1234567890/",
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("ls plans/; find . -name 'eval-activation...' → 放行（eval 在 find 参数中）", () => {
+    const result = checkBashCommandSafety(
+      'ls plans/; find . -name "eval-activation*"',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("grep -n 'v4.2|D1|D2|D3' workspaces/... → 放行（eval 在路径中 + 文档内容含数字）", () => {
+    const result = checkBashCommandSafety(
+      'grep -n "v4.2\\|D1\\|D2\\|D3" data/workspaces/a1b2c3d4/note.md',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("grep -n '不 boot 应用|git-common-dir' ... → 放行（eval 在路径中）", () => {
+    const result = checkBashCommandSafety(
+      'grep -n "不 boot 应用\\|git-common-dir" data/workspaces/a1b2c3d4/eval-activation-v6.md',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("cat > /tmp/test24.js << EOF → 放行（heredoc 写文件，eval 可能在内容中）", () => {
+    const result = checkBashCommandSafety(
+      'cat > /tmp/test24.js << EOF\neval("test")\nEOF',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+});
+
+// ─── #698 误报回归：进程动词词元任意位置匹配（模式2） ───
+
+describe("#698 误报回归：进程动词词元任意位置匹配（模式2）", () => {
+  const mainPid = 42877;
+
+  it("gh pr review --comment --body 含 skill 字样 + markdown 反引号 → 放行", () => {
+    const result = checkBashCommandSafety(
+      "gh pr review 689 --comment --body '## 审查者 检视獭-689\n\n`skill` 文件审查通过'",
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("for pr in ...; do gh pr view $pr; done # skill 文件自查 → 放行", () => {
+    const result = checkBashCommandSafety(
+      'for pr in 683 682 681; do gh pr view $pr; done # skill 文件自查',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("grep -rn skill .pi/skills/ → 放行（skill 在搜索词和路径中，非命令）", () => {
+    const result = checkBashCommandSafety(
+      'grep -rn "skill" .pi/skills/',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("echo skill | cat → 放行（skill 在 echo 参数中，非命令）", () => {
+    const result = checkBashCommandSafety(
+      'echo skill | cat',
+      mainPid,
+    );
+    expect(result).toBeNull();
+  });
+
+  // ─── 管道/操作符后 kill 仍应拦截 ───
+
+  it("cat file | xargs kill → 拦截（xargs kill 在管道后，命令位置）", () => {
+    const result = checkBashCommandSafety(
+      'cat file | xargs kill',
+      mainPid,
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("echo starting && kill 42877 → 拦截（kill 在 && 后，命中主 PID）", () => {
+    const result = checkBashCommandSafety(
+      'echo starting && kill 42877',
+      mainPid,
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("echo a; sudo /usr/bin/kill 42877 → 拦截（sudo + 路径穿透 kill 在 ; 后，命中主 PID）", () => {
+    const result = checkBashCommandSafety(
+      'echo a; sudo /usr/bin/kill 42877',
+      mainPid,
+    );
+    expect(result).not.toBeNull();
   });
 });

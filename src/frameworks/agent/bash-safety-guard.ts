@@ -28,11 +28,6 @@ export function readMainProcessPid(projectRoot: string): number | null {
 
 // ─── 危险命令模式匹配 ───
 
-/** kill 族命令名（含路径穿透） */
-const KILL_COMMANDS = /\b(sudo\s+)?(\/usr\/(local\/)?bin\/)?(kill|skill)\b/;
-/** pkill/killall 族（含路径穿透） */
-const PKILL_COMMANDS = /\b(sudo\s+)?(\/usr\/(local\/)?bin\/)?(pkill|pgrep|killall|killall5)\b/;
-
 /** otter 主进程相关关键词模式（pkill/killall 的 -f/-n 参数值） */
 const OTTER_PROCESS_PATTERNS = [
   "otter-buddy", "otter_buddy",
@@ -74,16 +69,33 @@ export function normalizeForDetection(command: string): string {
  * 检查命令是否包含 kill 族操作。
  * 返回匹配的 kill 段（按 shell 操作符分段后逐段扫描）。
  */
+/**
+ * F20260903gh698：命令位置限定正则——kill/skill/pkill 等仅在命令位置（段首或
+ * shell 操作符后）才识别为危险命令。段中间的词元（markdown body、注释、echo 文本）
+ * 不作为命令识别。shell 语义中这些命令只有在命令位置才会执行，此收紧语义无损。
+ *
+ * Why 独立正则：命令位置检测需要 ^ 锚定 + 路径前缀 + 负向前瞻，与诊断回显的全文扫描需求不同。
+ */
+const KILL_AT_CMD_POS = /^(?:\s*(?:sudo\s+)?(?:(?:\/[\w.-]+)+\/)?(?:kill|skill)(?!\w)\b)/;
+const PKILL_AT_CMD_POS = /^(?:\s*(?:sudo\s+)?(?:(?:\/[\w.-]+)+\/)?(?:pkill|pgrep|killall|killall5)(?!\w)\b)/;
+/** xargs kill 管道模式——xargs 将 stdin 作为参数传给 kill，等效于 kill 执行。 */
+const XARGS_KILL_RE = /\bxargs\s+(?:sudo\s+)?\bkill\b/;
+
 function findKillSegments(command: string): { segment: string; isPkill: boolean }[] {
   const results: { segment: string; isPkill: boolean }[] = [];
-  // 按 shell 操作符分段（不含 | 管道——管道到 kill 是间接攻击向量，由 hasIndirectPidTarget 整体拦截）
+  // 按 shell 操作符分段（含 | 管道——管道到 kill 由 hasIndirectPidTarget 整体拦截）
   const segments = command.split(/&&|\|\||[;&\n]/);
   for (const seg of segments) {
     const trimmed = seg.trim();
     if (!trimmed) continue;
-    if (PKILL_COMMANDS.test(trimmed)) {
+    // 只在命令位置匹配：段首（含管道后、操作符后）的 kill 族词元
+    // Why: 段中间的 skill/kill 可能是 markdown body、注释、echo 文本，不是真正命令
+    if (PKILL_AT_CMD_POS.test(trimmed)) {
       results.push({ segment: trimmed, isPkill: true });
-    } else if (KILL_COMMANDS.test(trimmed)) {
+    } else if (KILL_AT_CMD_POS.test(trimmed)) {
+      results.push({ segment: trimmed, isPkill: false });
+    } else if (XARGS_KILL_RE.test(trimmed)) {
+      // xargs kill 管道模式：xargs 将 stdin 作为参数传给 kill，等效执行
       results.push({ segment: trimmed, isPkill: false });
     }
   }
