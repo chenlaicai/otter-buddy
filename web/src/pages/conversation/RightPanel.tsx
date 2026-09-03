@@ -356,14 +356,14 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             </div>
           )}
         </div>
-        {/* 模型标签（F20260825vrqh）：未配置不渲染，与「大獭」badge 同行同视觉权重。
-            F20260826 身份证重构曾把它挤出卡片外（mt-1 w-fit 挂在玻璃卡下方缝隙里视觉隐形），本 PR 挪回原位 */}
+        {/* 模型标签（F20260825vrqh）：未配置不渲染。
+            F20260903：加 whitespace-nowrap shrink-0——长 alias（glm-flash 等）在窄卡内被压缩逐字换行，
+            卡片竖向变长变形；同名「大獭」badge 移除——名字行固定显示海獭名，副行已有「大獭 · 持久」，
+            名字后再挂一个「大獭」tag 是纯冗余（F20260903 搭档反馈） */}
         {o.modelAlias && (
-          <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500">{o.modelAlias}</span>
+          <span data-testid="model-badge" className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-stone-400/15 text-stone-500 whitespace-nowrap shrink-0">{o.modelAlias}</span>
         )}
-        {isBig ? (
-          <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-otter-400/15 text-otter-500">大獭</span>
-        ) : (
+        {!isBig && (
           <span
             onClick={e => { e.stopPropagation(); onDissolve(o.id) }}
             className="opacity-0 group-hover:opacity-100 text-stone-400 cursor-pointer"
