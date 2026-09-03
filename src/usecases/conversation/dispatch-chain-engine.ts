@@ -423,9 +423,17 @@ export class DispatchChainEngine {
     const now = new Date();
     const timeAnchor = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 
+    // K2 收件箱预告（F20260903k23）：本獭名下还有 N 条待消化信号（台账 pending 推导，
+    // 排除本轮触发消息自身）。让獭能主动告知用户「我看到你插了话，跑完就处理」
+    // （flash 提案缺口 1）。失败不影响主流程；本轮正在记账的信号不算在内（它就是本任务）。
+    // 注：本方法自身无 messageId 参数——路由器/调度器点火路径的触发消息由调用侧语境确定，
+    // 这里统一排除规则：buildMessageWithContext 不知道本轮消息时退化为「全量 pending 计数」，
+    // 而本轮信号经 recordStart 已写入 in_progress 行，pendingClause 的 NOT EXISTS 天然排除它。
+    const pendingPreview = this.buildPendingPreview(conversationId, otterId);
+
     const unreadMessages = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
     if (unreadMessages.length === 0) {
-      let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 当前任务\n${userMessageContent}`;
+      let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n${pendingPreview ?? ""}\n\n## 当前任务\n${userMessageContent}`;
       if (idleWarning) result += `\n\n${idleWarning}`;
       return result;
     }
@@ -462,11 +470,32 @@ export class DispatchChainEngine {
       })
       .join('\n');
 
-    let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
+    let result = `${roster}\n\n## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n${pendingPreview ?? ""}\n\n## 对话历史（你上次发言后的消息）\n${formatted}\n\n## 当前任务\n${userMessageContent}`;
     if (idleWarning) {
       result += `\n\n${idleWarning}`;
     }
     return result;
+  }
+
+  /** K2 收件箱预告（F20260903k23）：本獭名下台账 pending 计数 > 0 时注入一行预告。
+   *  数据源 = listPendingSignals（pendingClause 同一真相源）——天然含 busyQueue 排队中
+   *  的信号（排队不写账 = 仍 pending），无需另查路由器内存态。
+   *  本轮触发信号已被 recordStart 写入 in_progress 行，NOT EXISTS 天然排除它。
+   *  HALT 在列时特别注明（用户停机请求优先级最高，獭应最先处理）。
+   *  措辞纪律（#695 裁决）：只说「待消化」，不说「正在忙」/队列位置。
+   *  台账未注入/查询失败 → null（纯增强，零侵入）。 */
+  private buildPendingPreview(conversationId: string, otterId: string): string | null {
+    if (!this.deps.dispatchAttemptRepo) return null;
+    try {
+      const rows = this.deps.dispatchAttemptRepo.listPendingSignals(conversationId, 50)
+        .filter(r => r.targetOtterId === otterId);
+      if (rows.length === 0) return null;
+      const haltCount = rows.filter(r => (r.signalLevel ?? "NORMAL").toUpperCase() === "HALT").length;
+      const haltNote = haltCount > 0 ? `（含 ${haltCount} 条 HALT 停机请求，优先处理）` : "";
+      return `> 收件箱预告：你名下还有 ${rows.length} 条信号待消化${haltNote}（当前任务完成后按序处理即可）`;
+    } catch {
+      return null; // 预告失败不影响主流程
+    }
   }
 
   /** 多模态 Phase 1：未读历史统一文本投影（不按目标獭分叉——last_read 保证未读皆近，
