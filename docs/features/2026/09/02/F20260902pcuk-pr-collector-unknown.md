@@ -21,7 +21,9 @@ from:
 supersedes: []
 intent:
   problem: "gh pr view 单 PR 失败时，lastActivityAt=null 与「真无活动」不可区分，静默排除出停滞检测——观测力悄悄下降无人知晓"
-  verify_by: "n/a: 纯 A 类代码逻辑改动（类型扩展 + 过滤逻辑），无 LLM 参与，通过 vitest 单测验证"
+  verify_by:
+    type: static_only
+    reason: "纯 A类代码逻辑改动（类型扩展 + 过滤逻辑），无 LLM 参与——vitest 单测（runner 注入 mock 三场景：正常/真无活动/获取失败）+ tsc 覆盖"
 summary: "pr-collector 区分「无数据」vs「获取失败」：viewFailed 标记 + unknownPrCount 可观测"
 ---
 
