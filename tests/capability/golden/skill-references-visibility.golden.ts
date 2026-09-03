@@ -33,16 +33,21 @@ function toolCallArgsForExchange(messages: MessageDto[], afterSeq: number): stri
   return parts.join("\n");
 }
 
-/** 判据：读取了步骤内联绑定的 references 文件（skill-types 或 description-examples） */
+/** 判据：读取了步骤内联绑定的 references 文件（skill-types 或 description-examples），
+ *  且无 _shared/ 裸写法伤疤（检视发现 2/5：读得到才算可见，ENOENT 的 read 不算数） */
 function readBoundReferences(messages: MessageDto[]): { ok: boolean; detail: string } {
   const userSeq = latestUserSeq(messages.filter((m) => m.st === "user"));
   const argsText = toolCallArgsForExchange(messages, userSeq);
   const readSkillMd = /writing-skills\/SKILL\.md/.test(argsText);
   const readSkillTypes = /writing-skills\/references\/skill-types\.md/.test(argsText);
   const readDescExamples = /writing-skills\/references\/description-examples\.md/.test(argsText);
+  // 裸写法伤疤：解析到 <skill>/_shared/x（从未存在）的 read 尝试——即便同时读到了别的文件，
+  // 该行为轨迹也属伤疤复现（good 参考应走 ../_shared/ 写法）
+  const bareScars = (argsText.match(/\.pi\/skills\/[a-z-]+\/_shared\/[A-Za-z-]+\.md/g) ?? []).length;
+  const readBound = readSkillTypes || readDescExamples;
   return {
-    ok: readSkillTypes || readDescExamples,
-    detail: `readSkillMd=${readSkillMd} skillTypes=${readSkillTypes} descExamples=${readDescExamples}`,
+    ok: readBound && bareScars === 0,
+    detail: `readSkillMd=${readSkillMd} skillTypes=${readSkillTypes} descExamples=${readDescExamples} bareSharedScars=${bareScars}`,
   };
 }
 
@@ -78,6 +83,8 @@ export const selftest: GoldenModule["selftest"] = {
         events: [
           { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read", arguments: { path: "/tmp/sandbox/.pi/skills/writing-skills/SKILL.md" } }] } },
           { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read", arguments: { path: "/tmp/sandbox/.pi/skills/writing-skills/references/skill-types.md" } }] } },
+          // 检视发现 5：_shared 形态的正例——改写后写法（../_shared/）可被 agent 正确解析
+          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read", arguments: { path: "/tmp/sandbox/.pi/skills/../_shared/signature-convention.md" } }] } },
         ],
       },
     ],
@@ -102,6 +109,21 @@ export const selftest: GoldenModule["selftest"] = {
         {
           id: "s726-o3", st: "otter", si: "selftest-otter", content: "category 应该选 technique，description 可以这样写……", status: "completed", seq: 2,
           events: [],
+        },
+      ],
+      expectedOk: false,
+    },
+    {
+      // 检视发现 2/5 伤疤复现：_shared 裸写法（无 ../ 前缀）——SDK 指引下解析到
+      // <writing-skills>/_shared/x（从未存在）→ ENOENT，读不到不算可见
+      messages: [
+        { id: "s726-u4", st: "user", si: "selftest-user", content: "选 category 并写 description", status: "completed", seq: 1 },
+        {
+          id: "s726-o4", st: "otter", si: "selftest-otter", content: "……签名规范见 _shared/signature-convention.md", status: "completed", seq: 2,
+          events: [
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read", arguments: { path: "/tmp/sandbox/.pi/skills/writing-skills/references/skill-types.md" } }] } },
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "read", arguments: { path: "/tmp/sandbox/.pi/skills/writing-skills/_shared/signature-convention.md" } }] } },
+          ],
         },
       ],
       expectedOk: false,

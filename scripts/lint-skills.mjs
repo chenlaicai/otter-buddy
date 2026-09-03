@@ -39,11 +39,19 @@ const THREE_PART_MARKERS = ["Use when", "Not for", "Output"];
 const THREE_PART_EXEMPT = new Set(["companion"]); // fallback skill 豁免
 
 // 校验 7/9（#726）共享的引用宇宙：反引号代码与 markdown 链接两种形态；
-// 相对路径四种形态：references/x（本 skill）、../x（本 skill）、_shared/x（skills 根）、
-// <skill-name>/references|x（跨 skill，相对 skills 根解析）
+// 相对路径四种形态：references/x（本 skill）、../x 与 ../_shared/x（本 skill 目录解析）、
+// <skill-name>/references|x（跨 skill，相对 skills 根解析）。
+// 注意：_shared/x 裸写法（无 ../ 前缀）不属于合法宇宙——见 ABSOLUTE_SHARED_REF_RE（校验 9 E1b）。
+// 结构假设：校验 9 E2 以「## 工作流」节为可见性判定域（workflowLineRange 只认 ^##\s+工作流）；
+// 无该节的 skill 若引用 references 文件会被判索引-only error——写 skill 时必须保留该节名。
 const REF_LINE_RE = /`((?:\.\.\/|_shared\/|(?:[a-z][a-z0-9-]*\/)?references\/)[^`]+\.md)`|\]\(((?:\.\.\/|_shared\/|(?:[a-z][a-z0-9-]*\/)?references\/)[^)]+\.md)\)/g;
 // E1：反引号内的绝对路径 .md 引用（含 .pi/skills 前缀）——cwd 依赖，跨环境必然失效
 const ABSOLUTE_REF_RE = /`(\/[^`\n]*\.pi\/skills\/[^`\n]*\.md)`/;
+// E1b：_shared/ 裸写法（无 ../ 前缀）。SDK 系统提示指引 agent「resolve against the
+// skill directory」，会把 `_shared/x` 解析到 `<skill>/_shared/x`（从未存在）→ ENOENT。
+// 实证：941 session 扫描 28 次失败全为此形态（8/10→9/02 持续，3 个 session 试错后放弃）。
+// 正确写法 `../_shared/x`：相对 skill 目录解析恰好命中 skills 根。
+const BARE_SHARED_REF_RE = /`_shared\/[^`\n]+\.md`|\]\(_shared\/[^)]+\.md\)/;
 
 /** 解析引用形态 → 文件绝对路径（与 REF_LINE_RE 的宇宙一一对应） */
 function resolveRefToAbs(s, refPath) {
@@ -187,6 +195,12 @@ for (const s of skills) {
   if (ABSOLUTE_REF_RE.test(s.body)) {
     error(`${rel}: references 绝对路径引用（含 /…/.pi/skills/…）——agent 换 cwd 后不可解析，改用相对 skill 目录的路径`);
   }
+  // E1b: _shared/ 裸写法——agent 按 SDK 指引解析到 <skill>/_shared/x（从未存在）→ ENOENT
+  const bareShared = s.body.match(/`(_shared\/[^`\n]+\.md)`|\](_shared\/[^)]+\.md)\)/);
+  if (BARE_SHARED_REF_RE.test(s.body)) {
+    const shown = bareShared ? bareShared[1] ?? bareShared[2] : "_shared/xxx.md";
+    error(`${rel}: _shared/ 裸写法引用 \`${shown}\`——agent 会解析到 <skill>/_shared/（不存在，实证 28 次 ENOENT），改写为 \`../${shown}\``);
+  }
   const bodyLines9 = s.body.split("\n");
   const wf9 = workflowLineRange(bodyLines9);
   const wfText9 = wf9 ? bodyLines9.slice(wf9[0], wf9[1]).join("\n") : "";
@@ -220,13 +234,14 @@ if (skills.length < MIN_SKILLS) {
 // 校验 9 E2 全局 pass：引用可见性 = 出现在任一 skill 的工作流 section（含跨 skill 绑定）。
 // 分级：哪都没绑定 → error；仅其他 skill 的工作流绑定、本 skill 未内联 → warning。
 // （实证 #726：工作流内联引用被高频读取（20-190 次）；索引-only 引用低频/零读取；
-//   跨 skill 工作流绑定有效（author-response-protocol.md 由 code-implementation 步骤 10 绑定，被读 50 次））
+//   跨 skill 工作流绑定有效（author-response-protocol.md 由 code-implementation 步骤 10 绑定，被读 48 次））
+// 并集提到循环外一次构建（检视发现 3：原实现在循环内重建，O(skills²)）
+const anyWorkflowRefs = new Set();
+for (const { wfRefs } of skillWorkflowRefs.values()) {
+  for (const r of wfRefs) anyWorkflowRefs.add(r);
+}
 for (const refs of skillWorkflowRefs.values()) {
   const rel = refs.rel;
-  const anyWorkflowRefs = new Set();
-  for (const { wfRefs } of skillWorkflowRefs.values()) {
-    for (const r of wfRefs) anyWorkflowRefs.add(r);
-  }
   for (const refAbs of refs.allRefs) {
     if (refs.wfRefs.has(refAbs)) continue; // 本 skill 工作流已内联
     const refRel = path.relative(refs.dir, refAbs).startsWith("..")

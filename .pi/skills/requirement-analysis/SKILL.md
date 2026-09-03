@@ -34,7 +34,7 @@ category: technique
 4. **分析现状**：读相关代码和文档，了解当前系统如何处理、涉及哪些模块、有哪些已知限制。
 5. **评估风险**：影响哪些已有功能？是否有破坏性变更？哪些边界场景可能被忽略？
 6. **产出方案**：将技术方案写入 worktree 中的特性文档（参见全局约定「特性文档」）。首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选），后续参与者通过 `list_artifacts` 发现。写完后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。按下方模板组织内容。
-7. **对抗审视**（流程细节见 `_shared/review-protocol.md`）：
+7. **对抗审视**（流程细节见 `../_shared/review-protocol.md`）：
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上方案全文或 worktree 内绝对路径。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含“本轮焦点”声明、发现分级、file:line 引用）——不合规打回重做
    - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；**每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修订/写待办，更差→带证据反驳**；四类处置：接受并修订 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置；不作为不允许
@@ -91,5 +91,5 @@ T2: ...
 ## 参考（索引）
 
 - `references/intent-anchor-guide.md` — 步骤 1 使用
-- `_shared/review-protocol.md` — 步骤 7 使用
+- `../_shared/review-protocol.md` — 步骤 7 使用
 - `adversarial-review/references/author-response-protocol.md` — 步骤 7 使用

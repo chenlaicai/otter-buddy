@@ -67,12 +67,12 @@ category: technique
      ```
    - **目的**：让评测机制知道这个变更需要什么验证方式，是 golden gate 的输入信号
 
-8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名见 `_shared/signature-convention.md`。
+8. **提交**：生成特性 ID 前必须先跑 `date` 取当前日期，禁止凭印象标日期（#422）；**新 ID 必须先查重**：`grep -rl '<title 或主题关键词>' docs/features/ docs/research/`，存在同 title/语义相同的文档直接复用原 ID——跨 worktree 自编新 ID 会造成旧 ID chunk 残留、污染 memory 召回（#524）；标题搜不到时改用主题关键词重试，仍无命中才可自编。按 `references/commit-convention.md` 格式 commit，署名见 `../_shared/signature-convention.md`。
 9. **推送 PR**：`git push -u origin <branch>` + `gh pr create`。
 
 > ⚠️ PR 创建 ≠ 交付完成。步骤 9 完成后必须立即进入步骤 10。
 
-10. **对抗审视**（流程细节：审视者产出校验、delta 审视、收敛判据，见 `_shared/review-protocol.md`）：
+10. **对抗审视**（流程细节：审视者产出校验、delta 审视、收敛判据，见 `../_shared/review-protocol.md`）：
    > 小獭没有 create_otter 能力，无法自行召唤检视獭。小獭完成代码后，将产出（PR 链接、worktree 路径、测试结果）交回大獭，由大獭编排对抗审视。
 
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上：`gh pr diff` 全文、worktree 绝对路径、测试与构建结果（标注为实现者自报）。要求其先 read `adversarial-review` skill
@@ -112,6 +112,6 @@ category: technique
 - `references/testing-rules.md` — 步骤 5 使用
 - `references/coding-principles.md` — 步骤 4 使用
 - `references/commit-convention.md` — 步骤 8 使用
-- `_shared/signature-convention.md` — 步骤 8 使用
-- `_shared/review-protocol.md` — 步骤 10 使用
+- `../_shared/signature-convention.md` — 步骤 8 使用
+- `../_shared/review-protocol.md` — 步骤 10 使用
 - `adversarial-review/references/author-response-protocol.md` — 步骤 10 使用

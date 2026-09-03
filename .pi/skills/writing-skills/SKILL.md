@@ -44,7 +44,7 @@ category: technique
    - **长度**：≤ 500 字符。超长说明职责过宽，拆 skill。
    - **正反例对照**：合规与违规 description 逐例对照见 `references/description-examples.md`。
 
-4. **套模板**：复制 `_shared/SKILL-TEMPLATE.md` 的"模板"段，填具体内容。保持五个段落：触发 / 输入 / 工作流 / 产出 / 参考。
+4. **套模板**：复制 `../_shared/SKILL-TEMPLATE.md` 的"模板"段，填具体内容。保持五个段落：触发 / 输入 / 工作流 / 产出 / 参考。
 
 5. **长度预算**：SKILL.md ≤ 200 行。超长内容移到 `references/`，主文件只留触发与工作流骨架。
 
@@ -65,7 +65,7 @@ category: technique
 
 ## 参考
 
-- `_shared/SKILL-TEMPLATE.md` — 模板与铁律完整版
+- `../_shared/SKILL-TEMPLATE.md` — 模板与铁律完整版
 - `references/lint-rules.md` — lint 校验项与通过判据
 - `references/skill-types.md` — technique / pattern / reference 三类的详细辨析
 - `references/description-examples.md` — 合规与违规 description 示例对照

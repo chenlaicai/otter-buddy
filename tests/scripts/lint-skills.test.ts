@@ -152,6 +152,29 @@ describe("lint-skills 校验 9：references 引用可见性（#726）", () => {
     expect(r.output).toContain("绝对路径引用");
   });
 
+  it("E1b: _shared/ 裸写法 → error（agent 解析到 <skill>/_shared/x 必然 ENOENT，检视发现 2）", () => {
+    const r = runLint({
+      alpha: {
+        body: skillBody({ wfRef: "_shared/guide.md", indexRef: "_shared/guide.md" }),
+        refs: { "_shared/guide.md": "# guide" },
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain("_shared/ 裸写法");
+    expect(r.output).toContain("../_shared/guide.md");
+  });
+
+  it("E2 归一: ../_shared/x 与其他 skill 的 _shared 引用指向同一文件不误报", () => {
+    const r = runLint({
+      alpha: {
+        body: skillBody({ wfRef: "../_shared/guide.md" }),
+        refs: { "_shared/guide.md": "# guide" },
+      },
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.output).not.toContain("内联");
+  });
+
   it("存量行为不回归: 缺失 references 文件仍报 error（校验 7）", () => {
     const r = runLint({
       alpha: { body: skillBody({ wfRef: "references/ghost.md" }), refs: {} },

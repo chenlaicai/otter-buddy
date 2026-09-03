@@ -16,7 +16,14 @@ modules:
   - .pi/skills/writing-skills/SKILL.md
   - tests/scripts/lint-skills.test.ts
   - tests/capability/golden/skill-references-visibility.golden.ts
-capability_test: "tests/capability/golden/skill-references-visibility.golden.ts（golden 3 采样 ≥2；selftest good 过 + 2 bad 全拦）；tests/scripts/lint-skills.test.ts（校验 9 六用例）"
+capability_test: "tests/capability/golden/skill-references-visibility.golden.ts（golden 3 采样 ≥2；selftest good 过 + 3 bad 全拦）；tests/scripts/lint-skills.test.ts（校验 9 八用例）"
+intent:
+  problem: "issue #726 声称 references/ 写了等于没写；实证证明真问题是引用形态决定读取概率（纯索引引用零读取），且 _shared/ 裸写法在 SDK 解析指引下必然 ENOENT（941 session 扫描 28 次失败、8/24 后仍持续），lint 与文档均未拦截"
+  expected_effect: "① lint 校验 9 拦截绝对路径/裸 _shared 写法/索引-only 引用，新增违规在 commit-time 被拦；② 7 处索引-only 引用内联后 agent 执行 skill 时主动 read（golden 采样验证）；③ _shared/ 裸写法清零，改写为 ../_shared/ 可被正确解析"
+  verify_by:
+    type: capability_test
+    target: "tests/capability/golden/skill-references-visibility.golden.ts + tests/scripts/lint-skills.test.ts"
+  effect_window: "1w"
 ---
 
 # skill references 引用可见性：实证修正 + 索引绑定 lint 门禁
@@ -42,50 +49,61 @@ LLM 可能从未 read，即"写了等于没写"。issue 自己标注了「F1 需
 - otter 侧注入（model-runtime-registry.ts buildBeforeAgentStartResult）：只在 SDK
   base 上追加 otter prompt + identity，不裁剪 skill 相关指引。
 
-结论：**不存在加载器拦截或路径解析故障**；references 可达性取决于 LLM 是否
-决定 read，即引用在 SKILL.md 正文中的"呈现强度"。
+结论：**不存在加载器拦截**；references/ 相对引用在 SDK 指引下可正确解析；但
+`_shared/` 裸写法是**真实的路径解析故障**（agent 按「resolve against the skill
+directory」指引解析到从未存在的 `<skill>/_shared/` 路径）——可达性由两个因素决定：
+LLM 是否决定 read（引用呈现强度）× 路径写法在 SDK 指引下是否可解析。
 
-### 行为层（全量 session 扫描，935 个文件，2026-07-27 → 2026-09-03）
+### 行为层（全量 session 扫描，941 个文件，2026-07-27 → 2026-09-03；首次实现扫描宇宙只含 references/ 形态，检视发现 2 复跑扩至 _shared/ 形态并证伪「0 失败」，下文数字为修正后合并口径）
 
-配对 toolCall(read, path 含 references/*.md) 与 toolResult 成败：
+配对 toolCall(read, path 含 .pi/skills/*/references/*.md 或 _shared/ 形态) 与 toolResult 成败：
+
+**references/ 目录形态：535+ 次成功、0 次失败**。读取分布由引用形态决定：
 
 | 引用形态 | 文件例 | 读取次数 |
 |---|---|---|
-| 工作流步骤内联 | review-dimensions.md（步骤 3）、commit-convention.md（步骤 8） | **190 / 119** |
-| 跨 skill 工作流内联 | author-response-protocol.md（code-implementation 步骤 10 绑定） | **50** |
-| 步骤内联（弱措辞） | coding-principles.md、testing-rules.md、anti-patterns.md | 25-49 |
+| 工作流步骤内联 | review-dimensions.md（步骤 3）、commit-convention.md（步骤 8） | **180 / 101** |
+| 跨 skill 工作流内联 | author-response-protocol.md（code-implementation 步骤 10 绑定） | **48** |
+| 步骤内联（弱措辞） | coding-principles.md、testing-rules.md、anti-patterns.md | 25-48 |
 | 索引-only（自 skill 无绑定） | review-loop.md、collaboration-patterns.md | 12-28（绑定存在期/其他通道） |
 | **索引-only（纯列表）** | **skill-types.md、description-examples.md** | **0（零读取）** |
 
-- **568 次成功读取、0 次失败（无一次 ENOENT）**——issue 的强命题不成立，
-  "写了等于没写"应修正为"引用强度决定读取概率"。
-- 残余风险真实存在：writing-skills 的两个纯索引引用文件零读取；
-  lint-rules.md（步骤 7 绑定）被读 3 次而同目录零读取文件形成同 skill 对照组。
-- 附带发现：otter-summon 的参考索引行写着「步骤 3 使用」，但现步骤 3 已改为
-  「接住产出」，绑定在历史编辑中丢失——索引注释与正文漂移的活例。
+**`_shared/` 裸写法形态（无 ../ 前缀）：28 次失败、全部 ENOENT**（检视独立复跑实证，实现者首次扫描漏计——正则只匹配 references/ 形态）：
+
+- 失败机理：SDK 系统提示指引 agent「resolve against the skill directory」，agent 把 SKILL.md 中的 `_shared/signature-convention.md` 解析为 `<skill>/_shared/signature-convention.md`（从未存在）→ ENOENT；
+- 时间分布：2026-08-10 → 09-02 持续发生（root `_shared/` 8/24 落位后仍 13 次），3 个 session 试错后放弃——签名规范实际没读到；
+- 关键教训：**内联 ≠ 可达**。worktree-isolation 步骤 4 早已内联该文件，9/02 照样 ENOENT——工作流绑定保证「agent 会去读」，路径写法决定「读不读得到」。
 
 ## 方案（最小改动，三件）
 
 1. **lint-skills.mjs 校验 9**（机械门禁，commit-time 拦截新增违规）：
    - E1：SKILL.md 内绝对路径 .md 引用（含 `/…/.pi/skills/…`）→ error
      （agent 在 worktree/沙箱 cwd 下必然解析失败）；
+   - E1b：`_shared/` 裸写法（无 `../` 前缀）→ error——agent 按 SDK 指引解析到
+     `<skill>/_shared/x`（从未存在）→ ENOENT（检视发现 2，实证 28 次失败）；
+     引导改写为 `../_shared/x`（相对 skill 目录解析恰好命中 skills 根）；
    - E2：引用可见性按**解析后绝对路径**归一判定（同文件不同写法
      `references/x.md` vs `<skill>/references/x.md` 认出同一文件）：
      未被任何 skill 的「## 工作流」section 内联 → error；
      仅其他 skill 工作流绑定（跨 skill 绑定）→ warning（实证有效但不理想）。
-   - 校验 7 同步共享引用宇宙（新增跨 skill 形态），存在性校验覆盖变宽。
-2. **7 处索引-only 引用内联绑定**（每处一句，最小侵入）：
-   adversarial-review（author-response-protocol、review-loop → 步骤 6）、
+   - 校验 7 同步共享引用宇宙（含跨 skill 与 `../_shared/` 形态），存在性校验覆盖变宽。
+2. **存量 `_shared/` 裸写法改写 + 7 处索引-only 引用内联绑定**（每处一句，最小侵入）：
+   `_shared/` 裸写法 10 处改写为 `../_shared/`（code-implementation ×4、
+   requirement-analysis ×2、worktree-isolation ×2、writing-skills ×2，含本 PR 首轮
+   新引入的 2 处——检视发现 2 指出修复本身埋了新形态）；
+   索引-only 内联绑定：adversarial-review（author-response-protocol、review-loop → 步骤 6）、
    code-implementation（_shared/review-protocol → 步骤 10）、
    otter-summon（collaboration-patterns → 步骤 3，并修正漂移的索引注释）、
    requirement-analysis（intent-anchor-guide → 步骤 1、_shared/review-protocol → 步骤 7）、
    writing-skills（skill-types → 步骤 2、description-examples → 步骤 3）。
 3. **回归测试两层**：
-   - `tests/scripts/lint-skills.test.ts`：校验 9 六用例（索引-only error /
-     内联合规 / 跨 skill warning / 路径归一 / 绝对路径 error / 校验 7 不回归）；
+   - `tests/scripts/lint-skills.test.ts`：校验 9 八用例（索引-only error /
+     内联合规 / 跨 skill warning / 路径归一 / 绝对路径 error / **裸 _shared error** /
+     **`../_shared/` 归一不误报** / 校验 7 不回归）；
    - `tests/capability/golden/skill-references-visibility.golden.ts`：golden 场景
-     锁定行为不变量「执行 writing-skills 工作流时读取步骤内联的 references」，
-     selftest 含伤疤复现 bad 轨迹（只读 SKILL.md / 完全不读）。
+     锁定行为不变量「执行 writing-skills 工作流时读取步骤内联的 references，
+     且无 _shared/ 裸写法伤疤」，selftest 含伤疤复现 bad 轨迹（只读 SKILL.md /
+     完全不读 / **裸写法 ENOENT**，检视发现 5）。
 
 ## 取舍
 
@@ -95,20 +113,29 @@ LLM 可能从未 read，即"写了等于没写"。issue 自己标注了「F1 需
 - **不改 SDK 注入格式**（如把 references 列进系统提示）：SDK 是外部依赖
   （@earendil-works/pi-coding-agent），改注入需 fork SDK，成本远超收益；
   引用强度规范化在内容层即可达成同等效果。
-- **E2 的 warning 级保留跨 skill 绑定**：author-response-protocol.md 的 50 次
-  读取证明跨 skill 绑定有效，判 error 会迫使冗余内联。
+- **E2 的 warning 级保留跨 skill 绑定**：author-response-protocol.md 的 48 次
+  读取证明跨 skill 绑定有效，判 error 会迫使冗余内联。**但 E2 只保证「会去读」，
+  不保证「读得到」——路径可达性另由 E1/E1b 保证**（检视发现 2 的核心洞察）。
+- **E1b 选 error 而非 warning**：裸 _shared/ 写法在 SDK 指引下解析结果确定性失败
+  （28/28 ENOENT），无灰区；与 E1 同构（「agent 解析后必然读不到」）。
 - **不动 issue 中 F2-F5**：F2（审视流程重复）、F3（SKILL.md 超长）、F4
   （companion/core-workflow 边界）、F5（产出表语义）与 F1 可见性正交，
   且 issue 明确优先级 P1(F1) > P2(F2) > P3，避免单 PR 范围膨胀。
+- **E2 结构假设**：可见性判定依赖「## 工作流」节名（workflowLineRange 只认
+  `^##\s+工作流`），无该节而引用 references 的 skill 会被判索引-only error——
+  属引导结构化的隐形契约，已在 lint 头注释中声明（检视发现 4）。
 
 ## 验证
 
 - lint：`npm run lint:skills` → OK（0 error；W1/W3 警告均为存量）。
-- 单元：`npm test` 2833 passed / 229 files，0 error（新增 6 用例全过）；
-  golden selftest 12 passed（含新场景判别力：good 过 + 2 bad 全拦）。
+- 单元：`npm test` 2833 passed / 229 files，0 error（新增 8 用例全过）；
+  golden selftest 12 passed（新场景判别力：good 过 + 3 bad 全拦，含裸写法伤疤复现）。
 - **端到端（真 LLM golden）**：`skill-references-visibility` 3 采样 ≥2 全过
-  （483s），采样中 skill-types.md / description-examples.md **每次均被读取**
-  （修复前零读取）——修复有效性有直接行为证据。
+  （483s，首轮；delta 修复后复跑记录见 PR 评论），采样中 skill-types.md /
+  description-examples.md **每次均被读取**（修复前零读取）——修复有效性有直接行为证据。
+- 诊断数字经检视獭独立复跑交叉验证（941 session：references 形态 535+ 成功 0 失败、
+  _shared 裸写法 28 失败全 ENOENT），首版「568/0 失败」的失实陈述已修正。
+- lint-intent：本期文档 intent 1/1（检视发现 1 修复后）。
 - 最简实现检查：已过。三件套（lint 门禁 + 内容绑定 + 行为回归）各司其职，
   无更简方案能同时覆盖「存量修正」与「增量防回归」。
 
