@@ -20,6 +20,7 @@
  * - URGENT 的 steer 直注入 / HALT 的 abort 物理停依赖打断决策协议，归 P3
  */
 import type { Message } from "@entities/conversation/message";
+import type { DispatchAttemptRepo, PendingSignalRow } from "@entities/conversation/dispatch-attempt";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryMessage } from "./query-message";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -48,7 +49,9 @@ interface QueuedSignal {
 
 /** 去抖重扫窗口：invoke 结束后等待迟到的信号写入事务提交（母方案 §2 竞态兜底，50ms 语义） */
 const DEBOUNCE_MS = 50;
-/** 活跃判定窗口：最新 streaming 消息 5min 内视为在干（P4 拆 turn 前的会话级近似） */
+/** 活跃判定窗口：最新 streaming 消息 5min 内视为在干（P4 拆 turn 前的会话级近似）。
+ *  F20260902sgp2 S2：仅用于 busy 判定（isOtterActive）——不再参与 pending/消费判定
+ *  （那已全面切台账真相源）。 */
 const ACTIVE_WINDOW_MS = 5 * 60_000;
 /** 未读扫描上界：单次路由的候选消息数（信号风暴护栏；强制中断归 P3 梯度护栏） */
 const SCAN_LIMIT = 200;
@@ -76,6 +79,9 @@ export class SignalRouter {
       invokeFn: SignalRouterInvokeFn;
       logger: Logger;
       healingRepo?: HealingEventRepository;
+      /** F20260902sgp2 S2：派发台账——pending 真相源（已投递 ∧ 无派发记录）。
+       *  必注入：路由器无台账不构成 v2 语义（装配层保证）。 */
+      dispatchAttemptRepo: DispatchAttemptRepo;
     },
   ) {}
 
@@ -87,8 +93,9 @@ export class SignalRouter {
    * - IM（飞书）：消息入库后经 AgentDispatchService 调用（隐式目标查询随之退役）
    * - resume：启动补扫（崩溃窗口兜底——写路径回调没能执行的信号在此补路由）
    *
-   * 幂等性：消费判定 = 未读视图。已被链消费（游标推进）的信号不再触发路由；
-   * 重复调用最坏代价是空扫描。路由器自身不写游标（消费在链内 markBatchRead）。
+   * 幂等性（F20260902sgp2 S2）：消费判定 = 派发台账（pending := 已投递 ∧
+   * 无 (message,target) 记录）——不再依赖游标视图。链引擎每次派发即销账
+   * （recordStart），重复调用最坏代价是空扫描。
    *
    * @param filter.otterId 仅路由发往该 otter 的信号（单目标场景）
    * @returns 各信号的路由结果（记日志/测试断言用，不用于流程控制）
@@ -97,21 +104,40 @@ export class SignalRouter {
     conversationId: string,
     filter?: { otterId?: string },
   ): Promise<Array<{ signal: Message; action: RouteAction }>> {
-    const candidates = await this.queryCandidateSignals(conversationId);
-    const targetIds = filter?.otterId
-      ? [filter.otterId]
-      : this.distinctTargets(candidates);
+    // S2：一次台账查询取全部 pending (message,target) 对，按目标分组——
+    // 替代 v1 的「先候选后逐目标未读视图」两段式（游标判据已退役）
+    const pendingRows = await this.deps.dispatchAttemptRepo.listPendingSignals(conversationId, SCAN_LIMIT);
+    const byTarget = new Map<string, PendingSignalRow[]>();
+    for (const row of pendingRows) {
+      if (filter?.otterId && row.targetOtterId !== filter.otterId) continue;
+      const list = byTarget.get(row.targetOtterId) ?? [];
+      list.push(row);
+      byTarget.set(row.targetOtterId, list);
+    }
     const results: Array<{ signal: Message; action: RouteAction }> = [];
 
-    for (const targetId of targetIds) {
-      const pending = await this.pendingSignalsFor(conversationId, targetId);
-      if (pending.length === 0) continue;
+    for (const [targetId, rows] of byTarget) {
       // 每目标取最新一条信号驱动路由决策（档位以最新为准；同批多条由同一次 invoke 的未读注入统一消化）
-      const signal = pending[pending.length - 1];
+      const newest = rows[rows.length - 1];
+      const signal = await this.loadSignalMessage(newest.messageId);
+      if (!signal) {
+        this.deps.logger.warn("[signal-router] pending 信号消息缺失，跳过", { conversationId, messageId: newest.messageId, targetId });
+        continue;
+      }
       const action = await this.routeTarget(conversationId, targetId, signal);
       results.push({ signal, action });
     }
     return results;
+  }
+
+  /** 按 ID 加载信号消息原文（台账行只有 ID；档位/内容/发送者需要完整实体）。 */
+  private async loadSignalMessage(messageId: string): Promise<Message | null> {
+    try {
+      const msg = await this.deps.queryMessage.getMessageById(messageId);
+      return msg ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /** 路由全部会话的未消费信号（启动补扫专用，RIS 调用）。
@@ -129,40 +155,6 @@ export class SignalRouter {
         });
       });
     }
-  }
-
-  /** 候选信号：completed + 指向 otter 的消息（DESC 取最新 SCAN_LIMIT 条）。
-   *  senderType 排除 system——scheduler 直连路径的信号（P1 边界，见文件头注释）。 */
-  private async queryCandidateSignals(conversationId: string): Promise<Message[]> {
-    const messages = await this.deps.queryMessage.getMessages(conversationId, { limit: SCAN_LIMIT });
-    return messages.filter(m =>
-      m.status === "completed"
-      && m.senderType !== "system"
-      && (m.talkingStonePassedTo ?? []).some(t => t !== "user"),
-    );
-  }
-
-  /** 目标去重：排除 user（人类无 invoke）与自指（self-yield 是獭给自己的待办，
-   *  其消化由该獭下一次被外部信号点火时的未读注入完成，不应主动点火——防自链病态
-   *  在路由层获得驱动；连续 self-yield 的梯度护栏归 P3）。 */
-  private distinctTargets(candidates: Message[]): string[] {
-    const targets = new Set<string>();
-    for (const m of candidates) {
-      for (const t of m.talkingStonePassedTo ?? []) {
-        if (t === "user" || (m.senderType === "otter" && t === m.senderId)) continue;
-        targets.add(t);
-      }
-    }
-    return [...targets];
-  }
-
-  /** 目标的未消费信号 = 未读视图内指向该目标的候选（收件箱 = 游标视图，母方案 §1）。 */
-  private async pendingSignalsFor(conversationId: string, otterId: string): Promise<Message[]> {
-    const unread = await this.deps.conversationRepo.getUnreadMessages(conversationId, otterId);
-    return unread.filter(m =>
-      m.talkingStonePassedTo?.includes(otterId)
-      && m.senderType !== "system"
-    );
   }
 
   /**
