@@ -56,6 +56,15 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added last_active_turn_number column to conversation_participants table');
   }
 
+  // F20260902sgp2 S4c：游标 seq 化（双写迁移第一步——新列可空，双写期间旧列保留为回滚面）。
+  // 语义：last_read_seq = 该獭已读到的最大 message.sequence_num；旧行 NULL = 未迁移，
+  // 读路径按 NULL 回退 turn 刻度（getUnreadMessages 双刻度兼容）。
+  const hasLastReadSeq = participantColumns.some(col => col.name === 'last_read_seq');
+  if (!hasLastReadSeq) {
+    db.prepare("ALTER TABLE conversation_participants ADD COLUMN last_read_seq INTEGER").run();
+    logger.info('Added last_read_seq column to conversation_participants table (sgp2 S4c)');
+  }
+
   /** F20260728htar 一次性补丁 */
   rebuildMessagesFtsStripped(db, logger);
   dropMessagesAttachmentsColumn(db, logger);

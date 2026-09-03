@@ -163,7 +163,7 @@ describe("ManageScheduledTask", () => {
       expect(task.timezone).toBe("Asia/Shanghai");
     });
 
-    it("未传 senderId 时默认为 talkingStonePassedTo 的第一个元素", async () => {
+    it("未传 senderId 时默认为 'system'（F20260903s4fn：任务触发消息是系统说的，不偷目标獭）", async () => {
       const repo = mockRepo();
       const manager = new ManageScheduledTask(repo);
 
@@ -171,7 +171,7 @@ describe("ManageScheduledTask", () => {
         validInput({ senderId: undefined }),
       );
 
-      expect(task.senderId).toBe("otter-1");
+      expect(task.senderId).toBe("system");
     });
 
     it("通知 onChange 回调 (taskId, 'created')", async () => {
