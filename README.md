@@ -16,7 +16,11 @@
 
 ![健康面板：30 天提交趋势/BugFix 比率、提交类型分布、模块热区、特性链五态](docs/images/health-dashboard.jpg)
 
-*三张图都是真实数据：协作现场、多 Agent 编排流转（GIF 四幕：派工→编排→执行→溯源交回）、系统对自身的健康度量——提交趋势、BugFix 比率、模块热区、特性链状态，由 RHI 扫描 worker 每小时自动计算。*
+![Touch Bar 海獭状态徽章：六态动画（等你/干活/睡觉/混合/离线/非主进程），自研 Swift 渲染端绘制](docs/images/touchbar-otter.gif)
+
+![Touch Bar 六态静态总览](docs/images/touchbar-otter-states.png)
+
+*四张图都是真实数据：协作现场、多 Agent 编排流转（GIF 四幕：派工→编排→执行→溯源交回）、系统对自身的健康度量（RHI 扫描 worker 每小时计算），以及 MacBook Pro Touch Bar 上的海獭状态徽章——矢量海獭（呼吸环/眨眼/心跳）实时显示团队在等你、在干活还是在睡觉，渲染端是本项目自研 Swift 代码（#721），GIF 由渲染器自己的离屏渲染产出，所见即生产所得。*
 
 ## 这是什么
 
