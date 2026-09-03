@@ -118,3 +118,32 @@ S4c（游标 seq 双写，独立）→ S4d（评估）→ S4e（退役实施，�
 `pending := completed ∧ 有 yield 指向 active 獭 ∧ 非 otter 自指 ∧ 无派发记录 ∧ 无 failed 终态行`
 
 **无任何发送者类型特例**——与搭档模型对齐：「消息就是消息，tsp（yield）才是触发信号」。
+
+## 9. S4 完整实现记录（09-03 第二批：读路径切换 + turn 退役评估结论）
+
+### S4c 读路径切换（seq 刻度生效）
+
+getUnreadMessages 双刻度：last_read_seq 非空走 seq 路径（无 turns JOIN），NULL 回退
+turn 路径。schema 建表补 last_read_seq 列（新库直有）+ 迁移管老库。markBatchRead
+双写（turn + seq）继续。
+
+### turn 退役评估结论（S4d，勘测完成）
+
+turn 全部现存职责与处置：
+
+| 职责 | 现状 | 退役处置 |
+|------|------|---------|
+| 游标刻度 | last_read_turn_number | ✅ S4c seq 化已解除（双写中，读路径已切） |
+| 未读判定刻度 | getUnreadMessages JOIN turns | ✅ S4c 读路径切换已解除（seq 路径无 JOIN） |
+| 消息分组元数据 | message.turn_id FK + turns 行 | **保留**——历史分组元数据成本极低，#677 活动段分组读路径不依赖它但数据不删 |
+| 链续跑聚合 | tryCloseTurn（manage-participant/send-message 4 处调用） | **保留调用**——它聚合 tsp 驱动链收尾，与信号协议正交；退役它需要重写链收尾语义，风险>收益 |
+| ActiveTurnNumber | tool-factory/artifact-tools 取当前轮次（artifact 分组键） | **保留**——作为 artifact 分组键仍有语义 |
+| scheduler execution.turnId | completeExecution 记录 | **保留**——执行历史归属 |
+
+**结论：turn 降级为「分组元数据表」——不再作为调度/游标/信号的任何真相源
+（三项职责已全部由 seq/台账/派发记录接管），写路径保留（兼容 FK 与分组元数据），
+不做删表动作。** 这是「退役」的最终形态：语义上已死，物理上留作历史归档。
+
+### 验证
+
+234 files / **2918 tests** 全绿（getUnreadMessages 双刻度用例通过）；tsc/eslint 0 error。

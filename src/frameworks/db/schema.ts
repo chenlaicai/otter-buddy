@@ -461,6 +461,8 @@ function createParticipantTables(db: Database.Database): void {
       left_at TEXT,
       last_read_turn_number INTEGER NOT NULL DEFAULT 0,
       last_active_turn_number INTEGER NOT NULL DEFAULT 0,
+      -- F20260902sgp2 S4c：游标 seq 刻度（可空——NULL=未迁移，读路径回退 turn 刻度）
+      last_read_seq INTEGER,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id),
       FOREIGN KEY (otter_id) REFERENCES otters(id),
       FOREIGN KEY (joined_at_turn_id) REFERENCES turns(id),
