@@ -10,7 +10,7 @@ import type { InvokeOutcome } from "@usecases/ports/agent-metrics-port";
 
 /** Agent invocation exit reason classification */
 export type ExitReason =
-  | { kind: 'user_abort'; toolCallCount: number }
+  | { kind: 'user_abort'; toolCallCount: number; /** #752：用户中断时的底层 SDK 错误（api_error/timeout 等），用于中断归因 */ underlyingError?: { kind: 'api_error'; errorMessage: string } | { kind: 'guard_abort'; guardReason: string } | { kind: 'no_yield' } }
   | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
   | { kind: 'no_yield'; toolCallCount: number };
@@ -41,7 +41,18 @@ export function classifyExit(
   getInternalAbortReason: (messageId: string) => string | undefined,
 ): ExitReason {
   if (userAbortedMessages.has(p.messageId)) {
-    return { kind: 'user_abort', toolCallCount: p.toolCallCount };
+    // #752：用户中断时保留底层错误信息用于中断归因（用户中断掩盖底层 API 错误的场景）
+    let underlyingError: { kind: 'api_error'; errorMessage: string } | { kind: 'guard_abort'; guardReason: string } | { kind: 'no_yield' } | undefined;
+    const guardReason = extractGuardReason(p.messageId, p.result, p.err, getInternalAbortReason);
+    if (guardReason) {
+      underlyingError = { kind: 'guard_abort', guardReason };
+    } else if (p.err) {
+      const msg = p.err instanceof Error ? p.err.message : String(p.err);
+      underlyingError = { kind: 'api_error', errorMessage: msg };
+    } else if (p.toolCallCount === 0) {
+      underlyingError = { kind: 'no_yield' };
+    }
+    return { kind: 'user_abort', toolCallCount: p.toolCallCount, underlyingError };
   }
 
   const guardReason = extractGuardReason(p.messageId, p.result, p.err, getInternalAbortReason);

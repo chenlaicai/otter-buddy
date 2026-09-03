@@ -180,4 +180,6 @@ export interface TerminalContext {
   startTime: number;
   kind: 'user' | 'guard';
   guardReason?: string;
+  /** #752：用户中断时的底层 SDK 错误（用于中断归因） */
+  underlyingError?: { kind: 'api_error'; errorMessage: string } | { kind: 'guard_abort'; guardReason: string } | { kind: 'no_yield' };
 }

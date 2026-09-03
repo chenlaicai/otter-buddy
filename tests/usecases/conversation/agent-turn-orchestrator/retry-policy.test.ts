@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
+import { buildYieldRetryMsg, buildAutoRetryMsg, isRetryableGuardAbort, buildGuardAbortBody, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildUserAbortBody } from "@usecases/conversation/agent-turn-orchestrator/retry-policy";
 
 describe("buildYieldRetryMsg", () => {
   it("hasOrphanText=true 时返回旁白流失专项文案", () => {
@@ -144,5 +144,44 @@ describe("#731 guard bounce 文案与常量", () => {
     expect(msg).toContain("停止自动回发");
     expect(msg).toContain("请人工介入");
     expect(msg).toContain("误拦");
+  });
+});
+
+describe("buildUserAbortBody (#752: 中断归因增强)", () => {
+  it("无 underlyingError 时保持原有文案（纯用户中断）", () => {
+    const msg = buildUserAbortBody(5, "搭档");
+    expect(msg).toBe("[搭档中断] 经过 5 次工具调用后，搭档强制中断了当前发言。");
+  });
+
+  it("有工具调用时 underlyingError 不影响文案（中断发生在执行过程中）", () => {
+    const msg = buildUserAbortBody(3, "chen", { kind: 'api_error', errorMessage: '429 Too Many Requests' });
+    expect(msg).toBe("[chen中断] 经过 3 次工具调用后，chen强制中断了当前发言。");
+  });
+
+  it("0 次工具调用 + api_error（429 限流）→ 归因到模型限流", () => {
+    const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: '429 Too Many Requests' });
+    expect(msg).toContain("模型服务限流（429）");
+    expect(msg).toContain("未能开始");
+    expect(msg).toContain("chen中断了等待");
+    expect(msg).not.toContain("强制中断了当前发言");
+  });
+
+  it("0 次工具调用 + api_error（非 429）→ 归因到模型服务异常", () => {
+    const msg = buildUserAbortBody(0, "chen", { kind: 'api_error', errorMessage: 'Connection refused' });
+    expect(msg).toContain("模型服务异常");
+    expect(msg).toContain("未能开始");
+    expect(msg).toContain("chen中断了等待");
+  });
+
+  it("0 次工具调用 + guard_abort → 归因到安全守卫拦截", () => {
+    const msg = buildUserAbortBody(0, "搭档", { kind: 'guard_abort', guardReason: 'bash_safety:kill detected' });
+    expect(msg).toContain("安全守卫拦截");
+    expect(msg).toContain("未能开始");
+    expect(msg).toContain("搭档中断了等待");
+  });
+
+  it("0 次工具调用 + no_yield → 保持原有文案（纯等待超时）", () => {
+    const msg = buildUserAbortBody(0, "chen", { kind: 'no_yield' });
+    expect(msg).toBe("[chen中断] 经过 0 次工具调用后，chen强制中断了当前发言。");
   });
 });
