@@ -691,10 +691,98 @@ enum Selftest {
     }
 }
 
+
+// MARK: - Demo 渲染（--render-demo <outdir>：离屏产出六态动画帧序列，不碰 Touch Bar）
+// 用途：README 等物料生产——渲染器自己的代码画的效果图，所见即生产所得。
+// 每态 2.4s @ 12fps = 29 帧，PNG 序列输出，ffmpeg 合 GIF（特性文档「验证」节）。
+
+enum DemoRenderer {
+    static let scenes: [(String, StatusRender)] = [
+        ("waiting", StatusRender(kind: .waiting(count: 3, top: "好idea蒸馏"), nonPrimary: false)),
+        ("working", StatusRender(kind: .working(convs: 4, otters: 4), nonPrimary: false)),
+        ("sleeping", StatusRender(kind: .sleeping, nonPrimary: false)),
+        ("mixed", StatusRender(kind: .mixed(count: 3, top: "好idea蒸馏", convs: 2, otters: 2), nonPrimary: false)),
+        ("offline", StatusRender(kind: .offline, nonPrimary: false)),
+        ("nonprimary", StatusRender(kind: .working(convs: 2, otters: 2), nonPrimary: true)),
+    ]
+
+    static func run(outDir: String) -> Int32 {
+        let fps = 12.0
+        let seconds = 2.4
+        let frames = Int(fps * seconds)
+        let canvasW = 560.0
+        let canvasH = 60.0
+
+        try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+
+        let view = OtterView(frame: NSRect(x: 0, y: 0, width: 160, height: 30))
+        view.frame.origin = NSPoint(x: 10, y: 15)
+
+        for (si, scene) in scenes.enumerated() {
+            view.update(scene.1)
+            // 眨眼相位错开每态起始（纯视觉，无功能影响）
+            for f in 0..<frames {
+                let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(canvasW),
+                                           pixelsHigh: Int(canvasH), bitsPerSample: 8,
+                                           samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                           colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+                guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return 1 }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = ctx
+                // 纯黑 bar 底
+                NSColor.black.setFill()
+                NSBezierPath(rect: NSRect(x: 0, y: 0, width: canvasW, height: canvasH)).fill()
+                // 徽章（渲染器本体）
+                view.draw(view.bounds)
+                // 右侧系统控制条（真实 bar 的原生区，demo 中还原观感）
+                drawSystemStrip(x: 336, y: 15)
+                NSGraphicsContext.restoreGraphicsState()
+
+                guard let png = rep.representation(using: .png, properties: [:]) else { return 1 }
+                let path = outDir + "/sc\(si)_" + String(format: "%03d", f) + ".png"
+                try! png.write(to: URL(fileURLWithPath: path))
+                view.tick(1.0 / fps)
+            }
+        }
+        print("DEMO PASS: \(scenes.count) scenes x \(frames) frames -> \(outDir)")
+        return 0
+    }
+
+    /// 右侧系统控制条（esc + 亮度 + 音量，模拟 bar 原生区观感；仅 demo 物料用）
+    private static func drawSystemStrip(x: CGFloat, y: CGFloat) {
+        func tintedSymbol(_ name: String) -> NSImage? {
+            guard let img = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
+            let out = NSImage(size: img.size)
+            out.lockFocus()
+            img.draw(in: NSRect(origin: .zero, size: img.size))
+            NSColor.white.withAlphaComponent(0.55).setFill()
+            NSRect(origin: .zero, size: img.size).fill(using: .sourceAtop)
+            out.unlockFocus()
+            return out
+        }
+        let esc = NSAttributedString(string: "esc", attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            .foregroundColor: NSColor.white.withAlphaComponent(0.55),
+        ])
+        esc.draw(at: NSPoint(x: x, y: y + 6))
+        var sx = x + 52
+        for sym in ["sun.min", "sun.max", "speaker.wave.1", "speaker.wave.3"] {
+            if let img = tintedSymbol(sym) {
+                let r = NSRect(x: sx, y: y + 5, width: 20, height: 20)
+                img.draw(in: r)
+            }
+            sx += 44
+        }
+    }
+}
+
 // MARK: - main
 
 var args = CommandLine.arguments
 if args.contains("--selftest") { exit(Selftest.run()) }
+if let i = args.firstIndex(of: "--render-demo"), i + 1 < args.count {
+    exit(DemoRenderer.run(outDir: args[i + 1]))
+}
 
 
 let app = NSApplication.shared
