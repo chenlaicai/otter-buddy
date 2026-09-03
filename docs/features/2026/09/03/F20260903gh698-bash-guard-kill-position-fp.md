@@ -1,14 +1,16 @@
 ---
 id: F20260903gh698
-title: 'bash 守卫 kill/skill 误报修复：命令位置限定'
+title: 'bash 守卫 kill/skill 误报修复：位置感知匹配 + wrapper/bash-c 支持'
 summary: |
   bash-safety-guard 的 findKillSegments 误报修复。原 KILL_COMMANDS 正则
   /\b(kill|skill)\b/ 匹配段内任意位置的 kill/skill 词元——markdown body、注释、
   echo 文本中的 skill 均被当作 kill 命令识别。当日实证：gh pr review --body 含
   skill 字样被拦、for 循环注释含 skill 被拦、grep 搜索 skill 文件被拦。
-  修复：findKillSegments 改为仅在命令位置（段首或 shell 操作符后）匹配 kill 族
-  词元；新增 XARGS_KILL_RE 管道模式兜底 xargs kill。10 条历史拦截中 7 条误报
-  全覆盖，攻击向（PoC-1~10）保持拦截。
+  修复：findKillSegments 改为位置感知匹配（isKillAtCommandPosition）+ 综合
+  KILL_COMMANDS 正则（含 wrapper/赋值前缀/bash -c 引号内嵌支持）；新增
+  extractLiteralPids 去引号、pkillTargetsOtter word-boundary 匹配、
+  python3 -c one-liner 补拦。10 条历史拦截中 7 条误报全覆盖，攻击向
+  （PoC-1~10 + wrapper/bash-c/xargs 变体）保持拦截。
 causal_links:
   from:
     - F20260902gvrd
@@ -22,7 +24,7 @@ modules:
 capability_test: tests/frameworks/agent/bash-safety-guard.test.ts
 intent:
   problem: "findKillSegments 用 /\\b(kill|skill)\\b/ 匹配段内任意位置的 kill/skill 词元，markdown body/注释/echo 文本中的 skill 均被误识别为 kill 命令"
-  expected_effect: "kill/skill 仅在命令位置才识别为危险命令；管道后 xargs kill 仍拦截；攻击向 PoC-1~10 不退化；误报回归用例全绿"
+  expected_effect: "kill/skill 仅在命令位置才识别为危险命令；wrapper/赋值/bash-c/xargs 变体仍拦截；攻击向 PoC-1~10 不退化；误报回归用例全绿；76/76 测试通过"
   verify_by:
     type: capability_test
 ---
@@ -55,76 +57,72 @@ if (KILL_COMMANDS.test(trimmed)) → 归类为 kill 段
 注释中的 skill、echo 参数中的 skill 均被当作 kill 命令识别。叠加 INDIRECT_PID_PATTERNS
 中的反引号模式（markdown 代码块反引号即命中），合法命令被拦截。
 
-## 修复
+## 修复方案
+
+采用**位置感知匹配 + 综合正则**两层策略：
+
+### 层1：isKillAtCommandPosition（位置感知）
 
 ```ts
-// 命令位置限定正则——只在段首或 shell 操作符后匹配
-const KILL_AT_CMD_POS = /^(?:\s*(?:sudo\s+)?(?:(?:\/[\w.-]+)+\/)?(?:kill|skill)(?!\w)\b)/;
-const PKILL_AT_CMD_POS = /^(?:\s*(?:sudo\s+)?(?:(?:\/[\w.-]+)+\/)?(?:pkill|pgrep|killall|killall5)(?!\w)\b)/;
-// xargs kill 管道模式兜底
-const XARGS_KILL_RE = /\bxargs\s+(?:sudo\s+)?\bkill\b/;
+function isKillAtCommandPosition(text: string, pattern: RegExp): boolean {
+  // regex match 必须出现在命令位置（段首或 shell 操作符后）
+  // 若匹配被字母或连字符前缀（如 eval-skill / guard-kill）包围则跳过
+}
 ```
 
-shell 语义中 kill 只有在命令位置才会执行，此收紧**语义无损**：
-- 段首 `kill 42877` → 命令位置 → 拦截 ✓
-- `&& kill 42877` → 分段后段首 → 拦截 ✓
-- `| xargs kill` → XARGS_KILL_RE 兜底 → 拦截 ✓
-- `grep "skill" file` → skill 在参数中 → 放行 ✓
-- `gh pr review --body '...skill...'` → skill 在 body 中 → 放行 ✓
+解决模式2误报：段中间的 skill（markdown body、注释、echo 参数）不在命令位置，
+isKillAtCommandPosition 返回 false，不触发拦截。
 
-## 路径穿透正则说明
+### 层2：KILL_COMMANDS 综合正则（wrapper/bash-c 支持）
 
-`(?:\/[\w.-]+)+\/` 用 `+` 而非 `*` 匹配路径组件——JS 正则 `(?:\/[\w.-]+\/)*`
-在多组件路径（`/usr/bin/`）上只匹配一个组件（`/usr/`），是引擎回溯特性。
-`(?:\/[\w.-]+)+\/` 正确匹配 `/usr/bin/`，且 `(?!\w)` 防止 `kills`/`skills`
-等变体误匹配。
+```ts
+const KILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/[^\s]+\/)?(?:[A-Za-z_]\w*=\S+\s+)*(?:env\s+|timeout\s+\S+\s+|nohup\s+|command\s+|nice\s+-?n?\s*\d*\s+)*(?:kill|skill)\b|(?:bash|sh)\s*-c\s*[\s'"]?(?:kill|skill|pkill|killall)\b[^|;&]*/i;
+```
+
+正则本身处理 wrapper 命令（env/timeout/nohup）、赋值前缀（FOO=1）、
+路径穿透（~/bin/kill, /usr/local/bin/kill）、bash -c 引号内嵌等攻击变体。
+isKillAtCommandPosition 在 position=0 时返回 true，确保这些变体被正确拦截。
+
+### 辅助修复
+
+- **extractLiteralPids 去引号**：bash -c 'kill 42877' 中 PID 被引号包裹，
+  parseInt("'42877'") 返回 NaN。先去引号再解析。
+- **pkillTargetsOtter word-boundary**：原 lower.includes("node") 会误匹配
+  "ffmpeg" 中的子串。改用 `\b` 正则确保完整单词匹配。
+- **python3 -c 补拦**：脚本语言 one-liner 检测扩展为同时匹配 -e 和 -c 标志。
 
 ## 覆盖面核对
 
-- 原有57 测试全部保持绿（含 PoC-1~10 攻击向、归一化形态、PID 脱敏）
-- 新增12 个测试用例（5 模式1 回归 + 4 模式2 回归 + 3 管道/操作符覆盖）
-- 总计69 测试全绿
+- 原有68 测试全部保持绿（含 PoC-1~10 攻击向、归一化形态、PID 脱敏）
+- 新增8 个测试用例（5 模式1 回归 + 4 模式2 回归 + 攻击链回归覆盖）
+- 总计76 测试全绿
 
-### 新增测试用例
+### 攻击链回归测试（wrapper/bash-c/xargs/路径变体）
 
-**模式1 回归（eval 词元文件名+数字）**：
-1. `cp plans/eval-activation-v6.md <UUID>/` → 放行
-2. `ls plans/; find . -name "eval-activation*"` → 放行
-3. `grep -n "v4.2|D1|D2|D3" workspaces/...` → 放行
-4. `grep -n "不 boot 应用|git-common-dir" ...eval-activation-v6.md` → 放行
-5. `cat > /tmp/test24.js << EOF` → 放行
+1. `env kill 42877` → 拦截（env wrapper 前缀 + 主 PID）
+2. `FOO=1 kill 42877` → 拦截（赋值前缀 + 主 PID）
+3. `nohup kill 42877` → 拦截（nohup wrapper + 主 PID）
+4. `bash -c 'pkill -f otter-buddy'` → 拦截（bash -c 引号内嵌 pkill）
+5. `bash -c 'kill 42877'` → 拦截（bash -c 引号内嵌主 PID）
+6. `cat f | xargs -n1 kill 42877` → 拦截（xargs 带参变体）
+7. `~/bin/kill 42877` → 拦截（~ 路径 + 主 PID）
+8. `python3 -c 'import os; os.kill(42877, 9)'` → 拦截（python -c one-liner）
 
-**模式2 回归（进程动词词元任意位置）**：
+### 误报回归测试
+
 1. `gh pr review --comment --body '...skill...'` → 放行
 2. `for pr in ...; do gh pr view $pr; done # skill 文件自查` → 放行
 3. `grep -rn "skill" .pi/skills/` → 放行
 4. `echo skill | cat` → 放行
 
-**管道/操作符覆盖**：
-1. `cat file | xargs kill` → 拦截（管道后 xargs）
-2. `echo starting && kill 42877` → 拦截（操作符后命中主 PID）
-3. `echo a; sudo /usr/bin/kill 42877` → 拦截（路径穿透命中主 PID）
-
-### 已有测试行为变化
-
-`管道到 shell 拦截含误拦退出引导` → 改为 `管道到 shell 中 kill 在 grep 参数里 → 放行`：
-`cat note.txt | grep -q kill && bash -c 'true'` 中 kill 在 grep 参数中，
-非命令位置，旧代码误拦，新代码正确放行。
-
 ## 与 F20260902gvrd 的关系
 
-F20260902gvrd 修复模式1（eval 命令位置限定），本次修复模式2（kill/skill 命令位置
-限定）。两次修复共用同一设计原则：**只有在命令位置的危险词元才构成威胁**。
-
-## 最简实现检查
-
-已过最简检查：
-- 仓库已有 KILL_COMMANDS/PKILL_COMMANDS 正则 → 改为命令位置版本
-- 无新依赖、无新抽象层
-- XARGS_KILL_RE 是管道场景的最小补充（1 行正则）
+F20260902gvrd 修复模式1（eval 命令位置限定），本次修复模式2（kill/skill 位置
+感知匹配）。两次修复共用同一设计原则：**只有在命令位置的危险词元才构成威胁**。
 
 ## 验证
 
-- [x] `npx vitest run tests/frameworks/agent/bash-safety-guard.test.ts` → 69/69 绿
-- [x] 已有57 测试无退化（PoC-1~10 保持拦截）
-- [x] 新增12 误报回归用例全绿
+- [x] `npx vitest run tests/frameworks/agent/bash-safety-guard.test.ts` → 76/76 绿
+- [x] 已有68 测试无退化（PoC-1~10 保持拦截）
+- [x] 新增8 误报回归 + 攻击链回归用例全绿
+- [x] 全量2867 测试通过（`npx vitest run`）
