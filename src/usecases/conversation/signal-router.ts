@@ -38,7 +38,15 @@ export type SignalRouterInvokeFn = (params: {
   senderId: string;
 }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
 
-export type RouteAction = "invoked" | "queued_busy" | "skipped_no_target" | "skipped_inactive";
+export type RouteAction =
+  | "invoked"
+  | "queued_busy"
+  | "skipped_no_target"
+  | "skipped_inactive"
+  /** F20260903ihlt：用户中断停机中——信号保留（pending 不动），等用户显式恢复 */
+  | "skipped_halted"
+  /** F20260903ihlt：会话限流熔断中——rate_limit healing 事件窗口内拒点火，信号保留 */
+  | "skipped_rate_limited";
 
 /** busyQueue 条目：busy 目标的待消化信号（内容保全，见 routeTarget 内 Why 注释） */
 interface QueuedSignal {
@@ -61,11 +69,30 @@ const SCAN_LIMIT = 200;
  *  60s 内第二次点火被硬性拒绝——热循环的最坏频率被压到 1 次/分钟而非 15 次/秒。
  *  失败信号的重试语义不变：仅用户手动 retry（source='retry' 不受此限，走覆盖记账）。 */
 const MIN_INVOKE_INTERVAL_SEC = 60;
+/** F20260903ihlt 限流熔断窗口：会话内出现 rate_limit healing 事件后，暂停该会话全部
+ *  pending 点火（429 是模型级故障——继续排空收件箱 = 逐条撞墙的机枪风暴，09-03 12:45 实证）。
+ *  瞬时限流（SDK 重试耗尽）10 分钟；配额耗尽（exhausted）1 小时——窗口过后恢复点火，
+ *  若限流仍在，第一发撞墙会再落一条事件、再熔断（最坏频率 1 次/窗口，哑火侧失效模式）。
+ *  手动 retry 不经路由器（直连链），不受此闸影响。 */
+const RATE_LIMIT_BLOCK_TRANSIENT_MS = 10 * 60_000;
+const RATE_LIMIT_BLOCK_EXHAUSTED_MS = 60 * 60_000;
 
 export class SignalRouter {
   /** 同 otter 串行：key = `${conversationId}:${otterId}`。invoke 进行中不重复点火，
    *  完成后经去抖重扫补路由——信号在消息表/busyQueue 持久，不因跳过而丢失。 */
   private readonly inFlight = new Set<string>();
+
+  /**
+   * F20260903ihlt：用户中断停机（会话级）。web「中断」按钮此前只 abort 单条消息的
+   * SDK session——被中断 invoke 的 50ms 去抖重扫会立刻点火下一只 pending 獭
+   * （09-03 现场：中断小獭 a 弹出小獭 b）。用户中断是最高优先级停机语义：
+   * 置位后本会话 pending/busyQueue 全部冻结（信号保留不丢），直到用户显式恢复
+   * （发新消息 / IM 发言 / 手动 retry 均视为恢复动作，由入口侧调 clearUserHalt）。
+   * 内存态与 busyQueue 同生命周期（崩溃即丢，可接受——重启后无 halt 是安全侧：
+   * 最坏回到无闸门现状）。HALT 信号档位（P3 物理停）与本机制正交：那是消息级
+   * 停机请求，这是调度级用户停机。
+   */
+  private readonly userHalted = new Set<string>();
 
   /**
    * busyQueue：busy 目标的待消化信号（内存态，崩溃即丢——与现状崩溃等价，可接受）。
@@ -122,12 +149,20 @@ export class SignalRouter {
     }
     const results: Array<{ signal: Message; action: RouteAction }> = [];
 
+    // F20260903ihlt：调度闸门（用户停机 > 限流熔断 > 档位路由）——中断是最高优先级。
+    // 扫描级求值一次：命中即整轮零点火，信号保留（pending 不动）等恢复窗口。
+    const gate = await this.checkDispatchGates(conversationId);
+
     for (const [targetId, rows] of byTarget) {
       // 每目标取最新一条信号驱动路由决策（档位以最新为准；同批多条由同一次 invoke 的未读注入统一消化）
       const newest = rows[rows.length - 1];
       const signal = await this.loadSignalMessage(newest.messageId);
       if (!signal) {
         this.deps.logger.warn("[signal-router] pending 信号消息缺失，跳过", { conversationId, messageId: newest.messageId, targetId });
+        continue;
+      }
+      if (gate) {
+        results.push({ signal, action: gate });
         continue;
       }
       const action = await this.routeTarget(conversationId, targetId, signal);
@@ -144,6 +179,51 @@ export class SignalRouter {
     } catch {
       return null;
     }
+  }
+
+  /** F20260903ihlt：用户中断停机置位（中断端点调用）。幂等。 */
+  markUserHalt(conversationId: string): void {
+    if (this.userHalted.has(conversationId)) return;
+    this.userHalted.add(conversationId);
+    this.deps.logger.warn("[signal-router] 用户中断停机：冻结本会话全部 pending 点火，直到用户发新消息/手动重试恢复", { conversationId });
+  }
+
+  /** F20260903ihlt：用户停机解除（用户发新消息 / IM 发言 / 手动 retry 时由入口侧调用）。 */
+  clearUserHalt(conversationId: string): void {
+    if (this.userHalted.delete(conversationId)) {
+      this.deps.logger.info("[signal-router] 用户停机解除：恢复本会话信号点火", { conversationId });
+    }
+  }
+
+  /**
+   * F20260903ihlt：会话限流熔断判定。数据源 = healing 台账 rate_limit 事件
+   * （orchestrator #543 在 429 终态时落账，含 exhausted 分级）——路由器自身看不到
+   * invoke 内部的 429，台账是既有的事实汇聚点，不新增真相源。
+   * 会话级（非模型级）：otter 实体无 model 字段，模型映射不在路由器可及范围；
+   * 宁可整会话停（哑火侧）也不要逐獭撞墙（危险侧）。判定失败按不熔断（降级=现状）。
+   */
+  private async isRateLimited(conversationId: string): Promise<boolean> {
+    if (!this.deps.healingRepo) return false;
+    try {
+      const events = await this.deps.healingRepo.findByConversation(conversationId);
+      const now = Date.now();
+      return events.some(e => {
+        if (e.errorType !== "rate_limit") return false;
+        const exhausted = (e.context as { exhausted?: boolean } | null)?.exhausted === true;
+        const windowMs = exhausted ? RATE_LIMIT_BLOCK_EXHAUSTED_MS : RATE_LIMIT_BLOCK_TRANSIENT_MS;
+        const createdAt = Date.parse(e.createdAt);
+        return Number.isFinite(createdAt) && now - createdAt < windowMs;
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  /** F20260903ihlt：调度闸门——用户停机 / 限流熔断。命中返回跳过动作，放行返回 null。 */
+  private async checkDispatchGates(conversationId: string): Promise<RouteAction | null> {
+    if (this.userHalted.has(conversationId)) return "skipped_halted";
+    if (await this.isRateLimited(conversationId)) return "skipped_rate_limited";
+    return null;
   }
 
   /** 路由全部会话的未消费信号（启动补扫专用，RIS 调用）。
@@ -306,6 +386,9 @@ export class SignalRouter {
    *  后续条目由该 invoke 的完成重扫接力；中途 HALT 可插队——routeTarget 置队首）。
    *  目标仍 busy（外部路径在跑，如 P1 期 scheduler 直连链）则留队等下次触发。 */
   private async drainBusyQueue(conversationId: string): Promise<void> {
+    // F20260903ihlt：停机/熔断期间不消化排队信号（内容已快照在队，不丢；恢复后接力）
+    if (this.userHalted.has(conversationId)) return;
+    if (await this.isRateLimited(conversationId)) return;
     for (const [key, queue] of this.busyQueue) {
       if (!key.startsWith(`${conversationId}:`)) continue;
       const item = queue.shift();

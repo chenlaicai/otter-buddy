@@ -20,6 +20,7 @@ import type { HealingEvent } from "@entities/healing/healing-event";
 import type { OtterSession } from "@entities/otter/otter-session";
 import { aggregateBody } from "@entities/conversation/message";
 import type { SSEEvent } from "@contract/sse/events";
+import { HEALING_PROBE_SENTINEL } from "@usecases/healing/constants";
 import {
   buildCircuitBreakSummary,
   buildCircuitBreakFallbackSummary,
@@ -63,34 +64,44 @@ export class CircuitBreakSupport {
    * 
    * F20260827he2f 二轮审视：原探针只测读路径（findOpen），无法检测写路径列缺失（introduced_by_pr）。
    * 此处增加写路径探针——尝试插入一条测试记录，失败时检查是否为列缺失错误。
+   *
+   * #751：探针事件写入即 resolved（heartbeat 语义）——落账只为管道自证，
+   * 不进 open 池等待处置；消费侧 query 默认过滤探针（isHealingProbeEvent）。
    */
   async probeHealingRepo(): Promise<boolean> {
     try {
       // 读路径探针：验证表存在且 DB 可达
       await this.deps.healingRepo.findOpen(1);
       
-      // 写路径探针：尝试插入一条测试记录，验证列完整性
+      // 写路径探针：尝试插入一条测试记录，验证列完整性。
+      // #751: status 直接落 resolved（heartbeat 语义）——探针是心跳不是问题，
+      // 写入与 resolve 同一次 INSERT 完成，不进 open 池、无中间态（旧版落 open 后
+      // 无人 resolve，半小时一次启动探针致 open 池被刷屏稀释真实事件）
       const testEvent: HealingEvent = {
         id: crypto.randomUUID(),
-        messageId: 'probe-test',
-        conversationId: 'probe-test',
-        otterId: 'probe-test',
+        messageId: HEALING_PROBE_SENTINEL,
+        conversationId: HEALING_PROBE_SENTINEL,
+        otterId: HEALING_PROBE_SENTINEL,
         errorType: 'other',
         severity: 'low',
         description: '健康探针测试记录（F20260827he2f）',
         suggestion: '',
         context: null,
-        status: 'open',
-        resolution: null,
+        status: 'resolved',
+        resolution: {
+          action: 'no_action',
+          decidedBy: 'agent',
+          decidedAt: new Date().toISOString(),
+          notes: '#751 探针写入即 resolved：心跳事件非问题，不进 open 池',
+        },
         createdAt: new Date().toISOString(),
-        resolvedAt: null,
+        resolvedAt: new Date().toISOString(),
       };
       
       try {
         await this.deps.healingRepo.create(testEvent);
-        // 插入成功，立即删除测试记录（回滚）
-        // 注意：这里无法直接删除，因为 repository 没有 delete 方法
-        // 但测试记录会被 autoStaleDismiss 清理（低严重度，7天后自动清理）
+        // #751: 探针已直接落 resolved（见上），无需后续处置；
+        // 历史堆积的 open 探针属数据操作，不在本次代码变更范围（issue #751 明确另议）
         return true;
       } catch (writeErr) {
         // 写路径失败，检查是否为列缺失错误
