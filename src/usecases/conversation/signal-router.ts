@@ -227,6 +227,35 @@ export class SignalRouter {
     }
   }
 
+  /** S3.5 交互投影（F20260903s35u，会议第四要素「闸门状态用户可见」）：
+   *  会话调度闸门状态的只读快照——会话级横幅 / 轨迹冻结措辞的数据源。
+   *  halted：用户停机（显式意志，重启后持久化策略见 G5 裁决——当前内存态）。
+   *  rateLimitedUntil：熔断窗口截止时间（从 healing 事件推导，取窗口最晚的一个）。
+   *  两者同时存在时 UI 优先显示 halted（用户意志 > 系统推导）。 */
+  async getGateState(conversationId: string): Promise<{
+    halted: boolean;
+    rateLimitedUntil: string | null;
+  }> {
+    let rateLimitedUntil: string | null = null;
+    if (this.deps.healingRepo) {
+      try {
+        const events = await this.deps.healingRepo.findByConversation(conversationId, "rate_limit");
+        const now = Date.now();
+        for (const e of events) {
+          const exhausted = (e.context as { exhausted?: boolean } | null)?.exhausted === true;
+          const windowMs = exhausted ? RATE_LIMIT_BLOCK_EXHAUSTED_MS : RATE_LIMIT_BLOCK_TRANSIENT_MS;
+          const createdAt = Date.parse(e.createdAt);
+          if (!Number.isFinite(createdAt) || now - createdAt >= windowMs) continue;
+          const until = createdAt + windowMs;
+          if (!rateLimitedUntil || until > Date.parse(rateLimitedUntil)) {
+            rateLimitedUntil = new Date(until).toISOString();
+          }
+        }
+      } catch { /* 查询失败 = 投影不可用，闸门判定不受影响 */ }
+    }
+    return { halted: this.userHalted.has(conversationId), rateLimitedUntil };
+  }
+
   /**
    * F20260903ihlt：会话限流熔断判定。数据源 = healing 台账 rate_limit 事件
    * （orchestrator #543 在 429 终态时落账，含 exhausted 分级）——路由器自身看不到
@@ -237,10 +266,9 @@ export class SignalRouter {
   private async isRateLimited(conversationId: string): Promise<boolean> {
     if (!this.deps.healingRepo) return false;
     try {
-      const events = await this.deps.healingRepo.findByConversation(conversationId);
+      const events = await this.deps.healingRepo.findByConversation(conversationId, "rate_limit");
       const now = Date.now();
       return events.some(e => {
-        if (e.errorType !== "rate_limit") return false;
         const exhausted = (e.context as { exhausted?: boolean } | null)?.exhausted === true;
         const windowMs = exhausted ? RATE_LIMIT_BLOCK_EXHAUSTED_MS : RATE_LIMIT_BLOCK_TRANSIENT_MS;
         const createdAt = Date.parse(e.createdAt);

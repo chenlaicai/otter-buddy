@@ -42,10 +42,16 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     return rows.map(rowToHealingEvent);
   }
 
-  async findByConversation(conversationId: string): Promise<HealingEvent[]> {
-    const rows = this.db.prepare(
-      'SELECT * FROM healing_events WHERE conversation_id = ? ORDER BY created_at DESC',
-    ).all(conversationId) as HealingEventRow[];
+  async findByConversation(conversationId: string, errorType?: string): Promise<HealingEvent[]> {
+    // F20260903ah68 S3.5（mimo 审视焦点4）：可选 errorType 过滤——GateBanner 2s 轮询
+    // 只消费 rate_limit 事件，过滤下推 SQL + idx_healing_events_conversation 索引命中
+    const rows = errorType
+      ? this.db.prepare(
+          'SELECT * FROM healing_events WHERE conversation_id = ? AND error_type = ? ORDER BY created_at DESC',
+        ).all(conversationId, errorType) as HealingEventRow[]
+      : this.db.prepare(
+          'SELECT * FROM healing_events WHERE conversation_id = ? ORDER BY created_at DESC',
+        ).all(conversationId) as HealingEventRow[];
     return rows.map(rowToHealingEvent);
   }
 
