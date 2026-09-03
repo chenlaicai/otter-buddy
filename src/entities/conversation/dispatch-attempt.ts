@@ -47,6 +47,9 @@ export interface DispatchAttemptRepo {
    */
   countPendingSignals(conversationId?: string): number;
   listPendingSignals(conversationId?: string, limit?: number): PendingSignalRow[];
+  /** F20260903damp 阻尼#1：同 (message,target) 最小点火间隔守卫。
+   *  @returns true = 阻尼中（距上次点火不足 minIntervalSec，应跳过）；false = 允许点火。 */
+  shouldThrottle(messageId: string, targetOtterId: string, minIntervalSec: number): boolean;
   /**
    * S1b 轨迹 UI（§4.7）：本会话全部 attempt（无 limit——轨迹批量投影用，
    * (message,target) 唯一键防膨胀；与 pendingClause 同文件同真相源）。
