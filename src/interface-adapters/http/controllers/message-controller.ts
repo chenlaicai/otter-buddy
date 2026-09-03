@@ -336,7 +336,10 @@ export class MessageController {
         unsubscribe?.();
         // retry 的 settle 等待：与 K3 同语义——attempt 终态驱动关流（失败也是终态）
         void this.settleRetrySse(conversationId, messageId).finally(() => {
-          setTimeout(() => { push({ event: "stream.end", data: {} }); close(); }, 100);
+          // 与主路径 K3 一致：settle 已等 attempt 终态，直接关流（无 100ms 缓冲——
+          // 那是「路由器未注入降级路径」的旧语义，settle 语义下无必要）
+          push({ event: "stream.end", data: {} });
+          close();
         });
       });
     return response;
