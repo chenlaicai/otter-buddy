@@ -169,7 +169,11 @@ export class SignalRouter {
   private async routeTarget(conversationId: string, targetId: string, signal: Message): Promise<RouteAction> {
     const level = (signal.signalLevel ?? "NORMAL").toUpperCase();
     const otter = await this.deps.queryOtter.getById(targetId).catch(() => null);
-    if (!otter) return "skipped_inactive"; // 目标已解散等：留箱静默，等人工处理
+    // F20260903damp：dissolved 目标不点火——getById 不过滤 status（sqlite-otter-repository
+    // 全量 SELECT），过滤责任在此落地。09-03 事故：dissolved 检视獭被启动补扫点火 →
+    // No session or config found × 50ms 重扫热循环（614 次/42s）。判据 SQL 已同步过滤，
+    // 此处是 SQL 求值与 otters 状态变更之间的竞态兜底（双层独立成立）。
+    if (!otter || otter.status !== "active") return "skipped_inactive"; // 目标已解散等：留箱静默，等人工处理
 
     if (level === "HALT" && otter.type === "small") {
       // P0 在 yield 写入层已拒绝小獭投 HALT；此处拦截绕过路径（历史遗留/直写库）
@@ -180,7 +184,7 @@ export class SignalRouter {
     const key = `${conversationId}:${targetId}`;
     const busy = this.inFlight.has(key) || await this.isOtterActive(conversationId, targetId);
     if (!busy) {
-      return this.invokeTarget(conversationId, targetId, "", signal.senderId);
+      return this.invokeTarget(conversationId, targetId, "", signal.senderId, signal.id);
     }
 
     // busy：入队保内容（HALT 到 busy 大獭置队首——停机请求优先于普通排队信号消化）
@@ -213,13 +217,38 @@ export class SignalRouter {
    * fire-and-forget：入口（HTTP 请求 / scheduler tick / resume）不被 invoke 时长阻塞。
    * @param content busyQueue 消化路径传入快照内容（显式「当前任务」）；未读路径传空
    *                （链内 buildMessageWithContext 注入完整未读）
+   * @param triggerMessageId 触发信号的消息 ID——F20260903damp：点火即记账的账面键。
+   *        路由器在调链【前】先写 attempt 行（in_progress），不依赖链引擎可选参数到达：
+   *        triggerMessageId 漏传 / 链前段抛错都会让账面空转 → pending 永生 →
+   *        50ms 重扫热循环（09-03 事故 614 次/42s 的直接根因）。
+   *        链引擎 recordStart 对同 (message,target) INSERT OR REPLACE 覆盖（幂等），
+   *        settle 终态由链按 triggerMessageId 落；链整体抛错时由本方法 catch 兜底 failed。
    */
-  private invokeTarget(conversationId: string, otterId: string, content: string, senderId: string): "invoked" {
+  private invokeTarget(conversationId: string, otterId: string, content: string, senderId: string, triggerMessageId?: string): "invoked" {
     const key = `${conversationId}:${otterId}`;
     if (this.inFlight.has(key)) return "invoked"; // 去抖窗口内的重复触发，静默合并
 
     this.inFlight.add(key);
     void (async () => {
+      // 点火即记账（in_progress 即非 pending）：写入义务收敛在点火原点，
+      // 不随链引擎参数传递的完整性而变。失败仅日志（台账不阻断链路，硬约束 1）。
+      if (triggerMessageId) {
+        try {
+          this.deps.dispatchAttemptRepo.recordStart({
+            id: crypto.randomUUID(),
+            conversationId,
+            messageId: triggerMessageId,
+            targetOtterId: otterId,
+            status: "in_progress",
+            source: "router",
+            attemptStartedAt: new Date().toISOString(),
+            note: null,
+          });
+          this.deps.logger.info('[signal-ledger] action=record', { conv: conversationId, msg: triggerMessageId, otter: otterId, status: 'in_progress', source: 'router' });
+        } catch (e) {
+          this.deps.logger.warn('[signal-ledger] 路由器点火记账失败（不影响链路）', { conversationId, messageId: triggerMessageId, otterId, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
       try {
         await this.deps.dispatchChainEngine.executeChain({
           conversationId,
@@ -227,6 +256,7 @@ export class SignalRouter {
           senderId,
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
+          triggerMessageId,
         });
       } catch (err) {
         // 消费失败可见性（七刀之七）：healing 留痕（消息终态由链/orchestrator 侧管理）
@@ -234,6 +264,14 @@ export class SignalRouter {
           conversationId, otterId, contentPreview: content.substring(0, 100),
         });
         await this.recordHealing({ conversationId, messageId: "", otterId, level: "NORMAL", errorType: "other", severity: "high", description: `信号消费失败：${err instanceof Error ? err.message : String(err)}` });
+        // 终态兜底：链在自身 settle 之前抛错（buildRoster 前置失败等）时由路由器销账，
+        // 防该 (message,target) 以无账状态回到重扫视野（热循环回归防线）
+        if (triggerMessageId) {
+          try {
+            const reason = err instanceof Error ? err.message : String(err);
+            this.deps.dispatchAttemptRepo.recordFinish(triggerMessageId, otterId, "failed", `router catch: ${reason}`.slice(0, 300));
+          } catch { /* 记账失败不阻断（硬约束 1） */ }
+        }
       } finally {
         this.inFlight.delete(key);
         this.scheduleDebounceRescan(conversationId);
@@ -269,7 +307,7 @@ export class SignalRouter {
         queue.unshift(item); // 放回队首，保序
         continue; // 该目标仍 busy（外部路径在跑）：跳过，不终止——同会话其他 idle 目标的队列不被饿死
       }
-      this.invokeTarget(conversationId, otterId, item.content, item.senderId);
+      this.invokeTarget(conversationId, otterId, item.content, item.senderId, item.signalId);
       return; // 单条点火即止，接力交给完成重扫
     }
   }
