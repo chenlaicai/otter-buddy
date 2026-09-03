@@ -4,9 +4,10 @@
  * 职责：把「消息表里的信号」点火为 invoke——入口（web sendMessage / IM / resume
  * 补扫）的调度收敛点。路由动作由 DispatchChainEngine 承载（链引擎 hop 驱动的替代
  * 是 P2 的灰度战场），P1 的核心增量：
- * ① 收件箱 = 游标视图（母方案 §1「存储」的落地）：未消费信号 = 目标獭未读视图内、
- *    指向该獭的 completed 消息；消费 = 链内 markBatchRead 推进游标（既有机制，
- *    路由器自身不写游标——读路径判别、写路径消费，职责分层）
+ * ① pending 真相源 = 派发台账（F20260902sgp2 S2 起）：未消费信号 = 已投递 ∧
+ *    无 (message,target) attempt 记录。v1 的「收件箱 = 游标视图」判据已退役
+ *    （09-02 事故根因：未读 ≠ 待行动，F20260902rbsg）——已读游标回归上下文注入
+ *    本职，不参与点火决策；「消费」= 链引擎派发记账（点火即销账）
  * ② 档位选通道（NORMAL / URGENT / HALT，见 routeTarget 的 P1 档位矩阵）
  * ③ 同 otter 串行：busy 目标入 busyQueue 保内容，invoke 完成后去抖重扫消化
  *    ——插话不再撞锁超时（P1 验收标准），内容不丢（见 busyQueue Why 注释）
@@ -55,6 +56,11 @@ const DEBOUNCE_MS = 50;
 const ACTIVE_WINDOW_MS = 5 * 60_000;
 /** 未读扫描上界：单次路由的候选消息数（信号风暴护栏；强制中断归 P3 梯度护栏） */
 const SCAN_LIMIT = 200;
+/** F20260903damp 阻尼#1：同 (message,target) 最小点火间隔（秒）。
+ *  「无自动重试」的机制化：即使台账意外出现同信号可路由窗口（记账缺失/竞态），
+ *  60s 内第二次点火被硬性拒绝——热循环的最坏频率被压到 1 次/分钟而非 15 次/秒。
+ *  失败信号的重试语义不变：仅用户手动 retry（source='retry' 不受此限，走覆盖记账）。 */
+const MIN_INVOKE_INTERVAL_SEC = 60;
 
 export class SignalRouter {
   /** 同 otter 串行：key = `${conversationId}:${otterId}`。invoke 进行中不重复点火，
@@ -64,7 +70,7 @@ export class SignalRouter {
   /**
    * busyQueue：busy 目标的待消化信号（内存态，崩溃即丢——与现状崩溃等价，可接受）。
    * Why 必须保内容：busy 獭的链结束时 markBatchRead 会把游标推进到自己的 turn，
-   * 同 turn 内中途到达的消息（插话主场景！）会被「消费但未注入」——只靠未读视图重扫
+   * 同 turn 内中途到达的消息（插话主场景！）会被「消费但未注入」——只靠台账重扫
    * 拿不回内容。入队时快照内容，消化时作为「当前任务」显式注入（与现状第二条链的
    * userMessageContent 传参同语义），插话语义从「锁超时报错」升级为「排队必达」。
    */
@@ -182,6 +188,12 @@ export class SignalRouter {
     }
 
     const key = `${conversationId}:${targetId}`;
+    // F20260903damp 阻尼#1：同 (message,target) 最小点火间隔——重复信号/记账缺失/
+    // 重扫竞态下的第二次点火在此硬性拒绝（失效模式落哑火侧，宁漏不燃）
+    if (this.deps.dispatchAttemptRepo.shouldThrottle(signal.id, targetId, MIN_INVOKE_INTERVAL_SEC)) {
+      this.deps.logger.warn("[signal-router] 阻尼：同信号最小点火间隔内拒绝重复点火", { conversationId, messageId: signal.id, targetId, intervalSec: MIN_INVOKE_INTERVAL_SEC });
+      return "queued_busy"; // 归队语义：等下个触发窗口，不丢失
+    }
     const busy = this.inFlight.has(key) || await this.isOtterActive(conversationId, targetId);
     if (!busy) {
       return this.invokeTarget(conversationId, targetId, "", signal.senderId, signal.id);
@@ -281,7 +293,7 @@ export class SignalRouter {
   }
 
   /** 完成时检查（母方案 §2）：去抖窗口内先消化 busyQueue 快照（内容显式注入），
-   *  再扫未读视图（覆盖「检查后瞬间写入」竞态）。失败仅记日志——重扫自身幂等。 */
+   *  再扫台账 pending（覆盖「检查后瞬间写入」竞态）。失败仅记日志——重扫自身幂等。 */
   private scheduleDebounceRescan(conversationId: string): void {
     setTimeout(() => {
       void this.drainBusyQueue(conversationId).then(() => this.routePendingSignals(conversationId)).catch(e => {

@@ -39,7 +39,7 @@ function makeStatusCtx(query?: string, params?: Record<string, string>): Paramet
 const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc?: FeatureChain["doc"]; daysSinceLastCommit?: number | null; signals?: FeatureChain["signals"] }): FeatureChain => ({
   featureId, state, signals: opts?.signals ?? [], commits: [], firstSeenAt: null, lastCommitAt: null,
   daysSinceLastCommit: opts?.daysSinceLastCommit ?? null, commitCount: 2, bugfixCount: 1,
-  touchFiles: new Set<string>(), doc: opts?.doc ?? null,
+  touchFiles: new Set<string>(), doc: opts?.doc ?? null, unknownPrCount: 0,
 });
 
 /** chainDetail 用例的链夹具（含全类型 commit 序列，Issue #644） */
@@ -59,6 +59,7 @@ function fakeDetailChain(): FeatureChain {
     bugfixCount: 1,
     touchFiles: new Set(["a.ts"]),
     doc: { id: "F20260801aaaa", title: "测试链", status: "development", changeType: "feature", tags: [], modules: [], causalLinksFrom: [], supersedes: [], filePath: "", createdAt: null, createdInConversationId: null },
+    unknownPrCount: 0,
   };
 }
 

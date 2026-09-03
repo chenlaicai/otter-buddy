@@ -219,11 +219,23 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
     expect(badge!.textContent).toBe('claude-future')
   })
 
-  it('大獭 badge 与模型 badge 可同卡片共存', () => {
+  it('大獭卡不再渲染冗余「大獭」badge（名字行已固定显示名字，副行有「大獭 · 持久」），但模型 badge 正常展示', () => {
     renderPanel([], [makeOtter({ id: 'big-1', name: '大獭', type: 'big', modelAlias: 'glm' })])
+    // 名字与副行身份信息仍在
+    expect(container.textContent).toContain('大獭')
+    expect(container.textContent).toContain('大獭 · 持久')
+    // 身份 badge（rounded-full 且文本恰为「大獭」）不存在
     const texts = Array.from(container.querySelectorAll('span.rounded-full')).map(el => el.textContent)
-    expect(texts).toContain('大獭')
+    expect(texts).not.toContain('大獭')
     expect(container.querySelector('[data-testid="model-badge"]')!.textContent).toBe('glm')
+  })
+
+  it('长 modelAlias（glm-flash 等）badge 不换行不压缩（whitespace-nowrap + shrink-0 防卡片竖向变形）', () => {
+    renderPanel([], [makeOtter({ id: 'big-2', name: '大獭', type: 'big', modelAlias: 'glm-flash' })])
+    const badge = container.querySelector('[data-testid="model-badge"]') as HTMLElement
+    expect(badge).not.toBeNull()
+    expect(badge.className).toContain('whitespace-nowrap')
+    expect(badge.className).toContain('shrink-0')
   })
 })
 
