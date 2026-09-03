@@ -203,7 +203,10 @@ function mockCtxWindowProvider(windowsByOtter: Record<string, number | undefined
 
 // eslint-disable-next-line max-lines-per-function -- Phase 1+2 handoff 测试集
 describe("F20260825hndf 优雅上下文交接", () => {
-  describe("F20260901cxmw：ctxMax 按实际模型窗口解析", () => {
+  // F20260903cmpk：70% Pre-invoke 自动触发链路已退役（压缩算法由 session_before_compact 钩子接管，
+  // Pi threshold 检查为唯一触发方）。以下用例从"阈值触发 handoff"反转为"阈值不再触发"——
+  // 回归防线：若有人恢复 Pre-invoke 检查，本组用例变红。
+  describe("F20260903cmpk：70% Pre-invoke 自动 handoff 退役（原 F20260901cxmw 阈值组反转）", () => {
     it("otter 配了模型窗口（200k）：阈值按实际窗口计算，不再被 128k 一刀切提前触发", async () => {
       const sdkInvoke = mockSdkInvoke({ ctxTokens: 100000 });
       const sendMessage = mockSendMessage();
@@ -235,13 +238,13 @@ describe("F20260825hndf 优雅上下文交接", () => {
       // 阈值线从 89600 抬到 140000 后，100k 不再触发（D7：断言副作用不存在）
       expect(buildHandoffPkg).not.toHaveBeenCalled();
       expect(manageSession.restartSession).not.toHaveBeenCalled();
-      // cxrev 发现 #2 补强：可观测性断言验证 structured data——model-pool 链路解析出真实窗口
+      // cxrev 发现 #2 的可观测日志随 Pre-invoke 检查一并退役（F20260903cmpk）：
+      // ctxMax 解析仅剩 getCtxMax 消费方（ retired），不再有 "[handoff] ctxMax resolved" 日志
       const resolved = infoCalls.filter((c) => c.msg === "[handoff] ctxMax resolved");
-      expect(resolved).toHaveLength(1);
-      expect(resolved[0]?.data).toMatchObject({ otterId: "otter-1", ctxMax: 200000, source: "model-pool" });
+      expect(resolved).toHaveLength(0);
     });
 
-    it("小窗口模型（64k）：阈值按实际窗口收紧，修前不会触发/触发前撞墙的场景现在能正确触发", async () => {
+    it("小窗口模型（64k）：50k 用量不再触发 handoff（阈值链路退役，压缩归 Pi 钩子）", async () => {
       const sdkInvoke = mockSdkInvoke({ ctxTokens: 50000 });
       const sendMessage = mockSendMessage();
       const queryMessage = mockQueryMessage();
@@ -269,9 +272,9 @@ describe("F20260825hndf 优雅上下文交接", () => {
         userMessageContent: "World", senderId: "user-1",
       });
 
-      // D7：断言状态（不绑定调用参数）
-      expect(buildHandoffPkg).toHaveBeenCalledOnce();
-      expect(manageSession.restartSession).toHaveBeenCalledOnce();
+      // F20260903cmpk：退役后任何阈值都不再触发（断言反转）
+      expect(buildHandoffPkg).not.toHaveBeenCalled();
+      expect(manageSession.restartSession).not.toHaveBeenCalled();
     });
 
     it("回退链：provider 返回 undefined（窗口缺失/未配置）→ 回退 128k，阈值线不变", async () => {
@@ -300,8 +303,8 @@ describe("F20260825hndf 优雅上下文交接", () => {
         userMessageContent: "World", senderId: "user-1",
       });
 
-      // 0.7×128k = 89600，100000 >= 89600 → 维持旧行为兜底
-      expect(buildHandoffPkg).toHaveBeenCalledOnce();
+      // F20260903cmpk：退役后不再触发
+      expect(buildHandoffPkg).not.toHaveBeenCalled();
     });
 
     it("回退链：窗口 < 合理下限（SDK 缺省视为 0，阈值会恒真）→ 回退 128k；解析结果记日志（可观测）", async () => {
@@ -334,11 +337,9 @@ describe("F20260825hndf 优雅上下文交接", () => {
 
       // 0 不可用 → 128k 兜底：50000 < 89600 → 不触发（若直接用 0，任何正数都触发，阈值失明）
       expect(buildHandoffPkg).not.toHaveBeenCalled();
-      // cxrev 发现 #2 补强：断言 structured data（ctxMax/source）——区分「正确回退 128k」与
-      // 「错误使用 0」（两者 message 字符串相同，行为断言之外补可观测性断言）
+      // 可观测日志随 Pre-invoke 检查一并退役（F20260903cmpk）
       const resolved = infoCalls.filter((c) => c.msg === "[handoff] ctxMax resolved");
-      expect(resolved).toHaveLength(1); // 低噪声：缓存生效，多次 invoke 仅首饮解析一条
-      expect(resolved[0]?.data).toMatchObject({ otterId: "otter-1", ctxMax: 128000, source: "fallback-128k" });
+      expect(resolved).toHaveLength(0);
       // MIN_SENSIBLE_CTX_WINDOW 导出常量与实现同步
       expect(MIN_SENSIBLE_CTX_WINDOW).toBeGreaterThan(0);
     });
@@ -368,13 +369,14 @@ describe("F20260825hndf 优雅上下文交接", () => {
         userMessageContent: "World", senderId: "user-1",
       });
 
-      // 空 Map：查不到窗口 → 兜底 128k：100000 >= 89600 → 触发（旧行为保持）
-      expect(buildHandoffPkg).toHaveBeenCalledOnce();
+      // F20260903cmpk：退役后不再触发
+      expect(buildHandoffPkg).not.toHaveBeenCalled();
     });
   });
 
-  describe("pre-invoke 检查触发 handleHandoff", () => {
-    it("ctxTokens >= 70% 时触发 handoff 并重启 session", async () => {
+  // F20260903cmpk：pre-invoke 检查已退役，本组反转为回归防线（恢复 Pre-invoke 检查会变红）
+  describe("pre-invoke 检查已退役（原 70% 触发组，反转）", () => {
+    it("ctxTokens >= 70% 不再触发 handoff（自动链路退役）", async () => {
       const sdkInvoke = mockSdkInvoke({ ctxTokens: 100000 });
       const sendMessage = mockSendMessage();
       const queryMessage = mockQueryMessage();
@@ -400,23 +402,17 @@ describe("F20260825hndf 优雅上下文交接", () => {
         userMessageContent: "Hello", senderId: "user-1",
       });
 
-      // 第二次 invoke：pre-invoke 检查 100000 >= 89600 → 触发 handoff
+      // 第二次 invoke：原 70% 检查点（F20260903cmpk 已退役）——不应有任何 handoff 副作用
       await invoker.invokeConversation({
         otterId: "otter-1", conversationId: "conv-1",
         userMessageContent: "World", senderId: "user-1",
       });
 
-      // D7：断言状态（不绑定调用参数）
-      // _writtenKeys 记录 handleHandoff 写入的 key（持久，不被 delete 清除）
-      expect(manageContext._writtenKeys.has("handoff_file_trail")).toBe(true);
-      expect(manageContext._writtenKeys.has("handoff_recency_window")).toBe(true);
-      expect(manageContext._writtenKeys.has("handoff_state_inventory")).toBe(true);
-
-      // _store 应为空——restoreHandoffContext 已消费（借用式生命周期）
-      expect(manageContext._store.size).toBe(0);
-
-      // restartSession 被调用（断言副作用存在）
-      expect(manageSession.restartSession).toHaveBeenCalledOnce();
+      // F20260903cmpk：反转断言——自动链路退役后无 handoff 副作用
+      expect(manageContext._writtenKeys.has("handoff_file_trail")).toBe(false);
+      expect(manageContext._writtenKeys.has("handoff_recency_window")).toBe(false);
+      expect(manageContext._writtenKeys.has("handoff_state_inventory")).toBe(false);
+      expect(manageSession.restartSession).not.toHaveBeenCalled();
     });
 
     it("ctxTokens < 70% 时不触发 handoff", async () => {
@@ -526,11 +522,8 @@ describe("F20260825hndf 优雅上下文交接", () => {
         userMessageContent: "Hello", senderId: "user-1",
       });
 
-      // 第二次 invoke：触发 handoff
-      await invoker.invokeConversation({
-        otterId: "otter-1", conversationId: "conv-1",
-        userMessageContent: "World", senderId: "user-1",
-      });
+      // F20260903cmpk：70% 自动触发退役，直调 handleHandoff 驱动合成路径
+      await (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> }).handleHandoff("otter-1", "conv-1");
 
       // buildHandoffPkg 应被调用，且包含 synthesize 函数
       expect(buildHandoffPkg).toHaveBeenCalledOnce();
@@ -576,10 +569,9 @@ describe("F20260825hndf 优雅上下文交接", () => {
         otterId: "otter-1", conversationId: "conv-1",
         userMessageContent: "Hello", senderId: "user-1",
       });
-      await invoker.invokeConversation({
-        otterId: "otter-1", conversationId: "conv-1",
-        userMessageContent: "World", senderId: "user-1",
-      });
+
+      // F20260903cmpk：70% 自动触发退役，直调 handleHandoff 驱动合成路径
+      await (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> }).handleHandoff("otter-1", "conv-1");
 
       // 真实闭包应从 directText 提取成功，而非抛 empty result
       expect(capturedSynthesize).toBeDefined();
@@ -618,10 +610,8 @@ describe("F20260825hndf 优雅上下文交接", () => {
         otterId: "otter-1", conversationId: "conv-1",
         userMessageContent: "Hello", senderId: "user-1",
       });
-      await invoker.invokeConversation({
-        otterId: "otter-1", conversationId: "conv-1",
-        userMessageContent: "World", senderId: "user-1",
-      });
+      // F20260903cmpk：70% 自动触发退役，直调 handleHandoff 驱动合成路径
+      await (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> }).handleHandoff("otter-1", "conv-1");
 
       // 全空 → 闭包抛 empty result → 由 builder 的 catch 降级机械转储（防线②）
       expect(capturedSynthesize).toBeDefined();
@@ -660,10 +650,8 @@ describe("F20260825hndf 优雅上下文交接", () => {
         userMessageContent: "Hello", senderId: "user-1",
       });
 
-      await invoker.invokeConversation({
-        otterId: "otter-1", conversationId: "conv-1",
-        userMessageContent: "World", senderId: "user-1",
-      });
+      // F20260903cmpk：70% 自动触发退役，直调 handleHandoff 驱动合成路径
+      await (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> }).handleHandoff("otter-1", "conv-1");
 
       // D7：断言 restartSession 被调用（不绑定参数）
       expect(manageSession.restartSession).toHaveBeenCalledOnce();
@@ -793,11 +781,10 @@ describe("F20260825hndf 优雅上下文交接", () => {
         userMessageContent: "Hello", senderId: "user-1",
       });
 
-      // 第二次 invoke：触发 handoff → buildSynthesisFunction → sdkInvoke.invoke(readOnly)
-      await invoker.invokeConversation({
-        otterId: "otter-1", conversationId: "conv-1",
-        userMessageContent: "World", senderId: "user-1",
-      });
+
+      // F20260903cmpk：70% 自动触发退役，直调 handleHandoff 驱动（手动/熔断路径保留的同款逻辑）
+      await (invoker as unknown as { handleHandoff: (otterId: string, conversationId: string) => Promise<void> }).handleHandoff("otter-1", "conv-1");
+      console.log("DEBUG pkg calls:", (buildHandoffPkg as ReturnType<typeof vi.fn>).mock.calls.length);
 
       // D7：验证 sdkInvoke.invoke 被多次调用（正常 invoke + readOnly invoke）
       // 查找包含 readOnly: true 的调用（类型安全的 mock 访问）

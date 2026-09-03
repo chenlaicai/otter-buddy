@@ -50,6 +50,7 @@ import type { PiCodingAgentModule } from "./model-runtime-registry";
 import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
 import type { OtterPromptConfig } from "@contract/api/otter";
 import { createEventHandler } from "./agent-event-utils";
+import { setCompactionHookDeps } from "./model-runtime-registry";
 import type { AgentEvent } from "./agent-event-utils";
 
 /**
@@ -190,6 +191,13 @@ export class PiSessionFactory implements AgentGateway {
   /** 注入 OtterToolClient（解决 Composition Root 循环依赖） */
   setOtterToolClient(client: OtterToolClient): void {
     this.otterToolClient = client;
+  }
+
+  /** F20260903cmpk：压缩钩子合成函数（延迟注入，同 setOtterToolClient 模式——
+   *  合成依赖 agentInvoke，而 agentInvoke 依赖本工厂，只能后置）。
+   *  注入后 session_before_compact 钩子在 threshold 触发时用七段合成替换 Pi 默认摘要。 */
+  setCompactionSynthesis(synthesize: ((prompt: string) => Promise<string>) | null): void {
+    setCompactionHookDeps(synthesize ? { synthesize, logger: this.logger } : null);
   }
 
   /** 预加载 pi-coding-agent SDK + ResourceLoader + ModelRuntime，避免首次对话冷启动阻塞 */

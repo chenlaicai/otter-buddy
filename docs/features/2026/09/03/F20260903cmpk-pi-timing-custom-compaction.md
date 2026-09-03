@@ -58,10 +58,16 @@ handoff 退役范围：
 | 摘要质量 | 两条路：七段（handoff）/ 8 段式（Pi 抢跑时） | 恒定七段 + 四件套 |
 | 代码面 | handoff 触发链 + 阈值管理 + 状态机 | 删减后净减（四件套/合成/防护全复用） |
 
-## 迁移路径（单 PR，搭档拍板不拆分）
+## 迁移路径（单 PR，搭档拍板不拆分）——已完成
 
-1. Spike：inline extension 注册 + 真实触发 `session_before_compact`，验证自定义 compaction 落盘行为
-2. 单 PR：压缩钩子 + 七段算法替换 + 70% 自动链路退役
+1. ✅ Spike：inline extension 注册 + 真实触发验证通过（发现 reload() 必要前置）
+2. ✅ 单 PR 实现：
+   - `compaction-hook.ts`：`handleSessionBeforeCompact`（reason 分流：threshold 替换 / overflow·manual 放行）+ 七段合成 prompt 构建
+   - `model-runtime-registry.ts`：otter-hooks factory 注册 `session_before_compact` handler（复用既有 extension 通道）
+   - `pi-session-factory.ts`：`setCompactionSynthesis()` 延迟注入（同 setOtterToolClient 模式，解 agentInvoke 循环依赖）
+   - `agent-invoker.ts`：70% Pre-invoke 检查退役（注释保留现场）；`buildCompactionSynthesisFn()` 公开方法
+   - `bootstrap/platforms.ts`：启动时接线 gateway.setCompactionSynthesis
+   - 测试：钩子单测 9 例（分流/降级/超时/谱系）+ capability e2e 1 例（真实 SDK 链路）+ 存量 handoff 测试反转（退役回归防线）
 
 ## 开放问题
 
