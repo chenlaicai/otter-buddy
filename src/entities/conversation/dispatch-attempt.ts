@@ -56,6 +56,12 @@ export interface DispatchAttemptRepo {
    */
   listAttemptsForConversation(conversationId: string): DispatchAttempt[];
   /**
+   * K2 收件箱预告（F20260903k23，#757 审视焦点 1 修复）：目标獭的 pending 精确计数
+   * （pendingClause 同源 + target 过滤，无 limit——预告数字必须诚实，不准的预告比
+   * 没有预告更糟）。HALT 计数一次查询带回（预告的「优先处理」注明用）。
+   */
+  countPendingForTarget(conversationId: string, targetOtterId: string): { total: number; halt: number };
+  /**
    * 启动死亡证明（§4.4，flash 对撞③）：进程内不可能有存活的 in_progress 跨越重启——
    * 补扫之前把所有 in_progress 标 failed + note。先例 reconcile-orphans.ts:50 同款语义。
    * 返回翻篇行数（日志可见）。

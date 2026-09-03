@@ -109,6 +109,17 @@ function buildAttachmentInjection(deps: ControllerDeps, appConfig: AppConfig, re
   });
 }
 
+/** SettingsController 配置投影（自 initControllers 拆出控行数）：AppConfig → SettingsConfig */
+function buildSettingsConfig(appConfig: AppConfig): SettingsConfig {
+  return {
+    port: appConfig.server.port,
+    dbPath: appConfig.db.path,
+    embeddingModelPath: appConfig.embedding.modelPath,
+    embeddingLocalModelPath: appConfig.embedding.localModelPath,
+    embeddingDim: appConfig.embedding.dimensions,
+  };
+}
+
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
@@ -123,13 +134,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
         })
       : undefined;
 
-  const settings: SettingsConfig = {
-    port: appConfig.server.port,
-    dbPath: appConfig.db.path,
-    embeddingModelPath: appConfig.embedding.modelPath,
-    embeddingLocalModelPath: appConfig.embedding.localModelPath,
-    embeddingDim: appConfig.embedding.dimensions,
-  };
+  const settings = buildSettingsConfig(appConfig);
   const nodeFs = new NodeFileSystem();
   const rootDir = process.cwd();
 
@@ -146,6 +151,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       attachmentInjection,
       signalRouter,
       uc.querySignalTrail,
+      repos.dispatchAttempt, // K3：POST SSE 等 attempt 终态再关流
     ),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
     keyInfo: new KeyInfoController(uc.manageKeyInfo, logger),
