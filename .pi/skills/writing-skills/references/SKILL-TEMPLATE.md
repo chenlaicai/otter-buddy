@@ -1,5 +1,7 @@
 # SKILL.md 模板
 
+> 来源：原 `.pi/skills/_shared/SKILL-TEMPLATE.md`（F20260903 架构拆解迁移，2026-09-03）。消费方：writing-skills skill。
+
 ## 设计原则
 
 一个 skill 只回答 5 个问题：何时触发、需要什么输入、如何做、产出什么、之后交给谁。
@@ -112,7 +114,7 @@ frontmatter 必填字段：`name / description / co_loads / category`。
 |---|---|---|
 | `technique` | 具体方法步骤，按工作流执行 | troubleshooting / code-implementation |
 | `pattern` | 思维模型原则，无固定步骤 | companion |
-| `reference` | 查表文档，给 LLM 在工作中查阅 | （暂无，未来如术语库 skill） |
+| `reference` | 查表文档，给 LLM 在工作中查阅 | signature-convention / review-protocol / conflict-resolution-protocol |
 
 `category` 由 lint 读取，自动同步到 manifest.yaml；SDK 不消费此字段（[key: string]: unknown 容忍）。
 

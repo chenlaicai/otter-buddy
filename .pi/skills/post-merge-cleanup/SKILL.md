@@ -148,5 +148,5 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
 
 ## 参考（索引）
 
-- `worktree-isolation/SKILL.md` — worktree 创建阶段，本 skill 是其生命周期的收尾
-- `code-implementation/SKILL.md` — PR 创建阶段，本 skill 是其产出的后续
+- worktree-isolation skill — worktree 创建阶段，本 skill 是其生命周期的收尾（上下文说明，无需读其 SKILL.md）
+- code-implementation skill — PR 创建阶段，本 skill 是其产出的后续（上下文说明，无需读其 SKILL.md）

@@ -83,4 +83,23 @@ skills:
     category: technique
     next: []   # 自包含
     not_for: []
-    notes: 关于 skill 的 skill。含铁律 + 三段式契约 + 模板 + lint 规则。
+    notes: 关于 skill 的 skill。含铁律 + 三段式契约 + 模板（references/SKILL-TEMPLATE.md）+ lint 规则。
+
+  # ── 查表约定（F20260903 拆解升格，原 _shared/）──
+  - name: signature-convention
+    category: reference
+    next: []   # 查表约定，随宿主流程继续
+    not_for: [review-protocol, companion]
+    notes: 海獭署名约定查表——身份获取规则 + commit/PR/报告三处署名位置。其他 skill 以「署名按 signature-convention skill」模式引用。
+
+  - name: review-protocol
+    category: reference
+    next: []   # 查表约定，产出随宿主流程继续
+    not_for: [adversarial-review, conflict-resolution-protocol]
+    notes: 对抗审视编排查表——代码 PR 审视与方案审视两套协议（召唤/处置/delta 复审/收敛/终审）。报告写法本身在 adversarial-review。
+
+  - name: conflict-resolution-protocol
+    category: reference
+    next: []   # 查表约定，升级后交大獭/搭档
+    not_for: [review-protocol, companion]
+    notes: 獭间冲突解决查表——冲突分型 + 解决策略矩阵 + 升级协议 + 裁决记录格式。2026-08-21 由 mimo+kimi+大獭对抗讨论产出。

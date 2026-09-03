@@ -27,18 +27,18 @@ category: technique
 
 ## 工作流
 
-1. **解析需求**：将搭档的需求分为三类——明确（可执行）、模糊（必须问）、隐含（主动提出）。引用搭档原话作为意图锚，不意译。
+1. **解析需求**：将搭档的需求分为三类——明确（可执行）、模糊（必须问）、隐含（主动提出）。引用搭档原话作为意图锚，不意译。三类判定的意图锚细查指南见 `references/intent-anchor-guide.md`。
 2. **意图确认**：用自己的话复述用户意图，区分「用户想要什么」和「我打算怎么做」。确认理解正确后再进入方案设计。对于涉及「流程」的需求，主动区分「流程内嵌」和「事后检查」两种模式，确认用户指的是哪种。
 
 3. **检索上下文**：`search_memory` 找历史决策，`search_terminology` 确认术语对齐，识别已有约束。
 4. **分析现状**：读相关代码和文档，了解当前系统如何处理、涉及哪些模块、有哪些已知限制。
 5. **评估风险**：影响哪些已有功能？是否有破坏性变更？哪些边界场景可能被忽略？
 6. **产出方案**：将技术方案写入 worktree 中的特性文档（参见全局约定「特性文档」）。首次写入时用 `create_linked_resource(type: "file", groupId: "<特性ID>")` 注册（groupId 可选），后续参与者通过 `list_artifacts` 发现。写完后调 `sync_docs`（root_dir 传 worktree 绝对路径）立即入库，并用 `link_memory` 声明"当前讨论 produced 本文档"——让"这文档怎么来的"之后可被 get_related 拼出链。按下方模板组织内容。
-7. **对抗审视**：
+7. **对抗审视**（流程细节：召唤检视獭的材料清单、delta 复审、收敛判据，按 review-protocol skill）：
    - 召唤检视獭（`otter-summon`），systemPrompt 中附上方案全文或 worktree 内绝对路径。要求其先 read `adversarial-review` skill
    - 收到报告后校验合规性（含“本轮焦点”声明、发现分级、file:line 引用）——不合规打回重做
    - **对抗审视原则**：检视发现不等于命令。对每条发现必须批判性评估：检视者有 fresh eyes 但上下文浅，作者上下文全但有立场——碰撞才有价值；照单全收等于把检视者的误读原样引入，对抗审视退化为单人审阅；**每条发现强制走决策树——回答"改了让系统变好还是变更差"，更好→修订/写待办，更差→带证据反驳**；四类处置：接受并修订 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决；无证据的反驳（"我觉得没问题"、"过度设计"）等同未处置；不作为不允许
-   - 按 `adversarial-review/references/author-response-protocol.md` 逐条处置：决策树判断 + 四分类响应（接受并修订 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决）
+   - 按 `../adversarial-review/references/author-response-protocol.md` 逐条处置：决策树判断 + 四分类响应（接受并修订 / 反驳（必须附证据）/ 部分接受 / 呈搭档裁决）
    - 按结论修订方案并复审。第 2 轮起是 delta 审视（附上轮发现清单 + 处置（含更好/更差判断）+ 修订 diff + 更新后的方案文档，核对建议发现待办落实）
    - 收敛判据同代码审视。决策史回写文档——每道题的结论和理由留痕
    - 审视通过 → 方案定稿，可进入实现阶段
@@ -91,5 +91,5 @@ T2: ...
 ## 参考（索引）
 
 - `references/intent-anchor-guide.md` — 步骤 1 使用
-- `_shared/review-protocol.md` — 步骤 7 使用
-- `adversarial-review/references/author-response-protocol.md` — 步骤 7 使用
+- 审视循环按 review-protocol skill — 步骤 7 使用
+- `../adversarial-review/references/author-response-protocol.md` — 步骤 7 使用
