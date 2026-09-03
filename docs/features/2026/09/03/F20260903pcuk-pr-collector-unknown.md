@@ -1,5 +1,5 @@
 ---
-id: F20260902pcuk
+id: F20260903pcuk
 title: "pr-collector 区分「无数据」vs「获取失败」：viewFailed 标记 + unknownPrCount 可观测"
 date: 2026-09-02
 change_type: feature-update
