@@ -148,7 +148,7 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
         <path
           className="swim-regressed-mark"
           d={`M ${geo.regressedAtX + 7} ${ROW_H / 2 - 6} A 8 8 0 1 0 ${geo.regressedAtX + 9} ${ROW_H / 2 + 5}`}
-          stroke={CARAMEL[600]} strokeWidth={2.2} fill="none" strokeLinecap="round"
+          stroke={CARAMEL[700]} strokeWidth={2.2} fill="none" strokeLinecap="round"
         />
       )}
     </g>

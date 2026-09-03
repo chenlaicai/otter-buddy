@@ -219,11 +219,32 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
     expect(badge!.textContent).toBe('claude-future')
   })
 
-  it('大獭 badge 与模型 badge 可同卡片共存', () => {
+  it('大獭卡不再渲染冗余「大獭」badge（名字行已固定显示名字，副行有「大獭 · 持久」），但模型 badge 正常展示', () => {
     renderPanel([], [makeOtter({ id: 'big-1', name: '大獭', type: 'big', modelAlias: 'glm' })])
+    // 名字与副行身份信息仍在
+    expect(container.textContent).toContain('大獭')
+    expect(container.textContent).toContain('大獭 · 持久')
+    // 身份 badge（rounded-full 且文本恰为「大獭」）不存在
     const texts = Array.from(container.querySelectorAll('span.rounded-full')).map(el => el.textContent)
-    expect(texts).toContain('大獭')
+    expect(texts).not.toContain('大獭')
     expect(container.querySelector('[data-testid="model-badge"]')!.textContent).toBe('glm')
+  })
+
+  it('副行时间戳 truncate：完整时间字符串不再撑高卡片（#757 根因——「第6世 · 2026-09-02 09:32:06」在窄卡内换行两行，大獭卡 118px vs 其他卡 61px）', () => {
+    renderPanel([], [makeOtter({ id: 'big-3', name: '大獭', type: 'big', modelAlias: 'glm-flash' })])
+    // 副行有 nowrap+truncate 防护（sessions 为空 → 时间行不渲染，只断言副行；时间行防护同款 class 已在源码同批应用）
+    const sub = Array.from(container.querySelectorAll('div')).find(el => el.textContent?.includes('大獭 · 持久') && el.children.length === 0)
+    expect(sub).toBeDefined()
+    expect(sub!.className).toContain('truncate')
+    expect(sub!.className).toContain('whitespace-nowrap')
+  })
+
+  it('长 modelAlias（glm-flash 等）badge 不换行不压缩（whitespace-nowrap + shrink-0 防卡片竖向变形）', () => {
+    renderPanel([], [makeOtter({ id: 'big-2', name: '大獭', type: 'big', modelAlias: 'glm-flash' })])
+    const badge = container.querySelector('[data-testid="model-badge"]') as HTMLElement
+    expect(badge).not.toBeNull()
+    expect(badge.className).toContain('whitespace-nowrap')
+    expect(badge.className).toContain('shrink-0')
   })
 })
 

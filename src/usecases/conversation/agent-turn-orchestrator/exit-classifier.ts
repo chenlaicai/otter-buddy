@@ -8,12 +8,23 @@
 
 import type { InvokeOutcome } from "@usecases/ports/agent-metrics-port";
 
+/** #752：用户中断时可捕获的底层错误类型（排除 abort 自身产物） */
+export type AbortUnderlyingError =
+  | { kind: 'api_error'; errorMessage: string }
+  | { kind: 'guard_abort'; guardReason: string };
+
 /** Agent invocation exit reason classification */
 export type ExitReason =
-  | { kind: 'user_abort'; toolCallCount: number }
+  | { kind: 'user_abort'; toolCallCount: number; /** #752：用户中断时的底层 SDK 错误，用于中断归因 */ underlyingError?: AbortUnderlyingError }
   | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
   | { kind: 'no_yield'; toolCallCount: number };
+
+/** #752：判断 err 是否是 abort 操作自身的产物（而非 abort 前已存在的底层错误） */
+export function isAbortOwnError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Request was aborted/i.test(msg);
+}
 
 /** Extract guard abort reason from result or error (single source of truth) */
 export function extractGuardReason(
@@ -41,7 +52,18 @@ export function classifyExit(
   getInternalAbortReason: (messageId: string) => string | undefined,
 ): ExitReason {
   if (userAbortedMessages.has(p.messageId)) {
-    return { kind: 'user_abort', toolCallCount: p.toolCallCount };
+    // #752：用户中断时保留底层错误信息用于中断归因
+    // 关键：排除 abort 自身产物（SDK 的 "Request was aborted" 错误）——
+    // 该错误是 abort 动作的副作用，不是 abort 前已存在的底层错误
+    let underlyingError: AbortUnderlyingError | undefined;
+    const guardReason = extractGuardReason(p.messageId, p.result, p.err, getInternalAbortReason);
+    if (guardReason) {
+      underlyingError = { kind: 'guard_abort', guardReason };
+    } else if (p.err && !isAbortOwnError(p.err)) {
+      const msg = p.err instanceof Error ? p.err.message : String(p.err);
+      underlyingError = { kind: 'api_error', errorMessage: msg };
+    }
+    return { kind: 'user_abort', toolCallCount: p.toolCallCount, underlyingError };
   }
 
   const guardReason = extractGuardReason(p.messageId, p.result, p.err, getInternalAbortReason);

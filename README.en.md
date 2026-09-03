@@ -17,7 +17,11 @@
 
 ![Health dashboard: 30-day commit trend / BugFix ratio, commit type distribution, module hotspots, feature-chain states](docs/images/health-dashboard.jpg)
 
-*All three visuals are real data: a collaboration session, the multi-agent orchestration loop as a four-act GIF (dispatch → orchestrate → execute → trace & return), and the system measuring its own health — commit trends, BugFix ratio, module hotspots, and feature-chain states, computed hourly by the RHI scan worker.*
+![Touch Bar otter status badge: six animated states (waiting / working / sleeping / mixed / offline / non-primary), drawn by the self-built Swift renderer](docs/images/touchbar-otter.gif)
+
+![Touch Bar six-state overview](docs/images/touchbar-otter-states.png)
+
+*All four visuals are real data: a collaboration session, the multi-agent orchestration loop as a four-act GIF (dispatch → orchestrate → execute → trace & return), the system measuring its own health (computed hourly by the RHI scan worker), and an otter status badge on the MacBook Pro Touch Bar — a vector otter (breathing ring / blinking / heartbeat) showing live whether the team is waiting for you, working, or asleep. The renderer is self-built Swift code from this project (#721); the GIF is produced by the renderer's own offscreen mode — what you see is what production gets.*
 
 ## What is this
 

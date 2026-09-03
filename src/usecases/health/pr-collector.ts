@@ -52,6 +52,8 @@ export interface OpenPrInfo {
   createdAt: string | null;
   /** 推进时间（ISO）：max(最新 commit, 最新 review, 最新 comment)——null=无任何活动数据 */
   lastActivityAt: string | null;
+  /** 获取失败标记：gh pr view 失败/超时时为 true；null=view 未执行（如降级场景）或成功 */
+  viewFailed?: boolean;
   /** 关联的 FID 清单（commits FID ∪ body FID；空数组=无关联） */
   featureIds: string[];
 }
@@ -148,6 +150,7 @@ function buildPrInfo(row: GhPrListRow, view: GhPrView | null): OpenPrInfo {
     url: row.url,
     createdAt: row.createdAt,
     lastActivityAt,
+    viewFailed: view === null ? true : undefined,
     featureIds,
   };
 }

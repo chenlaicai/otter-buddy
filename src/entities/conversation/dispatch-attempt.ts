@@ -47,11 +47,20 @@ export interface DispatchAttemptRepo {
    */
   countPendingSignals(conversationId?: string): number;
   listPendingSignals(conversationId?: string, limit?: number): PendingSignalRow[];
+  /** F20260903damp 阻尼#1：同 (message,target) 最小点火间隔守卫。
+   *  @returns true = 阻尼中（距上次点火不足 minIntervalSec，应跳过）；false = 允许点火。 */
+  shouldThrottle(messageId: string, targetOtterId: string, minIntervalSec: number): boolean;
   /**
    * S1b 轨迹 UI（§4.7）：本会话全部 attempt（无 limit——轨迹批量投影用，
    * (message,target) 唯一键防膨胀；与 pendingClause 同文件同真相源）。
    */
   listAttemptsForConversation(conversationId: string): DispatchAttempt[];
+  /**
+   * K2 收件箱预告（F20260903k23，#757 审视焦点 1 修复）：目标獭的 pending 精确计数
+   * （pendingClause 同源 + target 过滤，无 limit——预告数字必须诚实，不准的预告比
+   * 没有预告更糟）。HALT 计数一次查询带回（预告的「优先处理」注明用）。
+   */
+  countPendingForTarget(conversationId: string, targetOtterId: string): { total: number; halt: number };
   /**
    * 启动死亡证明（§4.4，flash 对撞③）：进程内不可能有存活的 in_progress 跨越重启——
    * 补扫之前把所有 in_progress 标 failed + note。先例 reconcile-orphans.ts:50 同款语义。

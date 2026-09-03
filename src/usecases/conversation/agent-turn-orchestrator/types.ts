@@ -8,6 +8,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { MessageSegment } from "@entities/conversation/message";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
+import type { AbortUnderlyingError } from "./exit-classifier";
 
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
 export type ErrorWithToolCallCount = Error & {
@@ -180,4 +181,6 @@ export interface TerminalContext {
   startTime: number;
   kind: 'user' | 'guard';
   guardReason?: string;
+  /** #752：用户中断时的底层 SDK 错误（用于中断归因） */
+  underlyingError?: AbortUnderlyingError;
 }

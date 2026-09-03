@@ -5,6 +5,8 @@
  * retry-policy 是纯函数+配置，无状态依赖。
  */
 
+import type { AbortUnderlyingError } from "./exit-classifier";
+
 /** Check if guard abort reason is retryable */
 export function isRetryableGuardAbort(reason: string): boolean {
   if (reason === 'degenerate_output') return false;
@@ -155,9 +157,25 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
   return '[系统保护] 输出异常，已自动中断。';
 }
 
-/** Build user abort body with partner label */
-export function buildUserAbortBody(toolCallCount: number, partnerLabel: string): string {
-  return `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
+/** Build user abort body with partner label. #752: enhanced with underlying error attribution */
+export function buildUserAbortBody(
+  toolCallCount: number,
+  partnerLabel: string,
+  underlyingError?: AbortUnderlyingError,
+): string {
+  const base = `[${partnerLabel}中断] 经过 ${toolCallCount} 次工具调用后，${partnerLabel}强制中断了当前发言。`;
+  // #752：0 次工具调用 + 底层有 API 错误 → 归因到系统问题而非纯用户中断
+  if (toolCallCount === 0 && underlyingError) {
+    if (underlyingError.kind === 'api_error') {
+      const isRateLimit = /429|rate.?limit|too many/i.test(underlyingError.errorMessage);
+      const hint = isRateLimit ? '模型服务限流（429）' : '模型服务异常';
+      return `[${partnerLabel}中断] 当前发言因${hint}未能开始（0 次工具调用），${partnerLabel}中断了等待。`;
+    }
+    if (underlyingError.kind === 'guard_abort') {
+      return `[${partnerLabel}中断] 当前发言因安全守卫拦截未能开始（0 次工具调用），${partnerLabel}中断了等待。`;
+    }
+  }
+  return base;
 }
 
 /**
