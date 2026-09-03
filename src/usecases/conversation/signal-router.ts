@@ -239,10 +239,9 @@ export class SignalRouter {
     let rateLimitedUntil: string | null = null;
     if (this.deps.healingRepo) {
       try {
-        const events = await this.deps.healingRepo.findByConversation(conversationId);
+        const events = await this.deps.healingRepo.findByConversation(conversationId, "rate_limit");
         const now = Date.now();
         for (const e of events) {
-          if (e.errorType !== "rate_limit") continue;
           const exhausted = (e.context as { exhausted?: boolean } | null)?.exhausted === true;
           const windowMs = exhausted ? RATE_LIMIT_BLOCK_EXHAUSTED_MS : RATE_LIMIT_BLOCK_TRANSIENT_MS;
           const createdAt = Date.parse(e.createdAt);
@@ -267,10 +266,9 @@ export class SignalRouter {
   private async isRateLimited(conversationId: string): Promise<boolean> {
     if (!this.deps.healingRepo) return false;
     try {
-      const events = await this.deps.healingRepo.findByConversation(conversationId);
+      const events = await this.deps.healingRepo.findByConversation(conversationId, "rate_limit");
       const now = Date.now();
       return events.some(e => {
-        if (e.errorType !== "rate_limit") return false;
         const exhausted = (e.context as { exhausted?: boolean } | null)?.exhausted === true;
         const windowMs = exhausted ? RATE_LIMIT_BLOCK_EXHAUSTED_MS : RATE_LIMIT_BLOCK_TRANSIENT_MS;
         const createdAt = Date.parse(e.createdAt);
