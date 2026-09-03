@@ -59,7 +59,7 @@ function makeDeps(overrides: Partial<{
         getMessageById,
         getLastMessageBySender: getLast,
       } as unknown as QueryMessage,
-      queryOtter: { getById: vi.fn().mockResolvedValue({ id: "otter-1", type: otterType }) } as unknown as QueryOtter,
+      queryOtter: { getById: vi.fn().mockResolvedValue({ id: "otter-1", type: otterType, status: "active" }) } as unknown as QueryOtter,
       dispatchChainEngine: { executeChain } as unknown as DispatchChainEngine,
       invokeFn: vi.fn().mockResolvedValue({ messageId: "m-out" }),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger,
@@ -144,6 +144,17 @@ describe("SignalRouter（F20260902sgp2 S2：pending = 台账真相源）", () =>
     (deps.router as unknown as { deps: { queryOtter: { getById: ReturnType<typeof vi.fn> } } }).deps.queryOtter.getById = vi.fn().mockResolvedValue(null);
     const results = await deps.router.routePendingSignals("conv-1");
     expect(results[0].action).toBe("skipped_inactive");
+  });
+
+  it("F20260903damp：目标 status=dissolved（getById 仍返回行）→ skipped_inactive，不点火（09-03 事故回归）", async () => {
+    const deps = makeDeps();
+    // 复刻事故形态：getById 不过滤 status，返回 dissolved 行——路由器守卫必须拦截
+    (deps.router as unknown as { deps: { queryOtter: { getById: ReturnType<typeof vi.fn> } } }).deps.queryOtter.getById = vi.fn().mockResolvedValue({ id: "otter-1", type: "small", status: "dissolved" });
+    const results = await deps.router.routePendingSignals("conv-1");
+    expect(results[0].action).toBe("skipped_inactive");
+    await flushAsync();
+    const calls = (deps.router as unknown as { deps: { dispatchChainEngine: { executeChain: { mock: { calls: unknown[] } } } } }).deps.dispatchChainEngine.executeChain.mock.calls;
+    expect(calls).toHaveLength(0);
   });
 
   it("filter.otterId 只路由该目标的 pending 行", async () => {

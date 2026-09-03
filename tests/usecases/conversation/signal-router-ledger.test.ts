@@ -4,6 +4,8 @@
  * R1 崩溃窗口：真 pending（无 attempt 记录）→ routeAllPending 点火
  * R2 多獭稳态：墓碑/记账覆盖的历史 → 零误点（不会重演 rbsg 126-invoke）
  * R3 failed 翻篇：有终态记录的信号 → 不再点火（债务不永存）
+ * R4 目标生命周期（F20260903damp，09-03 事故回放）：dissolved 目标不 pending 不点火；
+ *    路由器点火即记账（链失败/抛错均落终态）→ 失败不重燃（热循环免疫）
  *
  * 判据 SQL 全部走 SqliteDispatchAttemptRepo 真实实现（rbsg 教训：mock 与真实投影
  * 的分歧两次酿祸）。
@@ -69,7 +71,17 @@ describe("SignalRouter × 真实台账（S2 回放判据）", () => {
         }),
         getLastMessageBySender: vi.fn().mockResolvedValue(null),
       } as unknown as QueryMessage,
-      queryOtter: { getById: vi.fn().mockResolvedValue({ id: "otter-1", type: "big" }) } as unknown as QueryOtter,
+      queryOtter: {
+        // F20260903damp：读真实 otters 表（含 status）——R4 用例需要 dissolved 行
+        getById: vi.fn().mockImplementation(async (id: string) => {
+          const row = db.prepare("SELECT id, name, type, status, role_name, role_responsibilities, parent_otter_id, created_at, dissolved_at FROM otters WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+          if (!row) return null;
+          return {
+            id: row.id, name: row.name, type: row.type, status: row.status,
+            role: null, parentOtterId: row.parent_otter_id, createdAt: row.created_at, dissolvedAt: row.dissolved_at,
+          };
+        }),
+      } as unknown as QueryOtter,
       dispatchChainEngine: { executeChain } as unknown as DispatchChainEngine,
       invokeFn: vi.fn().mockResolvedValue({ messageId: "m-out" }),
       logger: createTestLogger(),
@@ -125,5 +137,56 @@ describe("SignalRouter × 真实台账（S2 回放判据）", () => {
     await router.routeAllPending();
     await new Promise(r => setTimeout(r, 20));
     expect(executeChain.mock.calls).toHaveLength(1);
+  });
+
+  // ---- R4：目标生命周期 × 点火即记账（F20260903damp，09-03 事故回放）----
+
+  it("R4a dissolved 目标：pending 判据排除 + 路由零点火（09-03 事故直接形态）", async () => {
+    seedMsg({ id: "msg-r4a" });
+    // 目标 dissolved：otters 行保留、status 翻转（复刻检视獭-Swift 6b1042ae 现场）
+    db.prepare("UPDATE otters SET status = 'dissolved', dissolved_at = '2026-09-02T14:25:50Z' WHERE id = 'otter-1'").run();
+    // 事故判据复刻：EXISTS(otters) 不看 status 时该信号曾被视为 pending
+    expect(repo.countPendingSignals("conv-1")).toBe(0);
+    await router.routeAllPending();
+    await new Promise(r => setTimeout(r, 80)); // 含 50ms 去抖重扫窗口
+    expect(executeChain).not.toHaveBeenCalled();
+  });
+
+  it("R4b 点火即记账（失败路径）：链抛错 → attempt 落 failed 终态 → 重扫不重燃（热循环免疫）", async () => {
+    seedMsg({ id: "msg-r4b" });
+    executeChain.mockRejectedValue(new Error("No session or config found for otter: otter-1"));
+    await router.routeAllPending();
+    // 越过 50ms 去抖重扫 ×2 个周期——旧 bug 下此处已循环点火多次
+    await new Promise(r => setTimeout(r, 160));
+    const attempts = repo.listAttemptsForConversation("conv-1");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].status).toBe("failed");
+    expect(attempts[0].messageId).toBe("msg-r4b");
+    // 热循环判据：失败终态后再无点火（旧 bug：50ms 一次永燃，160ms ≥ 2 轮）
+    expect(executeChain.mock.calls).toHaveLength(1);
+    expect(repo.countPendingSignals("conv-1")).toBe(0);
+  });
+
+  it("R4c 点火即记账（链不记账的成功路径）：路由器预写 in_progress → pending 即刻清零", async () => {
+    seedMsg({ id: "msg-r4c" });
+    // 隔离路由器职责：链引擎 mock 成功但不写账（真实链会 INSERT OR REPLACE 覆盖同键）
+    executeChain.mockResolvedValue({});
+    await router.routeAllPending();
+    await new Promise(r => setTimeout(r, 20));
+    const attempts = repo.listAttemptsForConversation("conv-1");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].status).toBe("in_progress");
+    expect(repo.countPendingSignals("conv-1")).toBe(0);
+    // 二次路由：账面有行 → 零点火（幂等）
+    await router.routeAllPending();
+    await new Promise(r => setTimeout(r, 20));
+    expect(executeChain.mock.calls).toHaveLength(1);
+  });
+
+  it("R4d triggerMessageId 透传：点火时把信号消息 ID 交给链引擎（hop-1 记账 + hop-2+ 出处链）", async () => {
+    seedMsg({ id: "msg-r4d" });
+    await router.routeAllPending();
+    await new Promise(r => setTimeout(r, 20));
+    expect(executeChain.mock.calls[0][0].triggerMessageId).toBe("msg-r4d");
   });
 });
