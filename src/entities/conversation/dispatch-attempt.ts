@@ -50,6 +50,12 @@ export interface DispatchAttemptRepo {
   /** F20260903damp 阻尼#1：同 (message,target) 最小点火间隔守卫。
    *  @returns true = 阻尼中（距上次点火不足 minIntervalSec，应跳过）；false = 允许点火。 */
   shouldThrottle(messageId: string, targetOtterId: string, minIntervalSec: number): boolean;
+  /** F20260902sgp2 S4b 看门狗：锚点消息的全部 attempt 是否已到终态（无 in_progress）。
+   *  true=链收工；false=有在途派发或无任何行（保守）。 */
+  allAnchorAttemptsSettled(messageId: string): boolean;
+  /** F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内销账——某獭名下全部
+   *  in_progress 派发落 failed（'目标已解散'）。返回翻篇行数。 */
+  failAllInProgressForOtter(otterId: string): number;
   /**
    * S1b 轨迹 UI（§4.7）：本会话全部 attempt（无 limit——轨迹批量投影用，
    * (message,target) 唯一键防膨胀；与 pendingClause 同文件同真相源）。

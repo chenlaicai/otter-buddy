@@ -41,8 +41,14 @@ causal_links:
 
 ## 2. 核心语义（v2）
 
-**pending := 消息已投递（status=completed ∧ sender≠system ∧ talkingStonePassedTo 含 otter 目标 T）
+**pending := 消息已投递（status=completed ∧ talkingStonePassedTo 含 active otter 目标 T ∧ 非 otter 自指）
 ∧ dispatch_attempts 表无该 (message_id, T) 记录**
+
+> **S4a 修订（09-03，搭档模型对齐「消息就是消息，tsp 才是触发信号」）**：
+> 原 `sender≠system` 条件已删除——行动类 system 消息（scheduler 任务/招聘桥接）与其他消息
+> 同一语义进闸门体系；纯通知类 system 消息无 tsp，天然落在判据之外无需排除。
+> 自指排除精确化为仅 otter 发言者（system senderId 是技术归属非语义发言者）。
+> 另见 scheduler senderId 修正：任务消息 senderId 归属 'system'（不偷目标獭）。
 
 - **消费 = 派发尝试记账**：链引擎每次为目标 T 执行派发时写/更新一条 attempt 记录，
   发起即销账（in_progress 即非 pending），成败皆终态

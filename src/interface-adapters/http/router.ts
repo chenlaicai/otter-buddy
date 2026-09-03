@@ -61,6 +61,9 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/conversations/:id/unread", (ctx) => c.message.getUnreadState(ctx));
   app.get("/api/conversations/:id/signal-trail", (ctx) => c.message.getSignalTrail(ctx));
+  // F20260902sgp2 S1 观测端点（§7 观察窗口承诺）：pending 计数裸探针——
+  // 机器可读（curl/监控），与轨迹 UI 的 /signal-trail 分离（那是给人的）
+  app.get("/api/conversations/:id/pending-count", (ctx) => c.message.getPendingCount(ctx));
   app.post("/api/conversations/:id/read", (ctx) => c.message.markRead(ctx));
   app.get("/api/messages/:id", (ctx) => c.message.getById(ctx));
   app.get("/api/messages/:id/events", (ctx) => c.message.getEvents(ctx));
