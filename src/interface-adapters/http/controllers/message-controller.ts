@@ -226,6 +226,9 @@ export class MessageController {
     /** 首轮立即派发（以持久化后的消息目标为准，含默认解析结果） */
     const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
+    // F20260903ihlt：用户发新消息 = 显式恢复动作——解除中断停机（多模态直连链分支同样覆盖）
+    this.signalRouter?.clearUserHalt(conversationId);
+
     /** SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
     const allTargets = new Set(firstTurnTargets);
     const { response, push, close } = streamEvents(c);
@@ -313,6 +316,9 @@ export class MessageController {
   ): Response {
     const { conversationId, otterId, messageId, userMessageContent, senderId, images } = ctx;
     const { response, push, close } = streamEvents(c);
+
+    // F20260903ihlt：手动 retry = 用户显式恢复动作——解除中断停机，冻结的 pending 随链收尾重扫恢复
+    this.signalRouter?.clearUserHalt(conversationId);
 
     let unsubscribe: (() => void) | undefined;
     if (this.messageBroadcaster) {
@@ -476,6 +482,10 @@ export class MessageController {
         return c.json({ error: `Message is already in terminal status: ${msg.status}` }, 409);
       }
       this.agentInvoker.abort(msg.senderId, id);
+      // F20260903ihlt：中断 = 会话级停机——只 abort 本条消息的 SDK session 时，
+      // 路由器 50ms 去抖重扫会立刻点火下一只 pending 獭（09-03 现场：中断 a 弹出 b）。
+      // 置 halt 冻结本会话全部 pending 点火，用户发新消息/手动 retry 时解除。
+      this.signalRouter?.markUserHalt(msg.conversationId);
       return c.json({ status: "aborted" }, 202);
     } catch (err) {
       return handleError(c, err, this.logger);
