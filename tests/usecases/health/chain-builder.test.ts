@@ -230,6 +230,32 @@ describe("pr-stalled（open PR 停滞信号）", () => {
     expect(chains[0]!.signals).toEqual([]);
   });
 
+  it("PR viewFailed=true → 不判停滞（未知数据不猜）但 unknownPrCount 可观测", () => {
+    const viewFailedPr: OpenPrInfo = { ...pr(112, ["F20260901prkk"], 10), viewFailed: true };
+    const chains = buildFeatureChains(baseCommits("F20260901prkk"), [doc("F20260901prkk", "development")], {
+      ...OPTS,
+      openPrs: [viewFailedPr],
+    });
+    expect(chains[0]!.state).toBe("active");
+    expect(chains[0]!.signals).toEqual([]);
+    expect(chains[0]!.unknownPrCount).toBe(1);
+  });
+
+  it("PR 混合（viewFailed + 正常）→ 只对正常 PR 判定停滞，unknownPrCount 累计", () => {
+    const viewFailedPr: OpenPrInfo = { ...pr(113, ["F20260901prll"], 10), viewFailed: true };
+    const normalPr = pr(114, ["F20260901prll"], 15);
+    const chains = buildFeatureChains(baseCommits("F20260901prll"), [doc("F20260901prll", "development")], {
+      ...OPTS,
+      openPrs: [viewFailedPr, normalPr],
+    });
+    expect(chains[0]!.state).toBe("stalled");
+    const sig = chains[0]!.signals.find(s => s.id === "pr-stalled");
+    expect(sig).toBeDefined();
+    expect(sig!.stalledPrs).toHaveLength(1);
+    expect(sig!.stalledPrs![0]!.number).toBe(114);
+    expect(chains[0]!.unknownPrCount).toBe(1);
+  });
+
   it("stalledPrDays 可配（options 模式，方案 R7 首期可配）", () => {
     const chains = buildFeatureChains(baseCommits("F20260901prii"), [doc("F20260901prii", "development")], {
       ...OPTS,

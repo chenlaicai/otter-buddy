@@ -18,6 +18,7 @@ import {
 } from 'recharts'
 import '../../styles/globals.css'
 import { AppLayout } from '../../components/AppLayout'
+import { HelpIcon } from '../../components/HelpIcon'
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { RhiOverviewDTO, RhiSignalDTO, RhiChainDTO, RhiTrendsDTO, RhiCostOutputDTO, RhiCostOutputOtterDTO, RhiScoreDTO } from '../../api/client'
@@ -494,7 +495,6 @@ function chainTotal(trends: RhiTrendsDTO): number {
 
 /** 综合健康分大卡：大数字 + 状态色 + 走向箭头 + 归因句（issue #595 PR2 核心交付）*/
 function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
-  const [showFormula, setShowFormula] = useState(false)
   if (!score || !score.available || score.overall === null) {
     return (
       <div className="md:col-span-2 rounded-2xl bg-white/70 border border-stone-200/60 px-5 py-4 flex items-center gap-3">
@@ -519,20 +519,11 @@ function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-stone-700">综合健康分</span>
-          <button
-            onClick={() => setShowFormula(v => !v)}
-            className="w-4 h-4 rounded-full bg-white/60 text-stone-500 flex items-center justify-center hover:bg-white/80 transition-colors"
-            title="查看综合分计算方式"
-          >
-            <span className="text-[10px] font-bold">?</span>
-          </button>
+          {/* F20260903：内联展开（showFormula）改 HelpIcon Portal 浮窗——
+              ? 说明是临时查看语义，不应挤进布局把界面撑变（搭档反馈对齐 MagicWordHelp 弹层范式） */}
+          <HelpIcon text="综合分 = Σ(维度分 × 权重) / Σ(有数据维度权重)。无数据维度不参与加权，权重自动归一。" />
           <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cfg.text} bg-white/60`}>{cfg.label}</span>
         </div>
-        {showFormula && (
-          <div className="mt-1.5 p-2 rounded-lg bg-white/50 text-xs text-stone-600">
-            综合分 = Σ(维度分 × 权重) / Σ(有数据维度权重)。无数据维度不参与加权，权重自动归一。
-          </div>
-        )}
         <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">
           {score.attribution ?? '五维均无拖累'}
         </p>
@@ -553,7 +544,6 @@ function OverallScoreCard({ score }: { score: RhiScoreDTO | null }) {
 
 /** 五维雷达图（issue #595 PR2）：无数据维度以 0 呈现并在图例标注「无数据」*/
 function ScoreRadarCard({ score }: { score: RhiScoreDTO | null }) {
-  const [showFormula, setShowFormula] = useState(false)
   if (!score || !score.available || score.dimensions.length === 0) {
     return (
       <div className="md:col-span-3 rounded-2xl bg-white/70 border border-stone-200/60 flex items-center justify-center h-[200px] text-sm text-stone-400">
@@ -571,32 +561,26 @@ function ScoreRadarCard({ score }: { score: RhiScoreDTO | null }) {
       <div className="flex items-center gap-1.5 text-xs text-stone-500 mb-0.5">
         <Gauge className="w-4 h-4 text-otter-500" />
         <span className="font-semibold text-stone-600">五维雷达</span>
-        <button
-          onClick={() => setShowFormula(v => !v)}
-          className="w-4 h-4 rounded-full bg-stone-200 text-stone-500 flex items-center justify-center hover:bg-stone-300 transition-colors"
-          title="查看评分公式"
-        >
-          <span className="text-[10px] font-bold">?</span>
-        </button>
+        {/* F20260903：内联展开改 HelpIcon Portal 浮窗（结构化公式列表，ReactNode 透传） */}
+        <HelpIcon text={(
+          <div className="space-y-1.5">
+            <p className="font-medium text-stone-700 mb-1">综合分 = Σ(维度分 × 权重) / Σ(有数据维度权重)</p>
+            {score.dimensions.map(d => {
+              const f = DIMENSION_FORMULAS[d.dimension]
+              if (!f) return null
+              return (
+                <div key={d.dimension} className="flex gap-2">
+                  <span className="font-mono font-semibold shrink-0 w-6">{d.dimension}</span>
+                  <span className="shrink-0">{d.name}：</span>
+                  <span className="text-stone-500">{f.formula}（{f.source}）</span>
+                </div>
+              )
+            })}
+            <p className="text-stone-400 italic">状态：绿 ≥75 / 黄 50-74 / 红 &lt;50</p>
+          </div>
+        )} />
         <span className="text-stone-400">· 快照 {score.snapshotDate ?? '—'}</span>
       </div>
-      {showFormula && (
-        <div className="mb-2 p-2.5 rounded-lg bg-stone-50 border border-stone-200/60 text-xs text-stone-600 space-y-1.5">
-          <p className="font-medium text-stone-700 mb-1">综合分 = Σ(维度分 × 权重) / Σ(有数据维度权重)</p>
-          {score.dimensions.map(d => {
-            const f = DIMENSION_FORMULAS[d.dimension]
-            if (!f) return null
-            return (
-              <div key={d.dimension} className="flex gap-2">
-                <span className="font-mono font-semibold shrink-0 w-6">{d.dimension}</span>
-                <span className="shrink-0">{d.name}：</span>
-                <span className="text-stone-500">{f.formula}（{f.source}）</span>
-              </div>
-            )
-          })}
-          <p className="text-stone-400 italic">状态：绿 ≥75 / 黄 50-74 / 红 &lt;50</p>
-        </div>
-      )}
       <ResponsiveContainer width="100%" height={200}>
         <ReRadarChart data={radarData} outerRadius="75%">
           <PolarGrid stroke="#e7e5e4" />

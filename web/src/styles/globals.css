@@ -17,10 +17,13 @@
   --color-teal-500: #3A8B8B;
   --color-teal-600: #2A7B7B;
 
+  --color-caramel-50: #FBF7F4; /* 浅底档（HSL 29°,47%,97% 由 300 阶反向外推，#691） */
+  --color-caramel-100: #F7EDE3; /* 浅底档（HSL 30°,54%,93% 同上，配 text-caramel-700 对比度实测 6.98:1） */
   --color-caramel-300: #E8B98E;
   --color-caramel-400: #D9A57B;
   --color-caramel-500: #C9956B;
   --color-caramel-600: #8F6234;
+  --color-caramel-700: #6B4924; /* 严重/回退深阶（观澜 §3.4，#691） */
 
   --color-lavender-300: #B5A8D8;
   --color-lavender-400: #9B8AC8;

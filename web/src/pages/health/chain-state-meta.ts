@@ -20,7 +20,7 @@ export type ChainState = 'active' | 'stalled' | 'regressed' | 'orphan'
 export const CHAIN_STATE_META: Record<ChainState, { label: string; className: string; color: string }> = {
   active: { label: '活跃', className: 'text-teal-700', color: TEAL[500] },
   stalled: { label: 'PR 停滞', className: 'text-caramel-600', color: CARAMEL[500] },
-  regressed: { label: '回退', className: 'text-caramel-600', color: CARAMEL[600] },
+  regressed: { label: '回退', className: 'text-caramel-700', color: CARAMEL[700] }, /* #691：严重/回退档升 700 深阶 */
   orphan: { label: '孤儿', className: 'text-lavender-500', color: LAVENDER[400] },
 }
 
